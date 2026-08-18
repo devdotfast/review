@@ -22,7 +22,7 @@ concurrency:
 jobs:
   review-desktop:
     name: Review Desktop
-    runs-on: ${{ vars.REVIEW_CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 60
 
     steps:

@@ -45,7 +45,7 @@ else
 fi
 if [[ "${REVIEW_DESKTOP_COMPILE_ONLY:-0}" != "1" ]]; then
   if [[ "$OSTYPE" == "darwin"* ]]; then
-    PRODUCT_APP="$(node -p "require('./product.json').nameLong")"
+    PRODUCT_APP="$(node -p "require('./product.json').nameShort")"
     PRODUCT_EXE="$(node -p "require('./product.json').nameShort")"
     EXPECTED_BINARY="$CHECKOUT/.build/electron/$PRODUCT_APP.app/Contents/MacOS/$PRODUCT_EXE"
   else

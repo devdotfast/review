@@ -8,7 +8,7 @@ set -euo pipefail
 MONOREPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
 APP_DIR="$MONOREPO_ROOT/apps/review-desktop"
 CHECKOUT="$APP_DIR/code-oss"
-PACKAGED_APP="$APP_DIR/VSCode-darwin-arm64/dev.fast Review.app"
+PACKAGED_APP="$APP_DIR/VSCode-darwin-arm64/Review.app"
 
 # shellcheck source=darwin-payload-manifest.sh
 source "$APP_DIR/scripts/darwin-payload-manifest.sh"

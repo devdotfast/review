@@ -1,6 +1,6 @@
 {
 	"nameShort": "Review",
-	"nameLong": "dev.fast Review",
+	"nameLong": "/dev/fast Review",
 	"reviewVersion": "0.0.23",
 	"applicationName": "review",
 	"dataFolderName": ".dev-fast-review",
@@ -15,8 +15,8 @@
 	"serverApplicationName": "code-server-oss",
 	"serverDataFolderName": ".vscode-server-oss",
 	"tunnelApplicationName": "code-tunnel-oss",
-	"win32DirName": "dev.fast Review",
-	"win32NameVersion": "dev.fast Review",
+	"win32DirName": "Review",
+	"win32NameVersion": "/dev/fast Review",
 	"win32RegValueName": "Review",
 	"win32x64AppId": "{{B35E642E-885D-48BC-8386-C06377164CC5}",
 	"win32arm64AppId": "{{6854770A-F656-4CAC-9F4C-A50D0B97F241}",

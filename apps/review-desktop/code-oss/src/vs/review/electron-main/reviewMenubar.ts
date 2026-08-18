@@ -103,7 +103,7 @@ export class ReviewMenubarMainService
       // macOS prints this in parentheses after the version. The commit is what
       // the update feed matches on, so it is the build identity that matters.
       version: commit ? commit.substring(0, 10) : "",
-      copyright: localize("review.about.copyright", "Copyright © 2026 dev.fast"),
+      copyright: localize("review.about.copyright", "Copyright © 2026 /dev/fast"),
       credits: localize("review.about.codeOss", "Code OSS {0}", version),
     });
   }

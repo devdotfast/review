@@ -17,8 +17,22 @@ import {
   type ReviewCliInstallStamp,
   ReviewCliInstallStampSchema,
   type ReviewCliInstallStatus,
+  type ReviewFffInstallTarget,
+  type ReviewFffManagedRegistration,
 } from "@dev.fast/review-protocol";
 
+import {
+  FFF_SERVER_NAME,
+  FFF_TARGETS,
+  fffBinaryPath,
+  fffCorpusRoot,
+  fffRegistration,
+  fffRegistrationMatches,
+  isFffTarget,
+  readFffRegistration,
+  removeFffRegistration,
+} from "../agent-fff";
+import { removeAgentTraceHook } from "../agent-trace-hooks";
 import {
   ALL_INSTALL_TARGETS,
   type InstallTarget,
@@ -27,14 +41,20 @@ import {
   runInstall,
 } from "../install";
 import { readProgressiveReviewPackageVersion } from "../package-paths";
+import {
+  type TraceCredentialsInput,
+  disableTraceMachine,
+  traceMachineStatus,
+} from "../trace-machine-setup";
+import { disableAllTraceRepositories } from "../trace-repository-hooks";
 import { reviewDesktopStateDir, writePrivateJsonAtomic } from "./desktop-paths";
 
 const AGENT_HOME_DIR: Record<InstallTarget, string> = {
   claude: ".claude",
   codex: ".codex",
   cursor: ".cursor",
+  pi: ".pi",
 };
-
 export function cliInstallStampPath(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
@@ -52,15 +72,35 @@ export async function resolveCliInstallStatus(input: {
 }): Promise<ReviewCliInstallStatus> {
   const homeDir = input.homeDir ?? os.homedir();
   const env = input.env ?? process.env;
-  const [present, installed, fingerprint, stamp] = await Promise.all([
+  const [present, installed, fingerprint, stamp, trace] = await Promise.all([
     detectPresentAgents(homeDir),
     detectInstalledTargets(homeDir),
     installFingerprint(input.packageRoot),
     readCliInstallStamp(cliInstallStampPath(env)),
+    traceMachineStatus({ homeDir, env }),
   ]);
   const installedSet = new Set(installed);
   const shimPath = pathShimPath(homeDir);
   const cliPath = path.join(input.packageRoot, "dist", "cli.js");
+  const fffBinary = fffBinaryPath(homeDir);
+  const fffCorpus = fffCorpusRoot(homeDir);
+  const fffRegistrations = await Promise.all(
+    FFF_TARGETS.map(async (target) => {
+      const current = await readFffRegistration(target, homeDir, env);
+      const managedRecord = stamp?.fffRegistrations?.find(
+        (registration) => registration.target === target,
+      );
+      return {
+        target,
+        present: current.present,
+        managed: Boolean(
+          current.present &&
+          managedRecord &&
+          fffRegistrationMatches(current.output, managedRecord),
+        ),
+      };
+    }),
+  );
   return {
     agents: ALL_INSTALL_TARGETS.map((target) => ({
       target,
@@ -78,6 +118,13 @@ export async function resolveCliInstallStatus(input: {
           (entry) => entry && path.resolve(entry) === path.dirname(shimPath),
         ),
     },
+    fff: {
+      serverName: FFF_SERVER_NAME,
+      corpusRoot: fffCorpus,
+      binary: { path: fffBinary, installed: await isFile(fffBinary) },
+      registrations: fffRegistrations,
+    },
+    trace,
     cli: (await isFile(cliPath))
       ? {
           path: cliPath,
@@ -93,6 +140,8 @@ export async function applyCliInstall(input: {
   packageRoot: string;
   targets: InstallTarget[];
   shim?: boolean;
+  fff?: boolean;
+  trace?: true | TraceCredentialsInput;
   cliPath?: string;
   cliRuntimePath?: string;
   homeDir?: string;
@@ -104,11 +153,36 @@ export async function applyCliInstall(input: {
   const sink = {
     write: (chunk: string) => (chunks.push(chunk), true),
   } as NodeJS.WriteStream;
-  if (input.targets.length > 0) {
+  const fffTargets = input.fff ? input.targets.filter(isFffTarget) : [];
+  const fffPresentBefore = new Map(
+    await Promise.all(
+      fffTargets.map(
+        async (target) =>
+          [
+            target,
+            (await readFffRegistration(target, homeDir, env)).present,
+          ] as const,
+      ),
+    ),
+  );
+  if (input.targets.length > 0 || input.trace !== undefined) {
     const code = await runInstall({
       targets: input.targets,
       homeDir,
       packageRoot: input.packageRoot,
+      env,
+      fff: input.fff,
+      reviewCommand:
+        input.shim || (await isFile(pathShimPath(homeDir)))
+          ? pathShimPath(homeDir)
+          : "review",
+      ...(input.trace !== undefined
+        ? {
+            trace: {
+              credentials: input.trace === true ? undefined : input.trace,
+            },
+          }
+        : {}),
       stdout: sink,
       stderr: sink,
     });
@@ -128,6 +202,17 @@ export async function applyCliInstall(input: {
     chunks.push(`[ok] review command -> ${shimPath}\n`);
   }
 
+  const createdFffRegistrations: ReviewFffManagedRegistration[] = [];
+  for (const target of fffTargets) {
+    if (fffPresentBefore.get(target)) continue;
+    const current = await readFffRegistration(target, homeDir, env);
+    if (current.present) {
+      createdFffRegistrations.push(
+        fffRegistration(target, fffBinaryPath(homeDir), fffCorpusRoot(homeDir)),
+      );
+    }
+  }
+
   // The stamp is cumulative app-managed state: installing skills for one
   // agent must not drop other stamped agents or the command from re-sync.
   const previous = await readCliInstallStamp(cliInstallStampPath(env));
@@ -135,12 +220,28 @@ export async function applyCliInstall(input: {
     previous?.consent === "granted" ? (previous.targets ?? []) : [];
   const previousShimPath =
     previous?.consent === "granted" ? previous.shimPath : undefined;
+  const previousFffRegistrations =
+    previous?.consent === "granted" ? (previous.fffRegistrations ?? []) : [];
+  const createdFffTargets = new Set(
+    createdFffRegistrations.map((registration) => registration.target),
+  );
+  const fffRegistrations = [
+    ...previousFffRegistrations.filter(
+      (registration) => !createdFffTargets.has(registration.target),
+    ),
+    ...createdFffRegistrations,
+  ];
   const stampShimPath = shimPath ?? previousShimPath;
+  const traceManaged =
+    input.trace !== undefined ||
+    (previous?.consent === "granted" && previous.traceManaged === true);
   await writePrivateJsonAtomic(cliInstallStampPath(env), {
     consent: "granted",
     fingerprint: await installFingerprint(input.packageRoot),
     targets: [...new Set([...previousTargets, ...input.targets])],
     ...(stampShimPath ? { shimPath: stampShimPath } : {}),
+    ...(fffRegistrations.length > 0 ? { fffRegistrations } : {}),
+    ...(traceManaged ? { traceManaged: true } : {}),
     updatedAt: new Date().toISOString(),
   } satisfies ReviewCliInstallStamp);
   return {
@@ -182,6 +283,8 @@ const SHIM_MARKER = "Managed by Review Desktop";
 export async function removeCliInstall(input: {
   targets: InstallTarget[];
   shim?: boolean;
+  fff?: boolean;
+  trace?: boolean;
   homeDir?: string;
   env?: NodeJS.ProcessEnv;
 }): Promise<{ output: string }> {
@@ -190,6 +293,9 @@ export async function removeCliInstall(input: {
   const chunks: string[] = [];
   for (const target of input.targets) {
     await removeInstalledSkills(target, homeDir);
+    if (target === "claude" || target === "codex" || target === "pi") {
+      await removeAgentTraceHook(target, homeDir);
+    }
     chunks.push(`[ok] removed skills for ${target}\n`);
   }
 
@@ -208,18 +314,62 @@ export async function removeCliInstall(input: {
     }
   }
 
+  if (input.trace) {
+    await disableAllTraceRepositories(homeDir);
+    await disableTraceMachine({ homeDir, env });
+    chunks.push("[ok] disabled Review trace capture\n");
+  }
+
   const previous = await readCliInstallStamp(cliInstallStampPath(env));
+  const removedFffTargets = new Set<ReviewFffInstallTarget>();
+  const fffRemovalTargets = input.fff ? input.targets.filter(isFffTarget) : [];
+  if (fffRemovalTargets.length > 0 && previous?.consent === "granted") {
+    for (const target of fffRemovalTargets) {
+      const managed = previous.fffRegistrations?.find(
+        (registration) => registration.target === target,
+      );
+      if (!managed) {
+        chunks.push(
+          `The ${target} ${FFF_SERVER_NAME} registration is not managed by Review Desktop; left in place.\n`,
+        );
+        continue;
+      }
+      const current = await readFffRegistration(target, homeDir, env);
+      if (
+        !current.present ||
+        !fffRegistrationMatches(current.output, managed)
+      ) {
+        chunks.push(
+          `The ${target} ${FFF_SERVER_NAME} registration changed after installation; left in place.\n`,
+        );
+        removedFffTargets.add(target);
+        continue;
+      }
+      const result = await removeFffRegistration(target, homeDir, env);
+      if (!result.ok) {
+        chunks.push(result.output);
+        return { output: chunks.join("") };
+      }
+      chunks.push(`[ok] removed ${target} FFF integration\n`);
+      removedFffTargets.add(target);
+    }
+  }
   if (previous?.consent === "granted") {
     const removed = new Set(input.targets);
     const targets = (previous.targets ?? []).filter(
       (target) => !removed.has(target),
     );
     const shimPath = input.shim ? undefined : previous.shimPath;
+    const fffRegistrations = (previous.fffRegistrations ?? []).filter(
+      (registration) => !removedFffTargets.has(registration.target),
+    );
     await writePrivateJsonAtomic(cliInstallStampPath(env), {
       consent: "granted",
       ...(previous.fingerprint ? { fingerprint: previous.fingerprint } : {}),
       targets,
       ...(shimPath ? { shimPath } : {}),
+      ...(fffRegistrations.length > 0 ? { fffRegistrations } : {}),
+      ...(!input.trace && previous.traceManaged ? { traceManaged: true } : {}),
       updatedAt: new Date().toISOString(),
     } satisfies ReviewCliInstallStamp);
   }

@@ -657,6 +657,8 @@ export function createGlobalReviewServer(
       packageRoot: input.packageRoot,
       targets: request.targets,
       ...(request.shim ? { shim: true } : {}),
+      ...(request.fff ? { fff: true } : {}),
+      ...(request.trace !== undefined ? { trace: request.trace } : {}),
       ...(discovery.cliPath ? { cliPath: discovery.cliPath } : {}),
       ...(discovery.cliRuntimePath
         ? { cliRuntimePath: discovery.cliRuntimePath }
@@ -675,6 +677,8 @@ export function createGlobalReviewServer(
     const result = await removeCliInstall({
       targets: request.targets,
       ...(request.shim ? { shim: true } : {}),
+      ...(request.fff ? { fff: true } : {}),
+      ...(request.trace ? { trace: true } : {}),
     });
     return globalJson(200, { ok: true, output: result.output });
   });
@@ -1720,6 +1724,7 @@ export function createGlobalReviewServer(
 
 function reviewSourceKind(review: ReviewRecord): ProgressiveReviewSourceKind {
   if (review.pullRequestNumber) return "pull_request";
+  if (review.sourceIdentity?.kind === "git-commit") return "git_commit";
   if (review.sourceIdentity?.kind === "jj-bookmark") return "jj_bookmark";
   if (review.sourceIdentity?.kind === "jj-change") return "jj_change";
   return "git_branch";
@@ -1755,7 +1760,7 @@ function parseInfoRequest(value: unknown): RunReviewInfoInput {
     throw new HttpJsonError("Info request must be an object.", 400);
   }
   const input = value as Record<string, unknown>;
-  const allowed = new Set(["cwd", "all"]);
+  const allowed = new Set(["cwd", "all", "reviewUuid"]);
   if (Object.keys(input).some((key) => !allowed.has(key))) {
     throw new HttpJsonError("Info request has unexpected fields.", 400);
   }
@@ -1765,9 +1770,21 @@ function parseInfoRequest(value: unknown): RunReviewInfoInput {
   if (input.all !== undefined && typeof input.all !== "boolean") {
     throw new HttpJsonError("Info all must be boolean.", 400);
   }
+  if (
+    input.reviewUuid !== undefined &&
+    (typeof input.reviewUuid !== "string" || !input.reviewUuid.trim())
+  ) {
+    throw new HttpJsonError("Info reviewUuid must be a non-empty string.", 400);
+  }
+  if (input.all === true && input.reviewUuid !== undefined) {
+    throw new HttpJsonError("Info all and reviewUuid cannot be combined.", 400);
+  }
   return {
     cwd: input.cwd,
     ...(input.all ? { all: true } : {}),
+    ...(typeof input.reviewUuid === "string"
+      ? { reviewUuid: input.reviewUuid.trim() }
+      : {}),
   };
 }
 

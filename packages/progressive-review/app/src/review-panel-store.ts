@@ -10,7 +10,7 @@ import type { GuidedTour, ReviewPeekContent } from "./review-components";
 export type DetailPanel =
   | {
       kind: "peek";
-      anchor: AnchorRef;
+      anchor?: AnchorRef;
       content: ReviewPeekContent;
     }
   | {
@@ -38,7 +38,10 @@ export interface ReviewPanelState {
 
 export interface ReviewPanelActions {
   suppressMotion: () => void;
-  openPeek: (anchor: AnchorRef, content: ReviewPeekContent) => void;
+  openPeek: (
+    anchorOrContent: AnchorRef | ReviewPeekContent,
+    content?: ReviewPeekContent,
+  ) => void;
   openTour: (tour: GuidedTour, activeAnchor: string) => void;
   openCommitDiff: (
     commit: ReviewCommitSummary,
@@ -73,8 +76,25 @@ export function createReviewPanelStore() {
     thread: null,
     motion: "live",
     suppressMotion: () => set({ motion: "restored" }),
-    openPeek: (anchor, content) => {
-      set({ detail: { kind: "peek", anchor, content }, motion: "live" });
+    openPeek: (anchorOrContent, content) => {
+      if (content !== undefined) {
+        set({
+          detail: {
+            kind: "peek",
+            anchor: anchorOrContent as AnchorRef,
+            content,
+          },
+          motion: "live",
+        });
+      } else {
+        set({
+          detail: {
+            kind: "peek",
+            content: anchorOrContent as ReviewPeekContent,
+          },
+          motion: "live",
+        });
+      }
     },
     openTour: (tour, activeAnchor) => {
       set((state) => ({

@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import { readFile, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
 
 import { withFileLock } from "./with-file-lock";
 
@@ -169,7 +170,7 @@ function formatPrepareFailure(input: {
   return `${base} Last output:\n${elided}${tail}${input.logNote}`;
 }
 
-async function markerMatches(
+export async function markerMatches(
   markerPath: string,
   expectedHash: string,
 ): Promise<boolean> {
@@ -179,6 +180,65 @@ async function markerMatches(
       return value.commandsHash === expectedHash;
     })
     .catch(() => false);
+}
+
+export interface SpawnReviewPrepareBackgroundInput {
+  checkoutPath: string;
+  commit: string;
+  cliEntryPath?: string;
+  env?: NodeJS.ProcessEnv;
+}
+
+export function resolveReviewPrepareCliEntryPath(
+  input: Pick<SpawnReviewPrepareBackgroundInput, "cliEntryPath" | "env">,
+): string | undefined {
+  const configuredEntry =
+    input.cliEntryPath ??
+    input.env?.DEV_FAST_REVIEW_CLI_ENTRY_PATH ??
+    process.env.DEV_FAST_REVIEW_CLI_ENTRY_PATH;
+  if (configuredEntry) return configuredEntry;
+
+  const serverEntry =
+    input.env?.DEV_FAST_REVIEW_SERVER_ENTRY ??
+    process.env.DEV_FAST_REVIEW_SERVER_ENTRY;
+  if (serverEntry) {
+    return path.resolve(path.dirname(serverEntry), "..", "cli.js");
+  }
+
+  return process.argv[1];
+}
+
+export function spawnReviewPrepareBackground(
+  input: SpawnReviewPrepareBackgroundInput,
+): void {
+  const cliEntryPath = resolveReviewPrepareCliEntryPath(input);
+  if (!cliEntryPath) return;
+
+  try {
+    const child = spawn(
+      process.execPath,
+      [
+        cliEntryPath,
+        "prepare-worktree",
+        path.resolve(input.checkoutPath),
+        "--commit",
+        input.commit,
+      ],
+      {
+        cwd: input.checkoutPath,
+        detached: true,
+        env: {
+          ...(input.env ?? process.env),
+          DEV_FAST_REVIEW_CLI_NO_DELEGATE: "1",
+          ELECTRON_RUN_AS_NODE: "1",
+        },
+        stdio: "ignore",
+      },
+    );
+    child.unref();
+  } catch {
+    // Background preparation must never crash the caller.
+  }
 }
 
 function runPrepareShellCommand(

@@ -291,16 +291,24 @@ async function compileReviewDocumentUncached(
   }
   const mdxCode = String(file);
   const runtimeMap = file.map as RawSourceMap | undefined;
+  const syntaxDiagnostics = unsupportedTypescriptDiagnostics(
+    input,
+    authoredTypescript,
+  );
+  if (
+    syntaxDiagnostics.some(
+      (diagnostic) => diagnostic.code === "MDX_COMPONENT_IMPORT",
+    )
+  ) {
+    return { diagnostics: syntaxDiagnostics, reviewDocument };
+  }
   const typescriptDiagnostics = await span(
     "review document: type-check",
     () =>
       checkAuthoredTypescript(input, authoredTypescript, mdxCode, runtimeMap),
     input.filePath,
   );
-  const diagnostics = [
-    ...unsupportedTypescriptDiagnostics(input, authoredTypescript),
-    ...typescriptDiagnostics,
-  ];
+  const diagnostics = [...syntaxDiagnostics, ...typescriptDiagnostics];
   if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
     return { diagnostics, reviewDocument };
   }

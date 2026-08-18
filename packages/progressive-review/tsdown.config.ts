@@ -37,6 +37,7 @@ export default defineConfig({
     alwaysBundle: [
       /^@dev-fast\/local-vcs$/,
       /^@dev\.fast\/review-protocol$/,
+      /^@dev-fast\/trace-shared$/,
       /^isomorphic-git$/,
     ],
     onlyBundle: false,

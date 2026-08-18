@@ -37,20 +37,25 @@ export async function actionableReviewsForCheckout(
       ) {
         return false;
       }
-      const identity = stored.review.sourceIdentity?.name;
-      const headRef =
-        !identity || POSITIONAL_REFS.has(identity)
-          ? stored.review.sourceCommit
-          : identity;
-      if (!headRef) return false;
-      const relationship = await resolveReviewHeadRelationship({
-        rootPath: reviewRoot,
-        headRef,
-      });
-      return (
-        relationship.kind === "exact" || relationship.kind === "descendant"
-      );
+      return reviewMatchesCheckout(stored, reviewRoot);
     }),
   );
   return reviews.filter((_, index) => matches[index]);
+}
+
+export async function reviewMatchesCheckout(
+  stored: StoredReview,
+  reviewRoot: string,
+): Promise<boolean> {
+  const identity = stored.review.sourceIdentity?.name;
+  const headRef =
+    !identity || POSITIONAL_REFS.has(identity)
+      ? stored.review.sourceCommit
+      : identity;
+  if (!headRef) return false;
+  const relationship = await resolveReviewHeadRelationship({
+    rootPath: reviewRoot,
+    headRef,
+  });
+  return relationship.kind === "exact" || relationship.kind === "descendant";
 }

@@ -68,9 +68,10 @@ Use `review app pick --review <uuid>` to select a specific Review. Bare
 `review app --review <uuid>` form remains an alias for `review app pick`.
 
 `review scaffold` creates one new UUID directory and prints its JSONL `info`
-event. `review info` is read-only: it lists active Reviews for the current
-worktree, or every worktree in the repository with `--all`; an unmatched
-lookup returns an empty `reviews` list.
+event. `review info` is read-only: it lists active Reviews bound to the current
+worktree, or every worktree in the repository with `--all`. Each result has a
+`matchesCheckout` field. It is true when the checkout equals or descends from
+the Review change.
 
 `review scaffold` materializes the pinned head and base worktrees. It runs each
 configured `devfast.prepare` command in those worktrees. This setup gives
@@ -78,12 +79,45 @@ Review Desktop language services the dependencies and build output they need.
 Source ranges do not need an indexer. `review publish` reads each range from
 its pinned worktree and rejects paths or line numbers that are not valid.
 
-Review Desktop is the primary install path for Claude Code, Codex, and other
-coding agents. On startup it detects known local skill locations, offers to
+Review Desktop is the primary install path for Claude Code, Codex, Cursor, Pi,
+and other coding agents. On startup it detects installed agents, offers to
 install the CLI and skills, and re-syncs both after each app update. It also
 writes a `review` shim to `~/.local/bin` that always resolves to the app's
 bundled CLI. `review install` remains for headless environments; a standalone
 CLI defers to the app's bundled copy whenever Review Desktop is running.
+
+Explicit agent setup installs FFF. It registers the standard `fff` MCP server
+for Claude and Codex, and installs `npm:@ff-labs/pi-fff` for Pi. The MCP
+registration points FFF at `~/.dev/trace-search`. Review accepts existing FFF
+integrations without changes. Silent app-update synchronization never runs an
+FFF installer.
+
+The same setup page configures R2 and enables trace capture for the machine.
+Each agent session activates its current repository. Git receives a managed
+hook dispatcher that chains the repository's prior hooks. Jujutsu receives a
+repository commit-trailer template. A target repository needs no Review files.
+
+Use `review trace status` to inspect the machine and current repository. Use
+`review trace enable`, `review trace disable`, or `review trace repair` only
+when you need to manage the current repository manually.
+
+For a missing registration, setup runs the equivalent commands:
+
+```sh
+curl -L https://dmtrkovalenko.dev/install-fff-mcp.sh | bash
+claude mcp add -s user fff -- "$HOME/.local/bin/fff-mcp" "$HOME/.dev/trace-search"
+codex mcp add fff -- "$HOME/.local/bin/fff-mcp" "$HOME/.dev/trace-search"
+pi install npm:@ff-labs/pi-fff
+```
+
+Trace search uses this local flow:
+
+```text
+R2 raw trace
+  → temporary download
+  → normalized JSONL in ~/.dev/trace-search
+  → FFF, review trace show, Review UI, and quote validation
+```
 
 The app-managed command starts the exact macOS bundle that installed it. The
 bundle does not need to be under `/Applications`. A repository or standalone

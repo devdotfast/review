@@ -58,6 +58,7 @@ const REQUIRED_ENTRIES = [
   "app/src",
   "skills/dev-review/SKILL.md",
   "skills/dev-review-map/SKILL.md",
+  "skills/trace-archaeology/SKILL.md",
   "tutorial/review.mdx",
   "tutorial/data.ts",
   "tutorial/software-map.ts",

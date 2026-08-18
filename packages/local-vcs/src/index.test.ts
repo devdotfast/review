@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -114,9 +114,19 @@ describe("local vcs", () => {
     writeFileSync(path.join(rootPath, "src/app.ts"), "export const app = 1;\n");
     execFileSync("git", ["add", "src/app.ts"], { cwd: rootPath });
     execFileSync("git", ["commit", "-m", "initial"], { cwd: rootPath });
+    const commit = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
+    const branch = execGitOutput(rootPath, ["symbolic-ref", "--short", "HEAD"]);
 
     expect(detectLocalVcsSync(rootPath)).toMatchObject({ kind: "git" });
     expect(listTrackedFilesSync({ rootPath })).toEqual(["src/app.ts"]);
+    await expect(changeIdentityForRevision(rootPath, branch)).resolves.toEqual({
+      kind: "git-branch",
+      name: branch,
+    });
+    await expect(changeIdentityForRevision(rootPath, commit)).resolves.toEqual({
+      kind: "git-commit",
+      name: commit,
+    });
   });
 
   it("limits git diffs to requested paths", async () => {
@@ -366,6 +376,34 @@ describe("local vcs", () => {
     ).resolves.toMatchObject({
       kind: "jj-change",
       name: expect.stringMatching(new RegExp(`^${headRef}`)),
+    });
+  });
+
+  it("binds a Git-only commit by its exact commit id in a colocated jj repo", async () => {
+    if (!commandExists("jj")) return;
+
+    const rootPath = await mkdtemp(
+      path.join(tmpdir(), "local-vcs-jj-git-sha-"),
+    );
+    execJj(rootPath, ["git", "init", "--colocate"]);
+    execGit(rootPath, ["config", "user.email", "test@example.com"]);
+    execGit(rootPath, ["config", "user.name", "Test User"]);
+    writeFileSync(path.join(rootPath, "git-only.txt"), "git only\n");
+    execGit(rootPath, ["add", "git-only.txt"]);
+    const tree = execGitOutput(rootPath, ["write-tree"]);
+    const commit = execFileSync("git", ["-C", rootPath, "commit-tree", tree], {
+      input: "git-only commit\n",
+      encoding: "utf8",
+    }).trim();
+
+    expect(() =>
+      execFileSync("jj", ["-R", rootPath, "log", "--no-graph", "-r", commit], {
+        stdio: ["ignore", "pipe", "ignore"],
+      }),
+    ).toThrow(/./);
+    await expect(changeIdentityForRevision(rootPath, commit)).resolves.toEqual({
+      kind: "git-commit",
+      name: commit,
     });
   });
 

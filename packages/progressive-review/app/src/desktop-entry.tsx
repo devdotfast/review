@@ -24,6 +24,7 @@ import {
 import { SettingsPage } from "./settings-page";
 import { TutorialProvider } from "./tutorial-context";
 import { captureClientError, captureUiEvent } from "./ui-telemetry";
+import { clearAgentTraceCache } from "./use-agent-trace";
 import { WelcomePage } from "./welcome-page";
 
 import "./styles.css";
@@ -359,6 +360,7 @@ export function mountReviewCanvas(
   return {
     update(next) {
       if (disposed) return;
+      if (session) clearAgentTraceCache(session);
       content = next;
       render();
     },

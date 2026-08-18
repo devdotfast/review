@@ -76,6 +76,7 @@ describe("review info", () => {
             uuid: expect.stringMatching(/^[0-9a-f-]{36}$/),
             change: expect.any(String),
             inSync: true,
+            matchesCheckout: true,
             unresolvedComments: 0,
             status: "draft",
             title: "Progressive Review",
@@ -117,6 +118,54 @@ describe("review info", () => {
     } finally {
       vi.unstubAllEnvs();
       closeAllReviewThreadStores();
+      await rm(home, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("lists a worktree review when the checkout does not match its change", async () => {
+    const root = await makeGitRepository();
+    const home = await mkdtemp(path.join(os.tmpdir(), "review-info-home-"));
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+
+    try {
+      await git(root, ["checkout", "-b", "feature"]);
+      await writeFile(path.join(root, "README.md"), "# Feature\n", "utf8");
+      await git(root, ["commit", "-am", "feature"]);
+      await git(root, ["checkout", "main"]);
+      clearCommandOutputCacheForTests();
+
+      const created = await runReviewScaffold({
+        cwd: root,
+        baseRef: "main",
+        headRef: "feature",
+      });
+      expect(created.reviews[0]).toMatchObject({
+        inSync: false,
+        matchesCheckout: false,
+      });
+
+      const discovered = await resolveReviewInfo({ cwd: root });
+      expect(discovered.reviews).toHaveLength(1);
+      expect(discovered.reviews[0]).toMatchObject({
+        uuid: created.reviews[0]!.uuid,
+        inSync: false,
+        matchesCheckout: false,
+      });
+
+      await git(root, ["checkout", "feature"]);
+      clearCommandOutputCacheForTests();
+      await expect(resolveReviewInfo({ cwd: root })).resolves.toMatchObject({
+        reviews: [
+          {
+            uuid: created.reviews[0]!.uuid,
+            inSync: true,
+            matchesCheckout: true,
+          },
+        ],
+      });
+    } finally {
+      vi.unstubAllEnvs();
       await rm(home, { recursive: true, force: true });
       await rm(root, { recursive: true, force: true });
     }
@@ -673,8 +722,26 @@ describe("review info", () => {
     }
   });
 
+  it("warns when devfast.prepare is not configured", async () => {
+    const root = await makeGitRepository();
+    const home = await mkdtemp(path.join(os.tmpdir(), "review-info-home-"));
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+
+    try {
+      const created = await runReviewScaffold({ cwd: root });
+      expect(created.warnings).toEqual([
+        "devfast.prepare is not configured. Configure it (git config devfast.prepare '<command>') and run `review scaffold --update` to prepare pinned worktrees.",
+      ]);
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(home, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("scaffolds without warnings when the pinned head is on another branch", async () => {
     const root = await makeGitRepository();
+    await git(root, ["config", "devfast.prepare", "echo ok"]);
     const home = await mkdtemp(path.join(os.tmpdir(), "review-info-home-"));
     vi.stubEnv("DEV_REVIEW_HOME", home);
 
@@ -706,6 +773,69 @@ describe("review info", () => {
     }
   });
 
+  it("scaffolds a Git-only commit by full SHA in a colocated jj repo", async () => {
+    if (!(await commandAvailable("jj"))) return;
+
+    const root = await makeGitRepository();
+    const home = await mkdtemp(path.join(os.tmpdir(), "review-info-home-"));
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+
+    try {
+      await jj(root, ["git", "init", "--colocate"]);
+      clearCommandOutputCacheForTests();
+      await git(root, ["config", "devfast.prepare", "echo ok"]);
+      const baseCommit = await git(root, ["rev-parse", "HEAD"]);
+      await writeFile(
+        path.join(root, "README.md"),
+        "# Git-only head\n",
+        "utf8",
+      );
+      await git(root, ["add", "README.md"]);
+      const tree = await git(root, ["write-tree"]);
+      const { stdout } = await execFilePromise(
+        "git",
+        [
+          "-C",
+          root,
+          "commit-tree",
+          tree,
+          "-p",
+          baseCommit,
+          "-m",
+          "Git-only head",
+        ],
+        { encoding: "utf8" },
+      );
+      const headCommit = stdout.trim();
+
+      await expect(
+        jj(root, ["log", "--no-graph", "-r", headCommit]),
+      ).rejects.toThrow(/./);
+
+      const created = await runReviewScaffold({
+        cwd: root,
+        baseRef: baseCommit,
+        headRef: headCommit,
+      });
+      const reviewJson = JSON.parse(
+        await readFile(
+          path.join(created.reviews[0]!.dir, "review.json"),
+          "utf8",
+        ),
+      );
+      expect(reviewJson.sourceCommit).toBe(headCommit);
+      expect(reviewJson.sourceIdentity).toEqual({
+        kind: "git-commit",
+        name: headCommit,
+      });
+    } finally {
+      vi.unstubAllEnvs();
+      clearCommandOutputCacheForTests();
+      await rm(home, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("hides terminal reviews from default info but lists them with --all", async () => {
     const root = await makeGitRepository();
     const home = await mkdtemp(path.join(os.tmpdir(), "review-info-home-"));
@@ -725,6 +855,14 @@ describe("review info", () => {
         resolveReviewInfo({ cwd: root, all: true }),
       ).resolves.toMatchObject({
         reviews: [{ status: "rejected" }],
+      });
+      await expect(
+        resolveReviewInfo({
+          cwd: path.join(home, "outside-repository"),
+          reviewUuid: created.reviews[0]!.uuid,
+        }),
+      ).resolves.toMatchObject({
+        reviews: [{ uuid: created.reviews[0]!.uuid, status: "rejected" }],
       });
     } finally {
       vi.unstubAllEnvs();

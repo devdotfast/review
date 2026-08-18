@@ -11,6 +11,7 @@ export const TARGET_LABELS: Record<ReviewCliInstallTarget, string> = {
   claude: "Claude Code",
   codex: "Codex",
   cursor: "Cursor",
+  pi: "Pi",
 };
 
 /**
@@ -43,6 +44,14 @@ export function AgentSetupCard({
   const [status, setStatus] = useState<ReviewCliInstallStatus>(install.status);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [traceEndpoint, setTraceEndpoint] = useState(
+    install.status.trace.endpoint ?? "",
+  );
+  const [traceBucket, setTraceBucket] = useState(
+    install.status.trace.bucket ?? "",
+  );
+  const [traceKey, setTraceKey] = useState("");
+  const [traceSecret, setTraceSecret] = useState("");
 
   const run = async (
     key: string,
@@ -72,6 +81,26 @@ export function AgentSetupCard({
   const presentTargets = status.agents
     .filter((agent) => agent.present)
     .map((agent) => agent.target);
+  const fffTargets = status.agents
+    .filter(
+      (agent) =>
+        supportsFff(agent.target) &&
+        (agent.present ||
+          agent.installed ||
+          status.fff.registrations.some(
+            (registration) =>
+              registration.target === agent.target && registration.present,
+          )),
+    )
+    .map((agent) => agent.target);
+  const fffReady =
+    fffTargets.length > 0 &&
+    fffTargets.every((target) =>
+      status.fff.registrations.some(
+        (registration) =>
+          registration.target === target && registration.present,
+      ),
+    );
   const firstRun = !status.stamp || status.stamp.consent === "skipped";
 
   return (
@@ -99,6 +128,13 @@ export function AgentSetupCard({
               : "No coding agents were detected on this machine. You can still install the "}
             <code>review</code> terminal command.
           </p>
+          {fffTargets.length > 0 ? (
+            <p>
+              This action also installs FFF when needed. It registers the
+              standard <code>fff</code> server for Claude and Codex, and
+              installs the Pi FFF extension.
+            </p>
+          ) : null}
           <div className="review-agent-setup-firstrun-actions">
             <button
               type="button"
@@ -106,7 +142,12 @@ export function AgentSetupCard({
               disabled={busy !== null}
               onClick={() =>
                 void run("firstrun", () =>
-                  install.apply({ targets: presentTargets, shim: true }),
+                  install.apply({
+                    targets: presentTargets,
+                    shim: true,
+                    fff: fffTargets.length > 0,
+                    ...(status.trace.configured ? { trace: true } : {}),
+                  }),
                 )
               }
             >
@@ -189,7 +230,10 @@ export function AgentSetupCard({
                   disabled={busy !== null}
                   onClick={() =>
                     void run(`remove-${agent.target}`, () =>
-                      install.remove({ targets: [agent.target] }),
+                      install.remove({
+                        targets: [agent.target],
+                        ...(supportsFff(agent.target) ? { fff: true } : {}),
+                      }),
                     )
                   }
                 >
@@ -203,7 +247,10 @@ export function AgentSetupCard({
                 disabled={busy !== null}
                 onClick={() =>
                   void run(agent.target, () =>
-                    install.apply({ targets: [agent.target] }),
+                    install.apply({
+                      targets: [agent.target],
+                      ...(supportsFff(agent.target) ? { fff: true } : {}),
+                    }),
                   )
                 }
               >
@@ -217,6 +264,147 @@ export function AgentSetupCard({
           );
         })}
       </ul>
+      <div className="review-agent-setup-terminal">
+        <div className="review-agent-setup-terminal-info">
+          <span className="review-agent-setup-name">Trace search</span>
+          <span
+            className="review-agent-setup-state"
+            data-installed={fffReady}
+            title={`${status.fff.binary.path} · ${status.fff.corpusRoot}`}
+          >
+            {fffReady
+              ? "ready"
+              : status.fff.binary.installed
+                ? "registration needed"
+                : "not installed"}
+          </span>
+          <span className="review-agent-setup-cli">
+            FFF MCP binary:{" "}
+            {status.fff.binary.installed ? "installed" : "not managed here"} ·{" "}
+            {status.fff.registrations
+              .map(
+                (registration) =>
+                  `${TARGET_LABELS[registration.target]}: ${registration.present ? (registration.target === "pi" ? "installed" : "registered") : "missing"}`,
+              )
+              .join(" · ")}
+          </span>
+          <span className="review-agent-setup-cli">
+            Existing FFF integrations stay unchanged. Open a new agent session
+            after setup.
+          </span>
+        </div>
+        <button
+          type="button"
+          disabled={busy !== null || fffTargets.length === 0}
+          onClick={() =>
+            void run("fff", () =>
+              install.apply({ targets: fffTargets, fff: true }),
+            )
+          }
+        >
+          {busy === "fff" ? "Installing…" : fffReady ? "Repair" : "Install"}
+        </button>
+      </div>
+      <div className="review-agent-setup-terminal review-agent-setup-trace">
+        <div className="review-agent-setup-terminal-info">
+          <span className="review-agent-setup-name">Trace capture</span>
+          <span
+            className="review-agent-setup-state"
+            data-installed={status.trace.enabled}
+            title={status.trace.envPath}
+          >
+            {status.trace.enabled
+              ? status.trace.error
+                ? "enabled, storage check failed"
+                : "enabled"
+              : status.trace.configured
+                ? "ready to enable"
+                : "not configured"}
+          </span>
+          <span className="review-agent-setup-cli">
+            Session hooks activate each Git or Jujutsu repository when an agent
+            session starts.
+          </span>
+        </div>
+        <div className="review-agent-setup-trace-fields">
+          <input
+            aria-label="R2 endpoint URL"
+            placeholder="R2 endpoint URL"
+            value={traceEndpoint}
+            onChange={(event) => setTraceEndpoint(event.currentTarget.value)}
+          />
+          <input
+            aria-label="R2 bucket"
+            placeholder="R2 bucket"
+            value={traceBucket}
+            onChange={(event) => setTraceBucket(event.currentTarget.value)}
+          />
+          <input
+            aria-label="R2 access key ID"
+            placeholder={
+              status.trace.accessKeyIdPrefix
+                ? `Access key (${status.trace.accessKeyIdPrefix}…)`
+                : "R2 access key ID"
+            }
+            value={traceKey}
+            onChange={(event) => setTraceKey(event.currentTarget.value)}
+          />
+          <input
+            aria-label="R2 secret access key"
+            type="password"
+            placeholder={
+              status.trace.configured
+                ? "Secret key (unchanged)"
+                : "R2 secret access key"
+            }
+            value={traceSecret}
+            onChange={(event) => setTraceSecret(event.currentTarget.value)}
+          />
+        </div>
+        {status.trace.enabled ? (
+          <button
+            type="button"
+            className="review-agent-setup-subtle"
+            disabled={busy !== null}
+            onClick={() =>
+              void run("trace-remove", () =>
+                install.remove({ targets: [], trace: true }),
+              )
+            }
+          >
+            {busy === "trace-remove" ? "Disabling…" : "Disable"}
+          </button>
+        ) : null}
+        <button
+          type="button"
+          disabled={busy !== null}
+          onClick={() =>
+            void run(
+              "trace",
+              () =>
+                install.apply({
+                  targets: [],
+                  trace: {
+                    ...(traceEndpoint ? { endpoint: traceEndpoint } : {}),
+                    ...(traceBucket ? { bucket: traceBucket } : {}),
+                    ...(traceKey ? { key: traceKey } : {}),
+                    ...(traceSecret ? { secret: traceSecret } : {}),
+                  },
+                }),
+              () => {
+                setTraceKey("");
+                setTraceSecret("");
+              },
+            )
+          }
+        >
+          {busy === "trace"
+            ? "Checking…"
+            : status.trace.enabled
+              ? "Repair"
+              : "Enable"}
+        </button>
+      </div>
       {status.cli ? (
         <div className="review-agent-setup-terminal">
           <div className="review-agent-setup-terminal-info">
@@ -281,4 +469,8 @@ export function AgentSetupCard({
       {error ? <p className="review-agent-setup-error">{error}</p> : null}
     </section>
   );
+}
+
+function supportsFff(target: ReviewCliInstallTarget): boolean {
+  return target === "claude" || target === "codex" || target === "pi";
 }

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -33,7 +34,7 @@ async function writeSkill(
 
 async function makePackageRoot(): Promise<string> {
   const packageRoot = await makeTempDir();
-  for (const name of ["dev-review", "dev-review-map"]) {
+  for (const name of ["dev-review", "dev-review-map", "trace-archaeology"]) {
     await writeSkill(packageRoot, name);
   }
   return packageRoot;
@@ -65,7 +66,7 @@ describe("runInstall", () => {
     });
 
     expect(code).toBe(0);
-    for (const name of ["dev-review", "dev-review-map"]) {
+    for (const name of ["dev-review", "dev-review-map", "trace-archaeology"]) {
       expect(
         await readFile(
           path.join(homeDir, ".claude", "skills", name, "SKILL.md"),
@@ -85,6 +86,12 @@ describe("runInstall", () => {
         ),
       ).toContain(`# ${name}`);
     }
+    // Verify trace hooks are installed
+    expect(existsSync(path.join(homeDir, ".claude", "settings.json"))).toBe(
+      true,
+    );
+    expect(existsSync(path.join(homeDir, ".codex", "config.toml"))).toBe(true);
+
     // Legacy prompt/command locations should stay empty.
     await expect(
       readFile(
@@ -155,7 +162,7 @@ describe("runInstall", () => {
         "utf8",
       ),
     ).rejects.toThrow(/ENOENT/);
-    for (const name of ["dev-review", "dev-review-map"]) {
+    for (const name of ["dev-review", "dev-review-map", "trace-archaeology"]) {
       expect(
         await readFile(
           path.join(homeDir, ".agents", "skills", name, "SKILL.md"),
@@ -245,7 +252,7 @@ describe("runInstall", () => {
     });
 
     expect(code).toBe(0);
-    for (const name of ["dev-review", "dev-review-map"]) {
+    for (const name of ["dev-review", "dev-review-map", "trace-archaeology"]) {
       expect(
         await readFile(
           path.join(homeDir, ".cursor", "skills", name, "SKILL.md"),
@@ -266,6 +273,35 @@ describe("runInstall", () => {
       ),
     ).rejects.toThrow(/ENOENT/);
     expect(streams.out.join("")).toContain("In Cursor, invoke the skills");
+  });
+
+  it("installs only Pi when requested", async () => {
+    const packageRoot = await makePackageRoot();
+    const homeDir = await makeTempDir();
+    const streams = silentStreams();
+
+    const code = await runInstall({
+      targets: ["pi"],
+      homeDir,
+      packageRoot,
+      stdout: streams.stdout,
+      stderr: streams.stderr,
+    });
+
+    expect(code).toBe(0);
+    for (const name of ["dev-review", "dev-review-map", "trace-archaeology"]) {
+      expect(
+        await readFile(
+          path.join(homeDir, ".agents", "skills", name, "SKILL.md"),
+          "utf8",
+        ),
+      ).toContain(`# ${name}`);
+    }
+    expect(
+      existsSync(
+        path.join(homeDir, ".pi", "agent", "extensions", "review-trace.ts"),
+      ),
+    ).toBe(true);
   });
 
   it("fails clearly when the bundled skill is missing", async () => {

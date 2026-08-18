@@ -75,8 +75,7 @@ function parseSourceRange(input: SourceRangeSpec): SourceRangeSpec {
     !Number.isInteger(input.fromLine) ||
     !Number.isInteger(input.toLine) ||
     input.fromLine < 1 ||
-    input.toLine < input.fromLine ||
-    input.toLine - input.fromLine > 400
+    input.toLine < input.fromLine
   ) {
     throw new Error("invalid source range");
   }

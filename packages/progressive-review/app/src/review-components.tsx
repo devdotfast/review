@@ -1,3 +1,4 @@
+import { type ReviewAgentTraceEvent } from "@dev.fast/review-protocol";
 import type {
   CSSProperties,
   ComponentPropsWithoutRef,
@@ -11,6 +12,7 @@ import {
   isValidElement,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -32,11 +34,15 @@ import {
   validatedCodePeekInputFromRef,
 } from "./CodePeek";
 import { chipPositionClearOf } from "./document-selection";
-import { useReviewSession } from "./host/review-session";
+import { findWhitespaceNormalizedSpan } from "./highlighted-text";
+import {
+  useOptionalReviewSession,
+  useReviewSession,
+} from "./host/review-session";
 import { CloseIcon, CommentIcon, MapPinIcon, TerminalIcon } from "./icons";
 import { newTabLinkProps } from "./link-props";
 import { createClientId, useReview } from "./review-context";
-import { useReviewPanel } from "./review-panel";
+import { useOptionalReviewPanelStore, useReviewPanel } from "./review-panel";
 import {
   type ThreadPanel,
   selectActiveReviewPanel,
@@ -58,7 +64,13 @@ import {
 import { buildAnchorTextTarget, targetKey } from "./target-fingerprint";
 import { ThreadComposer } from "./thread-card";
 import { useThreadTargetState } from "./thread-target-model";
+import {
+  TraceDocument,
+  buildTraceTurns,
+  extractEventText,
+} from "./trace-document";
 import { captureUiEvent } from "./ui-telemetry";
+import { useAgentTrace } from "./use-agent-trace";
 
 const TOUR_ACTIVE_TOP_SLACK_PX = 18;
 
@@ -324,14 +336,72 @@ function reviewSectionSummaryLabel(summary: ReviewSectionSummary): string {
   return parts.join(" · ");
 }
 
+export interface ProsePeekAnchorProps {
+  href: string;
+  isOpen: boolean;
+  onOpen: () => void;
+  onAlreadyOpen?: () => void;
+  className?: string;
+  anchorId?: string;
+  locator?: string;
+  inertFallback?: ReactNode;
+  children: ReactNode;
+}
+
+/**
+ * Shared prose side-peek anchor primitive for AnchorLink and TraceQuote.
+ * Renders an inline anchor with open-state styling, telemetry, and visibility retention.
+ */
+export function ProsePeekAnchor({
+  href,
+  isOpen,
+  onOpen,
+  onAlreadyOpen,
+  className,
+  anchorId,
+  locator,
+  inertFallback,
+  children,
+}: ProsePeekAnchorProps) {
+  const panelStore = useOptionalReviewPanelStore();
+  const session = useOptionalReviewSession();
+
+  if (!panelStore && inertFallback !== undefined) {
+    return <>{inertFallback}</>;
+  }
+
+  return (
+    <a
+      href={href}
+      className={className}
+      data-review-anchor-id={anchorId}
+      data-review-anchor-open={isOpen ? "true" : undefined}
+      data-review-locator={locator}
+      onClick={(event) => {
+        event.preventDefault();
+        if (isOpen && onAlreadyOpen) {
+          onAlreadyOpen();
+          return;
+        }
+        if (session) {
+          captureUiEvent(session, "peek_opened", { via: "prose_link" });
+        }
+        onOpen();
+        keepAnchorLinkVisible(event.currentTarget);
+      }}
+    >
+      {children}
+    </a>
+  );
+}
+
 export function AnchorLink(props: AnchorLinkProps) {
-  const session = useReviewSession();
   const { anchor, children } = anchorLinkPropsSchema.parse(props);
   const input = validatedCodePeekInputFromRef(anchor.peek);
   const openPeek = useReviewPanel((state) => state.openPeek);
   const peekOpen = useReviewPanel((state) => {
     const active = selectActiveReviewPanel(state);
-    return active?.kind === "peek" && active.anchor.id === anchor.id;
+    return active?.kind === "peek" && active.anchor?.id === anchor.id;
   });
   const target = buildAnchorTextTarget({
     anchorId: anchor.id,
@@ -339,20 +409,17 @@ export function AnchorLink(props: AnchorLinkProps) {
     text: anchor.title,
   });
   return (
-    <a
+    <ProsePeekAnchor
       href={`#review-anchor-${anchor.id}`}
-      data-review-anchor-id={anchor.id}
-      data-review-anchor-open={peekOpen ? "true" : undefined}
-      data-review-locator={targetKey(target)}
-      onClick={(event) => {
-        event.preventDefault();
-        captureUiEvent(session, "peek_opened", { via: "prose_link" });
+      anchorId={anchor.id}
+      isOpen={peekOpen}
+      locator={targetKey(target)}
+      onOpen={() => {
         openPeek(anchor, { kind: "resolved-code", input });
-        keepAnchorLinkVisible(event.currentTarget);
       }}
     >
       {children}
-    </a>
+    </ProsePeekAnchor>
   );
 }
 
@@ -376,7 +443,7 @@ export function a({
  * which can push the clicked anchor link out of the viewport. Once the panel
  * has slid in, scroll the link back into view if the reflow moved it away.
  */
-function keepAnchorLinkVisible(link: HTMLElement) {
+export function keepAnchorLinkVisible(link: HTMLElement) {
   window.setTimeout(() => {
     const rect = link.getBoundingClientRect();
     const visible =
@@ -565,7 +632,14 @@ function PanelSelectionCommentButton({
 
 export type ReviewPeekContent =
   | { kind: "resolved-code"; input: ValidatedCodePeekInput }
-  | { kind: "inline-code"; language?: string; text: string };
+  | { kind: "inline-code"; language?: string; text: string }
+  | {
+      kind: "trace-quote";
+      sessionId: string;
+      trace?: string;
+      event?: number;
+      quote: string;
+    };
 
 export interface GuidedTourStop {
   anchor: AnchorRef;
@@ -647,13 +721,195 @@ function CommitFileDiffPanel({
   );
 }
 
+function TraceQuotePeekPanel({
+  sessionId,
+  trace,
+  event,
+  quote,
+  onClose,
+}: {
+  sessionId: string;
+  trace?: string;
+  event?: number;
+  quote: string;
+  onClose: () => void;
+}) {
+  const review = useReview();
+  const data = useAgentTrace(sessionId, trace);
+
+  const traceEvents = data.status === "loaded" ? data.trace.events : undefined;
+
+  const targetEventIndex = useMemo(() => {
+    if (!traceEvents) return -1;
+    if (event !== undefined && event >= 0 && event < traceEvents.length) {
+      const e = traceEvents[event];
+      const text = extractEventText(e);
+      if (findWhitespaceNormalizedSpan(text, quote)) {
+        return event;
+      }
+    }
+    for (let i = 0; i < traceEvents.length; i++) {
+      const text = extractEventText(traceEvents[i]);
+      if (findWhitespaceNormalizedSpan(text, quote)) {
+        return i;
+      }
+    }
+    return -1;
+  }, [traceEvents, event, quote]);
+
+  const picks = useMemo(() => {
+    if (!traceEvents || targetEventIndex === -1) return undefined;
+    let turnStart = 0;
+    for (let index = targetEventIndex; index >= 0; index -= 1) {
+      if (traceEvents[index].kind === "user") {
+        turnStart = index;
+        break;
+      }
+    }
+    let nextUserIndex = -1;
+    for (
+      let index = targetEventIndex + 1;
+      index < traceEvents.length;
+      index += 1
+    ) {
+      if (traceEvents[index].kind === "user") {
+        nextUserIndex = index;
+        break;
+      }
+    }
+    const turnEnd =
+      nextUserIndex === -1 ? traceEvents.length - 1 : nextUserIndex - 1;
+    return [
+      {
+        events: [turnStart, turnEnd] as [number, number],
+      },
+    ];
+  }, [traceEvents, targetEventIndex]);
+
+  if (data.status === "loading" || data.status === "idle") {
+    return (
+      <ReviewPanelFrame
+        className="side-peek trace-quote-panel"
+        label="Agent trace"
+        title={
+          trace ? `${sessionId.slice(0, 8)} · ${trace}` : sessionId.slice(0, 8)
+        }
+        onClose={onClose}
+        closeLabel="Close side peek"
+      >
+        <div className="side-peek-body">
+          <p className="review-trace-note">Loading trace…</p>
+        </div>
+      </ReviewPanelFrame>
+    );
+  }
+
+  if (data.status === "error") {
+    return (
+      <ReviewPanelFrame
+        className="side-peek trace-quote-panel"
+        label="Agent trace"
+        title={sessionId.slice(0, 8)}
+        onClose={onClose}
+        closeLabel="Close side peek"
+      >
+        <div className="side-peek-body">
+          <p className="review-trace-note review-trace-note--error">
+            {data.error}
+          </p>
+        </div>
+      </ReviewPanelFrame>
+    );
+  }
+
+  const loadedTrace = data.trace;
+  const events = loadedTrace.events;
+
+  const headerAccessory = (
+    <button
+      type="button"
+      className="review-trace-peek-open-full"
+      onClick={() => {
+        review.openTraceSession?.({
+          sessionId,
+          trace,
+          eventIndex: targetEventIndex >= 0 ? targetEventIndex : undefined,
+        });
+        onClose();
+      }}
+    >
+      Full Trace ↗
+    </button>
+  );
+
+  return (
+    <ReviewPanelFrame
+      className="side-peek trace-quote-panel"
+      label="Agent trace"
+      title={
+        loadedTrace.title ??
+        (trace ? `${sessionId.slice(0, 8)} · ${trace}` : sessionId.slice(0, 8))
+      }
+      titleAccessory={headerAccessory}
+      onClose={onClose}
+      closeLabel="Close side peek"
+    >
+      <div className="side-peek-body">
+        {targetEventIndex === -1 ? (
+          <p className="review-trace-note">
+            Quote not found in this session transcript.
+          </p>
+        ) : (
+          <TraceDocument
+            key={`${sessionId}-${trace ?? ""}-${targetEventIndex}-${quote}`}
+            events={events}
+            targetEventIndex={targetEventIndex}
+            highlightQuote={quote}
+            picks={picks}
+            className="review-trace-events--scoped"
+          />
+        )}
+      </div>
+    </ReviewPanelFrame>
+  );
+}
+
 export function ReviewPeekPanel({
   anchor,
   content,
   onClose,
 }: {
-  anchor: AnchorRef;
+  anchor?: AnchorRef;
   content: ReviewPeekContent;
+  onClose: () => void;
+}) {
+  if (content.kind === "trace-quote") {
+    return (
+      <TraceQuotePeekPanel
+        sessionId={content.sessionId}
+        trace={content.trace}
+        event={content.event}
+        quote={content.quote}
+        onClose={onClose}
+      />
+    );
+  }
+  if (!anchor) return null;
+  return (
+    <CodeReviewPeekPanel anchor={anchor} content={content} onClose={onClose} />
+  );
+}
+
+function CodeReviewPeekPanel({
+  anchor,
+  content,
+  onClose,
+}: {
+  anchor: AnchorRef;
+  content: Extract<
+    ReviewPeekContent,
+    { kind: "resolved-code" | "inline-code" }
+  >;
   onClose: () => void;
 }) {
   const review = useReview();
@@ -1156,30 +1412,37 @@ export function ReviewPeekContentView({
   active,
   onNativeFocus,
 }: {
-  anchor: AnchorRef;
+  anchor?: AnchorRef;
   content: ReviewPeekContent;
   active?: boolean;
   onNativeFocus?: () => void;
 }) {
-  return content.kind === "resolved-code" ? (
-    <CodePeekCard
-      input={content.input}
-      active={active}
-      heightMode="content"
-      onNativeFocus={onNativeFocus}
-      commentAnchor={anchor}
-    />
-  ) : (
-    <PanelAuthoredCodeSurface
-      anchor={anchor}
-      code={content.text}
-      language={content.language}
-      selectionStamp={panelSelectionStamp({
-        anchorId: anchor.id,
-        field: "code",
-      })}
-    />
-  );
+  if (content.kind === "resolved-code") {
+    return (
+      <CodePeekCard
+        input={content.input}
+        active={active}
+        heightMode="content"
+        onNativeFocus={onNativeFocus}
+        commentAnchor={anchor}
+      />
+    );
+  }
+  if (content.kind === "inline-code") {
+    if (!anchor) return null;
+    return (
+      <PanelAuthoredCodeSurface
+        anchor={anchor}
+        code={content.text}
+        language={content.language}
+        selectionStamp={panelSelectionStamp({
+          anchorId: anchor.id,
+          field: "code",
+        })}
+      />
+    );
+  }
+  return null;
 }
 
 /**

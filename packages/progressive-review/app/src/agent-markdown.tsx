@@ -13,6 +13,7 @@ import {
 } from "react";
 
 import { RenderedCodeBlock } from "./code-block";
+import { HighlightedText } from "./highlighted-text";
 import { newTabLinkProps } from "./link-props";
 
 interface MarkdownNode {
@@ -33,9 +34,11 @@ interface MarkdownNode {
 export function AgentMarkdown({
   source,
   className,
+  highlightQuote,
 }: {
   source: string;
   className?: string;
+  highlightQuote?: string;
 }): ReactElement {
   const tree = fromMarkdown(source, {
     extensions: [gfm()],
@@ -43,7 +46,7 @@ export function AgentMarkdown({
   }) as MarkdownNode;
   return (
     <div className={["agent-markdown", className].filter(Boolean).join(" ")}>
-      {renderMarkdownChildren(tree.children ?? [], "root")}
+      {renderMarkdownChildren(tree.children ?? [], "root", highlightQuote)}
     </div>
   );
 }
@@ -77,41 +80,68 @@ export function markdownExcerpt(source: string): string {
 function renderMarkdownChildren(
   children: MarkdownNode[],
   keyPrefix: string,
+  highlightQuote?: string,
 ): ReactNode {
   return children.map((child, index) =>
-    renderMarkdownNode(child, `${keyPrefix}:${index}`),
+    renderMarkdownNode(child, `${keyPrefix}:${index}`, highlightQuote),
   );
 }
 
-function renderMarkdownNode(node: MarkdownNode, key: string): ReactNode {
+function renderMarkdownNode(
+  node: MarkdownNode,
+  key: string,
+  highlightQuote?: string,
+): ReactNode {
   switch (node.type) {
     case "root":
       return (
         <Fragment key={key}>
-          {renderMarkdownChildren(node.children ?? [], key)}
+          {renderMarkdownChildren(node.children ?? [], key, highlightQuote)}
         </Fragment>
       );
     case "paragraph":
       return (
-        <p key={key}>{renderMarkdownChildren(node.children ?? [], key)}</p>
+        <p key={key}>
+          {renderMarkdownChildren(node.children ?? [], key, highlightQuote)}
+        </p>
       );
     case "text":
+      if (highlightQuote) {
+        return (
+          <HighlightedText
+            key={key}
+            text={node.value ?? ""}
+            quote={highlightQuote}
+          />
+        );
+      }
       return node.value ?? "";
     case "emphasis":
       return (
-        <em key={key}>{renderMarkdownChildren(node.children ?? [], key)}</em>
+        <em key={key}>
+          {renderMarkdownChildren(node.children ?? [], key, highlightQuote)}
+        </em>
       );
     case "strong":
       return (
         <strong key={key}>
-          {renderMarkdownChildren(node.children ?? [], key)}
+          {renderMarkdownChildren(node.children ?? [], key, highlightQuote)}
         </strong>
       );
     case "delete":
       return (
-        <del key={key}>{renderMarkdownChildren(node.children ?? [], key)}</del>
+        <del key={key}>
+          {renderMarkdownChildren(node.children ?? [], key, highlightQuote)}
+        </del>
       );
     case "inlineCode":
+      if (highlightQuote) {
+        return (
+          <code key={key}>
+            <HighlightedText text={node.value ?? ""} quote={highlightQuote} />
+          </code>
+        );
+      }
       return <code key={key}>{node.value ?? ""}</code>;
     case "code":
       return (
@@ -130,12 +160,12 @@ function renderMarkdownNode(node: MarkdownNode, key: string): ReactNode {
       return createElement(
         headingTag(node.depth),
         { key },
-        renderMarkdownChildren(node.children ?? [], key),
+        renderMarkdownChildren(node.children ?? [], key, highlightQuote),
       );
     case "blockquote":
       return (
         <blockquote key={key}>
-          {renderMarkdownChildren(node.children ?? [], key)}
+          {renderMarkdownChildren(node.children ?? [], key, highlightQuote)}
         </blockquote>
       );
     case "list": {
@@ -143,7 +173,7 @@ function renderMarkdownNode(node: MarkdownNode, key: string): ReactNode {
       return createElement(
         Tag,
         { key, start: node.ordered ? (node.start ?? undefined) : undefined },
-        renderMarkdownChildren(node.children ?? [], key),
+        renderMarkdownChildren(node.children ?? [], key, highlightQuote),
       );
     }
     case "listItem":
@@ -152,11 +182,15 @@ function renderMarkdownNode(node: MarkdownNode, key: string): ReactNode {
           {node.checked !== null && node.checked !== undefined && (
             <input type="checkbox" checked={node.checked} readOnly />
           )}
-          {renderMarkdownChildren(node.children ?? [], key)}
+          {renderMarkdownChildren(node.children ?? [], key, highlightQuote)}
         </li>
       );
     case "link": {
-      const children = renderMarkdownChildren(node.children ?? [], key);
+      const children = renderMarkdownChildren(
+        node.children ?? [],
+        key,
+        highlightQuote,
+      );
       if (isLocalFilesystemHref(node.url)) {
         return (
           <code key={key} className="agent-markdown-code-reference">

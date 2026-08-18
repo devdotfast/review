@@ -1,0 +1,477 @@
+name: Review Desktop Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump type"
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
+      dry_run:
+        description: "Build and validate only. Do not tag, upload, or publish."
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: review-desktop-release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Tag release
+    runs-on: ${{ vars.REVIEW_CI_RUNNER || 'ubuntu-latest' }}
+    outputs:
+      version: ${{ steps.bump.outputs.version || steps.dryrun.outputs.version }}
+      tag: ${{ steps.bump.outputs.tag }}
+      commit: ${{ steps.bump.outputs.commit || steps.dryrun.outputs.commit }}
+    steps:
+      # The `main` ruleset requires a pull request and the "Review Desktop"
+      # check, and lists DeployKey as its only non-admin bypass actor. Checking
+      # out over SSH with the release deploy key is therefore the one way this
+      # job can land the version bump on main directly.
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
+
+      - name: Bump version and create tag
+        if: ${{ !inputs.dry_run }}
+        id: bump
+        shell: bash
+        run: |
+          BUMP="${{ inputs.bump }}"
+          CURRENT=$(node -p "require('./apps/review-desktop/package.json').version")
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+
+          case "$BUMP" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+
+          VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          TAG="review-desktop-v${VERSION}"
+          echo "Releasing Review Desktop v${VERSION} (tag: $TAG)"
+
+          # Both checks below run before anything is written, so a doomed run
+          # stops without leaving a tag or a commit behind.
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "::error::${TAG} already exists on origin. Delete it before re-running."
+            exit 1
+          fi
+
+          git fetch origin "${GITHUB_REF_NAME}"
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
+            echo "::error::${GITHUB_REF_NAME} moved since this run started. Re-run the workflow."
+            exit 1
+          fi
+
+          cd apps/review-desktop
+          # product.json carries the same number to the running app, which shows
+          # it in the About panel. `scripts/product-hardening.test.mjs` fails if
+          # these two drift apart.
+          VERSION="$VERSION" node --input-type=module -e '
+            import fs from "node:fs";
+            const pkg = JSON.parse(fs.readFileSync("./package.json", "utf8"));
+            pkg.version = process.env.VERSION;
+            fs.writeFileSync("./package.json", `${JSON.stringify(pkg, null, 2)}\n`);
+
+            const productPath = "./code-oss/product.json";
+            const product = fs.readFileSync(productPath, "utf8");
+            const updated = product.replace(
+              /("reviewVersion":\s*")[^"]*(")/,
+              `$1${process.env.VERSION}$2`,
+            );
+            if (updated === product) {
+              throw new Error(`reviewVersion not found in ${productPath}`);
+            }
+            fs.writeFileSync(productPath, updated);
+          '
+          cd ../..
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add apps/review-desktop/package.json apps/review-desktop/code-oss/product.json
+          git commit -m "chore(review-desktop): bump version to ${VERSION} [skip ci]"
+          git tag "$TAG"
+          # Atomic: the previous release left an orphan tag on origin because
+          # the branch push was rejected after the tag push had already landed.
+          git push --atomic origin "HEAD:${GITHUB_REF_NAME}" "$TAG"
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Dry-run version
+        if: ${{ inputs.dry_run }}
+        id: dryrun
+        run: |
+          VERSION=$(node -p "require('./apps/review-desktop/package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Create draft GitHub Release
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.bump.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --title "Review Desktop ${{ steps.bump.outputs.version }}" \
+            --draft \
+            --generate-notes
+
+  compile:
+    name: Compile Darwin payload on Linux
+    needs: tag
+    runs-on: ${{ vars.REVIEW_CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.tag.outputs.tag || github.sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup monorepo Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install monorepo dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Headers for the Code OSS native modules npm ci builds from source.
+      - name: Install Code OSS native build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libx11-dev libxkbfile-dev libkrb5-dev libsecret-1-dev
+
+      - name: Setup Code OSS Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: apps/review-desktop/code-oss/.nvmrc
+          cache: npm
+          cache-dependency-path: apps/review-desktop/code-oss/**/package-lock.json
+
+      - name: Restore Code OSS dependencies
+        id: code-oss-deps
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            apps/review-desktop/code-oss/node_modules
+            apps/review-desktop/code-oss/build/node_modules
+            apps/review-desktop/code-oss/extensions/node_modules
+            apps/review-desktop/code-oss/extensions/*/node_modules
+            apps/review-desktop/code-oss/extensions/*/server/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/remote/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/remote/web/node_modules
+            ~/.cache/node-gyp
+          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/review-desktop/code-oss/**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-code-oss-deps-v2-
+
+      # Linux owns every platform-independent build output and also downloads
+      # the pinned darwin-arm64 VSIX payloads. The macOS job packages this
+      # archive; it must not silently rebuild or omit anything transferred here.
+      - name: Compile Darwin payload on Linux
+        env:
+          # Embeds the PostHog project key into the review runtime build so
+          # released apps ship telemetry enabled. Source builds embed nothing.
+          REVIEW_POSTHOG_KEY: ${{ vars.REVIEW_POSTHOG_KEY }}
+        run: bash apps/review-desktop/scripts/compile-darwin-payload.sh
+
+      - name: Upload darwin payload
+        uses: actions/upload-artifact@v4
+        with:
+          name: darwin-payload
+          path: apps/review-desktop/dist/darwin-payload.tar.zst
+          retention-days: 3
+          compression-level: 0
+
+      - name: Check for existing Code OSS dependency cache
+        if: steps.code-oss-deps.outputs.cache-hit != 'true'
+        id: code-oss-deps-lookup
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            apps/review-desktop/code-oss/node_modules
+          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/review-desktop/code-oss/**/package-lock.json') }}
+          lookup-only: true
+
+      - name: Save Code OSS dependencies
+        if: steps.code-oss-deps.outputs.cache-hit != 'true' && steps.code-oss-deps-lookup.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            apps/review-desktop/code-oss/node_modules
+            apps/review-desktop/code-oss/build/node_modules
+            apps/review-desktop/code-oss/extensions/node_modules
+            apps/review-desktop/code-oss/extensions/*/node_modules
+            apps/review-desktop/code-oss/extensions/*/server/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/remote/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/remote/web/node_modules
+            ~/.cache/node-gyp
+          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/review-desktop/code-oss/**/package-lock.json') }}
+
+  build:
+    name: Build, sign, publish
+    needs: [tag, compile]
+    runs-on: macos-15-xlarge
+    timeout-minutes: 90
+    env:
+      RELEASE_VERSION: ${{ needs.tag.outputs.version }}
+      RELEASE_COMMIT: ${{ needs.tag.outputs.commit }}
+      RELEASE_TAG: ${{ needs.tag.outputs.tag }}
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.tag.outputs.tag || github.sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup monorepo Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install monorepo dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup Code OSS Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: apps/review-desktop/code-oss/.nvmrc
+          cache: npm
+          cache-dependency-path: apps/review-desktop/code-oss/**/package-lock.json
+
+      - name: Restore Code OSS dependencies
+        id: code-oss-deps
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            apps/review-desktop/code-oss/node_modules
+            apps/review-desktop/code-oss/build/node_modules
+            apps/review-desktop/code-oss/extensions/node_modules
+            apps/review-desktop/code-oss/extensions/*/node_modules
+            apps/review-desktop/code-oss/extensions/*/server/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/remote/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/remote/web/node_modules
+            apps/review-desktop/code-oss/.build/electron
+            ~/.cache/node-gyp
+          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/review-desktop/code-oss/**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-code-oss-deps-v2-
+
+      - name: Download darwin payload
+        uses: actions/download-artifact@v4
+        with:
+          name: darwin-payload
+          path: ${{ runner.temp }}/darwin-payload
+
+      - name: Extract darwin payload
+        run: |
+          zstd -dc "$RUNNER_TEMP/darwin-payload/darwin-payload.tar.zst" | tar -xf - -C .
+
+      # package-macos.sh checks the complete handoff before Gulp runs, stages
+      # every manifest-selected curated extension, and verifies the final app
+      # before signing. validate-release-artifacts.mjs repeats that extension
+      # check after notarization and before any upload.
+
+      # Carson's keychain bootstrap: decode the Developer ID cert into a
+      # throwaway keychain that sign.ts finds via AGENT_TEMPDIRECTORY.
+      - name: Import Apple signing certificate
+        env:
+          APPLE_CERT_BASE64: ${{ secrets.APPLE_CERT_BASE64 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+        run: |
+          CERT_PATH="$RUNNER_TEMP/apple-signing-cert.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/buildagent.keychain"
+          echo "$APPLE_CERT_BASE64" | base64 --decode > "$CERT_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "$APPLE_CERT_PASSWORD" -T /usr/bin/codesign
+          # Append rather than replace: `-s "$KEYCHAIN_PATH"` alone evicts
+          # login.keychain from the search list for the rest of the job.
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | xargs)
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+          rm -f "$CERT_PATH"
+
+      # An App Store Connect team key, not an Apple ID password: it survives
+      # password and 2FA changes on the Apple ID, and the private key stays a
+      # file rather than an environment value.
+      - name: Write App Store Connect notary key
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          KEY_PATH="$RUNNER_TEMP/notary-key.p8"
+          printf '%s\n' "$APPLE_API_KEY_P8" > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+
+      - name: Package, sign, and notarize
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          AGENT_TEMPDIRECTORY: ${{ runner.temp }}
+          CODESIGN_IDENTITY: "Developer ID Application: ${{ vars.APPLE_SIGN_IDENTITY }}"
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          APPLE_API_KEY_PATH: ${{ runner.temp }}/notary-key.p8
+          APPLE_API_KEY_ID: ${{ vars.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ vars.APPLE_API_ISSUER_ID }}
+          SKIP_NOTARIZE: ${{ vars.SKIP_NOTARIZE }}
+          REVIEW_DESKTOP_PRECOMPILED: "1"
+        run: |
+          # The build can run well over an hour before the first codesign call.
+          security unlock-keychain -p "${{ secrets.APPLE_KEYCHAIN_PASSWORD }}" \
+            "$RUNNER_TEMP/buildagent.keychain"
+          pnpm --filter @dev-fast/review-desktop app:package:macos
+
+      - name: Check for existing Code OSS dependency cache
+        if: steps.code-oss-deps.outputs.cache-hit != 'true'
+        id: code-oss-deps-lookup
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            apps/review-desktop/code-oss/node_modules
+          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/review-desktop/code-oss/**/package-lock.json') }}
+          lookup-only: true
+
+      - name: Save Code OSS dependencies
+        if: steps.code-oss-deps.outputs.cache-hit != 'true' && steps.code-oss-deps-lookup.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            apps/review-desktop/code-oss/node_modules
+            apps/review-desktop/code-oss/build/node_modules
+            apps/review-desktop/code-oss/extensions/node_modules
+            apps/review-desktop/code-oss/extensions/*/node_modules
+            apps/review-desktop/code-oss/extensions/*/server/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/remote/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/remote/web/node_modules
+            apps/review-desktop/code-oss/.build/electron
+            ~/.cache/node-gyp
+          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/review-desktop/code-oss/**/package-lock.json') }}
+
+      - name: Validate release artifacts
+        run: |
+          node apps/review-desktop/scripts/validate-release-artifacts.mjs \
+            --version "$RELEASE_VERSION" \
+            --commit "$RELEASE_COMMIT"
+
+      # Signed and stapled says nothing about whether the app runs. 0.0.3 shipped
+      # with a Review server that died on a pruned devDependency, and 0.0.4 with a
+      # main process that threw before creating a window — both passed every check
+      # above. Launch it and require a renderer before anything reaches R2.
+      - name: Smoke launch the packaged app
+        run: node apps/review-desktop/scripts/smoke-launch-packaged.mjs
+
+      # Payloads first, manifest last: a client must never see a latest.json
+      # whose zip is not yet downloadable.
+      - name: Upload release to R2
+        if: ${{ !inputs.dry_run }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_ENDPOINT_URL: ${{ vars.R2_ENDPOINT_URL }}
+          AWS_REGION: auto
+          R2_BUCKET: ${{ vars.R2_RELEASE_BUCKET }}
+        run: |
+          DIST=apps/review-desktop/dist
+          RELEASE_PREFIX="s3://${R2_BUCKET}/releases/${RELEASE_VERSION}/darwin-arm64"
+          # The releases/latest/ key is version-free by design, so the version
+          # rides along in the filename a client saves the download as.
+          DMG_DISPOSITION="attachment; filename=\"df-review-${RELEASE_VERSION}.dmg\""
+
+          aws s3 cp "$DIST/Review-darwin-arm64-${RELEASE_VERSION}.zip" \
+            "${RELEASE_PREFIX}/Review-darwin-arm64-${RELEASE_VERSION}.zip" \
+            --content-type application/zip
+          aws s3 cp "$DIST/Review-darwin-arm64-${RELEASE_VERSION}.dmg" \
+            "${RELEASE_PREFIX}/Review-darwin-arm64-${RELEASE_VERSION}.dmg" \
+            --content-type application/x-apple-diskimage \
+            --content-disposition "$DMG_DISPOSITION"
+          aws s3 cp "$DIST/Review-darwin-arm64-${RELEASE_VERSION}.dmg" \
+            "s3://${R2_BUCKET}/releases/latest/darwin-arm64/Review.dmg" \
+            --content-type application/x-apple-diskimage \
+            --content-disposition "$DMG_DISPOSITION"
+
+          aws s3 cp "$DIST/latest.json" \
+            "s3://${R2_BUCKET}/update/stable/darwin-arm64/latest.json" \
+            --content-type application/json
+
+      - name: Verify update feed
+        if: ${{ !inputs.dry_run }}
+        run: |
+          echo "Feed for an outdated client (expect 200 with ${RELEASE_VERSION}):"
+          RESPONSE=$(curl -sf "https://update.dev.fast/api/update/darwin-arm64/stable/0000000000000000000000000000000000000000")
+          echo "$RESPONSE"
+          echo "$RESPONSE" | grep -F "\"productVersion\":\"${RELEASE_VERSION}\""
+          echo "$RESPONSE" | grep -F "\"version\":\"${RELEASE_COMMIT}\""
+
+          echo "Feed for the just-released commit (expect 204):"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://update.dev.fast/api/update/darwin-arm64/stable/${RELEASE_COMMIT}")
+          echo "$STATUS"
+          test "$STATUS" = "204"
+
+      - name: Verify install landing
+        if: ${{ !inputs.dry_run }}
+        run: |
+          echo "install.dev.fast (expect 302 to the disk image):"
+          LOCATION=$(curl -s -o /dev/null -w "%{redirect_url}" https://install.dev.fast/)
+          echo "$LOCATION"
+          test "$LOCATION" = "https://install.dev.fast/releases/latest/darwin-arm64/Review.dmg"
+
+          echo "Following it (expect 200 and a disk image):"
+          curl -sfL -o /dev/null -w "%{http_code} %{content_type}\n" https://install.dev.fast/ \
+            | grep -F "200 application/x-apple-diskimage"
+
+      - name: Attach DMG to GitHub Release
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "$RELEASE_TAG" \
+            --repo "${{ github.repository }}" \
+            "apps/review-desktop/dist/Review-darwin-arm64-${RELEASE_VERSION}.dmg"
+
+      - name: Remove signing credentials
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/buildagent.keychain" || true
+          rm -f "$RUNNER_TEMP/notary-key.p8"
+
+  finalize-release:
+    name: Publish release
+    needs: [tag, build]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ${{ vars.REVIEW_CI_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit "${{ needs.tag.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --draft=false

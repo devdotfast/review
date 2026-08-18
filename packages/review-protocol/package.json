@@ -1,0 +1,39 @@
+{
+  "name": "@dev.fast/review-protocol",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./bug-report": {
+      "types": "./dist/bug-report.d.ts",
+      "import": "./dist/bug-report.js",
+      "default": "./dist/bug-report.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.1",
+    "typescript": "6.0.3",
+    "typescript-7": "npm:typescript@7.0.1-rc",
+    "vitest": "^4.1.5"
+  },
+  "engines": {
+    "node": ">=24 <25"
+  }
+}

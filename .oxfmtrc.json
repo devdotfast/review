@@ -1,0 +1,35 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "useTabs": false,
+  "tabWidth": 2,
+  "printWidth": 80,
+  "singleQuote": false,
+  "jsxSingleQuote": false,
+  "quoteProps": "as-needed",
+  "trailingComma": "all",
+  "semi": true,
+  "arrowParens": "always",
+  "bracketSameLine": false,
+  "bracketSpacing": true,
+  "sortImports": {
+    "newlinesBetween": true,
+    "sortSideEffects": false,
+    "partitionByComment": false,
+    "partitionByNewline": false
+  },
+  "ignorePatterns": [
+    ".vite/**",
+    "dist/**",
+    "**/dist/**",
+    "**/.claude/**",
+    "**/.vite/**",
+    "**/.wrangler/**",
+    "apps/review-desktop/.node/**",
+    "apps/review-desktop/code-oss/**",
+    "apps/review-desktop/workbench/**",
+    "**/routeTree.gen.ts",
+    "**/worker-configuration.d.ts",
+    "packages/code-graph/fixtures/indexing/**/malformed.js",
+    "packages/code-graph/fixtures/indexing/**/malformed.ts"
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "oxc", "react", "jsx-a11y", "vitest"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "perf": "error"
+  },
+  "settings": {
+    "react": {
+      "version": "19.0.0"
+    },
+    "vitest": {
+      "typecheck": false
+    }
+  },
+  "env": {
+    "builtin": true
+  },
+  "globals": {},
+  "ignorePatterns": [
+    ".vite/**",
+    "dist/**",
+    "**/dist/**",
+    "**/.vite/**",
+    "**/.wrangler/**",
+    "apps/review-desktop/.node/**",
+    "apps/review-desktop/code-oss/**",
+    "**/routeTree.gen.ts",
+    "**/worker-configuration.d.ts",
+    "packages/code-graph/fixtures/indexing/**/malformed.js",
+    "packages/code-graph/fixtures/indexing/**/malformed.ts"
+  ],
+  "rules": {
+    "sort-imports": [
+      "error",
+      {
+        "ignoreDeclarationSort": true,
+        "ignoreMemberSort": false,
+        "ignoreCase": false,
+        "memberSyntaxSortOrder": ["none", "all", "multiple", "single"]
+      }
+    ],
+    "typescript/no-explicit-any": "off",
+    "typescript/no-non-null-assertion": "off",
+    "typescript/array-type": "off",
+    "typescript/no-this-alias": "off",
+    "react/react-in-jsx-scope": "off",
+    "react/exhaustive-deps": "off",
+    "react/no-array-index-key": "off",
+    "react/no-danger": "off",
+    "no-await-in-loop": "off",
+    "no-control-regex": "off",
+    "no-shadow": "off",
+    "no-underscore-dangle": "off",
+    "no-unused-vars": "off",
+    "no-useless-escape": "off",
+    "no-unsafe-optional-chaining": "off",
+    "prefer-destructuring": "off",
+    "preserve-caught-error": "off",
+    "require-yield": "off",
+    "max-lines": "off",
+    "oxc/no-map-spread": "off",
+    "oxc/only-used-in-recursion": "off",
+    "jsx-a11y/no-static-element-interactions": "off",
+    "jsx-a11y/click-events-have-key-events": "off",
+    "jsx-a11y/no-autofocus": "off",
+    "jsx-a11y/no-noninteractive-tabindex": "off",
+    "jsx-a11y/prefer-tag-over-role": "off",
+    "jsx-a11y/role-has-required-aria-props": "off",
+    "jest/require-to-throw-message": "off",
+    "jest/valid-expect": "off",
+    "jest/no-conditional-expect": "off",
+    "jest/no-disabled-tests": "off",
+    "no-unmodified-loop-condition": "off"
+  }
+}

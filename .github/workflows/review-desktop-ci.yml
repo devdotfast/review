@@ -1,0 +1,123 @@
+name: Review Desktop CI
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: review-desktop-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review-desktop:
+    name: Review Desktop
+    runs-on: ${{ vars.REVIEW_CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup monorepo Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install monorepo dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Headers for the Code OSS native modules npm ci builds from source:
+      # native-keymap needs x11/xkbfile, kerberos needs krb5, and the secret
+      # storage bindings need libsecret.
+      - name: Install Code OSS native build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libx11-dev libxkbfile-dev libkrb5-dev libsecret-1-dev
+
+      - name: Setup Code OSS Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: apps/review-desktop/code-oss/.nvmrc
+          cache: npm
+          cache-dependency-path: apps/review-desktop/code-oss/**/package-lock.json
+
+      # out/ is deliberately not cached: the build rebuilds it from scratch, so
+      # caching it only adds download/upload time. The nested extension and
+      # build-tool node_modules are cached so postinstall's per-directory npm
+      # installs become no-ops on a warm cache. Restore and save are split so
+      # the save lands right after a validated build — a failure later in the
+      # job (e.g. a flaky integration test) cannot prevent the cache from
+      # persisting. restore-keys lets a lockfile bump start from the previous
+      # tree and install only the delta.
+      - name: Restore Code OSS dependencies
+        id: code-oss-deps
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            apps/review-desktop/code-oss/node_modules
+            apps/review-desktop/code-oss/build/node_modules
+            apps/review-desktop/code-oss/extensions/node_modules
+            apps/review-desktop/code-oss/extensions/*/node_modules
+            apps/review-desktop/code-oss/extensions/*/server/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/remote/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/remote/web/node_modules
+            apps/review-desktop/code-oss/.build/electron
+            ~/.cache/node-gyp
+          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/review-desktop/code-oss/**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-code-oss-deps-v2-
+
+      - name: Build Review Desktop
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REVIEW_DESKTOP_CI_FAST: "1"
+        run: pnpm --filter @dev-fast/review-desktop app:build
+
+      - name: Validate Review Desktop build
+        run: |
+          test -d apps/review-desktop/code-oss/node_modules
+          test -f apps/review-desktop/code-oss/out/main.js
+
+      - name: Save Code OSS dependencies
+        if: steps.code-oss-deps.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            apps/review-desktop/code-oss/node_modules
+            apps/review-desktop/code-oss/build/node_modules
+            apps/review-desktop/code-oss/extensions/node_modules
+            apps/review-desktop/code-oss/extensions/*/node_modules
+            apps/review-desktop/code-oss/extensions/*/server/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/remote/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/remote/web/node_modules
+            apps/review-desktop/code-oss/.build/electron
+            ~/.cache/node-gyp
+          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/review-desktop/code-oss/**/package-lock.json') }}
+
+      - name: Check the tutorial assets
+        run: pnpm --filter @dev.fast/review check:tutorial
+
+      - name: Run Review Desktop unit tests
+        run: pnpm --filter @dev-fast/review-desktop test
+
+      - name: Run Review-only Code OSS harness tests
+        working-directory: apps/review-desktop/code-oss
+        run: npm run test-review-harness

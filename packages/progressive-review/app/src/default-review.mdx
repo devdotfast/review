@@ -1,0 +1,105 @@
+import {
+  defineActors,
+  defineAnchors,
+  defineStores,
+} from "virtual:progressive-review-authoring";
+
+export const comments = {};
+
+export const anchors = defineAnchors({
+  reviewRuntime: {
+    title: "Review runtime",
+    peek: { symbol: "runProgressiveReview" },
+    softwareMapPath: "devFast.progressiveReview.runtime",
+  },
+  reviewMdx: {
+    title: "Review document runtime",
+    peek: { symbol: "createActiveReviewDocument" },
+    softwareMapPath: "devFast.progressiveReview.reviewDocuments",
+  },
+  mapModel: {
+    title: "Software map model",
+    peek: { symbol: "defineSoftwareMap" },
+    softwareMapPath: "devFast.progressiveReview.mapModel",
+  },
+  graphDatabase: {
+    title: "Graph SQLite database",
+    softwareMapPath: "devFast.graphSqliteDatabase",
+  },
+  publishReview: {
+    title: "Publish review state",
+    detail: "Persist the submitted review event.",
+    peek: { symbol: "runProgressiveReview" },
+  },
+  inspectReview: {
+    title: "Inspect review state",
+    detail: "Read persisted review status for the UI.",
+    peek: { symbol: "printProgressiveReviewStatus" },
+  },
+});
+
+export const actors = defineActors({
+  reviewRuntime: { label: "Review runtime" },
+  reviewUi: { label: "Review UI" },
+});
+
+export const stores = defineStores({
+  appDb: {
+    kind: "relational",
+    label: "Review database",
+    tables: {
+      reviews: {
+        label: "reviews",
+        schema: {
+          id: { type: "text", pk: true, example: "review_123" },
+          status: { type: "text", example: "awaiting-review" },
+        },
+      },
+    },
+  },
+});
+
+# Progressive Review
+
+This build-time document proves the MDX review surface compiles. Runtime review
+sessions render review documents stored under `~/.dev`, and the Map tab is
+backed by the external `~/.dev` software map for this repository.
+
+[`Review runtime`](anchors.reviewRuntime) opens the side peek.
+
+<SequenceDiagram
+  label="Review surface"
+  messages={[
+    {
+      from: { label: "review.mdx" },
+      to: { label: "Review runtime" },
+      label: "renders through",
+      anchor: anchors.reviewMdx,
+    },
+    {
+      from: { label: "Review runtime" },
+      to: { label: "Software map" },
+      label: "loads external map",
+      anchor: anchors.mapModel,
+    },
+  ]}
+/>
+
+<DatabaseLens title="Review state" stores={stores} height={460}>
+  <DbUseCase id="publish-review" label="Publish review">
+    <DbWrite
+      from={actors.reviewRuntime}
+      to={stores.appDb.tables.reviews.status}
+      label="write submitted status"
+      anchor={anchors.publishReview}
+    />
+  </DbUseCase>
+  <DbUseCase id="inspect-review" label="Inspect review">
+    <DbRead
+      from={stores.appDb.tables.reviews.status}
+      to={actors.reviewUi}
+      label="read current status"
+      anchor={anchors.inspectReview}
+    />
+  </DbUseCase>
+</DatabaseLens>

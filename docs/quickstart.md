@@ -14,13 +14,10 @@ This guide takes you from a fresh install to a completed first review.
 
 ## Requirements
 
-- An Apple silicon Mac. Review is currently an alpha release for macOS.
+- An Apple silicon Mac.
 - A Git or Jujutsu repository with a branch, bookmark, change, or pull request
   to review.
-- Claude Code, Codex, or Cursor if you want an agent to author the review.
-
-Review can install its command-line tool without a coding agent, and the bundled
-tutorial does not require one.
+- Claude Code, Codex, or any other coding agent.
 
 ## 1. Install Review
 
@@ -50,25 +47,13 @@ sample repository to show:
 
 ## 3. Create a review
 
-Open the repository you want to review in your coding agent. The Review welcome
-screen provides a prompt tailored to the agent it detected.
-
-For Codex:
-
-```text
-Use $dev-review to review my current branch against up to date main, then open
-it in Review.
-```
-
-For Claude Code:
+Open the repository you want to review in your coding agent and tell it to
+review it!
 
 ```text
 Use the dev-review skill to review my current branch against up to date main,
 then open it in Review.
 ```
-
-In Cursor, select the installed `dev-review` skill from the `/` menu and ask it
-to review the current branch against up-to-date main.
 
 The agent scaffolds a Review, writes and validates the walkthrough, publishes
 it, and opens it in Review Desktop. You can also review a specific GitHub pull
@@ -79,7 +64,8 @@ request or ask for an architecture review of a repository.
 Use the three main surfaces together:
 
 - **Review** explains the change and links every code claim to its evidence.
-- **Map** lets you move from systems to containers, components, and code.
+- **Map** lets you move from systems to containers, components, and code
+  (experimental).
 - **Files** shows the underlying changed-file diff.
 
 Leave an anchored comment where something should change, or use **Ask now** for

@@ -4,7 +4,6 @@
 Outline: Product model -> Review contents -> Pins -> Publication -> Lifecycle -> Storage.
 
 TODO(docs):
-- Link to one real public Review that demonstrates prose, code peeks, and a map.
 - Add a product screenshot beside the lifecycle after the launch UI is frozen.
 - Confirm how much of the local storage model should be user-facing long term.
 -->
@@ -20,7 +19,6 @@ flowchart LR
   C --> D[Reviewer reads in Review Desktop]
   D --> E{Decision}
   E -->|Request changes| B
-  E -->|Approve| F[Accepted]
 ```
 
 ## A Review is more than a diff

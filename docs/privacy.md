@@ -5,9 +5,7 @@ Outline: Local data -> Anonymous telemetry -> Errors -> Agent providers
 -> Explicit bug reports -> Opt-out -> Developer inspection.
 
 TODO(docs):
-- Have the privacy owner confirm the PostHog configuration and R2 retention period.
 - Add a public privacy contact or policy URL.
-- Decide whether to name the PostHog region and Cloudflare account jurisdiction.
 - Capture the final bug-report consent dialog and verify its defaults match this page.
 -->
 
@@ -21,14 +19,14 @@ For the exact event schemas and implementation references, see the full
 ## What stays local
 
 Review stores authored Reviews under
-`${DEV_REVIEW_HOME:-~/.dev}/reviews/<uuid>/` and keeps desktop discovery and
-state under `${DEV_REVIEW_HOME:-~/.dev}/review-desktop/`.
+`~/.dev/reviews/<uuid>/` and keeps desktop discovery and
+state under `~/.dev/review-desktop/` by default.
 
 Passive product telemetry never includes:
 
 - source code or changed-file diffs;
 - paths, repository names, refs, symbols, or declarations;
-- Review documents, comments, questions, or thread text;
+- review documents, comments, questions, or thread text;
 - prompts or model output; or
 - email, username, hostname, or a machine identifier.
 

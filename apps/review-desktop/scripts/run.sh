@@ -30,7 +30,7 @@ if [[ -n "$PACKAGED_ROOT" ]]; then
 elif [[ "$OSTYPE" == "darwin"* ]]; then
   CODE_APP_NAME="$(
     cd "$CHECKOUT"
-    node -p "require('./product.json').nameLong"
+    node -p "require('./product.json').nameShort"
   )"
   CODE_EXE_NAME="$(
     cd "$CHECKOUT"

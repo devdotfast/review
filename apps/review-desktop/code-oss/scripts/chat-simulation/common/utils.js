@@ -62,7 +62,7 @@ function getRepoRoot(electronPath) {
 function getElectronPath() {
 	const product = require(path.join(ROOT, 'product.json'));
 	if (process.platform === 'darwin') {
-		return path.join(ROOT, '.build', 'electron', `${product.nameLong}.app`, 'Contents', 'MacOS', product.nameShort);
+		return path.join(ROOT, '.build', 'electron', `${product.nameShort}.app`, 'Contents', 'MacOS', product.nameShort);
 	} else if (process.platform === 'linux') {
 		return path.join(ROOT, '.build', 'electron', product.applicationName);
 	} else {

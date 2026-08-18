@@ -270,7 +270,7 @@ function CanvasShell({
 }) {
   return (
     <main className="review-canvas-shell">
-      <div className="review-shell-brand">dev.fast Review</div>
+      <div className="review-shell-brand">/dev/fast Review</div>
       <h1>{title}</h1>
       {children}
     </main>

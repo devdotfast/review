@@ -169,8 +169,9 @@ export function BugReportControl() {
                 </label>
               </fieldset>
               <p className="bug-report-privacy">
-                Reports are sent securely to dev.fast. Only authorized dev.fast
-                team members can access them. Reports are deleted after 90 days.
+                Reports are sent securely to /dev/fast. Only authorized
+                /dev/fast team members can access them. Reports are deleted
+                after 90 days.
               </p>
               <div className="bug-report-actions">
                 <button type="button" onClick={cancel} disabled={sending}>

@@ -153,7 +153,7 @@ export function getDevElectronPath(): string {
 
 	switch (process.platform) {
 		case 'darwin':
-			return join(buildPath, 'electron', `${product.nameLong}.app`, 'Contents', 'MacOS', `${product.nameShort}`);
+			return join(buildPath, 'electron', `${product.nameShort}.app`, 'Contents', 'MacOS', `${product.nameShort}`);
 		case 'linux':
 			return join(buildPath, 'electron', `${product.applicationName}`);
 		case 'win32':

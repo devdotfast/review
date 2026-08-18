@@ -108,7 +108,7 @@ async function main(buildDir?: string): Promise<void> {
 	}
 
 	const appRoot = path.join(buildDir, `VSCode-darwin-${arch}`);
-	const appName = product.nameLong + '.app';
+	const appName = product.nameShort + '.app';
 	const appPath = path.join(appRoot, appName);
 	const infoPlistPath = path.resolve(appPath, 'Contents', 'Info.plist');
 

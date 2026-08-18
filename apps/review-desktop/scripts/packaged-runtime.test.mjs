@@ -68,7 +68,7 @@ test("production build configurations include the Review entrypoint and CSS", as
 test("canvas targets are derived from fixed output locations", () => {
   const fakeAppRoot = path.resolve("/tmp/review desktop");
   const packagedRoot = path.resolve("/tmp/review package");
-  const packagedMacRoot = path.resolve("/tmp/dev.fast Review.app");
+  const packagedMacRoot = path.resolve("/tmp/Review.app");
 
   assert.deepEqual(canvasTargets([], fakeAppRoot), [
     path.join(fakeAppRoot, "code-oss/out/vs/review/canvas"),

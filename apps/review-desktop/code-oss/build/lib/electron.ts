@@ -141,14 +141,16 @@ const electronAssetResolver = electronFeed
 
 export const config = {
 	version: electronVersion,
-	productAppName: product.nameLong,
+	// Keep the bundle directory filesystem-safe. The branded name contains a
+	// slash, so it belongs in display metadata rather than in a path.
+	productAppName: product.nameShort,
 	// CFBundleDisplayName, which is what titles the macOS application menu. The
 	// window chrome carries no wordmark, so the brand lives here instead. The
 	// bundle file name still comes from productAppName and the executable from
-	// darwinExecutable, so packaging paths are unaffected.
-	productDisplayName: '/dev/fast',
-	companyName: 'dev.fast',
-	copyright: 'Copyright (C) 2026 dev.fast',
+	// darwinExecutable, so packaging paths stay filesystem-safe.
+	productDisplayName: product.nameLong,
+	companyName: '/dev/fast',
+	copyright: 'Copyright (C) 2026 /dev/fast',
 	darwinExecutable: product.nameShort,
 	darwinIcon: 'resources/darwin/code.icns',
 	darwinBundleIdentifier: product.darwinBundleIdentifier,

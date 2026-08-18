@@ -156,7 +156,7 @@ async function main(buildDir?: string, outDir?: string): Promise<void> {
 	}
 
 	const appRoot = path.join(buildDir, `VSCode-darwin-${arch}`);
-	const appName = product.nameLong + '.app';
+	const appName = product.nameShort + '.app';
 	const appPath = path.join(appRoot, appName);
 	const dmgName = `VSCode-darwin-${arch}`;
 	const artifactPath = path.join(outDir, `${dmgName}.dmg`);
@@ -197,7 +197,7 @@ async function main(buildDir?: string, outDir?: string): Promise<void> {
 		.replace('{{BADGE_ICON}}', JSON.stringify(diskIconPath))
 		.replace('{{BACKGROUND}}', JSON.stringify(backgroundPath))
 		.replace('{{APP_PATH}}', JSON.stringify(appPath))
-		.replace('{{APP_NAME}}', JSON.stringify(product.nameLong + '.app'));
+		.replace('{{APP_NAME}}', JSON.stringify(appName));
 	fs.writeFileSync(settingsFile, settingsContent);
 
 	try {

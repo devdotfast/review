@@ -1,7 +1,7 @@
 <div align="center">
   <img
-    src="packages/progressive-review/app/icons/review-icon.svg"
-    width="88"
+    src="docs/assets/review-logo.png"
+    width="96"
     alt="Review logo"
   />
   <h1>Review</h1>

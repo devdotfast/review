@@ -840,7 +840,7 @@ function softwareMapCollectionNode({
   return {
     id: storeCollectionNodeIdForStore(store, collectionKind, collectionId),
     type: "dataStoreCollection",
-    label: collection.__collectionLabel,
+    label: collection.collectionLabel,
     path: store.softwareMapPath
       ? `${store.softwareMapPath}.${collectionKind}.${collectionId}`
       : undefined,
@@ -850,8 +850,8 @@ function softwareMapCollectionNode({
       {
         id: `${kind}:${collectionId}`,
         kind,
-        label: collection.__collectionLabel,
-        key: collection.__collectionKey,
+        label: collection.collectionLabel,
+        key: collection.collectionKey,
         rows: softwareMapSchemaRowsForCollection({
           store,
           collectionKind,
@@ -928,8 +928,8 @@ function softwareMapSchemaRowsForCollection({
         storeSoftwareMapPath: store.softwareMapPath,
         collectionKind,
         collectionId,
-        collectionLabel: collection.__collectionLabel,
-        collectionKey: collection.__collectionKey,
+        collectionLabel: collection.collectionLabel,
+        collectionKey: collection.collectionKey,
         path: row.path,
       },
       row.path,

@@ -1,8 +1,15 @@
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { configDefaults, defineConfig } from "vitest/config";
+
+const require = createRequire(import.meta.url);
+const decodeNamedCharacterReferenceIndex = path.join(
+  path.dirname(require.resolve("decode-named-character-reference")),
+  "index.js",
+);
 
 const isolatedTests = [
   "app/src/review-document-boundary.test.tsx",
@@ -23,6 +30,10 @@ export default defineConfig({
       "@dev.fast/local-vcs": fileURLToPath(
         new URL("../local-vcs/src/index.ts", import.meta.url),
       ),
+      "@dev-fast/trace-shared": fileURLToPath(
+        new URL("../trace-shared/src/index.ts", import.meta.url),
+      ),
+      "decode-named-character-reference": decodeNamedCharacterReferenceIndex,
     },
   },
   test: {

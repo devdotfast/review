@@ -30,6 +30,7 @@ const TARGET_LABELS: Readonly<Record<ReviewCliInstallTarget, string>> = {
 	claude: 'Claude Code',
 	codex: 'Codex',
 	cursor: 'Cursor',
+	pi: 'Pi',
 };
 
 function formatTargets(targets: readonly ReviewCliInstallTarget[]): string {
@@ -116,6 +117,8 @@ class UninstallReviewDesktopAction extends Action2 {
 		const targets = status.agents
 			.filter(agent => agent.installed)
 			.map(agent => agent.target);
+		const fffTargets = status.stamp?.fffRegistrations?.map(registration => registration.target) ?? [];
+		const removalTargets = [...new Set([...targets, ...fffTargets])];
 		const detail = [
 			targets.length > 0
 				? localize('review.uninstall.skills', "Removes the Review skills for {0}.", formatTargets(targets))
@@ -123,6 +126,12 @@ class UninstallReviewDesktopAction extends Action2 {
 			status.stamp?.shimPath
 				? localize('review.uninstall.shim', "Removes the review terminal command at {0}.", status.stamp.shimPath)
 				: localize('review.uninstall.noShim', "The review terminal command is not installed."),
+			fffTargets.length > 0
+				? localize('review.uninstall.fff', "Removes unchanged fff registrations that Review created. The shared FFF binary stays installed.")
+				: localize('review.uninstall.noFff', "No fff registrations are managed by Review."),
+			status.stamp?.traceManaged
+				? localize('review.uninstall.trace', "Disables trace capture and restores hook paths for known repositories. R2 credentials stay on disk.")
+				: localize('review.uninstall.noTrace', "Trace capture is not managed by Review."),
 			localize('review.uninstall.tutorial', "Removes the bundled tutorial repository and Review."),
 			localize('review.uninstall.keepsData', "Your reviews and their history stay on disk."),
 		].join('\n');
@@ -145,7 +154,12 @@ class UninstallReviewDesktopAction extends Action2 {
 			tutorialError = error;
 		}
 		try {
-			await sessionService.removeCliInstall({ targets, shim: true });
+			await sessionService.removeCliInstall({
+				targets: removalTargets,
+				shim: true,
+				fff: true,
+				...(status.stamp?.traceManaged ? { trace: true } : {}),
+			});
 			await sessionService.resetCliInstallPrompts();
 			if (tutorialError) {
 				await dialogService.error(

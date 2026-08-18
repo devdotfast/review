@@ -43,7 +43,11 @@ const LEGACY_SKILL_NAMES = [
   "progressive-review",
   "pr-review",
 ] as const;
-const CURRENT_SKILL_NAMES = ["dev-review", "dev-review-map"] as const;
+const CURRENT_SKILL_NAMES = [
+  "dev-review",
+  "dev-review-map",
+  "trace-archaeology",
+] as const;
 const execFilePromise = promisify(execFile);
 
 export type ReviewPackageManager = "npm" | "pnpm" | "yarn" | "bun";

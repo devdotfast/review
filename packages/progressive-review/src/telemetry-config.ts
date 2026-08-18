@@ -9,6 +9,7 @@ export interface ProgressiveReviewTelemetryInstallConfig {
   createdAt: string;
   installationCreatedSent: boolean;
   enabled: boolean;
+  internal: boolean;
 }
 
 export const TELEMETRY_CONFIG_RELATIVE_PATH = path.join(
@@ -77,6 +78,7 @@ export function normalizeTelemetryInstallConfig(
         : now().toISOString(),
     installationCreatedSent: Boolean(parsed.installationCreatedSent),
     enabled: parsed.enabled !== false,
+    internal: parsed.internal === true,
   };
 }
 
@@ -89,6 +91,7 @@ export function createTelemetryInstallConfig(
     createdAt: now().toISOString(),
     installationCreatedSent: false,
     enabled: true,
+    internal: false,
   };
 }
 
@@ -129,12 +132,15 @@ function isWorkspaceCheckout(): boolean {
 
 /**
  * Whether telemetry from this process should carry `internal: true` so
- * partner-facing dashboards can exclude it. True for any workspace checkout
- * (local dev, eval harness, CI on the repo) and overridable in either
- * direction with PROGRESSIVE_REVIEW_TELEMETRY_INTERNAL=1|0.
+ * partner-facing dashboards can exclude it. The environment overrides a
+ * stored true marker, which overrides workspace detection.
  */
-export function isInternalTelemetry(env: NodeJS.ProcessEnv): boolean {
+export function isInternalTelemetry(
+  env: NodeJS.ProcessEnv,
+  config?: Pick<ProgressiveReviewTelemetryInstallConfig, "internal">,
+): boolean {
   if (env.PROGRESSIVE_REVIEW_TELEMETRY_INTERNAL === "1") return true;
   if (env.PROGRESSIVE_REVIEW_TELEMETRY_INTERNAL === "0") return false;
+  if (config?.internal === true) return true;
   return isWorkspaceCheckout();
 }

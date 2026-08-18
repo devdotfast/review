@@ -108,18 +108,10 @@ export interface SequenceRef {
 
 export function createSequence(input: UncheckedSequenceInput): SequenceRef {
   sequenceDiagramPropsSchema.parse(input);
-  const messages = normalizeSequenceMessages(input);
+  const messages = uniqueSequenceMessageAnchors(
+    normalizeSequenceMessages(input),
+  );
   const id = `sequence-${slugSequenceActorLabel(input.label)}`;
-  const seenAnchors = new Set<string>();
-  for (const [index, message] of messages.entries()) {
-    if (seenAnchors.has(message.anchor.id)) {
-      throwAuthoringIssue(
-        ["messages", index, "anchor"],
-        "Anchor must be used only once within this diagram",
-      );
-    }
-    seenAnchors.add(message.anchor.id);
-  }
   const participants = participantsForMessages(messages);
   validateSequenceTargetPaths(input.label, participants, messages);
   return Object.freeze({
@@ -137,6 +129,31 @@ export function createSequence(input: UncheckedSequenceInput): SequenceRef {
         code: message.code,
       }),
     ),
+  });
+}
+
+function uniqueSequenceMessageAnchors(
+  messages: readonly SequenceMessage[],
+): SequenceMessage[] {
+  const reservedIds = new Set(messages.map((message) => message.anchor.id));
+  const usedIds = new Set<string>();
+  return messages.map((message, index) => {
+    if (!usedIds.has(message.anchor.id)) {
+      usedIds.add(message.anchor.id);
+      return message;
+    }
+    const prefix = `${message.anchor.id}--sequence-use-${index + 1}`;
+    let id = prefix;
+    let suffix = 2;
+    while (reservedIds.has(id) || usedIds.has(id)) {
+      id = `${prefix}-${suffix}`;
+      suffix += 1;
+    }
+    usedIds.add(id);
+    return {
+      ...message,
+      anchor: Object.freeze({ ...message.anchor, id }),
+    };
   });
 }
 

@@ -58,8 +58,28 @@ export function CursorLogo(): ReactElement {
   );
 }
 
+export function PiLogo(): ReactElement {
+  return (
+    <svg
+      aria-hidden="true"
+      className="review-agent-logo review-agent-logo--pi"
+      focusable="false"
+      viewBox="0 0 24 24"
+    >
+      <path
+        d="M4 6h16M8 6v12M16 6v12"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="2.25"
+      />
+    </svg>
+  );
+}
+
 export const AGENT_LOGOS = {
   claude: ClaudeCodeLogo,
   codex: CodexLogo,
   cursor: CursorLogo,
+  pi: PiLogo,
 } as const;

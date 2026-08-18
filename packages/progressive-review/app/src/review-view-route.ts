@@ -1,4 +1,4 @@
-export type ReviewView = "review" | "commits" | "map" | "diff";
+export type ReviewView = "review" | "commits" | "map" | "diff" | "trace";
 
 export function normalizeReviewView(
   view: ReviewView,
@@ -6,7 +6,10 @@ export function normalizeReviewView(
   hasChangeRange = true,
 ): ReviewView {
   if (view === "map" && !softwareMapEnabled) return "review";
-  if (!hasChangeRange && (view === "commits" || view === "diff")) {
+  if (
+    !hasChangeRange &&
+    (view === "commits" || view === "diff" || view === "trace")
+  ) {
     return "review";
   }
   return view;
@@ -16,6 +19,7 @@ export function reviewViewLabel(view: ReviewView): string {
   if (view === "map") return "Map";
   if (view === "diff") return "Diff";
   if (view === "commits") return "Commits";
+  if (view === "trace") return "Trace";
   return "Review";
 }
 

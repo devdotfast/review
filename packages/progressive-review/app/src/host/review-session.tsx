@@ -84,8 +84,12 @@ export function ReviewSessionProvider({
   );
 }
 
+export function useOptionalReviewSession(): ReviewSession | null {
+  return useContext(ReviewSessionContext);
+}
+
 export function useReviewSession(): ReviewSession {
-  const session = useContext(ReviewSessionContext);
+  const session = useOptionalReviewSession();
   if (!session) {
     throw new Error(
       "useReviewSession must be used within ReviewSessionProvider",

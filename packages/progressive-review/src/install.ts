@@ -13,11 +13,25 @@ import { fileURLToPath } from "node:url";
 
 import { ensureNotesConfig, gitCommonDir } from "@dev.fast/local-vcs";
 
+import { installFffForTargets, isFffTarget } from "./agent-fff";
+import {
+  installClaudeTraceHook,
+  installCodexTraceHook,
+  installPiTraceExtension,
+} from "./agent-trace-hooks";
 import { emitJsonEvent, failWithJsonError, humanStream } from "./cli-output";
+import {
+  type TraceCredentialsInput,
+  configureTraceMachine,
+} from "./trace-machine-setup";
 
-export type InstallTarget = "claude" | "codex" | "cursor";
+export type InstallTarget = "claude" | "codex" | "cursor" | "pi";
 
-const REQUIRED_SKILL_NAMES = ["dev-review", "dev-review-map"] as const;
+const REQUIRED_SKILL_NAMES = [
+  "dev-review",
+  "dev-review-map",
+  "trace-archaeology",
+] as const;
 const STALE_SKILL_NAMES = [
   "review",
   "review-map",
@@ -29,9 +43,10 @@ export const ALL_INSTALL_TARGETS: InstallTarget[] = [
   "claude",
   "codex",
   "cursor",
+  "pi",
 ];
 
-type InstalledItem = { kind: "skill"; dest: string };
+type InstalledItem = { kind: "skill" | "extension"; dest: string };
 
 export function defaultPackageRoot(): string {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -42,13 +57,22 @@ export async function runInstall(input: {
   cwd?: string;
   homeDir?: string;
   packageRoot?: string;
+  env?: NodeJS.ProcessEnv;
+  fff?: boolean;
+  reviewCommand?: string;
+  trace?: {
+    credentials?: TraceCredentialsInput;
+    verify?: boolean;
+  };
   json?: boolean;
   stdout: NodeJS.WriteStream;
   stderr: NodeJS.WriteStream;
 }): Promise<number> {
   const homeDir = input.homeDir ?? os.homedir();
   const packageRoot = input.packageRoot ?? defaultPackageRoot();
+  const env = input.env ?? process.env;
   const human = humanStream(input);
+  let traceEnabled = false;
 
   const skillsDir = path.join(packageRoot, "skills");
   const skillDirs = await listSkillDirs(skillsDir);
@@ -64,6 +88,31 @@ export async function runInstall(input: {
     );
   }
 
+  // Check machine trace configuration before any per-agent mutation. A
+  // headless install with missing credentials must fail without a partial
+  // skills or FFF install.
+  if (input.trace) {
+    try {
+      const status = await configureTraceMachine({
+        homeDir,
+        env,
+        credentials: input.trace.credentials,
+        verify: input.trace.verify,
+      });
+      traceEnabled = status.enabled;
+      human.write(`[ok] trace capture -> ${status.envPath}\n`);
+      if (status.error) {
+        human.write(`Trace storage check failed: ${status.error}\n`);
+      }
+    } catch (cause) {
+      return failWithJsonError(
+        input,
+        "install",
+        cause instanceof Error ? cause.message : String(cause),
+      );
+    }
+  }
+
   const installed: InstalledItem[] = [];
   for (const target of input.targets) {
     const destRoot = skillsDestRoot(homeDir, target);
@@ -73,14 +122,43 @@ export async function runInstall(input: {
       await installDirectory(skillDir.src, skillDest);
       installed.push({ kind: "skill", dest: skillDest });
     }
+    if (target === "claude") {
+      await installClaudeTraceHook(homeDir, input.reviewCommand);
+    } else if (target === "codex") {
+      await installCodexTraceHook(homeDir, input.reviewCommand);
+    } else if (target === "pi") {
+      await installPiTraceExtension(homeDir, input.reviewCommand);
+    }
+  }
+
+  if (input.fff) {
+    const result = await installFffForTargets({
+      targets: input.targets.filter(isFffTarget),
+      homeDir,
+      env,
+      write: (text) => human.write(text),
+    });
+    if (!result.ok) {
+      return failWithJsonError(
+        input,
+        "install",
+        "Could not install the selected FFF integrations.",
+      );
+    }
+    installed.push(
+      ...result.created.map((registration) => ({
+        kind: "extension" as const,
+        dest: `${registration.target}:fff`,
+      })),
+    );
   }
 
   for (const item of installed) {
     human.write(`[ok] ${item.kind} -> ${item.dest}\n`);
   }
   // Best-effort per-repo git-notes setup: notes.rewriteRef so git-native
-  // rebases/amends carry map notes, and the origin fetch refspec so ordinary
-  // fetches receive teammates' notes. Never fails the install.
+  // rebases/amends carry map notes, and the selected remote's fetch refspec so
+  // ordinary fetches receive teammates' notes. Never fails the install.
   let gitNotesConfigured = false;
   if (input.cwd) {
     try {
@@ -95,22 +173,25 @@ export async function runInstall(input: {
     }
   }
   const installedSkills = skillDirs.map((skill) => skill.name).join(", ");
-  human.write(
-    `\nInstalled Review skills for ${formatTargets(input.targets)}: ${installedSkills}.\n` +
-      (input.targets.includes("codex")
-        ? "In Codex, invoke via /skills or the installed dev-review skill.\n"
-        : "") +
-      (input.targets.includes("cursor")
-        ? "In Cursor, invoke the skills from the / menu (for example /dev-review).\n"
-        : "") +
-      "Restart the agent (or open a new session) to pick up the changes.\n",
-  );
+  if (input.targets.length > 0) {
+    human.write(
+      `\nInstalled Review skills for ${formatTargets(input.targets)}: ${installedSkills}.\n` +
+        (input.targets.includes("codex")
+          ? "In Codex, invoke via /skills or the installed dev-review skill.\n"
+          : "") +
+        (input.targets.includes("cursor")
+          ? "In Cursor, invoke the skills from the / menu (for example /dev-review).\n"
+          : "") +
+        "Restart the agent (or open a new session) to pick up the changes.\n",
+    );
+  }
   emitJsonEvent(input, {
     event: "installed",
     targets: input.targets,
     skills: skillDirs.map((skill) => skill.name),
     items: installed,
     gitNotesConfigured,
+    traceEnabled,
   });
   return 0;
 }
@@ -144,6 +225,7 @@ export async function detectInstalledTargets(
 function skillsDestRoot(homeDir: string, target: InstallTarget): string {
   if (target === "claude") return path.join(homeDir, ".claude", "skills");
   if (target === "cursor") return path.join(homeDir, ".cursor", "skills");
+  if (target === "pi") return path.join(homeDir, ".agents", "skills");
   return path.join(homeDir, ".agents", "skills");
 }
 

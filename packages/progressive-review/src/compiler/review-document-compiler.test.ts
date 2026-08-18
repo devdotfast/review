@@ -10,9 +10,54 @@ import {
   reviewDocumentRevision,
 } from "./review-document-compiler";
 
-const fixturePath = path.join(process.cwd(), "reviews", "typed.mdx");
-
 describe("compileReviewDocument", () => {
+  it("explains that built-in MDX components must not be imported", async () => {
+    const rootPath = await mkdtemp(
+      path.join(os.tmpdir(), "review-document-component-import-"),
+    );
+    const filePath = path.join(rootPath, "review.mdx");
+    const source = [
+      'import { CodePeek, DatabaseLens } from "virtual:progressive-review-authoring";',
+      "",
+      "# Review",
+      "",
+      "<CodePeek anchor={anchors.example} />",
+    ].join("\n");
+
+    try {
+      await writeFile(filePath, source);
+      const result = await compileReviewDocument({
+        filePath,
+        reviewRootPath: rootPath,
+        source,
+      });
+
+      expect(result.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: "MDX_COMPONENT_IMPORT",
+            message: expect.stringContaining(
+              "Remove it from this import and use <CodePeek> directly",
+            ),
+          }),
+          expect.objectContaining({
+            code: "MDX_COMPONENT_IMPORT",
+            message: expect.stringContaining(
+              "Remove it from this import and use <DatabaseLens> directly",
+            ),
+          }),
+        ]),
+      );
+      expect(result.diagnostics).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ message: "Cannot find name 'CodePeek'." }),
+        ]),
+      );
+    } finally {
+      await rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("reports and formats related component and anchor diagnostics from one document", async () => {
     const rootPath = await mkdtemp(
       path.join(os.tmpdir(), "review-document-diagnostic-"),

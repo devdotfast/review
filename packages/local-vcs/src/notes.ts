@@ -522,6 +522,46 @@ export const DEV_FAST_NOTES_GLOB = "refs/notes/dev-fast/*";
 export const DEV_FAST_REMOTE_NOTES_PREFIX = "refs/notes/dev-fast/remote/";
 export const DEV_FAST_NOTES_FETCH_REFSPEC =
   "+refs/notes/dev-fast/*:refs/notes/dev-fast/remote/*";
+export const DEV_FAST_NOTES_REMOTE_CONFIG = "devFast.notesRemote";
+
+export async function notesRemote(
+  rootPath: string,
+  explicitRemote?: string,
+): Promise<string> {
+  const explicit = explicitRemote?.trim();
+  if (explicit) return explicit;
+  const configured = await git(
+    rootPath,
+    ["config", "--get", DEV_FAST_NOTES_REMOTE_CONFIG],
+    { allowFailure: true },
+  );
+  return configured.ok && configured.stdout.trim()
+    ? configured.stdout.trim()
+    : "origin";
+}
+
+export function notesRemoteSync(
+  rootPath: string,
+  explicitRemote?: string,
+): string {
+  const explicit = explicitRemote?.trim();
+  if (explicit) return explicit;
+  try {
+    return (
+      execFileSync(
+        "git",
+        gitArgsSync(rootPath, [
+          "config",
+          "--get",
+          DEV_FAST_NOTES_REMOTE_CONFIG,
+        ]),
+        { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+      ).trim() || "origin"
+    );
+  } catch {
+    return "origin";
+  }
+}
 
 /** Local notes ref → the remote/* namespace it fetches into. */
 export function remoteNotesRef(localRef: string): string {
@@ -548,7 +588,7 @@ export async function pushNotes(input: {
   remote?: string;
   refs: readonly string[];
 }): Promise<{ ok: boolean; pushed: string[]; error?: string }> {
-  const remote = input.remote ?? "origin";
+  const remote = await notesRemote(input.rootPath, input.remote);
   const pushed: string[] = [];
   const errors: string[] = [];
   for (const ref of input.refs) {
@@ -693,7 +733,7 @@ export async function fetchNotes(input: {
   if (await notesFetchDisabled(input.rootPath)) {
     return { ok: true, skipped: true };
   }
-  const remote = input.remote ?? "origin";
+  const remote = await notesRemote(input.rootPath, input.remote);
   const fetched = await git(
     input.rootPath,
     ["fetch", remote, DEV_FAST_NOTES_FETCH_REFSPEC],
@@ -744,15 +784,17 @@ const notesConfigEnsured = new Set<string>();
  * Idempotently configure a repo for dev-fast notes:
  * - notes.rewriteRef / notes.rewriteMode so git-native rebases and amends
  *   carry notes forward,
- * - a fetch refspec on origin so ordinary fetches receive teammates' notes
- *   into the remote/* namespace.
+ * - a fetch refspec on the selected notes remote so ordinary fetches receive
+ *   teammates' notes into the remote/* namespace.
  */
 export async function ensureNotesConfig(input: {
   rootPath: string;
 }): Promise<void> {
   const gitDir = await gitCommonDir(input.rootPath);
   if (!gitDir) return;
-  if (notesConfigEnsured.has(gitDir)) return;
+  const remote = await notesRemote(input.rootPath);
+  const cacheKey = `${gitDir}\0${remote}`;
+  if (notesConfigEnsured.has(cacheKey)) return;
 
   const rewriteRef = await git(
     input.rootPath,
@@ -775,20 +817,25 @@ export async function ensureNotesConfig(input: {
   // the switch. Don't memoize while disabled: flipping the switch back on
   // must let a later call install the refspec.
   if (await notesFetchDisabled(input.rootPath)) return;
-  notesConfigEnsured.add(gitDir);
+  notesConfigEnsured.add(cacheKey);
 
-  const origin = await git(
+  const remoteFetch = await git(
     input.rootPath,
-    ["config", "--get-all", "remote.origin.fetch"],
+    ["config", "--get-all", `remote.${remote}.fetch`],
     { allowFailure: true },
   );
   if (
-    origin.ok &&
-    !origin.stdout.split("\n").includes(DEV_FAST_NOTES_FETCH_REFSPEC)
+    remoteFetch.ok &&
+    !remoteFetch.stdout.split("\n").includes(DEV_FAST_NOTES_FETCH_REFSPEC)
   ) {
     await git(
       input.rootPath,
-      ["config", "--add", "remote.origin.fetch", DEV_FAST_NOTES_FETCH_REFSPEC],
+      [
+        "config",
+        "--add",
+        `remote.${remote}.fetch`,
+        DEV_FAST_NOTES_FETCH_REFSPEC,
+      ],
       { allowFailure: true },
     );
   }
@@ -797,7 +844,9 @@ export async function ensureNotesConfig(input: {
 export function ensureNotesConfigSync(input: { rootPath: string }): void {
   const gitDir = gitCommonDirSync(input.rootPath);
   if (!gitDir) return;
-  if (notesConfigEnsured.has(gitDir)) return;
+  const remote = notesRemoteSync(input.rootPath);
+  const cacheKey = `${gitDir}\0${remote}`;
+  if (notesConfigEnsured.has(cacheKey)) return;
   const config = (args: string[]) => {
     try {
       return execFileSync(
@@ -823,13 +872,13 @@ export function ensureNotesConfigSync(input: { rootPath: string }): void {
   // See ensureNotesConfig: skip refspec install (and memoization) while the
   // kill-switch is on.
   if (notesFetchDisabledSync(input.rootPath)) return;
-  notesConfigEnsured.add(gitDir);
-  const originFetch = config(["--get-all", "remote.origin.fetch"]);
+  notesConfigEnsured.add(cacheKey);
+  const remoteFetch = config(["--get-all", `remote.${remote}.fetch`]);
   if (
-    originFetch.trim() !== "" &&
-    !originFetch.split("\n").includes(DEV_FAST_NOTES_FETCH_REFSPEC)
+    remoteFetch.trim() !== "" &&
+    !remoteFetch.split("\n").includes(DEV_FAST_NOTES_FETCH_REFSPEC)
   ) {
-    config(["--add", "remote.origin.fetch", DEV_FAST_NOTES_FETCH_REFSPEC]);
+    config(["--add", `remote.${remote}.fetch`, DEV_FAST_NOTES_FETCH_REFSPEC]);
   }
 }
 

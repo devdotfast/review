@@ -250,14 +250,14 @@ the selected surface still exists.
   <DbUseCase id="save-comment" label="Save a review comment">
     <DbWrite
       from={actors.composer}
-      to={stores.appDb.tables.threads.status}
+      to={stores.appDb.tables.threads.fields.status}
       label="write draft status"
       anchor={anchors.saveComment}
     />
   </DbUseCase>
   <DbUseCase id="answer-question" label="Answer an instant question">
     <DbRead
-      from={stores.appDb.tables.threads.status}
+      from={stores.appDb.tables.threads.fields.status}
       to={actors.agent}
       label="read current thread"
       anchor={anchors.askQuestion}

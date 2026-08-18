@@ -8,14 +8,6 @@ Review is a desktop app where coding agents turn code changes into guided,
 interactive reviews. Start with the quickstart, then use the rest of this
 directory as a reference.
 
-## Before the public launch
-
-- [ ] Add a real Review screenshot or short product GIF to the root README.
-- [ ] Confirm the alpha label for launch.
-- [ ] Add public support, community, and issue-report links.
-- [ ] Confirm the privacy, retention, and bug-report language.
-- [ ] Add one public example Review from a representative pull request.
-
 ## Start here
 
 - [Quickstart](quickstart.md) — install Review and complete a first review.
@@ -34,6 +26,9 @@ directory as a reference.
 
 ## Contributing and security
 
+- [GitHub Issues](https://github.com/devdotfast/review/issues) — bugs and feature
+  requests.
+- [Discord](https://discord.gg/FmrJraNvN) — setup questions and community help.
 - [Contributing](../CONTRIBUTING.md)
 - [Security policy](../SECURITY.md)
 - [Desktop build and release guide](../apps/review-desktop/README.md)

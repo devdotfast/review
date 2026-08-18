@@ -14,7 +14,7 @@ version.
 
 ## Compatibility
 
-Review is in alpha. Before 1.0, command syntax and JSON event fields may change
+Review is in beta. Before 1.0, command syntax and JSON event fields may change
 between releases. Review Desktop installs an app-managed CLI that matches the
 running app; use that copy instead of relying on compatibility between
 different CLI and Desktop versions.

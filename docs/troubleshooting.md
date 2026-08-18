@@ -2,11 +2,7 @@
 
 <!--
 Outline: Baseline checks -> CLI install/version -> Desktop connection -> Discovery
--> Sync -> Publication -> Maps -> Agents -> Reporting.
-
-TODO(docs):
-- Document the supported way to collect app logs and diagnostics.
-- Add recovery steps for a failed app update.
+-> Sync -> Publication -> Maps -> Agents -> Updates -> Logs -> Reporting.
 -->
 
 Start with these checks:
@@ -134,6 +130,28 @@ review install cursor
 
 See [Coding agents](agents.md) for the installed locations and prompts.
 
+## An update failed
+
+Review records a failed update and shows **Update failed** once when the app
+reopens on the previous working build. Background checks will not repeatedly
+download that same failed build, but a manual retry remains available.
+
+Choose **Review → Check for Updates...** to retry. If the update fails again,
+quit Review, [download the latest installer](https://install.dev.fast), and
+replace the installed app. Reinstalling the app does not remove Reviews or
+settings stored under `~/.dev`.
+
+## Collect app logs
+
+Open the Command Palette and run **Developer: Open Logs Folder**. Review reveals
+the current `main.log` in Finder. Reproduce the problem first so the latest
+entries capture it.
+
+Logs can contain local paths and extension output. Inspect and redact them
+before attaching them to a public issue. For a product defect that needs
+diagnostic data, prefer Review's **Report bug** dialog, which sends only the
+information and optional attachments shown before submission.
+
 ## Report a bug
 
 Use Review's **Report bug** dialog for a product defect. Review shows separate
@@ -144,3 +162,7 @@ boundary.
 For a suspected vulnerability, follow the [security policy](../SECURITY.md) and
 use a private GitHub security advisory. Do not open a public issue with secrets
 or exploit details.
+
+Use [GitHub Issues](https://github.com/devdotfast/review/issues) for
+reproducible bugs and feature requests. For setup questions and community help,
+join the [dev.fast Discord](https://discord.gg/FmrJraNvN).

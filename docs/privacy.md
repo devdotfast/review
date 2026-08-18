@@ -3,14 +3,14 @@
 <!--
 Outline: Local data -> Anonymous telemetry -> Errors -> Agent providers
 -> Explicit bug reports -> Opt-out -> Developer inspection.
-
-TODO(docs):
-- Add a public privacy contact or policy URL.
 -->
 
 Review reads source code and agent-authored documents from your machine. This
 page separates the local product data, anonymous telemetry, connected coding
 agents, and explicit bug reports.
+
+Read the [dev.fast privacy policy](https://dev.fast/privacy) for the public
+policy governing Review.
 
 For the exact event schemas and implementation references, see the full
 [telemetry reference](telemetry.md).

@@ -21,8 +21,10 @@ interactive Review connected to the exact code behind it.
 Explore architecture and data flow, inspect diffs, ask questions,
 and explore coding traces from one interface.
 
+![Review Desktop showing a guided code review and interactive sequence diagram](docs/assets/review-overview.png)
+
 > [!NOTE]
-> Review is in alpha and currently ships for macOS on Apple silicon.
+> Review is in beta and currently ships for macOS on Apple silicon.
 
 ## Quickstart
 

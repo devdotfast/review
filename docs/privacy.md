@@ -6,7 +6,6 @@ Outline: Local data -> Anonymous telemetry -> Errors -> Agent providers
 
 TODO(docs):
 - Add a public privacy contact or policy URL.
-- Capture the final bug-report consent dialog and verify its defaults match this page.
 -->
 
 Review reads source code and agent-authored documents from your machine. This
@@ -40,12 +39,12 @@ UUID and does not associate it with a person profile.
 
 Telemetry can include closed enums, booleans, counts, durations, the Review and
 app versions, operating-system and architecture categories, feature usage, and
-sanitized product errors. PostHog may derive coarse location at ingestion; the
+sanitized product errors. PostHog may derive coarse location at ingestion, but the
 project discards the source IP.
 
 Pending events are stored in a bounded local queue under
-`${DEV_REVIEW_HOME:-~/.dev}/telemetry/events`. Review retries temporary
-delivery failures and removes events after seven days.
+`~/.dev/telemetry/events` by default. Review retries temporary
+delivery failures and removes pending events after seven days.
 
 ## Error reports
 
@@ -53,31 +52,36 @@ Review can automatically report failures in its own app, canvas, server, or
 background process. These reports may contain an error class, a cleaned message,
 a one-way fingerprint, and up to ten stack frames from Review's own program.
 
-Before sending, Review removes paths, home and temporary directories, web
+Before sending, Review cleans paths, home and temporary directories, web
 addresses, email addresses, and known secret formats. It drops repository,
 dependency, and extension stack frames. It also drops any message that quotes a
 Review document or does not pass a second local path-and-secret check.
 
-## Connected coding agents
-
-Claude Code, Codex, Cursor, and their model providers are separate from Review's
-telemetry. An agent may send source code, prompts, tool output, and context to
-its provider according to that provider's settings and terms. Installing a
-Review skill does not change those policies.
-
 ## User-initiated bug reports
 
-The **Report bug** dialog sends a report only after you select **Send**. It asks
-for a description and has separate consent controls for attaching:
+The **Report bug** dialog sends a report only after you select **Send**.
 
-- the current Review source;
-- the head software-map source; and
-- changed-file diffs.
+![The Review bug-report dialog with all three diagnostic attachments selected by default.](assets/bug-report-consent.png)
 
-Those attachment controls are on by default and can be turned off individually.
-The report never attaches Review state, comment threads, or question threads.
-Review stores submitted reports in a private dev.fast Cloudflare R2 bucket and
-deletes them after 90 days.
+Under **Include diagnostic attachments**, three independent checkboxes control
+whether Review attaches:
+
+- the current Review source
+- the head software-map source
+- changed-file diffs used by the review codepeeks (only the diff lines)
+
+You can turn off any or all of them before sending.
+
+The checkboxes control only those optional attachments. Every submitted report
+also includes the description, app and CLI versions, operating-system category,
+a random app-session ID, and up to 20 sanitized JavaScript error class names
+seen during that canvas session. It does not include error messages in that
+list.
+
+If a selected attachment is unavailable, Review omits it and sends the other
+available data. The report never attaches Review metadata, comment threads, or
+question threads. Review stores submitted reports in a private /dev/fast
+Cloudflare R2 bucket and deletes them after 90 days.
 
 An explicit bug report is separate from passive telemetry and is sent even when
 anonymous telemetry is disabled. Review shows the attachment choices before

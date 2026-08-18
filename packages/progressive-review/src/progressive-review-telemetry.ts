@@ -6,8 +6,8 @@ import { valid as validSemver } from "semver";
 
 import { writeFileAtomic } from "./atomic-write";
 import { resolveAuthoringSessionRef } from "./authoring-session";
-import { findProgressiveReviewPackageRoot } from "./package-paths";
 import { EMBEDDED_PROGRESSIVE_REVIEW_POSTHOG_KEY } from "./embedded-posthog-key";
+import { findProgressiveReviewPackageRoot } from "./package-paths";
 import {
   PROGRESSIVE_REVIEW_POSTHOG_HOST_ENV,
   PROGRESSIVE_REVIEW_POSTHOG_KEY_ENV,
@@ -75,6 +75,7 @@ export type ProgressiveReviewTelemetryErrorCategory =
 export type ProgressiveReviewSourceKind =
   | "pull_request"
   | "git_branch"
+  | "git_commit"
   | "jj_bookmark"
   | "jj_change";
 export type ProgressiveReviewSessionAgent = "codex" | "claude" | "pi" | "other";
@@ -84,7 +85,12 @@ export type ProgressiveReviewSessionOutcome =
   // Replaced "rejected": the reader dismisses a review instead of rejecting it.
   | "dismissed";
 
-export type ReviewTelemetryTab = "review" | "commits" | "map" | "files";
+export type ReviewTelemetryTab =
+  | "review"
+  | "commits"
+  | "map"
+  | "files"
+  | "trace";
 export type ReviewTabTelemetryReason =
   | "tab_change"
   | "visibility_hidden"
@@ -231,7 +237,7 @@ export class ProgressiveReviewTelemetry {
       await this.captureClient.capture({
         event: "review_installation_created",
         distinctId: config.installationId,
-        properties: await this.commonProperties(),
+        properties: await this.commonProperties(config),
       });
       // A printed event is not a sent event. Persisting the flag here would
       // suppress the real installation event on this machine forever.
@@ -326,7 +332,7 @@ export class ProgressiveReviewTelemetry {
         event,
         distinctId: config.installationId,
         properties: {
-          ...(await this.commonProperties()),
+          ...(await this.commonProperties(config)),
           ...properties,
         },
       });
@@ -418,7 +424,16 @@ export class ProgressiveReviewTelemetry {
         await readFile(this.installConfigPath, "utf8"),
       ) as Partial<ProgressiveReviewTelemetryInstallConfig>;
       const config = normalizeTelemetryInstallConfig(parsed, this.now);
-      if (config) return config;
+      if (config) {
+        if (parsed.internal !== config.internal) {
+          try {
+            this.writeInstallConfig(config);
+          } catch {
+            // Keep the existing identity when a best-effort migration fails.
+          }
+        }
+        return config;
+      }
     } catch {
       // Missing or invalid config gets replaced below.
     }
@@ -474,7 +489,9 @@ export class ProgressiveReviewTelemetry {
     }
   }
 
-  private async commonProperties(): Promise<PostHogCaptureProperties> {
+  private async commonProperties(
+    config: Pick<ProgressiveReviewTelemetryInstallConfig, "internal">,
+  ): Promise<PostHogCaptureProperties> {
     const appVersion = reviewAppVersion(this.env);
     return {
       product: "review-cli",
@@ -485,7 +502,7 @@ export class ProgressiveReviewTelemetry {
       platform: process.platform,
       arch: process.arch,
       ci: Boolean(this.env.CI),
-      internal: isInternalTelemetry(this.env),
+      internal: isInternalTelemetry(this.env, config),
     };
   }
 

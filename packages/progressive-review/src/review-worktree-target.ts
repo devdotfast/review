@@ -14,7 +14,13 @@ import {
   type StoredReviewRecord,
   safeParseStoredReviewRecord,
 } from "./review-home";
-import { prepareReviewPinnedCheckout } from "./review-prepare";
+import {
+  markerMatches,
+  prepareReviewPinnedCheckout,
+  reviewPrepareCommandsHash,
+  reviewPrepareMarkerPath,
+  spawnReviewPrepareBackground,
+} from "./review-prepare";
 import {
   type ReviewCheckoutRole,
   reviewManagedCheckoutDir,
@@ -102,13 +108,19 @@ export async function prepareReviewSourceTargetForRef(input: {
   return { ref, sourceRootPath };
 }
 
-export async function ensurePinnedReviewWorktreeAtCommit(input: {
+export interface EnsurePinnedReviewWorktreeInput {
   repoRoot: string;
   commit: string;
   reviewUuid: string;
   role: ReviewCheckoutRole;
   warning?: (message: string) => void;
-}): Promise<string> {
+  background?: boolean;
+  cliEntryPath?: string;
+}
+
+export async function ensurePinnedReviewWorktreeAtCommit(
+  input: EnsurePinnedReviewWorktreeInput,
+): Promise<string> {
   const sourceRootPath = await span(
     "ensureReviewPinnedCheckout",
     () =>
@@ -132,6 +144,25 @@ export async function ensurePinnedReviewWorktreeAtCommit(input: {
   if (commands.length === 0) {
     return sourceRootPath;
   }
+
+  const markerPath = reviewPrepareMarkerPath(sourceRootPath);
+  const expectedHash = reviewPrepareCommandsHash(commands);
+  const alreadyPrepared = await markerMatches(markerPath, expectedHash).catch(
+    () => false,
+  );
+  if (alreadyPrepared) {
+    return sourceRootPath;
+  }
+
+  if (input.background !== false) {
+    spawnReviewPrepareBackground({
+      checkoutPath: sourceRootPath,
+      commit: input.commit,
+      cliEntryPath: input.cliEntryPath,
+    });
+    return sourceRootPath;
+  }
+
   await span(
     "prepareReviewPinnedCheckout",
     () =>

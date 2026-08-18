@@ -159,6 +159,11 @@ interface ReviewContextValue {
   askAgent: (input: CreateReviewCommentInput) => Promise<void>;
   softwareMapFocusRequest: SoftwareMapFocusRequest | null;
   openSoftwareMapElement: (elementPath: string) => void;
+  openTraceSession?: (input: {
+    sessionId: string;
+    trace?: string;
+    eventIndex?: number;
+  }) => void;
   saveComment: (input: CreateReviewCommentInput) => Promise<void>;
   updateComment: (
     threadId: string,
@@ -186,16 +191,23 @@ const ReviewContext = createContext<ReviewContextValue | null>(null);
 export function ReviewProvider({
   documentRoute,
   softwareMapEnabled = false,
+  openTraceSession,
   children,
 }: {
   documentRoute?: string;
   softwareMapEnabled?: boolean;
+  openTraceSession?: (input: {
+    sessionId: string;
+    trace?: string;
+    eventIndex?: number;
+  }) => void;
   children: ReactNode;
 }) {
   return (
     <ReviewCoordinator
       documentRoute={documentRoute}
       softwareMapEnabled={softwareMapEnabled}
+      openTraceSession={openTraceSession}
     >
       {children}
     </ReviewCoordinator>
@@ -205,10 +217,16 @@ export function ReviewProvider({
 function ReviewCoordinator({
   documentRoute,
   softwareMapEnabled,
+  openTraceSession,
   children,
 }: {
   documentRoute?: string;
   softwareMapEnabled: boolean;
+  openTraceSession?: (input: {
+    sessionId: string;
+    trace?: string;
+    eventIndex?: number;
+  }) => void;
   children: ReactNode;
 }) {
   const session = useReviewSession();
@@ -582,6 +600,7 @@ function ReviewCoordinator({
       askAgent,
       softwareMapFocusRequest,
       openSoftwareMapElement,
+      openTraceSession,
       saveComment,
       updateComment,
       deleteComment,
@@ -616,6 +635,7 @@ function ReviewCoordinator({
       lineCommentsForAnchor,
       listVersions,
       openSoftwareMapElement,
+      openTraceSession,
       pendingCommentCount,
       resolvedBaseRef,
       resolvedHeadRef,

@@ -1,6 +1,14 @@
 import { z } from "zod";
 
 import {
+  type ReviewAgentTraceEvent,
+  ReviewAgentTraceEventSchema,
+  type ReviewAgentTraceListResponse,
+  ReviewAgentTraceListResponseSchema,
+  type ReviewAgentTraceResponse,
+  ReviewAgentTraceResponseSchema,
+  type ReviewAgentTraceSession,
+  ReviewAgentTraceSessionSchema,
   type ReviewCliInstallApplyRequest,
   ReviewCliInstallApplyRequestSchema,
   type ReviewCliInstallApplyResponse,
@@ -51,6 +59,8 @@ import {
   ReviewSessionResponseSchema,
   ReviewSessionSchema,
   type ReviewSessionWire,
+  ReviewSubmissionResponseSchema,
+  ReviewSubmissionWireSchema,
   type ReviewSurfaceEvent,
   ReviewSurfaceEventSchema,
   type ReviewThreadAnchorsResponse,
@@ -220,6 +230,30 @@ export function parseReviewDesktopState(value: unknown): ReviewDesktopState {
 
 export function parseReviewRange(value: unknown): ReviewRangeWire {
   return parseContract(ReviewRangeSchema, value);
+}
+
+export function parseReviewAgentTraceEvent(
+  value: unknown,
+): ReviewAgentTraceEvent {
+  return parseContract(ReviewAgentTraceEventSchema, value);
+}
+
+export function parseReviewAgentTraceSession(
+  value: unknown,
+): ReviewAgentTraceSession {
+  return parseContract(ReviewAgentTraceSessionSchema, value);
+}
+
+export function parseReviewAgentTraceListResponse(
+  value: unknown,
+): ReviewAgentTraceListResponse {
+  return parseContract(ReviewAgentTraceListResponseSchema, value);
+}
+
+export function parseReviewAgentTraceResponse(
+  value: unknown,
+): ReviewAgentTraceResponse {
+  return parseContract(ReviewAgentTraceResponseSchema, value);
 }
 
 function parseContract<T>(schema: z.ZodType<T>, value: unknown): T {

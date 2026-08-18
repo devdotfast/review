@@ -6,8 +6,9 @@ are edited with normal file tools. Read and mutate comment threads only through
 `review threads`. The `.build/` directory is disposable publish output.
 
 1. Run `review app launch --json`.
-2. Run `review info --json` in the source checkout. If it finds no Review, run
-   `review scaffold --json`.
+2. Run `review info --json` in the source checkout. It lists active Reviews
+   bound to that worktree and reports `matchesCheckout` for each one. If no
+   Review matches the requested change, run `review scaffold --json`.
 3. Read the JSONL event for the UUID directory, source binding, sync state,
    and unresolved threads.
 4. Edit `review.mdx` and `data.ts` in that directory. Keep the H1 and write
@@ -30,9 +31,10 @@ are edited with normal file tools. Read and mutate comment threads only through
 resolve <threadId>` only after its exact target is addressed. Question
    records remain `running`, `answered`, or `error`.
 
-`review info` is read-only discovery. It lists all Reviews for the current
-worktree, or all worktrees in the repository with `review info --all`; no
-match produces an empty `reviews` list. A new Review is `draft`; publishing
+`review info` is read-only discovery. It lists active Reviews bound to the
+current worktree, or all worktrees in the repository with `review info --all`.
+The `matchesCheckout` field reports whether the checkout equals or descends
+from each Review change. A new Review is `draft`; publishing
 sets it to `awaiting-review`. The
 reviewer submits **Approve** (`accepted`) or **Request changes**
 (`awaiting-agent-updates`), with or without comments. Dismissal sets

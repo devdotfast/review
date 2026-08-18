@@ -23,15 +23,15 @@ describe("reviewDocumentErrorReport", () => {
     const zodError = new z.ZodError([
       {
         code: "custom",
-        path: ["messages", 1, "anchor"],
-        message: "Anchor must be used only once within this diagram",
+        path: ["messages", 1, "label"],
+        message: "Label must be unique among parallel A→B messages",
         input: undefined,
       },
     ]);
     const report = reviewDocumentErrorReport(zodError);
     expect(report.name).toBe("ZodError");
     expect(report.message).toContain(
-      "Anchor must be used only once within this diagram",
+      "Label must be unique among parallel A→B messages",
     );
   });
 

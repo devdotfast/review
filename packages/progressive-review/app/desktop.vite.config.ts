@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import path from "node:path";
 
 import react from "@vitejs/plugin-react";
@@ -8,6 +9,12 @@ import {
   hardenLibavoidForTrustedTypes,
   isLibavoidBrowserModule,
 } from "./desktop-trusted-types";
+
+const require = createRequire(import.meta.url);
+const decodeNamedCharacterReferenceIndex = path.join(
+  path.dirname(require.resolve("decode-named-character-reference")),
+  "index.js",
+);
 
 export default defineConfig({
   root: __dirname,
@@ -40,7 +47,12 @@ export default defineConfig({
       },
     },
   ],
-  resolve: { dedupe: ["react", "react-dom"] },
+  resolve: {
+    dedupe: ["react", "react-dom"],
+    alias: {
+      "decode-named-character-reference": decodeNamedCharacterReferenceIndex,
+    },
+  },
   build: {
     copyPublicDir: false,
     emptyOutDir: true,

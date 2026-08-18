@@ -630,6 +630,31 @@ describe("notes config and rewrite handling", () => {
     expect(enabledSpecs).toEqual([DEV_FAST_NOTES_FETCH_REFSPEC]);
   });
 
+  it("installs the fetch refspec on the configured notes remote", async () => {
+    const rootPath = await initGitRepo();
+    commit(rootPath, "one");
+    const origin = await mkdtemp(path.join(tmpdir(), "notes-origin-"));
+    const fork = await mkdtemp(path.join(tmpdir(), "notes-fork-"));
+    git(origin, ["init", "-q", "--bare"]);
+    git(fork, ["init", "-q", "--bare"]);
+    git(rootPath, ["remote", "add", "origin", origin]);
+    git(rootPath, ["remote", "add", "fork", fork]);
+    git(rootPath, ["config", "devFast.notesRemote", "fork"]);
+
+    await ensureNotesConfig({ rootPath });
+
+    expect(
+      git(rootPath, ["config", "--get-all", "remote.fork.fetch"])
+        .split("\n")
+        .filter((line) => line.includes("dev-fast")),
+    ).toEqual([DEV_FAST_NOTES_FETCH_REFSPEC]);
+    expect(
+      git(rootPath, ["config", "--get-all", "remote.origin.fetch"])
+        .split("\n")
+        .filter((line) => line.includes("dev-fast")),
+    ).toEqual([]);
+  });
+
   it("notes.rewriteRef carries a note across git commit --amend", async () => {
     const rootPath = await initGitRepo();
     const original = commit(rootPath, "will amend");
@@ -656,6 +681,26 @@ describe("notes config and rewrite handling", () => {
 });
 
 describe("notes sharing", () => {
+  it("uses devFast.notesRemote when no remote override is supplied", async () => {
+    const publisher = await initGitRepo();
+    const head = commit(publisher, "shared through fork");
+    const fork = await mkdtemp(path.join(tmpdir(), "notes-fork-"));
+    git(fork, ["init", "-q", "--bare"]);
+    git(publisher, ["remote", "add", "fork", fork]);
+    git(publisher, ["config", "devFast.notesRemote", "fork"]);
+    await writeNote({
+      rootPath: publisher,
+      ref: MAP_REF,
+      commit: head,
+      content: "fork map",
+    });
+
+    const pushed = await pushNotes({ rootPath: publisher, refs: [MAP_REF] });
+
+    expect(pushed).toMatchObject({ ok: true, pushed: [MAP_REF] });
+    expect(git(fork, ["ls-remote", ".", MAP_REF])).toContain(MAP_REF);
+  });
+
   it("pushes and fetches notes through a bare origin into the remote namespace", async () => {
     const publisher = await initGitRepo();
     const head = commit(publisher, "shared");

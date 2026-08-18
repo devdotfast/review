@@ -1,13 +1,51 @@
 ---
 name: dev-review-map
 description: Author and save the pinned base and head software maps for a Review.
-argument-hint: [--pr <number-or-url>] [--base <ref> [--head <ref>]]
 ---
 
-Generate or refresh the dev.fast code map for this repository. Per-commit maps are git notes under `refs/notes/dev-fast/*` — the only durable map state, shareable with `review map push` / `review map fetch` and never checked into any branch. The editable file is a commit-addressed scratch buffer under `$GIT_COMMON_DIR/dev-fast/scratch/<commit>/`: `review map open <rev>` hydrates it and prints a provenance line that is your work order, and `review map check <rev> --review <uuid>` validates it strictly, records the map worker, and flushes it to `<rev>`'s note on success.
+# Review software-map worker
 
-Act as the dedicated map worker. Do not edit `review.mdx` or `data.ts`. Do not publish the Review document or software map. Follow the Map Agent Prompt section of [../dev-review/SKILL.md](../dev-review/SKILL.md): one loop applied twice, base first — `open <base>` → follow its work order → `check <base> --review <uuid>` → `open <head>` → apply the diff's structural changes → `check <head> --review <uuid>` → `push` when origin is writable. Use the user-supplied `--pr` / `--base` / `--head` refs, defaulting to the working-tree diff (jj `@-..@`, git merge-base(default, HEAD)..HEAD).
+Author and save two commit-addressed software maps. Work on the base first. Then update that structure for the head diff.
 
-The old `review map init` / `review map update` / `review map scaffold` / `review map snapshot` / `review map refresh` commands were removed; `open` + your own authoring + `check`'s flush-on-green replaces them all.
+Do not edit `review.mdx` or `data.ts`. Do not run `review publish` or `review map publish`.
 
-Done when `review map check <rev> --review <uuid>` passes for both revisions. Surface generation errors and the smallest next action instead of retrying blindly.
+## Storage contract
+
+Git notes under `refs/notes/dev-fast/*` are the only durable map state. Never commit a map to the source branch.
+
+`review map open <rev>` hydrates this scratch file:
+
+```text
+$GIT_COMMON_DIR/dev-fast/scratch/<commit>/software-map.ts
+```
+
+The command prints a provenance line and a work order. Read both before you edit the adjacent model declaration.
+
+`review map check <rev> --review <uuid>` validates the scratch file. A successful check saves the file to that commit's git note.
+
+## Workflow
+
+1. Use the exact base and head commits from the dispatch prompt.
+2. Run `review map open <base>`.
+3. Read the work order and inspect the repository at the base commit.
+4. Model the important people, systems, containers, components, and code elements.
+5. Use stable dot-path identities. Do not model incidental implementation detail.
+6. Run `review map check <base> --review <uuid>`. Correct errors until it passes.
+7. Run `review map open <head>` only after the base check passes.
+8. Inspect the base-to-head diff. Apply only its structural changes.
+9. Run `review map check <head> --review <uuid>`. Correct errors until it passes.
+10. Run `review map push` when the notes remote is writable. Use `--remote <name>` when `origin` is read-only.
+
+If head provenance names the wrong seed, check the base again. Then reopen the head with `--force`.
+
+Resolve validation errors. Report unrelated existing warnings without expanding the task scope. Do not retry an environmental failure without new evidence.
+
+A push failure does not invalidate successful local checks. Report the push failure so the main agent can continue local map publication.
+
+To keep a non-origin choice, run `git config devFast.notesRemote <name>`. Review uses that remote for map push, map fetch, and the installed notes refspec.
+
+When a user invokes this skill directly, use supplied base and head refs. If the user supplies none, use an active Review's pins. Otherwise, use the working-tree diff: jj `@-..@`, or the Git merge base to `HEAD`.
+
+## Completion criteria
+
+Return only after both `review map check` commands pass. Report the base and head commits, both check results, the push result, and remaining warnings. If an environmental condition blocks a check, return the blocking evidence and the smallest next action.

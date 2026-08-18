@@ -2,8 +2,10 @@ import { z } from "zod";
 
 import {
   type CallStackDiffProps,
+  type TraceQuoteProps,
   callStackDiffPropsSchema,
   reviewAuthoringPropsSchemas,
+  traceQuotePropsSchema,
 } from "./authoring";
 
 // Publish-time element audit. The validation runtime's React substitute does
@@ -28,10 +30,12 @@ export interface PublishAuditElement {
 type AuthoringComponentName = keyof typeof reviewAuthoringPropsSchemas;
 
 function isAuditElement(value: unknown): value is PublishAuditElement {
+  if (typeof value !== "object" || value === null) return false;
+  const obj = value as Record<string, unknown>;
   return (
-    typeof value === "object" &&
-    value !== null &&
-    (value as Record<string, unknown>)[ELEMENT_MARKER] === true
+    obj[ELEMENT_MARKER] === true ||
+    obj.$$typeof === Symbol.for("react.element") ||
+    obj.$$typeof === Symbol.for("react.transitional.element")
   );
 }
 
@@ -157,6 +161,29 @@ export function createPublishValidationReact(): Record<string, unknown> {
   return react;
 }
 
+export interface PublishAuditTraceQuote {
+  sessionId: string;
+  trace?: string;
+  event?: number;
+  text: string;
+}
+
+export function extractAuditText(node: unknown): string {
+  if (node === null || node === undefined || typeof node === "boolean") {
+    return "";
+  }
+  if (typeof node === "string" || typeof node === "number") {
+    return String(node);
+  }
+  if (Array.isArray(node)) {
+    return node.map(extractAuditText).join("");
+  }
+  if (isAuditElement(node)) {
+    return extractAuditText(node.props.children);
+  }
+  return "";
+}
+
 export function auditReviewDocumentComponent(input: {
   Component: unknown;
   reportError: (message: string) => void;
@@ -164,6 +191,7 @@ export function auditReviewDocumentComponent(input: {
   // deleted and added lines; the audit is the one walk that sees each
   // element, so it hands the parsed props to the evaluation.
   collectCallStackDiff?: (props: CallStackDiffProps) => void;
+  collectTraceQuote?: (quote: PublishAuditTraceQuote) => void;
 }): void {
   if (typeof input.Component !== "function") return;
   const components = new Map<AuthoringComponentName, unknown>();
@@ -204,6 +232,18 @@ export function auditReviewDocumentComponent(input: {
         if (name === "CallStackDiff" && input.collectCallStackDiff) {
           const parsed = callStackDiffPropsSchema.safeParse(child.props);
           if (parsed.success) input.collectCallStackDiff(parsed.data);
+        }
+        if (name === "TraceQuote" && input.collectTraceQuote) {
+          const parsed = traceQuotePropsSchema.safeParse(child.props);
+          if (parsed.success) {
+            const text = extractAuditText(child.props.children);
+            input.collectTraceQuote({
+              sessionId: parsed.data.sessionId,
+              trace: parsed.data.trace,
+              event: parsed.data.event,
+              text,
+            });
+          }
         }
         walk(child.props.children, name);
         continue;

@@ -30,6 +30,11 @@ import { mergeErrorTelemetryProperties } from "../error-telemetry";
 import { NativeMessageMirror } from "../native-agent/native-message-mirror";
 import type { ReviewThreadAgentBinding } from "../native-agent/native-session";
 import { NativeReviewTurnLauncher } from "../native-agent/native-turn-launcher";
+import {
+  isTraceR2Configured,
+  listReviewTraceSessions,
+  loadReviewAgentTrace,
+} from "../review-agent-traces";
 import { reviewCommentPrompt } from "../review-comment-agent";
 import { resolveReviewCommitScope } from "../review-commits";
 import type { ReviewDiffFile } from "../review-diff-files";
@@ -385,9 +390,78 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   app.get("/document-meta", route(documentMeta));
   app.post("/diff-files", route(diffFiles));
   app.get("/file-content", route(fileContent));
+  app.get("/agent-traces", route(agentTraces));
+  app.get("/agent-traces/:sessionId", route(agentTraceDetail));
   app.notFound(() =>
     reviewApiJsonResponse(404, { ok: false, error: "not found" }),
   );
+
+  async function resolveTraceSessionDescriptors() {
+    const review = readReviewStoreRecord(reviewRootPath);
+    const repoRootPath = resolveReviewRepoRootFromStore(reviewRootPath);
+    const headCommit = review.sourceCommit ?? review.baseCommit;
+    return listReviewTraceSessions({
+      rootPath: repoRootPath,
+      baseCommit: review.baseCommit,
+      headCommit,
+    });
+  }
+
+  async function agentTraces(): Promise<Response> {
+    const sessions = await resolveTraceSessionDescriptors();
+    return reviewApiJsonResponse(200, {
+      ok: true,
+      configured: isTraceR2Configured(),
+      sessions,
+    });
+  }
+
+  async function agentTraceDetail(
+    context: Context<ReviewHonoEnv>,
+  ): Promise<Response> {
+    const sessionId = context.req.param("sessionId");
+    if (!sessionId) {
+      return reviewApiJsonResponse(404, {
+        ok: false,
+        error: "Session is required.",
+      });
+    }
+    const trace =
+      new URL(context.req.url).searchParams.get("trace") ?? undefined;
+    const repoRootPath = resolveReviewRepoRootFromStore(reviewRootPath);
+    const loaded = await loadReviewAgentTrace({
+      sessionId,
+      trace,
+      cwd: repoRootPath,
+    });
+    if (!loaded) {
+      return reviewApiJsonResponse(404, {
+        ok: false,
+        error: `Trace not found for session ${sessionId}${trace ? ` (subagent ${trace})` : ""}.`,
+      });
+    }
+    const {
+      parserVersion,
+      descriptor,
+      trace: parsedTrace,
+      subagents,
+      traceName,
+    } = loaded;
+    return reviewApiJsonResponse(200, {
+      ok: true,
+      parserVersion,
+      session: descriptor,
+      trace: traceName,
+      subagents,
+      title: parsedTrace.title,
+      startedAt: parsedTrace.startedAt,
+      endedAt: parsedTrace.endedAt,
+      activeMs: parsedTrace.activeMs,
+      userTurns: parsedTrace.userTurns,
+      toolCalls: parsedTrace.toolCalls,
+      events: parsedTrace.events,
+    });
+  }
 
   async function telemetryTab(
     context: Context<ReviewHonoEnv>,

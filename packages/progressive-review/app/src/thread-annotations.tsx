@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 
 import type { ThreadTarget } from "../../src/types";
 import {
@@ -25,6 +26,7 @@ import {
   useReview,
 } from "./review-context";
 import { reviewDocumentRange } from "./review-document-text";
+import { useReviewRoots } from "./review-root-context";
 import {
   type ThreadView,
   commentThreadView,
@@ -43,7 +45,7 @@ import {
 } from "./thread-target-state";
 import { captureUiEvent } from "./ui-telemetry";
 
-/** Single source for popover geometry; `.thread-popover` owns nothing but z-index. */
+/** Single source for popover geometry; `.thread-popover` owns only its layer. */
 const POPOVER_WIDTH = 420;
 /** Narrowest margin card worth showing; below this the popover reads better. */
 export const CARD_MIN_WIDTH = 266;
@@ -169,6 +171,7 @@ export function ThreadAnnotations({
 }): ReactElement | null {
   const session = useReviewSession();
   const review = useReview();
+  const reviewRoots = useReviewRoots();
   const commentThreads = review.allCommentThreads();
   const draftTarget = isGlobalCommentDraft(review.draftTarget)
     ? null
@@ -280,7 +283,9 @@ export function ThreadAnnotations({
 
   const closeDraftIfEmpty = () => {
     if (!draftTarget) return;
-    const hasText = draftHasTextRef.current || draftTextareaHasText(rootRef);
+    const hasText =
+      draftHasTextRef.current ||
+      draftTextareaHasText(rootRef, reviewRoots?.appRef.current);
     if (!hasText) review.closeCommentDraft();
   };
 
@@ -680,6 +685,7 @@ export function ThreadAnnotations({
     gutter?.mode === "cards"
       ? annotations.filter((annotation) => annotation.anchorY !== null)
       : [];
+  const popoverHost = reviewRoots?.appRef.current ?? null;
 
   return (
     <div ref={rootRef}>
@@ -732,24 +738,30 @@ export function ThreadAnnotations({
             </span>
           );
         })}
-        {gutter?.mode !== "cards" && draftTarget && (
-          <div
-            className="thread-popover"
-            style={popoverStyle(draftPopoverPlacement(articleRef, draftTarget))}
-          >
-            <ThreadDraftCardWithState
-              quote={draftQuote}
-              variant="popover"
-              intent={draftTarget.intent}
-              initialDraft={draftTextRef.current}
-              onDraftStateChange={updateDraftHasText}
-              onDraftTextChange={updateDraftText}
-              onSubmitComment={(body) => submitDraft(false, body)}
-              onAskAgent={(body) => submitDraft(true, body)}
-              onCancel={() => review.closeCommentDraft()}
-            />
-          </div>
-        )}
+        {gutter?.mode !== "cards" &&
+          draftTarget &&
+          popoverHost &&
+          createPortal(
+            <div
+              className="thread-popover"
+              style={popoverStyle(
+                draftPopoverPlacement(popoverHost, draftTarget),
+              )}
+            >
+              <ThreadDraftCardWithState
+                quote={draftQuote}
+                variant="popover"
+                intent={draftTarget.intent}
+                initialDraft={draftTextRef.current}
+                onDraftStateChange={updateDraftHasText}
+                onDraftTextChange={updateDraftText}
+                onSubmitComment={(body) => submitDraft(false, body)}
+                onAskAgent={(body) => submitDraft(true, body)}
+                onCancel={() => review.closeCommentDraft()}
+              />
+            </div>,
+            popoverHost,
+          )}
       </div>
       {gutter?.mode === "cards" && (marginCards.length > 0 || draftTarget) && (
         <div
@@ -811,17 +823,21 @@ function popoverStyle(placement: { x: number; y: number }): CSSProperties {
     top: placement.y,
     // Width lives here, not in `.thread-popover`, so it cannot drift from the
     // POPOVER_WIDTH the placement clamps are computed against.
-    width: `min(${POPOVER_WIDTH}px, calc(100vw - 32px))`,
+    width: `min(${POPOVER_WIDTH}px, calc(100% - 24px))`,
     pointerEvents: "auto",
   };
 }
 
 function draftTextareaHasText(
   rootRef: RefObject<HTMLDivElement | null>,
+  popoverHost?: HTMLElement | null,
 ): boolean {
-  const textarea = rootRef.current?.querySelector<HTMLTextAreaElement>(
-    ".thread-card--draft textarea",
-  );
+  const selector = ".thread-card--draft textarea";
+  const textarea =
+    rootRef.current?.querySelector<HTMLTextAreaElement>(selector) ??
+    popoverHost?.querySelector<HTMLTextAreaElement>(
+      `.thread-popover ${selector}`,
+    );
   return Boolean(textarea?.value.trim());
 }
 
@@ -853,26 +869,23 @@ function targetStateMapsEqual(
 }
 
 function draftPopoverPlacement(
-  articleRef: RefObject<HTMLElement | null>,
+  popoverHost: HTMLElement,
   draftTarget: CommentDraftTarget,
 ): { x: number; y: number } {
-  const article =
-    articleRef.current ??
-    document.querySelector<HTMLElement>(".review-document");
-  const articleRect = article?.getBoundingClientRect();
+  const hostRect = popoverHost.getBoundingClientRect();
   const viewportX = clamp(
-    draftTarget.placement?.x ?? window.innerWidth / 2,
-    12,
-    Math.max(12, window.innerWidth - POPOVER_WIDTH - 12),
+    draftTarget.placement?.x ?? hostRect.left + hostRect.width / 2,
+    hostRect.left + 12,
+    Math.max(hostRect.left + 12, hostRect.right - POPOVER_WIDTH - 12),
   );
   const viewportY = clamp(
     draftTarget.placement?.y ?? 200,
-    12,
-    window.innerHeight - 200,
+    hostRect.top + 12,
+    Math.max(hostRect.top + 12, hostRect.bottom - 200),
   );
   return {
-    x: viewportX - (articleRect?.left ?? 0),
-    y: viewportY - (articleRect?.top ?? 0),
+    x: viewportX - hostRect.left,
+    y: viewportY - hostRect.top,
   };
 }
 

@@ -310,6 +310,26 @@ export function setupBannerMessage(
       .map((agent) => TARGET_LABELS[agent.target])
       .join(", ")}.`;
   }
+  const traceAgents = status.agents.filter(
+    (agent) =>
+      agent.present &&
+      (agent.target === "claude" ||
+        agent.target === "codex" ||
+        agent.target === "pi"),
+  );
+  const missingFff = traceAgents.filter(
+    (agent) =>
+      !status.fff.registrations.some(
+        (registration) =>
+          registration.target === agent.target && registration.present,
+      ),
+  );
+  if (traceAgents.length > 0 && missingFff.length > 0) {
+    return "FFF trace search needs setup for your coding agents.";
+  }
+  if (!status.trace.enabled) {
+    return "Trace capture needs setup.";
+  }
   return null;
 }
 

@@ -118,7 +118,7 @@ const THREAD_INTENT = ["comment", "ask-agent"] as const;
 const NEW_ASK_VIA = ["topbar", "threads_panel"] as const;
 const SOURCE_TREE_OPENED_VIA = ["topbar", "home"] as const;
 const THREAD_RESOLUTION_KIND = ["comment"] as const;
-const TAB = ["review", "commits", "map", "files"] as const;
+const TAB = ["review", "commits", "map", "files", "trace"] as const;
 const COMMIT_DIFF_VIA = ["row", "file", "footer"] as const;
 export const CLIENT_ERROR_SOURCE = [
   "window",
@@ -497,9 +497,7 @@ export function isReportableCleanedMessage(value: string): boolean {
   // once the markers are removed. The marker shape is deliberately narrow, so a
   // producer cannot hide content inside a marker of its own.
   const remainder = value.replaceAll(REDACTION_MARKER_PATTERN, " ");
-  return (
-    !containsFilePathShape(remainder) && !hasPossibleUserInfo(remainder)
-  );
+  return !containsFilePathShape(remainder) && !hasPossibleUserInfo(remainder);
 }
 
 /**

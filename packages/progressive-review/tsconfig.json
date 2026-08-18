@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": [
+    "src",
+    "app/src",
+    "app/desktop.vite.config.ts",
+    "scripts",
+    "vitest.config.ts"
+  ]
+}

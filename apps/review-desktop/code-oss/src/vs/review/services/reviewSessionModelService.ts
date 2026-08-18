@@ -1,0 +1,839 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) dev.fast. All rights reserved.
+ *  Licensed under the MIT License. See LICENSE in the repository root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+import { Emitter, Event } from "../../base/common/event.js";
+import {
+	AsyncReferenceCollection,
+	Disposable,
+	type IReference,
+	MutableDisposable,
+	ReferenceCollection,
+} from "../../base/common/lifecycle.js";
+import {
+	createDecorator,
+	IInstantiationService,
+} from "../../platform/instantiation/common/instantiation.js";
+import {
+	ReviewDocModuleResponseSchema,
+	ReviewSoftwareMapModuleResponseSchema,
+	type ReviewCommentStoreBridge,
+	type ReviewDescriptor,
+	type ReviewSessionDescriptor,
+	type ReviewSessionWire,
+	parseReviewSessionResponse,
+} from "../common/reviewProtocol.js";
+import {
+	IReviewSessionService,
+	type ReviewDataChangedEvent,
+	type ReviewSessionConnection,
+	type ReviewSessionClosedEvent,
+	type ReviewThreadsCommittedEvent,
+} from "./reviewSessionService.js";
+import { ReviewCommentStore } from "./reviewCommentStore.js";
+
+export interface ReviewDesktopSession {
+	readonly serverUrl: string;
+	readonly sessionUrl: string;
+	readonly token: string;
+	readonly descriptor: ReviewSessionDescriptor;
+	readonly review: ReviewDescriptor;
+	readonly session: ReviewSessionWire & {
+		readonly sessionId: string;
+		readonly storageDir: string;
+	};
+}
+
+export type ReviewDocumentModuleLoader = (
+	session: ReviewDesktopSession,
+	moduleUrl: string,
+) => Promise<unknown>;
+
+export type ReviewSoftwareMapModuleLoader = (
+	session: ReviewDesktopSession,
+	headModuleUrl: string,
+	baseModuleUrl: string,
+) => Promise<unknown>;
+
+type ReviewSessionResolver = (
+	preferredSessionId?: string,
+) => Promise<ReviewDesktopSession>;
+
+type ReviewSessionRefreshPredicate = (session: ReviewDesktopSession) => boolean;
+
+export type ReviewSessionModelState = "active" | "completed" | "unavailable";
+
+class ReviewSessionUnavailableError extends Error {}
+
+export class ReviewSessionModel extends Disposable {
+	private readonly _onDidChange = this._register(new Emitter<void>());
+	readonly onDidChange = this._onDidChange.event;
+
+	private _session: ReviewDesktopSession;
+	get session(): ReviewDesktopSession {
+		return this._session;
+	}
+
+	private _state: ReviewSessionModelState = "active";
+	get state(): ReviewSessionModelState {
+		return this._state;
+	}
+
+	private _unavailableMessage: string | undefined;
+	get unavailableMessage(): string | undefined {
+		return this._unavailableMessage;
+	}
+
+	private documentRevision: string;
+	private documentPromise: Promise<unknown> | undefined;
+	private softwareMapPromise: Promise<unknown | null> | undefined;
+	private refreshPromise: Promise<void> | undefined;
+	private readonly requestCache = new Map<
+		string,
+		Promise<CachedReviewResponse>
+	>();
+	private readonly requestController = new AbortController();
+	private _comments: ReviewCommentStore;
+	get comments(): ReviewCommentStoreBridge {
+		return this._comments;
+	}
+	constructor(
+		readonly reviewUuid: string,
+		session: ReviewDesktopSession,
+		private readonly resolveSession: ReviewSessionResolver,
+		onDidChangeLists: Event<void>,
+		onDidChangeReviewData: Event<ReviewDataChangedEvent> = Event.None,
+		onDidCloseSession: Event<ReviewSessionClosedEvent> = Event.None,
+		private readonly shouldRefresh: ReviewSessionRefreshPredicate = () => true,
+		onDidCommitReviewThreads: Event<ReviewThreadsCommittedEvent> = Event.None,
+	) {
+		super();
+		this._session = session;
+		this._comments = this.createCommentStore();
+		this.documentRevision = reviewDocumentRevision(session);
+		this._register(
+			onDidChangeLists(() => {
+				if (!this.shouldRefresh(this._session)) {
+					return;
+				}
+				void this.refresh().catch((error) => {
+					console.error(
+						`[Review Desktop] failed to refresh model ${reviewUuid}`,
+						error,
+					);
+				});
+			}),
+		);
+		this._register(
+			onDidChangeReviewData((event) => {
+				if (event.uuid !== this.reviewUuid || this._state !== "active") {
+					return;
+				}
+				this.requestCache.clear();
+				this._onDidChange.fire();
+			}),
+		);
+		this._register(
+			onDidCommitReviewThreads((event) => {
+				if (
+					event.uuid !== this.reviewUuid ||
+					event.sessionId !== this._session.session.sessionId ||
+					this._state !== "active"
+				) {
+					return;
+				}
+				this.requestCache.clear();
+				this._comments.applyCommit(event.commit);
+				this._onDidChange.fire();
+			}),
+		);
+		this._register(
+			onDidCloseSession((event) => {
+				if (event.session.sessionId !== this._session.session.sessionId) {
+					return;
+				}
+				this.requestCache.clear();
+				this._comments.dispose();
+				if (event.review) {
+					this._session = { ...this._session, review: event.review };
+				}
+				this._state = isCompletedReviewStatus(this._session.review.status)
+					? "completed"
+					: "unavailable";
+				this._unavailableMessage =
+					this._state === "unavailable"
+						? `Review session closed (${event.reason}).`
+						: undefined;
+				this._onDidChange.fire();
+			}),
+		);
+	}
+
+	refresh(preferredSessionId?: string): Promise<void> {
+		if (!preferredSessionId && this.refreshPromise) {
+			return this.refreshPromise;
+		}
+		const refresh = this.resolveSession(preferredSessionId)
+			.then((session) => {
+				const previousState = this._state;
+				const previousSessionId = this._session.session.sessionId;
+				const previousModelRevision = reviewModelRevision(this._session);
+				const previousRevision = this.documentRevision;
+				this._session = session;
+				this._state = "active";
+				this._unavailableMessage = undefined;
+				if (
+					previousState !== "active" ||
+					previousSessionId !== session.session.sessionId
+				) {
+					this._comments.dispose();
+					this._comments = this.createCommentStore();
+				}
+				this.documentRevision = reviewDocumentRevision(session);
+				if (
+					previousState === "active" &&
+					reviewModelRevision(session) === previousModelRevision
+				) {
+					return;
+				}
+				this.requestCache.clear();
+				if (this.documentRevision !== previousRevision) {
+					this.documentPromise = undefined;
+					this.softwareMapPromise = undefined;
+				}
+				this._onDidChange.fire();
+			})
+			.catch((error) => {
+				if (error instanceof ReviewSessionUnavailableError) {
+					this.requestCache.clear();
+					this._state = "unavailable";
+					this._unavailableMessage = error.message;
+					this._onDidChange.fire();
+				}
+				throw error;
+			});
+		if (preferredSessionId) {
+			return refresh;
+		}
+		const trackedRefresh = refresh.finally(() => {
+			if (this.refreshPromise === trackedRefresh) {
+				this.refreshPromise = undefined;
+			}
+		});
+		this.refreshPromise = trackedRefresh;
+		return this.refreshPromise;
+	}
+
+	resolveDocument(loader: ReviewDocumentModuleLoader): Promise<unknown> {
+		if (this.documentPromise) {
+			return this.documentPromise;
+		}
+		let pending: Promise<unknown>;
+		pending = this.loadDocument(loader).catch((error) => {
+			if (this.documentPromise === pending) {
+				this.documentPromise = undefined;
+			}
+			throw error;
+		});
+		this.documentPromise = pending;
+		return pending;
+	}
+
+	resolveSoftwareMap(
+		loader: ReviewSoftwareMapModuleLoader,
+	): Promise<unknown | null> {
+		if (this.softwareMapPromise) return this.softwareMapPromise;
+		let pending: Promise<unknown | null>;
+		pending = this.loadSoftwareMap(loader).catch((error) => {
+			if (this.softwareMapPromise === pending) {
+				this.softwareMapPromise = undefined;
+			}
+			throw error;
+		});
+		this.softwareMapPromise = pending;
+		return pending;
+	}
+
+	async request(url: string, init: RequestInit = {}): Promise<Response> {
+		const method = (init.method ?? "GET").toUpperCase();
+		const cacheKey = reviewRequestCacheKey(url, method, init);
+		if (!cacheKey) {
+			const response = await fetch(url, init);
+			if (response.ok) {
+				await this.updateRequestCacheAfterMutation(
+					url,
+					method,
+					init,
+					response.clone(),
+				);
+			}
+			return response;
+		}
+
+		let pending = this.requestCache.get(cacheKey);
+		if (!pending) {
+			const requestInit = {
+				...init,
+				signal: this.requestController.signal,
+			};
+			pending = fetch(url, requestInit)
+				.then(captureReviewResponse)
+				.catch((error) => {
+					if (this.requestCache.get(cacheKey) === pending) {
+						this.requestCache.delete(cacheKey);
+					}
+					throw error;
+				});
+			this.requestCache.set(cacheKey, pending);
+		}
+		const response = await pending;
+		if (!response.ok && this.requestCache.get(cacheKey) === pending) {
+			this.requestCache.delete(cacheKey);
+		}
+		return restoreReviewResponse(response);
+	}
+
+	private async updateRequestCacheAfterMutation(
+		url: string,
+		method: string,
+		init: RequestInit,
+		response: Response,
+	): Promise<void> {
+		if (method === "GET" || method === "HEAD") {
+			return;
+		}
+		const endpoint = reviewApiEndpoint(url);
+		if (!endpoint || endpoint === "/telemetry/event") {
+			return;
+		}
+		const invalidatedEndpoints =
+			endpoint === "/comments" || endpoint.startsWith("/comments/")
+				? ["/comments"]
+				: null;
+		if (!invalidatedEndpoints) {
+			this.requestCache.clear();
+			return;
+		}
+		for (const key of this.requestCache.keys()) {
+			const cachedEndpoint = reviewRequestCacheEndpoint(key);
+			if (cachedEndpoint && invalidatedEndpoints.includes(cachedEndpoint)) {
+				this.requestCache.delete(key);
+			}
+		}
+	}
+
+	private async loadDocument(
+		loader: ReviewDocumentModuleLoader,
+	): Promise<unknown> {
+		const session = this._session;
+		const url = new URL(
+			`${session.sessionUrl}/__progressive-review/doc-module`,
+		);
+		const routePath = session.session.routePath ?? session.descriptor.routePath;
+		if (routePath && routePath !== "/") {
+			url.searchParams.set("document", routePath);
+		}
+		const response = await fetch(url, {
+			headers: { "x-review-token": session.token },
+			signal: AbortSignal.timeout(30_000),
+		});
+		const payload = ReviewDocModuleResponseSchema.parse(await response.json());
+		if (!response.ok || !payload.ok) {
+			throw new Error(
+				payload.ok
+					? `Review document module returned ${response.status}.`
+					: payload.error,
+			);
+		}
+		return loader(session, payload.moduleUrl);
+	}
+
+	private async loadSoftwareMap(
+		loader: ReviewSoftwareMapModuleLoader,
+	): Promise<unknown | null> {
+		const session = this._session;
+		const url = new URL(
+			`${session.sessionUrl}/__progressive-review/software-map-module`,
+		);
+		const response = await fetch(url, {
+			headers: { "x-review-token": session.token },
+			signal: AbortSignal.timeout(30_000),
+		});
+		if (response.status === 404) return null;
+		const payload = ReviewSoftwareMapModuleResponseSchema.parse(
+			await response.json(),
+		);
+		if (!response.ok || !payload.ok) {
+			throw new Error(
+				payload.ok
+					? `Software map module returned ${response.status}.`
+					: payload.error,
+			);
+		}
+		return loader(session, payload.headModuleUrl, payload.baseModuleUrl);
+	}
+
+	private createCommentStore(): ReviewCommentStore {
+		return new ReviewCommentStore({
+			request: (endpoint, init = {}) => this.reviewApiRequest(endpoint, init),
+		});
+	}
+
+	private reviewApiRequest(
+		endpoint: string,
+		init: RequestInit = {},
+	): Promise<Response> {
+		const session = this._session;
+		const url = new URL(
+			`${session.sessionUrl}/__progressive-review${endpoint}`,
+		);
+		const routePath = session.session.routePath ?? session.descriptor.routePath;
+		if (routePath && routePath !== "/") {
+			url.searchParams.set("document", routePath);
+		}
+		const headers = new Headers(init.headers);
+		headers.set("x-review-token", session.token);
+		return this.request(url.href, { ...init, headers });
+	}
+
+	override dispose(): void {
+		this._comments.dispose();
+		this.requestController.abort();
+		this.requestCache.clear();
+		super.dispose();
+	}
+}
+
+interface CachedReviewResponse {
+	readonly body: ArrayBuffer;
+	readonly headers: readonly (readonly [string, string])[];
+	readonly ok: boolean;
+	readonly status: number;
+	readonly statusText: string;
+}
+
+const CACHEABLE_REVIEW_POST_ENDPOINTS = new Set([
+	"/code-peek/resolve",
+	"/diff-files",
+	"/software-map/resolved-data",
+]);
+
+function reviewRequestCacheKey(
+	url: string,
+	method: string,
+	init: RequestInit,
+): string | undefined {
+	const endpoint = reviewApiEndpoint(url);
+	if (!endpoint) {
+		return undefined;
+	}
+	let body = "";
+	if (method === "POST") {
+		if (!CACHEABLE_REVIEW_POST_ENDPOINTS.has(endpoint)) {
+			return undefined;
+		}
+		if (init.body !== undefined && typeof init.body !== "string") {
+			return undefined;
+		}
+		body = init.body ?? "";
+	} else if (method !== "GET") {
+		return undefined;
+	}
+	return JSON.stringify([method, url, body]);
+}
+
+function reviewApiEndpoint(url: string): string | null {
+	const marker = "/__progressive-review";
+	const pathname = new URL(url).pathname;
+	const markerIndex = pathname.indexOf(marker);
+	return markerIndex < 0 ? null : pathname.slice(markerIndex + marker.length);
+}
+
+function reviewRequestCacheEndpoint(key: string): string | null {
+	const value = JSON.parse(key) as unknown;
+	if (!Array.isArray(value) || typeof value[1] !== "string") {
+		return null;
+	}
+	return reviewApiEndpoint(value[1]);
+}
+
+async function captureReviewResponse(
+	response: Response,
+): Promise<CachedReviewResponse> {
+	return {
+		body: await response.arrayBuffer(),
+		headers: [...response.headers.entries()],
+		ok: response.ok,
+		status: response.status,
+		statusText: response.statusText,
+	};
+}
+
+function restoreReviewResponse(response: CachedReviewResponse): Response {
+	const hasBody = ![101, 204, 205, 304].includes(response.status);
+	return new Response(hasBody ? response.body.slice(0) : null, {
+		headers: response.headers as [string, string][],
+		status: response.status,
+		statusText: response.statusText,
+	});
+}
+
+function reviewDocumentRevision(session: ReviewDesktopSession): string {
+	return [
+		session.session.sessionId,
+		session.descriptor.routePath,
+		session.review.presentedDocumentRevision ?? "",
+		session.review.presentedSoftwareMapRevision ?? "",
+		session.review.documentUpdatedAt ?? "",
+	].join("\n");
+}
+
+function reviewModelRevision(session: ReviewDesktopSession): string {
+	return JSON.stringify(session);
+}
+
+class ReviewSessionModelReferenceCollection extends ReferenceCollection<
+	Promise<ReviewSessionModel>
+> {
+	constructor(
+		private readonly createModel: (
+			key: string,
+			preferredSessionId?: string,
+		) => Promise<ReviewSessionModel>,
+		private readonly destroyModel: (model: ReviewSessionModel) => void,
+	) {
+		super();
+	}
+
+	protected createReferencedObject(
+		key: string,
+		preferredSessionId?: string,
+	): Promise<ReviewSessionModel> {
+		return this.createModel(key, preferredSessionId);
+	}
+
+	protected destroyReferencedObject(
+		_reviewUuid: string,
+		model: Promise<ReviewSessionModel>,
+	): void {
+		void model.then(this.destroyModel, () => undefined);
+	}
+}
+
+export const IReviewSessionModelService =
+	createDecorator<IReviewSessionModelService>("reviewSessionModelService");
+
+export interface IReviewSessionModelService {
+	readonly _serviceBrand: undefined;
+	readonly onDidChangeActiveModel: Event<ReviewSessionModel | null>;
+	readonly activeModel: ReviewSessionModel | null;
+	/**
+	 * A `background` acquisition opens the session for a non-document surface
+	 * — the Source tab rooting its file tree. The server stamps the intent on
+	 * its `session-registered` event, so the app never surfaces the review
+	 * document tab for it.
+	 */
+	acquire(
+		reviewUuid: string,
+		preferredSessionId?: string,
+		options?: { background?: boolean; revision?: string },
+	): Promise<IReference<ReviewSessionModel>>;
+	/**
+	 * The review the workbench currently works against. Two meanings share
+	 * this slot: the review the user is reading (a document tab activated it)
+	 * and the review a Source tab acquired to root the workspace folder. Both
+	 * legitimately drive the workspace root; consumers that care about "what
+	 * the user is reading" must check the active editor, not this.
+	 */
+	setActiveModel(model: ReviewSessionModel | null): void;
+}
+
+export class ReviewSessionModelService
+	extends Disposable
+	implements IReviewSessionModelService
+{
+	declare readonly _serviceBrand: undefined;
+
+	private readonly _onDidChangeActiveModel = this._register(
+		new Emitter<ReviewSessionModel | null>(),
+	);
+	readonly onDidChangeActiveModel = this._onDidChangeActiveModel.event;
+
+	private _activeModel: ReviewSessionModel | null = null;
+	get activeModel(): ReviewSessionModel | null {
+		return this._activeModel;
+	}
+
+	private readonly modelReferences: AsyncReferenceCollection<ReviewSessionModel>;
+	private readonly models = new Map<string, ReviewSessionModel>();
+	/** Review uuid → in-flight background acquires; consulted by the open call. */
+	private readonly backgroundOpenIntents = new Map<string, number>();
+	private readonly activeModelSubscription = this._register(
+		new MutableDisposable(),
+	);
+
+	constructor(
+		@IInstantiationService
+		private readonly instantiationService: IInstantiationService,
+		@IReviewSessionService
+		private readonly sessionService: IReviewSessionService,
+	) {
+		super();
+		this.modelReferences = new AsyncReferenceCollection(
+			new ReviewSessionModelReferenceCollection(
+				(key, preferredSessionId) => {
+					const [reviewUuid, revision] = key.split("@");
+					return this.createModel(
+						key,
+						reviewUuid,
+						revision,
+						preferredSessionId,
+					);
+				},
+				(model) => {
+					if (this._activeModel === model) {
+						this.setActiveModel(null);
+					}
+					const historical = model.session.session.historicalRevision;
+					if (historical) {
+						for (const [key, candidate] of this.models) {
+							if (candidate === model) this.models.delete(key);
+						}
+						model.dispose();
+						void this.sessionService.closeSession(
+							model.session.session.sessionId,
+						);
+					}
+				},
+			),
+		);
+	}
+
+	async acquire(
+		reviewUuid: string,
+		preferredSessionId?: string,
+		options?: { background?: boolean; revision?: string },
+	): Promise<IReference<ReviewSessionModel>> {
+		const key = options?.revision
+			? `${reviewUuid}@${options.revision}`
+			: reviewUuid;
+		if (!options?.background) {
+			return this.modelReferences.acquire(key, preferredSessionId);
+		}
+
+		// The intent only has to reach the open request this acquisition may
+		// trigger (`resolveSession` reads the map): suppression itself is data
+		// on the server's session-registered event, so nothing must stay up for
+		// later consumers.
+		this.backgroundOpenIntents.set(
+			reviewUuid,
+			(this.backgroundOpenIntents.get(reviewUuid) ?? 0) + 1,
+		);
+		try {
+			return await this.modelReferences.acquire(
+				key,
+				preferredSessionId,
+			);
+		} finally {
+			const count = this.backgroundOpenIntents.get(reviewUuid) ?? 0;
+			if (count <= 1) {
+				this.backgroundOpenIntents.delete(reviewUuid);
+			} else {
+				this.backgroundOpenIntents.set(reviewUuid, count - 1);
+			}
+		}
+	}
+
+	setActiveModel(model: ReviewSessionModel | null): void {
+		if (this._activeModel === model) {
+			return;
+		}
+		this._activeModel = model;
+		this.activeModelSubscription.value = model?.onDidChange(() => {
+			if (this._activeModel === model) {
+				this._onDidChangeActiveModel.fire(model);
+			}
+		});
+		this._onDidChangeActiveModel.fire(model);
+	}
+
+	private async createModel(
+		key: string,
+		reviewUuid: string,
+		revision?: string,
+		preferredSessionId?: string,
+	): Promise<ReviewSessionModel> {
+		const existing = this.models.get(key);
+		if (existing) {
+			if (preferredSessionId) {
+				await existing.refresh(preferredSessionId);
+			}
+			return existing;
+		}
+		const session = await this.resolveSession(
+			reviewUuid,
+			preferredSessionId,
+			true,
+			revision,
+		);
+		const resolveSession = (sessionId?: string) =>
+			this.resolveSession(reviewUuid, sessionId, false, revision);
+		const model = this.instantiationService.createInstance(
+			ReviewSessionModel,
+			reviewUuid,
+			session,
+			resolveSession,
+			this.sessionService.onDidChangeLists,
+			this.sessionService.onDidChangeReviewData,
+			this.sessionService.onDidCloseSession,
+			(current) => this.shouldRefreshModel(current),
+			this.sessionService.onDidCommitReviewThreads ?? Event.None,
+		);
+		this.models.set(key, model);
+		return model;
+	}
+
+	override dispose(): void {
+		for (const model of this.models.values()) {
+			model.dispose();
+		}
+		this.models.clear();
+		super.dispose();
+	}
+
+	private shouldRefreshModel(current: ReviewDesktopSession): boolean {
+		const descriptor = this.sessionService.sessions.find(
+			(candidate) => candidate.sessionId === current.session.sessionId,
+		);
+		const review = this.findReviewDescriptor(current.review.uuid);
+		if (!review) {
+			return true;
+		}
+		if (!descriptor) {
+			return this.sessionService.sessions.some(
+				(candidate) => candidate.reviewUuid === current.review.uuid,
+			);
+		}
+		return (
+			JSON.stringify([descriptor, review]) !==
+			JSON.stringify([current.descriptor, current.review])
+		);
+	}
+
+	private async resolveSession(
+		reviewUuid: string,
+		preferredSessionId?: string,
+		openIfMissing = false,
+		revision?: string,
+	): Promise<ReviewDesktopSession> {
+		await this.sessionService.initialize();
+		let descriptor = this.findSession(
+			reviewUuid,
+			preferredSessionId,
+			revision,
+		);
+		if (!descriptor && openIfMissing) {
+			descriptor = await this.sessionService.openReview(reviewUuid, {
+				background: this.backgroundOpenIntents.has(reviewUuid),
+				...(revision ? { revision } : {}),
+			});
+		}
+		if (!descriptor) {
+			throw new ReviewSessionUnavailableError(
+				`Review session is unavailable: ${reviewUuid}`,
+			);
+		}
+		let review = this.findReviewDescriptor(reviewUuid);
+		if (!review) {
+			await this.sessionService.refresh();
+			review = this.findReviewDescriptor(reviewUuid);
+		}
+		if (!review) {
+			throw new ReviewSessionUnavailableError(
+				`Review is unavailable: ${reviewUuid}`,
+			);
+		}
+		const connection = await this.sessionService.getConnection();
+		return resolveDesktopSession(connection, descriptor, review);
+	}
+
+	/** The tutorial Review is not in the store-backed list; its descriptor
+	    comes from the tutorial open response instead. */
+	private findReviewDescriptor(
+		reviewUuid: string,
+	): ReviewDescriptor | undefined {
+		const listed = this.sessionService.reviews.find(
+			(candidate) => candidate.uuid === reviewUuid,
+		);
+		if (listed) {
+			return listed;
+		}
+		const tutorial = this.sessionService.tutorialReview;
+		return tutorial?.uuid === reviewUuid ? tutorial : undefined;
+	}
+
+	private findSession(
+		reviewUuid: string,
+		preferredSessionId?: string,
+		revision?: string,
+	): ReviewSessionDescriptor | undefined {
+		if (preferredSessionId) {
+			const preferred = this.sessionService.sessions.find(
+				(candidate) => candidate.sessionId === preferredSessionId,
+			);
+			if (
+				preferred?.reviewUuid === reviewUuid &&
+				preferred.historicalRevision === revision
+			) {
+				return preferred;
+			}
+		}
+		return this.sessionService.sessions.find(
+			(candidate) =>
+				candidate.reviewUuid === reviewUuid &&
+				candidate.historicalRevision === revision,
+		);
+	}
+}
+
+function isCompletedReviewStatus(status: ReviewDescriptor["status"]): boolean {
+	return (
+		status === "accepted" ||
+		status === "rejected" ||
+		status === "awaiting-agent-updates"
+	);
+}
+
+async function resolveDesktopSession(
+	connection: ReviewSessionConnection,
+	descriptor: ReviewSessionDescriptor,
+	review: ReviewDescriptor,
+): Promise<ReviewDesktopSession> {
+	const response = await fetch(
+		`${descriptor.sessionUrl}/__progressive-review/session`,
+		{
+			headers: { "x-review-token": connection.token },
+			signal: AbortSignal.timeout(5_000),
+		},
+	);
+	const payload = parseReviewSessionResponse(await response.json());
+	if (!response.ok || !payload.ok) {
+		throw new Error(
+			payload.ok
+				? `Review session returned ${response.status}.`
+				: payload.error,
+		);
+	}
+	if (!payload.session.sessionId || !payload.session.storageDir) {
+		throw new Error("Review server session is missing desktop fields.");
+	}
+	return {
+		serverUrl: connection.serverUrl,
+		sessionUrl: descriptor.sessionUrl,
+		token: connection.token,
+		descriptor,
+		review,
+		session: payload.session as ReviewDesktopSession["session"],
+	};
+}

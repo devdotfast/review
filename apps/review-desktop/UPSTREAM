@@ -1,0 +1,266 @@
+# Review Desktop Code OSS provenance
+
+Repository: https://github.com/microsoft/vscode.git
+Upstream commit: 8a7abeba6e03ea3af87bfbce9a1b7e48fed567b8
+Serialization tag: code-oss-upstream-8a7abeba
+
+## Vendor-time exclusions
+
+The following upstream paths were excluded before the vendor commit was
+created. They have never existed in the monorepo history:
+
+- `.git/`
+- `.github/`
+- `.vscode/`
+- `build/azure-pipelines/`
+- `extensions/copilot/`
+- `extensions/**/.vscode/`
+- `extensions/emmet/test-workspace/` (contains only excluded `.vscode/` data)
+- `extensions/vscode-colorize-perf-tests/`
+- `extensions/vscode-colorize-tests/`
+- `test/monaco/dist/`
+
+The `.vscode/` trees and Monaco `dist/` fixture are upstream development-only
+files ignored by the vendored tree's own ignore rules; they are not required
+to build or run Review Desktop. Their dangling postinstall targets are removed
+from `build/npm/dirs.ts`, and their dangling TypeScript compilations are
+removed from `build/gulpfile.extensions.ts`. Review also keeps the remote and
+default-test source while omitting their unused package installs.
+
+## Pruned built-in extensions
+
+The following upstream extensions are deleted from `extensions/` because
+Review Desktop never activates them. Their entries are removed from
+`build/gulpfile.extensions.ts` (`compilations`), `build/npm/dirs.ts`, and —
+for ipynb, mermaid-markdown-features, and notebook-renderers — from
+`esbuildMediaScripts` in `build/lib/extensions.ts`:
+
+- `debug-auto-launch`
+- `debug-server-ready`
+- `emmet`
+- `extension-editing`
+- `github-authentication`
+- `grunt`
+- `gulp`
+- `ipynb`
+- `jake`
+- `mermaid-markdown-features`
+- `microsoft-authentication`
+- `notebook-renderers`
+- `php-language-features`
+- `terminal-suggest`
+- `tunnel-forwarding`
+- `markdown-math` (its prebuilt `notebook-out/` KaTeX payload may be staged
+  separately; `licenses/katex.txt` carries the KaTeX notice)
+- `vscode-api-tests`
+- `vscode-test-resolver`
+
+To restore one: `git checkout code-oss-upstream-8a7abeba -- apps/review-desktop/code-oss/extensions/<name>`
+and re-add its lines to the three build files above. In a checkout without
+that tag (the standalone open-source repository), take the extension from
+`microsoft/vscode` at the upstream commit recorded above instead.
+
+## Pruned Agents window
+
+Review deletes all 605 upstream files under `src/vs/sessions/` and the Agents
+window boot plumbing. Review never opens this window, but every packaged build
+compiled and shipped it.
+
+Review owns its configuration and workspace services under `src/vs/review`.
+It uses the stock editor parts and a small, inert pane-composite service. A
+Review canvas service registers the hidden layout placeholder. Shared agent
+theme tokens now live under `src/vs/workbench/common`. Shared chat styles use
+the existing platform font sizes. The agent-host MCP server type now lives
+under `src/vs/platform/agentHost/common`.
+
+## Intentional fork divergence
+
+Compare a fresh checkout of the upstream commit with `code-oss/`, ignoring the
+vendor-time exclusions above. Every remaining difference must be covered by
+one of these entries:
+
+- `README.md`: fork orientation and npm-only build rule.
+- `package.json` and `package-lock.json`: omit tasks and runtime dependencies
+  for the excluded Copilot extension. Also removes dependencies whose features Review never
+  reaches: the Windows-only natives (`@vscode/windows-mutex`,
+  `@vscode/windows-process-tree`, `@vscode/windows-registry`,
+  `windows-foreground-love`), `kerberos`, `@vscode/policy-watcher`,
+  `@vscode/fs-copyfile`, `native-is-elevated`, `@microsoft/mxc-sdk`,
+  `@vscode/l10n-dev`, `@vscode/test-web`, and `@vscode/telemetry-extractor`.
+  Their import sites typecheck against `src/typings/removed-native-modules.d.ts`.
+- `build/package.json` and `build/package-lock.json`: drop unreferenced
+  packaging/publishing tooling (`@azure/*`, `tree-sitter`,
+  `tree-sitter-typescript`, the duplicate `@vscode/ripgrep-universal`).
+- `build/lib/i18n.ts`: local l10n types and a lazy `@vscode/l10n-dev` import
+  so the module loads without the package installed.
+- `src/typings/removed-native-modules.d.ts`: ambient declarations replacing
+  the typings of removed native dependencies.
+- `extensions/package.json` and the extension `package.json`/`package-lock.json`
+  files: `@vscode/extension-telemetry` is hoisted to the shared extensions
+  install (github keeps its own ^1.0.0 copy; the shared copy is ^0.9.8).
+- `product.json`: also carries `reviewVersion`, Review's own release number.
+  `version` stays the Code OSS base version because the curated extensions
+  match their `engines.vscode` range against it, so the release number needs a
+  field of its own. The About panel reads it, the release workflow writes it,
+  and `scripts/product-hardening.test.mjs` fails when it drifts from
+  `apps/review-desktop/package.json`. Beyond that: Review product identity, VSCodium-derived telemetry,
+  experiment, crash-reporting, edit-statistics, and natural-language-search
+  opt-out defaults; stable updates from `update.dev.fast` rather than
+  Microsoft's update service; no extension gallery; no unused debugger
+  built-in downloads; and removal of safely optional Microsoft service
+  endpoints. The coupled default chat-agent metadata remains until its
+  startup consumers can also be removed or guarded. Review also claims the
+  install identities that would otherwise collide with a real Code OSS or
+  VS Code install on the same machine: `sharedDataFolderName` (live on macOS —
+  it locates the `sharedStorage` database), the Windows singleton and tunnel
+  mutex names, `win32AppUserModelId`, and all four Inno Setup app ids, which
+  were regenerated rather than kept at the stock Code OSS GUIDs.
+  Two identity gaps remain deliberately: `serverApplicationName`,
+  `serverDataFolderName`, and `tunnelApplicationName` still hold their upstream
+  values because the fork ships no REH build and the agent-host stack uses those
+  names to locate a server on *remote* hosts; and `darwinProfileUUID` /
+  `darwinProfilePayloadUUID` are untouched upstream values kept only because
+  `build/lib/policies/policyGenerator.ts` hard-throws without them, on a path
+  nothing in this tree invokes.
+- `build/lib/electron.ts`: stamp dev.fast company, copyright, and display-name
+  metadata into packaged applications.
+- `src/vs/platform/update/electron-main/updateService.darwin.ts`:
+  `doDownloadUpdate` re-checks the feed with the installed commit instead of
+  the target commit; the dev.fast update Worker keys 204/200 off the caller's
+  commit, so sending the target commit would read as "up to date" and no-op
+  the explicit download.
+- `build/darwin/entitlements/` and `build/darwin/sign.ts`: restore the exact
+  upstream macOS hardened-runtime entitlements under a retained path and use
+  them for Developer ID signing without the excluded Azure build tree.
+- `build/darwin/distribution.provisionprofile`: deleted. It carries Microsoft's
+  team `UBF8T346G9` and `com.microsoft.VSCodeInsiders`, and upstream embeds it
+  only from the excluded Azure signing job. `sign.ts` sets
+  `preEmbedProvisioningProfile: false`, so nothing here ever consumed it.
+- `scripts/notarize-macos.sh` (fork-owned): accepts `APPLE_SIGN_IDENTITY` as an
+  alias for the `CODESIGN_IDENTITY` that upstream's `sign.ts` reads, so the
+  signing identity can live with the rest of the Apple credentials.
+- `build/.moduleignore`
+- `build/darwin/create-universal-app.ts`
+- `build/darwin/verify-macho.ts`
+- `build/lib/i18n.resources.json`
+- `build/lib/policies/policyData.jsonc`
+- `build/lib/test/fixtures/policies/darwin/fr-fr/com.visualstudio.code.oss.plist`
+- `build/lib/test/fixtures/policies/win32/fr-fr/CodeOSS.adml`
+- `build/lib/test/policyConversion.test.ts`
+- `build/rspack/workbench-rspack.html`
+- `build/vite/workbench-vite.html`
+
+  These files remove packaging, localization, policy, fixture, and trusted
+  extension references owned by the excluded Copilot extension and runtime.
+- `build/buildfile.ts`
+- `build/filters.ts`
+- `build/gulpfile.ts`: drop the advisory `monaco-typecheck` pass from the
+  `compile` task (the task itself remains runnable on demand).
+- `build/gulpfile.extensions.ts`
+- `build/gulpfile.hygiene.ts`
+- `build/gulpfile.reh.ts`
+- `build/gulpfile.vscode.ts`
+- `build/hygiene.ts`
+- `build/lib/extensions.ts` (also excludes the curated built-in extensions,
+  which are staged from prebuilt VSIXes rather than packaged from source)
+- `build/lib/compilation.ts`
+- `build/lib/runtimePlatform.ts`
+- `build/next/index.ts`: Review desktop entry points, review CSS bundle, and
+  the plugin that inlines Review's browser dependencies (zod,
+  eventsource-parser).
+- `build/npm/dirs.ts`: also drops the `build/rspack` and `build/vite`
+  dev-server experiment installs; run `npm install` in those directories
+  manually to use them.
+- `build/npm/postinstall.ts`
+- `build/copilot-migrate-pr.ts` (deleted)
+- `build/lib/copilot.ts` (deleted)
+- `build/lib/test/copilot.test.ts` (deleted)
+- `src/tsconfig.json` and `src/typings/github-copilot-sdk/`: type-check dormant
+  upstream agent-host code against pinned MIT declarations without installing
+  or shipping the Copilot SDK runtime. The normal Review build excludes
+  upstream `vs/**/test/**` directories while retaining their source; the
+  production-imported agent-host mock remains part of the program.
+- `src/vs/code/electron-browser/workbench/workbench.ts`: load the Review
+  workbench entry.
+- `src/main.ts`: import VS Code-family settings and keybindings into Review's
+  user-data profile before the configuration service starts, expose the
+  explicit re-import IPC handler, and record a crash that happens before
+  `startup()` finishes. These are the fork's only additions to the
+  pre-`bootstrapESM()` import graph, so they are held to that window's rules.
+  The first reaches only `vs/review/node/reviewUserConfigImport.ts`, which reads
+  setting keys from the import-free
+  `vs/review/common/reviewConfigurationDefaults.ts` and never touches the
+  configuration registry. The second reaches only
+  `vs/review/node/reviewBootstrapBreadcrumb.ts`, which imports node built-ins
+  and nothing else; `scripts/main-bootstrap-imports.test.mjs` asserts that. It
+  appends one JSON line under the user-data directory, which the next launch
+  reports through the normal opted-in telemetry path and deletes. See "The
+  main-process pre-bootstrap window" in `README.md`.
+- `src/vs/code/electron-browser/workbench/workbench.html` and
+  `workbench-dev.html`: allow the local Review session connection and the
+  native canvas Trusted Types policy in built and development launches.
+- `src/vs/base/common/product.ts`: declares the `reviewVersion` field described
+  above, so the About panel can read it typed.
+- `src/vs/code/electron-main/app.ts`: own the embedded Review server lifecycle
+  and register the Review connection channel that hands the renderer the server
+  endpoint the main process validated. Also swaps two update- and menu-related
+  registrations, because Review's workbench drives neither surface:
+  `ReviewMenubarMainService` replaces `MenubarMainService` (the stock service
+  builds its menu from data the renderer never sends, and reinstalls that empty
+  menu on window focus and count changes), and `ReviewUpdateDialog` replaces
+  `NotAvailableUpdateDialog` (the stock dialog defers to a workbench
+  `UpdateContribution` that Review does not load).
+- `src/vs/workbench/contrib/webview/browser/pre/index.html`: guard a transient
+  missing iframe body while polling active webview focus.
+- `src/vs/workbench/electron-browser/parts/dialogs/dialog.contribution.ts`:
+  append Review's PostHog install ID to the native About details and copied
+  details after the embedded server announces its stored identity.
+- `src/vs/workbench/services/layout/browser/layoutService.ts`: alias the Review
+  canvas to the sessions part.
+- `src/vs/workbench/common/editor.ts`, `src/vs/workbench/common/contextkeys.ts`,
+  `src/vs/workbench/services/editor/common/editorGroupsService.ts`, and
+  `src/vs/workbench/browser/parts/editor/` (`editor.ts`,
+  `editor.contribution.ts`, `editorActions.ts`, `editorGroupView.ts`,
+  `editorPart.ts`, `auxiliaryEditorPart.ts`, `editorTabsControl.ts`,
+  `multiEditorTabsControl.ts`, `singleEditorTabsControl.ts`): verbatim backport
+  of upstream's `EditorInputCapabilities.CannotClose` feature (enum entries
+  `ExcludeFromEditorLimit = 1 << 12` and `CannotClose = 1 << 13`, the
+  `ActiveEditorCannotCloseContext` key, tab-control and close-path guards, the
+  `force` close options, and the Close menu `when` clauses), which upstream
+  added after the vendored commit. The Review Home tab declares `CannotClose`.
+  Every hunk copies current upstream text, so an upstream refresh that includes
+  the feature absorbs these files with no net difference. `ExcludeFromEditorLimit`
+  is enum-only here; the fork neither sets nor honors it yet.
+  Two hunks go beyond upstream and survive a refresh as intentional diffs:
+  `editorGroupView.ts` `doStickEditor` refuses to unstick a `CannotClose`
+  editor (the compact icon-only Home rendering depends on stickiness), and
+  the `editor.contribution.ts` Unpin tab-context item is hidden for
+  `CannotClose` editors so the menu does not offer a dead action.
+- `.gitignore`: ignore the curated built-in extension payloads that
+  `scripts/curated-extensions.mjs` materializes under `extensions/`.
+- `src/vs/review/`: Review-owned workbench, protocol, and tests. These files
+  carry a dev.fast copyright header rather than Microsoft's.
+- `src/vs/platform/agentHost/` planning documents (deleted): the upstream
+  commit vendored internal phase plans and design notes
+  (`node/claude/phase*-plan.md`, `roadmap.md`, `smoke.md`, `CONTEXT.md`,
+  `MULTI_CHAT_ARCHITECTURE.md`, `OTEL.md`). They serve no build purpose and
+  are removed; source-code comments may still cite them.
+- extension `package.json` files: the `aiKey` Application Insights field is
+  removed from the five language extensions that carried it. Telemetry is
+  force-disabled product-wide; the key was inert.
+- `licenses/`: fork-added third-party notices (eventsource-parser, zod,
+  elkjs, libavoid-js, KaTeX, @vscode/codicons). `build/gulpfile.vscode.ts`
+  copies this directory into packaged builds.
+
+## Serialize the fork
+
+From the monorepo root:
+
+```sh
+git diff code-oss-upstream-8a7abeba..HEAD -- apps/review-desktop/code-oss
+```
+
+For an upstream refresh, clone the recorded commit into a fresh temporary
+directory, apply the same vendor-time exclusions, and compare it recursively
+with `code-oss/`. The only remaining differences must be the paths enumerated
+above. Update this file whenever that inventory changes.

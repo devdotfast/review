@@ -1,0 +1,1569 @@
+import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { readFileSync, statSync } from "node:fs";
+import path from "node:path";
+
+import {
+  type LocalVcsCommitSummary,
+  currentHead,
+  listCommitRange,
+  resolveRevision,
+} from "@dev.fast/local-vcs";
+import {
+  type ReviewSessionWire,
+  type ReviewThreadsCommit,
+  type ReviewVerbRequest,
+  parseReviewFileContentRequest,
+} from "@dev.fast/review-protocol";
+import { type Context, Hono } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
+
+import {
+  type SessionRef,
+  resolveAuthoringSessionRef,
+} from "../authoring-session";
+import {
+  codePeekRootSourceRanges,
+  sliceReviewDiffFileToCodePeekRanges,
+} from "../codepeek-symbol-diff";
+import { mergeErrorTelemetryProperties } from "../error-telemetry";
+import { NativeMessageMirror } from "../native-agent/native-message-mirror";
+import type { ReviewThreadAgentBinding } from "../native-agent/native-session";
+import { NativeReviewTurnLauncher } from "../native-agent/native-turn-launcher";
+import { reviewCommentPrompt } from "../review-comment-agent";
+import { resolveReviewCommitScope } from "../review-commits";
+import type { ReviewDiffFile } from "../review-diff-files";
+import {
+  resolveReviewDiffFiles,
+  resolveReviewFileContent,
+} from "../review-diff-files";
+import {
+  normalizeReviewRoutePath,
+  resolveReviewDocumentFilePath,
+} from "../review-paths";
+import { saveReviewSubmissionAudit } from "../review-state-store";
+import { ReviewThreadsService } from "../review-threads-service";
+import {
+  type ReviewSourceTarget,
+  readReviewStoreRecord,
+  resolveReviewRepoRootFromStore,
+  resolveReviewSessionBaseCommit,
+  resolveReviewSourceTarget,
+} from "../review-worktree-target";
+import { materializeSoftwareMapAtRef } from "../software-map-artifact";
+import { resolveSoftwareMapDiffCounts } from "../software-map-diff-counts";
+import type { SourceSnapshot } from "../source-code-types";
+import { resolveReviewSourceRange } from "../source-range-resolver";
+import { ProgressiveReviewTelemetry } from "../telemetry";
+import type { ReviewTabTelemetryEvent } from "../telemetry";
+import type {
+  CreateReviewCommentInput,
+  ReviewSession,
+  ReviewSubmissionEvent,
+} from "../types";
+import {
+  REVIEW_APP_SESSION_ID_HEADER,
+  sanitizeUiTelemetryEvent,
+} from "../ui-telemetry-events";
+import { BugReportUpstreamError, submitReviewBugReport } from "./bug-report";
+import {
+  type ReviewHonoEnv,
+  jsonResponse,
+  readBoundedRequestJson,
+} from "./hono-http";
+import {
+  parseCodePeekRoot,
+  parseReviewBugReportInput,
+  parseReviewCommentInput,
+  parseReviewDiffFilesInput,
+  parseReviewSubmissionInput,
+  parseReviewTabTelemetryInput,
+  parseReviewThreadsCommand,
+  parseSoftwareMapCodeElements,
+  parseSoftwareMapCoverageClaims,
+  parseUpdateReviewCommentInput,
+  requestJsonErrorStatus,
+} from "./review-api-parsers";
+
+const softwareMapResolvedDataCache = new Map<
+  string,
+  Promise<SoftwareMapResolvedDataResponse>
+>();
+const SOFTWARE_MAP_RESOLVED_DATA_CACHE_VERSION = "resolved-data:v4";
+const REVIEW_SUBMIT_HOOK_ENV = "DEV_FAST_REVIEW_SUBMIT_HOOK";
+const CODE_PEEK_DIFF_CONTEXT_LINES = 100_000;
+const defaultTelemetry = new ProgressiveReviewTelemetry();
+const MAX_CLIENT_ERROR_SESSIONS = 100;
+const MAX_CLIENT_ERRORS_PER_SESSION = 20;
+const clientErrorsBySession = new Map<string, string[]>();
+
+function recordClientError(
+  event: ReturnType<typeof sanitizeUiTelemetryEvent>,
+): void {
+  if (event?.event !== "review_client_error") return;
+  const sessionId = event.properties.app_session_id;
+  const errorName = event.properties.error_name;
+  if (typeof sessionId !== "string" || typeof errorName !== "string") return;
+  const names = clientErrorsBySession.get(sessionId) ?? [];
+  names.push(errorName);
+  if (names.length > MAX_CLIENT_ERRORS_PER_SESSION) names.shift();
+  clientErrorsBySession.delete(sessionId);
+  clientErrorsBySession.set(sessionId, names);
+  while (clientErrorsBySession.size > MAX_CLIENT_ERROR_SESSIONS) {
+    const oldest = clientErrorsBySession.keys().next().value;
+    if (typeof oldest !== "string") break;
+    clientErrorsBySession.delete(oldest);
+  }
+}
+
+function clientErrorsForSession(sessionId: string): string[] {
+  const names = clientErrorsBySession.get(sessionId) ?? [];
+  if (names.length > 0) {
+    clientErrorsBySession.delete(sessionId);
+    clientErrorsBySession.set(sessionId, names);
+  }
+  return [...names];
+}
+
+interface SoftwareMapResolvedDataResponse {
+  countsByElementPath: Awaited<
+    ReturnType<typeof resolveSoftwareMapDiffCounts>
+  >["countsByElementPath"];
+  unmappedByElementPath: Awaited<
+    ReturnType<typeof resolveSoftwareMapDiffCounts>
+  >["unmappedByElementPath"];
+}
+
+export interface ReviewTelemetryCapture {
+  captureTabViewed(event: ReviewTabTelemetryEvent): Promise<void>;
+  captureUiEvent?(
+    event: string,
+    properties: Record<string, string | number | boolean>,
+  ): Promise<void>;
+}
+
+export async function captureSanitizedUiTelemetry(
+  telemetry: ReviewTelemetryCapture,
+  request: Request,
+  name: unknown,
+  properties: unknown,
+  onSanitized?: (
+    event: NonNullable<ReturnType<typeof sanitizeUiTelemetryEvent>>,
+  ) => void,
+  /**
+   * The raw error envelope, which arrives beside `properties` and never inside
+   * it. This function is where the raw form dies: what continues is the class
+   * name, the message with paths and secrets replaced by markers, a digest of
+   * the original message, and bundle-relative frames. The allowlist re-checks
+   * all of it. Never merge this into `properties`.
+   */
+  rawError?: unknown,
+): Promise<void> {
+  const appSessionId =
+    request.headers.get(REVIEW_APP_SESSION_ID_HEADER) ?? undefined;
+  const rawProperties =
+    properties && typeof properties === "object"
+      ? (properties as Record<string, unknown>)
+      : {};
+  const sanitized = sanitizeUiTelemetryEvent({
+    name,
+    properties: {
+      // The error fields come from the raw envelope and nowhere else; this
+      // helper drops any a client tried to assert. It matters because the
+      // allowlist cannot tell a cleaned message from a raw one.
+      ...mergeErrorTelemetryProperties(rawProperties, rawError),
+      ...(appSessionId ? { app_session_id: appSessionId } : {}),
+    },
+  });
+  if (!sanitized) return;
+  onSanitized?.(sanitized);
+  try {
+    await telemetry.captureUiEvent?.(sanitized.event, sanitized.properties);
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+interface ReviewApiOptions {
+  reviewPath: string;
+  reviewDocumentsDir: string;
+  rootPath: string;
+  reviewRootPath?: string;
+  toolingRoot: string;
+  stateReviewPath?: string;
+  telemetry?: ReviewTelemetryCapture;
+  onSubmission?: (event: ReviewSubmissionEvent) => void | Promise<void>;
+  onReviewDismiss?: () => void | Promise<void>;
+  onReviewDataChange?: () => void;
+  onReviewThreadsCommit?: (commit: ReviewThreadsCommit) => void;
+  runReviewThreadMutation?: <T>(operation: () => T | Promise<T>) => Promise<T>;
+  reviewToken: string;
+  reviewCliPath?: string;
+  reviewCliRuntimePath?: string;
+  openNativeAgentTerminal: (
+    input: Extract<
+      ReviewVerbRequest,
+      { name: "openNativeAgentTerminal" }
+    >["args"],
+  ) => Promise<void>;
+  onQuestionAgentSession?: (agent: SessionRef) => Promise<void>;
+  submitHook?: string;
+  session: ReviewSessionWire;
+}
+
+interface ReviewApiRequestCache {
+  sourceTargets: Map<string, Promise<ReviewSourceTarget>>;
+  codePeekDiffs: Map<string, Promise<ReviewDiffFile[]>>;
+  commits?: Promise<LocalVcsCommitSummary[]>;
+}
+
+type ReviewApiHandler = (
+  context: Context<ReviewHonoEnv>,
+) => Promise<Response> | Response;
+
+export interface ReviewApi {
+  app: Hono<ReviewHonoEnv>;
+  close(): Promise<void>;
+}
+
+export function createReviewApi(options: ReviewApiOptions): ReviewApi {
+  const reviewRootPath =
+    options.reviewRootPath ??
+    options.session.storageDir ??
+    path.dirname(options.stateReviewPath ?? options.reviewPath);
+  const app = new Hono<ReviewHonoEnv>();
+  const requestCache: ReviewApiRequestCache = {
+    sourceTargets: new Map(),
+    codePeekDiffs: new Map(),
+  };
+  const {
+    reviewPath,
+    reviewDocumentsDir,
+    rootPath,
+    telemetry = defaultTelemetry,
+    onSubmission,
+    onReviewDismiss,
+    onReviewThreadsCommit,
+    runReviewThreadMutation = async (operation) => operation(),
+    openNativeAgentTerminal,
+    onQuestionAgentSession,
+    submitHook,
+    stateReviewPath,
+    session,
+  } = options;
+  const agentRootPath = session.headRootPath ?? rootPath;
+  const nativeTurns = new NativeReviewTurnLauncher({
+    hookBaseUrl: `${(session.sessionUrl ?? session.appUrl).replace(/\/$/u, "")}/__progressive-review/native-agent-events`,
+    hookToken: options.reviewToken,
+    runtimeDirectory: path.join(reviewRootPath, ".native-agent"),
+    reviewCliPath: options.reviewCliPath,
+    reviewCliRuntimePath: options.reviewCliRuntimePath,
+    openTerminal: openNativeAgentTerminal,
+  });
+  const threadServices = new Map<string, ReviewThreadsService>();
+  const agentMirrors = new Map<string, NativeMessageMirror>();
+  const launchedAgentMessageIds = new Set<string>();
+  const startMirror = (
+    writableReviewPath: string,
+    service: ReviewThreadsService,
+  ): NativeMessageMirror => {
+    const mirror = new NativeMessageMirror({
+      observe: (binding) => nativeTurns.observe(binding),
+      service,
+    });
+    agentMirrors.set(writableReviewPath, mirror);
+    mirror.start();
+    return mirror;
+  };
+  const threadsFor = (writableReviewPath: string): ReviewThreadsService => {
+    let service = threadServices.get(writableReviewPath);
+    if (!service) {
+      service = new ReviewThreadsService({
+        reviewPath: writableReviewPath,
+        author: process.env.USER ?? "Reviewer",
+        onCommit: onReviewThreadsCommit,
+      });
+      threadServices.set(writableReviewPath, service);
+      const snapshot = service.snapshot();
+      const hasAgentSession =
+        Object.values(snapshot.comments).some(
+          (comment) => comment.agentSession !== undefined,
+        ) ||
+        Object.values(snapshot.drafts).some(
+          (draft) => draft.thread.agentSession !== undefined,
+        );
+      if (hasAgentSession) startMirror(writableReviewPath, service);
+    }
+    return service;
+  };
+  const mirrorFor = (writableReviewPath: string): NativeMessageMirror => {
+    const service = threadsFor(writableReviewPath);
+    return (
+      agentMirrors.get(writableReviewPath) ??
+      startMirror(writableReviewPath, service)
+    );
+  };
+
+  // Every handler answers through the same catch, so a thrown parse or state
+  // error becomes the route's JSON error response instead of a 500.
+  const route =
+    (handler: ReviewApiHandler): ReviewApiHandler =>
+    async (context) => {
+      try {
+        return await handler(context);
+      } catch (err) {
+        return reviewApiJsonResponse(requestJsonErrorStatus(err), {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    };
+
+  // Routes that write review state resolve the target document first. The
+  // handler only runs once a writable path exists, so it takes one.
+  const writable = (
+    handler: (
+      context: Context<ReviewHonoEnv>,
+      writableReviewPath: string,
+    ) => Promise<Response> | Response,
+  ): ReviewApiHandler =>
+    route((context) => {
+      const writableReviewPath =
+        stateReviewPath ??
+        resolveWritableReviewPath(new URL(context.req.url), {
+          reviewPath,
+          reviewDocumentsDir,
+        });
+      if (!writableReviewPath) {
+        return reviewApiJsonResponse(404, {
+          ok: false,
+          error: "Review document not found.",
+        });
+      }
+      return handler(context, writableReviewPath);
+    });
+
+  const threadMutation = (
+    handler: (
+      context: Context<ReviewHonoEnv>,
+      writableReviewPath: string,
+    ) => Promise<Response> | Response,
+  ): ReviewApiHandler =>
+    writable((context, writableReviewPath) =>
+      runReviewThreadMutation(() => handler(context, writableReviewPath)),
+    );
+
+  app.post("/telemetry/tab", route(telemetryTab));
+  app.post("/telemetry/event", route(telemetryEvent));
+  app.post("/telemetry/bug-report", route(bugReport));
+  app.get("/session", route(sessionInfo));
+  app.get("/comments", writable(commentsList));
+  app.post("/thread-commands", threadMutation(threadCommand));
+  app.post("/agent-runs", writable(agentRunCreate));
+  app.post("/native-agent-events/:launchId", route(nativeAgentEvent));
+  app.get(
+    "/native-agent-events/:launchId/thread/:threadId",
+    writable(nativeAgentThreadGet),
+  );
+  app.post("/comments/:threadId/agent-terminal", writable(agentTerminalOpen));
+  app.post("/submissions", writable(submissionCreate));
+  app.post("/dismiss", route(reviewDismiss));
+  app.delete(
+    "/comments/:threadId/messages/:messageId",
+    threadMutation(commentMessageDelete),
+  );
+  app.post("/comments/:threadId", threadMutation(commentCreate));
+  app.patch("/comments/:threadId", threadMutation(commentUpdate));
+  app.delete("/comments/:threadId", threadMutation(commentDelete));
+  app.post("/code-peek/resolve", route(codePeekResolve));
+  app.post("/software-map/diff-counts", route(softwareMapDiffCounts));
+  app.post("/software-map/resolved-data", route(softwareMapResolvedData));
+  app.post(
+    "/software-map/artifacts/refresh",
+    route(softwareMapArtifactsRefresh),
+  );
+  app.get("/document-meta", route(documentMeta));
+  app.post("/diff-files", route(diffFiles));
+  app.get("/file-content", route(fileContent));
+  app.notFound(() =>
+    reviewApiJsonResponse(404, { ok: false, error: "not found" }),
+  );
+
+  async function telemetryTab(
+    context: Context<ReviewHonoEnv>,
+  ): Promise<Response> {
+    const event = parseReviewTabTelemetryInput(
+      await readBoundedRequestJson(
+        context.req.raw,
+        undefined,
+        {},
+        {
+          allowTextPlain: true,
+        },
+      ),
+    );
+    await telemetry.captureTabViewed(event);
+    return reviewApiJsonResponse(200, { ok: true });
+  }
+
+  async function telemetryEvent(
+    context: Context<ReviewHonoEnv>,
+  ): Promise<Response> {
+    try {
+      const body = await readJson(context.req.raw);
+      const payload =
+        body && typeof body === "object"
+          ? (body as Record<string, unknown>)
+          : {};
+      await captureSanitizedUiTelemetry(
+        telemetry,
+        context.req.raw,
+        payload.name,
+        payload.properties,
+        recordClientError,
+        payload.error,
+      );
+    } catch (error) {
+      console.error(error);
+    }
+    return reviewApiJsonResponse(200, { ok: true });
+  }
+
+  async function bugReport(context: Context<ReviewHonoEnv>): Promise<Response> {
+    try {
+      const report = parseReviewBugReportInput(await readJson(context.req.raw));
+      const reviewDocumentPath = resolveReviewDocumentPath(
+        new URL(context.req.url),
+        {
+          reviewPath,
+          reviewDocumentsDir,
+        },
+      );
+      if (!reviewDocumentPath) {
+        return reviewApiJsonResponse(404, {
+          ok: false,
+          error: "Review document not found.",
+        });
+      }
+      const result = await submitReviewBugReport({
+        report,
+        reviewDocumentPath,
+        reviewRootPath,
+        clientErrorNames: clientErrorsForSession(report.app_session_id),
+      });
+      return reviewApiJsonResponse(200, result);
+    } catch (error) {
+      // An upstream rejection carries its own status; route() would flatten
+      // every one of them to 400.
+      const status =
+        error instanceof BugReportUpstreamError
+          ? error.status
+          : requestJsonErrorStatus(error);
+      return reviewApiJsonResponse(status, {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  async function sessionInfo(
+    context: Context<ReviewHonoEnv>,
+  ): Promise<Response> {
+    const url = new URL(context.req.url);
+    const documentPath = resolveReviewDocumentPath(url, {
+      reviewPath,
+      reviewDocumentsDir,
+    });
+    if (!documentPath) {
+      throw new Error("Review document not found.");
+    }
+    const resolvedBaseRef = await resolveReviewSessionBaseCommit({
+      reviewRootPath,
+    });
+    return reviewApiJsonResponse(200, {
+      ok: true,
+      session: {
+        resolvedBaseRef,
+        ...(stateReviewPath
+          ? { reviewStatus: readReviewStatus(stateReviewPath) }
+          : {}),
+      },
+    });
+  }
+
+  function commentsList(
+    _context: Context<ReviewHonoEnv>,
+    writableReviewPath: string,
+  ): Response {
+    return reviewApiJsonResponse(200, {
+      ok: true,
+      snapshot: threadsFor(writableReviewPath).snapshot(),
+    });
+  }
+
+  async function threadCommand(
+    context: Context<ReviewHonoEnv>,
+    writableReviewPath: string,
+  ): Promise<Response> {
+    const command = parseReviewThreadsCommand(await readJson(context.req.raw));
+    const commit = threadsFor(writableReviewPath).dispatch(command);
+    return reviewApiJsonResponse(
+      commit ? 200 : 404,
+      commit
+        ? { ok: true, commit }
+        : { ok: false, error: "Comment thread not found." },
+    );
+  }
+
+  async function agentRunCreate(
+    context: Context<ReviewHonoEnv>,
+    writableReviewPath: string,
+  ): Promise<Response> {
+    const comment = parseReviewCommentInput(await readJson(context.req.raw));
+    const service = threadsFor(writableReviewPath);
+    const draft = service.snapshot().drafts[comment.threadId];
+    if (!draft?.inputs.some((input) => input.messageId === comment.messageId)) {
+      return reviewApiJsonResponse(409, {
+        ok: false,
+        error: "The Review agent comment is not in the durable draft store.",
+      });
+    }
+    if (launchedAgentMessageIds.has(comment.messageId)) {
+      return reviewApiJsonResponse(202, { ok: true });
+    }
+    launchedAgentMessageIds.add(comment.messageId);
+    const mirror = mirrorFor(writableReviewPath);
+    await answerReviewComment({
+      comment,
+      rootPath: agentRootPath,
+      session,
+      service,
+      mirror,
+      nativeTurns,
+      onQuestionAgentSession,
+    });
+    return reviewApiJsonResponse(202, { ok: true });
+  }
+
+  async function nativeAgentEvent(
+    context: Context<ReviewHonoEnv>,
+  ): Promise<Response> {
+    const launchId = context.req.param("launchId");
+    if (!launchId) return reviewApiJsonResponse(200, { ok: true });
+    try {
+      nativeTurns.observer.acceptEvent(
+        launchId,
+        await readBoundedRequestJson(context.req.raw, 2 * 1024 * 1024, {}),
+      );
+    } catch (error) {
+      nativeTurns.observer.observerFailed(launchId, error);
+    }
+    return reviewApiJsonResponse(200, { ok: true });
+  }
+
+  function nativeAgentThreadGet(
+    context: Context<ReviewHonoEnv>,
+    writableReviewPath: string,
+  ): Response {
+    const threadId = context.req.param("threadId");
+    if (!threadId) {
+      return reviewApiJsonResponse(404, {
+        ok: false,
+        error: "Comment thread not found.",
+      });
+    }
+    const snapshot = threadsFor(writableReviewPath).snapshot();
+    const draft = snapshot.drafts[threadId];
+    const comment = snapshot.comments[threadId];
+    if (!draft && !comment) {
+      return reviewApiJsonResponse(404, {
+        ok: false,
+        error: `Comment thread not found: ${threadId}`,
+      });
+    }
+    return reviewApiJsonResponse(200, {
+      review: path.basename(path.dirname(writableReviewPath)),
+      state: draft ? "draft" : "submitted",
+      comment: draft?.thread ?? comment,
+    });
+  }
+
+  async function agentTerminalOpen(
+    context: Context<ReviewHonoEnv>,
+    writableReviewPath: string,
+  ): Promise<Response> {
+    const threadId = context.req.param("threadId");
+    if (!threadId) {
+      return reviewApiJsonResponse(400, {
+        ok: false,
+        error: "Thread ID is required.",
+      });
+    }
+    const snapshot = threadsFor(writableReviewPath).snapshot();
+    const agentSession =
+      snapshot.drafts[threadId]?.thread.agentSession ??
+      snapshot.comments[threadId]?.agentSession;
+    if (!agentSession) {
+      return reviewApiJsonResponse(404, {
+        ok: false,
+        error: "This thread has no agent terminal.",
+      });
+    }
+    await nativeTurns.openSession({
+      launchId: randomUUID(),
+      cwd: agentRootPath,
+      binding: agentSession as ReviewThreadAgentBinding,
+    });
+    return reviewApiJsonResponse(200, { ok: true });
+  }
+
+  function reviewDismiss(context: Context<ReviewHonoEnv>): Response {
+    // Respond first so the canvas receives its acknowledgment before the
+    // desktop updates the durable review status.
+    context.env.outgoing.once("close", () => {
+      void Promise.resolve(onReviewDismiss?.())
+        .then(() =>
+          captureSanitizedUiTelemetry(
+            telemetry,
+            context.req.raw,
+            "review_dismissed",
+            {
+              via: "review_topbar",
+            },
+            recordClientError,
+          ),
+        )
+        .catch((error) => console.error(error));
+    });
+    return reviewApiJsonResponse(200, { ok: true });
+  }
+
+  async function submissionCreate(
+    context: Context<ReviewHonoEnv>,
+    writableReviewPath: string,
+  ): Promise<Response> {
+    const url = new URL(context.req.url);
+    const body = parseReviewSubmissionInput(await readJson(context.req.raw));
+    await runReviewThreadMutation(() =>
+      threadsFor(writableReviewPath).submitDrafts(
+        body.submissionId,
+        body.comments,
+      ),
+    );
+    const event = buildReviewSubmissionEvent({
+      submission: body,
+      rootPath,
+      reviewPath: writableReviewPath,
+      documentRoute: normalizeReviewRoutePath(url.searchParams.get("document")),
+      session,
+    });
+    // Durable audit trail (best-effort — a write failure must never discard
+    // an otherwise-valid submission).
+    try {
+      saveReviewSubmissionAudit(event.reviewPath, event);
+    } catch (error) {
+      console.error(error);
+    }
+    // Resolve the in-memory desktop submission before the response so a
+    // browser tab close cannot race the durable review status.
+    await onSubmission?.(event);
+    await captureSanitizedUiTelemetry(
+      telemetry,
+      context.req.raw,
+      "review_submitted",
+      {
+        decision: body.decision,
+        comment_count: body.comments.length,
+      },
+      recordClientError,
+    );
+    const response = reviewApiJsonResponse(200, {
+      ok: true,
+      event,
+      hook: { configured: Boolean(submitHook?.trim()) },
+    });
+    void runReviewSubmissionHook(event, submitHook).then((hook) => {
+      if (hook.error) console.error(hook.error);
+    });
+    return response;
+  }
+
+  function commentMessageDelete(
+    context: Context<ReviewHonoEnv>,
+    writableReviewPath: string,
+  ): Response {
+    const commit = threadsFor(writableReviewPath).dispatch({
+      command: "comment-message.delete",
+      mutationId: randomUUID(),
+      threadId: context.req.param("threadId") ?? "",
+      messageId: context.req.param("messageId") ?? "",
+    });
+    return reviewApiJsonResponse(
+      commit ? 200 : 404,
+      commit
+        ? { ok: true, commit }
+        : { ok: false, error: "Comment message not found." },
+    );
+  }
+
+  async function commentCreate(
+    context: Context<ReviewHonoEnv>,
+    writableReviewPath: string,
+  ): Promise<Response> {
+    const threadId = context.req.param("threadId") ?? "";
+    const body = parseReviewCommentInput(await readJson(context.req.raw));
+    if (threadId !== body.threadId) {
+      throw new Error("Comment path threadId must match body threadId.");
+    }
+    const commit = threadsFor(writableReviewPath).dispatch({
+      command: "comment.create",
+      mutationId: body.messageId,
+      input: body,
+    });
+    if (!commit) {
+      throw new Error("The comment could not be created.");
+    }
+    return reviewApiJsonResponse(200, { ok: true, commit });
+  }
+
+  async function commentUpdate(
+    context: Context<ReviewHonoEnv>,
+    writableReviewPath: string,
+  ): Promise<Response> {
+    const threadId = context.req.param("threadId") ?? "";
+    const body = parseUpdateReviewCommentInput(await readJson(context.req.raw));
+    const commit = threadsFor(writableReviewPath).dispatch({
+      command: "comment.update",
+      mutationId: randomUUID(),
+      threadId,
+      update: body,
+    });
+    return reviewApiJsonResponse(
+      commit ? 200 : 404,
+      commit
+        ? { ok: true, commit }
+        : { ok: false, error: "Comment thread not found." },
+    );
+  }
+
+  function commentDelete(
+    context: Context<ReviewHonoEnv>,
+    writableReviewPath: string,
+  ): Response {
+    const threadId = context.req.param("threadId") ?? "";
+    const commit = threadsFor(writableReviewPath).dispatch({
+      command: "comment.delete",
+      mutationId: randomUUID(),
+      threadId,
+    });
+    return reviewApiJsonResponse(
+      commit ? 200 : 404,
+      commit
+        ? { ok: true, commit }
+        : { ok: false, error: "Comment thread not found." },
+    );
+  }
+
+  async function codePeekResolve(
+    context: Context<ReviewHonoEnv>,
+  ): Promise<Response> {
+    const url = new URL(context.req.url);
+    const body = (await readJson(context.req.raw)) as Record<string, unknown>;
+    const sourceTarget = await resolveRequestSourceTarget(url, {
+      reviewPath,
+      reviewDocumentsDir,
+      reviewRootPath,
+      requestCache,
+    });
+    const baseSourceTarget = sourceTarget.preparedBase;
+    const graph = parseCodePeekGraph(body.graph);
+    const includeDiff = parseCodePeekIncludeDiff(body.includeDiff);
+    const includeDiffSummary = parseCodePeekIncludeDiffSummary(
+      body.includeDiffSummary,
+    );
+    const primaryTarget = graph === "base" ? baseSourceTarget : sourceTarget;
+    if (!primaryTarget) {
+      throw new Error("The pinned base worktree is unavailable.");
+    }
+    const snapshot = await resolveReviewSourceRange({
+      rootPath: primaryTarget.sourceRootPath,
+      root: parseCodePeekRoot(body.root),
+    });
+    const diff =
+      includeDiff || includeDiffSummary
+        ? await resolveCodePeekDiff({
+            snapshot,
+            sourceTarget,
+            graph,
+            includePatch: includeDiff,
+            requestCache,
+          })
+        : undefined;
+    return reviewApiJsonResponse(200, {
+      ok: true,
+      snapshot,
+      ...(diff ? { diff } : {}),
+    });
+  }
+
+  async function softwareMapDiffCounts(
+    context: Context<ReviewHonoEnv>,
+  ): Promise<Response> {
+    const url = new URL(context.req.url);
+    const body = (await readJson(context.req.raw)) as Record<string, unknown>;
+    const sourceTarget = await resolveRequestSourceTarget(url, {
+      reviewPath,
+      reviewDocumentsDir,
+      reviewRootPath,
+    });
+    const diffRootPath =
+      sourceTarget.baseRef || sourceTarget.headRef
+        ? sourceTarget.diffRootPath
+        : sourceTarget.sourceRootPath;
+    const counts = await resolveSoftwareMapDiffCounts({
+      sourceRootPath: diffRootPath,
+      baseRef: sourceTarget.baseRef,
+      headRef: sourceTarget.headRef,
+      codeElements: parseSoftwareMapCodeElements(body.codeElements),
+      coverageClaims: parseSoftwareMapCoverageClaims(body.coverageClaims),
+    });
+    return reviewApiJsonResponse(200, { ok: true, ...counts });
+  }
+
+  async function softwareMapResolvedData(
+    context: Context<ReviewHonoEnv>,
+  ): Promise<Response> {
+    const url = new URL(context.req.url);
+    const body = (await readJson(context.req.raw)) as Record<string, unknown>;
+    const codeElements = parseSoftwareMapCodeElements(body.codeElements);
+    const coverageClaims = parseSoftwareMapCoverageClaims(body.coverageClaims);
+    const sourceTarget = await resolveRequestSourceTarget(url, {
+      reviewPath,
+      reviewDocumentsDir,
+      reviewRootPath,
+    });
+    const cacheKey = stableSoftwareMapResolvedDataCacheKey({
+      reviewDocument: resolveReviewDocumentPath(url, {
+        reviewPath,
+        reviewDocumentsDir,
+      }),
+      sourceTarget,
+      codeElements,
+      coverageClaims,
+    });
+    const result = await cachedSoftwareMapResolvedData(cacheKey, () =>
+      buildSoftwareMapResolvedData({
+        sourceTarget,
+        codeElements,
+        coverageClaims,
+      }),
+    );
+    return reviewApiJsonResponse(200, { ok: true, ...result });
+  }
+
+  async function softwareMapArtifactsRefresh(
+    context: Context<ReviewHonoEnv>,
+  ): Promise<Response> {
+    const url = new URL(context.req.url);
+    const reviewDocumentPath = resolveReviewDocumentPath(url, {
+      reviewPath,
+      reviewDocumentsDir,
+    });
+    if (!reviewDocumentPath) {
+      return reviewApiJsonResponse(404, {
+        ok: false,
+        error: "Review document not found.",
+      });
+    }
+    // Notes are the durable map state. Refreshing the canvas only
+    // re-materializes note-backed artifacts; map edits are published by
+    // `review map check` after validation succeeds.
+    const result = await rematerializeReviewSoftwareMapArtifacts({
+      reviewRootPath,
+    });
+    clearSoftwareMapResolvedDataCache();
+    return reviewApiJsonResponse(200, { ok: true, refresh: result });
+  }
+
+  function documentMeta(context: Context<ReviewHonoEnv>): Response {
+    const url = new URL(context.req.url);
+    const documentPath = resolveReviewDocumentPath(url, {
+      reviewPath,
+      reviewDocumentsDir,
+    });
+    if (!documentPath) {
+      throw new Error("Review document not found.");
+    }
+    const stats = statSync(documentPath);
+    return reviewApiJsonResponse(200, {
+      ok: true,
+      updatedAtMs: stats.mtimeMs,
+      pullRequestNumber: session?.pullRequestNumber ?? null,
+      pullRequestUrl: session?.pullRequestUrl ?? null,
+    });
+  }
+
+  async function diffFiles(context: Context<ReviewHonoEnv>): Promise<Response> {
+    const url = new URL(context.req.url);
+    const body = parseReviewDiffFilesInput(await readJson(context.req.raw));
+    const diffTarget = await resolveScopedDiffTarget(url, body.commit);
+    const result = await resolveReviewDiffFiles({
+      rootPath: diffTarget.rootPath,
+      baseRef: diffTarget.baseRef,
+      headRef: diffTarget.headRef,
+      includePatch: body.includePatch,
+      paths: body.paths,
+    });
+    return reviewApiJsonResponse(200, { ok: true, ...result });
+  }
+
+  async function fileContent(
+    context: Context<ReviewHonoEnv>,
+  ): Promise<Response> {
+    const url = new URL(context.req.url);
+    const contentRequest = parseReviewFileContentRequest({
+      path: url.searchParams.get("path") ?? undefined,
+      side: url.searchParams.get("side") ?? undefined,
+      commit: url.searchParams.get("commit") ?? undefined,
+    });
+    const diffTarget = await resolveScopedDiffTarget(
+      url,
+      contentRequest.commit,
+    );
+    const result = await resolveReviewFileContent({
+      ...diffTarget,
+      ...contentRequest,
+    });
+    return reviewApiJsonResponse(200, { ok: true, ...result });
+  }
+
+  async function reviewCommits(
+    repoRootPath: string,
+    baseCommit: string,
+    headCommit: string,
+  ): Promise<LocalVcsCommitSummary[]> {
+    if (baseCommit === headCommit) return [];
+    requestCache.commits ??= listCommitRange({
+      rootPath: repoRootPath,
+      baseRef: baseCommit,
+      headRef: headCommit,
+    });
+    return requestCache.commits;
+  }
+
+  async function resolveScopedDiffTarget(url: URL, commit?: string) {
+    const target = resolveRequestDiffTarget(url, {
+      reviewPath,
+      reviewDocumentsDir,
+      rootPath: reviewRootPath,
+      session,
+    });
+    if (!commit) return target;
+    const review = readReviewStoreRecord(reviewRootPath);
+    const headCommit = review.sourceCommit ?? review.baseCommit;
+    const scope = resolveReviewCommitScope(
+      await reviewCommits(target.rootPath, review.baseCommit, headCommit),
+      commit,
+    );
+    return {
+      rootPath: target.rootPath,
+      ...scope,
+    };
+  }
+
+  return {
+    app,
+    close: async () => {
+      await Promise.allSettled(
+        [...agentMirrors.values()].map((mirror) => mirror.close()),
+      );
+      agentMirrors.clear();
+    },
+  };
+}
+
+function parseCodePeekGraph(value: unknown): "head" | "base" {
+  return value === "base" ? "base" : "head";
+}
+
+function parseCodePeekIncludeDiff(value: unknown): boolean {
+  return value === true;
+}
+
+function parseCodePeekIncludeDiffSummary(value: unknown): boolean {
+  return value === true;
+}
+
+function readReviewStatus(stateReviewPath: string): string {
+  const record: unknown = JSON.parse(
+    readFileSync(
+      path.join(path.dirname(stateReviewPath), "review.json"),
+      "utf8",
+    ),
+  );
+  if (!record || typeof record !== "object" || Array.isArray(record)) {
+    throw new Error("Invalid review.json.");
+  }
+  const status = (record as { status?: unknown }).status;
+  if (typeof status !== "string") {
+    throw new Error("review.json has no status.");
+  }
+  return status;
+}
+
+function readJson(request: Request): Promise<unknown> {
+  return readBoundedRequestJson(request, undefined, {});
+}
+
+function reviewApiJsonResponse(
+  status: number,
+  body: Record<string, unknown>,
+): Response {
+  return jsonResponse(body, status as ContentfulStatusCode, {
+    contentType: "application/json",
+    newline: false,
+  });
+}
+
+async function answerReviewComment(input: {
+  comment: CreateReviewCommentInput;
+  rootPath: string;
+  session: ReviewSessionWire;
+  service: ReviewThreadsService;
+  mirror: NativeMessageMirror;
+  nativeTurns: NativeReviewTurnLauncher;
+  onQuestionAgentSession?: (agent: SessionRef) => Promise<void>;
+}): Promise<void> {
+  const agent = input.session.agent;
+  if (!agent) {
+    throw new Error("This Review has no authoring agent session.");
+  }
+  const snapshot = input.service.snapshot();
+  const storedSession =
+    snapshot.drafts[input.comment.threadId]?.thread.agentSession ??
+    snapshot.comments[input.comment.threadId]?.agentSession;
+  const nativeSource = agent;
+  const route = storedSession
+    ? {
+        kind: "resume" as const,
+        session: storedSession as ReviewThreadAgentBinding,
+      }
+    : { kind: "fork" as const, source: nativeSource };
+  const handle = await input.nativeTurns.launchTurn({
+    launchId: randomUUID(),
+    threadId: input.comment.threadId,
+    reviewMessageId: input.comment.messageId,
+    cwd: input.rootPath,
+    prompt: reviewCommentPrompt(input.comment),
+    route,
+  });
+  try {
+    const accepted = await acceptedNativeSession(handle.accepted);
+    const binding = storedSession
+      ? (storedSession as ReviewThreadAgentBinding)
+      : accepted;
+    if (
+      accepted.harness !== binding.harness ||
+      accepted.sessionId !== binding.sessionId
+    ) {
+      throw new Error(
+        `The native terminal opened session "${accepted.sessionId}" instead of "${binding.sessionId}".`,
+      );
+    }
+    const commit = input.service.setAgentSession({
+      mutationId: randomUUID(),
+      threadId: input.comment.threadId,
+      agentSession: binding,
+    });
+    if (!commit) {
+      throw new Error(
+        `Review comment thread ${input.comment.threadId} no longer exists.`,
+      );
+    }
+    input.mirror.watch(input.comment.threadId, binding);
+    await input.onQuestionAgentSession?.(accepted);
+    void observeNativeTerminalEvents(handle).catch((error) =>
+      console.error(error),
+    );
+  } catch (error) {
+    await handle.detach();
+    throw error;
+  }
+}
+
+async function acceptedNativeSession<T>(accepted: Promise<T>): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      accepted,
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(
+          () =>
+            reject(
+              new Error(
+                "The native agent did not report its session within 60 seconds.",
+              ),
+            ),
+          60_000,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+async function observeNativeTerminalEvents(
+  handle: Awaited<ReturnType<NativeReviewTurnLauncher["launchTurn"]>>,
+): Promise<void> {
+  for await (const event of handle.events) {
+    if (event.type === "session.mismatch") {
+      throw new Error(
+        `The native terminal changed from session "${event.expectedSessionId}" to "${event.actualSessionId}".`,
+      );
+    }
+    if (event.type === "observer.failed") throw new Error(event.error);
+  }
+}
+
+function buildReviewSubmissionEvent(input: {
+  submission: ReturnType<typeof parseReviewSubmissionInput>;
+  rootPath: string;
+  reviewPath: string;
+  documentRoute: string;
+  session?: ReviewSessionWire;
+}): ReviewSubmissionEvent {
+  const session = input.session;
+  const agent =
+    (session?.agent as ReviewSession["agent"]) ??
+    resolveAuthoringSessionRef(process.env);
+  return {
+    id: input.submission.submissionId,
+    decision: input.submission.decision,
+    createdAt: new Date().toISOString(),
+    rootPath: input.rootPath,
+    reviewPath: input.reviewPath,
+    documentRoute: input.documentRoute,
+    appUrl: session?.appUrl,
+    baseRef: session?.baseRef,
+    headRef: session?.headRef,
+    pullRequestNumber: session?.pullRequestNumber,
+    agent,
+    codexThreadId:
+      session?.codexThreadId ??
+      (agent?.harness === "codex"
+        ? agent.sessionId
+        : process.env.CODEX_THREAD_ID),
+    comments: input.submission.comments,
+    prompt: reviewSubmissionPrompt({
+      rootPath: input.rootPath,
+      reviewPath: input.reviewPath,
+      appUrl: session?.appUrl,
+      comments: input.submission.comments,
+    }),
+  };
+}
+
+function reviewSubmissionPrompt(input: {
+  rootPath: string;
+  reviewPath: string;
+  appUrl?: string;
+  comments: CreateReviewCommentInput[];
+}): string {
+  const commentLines = input.comments
+    .map((comment, index) => {
+      return `${index + 1}. Thread ${comment.threadId} targeting ${JSON.stringify(comment.target)}: ${comment.body}`;
+    })
+    .join("\n");
+  return `The reviewer submitted comments in the progressive review.
+
+Repo root: ${input.rootPath}
+Review document: ${input.reviewPath}
+Review app: ${input.appUrl ?? "unknown"}
+
+Read the review document, inspect the submitted comments, and make the requested code or review changes. Use \`review threads list\` (run in the repo root) as canonical thread state, and mark addressed threads with \`review threads resolve <threadId>\`. Do not edit the thread storage beside the review document by hand.
+
+You must close every open comment thread before you re-publish. Run \`review threads list\` again after you resolve the addressed threads. Do not run \`review publish\` while any comment thread is open.
+
+Submitted comments:
+${commentLines}`;
+}
+
+async function runReviewSubmissionHook(
+  event: ReviewSubmissionEvent,
+  configuredCommand?: string,
+): Promise<{
+  configured: boolean;
+  exitCode?: number;
+  error?: string;
+}> {
+  const command = configuredCommand?.trim();
+  if (!command) return { configured: false };
+  return new Promise((resolve) => {
+    const child = spawn(command, {
+      cwd: event.rootPath,
+      env: process.env,
+      shell: true,
+      stdio: ["pipe", "ignore", "pipe"],
+    });
+    let stderr = "";
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout>;
+    const finish = (result: {
+      configured: boolean;
+      exitCode?: number;
+      error?: string;
+    }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve(result);
+    };
+    timeout = setTimeout(() => {
+      child.kill();
+      finish({
+        configured: true,
+        error: `${REVIEW_SUBMIT_HOOK_ENV} timed out after 10s`,
+      });
+    }, 10_000);
+    child.stderr?.setEncoding("utf8");
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.once("error", (error) => {
+      finish({ configured: true, error: error.message });
+    });
+    child.once("close", (code) => {
+      finish({
+        configured: true,
+        exitCode: code ?? 1,
+        ...(code === 0
+          ? {}
+          : { error: stderr.trim() || `${REVIEW_SUBMIT_HOOK_ENV} failed` }),
+      });
+    });
+    child.stdin?.end(`${JSON.stringify(event)}\n`);
+  });
+}
+
+function resolveWritableReviewPath(
+  url: URL,
+  input: { reviewPath: string; reviewDocumentsDir: string },
+): string | null {
+  return resolveReviewDocumentPath(url, input);
+}
+
+async function rematerializeReviewSoftwareMapArtifacts(input: {
+  reviewRootPath: string;
+}): Promise<{
+  status: "rematerialized" | "skipped";
+  headCommit?: string;
+  artifactPath?: string | null;
+}> {
+  const review = readReviewStoreRecord(input.reviewRootPath);
+  const repoRootPath = resolveReviewRepoRootFromStore(input.reviewRootPath);
+  const headCommit = review.sourceCommit
+    ? (
+        await resolveRevision(repoRootPath, review.sourceCommit).catch(
+          () => null,
+        )
+      )?.commit
+    : (await currentHead(repoRootPath).catch(() => null))?.commit;
+  if (!headCommit) return { status: "skipped" };
+
+  const [artifactPath] = await Promise.all([
+    materializeSoftwareMapAtRef({
+      repoRootPath,
+      ref: headCommit,
+      role: "head",
+    }),
+    review.baseCommit
+      ? resolveRevision(repoRootPath, review.baseCommit)
+          .catch(() => null)
+          .then((base) =>
+            base?.commit
+              ? materializeSoftwareMapAtRef({
+                  repoRootPath,
+                  ref: base.commit,
+                  role: "base",
+                })
+              : null,
+          )
+      : Promise.resolve(null),
+  ]);
+  return { status: "rematerialized", headCommit, artifactPath };
+}
+
+async function resolveRequestSourceTarget(
+  url: URL,
+  input: {
+    reviewPath: string;
+    reviewDocumentsDir: string;
+    reviewRootPath: string;
+    requestCache?: ReviewApiRequestCache;
+  },
+) {
+  const reviewDocumentPath = resolveReviewDocumentPath(url, input);
+  if (!reviewDocumentPath) {
+    throw new Error("Review document not found.");
+  }
+  const cacheKey = path.resolve(reviewDocumentPath);
+  const cached = input.requestCache?.sourceTargets.get(cacheKey);
+  if (cached) return cached;
+  const resolution = resolveReviewSourceTarget({
+    reviewRootPath: input.reviewRootPath,
+  });
+  if (!input.requestCache) return resolution;
+  input.requestCache.sourceTargets.set(cacheKey, resolution);
+  void resolution.catch(() => {
+    if (input.requestCache?.sourceTargets.get(cacheKey) === resolution) {
+      input.requestCache.sourceTargets.delete(cacheKey);
+    }
+  });
+  return resolution;
+}
+
+interface CodePeekDiffResponse {
+  baseRef?: string;
+  headRef?: string;
+  orientation: "head" | "base";
+  files: CodePeekDiffFile[];
+}
+
+interface CodePeekDiffFile {
+  path: string;
+  previousPath?: string;
+  status: ReviewDiffFile["status"];
+  additions: number;
+  deletions: number;
+  patch?: string;
+}
+
+async function resolveCodePeekDiff(input: {
+  snapshot: SourceSnapshot;
+  sourceTarget: Awaited<ReturnType<typeof resolveRequestSourceTarget>>;
+  graph: "head" | "base";
+  includePatch: boolean;
+  requestCache?: ReviewApiRequestCache;
+}): Promise<CodePeekDiffResponse | undefined> {
+  if (!input.sourceTarget.baseRef) return undefined;
+
+  const ranges = codePeekRootSourceRanges(input.snapshot);
+  const paths = codePeekDiffRangeFiles(ranges);
+  if (paths.length === 0) return undefined;
+
+  const diffRootPath =
+    input.sourceTarget.baseRef || input.sourceTarget.headRef
+      ? input.sourceTarget.diffRootPath
+      : input.sourceTarget.sourceRootPath;
+  const diffFiles = await resolveCodePeekDiffFiles({
+    diffRootPath,
+    baseRef: input.sourceTarget.baseRef,
+    headRef: input.sourceTarget.headRef,
+    paths,
+    requestCache: input.requestCache,
+  });
+  if (diffFiles.length === 0) return undefined;
+  const files = diffFiles
+    .map((file) =>
+      sliceReviewDiffFileToCodePeekRanges({
+        file,
+        ranges,
+        orientation: input.graph,
+        contextLines: 0,
+      }),
+    )
+    .filter((file): file is ReviewDiffFile => file !== null);
+  if (files.length === 0) return undefined;
+
+  return {
+    baseRef: input.sourceTarget.baseRef,
+    headRef: input.sourceTarget.headRef,
+    orientation: input.graph,
+    files: files.map((file) =>
+      serializeCodePeekDiffFile(file, input.includePatch),
+    ),
+  };
+}
+
+async function resolveCodePeekDiffFiles(input: {
+  diffRootPath: string;
+  baseRef?: string;
+  headRef?: string;
+  paths: string[];
+  requestCache?: ReviewApiRequestCache;
+}): Promise<ReviewDiffFile[]> {
+  const cacheKey = JSON.stringify({
+    rootPath: path.resolve(input.diffRootPath),
+    baseRef: input.baseRef,
+    headRef: input.headRef,
+    paths: input.paths,
+  });
+  const cached = input.requestCache?.codePeekDiffs.get(cacheKey);
+  if (cached) return cached;
+  const resolution = resolveReviewDiffFiles({
+    rootPath: input.diffRootPath,
+    baseRef: input.baseRef,
+    headRef: input.headRef,
+    contextLines: CODE_PEEK_DIFF_CONTEXT_LINES,
+    paths: input.paths,
+  }).then((diff) => diff.files);
+  if (!input.requestCache || !input.headRef) return resolution;
+  input.requestCache.codePeekDiffs.set(cacheKey, resolution);
+  void resolution.catch(() => {
+    if (input.requestCache?.codePeekDiffs.get(cacheKey) === resolution) {
+      input.requestCache.codePeekDiffs.delete(cacheKey);
+    }
+  });
+  return resolution;
+}
+
+export function serializeCodePeekDiffFile(
+  file: ReviewDiffFile,
+  includePatch: boolean,
+): CodePeekDiffFile {
+  return {
+    path: file.path,
+    previousPath: file.previousPath,
+    status: file.status,
+    additions: file.additions,
+    deletions: file.deletions,
+    ...(includePatch ? { patch: file.patch ?? "" } : {}),
+  };
+}
+
+function codePeekDiffRangeFiles(
+  ranges: ReturnType<typeof codePeekRootSourceRanges>,
+): string[] {
+  return [
+    ...new Set(
+      ranges
+        .map((range) => range.file)
+        .filter((file) => file.trim().length > 0),
+    ),
+  ].sort();
+}
+
+async function buildSoftwareMapResolvedData(input: {
+  sourceTarget: Awaited<ReturnType<typeof resolveRequestSourceTarget>>;
+  codeElements: ReturnType<typeof parseSoftwareMapCodeElements>;
+  coverageClaims: ReturnType<typeof parseSoftwareMapCoverageClaims>;
+}): Promise<SoftwareMapResolvedDataResponse> {
+  const diffRootPath =
+    input.sourceTarget.baseRef || input.sourceTarget.headRef
+      ? input.sourceTarget.diffRootPath
+      : input.sourceTarget.sourceRootPath;
+  const counts = await resolveSoftwareMapDiffCounts({
+    sourceRootPath: diffRootPath,
+    baseRef: input.sourceTarget.baseRef,
+    headRef: input.sourceTarget.headRef,
+    codeElements: input.codeElements,
+    coverageClaims: input.coverageClaims,
+  });
+  return {
+    countsByElementPath: counts.countsByElementPath,
+    unmappedByElementPath: counts.unmappedByElementPath,
+  };
+}
+
+function cachedSoftwareMapResolvedData(
+  cacheKey: string,
+  factory: () => Promise<SoftwareMapResolvedDataResponse>,
+) {
+  const cached = softwareMapResolvedDataCache.get(cacheKey);
+  if (cached) return cached;
+  const promise = factory().catch((error) => {
+    softwareMapResolvedDataCache.delete(cacheKey);
+    throw error;
+  });
+  softwareMapResolvedDataCache.set(cacheKey, promise);
+  if (softwareMapResolvedDataCache.size > 50) {
+    const oldestKey = softwareMapResolvedDataCache.keys().next().value;
+    if (oldestKey) softwareMapResolvedDataCache.delete(oldestKey);
+  }
+  return promise;
+}
+
+export function clearSoftwareMapResolvedDataCache(): void {
+  softwareMapResolvedDataCache.clear();
+}
+
+function stableSoftwareMapResolvedDataCacheKey(input: {
+  reviewDocument: string | null;
+  sourceTarget: Awaited<ReturnType<typeof resolveRequestSourceTarget>>;
+  codeElements: unknown;
+  coverageClaims: unknown;
+}) {
+  return stableJson({
+    cacheVersion: SOFTWARE_MAP_RESOLVED_DATA_CACHE_VERSION,
+    reviewDocument: input.reviewDocument,
+    reviewDocumentMtimeMs: input.reviewDocument
+      ? optionalFileMtimeMs(input.reviewDocument)
+      : null,
+    repoRoot: input.sourceTarget.repoRoot,
+    sourceRootPath: input.sourceTarget.sourceRootPath,
+    diffRootPath: input.sourceTarget.diffRootPath,
+    baseSourceRootPath: input.sourceTarget.preparedBase?.sourceRootPath,
+    baseRef: input.sourceTarget.baseRef,
+    headRef: input.sourceTarget.headRef,
+    codeElements: input.codeElements,
+    coverageClaims: input.coverageClaims,
+  });
+}
+
+function optionalFileMtimeMs(filePath: string): number | null {
+  try {
+    return statSync(filePath).mtimeMs;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableJson(entry)).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function resolveReviewDocumentPath(
+  url: URL,
+  input: { reviewPath: string; reviewDocumentsDir: string },
+): string | null {
+  // Strict resolution, matching the client: unknown document routes render a
+  // not-found page rather than silently falling back to the default review.
+  return resolveReviewDocumentFilePath({
+    routePath: url.searchParams.get("document"),
+    reviewPath: input.reviewPath,
+    reviewDocumentsDir: input.reviewDocumentsDir,
+  });
+}
+
+export function resolveRequestDiffTarget(
+  url: URL,
+  input: {
+    reviewPath: string;
+    reviewDocumentsDir: string;
+    rootPath: string;
+    session?: ReviewSessionWire;
+  },
+): { rootPath: string; baseRef?: string; headRef?: string } {
+  const reviewDocumentPath = resolveReviewDocumentPath(url, input);
+  if (!reviewDocumentPath) {
+    throw new Error("Review document not found.");
+  }
+  const review = readReviewStoreRecord(input.rootPath);
+  return {
+    rootPath: resolveReviewRepoRootFromStore(input.rootPath),
+    baseRef: review.baseCommit,
+    headRef: review.sourceCommit ?? undefined,
+  };
+}

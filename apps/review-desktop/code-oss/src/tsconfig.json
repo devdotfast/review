@@ -1,0 +1,48 @@
+{
+	"extends": "./tsconfig.base.json",
+	"compilerOptions": {
+		"esModuleInterop": true,
+		"removeComments": false,
+		"preserveConstEnums": true,
+		"sourceMap": false,
+		"allowJs": true,
+		"resolveJsonModule": true,
+		"isolatedModules": false,
+		"skipLibCheck": true,
+		"paths": {
+			"@github/copilot-sdk": [
+				"./typings/github-copilot-sdk/index.d.ts"
+			]
+		},
+		"outDir": "../out/vs",
+		"types": [
+			"@webgpu/types",
+			"mocha",
+			"semver",
+			"sinon",
+			"trusted-types",
+			"winreg",
+			"wicg-file-system-access"
+		],
+		"plugins": [
+			{
+				"name": "tsec",
+				"exemptionConfig": "./tsec.exemptions.json"
+			}
+		]
+	},
+	"files": [
+		"./vs/platform/agentHost/test/node/mockAgent.ts"
+	],
+	"include": [
+		"./*.ts",
+		"./typings",
+		"./vs/**/*.ts",
+		"./vscode-dts/vscode.proposed.*.d.ts",
+		"./vscode-dts/vscode.d.ts"
+	],
+	"exclude": [
+		"./vs/**/test/**",
+		"vs/workbench/contrib/webview/browser/pre/service-worker.js"
+	]
+}

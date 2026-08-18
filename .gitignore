@@ -1,0 +1,87 @@
+# Node
+node_modules/
+dist/
+packages/progressive-review/tutorial/.bundle/
+packages/progressive-review/tutorial/git-stub/
+*.tsbuildinfo
+
+# pnpm
+.pnpm-store/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.local
+.env.*.local
+.dev.vars
+.dev.vars.local
+.wrangler/
+**/.wrangler/
+apps/ci/.wrangler-jaeger.jsonc
+.dev-fast/
+apps/review-desktop/.node/
+apps/review-desktop/VSCode-darwin-arm64/
+apps/review-desktop/VSCode-linux-*/
+apps/review-desktop/*.dmg
+
+# Logs
+*.log
+
+# Generated artifacts
+__pycache__/
+*.py[cod]
+packages/code-graph/canvas/public/snapshot*.json
+.dev/code-graphs/
+.dev/software-maps/
+
+# Local agent/context files
+.claude/
+.pi-subagents/
+.claude-context
+.codex-context
+.codex/*
+!.codex/config.toml
+.dev/reviews/*
+!.dev/reviews/*.mdx
+.dev/profiles/
+.code-graph/
+packages/code-graph/.ci-tools/
+packages/code-graph/fixtures/indexing/rust/target/
+packages/code-graph/fixtures/semantic-baseline/rust/target/
+packages/progressive-review/.playwright-cli/
+
+.playwright-mcp
+backups/
+.e2e-shots/
+.playwright-cli/
+
+
+# eval run outputs
+
+# DevBox local cloud state and evidence
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+backend.hcl
+!backend.hcl.example
+.devbox/
+.dev/devbox/
+.dev/evidence/
+artifacts/devbox/
+scripts/acceptance/evidence/

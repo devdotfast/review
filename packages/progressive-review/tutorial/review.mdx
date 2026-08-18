@@ -1,0 +1,72 @@
+import { actors, anchors, checkoutSequence, stores } from "./data.ts";
+
+# Review Desktop: three-minute tour
+
+## Welcome
+
+This Review uses a real local TypeScript repository. Review documents connect
+short explanations to live code and system views.
+
+## Code is live
+
+This path validates a checkout, creates an order, and writes it to storage.
+Hover a typed symbol. Then use F12 or command-click to open its definition.
+
+<AnchorLink anchor={anchors.placeOrder}>Open the order write path</AnchorLink>.
+
+<CodePeek anchor={anchors.placeOrder} />
+
+## Comments are threads
+
+Move the pointer over the code above. A comment control shows in the left
+gutter. Click it and write a note.
+
+Select **Ask now**. An agent reads your note and answers in the same thread.
+A real Review adds a second button, **Add to review**, that holds the note
+until you submit. This tour has no review round to submit to, so it keeps
+only the one button.
+
+Every comment is a thread anchored to one part of the Review. Use the **+**
+button in the toolbar to start a thread about the whole Review instead.
+
+## Your keybindings
+
+Choose the editor keys that you want. Review uses the existing extension and
+reload flow for Vim and Emacs.
+
+<TutorialKeymapPicker />
+
+## Three ways to see the system
+
+The sequence shows how checkout work reaches shipping. Select **Tour** to walk
+each message and its code evidence.
+
+<SequenceDiagram label="Checkout to fulfillment" messages={checkoutSequence} />
+
+The database lens shows the `orders` record that the write path owns.
+
+<DatabaseLens title="Order storage" stores={stores} height={440}>
+  <DbUseCase id="create-order" label="Create an order">
+    <DbWrite
+      from={actors.orderService}
+      to={stores.orderDatabase.tables.orders.status}
+      label="write pending order"
+      anchor={anchors.insertOrder}
+    />
+  </DbUseCase>
+  <DbUseCase id="fulfill-order" label="Fulfill an order">
+    <DbWrite
+      from={actors.worker}
+      to={stores.orderDatabase.tables.orders.status}
+      label="write fulfilled status"
+      anchor={anchors.ship}
+    />
+  </DbUseCase>
+</DatabaseLens>
+
+Open the **Map** tab to move from the order system to its main components.
+
+## Where to find things
+
+To install the Review skill for your agent again, open **Preferences →
+Settings**. To open this tour again, use **Preferences → Getting Started**.

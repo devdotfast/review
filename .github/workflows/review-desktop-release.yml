@@ -159,6 +159,9 @@ jobs:
       # Headers for the Code OSS native modules npm ci builds from source.
       - name: Install Code OSS native build prerequisites
         run: |
+          # The hosted runner image lists an HTTP Azure mirror first. That
+          # mirror can accept the release file and then hang on package indexes.
+          echo 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libx11-dev libxkbfile-dev libkrb5-dev libsecret-1-dev

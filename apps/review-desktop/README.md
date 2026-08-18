@@ -208,10 +208,14 @@ Repository secrets: `APPLE_CERT_BASE64`, `APPLE_CERT_PASSWORD`,
 `R2_SECRET_ACCESS_KEY`. Repository variables: `APPLE_SIGN_IDENTITY`,
 `APPLE_TEAM_ID`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER_ID`,
 `R2_ENDPOINT_URL`, `R2_RELEASE_BUCKET`, `REVIEW_POSTHOG_KEY` (telemetry key
-embedded into release builds; source builds embed none), `REVIEW_CI_RUNNER`
-(optional Linux runner label; defaults to `ubuntu-latest`), and
-`SKIP_NOTARIZE` (normally unset; set to `1` only to dry-run the workflow
-without signing).
+embedded into release builds; source builds embed none), and `SKIP_NOTARIZE`
+(normally unset; set to `1` only to dry-run the workflow without signing).
+
+Normal CI uses GitHub's standard Ubuntu runner. The manual release workflow
+uses the `review_big_boy` larger runner. Its `review_release` runner group
+allows only `review-desktop-release.yml` from `main`. The first release job
+also uses the `review-release` environment, which requires repository-admin
+approval before GitHub assigns the job to the runner.
 
 ## Curated extensions
 

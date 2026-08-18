@@ -28,7 +28,10 @@ concurrency:
 jobs:
   tag:
     name: Tag release
-    runs-on: ${{ vars.REVIEW_CI_RUNNER || 'ubuntu-latest' }}
+    # The environment requires repository-admin approval before GitHub assigns
+    # this job to the release-only runner group.
+    environment: review-release
+    runs-on: review_big_boy
     outputs:
       version: ${{ steps.bump.outputs.version || steps.dryrun.outputs.version }}
       tag: ${{ steps.bump.outputs.tag }}
@@ -133,7 +136,7 @@ jobs:
   compile:
     name: Compile Darwin payload on Linux
     needs: tag
-    runs-on: ${{ vars.REVIEW_CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: review_big_boy
     timeout-minutes: 45
     steps:
       - name: Checkout release tag
@@ -466,7 +469,7 @@ jobs:
     name: Publish release
     needs: [tag, build]
     if: ${{ !inputs.dry_run }}
-    runs-on: ${{ vars.REVIEW_CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: review_big_boy
     steps:
       - name: Publish GitHub Release
         env:

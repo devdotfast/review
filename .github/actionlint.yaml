@@ -1,0 +1,4 @@
+self-hosted-runner:
+  # actionlint uses this field for custom GitHub-hosted larger-runner names.
+  labels:
+    - review_big_boy

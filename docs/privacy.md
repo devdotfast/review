@@ -24,10 +24,12 @@ state under `~/.dev/review-desktop/` by default.
 Passive product telemetry never includes:
 
 - source code or changed-file diffs;
-- paths, repository names, refs, symbols, or declarations;
+- paths, repository names, Review titles, refs, revision hashes, symbols, or
+  declarations;
 - review documents, comments, questions, or thread text;
 - prompts or model output; or
-- email, username, hostname, or a machine identifier.
+- email, username, hostname, machine identifier, raw Review UUID, or coding-agent
+  session identifier.
 
 The canvas talks to Review's local server. It does not connect directly to
 PostHog.
@@ -38,9 +40,12 @@ Anonymous telemetry is enabled by default. Review creates a random installation
 UUID and does not associate it with a person profile.
 
 Telemetry can include closed enums, booleans, counts, durations, the Review and
-app versions, operating-system and architecture categories, feature usage, and
-sanitized product errors. PostHog may derive coarse location at ingestion, but the
-project discards the source IP.
+app versions, operating-system and architecture categories, feature usage,
+opaque lifecycle-correlation identifiers, and sanitized product errors.
+Review derives Review and presentation correlation IDs locally with a
+namespaced HMAC keyed by the random installation ID. Raw Review UUIDs and
+Desktop Review-session IDs never reach PostHog. PostHog may derive coarse
+location at ingestion, but the project discards the source IP.
 
 Pending events are stored in a bounded local queue under
 `~/.dev/telemetry/events` by default. Review retries temporary

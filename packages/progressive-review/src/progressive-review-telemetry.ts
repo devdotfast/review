@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -106,11 +106,27 @@ export interface ReviewTabTelemetryEvent {
 
 export interface ProgressiveReviewCommandTelemetryInput {
   command: ProgressiveReviewCommandPath;
+  commandRunId: string;
   exitCode: number;
   durationMs?: number;
   properties?: PostHogCaptureProperties;
+  reviewUuid?: string;
   errorName?: ProgressiveReviewTelemetryErrorName;
   errorCategory?: ProgressiveReviewTelemetryErrorCategory;
+}
+
+export interface ProgressiveReviewCommandStartedInput {
+  command: ProgressiveReviewCommandPath;
+  commandRunId: string;
+}
+
+export interface ProgressiveReviewCommandBoundInput extends ProgressiveReviewCommandStartedInput {
+  reviewUuid: string;
+}
+
+export interface ProgressiveReviewTelemetryContext {
+  reviewUuid?: string;
+  presentationSessionId?: string;
 }
 
 export interface ProgressiveReviewSessionStartedInput {
@@ -118,6 +134,8 @@ export interface ProgressiveReviewSessionStartedInput {
   agentKind?: ProgressiveReviewSessionAgent;
   mode?: "pr" | "refs" | "branch";
   appSessionId?: string;
+  reviewUuid?: string;
+  presentationSessionId?: string;
 }
 
 export interface ProgressiveReviewSessionEndedInput extends ProgressiveReviewSessionStartedInput {
@@ -181,6 +199,7 @@ export class ProgressiveReviewTelemetry {
   private readonly installConfigPath: string;
   private readonly legacyInstallConfigPath: string;
   private readonly idFactory: () => string;
+  private readonly commandRunIdFactory: () => string;
   private readonly now: () => Date;
   private installConfig: ProgressiveReviewTelemetryInstallConfig | undefined;
   private packageVersion: Promise<string> | undefined;
@@ -198,7 +217,8 @@ export class ProgressiveReviewTelemetry {
       progressiveReviewTelemetryConfigPath(this.env);
     this.legacyInstallConfigPath =
       options.legacyInstallConfigPath ?? legacyAppTelemetryConfigPath(this.env);
-    this.idFactory = options.idFactory ?? options.randomUUID ?? randomUUID;
+    this.commandRunIdFactory = options.randomUUID ?? randomUUID;
+    this.idFactory = options.idFactory ?? this.commandRunIdFactory;
     this.now = options.now ?? (() => new Date());
   }
 
@@ -210,6 +230,10 @@ export class ProgressiveReviewTelemetry {
 
   async getInstallationId(): Promise<string> {
     return (await this.loadInstallConfig()).installationId;
+  }
+
+  createCommandRunId(): string {
+    return this.commandRunIdFactory();
   }
 
   async setEnabled(enabled: boolean): Promise<void> {
@@ -259,26 +283,72 @@ export class ProgressiveReviewTelemetry {
     await this.captureCommandEvent("review_command_failed", input);
   }
 
+  async captureCommandStarted(
+    input: ProgressiveReviewCommandStartedInput,
+  ): Promise<void> {
+    await this.captureEvent("review_command_started", {
+      command_path: input.command,
+      command_run_id: input.commandRunId,
+      agent_kind: this.sessionAgent(),
+    });
+  }
+
+  async captureCommandBound(
+    input: ProgressiveReviewCommandBoundInput,
+  ): Promise<void> {
+    await this.captureEvent(
+      "review_command_bound",
+      {
+        command_path: input.command,
+        command_run_id: input.commandRunId,
+        agent_kind: this.sessionAgent(),
+      },
+      { reviewUuid: input.reviewUuid },
+    );
+  }
+
   async captureSessionStarted(
     input: ProgressiveReviewSessionStartedInput,
   ): Promise<void> {
-    await this.captureEvent("review_session_started", {
-      source_kind: sourceKind(input),
-      agent_kind: input.agentKind ?? this.sessionAgent(),
-      ...(input.appSessionId ? { app_session_id: input.appSessionId } : {}),
-    });
+    await this.captureEvent(
+      "review_session_started",
+      {
+        source_kind: sourceKind(input),
+        agent_kind: input.agentKind ?? this.sessionAgent(),
+        ...(input.appSessionId ? { app_session_id: input.appSessionId } : {}),
+      },
+      sessionTelemetryContext(input),
+    );
   }
 
   async captureSessionEnded(
     input: ProgressiveReviewSessionEndedInput,
   ): Promise<void> {
-    await this.captureEvent("review_session_ended", {
-      source_kind: sourceKind(input),
-      agent_kind: input.agentKind ?? this.sessionAgent(),
-      outcome: input.outcome === "accepted" ? "approve" : input.outcome,
-      duration_ms: input.durationMs,
-      ...(input.appSessionId ? { app_session_id: input.appSessionId } : {}),
-    });
+    await this.captureEvent(
+      "review_session_ended",
+      {
+        source_kind: sourceKind(input),
+        agent_kind: input.agentKind ?? this.sessionAgent(),
+        outcome: input.outcome === "accepted" ? "approve" : input.outcome,
+        duration_ms: input.durationMs,
+        ...(input.appSessionId ? { app_session_id: input.appSessionId } : {}),
+      },
+      sessionTelemetryContext(input),
+    );
+  }
+
+  async captureReviewPresented(
+    context: Required<ProgressiveReviewTelemetryContext>,
+    input: { appSessionId?: string } = {},
+  ): Promise<void> {
+    await this.captureEvent(
+      "review_review_presented",
+      {
+        source: "review_app",
+        ...(input.appSessionId ? { app_session_id: input.appSessionId } : {}),
+      },
+      context,
+    );
   }
 
   async captureReviewDeleted(): Promise<void> {
@@ -303,29 +373,42 @@ export class ProgressiveReviewTelemetry {
     });
   }
 
-  async captureTabViewed(event: ReviewTabTelemetryEvent): Promise<void> {
-    await this.captureEvent("review_tab_viewed", {
-      tab: event.tab,
-      duration_ms: event.durationMs,
-      reason: event.reason,
-      source: "review_app",
-      app_session_id: event.appSessionId,
-    });
+  async captureTabViewed(
+    event: ReviewTabTelemetryEvent,
+    context?: ProgressiveReviewTelemetryContext,
+  ): Promise<void> {
+    await this.captureEvent(
+      "review_tab_viewed",
+      {
+        tab: event.tab,
+        duration_ms: event.durationMs,
+        reason: event.reason,
+        source: "review_app",
+        app_session_id: event.appSessionId,
+      },
+      context,
+    );
   }
 
   async captureUiEvent(
     event: string,
     properties: Record<string, string | number | boolean>,
+    context?: ProgressiveReviewTelemetryContext,
   ): Promise<void> {
-    await this.captureEvent(event, {
-      source: "review_app",
-      ...properties,
-    });
+    await this.captureEvent(
+      event,
+      {
+        source: "review_app",
+        ...properties,
+      },
+      context,
+    );
   }
 
   async captureEvent(
     event: string,
     properties: PostHogCaptureProperties = {},
+    context?: ProgressiveReviewTelemetryContext,
   ): Promise<void> {
     await this.withTelemetry(async (config) => {
       await this.captureClient.capture({
@@ -334,6 +417,7 @@ export class ProgressiveReviewTelemetry {
         properties: {
           ...(await this.commonProperties(config)),
           ...properties,
+          ...correlationProperties(config.installationId, context),
         },
       });
     });
@@ -353,16 +437,21 @@ export class ProgressiveReviewTelemetry {
     event: "review_command_succeeded" | "review_command_failed",
     input: ProgressiveReviewCommandTelemetryInput,
   ): Promise<void> {
-    await this.captureEvent(event, {
-      command_path: input.command,
-      exit_code: input.exitCode,
-      ...(input.durationMs === undefined
-        ? {}
-        : { duration_ms: input.durationMs }),
-      ...(input.properties ?? {}),
-      ...(input.errorName ? { error_name: input.errorName } : {}),
-      ...(input.errorCategory ? { error_category: input.errorCategory } : {}),
-    });
+    await this.captureEvent(
+      event,
+      {
+        command_path: input.command,
+        exit_code: input.exitCode,
+        ...(input.durationMs === undefined
+          ? {}
+          : { duration_ms: input.durationMs }),
+        ...(input.properties ?? {}),
+        command_run_id: input.commandRunId,
+        ...(input.errorName ? { error_name: input.errorName } : {}),
+        ...(input.errorCategory ? { error_category: input.errorCategory } : {}),
+      },
+      { reviewUuid: input.reviewUuid },
+    );
   }
 
   private async withTelemetry(
@@ -528,6 +617,58 @@ function sourceKind(
   if (input.sourceKind) return input.sourceKind;
   if (input.mode === "pr") return "pull_request";
   return "git_branch";
+}
+
+function sessionTelemetryContext(
+  input: ProgressiveReviewSessionStartedInput,
+): ProgressiveReviewTelemetryContext {
+  return {
+    reviewUuid: input.reviewUuid,
+    presentationSessionId: input.presentationSessionId,
+  };
+}
+
+function correlationProperties(
+  installationId: string,
+  context: ProgressiveReviewTelemetryContext | undefined,
+): PostHogCaptureProperties {
+  if (!context) return {};
+  return {
+    ...(context.reviewUuid
+      ? {
+          review_id: opaqueCorrelationId(
+            "rv_",
+            installationId,
+            "review",
+            context.reviewUuid,
+          ),
+        }
+      : {}),
+    ...(context.presentationSessionId
+      ? {
+          presentation_id: opaqueCorrelationId(
+            "pr_",
+            installationId,
+            "presentation",
+            context.presentationSessionId,
+          ),
+        }
+      : {}),
+  };
+}
+
+function opaqueCorrelationId(
+  prefix: "rv_" | "pr_",
+  installationId: string,
+  namespace: "review" | "presentation",
+  value: string,
+): string {
+  const digest = createHmac("sha256", installationId)
+    .update(`dev.fast.review.telemetry.v1\0${namespace}\0${value}`)
+    .digest()
+    .subarray(0, 16)
+    .toString("base64url");
+  return `${prefix}${digest}`;
 }
 
 function directCaptureClient(

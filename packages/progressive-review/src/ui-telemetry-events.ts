@@ -376,6 +376,10 @@ export const UI_TELEMETRY_EVENTS = {
     event: "review_review_opened",
     properties: { via: REVIEW_OPENED_VIA },
   },
+  review_presented: {
+    event: "review_review_presented",
+    properties: {},
+  },
   home_empty_state_viewed: {
     event: "review_home_empty_state_viewed",
     properties: {},

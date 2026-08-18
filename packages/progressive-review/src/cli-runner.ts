@@ -173,8 +173,10 @@ export async function runProgressiveReviewCli(
   let activeTelemetry:
     | {
         command: ProgressiveReviewCommandPath;
+        commandRunId: string;
         startedAt: number;
         finished: boolean;
+        reviewUuid?: string;
       }
     | undefined;
 
@@ -289,6 +291,18 @@ export async function runProgressiveReviewCli(
     writeAppEvent(event, options.json);
     state.exitCode = 0;
   };
+  const bindActiveReview = async (reviewUuid: string): Promise<void> => {
+    const active = activeTelemetry;
+    if (!active || active.finished || active.reviewUuid) return;
+    active.reviewUuid = reviewUuid;
+    await attemptTelemetry(() =>
+      telemetry.captureCommandBound({
+        command: active.command,
+        commandRunId: active.commandRunId,
+        reviewUuid,
+      }),
+    );
+  };
   const app = configureJsonOutput(
     program
       .command("app")
@@ -350,6 +364,7 @@ export async function runProgressiveReviewCli(
       stdout: input.stdout,
       stderr: input.stderr,
       env,
+      onReviewBound: bindActiveReview,
     });
   });
 
@@ -507,6 +522,7 @@ export async function runProgressiveReviewCli(
         update: options.update,
         reviewUuid: options.review,
         newReview: options.new,
+        onReviewBound: bindActiveReview,
       });
       input.stdout.write(`${JSON.stringify(event)}\n`);
       state.exitCode = 0;
@@ -965,8 +981,17 @@ export async function runProgressiveReviewCli(
     }
     const command = telemetryCommandPath(actionCommand, input.argv);
     if (!command) return;
-    activeTelemetry = { command, startedAt: Date.now(), finished: false };
+    const commandRunId = telemetry.createCommandRunId();
+    activeTelemetry = {
+      command,
+      commandRunId,
+      startedAt: Date.now(),
+      finished: false,
+    };
     await attemptTelemetry(() => telemetry.captureInstallationCreated());
+    await attemptTelemetry(() =>
+      telemetry.captureCommandStarted({ command, commandRunId }),
+    );
   });
   program.hook("postAction", async () => {
     await finishActiveTelemetry(
@@ -1313,8 +1338,10 @@ async function finishActiveTelemetry(
   active:
     | {
         command: ProgressiveReviewCommandPath;
+        commandRunId: string;
         startedAt: number;
         finished: boolean;
+        reviewUuid?: string;
       }
     | undefined,
   exitCode: number,
@@ -1328,15 +1355,19 @@ async function finishActiveTelemetry(
     exitCode === 0
       ? telemetry.captureCommandSucceeded({
           command: active.command,
+          commandRunId: active.commandRunId,
           exitCode,
           durationMs: Date.now() - active.startedAt,
           properties,
+          reviewUuid: active.reviewUuid,
         })
       : telemetry.captureCommandFailed({
           command: active.command,
+          commandRunId: active.commandRunId,
           exitCode,
           durationMs: Date.now() - active.startedAt,
           properties,
+          reviewUuid: active.reviewUuid,
           ...classification,
         }),
   );
@@ -1348,13 +1379,23 @@ async function captureOneOffCommand(
   exitCode: number,
   error?: unknown,
 ): Promise<void> {
+  const commandRunId = telemetry.createCommandRunId();
   await attemptTelemetry(() => telemetry.captureInstallationCreated());
+  await attemptTelemetry(() =>
+    telemetry.captureCommandStarted({ command, commandRunId }),
+  );
   const classification = errorClassification(command, error);
   await attemptTelemetry(() =>
     exitCode === 0
-      ? telemetry.captureCommandSucceeded({ command, exitCode, durationMs: 0 })
+      ? telemetry.captureCommandSucceeded({
+          command,
+          commandRunId,
+          exitCode,
+          durationMs: 0,
+        })
       : telemetry.captureCommandFailed({
           command,
+          commandRunId,
           exitCode,
           durationMs: 0,
           ...classification,

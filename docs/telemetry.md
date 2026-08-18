@@ -14,9 +14,10 @@ Last checked against this repository: 2026-08-18.
 - Anonymous telemetry is on by default and can be turned off at any time.
 - Review records actions such as opening a review, changing tabs, using code
   navigation, or completing a CLI command. Values are limited to fixed
-  categories, booleans, counts, durations, versions, and random identifiers.
+  categories, booleans, counts, durations, versions, and opaque identifiers.
 - Passive telemetry never includes your code, diffs, file paths, repository
-  name, branches, Review text, comments, questions, prompts, or model output.
+  name, Review title, refs, revision hashes, raw Review UUID, coding-agent
+  session ID, Review text, comments, questions, prompts, or model output.
 - Review uses a random installation ID. It does not use your email, username,
   hostname, or a hardware identifier, and it does not create a PostHog person
   profile.
@@ -82,6 +83,19 @@ Pending events are kept in a local queue under
 events, retries temporary failures, and deletes events after seven days.
 Telemetry is best-effort and never blocks Review from working.
 
+Three identifiers support exact lifecycle correlation without PostHog identity
+or group profiles:
+
+- `command_run_id` is a new random UUID for each CLI invocation.
+- `review_id` is `rv_` plus 128 bits of a namespaced HMAC of the Review UUID.
+- `presentation_id` is `pr_` plus 128 bits of a namespaced HMAC of the Desktop
+  Review-session ID.
+
+The HMAC key is the random installation ID. The same Review therefore has a
+stable `review_id` only on one installation; copying it to another installation
+produces a different value. The raw Review UUID and Desktop Review-session ID
+are used only inside the local server and never reach the capture client.
+
 Review Desktop disables the built-in Microsoft telemetry inherited from Code -
 OSS. A hardening test enforces that rule.
 
@@ -142,6 +156,11 @@ Every event from the Review telemetry API includes these properties:
 UI events also include `source: review_app` and a random `app_session_id`. The
 app creates a new app session identifier for each renderer lifetime.
 
+Review-scoped events can also include `review_id`. Events routed through a
+specific Desktop Review session can include both `review_id` and
+`presentation_id`. Global main-process and renderer errors remain unscoped;
+Review does not guess which open Review caused them.
+
 The embedded Desktop server adds `app_version` to all of its telemetry events.
 Standalone CLI events omit this property.
 
@@ -153,9 +172,11 @@ event includes only `reason`, `count`, and the random installation identifier.
 | Event                                     | Additional properties                                                      | When                               |
 | ----------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------- |
 | `review_installation_created` | None                                                                       | The first enabled Review use       |
-| `review_command_succeeded`    | `command_path`, `exit_code`, `duration_ms`, and closed command flags       | A public CLI command succeeds      |
+| `review_command_started`      | `command_path`, `command_run_id`, `agent_kind`                             | A public CLI handler is about to run |
+| `review_command_bound`        | Start properties plus `review_id`                                          | Scaffold or publish resolves its Review |
+| `review_command_succeeded`    | `command_path`, `command_run_id`, `exit_code`, `duration_ms`, optional `review_id`, and closed command flags | A public CLI command succeeds      |
 | `review_command_failed`       | The success properties plus `error_name` and `error_category` closed enums | A public CLI command fails         |
-| `review_session_started`      | `source_kind`, `agent_kind`, optional `app_session_id`                     | A Desktop review session opens     |
+| `review_session_started`      | `source_kind`, `agent_kind`, `review_id`, `presentation_id`, optional `app_session_id` | A Desktop review session opens     |
 | `review_session_ended`        | Start properties plus `outcome`, `duration_ms`                             | A review submits or is dismissed   |
 | `review_review_deleted`       | None                                                                       | A user deletes a stored review     |
 | `review_review_reaped`        | `retention_days`                                                           | Retention deletes a dismissed review |
@@ -171,6 +192,12 @@ arguments or refs.
 
 The `command`, `subcommand`, `mode`, `has_base_ref`, `has_head_ref`, and
 `force` flags accompany only `map.*` commands.
+
+The CLI writes `review_command_started` to the disk queue before entering the
+command handler. The queue normally begins its background flush after five
+seconds; Review does not wait for network delivery before starting the command.
+Scaffold binds after a new Review is persisted or an update target is resolved.
+Publish binds immediately after target resolution, before validation and mount.
 
 Error names and categories are closed enums. A failed command sends no exception
 message, stack, path, process output, project identifier, or remediation text.
@@ -220,6 +247,7 @@ The server checks all canvas properties against
 | `review_bug_report_send_failed`   | Short `error_name`                                                                                       | A bug report request fails                |
 | `review_setting_changed`          | `setting` in telemetry_enabled, keymap, dismissed_retention_days, software_map_enabled; `enabled`        | A user changes a Review setting           |
 | `review_review_opened`            | `via` in home, cli, other                                                                                | A user opens a review                     |
+| `review_review_presented`         | `review_id`, `presentation_id`                                                                           | A visible canvas loads and signals ready  |
 | `review_home_empty_state_viewed`  | None                                                                                                     | The empty Home state opens                |
 
 The server emits `review_review_submitted` after it stores a submission. Its
@@ -230,6 +258,23 @@ review_topbar, home.
 The server emits `review_review_restored` when a dismissal ends. Its property
 is `via` in home, open. The `home` value is the Undo button. The `open` value
 is the implicit undo: a reader who opens a dismissed review brings it back.
+
+“Presented” does not mean `review publish` returned successfully. It means the
+visible canvas loaded both the Review document and its optional software map,
+reported no render error, and fired the existing canvas-ready signal. The
+off-screen mount used by the publish validation gate does not emit this event.
+
+## Suspected hangs
+
+Operational queries classify a lifecycle start as a suspected hang after five
+minutes without its matching terminal event:
+
+- a command start with no success or failure sharing `command_run_id`; or
+- a session start with no presentation sharing `presentation_id`.
+
+This observes lifecycle gaps; it does not time out or kill work. A suspected
+hang can also be a crash, force-kill, or telemetry delivery loss. A late
+terminal or ready event removes the match automatically.
 
 ### Workbench events
 

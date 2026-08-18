@@ -1,0 +1,28 @@
+{
+	"name": "review-themes",
+	"displayName": "Review Themes",
+	"description": "Themes for dev.fast Review.",
+	"categories": [
+		"Themes"
+	],
+	"version": "0.0.1",
+	"publisher": "dev-fast",
+	"license": "MIT",
+	"engines": {
+		"vscode": "*"
+	},
+	"contributes": {
+		"themes": [
+			{
+				"label": "Review Dark",
+				"uiTheme": "vs-dark",
+				"path": "./themes/review-dark.json"
+			},
+			{
+				"label": "Review Light",
+				"uiTheme": "vs",
+				"path": "./themes/review-light.json"
+			}
+		]
+	}
+}

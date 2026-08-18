@@ -1,0 +1,1684 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) dev.fast. All rights reserved.
+ *  Licensed under the MIT License. See LICENSE in the repository root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+/* The workbench grid reserves a bottom gutter (`gutterBottom` in
+   review/browser/workbench.ts), so a strip of the workbench root stays exposed
+   below the editor. Without this rule it falls through to the stock
+   WORKBENCH_BACKGROUND (#252526 on dark) and reads as a band under the canvas. */
+.monaco-workbench.review-workbench {
+  background: var(--vscode-editor-background);
+}
+
+.monaco-workbench.review-workbench.nomaineditorarea {
+  background-image: url("./review-letterpress-light.svg");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 260px 260px;
+}
+
+.monaco-workbench.review-workbench.nomaineditorarea.vs-dark {
+  background-image: url("./review-letterpress-dark.svg");
+}
+
+.monaco-workbench.review-workbench.nomaineditorarea.hc-light {
+  background-image: url("./review-letterpress-hc-light.svg");
+}
+
+.monaco-workbench.review-workbench.nomaineditorarea.hc-black {
+  background-image: url("./review-letterpress-hc-dark.svg");
+}
+
+/* KEEP IN SYNC WITH REVIEW_CHROME_HEIGHT in review/common/reviewChrome.ts. The
+   overlay must be as tall as the editor tab strip below it, or the window
+   controls and the navigation arrows stop aligning with the tab pills. */
+.monaco-workbench .part.titlebar.review-chrome-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 100;
+  width: 100%;
+  height: 40px;
+  box-shadow: none;
+  pointer-events: none;
+  background: transparent;
+}
+
+.monaco-workbench
+  .part.titlebar.review-chrome-overlay
+  > .review-titlebar-container
+  > .titlebar-left,
+.monaco-workbench
+  .part.titlebar.review-chrome-overlay
+  > .review-titlebar-container
+  > .titlebar-right {
+  width: max-content !important;
+  min-width: 0;
+  flex: 0 0 auto !important;
+  padding-left: 0 !important;
+  pointer-events: auto;
+}
+
+/* The native macOS stoplights sit over the left container. Make its unused
+   area draggable, including the space between and around the stoplights. The
+   navigation control below removes itself from this drag region. */
+.monaco-workbench
+  .part.titlebar.review-chrome-overlay
+  > .review-titlebar-container
+  > .titlebar-left {
+  -webkit-app-region: drag;
+}
+
+.monaco-workbench
+  .part.titlebar.review-chrome-overlay
+  > .review-titlebar-container
+  > .titlebar-right {
+  -webkit-app-region: no-drag;
+}
+
+.monaco-workbench
+  .part.titlebar.review-chrome-overlay
+  > .review-titlebar-container
+  > .titlebar-drag-region {
+  left: var(--review-chrome-left-width, 0px);
+  right: var(--review-chrome-right-width, 0px);
+  width: auto;
+  display: none;
+  pointer-events: none;
+}
+
+.monaco-workbench.nomaineditorarea
+  .part.titlebar.review-chrome-overlay
+  > .review-titlebar-container
+  > .titlebar-drag-region {
+  display: block;
+  pointer-events: auto;
+  -webkit-app-region: drag;
+}
+
+.monaco-workbench
+  .part.editor
+  .editor-group-container
+  > .title
+  > .tabs-and-actions-container.review-chrome-inset {
+  box-sizing: border-box;
+  padding-left: calc(var(--review-chrome-left-width, 0px) + 6px);
+  padding-right: calc(var(--review-chrome-right-width, 0px) + 6px);
+  user-select: none;
+  -webkit-app-region: drag;
+}
+
+.monaco-workbench.review-tab-dragging
+  .part.editor
+  .editor-group-container
+  > .title
+  > .tabs-and-actions-container.review-chrome-inset {
+  -webkit-app-region: no-drag;
+}
+
+.monaco-workbench
+  .part.editor
+  .tabs-and-actions-container.review-chrome-inset
+  .tabs-container {
+  -webkit-app-region: drag;
+}
+
+.monaco-workbench.review-tab-dragging
+  .part.editor
+  .tabs-and-actions-container.review-chrome-inset
+  .tabs-container {
+  -webkit-app-region: no-drag;
+}
+
+.monaco-workbench .part.editor .tabs-container > .tab,
+.monaco-workbench .part.editor .tabs-container > .tabs-bar-add-tab,
+.monaco-workbench .part.editor .tabs-and-actions-container > .editor-actions,
+.monaco-workbench .part.editor .tabs-and-actions-container > .editor-layout-actions,
+.monaco-workbench
+  .part.editor
+  .tabs-and-actions-container
+  > .monaco-scrollable-element
+  > .scrollbar {
+  -webkit-app-region: no-drag;
+}
+
+/* ---------------------------------------------------------------------------
+   Review file explorer
+
+   The explorer is the leftmost surface whenever it is visible, so the window
+   controls and the navigation arrows sit over its top row instead of over the
+   editor tab strip. Two rules follow from that: the explorer reserves one chrome
+   row for them, and the tab strip drops the traffic-light inset it would
+   otherwise need.
+   --------------------------------------------------------------------------- */
+
+/* The grid sizes the `.split-view-view` wrapper, not the part inside it, and the
+   part is a static block. Without this the part grows to the list's content
+   height, the list never scrolls, and every row renders. */
+.monaco-workbench .part.review-explorer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: var(--vscode-editor-background);
+  /* An inset shadow rather than a border, so the tree keeps the full part width
+     and `ReviewExplorerPart.layout` needs no separator correction. */
+  box-shadow: inset -1px 0 0
+    var(--vscode-panel-border, var(--vscode-sideBar-border, transparent));
+  overflow: hidden;
+}
+
+/* The one chrome row keeps the editor tab-strip background, so the top of the
+   window reads as a single bar running across the tree and the tabs. The step
+   from that background down to the tree is the whole divider — deliberately no
+   bottom rule.
+
+   A 1px rule here would be the only horizontal line at this edge: the editor tab
+   strip ends at the same y with no border and no shadow, because the Review pill
+   tabs carry no separators by design (see the pill-tab section below). A line on
+   just the tree half stops dead at the sash and reads as an unfinished stub.
+
+   `--review-explorer-width` and `--review-chrome-height` are published by
+   `ReviewExplorerPart` from REVIEW_CHROME_HEIGHT and its laid-out width, so the
+   TypeScript constant stays the only source for both. The fallbacks cover the
+   frame before the part first lays out. */
+.monaco-workbench .part.review-explorer > .review-explorer-chrome-spacer {
+  box-sizing: border-box;
+  height: var(--review-chrome-height, 40px);
+  flex-shrink: 0;
+  background-color: var(--vscode-editorGroupHeader-tabsBackground);
+  user-select: none;
+  -webkit-app-region: drag;
+}
+
+/* Flex rather than `calc(100% - <chrome>)`: the row above is the only fixed
+   height, so the tree takes whatever is left and the height is written once. */
+.monaco-workbench .part.review-explorer > .review-explorer-tree {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   The file-tree toggle
+
+   The button always occupies its 22px slot, so the titlebar's left cluster keeps
+   a constant width. That matters because a ResizeObserver on the cluster feeds
+   `--review-chrome-left-width`, which the editor tab strip pads itself by — a
+   button that grew from 0 would slide every tab as it appeared. Only opacity and
+   transform animate here, so nothing reflows.
+   --------------------------------------------------------------------------- */
+
+.monaco-workbench .review-titlebar-file-tree-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 4px;
+  border-radius: 5px;
+  flex-shrink: 0;
+  color: var(--vscode-icon-foreground);
+  /* Nothing to toggle until a file or diff tab is active. */
+  opacity: 0;
+  transform: scale(0.8);
+  pointer-events: none;
+  /* The cluster around it drags the window; this button must not. */
+  -webkit-app-region: no-drag;
+}
+
+.monaco-workbench.review-explorer-available .review-titlebar-file-tree-toggle {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+/* Reduced motion gets a straight cut: `monaco-enable-motion` is absent then,
+   because accessibility/browser/accessibilityService.ts toggles it from
+   `workbench.reduceMotion`. */
+.monaco-workbench.monaco-enable-motion .review-titlebar-file-tree-toggle {
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.monaco-workbench .review-titlebar-file-tree-toggle:hover {
+  background-color: var(--vscode-toolbar-hoverBackground);
+}
+
+.monaco-workbench .review-titlebar-file-tree-toggle:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+/* One icon per state, picked here so the titlebar part needs no explorer state. */
+.monaco-workbench .review-titlebar-file-tree-toggle > .review-file-tree-icon-open,
+.monaco-workbench.review-explorer-visible
+  .review-titlebar-file-tree-toggle
+  > .review-file-tree-icon-closed {
+  display: none;
+}
+
+.monaco-workbench.review-explorer-visible
+  .review-titlebar-file-tree-toggle
+  > .review-file-tree-icon-open {
+  display: block;
+}
+
+/* The tab strip pads itself past the traffic lights and the navigation arrows,
+   which is correct only while the editor is the leftmost surface. The tree now
+   covers that chrome, so the strip only has to clear whatever the tree does NOT
+   cover — subtract the tree's width rather than assuming it covers all of it.
+
+   A flat `6px` would be wrong whenever the left cluster is wider than the tree.
+   The cluster counter-zooms (see `ReviewTitlebarPart.layout`), so zooming the
+   window out grows it in CSS pixels until it passes even the tree's 170px
+   minimum, and it would then sit over the first tab and swallow clicks as window
+   drags. `max()` keeps the plain 6px gutter in the normal case. */
+.monaco-workbench.review-explorer-visible
+  .part.editor
+  .editor-group-container
+  > .title
+  > .tabs-and-actions-container.review-chrome-inset {
+  padding-left: max(
+    6px,
+    calc(
+      var(--review-chrome-left-width, 0px) + 6px -
+        var(--review-explorer-width, 0px)
+    )
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   Review pill tabs
+
+   The tab row keeps the titlebar background and carries no separators, no
+   bottom border, and no per-tab top-border indicator. The active tab is a
+   raised pill. The other tabs are flat.
+
+   Each rule below starts with `body` because it must outrank an upstream rule
+   of the same class count in multieditortabscontrol.css.
+   --------------------------------------------------------------------------- */
+
+.monaco-workbench.review-workbench {
+  /* Each pill color mixes over the tab-strip background, so a theme change
+     carries into the pill. */
+  --review-tab-fill: color-mix(
+    in srgb,
+    #ffffff 7%,
+    var(--vscode-editorGroupHeader-tabsBackground)
+  );
+  --review-tab-border: color-mix(
+    in srgb,
+    #ffffff 13%,
+    var(--vscode-editorGroupHeader-tabsBackground)
+  );
+  --review-tab-hover-fill: color-mix(
+    in srgb,
+    #ffffff 4%,
+    var(--vscode-editorGroupHeader-tabsBackground)
+  );
+  --review-tab-separator: color-mix(
+    in srgb,
+    #ffffff 16%,
+    var(--vscode-editorGroupHeader-tabsBackground)
+  );
+  --review-tab-shadow: 0 1px 2px rgba(0, 0, 0, 0.32);
+}
+
+/* The light themes use weaker mixes, so the pill stays subtle. */
+.monaco-workbench.review-workbench.vs,
+.monaco-workbench.review-workbench.hc-light {
+  --review-tab-fill: color-mix(
+    in srgb,
+    #ffffff 55%,
+    var(--vscode-editorGroupHeader-tabsBackground)
+  );
+  --review-tab-border: color-mix(
+    in srgb,
+    #000000 8%,
+    var(--vscode-editorGroupHeader-tabsBackground)
+  );
+  --review-tab-hover-fill: color-mix(
+    in srgb,
+    #ffffff 25%,
+    var(--vscode-editorGroupHeader-tabsBackground)
+  );
+  --review-tab-separator: color-mix(
+    in srgb,
+    #000000 12%,
+    var(--vscode-editorGroupHeader-tabsBackground)
+  );
+  --review-tab-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+/* 28px pill + 6px above + 6px below = the 40px row. EditorTabsControl reports
+   the same 40px through EDITOR_TAB_HEIGHT.review. The tab-height variable is
+   an inline style on `.title`, so this rule redeclares it one level down. */
+body
+  .monaco-workbench.review-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  > .tabs-and-actions-container {
+  --editor-group-tab-height: 28px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+body
+  .monaco-workbench.review-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title.compact-height
+  > .tabs-and-actions-container {
+  --editor-group-tab-height: 20px;
+}
+
+/* No bottom border below the row. */
+body
+  .monaco-workbench.review-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title.title-border-bottom::after,
+body
+  .monaco-workbench.review-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  > .tabs-and-actions-container.tabs-border-bottom::after {
+  display: none;
+}
+
+body
+  .monaco-workbench.review-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container {
+  gap: 4px;
+}
+
+/* Flat by default. `redrawTabBorders` writes the separator as an inline
+   `border-right`, so only `!important` removes it.
+
+   The pill carries no border at all: a 1px border would leave a 22px content
+   box inside the 24px tab, and the label line is `--editor-group-tab-height`
+   tall, so the icon and the name would sit 1px below the center. The active
+   pill draws its outline as an inset shadow instead, which costs no layout. */
+body
+  .monaco-workbench.review-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab {
+  border: none !important;
+  border-radius: 6px;
+  background-color: transparent;
+  box-shadow: none;
+  /* The whole inset. Upstream pads 10px on the left and nothing on the right,
+     which reads wider than the Paper design. */
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+/* Upstream shrinking tabs keep the label at its natural width, clip its flex
+   parent, and paint a gradient over the clipped edge. That treatment assumes
+   flat tabs. Inside Review's raised pill it becomes a dark block, and changing
+   only `text-overflow` cannot produce an ellipsis because the label itself
+   never gets narrower.
+
+   Give the label the pill's available width instead. The browser then draws an
+   ellipsis only when the text is actually clipped. Remove the upstream
+   gradient in every tab state; theme rules can still assign its background,
+   but the pseudo-element has no box to paint. */
+body
+  .monaco-workbench.review-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab:is(.sizing-shrink, .sizing-fixed)
+  > .monaco-icon-label
+  > .monaco-icon-label-container {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body
+  .monaco-workbench.review-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab:is(.sizing-shrink, .sizing-fixed)
+  .monaco-icon-label-container::after {
+  content: none;
+  display: none;
+}
+
+/* The raised pill. The first shadow is the 1px outline. */
+body
+  .monaco-workbench.review-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab.active {
+  background-color: var(--review-tab-fill);
+  box-shadow:
+    inset 0 0 0 1px var(--review-tab-border),
+    var(--review-tab-shadow);
+}
+
+body
+  .monaco-workbench.review-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab:hover:not(.active) {
+  background-color: var(--review-tab-hover-fill);
+  box-shadow: none;
+}
+
+/* The close button carries three insets of its own: a 28px column, a 16px
+   button centered in it, and 2px of padding around the glyph. Together they put
+   the glyph 10px inside the pill while the icon on the left sits at 4px. The
+   column hugs the glyph instead, so both sides read the same. The vertical
+   padding stays, so the hit target keeps its height. */
+body
+  .monaco-workbench.review-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab
+  > .tab-actions,
+body
+  .monaco-workbench.review-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab
+  > .tab-actions
+  > .monaco-action-bar {
+  width: 16px;
+}
+
+/* The 28px column also held the gap after the name. Restore it as the 6px the
+   icon puts between itself and the name. */
+body
+  .monaco-workbench.review-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab
+  > .tab-actions {
+  margin-left: 6px;
+}
+
+body
+  .monaco-workbench.review-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab
+  > .tab-actions
+  .action-label.codicon {
+  padding: 2px 0;
+}
+
+/* Home carries no close button, but `sizing-fit` still stretches it to a fixed
+   120px. That leaves ~30px of dead space on each side of the home icon and the
+   name, which reads as an off-center label. The pill hugs them instead. */
+body
+  .monaco-workbench.review-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab.sticky {
+  width: fit-content;
+}
+
+/* Home is the one sticky tab, so it is always the last one before the review
+   tabs. A rule after it separates the two groups. `redrawTabBorders` draws that
+   rule as an inline border-right, which the flat rule above removes, so the
+   pseudo-element below draws it instead. */
+body
+  .monaco-workbench.review-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab.sticky:not(:last-child) {
+  margin-right: 8px;
+}
+
+body
+  .monaco-workbench.review-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab.sticky:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  right: -7px;
+  top: 4px;
+  bottom: 4px;
+  width: 1px;
+  pointer-events: none;
+  background-color: var(--review-tab-separator);
+}
+
+body
+  .monaco-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .editor-group-watermark-wrapper
+  .editor-group-watermark
+  .letterpress {
+  background-image: url("./review-letterpress-light.svg");
+}
+
+body
+  .monaco-workbench.vs-dark
+  .part.editor
+  > .content
+  .editor-group-container
+  .editor-group-watermark
+  .letterpress {
+  background-image: url("./review-letterpress-dark.svg");
+}
+
+body
+  .monaco-workbench.hc-light
+  .part.editor
+  > .content
+  .editor-group-container
+  .editor-group-watermark
+  .letterpress {
+  background-image: url("./review-letterpress-hc-light.svg");
+}
+
+body
+  .monaco-workbench.hc-black
+  .part.editor
+  > .content
+  .editor-group-container
+  .editor-group-watermark
+  .letterpress {
+  background-image: url("./review-letterpress-hc-dark.svg");
+}
+
+.monaco-workbench
+  .part.titlebar.review-chrome-overlay
+  .review-titlebar-container
+  .review-traffic-light-inset {
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+}
+
+/* The navigation control sits in .titlebar-left, after the traffic lights.
+   titlebarpart.css scopes every .command-center rule to `.titlebar-center >
+   .window-title >`, so the rules below restate the ones that still apply here.
+   The margin is the gap from the traffic lights. It is also the only left
+   padding in macOS fullscreen, where the inset collapses to zero. */
+.review-titlebar-container .review-titlebar-navigation {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  font-size: 12px;
+  margin-left: 8px;
+}
+
+/* Equal space on each side of the arrows.
+
+   `CodeWindow.updateWindowControls` moves the traffic lights itself: it calls
+   `setWindowButtonPosition({ x: floor((REVIEW_CHROME_HEIGHT - buttonHeight) / 2) + 1 })`.
+   At 40px with the 14px macOS Tahoe button that is x=14, and three 14px buttons
+   on the 20px macOS pitch end at 68. Change REVIEW_CHROME_HEIGHT and that
+   number moves.
+
+   The arrow glyph carries 2px of side bearing inside its box, so the back arrow
+   starts drawing 19px after the last light. On the other side the tab strip
+   adds 6px of its own (`.review-chrome-inset`), so 8px here lands the Home tab
+   19px after the forward arrow draws. */
+.monaco-workbench
+  .part.titlebar.review-chrome-overlay
+  .review-titlebar-navigation {
+  margin-left: 12px;
+  margin-right: 8px;
+}
+
+/* Without no-drag the full-size .titlebar-drag-region takes the clicks and the
+   arrows stop working. */
+.review-titlebar-container .review-titlebar-navigation > .command-center {
+  z-index: 2500;
+  -webkit-app-region: no-drag;
+}
+
+.review-titlebar-container .review-titlebar-navigation > .command-center.hide {
+  visibility: hidden;
+}
+
+.review-titlebar-container
+  .review-titlebar-navigation
+  > .command-center
+  > .monaco-toolbar
+  > .monaco-action-bar
+  > .actions-container
+  > .action-item
+  > .action-label {
+  color: inherit;
+}
+
+.review-canvas-part,
+.review-canvas-part > .review-canvas-container,
+.review-canvas-part .review-canvas-host {
+  width: 100%;
+  height: 100%;
+}
+
+/* The canvas topbar dresses itself as workbench chrome and reads its colors and
+   its type ramp straight from the --vscode-* theme variables, but there is no
+   such variable for the workbench UI font: style.css hardcodes a stack per
+   platform and per language. `system-ui` resolves to the same platform UI face
+   without copying that matrix. The selector outranks the canvas stylesheet's own
+   default, which keeps the standalone browser build on its mono face. Every text
+   item in the topbar reads this token, so the bar shows one face throughout. */
+.review-canvas-host .review-app {
+  --chrome-font: system-ui, sans-serif;
+}
+
+/* Multi-diff headers print a full Review path in one label. Keep the file name
+   visible in narrow panes by placing the ellipsis at the leading edge. */
+.review-path-label .monaco-icon-label-container {
+  direction: rtl;
+  text-align: left;
+}
+
+.review-path-label .label-name {
+  unicode-bidi: plaintext;
+}
+
+.review-multidiff-counts {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.review-multidiff-additions {
+  color: var(--vscode-gitDecoration-addedResourceForeground);
+}
+
+.review-multidiff-deletions {
+  color: var(--vscode-gitDecoration-deletedResourceForeground);
+}
+
+.review-multidiff-open-container {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 3px;
+}
+
+.review-multidiff-open-container[hidden] {
+  display: none;
+}
+
+.review-multidiff-open.monaco-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  min-width: 0;
+  height: 24px;
+  line-height: 22px;
+  padding: 0 9px;
+  border: 1px solid color-mix(in srgb, var(--vscode-icon-foreground) 20%, transparent);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--vscode-icon-foreground) 5%, transparent);
+  color: var(--vscode-icon-foreground);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.review-multidiff-open.monaco-button .codicon[class*="codicon-"] {
+  margin: 0;
+  font-size: 13px;
+}
+
+.review-multidiff-open.monaco-button:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.review-files-editor,
+.review-files-editor-tree,
+.review-files-editor-diffs {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.review-files-editor {
+  width: 100%;
+  overflow: hidden;
+  background: var(--vscode-editor-background);
+}
+
+.review-files-editor-tree {
+  border-right: 1px solid var(--vscode-sideBar-border, transparent);
+  background: var(--vscode-editor-background);
+}
+
+.review-changed-files {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--vscode-editor-background);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.review-changed-files-tree {
+  flex: 1 1 auto;
+  min-height: 0;
+  background: var(--vscode-editor-background);
+}
+
+.review-changed-files-row {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 22px;
+  padding-right: 8px;
+}
+
+.review-changed-files-icon {
+  flex: 0 0 16px;
+  width: 16px;
+  color: var(--vscode-icon-foreground);
+  text-align: center;
+}
+
+.monaco-workbench .review-changed-files-icon.review-changed-files-icon-added {
+  color: var(--vscode-gitDecoration-addedResourceForeground);
+}
+
+.monaco-workbench .review-changed-files-icon.review-changed-files-icon-modified {
+  color: var(--vscode-gitDecoration-modifiedResourceForeground);
+}
+
+.monaco-workbench .review-changed-files-icon.review-changed-files-icon-deleted {
+  color: var(--vscode-gitDecoration-deletedResourceForeground);
+}
+
+.monaco-workbench .review-changed-files-icon.review-changed-files-icon-renamed {
+  color: var(--vscode-gitDecoration-renamedResourceForeground);
+}
+
+.review-changed-files-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-changed-files-folder .review-changed-files-label {
+  margin-left: 7px;
+  font-weight: 600;
+}
+
+.review-files-editor-diffs {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--vscode-multiDiffEditor-background);
+}
+
+.review-files-editor-diffs
+  .monaco-component.multiDiffEditor
+  .multiDiffEntry
+  > .header
+  > .header-content,
+.review-inline-editor-header-host.monaco-component.multiDiffEditor
+  .multiDiffEntry
+  > .header
+  > .header-content {
+  margin-top: 0;
+}
+
+.review-files-editor-diffs
+  .monaco-component.multiDiffEditor
+  .multiDiffEntry
+  > .header
+  > .header-content
+  .file-path
+  .title,
+.review-inline-editor-header-host.monaco-component.multiDiffEditor
+  .multiDiffEntry
+  > .header
+  > .header-content
+  .file-path
+  .title {
+  font-size: 12px;
+}
+
+.review-files-editor-diffs
+  .monaco-component.multiDiffEditor
+  .multiDiffEntry
+  > .header
+  > .header-content
+  > .actions,
+.review-inline-editor-header-host.monaco-component.multiDiffEditor
+  .multiDiffEntry
+  > .header
+  > .header-content
+  > .actions {
+  padding: 0;
+}
+
+.review-files-editor-diffs
+  .multiDiffEntry
+  > .header
+  > .header-content
+  > .actions.has-no-actions,
+.review-inline-editor-header-host.monaco-component.multiDiffEditor
+  .multiDiffEntry
+  > .header
+  > .header-content
+  > .actions.has-no-actions {
+  display: none;
+}
+
+.review-inline-code-editor {
+  display: flex;
+  flex-direction: column;
+  background: var(--vscode-multiDiffEditor-background);
+}
+
+.review-inline-editor-header-host.monaco-component.multiDiffEditor {
+  position: relative;
+  isolation: isolate;
+  flex: 0 0 40px;
+  min-width: 0;
+  width: 100%;
+  height: 40px;
+  overflow: hidden;
+}
+
+.review-inline-editor-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.review-canvas-part > .review-canvas-container {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.review-canvas-part .review-canvas-host {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--vscode-editor-background);
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Hosts fixedOverflowWidgets (hover, definition) for the inline peek editors.
+   Lives in the workbench container — inside .monaco-workbench so theme
+   variables apply, outside .review-canvas-root whose container-query
+   containment would re-anchor and clip position: fixed widgets. The widgets
+   position themselves against the viewport; z-index matches the workbench's
+   other overflow-widget hosts (scm, keybindings editor). */
+.review-overflow-widgets {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 5000;
+}
+
+/* The host carries tabindex="-1" so the canvas app can focus it programmatically
+   (desktop-entry's mount handle calls container.focus()). It is a document
+   surface rather than a control, and it is not tab-reachable, so suppress the
+   workbench-wide `[tabindex="-1"]:focus` ring that would otherwise trace the
+   whole pane -- the same treatment upstream gives editor group containers. */
+.monaco-workbench .review-canvas-part .review-canvas-host:focus {
+  outline: none;
+}
+
+.review-thread-line {
+  background: color-mix(
+    in srgb,
+    var(--vscode-editorInfo-foreground) 8%,
+    transparent
+  );
+  border-left: 2px solid var(--vscode-editorInfo-foreground);
+}
+
+.review-reveal-line {
+  background: color-mix(in srgb, var(--vscode-foreground) 5%, transparent);
+  border-left: 2px solid var(--vscode-review-map-edge);
+}
+
+/* The anchored range reads as a lifted surface — a neutral foreground
+   wash plus a neutral hairline in the margin — never as an accent color.
+   A hue-neutral lift stacks safely on the diff editor's added/removed row
+   tints, where an accent wash would shift their hue. */
+.review-inline-code-range {
+  background: color-mix(in srgb, var(--vscode-foreground) 5%, transparent);
+}
+
+.review-inline-code-range-active {
+  background: color-mix(in srgb, var(--vscode-foreground) 8%, transparent);
+}
+
+.review-inline-find-match {
+  background: var(--review-find-match-background);
+}
+
+.review-inline-find-match-active {
+  background: var(--review-find-match-active-background);
+}
+
+/* Every reviewable line is commentable, so the comments feature's
+   persistent commentable-range gutter bar reads as chrome, not signal —
+   in peeks, the Files tab, and dedicated file editors alike. The hover
+   "+" glyph still renders; only the always-on bar goes. */
+.monaco-workbench .monaco-editor .comment-range-glyph.comment-diff-added {
+  border-left-color: transparent;
+}
+
+.review-inline-code-lineno {
+  color: var(--vscode-editorLineNumber-activeForeground) !important;
+}
+
+.review-inline-unified-diff
+  .monaco-editor
+  .line-numbers.review-unified-line-number-added {
+  background: var(
+    --vscode-diffEditorGutter-insertedLineBackground,
+    var(--vscode-diffEditor-insertedLineBackground)
+  );
+}
+
+.review-inline-unified-diff
+  .monaco-editor
+  .line-numbers.review-unified-line-number-deleted {
+  background: var(
+    --vscode-diffEditorGutter-removedLineBackground,
+    var(--vscode-diffEditor-removedLineBackground)
+  );
+}
+
+.review-thread-draft {
+  border-left-color: var(--vscode-editorWarning-foreground);
+}
+
+.review-thread-resolved {
+  opacity: 0.65;
+}
+
+.review-thread-glyph::before {
+  content: "";
+  display: block;
+  width: 8px;
+  height: 8px;
+  margin: 5px auto 0;
+  border-radius: 50%;
+  background: var(--vscode-editorInfo-foreground);
+}
+
+/* Review comments use the stock editor comment widget for behavior. These
+   rules give that widget the same compact cobalt treatment as Canvas cards.
+   The scope keeps extension comments in other Code OSS windows unchanged. */
+.monaco-workbench.review-workbench {
+  --review-comment-accent: #4d6ef5;
+  --review-comment-accent-hover: #5d7cf7;
+  --review-comment-accent-wash: rgb(77 110 245 / 14%);
+  --review-comment-accent-outline: rgb(77 110 245 / 48%);
+  --review-comment-range: rgb(35 71 178 / 58%);
+  --review-comment-range-active: rgb(48 91 226 / 68%);
+  --review-comment-surface: #0f1217;
+  --review-comment-input: #0f1217;
+  --review-comment-rule: #272c35;
+  --review-comment-metadata-rule: #343a46;
+  --review-comment-composer-rule: #3d444d;
+  --review-comment-footer: #151922;
+  --review-comment-footer-rule: #566171;
+  --review-comment-ink: var(--vscode-editor-foreground, #e8eaee);
+  --review-comment-muted: var(--vscode-descriptionForeground, #9ba1ac);
+  --vscode-editorGutter-commentRangeForeground: var(--review-comment-accent);
+  --vscode-editorGutter-commentGlyphForeground: #fff;
+  --vscode-editorGutter-commentUnresolvedGlyphForeground: var(
+    --review-comment-accent
+  );
+  --vscode-editorGutter-commentDraftGlyphForeground: var(
+    --review-comment-accent
+  );
+  --vscode-editorCommentsWidget-rangeBackground: var(
+    --review-comment-range
+  );
+  --vscode-editorCommentsWidget-rangeActiveBackground: var(
+    --review-comment-range-active
+  );
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .comment-range-selection {
+  background: var(--review-comment-range);
+  box-shadow: inset 2px 0 0 var(--review-comment-accent);
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .comment-range-selection-current {
+  background: var(--review-comment-range-active);
+  box-shadow: inset 3px 0 0 var(--review-comment-accent);
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  :is(.comment-thread-range-margin, .comment-range-selection-margin) {
+  background: var(--review-comment-range) !important;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  :is(
+    .comment-thread-range-margin-current,
+    .comment-range-selection-margin-current
+  ) {
+  background: var(--review-comment-range-active) !important;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  :is(
+    .comment-thread-range-line-number,
+    .comment-thread-range-line-number-current,
+    .comment-range-selection-line-number,
+    .comment-range-selection-line-number-current
+  ) {
+  color: #e7edff !important;
+  font-weight: 600;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget.compact-comment-thread {
+  --comment-thread-state-color: var(--review-comment-accent) !important;
+  --comment-thread-state-background-color: var(
+    --review-comment-accent-wash
+  ) !important;
+  --vscode-button-background: var(--review-comment-accent);
+  --vscode-button-hoverBackground: var(--review-comment-accent-hover);
+  --vscode-button-foreground: #fff;
+  --vscode-editorCommentsWidget-replyInputBackground: transparent;
+  --vscode-editor-lineHighlightBackground: transparent;
+  --vscode-scrollbarSlider-background: transparent;
+  --vscode-scrollbarSlider-hoverBackground: transparent;
+  --vscode-scrollbarSlider-activeBackground: transparent;
+  color: var(--review-comment-ink);
+  background: transparent;
+  filter: none;
+  overflow: visible !important;
+  border-top-width: 0 !important;
+  border-bottom-width: 0 !important;
+}
+
+.monaco-workbench.review-workbench
+  .review-inline-code-editor
+  .monaco-editor:has(.compact-comment-thread)
+  > .overflow-guard {
+  overflow: visible;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget.compact-comment-thread
+  > .head {
+  position: relative;
+  z-index: 3;
+  box-sizing: border-box;
+  align-items: center;
+  width: calc(
+    100% - 16px + var(--compact-comment-thread-inline-end-reserve, 0px)
+  );
+  height: 32px !important;
+  margin: 6px 0 0 16px;
+  padding: 0 8px 0 11px;
+  border: 1px solid var(--review-comment-rule);
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  line-height: 30px !important;
+  background: var(--review-comment-surface) !important;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget.compact-comment-thread
+  > .head
+  .review-title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 100%;
+  margin-left: 0;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget.compact-comment-thread
+  > .head
+  .review-title
+  .filename {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border: 1px solid var(--review-comment-accent-outline);
+  border-radius: 999px;
+  background: var(--review-comment-accent-wash);
+  color: color-mix(in srgb, var(--review-comment-accent) 68%, white);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget
+  > .head
+  .review-actions {
+  padding-right: 0;
+  opacity: 0;
+  transition: opacity 100ms ease;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget:is(:hover, :focus-within)
+  > .head
+  .review-actions {
+  opacity: 0.72;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget.compact-comment-thread
+  > .body {
+  box-sizing: border-box;
+  width: calc(
+    100% - 16px + var(--compact-comment-thread-inline-end-reserve, 0px)
+  );
+  margin: 0 0 0 16px;
+  border: 1px solid var(--review-comment-rule) !important;
+  border-top-color: var(--review-comment-metadata-rule) !important;
+  border-radius: 0 0 8px 8px;
+  background: var(--review-comment-surface);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 55%);
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget.compact-comment-thread:not(:has(.review-comment))
+  > .head,
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget.compact-comment-thread:has(.comment-form-container.expand)
+  > .head {
+  border-color: var(--review-comment-accent);
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget.compact-comment-thread:not(:has(.review-comment))
+  > .body,
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget.compact-comment-thread:has(.comment-form-container.expand)
+  > .body {
+  border-right-color: var(--review-comment-accent) !important;
+  border-bottom-color: var(--review-comment-accent) !important;
+  border-left-color: var(--review-comment-accent) !important;
+  box-shadow:
+    0 0 0 1px rgb(76 141 246 / 16%),
+    0 10px 28px rgb(0 0 0 / 60%);
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget
+  .body
+  .review-comment {
+  position: relative;
+  padding: 12px;
+  background: transparent;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget
+  .body
+  .review-comment
+  + .review-comment {
+  border-top: 1px solid color-mix(
+    in srgb,
+    var(--review-comment-rule) 58%,
+    transparent
+  );
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget
+  .avatar-container {
+  display: none !important;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget
+  .body
+  .review-comment
+  .review-comment-contents {
+  padding-left: 0;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget
+  .comment-title
+  .comment-header-info {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  line-height: 17px;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget
+  .comment-title
+  .author {
+  color: var(--review-comment-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget
+  .comment-title
+  :is(.timestamp, .timestamp-container) {
+  margin-left: 7px;
+  color: var(--review-comment-muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget
+  .comment-title
+  .isPending {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border: 1px solid var(--review-comment-accent-outline);
+  border-radius: 999px;
+  background: transparent;
+  color: color-mix(in srgb, var(--review-comment-accent) 74%, white);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 12px;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget
+  .comment-title
+  .isPending:empty {
+  display: none;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget
+  .body
+  .review-comment
+  .comment-body {
+  padding-top: 6px;
+  padding-right: 54px;
+  color: var(--review-comment-ink);
+  font-size: 12px;
+  line-height: 19px;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget
+  .comment-actions {
+  position: absolute;
+  right: 8px;
+  bottom: 7px;
+  margin: 0;
+  padding: 2px 3px;
+  border-radius: 4px;
+  background: var(--review-comment-surface);
+  opacity: 0;
+  transition: opacity 100ms ease;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget
+  .review-comment:is(:hover, :focus-within)
+  .comment-actions {
+  opacity: 1;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget.compact-comment-thread
+  .review-comment
+  .monaco-scrollable-element
+  > .scrollbar {
+  display: none !important;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget
+  .body
+  .comment-form-container {
+  margin: 0 12px 12px;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget
+  .body
+  .comment-form-container
+  .review-thread-reply-button {
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--review-comment-muted);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 14px;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget
+  .body
+  .comment-form-container
+  .review-thread-reply-button:is(:hover, :focus-visible) {
+  color: var(--review-comment-ink);
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget
+  .body
+  .comment-form-container
+  .monaco-editor,
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget
+  .body
+  .edit-container
+  .monaco-editor {
+  min-height: 44px;
+  max-height: 240px;
+  padding: 0;
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget.compact-comment-thread
+  .body
+  :is(.comment-form-container, .edit-container)
+  .monaco-editor
+  :is(.monaco-editor-background, .margin) {
+  background: transparent;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget.compact-comment-thread
+  .body
+  :is(.comment-form-container, .edit-container)
+  .monaco-editor
+  .scrollbar {
+  display: none !important;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget.compact-comment-thread
+  .body
+  .comment-form-container.expand
+  :is(.decorationsOverviewRuler, .scroll-decoration) {
+  display: none !important;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget
+  .body
+  :is(.comment-form-container, .edit-container)
+  .monaco-editor.focused {
+  outline: 0;
+  box-shadow: none;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget.compact-comment-thread
+  .body
+  .comment-form-container.expand {
+  margin: 0;
+  padding: 10px 12px 11px;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget.compact-comment-thread:has(.review-comment)
+  .body
+  .comment-form-container.expand {
+  border-top: 1px solid var(--review-comment-composer-rule);
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget
+  .body
+  :is(.comment-form-container.expand, .edit-container)
+  .form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin: 6px 0 0;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget.compact-comment-thread
+  .body
+  .comment-form-container.expand
+  .form-actions {
+  margin: 9px -12px -11px;
+  padding: 9px 12px 10px;
+  border-top: 2px solid var(--review-comment-footer-rule);
+  border-radius: 0 0 7px 7px;
+  background: var(--review-comment-footer);
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget.compact-comment-thread
+  .body
+  .comment-form-container.expand
+  .form-actions::before {
+  content: none;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget
+  .body
+  .form-actions
+  :is(.other-actions, .editor-actions) {
+  display: flex;
+  gap: 6px;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget
+  .body
+  .form-actions
+  .monaco-button {
+  min-height: 26px;
+  margin: 0;
+  padding: 3px 10px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget
+  .body
+  .form-actions
+  .other-actions
+  > .monaco-button-dropdown {
+  gap: 0;
+  overflow: hidden;
+  border-radius: 5px;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget
+  .body
+  .form-actions
+  .other-actions
+  > .monaco-button-dropdown
+  > .monaco-button {
+  margin: 0;
+  border-radius: 0;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget
+  .body
+  .form-actions
+  .other-actions
+  > .monaco-button:not(.secondary) {
+  display: flex;
+  align-items: center;
+  width: auto;
+  min-width: 0;
+  height: 28px;
+  padding: 4px 12px;
+  border-radius: 5px;
+  background: var(--review-comment-accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget.compact-comment-thread
+  .body
+  .comment-form-container
+  .form-actions
+  .other-actions
+  > .monaco-button:not(.secondary)::after {
+  content: none;
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .review-widget
+  .body
+  .form-actions
+  .other-actions
+  > .monaco-button:not(.secondary):hover {
+  background: var(--review-comment-accent-hover);
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .margin-view-overlays
+  .comment-range-glyph.line-hover::before {
+  border-radius: 50%;
+  background: var(--review-comment-accent);
+  color: #fff;
+  box-shadow: 0 2px 7px rgb(0 0 0 / 36%);
+}
+
+.monaco-workbench.review-workbench
+  .monaco-editor
+  .comment-range-glyph:is(
+    .comment-thread,
+    .comment-thread-unresolved,
+    .comment-thread-draft
+  )::before {
+  border-radius: 4px;
+  background: var(--review-comment-accent) !important;
+  color: #fff !important;
+}

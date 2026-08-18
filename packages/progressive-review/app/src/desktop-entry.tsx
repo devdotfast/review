@@ -1,0 +1,392 @@
+import type {
+  ReviewCanvasContent,
+  ReviewCanvasHandle,
+} from "@dev.fast/review-protocol";
+import { useEffect, useRef, useState } from "react";
+import { createRoot } from "react-dom/client";
+
+import { App, type PublishedSoftwareMap } from "./App";
+import {
+  type ReviewSession,
+  ReviewSessionProvider,
+  createReviewSession,
+  useReviewSession,
+} from "./host/review-session";
+import { ReviewCanvasLoading } from "./review-canvas-loading";
+import { reviewDefinitionDiagnostics } from "./review-definition-runtime";
+import type { ReadyReviewDocumentEntry } from "./review-documents-runtime";
+import { type ReviewFindHost, createReviewFindHost } from "./review-find";
+import { ReviewHome, ReviewMigrationWarning } from "./review-home-view";
+import {
+  ReviewContainerProvider,
+  useReviewContainer,
+} from "./review-root-context";
+import { SettingsPage } from "./settings-page";
+import { TutorialProvider } from "./tutorial-context";
+import { captureClientError, captureUiEvent } from "./ui-telemetry";
+import { WelcomePage } from "./welcome-page";
+
+import "./styles.css";
+
+export { clearPersistedReviewViewState as clearReviewViewState } from "./review-view-state";
+
+interface ReviewDocumentBundle {
+  activeReviewDocument: ReadyReviewDocumentEntry;
+}
+
+function DesktopReviewApp({
+  documentBundle,
+  softwareMapBundle,
+  softwareMapEnabled,
+  range,
+  commits,
+  reviewErrors,
+  tutorial,
+  findHost,
+}: {
+  documentBundle: Promise<unknown>;
+  softwareMapBundle: Promise<unknown | null>;
+  softwareMapEnabled: boolean;
+  range: Extract<ReviewCanvasContent, { kind: "session" }>["range"];
+  commits: Extract<ReviewCanvasContent, { kind: "session" }>["commits"];
+  reviewErrors: Extract<
+    ReviewCanvasContent,
+    { kind: "session" }
+  >["reviewErrors"];
+  tutorial?: Extract<ReviewCanvasContent, { kind: "session" }>["tutorial"];
+  findHost: ReviewFindHost;
+}) {
+  const session = useReviewSession();
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+  const container = useReviewContainer();
+  const [document, setDocument] = useState<ReadyReviewDocumentEntry | null>(
+    null,
+  );
+  const [softwareMap, setSoftwareMap] = useState<PublishedSoftwareMap | null>(
+    null,
+  );
+  const [softwareMapLoaded, setSoftwareMapLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDocument(null);
+    setSoftwareMap(null);
+    setSoftwareMapLoaded(false);
+    setError(null);
+    void Promise.all([documentBundle, softwareMapBundle]).then(
+      ([documentValue, softwareMapValue]) => {
+        if (cancelled) return;
+        const bundle = documentValue as ReviewDocumentBundle;
+        setDocument(bundle.activeReviewDocument);
+        setSoftwareMap(softwareMapValue as PublishedSoftwareMap | null);
+        setSoftwareMapLoaded(true);
+      },
+      (loadError) => {
+        if (cancelled) return;
+        captureClientError(sessionRef.current, "document", loadError);
+        const message =
+          loadError instanceof Error ? loadError.message : String(loadError);
+        sessionRef.current.reportDiagnostic({
+          level: "error",
+          source: "loader",
+          message,
+          ...(loadError instanceof Error && loadError.stack
+            ? { stack: loadError.stack }
+            : {}),
+        });
+        setError(message);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [documentBundle, softwareMapBundle]);
+
+  useEffect(() => {
+    if (document && softwareMapLoaded && !error) session.signalReady();
+  }, [document, softwareMapLoaded, error, session]);
+
+  useEffect(() => {
+    if (!container) return;
+    const { authoredCodePeekRequestCount, authoredCodePeekDiffRequestCount } =
+      reviewDefinitionDiagnostics;
+    if (authoredCodePeekRequestCount === 0) return;
+    container.dataset.reviewAuthoredCodePeekRequestCount = String(
+      authoredCodePeekRequestCount,
+    );
+    container.dataset.reviewAuthoredCodePeekDiffRequestCount = String(
+      authoredCodePeekDiffRequestCount,
+    );
+  }, [container, document, error]);
+
+  if (error) {
+    return (
+      <CanvasShell title="Review unavailable">
+        <p>{error}</p>
+      </CanvasShell>
+    );
+  }
+  if (!document || !softwareMapLoaded) {
+    return <ReviewCanvasLoading page note="Still loading this review…" />;
+  }
+  return (
+    <div className="review-session-content">
+      <ReviewMigrationWarning errors={reviewErrors} />
+      <TutorialProvider tutorial={tutorial}>
+        <App
+          document={document}
+          softwareMap={softwareMap}
+          softwareMapEnabled={softwareMapEnabled}
+          range={range}
+          commits={commits}
+          findHost={findHost}
+        />
+      </TutorialProvider>
+    </div>
+  );
+}
+
+function ReviewCanvas({
+  content,
+  findHost,
+}: {
+  content: ReviewCanvasContent;
+  findHost: ReviewFindHost;
+}) {
+  if (content.kind === "session") {
+    return (
+      <DesktopReviewApp
+        key={content.bridge.config.sessionId}
+        documentBundle={content.document}
+        softwareMapBundle={content.softwareMap}
+        softwareMapEnabled={content.softwareMapEnabled}
+        range={content.range}
+        commits={content.commits}
+        reviewErrors={content.reviewErrors}
+        tutorial={content.tutorial}
+        findHost={findHost}
+      />
+    );
+  }
+  if (content.kind === "home") return <Home content={content} />;
+  if (content.kind === "source") {
+    if (content.error) {
+      return (
+        <div className="review-source-empty">
+          <p>Worktree unavailable</p>
+          <p className="review-source-empty-hint">{content.error}</p>
+        </div>
+      );
+    }
+    return (
+      <div className="review-source-empty">
+        <p>Select a file in the source tree</p>
+        <p className="review-source-empty-hint">⌘B toggles the tree</p>
+      </div>
+    );
+  }
+  if (content.kind === "welcome") {
+    return (
+      <WelcomePage
+        install={content.install}
+        onClose={content.close}
+        onboarding={content.onboarding}
+        onOpenTutorial={content.openTutorial}
+      />
+    );
+  }
+  if (content.kind === "settings") {
+    return <SettingsPage settings={content.settings} />;
+  }
+  if (content.kind === "completed") {
+    return (
+      <CanvasShell title="Review completed">
+        <p>{content.reviewPath ?? "The review was submitted successfully."}</p>
+        <p>
+          <button
+            type="button"
+            className="review-shell-primary"
+            onClick={content.showHome}
+          >
+            Back to Home
+          </button>
+        </p>
+      </CanvasShell>
+    );
+  }
+  if (content.kind === "error") {
+    return (
+      <CanvasShell title="Review unavailable">
+        <ReviewMigrationWarning errors={content.reviewErrors ?? []} />
+        <p>{content.message}</p>
+      </CanvasShell>
+    );
+  }
+  return <ReviewCanvasLoading page note="Preparing the selected review…" />;
+}
+
+function Home({
+  content,
+}: {
+  content: Extract<ReviewCanvasContent, { kind: "home" }>;
+}) {
+  const deleteReview = content.deleteReview;
+  const dismissReview = content.dismissReview;
+  const restoreReview = content.restoreReview;
+  const openSourceTree = content.openSourceTree;
+  return (
+    <ReviewHome
+      reviews={content.reviews}
+      reviewErrors={content.reviewErrors}
+      onOpen={(review) => content.openReview(review.uuid)}
+      onDelete={
+        deleteReview ? (review) => deleteReview(review.uuid) : undefined
+      }
+      onDismiss={
+        dismissReview ? (review) => dismissReview(review.uuid) : undefined
+      }
+      onRestore={
+        restoreReview ? (review) => restoreReview(review.uuid) : undefined
+      }
+      onOpenSourceTree={
+        openSourceTree ? (review) => openSourceTree(review.uuid) : undefined
+      }
+      setup={content.setup}
+      install={content.install}
+      onboarding={content.onboarding}
+      onOpenTutorial={content.openTutorial}
+    />
+  );
+}
+
+function CanvasShell({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <main className="review-canvas-shell">
+      <div className="review-shell-brand">dev.fast Review</div>
+      <h1>{title}</h1>
+      {children}
+    </main>
+  );
+}
+
+// The canvas shares the workbench DOM, so outside a session (which carries its
+// own theme bridge) the workbench root is the theme authority.
+function workbenchColorTheme(container: HTMLElement): "dark" | "light" {
+  const workbench = container.ownerDocument.querySelector(".monaco-workbench");
+  if (!workbench) return "dark";
+  return workbench.classList.contains("vs-dark") ||
+    workbench.classList.contains("hc-black")
+    ? "dark"
+    : "light";
+}
+
+export function mountReviewCanvas(
+  container: HTMLElement,
+  initialContent: ReviewCanvasContent,
+): ReviewCanvasHandle {
+  let content = initialContent;
+  let session: ReviewSession | null = null;
+  let disposed = false;
+  let themeSubscription: { dispose(): void } | null = null;
+  const findHost = createReviewFindHost();
+  container.classList.add("review-canvas-root");
+  // The canvas stylesheet is compiled inside @scope (.review-canvas-root),
+  // where the scope root itself is only matched by :scope — a theme class on
+  // the container would never match the light token block. The theme class
+  // must live on an in-scope descendant, so all content renders inside this
+  // host element.
+  const themeHost = container.ownerDocument.createElement("div");
+  themeHost.className = "review-theme-host";
+  container.appendChild(themeHost);
+  const root = createRoot(themeHost);
+
+  const applyTheme = (theme: "dark" | "light") => {
+    container.dataset.reviewTheme = theme;
+    themeHost.classList.toggle("review-app--theme-light", theme === "light");
+  };
+
+  const render = () => {
+    themeSubscription?.dispose();
+    themeSubscription = null;
+    if (content.kind === "session") {
+      resetSessionDiagnostics(container);
+      if (session?.bridge !== content.bridge) {
+        session = createReviewSession(content.bridge);
+      }
+    } else {
+      session = null;
+    }
+    if (content.kind === "session") {
+      applyTheme(content.bridge.currentTheme());
+      themeSubscription = content.bridge.onDidChangeTheme(applyTheme);
+    } else {
+      applyTheme(workbenchColorTheme(container));
+      const workbench =
+        container.ownerDocument.querySelector(".monaco-workbench");
+      if (workbench) {
+        const observer = new MutationObserver(() => {
+          applyTheme(workbenchColorTheme(container));
+        });
+        observer.observe(workbench, {
+          attributes: true,
+          attributeFilter: ["class"],
+        });
+        themeSubscription = { dispose: () => observer.disconnect() };
+      }
+    }
+    root.render(
+      <ReviewContainerProvider container={container}>
+        {session ? (
+          <ReviewSessionProvider session={session}>
+            <ReviewCanvas content={content} findHost={findHost} />
+          </ReviewSessionProvider>
+        ) : (
+          <ReviewCanvas content={content} findHost={findHost} />
+        )}
+      </ReviewContainerProvider>,
+    );
+  };
+  render();
+
+  return {
+    update(next) {
+      if (disposed) return;
+      content = next;
+      render();
+    },
+    focus() {
+      container.focus();
+    },
+    showFind(seed) {
+      return content.kind === "session" && findHost.showFind(seed);
+    },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      themeSubscription?.dispose();
+      themeSubscription = null;
+      root.unmount();
+      themeHost.remove();
+      container.classList.remove("review-canvas-root");
+    },
+  };
+}
+
+function resetSessionDiagnostics(container: HTMLElement): void {
+  reviewDefinitionDiagnostics.authoredCodePeekRequestCount = 0;
+  reviewDefinitionDiagnostics.authoredCodePeekDiffRequestCount = 0;
+  delete container.dataset.reviewAuthoredCodePeekRequestCount;
+  delete container.dataset.reviewAuthoredCodePeekDiffRequestCount;
+  delete container.dataset.reviewDiffSummaryRequestCount;
+  delete container.dataset.reviewDiffSummaryReadyCount;
+  delete container.dataset.reviewDiffSummaryStartedAfterMount;
+  delete container.dataset.reviewDiffSummaryIncludePatch;
+}

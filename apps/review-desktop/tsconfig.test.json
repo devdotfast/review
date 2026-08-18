@@ -1,0 +1,12 @@
+{
+  // tsx transpiles with esbuild, which needs to be told about the decorator
+  // and class-field semantics the Code OSS sources are written against.
+  // Without this, any test touching a file that uses `@ILogService`-style
+  // dependency injection fails to parse. Only the options esbuild reads are
+  // meaningful here; typechecking still comes from code-oss/src/tsconfig.json.
+  "compilerOptions": {
+    "target": "ES2024",
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false
+  }
+}

@@ -1,0 +1,269 @@
+import crypto from "node:crypto";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+
+import { init as initModuleLexer, parse as parseModule } from "es-module-lexer";
+
+import type { NormalizedSoftwareModel } from "./software-map-model";
+
+export const REVIEW_SOFTWARE_MAP_BUNDLE_DIR = path.join(
+  ".bundle",
+  "software-map",
+);
+const HEAD_MAP_FILE = "head-map.js";
+const BASE_MAP_FILE = "base-map.js";
+const MANIFEST_FILE = "manifest.json";
+const MANIFEST_VERSION = 1;
+
+interface SoftwareMapBundleManifest {
+  version: number;
+  headCommit: string;
+  baseCommit: string;
+}
+
+export interface ReviewSoftwareMapBundle {
+  headCode: string;
+  baseCode: string;
+  contentHash: string;
+  headCommit: string;
+  baseCommit: string;
+}
+
+export function bundleReviewSoftwareMap(input: {
+  head: NormalizedSoftwareModel;
+  base: NormalizedSoftwareModel;
+  headCommit: string;
+  baseCommit: string;
+}): ReviewSoftwareMapBundle {
+  const headCode = softwareMapModuleSource(input.head);
+  const baseCode = softwareMapModuleSource(input.base);
+  return {
+    headCode,
+    baseCode,
+    contentHash: bundleHash(headCode, baseCode),
+    headCommit: input.headCommit,
+    baseCommit: input.baseCommit,
+  };
+}
+
+export async function writeReviewSoftwareMapBundle(
+  reviewDir: string,
+  bundle: ReviewSoftwareMapBundle,
+): Promise<void> {
+  const bundleDir = path.join(reviewDir, REVIEW_SOFTWARE_MAP_BUNDLE_DIR);
+  await mkdir(bundleDir, { recursive: true, mode: 0o700 });
+  const manifest: SoftwareMapBundleManifest = {
+    version: MANIFEST_VERSION,
+    headCommit: bundle.headCommit,
+    baseCommit: bundle.baseCommit,
+  };
+  await Promise.all([
+    writeFile(path.join(bundleDir, HEAD_MAP_FILE), bundle.headCode, "utf8"),
+    writeFile(path.join(bundleDir, BASE_MAP_FILE), bundle.baseCode, "utf8"),
+    writeFile(
+      path.join(bundleDir, MANIFEST_FILE),
+      `${JSON.stringify(manifest, null, 2)}\n`,
+      "utf8",
+    ),
+  ]);
+}
+
+export async function readReviewSoftwareMapBundle(
+  rootDir: string,
+): Promise<ReviewSoftwareMapBundle | null> {
+  const bundleDir = path.join(rootDir, REVIEW_SOFTWARE_MAP_BUNDLE_DIR);
+  let manifestRaw: string;
+  let headCode: string;
+  let baseCode: string;
+  try {
+    [manifestRaw, headCode, baseCode] = await Promise.all([
+      readFile(path.join(bundleDir, MANIFEST_FILE), "utf8"),
+      readFile(path.join(bundleDir, HEAD_MAP_FILE), "utf8"),
+      readFile(path.join(bundleDir, BASE_MAP_FILE), "utf8"),
+    ]);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+  const manifest = parseManifest(manifestRaw);
+  if (!manifest) return null;
+  return {
+    headCode,
+    baseCode,
+    contentHash: bundleHash(headCode, baseCode),
+    headCommit: manifest.headCommit,
+    baseCommit: manifest.baseCommit,
+  };
+}
+
+export function sameReviewSoftwareMapBundle(
+  left: ReviewSoftwareMapBundle,
+  right: ReviewSoftwareMapBundle,
+): boolean {
+  return (
+    left.headCode === right.headCode &&
+    left.baseCode === right.baseCode &&
+    left.headCommit === right.headCommit &&
+    left.baseCommit === right.baseCommit
+  );
+}
+
+export async function extractLegacyReviewSoftwareMapBundle(input: {
+  bundleCode: string;
+  evaluationDir: string;
+  headCommit: string;
+  baseCommit: string;
+}): Promise<ReviewSoftwareMapBundle | null> {
+  const runtimeFile = "legacy-runtime.mjs";
+  const documentFile = "legacy-document.mjs";
+  const runtimeSpecifier = JSON.stringify("review-doc-runtime");
+  if (!input.bundleCode.includes(runtimeSpecifier)) return null;
+  await initModuleLexer;
+  const [imports] = parseModule(input.bundleCode);
+  const names = new Set([
+    "createActiveReviewDocument",
+    "createBrowserReviewDefinitionSession",
+    "defineSoftwareModel",
+    "setReviewRequestContext",
+  ]);
+  for (const record of imports) {
+    if (record.n !== "review-doc-runtime" || record.d !== -1) continue;
+    const statement = input.bundleCode.slice(record.ss, record.se);
+    const named = /\{([\s\S]*?)\}/.exec(statement)?.[1] ?? "";
+    for (const entry of named.split(",")) {
+      const name = entry.split(/\s+as\s+/)[0]!.trim();
+      if (/^[A-Za-z_$][\w$]*$/.test(name)) names.add(name);
+    }
+  }
+  const holder = globalThis as Record<string, unknown>;
+  const key = `__reviewLegacyMapMigration${process.pid}`;
+  const prior = holder[key];
+  let captured: {
+    repoSoftwareMap?: unknown;
+    baseSoftwareMap?: unknown;
+  } | null = null;
+  const identity = <T>(value: T) => value;
+  const session = {
+    begin() {},
+    async ready() {},
+    diagnostics: [],
+    defineActors: identity,
+    defineAnchors: identity,
+    defineStores: identity,
+    defineSoftwareActors: (_model: unknown, value: unknown) => value,
+    defineSoftwareStores: (_model: unknown, value: unknown) => value,
+  };
+  holder[key] = {
+    createActiveReviewDocument(value: typeof captured) {
+      captured = value;
+      return value;
+    },
+    createBrowserReviewDefinitionSession: () => session,
+    defineSoftwareModel: identity,
+    setReviewRequestContext() {},
+    Fragment: Symbol("Fragment"),
+    jsx: () => ({}),
+    jsxs: () => ({}),
+    jsxDEV: () => ({}),
+    React: {},
+  };
+  try {
+    await mkdir(input.evaluationDir, { recursive: true, mode: 0o700 });
+    const runtimeSource = [
+      `const runtime = globalThis[${JSON.stringify(key)}];`,
+      `const get = (name) => runtime[name] ?? (() => undefined);`,
+      ...[...names].map(
+        (name) => `export const ${name} = get(${JSON.stringify(name)});`,
+      ),
+      "export default runtime.React;",
+      "",
+    ].join("\n");
+    await Promise.all([
+      writeFile(path.join(input.evaluationDir, runtimeFile), runtimeSource),
+      writeFile(
+        path.join(input.evaluationDir, documentFile),
+        input.bundleCode
+          .split(runtimeSpecifier)
+          .join(JSON.stringify(`./${runtimeFile}`)),
+      ),
+    ]);
+    const url = pathToFileURL(path.join(input.evaluationDir, documentFile));
+    url.searchParams.set("t", String(Date.now()));
+    const module = (await import(url.href)) as {
+      activeReviewDocument?: typeof captured;
+    };
+    const document = (module.activeReviewDocument ?? captured) as {
+      repoSoftwareMap?: unknown;
+      baseSoftwareMap?: unknown;
+    } | null;
+    if (
+      !isNormalizedSoftwareModel(document?.repoSoftwareMap) ||
+      !isNormalizedSoftwareModel(document.baseSoftwareMap)
+    ) {
+      return null;
+    }
+    return bundleReviewSoftwareMap({
+      head: document.repoSoftwareMap,
+      base: document.baseSoftwareMap,
+      headCommit: input.headCommit,
+      baseCommit: input.baseCommit,
+    });
+  } finally {
+    holder[key] = prior;
+    await rm(input.evaluationDir, { recursive: true, force: true });
+  }
+}
+
+function softwareMapModuleSource(model: NormalizedSoftwareModel): string {
+  return [
+    `const elements = Object.freeze(${JSON.stringify(model.elements)});`,
+    `const relationships = Object.freeze(${JSON.stringify(model.relationships)});`,
+    "const elementsByPath = new Map(elements.map((element) => [element.path, element]));",
+    "export default Object.freeze({ elements, elementsByPath, relationships });",
+    "",
+  ].join("\n");
+}
+
+function bundleHash(headCode: string, baseCode: string): string {
+  return crypto
+    .createHash("sha256")
+    .update(headCode)
+    .update("\0")
+    .update(baseCode)
+    .digest("hex")
+    .slice(0, 20);
+}
+
+function parseManifest(raw: string): SoftwareMapBundleManifest | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const manifest = value as Partial<SoftwareMapBundleManifest>;
+  if (
+    manifest.version !== MANIFEST_VERSION ||
+    typeof manifest.headCommit !== "string" ||
+    !/^[0-9a-f]{40}$/i.test(manifest.headCommit) ||
+    typeof manifest.baseCommit !== "string" ||
+    !/^[0-9a-f]{40}$/i.test(manifest.baseCommit)
+  ) {
+    return null;
+  }
+  return manifest as SoftwareMapBundleManifest;
+}
+
+function isNormalizedSoftwareModel(
+  value: unknown,
+): value is NormalizedSoftwareModel {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    Array.isArray((value as NormalizedSoftwareModel).elements) &&
+    (value as NormalizedSoftwareModel).elementsByPath instanceof Map &&
+    Array.isArray((value as NormalizedSoftwareModel).relationships),
+  );
+}

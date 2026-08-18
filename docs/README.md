@@ -2,12 +2,6 @@
 
 <!--
 Outline: Start here -> Reference -> Contributing and security.
-
-TODO(docs): Before the public launch:
-- Add one link to a real public Review created from a representative pull request.
-- Decide where users should ask questions: GitHub Discussions, Discord, or email.
-- Decide whether these files remain repository docs or move to a hosted docs site.
-- Remove this comment after the linked pages complete their own TODO(docs) items.
 -->
 
 Review is a desktop app where coding agents turn code changes into guided,
@@ -17,13 +11,10 @@ directory as a reference.
 ## Before the public launch
 
 - [ ] Add a real Review screenshot or short product GIF to the root README.
-- [ ] Confirm the alpha label and supported platforms in the quickstart.
-- [ ] Add the public support and community links.
+- [ ] Confirm the alpha label for launch.
+- [ ] Add public support, community, and issue-report links.
 - [ ] Confirm the privacy, retention, and bug-report language.
-- [ ] Recheck the CLI reference against the release candidate.
-- [ ] Add one public example Review.
-
-Remove this checklist once the launch details are final.
+- [ ] Add one public example Review from a representative pull request.
 
 ## Start here
 

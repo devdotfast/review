@@ -5,10 +5,8 @@ Outline: Baseline checks -> CLI install/version -> Desktop connection -> Discove
 -> Sync -> Publication -> Maps -> Agents -> Reporting.
 
 TODO(docs):
-- Add the public support destination and issue template link.
 - Document the supported way to collect app logs and diagnostics.
-- Add the top three failures observed during a clean external beta.
-- Add recovery steps for a failed app update once that UI is final.
+- Add recovery steps for a failed app update.
 -->
 
 Start with these checks:

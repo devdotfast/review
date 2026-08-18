@@ -2,12 +2,6 @@
 
 <!--
 Outline: Requirements -> Install -> Tour -> Create -> Respond -> Verify -> Next steps.
-
-TODO(docs):
-- Confirm the launch platform matrix and whether "alpha" is still the right label.
-- Add one welcome-screen image and one image of a finished Review.
-- Replace the generic branch example with a public repository and pull request.
-- Add the expected first-run time once measured on a clean machine.
 -->
 
 This guide takes you from a fresh install to a completed first review.

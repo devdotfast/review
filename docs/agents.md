@@ -1,14 +1,8 @@
 # Coding agents
 
 <!--
-Outline: Supported agents -> Installed skills -> Change review -> Architecture review
+Outline: Built-in setup -> Installed skills -> Change review -> Architecture review
 -> Feedback loop -> Headless install -> Provider boundary.
-
-TODO(docs):
-- Confirm the built-in install targets and minimum versions for the launch build.
-- Add links to the official setup/authentication docs for each supported agent.
-- Decide whether Cursor should have a dedicated prompt instead of the generic flow.
-- Add a short example showing a request-changes round returning to the same agent.
 -->
 
 Review works with Claude Code, Codex, and other coding agents. The desktop app

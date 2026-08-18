@@ -3,12 +3,6 @@
 <!--
 Outline: Common flow -> JSON contract -> Command index -> Lifecycle commands
 -> Threads -> Maps -> Agent installation and migration.
-
-TODO(docs):
-- Re-run every documented --help command against the public release candidate.
-- Mark commands or options that are experimental and state the compatibility policy.
-- Add one compact JSONL example for an agent integration.
-- Decide whether this page should be generated from Commander help in CI.
 -->
 
 The `review` command is the control surface shared by Review Desktop and coding
@@ -17,6 +11,16 @@ it matched to the running app.
 
 Run `review <command> --help` for the authoritative options in your installed
 version.
+
+## Compatibility
+
+Review is in alpha. Before 1.0, command syntax and JSON event fields may change
+between releases. Review Desktop installs an app-managed CLI that matches the
+running app; use that copy instead of relying on compatibility between
+different CLI and Desktop versions.
+
+The `review map` command group is experimental. Its verbs, Git-notes storage
+model, and JSON events may change without a migration period before 1.0.
 
 ## Common workflow
 
@@ -32,16 +36,26 @@ Most people let the installed Review skill drive this workflow.
 
 ## Machine-readable output
 
-Every command accepts `--json`, either before or after the command name:
+Commands that expose `--json` accept it after the complete command path:
 
 ```sh
-review --json info
+review info --json
 review scaffold --json
+review map check --json
+review version --json
 ```
 
 Stdout then contains newline-delimited JSON events only. Human progress moves
 to stderr, and failures emit a JSON error event. This is the recommended mode
-for coding agents and automation.
+for coding agents and automation. Thread commands already return JSON.
+`review threads list` does not require a `--json` flag.
+
+For example, the installed CLI reports its version as one JSONL event:
+
+```console
+$ review version --json
+{"event":"version","version":"0.0.1"}
+```
 
 ## Commands
 
@@ -56,7 +70,7 @@ for coding agents and automation.
 | `review rebind` | Move a Review to another branch, bookmark, or change ID. |
 | `review wait` | Wait for reviewer activity or an agent-action state. |
 | `review threads` | Read, reply to, and resolve Review threads. |
-| `review map` | Author, validate, publish, and share software maps. |
+| `review map` | Author, validate, publish, and share experimental software maps. |
 | `review install` | Install Review skills for supported coding agents. |
 | `review migrate apply` | Migrate supported legacy Review data. |
 | `review version` | Print the Review package version. |
@@ -94,8 +108,9 @@ A bare scaffold uses the current checkout and its trunk fork point. Use
 `--head` for a detached Git checkout, `--pr` for a GitHub pull request, and
 `--new` when you intentionally want another Review for the same source.
 
-`--update` re-resolves the existing Review from its branch, bookmark, change,
-or pull-request binding. Publication never moves the pins automatically.
+`--update` re-resolves an existing Review from its branch, bookmark, change, or
+pull-request binding. It creates a Review when none matches. Publication never
+moves the pins automatically.
 
 ## Publish, rebind, and wait
 
@@ -103,6 +118,7 @@ or pull-request binding. Publication never moves the pins automatically.
 review publish --review <uuid>
 review rebind <branch-bookmark-or-change> --review <uuid>
 review wait --review <uuid>
+review wait --timeout <seconds> --review <uuid>
 review wait --requires-agent --review <uuid>
 review wait --requires-agent --codex --review <uuid>
 ```
@@ -121,20 +137,21 @@ arrives.
 ```sh
 review threads list --review <uuid>
 review threads get <thread-id> --review <uuid>
-review threads reply <thread-id> --body <text> --review <uuid>
+review threads reply <thread-id> --body <text> [--author <name>] --review <uuid>
 review threads resolve <thread-id> --review <uuid>
 ```
 
-Thread commands return structured data. Resolve a comment only after its exact
-request is addressed. Review owns the SQLite thread store; do not edit it
-directly.
+Thread commands return JSON. Replies use `Agent` as the author unless
+`--author` is provided. Resolve a comment only after its exact request is
+addressed. Review owns the SQLite thread store; do not edit it directly.
 
 ## Software maps
 
 ```sh
 review map open <rev>
-review map check [<rev>] --review <uuid>
-review map publish --review <uuid>
+review map open <rev> --force
+review map check [<rev>] [--review <uuid>]
+review map publish [--review <uuid>]
 review map prune
 review map push
 review map fetch
@@ -149,7 +166,8 @@ Maps are stored per commit in Git notes under `refs/notes/dev-fast/*`.
 - `prune` removes unreachable notes and fully flushed scratch buffers.
 - `push` and `fetch` share map notes through `origin`.
 
-Run `review map --help` for the storage model and exact verb syntax.
+Every map verb accepts `--json`. Run `review map --help` for the storage model
+and exact verb syntax.
 
 ## Agent integration and migration
 

@@ -2,10 +2,6 @@
 
 <!--
 Outline: Product model -> Review contents -> Pins -> Publication -> Lifecycle -> Storage.
-
-TODO(docs):
-- Add a product screenshot beside the lifecycle after the launch UI is frozen.
-- Confirm how much of the local storage model should be user-facing long term.
 -->
 
 Review separates authoring from reading. A coding agent studies a change and

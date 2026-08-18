@@ -5,23 +5,29 @@ Outline: Supported agents -> Installed skills -> Change review -> Architecture r
 -> Feedback loop -> Headless install -> Provider boundary.
 
 TODO(docs):
-- Confirm the supported-agent list and minimum versions for the launch build.
+- Confirm the built-in install targets and minimum versions for the launch build.
 - Add links to the official setup/authentication docs for each supported agent.
 - Decide whether Cursor should have a dedicated prompt instead of the generic flow.
 - Add a short example showing a request-changes round returning to the same agent.
 -->
 
-Review works with the coding agent you already use. The desktop app installs a
-small set of skills that teaches the agent how to author, validate, publish, and
-update a Review.
+Review works with Claude Code, Codex, and other coding agents. The desktop app
+installs a small set of skills that teaches the agent how to author, validate,
+publish, and update a Review.
 
-## Supported agents
+## Built-in setup
+
+Review Desktop provides setup shortcuts for these agent-specific skill
+locations:
 
 | Agent | Install target | Skill location |
 | --- | --- | --- |
 | Claude Code | `claude` or `claude-code` | `~/.claude/skills` |
 | Codex | `codex` | `~/.agents/skills` |
 | Cursor | `cursor` | `~/.cursor/skills` |
+
+Other coding agents that follow the shared Agent Skills convention can load the
+same Review skills from `~/.agents/skills`.
 
 Review Desktop is the recommended installation path. On first launch it detects
 installed agents, asks which integrations to enable, and keeps their skills in

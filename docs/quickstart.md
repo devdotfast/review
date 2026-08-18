@@ -17,7 +17,7 @@ This guide takes you from a fresh install to a completed first review.
 - An Apple silicon Mac.
 - A Git or Jujutsu repository with a branch, bookmark, change, or pull request
   to review.
-- Claude Code, Codex, or any other coding agent.
+- Claude Code, Codex, and other coding agents.
 
 ## 1. Install Review
 

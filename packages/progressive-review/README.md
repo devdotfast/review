@@ -78,12 +78,12 @@ Review Desktop language services the dependencies and build output they need.
 Source ranges do not need an indexer. `review publish` reads each range from
 its pinned worktree and rejects paths or line numbers that are not valid.
 
-Review Desktop is the primary install path: on startup it detects installed
-agents (Claude Code, Codex, Cursor), offers to install the CLI and skills for
-them, and re-syncs both after each app update. It also writes a `review` shim
-to `~/.local/bin` that always resolves to the app's bundled CLI. `review
-install` remains for headless environments; a standalone CLI defers to the
-app's bundled copy whenever Review Desktop is running.
+Review Desktop is the primary install path for Claude Code, Codex, and other
+coding agents. On startup it detects known local skill locations, offers to
+install the CLI and skills, and re-syncs both after each app update. It also
+writes a `review` shim to `~/.local/bin` that always resolves to the app's
+bundled CLI. `review install` remains for headless environments; a standalone
+CLI defers to the app's bundled copy whenever Review Desktop is running.
 
 The app-managed command starts the exact macOS bundle that installed it. The
 bundle does not need to be under `/Applications`. A repository or standalone
@@ -98,6 +98,9 @@ The installer copies these bundled skills into the selected agent configs:
 
 - `/dev-review` — author, validate, and publish a Review canvas.
 - `/dev-review-map` — generate or refresh the code map.
+
+Other coding agents that follow the shared Agent Skills convention can load the
+same skills from `~/.agents/skills`.
 
 Claude Code exposes skill directories as slash commands such as `/dev-review`.
 In Codex, invoke the installed Review skills via `/skills` or the skill name. In

@@ -27,7 +27,7 @@ and explore coding traces from one interface.
 ## Quickstart
 
 1. [Download Review](https://install.dev.fast) and open the app.
-2. Connect Claude Code, Codex, or Cursor from the welcome screen.
+2. Connect Claude Code, Codex, and other coding agents from the welcome screen.
 3. Ask your agent to review your current branch against up-to-date main and
    open the result in Review.
 
@@ -38,7 +38,6 @@ not explain whether the system is right. See the
 ## Documentation
 
 [How Review works](docs/how-review-works.md) ·
-[Architecture](docs/architecture.md) ·
 [Coding agents](docs/agents.md) ·
 [CLI](docs/cli-reference.md) ·
 [Privacy](docs/privacy.md) ·

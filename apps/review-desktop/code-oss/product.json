@@ -1,7 +1,7 @@
 {
 	"nameShort": "Review",
 	"nameLong": "/dev/fast Review",
-	"reviewVersion": "0.0.22",
+	"reviewVersion": "0.0.23",
 	"applicationName": "review",
 	"dataFolderName": ".dev-fast-review",
 	"sharedDataFolderName": ".dev-fast-review-shared",

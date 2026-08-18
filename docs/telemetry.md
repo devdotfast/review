@@ -1,87 +1,48 @@
 # Telemetry
 
-This document lists the telemetry that Review collects. It is the public source
-of truth for Review CLI and Review Desktop telemetry.
+Review collects a small amount of anonymous usage and reliability data. We use
+it to learn which parts of Review are useful and where the app is failing.
 
-Last checked against the code: 2026-08-17.
+This page is the complete public contract for Review Desktop and CLI telemetry.
+For a shorter overview of all product data, including local files, coding
+agents, and bug reports, see [Privacy](privacy.md).
 
-## Privacy rules
+Last checked against this repository: 2026-08-18.
 
-1. Passive telemetry sends only closed enums, booleans, numbers, random
-   identifiers, and the error fields in rule 3.
-2. Passive telemetry never sends paths, repository names, refs, symbols, code,
-   diffs, review text, comments, questions, prompts, or model output.
-3. An error report is the one place free text appears. Review sends the error
-   message with every path, web address, e-mail address, and known secret
-   format replaced by a marker, it sends stack lines only for files inside the
-   Review program itself, and it sends a fingerprint of the original message.
-   It sends no message at all for an error that quotes a review document. See
-   "Error reports" below.
-4. Review uses a random installation UUID. It does not use an email, username,
-   hostname, or machine identifier.
-5. PostHog derives coarse location data. The PostHog project discards the source
-   IP at ingestion.
-6. The UI and server apply the same event allowlist. They drop unknown events,
-   properties, and enum values.
+## The short version
 
-## Data flow
+- Anonymous telemetry is on by default and can be turned off at any time.
+- Review records actions such as opening a review, changing tabs, using code
+  navigation, or completing a CLI command. Values are limited to fixed
+  categories, booleans, counts, durations, versions, and random identifiers.
+- Passive telemetry never includes your code, diffs, file paths, repository
+  name, branches, Review text, comments, questions, prompts, or model output.
+- Review uses a random installation ID. It does not use your email, username,
+  hostname, or a hardware identifier, and it does not create a PostHog person
+  profile.
+- Product errors may include a cleaned error message and Review-only stack
+  frames. Paths, web and email addresses, and recognizable secrets are removed
+  on your machine before the event is accepted.
+- Sending a bug report is a separate, explicit action. You see and control its
+  attachments before anything is uploaded.
 
-```text
-Review workbench -------> root /telemetry/event ---\
-Review canvas ----------> session telemetry routes +--> allowlist -> disk queue -> PostHog batch API
-Review background ------> root /telemetry/event ---/
-Review CLI -------------------------------------------> disk queue -> PostHog batch API
+Review sends anonymous telemetry to PostHog. PostHog may derive a coarse
+location during ingestion; our project discards the source IP.
+
+## Turn telemetry off
+
+In Review Desktop, open **Preferences → Settings** and disable **Share
+anonymous usage data**. The setting controls both Review Desktop and the Review
+CLI on that installation. Disabling it also clears any queued events that have
+not been sent.
+
+For a single command, a shell, or a headless environment, set `DO_NOT_TRACK`:
+
+```sh
+DO_NOT_TRACK=1 review info
 ```
 
-The canvas does not connect to PostHog. The local server checks each canvas
-event first. The CLI and server use one telemetry implementation in
-`packages/progressive-review/src/progressive-review-telemetry.ts`.
-
-The transport stores pending events under
-`{DEV_REVIEW_HOME}/telemetry/events`. It sends batches to `POST /batch/`. It
-retries temporary failures with backoff. It deletes events after seven days.
-It limits the queue to 1,000 events.
-
-Review Desktop disables the built-in Microsoft telemetry. A product hardening
-test checks this rule.
-
-### Workbench (Review Desktop)
-
-The workbench sends allowlisted events to the root `POST /telemetry/event`
-route. The request uses the loopback server token. It also sends the random
-window `app_session_id`. The server checks the event before it adds the event
-to the PostHog queue.
-
-The canvas uses session routes. It sends dwell events to `/telemetry/tab`. It
-sends its other allowlisted events to `/telemetry/event` in that session. The
-root workbench route and the session event route use the same allowlist.
-
-The Electron background process uses the same root route as the workbench. It
-holds no connection to PostHog of its own, so its errors pass every opt-out
-check and the same allowlist as every other event.
-
-User-initiated bug reports use a separate path:
-
-```text
-Review canvas -> local Review server -> bug.dev.fast -> private Cloudflare R2
-                                            `-----> PostHog metadata event
-```
-
-## Identity and control
-
-Review creates a random `distinct_id` on first use. It stores the identifier in
-`{DEV_REVIEW_HOME}/telemetry/progressive-review.json`. Review does not call
-`identify()` and does not create a person profile.
-
-The `review.telemetry.enabled` Desktop setting controls Review CLI and Review
-Desktop telemetry on the same installation. The setting is on by default.
-Review Desktop shows one short notice on first use.
-
-To change the setting, open **Preferences ▸ Settings...** (⌘,) and use the
-**Share anonymous usage data** row. The first-use notice opens the same screen.
-
-These environment variables also turn telemetry off when their value is `1` or
-`true`:
+Review also honors these variables when their value is `1` or `true`:
 
 - `DO_NOT_TRACK`
 - `DNT`
@@ -92,7 +53,58 @@ These environment variables also turn telemetry off when their value is `1` or
 
 Tests also turn telemetry off with `VITEST=1` or `NODE_ENV=test`.
 
-### Developer sink
+An explicit bug report is still sent if you choose **Send** in the bug-report
+dialog. Bug reports do not pass through the passive telemetry system.
+
+## What Review collects
+
+| Category | Examples | What is not included |
+| --- | --- | --- |
+| App usage | A review opened, a tab viewed, a map expanded | Review text, code, paths, or repository details |
+| CLI usage | Command category, success or failure, duration | Command arguments, refs, process output, or exception text |
+| Code navigation | Feature category, language category, editor surface | Symbols, declarations, search text, or source code |
+| Extensions | An allowlisted extension ID, install outcome and duration | Extension version, configuration, or extension data |
+| Review outcome | Approve, request changes, dismiss, comment count | Comments, questions, thread text, or reviewer identity |
+| Reliability | Error class, cleaned message, Review-only stack frames | User paths, repository frames, secrets, or authored Review text |
+
+Every event is checked against an allowlist on your machine. Unknown events,
+unknown properties, and values outside their allowed categories are dropped.
+The full event-by-event list begins at [Event reference](#event-reference).
+
+## Identity and storage
+
+On first use, Review creates a random installation UUID and stores it at
+`${DEV_REVIEW_HOME:-~/.dev}/telemetry/progressive-review.json`. It does not call
+PostHog's `identify()` API or associate that ID with a person profile.
+
+Pending events are kept in a local queue under
+`${DEV_REVIEW_HOME:-~/.dev}/telemetry/events`. The queue holds at most 1,000
+events, retries temporary failures, and deletes events after seven days.
+Telemetry is best-effort and never blocks Review from working.
+
+Review Desktop disables the built-in Microsoft telemetry inherited from Code -
+OSS. A hardening test enforces that rule.
+
+## How events leave the app
+
+The canvas and desktop window do not connect directly to PostHog. They send
+events to Review's local server, which checks the allowlist before adding an
+event to the queue. The CLI uses the same queue and transport.
+
+```text
+Review Desktop ──┐
+Review canvas  ──┼─→ local allowlist ─→ disk queue ─→ PostHog
+Review CLI     ──┘
+```
+
+User-initiated bug reports take a separate path:
+
+```text
+Review ─→ local Review server ─→ bug.dev.fast ─→ private Cloudflare R2
+                                      └─→ attachment-free PostHog metadata
+```
+
+## Inspect events during development
 
 Set `DEV_FAST_REVIEW_TELEMETRY_DEBUG` to `1` or `true` to see the events that
 Review emits. Review then prints one line for each event to stderr:
@@ -109,15 +121,9 @@ The sink ignores the opt-out rules above, because the sink does not send the
 events. The sink also does not record the `review_installation_created` event as
 sent, so the real event still goes out on the next normal run.
 
-### Known exceptions
+## Event reference
 
-The `early_access_requested` event in
-`apps/web/src/routes/-marketing-home.tsx` uses a separate marketing PostHog
-instance. It identifies the request by email. This event is outside this
-document's privacy model. The product team must make a separate decision about
-this exception.
-
-## Common properties
+### Common properties
 
 Every event from the Review telemetry API includes these properties:
 
@@ -142,7 +148,7 @@ Standalone CLI events omit this property.
 The transport creates `review_telemetry_dropped` directly. That
 event includes only `reason`, `count`, and the random installation identifier.
 
-## CLI and lifecycle events
+### CLI and lifecycle events
 
 | Event                                     | Additional properties                                                      | When                               |
 | ----------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------- |
@@ -157,8 +163,8 @@ event includes only `reason`, `count`, and the random installation identifier.
 | `review_telemetry_dropped`    | `reason`, `count`                                                          | The queue drops one or more events |
 
 `command_path` is a closed enum for all public commands. It includes `help`,
-`version`, `app`, `rebind`, `publish`, `wait`, `info`, `scaffold`, `install`,
-`migrate.apply`, `threads.list`,
+`version`, `app.launch`, `app.pick`, `rebind`, `publish`, `wait`, `info`,
+`scaffold`, `install`, `migrate.apply`, `threads.list`,
 `threads.resolve`, `threads.reply`, `map.open`, `map.check`, `map.prune`,
 `map.publish`, `map.push`, `map.fetch`, and `invalid`. Review sends no
 arguments or refs.
@@ -179,10 +185,10 @@ in "Error reports".
 - Queue drop reasons: `queue_full`, `expired`, `corrupt`,
   `permanent_rejection`, and `storage_failure`.
 - Session sources: `pull_request`, `git_branch`, `jj_bookmark`, and
-  `jj_change`. Agent kinds are `codex`, `claude`, and `other`. Outcomes are
-  `approve`, `request-changes`, and `dismissed`.
+  `jj_change`. Agent kinds are `codex`, `claude`, `pi`, and `other`. Outcomes
+  are `approve`, `request-changes`, and `dismissed`.
 
-## Canvas events
+### Canvas events
 
 The server checks all canvas properties against
 `packages/progressive-review/src/ui-telemetry-events.ts`.
@@ -190,7 +196,7 @@ The server checks all canvas properties against
 | Event                                         | Additional properties                                                                                    | When                                      |
 | --------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
 | `review_app_opened`               | None                                                                                                     | The canvas app opens                      |
-| `review_tab_viewed`               | `tab` in review, map, files; `duration_ms`; `reason` in tab_change, visibility_hidden, pagehide, unmount | A tab dwell period ends                   |
+| `review_tab_viewed`               | `tab` in review, commits, map, files; `duration_ms`; `reason` in tab_change, visibility_hidden, pagehide, unmount | A tab dwell period ends                   |
 | `review_peek_opened`              | `via` in prose_link, diagram, marker, map, db_lens                                                       | A user opens a code peek                  |
 | `review_peek_resolved`            | `root_kind` in symbol, declaration, range                                                                | A code peek resolves                      |
 | `review_peek_resolve_failed`      | `root_kind` in symbol, declaration, range                                                                | A code peek does not resolve              |
@@ -199,12 +205,14 @@ The server checks all canvas properties against
 | `review_tour_abandoned`           | `step`, `steps`                                                                                          | A user closes an incomplete tour          |
 | `review_tour_completed`           | `steps`                                                                                                  | A user completes a tour                   |
 | `review_map_expanded`             | `level` in system, container, component, code                                                            | A user expands a map element              |
-| `review_thread_draft_opened`      | `intent` in comment, question                                                                            | A user opens a thread draft               |
+| `review_commit_expanded`          | `expanded`                                                                                               | A user expands or collapses a commit      |
+| `review_commit_diff_opened`       | `via` in row, file, footer                                                                                | A user opens a commit diff                |
+| `review_thread_draft_opened`      | `intent` in comment, ask-agent                                                                           | A user opens a thread draft               |
 | `review_threads_opened`           | `thread_count`                                                                                           | A user opens the Threads panel            |
 | `review_new_ask_opened`           | `via` in topbar, threads_panel                                                                           | A user opens the new-ask composer         |
+| `review_source_tree_opened`       | `via` in topbar, home                                                                                    | A user opens the source tree              |
 | `review_comment_created`          | `is_reply`                                                                                               | A user creates a comment                  |
-| `review_question_asked`           | None                                                                                                     | A user asks a question                    |
-| `review_question_answered`        | `ok`, `duration_ms`                                                                                      | The question request ends                 |
+| `review_agent_run_started`        | None                                                                                                     | A user starts an agent run                |
 | `review_thread_resolved`          | `kind: comment`                                                                                          | A user resolves a comment                 |
 | `review_client_error`             | See "Error reports"                                                                                      | A part of Review reports an error         |
 | `review_bug_report_dialog_opened` | None                                                                                                     | A user opens the bug report dialog        |
@@ -214,17 +222,16 @@ The server checks all canvas properties against
 | `review_review_opened`            | `via` in home, cli, other                                                                                | A user opens a review                     |
 | `review_home_empty_state_viewed`  | None                                                                                                     | The empty Home state opens                |
 
-The server emits `review_review_submitted` after it stores a
-submission. Its properties are `decision`, `comment_count`, and
-`question_count`. The server emits `review_review_dismissed` after
-it stores a dismissal. Its properties are `question_count` and `via` in
+The server emits `review_review_submitted` after it stores a submission. Its
+properties are `decision` and `comment_count`. The server emits
+`review_review_dismissed` after it stores a dismissal. Its property is `via` in
 review_topbar, home.
 
 The server emits `review_review_restored` when a dismissal ends. Its property
 is `via` in home, open. The `home` value is the Undo button. The `open` value
 is the implicit undo: a reader who opens a dismissed review brings it back.
 
-## Workbench events
+### Workbench events
 
 | Event                                           | Additional properties                                                                                                      | When                                        |
 | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |

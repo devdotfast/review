@@ -100,6 +100,7 @@ judgment applied to it.
 
 - [Quickstart](docs/quickstart.md)
 - [How Review works](docs/how-review-works.md)
+- [Architecture](docs/architecture.md)
 - [Coding agents](docs/agents.md)
 - [CLI reference](docs/cli-reference.md)
 - [Privacy](docs/privacy.md) and the full [telemetry reference](docs/telemetry.md)
@@ -127,15 +128,23 @@ The repository contains:
 Run `pnpm run ci` before submitting a pull request. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for more.
 
+### A note on vendoring Code OSS
+
+With everyone using dedicated agent TUIs and desktop apps, we only use our text editors for reviewing line-by-line diffs now, so we figured why not have a text editor meant for reviewing code. Might as well start off with the most successful open source editor out there.
+
+We vendor Code OSS unlike other forks that maintain patches because coding agents have a hard time with patches and theres a lot of stuff from stock vscode (ie. ~45% of the codebase is copilot these days 😬) that we dont need. 
+
+We regularly monitor upstream code oss and merge in security/feature patches as they come in.
+
 ## Privacy
 
-Review runs against your local checkouts. Anonymous product telemetry does not
+Review runs against local checkouts. Anonymous product telemetry does not
 include your code, diffs, review text, comments, questions, prompts, or model
 output. Coding agents may send data to their own providers, and an explicit bug
 report can include only the attachments you choose in its consent controls.
 
 Read the [privacy overview](docs/privacy.md) for the boundaries and opt-out
-controls.
+controls. If you're curious about everything we collect, it can be found in our [telemetry reference](docs/telemetry.md). If you're more curious than that, ask your coding agent to do a review of our repo!
 
 ## License
 

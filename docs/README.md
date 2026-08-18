@@ -30,6 +30,8 @@ Remove this checklist once the launch details are final.
 - [Quickstart](quickstart.md) — install Review and complete a first review.
 - [How Review works](how-review-works.md) — understand documents, live code,
   maps, threads, and the review lifecycle.
+- [Architecture](architecture.md) — understand the major processes, data flow,
+  storage boundaries, and repository layout.
 - [Coding agents](agents.md) — connect Claude Code, Codex, or Cursor.
 
 ## Reference

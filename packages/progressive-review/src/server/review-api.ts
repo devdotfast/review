@@ -505,7 +505,9 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
 
   async function bugReport(context: Context<ReviewHonoEnv>): Promise<Response> {
     try {
-      const report = parseReviewBugReportInput(await readJson(context.req.raw));
+      const report = parseReviewBugReportInput(
+        await readBoundedRequestJson(context.req.raw, 6 * 1024 * 1024, {}),
+      );
       const reviewDocumentPath = resolveReviewDocumentPath(
         new URL(context.req.url),
         {

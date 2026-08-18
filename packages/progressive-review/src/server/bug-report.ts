@@ -47,6 +47,7 @@ type AttachmentError = {
 interface BugReportPayload {
   schema_version: 2;
   description: string;
+  screenshot?: { mime: "image/jpeg"; base64: string };
   // File name to text. The document alone cannot render: every anchor lives in
   // a sibling TypeScript module.
   review?: Record<string, string>;
@@ -87,6 +88,7 @@ export async function submitReviewBugReport(input: {
   const payload: BugReportPayload = {
     schema_version: 2,
     description: input.report.description,
+    ...(input.report.screenshot ? { screenshot: input.report.screenshot } : {}),
     diagnostics: {
       app_version: input.report.app_version,
       cli_version: cliVersion,
@@ -166,11 +168,13 @@ export async function submitReviewBugReport(input: {
 
   let truncatedDiff = false;
   let truncatedMap = false;
+  let truncatedScreenshot = false;
   let request = buildBugReportRequest(payload, {
     appVersion: input.report.app_version,
     cliVersion,
     truncatedDiff,
     truncatedMap,
+    truncatedScreenshot,
   });
   if (request.body.byteLength > MAX_MULTIPART_BYTES && payload.diff) {
     delete payload.diff;
@@ -180,6 +184,7 @@ export async function submitReviewBugReport(input: {
       cliVersion,
       truncatedDiff,
       truncatedMap,
+      truncatedScreenshot,
     });
   }
   if (request.body.byteLength > MAX_MULTIPART_BYTES && payload.map) {
@@ -190,6 +195,18 @@ export async function submitReviewBugReport(input: {
       cliVersion,
       truncatedDiff,
       truncatedMap,
+      truncatedScreenshot,
+    });
+  }
+  if (request.body.byteLength > MAX_MULTIPART_BYTES && payload.screenshot) {
+    delete payload.screenshot;
+    truncatedScreenshot = true;
+    request = buildBugReportRequest(payload, {
+      appVersion: input.report.app_version,
+      cliVersion,
+      truncatedDiff,
+      truncatedMap,
+      truncatedScreenshot,
     });
   }
   if (request.body.byteLength > MAX_MULTIPART_BYTES && payload.review) {
@@ -199,6 +216,7 @@ export async function submitReviewBugReport(input: {
       cliVersion,
       truncatedDiff,
       truncatedMap,
+      truncatedScreenshot,
     });
   }
   if (request.body.byteLength > MAX_MULTIPART_BYTES) {
@@ -312,6 +330,7 @@ function buildBugReportRequest(
     cliVersion: string;
     truncatedDiff: boolean;
     truncatedMap: boolean;
+    truncatedScreenshot: boolean;
   },
 ) {
   const payloadBytes = gzipSync(Buffer.from(JSON.stringify(payload)), {
@@ -323,12 +342,14 @@ function buildBugReportRequest(
     has_review: payload.review !== undefined,
     has_map: payload.map !== undefined,
     has_diff: payload.diff !== undefined,
+    has_screenshot: payload.screenshot !== undefined,
     payload_bytes: payloadBytes.byteLength,
     app_version: input.appVersion,
     cli_version: input.cliVersion,
     platform: process.platform,
     truncated_diff: input.truncatedDiff,
     truncated_map: input.truncatedMap,
+    truncated_screenshot: input.truncatedScreenshot,
   };
   const body = Buffer.concat([
     Buffer.from(

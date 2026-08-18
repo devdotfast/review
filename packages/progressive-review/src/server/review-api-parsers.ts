@@ -21,6 +21,7 @@ const MIN_REVIEW_TAB_DWELL_MS = 250;
 const MAX_REVIEW_TAB_DWELL_MS = 4 * 60 * 60 * 1_000;
 const APP_SESSION_ID_PATTERN = /^[A-Za-z0-9_-][A-Za-z0-9_.-]{15,127}$/;
 const MAX_BUG_REPORT_DESCRIPTION_BYTES = 64 * 1024;
+const MAX_BUG_REPORT_SCREENSHOT_BYTES = 3 * 1024 * 1024;
 
 const nonEmptyStringSchema = z
   .string({ error: "must be a non-empty string" })
@@ -62,6 +63,18 @@ export function parseReviewBugReportInput(value: unknown) {
       `description must not exceed ${MAX_BUG_REPORT_DESCRIPTION_BYTES} UTF-8 bytes`,
       413,
     );
+  }
+  if (parsed.screenshot) {
+    const screenshot = Buffer.from(parsed.screenshot.base64, "base64");
+    if (screenshot.toString("base64") !== parsed.screenshot.base64) {
+      throw new HttpJsonError("screenshot.base64 must be valid base64", 400);
+    }
+    if (screenshot.byteLength > MAX_BUG_REPORT_SCREENSHOT_BYTES) {
+      throw new HttpJsonError(
+        `screenshot must not exceed ${MAX_BUG_REPORT_SCREENSHOT_BYTES} decoded bytes`,
+        413,
+      );
+    }
   }
   return parsed;
 }

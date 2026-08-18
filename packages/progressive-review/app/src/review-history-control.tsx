@@ -9,12 +9,14 @@ import {
 
 import { useReviewSession } from "./host/review-session";
 import { useReview } from "./review-context";
+import { useTutorial } from "./tutorial-context";
 
 type VersionList = ReviewDocumentVersionWire[] | null | "unavailable";
 
 export function ReviewHistoryControl(): ReactElement | null {
   const { historicalRevision, listVersions } = useReview();
   const session = useReviewSession();
+  const tutorial = useTutorial();
   const controlRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
   const [versions, setVersions] = useState<VersionList>(null);
@@ -29,9 +31,9 @@ export function ReviewHistoryControl(): ReactElement | null {
   }, [listVersions]);
 
   useEffect(() => {
-    if (historicalRevision) return;
+    if (historicalRevision || tutorial) return;
     void loadVersions();
-  }, [historicalRevision, loadVersions]);
+  }, [historicalRevision, loadVersions, tutorial]);
 
   useEffect(() => {
     if (!open) return;
@@ -52,7 +54,10 @@ export function ReviewHistoryControl(): ReactElement | null {
     };
   }, [open]);
 
-  if (historicalRevision || !Array.isArray(versions)) return null;
+  if (historicalRevision || (!tutorial && !Array.isArray(versions))) {
+    return null;
+  }
+  const versionItems = Array.isArray(versions) ? versions : [];
 
   return (
     <div ref={controlRef} className="review-history">
@@ -63,7 +68,9 @@ export function ReviewHistoryControl(): ReactElement | null {
         title="Version history"
         aria-haspopup="menu"
         aria-expanded={open}
+        disabled={tutorial !== null}
         onClick={() => {
+          if (tutorial) return;
           setOpen((current) => !current);
           if (!open) void loadVersions();
         }}
@@ -72,7 +79,7 @@ export function ReviewHistoryControl(): ReactElement | null {
       </button>
       {open ? (
         <ul className="review-history-list" role="menu">
-          {versions.map((version) => (
+          {versionItems.map((version) => (
             <li key={version.revision}>
               <button
                 type="button"

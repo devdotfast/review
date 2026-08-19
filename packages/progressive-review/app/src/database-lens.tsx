@@ -26,10 +26,13 @@ import {
   type PeekableAnchorRef,
   type StoreRef,
   type TargetRef,
+  collectionSchema,
+  collectionTargetRef,
   databaseLensPropsSchema,
   dbReadPropsSchema,
   dbUseCasePropsSchema,
   dbWritePropsSchema,
+  resolveTargetRef,
   throwAuthoringIssue,
 } from "../../src/authoring";
 import {
@@ -630,7 +633,10 @@ export function initialDatabaseC4ExpandedNodeIds(
   resolvedOperations: readonly ResolvedOperation[],
 ): Set<string> {
   return new Set(
-    resolvedOperations.map((resolved) => storeNodeId(resolved.target)),
+    resolvedOperations.flatMap((resolved) => {
+      const target = resolveTargetRef(resolved.target);
+      return target ? [storeNodeId(target)] : [];
+    }),
   );
 }
 
@@ -683,18 +689,20 @@ export function databaseC4Snapshot({
   const relationships: SoftwareMapResolvedSnapshot["relationships"] = [];
   const expandedStoresWithSchemaEdges = new Set<string>();
   for (const resolved of resolvedOperations) {
+    const target = resolveTargetRef(resolved.target);
+    if (!target) continue;
     const actorId = actorNodeId(resolved.actor);
-    const storeId = storeNodeId(resolved.target);
+    const storeId = storeNodeId(target);
     const storeExpanded = expandedNodeIds.has(storeId);
-    const operationStore = stores[resolved.target.storeId];
+    const operationStore = stores[target.storeId];
     const targetNodeId = storeExpanded
-      ? storeCollectionNodeId(resolved.target)
+      ? storeCollectionNodeId(target)
       : storeId;
     nodes.set(actorId, softwareMapNodeForActor(resolved.actor));
     nodes.set(
       storeId,
       softwareMapNodeForStore({
-        target: resolved.target,
+        target,
         store: operationStore,
         expanded: storeExpanded,
       }),
@@ -723,23 +731,24 @@ export function databaseC4Snapshot({
       label: resolved.operation.label,
       ...(storeExpanded && resolved.operation.kind === "write"
         ? {
-            toSchemaFieldPath: resolved.target.path,
+            toSchemaFieldPath: target.path,
             toSchemaEndpointKind: "field" as const,
           }
         : {}),
       ...(storeExpanded && resolved.operation.kind === "read"
         ? {
-            fromSchemaFieldPath: resolved.target.path,
+            fromSchemaFieldPath: target.path,
             fromSchemaEndpointKind: "field" as const,
           }
         : {}),
     });
   }
-  const activeTarget = resolvedOperations.find((resolved) =>
-    highlights.activeTargetKeys.has(
-      targetKey(resolved.target, resolved.target.path),
-    ),
-  )?.target;
+  const activeTarget = resolvedOperations
+    .map((resolved) => resolveTargetRef(resolved.target))
+    .find((target): target is TargetRef => {
+      if (!target) return false;
+      return highlights.activeTargetKeys.has(targetKey(target, target.path));
+    });
   return {
     title: useCase.label,
     view: `database:${useCase.id}`,
@@ -837,10 +846,11 @@ function softwareMapCollectionNode({
   highlights: ReturnType<typeof selectDatabaseOperationHighlights>;
 }): SoftwareMapNodeSnapshot {
   const kind = collectionKind === "tables" ? "table" : "document";
+  const collectionTarget = collectionTargetRef(collection);
   return {
     id: storeCollectionNodeIdForStore(store, collectionKind, collectionId),
     type: "dataStoreCollection",
-    label: collection.collectionLabel,
+    label: collectionTarget.collectionLabel,
     path: store.softwareMapPath
       ? `${store.softwareMapPath}.${collectionKind}.${collectionId}`
       : undefined,
@@ -850,8 +860,8 @@ function softwareMapCollectionNode({
       {
         id: `${kind}:${collectionId}`,
         kind,
-        label: collection.collectionLabel,
-        key: collection.collectionKey,
+        label: collectionTarget.collectionLabel,
+        key: collectionTarget.collectionKey,
         rows: softwareMapSchemaRowsForCollection({
           store,
           collectionKind,
@@ -876,7 +886,7 @@ function softwareMapForeignKeyRelationshipsForStore(
       "tables",
       collectionId,
     );
-    for (const row of flattenSchemaRows(collection.schema)) {
+    for (const row of flattenSchemaRows(collectionSchema(collection))) {
       if (!row.fk) continue;
       const target = foreignKeyTarget(row.fk);
       if (!target || !store.tables?.[target.table]) continue;
@@ -917,7 +927,8 @@ function softwareMapSchemaRowsForCollection({
   collection: CollectionRef;
   highlights: ReturnType<typeof selectDatabaseOperationHighlights>;
 }): SoftwareMapDataStoreSchemaRowSnapshot[] {
-  return flattenSchemaRows(collection.schema).map((row) => {
+  const collectionTarget = collectionTargetRef(collection);
+  return flattenSchemaRows(collectionSchema(collection)).map((row) => {
     const rowTargetKey = targetKey(
       {
         __kind: "db-target-ref",
@@ -928,8 +939,8 @@ function softwareMapSchemaRowsForCollection({
         storeSoftwareMapPath: store.softwareMapPath,
         collectionKind,
         collectionId,
-        collectionLabel: collection.collectionLabel,
-        collectionKey: collection.collectionKey,
+        collectionLabel: collectionTarget.collectionLabel,
+        collectionKey: collectionTarget.collectionKey,
         path: row.path,
       },
       row.path,
@@ -1115,7 +1126,7 @@ function actorRef(value: ActorRef | TargetRef): ActorRef | null {
 }
 
 function targetRef(value: ActorRef | TargetRef): TargetRef | null {
-  return value.__kind === "db-target-ref" ? value : null;
+  return resolveTargetRef(value);
 }
 
 function collectionKey(target: TargetRef): string {

@@ -21,8 +21,10 @@ export interface PreparedReviewPublish {
 export async function prepareReviewPublish(input: {
   cwd: string;
   reviewUuid?: string;
+  onReviewBound?: (uuid: string) => void | Promise<void>;
 }): Promise<PreparedReviewPublish> {
   const review = await resolvePublishReview(input.cwd, input.reviewUuid);
+  await input.onReviewBound?.(review.review.uuid);
   requireClosedThreadsForRepublish(review);
   requireCompletedAgentResponsesForRepublish(review);
   const sourceBranch = requireSourceBranch(review);

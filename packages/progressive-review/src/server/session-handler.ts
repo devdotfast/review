@@ -20,7 +20,10 @@ import {
   type ReviewSoftwareMapBundle,
   readReviewSoftwareMapBundle,
 } from "../software-map-bundle";
-import type { ProgressiveReviewTelemetry } from "../telemetry";
+import type {
+  ProgressiveReviewTelemetry,
+  ProgressiveReviewTelemetryContext,
+} from "../telemetry";
 import type { ReviewSubmissionEvent } from "../types";
 import type { ReviewDocumentBundle } from "./doc-bundler";
 import {
@@ -51,6 +54,7 @@ export interface ReviewSessionHandlerInput {
   routePath: string;
   token?: string;
   sessionId?: string;
+  reviewUuid?: string;
   reviewCliPath?: string;
   reviewCliRuntimePath?: string;
   submitHook?: string;
@@ -107,6 +111,49 @@ export async function createReviewSessionHandler(
   let softwareMapBundlePromise: Promise<ReviewSoftwareMapBundle | null> | null =
     null;
   const eventClients = new Set<ReviewEventClient>();
+  const telemetryContext: ProgressiveReviewTelemetryContext = {
+    reviewUuid: input.reviewUuid,
+    presentationSessionId: input.sessionId,
+  };
+  let reviewPresented = false;
+  const sessionTelemetry = input.telemetry
+    ? {
+        captureTabViewed: (
+          event: Parameters<ProgressiveReviewTelemetry["captureTabViewed"]>[0],
+        ) => input.telemetry!.captureTabViewed(event, telemetryContext),
+        captureUiEvent: async (
+          event: string,
+          properties: Record<string, string | number | boolean>,
+        ) => {
+          if (
+            event === "review_review_presented" &&
+            input.reviewUuid &&
+            input.sessionId
+          ) {
+            if (reviewPresented) return;
+            reviewPresented = true;
+            await input.telemetry!.captureReviewPresented(
+              {
+                reviewUuid: input.reviewUuid,
+                presentationSessionId: input.sessionId,
+              },
+              {
+                appSessionId:
+                  typeof properties.app_session_id === "string"
+                    ? properties.app_session_id
+                    : undefined,
+              },
+            );
+            return;
+          }
+          await input.telemetry!.captureUiEvent(
+            event,
+            properties,
+            telemetryContext,
+          );
+        },
+      }
+    : undefined;
 
   const getBundle = async (): Promise<ReviewDocumentBundle> => {
     if (currentBundle) return currentBundle;
@@ -332,7 +379,7 @@ export async function createReviewSessionHandler(
     reviewRootPath,
     toolingRoot: input.toolingRoot,
     stateReviewPath: input.stateReviewPath,
-    telemetry: input.telemetry,
+    telemetry: sessionTelemetry,
     onSubmission: async (event) => {
       broadcast({
         event: "submitted",

@@ -95,6 +95,7 @@ describe("requireClosedThreadsForRepublish", () => {
     const stdout = new PassThrough();
     let output = "";
     stdout.on("data", (chunk) => (output += String(chunk)));
+    const onReviewBound = vi.fn<(reviewUuid: string) => void>();
 
     await expect(
       runReviewPublish({
@@ -102,8 +103,11 @@ describe("requireClosedThreadsForRepublish", () => {
         reviewUuid: review.review.uuid,
         json: true,
         stdout: stdout as unknown as NodeJS.WriteStream,
+        onReviewBound,
       }),
     ).resolves.toBe(1);
+    expect(onReviewBound).toHaveBeenCalledOnce();
+    expect(onReviewBound).toHaveBeenCalledWith(review.review.uuid);
     expect(JSON.parse(output.trim())).toEqual({
       event: "error",
       stage: "publish",

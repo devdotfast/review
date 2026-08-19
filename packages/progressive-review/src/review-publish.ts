@@ -22,6 +22,7 @@ export async function runReviewPublish(input: {
   stdout: NodeJS.WriteStream;
   stderr?: NodeJS.WriteStream;
   env?: NodeJS.ProcessEnv;
+  onReviewBound?: (uuid: string) => void | Promise<void>;
 }): Promise<number> {
   const reporter = createPublishReporter({
     json: input.json ?? false,
@@ -44,6 +45,7 @@ async function publish(
     reviewUuid?: string;
     toolingRoot?: string;
     env?: NodeJS.ProcessEnv;
+    onReviewBound?: (uuid: string) => void | Promise<void>;
   },
   reporter: PublishReporter,
 ): Promise<number> {
@@ -51,6 +53,7 @@ async function publish(
   const prepared = await prepareReviewPublish({
     cwd: reviewRoot,
     reviewUuid: input.reviewUuid,
+    onReviewBound: input.onReviewBound,
   });
   const review = prepared.review;
   if (prepared.warnings?.length) {

@@ -168,7 +168,10 @@ export function anonymizeFilePaths(
  * same way they would against the original whole string.
  * @returns A `<REDACTED: ...>` marker if the probe matched, otherwise `value`
  */
-function redactIfPossibleUserInfo(value: string, probe: string = value): string {
+function redactIfPossibleUserInfo(
+  value: string,
+  probe: string = value,
+): string {
   for (const secretRegex of USER_DATA_REGEXES) {
     if (secretRegex.regex.test(probe)) {
       return `<REDACTED: ${secretRegex.label}>`;

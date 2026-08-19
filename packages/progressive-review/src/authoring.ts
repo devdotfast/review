@@ -271,19 +271,30 @@ export interface TargetRef {
   collectionLabel: string;
   collectionKey?: string;
   path: string[];
-  fields?: Record<string, TargetRef>;
 }
 
-const fieldTargetRefSchema: z.ZodType<TargetRef> = z.lazy(() =>
-  z.strictObject({
-    ...targetRefShape,
-    fields: z.record(nonEmptyStringSchema, fieldTargetRefSchema).optional(),
-  }),
+const authoredTargetRefKey: unique symbol = Symbol("authored-target-ref");
+const collectionSchemaKey: unique symbol = Symbol("collection-schema");
+
+export interface AuthoredTargetRef {
+  readonly [authoredTargetRefKey]: TargetRef;
+}
+
+const resolvedTargetRefSchema = z.strictObject(targetRefShape);
+
+export const targetRefSchema = z.preprocess(
+  (value) => resolveTargetRef(value) ?? value,
+  resolvedTargetRefSchema,
 );
 
-export const targetRefSchema: z.ZodType<TargetRef> = z.lazy(() =>
-  z.union([collectionRefSchema, fieldTargetRefSchema]),
-);
+export function resolveTargetRef(value: unknown): TargetRef | null {
+  if (!value || typeof value !== "object") return null;
+  const authored = (value as Partial<AuthoredTargetRef>)[authoredTargetRefKey];
+  if (authored) return authored;
+  return (value as { __kind?: unknown }).__kind === "db-target-ref"
+    ? (value as TargetRef)
+    : null;
+}
 
 const dbOperationCommonShape = {
   label: nonEmptyStringSchema,
@@ -299,14 +310,18 @@ export const dbReadPropsSchema = z.strictObject({
   to: actorRefSchema,
   ...dbOperationCommonShape,
 });
-export type DbReadProps = z.infer<typeof dbReadPropsSchema>;
+export type DbReadProps = Omit<z.input<typeof dbReadPropsSchema>, "from"> & {
+  from: AuthoredTargetRef;
+};
 
 export const dbWritePropsSchema = z.strictObject({
   from: actorRefSchema,
   to: targetRefSchema,
   ...dbOperationCommonShape,
 });
-export type DbWriteProps = z.infer<typeof dbWritePropsSchema>;
+export type DbWriteProps = Omit<z.input<typeof dbWritePropsSchema>, "to"> & {
+  to: AuthoredTargetRef;
+};
 
 export const dbOperationPropsSchema = z.union([
   dbReadPropsSchema,
@@ -530,11 +545,6 @@ const softwareDataStoreFieldSchema: z.ZodType<SoftwareDataStoreFieldSchema> =
       ]),
     ),
   );
-const collectionRefSchema: z.ZodType<CollectionRef> = z.strictObject({
-  ...targetRefShape,
-  schema: softwareDataStoreFieldSchema,
-  fields: z.record(nonEmptyStringSchema, fieldTargetRefSchema),
-});
 export const softwareDataStoreCollectionInputSchema = z.strictObject({
   label: optionalNonEmptyStringSchema,
   key: optionalNonEmptyStringSchema,
@@ -571,35 +581,45 @@ export interface StoreRef {
   documents?: Record<string, CollectionRef>;
 }
 
-export interface CollectionRef extends TargetRef {
-  schema: SoftwareDataStoreFieldSchema;
-  fields: Record<string, TargetRef>;
+type CollectionHandle = AuthoredTargetRef & {
+  readonly [collectionSchemaKey]: SoftwareDataStoreFieldSchema;
+};
+
+export type CollectionRef = CollectionHandle &
+  Record<string, AuthoredTargetRef>;
+
+export function collectionTargetRef(collection: CollectionRef): TargetRef {
+  return collection[authoredTargetRefKey];
+}
+
+export function collectionSchema(
+  collection: CollectionRef,
+): SoftwareDataStoreFieldSchema {
+  return collection[collectionSchemaKey];
 }
 
 export type CollectionRefs<T> =
   T extends Record<string, SoftwareDataStoreCollectionInput>
     ? {
-        [K in keyof T]: Omit<CollectionRef, "fields"> & {
-          fields: FieldRefs<T[K]["schema"]>;
-        };
+        [K in keyof T]: CollectionHandle & FieldRefs<T[K]["schema"]>;
       }
     : never;
 
 type FieldRefs<T> = T extends SoftwareDataStoreFieldLeaf
   ? T extends { schema: infer Schema extends Record<string, unknown> }
-    ? { fields: FieldRefs<Schema> }
-    : TargetRef
+    ? AuthoredTargetRef & FieldRefs<Schema>
+    : AuthoredTargetRef
   : T extends Record<string, unknown>
     ? {
-        [K in keyof T]: TargetRef &
+        [K in keyof T]: AuthoredTargetRef &
           (T[K] extends SoftwareDataStoreFieldLeaf
             ? T[K] extends {
                 schema: infer Schema extends Record<string, unknown>;
               }
-              ? { fields: FieldRefs<Schema> }
+              ? FieldRefs<Schema>
               : unknown
             : T[K] extends Record<string, unknown>
-              ? { fields: FieldRefs<T[K]> }
+              ? FieldRefs<T[K]>
               : unknown);
       }
     : unknown;
@@ -964,7 +984,7 @@ function defineCollections(
   return Object.fromEntries(
     Object.entries(collections).map(([collectionId, collection]) => {
       const collectionLabel = collection.label ?? collectionId;
-      const base: CollectionRef = {
+      const target: TargetRef = {
         __kind: "db-target-ref",
         storeId,
         storeKind: store.kind,
@@ -976,24 +996,28 @@ function defineCollections(
         collectionLabel,
         collectionKey: collection.key,
         path: [],
-        schema: collection.schema,
-        fields: {} as Record<string, TargetRef>,
       };
-      base.fields = defineFieldTargets(base, collection.schema, []);
-      return [collectionId, Object.freeze(base)];
+      const fields = defineFieldTargets(target, collection.schema, []);
+      const authored = Object.assign({}, fields) as CollectionRef &
+        Record<PropertyKey, unknown>;
+      Object.defineProperties(authored, {
+        [authoredTargetRefKey]: { value: Object.freeze(target) },
+        [collectionSchemaKey]: { value: collection.schema },
+      });
+      return [collectionId, Object.freeze(authored)];
     }),
   );
 }
 
 function defineFieldTargets(
-  collection: CollectionRef,
+  collection: TargetRef,
   schema: SoftwareDataStoreFieldSchema,
   prefix: string[],
-): Record<string, TargetRef> {
+): Record<string, AuthoredTargetRef> {
   return Object.fromEntries(
     Object.entries(schema).map(([field, value]) => {
       const path = [...prefix, field];
-      const target: TargetRef & Record<string, unknown> = {
+      const target: TargetRef = {
         __kind: "db-target-ref",
         storeId: collection.storeId,
         storeKind: collection.storeKind,
@@ -1007,10 +1031,14 @@ function defineFieldTargets(
         path,
       };
       const nestedSchema = isNestedSchema(value) ? value : value.schema;
-      if (nestedSchema) {
-        target.fields = defineFieldTargets(collection, nestedSchema, path);
-      }
-      return [field, Object.freeze(target)];
+      const authored = Object.assign(
+        {},
+        nestedSchema ? defineFieldTargets(collection, nestedSchema, path) : {},
+      ) as AuthoredTargetRef & Record<PropertyKey, unknown>;
+      Object.defineProperty(authored, authoredTargetRefKey, {
+        value: Object.freeze(target),
+      });
+      return [field, Object.freeze(authored)];
     }),
   );
 }

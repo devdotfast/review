@@ -21,7 +21,13 @@ const MIXED_STACK = [
   "    at C:\\Users\\alice\\secret-repo\\build\\out\\bundle.js:7:2",
 ].join("\n");
 
-const USER_TOKENS = ["alice", "secret-repo", "node_modules", "Users", "plan.ts"];
+const USER_TOKENS = [
+  "alice",
+  "secret-repo",
+  "node_modules",
+  "Users",
+  "plan.ts",
+];
 
 describe("packBundleFrames", () => {
   it("keeps shipped frames and drops everything else", () => {
@@ -81,7 +87,8 @@ describe("packBundleFrames", () => {
   it("reports at most ten frames", () => {
     const deep = Array.from(
       { length: 40 },
-      (_unused, index) => `    at f (/app/out/vs/base/common/errors.js:${index + 1}:1)`,
+      (_unused, index) =>
+        `    at f (/app/out/vs/base/common/errors.js:${index + 1}:1)`,
     ).join("\n");
     expect(packBundleFrames(deep)?.split("|")).toHaveLength(10);
   });
@@ -158,7 +165,9 @@ describe("deriveErrorTelemetryProperties", () => {
     expect(message("api_key was rejected")).toBe("<REDACTED: Generic Secret>");
     // A web address is path-shaped, so the path pass reaches it first. Either
     // marker is fine; what matters is that no part of the address survives.
-    const url = message("request to https://github.example/alice/secret failed");
+    const url = message(
+      "request to https://github.example/alice/secret failed",
+    );
     expect(url).toMatch(/^request to .*<REDACTED: [^>]+>.* failed$/);
     for (const token of ["github.example", "alice", "secret"]) {
       expect(url).not.toContain(token);

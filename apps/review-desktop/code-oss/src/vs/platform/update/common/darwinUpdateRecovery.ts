@@ -5,16 +5,25 @@
 
 export const DARWIN_UPDATE_ATTEMPT_STORAGE_KEY = 'update/darwin/attempt.v1';
 export const DARWIN_FAILED_UPDATE_STORAGE_KEY = 'update/darwin/failed.v1';
+export const DARWIN_UPDATE_OUTCOME_STORAGE_KEY = 'update/darwin/outcome.v1';
 
 export interface IDarwinUpdateAttempt {
 	readonly sourceCommit: string;
 	readonly targetCommit: string;
 	readonly productVersion?: string;
 	readonly attemptedAt: number;
+	readonly attemptId?: string;
+	readonly shipItLogOffset?: number;
 }
 
 export interface IDarwinFailedUpdate extends IDarwinUpdateAttempt {
 	readonly failedAt: number;
+}
+
+export interface IDarwinUpdateOutcomeRecord {
+	readonly kind: 'applied' | 'failed';
+	readonly attempt: IDarwinUpdateAttempt;
+	readonly resolvedAt: number;
 }
 
 export function parseDarwinUpdateAttempt(raw: string | undefined): IDarwinUpdateAttempt | undefined {
@@ -23,7 +32,7 @@ export function parseDarwinUpdateAttempt(raw: string | undefined): IDarwinUpdate
 		return undefined;
 	}
 
-	const { sourceCommit, targetCommit, productVersion, attemptedAt } = parsed;
+	const { sourceCommit, targetCommit, productVersion, attemptedAt, attemptId, shipItLogOffset } = parsed;
 	if (
 		typeof sourceCommit !== 'string' || !sourceCommit ||
 		typeof targetCommit !== 'string' || !targetCommit ||
@@ -37,6 +46,8 @@ export function parseDarwinUpdateAttempt(raw: string | undefined): IDarwinUpdate
 		targetCommit,
 		productVersion: typeof productVersion === 'string' && productVersion ? productVersion : undefined,
 		attemptedAt,
+		attemptId: typeof attemptId === 'string' && attemptId ? attemptId : undefined,
+		shipItLogOffset: typeof shipItLogOffset === 'number' && Number.isFinite(shipItLogOffset) && shipItLogOffset >= 0 ? shipItLogOffset : undefined,
 	};
 }
 
@@ -48,6 +59,18 @@ export function parseDarwinFailedUpdate(raw: string | undefined): IDarwinFailedU
 	}
 
 	return { ...attempt, failedAt: parsed.failedAt };
+}
+
+export function parseDarwinUpdateOutcomeRecord(raw: string | undefined): IDarwinUpdateOutcomeRecord | undefined {
+	const parsed = parseObject(raw);
+	if (!parsed || (parsed.kind !== 'applied' && parsed.kind !== 'failed')) {
+		return undefined;
+	}
+	const attempt = parseDarwinUpdateAttempt(JSON.stringify(parsed.attempt));
+	if (!attempt || typeof parsed.resolvedAt !== 'number' || !Number.isFinite(parsed.resolvedAt)) {
+		return undefined;
+	}
+	return { kind: parsed.kind, attempt, resolvedAt: parsed.resolvedAt };
 }
 
 export type DarwinUpdateOutcome =

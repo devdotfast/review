@@ -57,6 +57,12 @@ Review can automatically report failures in its own app, canvas, server, or
 background process. These reports may contain an error class, a cleaned message,
 a one-way fingerprint, and up to ten stack frames from Review's own program.
 
+Update telemetry records when an update is staged, when that exact target next
+launches, or when checking, downloading, or installing fails. For a macOS
+install failure, Review reads only log bytes appended after that update was
+staged, extracts one concise ShipIt error summary, and passes it through the
+same local cleaner. The raw ShipIt log is never stored in telemetry or sent.
+
 Before sending, Review cleans paths, home and temporary directories, web
 addresses, email addresses, and known secret formats. It drops repository,
 dependency, and extension stack frames. It also drops any message that quotes a

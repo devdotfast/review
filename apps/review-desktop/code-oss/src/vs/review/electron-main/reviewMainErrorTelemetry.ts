@@ -30,13 +30,14 @@ export interface ReviewMainErrorTelemetryOptions {
 const DEFAULT_MAX_QUEUED = 20;
 const MAX_BOOTSTRAP_REPORTS = 5;
 
-interface PendingReviewErrorReport {
-  readonly errorSource: string;
-  readonly report: ReviewErrorReport;
+interface PendingReviewTelemetryEvent {
+  readonly name: string;
+  readonly properties: Readonly<Record<string, string | number | boolean>>;
+  readonly error?: ReviewErrorReport;
 }
 
 /**
- * Reports Electron main-process errors through the embedded Review server.
+ * Reports Electron main-process telemetry through the embedded Review server.
  *
  * The upstream `ErrorTelemetry` already routes `uncaughtException` and
  * `unhandledRejection` into `onUnexpectedError`, so listening on the shared
@@ -51,7 +52,7 @@ export class ReviewMainErrorTelemetry {
   readonly appSessionId = generateUuid();
 
   private readonly limiter = new ReviewErrorReportLimiter();
-  private readonly queued: PendingReviewErrorReport[] = [];
+  private readonly queued: PendingReviewTelemetryEvent[] = [];
   private readonly unbind: () => void;
   private connection: ReviewDesktopConnection | undefined;
   private disposed = false;
@@ -70,12 +71,29 @@ export class ReviewMainErrorTelemetry {
 
   /** Report an error that Review packed itself, such as a startup crash note. */
   send(errorSource: string, report: ReviewErrorReport): void {
+    this.capture(
+      "client_error",
+      {
+        error_source: errorSource,
+        error_process: "main",
+      },
+      report,
+    );
+  }
+
+  /** Queue a named Review telemetry event for the embedded server. */
+  capture(
+    name: string,
+    properties: Readonly<Record<string, string | number | boolean>> = {},
+    error?: ReviewErrorReport,
+  ): void {
     if (this.disposed) return;
+    const pending = { name, properties, error };
     if (this.connection) {
-      this.post({ errorSource, report });
+      this.post(pending);
       return;
     }
-    this.queued.push({ errorSource, report });
+    this.queued.push(pending);
     // The connection never resolves when the server cannot start, so the cap is
     // what bounds this queue.
     if (this.queued.length > (this.options.maxQueued ?? DEFAULT_MAX_QUEUED)) {
@@ -123,7 +141,7 @@ export class ReviewMainErrorTelemetry {
     for (const pending of this.queued.splice(0)) this.post(pending);
   }
 
-  private post(pending: PendingReviewErrorReport): void {
+  private post(pending: PendingReviewTelemetryEvent): void {
     const connection = this.connection;
     if (!connection) return;
     // Read the setting at send time, not at construction: a user may turn
@@ -139,17 +157,14 @@ export class ReviewMainErrorTelemetry {
           "x-review-app-session-id": this.appSessionId,
         },
         body: JSON.stringify({
-          name: "client_error",
-          properties: {
-            error_source: pending.errorSource,
-            error_process: "main",
-          },
-          error: pending.report,
+          name: pending.name,
+          properties: pending.properties,
+          error: pending.error,
         }),
       }).catch(() => undefined);
     } catch (error) {
       this.options.logError?.(
-        `[Review Desktop] could not report a main-process error: ${error}`,
+        `[Review Desktop] could not report a main-process telemetry event: ${error}`,
       );
     }
   }

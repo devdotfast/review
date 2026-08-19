@@ -10,12 +10,18 @@ import { ILifecycleMainService } from "../../platform/lifecycle/electron-main/li
 import { ILogService } from "../../platform/log/common/log.js";
 import { IProductService } from "../../platform/product/common/productService.js";
 import { getResolvedShellEnv } from "../../platform/shell/node/shellEnv.js";
+import { IApplicationStorageMainService } from "../../platform/storage/electron-main/storageMainService.js";
 import { NullTelemetryService } from "../../platform/telemetry/common/telemetryUtils.js";
+import { IUpdateService } from "../../platform/update/common/update.js";
 import { UtilityProcess } from "../../platform/utilityProcess/electron-main/utilityProcess.js";
 import type { ReviewDesktopConnection } from "../common/reviewDesktopBootstrap.js";
 import { REVIEW_TELEMETRY_SETTING } from "../common/reviewConfigurationDefaults.js";
 import { ReviewMainErrorTelemetry } from "./reviewMainErrorTelemetry.js";
 import { ReviewServerSupervisor } from "./reviewServerSupervisor.js";
+import {
+  darwinShipItLogPath,
+  ReviewUpdateTelemetry,
+} from "./reviewUpdateTelemetry.js";
 
 /**
  * Binds the embedded Review server's lifetime to the application's. All of the
@@ -41,6 +47,9 @@ export class ReviewDesktopHost extends Disposable {
     @IEnvironmentMainService
     private readonly environmentMainService: IEnvironmentMainService,
     @IProductService private readonly productService: IProductService,
+    @IUpdateService private readonly updateService: IUpdateService,
+    @IApplicationStorageMainService
+    private readonly applicationStorageMainService: IApplicationStorageMainService,
   ) {
     super();
     let resolvedEnvironment: Promise<NodeJS.ProcessEnv> | undefined;
@@ -98,6 +107,24 @@ export class ReviewDesktopHost extends Disposable {
       logError: (message) => this.logService.error(message),
     });
     this._register(toDisposable(() => errorTelemetry.dispose()));
+    this._register(
+      new ReviewUpdateTelemetry({
+        updateService: this.updateService,
+        storageService: this.applicationStorageMainService,
+        telemetry: errorTelemetry,
+        isTelemetryEnabled: () =>
+          this.configurationService.getValue<boolean>(
+            REVIEW_TELEMETRY_SETTING,
+          ) !== false,
+        shipItLogPath: this.productService.darwinBundleIdentifier
+          ? darwinShipItLogPath(
+              this.environmentMainService.userHome.fsPath,
+              this.productService.darwinBundleIdentifier,
+            )
+          : undefined,
+        logError: (message) => this.logService.error(message),
+      }),
+    );
     process.once("SIGINT", this.onTerminationSignal);
     process.once("SIGTERM", this.onTerminationSignal);
     this.supervisor.start();

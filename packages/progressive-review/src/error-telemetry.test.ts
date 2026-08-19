@@ -279,4 +279,26 @@ describe("deriveErrorTelemetryProperties", () => {
       ].join("|"),
     });
   });
+
+  it("cleans a concise ShipIt failure before update telemetry is allowed", () => {
+    const sanitized = sanitizeUiTelemetryEvent({
+      name: "update_failed",
+      properties: mergeErrorTelemetryProperties(
+        { phase: "install", message_source: "shipit" },
+        {
+          name: "UpdateInstallError",
+          message:
+            'Error Domain=SQRLInstallerErrorDomain Code=-1 "Failed to copy bundle file:///Users/alice/Review.app to directory file:///Applications"',
+        },
+      ),
+    });
+    expect(sanitized?.properties).toEqual({
+      phase: "install",
+      message_source: "shipit",
+      error_name: "UpdateInstallError",
+      message: expect.stringContaining("<REDACTED:"),
+      message_hash: expect.stringMatching(/^[0-9a-f]{16}$/),
+    });
+    expect(JSON.stringify(sanitized)).not.toContain("alice");
+  });
 });

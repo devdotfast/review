@@ -123,9 +123,9 @@ const SERVER_DERIVED_PROPERTIES = [
 
 /**
  * Merge a client's event properties with the ones derived from its raw error.
- * This is the only supported way to build a client_error payload: it removes
- * any server-derived property the client tried to assert before adding the real
- * ones.
+ * This is the only supported way to build an error-bearing telemetry payload:
+ * it removes any server-derived property the client tried to assert before
+ * adding the real ones.
  */
 export function mergeErrorTelemetryProperties(
   clientProperties: Record<string, unknown>,

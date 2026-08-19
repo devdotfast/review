@@ -1,8 +1,22 @@
 import { parseReviewBugReportResponse } from "@dev.fast/review-protocol";
-import { type FormEvent, useEffect, useState } from "react";
+import {
+  type ClipboardEvent,
+  type DragEvent,
+  type FormEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
+import {
+  ScreenshotTooLargeError,
+  captureWindowScreenshot,
+  imageFileFromDataTransfer,
+  normalizeScreenshot,
+} from "./bug-report-screenshot";
 import { useReviewSession } from "./host/review-session";
 import { BugIcon } from "./icons";
+import { useTutorial } from "./tutorial-context";
 import { captureUiEvent, clientErrorName } from "./ui-telemetry";
 
 const MAX_DESCRIPTION_BYTES = 64 * 1024;
@@ -11,18 +25,19 @@ type Toast = { kind: "success" | "error"; text: string };
 
 export function BugReportControl() {
   const session = useReviewSession();
+  const tutorial = useTutorial();
   const [open, setOpen] = useState(false);
   const [description, setDescription] = useState("");
-  const [includeReview, setIncludeReview] = useState(true);
-  const [includeMap, setIncludeMap] = useState(true);
+  const [includeContext, setIncludeContext] = useState(true);
   const [includeDiff, setIncludeDiff] = useState(true);
+  const [screenshot, setScreenshot] = useState<string | null>(null);
+  const [dropActive, setDropActive] = useState(false);
+  const [capturing, setCapturing] = useState(false);
   const [sending, setSending] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
+  const capturePending = useRef(false);
   const descriptionBytes = new TextEncoder().encode(description).byteLength;
-  const canSend =
-    description.trim().length > 0 &&
-    descriptionBytes <= MAX_DESCRIPTION_BYTES &&
-    !sending;
+  const canSend = descriptionBytes <= MAX_DESCRIPTION_BYTES && !sending;
 
   useEffect(() => {
     if (!toast) return;
@@ -32,9 +47,10 @@ export function BugReportControl() {
 
   const reset = () => {
     setDescription("");
-    setIncludeReview(true);
-    setIncludeMap(true);
+    setIncludeContext(true);
     setIncludeDiff(true);
+    setScreenshot(null);
+    setDropActive(false);
     setSending(false);
   };
   const cancel = () => {
@@ -52,9 +68,17 @@ export function BugReportControl() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           description,
-          include_review: includeReview,
-          include_map: includeMap,
+          include_review: includeContext,
+          include_map: includeContext,
           include_diff: includeDiff,
+          ...(screenshot
+            ? {
+                screenshot: {
+                  mime: "image/jpeg",
+                  base64: screenshot.slice("data:image/jpeg;base64,".length),
+                },
+              }
+            : {}),
           app_session_id: session.appSessionId,
           app_version: session.config.appVersion,
         }),
@@ -96,6 +120,59 @@ export function BugReportControl() {
     }
   };
 
+  const attachScreenshot = async (image: Blob) => {
+    try {
+      const normalized = await normalizeScreenshot(image);
+      if (!normalized) throw new Error("Screenshot could not be decoded.");
+      setScreenshot(normalized);
+    } catch (error) {
+      setToast({
+        kind: "error",
+        text:
+          error instanceof ScreenshotTooLargeError
+            ? "The screenshot is too large. Use an image under 3 MiB."
+            : "That image could not be attached. Use a PNG, JPEG, or WebP image.",
+      });
+    }
+  };
+
+  const pasteScreenshot = (event: ClipboardEvent<HTMLElement>) => {
+    const image = imageFileFromDataTransfer(event.clipboardData);
+    if (!image) return;
+    event.preventDefault();
+    void attachScreenshot(image);
+  };
+
+  const dropScreenshot = (event: DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    setDropActive(false);
+    const image = imageFileFromDataTransfer(event.dataTransfer);
+    if (!image) {
+      setToast({
+        kind: "error",
+        text: "That image could not be attached. Use a PNG, JPEG, or WebP image.",
+      });
+      return;
+    }
+    void attachScreenshot(image);
+  };
+
+  const openDialog = async () => {
+    if (tutorial || capturePending.current) return;
+    capturePending.current = true;
+    setCapturing(true);
+    captureUiEvent(session, "bug_report_dialog_opened");
+    let captured: string | null = null;
+    try {
+      captured = await captureWindowScreenshot(session.bridge);
+    } finally {
+      setScreenshot(captured);
+      setOpen(true);
+      setCapturing(false);
+      capturePending.current = false;
+    }
+  };
+
   return (
     <>
       <button
@@ -103,29 +180,43 @@ export function BugReportControl() {
         className="topbar-report-bug-button"
         aria-label="Report a bug"
         title="Report a bug"
-        onClick={() => {
-          captureUiEvent(session, "bug_report_dialog_opened");
-          setOpen(true);
-        }}
+        disabled={tutorial !== null || capturing}
+        onClick={() => void openDialog()}
       >
         <BugIcon />
       </button>
       {open && (
         <div className="bug-report-backdrop" onMouseDown={cancel}>
           <section
-            className="bug-report-dialog"
+            className={
+              dropActive
+                ? "bug-report-dialog bug-report-dialog--drop-target"
+                : "bug-report-dialog"
+            }
             role="dialog"
             aria-modal="true"
             aria-labelledby="bug-report-title"
             onMouseDown={(event) => event.stopPropagation()}
+            onPaste={pasteScreenshot}
+            onDragOver={(event) => {
+              event.preventDefault();
+              setDropActive(true);
+            }}
+            onDragLeave={(event) => {
+              const next = event.relatedTarget;
+              if (next instanceof Node && event.currentTarget.contains(next)) {
+                return;
+              }
+              setDropActive(false);
+            }}
+            onDrop={dropScreenshot}
           >
             <form onSubmit={submit}>
               <h2 id="bug-report-title">Report a bug</h2>
               <label className="bug-report-description">
-                <span>What happened?</span>
+                <span>What happened? (optional)</span>
                 <textarea
                   autoFocus
-                  required
                   rows={7}
                   value={description}
                   onChange={(event) => setDescription(event.target.value)}
@@ -146,18 +237,12 @@ export function BugReportControl() {
                 <label>
                   <input
                     type="checkbox"
-                    checked={includeReview}
-                    onChange={(event) => setIncludeReview(event.target.checked)}
+                    checked={includeContext}
+                    onChange={(event) =>
+                      setIncludeContext(event.target.checked)
+                    }
                   />
-                  Current review source
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={includeMap}
-                    onChange={(event) => setIncludeMap(event.target.checked)}
-                  />
-                  Head software map source
+                  Review
                 </label>
                 <label>
                   <input
@@ -167,11 +252,32 @@ export function BugReportControl() {
                   />
                   Changed-file diffs used by CodePeeks
                 </label>
+                <div className="bug-report-screenshot">
+                  {screenshot ? (
+                    <>
+                      <img src={screenshot} alt="Screenshot preview" />
+                      <button
+                        type="button"
+                        className="bug-report-screenshot-remove"
+                        aria-label="Remove screenshot"
+                        title="Remove screenshot"
+                        onClick={() => setScreenshot(null)}
+                      >
+                        ×
+                      </button>
+                    </>
+                  ) : (
+                    <span className="bug-report-screenshot-hint">
+                      Paste or drop an image to attach a screenshot.
+                    </span>
+                  )}
+                </div>
               </fieldset>
               <p className="bug-report-privacy">
                 Reports are sent securely to /dev/fast. Only authorized
                 /dev/fast team members can access them. Reports are deleted
-                after 90 days.
+                after 90 days. The screenshot above is included unless you
+                remove it.
               </p>
               <div className="bug-report-actions">
                 <button type="button" onClick={cancel} disabled={sending}>

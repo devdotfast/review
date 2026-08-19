@@ -5,10 +5,16 @@ const requiredString = z
   .refine((value) => value.trim().length > 0, "must be a string");
 
 export const ReviewBugReportRequestSchema = z.strictObject({
-  description: requiredString,
+  description: z.string(),
   include_review: z.boolean(),
   include_map: z.boolean(),
   include_diff: z.boolean(),
+  screenshot: z
+    .strictObject({
+      mime: z.literal("image/jpeg"),
+      base64: z.string(),
+    })
+    .optional(),
   app_session_id: requiredString
     .min(16)
     .max(128)
@@ -25,6 +31,7 @@ export const ReviewBugReportMetaSchema = z.strictObject({
   has_review: z.boolean(),
   has_map: z.boolean(),
   has_diff: z.boolean(),
+  has_screenshot: z.boolean(),
   payload_bytes: z
     .number()
     .int()
@@ -47,6 +54,7 @@ export const ReviewBugReportMetaSchema = z.strictObject({
   ]),
   truncated_diff: z.boolean(),
   truncated_map: z.boolean(),
+  truncated_screenshot: z.boolean(),
 });
 export type ReviewBugReportMeta = z.infer<typeof ReviewBugReportMetaSchema>;
 

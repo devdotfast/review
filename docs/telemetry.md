@@ -364,10 +364,13 @@ frame a second time. Both steps run on your machine, before anything is sent.
 ## User-initiated bug reports
 
 The **Report bug** dialog sends data only after the user selects **Send**. The
-dialog requires a description. It has separate consent controls for the
-current review source, head software map source, and changed-file diffs. All
-three controls are on by default. A selected attachment can be unavailable.
-The report still sends the other available data.
+description is optional. It has one **Review** consent control for both the
+current review source and head software map source, plus a separate control for
+changed-file diffs. Both controls are on by default. Review also captures a
+screenshot before the dialog opens and attaches it by default. The dialog shows
+a removable preview and accepts a replacement image by paste or drag. A
+selected attachment can be unavailable. The report still sends the other
+available data.
 
 A review does not always have a software map. The report then omits the map and
 records no error, because an absent map is a normal state.
@@ -377,7 +380,9 @@ The report payload contains these fields:
 | Field                              | Value                                                                               |
 | ---------------------------------- | ----------------------------------------------------------------------------------- |
 | `schema_version`                   | Payload schema version `2`                                                          |
-| `description`                      | The user-entered description, limited to 64 KiB of UTF-8 data                       |
+| `description`                      | Optional user-entered description, limited to 64 KiB of UTF-8 data                  |
+| `screenshot.mime`                  | `image/jpeg` when a screenshot is attached                                          |
+| `screenshot.base64`                | JPEG screenshot data, limited to 3 MiB decoded                                      |
 | `review`                           | Current selected review source, when the user consents and it is available          |
 | `review["<file name>"]`            | One review source file as text: the current document and its TypeScript modules     |
 | `map`                              | Canonical head software map note source, when the user consents and it is available |
@@ -417,9 +422,10 @@ operators can read this bucket. An R2 lifecycle rule deletes objects under
 
 The Worker sends a `review_bug_report` PostHog event after the R2
 write. The event contains the report ID, UTC report date, description byte
-length, attachment presence flags, compressed payload size, app version,
-platform, and map or diff truncation flags. It does not contain the
-description or attachments.
+length, attachment presence flags (including `has_screenshot`), compressed
+payload size, app version, platform, and map, diff, or screenshot truncation
+flags (including `truncated_screenshot`). It does not contain the description
+or attachments.
 
 Cloudflare uses `CF-Connecting-IP` only as the rate-limit key. The Worker does
 not store that value in R2. The Worker does not send it to PostHog as report

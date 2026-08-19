@@ -1908,6 +1908,10 @@ export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
   z.strictObject({ name: z.literal("focusCanvas"), args: z.strictObject({}) }),
   z.strictObject({ name: z.literal("focusWindow"), args: z.strictObject({}) }),
   z.strictObject({
+    name: z.literal("captureScreenshot"),
+    args: z.strictObject({}),
+  }),
+  z.strictObject({
     name: z.literal("openReviewRevision"),
     args: z.strictObject({
       revision: z

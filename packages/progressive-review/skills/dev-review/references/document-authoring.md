@@ -10,13 +10,13 @@ Assume raw prose will confuse the reader. Spend substantial reasoning effort dec
 
 Remember that the reader can ONLY see the 'user' prompts _before_ coding started and the document you write to explain what changed. This means jargon in the middle - references to specific parts of code, especially any and all abstractions, changes, and code referenced _during_ the editing process - is confusing and not helpful. More words do not help. Progressive disclosure of complexity is key.
 
-Open the document with a landing section. The landing section merges the problem statement and the summary in one paragraph of two to four sentences:
+Open the document with a landing section. The landing section should be brief, and include both of the following, on separate lines:
 
-- State the context, then the gap, then the change, in that order. For a bugfix, the gap is what was wrong before. For a new feature, the gap is what was missing and why it matters.
-- Answer why completely. Answer what briefly. The detail belongs in the later sections.
+**Problem**: [What problem does this change solve? (What problem(s) is this change not trying to solve?) For a bugfix, this can be what was wrong before; for a new feature, this can be what this adds.]
+**Summary**: [A short description of the change, two to three sentences at most.]
+
+- Answer the 'why' behind the change completely (in the developer's own words, if we have agent traces,) capturing the intent behind the pr. Answer the 'what' briefly. The detail belongs in the later sections.
 - Define each domain term at its first mention.
-
-Add implementation detail only when it helps the reader check an important claim.
 
 After the landing section, use fewer than five further sections when practical. Choose the sections that fit this change. Good section choices are:
 
@@ -28,7 +28,9 @@ After the landing section, use fewer than five further sections when practical. 
 - testing evidence
 - decision log
 
-In the decision log, preserve important user requirements in the user's language. Add only implementation decisions that affect the result.
+Add implementation detail only when it helps the reader check an important claim.
+
+In the decision log, preserve important user requirements in the user's language. Add significant implementation decisions that affect the result.
 
 When the change has synced agent sessions, build the landing, requirements, design, and decision-log sections from trace quotes. Read [Trace quoting](trace-quoting.md) for the workflow and rules. Without sessions, the same structure holds in authored prose.
 

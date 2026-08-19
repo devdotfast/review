@@ -19,8 +19,12 @@ let client: AsyncDisposable | undefined;
 // this method is called when vs code is activated
 export async function activate(context: ExtensionContext) {
 	const clientPackageJSON = await getPackageInfo(context);
-	const telemetry = new TelemetryReporter(clientPackageJSON.aiKey);
-	context.subscriptions.push(telemetry);
+	const telemetry = clientPackageJSON.aiKey
+		? new TelemetryReporter(clientPackageJSON.aiKey)
+		: undefined;
+	if (telemetry) {
+		context.subscriptions.push(telemetry);
+	}
 
 	const logOutputChannel = window.createOutputChannel(languageServerDescription, { log: true });
 	context.subscriptions.push(logOutputChannel);
@@ -67,7 +71,7 @@ export async function deactivate(): Promise<any> {
 interface IPackageInfo {
 	name: string;
 	version: string;
-	aiKey: string;
+	aiKey?: string;
 	main: string;
 }
 

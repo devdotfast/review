@@ -18,7 +18,12 @@ let client: AsyncDisposable | undefined;
 export async function activate(context: ExtensionContext) {
 
 	const clientPackageJSON = getPackageInfo(context);
-	telemetry = new TelemetryReporter(clientPackageJSON.aiKey);
+	telemetry = clientPackageJSON.aiKey
+		? new TelemetryReporter(clientPackageJSON.aiKey)
+		: undefined;
+	if (telemetry) {
+		context.subscriptions.push(telemetry);
+	}
 
 	const serverMain = `./server/${clientPackageJSON.main.indexOf('/dist/') !== -1 ? 'dist' : 'out'}/node/htmlServerMain`;
 	const serverModule = context.asAbsolutePath(serverMain);
@@ -61,7 +66,7 @@ export async function deactivate(): Promise<void> {
 interface IPackageInfo {
 	name: string;
 	version: string;
-	aiKey: string;
+	aiKey?: string;
 	main: string;
 }
 

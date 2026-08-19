@@ -89,14 +89,14 @@ backed by the external `~/.dev` software map for this repository.
   <DbUseCase id="publish-review" label="Publish review">
     <DbWrite
       from={actors.reviewRuntime}
-      to={stores.appDb.tables.reviews.fields.status}
+      to={stores.appDb.tables.reviews.status}
       label="write submitted status"
       anchor={anchors.publishReview}
     />
   </DbUseCase>
   <DbUseCase id="inspect-review" label="Inspect review">
     <DbRead
-      from={stores.appDb.tables.reviews.fields.status}
+      from={stores.appDb.tables.reviews.status}
       to={actors.reviewUi}
       label="read current status"
       anchor={anchors.inspectReview}

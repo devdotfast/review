@@ -169,10 +169,10 @@ Persisted-state structure and operations. Add this model only when a storage dia
 
 Direction is part of the schema: a read flows store → actor, a write flows actor → store. A swapped pair fails validation.
 
-Use a collection reference for an operation on the full collection. Use `.fields.<name>` for a specific field:
+Use a collection reference for an operation on the full collection. Select a specific field directly by name:
 
 ```mdx
-<DbRead from={stores.reviewDb.tables.threads.fields.body} to={actors.agent}
+<DbRead from={stores.reviewDb.tables.threads.body} to={actors.agent}
   label="load thread body" anchor={anchors.loadThreads} />
 ```
 

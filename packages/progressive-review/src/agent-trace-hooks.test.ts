@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -39,6 +39,9 @@ describe("agent-trace-hooks", () => {
     expect(content.hooks.SessionStart[0].hooks[0].command).toBe(
       "review trace hook SessionStart",
     );
+    expect(content.hooks.UserPromptSubmit[0].hooks[0].command).toBe(
+      "review trace hook UserPromptSubmit",
+    );
     expect(content.hooks.SessionEnd[0].hooks[0].command).toBe(
       "review trace hook SessionEnd",
     );
@@ -72,11 +75,52 @@ describe("agent-trace-hooks", () => {
     const content = await readFile(first.path, "utf8");
     expect(content).toContain("[[hooks.SessionStart]]");
     expect(content).toContain("review trace hook SessionStart");
+    expect(content).toContain("[[hooks.UserPromptSubmit]]");
+    expect(content).toContain("review trace hook UserPromptSubmit");
     expect(content).toContain("[[hooks.SessionEnd]]");
     expect(content).toContain("review trace hook SessionEnd");
 
     const second = await installCodexTraceHook(homeDir);
     expect(second.modified).toBe(false);
+  });
+
+  it("adds the Codex heartbeat to an existing lifecycle-only setup", async () => {
+    const homeDir = await makeTempHome();
+    const codexDir = path.join(homeDir, ".codex");
+    const configPath = path.join(codexDir, "config.toml");
+    await mkdir(codexDir, { recursive: true });
+    await writeFile(
+      configPath,
+      `model = "gpt-5"
+
+[[hooks.SessionStart]]
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = "review trace hook SessionStart"
+statusMessage = "Recording agent session id for trace stamping"
+
+[hooks.state]
+keep = "yes"
+
+[[hooks.SessionEnd]]
+[[hooks.SessionEnd.hooks]]
+type = "command"
+command = "review trace hook SessionEnd"
+`,
+    );
+
+    expect((await installCodexTraceHook(homeDir)).modified).toBe(true);
+    const installed = await readFile(configPath, "utf8");
+    expect(installed).toContain("review trace hook UserPromptSubmit");
+    expect(installed.match(/review trace hook SessionStart/g)).toHaveLength(1);
+    expect(installed.match(/review trace hook SessionEnd/g)).toHaveLength(1);
+    expect((await installCodexTraceHook(homeDir)).modified).toBe(false);
+
+    expect(await removeAgentTraceHook("codex", homeDir)).toBe(true);
+    const removed = await readFile(configPath, "utf8");
+    expect(removed).toContain('model = "gpt-5"');
+    expect(removed).toContain('keep = "yes"');
+    expect(removed).not.toContain("review trace hook");
   });
 
   it("installs Pi trace extension in ~/.pi/agent/extensions/review-trace.ts idempotently", async () => {
@@ -88,6 +132,8 @@ describe("agent-trace-hooks", () => {
 
     const content = await readFile(first.path, "utf8");
     expect(content).toContain("session_start");
+    expect(content).toContain('pi.on("turn_start"');
+    expect(content).toContain('runTraceHook("TurnStart"');
     expect(content).toContain("session_shutdown");
     expect(content).toContain("review");
 

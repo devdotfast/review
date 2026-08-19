@@ -4,10 +4,14 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as electron from 'electron';
+import { statSync } from 'node:fs';
+import { join } from 'node:path';
 import { CancellationToken } from '../../../base/common/cancellation.js';
 import { memoize } from '../../../base/common/decorators.js';
+import { getErrorMessage } from '../../../base/common/errors.js';
 import { Event } from '../../../base/common/event.js';
 import { hash } from '../../../base/common/hash.js';
+import { generateUuid } from '../../../base/common/uuid.js';
 import { IConfigurationService } from '../../configuration/common/configuration.js';
 import { IEnvironmentMainService } from '../../environment/electron-main/environmentMainService.js';
 import { ILifecycleMainService, IRelaunchHandler, IRelaunchOptions } from '../../lifecycle/electron-main/lifecycleMainService.js';
@@ -21,6 +25,7 @@ import {
 	blocksAutomaticDarwinUpdate,
 	DARWIN_FAILED_UPDATE_STORAGE_KEY,
 	DARWIN_UPDATE_ATTEMPT_STORAGE_KEY,
+	DARWIN_UPDATE_OUTCOME_STORAGE_KEY,
 	parseDarwinFailedUpdate,
 	resolveDarwinUpdateAttempt,
 	type IDarwinFailedUpdate,
@@ -31,6 +36,7 @@ import { IMeteredConnectionService } from '../../meteredConnection/common/metere
 import { AbstractUpdateService, createUpdateURL, getUpdateRequestHeaders, IUpdateURLOptions, UpdateErrorClassification } from './abstractUpdateService.js';
 
 export class DarwinUpdateService extends AbstractUpdateService implements IRelaunchHandler {
+	private feedUrlError: string | undefined;
 
 	@memoize private get onRawError(): Event<string> { return Event.fromNodeEventEmitter(electron.autoUpdater, 'error', (_, message) => message); }
 	@memoize private get onRawCheckingForUpdate(): Event<void> { return Event.fromNodeEventEmitter<void>(electron.autoUpdater, 'checking-for-update'); }
@@ -102,12 +108,11 @@ export class DarwinUpdateService extends AbstractUpdateService implements IRelau
 			return;
 		}
 
-		// only show message when explicitly checking for updates
-		const message = (this.state.type === StateType.CheckingForUpdates && this.state.explicit) ? err : undefined;
-		this.setState(State.Idle(UpdateType.Archive, message));
+		this.setState(State.Idle(UpdateType.Archive, err, undefined, 'electron'));
 	}
 
 	protected buildUpdateFeedUrl(quality: string, commit: string, options?: IUpdateURLOptions): string | undefined {
+		this.feedUrlError = undefined;
 		const assetID = this.productService.darwinUniversalAssetId ?? (process.arch === 'x64' ? 'darwin' : 'darwin-arm64');
 		const url = createUpdateURL(this.productService.updateUrl!, assetID, quality, commit, options);
 		const headers = getUpdateRequestHeaders(this.productService.version);
@@ -117,6 +122,7 @@ export class DarwinUpdateService extends AbstractUpdateService implements IRelau
 		} catch (e) {
 			// application is very likely not signed
 			this.logService.error('Failed to set update feed URL', e);
+			this.feedUrlError = getErrorMessage(e);
 			return undefined;
 		}
 		return url;
@@ -134,7 +140,7 @@ export class DarwinUpdateService extends AbstractUpdateService implements IRelau
 		const url = this.buildUpdateFeedUrl(this.quality, pendingCommit ?? this.productService.commit!, { background, internalOrg });
 
 		if (!url) {
-			this.setState(State.Idle(UpdateType.Archive));
+			this.setState(State.Idle(UpdateType.Archive, this.takeFeedUrlError(), undefined, 'electron'));
 			return;
 		}
 
@@ -200,7 +206,7 @@ export class DarwinUpdateService extends AbstractUpdateService implements IRelau
 			}
 		} catch (err) {
 			this.logService.error('update#checkForUpdateNoDownload - failed to check for update', err);
-			this.setState(State.Idle(UpdateType.Archive));
+			this.setState(State.Idle(UpdateType.Archive, getErrorMessage(err), undefined, 'request'));
 		}
 	}
 
@@ -242,8 +248,12 @@ export class DarwinUpdateService extends AbstractUpdateService implements IRelau
 		// The dev.fast feed answers 204/200 based on the caller's installed
 		// commit, so this re-check must send the installed commit — sending the
 		// target commit (state.update.version) would read as "up to date".
-		this.buildUpdateFeedUrl(this.quality!, this.productService.commit!, { internalOrg: this.getInternalOrg() });
 		this.setState(State.CheckingForUpdates(true));
+		const url = this.buildUpdateFeedUrl(this.quality!, this.productService.commit!, { internalOrg: this.getInternalOrg() });
+		if (!url) {
+			this.setState(State.Idle(UpdateType.Archive, this.takeFeedUrlError(), undefined, 'electron'));
+			return;
+		}
 		electron.autoUpdater.checkForUpdates();
 	}
 
@@ -261,6 +271,7 @@ export class DarwinUpdateService extends AbstractUpdateService implements IRelau
 
 		this.applicationStorageMainService.remove(DARWIN_UPDATE_ATTEMPT_STORAGE_KEY, StorageScope.APPLICATION);
 		if (outcome.kind === 'failed') {
+			this.storeUpdateOutcome('failed', outcome.failure, outcome.failure.failedAt);
 			this.applicationStorageMainService.store(
 				DARWIN_FAILED_UPDATE_STORAGE_KEY,
 				JSON.stringify(outcome.failure),
@@ -269,6 +280,7 @@ export class DarwinUpdateService extends AbstractUpdateService implements IRelau
 			);
 			this.logService.error(`update#recovery - update ${outcome.failure.targetCommit} did not apply; automatic retries are disabled for this release`);
 		} else if (outcome.kind === 'applied') {
+			this.storeUpdateOutcome('applied', outcome.attempt, Date.now());
 			const failedUpdate = this.getFailedUpdate();
 			if (failedUpdate?.targetCommit === outcome.attempt.targetCommit) {
 				this.clearFailedUpdate();
@@ -296,6 +308,8 @@ export class DarwinUpdateService extends AbstractUpdateService implements IRelau
 			targetCommit: update.version,
 			productVersion: update.productVersion,
 			attemptedAt: Date.now(),
+			attemptId: generateUuid(),
+			shipItLogOffset: this.getShipItLogOffset(),
 		};
 		this.applicationStorageMainService.store(
 			DARWIN_UPDATE_ATTEMPT_STORAGE_KEY,
@@ -316,5 +330,32 @@ export class DarwinUpdateService extends AbstractUpdateService implements IRelau
 
 	private clearFailedUpdate(): void {
 		this.applicationStorageMainService.remove(DARWIN_FAILED_UPDATE_STORAGE_KEY, StorageScope.APPLICATION);
+	}
+
+	private storeUpdateOutcome(kind: 'applied' | 'failed', attempt: IDarwinUpdateAttempt, resolvedAt: number): void {
+		this.applicationStorageMainService.store(
+			DARWIN_UPDATE_OUTCOME_STORAGE_KEY,
+			JSON.stringify({ kind, attempt, resolvedAt }),
+			StorageScope.APPLICATION,
+			StorageTarget.MACHINE,
+		);
+	}
+
+	private getShipItLogOffset(): number | undefined {
+		const bundleIdentifier = this.productService.darwinBundleIdentifier;
+		if (!bundleIdentifier) {
+			return undefined;
+		}
+		try {
+			return statSync(join(this.environmentMainService.userHome.fsPath, 'Library', 'Caches', `${bundleIdentifier}.ShipIt`, 'ShipIt_stderr.log')).size;
+		} catch (error) {
+			return (error as NodeJS.ErrnoException).code === 'ENOENT' ? 0 : undefined;
+		}
+	}
+
+	private takeFeedUrlError(): string | undefined {
+		const error = this.feedUrlError;
+		this.feedUrlError = undefined;
+		return error;
 	}
 }

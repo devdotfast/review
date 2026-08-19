@@ -1,4 +1,4 @@
-// Contract for UI-originated telemetry events.
+// Contract for app-originated telemetry events.
 //
 // Privacy invariant: telemetry must never carry user content — no review
 // prose, code, symbol names, file paths, locators, quotes, or node labels. The
@@ -27,6 +27,8 @@ export type UiTelemetryPropertySpec =
   | "number"
   | "boolean"
   | "opaque_id"
+  // A bounded semantic release version, never a commit or authored value.
+  | "release_version"
   // A short identifier-like string (e.g. a JS error class name). The only
   // free-form value allowed anywhere, still length- and charset-capped.
   | "enum_free_short"
@@ -131,6 +133,13 @@ export const CLIENT_ERROR_SOURCE = [
   "bootstrap",
 ] as const;
 export const ERROR_PROCESS = ["main", "renderer", "canvas", "server"] as const;
+export const UPDATE_FAILURE_PHASE = ["check", "download", "install"] as const;
+export const UPDATE_MESSAGE_SOURCE = [
+  "electron",
+  "request",
+  "shipit",
+  "fallback",
+] as const;
 
 /**
  * Directories that exist only in the shipped Review bundle. A stack frame is
@@ -306,6 +315,34 @@ export const UI_TELEMETRY_EVENTS = {
       frames: "bundle_frames",
     },
   },
+  update_started: {
+    event: "review_update_started",
+    properties: {
+      update_attempt_id: "opaque_id",
+      target_version: "release_version",
+    },
+  },
+  update_completed: {
+    event: "review_update_completed",
+    properties: {
+      update_attempt_id: "opaque_id",
+      target_version: "release_version",
+      duration_ms: "number",
+    },
+  },
+  update_failed: {
+    event: "review_update_failed",
+    properties: {
+      phase: UPDATE_FAILURE_PHASE,
+      message_source: UPDATE_MESSAGE_SOURCE,
+      update_attempt_id: "opaque_id",
+      target_version: "release_version",
+      duration_ms: "number",
+      error_name: "enum_free_short",
+      message: "cleaned_message",
+      message_hash: "hash_hex",
+    },
+  },
   lsp_used: {
     event: "review_lsp_used",
     properties: {
@@ -394,6 +431,8 @@ export type UiTelemetryEventName = keyof typeof UI_TELEMETRY_EVENTS;
 const MAX_FREE_STRING_LENGTH = 40;
 const FREE_STRING_PATTERN = /^[A-Za-z0-9_$-]+$/;
 const OPAQUE_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
+const RELEASE_VERSION_PATTERN =
+  /^\d{1,10}\.\d{1,10}\.\d{1,10}(?:[-+][0-9A-Za-z.-]{1,40})?$/;
 const COMMON_PROPERTIES = {
   app_session_id: "opaque_id",
 } as const satisfies Record<string, UiTelemetryPropertySpec>;
@@ -441,6 +480,12 @@ export function sanitizeUiTelemetryEvent(input: {
     }
     if (propSpec === "opaque_id") {
       if (isValidReviewAppSessionId(value)) {
+        properties[key] = value;
+      }
+      continue;
+    }
+    if (propSpec === "release_version") {
+      if (typeof value === "string" && RELEASE_VERSION_PATTERN.test(value)) {
         properties[key] = value;
       }
       continue;

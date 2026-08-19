@@ -10,6 +10,8 @@ import {
 	blocksAutomaticDarwinUpdate,
 	darwinFailedUpdateNoticeId,
 	parseDarwinFailedUpdate,
+	parseDarwinUpdateAttempt,
+	parseDarwinUpdateOutcomeRecord,
 	resolveDarwinUpdateAttempt,
 	shouldAnnounceDarwinFailedUpdate,
 } from '../../platform/update/common/darwinUpdateRecovery.js';
@@ -19,6 +21,8 @@ const attempt = {
 	targetCommit: 'target',
 	productVersion: '1.2.3',
 	attemptedAt: 100,
+	attemptId: '12345678-1234-1234-1234-123456789abc',
+	shipItLogOffset: 2048,
 };
 
 test('records an update that did not replace its source build', () => {
@@ -66,4 +70,24 @@ test('ignores invalid stored update data', () => {
 		{ kind: 'none' },
 	);
 	assert.equal(parseDarwinFailedUpdate(JSON.stringify({ ...attempt, failedAt: 'now' })), undefined);
+	assert.equal(parseDarwinUpdateOutcomeRecord(JSON.stringify({ kind: 'unknown', attempt, resolvedAt: 200 })), undefined);
+});
+
+test('keeps new attempt metadata while accepting legacy attempts', () => {
+	assert.deepEqual(parseDarwinUpdateAttempt(JSON.stringify(attempt)), attempt);
+	assert.deepEqual(
+		parseDarwinUpdateAttempt(JSON.stringify({
+			sourceCommit: 'source',
+			targetCommit: 'target',
+			attemptedAt: 100,
+		})),
+		{ sourceCommit: 'source', targetCommit: 'target', attemptedAt: 100, productVersion: undefined, attemptId: undefined, shipItLogOffset: undefined },
+	);
+});
+
+test('parses a persisted terminal outcome', () => {
+	assert.deepEqual(
+		parseDarwinUpdateOutcomeRecord(JSON.stringify({ kind: 'failed', attempt, resolvedAt: 300 })),
+		{ kind: 'failed', attempt, resolvedAt: 300 },
+	);
 });

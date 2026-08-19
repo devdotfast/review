@@ -153,6 +153,33 @@ test("authored CodePeeks use one unified native comment editor", () => {
   assert.doesNotMatch(resourceSource, /instance:\s*generateUuid/);
 });
 
+test("light-theme comments use light surfaces and preserve the diff tint", () => {
+  assert.match(
+    reviewStyles,
+    /\.monaco-workbench\.review-workbench\.vs\s*{[^}]*--review-comment-range:\s*rgb\(43 79 224 \/ 12%\);[^}]*--review-comment-range-active:\s*rgb\(43 79 224 \/ 18%\);/s,
+  );
+  assert.match(
+    reviewStyles,
+    /--review-comment-range-line-number:\s*var\([\s\S]*?--vscode-editorLineNumber-activeForeground/,
+  );
+  assert.match(
+    reviewStyles,
+    /color:\s*var\(--review-comment-range-line-number\)\s*!important;/,
+  );
+  assert.match(
+    reviewStyles,
+    /\.monaco-workbench\.review-workbench\.vs\s*{[^}]*--review-comment-surface:\s*var\(--vscode-editorWidget-background, #ffffff\);[^}]*--review-comment-footer:[^}]*--review-comment-shadow:\s*rgb\(0 0 0 \/ 12%\);/s,
+  );
+  assert.match(
+    reviewStyles,
+    /color:\s*var\(--review-comment-chip-ink\);/,
+  );
+  assert.match(
+    reviewStyles,
+    /box-shadow:\s*0 10px 28px var\(--review-comment-shadow\);/,
+  );
+});
+
 test("long authored ranges initially reveal their first line", () => {
   assert.match(
     widgetImplementationSource,

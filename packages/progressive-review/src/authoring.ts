@@ -311,7 +311,7 @@ export const dbReadPropsSchema = z.strictObject({
   ...dbOperationCommonShape,
 });
 export type DbReadProps = Omit<z.input<typeof dbReadPropsSchema>, "from"> & {
-  from: TargetRef | AuthoredTargetRef;
+  from: AuthoredTargetRef;
 };
 
 export const dbWritePropsSchema = z.strictObject({
@@ -320,7 +320,7 @@ export const dbWritePropsSchema = z.strictObject({
   ...dbOperationCommonShape,
 });
 export type DbWriteProps = Omit<z.input<typeof dbWritePropsSchema>, "to"> & {
-  to: TargetRef | AuthoredTargetRef;
+  to: AuthoredTargetRef;
 };
 
 export const dbOperationPropsSchema = z.union([

@@ -27,11 +27,7 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 
 const APP_DIR = path.resolve(import.meta.dirname, "..");
-const DEFAULT_APP = path.join(
-  APP_DIR,
-  "VSCode-darwin-arm64",
-  "dev.fast Review.app",
-);
+const DEFAULT_APP = path.join(APP_DIR, "VSCode-darwin-arm64", "Review.app");
 const POLL_INTERVAL_MS = 500;
 const SERVER_READY_PATTERN = /\[Review Desktop\] server ready at https?:\/\//;
 

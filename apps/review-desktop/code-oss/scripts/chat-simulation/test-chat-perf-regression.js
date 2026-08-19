@@ -219,7 +219,7 @@ function buildProductionBuild() {
 	/** @type {string} */
 	let electronPath;
 	if (platform === 'darwin') {
-		electronPath = path.join(destDir, `${product.nameLong}.app`, 'Contents', 'MacOS', product.nameShort);
+		electronPath = path.join(destDir, `${product.nameShort}.app`, 'Contents', 'MacOS', product.nameShort);
 	} else if (platform === 'linux') {
 		electronPath = path.join(destDir, product.applicationName);
 	} else {
@@ -241,7 +241,7 @@ function buildProductionBuild() {
 		/** @type {string} */
 		let appDir;
 		if (platform === 'darwin') {
-			appDir = path.join(destDir, `${product.nameLong}.app`, 'Contents', 'Resources', 'app');
+			appDir = path.join(destDir, `${product.nameShort}.app`, 'Contents', 'Resources', 'app');
 		} else {
 			appDir = path.join(destDir, 'resources', 'app');
 		}

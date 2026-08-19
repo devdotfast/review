@@ -104,7 +104,7 @@ function main() {
   const artifactDir = path.resolve(
     values["artifact-dir"] ?? path.join(APP_DIR, "dist"),
   );
-  const app = path.join(APP_DIR, "VSCode-darwin-arm64", "dev.fast Review.app");
+  const app = path.join(APP_DIR, "VSCode-darwin-arm64", "Review.app");
   const zip = path.join(artifactDir, `Review-darwin-arm64-${version}.zip`);
   const dmg = path.join(artifactDir, `Review-darwin-arm64-${version}.dmg`);
 

@@ -97,7 +97,7 @@ packaging script but no distribution. Signed builds auto-update from
 SKIP_NOTARIZE=1 pnpm --filter @dev-fast/review-desktop app:package:macos
 ```
 
-builds an unsigned `VSCode-darwin-arm64/dev.fast Review.app` and skips
+builds an unsigned `VSCode-darwin-arm64/Review.app` and skips
 signing, notarization, and artifact creation. A full run needs the signing
 environment and produces `dist/Review-darwin-arm64-<version>.zip` (the
 Squirrel update payload) and the matching `.dmg`, both notarized and stapled:

@@ -94,6 +94,7 @@ for artifact in \
   "$PACKAGED_APP/Contents/Resources/app/review-runtime/dist/cli.js" \
   "$PACKAGED_APP/Contents/Resources/app/review-runtime/skills/dev-review/SKILL.md" \
   "$PACKAGED_APP/Contents/Resources/app/review-runtime/skills/dev-review-map/SKILL.md" \
+  "$PACKAGED_APP/Contents/Resources/app/review-runtime/skills/trace-archaeology/SKILL.md" \
   "$PACKAGED_APP/Contents/Resources/app/review-runtime/tutorial/review.mdx" \
   "$PACKAGED_APP/Contents/Resources/app/review-runtime/tutorial/data.ts" \
   "$PACKAGED_APP/Contents/Resources/app/review-runtime/tutorial/software-map.ts" \

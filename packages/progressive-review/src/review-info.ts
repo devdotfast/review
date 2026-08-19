@@ -4,6 +4,7 @@ import type { StoredReview } from "./review-home";
 export interface RunReviewInfoInput {
   cwd: string;
   all?: boolean;
+  reviewUuid?: string;
 }
 
 export interface ReviewInfoEvent {
@@ -14,6 +15,7 @@ export interface ReviewInfoEvent {
     dir: string;
     change: string | null;
     inSync: boolean;
+    matchesCheckout: boolean;
     unresolvedComments: number;
     status: StoredReview["review"]["status"];
     title: string;

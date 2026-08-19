@@ -3,6 +3,7 @@ import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 
 import { runProgressiveReviewCli } from "./cli-runner";
+import { runInstall as runInstallActual } from "./install";
 import { runReviewMigration as runReviewMigrationActual } from "./migrate";
 import type { ProgressiveReviewTelemetry } from "./progressive-review-telemetry";
 import { runReviewApp as runReviewAppActual } from "./review-app";
@@ -22,6 +23,60 @@ import {
 } from "./threads-cli";
 
 describe("Review CLI", () => {
+  it("routes trace configuration through the shared installer", async () => {
+    const runInstall = vi.fn<typeof runInstallActual>(async () => 0);
+
+    await expect(
+      runProgressiveReviewCli({
+        argv: [
+          "install",
+          "codex",
+          "--trace-endpoint",
+          "mock://endpoint",
+          "--trace-bucket",
+          "mock-bucket",
+          "--trace-key",
+          "mock-key",
+          "--trace-secret",
+          "mock-value",
+        ],
+        stdout: outputStream(),
+        stderr: outputStream(),
+        runtime: { runInstall },
+      }),
+    ).resolves.toBe(0);
+
+    expect(runInstall).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targets: ["codex"],
+        fff: true,
+        trace: {
+          credentials: {
+            endpoint: "mock://endpoint",
+            bucket: "mock-bucket",
+            key: "mock-key",
+            secret: "mock-value",
+          },
+        },
+      }),
+    );
+  });
+
+  it("does not expose the removed trace setup command", async () => {
+    const stderr = outputStream();
+    let output = "";
+    stderr.on("data", (chunk) => (output += String(chunk)));
+
+    await expect(
+      runProgressiveReviewCli({
+        argv: ["trace", "setup"],
+        stdout: outputStream(),
+        stderr,
+      }),
+    ).resolves.toBe(1);
+    expect(output).toContain("unknown command 'setup'");
+  });
+
   it("prints the package version", async () => {
     const stdout = outputStream();
     let output = "";
@@ -102,7 +157,7 @@ describe("Review CLI", () => {
       runtime: { runReviewAppPick: runReviewApp },
     });
     await runProgressiveReviewCli({
-      argv: ["info", "--all"],
+      argv: ["info", "--review", "review-uuid"],
       stdout: outputStream(),
       stderr: outputStream(),
       runtime: { runReviewInfo },
@@ -124,7 +179,7 @@ describe("Review CLI", () => {
       expect.objectContaining({ reviewUuid: "review-uuid" }),
     );
     expect(runReviewInfo).toHaveBeenCalledWith(
-      expect.objectContaining({ all: true }),
+      expect.objectContaining({ reviewUuid: "review-uuid" }),
     );
     expect(runReviewPublish).toHaveBeenCalledWith(
       expect.objectContaining({ reviewUuid: "review-uuid" }),
@@ -510,6 +565,33 @@ describe("Review CLI", () => {
     expect(sealReviewCandidate).toHaveBeenCalledWith(
       review.dir,
       "Review turn checkpoint",
+    );
+  });
+
+  it("handles the internal prepare-worktree command", async () => {
+    const prepareReviewPinnedCheckout = vi.fn<
+      () => Promise<{ prepared: true }>
+    >(async () => ({ prepared: true }));
+
+    await expect(
+      runProgressiveReviewCli({
+        argv: [
+          "prepare-worktree",
+          "/tmp/test-checkout",
+          "--commit",
+          "0123456789abcdef0123456789abcdef01234567",
+        ],
+        stdout: outputStream(),
+        stderr: outputStream(),
+        runtime: { prepareReviewPinnedCheckout },
+      }),
+    ).resolves.toBe(0);
+
+    expect(prepareReviewPinnedCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        checkoutPath: expect.stringContaining("test-checkout"),
+        commit: "0123456789abcdef0123456789abcdef01234567",
+      }),
     );
   });
 });

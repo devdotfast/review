@@ -427,7 +427,7 @@ export async function currentHead(
 }
 
 export interface LocalChangeIdentity {
-  kind: "jj-bookmark" | "jj-change" | "git-branch";
+  kind: "jj-bookmark" | "jj-change" | "git-branch" | "git-commit";
   name: string;
 }
 
@@ -482,16 +482,49 @@ export async function changeIdentityForRevision(
   if (!vcs) return null;
   if (vcs.kind === "git") {
     const resolved = await vcs.resolveRevision(revision);
-    return resolved ? { kind: "git-branch", name: revision } : null;
+    if (!resolved) return null;
+    const branch = await gitRevisionBranch(rootPath, revision);
+    return branch
+      ? { kind: "git-branch", name: branch }
+      : { kind: "git-commit", name: resolved.commit };
   }
   const summaries = await jjChangeSummary(rootPath, revision);
-  if (summaries.length !== 1) return null;
-  const subject = summaries[0]!;
-  const bookmark = subject.bookmarks[0];
-  if (bookmark) return { kind: "jj-bookmark", name: bookmark };
-  return subject.changeId
-    ? { kind: "jj-change", name: subject.changeId }
-    : null;
+  if (summaries.length === 1) {
+    const subject = summaries[0]!;
+    const bookmark = subject.bookmarks[0];
+    if (bookmark) return { kind: "jj-bookmark", name: bookmark };
+    return subject.changeId
+      ? { kind: "jj-change", name: subject.changeId }
+      : null;
+  }
+  if (summaries.length > 1 || !canUseGitFallbackSync(rootPath, vcs.kind)) {
+    return null;
+  }
+
+  // A colocated repository can contain a Git commit that jj has not imported,
+  // such as an exact pull-request SHA with no local ref. The commit is still a
+  // valid immutable Review binding. Do not substitute the current jj change.
+  const resolved = await resolveGitRevisionCommit(rootPath, revision).catch(
+    () => null,
+  );
+  return resolved ? { kind: "git-commit", name: resolved } : null;
+}
+
+async function gitRevisionBranch(
+  rootPath: string,
+  revision: string,
+): Promise<string | null> {
+  const symbolic = await commandOutput("git", [
+    "-C",
+    rootPath,
+    "rev-parse",
+    "--symbolic-full-name",
+    revision,
+  ]).catch(() => "");
+  for (const prefix of ["refs/heads/", "refs/remotes/"]) {
+    if (symbolic.startsWith(prefix)) return symbolic.slice(prefix.length);
+  }
+  return null;
 }
 
 interface JjChangeSummary {

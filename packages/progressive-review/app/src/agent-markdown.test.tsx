@@ -76,4 +76,27 @@ describe("agent markdown", () => {
       '<code class="agent-markdown-code-reference">styles.css</code>',
     );
   });
+
+  it("highlights quote spans inside markdown paragraphs and inline code", () => {
+    const html = renderToStaticMarkup(
+      createElement(AgentMarkdown, {
+        source: "We should optimize database queries to avoid latency.",
+        highlightQuote: "optimize database queries",
+      }),
+    );
+
+    expect(html).toContain(
+      '<mark class="review-trace-quote-mark">optimize database queries</mark>',
+    );
+  });
+
+  it("decodes named character references without using DOM innerHTML", () => {
+    const html = renderToStaticMarkup(
+      createElement(AgentMarkdown, {
+        source: "a &amp; b &gt; c",
+      }),
+    );
+
+    expect(html).toContain("a &amp; b &gt; c");
+  });
 });

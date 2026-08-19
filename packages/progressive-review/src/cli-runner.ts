@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { devfastPrepareCommands } from "@dev.fast/local-vcs";
 import { Argument, Command, CommanderError, Option } from "commander";
 
 import { humanStream, jsonRequestedInArgv } from "./cli-output";
@@ -34,6 +35,7 @@ import {
 import { runReviewInfo } from "./review-info";
 import { runReviewInternalTest } from "./review-internal-test";
 import { emitReviewEvent, serializeReviewError } from "./review-logger";
+import { prepareReviewPinnedCheckout } from "./review-prepare";
 import { runReviewPublish } from "./review-publish";
 import { runReviewRebind } from "./review-rebind";
 import {
@@ -49,6 +51,19 @@ import {
   runReviewThreadsReply,
   runReviewThreadsResolve,
 } from "./threads-cli";
+import {
+  runReviewTraceBlame,
+  runReviewTraceDisable,
+  runReviewTraceEnable,
+  runReviewTraceGitHook,
+  runReviewTraceHook,
+  runReviewTraceList,
+  runReviewTracePull,
+  runReviewTraceRepair,
+  runReviewTraceShow,
+  runReviewTraceStatus,
+  runReviewTraceSync,
+} from "./trace-cli";
 
 interface ProgressiveReviewCliRuntime {
   runReviewAppLaunch: typeof runReviewAppLaunch;
@@ -74,8 +89,20 @@ interface ProgressiveReviewCliRuntime {
   runInstall: typeof runInstall;
   runReviewMigration: typeof runReviewMigration;
   runSoftwareMapCli: typeof runSoftwareMapCli;
+  runReviewTraceStatus: typeof runReviewTraceStatus;
+  runReviewTraceEnable: typeof runReviewTraceEnable;
+  runReviewTraceDisable: typeof runReviewTraceDisable;
+  runReviewTraceRepair: typeof runReviewTraceRepair;
+  runReviewTraceList: typeof runReviewTraceList;
+  runReviewTraceShow: typeof runReviewTraceShow;
+  runReviewTracePull: typeof runReviewTracePull;
+  runReviewTraceBlame: typeof runReviewTraceBlame;
+  runReviewTraceHook: typeof runReviewTraceHook;
+  runReviewTraceGitHook: typeof runReviewTraceGitHook;
+  runReviewTraceSync: typeof runReviewTraceSync;
   listReviews: typeof listReviews;
   sealReviewCandidate: typeof sealReviewCandidate;
+  prepareReviewPinnedCheckout: typeof prepareReviewPinnedCheckout;
 }
 
 export interface ProgressiveReviewCliInput {
@@ -92,6 +119,7 @@ export interface ProgressiveReviewCliInput {
 
 interface ReviewInfoOptions {
   all?: boolean;
+  review?: string;
 }
 
 interface ReviewScaffoldOptions {
@@ -307,7 +335,10 @@ export async function runProgressiveReviewCli(
   configureJsonOutput(
     program
       .command("publish")
-      .description("Publish the Review document")
+      .alias("present")
+      .description(
+        "Present the Review document in the local Review Desktop app",
+      )
       .option("--review <uuid>", "review UUID"),
     "plain",
   ).action(async (options: { review?: string; json?: boolean }) => {
@@ -401,14 +432,38 @@ export async function runProgressiveReviewCli(
   });
 
   configureJsonOutput(
+    program
+      .command("prepare-worktree <checkout-path>", { hidden: true })
+      .description("Internal background worktree prepare runner")
+      .requiredOption("--commit <commit>")
+      .action(async (checkoutPath: string, options: { commit: string }) => {
+        const resolvedPath = path.resolve(checkoutPath);
+        const commands = await devfastPrepareCommands(resolvedPath).catch(
+          () => [] as string[],
+        );
+        const result = await runtime.prepareReviewPinnedCheckout({
+          checkoutPath: resolvedPath,
+          commit: options.commit,
+          commands,
+        });
+        state.exitCode = result.prepared ? 0 : 1;
+      }),
+    "plain",
+  );
+
+  configureJsonOutput(
     program.command("info").description("Print Review information"),
     "plain",
   )
     .option("--all", "list active reviews for every worktree in this repo")
+    .addOption(
+      new Option("--review <uuid>", "select a Review").conflicts("all"),
+    )
     .action(async (options: ReviewInfoOptions) => {
       const event = await runtime.runReviewInfo({
         cwd,
         all: options.all,
+        reviewUuid: options.review,
       });
       input.stdout.write(`${JSON.stringify(event)}\n`);
       state.exitCode = 0;
@@ -467,20 +522,52 @@ export async function runProgressiveReviewCli(
           "claude-code",
           "codex",
           "cursor",
+          "pi",
           "all",
         ]),
       )
+      .option("--trace-endpoint <url>", "R2 endpoint URL")
+      .option("--trace-bucket <name>", "R2 bucket name")
+      .option("--trace-key <id>", "R2 access key ID")
+      .option("--trace-secret <key>", "R2 secret access key")
+      .option("--without-traces", "Do not configure trace capture")
       .addHelpText("after", progressiveReviewInstallHelp()),
     "plain",
   );
-  install.action(async (targets: string[], options: { json?: boolean }) => {
-    state.exitCode = await runtime.runInstall({
-      targets: installTargets(targets),
-      json: options.json,
-      stdout: input.stdout,
-      stderr: input.stderr,
-    });
-  });
+  install.action(
+    async (
+      targets: string[],
+      options: {
+        json?: boolean;
+        traces?: boolean;
+        traceEndpoint?: string;
+        traceBucket?: string;
+        traceKey?: string;
+        traceSecret?: string;
+      },
+    ) => {
+      state.exitCode = await runtime.runInstall({
+        targets: installTargets(targets),
+        env,
+        fff: true,
+        ...(options.traces === false
+          ? {}
+          : {
+              trace: {
+                credentials: {
+                  endpoint: options.traceEndpoint,
+                  bucket: options.traceBucket,
+                  key: options.traceKey,
+                  secret: options.traceSecret,
+                },
+              },
+            }),
+        json: options.json,
+        stdout: input.stdout,
+        stderr: input.stderr,
+      });
+    },
+  );
 
   const migrate = configureOutput(
     program.command("migrate").description("Migrate legacy Review data"),
@@ -603,6 +690,252 @@ export async function runProgressiveReviewCli(
       );
     }
     state.exitCode = 0;
+  });
+
+  // The trace surface: inspect storage, manage one repository, or read events.
+  const trace = configureOutput(
+    program.command("trace").description("Manage agent traces"),
+    "plain",
+  );
+  configureOutput(
+    trace
+      .command("status")
+      .description("Verify R2 trace storage configuration and connectivity"),
+    "plain",
+  ).action(async () => {
+    state.exitCode = await runtime.runReviewTraceStatus({
+      cwd,
+      stdout: input.stdout,
+      stderr: input.stderr,
+    });
+  });
+
+  configureOutput(
+    trace
+      .command("enable [path]")
+      .description("Enable trace hooks for one Git repository"),
+    "plain",
+  ).action(async (repoPath?: string) => {
+    state.exitCode = await runtime.runReviewTraceEnable({
+      cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
+      stdout: input.stdout,
+      stderr: input.stderr,
+    });
+  });
+
+  configureOutput(
+    trace
+      .command("disable [path]")
+      .description("Disable Review trace hooks for one Git repository"),
+    "plain",
+  ).action(async (repoPath?: string) => {
+    state.exitCode = await runtime.runReviewTraceDisable({
+      cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
+      stdout: input.stdout,
+    });
+  });
+
+  configureOutput(
+    trace
+      .command("repair [path]")
+      .description("Repair Review trace hooks for one Git repository"),
+    "plain",
+  ).action(async (repoPath?: string) => {
+    state.exitCode = await runtime.runReviewTraceRepair({
+      cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
+      stdout: input.stdout,
+      stderr: input.stderr,
+    });
+  });
+
+  configureJsonOutput(
+    trace
+      .command("list")
+      .description("List agent sessions for a Review or commit")
+      .option("--review <uuid>", "review UUID")
+      .option("--commit <sha>", "commit or revision"),
+    "plain",
+  ).action(
+    async (options: { review?: string; commit?: string; json?: boolean }) => {
+      if (options.review && options.commit) {
+        throw new Error("Use either --review or --commit, not both.");
+      }
+      state.exitCode = await runtime.runReviewTraceList({
+        cwd,
+        reviewUuid: options.review,
+        commitSha: options.commit,
+        json: options.json,
+        stdout: input.stdout,
+      });
+    },
+  );
+
+  configureJsonOutput(
+    trace
+      .command("show <session-id>")
+      .description("Survey a trace or show an exact event")
+      .option("--trace <name>", "trace name; omit for the main trace")
+      .option(
+        "--event <index>",
+        "print the complete text of one event",
+        (value: string) => Number.parseInt(value, 10),
+      )
+      .option("--kind <kind>", "only list user|assistant|tool|separator rows"),
+    "plain",
+  ).action(
+    async (
+      sessionId: string,
+      options: {
+        trace?: string;
+        event?: number;
+        kind?: string;
+        json?: boolean;
+      },
+    ) => {
+      state.exitCode = await runtime.runReviewTraceShow({
+        cwd,
+        sessionId,
+        trace: options.trace,
+        eventIndex: options.event,
+        kind: options.kind,
+        json: options.json,
+        stdout: input.stdout,
+        stderr: input.stderr,
+      });
+    },
+  );
+
+  configureJsonOutput(
+    trace
+      .command("pull")
+      .description("Pull traces into the local FFF search corpus")
+      .option("--repo <owner/repo>", "repository for the corpus path")
+      .option("--review <uuid>", "pull sessions for one Review")
+      .option("--commit <sha>", "pull sessions for one commit or revision")
+      .option("--session <id>", "pull one session")
+      .option("--main-only", "exclude subagent traces"),
+    "plain",
+  ).action(
+    async (options: {
+      repo?: string;
+      review?: string;
+      commit?: string;
+      session?: string;
+      mainOnly?: boolean;
+      json?: boolean;
+    }) => {
+      const selectors = [
+        options.review,
+        options.commit,
+        options.session,
+      ].filter(Boolean);
+      if (selectors.length > 1) {
+        throw new Error("Use only one of --review, --commit, or --session.");
+      }
+      state.exitCode = await runtime.runReviewTracePull({
+        cwd,
+        repo: options.repo,
+        reviewUuid: options.review,
+        commitSha: options.commit,
+        session: options.session,
+        mainOnly: options.mainOnly,
+        json: options.json,
+        stdout: input.stdout,
+        stderr: input.stderr,
+      });
+    },
+  );
+
+  configureJsonOutput(
+    trace
+      .command("blame <file>")
+      .description("Blame lines in a file to agent sessions")
+      .option("-L, --lines <range>", "start,end line range")
+      .option(
+        "--history",
+        "use git log -L to include every commit that shaped the lines",
+      ),
+    "plain",
+  ).action(
+    async (
+      file: string,
+      options: {
+        lines?: string;
+        history?: boolean;
+        json?: boolean;
+      },
+    ) => {
+      state.exitCode = await runtime.runReviewTraceBlame({
+        cwd,
+        file,
+        lines: options.lines,
+        history: options.history,
+        json: options.json,
+        stdout: input.stdout,
+        stderr: input.stderr,
+      });
+    },
+  );
+
+  configureJsonOutput(
+    trace
+      .command("sync <session-id>")
+      .description("Upload a local session trace and its metadata")
+      .option("--repo <repo>", "GitHub owner/repo"),
+    "plain",
+  ).action(
+    async (
+      sessionId: string,
+      options: {
+        repo?: string;
+        json?: boolean;
+      },
+    ) => {
+      state.exitCode = await runtime.runReviewTraceSync({
+        cwd,
+        sessionId,
+        repo: options.repo,
+        json: options.json,
+        stdout: input.stdout,
+      });
+    },
+  );
+
+  configureOutput(
+    trace
+      .command("hook <event>", { hidden: true })
+      .description("Handle agent session lifecycle hooks")
+      .option("--session <id>", "Agent session ID"),
+    "plain",
+  ).action(
+    async (
+      event: string,
+      options: {
+        session?: string;
+      },
+    ) => {
+      state.exitCode = await runtime.runReviewTraceHook({
+        cwd,
+        event,
+        sessionId: options.session,
+        stdin: input.stdin as NodeJS.ReadStream | undefined,
+      });
+    },
+  );
+
+  configureOutput(
+    trace
+      .command("git-hook <hook> [args...]", { hidden: true })
+      .description("Run a package-owned Git trace hook"),
+    "plain",
+  ).action(async (hook: string, args: string[]) => {
+    state.exitCode = await runtime.runReviewTraceGitHook({
+      cwd,
+      hook,
+      args,
+      stdin: input.stdin,
+      stderr: input.stderr,
+    });
   });
 
   // The map surface is owned by map-cli.ts: git-notes storage with
@@ -807,8 +1140,20 @@ function progressiveReviewCliRuntime(
     runInstall,
     runReviewMigration,
     runSoftwareMapCli,
+    runReviewTraceStatus,
+    runReviewTraceEnable,
+    runReviewTraceDisable,
+    runReviewTraceRepair,
+    runReviewTraceList,
+    runReviewTraceShow,
+    runReviewTracePull,
+    runReviewTraceBlame,
+    runReviewTraceHook,
+    runReviewTraceGitHook,
+    runReviewTraceSync,
     listReviews,
     sealReviewCandidate,
+    prepareReviewPinnedCheckout,
     ...overrides,
   };
 }
@@ -817,7 +1162,7 @@ function progressiveReviewTopLevelHelp(): string {
   return [
     "",
     "Use `review info` to discover Review documents for this checkout, or `review scaffold` to create one.",
-    "Edit the returned review.mdx and data.ts files, then use `review publish`. It validates in the CLI before contacting Review Desktop.",
+    "Edit the returned review.mdx and data.ts files, then use `review present` (alias of `review publish`). It validates in the CLI before contacting Review Desktop.",
     "The CLI validates before publishing; Review Desktop promotes the revision before mounting it.",
     "Use `review app launch` to start Review Desktop. Use `review app pick --review <uuid>` after publication.",
     "",
@@ -862,12 +1207,15 @@ function progressiveReviewInstallHelp(): string {
     "  claude   Claude Code (~/.claude/skills)",
     "  codex    Codex (~/.agents/skills)",
     "  cursor   Cursor (~/.cursor/skills)",
+    "  pi       Pi (~/.agents/skills and npm:@ff-labs/pi-fff)",
     "  all      Every supported agent (default)",
     "",
     "Examples:",
     "  review install codex",
     "  review install claude cursor",
     "  review install all",
+    "  review install codex --trace-endpoint <url> --trace-bucket <name> --trace-key <id> --trace-secret <key>",
+    "  review install codex --without-traces",
   ].join("\n");
 }
 
@@ -876,7 +1224,7 @@ function progressiveReviewMapHelp(): string {
     "",
     "Notes under refs/notes/dev-fast/* are the only durable map state: one map per commit, never checked into any branch.",
     "The editable file is a scratch buffer — a commit-addressed working copy of one commit's note, hydrated from a note and disposable at any time.",
-    "Use review map open <rev> to hydrate <rev>'s scratch, review map check [<rev>] [--review <uuid>] to validate and save it to <rev>'s note, review map publish to present the pinned maps, review map prune to drop stale notes and swept scratches, and review map push / fetch to share map notes via origin.",
+    "Use review map open <rev> to hydrate <rev>'s scratch, review map check [<rev>] [--review <uuid>] to validate and save it to <rev>'s note, review map publish to present the pinned maps, review map prune to drop stale notes and swept scratches, and review map push / fetch to share map notes through the selected notes remote.",
     "Run review map help for the full subcommand reference.",
   ].join("\n");
 }
@@ -936,7 +1284,8 @@ function normalizeMapTelemetrySubcommand(
   | "help"
   | "unknown" {
   const args = inputArgs[0] === "--" ? inputArgs.slice(1) : inputArgs;
-  const command = args[0] ?? "check";
+  const rawCommand = args[0] ?? "check";
+  const command = rawCommand === "present" ? "publish" : rawCommand;
   if (isMapHelpCommand(command)) {
     return "help";
   }

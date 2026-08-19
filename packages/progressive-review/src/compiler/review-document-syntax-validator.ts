@@ -1,5 +1,6 @@
 import ts from "typescript";
 
+import { reviewAuthoringPropsSchemas } from "../authoring";
 import type {
   ReviewDocumentDiagnostic,
   ReviewDocumentInput,
@@ -28,6 +29,25 @@ export function unsupportedTypescriptDiagnostics(
       ts.ScriptKind.TS,
     );
     const visit = (node: ts.Node): void => {
+      if (ts.isImportDeclaration(node)) {
+        for (const imported of importedMdxComponents(node, sourceFile)) {
+          const position = sourceFile.getLineAndCharacterOfPosition(
+            imported.start,
+          );
+          diagnostics.push({
+            source: "typescript",
+            severity: "error",
+            code: "MDX_COMPONENT_IMPORT",
+            message: `\`${imported.name}\` is a built-in Review MDX component. Remove it from this import and use <${imported.name}> directly.`,
+            filePath: input.filePath,
+            line: region.sourceStartLine + position.line,
+            column:
+              position.character +
+              1 +
+              (position.line === 0 ? region.sourceStartColumn - 1 : 0),
+          });
+        }
+      }
       const unsupported = unsupportedTypescriptNode(node, sourceFile);
       if (unsupported) {
         const position = sourceFile.getLineAndCharacterOfPosition(
@@ -52,6 +72,26 @@ export function unsupportedTypescriptDiagnostics(
     visit(sourceFile);
   }
   return diagnostics;
+}
+
+function importedMdxComponents(
+  node: ts.ImportDeclaration,
+  sourceFile: ts.SourceFile,
+): Array<{ name: string; start: number }> {
+  if (
+    !ts.isStringLiteral(node.moduleSpecifier) ||
+    node.moduleSpecifier.text !== "virtual:progressive-review-authoring"
+  ) {
+    return [];
+  }
+  const bindings = node.importClause?.namedBindings;
+  if (!bindings || !ts.isNamedImports(bindings)) return [];
+  return bindings.elements.flatMap((element) => {
+    const name = element.propertyName?.text ?? element.name.text;
+    return Object.hasOwn(reviewAuthoringPropsSchemas, name)
+      ? [{ name, start: element.getStart(sourceFile) }]
+      : [];
+  });
 }
 
 function unsupportedTypescriptNode(

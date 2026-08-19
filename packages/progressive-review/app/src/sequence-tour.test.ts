@@ -15,7 +15,7 @@ import { createTestReviewDefinitionSession } from "./review-definition-test-util
 import { defineSoftwareModel } from "./software-map/model";
 
 const definitions = createTestReviewDefinitionSession();
-const { defineActors, defineAnchors, defineSoftwareActors } = definitions;
+const { defineActors, defineAnchors } = definitions;
 
 describe("sequence diagram guided tour", () => {
   it("uses the same colours for sequence lines and arrowheads", () => {
@@ -307,35 +307,40 @@ describe("sequence diagram guided tour", () => {
     );
   });
 
-  it("owns duplicate anchor validation within one sequence", () => {
+  it("allows one code anchor to support multiple sequence messages", async () => {
     const anchors = defineAnchors({
       request: {
         title: "Request",
         peek: { file: "src/example.ts", fromLine: 1, toLine: 3 },
       },
     });
-    expectZodIssue(
-      () =>
-        createSequence({
-          label: "Duplicate",
-          messages: [
-            {
-              from: { label: "A" },
-              to: { label: "B" },
-              label: "Send",
-              anchor: anchors.request,
-            },
-            {
-              from: { label: "B" },
-              to: { label: "A" },
-              label: "Reply",
-              anchor: anchors.request,
-            },
-          ],
-        }),
-      ["messages", 1, "anchor"],
-      "Anchor must be used only once within this diagram",
-    );
+    const sequence = createSequence({
+      label: "Reuse",
+      messages: [
+        {
+          from: { label: "A" },
+          to: { label: "B" },
+          label: "Send",
+          anchor: anchors.request,
+        },
+        {
+          from: { label: "B" },
+          to: { label: "A" },
+          label: "Reply",
+          anchor: anchors.request,
+        },
+      ],
+    });
+
+    expect(sequence.messages.map((message) => message.anchor.id)).toEqual([
+      "request",
+      "request--sequence-use-2",
+    ]);
+    expect(sequence.messages[1]?.anchor.peek).toBe(anchors.request.peek);
+    await definitions.ready();
+    expect(
+      createSequenceTourEntry(sequence).stops.map((stop) => stop.anchor.id),
+    ).toEqual(["request", "request--sequence-use-2"]);
   });
 
   it("rejects ambiguous parallel edge label paths", () => {

@@ -795,10 +795,21 @@ export interface ReviewCanvasInstallContent {
   apply(request: {
     targets: readonly ReviewCliInstallTarget[];
     shim?: boolean;
+    fff?: boolean;
+    trace?:
+      | true
+      | {
+          endpoint?: string;
+          bucket?: string;
+          key?: string;
+          secret?: string;
+        };
   }): Promise<ReviewCliInstallStatus>;
   remove(request: {
     targets: readonly ReviewCliInstallTarget[];
     shim?: boolean;
+    fff?: boolean;
+    trace?: true;
   }): Promise<ReviewCliInstallStatus>;
   decline(): Promise<ReviewCliInstallStatus>;
   skip(): Promise<ReviewCliInstallStatus>;
@@ -1049,7 +1060,7 @@ export const ReviewStatusSchema = z.enum([
 ]);
 
 export const ReviewSourceIdentitySchema = z.strictObject({
-  kind: z.enum(["git-branch", "jj-bookmark", "jj-change"]),
+  kind: z.enum(["git-branch", "git-commit", "jj-bookmark", "jj-change"]),
   name: requiredString,
 });
 export type ReviewSourceIdentity = z.infer<typeof ReviewSourceIdentitySchema>;
@@ -1297,11 +1308,27 @@ export type ReviewListResponse = z.infer<typeof ReviewListResponseSchema>;
 export type ReviewListError = ReviewListResponse["errors"][number];
 
 export const ReviewCliInstallTargetSchema = z.enum(
-  ["claude", "codex", "cursor"],
-  { error: "must be claude, codex, or cursor" },
+  ["claude", "codex", "cursor", "pi"],
+  { error: "must be claude, codex, cursor, or pi" },
 );
 export type ReviewCliInstallTarget = z.infer<
   typeof ReviewCliInstallTargetSchema
+>;
+
+export const ReviewFffInstallTargetSchema = z.enum(["claude", "codex", "pi"], {
+  error: "must be claude, codex, or pi",
+});
+export type ReviewFffInstallTarget = z.infer<
+  typeof ReviewFffInstallTargetSchema
+>;
+
+export const ReviewFffManagedRegistrationSchema = z.strictObject({
+  target: ReviewFffInstallTargetSchema,
+  command: requiredString,
+  args: z.array(requiredString),
+});
+export type ReviewFffManagedRegistration = z.infer<
+  typeof ReviewFffManagedRegistrationSchema
 >;
 
 export const ReviewCliInstallStampSchema = z.strictObject({
@@ -1311,6 +1338,8 @@ export const ReviewCliInstallStampSchema = z.strictObject({
   fingerprint: requiredString.optional(),
   targets: z.array(ReviewCliInstallTargetSchema).optional(),
   shimPath: requiredString.optional(),
+  fffRegistrations: z.array(ReviewFffManagedRegistrationSchema).optional(),
+  traceManaged: z.boolean().optional(),
   updatedAt: requiredString,
 });
 export type ReviewCliInstallStamp = z.infer<typeof ReviewCliInstallStampSchema>;
@@ -1327,6 +1356,30 @@ export const ReviewCliInstallStatusSchema = z.strictObject({
   stamp: ReviewCliInstallStampSchema.nullable(),
   stale: z.boolean(),
   shim: z.strictObject({ path: requiredString, onPath: z.boolean() }),
+  fff: z.strictObject({
+    serverName: z.literal("fff"),
+    corpusRoot: requiredString,
+    binary: z.strictObject({ path: requiredString, installed: z.boolean() }),
+    registrations: z.array(
+      z.strictObject({
+        target: ReviewFffInstallTargetSchema,
+        present: z.boolean(),
+        managed: z.boolean(),
+      }),
+    ),
+  }),
+  trace: z.strictObject({
+    enabled: z.boolean(),
+    configured: z.boolean(),
+    autoActivateRepositories: z.boolean(),
+    envPath: requiredString,
+    settingsPath: requiredString,
+    endpoint: requiredString.optional(),
+    bucket: requiredString.optional(),
+    accessKeyIdPrefix: requiredString.optional(),
+    verifiedAt: requiredString.optional(),
+    error: requiredString.optional(),
+  }),
   // Null when the serving package has no built CLI (a source-run dev server).
   cli: z
     .strictObject({ path: requiredString, version: requiredString })
@@ -1336,17 +1389,34 @@ export type ReviewCliInstallStatus = z.infer<
   typeof ReviewCliInstallStatusSchema
 >;
 
-// Skills are per-agent; the review terminal command is per-machine. The two
-// install independently: `targets` may be empty for a command-only install,
-// and the command is only ever written when `shim` is explicitly true.
+// Skills and FFF integrations are per-agent. The review command, FFF binary,
+// and trace configuration are per-machine. Silent app updates omit `fff` and
+// `trace`, so they do not run an installer or contact R2.
 export const ReviewCliInstallApplyRequestSchema = z
   .strictObject({
     targets: z.array(ReviewCliInstallTargetSchema),
     shim: z.boolean().optional(),
+    fff: z.boolean().optional(),
+    trace: z
+      .union([
+        z.literal(true),
+        z.strictObject({
+          endpoint: requiredString.optional(),
+          bucket: requiredString.optional(),
+          key: requiredString.optional(),
+          secret: requiredString.optional(),
+        }),
+      ])
+      .optional(),
   })
-  .refine((request) => request.targets.length > 0 || request.shim === true, {
-    message: "must install skills for at least one agent or the command",
-  });
+  .refine(
+    (request) =>
+      request.targets.length > 0 ||
+      request.shim === true ||
+      request.fff === true ||
+      request.trace !== undefined,
+    { message: "must install skills, the command, FFF, or trace capture" },
+  );
 export type ReviewCliInstallApplyRequest = z.infer<
   typeof ReviewCliInstallApplyRequestSchema
 >;
@@ -1927,3 +1997,86 @@ export const ReviewSurfaceEventSchema = z.discriminatedUnion("event", [
   }),
 ]);
 export type ReviewSurfaceEvent = z.infer<typeof ReviewSurfaceEventSchema>;
+
+// --- Agent trace view & trace quotes ----------------------------------------
+
+export const ReviewAgentTraceEventSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("user"),
+    text: stringAllowEmpty,
+    at: z.string().optional(),
+  }),
+  z.strictObject({
+    kind: z.literal("assistant"),
+    markdown: stringAllowEmpty,
+    thinking: z.boolean().optional(),
+    at: z.string().optional(),
+  }),
+  z.strictObject({
+    kind: z.literal("tool"),
+    tool: requiredString,
+    verb: requiredString,
+    title: stringAllowEmpty,
+    filePath: z.string().optional(),
+    additions: z.number().optional(),
+    deletions: z.number().optional(),
+    command: z.string().optional(),
+    input: z.string().optional(),
+    output: z.string().optional(),
+    error: z.boolean().optional(),
+    at: z.string().optional(),
+  }),
+  z.strictObject({
+    kind: z.literal("separator"),
+    label: requiredString,
+  }),
+]);
+export type ReviewAgentTraceEvent = z.infer<typeof ReviewAgentTraceEventSchema>;
+
+export const ReviewAgentTraceSessionSchema = z.strictObject({
+  sessionId: requiredString,
+  harness: z.enum(["claude-code", "codex", "pi", "unknown"]),
+  available: z.boolean(),
+  source: z.enum(["r2"]).nullable(),
+  notSynced: z.boolean().optional(),
+  subagents: z.array(requiredString).optional(),
+  commits: z.array(
+    z.strictObject({ sha: requiredString, subject: stringAllowEmpty }),
+  ),
+});
+export type ReviewAgentTraceSession = z.infer<
+  typeof ReviewAgentTraceSessionSchema
+>;
+
+export const ReviewAgentTraceListResponseSchema = z.discriminatedUnion("ok", [
+  z.strictObject({
+    ok: z.literal(true),
+    configured: z.boolean().default(true),
+    sessions: z.array(ReviewAgentTraceSessionSchema),
+  }),
+  ReviewErrorResponseSchema,
+]);
+export type ReviewAgentTraceListResponse = z.infer<
+  typeof ReviewAgentTraceListResponseSchema
+>;
+
+export const ReviewAgentTraceResponseSchema = z.discriminatedUnion("ok", [
+  z.strictObject({
+    ok: z.literal(true),
+    parserVersion: requiredString,
+    session: ReviewAgentTraceSessionSchema,
+    trace: stringAllowEmpty.nullable().optional(),
+    subagents: z.array(requiredString).default([]),
+    title: z.string().nullable(),
+    startedAt: z.string().nullable(),
+    endedAt: z.string().nullable(),
+    activeMs: z.number().nullable(),
+    userTurns: z.number(),
+    toolCalls: z.number(),
+    events: z.array(ReviewAgentTraceEventSchema),
+  }),
+  ReviewErrorResponseSchema,
+]);
+export type ReviewAgentTraceResponse = z.infer<
+  typeof ReviewAgentTraceResponseSchema
+>;

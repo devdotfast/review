@@ -42,7 +42,7 @@ export function WelcomePage({
   >(undefined);
   const status = cardStatus ?? install?.status;
   const installed = status
-    ? status.agents.some((agent) => agent.installed)
+    ? onboardingSetupComplete(status)
     : (onboarding?.installed ?? false);
   const tourChecked = onboarding?.tutorialChecked ?? 0;
   const tourTotal = onboarding?.tutorialTotal ?? 0;
@@ -172,6 +172,24 @@ export function WelcomePage({
         </div>
       </div>
     </main>
+  );
+}
+
+function onboardingSetupComplete(status: ReviewCliInstallStatus): boolean {
+  const installedAgents = status.agents.filter((agent) => agent.installed);
+  if (installedAgents.length === 0) return false;
+  const fffAgents = installedAgents.filter(
+    (agent) => agent.target === "claude" || agent.target === "codex",
+  );
+  return (
+    status.trace.enabled &&
+    (fffAgents.length === 0 ||
+      fffAgents.every((agent) =>
+        status.fff.registrations.some(
+          (registration) =>
+            registration.target === agent.target && registration.present,
+        ),
+      ))
   );
 }
 

@@ -97,6 +97,21 @@ describe("parseSoftwareMapCliArgs", () => {
     });
   });
 
+  it("parses an explicit notes remote for push and fetch", () => {
+    expect(parseSoftwareMapCliArgs(["push", "--remote", "fork"])).toMatchObject(
+      {
+        ok: true,
+        command: "push",
+        remote: "fork",
+      },
+    );
+    expect(parseSoftwareMapCliArgs(["fetch", "--remote=fork"])).toMatchObject({
+      ok: true,
+      command: "fetch",
+      remote: "fork",
+    });
+  });
+
   it("hard-errors on unknown flags instead of silently ignoring them", () => {
     expect(parseSoftwareMapCliArgs(["open", "HEAD", "--froce"])).toEqual({
       ok: false,
@@ -129,6 +144,13 @@ describe("parseSoftwareMapCliArgs", () => {
     expect(parseSoftwareMapCliArgs(["check", `--${option}=`])).toEqual({
       ok: false,
       error: `Expected a value after --${option}.`,
+    });
+  });
+
+  it("reports a missing --remote value", () => {
+    expect(parseSoftwareMapCliArgs(["push", "--remote"])).toEqual({
+      ok: false,
+      error: "Expected a value after --remote.",
     });
   });
 
@@ -183,7 +205,7 @@ describe("removed commands point at their replacements", () => {
       expect(exitCode).toBe(1);
       expect(stderr.join("")).toContain(`review map ${command} was removed`);
       expect(stderr.join("")).toContain("review map open");
-      expect(stderr.join("")).toContain("dev-review skill's Map Agent Prompt");
+      expect(stderr.join("")).toContain("dev-review-map skill");
     },
   );
 });
@@ -1180,6 +1202,43 @@ describe("review map prune", () => {
 });
 
 describe("review map push / fetch", () => {
+  it("pushes notes through an explicit writable remote", async () => {
+    if (!commandExists("git")) return;
+    const rootPath = await gitFixture("review-map-push-remote-");
+    const bareDir = await mkdtemp(path.join(os.tmpdir(), "review-map-fork-"));
+    try {
+      execGit(bareDir, ["init", "--bare"]);
+      execGit(rootPath, ["remote", "add", "fork", bareDir]);
+      const commit = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
+      await writeNote({
+        rootPath,
+        ref: SOFTWARE_MAP_NOTES_REF,
+        commit,
+        content: authoredMapSource("Fork map"),
+      });
+      const stdout: string[] = [];
+
+      const exitCode = await runSoftwareMapCli({
+        args: ["push", "--remote", "fork", "--json"],
+        cwd: rootPath,
+        stdout: writable(stdout),
+        stderr: writable([]),
+      });
+
+      expect(exitCode).toBe(0);
+      expect(JSON.parse(stdout.join(""))).toMatchObject({
+        event: "map-push",
+        remote: "fork",
+      });
+      expect(
+        execGitOutput(bareDir, ["show-ref", SOFTWARE_MAP_NOTES_REF]),
+      ).toContain(SOFTWARE_MAP_NOTES_REF);
+    } finally {
+      await rm(rootPath, { recursive: true, force: true });
+      await rm(bareDir, { recursive: true, force: true });
+    }
+  });
+
   it("shares notes through a bare origin", async () => {
     if (!commandExists("git")) return;
     const rootPath = await gitFixture("review-map-push-");

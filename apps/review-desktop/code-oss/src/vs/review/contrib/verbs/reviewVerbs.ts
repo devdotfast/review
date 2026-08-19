@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { encodeBase64 } from "../../../base/common/buffer.js";
 import { Emitter, Event } from "../../../base/common/event.js";
 import { Disposable, DisposableStore } from "../../../base/common/lifecycle.js";
 import {
@@ -38,6 +39,7 @@ import {
   IWorkbenchLayoutService,
   Parts,
 } from "../../../workbench/services/layout/browser/layoutService.js";
+import { IHostService } from "../../../workbench/services/host/browser/host.js";
 import {
   type ReviewDesktopState,
   type ReviewDiffSide,
@@ -133,6 +135,7 @@ export class ReviewVerbsService
     private readonly tabsService: IReviewCanvasEditorTabsService,
     @IReviewExplorerPartsService
     private readonly explorerParts: IReviewExplorerPartsService,
+    @IHostService private readonly hostService: IHostService,
   ) {
     super();
     for (const editor of codeEditorService.listCodeEditors())
@@ -198,6 +201,8 @@ export class ReviewVerbsService
         case "focusCanvas":
           this._onDidRequestCanvasFocus.fire();
           break;
+        case "captureScreenshot":
+          return { ok: true, result: await this.captureScreenshot() };
         case "openReviewRevision": {
           const descriptor = this.sessionService.sessions.find(
             (candidate) => candidate.sessionId === sessionId,
@@ -232,6 +237,20 @@ export class ReviewVerbsService
         ok: false,
         error: error instanceof Error ? error.message : String(error),
       };
+    }
+  }
+
+  private async captureScreenshot(): Promise<
+    { dataUrl: string } | undefined
+  > {
+    try {
+      const screenshot = await this.hostService.getScreenshot();
+      if (!screenshot) return undefined;
+      return {
+        dataUrl: `data:image/jpeg;base64,${encodeBase64(screenshot)}`,
+      };
+    } catch {
+      return undefined;
     }
   }
 

@@ -81,7 +81,7 @@
     "es-module-lexer": "2.1.0",
     "esbuild": "0.28.1",
     "fuzzysort": "4.0.2",
-    "hono": "4.12.32",
+    "hono": "4.12.34",
     "isomorphic-git": "1.38.10",
     "mdast-util-from-markdown": "2.0.3",
     "mdast-util-gfm": "3.1.0",

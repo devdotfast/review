@@ -291,7 +291,7 @@ export function ReviewToc(): ReactElement | null {
         {activeEntry && (
           <>
             <span className="review-toc-toggle-number">
-              § {activeEntry.number}
+              {activeEntry.number}
             </span>
             <strong className="review-toc-toggle-title">
               {activeEntry.text}

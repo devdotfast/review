@@ -1075,8 +1075,14 @@ body
   --review-comment-accent-hover: #5d7cf7;
   --review-comment-accent-wash: rgb(77 110 245 / 14%);
   --review-comment-accent-outline: rgb(77 110 245 / 48%);
+  --review-comment-chip-ink: color-mix(
+    in srgb,
+    var(--review-comment-accent) 70%,
+    white
+  );
   --review-comment-range: rgb(35 71 178 / 58%);
   --review-comment-range-active: rgb(48 91 226 / 68%);
+  --review-comment-range-line-number: #e7edff;
   --review-comment-surface: #0f1217;
   --review-comment-input: #0f1217;
   --review-comment-rule: #272c35;
@@ -1084,6 +1090,8 @@ body
   --review-comment-composer-rule: #3d444d;
   --review-comment-footer: #151922;
   --review-comment-footer-rule: #566171;
+  --review-comment-shadow: rgb(0 0 0 / 55%);
+  --review-comment-shadow-active: rgb(0 0 0 / 60%);
   --review-comment-ink: var(--vscode-editor-foreground, #e8eaee);
   --review-comment-muted: var(--vscode-descriptionForeground, #9ba1ac);
   --vscode-editorGutter-commentRangeForeground: var(--review-comment-accent);
@@ -1100,6 +1108,37 @@ body
   --vscode-editorCommentsWidget-rangeActiveBackground: var(
     --review-comment-range-active
   );
+}
+
+/* On a light editor, the dark-theme comment palette obscures syntax, shifts
+   diff row colors toward a muddy blue, and leaves inherited dark text on dark
+   composer surfaces. Use native light surfaces and a restrained accent wash
+   while leaving high-contrast themes on the stronger defaults above. */
+.monaco-workbench.review-workbench.vs {
+  --review-comment-chip-ink: var(--review-comment-accent);
+  --review-comment-range: rgb(43 79 224 / 12%);
+  --review-comment-range-active: rgb(43 79 224 / 18%);
+  --review-comment-range-line-number: var(
+    --vscode-editorLineNumber-activeForeground,
+    #2448ca
+  );
+  --review-comment-surface: var(--vscode-editorWidget-background, #ffffff);
+  --review-comment-input: var(--vscode-input-background, #ffffff);
+  --review-comment-rule: var(--vscode-editorWidget-border, #c8c8c8);
+  --review-comment-metadata-rule: color-mix(
+    in srgb,
+    var(--vscode-foreground) 12%,
+    var(--review-comment-surface)
+  );
+  --review-comment-composer-rule: var(--review-comment-metadata-rule);
+  --review-comment-footer: color-mix(
+    in srgb,
+    var(--vscode-foreground) 4%,
+    var(--review-comment-surface)
+  );
+  --review-comment-footer-rule: var(--review-comment-metadata-rule);
+  --review-comment-shadow: rgb(0 0 0 / 12%);
+  --review-comment-shadow-active: rgb(0 0 0 / 16%);
 }
 
 .monaco-workbench.review-workbench
@@ -1139,7 +1178,7 @@ body
     .comment-range-selection-line-number,
     .comment-range-selection-line-number-current
   ) {
-  color: #e7edff !important;
+  color: var(--review-comment-range-line-number) !important;
   font-weight: 600;
 }
 
@@ -1219,7 +1258,7 @@ body
   border: 1px solid var(--review-comment-accent-outline);
   border-radius: 999px;
   background: var(--review-comment-accent-wash);
-  color: color-mix(in srgb, var(--review-comment-accent) 68%, white);
+  color: var(--review-comment-chip-ink);
   font-size: 10px;
   font-weight: 600;
   line-height: 18px;
@@ -1256,7 +1295,7 @@ body
   border-top-color: var(--review-comment-metadata-rule) !important;
   border-radius: 0 0 8px 8px;
   background: var(--review-comment-surface);
-  box-shadow: 0 10px 28px rgb(0 0 0 / 55%);
+  box-shadow: 0 10px 28px var(--review-comment-shadow);
 }
 
 .monaco-workbench.review-workbench
@@ -1283,7 +1322,7 @@ body
   border-left-color: var(--review-comment-accent) !important;
   box-shadow:
     0 0 0 1px rgb(76 141 246 / 16%),
-    0 10px 28px rgb(0 0 0 / 60%);
+    0 10px 28px var(--review-comment-shadow-active);
 }
 
 .monaco-workbench.review-workbench
@@ -1367,7 +1406,7 @@ body
   border: 1px solid var(--review-comment-accent-outline);
   border-radius: 999px;
   background: transparent;
-  color: color-mix(in srgb, var(--review-comment-accent) 74%, white);
+  color: var(--review-comment-chip-ink);
   font-size: 10px;
   font-style: normal;
   font-weight: 500;

@@ -94,6 +94,12 @@ describe("ReviewToc", () => {
     });
     await settle();
     expect(tocLabels()).toEqual(["Interface change", "Scheduling sequence"]);
+    expect(
+      document.querySelector(".review-toc-toggle-number")?.textContent?.trim(),
+    ).toBe("1");
+    expect(
+      document.querySelector(".review-toc-toggle")?.textContent,
+    ).not.toContain("§");
 
     // A session switch or live recompile replaces the article node. Observing
     // the article itself strands the MutationObserver on the detached node, so

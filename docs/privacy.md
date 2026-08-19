@@ -66,22 +66,30 @@ Review document or does not pass a second local path-and-secret check.
 
 The **Report bug** dialog sends a report only after you select **Send**.
 
-![The Review bug-report dialog with all three diagnostic attachments selected by default.](assets/bug-report-consent.png)
+![The previous Review bug-report dialog with all three diagnostic attachments selected by default.](assets/bug-report-consent.png)
 
-Under **Include diagnostic attachments**, three independent checkboxes control
+> This image is stale. Re-capture `docs/assets/bug-report-consent.png` with the
+> two-checkbox dialog and screenshot preview after the UI lands.
+
+Under **Include diagnostic attachments**, two independent checkboxes control
 whether Review attaches:
 
-- the current Review source
-- the head software-map source
+- **Review**: the current Review source and head software-map source
 - changed-file diffs used by the review codepeeks (only the diff lines)
 
-You can turn off any or all of them before sending.
+Review captures a screenshot before the dialog opens, so the dialog itself is
+not in the image. The screenshot is attached by default with a visible preview.
+You can remove it with the × button, or paste or drag an image to replace it.
+Pasted and dropped PNG, JPEG, and WebP images are normalized to JPEG and limited
+to 3 MiB.
+
+You can turn off either checkbox and remove the screenshot before sending.
 
 The checkboxes control only those optional attachments. Every submitted report
-also includes the description, app and CLI versions, operating-system category,
-a random app-session ID, and up to 20 sanitized JavaScript error class names
-seen during that canvas session. It does not include error messages in that
-list.
+also includes the optional description (which may be empty), app and CLI
+versions, operating-system category, a random app-session ID, and up to 20
+sanitized JavaScript error class names seen during that canvas session. It does
+not include error messages in that list.
 
 If a selected attachment is unavailable, Review omits it and sends the other
 available data. The report never attaches Review metadata, comment threads, or

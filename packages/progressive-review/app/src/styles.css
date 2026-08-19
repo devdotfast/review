@@ -2528,12 +2528,17 @@ button {
   height: var(--chrome-icon-size);
 }
 
-.review-history-button:hover,
-.review-history-button:focus-visible,
+.review-history-button:hover:not(:disabled),
+.review-history-button:focus-visible:not(:disabled),
 .review-history-button[aria-expanded="true"] {
   background: var(--chrome-hover-bg);
   color: var(--chrome-fg);
   outline: none;
+}
+
+.review-history-button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .review-history-list {
@@ -2625,6 +2630,11 @@ button {
   color: var(--ink);
 }
 
+.bug-report-dialog--drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -7px;
+}
+
 .bug-report-dialog form {
   display: grid;
   gap: 14px;
@@ -2685,6 +2695,50 @@ button {
   display: flex;
   gap: 8px;
   align-items: center;
+}
+
+.bug-report-screenshot {
+  display: flex;
+  min-height: 54px;
+  align-items: center;
+  gap: 8px;
+  border: 1px dashed var(--rule-soft);
+  border-radius: 5px;
+  padding: 8px;
+}
+
+.bug-report-screenshot img {
+  display: block;
+  max-width: calc(100% - 34px);
+  max-height: 72px;
+  border: 1px solid var(--chrome-border);
+  border-radius: 4px;
+}
+
+.bug-report-screenshot-remove {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 1px solid var(--chrome-border);
+  border-radius: 4px;
+  padding: 0;
+  background: var(--bg-2);
+  color: var(--ink-faint);
+  font: 18px/1 var(--chrome-font);
+  cursor: pointer;
+}
+
+.bug-report-screenshot-remove:hover,
+.bug-report-screenshot-remove:focus-visible {
+  border-color: var(--chrome-active-border);
+  color: var(--ink);
+  outline: none;
+}
+
+.bug-report-screenshot-hint {
+  color: var(--ink-faint);
+  font: 11px/1.45 var(--font-mono);
 }
 
 .bug-report-privacy {
@@ -3672,11 +3726,16 @@ button {
   height: var(--chrome-icon-size);
 }
 
-.topbar-report-bug-button:hover,
-.topbar-report-bug-button:focus-visible {
+.topbar-report-bug-button:hover:not(:disabled),
+.topbar-report-bug-button:focus-visible:not(:disabled) {
   background: var(--chrome-hover-bg);
   color: var(--chrome-fg);
   outline: none;
+}
+
+.topbar-report-bug-button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .review-document {

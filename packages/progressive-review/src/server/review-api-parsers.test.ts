@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  parseReviewBugReportInput,
   parseReviewCommentMessagePath,
   parseReviewSubmissionInput,
   parseReviewTabTelemetryInput,
@@ -15,6 +16,80 @@ const selection = {
   hash: "f55c314b",
   quote: "Hello",
 };
+
+const bugReport = {
+  description: "",
+  include_review: true,
+  include_map: true,
+  include_diff: true,
+  app_session_id: "session-1234567890",
+  app_version: "1.2.3",
+};
+
+describe("parseReviewBugReportInput", () => {
+  it("accepts an empty description", () => {
+    expect(parseReviewBugReportInput(bugReport).description).toBe("");
+  });
+
+  it("rejects a description over 64 KiB with 413", () => {
+    expectBugReportStatus(
+      { ...bugReport, description: "a".repeat(64 * 1024 + 1) },
+      413,
+    );
+  });
+
+  it("accepts a valid JPEG screenshot", () => {
+    const screenshot = {
+      mime: "image/jpeg" as const,
+      base64: Buffer.from("jpeg bytes").toString("base64"),
+    };
+    expect(
+      parseReviewBugReportInput({ ...bugReport, screenshot }),
+    ).toMatchObject({ screenshot });
+  });
+
+  it("rejects a screenshot over 3 MiB with 413", () => {
+    expectBugReportStatus(
+      {
+        ...bugReport,
+        screenshot: {
+          mime: "image/jpeg",
+          base64: Buffer.alloc(3 * 1024 * 1024 + 1).toString("base64"),
+        },
+      },
+      413,
+    );
+  });
+
+  it("rejects a screenshot with the wrong mime", () => {
+    expect(() =>
+      parseReviewBugReportInput({
+        ...bugReport,
+        screenshot: { mime: "image/png", base64: "cG5n" },
+      }),
+    ).toThrow(/image\/jpeg|Invalid input/i);
+  });
+
+  it("rejects malformed screenshot base64", () => {
+    expectBugReportStatus(
+      {
+        ...bugReport,
+        screenshot: { mime: "image/jpeg", base64: "not base64" },
+      },
+      400,
+    );
+  });
+});
+
+function expectBugReportStatus(value: unknown, statusCode: number) {
+  let thrown: unknown;
+  try {
+    parseReviewBugReportInput(value);
+  } catch (error) {
+    thrown = error;
+  }
+  expect(thrown).toMatchObject({ statusCode });
+}
 
 describe("parseThreadTarget", () => {
   it("round-trips document targets and rejects unknown kinds", () => {

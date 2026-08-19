@@ -2,20 +2,11 @@
 
 A Review can quote the agent sessions that produced the change. The reader then learns the intent from the user's own words, and each quote opens the trace at that moment.
 
-Read this reference when the pinned change has at least one available session. Skip it when `review trace list` reports none.
+The dev-review workflow provides materialized trace paths through the current scaffold event or its compatibility fallback. Skip this reference when no trace paths were materialized.
 
-## Find the sessions
+## Use the materialized sessions
 
-Run in the source worktree:
-
-```sh
-review trace list --review <uuid> --json
-review trace pull --review <uuid> --json
-```
-
-The command resolves sessions from `Agent-Session` commit trailers in the pinned range. Each entry reports its id, availability, commits, and trace names.
-
-Quote only sessions with `"available": true`. An unsynced session has no transcript in R2, and publish rejects quotes from it. Report unsynced sessions. Do not guess their content.
+Read `traces.sessions`, `traces.unavailableSessions`, and `traces.paths` from the scaffold JSON event. Scaffolding has already resolved the sessions from `Agent-Session` commit trailers in the pinned range and pulled each available transcript.
 
 ## Complete the intent pass
 
@@ -39,28 +30,26 @@ Do not filter the first pass to user events. Agent actions and tool use explain 
 
 The intent pass is complete when every available main trace has been surveyed and each relevant subagent trace has been surveyed.
 
-The pull command writes one normalized JSONL file per trace under:
+Scaffold or `review trace pull` writes one normalized JSONL file per trace under:
 
 ```text
 ~/.dev/trace-search/<owner>/<repo>/<session>/main.jsonl
 ~/.dev/trace-search/<owner>/<repo>/<session>/<subagent>.jsonl
 ```
 
-Its JSON output returns each absolute file path in `paths`. Use these paths directly. Do not derive them from the corpus layout.
+The scaffold event returns each absolute file path in `traces.paths`; `review trace pull` returns them in `paths`. Use these paths directly. Do not derive them from the corpus layout.
 
 The first line contains trace metadata. Each later line contains one event with its index, kind, exact projected text, and structured event.
 
-If the pull command reports missing trace configuration, ask the user to use Review Agent Setup. Do not change setup autonomously.
+If scaffold warnings or the compatibility pull report missing trace configuration, ask the user to use Review Agent Setup. Do not change setup autonomously.
 
 ## Find supporting events
 
-After the intent pass, use FFF to search the files returned in `paths` for each important requirement or decision.
+After the intent pass, use the FFF MCP (in its absence, falling back to tools like `rg`, and then `grep`) to search the files returned in `paths` for each important requirement or decision.
 
-Ignore a match on physical line 1 because it is trace metadata. Each later physical line contains one event. For a match on line `<L>`, the event index is `<L> - 2`. Use the record's `index` when the excerpt shows it. Otherwise, derive the index from the physical line number.
+Each physical line (except for line 1) contains one event. For a match on line `<L>`, the event index is `<L> - 2`. Use the record's `index` when the excerpt shows it. Otherwise, derive the index from the physical line number.
 
-Prefer user event records for requirements and corrections. Use assistant event records only when the assistant stated a decision that the user accepted. Confirm the kind with `review trace show --event` when the FFF excerpt omits it.
-
-FFF results locate candidates. Never copy quote text from a search result.
+Prefer user event records for requirements and corrections. Use assistant event records only when the assistant stated a decision that the user accepted. Confirm the kind with `review trace show --event` when the search excerpt omits it.
 
 ## Read exact quote text
 
@@ -87,11 +76,11 @@ Use `trace_quote_props` from the response without reconstructing it. Every `Trac
 
 ## Quote density by section
 
-- Landing section: build it almost entirely from quotes — the gap and the change especially. The two-to-four-sentence cap holds; short quotes beat long ones here.
+- Landing section: This section should almost entirely be composed from user (or, maybe, agent-written, but user-approved later on) quotes, save for some glue words connecting the quotes. The two-to-four-sentence cap holds; short quotes beat long ones here. the most important thing is to capture the user's intent, in their words, which led to the code change in the pinned diff.
 - Requirements: at least one quote per bullet.
 - Design: a quote states each decision. An `AnchorLink` shows the decision in code.
 - Implementation: authored prose with `AnchorLink` evidence. Quotes are optional.
-- Decision log: the full replay. Quote the turns in trace order. Include decisions the user later reversed, each with the quote that reversed it. Quote both decisions that the user made, as well as decisions that the agent made.
+- Decision log: the full replay. Quote the turns in trace order. Include decisions that later got invalidated or reversed, each with the quote that reversed it. Quote both decisions that the user made, as well as decisions that the agent made.
 
 ## Decisions that changed
 
@@ -99,7 +88,7 @@ Outside the decision log, quote only decisions that the pinned diff confirms. Wh
 
 ## Example texture
 
-A landing paragraph reads like this:
+An excerpt from a landing paragraph can read like this:
 
 ```mdx
 <TraceQuote sessionId="019fdb00-f032-79d2-9ee8-0b8fe0e86a9e" event={62}>

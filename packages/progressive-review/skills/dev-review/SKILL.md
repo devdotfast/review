@@ -42,6 +42,8 @@ Run `review app launch --json` to start Review Desktop. Then run `review info --
 
 Pass resolved commit ids to `--base` and `--head`. Parent suffixes like `<rev>^` do not resolve in a jj workspace; resolve the parent first with `jj log -r '<rev>-'`.
 
+If scaffold warns that `devfast.prepare` is not configured, set up that command according to [Prepared worktrees](references/prepared-worktrees.md).
+
 Read the scaffold JSON event and `<review-dir>/review.json`. Together they carry these values; record them:
 
 - Review UUID and directory
@@ -85,9 +87,7 @@ Read [Document authoring](references/document-authoring.md) before you edit `rev
 
 Use the materialized files in `traces.paths` from the scaffold event. When that array is non-empty, read [Trace quoting](references/trace-quoting.md) and complete its intent pass before authoring. Use FFF for candidate discovery.
 
-Run `review trace list --review <uuid> --json` followed by `review trace pull --review <uuid> --json` only when reusing a Review without a scaffold event from this run, or when the event has no `traces` field because the installed CLI predates automatic trace materialization. Do not repeat those commands after a current scaffold event; `review scaffold --update` refreshes the corpus and prints its paths again.
-
-Use the smallest document that explains the important change. Default to `AnchorLink` for source evidence. Use `CodePeek` only when readers must see the code inline to understand the main claim.
+Use the smallest document that explains the important change. Default to `AnchorLink` for source evidence, and use this to hyperlink any text in the review that refers to a specific piece of code. Use `CodePeek` only when readers must see the code inline to understand the main claim.
 
 Read every referenced range from the correct pinned checkout before you add it. Use the `checkouts` paths from the scaffold event: the head checkout for a head range, the base checkout for a base range.
 

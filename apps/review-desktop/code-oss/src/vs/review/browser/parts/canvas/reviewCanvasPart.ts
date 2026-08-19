@@ -1412,6 +1412,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				if (generation !== this.loadGeneration || !this.targetDocument) return;
 				this.targetDocument.body.dataset["reviewCanvasReady"] = "true";
 				lifecycle?.ready();
+				void this.captureReviewPresented(model);
 			},
 			reportDiagnostic: (diagnostic) => {
 				if (generation === this.loadGeneration && diagnostic.level === "error") {
@@ -1426,6 +1427,24 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				lifecycle?.reportDiagnostic(diagnostic);
 			},
 		};
+	}
+
+	private async captureReviewPresented(model: ReviewSessionModel): Promise<void> {
+		const session = model.session;
+		const headers = new Headers({
+			"content-type": "application/json",
+			"x-review-token": session.token,
+			"x-review-app-session-id": this.reviewTelemetryService.appSessionId,
+		});
+		await model.request(
+			`${session.sessionUrl}/__progressive-review/telemetry/event`,
+			{
+				method: "POST",
+				headers,
+				body: JSON.stringify({ name: "review_presented" }),
+				keepalive: true,
+			},
+		).catch(() => undefined);
 	}
 
 	/**

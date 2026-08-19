@@ -50,6 +50,7 @@ export interface RunReviewScaffoldInput {
   reviewUuid?: string;
   newReview?: boolean;
   background?: boolean;
+  onReviewBound?: (uuid: string) => void | Promise<void>;
 }
 
 // Scaffold's event carries the pinned commits and the managed checkout paths
@@ -70,7 +71,10 @@ export async function runReviewScaffold(
 ): Promise<ReviewScaffoldEvent> {
   if (input.update) {
     const existing = await findUpdateTarget(input.cwd, input.reviewUuid);
-    if (existing) return repinReview(existing, input);
+    if (existing) {
+      await input.onReviewBound?.(existing.review.uuid);
+      return repinReview(existing, input);
+    }
   }
   return createReview(input);
 }
@@ -163,6 +167,7 @@ async function createReview(
     await deleteReviewSourceHeadRef(source.reviewRoot, sourceHeadRef);
     throw error;
   }
+  await input.onReviewBound?.(created.review.uuid);
   try {
     const traceSessions = await listReviewTraceSessions({
       rootPath: source.reviewRoot,

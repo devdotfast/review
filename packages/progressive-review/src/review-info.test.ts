@@ -171,6 +171,46 @@ describe("review info", () => {
     }
   });
 
+  it("binds only after creation persists and as soon as an update target resolves", async () => {
+    const root = await makeGitRepository();
+    const home = await mkdtemp(path.join(os.tmpdir(), "review-info-home-"));
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+
+    try {
+      const createdBindings: string[] = [];
+      const created = await runReviewScaffold({
+        cwd: root,
+        onReviewBound: async (uuid) => {
+          await readFile(
+            path.join(home, "reviews", uuid, "review.json"),
+            "utf8",
+          );
+          createdBindings.push(uuid);
+        },
+      });
+      expect(createdBindings).toEqual([created.reviews[0]!.uuid]);
+
+      const updateBindings: string[] = [];
+      await expect(
+        runReviewScaffold({
+          cwd: root,
+          update: true,
+          reviewUuid: created.reviews[0]!.uuid,
+          baseRef: "missing-review-base",
+          onReviewBound: (uuid) => {
+            updateBindings.push(uuid);
+          },
+        }),
+      ).rejects.toThrow("missing-review-base");
+      expect(updateBindings).toEqual([created.reviews[0]!.uuid]);
+    } finally {
+      vi.unstubAllEnvs();
+      closeAllReviewThreadStores();
+      await rm(home, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("blocks a duplicate active review unless --new is present", async () => {
     const root = await makeGitRepository();
     const home = await mkdtemp(path.join(os.tmpdir(), "review-info-home-"));

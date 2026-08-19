@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { ZodError } from "zod";
 
+import { collectionSchema, resolveTargetRef } from "../../src/authoring";
 import {
   databaseC4Snapshot,
   databaseTourStopDetail,
@@ -130,11 +131,11 @@ describe("software map backed database lenses", () => {
       dataStoreKind: "database",
       softwareMapPath: "product.appDb",
     });
-    expect(stores.appDb.tables?.reviews.fields.id).toMatchObject({
+    expect(resolveTargetRef(stores.appDb.tables?.reviews.id)).toMatchObject({
       storeDataStoreKind: "database",
       storeSoftwareMapPath: "product.appDb",
     });
-    expect(stores.appDb.tables?.reviews.schema).toEqual({
+    expect(collectionSchema(stores.appDb.tables!.reviews)).toEqual({
       id: { type: "text", pk: true },
       body: { type: "text" },
     });
@@ -179,8 +180,8 @@ describe("software map backed database lenses", () => {
     const stores = defineSoftwareStores(model, {
       graphDb: { path: "product.graphDb" },
     });
-    const fieldRef = stores.graphDb.tables?.nodes.fields.label;
-    expect(fieldRef).toMatchObject({
+    const fieldRef = stores.graphDb.tables?.nodes.label;
+    expect(resolveTargetRef(fieldRef)).toMatchObject({
       __kind: "db-target-ref",
       path: ["label"],
     });
@@ -190,7 +191,7 @@ describe("software map backed database lenses", () => {
       id: "reader",
       label: "Reader",
     };
-    const target = stores.graphDb.tables?.nodes.fields.label;
+    const target = stores.graphDb.tables?.nodes.label;
     const snapshot = databaseC4Snapshot({
       useCase: {
         id: "inspect",
@@ -269,23 +270,23 @@ describe("software map backed database lenses", () => {
         operation: {
           kind: "write",
           from: actor,
-          to: stores.graphDb.tables?.nodes.fields.id,
+          to: stores.graphDb.tables?.nodes.id,
           label: "writes node ids",
           anchor: { id: "writeNodes", title: "Write nodes" },
         },
         actor,
-        target: stores.graphDb.tables?.nodes.fields.id,
+        target: stores.graphDb.tables?.nodes.id,
       },
       {
         operation: {
           kind: "write",
           from: actor,
-          to: stores.graphDb.tables?.edges.fields.from_id,
+          to: stores.graphDb.tables?.edges.from_id,
           label: "writes edge endpoints",
           anchor: { id: "writeEdges", title: "Write edges" },
         },
         actor,
-        target: stores.graphDb.tables?.edges.fields.from_id,
+        target: stores.graphDb.tables?.edges.from_id,
       },
     ] as never;
     const snapshot = databaseC4Snapshot({
@@ -392,24 +393,24 @@ describe("software map backed database lenses", () => {
       {
         operation: {
           kind: "read",
-          from: stores.graphDb.tables?.nodes.fields.id,
+          from: stores.graphDb.tables?.nodes.id,
           to: actor,
           label: "reads node ids",
           anchor: { id: "readNodes", title: "Read nodes" },
         },
         actor,
-        target: stores.graphDb.tables?.nodes.fields.id,
+        target: stores.graphDb.tables?.nodes.id,
       },
       {
         operation: {
           kind: "read",
-          from: stores.graphDb.tables?.edges.fields.from_id,
+          from: stores.graphDb.tables?.edges.from_id,
           to: actor,
           label: "reads edge endpoints",
           anchor: { id: "readEdges", title: "Read edges" },
         },
         actor,
-        target: stores.graphDb.tables?.edges.fields.from_id,
+        target: stores.graphDb.tables?.edges.from_id,
       },
     ] as never;
     const highlightInputs = [

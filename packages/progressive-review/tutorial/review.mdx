@@ -49,7 +49,7 @@ The database lens shows the `orders` record that the write path owns.
   <DbUseCase id="create-order" label="Create an order">
     <DbWrite
       from={actors.orderService}
-      to={stores.orderDatabase.tables.orders.fields.status}
+      to={stores.orderDatabase.tables.orders.status}
       label="write pending order"
       anchor={anchors.insertOrder}
     />
@@ -57,7 +57,7 @@ The database lens shows the `orders` record that the write path owns.
   <DbUseCase id="fulfill-order" label="Fulfill an order">
     <DbWrite
       from={actors.worker}
-      to={stores.orderDatabase.tables.orders.fields.status}
+      to={stores.orderDatabase.tables.orders.status}
       label="write fulfilled status"
       anchor={anchors.ship}
     />

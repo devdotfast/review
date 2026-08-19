@@ -3,17 +3,18 @@ import { describe, expect, it } from "vitest";
 import { ZodError } from "zod";
 
 import type {
+  AuthoredTargetRef,
   CodePeekProps,
   ReviewAuthoringComponentRegistry,
   SequenceDiagramProps,
   SequenceMessageInput,
-  TargetRef,
 } from "../../src/authoring";
 import {
   anchorLinkPropsSchema,
   databaseLensPropsSchema,
   dbOperationPropsSchema,
   dbUseCasePropsSchema,
+  resolveTargetRef,
   reviewCodePeekPropsSchema,
   reviewSectionPropsSchema,
   sequenceDiagramPropsSchema,
@@ -70,14 +71,14 @@ const stores = defineStores({
 });
 
 const actorKeyInference = actors.browser;
-const collectionKeyInference: TargetRef = stores.app.tables.reviews;
-const fieldKeyInference: TargetRef = stores.app.tables.reviews.fields.id;
-const nestedFieldKeyInference: TargetRef =
-  stores.app.tables.reviews.fields.metadata.fields.author;
-const leafSchemaKeyInference: TargetRef =
-  stores.app.tables.reviews.fields.payload.fields.status;
-const reservedNameFieldInference: TargetRef =
-  stores.app.tables.reviews.fields.path;
+const collectionKeyInference: AuthoredTargetRef = stores.app.tables.reviews;
+const fieldKeyInference: AuthoredTargetRef = stores.app.tables.reviews.id;
+const nestedFieldKeyInference: AuthoredTargetRef =
+  stores.app.tables.reviews.metadata.author;
+const leafSchemaKeyInference: AuthoredTargetRef =
+  stores.app.tables.reviews.payload.status;
+const reservedNameFieldInference: AuthoredTargetRef =
+  stores.app.tables.reviews.path;
 
 // These compile-time assertions make drift in the public authoring contract a
 // failure of the package typecheck, while the Vitest assertion below protects
@@ -89,7 +90,7 @@ void anchors.missing;
 // @ts-expect-error defineStores must retain collection keys.
 void stores.app.tables.users;
 // @ts-expect-error defineStores must retain field keys.
-void stores.app.tables.reviews.fields.missing;
+void stores.app.tables.reviews.missing;
 
 const validCodePeek: CodePeekProps = {
   file: "src/review.ts",
@@ -206,17 +207,25 @@ describe("review authoring contract", () => {
       id: "browser",
       label: "Browser",
     });
-    expect(collectionKeyInference).toMatchObject({
+    expect(resolveTargetRef(collectionKeyInference)).toMatchObject({
       __kind: "db-target-ref",
       path: [],
     });
-    expect(fieldKeyInference).toMatchObject({
+    expect(resolveTargetRef(fieldKeyInference)).toMatchObject({
       __kind: "db-target-ref",
       path: ["id"],
     });
-    expect(nestedFieldKeyInference.path).toEqual(["metadata", "author"]);
-    expect(leafSchemaKeyInference.path).toEqual(["payload", "status"]);
-    expect(reservedNameFieldInference.path).toEqual(["path"]);
+    expect(resolveTargetRef(nestedFieldKeyInference)?.path).toEqual([
+      "metadata",
+      "author",
+    ]);
+    expect(resolveTargetRef(leafSchemaKeyInference)?.path).toEqual([
+      "payload",
+      "status",
+    ]);
+    expect(resolveTargetRef(reservedNameFieldInference)?.path).toEqual([
+      "path",
+    ]);
   });
 
   it("accepts exact collection and field targets for database operations", () => {
@@ -231,7 +240,7 @@ describe("review authoring contract", () => {
     expect(
       dbOperationPropsSchema.parse({
         from: actors.api,
-        to: stores.app.tables.reviews.fields.path,
+        to: stores.app.tables.reviews.path,
         label: "Write path",
         anchor: anchors.request,
       }),
@@ -282,7 +291,7 @@ describe("review authoring contract", () => {
       dbOperationPropsSchema,
       {
         from: actors.browser,
-        to: stores.app.tables.reviews.fields.id,
+        to: stores.app.tables.reviews.id,
         label: "Read",
         anchor: anchors.request,
         extra: true,
@@ -293,7 +302,7 @@ describe("review authoring contract", () => {
       dbOperationPropsSchema,
       {
         from: actors.api,
-        to: stores.app.tables.reviews.fields.id,
+        to: stores.app.tables.reviews.id,
         label: "Write",
         anchor: anchors.request,
         extra: true,

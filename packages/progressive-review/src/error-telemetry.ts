@@ -115,7 +115,11 @@ export function deriveErrorTelemetryProperties(
  * characters, which makes it safe whoever sends it, and `bug_report_send_failed`
  * sends it with no error envelope.
  */
-const SERVER_DERIVED_PROPERTIES = ["message", "message_hash", "frames"] as const;
+const SERVER_DERIVED_PROPERTIES = [
+  "message",
+  "message_hash",
+  "frames",
+] as const;
 
 /**
  * Merge a client's event properties with the ones derived from its raw error.
@@ -190,9 +194,7 @@ export function packBundleFrames(stack: unknown): string | undefined {
     frames.push(frame);
     if (frames.length >= MAX_FRAMES) break;
   }
-  return frames.length > 0
-    ? frames.join(BUNDLE_FRAME_SEPARATOR)
-    : undefined;
+  return frames.length > 0 ? frames.join(BUNDLE_FRAME_SEPARATOR) : undefined;
 }
 
 function bundleRelativePath(location: string): string | undefined {

@@ -22,9 +22,7 @@ vi.mock("./ui-telemetry", () => ({
       ) => void
     >(),
   captureClientError:
-    vi.fn<
-      (session: unknown, errorSource: string, error: unknown) => void
-    >(),
+    vi.fn<(session: unknown, errorSource: string, error: unknown) => void>(),
   clientErrorName: (error: unknown) =>
     error instanceof Error ? error.name : "Error",
 }));

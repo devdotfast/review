@@ -167,6 +167,77 @@ describe("sanitizeUiTelemetryEvent", () => {
     expect(sanitizeUiTelemetryEvent({ name: "made_up" })).toBeNull();
   });
 
+  it("allows the three update lifecycle events", () => {
+    const update_attempt_id = "12345678-1234-1234-1234-123456789abc";
+    expect(
+      sanitizeUiTelemetryEvent({
+        name: "update_started",
+        properties: { update_attempt_id, target_version: "0.0.27" },
+      }),
+    ).toEqual({
+      event: "review_update_started",
+      properties: { update_attempt_id, target_version: "0.0.27" },
+    });
+    expect(
+      sanitizeUiTelemetryEvent({
+        name: "update_completed",
+        properties: {
+          update_attempt_id,
+          target_version: "0.0.27-beta.1",
+          duration_ms: 1234,
+        },
+      }),
+    ).toEqual({
+      event: "review_update_completed",
+      properties: {
+        update_attempt_id,
+        target_version: "0.0.27-beta.1",
+        duration_ms: 1234,
+      },
+    });
+    expect(
+      sanitizeUiTelemetryEvent({
+        name: "update_failed",
+        properties: {
+          phase: "install",
+          message_source: "shipit",
+          update_attempt_id,
+          target_version: "0.0.27",
+          duration_ms: 2345,
+          error_name: "UpdateInstallError",
+          message: "Failed to copy <REDACTED: user-file-path>",
+          message_hash: "0123456789abcdef",
+        },
+      }),
+    ).toEqual({
+      event: "review_update_failed",
+      properties: {
+        phase: "install",
+        message_source: "shipit",
+        update_attempt_id,
+        target_version: "0.0.27",
+        duration_ms: 2345,
+        error_name: "UpdateInstallError",
+        message: "Failed to copy <REDACTED: user-file-path>",
+        message_hash: "0123456789abcdef",
+      },
+    });
+  });
+
+  it("rejects invalid update dimensions and raw update errors", () => {
+    expect(
+      sanitizeUiTelemetryEvent({
+        name: "update_failed",
+        properties: {
+          phase: "restart",
+          message_source: "raw_log",
+          target_version: "private version",
+          message: "Failed at /Users/alice/private/Review.app",
+        },
+      }),
+    ).toEqual({ event: "review_update_failed", properties: {} });
+  });
+
   it("drops unknown property keys", () => {
     const output = sanitizeUiTelemetryEvent({
       name: "lsp_used",

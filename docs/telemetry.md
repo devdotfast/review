@@ -201,8 +201,8 @@ Publish binds immediately after target resolution, before validation and mount.
 
 Error names and categories are closed enums. A failed command sends no exception
 message, stack, path, process output, project identifier, or remediation text.
-Only the `review_client_error` event carries message text, and only as described
-in "Error reports".
+Only the `review_client_error` and `review_update_failed` events carry message
+text, and only as described in "Error reports".
 
 - Error names: `usage_error`, `review_not_found`, `review_state_error`,
   `repository_error`, `desktop_connection_error`, `network_error`,
@@ -215,9 +215,9 @@ in "Error reports".
   `jj_change`. Agent kinds are `codex`, `claude`, `pi`, and `other`. Outcomes
   are `approve`, `request-changes`, and `dismissed`.
 
-### Canvas events
+### Desktop and canvas events
 
-The server checks all canvas properties against
+The server checks all properties in this table against
 `packages/progressive-review/src/ui-telemetry-events.ts`.
 
 | Event                                         | Additional properties                                                                                    | When                                      |
@@ -242,6 +242,9 @@ The server checks all canvas properties against
 | `review_agent_run_started`        | None                                                                                                     | A user starts an agent run                |
 | `review_thread_resolved`          | `kind: comment`                                                                                          | A user resolves a comment                 |
 | `review_client_error`             | See "Error reports"                                                                                      | A part of Review reports an error         |
+| `review_update_started`           | Random `update_attempt_id`, `target_version`                                                              | An update is downloaded and ready to install |
+| `review_update_completed`         | Start properties plus `duration_ms`                                                                      | The downloaded target launches after restart |
+| `review_update_failed`            | `phase` in check, download, install; `message_source` in electron, request, shipit, fallback; optional start properties and `duration_ms`; see "Error reports" | An update check, download, or install fails |
 | `review_bug_report_dialog_opened` | None                                                                                                     | A user opens the bug report dialog        |
 | `review_bug_report_cancelled`     | None                                                                                                     | A user closes the dialog without a report |
 | `review_bug_report_send_failed`   | Short `error_name`                                                                                       | A bug report request fails                |
@@ -304,7 +307,12 @@ machine can still be found and fixed. Four parts of Review report an error: the
 app window, the canvas, the background process, and a crash that happens before
 Review can start.
 
-Review sends these properties with the `review_client_error` event.
+Review sends these properties with the `review_client_error` event. A
+`review_update_failed` event uses the same server-side message cleaning and
+fingerprinting, plus the closed update phase and message-source fields above.
+Install failures read at most 64 KiB appended to ShipIt's stderr log after the
+matching update was staged. Review extracts only the last NSError summary (or
+the fixed retry-exhausted line); it neither stores nor uploads the raw log.
 
 | Property        | Value                                                                                     |
 | --------------- | ----------------------------------------------------------------------------------------- |

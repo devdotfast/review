@@ -147,11 +147,8 @@ describe("Review CLI", () => {
     const runReviewPublish = vi.fn<typeof runReviewPublishActual>(
       async () => 0,
     );
-    const runReviewScaffold = vi.fn<typeof runReviewScaffoldActual>(
-      async () => ({
-        event: "info" as const,
-        reviews: [],
-      }),
+    const runReviewScaffold = vi.fn<typeof runReviewScaffoldActual>(async () =>
+      emptyScaffoldEvent(),
     );
 
     await runProgressiveReviewCli({
@@ -458,7 +455,7 @@ describe("Review CLI", () => {
     const runReviewScaffold = vi.fn<typeof runReviewScaffoldActual>(
       async (input) => {
         await input.onReviewBound?.(reviewUuid);
-        return { event: "info", reviews: [] };
+        return emptyScaffoldEvent();
       },
     );
 
@@ -519,11 +516,8 @@ describe("Review CLI", () => {
   });
 
   it("accepts --json on scaffold and keeps stdout to one JSON line", async () => {
-    const runReviewScaffold = vi.fn<typeof runReviewScaffoldActual>(
-      async () => ({
-        event: "info" as const,
-        reviews: [],
-      }),
+    const runReviewScaffold = vi.fn<typeof runReviewScaffoldActual>(async () =>
+      emptyScaffoldEvent(),
     );
     const stdout = outputStream();
     let output = "";
@@ -540,7 +534,20 @@ describe("Review CLI", () => {
 
     const lines = output.trimEnd().split("\n");
     expect(lines).toHaveLength(1);
-    expect(JSON.parse(lines[0]!)).toEqual({ event: "info", reviews: [] });
+    expect(JSON.parse(lines[0]!)).toEqual({
+      event: "info",
+      reviews: [],
+      traces: {
+        sessions: [],
+        corpusRoot: null,
+        repository: null,
+        materializedSessions: [],
+        unavailableSessions: [],
+        events: 0,
+        files: 0,
+        paths: [],
+      },
+    });
   });
 
   it("rejects the removed info --new option", async () => {
@@ -554,11 +561,8 @@ describe("Review CLI", () => {
   });
 
   it("passes scaffold update options to the runtime", async () => {
-    const runReviewScaffold = vi.fn<typeof runReviewScaffoldActual>(
-      async () => ({
-        event: "info" as const,
-        reviews: [],
-      }),
+    const runReviewScaffold = vi.fn<typeof runReviewScaffoldActual>(async () =>
+      emptyScaffoldEvent(),
     );
 
     await expect(
@@ -804,6 +808,25 @@ describe("Review CLI", () => {
     );
   });
 });
+
+function emptyScaffoldEvent(): Awaited<
+  ReturnType<typeof runReviewScaffoldActual>
+> {
+  return {
+    event: "info",
+    reviews: [],
+    traces: {
+      sessions: [],
+      corpusRoot: null,
+      repository: null,
+      materializedSessions: [],
+      unavailableSessions: [],
+      events: 0,
+      files: 0,
+      paths: [],
+    },
+  };
+}
 
 function outputStream(): NodeJS.WriteStream {
   return new PassThrough() as unknown as NodeJS.WriteStream;

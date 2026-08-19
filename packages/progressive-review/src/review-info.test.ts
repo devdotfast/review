@@ -1,5 +1,12 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -118,6 +125,89 @@ describe("review info", () => {
     } finally {
       vi.unstubAllEnvs();
       closeAllReviewThreadStores();
+      await rm(home, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("materializes available agent traces and reports their paths", async () => {
+    const root = await makeGitRepository();
+    const home = await mkdtemp(path.join(os.tmpdir(), "review-info-home-"));
+    const mockR2Dir = path.join(home, "mock-r2");
+    const traceSearchDir = path.join(home, "trace-search");
+    const sessionId = "11111111-1111-4111-8111-111111111111";
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+    vi.stubEnv("TRACE_R2_MODE", "mock");
+    vi.stubEnv("TRACE_R2_MOCK_DIR", mockR2Dir);
+    vi.stubEnv("REVIEW_TEST_TRACE_SEARCH_DIR", traceSearchDir);
+    vi.stubEnv("GITHUB_REPOSITORY", "acme/widgets");
+
+    try {
+      await git(root, ["config", "devfast.prepare", "echo ok"]);
+      await git(root, ["checkout", "-b", "feature"]);
+      await writeFile(path.join(root, "README.md"), "# Feature\n", "utf8");
+      await git(root, [
+        "commit",
+        "-am",
+        `feature\n\nAgent-Session: ${sessionId}`,
+      ]);
+
+      const remoteTraceDir = path.join(mockR2Dir, "by-session", sessionId);
+      await mkdir(remoteTraceDir, { recursive: true });
+      await writeFile(
+        path.join(remoteTraceDir, "trace.jsonl"),
+        [
+          JSON.stringify({
+            type: "session_meta",
+            payload: { id: sessionId, cwd: root },
+          }),
+          JSON.stringify({
+            type: "event_msg",
+            payload: { type: "user_message", message: "Build the feature" },
+          }),
+        ].join("\n") + "\n",
+      );
+
+      const progress: string[] = [];
+      const created = await runReviewScaffold({
+        cwd: root,
+        baseRef: "main",
+        headRef: "feature",
+        progress: (message) => progress.push(message),
+      });
+      const expectedPath = path.join(
+        traceSearchDir,
+        "acme",
+        "widgets",
+        sessionId,
+        "main.jsonl",
+      );
+
+      expect(created.traces).toMatchObject({
+        sessions: [
+          {
+            id: sessionId,
+            available: true,
+            traces: ["main"],
+          },
+        ],
+        corpusRoot: traceSearchDir,
+        repository: "acme/widgets",
+        materializedSessions: [
+          { session: sessionId, traces: 1, events: 1, files: 1 },
+        ],
+        unavailableSessions: [],
+        events: 1,
+        files: 1,
+        paths: [expectedPath],
+      });
+      expect(progress).toContain("Trace paths:");
+      expect(progress).toContain(`  ${expectedPath}`);
+      await expect(readFile(expectedPath, "utf8")).resolves.toContain(
+        '"repository":"acme/widgets"',
+      );
+    } finally {
+      vi.unstubAllEnvs();
       await rm(home, { recursive: true, force: true });
       await rm(root, { recursive: true, force: true });
     }

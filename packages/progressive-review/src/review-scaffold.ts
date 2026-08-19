@@ -8,13 +8,21 @@ import {
   mergeBase,
   resolveRevision,
 } from "@dev.fast/local-vcs";
-import type { ReviewSourceIdentity } from "@dev.fast/review-protocol";
+import type {
+  ReviewAgentTraceSession,
+  ReviewSourceIdentity,
+} from "@dev.fast/review-protocol";
 
 import {
   authoringSessionKey,
   resolveAuthoringSessionRef,
 } from "./authoring-session";
-import { listReviewTraceSessions } from "./review-agent-traces";
+import {
+  type ReviewTracePullSessionResult,
+  inferRepoFromGit,
+  listReviewTraceSessions,
+  pullReviewTraceCorpus,
+} from "./review-agent-traces";
 import { isPositionalChangeIdentity } from "./review-change-scope";
 import { removeReviewManagedCheckouts } from "./review-head-checkout";
 import {
@@ -53,12 +61,32 @@ export interface RunReviewScaffoldInput {
   onReviewBound?: (uuid: string) => void | Promise<void>;
 }
 
-// Scaffold's event carries the pinned commits and the managed checkout paths
-// so the authoring agent never has to know the on-disk layout. A checkout is
-// null only when its eager materialization degraded to a warning.
+// Scaffold's event carries pinned commits, managed checkouts, and normalized
+// trace paths so the authoring agent never has to rediscover on-disk layout.
+// A checkout is null only when its eager materialization degraded to a warning.
 export interface ReviewScaffoldEvent extends ReviewInfoEvent {
   pins?: { baseCommit: string; sourceCommit: string };
   checkouts?: { head: string | null; base: string | null };
+  traces: ReviewScaffoldTraces;
+}
+
+export interface ReviewScaffoldTraceSession {
+  id: string;
+  harness: ReviewAgentTraceSession["harness"];
+  available: boolean;
+  traces: string[];
+  commits: ReviewAgentTraceSession["commits"];
+}
+
+export interface ReviewScaffoldTraces {
+  sessions: ReviewScaffoldTraceSession[];
+  corpusRoot: string | null;
+  repository: string | null;
+  materializedSessions: ReviewTracePullSessionResult[];
+  unavailableSessions: string[];
+  events: number;
+  files: number;
+  paths: string[];
 }
 
 /**
@@ -168,16 +196,13 @@ async function createReview(
     throw error;
   }
   await input.onReviewBound?.(created.review.uuid);
-  try {
-    const traceSessions = await listReviewTraceSessions({
-      rootPath: source.reviewRoot,
-      baseCommit,
-      headCommit: sourceCommit,
-    });
-    reportTraceSessionsProgress(traceSessions, input.progress);
-  } catch {
-    // Ignore trace resolution errors
-  }
+  const traceSetup = await discoverAndPullScaffoldTraces({
+    rootPath: source.reviewRoot,
+    baseCommit,
+    headCommit: sourceCommit,
+    progress: input.progress,
+  });
+  setup.warnings.push(...traceSetup.warnings);
   const event: ReviewScaffoldEvent = {
     ...(await reviewInfoEvent([created])),
     pins: { baseCommit, sourceCommit },
@@ -185,6 +210,7 @@ async function createReview(
       head: setup.headRootPath ?? null,
       base: setup.baseRootPath ?? null,
     },
+    traces: traceSetup.traces,
   };
   return setup.warnings.length > 0
     ? { ...event, warnings: setup.warnings }
@@ -285,16 +311,13 @@ export async function repinReview(
       "Pins moved under a published revision. Publish again to present the new commits.",
     );
   }
-  try {
-    const traceSessions = await listReviewTraceSessions({
-      rootPath: root,
-      baseCommit,
-      headCommit: sourceCommit,
-    });
-    reportTraceSessionsProgress(traceSessions, input.progress);
-  } catch {
-    // Ignore trace resolution errors
-  }
+  const traceSetup = await discoverAndPullScaffoldTraces({
+    rootPath: root,
+    baseCommit,
+    headCommit: sourceCommit,
+    progress: input.progress,
+  });
+  setup.warnings.push(...traceSetup.warnings);
   const event: ReviewScaffoldEvent = {
     ...(await reviewInfoEvent([updated])),
     pins: { baseCommit, sourceCommit },
@@ -302,6 +325,7 @@ export async function repinReview(
       head: setup.headRootPath ?? null,
       base: setup.baseRootPath ?? null,
     },
+    traces: traceSetup.traces,
   };
   return setup.warnings.length > 0
     ? { ...event, warnings: setup.warnings }
@@ -309,7 +333,7 @@ export async function repinReview(
 }
 
 function reportTraceSessionsProgress(
-  sessions: import("@dev.fast/review-protocol").ReviewAgentTraceSession[],
+  sessions: ReviewAgentTraceSession[],
   progress?: (message: string) => void,
 ): void {
   if (!progress) return;
@@ -331,6 +355,128 @@ function reportTraceSessionsProgress(
             : "unknown";
     const syncLabel = s.available ? "[R2 synced]" : "[not synced]";
     progress(`  ${shortId} (${harness})  ${syncLabel}`);
+  }
+}
+
+async function discoverAndPullScaffoldTraces(input: {
+  rootPath: string;
+  baseCommit: string;
+  headCommit: string;
+  progress?: (message: string) => void;
+}): Promise<{ traces: ReviewScaffoldTraces; warnings: string[] }> {
+  let resolvedSessions: ReviewAgentTraceSession[];
+  try {
+    resolvedSessions = await listReviewTraceSessions(input);
+  } catch (error) {
+    return traceSetupFailure(
+      [],
+      `Agent trace discovery failed: ${formatError(error)}`,
+      input.progress,
+    );
+  }
+
+  reportTraceSessionsProgress(resolvedSessions, input.progress);
+  const sessions = resolvedSessions.map(scaffoldTraceSession);
+  const availableSessions = resolvedSessions.filter(
+    (session) => session.available,
+  );
+  const unavailableSessions = resolvedSessions
+    .filter((session) => !session.available)
+    .map((session) => session.sessionId);
+  if (availableSessions.length === 0) {
+    return {
+      traces: emptyScaffoldTraces(sessions, unavailableSessions),
+      warnings: [],
+    };
+  }
+
+  try {
+    const repo = await inferRepoFromGit(input.rootPath);
+    const pulled = await pullReviewTraceCorpus({
+      repo,
+      sessions: availableSessions.map((session) => ({
+        id: session.sessionId,
+        traces: session.subagents,
+      })),
+    });
+    const traces: ReviewScaffoldTraces = {
+      sessions,
+      corpusRoot: pulled.corpusRoot,
+      repository: pulled.repository,
+      materializedSessions: pulled.sessions,
+      unavailableSessions: [
+        ...new Set([...unavailableSessions, ...pulled.unavailableSessions]),
+      ],
+      events: pulled.events,
+      files: pulled.files,
+      paths: pulled.paths,
+    };
+    reportTracePathsProgress(traces, input.progress);
+    return { traces, warnings: [] };
+  } catch (error) {
+    return traceSetupFailure(
+      sessions,
+      `Agent trace materialization failed: ${formatError(error)}`,
+      input.progress,
+    );
+  }
+}
+
+function scaffoldTraceSession(
+  session: ReviewAgentTraceSession,
+): ReviewScaffoldTraceSession {
+  return {
+    id: session.sessionId,
+    harness: session.harness,
+    available: session.available,
+    traces: ["main", ...(session.subagents ?? [])],
+    commits: session.commits,
+  };
+}
+
+function emptyScaffoldTraces(
+  sessions: ReviewScaffoldTraceSession[],
+  unavailableSessions: string[] = [],
+): ReviewScaffoldTraces {
+  return {
+    sessions,
+    corpusRoot: null,
+    repository: null,
+    materializedSessions: [],
+    unavailableSessions,
+    events: 0,
+    files: 0,
+    paths: [],
+  };
+}
+
+function traceSetupFailure(
+  sessions: ReviewScaffoldTraceSession[],
+  warning: string,
+  progress?: (message: string) => void,
+): { traces: ReviewScaffoldTraces; warnings: string[] } {
+  progress?.(`Warning: ${warning}`);
+  return {
+    traces: emptyScaffoldTraces(
+      sessions,
+      sessions.map((session) => session.id),
+    ),
+    warnings: [warning],
+  };
+}
+
+function reportTracePathsProgress(
+  traces: ReviewScaffoldTraces,
+  progress?: (message: string) => void,
+): void {
+  if (!progress) return;
+  if (traces.paths.length === 0) {
+    progress("Trace paths: none materialized");
+    return;
+  }
+  progress("Trace paths:");
+  for (const tracePath of traces.paths) {
+    progress(`  ${tracePath}`);
   }
 }
 

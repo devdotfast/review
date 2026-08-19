@@ -22,7 +22,7 @@ Read [Document authoring](references/document-authoring.md) for writing rules an
 
 Read [Component API](references/component-api.md) before you write `data.ts`. It defines every component's props and every helper's input shape.
 
-Read [Trace quoting](references/trace-quoting.md) when `review trace list --review <uuid> --json` reports an available session.
+Read [Trace quoting](references/trace-quoting.md) when the scaffold event reports a non-empty `traces.paths` array, or when the compatibility fallback below reports an available session.
 
 Read [Lifecycle and storage](references/lifecycle-and-storage.md) when you must select or update the binding. It also defines publication, state, migration, and thread behavior.
 
@@ -48,6 +48,7 @@ Read the scaffold JSON event and `<review-dir>/review.json`. Together they carry
 - source worktree
 - `baseCommit` and `sourceCommit` (the scaffold event prints them under `pins`)
 - both pinned checkout paths (the scaffold event prints them under `checkouts`)
+- materialized agent trace paths (the scaffold event prints them under `traces.paths`)
 - source binding and status
 
 `inSync: false` in `review info` means only that the source worktree does not sit on the pinned commit. That alone requires no action. Use `review scaffold --update --review <uuid>` only when the bound branch or pull request gained commits past the pin. Re-read each file whose anchored range changed after the update.
@@ -82,7 +83,9 @@ If no sub-agent facility exists, publish the document. Report that the map is no
 
 Read [Document authoring](references/document-authoring.md) before you edit `review.mdx` or `data.ts`.
 
-Run `review trace list --review <uuid> --json`. When it reports an available session, run `review trace pull --review <uuid> --json`. Then read [Trace quoting](references/trace-quoting.md) and complete its intent pass before authoring. Use FFF for candidate discovery.
+Use the materialized files in `traces.paths` from the scaffold event. When that array is non-empty, read [Trace quoting](references/trace-quoting.md) and complete its intent pass before authoring. Use FFF for candidate discovery.
+
+Run `review trace list --review <uuid> --json` followed by `review trace pull --review <uuid> --json` only when reusing a Review without a scaffold event from this run, or when the event has no `traces` field because the installed CLI predates automatic trace materialization. Do not repeat those commands after a current scaffold event; `review scaffold --update` refreshes the corpus and prints its paths again.
 
 Use the smallest document that explains the important change. Default to `AnchorLink` for source evidence. Use `CodePeek` only when readers must see the code inline to understand the main claim.
 

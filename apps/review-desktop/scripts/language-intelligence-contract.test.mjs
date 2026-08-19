@@ -83,6 +83,46 @@ const reviewCanvas = readFileSync(
   ),
   "utf8",
 );
+const keylessTelemetryClients = [
+  {
+    name: "JSON",
+    manifest: JSON.parse(
+      readFileSync(
+        new URL(
+          "../code-oss/extensions/json-language-features/package.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    ),
+    source: readFileSync(
+      new URL(
+        "../code-oss/extensions/json-language-features/client/src/node/jsonClientMain.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  },
+  {
+    name: "HTML",
+    manifest: JSON.parse(
+      readFileSync(
+        new URL(
+          "../code-oss/extensions/html-language-features/package.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    ),
+    source: readFileSync(
+      new URL(
+        "../code-oss/extensions/html-language-features/client/src/node/htmlClientMain.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  },
+];
 
 test("Review exposes a language-provider-generic extension host seam", () => {
   assert.match(reviewMain, /languageFeaturesService/);
@@ -130,6 +170,17 @@ test("Review exposes a language-provider-generic extension host seam", () => {
     `${reviewServices}\n${resources}`,
     /typescript-language-features|javascript-language-features/,
   );
+});
+
+test("keyless bundled language clients skip their telemetry reporters", () => {
+  for (const { name, manifest, source } of keylessTelemetryClients) {
+    assert.equal(manifest.aiKey, undefined, `${name} manifest must stay keyless`);
+    assert.match(
+      source,
+      /clientPackageJSON\.aiKey\s*\?\s*new TelemetryReporter\(clientPackageJSON\.aiKey\)\s*:\s*undefined/,
+      `${name} must not construct telemetry with an absent key`,
+    );
+  }
 });
 
 test("CodePeeks retain the same file-backed models as native file diffs", () => {

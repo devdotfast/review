@@ -6,6 +6,7 @@ import {
   fetchNotes,
   git,
   gitCommonDirSync,
+  notesRemote,
   pruneNotes,
   pushNotes,
   readNote,
@@ -141,17 +142,25 @@ export async function runSoftwareMapCli(
       "map",
       `review map ${command} was removed: it spawned a nested coding agent. ` +
         "Run `review map open <rev>` to hydrate the scratch, author it " +
-        "following the dev-review skill's Map Agent Prompt, and validate/" +
+        "with the dev-review-map skill, and validate/" +
         "flush with `review map check <rev>`.",
     );
   }
 
   if (command === "push") {
-    return pushSoftwareMapNotes({ ...output, rootPath: input.cwd });
+    return pushSoftwareMapNotes({
+      ...output,
+      rootPath: input.cwd,
+      remote: parsed.remote,
+    });
   }
 
   if (command === "fetch") {
-    return fetchSoftwareMapNotes({ ...output, rootPath: input.cwd });
+    return fetchSoftwareMapNotes({
+      ...output,
+      rootPath: input.cwd,
+      remote: parsed.remote,
+    });
   }
 
   const exitCode = failWithJsonError(
@@ -169,8 +178,8 @@ function softwareMapCliHelp() {
     "       review map check [<rev>] [--review <uuid>]",
     "       review map publish [--review <uuid>]",
     "       review map prune",
-    "       review map push",
-    "       review map fetch",
+    "       review map push [--remote <name>]",
+    "       review map fetch [--remote <name>]",
     "",
     "Manage the git-notes-backed software map.",
     "Every verb accepts --json: stdout then carries one JSON event and the human report moves to stderr.",
@@ -180,7 +189,7 @@ function softwareMapCliHelp() {
     "Use review map check [<rev>] [--review <uuid>] to validate the scratch strictly; on success it SAVES the scratch to <rev>'s note. Without <rev> it targets the selected review's head commit.",
     "Use review map publish to publish the saved base and head maps to Review Desktop.",
     "Use review map prune to drop notes on commits that are gone or unreachable (jj working copies are kept), then sweep fully-flushed scratch buffers (dirty or note-less scratches are kept).",
-    "Use review map push / fetch to share map notes with teammates via origin.",
+    "Use review map push / fetch to share map notes with teammates. The remote defaults to devFast.notesRemote, then origin.",
     "",
   ].join("\n");
 }
@@ -199,6 +208,7 @@ type ParsedSoftwareMapCliArgs =
       diffRefs: SoftwareMapDiffRefOptions;
       pullRequest?: string;
       review?: string;
+      remote?: string;
       json: boolean;
     }
   | { ok: false; error: string };
@@ -207,7 +217,9 @@ export function parseSoftwareMapCliArgs(
   inputArgs: readonly string[],
 ): ParsedSoftwareMapCliArgs {
   const args = inputArgs[0] === "--" ? inputArgs.slice(1) : [...inputArgs];
-  const command = args[0] ?? "check";
+  const rawCommand = args[0] ?? "check";
+  // `present` is an alias of `publish`.
+  const command = rawCommand === "present" ? "publish" : rawCommand;
   if (command === "--help" || command === "-h" || command === "help") {
     return {
       ok: true,
@@ -245,6 +257,7 @@ export function parseSoftwareMapCliArgs(
     head?: string;
     pr?: string;
     review?: string;
+    remote?: string;
     json?: boolean;
   }>();
   const missingRemovedOption = (
@@ -259,6 +272,9 @@ export function parseSoftwareMapCliArgs(
       ok: false,
       error: `Expected a value after --${missingRemovedOption[0]}.`,
     };
+  }
+  if (options.remote !== undefined && !options.remote.trim()) {
+    return { ok: false, error: "Expected a value after --remote." };
   }
 
   if (
@@ -278,6 +294,7 @@ export function parseSoftwareMapCliArgs(
     force: options.force ?? false,
     diffRefs: {},
     review: options.review,
+    remote: options.remote?.trim(),
     json: options.json ?? false,
   };
 }
@@ -314,7 +331,9 @@ function softwareMapCommandModel(commandName: string): Command {
     commandName === "push" ||
     commandName === "fetch"
   ) {
-    return command;
+    return commandName === "push" || commandName === "fetch"
+      ? command.addOption(new Option("--remote <name>"))
+      : command;
   }
   return command.addArgument(new Argument("[args...]"));
 }
@@ -323,6 +342,9 @@ function softwareMapCommanderError(
   error: CommanderError,
   command: string,
 ): string {
+  if (/option '--remote <name>' argument missing/.test(error.message)) {
+    return "Expected a value after --remote.";
+  }
   const missingRemovedOption = error.message.match(
     /option '(--(?:base|head|pr))(?: <[^>]+>)?' argument missing/,
   )?.[1];
@@ -716,48 +738,52 @@ async function scratchIsFullyFlushed(input: {
 }
 
 async function pushSoftwareMapNotes(
-  input: CliJsonOutput & { rootPath: string },
+  input: CliJsonOutput & { rootPath: string; remote?: string },
 ) {
   const human = humanStream(input);
+  const remote = await notesRemote(input.rootPath, input.remote);
   const result = await pushNotes({
     rootPath: input.rootPath,
+    remote,
     refs: [SOFTWARE_MAP_NOTES_REF],
   });
   if (!result.ok) {
     return failWithJsonError(
       input,
       "map-push",
-      `software map push failed: ${result.error ?? "unknown error"}`,
+      `software map push failed for ${remote}: ${result.error ?? "unknown error"}. If another remote is writable, retry with --remote <name>.`,
     );
   }
   human.write(
     result.pushed.length === 0
       ? "no software-map notes to push.\n"
-      : `pushed ${result.pushed.join(", ")} to origin. Teammates receive them on their next fetch (review install configures the refspec).\n`,
+      : `pushed ${result.pushed.join(", ")} to ${remote}. Teammates receive them on their next fetch (review install configures the refspec).\n`,
   );
-  emitJsonEvent(input, { event: "map-push", pushed: result.pushed });
+  emitJsonEvent(input, { event: "map-push", remote, pushed: result.pushed });
   return 0;
 }
 
 async function fetchSoftwareMapNotes(
-  input: CliJsonOutput & { rootPath: string },
+  input: CliJsonOutput & { rootPath: string; remote?: string },
 ) {
   const human = humanStream(input);
-  const result = await fetchNotes({ rootPath: input.rootPath });
+  const remote = await notesRemote(input.rootPath, input.remote);
+  const result = await fetchNotes({ rootPath: input.rootPath, remote });
   if (!result.ok) {
     return failWithJsonError(
       input,
       "map-fetch",
-      `software map fetch failed: ${result.error ?? "unknown error"}`,
+      `software map fetch failed for ${remote}: ${result.error ?? "unknown error"}`,
     );
   }
   human.write(
     result.skipped
       ? "software-map note fetch skipped (devFast.fetchNotes=false).\n"
-      : "fetched software-map notes from origin into refs/notes/dev-fast/remote/*.\n",
+      : `fetched software-map notes from ${remote} into refs/notes/dev-fast/remote/*.\n`,
   );
   emitJsonEvent(input, {
     event: "map-fetch",
+    remote,
     skipped: result.skipped ?? false,
   });
   return 0;

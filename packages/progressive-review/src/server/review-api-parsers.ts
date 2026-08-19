@@ -123,8 +123,8 @@ export const ReviewSubmissionInputSchema = z.strictObject({
 
 export const ReviewTabTelemetryInputSchema = z
   .strictObject({
-    tab: z.enum(["review", "map", "files"], {
-      error: "must be review, map, or files",
+    tab: z.enum(["review", "commits", "map", "files", "trace"], {
+      error: "must be review, commits, map, files, or trace",
     }),
     reason: z.enum(["tab_change", "visibility_hidden", "pagehide", "unmount"], {
       error: "must be tab_change, visibility_hidden, pagehide, or unmount",

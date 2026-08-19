@@ -246,7 +246,7 @@ export type StoreKind = z.infer<typeof storeKindSchema>;
 export const collectionKindSchema = z.enum(["tables", "documents"]);
 export type CollectionKind = z.infer<typeof collectionKindSchema>;
 
-export const targetRefSchema = z.strictObject({
+const targetRefShape = {
   __kind: z.literal("db-target-ref"),
   storeId: nonEmptyStringSchema,
   storeKind: storeKindSchema,
@@ -258,8 +258,32 @@ export const targetRefSchema = z.strictObject({
   collectionLabel: nonEmptyStringSchema,
   collectionKey: optionalNonEmptyStringSchema,
   path: z.array(nonEmptyStringSchema),
-});
-export type TargetRef = z.infer<typeof targetRefSchema>;
+};
+export interface TargetRef {
+  __kind: "db-target-ref";
+  storeId: string;
+  storeKind: StoreKind;
+  storeLabel: string;
+  storeDataStoreKind?: SoftwareDataStoreKind;
+  storeSoftwareMapPath?: string;
+  collectionKind: CollectionKind;
+  collectionId: string;
+  collectionLabel: string;
+  collectionKey?: string;
+  path: string[];
+  fields?: Record<string, TargetRef>;
+}
+
+const fieldTargetRefSchema: z.ZodType<TargetRef> = z.lazy(() =>
+  z.strictObject({
+    ...targetRefShape,
+    fields: z.record(nonEmptyStringSchema, fieldTargetRefSchema).optional(),
+  }),
+);
+
+export const targetRefSchema: z.ZodType<TargetRef> = z.lazy(() =>
+  z.union([collectionRefSchema, fieldTargetRefSchema]),
+);
 
 const dbOperationCommonShape = {
   label: nonEmptyStringSchema,
@@ -338,6 +362,14 @@ export const tutorialKeymapPickerPropsSchema = z.strictObject({
 export type TutorialKeymapPickerProps = z.infer<
   typeof tutorialKeymapPickerPropsSchema
 >;
+
+export const traceQuotePropsSchema = z.strictObject({
+  sessionId: nonEmptyStringSchema,
+  trace: optionalNonEmptyStringSchema,
+  event: z.number().int().nonnegative().optional(),
+  children: reactNodeSchema.optional(),
+});
+export type TraceQuoteProps = z.infer<typeof traceQuotePropsSchema>;
 
 export const callsAssertionSchema = z.strictObject({
   __kind: z.literal("call-assertion"),
@@ -448,6 +480,7 @@ export interface ReviewAuthoringComponentRegistry {
   DbWrite: ComponentType<DbWriteProps>;
   ReviewSection: ComponentType<ReviewSectionProps>;
   SequenceDiagram: ComponentType<SequenceDiagramProps>;
+  TraceQuote: ComponentType<TraceQuoteProps>;
   TutorialKeymapPicker: ComponentType<TutorialKeymapPickerProps>;
 }
 
@@ -466,6 +499,7 @@ export const reviewAuthoringPropsSchemas = {
   DbWrite: dbWritePropsSchema,
   ReviewSection: reviewSectionPropsSchema,
   SequenceDiagram: sequenceDiagramPropsSchema,
+  TraceQuote: traceQuotePropsSchema,
   TutorialKeymapPicker: tutorialKeymapPickerPropsSchema,
 } satisfies Record<keyof ReviewAuthoringComponentRegistry, z.ZodType>;
 
@@ -496,6 +530,11 @@ const softwareDataStoreFieldSchema: z.ZodType<SoftwareDataStoreFieldSchema> =
       ]),
     ),
   );
+const collectionRefSchema: z.ZodType<CollectionRef> = z.strictObject({
+  ...targetRefShape,
+  schema: softwareDataStoreFieldSchema,
+  fields: z.record(nonEmptyStringSchema, fieldTargetRefSchema),
+});
 export const softwareDataStoreCollectionInputSchema = z.strictObject({
   label: optionalNonEmptyStringSchema,
   key: optionalNonEmptyStringSchema,
@@ -528,33 +567,41 @@ export interface StoreRef {
   label: string;
   dataStoreKind?: SoftwareDataStoreKind;
   softwareMapPath?: string;
-  tables?: Record<string, DynamicCollectionRef>;
-  documents?: Record<string, DynamicCollectionRef>;
+  tables?: Record<string, CollectionRef>;
+  documents?: Record<string, CollectionRef>;
 }
 
 export interface CollectionRef extends TargetRef {
-  __collectionId: string;
-  __collectionLabel: string;
-  __collectionKey?: string;
   schema: SoftwareDataStoreFieldSchema;
+  fields: Record<string, TargetRef>;
 }
-
-type DynamicCollectionRef = CollectionRef & Record<string, unknown>;
 
 export type CollectionRefs<T> =
   T extends Record<string, SoftwareDataStoreCollectionInput>
     ? {
-        [K in keyof T]: Omit<CollectionRef, keyof FieldRefs<T[K]["schema"]>> &
-          FieldRefs<T[K]["schema"]>;
+        [K in keyof T]: Omit<CollectionRef, "fields"> & {
+          fields: FieldRefs<T[K]["schema"]>;
+        };
       }
     : never;
 
 type FieldRefs<T> = T extends SoftwareDataStoreFieldLeaf
   ? T extends { schema: infer Schema extends Record<string, unknown> }
-    ? FieldRefs<Schema>
-    : unknown
+    ? { fields: FieldRefs<Schema> }
+    : TargetRef
   : T extends Record<string, unknown>
-    ? { [K in keyof T]: TargetRef & FieldRefs<T[K]> }
+    ? {
+        [K in keyof T]: TargetRef &
+          (T[K] extends SoftwareDataStoreFieldLeaf
+            ? T[K] extends {
+                schema: infer Schema extends Record<string, unknown>;
+              }
+              ? { fields: FieldRefs<Schema> }
+              : unknown
+            : T[K] extends Record<string, unknown>
+              ? { fields: FieldRefs<T[K]> }
+              : unknown);
+      }
     : unknown;
 
 export type StoreRefFor<T extends StoreInput> = Omit<
@@ -913,15 +960,12 @@ function defineCollections(
   store: StoreInput,
   collectionKind: CollectionKind,
   collections: Record<string, SoftwareDataStoreCollectionInput>,
-): Record<string, DynamicCollectionRef> {
+): Record<string, CollectionRef> {
   return Object.fromEntries(
     Object.entries(collections).map(([collectionId, collection]) => {
       const collectionLabel = collection.label ?? collectionId;
       const base: CollectionRef = {
         __kind: "db-target-ref",
-        __collectionId: collectionId,
-        __collectionLabel: collectionLabel,
-        __collectionKey: collection.key,
         storeId,
         storeKind: store.kind,
         storeLabel: store.label,
@@ -933,8 +977,9 @@ function defineCollections(
         collectionKey: collection.key,
         path: [],
         schema: collection.schema,
+        fields: {} as Record<string, TargetRef>,
       };
-      Object.assign(base, defineFieldTargets(base, collection.schema, []));
+      base.fields = defineFieldTargets(base, collection.schema, []);
       return [collectionId, Object.freeze(base)];
     }),
   );
@@ -961,13 +1006,9 @@ function defineFieldTargets(
         collectionKey: collection.collectionKey,
         path,
       };
-      if (isNestedSchema(value)) {
-        Object.assign(target, defineFieldTargets(collection, value, path));
-      } else if (value.schema) {
-        Object.assign(
-          target,
-          defineFieldTargets(collection, value.schema, path),
-        );
+      const nestedSchema = isNestedSchema(value) ? value : value.schema;
+      if (nestedSchema) {
+        target.fields = defineFieldTargets(collection, nestedSchema, path);
       }
       return [field, Object.freeze(target)];
     }),
@@ -977,7 +1018,7 @@ function defineFieldTargets(
 function isNestedSchema(
   value: SoftwareDataStoreFieldSchema[string],
 ): value is SoftwareDataStoreFieldSchema {
-  return !("type" in value);
+  return typeof (value as { type?: unknown }).type !== "string";
 }
 
 function softwareElementForPath(

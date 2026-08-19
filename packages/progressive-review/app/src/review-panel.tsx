@@ -17,6 +17,7 @@ import {
 } from "./review-panel-store";
 
 const ReviewPanelContext = createContext<ReviewPanelStore | null>(null);
+const fallbackReviewPanelStore = createReviewPanelStore();
 
 export function ReviewPanelProvider({
   children,
@@ -43,6 +44,18 @@ export function useReviewPanel<T>(
   selector: (state: ReviewPanelStoreState) => T,
 ): T {
   return useStore(useReviewPanelStore(), selector);
+}
+
+export function useOptionalReviewPanelStore(): ReviewPanelStore | null {
+  return useContext(ReviewPanelContext);
+}
+
+export function useOptionalReviewPanel<T>(
+  selector: (state: ReviewPanelStoreState) => T,
+): T | undefined {
+  const store = useContext(ReviewPanelContext);
+  const selected = useStore(store ?? fallbackReviewPanelStore, selector);
+  return store ? selected : undefined;
 }
 
 export function useReviewPanelStore(): ReviewPanelStore {

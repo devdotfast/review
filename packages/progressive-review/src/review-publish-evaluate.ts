@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 
 import { init as initModuleLexer, parse as parseModule } from "es-module-lexer";
 
+import { extractTraceEventText } from "./agent-trace-parser";
 import {
   type CallStackDiffProps,
   type CodePeekProps,
@@ -20,7 +21,9 @@ import {
   callStackEvidenceErrors,
   diffCallStacks,
 } from "./call-stack-diff";
+import { loadReviewAgentTrace } from "./review-agent-traces";
 import {
+  type PublishAuditTraceQuote,
   auditReviewDocumentComponent,
   createPublishValidationReact,
 } from "./review-publish-element-audit";
@@ -88,6 +91,7 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
   const failures: string[] = [];
   const rangePeeks: ReviewPublishRangePeek[] = [];
   const callStackProps: CallStackDiffProps[] = [];
+  const traceQuotes: PublishAuditTraceQuote[] = [];
   let peekCount = 0;
   let evidencePromise: Promise<ReviewPublishEvidenceTargets> | null = null;
   const sessions: ReviewDefinitionSession[] = [];
@@ -161,6 +165,9 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
     },
     collectCallStackDiff: (props) => {
       callStackProps.push(props);
+    },
+    collectTraceQuote: (quote) => {
+      traceQuotes.push(quote);
     },
   });
 
@@ -241,15 +248,80 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
     }
   }
 
+  // TraceQuote resolution: every quoted string is matched against the target
+  // normalized trace. Text found nowhere is a hard error; multiple matches
+  // without a deciding event hint emit a warning with the event index.
+  const traceQuoteWarnings: string[] = [];
+  if (traceQuotes.length > 0 && input.validateRanges !== false) {
+    const traceCwd = input.prepareEvidence
+      ? (await evidence()).head.sourceRootPath
+      : undefined;
+    for (const quote of traceQuotes) {
+      const cleanQuote = quote.text.trim();
+      if (!cleanQuote) {
+        failures.push(
+          `<TraceQuote> in session ${quote.sessionId} has empty quote text.`,
+        );
+        continue;
+      }
+      const loaded = await loadReviewAgentTrace({
+        sessionId: quote.sessionId,
+        trace: quote.trace,
+        cwd: traceCwd,
+      });
+      if (!loaded) {
+        failures.push(
+          `<TraceQuote> session ${quote.sessionId}${quote.trace ? ` (trace ${quote.trace})` : ""} has no normalized transcript.`,
+        );
+        continue;
+      }
+      const normQuote = cleanQuote.replace(/\s+/g, " ");
+      const matchingIndices: number[] = [];
+      for (let i = 0; i < loaded.trace.events.length; i++) {
+        const ev = loaded.trace.events[i];
+        const text = extractTraceEventText(ev).replace(/\s+/g, " ");
+        if (text.includes(normQuote)) {
+          matchingIndices.push(i);
+        }
+      }
+      const quoteLabel =
+        cleanQuote.length > 40 ? `${cleanQuote.slice(0, 39)}…` : cleanQuote;
+      if (matchingIndices.length === 0) {
+        failures.push(
+          `<TraceQuote> text "${quoteLabel}" not found in session ${quote.sessionId}${quote.trace ? ` (trace ${quote.trace})` : ""}.`,
+        );
+      } else if (quote.event !== undefined) {
+        if (!matchingIndices.includes(quote.event)) {
+          if (matchingIndices.length === 1) {
+            traceQuoteWarnings.push(
+              `<TraceQuote> text "${quoteLabel}" hint event={${quote.event}} is stale; matched event ${matchingIndices[0]}.`,
+            );
+          } else {
+            traceQuoteWarnings.push(
+              `<TraceQuote> text "${quoteLabel}" matched multiple events (${matchingIndices.join(", ")}). Update hint to event={${matchingIndices[0]}} to disambiguate.`,
+            );
+          }
+        }
+      } else if (matchingIndices.length > 1) {
+        traceQuoteWarnings.push(
+          `<TraceQuote> text "${quoteLabel}" matched multiple events (${matchingIndices.join(", ")}). Add event={${matchingIndices[0]}} to disambiguate.`,
+        );
+      }
+    }
+  }
+
   const errors =
     failures.length > 0
       ? failures
       : importError !== null
         ? [errorMessage(importError)]
         : [];
-  const warnings = sessions.flatMap((session) =>
-    session.diagnostics.map((diagnostic) => diagnostic.message),
-  );
+  const warnings = [
+    ...sessions.flatMap((session) =>
+      session.diagnostics.map((diagnostic) => diagnostic.message),
+    ),
+    ...traceQuoteWarnings,
+  ];
   return {
     peekCount,
     rangePeeks,
@@ -319,6 +391,7 @@ function validationRuntimeExports(input: {
   ) => Promise<CodePeekResolution>;
   reportAuditError: (message: string) => void;
   collectCallStackDiff: (props: CallStackDiffProps) => void;
+  collectTraceQuote: (quote: PublishAuditTraceQuote) => void;
 }): Record<string, unknown> {
   const noop = () => undefined;
   // The React substitute is not inert: `jsx` builds element records so the
@@ -355,6 +428,7 @@ function validationRuntimeExports(input: {
         Component: document.Component,
         reportError: input.reportAuditError,
         collectCallStackDiff: input.collectCallStackDiff,
+        collectTraceQuote: input.collectTraceQuote,
       });
       return document;
     },

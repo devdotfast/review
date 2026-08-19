@@ -4,6 +4,7 @@ import { ReviewCodePeek } from "./CodePeek";
 import { DatabaseLens, DbRead, DbUseCase, DbWrite } from "./database-lens";
 import { SequenceDiagram } from "./diagrams";
 import { AnchorLink, ReviewSection } from "./review-components";
+import { TraceQuote } from "./trace-quote";
 import { TutorialKeymapPicker } from "./tutorial-keymap-picker";
 
 export const reviewAuthoringComponents = {
@@ -16,5 +17,6 @@ export const reviewAuthoringComponents = {
   DbWrite,
   ReviewSection,
   SequenceDiagram,
+  TraceQuote,
   TutorialKeymapPicker,
 } satisfies ReviewAuthoringComponentRegistry;

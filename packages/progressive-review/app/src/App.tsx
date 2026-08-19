@@ -84,6 +84,7 @@ import {
   useReviewViewStateSync,
 } from "./review-view-state";
 import { ReviewCommitsView } from "./ReviewCommitsView";
+import { ReviewTraceView, type TraceSelection } from "./ReviewTraceView";
 import { useRightPanelResize } from "./side-panel-resizer";
 import { selectActiveSoftwareMapModel } from "./software-map-selection";
 import type {
@@ -200,6 +201,9 @@ function ReviewLayout({
   const appRef = useRef<HTMLDivElement | null>(null);
   const shellRef = useRef<HTMLElement | null>(null);
   const scrollRegionRef = useRef<HTMLElement | null>(null);
+  const [traceSelection, setTraceSelection] = useState<
+    TraceSelection | undefined
+  >(undefined);
   const roots = useMemo(
     () => ({ appRef, shellRef, scrollRegionRef, articleRef }),
     [],
@@ -222,6 +226,7 @@ function ReviewLayout({
               key={document.routePath}
               documentRoute={document.routePath}
               softwareMapEnabled={softwareMapEnabled}
+              openTraceSession={(sel) => setTraceSelection(sel)}
             >
               <ReviewPanelProvider detailRevision={document.Component}>
                 <ReviewLayoutContent
@@ -245,6 +250,7 @@ function ReviewLayout({
                   softwareMapEnabled={softwareMapEnabled}
                   range={range}
                   commits={commits}
+                  traceSelection={traceSelection}
                 />
               </ReviewPanelProvider>
             </ReviewProvider>
@@ -269,6 +275,7 @@ function ReviewLayoutContent({
   softwareMapEnabled,
   range,
   commits,
+  traceSelection,
 }: {
   appRef: RefObject<HTMLDivElement | null>;
   shellRef: RefObject<HTMLElement | null>;
@@ -285,6 +292,7 @@ function ReviewLayoutContent({
   softwareMapEnabled: boolean;
   range: ReviewCanvasRange;
   commits: readonly ReviewCommitSummary[];
+  traceSelection?: TraceSelection;
 }): ReactElement {
   const session = useReviewSession();
   const review = useReview();
@@ -331,6 +339,28 @@ function ReviewLayoutContent({
     reviewFind?.setReviewActive(activeView === "review");
   }, [activeView, reviewFind]);
   const initialDiffStats = useReviewInitialData()?.diffStats;
+  const [hasTraceSessions, setHasTraceSessions] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    session
+      .fetch("/agent-traces", { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          ok?: boolean;
+          sessions?: unknown[];
+        };
+        if (
+          data.ok &&
+          Array.isArray(data.sessions) &&
+          data.sessions.length > 0
+        ) {
+          setHasTraceSessions(true);
+        }
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [session]);
   const diffFiles = useReviewDiffFiles();
   const filesTabFileCount = diffScope
     ? diffScope.fileCount
@@ -341,6 +371,7 @@ function ReviewLayoutContent({
     "review",
     ...(hasChangeRange ? (["commits", "diff"] as const) : []),
     ...(softwareMapEnabled ? (["map"] as const) : []),
+    ...(hasTraceSessions ? (["trace"] as const) : []),
   ];
   const applyReviewView = (view: ReviewView) => {
     const normalizedView = normalizeReviewView(
@@ -384,6 +415,12 @@ function ReviewLayoutContent({
       }),
     [closeThread, session],
   );
+  useEffect(() => {
+    if (traceSelection) {
+      applyReviewView("trace");
+    }
+  }, [traceSelection]);
+
   useEffect(() => {
     if (!softwareMapEnabled || !review.softwareMapFocusRequest) return;
     applyReviewView("map");
@@ -675,6 +712,9 @@ function ReviewLayoutContent({
                 scope={diffScope ? { commit: diffScope.commit } : undefined}
               />
             </div>
+          )}
+          {activeView === "trace" && (
+            <ReviewTraceView initialSelection={traceSelection} />
           )}
         </section>
         <TutorialChecklist />

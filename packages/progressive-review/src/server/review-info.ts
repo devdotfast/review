@@ -1,7 +1,12 @@
 import path from "node:path";
 
-import { actionableReviewsForCheckout } from "../review-change-scope";
-import { type StoredReview, computeSync, listReviews } from "../review-home";
+import { reviewMatchesCheckout } from "../review-change-scope";
+import {
+  type StoredReview,
+  computeSync,
+  findReview,
+  listReviews,
+} from "../review-home";
 import { type ReviewInfoEvent, type RunReviewInfoInput } from "../review-info";
 import { readReviewComments } from "../review-state-store";
 import { resolveReviewRoot } from "../runtime";
@@ -10,6 +15,14 @@ import { resolveReviewRepositoryIdentity } from "./repository-identity";
 export async function resolveReviewInfo(
   input: RunReviewInfoInput,
 ): Promise<ReviewInfoEvent> {
+  if (input.all && input.reviewUuid) {
+    throw new Error("Review info cannot combine all and reviewUuid.");
+  }
+  if (input.reviewUuid) {
+    const review = await findReview(input.reviewUuid);
+    if (!review) throw new Error(`Review not found: ${input.reviewUuid}`);
+    return reviewInfoEvent([review]);
+  }
   const reviewRoot = await resolveReviewRoot(input.cwd);
   const repository = await resolveReviewRepositoryIdentity(reviewRoot);
   const filter = input.all
@@ -23,7 +36,11 @@ export async function resolveReviewInfo(
   }
   const reviews = input.all
     ? listed.reviews
-    : await actionableReviewsForCheckout(listed.reviews, reviewRoot);
+    : listed.reviews.filter(
+        (stored) =>
+          stored.review.status !== "accepted" &&
+          stored.review.status !== "rejected",
+      );
   return reviewInfoEvent(reviews);
 }
 
@@ -33,15 +50,22 @@ export async function reviewInfoEvent(
   return {
     event: "info",
     reviews: await Promise.all(
-      reviews.map(async (stored) => ({
-        uuid: stored.review.uuid,
-        dir: stored.dir,
-        change: stored.review.sourceIdentity?.name ?? null,
-        inSync: await computeSync(stored.review, stored.review.worktreePath),
-        unresolvedComments: countUnresolvedComments(stored.dir),
-        status: stored.review.status,
-        title: stored.review.title,
-      })),
+      reviews.map(async (stored) => {
+        const [inSync, matchesCheckout] = await Promise.all([
+          computeSync(stored.review, stored.review.worktreePath),
+          reviewMatchesCheckout(stored, stored.review.worktreePath),
+        ]);
+        return {
+          uuid: stored.review.uuid,
+          dir: stored.dir,
+          change: stored.review.sourceIdentity?.name ?? null,
+          inSync,
+          matchesCheckout,
+          unresolvedComments: countUnresolvedComments(stored.dir),
+          status: stored.review.status,
+          title: stored.review.title,
+        };
+      }),
     ),
   };
 }

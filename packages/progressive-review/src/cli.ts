@@ -34,6 +34,7 @@ if (delegatedExitCode !== null) {
   process.exitCode = await span("runProgressiveReviewCli", () =>
     runProgressiveReviewCli({
       argv: process.argv.slice(2),
+      stdin: process.stdin,
       stdout: process.stdout,
       stderr: process.stderr,
     }),
@@ -56,7 +57,13 @@ function maybeDelegateToDesktopCli(argv: string[]): number | null {
   // stop-hook runs on every agent stop and must not pay a discovery read plus
   // a second node spawn; internal-test must exercise this entry, not the
   // app's.
-  if (argv[0] === "stop-hook" || argv[0] === "internal-test") return null;
+  if (
+    argv[0] === "stop-hook" ||
+    argv[0] === "internal-test" ||
+    argv[0] === "wait-codex" ||
+    argv[0] === "prepare-worktree"
+  )
+    return null;
   const ownPath = fileURLToPath(import.meta.url);
   if (!/[\\/]dist[\\/]cli\.js$/.test(ownPath)) return null;
   const devHome = env.DEV_REVIEW_HOME?.trim()

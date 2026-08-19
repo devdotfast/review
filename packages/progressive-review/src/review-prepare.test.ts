@@ -7,8 +7,10 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   prepareReviewPinnedCheckout,
+  resolveReviewPrepareCliEntryPath,
   reviewPrepareLogPath,
   reviewPrepareMarkerPath,
+  spawnReviewPrepareBackground,
 } from "./review-prepare";
 
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
@@ -175,6 +177,28 @@ describe("prepareReviewPinnedCheckout", () => {
 
     expect(result).toEqual({ prepared: false });
     expect(existsSync(reviewPrepareMarkerPath(checkoutPath))).toBe(false);
+  });
+
+  it("spawns background preparation gracefully without crashing", async () => {
+    const checkoutPath = await createCheckoutDir();
+    expect(() => {
+      spawnReviewPrepareBackground({
+        checkoutPath,
+        commit: COMMIT,
+        cliEntryPath: "/nonexistent/path/to/cli.js",
+      });
+    }).not.toThrow();
+  });
+
+  it("derives the CLI entry from a desktop server entry", () => {
+    expect(
+      resolveReviewPrepareCliEntryPath({
+        env: {
+          DEV_FAST_REVIEW_SERVER_ENTRY:
+            "/opt/review-runtime/dist/server/desktop-host.js",
+        },
+      }),
+    ).toBe("/opt/review-runtime/dist/cli.js");
   });
 
   it("runs real shell commands with the checkout as the cwd", async () => {

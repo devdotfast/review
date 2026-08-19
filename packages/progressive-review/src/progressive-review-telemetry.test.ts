@@ -1,4 +1,4 @@
-import { readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -11,6 +11,10 @@ import {
   type ProgressiveReviewTelemetryCaptureClient,
   REVIEW_APP_VERSION_ENV,
 } from "./progressive-review-telemetry";
+import {
+  type ProgressiveReviewTelemetryInstallConfig,
+  normalizeTelemetryInstallConfig,
+} from "./telemetry-config";
 
 describe("ProgressiveReviewTelemetry", () => {
   const cleanupPaths: string[] = [];
@@ -70,6 +74,120 @@ describe("ProgressiveReviewTelemetry", () => {
       version: await progressiveReviewPackageVersion(),
       internal: true,
     });
+  });
+
+  it.each([
+    ["absent", {}, false],
+    ["false", { internal: false }, false],
+    ["true", { internal: true }, true],
+    ["invalid", { internal: "true" }, false],
+  ])("normalizes the %s stored internal marker", (_name, marker, expected) => {
+    const config = normalizeTelemetryInstallConfig(
+      {
+        installationId: "existing-install",
+        ...marker,
+      } as Partial<ProgressiveReviewTelemetryInstallConfig>,
+      () => new Date("2026-01-02T03:04:05.000Z"),
+    );
+
+    expect(config?.internal).toBe(expected);
+  });
+
+  it("migrates an existing configuration without changing its installation id", async () => {
+    const { configPath, rootPath, telemetry } = createTelemetry();
+    cleanupPaths.push(rootPath);
+    await writeStoredConfig(configPath, {
+      installationId: "existing-install",
+      createdAt: "2025-01-02T03:04:05.000Z",
+      installationCreatedSent: true,
+      enabled: true,
+    });
+
+    await expect(telemetry.getInstallationId()).resolves.toBe(
+      "existing-install",
+    );
+    await expect(readStoredConfig(configPath)).resolves.toMatchObject({
+      installationId: "existing-install",
+      internal: false,
+    });
+  });
+
+  it("migrates a legacy installation id with a false internal marker", async () => {
+    const { configPath, legacyConfigPath, rootPath, telemetry } =
+      createTelemetry();
+    cleanupPaths.push(rootPath);
+    await writeStoredConfig(legacyConfigPath, { installId: "legacy-install" });
+
+    await expect(telemetry.getInstallationId()).resolves.toBe("legacy-install");
+    await expect(readStoredConfig(configPath)).resolves.toMatchObject({
+      installationId: "legacy-install",
+      internal: false,
+    });
+  });
+
+  it("preserves the stored internal marker when the telemetry setting changes", async () => {
+    const { configPath, rootPath, telemetry } = createTelemetry();
+    cleanupPaths.push(rootPath);
+    await writeStoredConfig(configPath, storedConfig({ internal: true }));
+
+    await telemetry.setEnabled(false);
+    await expect(readStoredConfig(configPath)).resolves.toMatchObject({
+      installationId: "stored-install",
+      enabled: false,
+      internal: true,
+    });
+
+    await telemetry.setEnabled(true);
+    await expect(readStoredConfig(configPath)).resolves.toMatchObject({
+      installationId: "stored-install",
+      enabled: true,
+      internal: true,
+    });
+  });
+
+  it("lets an environment zero override a true stored marker", async () => {
+    const { configPath, events, rootPath, telemetry } = createTelemetry({
+      env: { PROGRESSIVE_REVIEW_TELEMETRY_INTERNAL: "0" },
+    });
+    cleanupPaths.push(rootPath);
+    await writeStoredConfig(configPath, storedConfig({ internal: true }));
+
+    await telemetry.captureCommandSucceeded({ command: "info", exitCode: 0 });
+
+    expect(events[0].properties).toMatchObject({ internal: false });
+  });
+
+  it("lets an environment one override a false stored marker", async () => {
+    const { configPath, events, rootPath, telemetry } = createTelemetry({
+      env: { PROGRESSIVE_REVIEW_TELEMETRY_INTERNAL: "1" },
+    });
+    cleanupPaths.push(rootPath);
+    await writeStoredConfig(configPath, storedConfig({ internal: false }));
+
+    await telemetry.captureCommandSucceeded({ command: "info", exitCode: 0 });
+
+    expect(events[0].properties).toMatchObject({ internal: true });
+  });
+
+  it("marks installation, command, server, and UI events from a stored marker", async () => {
+    const { configPath, events, rootPath, telemetry } = createTelemetry();
+    cleanupPaths.push(rootPath);
+    await writeStoredConfig(configPath, storedConfig({ internal: true }));
+
+    await telemetry.captureInstallationCreated();
+    await telemetry.captureCommandSucceeded({ command: "info", exitCode: 0 });
+    await telemetry.captureReviewReaped({ retentionDays: 30 });
+    await telemetry.captureUiEvent("review_app_opened", {});
+
+    expect(events.map((event) => event.event)).toEqual([
+      "review_installation_created",
+      "review_command_succeeded",
+      "review_review_reaped",
+      "review_app_opened",
+    ]);
+    for (const event of events) {
+      expect(event.properties).toMatchObject({ internal: true });
+    }
   });
 
   it("adds a valid Desktop version without changing the package version", async () => {
@@ -203,6 +321,7 @@ describe("ProgressiveReviewTelemetry", () => {
 function createTelemetry(input?: { env?: NodeJS.ProcessEnv }): {
   configPath: string;
   events: PostHogCaptureInput[];
+  legacyConfigPath: string;
   rootPath: string;
   telemetry: ProgressiveReviewTelemetry;
 } {
@@ -213,6 +332,7 @@ function createTelemetry(input?: { env?: NodeJS.ProcessEnv }): {
       .slice(2)}`,
   );
   const configPath = path.join(rootPath, "telemetry.json");
+  const legacyConfigPath = path.join(rootPath, "legacy.json");
   const events: PostHogCaptureInput[] = [];
   const captureClient: ProgressiveReviewTelemetryCaptureClient = {
     enabled: true,
@@ -224,10 +344,41 @@ function createTelemetry(input?: { env?: NodeJS.ProcessEnv }): {
     captureClient,
     env: input?.env ?? {},
     installConfigPath: configPath,
+    legacyInstallConfigPath: legacyConfigPath,
     idFactory: () => "install-123",
     now: () => new Date("2026-01-02T03:04:05.000Z"),
   });
-  return { configPath, events, rootPath, telemetry };
+  return { configPath, events, legacyConfigPath, rootPath, telemetry };
+}
+
+function storedConfig(
+  input: Partial<ProgressiveReviewTelemetryInstallConfig> = {},
+): ProgressiveReviewTelemetryInstallConfig {
+  return {
+    installationId: "stored-install",
+    createdAt: "2025-01-02T03:04:05.000Z",
+    installationCreatedSent: false,
+    enabled: true,
+    internal: false,
+    ...input,
+  };
+}
+
+async function writeStoredConfig(
+  configPath: string,
+  config: unknown,
+): Promise<void> {
+  await mkdir(path.dirname(configPath), { recursive: true });
+  await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+}
+
+async function readStoredConfig(
+  configPath: string,
+): Promise<Record<string, unknown>> {
+  return JSON.parse(await readFile(configPath, "utf8")) as Record<
+    string,
+    unknown
+  >;
 }
 
 async function progressiveReviewPackageVersion(): Promise<string> {

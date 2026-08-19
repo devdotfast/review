@@ -105,10 +105,14 @@ export interface IReviewSessionService {
 	applyCliInstall(request: {
 		targets: readonly ReviewCliInstallTarget[];
 		shim?: boolean;
+		fff?: boolean;
+		trace?: true | { endpoint?: string; bucket?: string; key?: string; secret?: string };
 	}): Promise<ReviewCliInstallApplyResponse>;
 	removeCliInstall(request: {
 		targets: readonly ReviewCliInstallTarget[];
 		shim?: boolean;
+		fff?: boolean;
+		trace?: true;
 	}): Promise<void>;
 	declineCliInstall(): Promise<void>;
 	skipCliInstallPrompts(): Promise<void>;
@@ -480,6 +484,8 @@ export class ReviewSessionService
 	async applyCliInstall(request: {
 		targets: readonly ReviewCliInstallTarget[];
 		shim?: boolean;
+		fff?: boolean;
+		trace?: true | { endpoint?: string; bucket?: string; key?: string; secret?: string };
 	}): Promise<ReviewCliInstallApplyResponse> {
 		await this.initialize();
 		const response = await fetch(`${this.serverUrl}/install/apply`, {
@@ -491,6 +497,8 @@ export class ReviewSessionService
 			body: JSON.stringify({
 				targets: request.targets,
 				...(request.shim ? { shim: true } : {}),
+				...(request.fff ? { fff: true } : {}),
+				...(request.trace !== undefined ? { trace: request.trace } : {}),
 			}),
 			signal: AbortSignal.timeout(120_000),
 		});
@@ -511,6 +519,8 @@ export class ReviewSessionService
 	async removeCliInstall(request: {
 		targets: readonly ReviewCliInstallTarget[];
 		shim?: boolean;
+		fff?: boolean;
+		trace?: true;
 	}): Promise<void> {
 		await this.initialize();
 		const response = await fetch(`${this.serverUrl}/install/remove`, {
@@ -522,6 +532,8 @@ export class ReviewSessionService
 			body: JSON.stringify({
 				targets: request.targets,
 				...(request.shim ? { shim: true } : {}),
+				...(request.fff ? { fff: true } : {}),
+				...(request.trace ? { trace: true } : {}),
 			}),
 			signal: AbortSignal.timeout(30_000),
 		});

@@ -280,7 +280,7 @@ describe("parseReviewTabTelemetryInput", () => {
         reason: "route_change",
         app_session_id: "../review",
       }),
-    ).toThrow("tab must be review, map, or files");
+    ).toThrow("tab must be review, commits, map, files, or trace");
   });
 });
 

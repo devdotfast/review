@@ -864,14 +864,21 @@ describe("review app light theme", () => {
     // The composer is bare until focused; controls appear while composing.
     expect(threadCardSource).toContain("thread-reply-row");
     expect(threadCardSource).toContain("setComposing(true)");
+    // Portaling the popover to the app lets it cross the document scroller's
+    // clipping edge and paint above an open side peek.
+    expect(annotationsSource).toContain(
+      'import { createPortal } from "react-dom"',
+    );
+    expect(annotationsSource).toContain("createPortal(");
+    expect(annotationsSource).toContain("reviewRoots?.appRef.current");
     // Popover geometry is owned by popoverStyle() so the rendered width and the
     // POPOVER_WIDTH the placement clamps use cannot drift apart again.
     const popoverRule = /\.thread-popover\s*{([^}]*)}/s.exec(styles)?.[1] ?? "";
-    expect(popoverRule).toContain("z-index: 40;");
+    expect(popoverRule).toContain("z-index: 60;");
     expect(popoverRule).not.toMatch(/\bwidth:/);
     expect(popoverRule).not.toMatch(/\bposition:/);
     expect(annotationsSource).toContain(
-      "width: `min(${POPOVER_WIDTH}px, calc(100vw - 32px))`",
+      "width: `min(${POPOVER_WIDTH}px, calc(100% - 24px))`",
     );
     // A clamped compact body says so, rather than trailing off into an ellipsis.
     expect(threadCardSource).toContain("thread-expand-hint");

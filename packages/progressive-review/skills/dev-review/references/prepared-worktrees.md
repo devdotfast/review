@@ -1,10 +1,8 @@
 # Prepared worktrees
 
-Scaffold materializes one worktree for each pinned base and head commit. It
-runs each configured `devfast.prepare` command in both worktrees.
+Scaffold materializes one worktree for each pinned base and head commit. It runs each configured `devfast.prepare` command in both worktrees.
 
-Prepared worktrees let language servers resolve repository dependencies. The
-configuration is local to one clone. Do not commit it.
+Prepared worktrees let language servers resolve repository dependencies. The configuration is local to one clone. Do not commit it.
 
 ## Configure preparation
 
@@ -29,9 +27,7 @@ Append another command:
 git config --add devfast.prepare '<next command>'
 ```
 
-Commands run in file order. Add a focused library build when workspace exports
-point to generated output. Do not build application targets without a clear
-need.
+Commands run in file order. Add a focused library build when workspace exports point to generated output. Do not build application targets without a clear need.
 
 For example:
 
@@ -39,9 +35,6 @@ For example:
 git config --add devfast.prepare 'pnpm -r --filter "./packages/**" run build'
 ```
 
-After the next scaffold, check one dependency link and its generated output in
-`.git/dev-fast/worktrees/<commit>/`.
+After the next scaffold, check one dependency link and its generated output in the pinned checkout (the `checkouts` paths in the scaffold event).
 
-Prepare failure is soft. Scaffold keeps the worktree and prints the log path.
-A `.prepared` marker stores the command-list hash. A configuration change runs
-preparation again during the next scaffold or update.
+Prepare failure is soft. Scaffold keeps the worktree and prints the log path. A `.prepared` marker stores the command-list hash. A configuration change runs preparation again during the next scaffold or update.

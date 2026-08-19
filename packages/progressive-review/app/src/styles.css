@@ -675,45 +675,10 @@
   box-sizing: border-box;
 }
 
-/* Scrollbars. The workbench draws a slider and no track -- a translucent pill
-   floating over the content that brightens on hover and drag -- so the canvas
-   bridges the same scrollbarSlider tokens and paints the track transparent.
-   These are universal rather than class-scoped on purpose: the desktop build
-   wraps this whole sheet in @scope (.review-canvas-root) (see
-   desktop-css-scope.ts), so they cannot reach workbench DOM, and the browser
-   build is the canvas all the way up. Monaco is unaffected either way -- it
-   renders its own slider elements rather than a native overflow scrollbar.
-   Only the -webkit- pseudo-elements are used: Chromium gives the standard
-   scrollbar-width/scrollbar-color properties precedence over them, so setting
-   both would paint the track back in. */
-*::-webkit-scrollbar {
-  width: var(--review-scrollbar-size);
-  height: var(--review-scrollbar-size);
-  background: var(--transparent);
-}
-
-*::-webkit-scrollbar-track,
-*::-webkit-scrollbar-corner {
-  background: var(--transparent);
-}
-
-*::-webkit-scrollbar-thumb {
-  min-height: 28px;
-  border: 2px solid var(--transparent);
-  border-radius: 999px;
-  background-color: var(--review-scrollbar-thumb);
-  /* Inset the pill inside the transparent border rather than shrinking the
-     scrollbar, so the hit target stays the full track width. */
-  background-clip: content-box;
-}
-
-*::-webkit-scrollbar-thumb:hover {
-  background-color: var(--review-scrollbar-thumb-hover);
-}
-
-*::-webkit-scrollbar-thumb:active {
-  background-color: var(--review-scrollbar-thumb-active);
-}
+/* Scrollbars: deliberately unstyled. Any custom ::-webkit-scrollbar rule
+   makes Chromium abandon the platform overlay scrollbars; leaving them
+   native gives auto-hiding bars that appear only while scrolling (per the
+   user's OS setting). Monaco still renders its own slider elements. */
 
 .review-canvas-root {
   margin: 0;
@@ -2341,7 +2306,7 @@ button {
   padding: 24px;
   border: 1px solid var(--rule-soft);
   border-radius: 8px;
-  background: var(--bg-1);
+  background: var(--bg-2);
   font-family: var(--font-mono);
 }
 
@@ -4394,7 +4359,7 @@ button {
   gap: 8px;
   min-height: 34px;
   padding: 7px 11px;
-  border: 1px solid var(--rule-strong);
+  border: 1px solid var(--rule-soft);
   border-radius: 999px;
   background: var(--floating-bar-bg);
   box-shadow: 0 12px 28px var(--shadow-color-strong);
@@ -5367,11 +5332,11 @@ button {
   color: var(--ink-faint);
 }
 
-/* Floating presentation of the same card at narrow widths. Position and width
-   are owned by popoverStyle() in thread-annotations.tsx, which clamps placement
-   against POPOVER_WIDTH — declaring either here would immediately drift. */
+/* Floating presentation of the same card at narrow widths. The portal mounts
+   this direct child of .review-app so the document scroller cannot clip it.
+   Position and width stay with popoverStyle() in thread-annotations.tsx. */
 .thread-popover {
-  z-index: 40;
+  z-index: 60;
 }
 
 .review-floating-draft {
@@ -5605,7 +5570,7 @@ button {
 
 .agent-markdown blockquote {
   padding-left: 10px;
-  border-left: 3px solid var(--rule-strong);
+  border-left: 3px solid var(--rule-soft);
   color: var(--ink-faint);
 }
 
@@ -8936,6 +8901,32 @@ a.review-doc-meta-pr:hover {
   font-family: inherit;
 }
 
+.review-agent-setup-trace {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.review-agent-setup-trace .review-agent-setup-terminal-info {
+  flex-basis: 100%;
+  flex-wrap: wrap;
+}
+
+.review-agent-setup-trace-fields {
+  display: grid;
+  flex: 1;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: 6px;
+}
+
+.review-agent-setup-trace-fields input {
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--review-home-rule-soft);
+  border-radius: 5px;
+  color: inherit;
+  background: var(--control-bg);
+}
+
 .review-agent-setup button.review-agent-setup-subtle {
   border-color: var(--transparent);
   color: var(--review-home-meta);
@@ -9591,4 +9582,778 @@ a.review-doc-meta-pr:hover {
   color: var(--diff-removed);
   border-bottom-color: var(--diff-removed);
   opacity: 0.85;
+}
+
+/* Agent trace view */
+
+.review-view-region--trace {
+  overflow: auto;
+}
+
+.review-trace-view {
+  min-height: 100%;
+  padding: 36px 24px 96px;
+}
+
+.review-trace-column {
+  width: min(980px, 100%);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.review-trace-kicker {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.review-trace-header {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.review-trace-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.review-trace-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.review-trace-meta-sep {
+  color: var(--rule-soft);
+}
+
+.review-trace-picker {
+  position: relative;
+  display: inline-block;
+  margin-bottom: 20px;
+}
+
+.review-trace-picker-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(680px, 100%);
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--rule);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12.5px;
+  cursor: pointer;
+  box-shadow: 0 1px 2px var(--shadow-color);
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.review-trace-picker-trigger:hover {
+  border-color: var(--rule-soft);
+  background: var(--bg-2);
+}
+
+.review-trace-picker-trigger[aria-expanded="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-wash);
+}
+
+.review-trace-picker-harness {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.review-trace-picker-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.review-trace-picker-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  margin-left: 2px;
+  flex-shrink: 0;
+  color: var(--ink-faint);
+  transition: transform 0.15s ease;
+}
+
+.review-trace-picker-trigger[aria-expanded="true"]
+  .review-trace-picker-chevron {
+  transform: rotate(180deg);
+}
+
+.review-trace-picker-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 50;
+  min-width: 320px;
+  max-width: min(640px, 90vw);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px var(--shadow-color-strong);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.review-trace-picker-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.review-trace-picker-item:hover {
+  background: var(--bg-2);
+}
+
+.review-trace-picker-item--active {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+.review-trace-picker-item--active:hover {
+  background: var(--accent-wash);
+}
+
+.review-trace-picker-item--subagent {
+  padding-left: 20px;
+}
+
+.review-trace-picker-item-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  min-width: 0;
+  flex: 1;
+}
+
+.review-trace-picker-item-harness {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  flex-shrink: 0;
+  min-width: 52px;
+}
+
+.review-trace-picker-item--active .review-trace-picker-item-harness {
+  color: var(--accent);
+}
+
+.review-trace-picker-item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+}
+
+.review-trace-picker-item--active .review-trace-picker-item-title {
+  font-weight: 600;
+}
+
+.review-trace-picker-item-check {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  flex-shrink: 0;
+  margin-left: 6px;
+}
+
+.review-trace-picker-item-badge {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--bg-2);
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.review-trace-events {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-top: 28px;
+}
+
+.review-trace-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.review-trace-user {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+  margin-top: 14px;
+  margin-left: auto;
+  max-width: min(480px, 90%);
+  min-width: 0;
+}
+
+.review-trace-user-bubble {
+  padding: 12px 14px;
+  background: var(--bg-2);
+  border-radius: 12px 12px 4px 12px;
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 24px;
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.review-trace-timestamp {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+}
+
+.review-trace-thinking {
+  position: relative;
+  padding: 10px 14px;
+  border-left: 2px solid var(--rule-soft);
+  background: var(--bg-2);
+  border-radius: 0 6px 6px 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.review-trace-thinking-label {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 6px;
+}
+
+.review-trace-prose .agent-markdown {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 26px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.review-trace-tool {
+  min-width: 0;
+}
+
+.review-trace-tool summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.review-trace-tool summary::-webkit-details-marker {
+  display: none;
+}
+
+.review-trace-tool-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 16px;
+  column-gap: 6px;
+  align-items: center;
+  min-height: 24px;
+}
+
+.review-trace-icon {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: var(--ink-faint);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.review-trace-tool-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.review-trace-tool-label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 19px;
+}
+
+.review-trace-tool-verb {
+  color: var(--ink-faint);
+  flex-shrink: 0;
+}
+
+.review-trace-tool-title {
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.review-trace-tool-title--file {
+  color: var(--accent);
+  /* Ellipsize the FRONT of paths so the filename stays visible. */
+  direction: rtl;
+  text-align: left;
+}
+
+.review-trace-tool-title--file bdi {
+  unicode-bidi: plaintext;
+}
+
+.review-trace-added {
+  color: var(--change-added);
+  flex-shrink: 0;
+}
+
+.review-trace-removed {
+  color: var(--change-removed);
+  flex-shrink: 0;
+}
+
+.review-trace-error-flag {
+  color: var(--change-removed);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.review-trace-tool-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.review-trace-tool-chevron .review-trace-icon {
+  width: 12px;
+  height: 12px;
+  stroke: var(--rule-soft);
+  transform: rotate(-90deg);
+  transition: transform 120ms ease;
+}
+
+.review-trace-tool--expandable[open]
+  .review-trace-tool-chevron
+  .review-trace-icon {
+  transform: rotate(0deg);
+}
+
+.review-trace-figure {
+  margin: 10px 0 0 26px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.review-trace-figure-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 30px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--bg-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.review-trace-figure-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 14px 16px;
+  max-height: 420px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 20px;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.review-trace-figure-body--thinking {
+  white-space: normal;
+  font-family: var(--font-serif);
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--ink-soft);
+}
+
+.review-trace-figure-body--thinking .agent-markdown {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+
+.review-trace-figure-command {
+  color: var(--ink);
+}
+
+.review-trace-figure-output {
+  color: var(--ink-soft);
+}
+
+.review-trace-worked > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 0;
+  list-style: none;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.review-trace-worked > summary::-webkit-details-marker {
+  display: none;
+}
+
+.review-trace-worked > summary:hover {
+  color: var(--ink-soft);
+}
+
+.review-trace-worked-chevron {
+  display: inline-flex;
+  align-items: center;
+}
+
+.review-trace-worked-chevron .review-trace-icon {
+  width: 11px;
+  height: 11px;
+  stroke: var(--ink-faint);
+  transform: rotate(-90deg);
+  transition: transform 120ms ease;
+}
+
+.review-trace-worked[open] .review-trace-worked-chevron .review-trace-icon {
+  transform: rotate(0deg);
+}
+
+.review-trace-worked-line {
+  flex-grow: 1;
+  height: 1px;
+  background: var(--rule);
+}
+
+.review-trace-worked-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-top: 18px;
+}
+
+/* The embedded workbench Chromium does not hide closed details content. */
+.review-trace-worked:not([open]) > .review-trace-worked-body {
+  display: none;
+}
+
+.review-trace-tool--expandable:not([open]) > .review-trace-figure {
+  display: none;
+}
+
+.review-trace-toolgroup:not([open]) > .review-trace-toolgroup-body {
+  display: none;
+}
+
+/* Coalesced tool runs: one summary row per consecutive tool-call run */
+
+.review-trace-toolgroup {
+  min-width: 0;
+}
+
+.review-trace-toolgroup > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  list-style: none;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+
+.review-trace-toolgroup > summary::-webkit-details-marker {
+  display: none;
+}
+
+.review-trace-toolgroup-label {
+  color: var(--ink-soft);
+}
+
+.review-trace-toolgroup-count {
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+.review-trace-toolgroup-chevron {
+  display: inline-flex;
+  align-items: center;
+}
+
+.review-trace-toolgroup-chevron .review-trace-icon {
+  width: 12px;
+  height: 12px;
+  stroke: var(--rule-soft);
+  transform: rotate(-90deg);
+  transition: transform 120ms ease;
+}
+
+.review-trace-toolgroup[open]
+  > summary
+  .review-trace-toolgroup-chevron
+  .review-trace-icon {
+  transform: rotate(0deg);
+}
+
+.review-trace-toolgroup-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 2px 0 4px 26px;
+}
+
+.review-trace-note {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 19px;
+  color: var(--ink-faint);
+}
+
+.review-trace-note--error {
+  color: var(--change-removed);
+}
+
+.review-trace-empty,
+.review-trace-unconfigured {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 48px;
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 26px;
+  color: var(--ink);
+}
+
+.review-trace-empty p,
+.review-trace-unconfigured p {
+  margin: 0;
+}
+
+/* Lens / peek scoped trace elements */
+
+.review-trace-events--scoped {
+  margin-top: 22px;
+}
+
+.review-trace-lens-gap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  width: 100%;
+}
+
+.review-trace-lens-gap-line {
+  flex-grow: 1;
+  height: 1px;
+  border-top: 1px dashed var(--rule-soft);
+}
+
+.review-trace-lens-gap-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 10px;
+  border: 1px dashed var(--rule-soft);
+  border-radius: 999px;
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+.review-trace-lens-gap:hover .review-trace-lens-gap-chip {
+  color: var(--ink-soft);
+  border-color: var(--ink-faint);
+}
+
+.review-trace-lens-elided {
+  display: inline;
+}
+
+.review-trace-lens-kept {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 26px;
+  color: var(--ink);
+}
+
+.review-trace-user-bubble--elided .review-trace-lens-kept {
+  line-height: 24px;
+}
+
+.review-trace-lens-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  margin: 0 6px;
+  padding: 0 7px;
+  border: 1px dashed var(--rule-soft);
+  border-radius: 999px;
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+  cursor: pointer;
+  vertical-align: baseline;
+}
+
+.review-trace-lens-chip:hover {
+  color: var(--ink-soft);
+  border-color: var(--ink-faint);
+}
+
+.review-trace-prose--elided {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 26px;
+  color: var(--ink);
+}
+
+/* Quote links and marks */
+
+.review-trace-quote,
+.review-trace-quote:visited {
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.review-trace-quote:hover {
+  text-decoration: underline;
+}
+
+.review-trace-quote[data-review-anchor-open] {
+  background: var(--link-open-wash);
+}
+
+.review-trace-quote--inert {
+  color: var(--ink-faint);
+  text-decoration: none;
+  cursor: default;
+}
+
+.review-trace-quote--inert:hover {
+  text-decoration: none;
+}
+
+.review-trace-quote-mark,
+.review-trace-rfc-mark {
+  background: rgba(255, 230, 0, 0.35);
+  color: inherit;
+  border-radius: 2px;
+  padding: 1px 2px;
+}
+
+.review-trace-peek-open-full {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--rule-soft);
+  background: var(--surface);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.review-trace-peek-open-full:hover {
+  background: var(--accent-wash);
 }

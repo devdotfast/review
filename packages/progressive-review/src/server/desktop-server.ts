@@ -1281,6 +1281,7 @@ export function createGlobalReviewServer(
         routePath: "/",
         token,
         sessionId,
+        reviewUuid: registration.review.review.uuid,
         historicalRevision: registration.historicalRevision,
         listDocumentVersions: async () => {
           const latest = await findReview(registration.review.review.uuid);
@@ -1522,6 +1523,8 @@ export function createGlobalReviewServer(
       outcome,
       durationMs: Date.now() - active.descriptor.startedAt,
       appSessionId: active.appSessionId,
+      reviewUuid: active.review.review.uuid,
+      presentationSessionId: active.descriptor.sessionId,
     });
   }
 
@@ -1534,6 +1537,8 @@ export function createGlobalReviewServer(
       sourceKind: reviewSourceKind(active.review.review),
       agentKind: reviewAgentKind(active.review.review),
       appSessionId: active.appSessionId,
+      reviewUuid: active.review.review.uuid,
+      presentationSessionId: active.descriptor.sessionId,
     });
   }
 

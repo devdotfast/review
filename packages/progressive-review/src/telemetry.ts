@@ -9,4 +9,5 @@ export {
   type ReviewTabTelemetryEvent,
   type ReviewTabTelemetryReason,
   type ReviewTelemetryTab,
+  type ProgressiveReviewTelemetryContext,
 } from "./progressive-review-telemetry";

@@ -5,6 +5,11 @@ import path from "node:path";
 import type { ReviewThreadsCommit } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { PostHogCaptureInput } from "../posthog-capture-client";
+import {
+  ProgressiveReviewTelemetry,
+  type ProgressiveReviewTelemetryCaptureClient,
+} from "../progressive-review-telemetry";
 import { writeReviewDocumentBundle } from "../review-bundle";
 import { readReviewComments } from "../review-state-store";
 import {
@@ -28,6 +33,98 @@ afterEach(async () => {
 });
 
 describe("createReviewSessionHandler", () => {
+  it("scopes routed UI telemetry and presents a session only once", async () => {
+    rootPath = await mkdtemp(path.join(tmpdir(), "review-session-handler-"));
+    const reviewPath = path.join(rootPath, "review.mdx");
+    const sessionId = "0f98956f-ec90-45b5-ae21-19acbcd8b6ef";
+    const reviewUuid = "86df96ed-65ef-46de-9348-c94811e3bb46";
+    const sessionUrl = `http://127.0.0.1:5570/sessions/${sessionId}`;
+    const token = "session-secret";
+    const events: PostHogCaptureInput[] = [];
+    const captureClient: ProgressiveReviewTelemetryCaptureClient = {
+      enabled: true,
+      capture: async (event) => {
+        events.push(event);
+      },
+    };
+    const telemetry = new ProgressiveReviewTelemetry({
+      captureClient,
+      env: {},
+      installConfigPath: path.join(rootPath, "telemetry.json"),
+      idFactory: () => "install-123",
+    });
+    const handler = await createReviewSessionHandler({
+      ...unusedAgentServices,
+      rootPath,
+      toolingRoot: rootPath,
+      reviewPath,
+      routePath: "/",
+      token,
+      sessionId,
+      reviewUuid,
+      telemetry,
+      session: {
+        rootPath,
+        baseRef: "HEAD",
+        appUrl: sessionUrl,
+        reviewPath,
+        startedAt: Date.now(),
+      },
+    });
+    const capture = (name: string, properties?: Record<string, unknown>) =>
+      handler.handle(
+        new Request(
+          new URL("/__progressive-review/telemetry/event", sessionUrl),
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-review-token": token,
+              "x-review-app-session-id": "app-session-12345678",
+            },
+            body: JSON.stringify({ name, properties }),
+          },
+        ),
+      );
+
+    try {
+      await expect(capture("review_presented")).resolves.toHaveProperty(
+        "status",
+        200,
+      );
+      await expect(capture("review_presented")).resolves.toHaveProperty(
+        "status",
+        200,
+      );
+      await expect(
+        capture("client_error", {
+          error_source: "render",
+          error_process: "canvas",
+          error_name: "TypeError",
+        }),
+      ).resolves.toHaveProperty("status", 200);
+
+      expect(events.map((event) => event.event)).toEqual([
+        "review_review_presented",
+        "review_client_error",
+      ]);
+      expect(events[0].properties).toMatchObject({
+        source: "review_app",
+        app_session_id: "app-session-12345678",
+        review_id: expect.stringMatching(/^rv_/),
+        presentation_id: expect.stringMatching(/^pr_/),
+      });
+      expect(events[1].properties).toMatchObject({
+        review_id: events[0].properties?.review_id,
+        presentation_id: events[0].properties?.presentation_id,
+      });
+      expect(JSON.stringify(events)).not.toContain(reviewUuid);
+      expect(JSON.stringify(events)).not.toContain(sessionId);
+    } finally {
+      await handler.close();
+    }
+  });
+
   it("rejects writes against a historical session with 409", async () => {
     rootPath = await mkdtemp(path.join(tmpdir(), "review-session-handler-"));
     const reviewPath = path.join(rootPath, "review.mdx");

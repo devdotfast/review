@@ -1,3 +1,6 @@
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { PassThrough } from "node:stream";
 
 import { describe, expect, it, vi } from "vitest";
@@ -5,7 +8,8 @@ import { describe, expect, it, vi } from "vitest";
 import { runProgressiveReviewCli } from "./cli-runner";
 import { runInstall as runInstallActual } from "./install";
 import { runReviewMigration as runReviewMigrationActual } from "./migrate";
-import type { ProgressiveReviewTelemetry } from "./progressive-review-telemetry";
+import { PostHogCaptureClient } from "./posthog-capture-client";
+import { ProgressiveReviewTelemetry } from "./progressive-review-telemetry";
 import { runReviewApp as runReviewAppActual } from "./review-app";
 import { runReviewAppLaunch as runReviewAppLaunchActual } from "./review-app-launcher";
 import {
@@ -240,7 +244,16 @@ describe("Review CLI", () => {
       async () => undefined,
     );
     const telemetry = {
+      createCommandRunId: vi.fn<
+        ProgressiveReviewTelemetry["createCommandRunId"]
+      >(() => "run-12345678"),
       captureInstallationCreated: vi.fn<() => Promise<undefined>>(
+        async () => undefined,
+      ),
+      captureCommandStarted: vi.fn<() => Promise<undefined>>(
+        async () => undefined,
+      ),
+      captureCommandBound: vi.fn<() => Promise<undefined>>(
         async () => undefined,
       ),
       captureCommandSucceeded,
@@ -274,6 +287,202 @@ describe("Review CLI", () => {
     ).resolves.toBe(0);
     expect(captureCommandSucceeded).toHaveBeenCalledWith(
       expect.objectContaining({ command }),
+    );
+  });
+
+  it("persists command start before an unresolved handler and completes the same run", async () => {
+    const rootPath = await mkdtemp(path.join(os.tmpdir(), "review-cli-run-"));
+    const queueDir = path.join(rootPath, "queue");
+    let queueId = 0;
+    const fetchMock = vi.fn<typeof fetch>(
+      async () => new Response(null, { status: 200 }),
+    );
+    const captureClient = new PostHogCaptureClient({
+      apiKey: "test-key",
+      fetch: fetchMock,
+      queueDir,
+      idFactory: () => `queue-${queueId++}`,
+    });
+    const telemetry = new ProgressiveReviewTelemetry({
+      captureClient,
+      env: {},
+      installConfigPath: path.join(rootPath, "telemetry.json"),
+      idFactory: () => "install-123",
+      randomUUID: () => "8b733d48-1172-46a7-9df0-3cc71930c25a",
+    });
+    let entered!: () => void;
+    const handlerEntered = new Promise<void>((resolve) => (entered = resolve));
+    let release!: (
+      value: Awaited<ReturnType<typeof runReviewInfoActual>>,
+    ) => void;
+    const handlerResult = new Promise<
+      Awaited<ReturnType<typeof runReviewInfoActual>>
+    >((resolve) => (release = resolve));
+    const runReviewInfo = vi.fn<typeof runReviewInfoActual>(async () => {
+      entered();
+      return handlerResult;
+    });
+
+    try {
+      const running = runProgressiveReviewCli({
+        argv: ["info"],
+        stdout: outputStream(),
+        stderr: outputStream(),
+        telemetry,
+        runtime: { runReviewInfo },
+      });
+      await handlerEntered;
+
+      const queued = await Promise.all(
+        (await readdir(queueDir))
+          .filter((file) => file.endsWith(".json"))
+          .map(async (file) =>
+            JSON.parse(await readFile(path.join(queueDir, file), "utf8")),
+          ),
+      );
+      expect(queued).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: "review_command_started",
+            properties: expect.objectContaining({
+              command_path: "info",
+              command_run_id: "8b733d48-1172-46a7-9df0-3cc71930c25a",
+            }),
+          }),
+        ]),
+      );
+
+      release({ event: "info", reviews: [] });
+      await expect(running).resolves.toBe(0);
+      const sent = fetchMock.mock.calls.flatMap(
+        ([, init]) =>
+          JSON.parse(String(init?.body)).batch as Array<{
+            event: string;
+            properties: Record<string, unknown>;
+          }>,
+      );
+      const lifecycle = sent.filter((event) =>
+        ["review_command_started", "review_command_succeeded"].includes(
+          event.event,
+        ),
+      );
+      expect(lifecycle).toHaveLength(2);
+      expect(lifecycle.map((event) => event.properties.command_run_id)).toEqual(
+        [
+          "8b733d48-1172-46a7-9df0-3cc71930c25a",
+          "8b733d48-1172-46a7-9df0-3cc71930c25a",
+        ],
+      );
+    } finally {
+      await rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("emits a failed terminal event when a handler rejects", async () => {
+    const captureCommandStarted = vi.fn<
+      ProgressiveReviewTelemetry["captureCommandStarted"]
+    >(async () => undefined);
+    const captureCommandFailed = vi.fn<
+      ProgressiveReviewTelemetry["captureCommandFailed"]
+    >(async () => undefined);
+    const telemetry = {
+      createCommandRunId: () => "8b733d48-1172-46a7-9df0-3cc71930c25a",
+      captureInstallationCreated: vi.fn<
+        ProgressiveReviewTelemetry["captureInstallationCreated"]
+      >(async () => undefined),
+      captureCommandStarted,
+      captureCommandBound: vi.fn<
+        ProgressiveReviewTelemetry["captureCommandBound"]
+      >(async () => undefined),
+      captureCommandSucceeded: vi.fn<
+        ProgressiveReviewTelemetry["captureCommandSucceeded"]
+      >(async () => undefined),
+      captureCommandFailed,
+      shutdown: vi.fn<ProgressiveReviewTelemetry["shutdown"]>(
+        async () => undefined,
+      ),
+    } as unknown as ProgressiveReviewTelemetry;
+
+    await expect(
+      runProgressiveReviewCli({
+        argv: ["info"],
+        stdout: outputStream(),
+        stderr: outputStream(),
+        telemetry,
+        runtime: {
+          runReviewInfo: async () => {
+            throw new Error("controlled failure");
+          },
+        },
+      }),
+    ).resolves.toBe(1);
+
+    expect(captureCommandStarted).toHaveBeenCalledWith({
+      command: "info",
+      commandRunId: "8b733d48-1172-46a7-9df0-3cc71930c25a",
+    });
+    expect(captureCommandFailed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: "info",
+        commandRunId: "8b733d48-1172-46a7-9df0-3cc71930c25a",
+        exitCode: 1,
+      }),
+    );
+  });
+
+  it("binds scaffold telemetry and enriches the terminal event", async () => {
+    const reviewUuid = "86df96ed-65ef-46de-9348-c94811e3bb46";
+    const captureCommandBound = vi.fn<
+      ProgressiveReviewTelemetry["captureCommandBound"]
+    >(async () => undefined);
+    const captureCommandSucceeded = vi.fn<
+      ProgressiveReviewTelemetry["captureCommandSucceeded"]
+    >(async () => undefined);
+    const telemetry = {
+      createCommandRunId: () => "8b733d48-1172-46a7-9df0-3cc71930c25a",
+      captureInstallationCreated: vi.fn<
+        ProgressiveReviewTelemetry["captureInstallationCreated"]
+      >(async () => undefined),
+      captureCommandStarted: vi.fn<
+        ProgressiveReviewTelemetry["captureCommandStarted"]
+      >(async () => undefined),
+      captureCommandBound,
+      captureCommandSucceeded,
+      captureCommandFailed: vi.fn<
+        ProgressiveReviewTelemetry["captureCommandFailed"]
+      >(async () => undefined),
+      shutdown: vi.fn<ProgressiveReviewTelemetry["shutdown"]>(
+        async () => undefined,
+      ),
+    } as unknown as ProgressiveReviewTelemetry;
+    const runReviewScaffold = vi.fn<typeof runReviewScaffoldActual>(
+      async (input) => {
+        await input.onReviewBound?.(reviewUuid);
+        return { event: "info", reviews: [] };
+      },
+    );
+
+    await expect(
+      runProgressiveReviewCli({
+        argv: ["scaffold"],
+        stdout: outputStream(),
+        stderr: outputStream(),
+        telemetry,
+        runtime: { runReviewScaffold },
+      }),
+    ).resolves.toBe(0);
+
+    expect(captureCommandBound).toHaveBeenCalledWith({
+      command: "scaffold",
+      commandRunId: "8b733d48-1172-46a7-9df0-3cc71930c25a",
+      reviewUuid,
+    });
+    expect(captureCommandSucceeded).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: "scaffold",
+        commandRunId: "8b733d48-1172-46a7-9df0-3cc71930c25a",
+        reviewUuid,
+      }),
     );
   });
 

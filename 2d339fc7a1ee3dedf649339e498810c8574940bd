@@ -1,0 +1,355 @@
+import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
+
+export default defineSoftwareMap({
+  people: {
+    reviewer: {
+      label: "Reviewer",
+      description:
+        "Human who reads guided Reviews in Review Desktop, asks questions, comments, and approves or requests changes.",
+    },
+  },
+  systems: {
+    codingAgent: {
+      label: "Coding Agent",
+      description:
+        "Claude Code, Codex, or another coding agent that authors Reviews through the CLI and the bundled skills.",
+      external: true,
+    },
+    github: {
+      label: "GitHub",
+      description: "Remote host for pull requests and branch refs a Review can bind to.",
+      external: true,
+    },
+    posthog: {
+      label: "PostHog",
+      description: "Anonymous telemetry sink; never receives code, diffs, or Review text.",
+      external: true,
+    },
+    review: {
+      label: "Review",
+      description:
+        "Open-source desktop system for understanding and reviewing agent-written code: agents author guided Reviews, humans read them beside live code.",
+      containers: {
+        desktop: {
+          label: "Review Desktop",
+          description:
+            "Electron app forked from vendored Code OSS; renders guided Reviews beside live code, diffs, and system views.",
+          coverage: { globs: ["apps/review-desktop/**"] },
+          components: {
+            reviewCore: {
+              label: "Review workbench",
+              description:
+                "Review-specific Code OSS layer: comments, inline diff editors, code resources, and protocol services inside the workbench.",
+              coverage: {
+                globs: ["apps/review-desktop/code-oss/src/vs/review/**"],
+              },
+              relationships: [
+                {
+                  kind: "semantic",
+                  semanticKind: "uses",
+                  from: ".",
+                  to: "review.cli.desktopServer",
+                  label: "hosts and calls the local review host",
+                },
+                {
+                  kind: "semantic",
+                  semanticKind: "depends on",
+                  from: ".",
+                  to: "review.protocol",
+                  label: "speaks the shared review protocol",
+                },
+                {
+                  kind: "semantic",
+                  semanticKind: "embeds",
+                  from: ".",
+                  to: "review.cli.readerApp",
+                  label: "renders the reader app in a webview",
+                },
+              ],
+            },
+            desktopScripts: {
+              label: "Desktop build scripts",
+              description:
+                "Packaging, cleaning, and contract-test scripts for the vendored Code OSS build.",
+              coverage: { globs: ["apps/review-desktop/scripts/**"] },
+              relationships: [
+                {
+                  kind: "semantic",
+                  semanticKind: "verifies",
+                  from: ".",
+                  to: "review.desktop.reviewCore",
+                  label: "guards workbench contracts at build time",
+                },
+              ],
+            },
+          },
+        },
+        cli: {
+          label: "Review CLI & authoring toolkit",
+          description:
+            "The progressive-review package: `review` CLI, review host server, MDX compiler, software maps, agent traces, and reader app.",
+          coverage: { globs: ["packages/progressive-review/**"] },
+          components: {
+            cliCore: {
+              label: "CLI entry",
+              description:
+                "Command-line surface: argument parsing, command dispatch, and output shaping for the `review` binary.",
+              coverage: { globs: ["packages/progressive-review/src/cli*"] },
+              relationships: [
+                {
+                  kind: "semantic",
+                  semanticKind: "dispatches to",
+                  from: ".",
+                  to: "review.cli.reviewLifecycle",
+                  label: "scaffold, publish, info, wait",
+                },
+                {
+                  kind: "semantic",
+                  semanticKind: "dispatches to",
+                  from: ".",
+                  to: "review.cli.softwareMap",
+                  label: "review map open/check/publish/push",
+                },
+                {
+                  kind: "semantic",
+                  semanticKind: "dispatches to",
+                  from: ".",
+                  to: "review.cli.agentTraces",
+                  label: "review trace list/pull/show",
+                },
+              ],
+            },
+            reviewLifecycle: {
+              label: "Review lifecycle",
+              description:
+                "Scaffolding, pinning, publication, state, threads, and storage for a Review bound to a branch, jj change, or PR.",
+              coverage: { globs: ["packages/progressive-review/src/review-*"] },
+              relationships: [
+                {
+                  kind: "semantic",
+                  semanticKind: "reads/writes",
+                  from: ".",
+                  to: "review.reviewHome",
+                  label: "persists documents, pins, threads, revisions",
+                },
+                {
+                  kind: "semantic",
+                  semanticKind: "uses",
+                  from: ".",
+                  to: "review.localVcs",
+                  label: "resolves commits, worktrees, merge bases",
+                },
+                {
+                  kind: "semantic",
+                  semanticKind: "uses",
+                  from: ".",
+                  to: "review.cli.documentCompiler",
+                  label: "compiles review.mdx at publish",
+                },
+                {
+                  kind: "semantic",
+                  semanticKind: "calls",
+                  from: ".",
+                  to: "github",
+                  label: "resolves pull request refs",
+                },
+              ],
+            },
+            documentCompiler: {
+              label: "Document compiler",
+              description:
+                "MDX compilation pipeline for review.mdx: syntax validation, section/anchor transforms, and module emission.",
+              coverage: { globs: ["packages/progressive-review/src/compiler/**"] },
+            },
+            softwareMap: {
+              label: "Software map",
+              description:
+                "Software map model, validation (coverage, connectivity, ownership), scratch/check workflow, and map CLI.",
+              coverage: {
+                globs: [
+                  "packages/progressive-review/src/software-map-*",
+                  "packages/progressive-review/src/map-cli*",
+                  "packages/progressive-review/src/tolerant-software-map-model.ts",
+                ],
+              },
+              relationships: [
+                {
+                  kind: "semantic",
+                  semanticKind: "reads/writes",
+                  from: ".",
+                  to: "review.mapNotes",
+                  label: "saves per-commit maps as git notes",
+                },
+              ],
+            },
+            agentTraces: {
+              label: "Agent traces",
+              description:
+                "Discovery, parsing, and materialization of coding-agent session traces plus repository trace hooks.",
+              coverage: {
+                globs: [
+                  "packages/progressive-review/src/trace-*",
+                  "packages/progressive-review/src/agent-*",
+                ],
+              },
+              relationships: [
+                {
+                  kind: "semantic",
+                  semanticKind: "reads/writes",
+                  from: ".",
+                  to: "review.traceCorpus",
+                  label: "materializes trace corpora for quoting",
+                },
+                {
+                  kind: "semantic",
+                  semanticKind: "depends on",
+                  from: ".",
+                  to: "review.traceShared",
+                  label: "shares trace contracts",
+                },
+              ],
+            },
+            nativeAgent: {
+              label: "Native agent bridge",
+              description:
+                "Launches and observes Claude Code / Codex turns for feedback rounds: transcripts, hooks, and session mirroring.",
+              coverage: { globs: ["packages/progressive-review/src/native-agent/**"] },
+              relationships: [
+                {
+                  kind: "semantic",
+                  semanticKind: "drives",
+                  from: ".",
+                  to: "codingAgent",
+                  label: "starts agent turns and mirrors transcripts",
+                },
+              ],
+            },
+            desktopServer: {
+              label: "Review host server",
+              description:
+                "Hono HTTP server embedded in Review Desktop: review API, publish staging, doc bundling, and session handling.",
+              coverage: { globs: ["packages/progressive-review/src/server/**"] },
+              relationships: [
+                {
+                  kind: "semantic",
+                  semanticKind: "depends on",
+                  from: ".",
+                  to: "review.protocol",
+                  label: "validates requests with shared contracts",
+                },
+                {
+                  kind: "semantic",
+                  semanticKind: "reads",
+                  from: ".",
+                  to: "review.reviewHome",
+                  label: "serves published revisions and threads",
+                },
+                {
+                  kind: "semantic",
+                  semanticKind: "uses",
+                  from: ".",
+                  to: "review.cli.nativeAgent",
+                  label: "launches agent turns for feedback",
+                },
+              ],
+            },
+            readerApp: {
+              label: "Reader app",
+              description:
+                "React front end for reading a Review: prose, anchors, code peeks, sequence diagrams, and the software map view.",
+              coverage: { globs: ["packages/progressive-review/app/**"] },
+            },
+            telemetry: {
+              label: "Telemetry",
+              description:
+                "Anonymous product and error telemetry: event schemas, cleaning, config, and the PostHog capture client.",
+              coverage: {
+                globs: [
+                  "packages/progressive-review/src/*telemetry*",
+                  "packages/progressive-review/src/*posthog*",
+                ],
+              },
+              relationships: [
+                {
+                  kind: "semantic",
+                  semanticKind: "sends to",
+                  from: ".",
+                  to: "posthog",
+                  label: "anonymous events only",
+                },
+              ],
+            },
+            skills: {
+              label: "Agent skills",
+              description:
+                "Bundled dev-review, dev-review-map, and trace-archaeology skills that teach coding agents the authoring workflow.",
+              coverage: { globs: ["packages/progressive-review/skills/**"] },
+              relationships: [
+                {
+                  kind: "semantic",
+                  semanticKind: "instructs",
+                  from: ".",
+                  to: "codingAgent",
+                  label: "authoring and map workflow instructions",
+                },
+              ],
+            },
+          },
+        },
+        protocol: {
+          label: "Review protocol",
+          description:
+            "Shared TypeScript contracts between the CLI, the review host server, and Review Desktop.",
+          coverage: { globs: ["packages/review-protocol/**"] },
+        },
+        localVcs: {
+          label: "Local VCS",
+          description:
+            "Git and Jujutsu primitives: revision resolution, tracked files, notes, and file locks used across the system.",
+          coverage: { globs: ["packages/local-vcs/**"] },
+        },
+        traceShared: {
+          label: "Trace shared",
+          description: "Shared agent-trace contract types used by the CLI and trace tooling.",
+          coverage: { globs: ["packages/trace-shared/**"] },
+        },
+      },
+      dataStores: {
+        reviewHome: {
+          label: "Review home",
+          description:
+            "Per-review storage under ~/.dev/reviews/<uuid>: review.mdx, data.ts, pinned state, thread database, sealed revisions.",
+          kind: "fileStore",
+        },
+        mapNotes: {
+          label: "Software map notes",
+          description:
+            "Per-commit software maps stored as git notes under refs/notes/dev-fast/*, shared via map push/fetch.",
+          kind: "artifactStore",
+        },
+        traceCorpus: {
+          label: "Trace corpus",
+          description:
+            "Materialized coding-agent session traces under ~/.dev/trace-search, searched while authoring Reviews.",
+          kind: "fileStore",
+        },
+      },
+    },
+  },
+  relationships: [
+    {
+      kind: "semantic",
+      semanticKind: "uses",
+      from: "reviewer",
+      to: "review.desktop",
+      label: "reads Reviews, comments, approves or requests changes",
+    },
+    {
+      kind: "semantic",
+      semanticKind: "uses",
+      from: "codingAgent",
+      to: "review.cli",
+      label: "scaffolds, authors, and publishes Reviews",
+    },
+  ],
+});

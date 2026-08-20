@@ -103,6 +103,8 @@ const reviewDescriptor = {
 const session = {
   sessionId: "session-1",
   rootPath: "/tmp/repo",
+  baseRootPath: "/tmp/review-base",
+  headRootPath: "/tmp/review-head",
   baseRef: "main",
   routePath: "/",
   appUrl: "http://127.0.0.1:5570/",

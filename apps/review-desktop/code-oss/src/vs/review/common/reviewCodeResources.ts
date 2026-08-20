@@ -17,6 +17,7 @@ export const REVIEW_UNIFIED_SCHEME = "devfast-review-unified";
 export interface ReviewResourceSession {
   readonly session: {
     readonly rootPath: string;
+    readonly baseRootPath?: string;
     readonly headRootPath?: string;
   };
 }
@@ -66,6 +67,15 @@ export function reviewHeadFileUri(
   return reviewFileUri({ session: { rootPath: headRootPath } }, filePath);
 }
 
+export function reviewBaseFileUri(
+  session: ReviewResourceSession,
+  filePath: string,
+): URI | undefined {
+  const baseRootPath = session.session.baseRootPath;
+  if (!baseRootPath) return undefined;
+  return reviewFileUri({ session: { rootPath: baseRootPath } }, filePath);
+}
+
 export function reviewResourceIdentity(
   session: ReviewResourceIdentitySession,
   resource: URI,
@@ -81,7 +91,11 @@ export function reviewResourceIdentity(
   }
   if (resource.scheme !== "file") return null;
 
-  const roots = [session.session.headRootPath, session.session.rootPath];
+  const roots = [
+    session.session.headRootPath,
+    session.session.baseRootPath,
+    session.session.rootPath,
+  ];
   for (const rootPath of roots) {
     if (!rootPath) continue;
     const relative = extUri.relativePath(URI.file(rootPath), resource);

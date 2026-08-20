@@ -72,6 +72,13 @@ const resourceSource = readFileSync(
   ),
   "utf8",
 );
+const unifiedDefinitionSource = readFileSync(
+  new URL(
+    "../code-oss/src/vs/review/services/reviewUnifiedDefinition.ts",
+    import.meta.url,
+  ),
+  "utf8",
+);
 const reviewConfiguration = readFileSync(
   new URL(
     "../code-oss/src/vs/review/common/reviewConfigurationDefaults.ts",
@@ -271,6 +278,49 @@ test("unified CodePeek navigation opens the mapped review resource", () => {
     /resolverReference = await this\.textModelService\.createModelReference/,
   );
   assert.match(resourceSource, /resolverReference\.dispose\(\)/);
+});
+
+test("unified CodePeek definitions delegate to the mapped source model", () => {
+  assert.match(
+    source,
+    /definitionProvider\.register\(\s*\{ scheme: REVIEW_UNIFIED_SCHEME, exclusive: true \}/,
+  );
+  assert.match(
+    unifiedDefinitionSource,
+    /unified\?\.targetForRange\(\s*position\.lineNumber,\s*position\.lineNumber/,
+  );
+  assert.match(
+    unifiedDefinitionSource,
+    /createModelReference\(\s*target\.resource,\s*\)/,
+  );
+  assert.match(
+    unifiedDefinitionSource,
+    /resolveDefinitions\(\s*definitionProviders,\s*sourceModel,\s*sourcePosition/,
+  );
+  assert.match(
+    unifiedDefinitionSource,
+    /activateByEvent\(\s*`onLanguage:\$\{sourceModel\.getLanguageId\(\)\}`/,
+  );
+  assert.match(
+    unifiedDefinitionSource,
+    /followSameFileDefinition\(\s*definitionProviders,\s*sourceModel,\s*definition/,
+  );
+  assert.match(unifiedDefinitionSource, /sourceReference\.dispose\(\)/);
+});
+
+test("unified CodePeek hovers delegate to the mapped source model", () => {
+  assert.match(
+    source,
+    /hoverProvider\.register\(\s*\{ scheme: REVIEW_UNIFIED_SCHEME, exclusive: true \}/,
+  );
+  assert.match(
+    unifiedDefinitionSource,
+    /resolveHovers\(\s*hoverProviders,\s*sourceModel,\s*sourcePosition/,
+  );
+  assert.match(
+    unifiedDefinitionSource,
+    /contents: hovers\.flatMap\(\(hover\) => hover\.contents\)/,
+  );
 });
 
 test("the multi-diff scroller releases the wheel at real content bounds", () => {

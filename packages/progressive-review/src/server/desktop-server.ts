@@ -1247,13 +1247,19 @@ export function createGlobalReviewServer(
         "review_unbound",
       );
     }
+    const baseRootPath = await ensureReviewPinnedCheckout({
+      rootPath: registration.review.review.worktreePath,
+      ref: registration.review.review.baseCommit,
+      reviewUuid: registration.review.review.uuid,
+      role: "base",
+    });
     const headRootPath = await ensureReviewPinnedCheckout({
       rootPath: registration.review.review.worktreePath,
       ref: sourceCommit,
       reviewUuid: registration.review.review.uuid,
       role: "head",
     });
-    if (!headRootPath) {
+    if (!baseRootPath || !headRootPath) {
       throw new ReviewServerError(
         `Review ${registration.review.review.uuid} cannot create its managed checkout.`,
         409,
@@ -1266,6 +1272,7 @@ export function createGlobalReviewServer(
       boundPort,
       registration.documentPath,
       registration.source,
+      baseRootPath,
       headRootPath,
     );
     let active!: ActiveReviewSession;
@@ -1869,6 +1876,7 @@ function sessionWireFor(
   port: number,
   documentPath: string,
   source?: ActiveReviewSession["source"],
+  baseRootPath?: string,
   headRootPath?: string,
 ): ReviewSessionWire {
   const headRef = source?.sourceCommit ?? review.review.sourceCommit;
@@ -1883,6 +1891,7 @@ function sessionWireFor(
   return {
     sessionId: descriptor.sessionId,
     rootPath: review.review.worktreePath,
+    baseRootPath,
     headRootPath,
     baseRef: review.review.baseCommit,
     headRef,

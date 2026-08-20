@@ -1,6 +1,3 @@
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-
 import { sessionIdSchema } from "@dev-fast/trace-shared";
 import { git } from "@dev.fast/local-vcs";
 
@@ -9,6 +6,10 @@ import {
   syncReviewTrace,
   writeReviewTraceCommitMapping,
 } from "./review-agent-traces";
+import {
+  readActiveTraceSessions,
+  writeTraceSessions,
+} from "./trace-agent-sessions";
 
 const ZERO_OID = /^0+$/;
 
@@ -72,12 +73,10 @@ async function activeSessions(cwd: string): Promise<string[]> {
   );
   if (!fileResult.ok) return [];
   const filePath = fileResult.stdout.trim();
-  if (!filePath || !existsSync(filePath)) return [];
-  const sessions = (await readFile(filePath, "utf8").catch(() => ""))
-    .split("\n")
-    .map((value) => value.trim())
-    .filter((value) => sessionIdSchema.safeParse(value).success);
-  return [...new Set(sessions)];
+  if (!filePath) return [];
+  const sessions = await readActiveTraceSessions(filePath);
+  await writeTraceSessions(filePath, sessions).catch(() => undefined);
+  return [...sessions.keys()];
 }
 
 async function runPrePush(input: {

@@ -23,6 +23,12 @@ export default function (pi: ExtensionAPI) {
     runTraceHook("SessionStart", sessionId, ctx.cwd);
   });
 
+  pi.on("turn_start", async (_event, ctx) => {
+    const sessionId = ctx.sessionManager.getSessionId();
+    if (!sessionId) return;
+    runTraceHook("TurnStart", sessionId, ctx.cwd);
+  });
+
   pi.on("session_shutdown", async (_event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
     if (!sessionId) return;
@@ -54,6 +60,11 @@ type = "command"
 command = "review trace hook SessionStart"
 statusMessage = "Recording agent session id for trace stamping"
 
+[[hooks.UserPromptSubmit]]
+[[hooks.UserPromptSubmit.hooks]]
+type = "command"
+command = "review trace hook UserPromptSubmit"
+
 [[hooks.SessionEnd]]
 [[hooks.SessionEnd.hooks]]
 type = "command"
@@ -84,12 +95,18 @@ export async function installClaudeTraceHook(
   const hooks = (parsed.hooks as Record<string, unknown>) ?? {};
   let modified = false;
 
-  const hookCommand = (eventName: "SessionStart" | "SessionEnd") => ({
+  const hookCommand = (
+    eventName: "SessionStart" | "UserPromptSubmit" | "SessionEnd",
+  ) => ({
     type: "command",
     command: `${shellCommand(reviewCommand)} trace hook ${eventName}`,
   });
 
-  for (const eventName of ["SessionStart", "SessionEnd"] as const) {
+  for (const eventName of [
+    "SessionStart",
+    "UserPromptSubmit",
+    "SessionEnd",
+  ] as const) {
     const existingGroup = (hooks[eventName] as unknown[]) ?? [];
     const hasHook = existingGroup.some((entry) => {
       if (typeof entry !== "object" || !entry) return false;
@@ -137,7 +154,16 @@ export async function installCodexTraceHook(
     existing = await readFile(configPath, "utf8");
   }
 
-  if (existing.includes(" trace hook SessionStart")) {
+  const hookEvents = [
+    "SessionStart",
+    "UserPromptSubmit",
+    "SessionEnd",
+  ] as const;
+  const missingEvents = hookEvents.filter(
+    (eventName) =>
+      !existing.includes(` trace hook ${eventName}`),
+  );
+  if (missingEvents.length === 0) {
     return { agent: "codex", path: configPath, modified: false };
   }
 
@@ -145,11 +171,14 @@ export async function installCodexTraceHook(
     "review trace hook",
     `${shellCommand(reviewCommand)} trace hook`,
   );
+  const missingHookToml = missingEvents
+    .map((eventName) => codexTraceHookToml(eventName, reviewCommand))
+    .join("\n\n");
   await mkdir(codexDir, { recursive: true });
   await writeFile(
     configPath,
     existing
-      ? `${existing.trimEnd()}\n${codexHookToml}`
+      ? `${existing.trimEnd()}\n\n${missingHookToml.trim()}\n`
       : codexHookToml.trimStart(),
     "utf8",
   );
@@ -203,7 +232,11 @@ export async function removeAgentTraceHook(
     const hooks = parsed.hooks as Record<string, unknown> | undefined;
     if (!hooks) return false;
     let changed = false;
-    for (const eventName of ["SessionStart", "SessionEnd"] as const) {
+    for (const eventName of [
+      "SessionStart",
+      "UserPromptSubmit",
+      "SessionEnd",
+    ] as const) {
       const groups = Array.isArray(hooks[eventName]) ? hooks[eventName] : [];
       const keptGroups = groups.flatMap((group) => {
         if (!group || typeof group !== "object") return [group];
@@ -239,23 +272,15 @@ export async function removeAgentTraceHook(
     const existing = await readFile(configPath, "utf8");
     const marked =
       /# review-trace-hooks:start\n[\s\S]*?# review-trace-hooks:end\n?/;
-    const defaultHookText = CODEX_HOOK_TOML.trim();
-    const legacyHookText = CODEX_HOOK_TOML.replace(
-      /# review-trace-hooks:(?:start|end)\n/g,
-      "",
-    ).trim();
-    if (
-      !marked.test(existing) &&
-      !existing.includes(defaultHookText) &&
-      !existing.includes(legacyHookText)
-    ) {
-      return false;
-    }
-    const next = existing
+    const withoutMarkedBlock = existing
       .replace(marked, "")
-      .replace(defaultHookText, "")
-      .replace(legacyHookText, "")
-      .replace(/\n{3,}/g, "\n\n");
+      .replace(CODEX_HOOK_TOML.trim(), "");
+    const removed = ["SessionStart", "UserPromptSubmit", "SessionEnd"].reduce(
+      (content, eventName) => removeCodexTraceHook(content, eventName),
+      withoutMarkedBlock,
+    );
+    if (removed === existing) return false;
+    const next = removed.replace(/\n{3,}/g, "\n\n");
     await writeFile(
       configPath,
       next.trim() ? `${next.trimEnd()}\n` : "",
@@ -273,11 +298,7 @@ export async function removeAgentTraceHook(
   );
   if (!existsSync(extensionPath)) return false;
   const existing = await readFile(extensionPath, "utf8");
-  const installedSources = [
-    piExtensionSource("review"),
-    piExtensionSource(path.join(homeDir, ".local", "bin", "review")),
-  ];
-  if (!installedSources.some((source) => source.trim() === existing.trim())) {
+  if (!existing.trimStart().startsWith(`// ${PI_EXTENSION_MARKER}`)) {
     return false;
   }
   await rm(extensionPath, { force: true });
@@ -292,7 +313,35 @@ function shellCommand(command: string): string {
 
 function isReviewTraceHookCommand(command: unknown): boolean {
   if (typeof command !== "string") return false;
-  const match = /^(.*) trace hook (SessionStart|SessionEnd)$/.exec(command);
+  const match =
+    /^(.*) trace hook (SessionStart|UserPromptSubmit|SessionEnd)$/.exec(command);
   if (!match) return false;
   return match[1] === "review" || match[1].endsWith("/review'");
+}
+
+function codexTraceHookToml(
+  eventName: "SessionStart" | "UserPromptSubmit" | "SessionEnd",
+  reviewCommand: string,
+): string {
+  const status =
+    eventName === "SessionStart"
+      ? '\nstatusMessage = "Recording agent session id for trace stamping"'
+      : "";
+  return `[[hooks.${eventName}]]
+[[hooks.${eventName}.hooks]]
+type = "command"
+command = "${shellCommand(reviewCommand)} trace hook ${eventName}"${status}`;
+}
+
+function removeCodexTraceHook(content: string, eventName: string): string {
+  const escapedEvent = eventName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(
+    `(?:^|\\n)\\[\\[hooks\\.${escapedEvent}\\]\\]\\n` +
+      `\\[\\[hooks\\.${escapedEvent}\\.hooks\\]\\]\\n` +
+      `type = "command"\\n` +
+      `command = "[^"\\n]* trace hook ${escapedEvent}"\\n` +
+      `(?:statusMessage = "[^"\\n]*"\\n)?`,
+    "g",
+  );
+  return content.replace(pattern, "\n");
 }

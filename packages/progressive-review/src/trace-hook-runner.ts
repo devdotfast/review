@@ -1,12 +1,15 @@
 import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
 import { git } from "@dev.fast/local-vcs";
 
+import {
+  readActiveTraceSessions,
+  writeTraceSessions,
+} from "./trace-agent-sessions";
 import { traceMachineEnabled } from "./trace-machine-setup";
 import { enableTraceRepository } from "./trace-repository-hooks";
 
@@ -67,10 +70,13 @@ export async function runReviewTraceHook(
     return 0;
   }
 
-  const isStart = event.toLowerCase().includes("start");
-  const isEnd = event.toLowerCase().includes("end");
+  const normalizedEvent = event.toLowerCase().replaceAll(/[_-]/g, "");
+  const isStart = normalizedEvent === "sessionstart";
+  const isEnd = normalizedEvent === "sessionend";
+  const isHeartbeat =
+    normalizedEvent === "userpromptsubmit" || normalizedEvent === "turnstart";
 
-  if (!isStart && !isEnd) {
+  if (!isStart && !isEnd && !isHeartbeat) {
     return 0;
   }
 
@@ -107,42 +113,27 @@ export async function runReviewTraceHook(
   let remainingSessions: string[] = [];
 
   if (sessionFilePath) {
-    let existingContent = "";
-    if (existsSync(sessionFilePath)) {
-      existingContent = await readFile(sessionFilePath, "utf8").catch(() => "");
-    }
-    const currentSessions = existingContent
-      .split("\n")
-      .map((s) => s.trim())
-      .filter((s) => s && SESSION_ID_REGEX.test(s));
+    const now = Date.now();
+    const currentSessions = await readActiveTraceSessions(sessionFilePath, now);
 
-    if (isStart) {
-      if (!currentSessions.includes(sessionId)) {
-        currentSessions.push(sessionId);
-      }
-      remainingSessions = currentSessions;
-      await writeFile(
-        sessionFilePath,
-        `${currentSessions.join("\n")}\n`,
-        "utf8",
-      ).catch(() => undefined);
+    if (isStart || isHeartbeat) {
+      currentSessions.set(sessionId, now);
+      remainingSessions = [...currentSessions.keys()];
+      await writeTraceSessions(sessionFilePath, currentSessions).catch(
+        () => undefined,
+      );
     } else if (isEnd) {
-      remainingSessions = currentSessions.filter((s) => s !== sessionId);
-      if (remainingSessions.length > 0) {
-        await writeFile(
-          sessionFilePath,
-          `${remainingSessions.join("\n")}\n`,
-          "utf8",
-        ).catch(() => undefined);
-      } else {
-        await rm(sessionFilePath, { force: true }).catch(() => undefined);
-      }
+      currentSessions.delete(sessionId);
+      remainingSessions = [...currentSessions.keys()];
+      await writeTraceSessions(sessionFilePath, currentSessions).catch(
+        () => undefined,
+      );
     }
   }
 
   // 2. Jujutsu (jj) templates.commit_trailers mirror handling
   if (jjRootResult?.stdout.trim()) {
-    if (isStart && remainingSessions.length > 0) {
+    if ((isStart || isHeartbeat) && remainingSessions.length > 0) {
       const templateVal = jjCommitTrailersConfigValue(remainingSessions);
       await execFileAsync(
         "jj",

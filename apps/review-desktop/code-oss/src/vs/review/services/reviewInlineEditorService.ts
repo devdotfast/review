@@ -33,7 +33,10 @@ import type {
   ICompositeCodeEditor,
   IEditorDecorationsCollection,
 } from "../../editor/common/editorCommon.js";
+import { getDefinitionsAtPosition } from "../../editor/contrib/gotoSymbol/browser/goToSymbol.js";
+import { getHoversPromise } from "../../editor/contrib/hover/browser/getHover.js";
 import type { ITextModel } from "../../editor/common/model.js";
+import { ILanguageFeaturesService } from "../../editor/common/services/languageFeatures.js";
 import { ITextModelService } from "../../editor/common/services/resolverService.js";
 import { ITextResourceConfigurationService } from "../../editor/common/services/textResourceConfiguration.js";
 import { IInstantiationService } from "../../platform/instantiation/common/instantiation.js";
@@ -70,12 +73,17 @@ import {
 } from "./reviewMultiDiff.js";
 import { markReviewEmbeddedEditor } from "./reviewEmbeddedNavigation.js";
 import {
+  provideReviewUnifiedDefinition,
+  provideReviewUnifiedHover,
+} from "./reviewUnifiedDefinition.js";
+import {
   computeMultiDiffEditorOptions,
   MultiDiffEditorInput,
 } from "../../workbench/contrib/multiDiffEditor/browser/multiDiffEditorInput.js";
 import { MultiDiffEditorItem } from "../../workbench/contrib/multiDiffEditor/browser/multiDiffSourceResolverService.js";
 import { ID as COMMENT_EDITOR_CONTRIBUTION_ID } from "../../workbench/contrib/comments/browser/commentsController.js";
 import { ContentHoverController } from "../../editor/contrib/hover/browser/contentHoverController.js";
+import { IExtensionService } from "../../workbench/services/extensions/common/extensions.js";
 
 const INLINE_HEADER_HEIGHT = MULTI_DIFF_RESOURCE_HEADER_HEIGHT;
 const CONTENT_HEIGHT_EPSILON = 0.5;
@@ -129,14 +137,54 @@ export class ReviewInlineEditorService
     private readonly textResourceConfigurationService: ITextResourceConfigurationService,
     @ICodeEditorService
     private readonly codeEditorService: ICodeEditorService,
+    @ILanguageFeaturesService
+    private readonly languageFeaturesService: ILanguageFeaturesService,
     @ITextModelService
     private readonly textModelService: ITextModelService,
+    @IExtensionService
+    private readonly extensionService: IExtensionService,
   ) {
     super();
     this._register(
       this.codeEditorService.registerCodeEditorOpenHandler(
         (input, source, sideBySide) =>
           this.openUnifiedNavigation(input, source, sideBySide),
+      ),
+    );
+    this._register(
+      this.languageFeaturesService.definitionProvider.register(
+        { scheme: REVIEW_UNIFIED_SCHEME, exclusive: true },
+        {
+          provideDefinition: (model, position, token) =>
+            provideReviewUnifiedDefinition(
+              this.resources,
+              this.textModelService,
+              this.extensionService,
+              this.languageFeaturesService.definitionProvider,
+              model,
+              position,
+              token,
+              getDefinitionsAtPosition,
+            ),
+        },
+      ),
+    );
+    this._register(
+      this.languageFeaturesService.hoverProvider.register(
+        { scheme: REVIEW_UNIFIED_SCHEME, exclusive: true },
+        {
+          provideHover: (model, position, token) =>
+            provideReviewUnifiedHover(
+              this.resources,
+              this.textModelService,
+              this.extensionService,
+              this.languageFeaturesService.hoverProvider,
+              model,
+              position,
+              token,
+              getHoversPromise,
+            ),
+        },
       ),
     );
   }

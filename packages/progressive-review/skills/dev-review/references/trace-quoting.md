@@ -76,7 +76,7 @@ Use `trace_quote_props` from the response without reconstructing it. Every `Trac
 
 ## Quote density by section
 
-- Landing section: This section should almost entirely be composed from user (or, maybe, agent-written, but user-approved later on) quotes, save for some glue words connecting the quotes. The two-to-four-sentence cap holds; short quotes beat long ones here. the most important thing is to capture the user's intent, in their words, which led to the code change in the pinned diff.
+- Landing section: The 'why' of this section should almost entirely be composed from quotes of user prompts (or agent messages that were later approved by the user), save for some glue words connecting the quotes. Keep it concise; short quotes beat long ones here. The most important thing is to capture the user's intent, in their words, which led to the code change in the pinned diff.
 - Requirements: at least one quote per bullet.
 - Design: a quote states each decision. An `AnchorLink` shows the decision in code.
 - Implementation: authored prose with `AnchorLink` evidence. Quotes are optional.

@@ -10,13 +10,16 @@ Assume raw prose will confuse the reader. Spend substantial reasoning effort dec
 
 Remember that the reader can ONLY see the 'user' prompts _before_ coding started and the document you write to explain what changed. This means jargon in the middle - references to specific parts of code, especially any and all abstractions, changes, and code referenced _during_ the editing process - is confusing and not helpful. More words do not help. Progressive disclosure of complexity is key.
 
-Open the document with a landing section. The landing section should be brief, and include both of the following, on separate lines:
+Open the document with a landing section after the H1 and before the first H2. Be concise.
 
-**Problem**: [What problem does this change solve? (What problem(s) is this change not trying to solve?) For a bugfix, this can be what was wrong before; for a new feature, this can be what this adds.]
-**Summary**: [A short description of the change, two to three sentences at most.]
+**Summary** 
+- short bullet points that summarize the change, for example:
+- comment peeks now open in the real diff editor, not a stitched-together fake buffer
+- both diff sides are actual files on disk, so imports and go-to-definition just work
+- comments stick to real lines — deleted ones included
 
-- Answer the 'why' behind the change completely (in the developer's own words, if we have agent traces,) capturing the intent behind the pr. Answer the 'what' briefly. The detail belongs in the later sections.
-- Define each domain term at its first mention.
+**Why**
+A couple short sentences about: What problem does this change solve? (What problem(s) is this change not trying to solve?) For a bugfix, this can be what was wrong before; for a new feature, this can be what this adds. Capture the intent behind the pr using the developer's own prompts, if those are available to you (either through associated agent trace sessions, or your own context window, if you have the implementation session in context.)
 
 After the landing section, use fewer than five further sections when practical. Choose the sections that fit this change. Good section choices are:
 

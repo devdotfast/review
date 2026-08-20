@@ -61,7 +61,6 @@ import {
   IReviewCodeResourceService,
   type ReviewCodeDiffTarget,
   type ReviewCodeModelReference,
-  type ReviewUnifiedCodeModelReference,
 } from "./reviewCodeResourceService.js";
 import {
   ReviewMultiDiffUIElementFactory,
@@ -244,26 +243,6 @@ export class ReviewInlineEditorService
     query: ReviewFindQuery,
   ): Promise<ReviewInlineFindResult> {
     if (!query.text) return { matchCount: 0 };
-    if (spec.commentsEnabled) {
-      const unified = await this.resources.acquireUnifiedDiff(
-        spec.path,
-        spec.side,
-        spec.ranges,
-      );
-      if (unified) {
-        try {
-          return {
-            matchCount: findModelRanges(
-              unified.model,
-              unified.windows,
-              query,
-            ).length,
-          };
-        } finally {
-          unified.dispose();
-        }
-      }
-    }
     const diff = await this.resources.resolveDiff(
       spec.path,
       spec.side,
@@ -370,14 +349,12 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
   private editor: CodeEditorWidget | undefined;
   private multiDiffEditor: MultiDiffEditorWidget | undefined;
   private modelReference: ReviewCodeModelReference | undefined;
-  private unifiedModelReference: ReviewUnifiedCodeModelReference | undefined;
   private diffModel: InlineDiffModel | undefined;
   private decoration: IEditorDecorationsCollection | undefined;
   private readonly diffRangeDecorations = new Map<
     ICodeEditor,
     IEditorDecorationsCollection
   >();
-  private diffDecoration: IEditorDecorationsCollection | undefined;
   private readonly findDecorations = new Map<
     ICodeEditor,
     IEditorDecorationsCollection
@@ -412,11 +389,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
   }
 
   get hasModel(): boolean {
-    return (
-      this.modelReference !== undefined ||
-      this.unifiedModelReference !== undefined ||
-      this.diffModel !== undefined
-    );
+    return this.modelReference !== undefined || this.diffModel !== undefined;
   }
 
   constructor(
@@ -519,7 +492,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
     }
     const matches: InlineFindMatch[] = [];
     const codeEditor = this.editor;
-    const modelReference = this.unifiedModelReference ?? this.modelReference;
+    const modelReference = this.modelReference;
     if (codeEditor && modelReference) {
       matches.push(
         ...this.findModelMatches(
@@ -582,34 +555,15 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
       collection.clear();
     }
     this.diffRangeDecorations.clear();
-    this.diffDecoration?.clear();
     this.editorStore.dispose();
     this.spec.container.replaceChildren();
-    this.spec.container.classList.remove(
-      "review-inline-code-editor",
-      "review-inline-unified-diff",
-    );
+    this.spec.container.classList.remove("review-inline-code-editor");
     super.dispose();
     this.onDispose();
   }
 
   private async initialize(): Promise<void> {
     try {
-      if (this.spec.commentsEnabled) {
-        const unifiedReference = await this.resources.acquireUnifiedDiff(
-          this.spec.path,
-          this.spec.side,
-          this.spec.ranges,
-        );
-        if (unifiedReference) {
-          if (this.disposed) {
-            unifiedReference.dispose();
-            return;
-          }
-          this.initializeUnifiedEditor(unifiedReference);
-          return;
-        }
-      }
       const diffTarget = await this.resources.resolveDiff(
         this.spec.path,
         this.spec.side,
@@ -660,75 +614,6 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
     } catch (error) {
       if (!this.disposed) this.emitError(error);
     }
-  }
-
-  private initializeUnifiedEditor(
-    reference: ReviewUnifiedCodeModelReference,
-  ): void {
-    const labelUris = reviewMultiDiffLabelUris(reference.target.diffFile);
-    this.setHeader(
-      reference.target.original,
-      reference.target.modified,
-      labelUris.original,
-      labelUris.modified,
-    );
-    this.unifiedModelReference = reference;
-    this.editorStore.add(reference);
-    const editor = this.instantiationService.createInstance(
-      CodeEditorWidget,
-      this.body,
-      {
-        ...inlineEditorOptions(this.overflowWidgetsDomNode),
-        lineNumbers: (lineNumber) =>
-          String(reference.rows[lineNumber - 1]?.authorLine ?? lineNumber),
-      },
-      {
-        telemetryData: { source: "reviewInlineUnifiedCodeEditor" },
-        contributions: reviewInlineEditorContributions(true),
-      },
-    );
-    this.editor = editor;
-    reviewInlineEditors.add(editor);
-    this.spec.container.dataset["reviewInlineEditorKind"] = "unified";
-    this.spec.container.classList.add("review-inline-unified-diff");
-    this.editorStore.add(editor);
-    editor.setModel(reference.model);
-    this.diffDecoration = editor.createDecorationsCollection();
-    this.diffDecoration.set(
-      reference.rows.flatMap((row) => {
-        if (row.kind === "unchanged") return [];
-        const added = row.kind === "added";
-        return [
-          {
-            range: new Range(
-              row.lineNumber,
-              1,
-              row.lineNumber,
-              Number.MAX_SAFE_INTEGER,
-            ),
-            options: {
-              description: `Review unified ${row.kind} line`,
-              isWholeLine: true,
-              className: added ? "line-insert" : "line-delete",
-              marginClassName: added ? "gutter-insert" : "gutter-delete",
-              lineNumberClassName: added
-                ? "review-unified-line-number-added"
-                : "review-unified-line-number-deleted",
-            },
-          },
-        ];
-      }),
-    );
-    this.bindFocus(editor);
-    this.trackScroll(
-      () => editor.getScrollTop(),
-      (listener) => editor.onDidScrollChange(listener),
-    );
-    this.editorStore.add(
-      editor.onDidContentSizeChange(() => this.layoutCodeEditorToContent()),
-    );
-    this.applyRange();
-    this.markCreated();
   }
 
   private async initializeMultiDiffEditor(
@@ -909,7 +794,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
       return;
     }
     const codeEditor = this.editor;
-    const modelReference = this.unifiedModelReference ?? this.modelReference;
+    const modelReference = this.modelReference;
     if (!codeEditor || !modelReference) return;
     this.applyWindows(codeEditor, modelReference.windows);
     this.layoutCodeEditorToContent();
@@ -919,7 +804,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
 
   private layoutCodeEditorToContent(): void {
     const codeEditor = this.editor;
-    const modelReference = this.unifiedModelReference ?? this.modelReference;
+    const modelReference = this.modelReference;
     if (!codeEditor || !modelReference) return;
     const windows = modelReference.windows;
     const lineCount = reviewPeekWindowsLineCount(windows);
@@ -1282,17 +1167,6 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
   }
 
   private ranges(): Range[] {
-    if (this.unifiedModelReference) {
-      return this.unifiedModelReference.ranges.map(
-        (range) =>
-          new Range(
-            range.startLine,
-            1,
-            range.endLine,
-            Number.MAX_SAFE_INTEGER,
-          ),
-      );
-    }
     return this.spec.ranges.map(
       (range) =>
         new Range(

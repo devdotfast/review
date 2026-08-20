@@ -18,6 +18,7 @@ import {
   REVIEW_BASE_SCHEME,
   REVIEW_HEAD_SCHEME,
   REVIEW_UNIFIED_SCHEME,
+  reviewBaseFileUri,
   reviewFileUri,
   reviewHeadFileUri,
   reviewVirtualUri,
@@ -38,6 +39,7 @@ import {
 export {
   REVIEW_BASE_SCHEME,
   REVIEW_HEAD_SCHEME,
+  reviewBaseFileUri,
   reviewFileUri,
   reviewHeadFileUri,
   reviewResourceIdentity,
@@ -289,35 +291,37 @@ export class ReviewCodeResourceService
     }
     const diffFile = reviewDiffFileForReveal(files, path, side);
     if (!diffFile) {
-      const headResource =
-        side === "head" && !scope ? reviewHeadFileUri(session, path) : undefined;
+      const pinnedResource = !scope
+        ? side === "base"
+          ? reviewBaseFileUri(session, path)
+          : reviewHeadFileUri(session, path)
+        : undefined;
       return {
-        resource: headResource ?? reviewFileUri(session, path),
-        workingTreeFallback: !headResource,
+        resource: pinnedResource ?? reviewFileUri(session, path),
+        workingTreeFallback: !pinnedResource,
       };
     }
     const displayPath =
       side === "base"
         ? (diffFile.previousPath ?? diffFile.path)
         : diffFile.path;
+    const pinnedResource = !scope
+      ? side === "base" && diffFile.status !== "added"
+        ? reviewBaseFileUri(session, displayPath)
+        : side === "head" && diffFile.status !== "deleted"
+          ? reviewHeadFileUri(session, displayPath)
+          : undefined
+      : undefined;
     return {
       resource:
-        side === "head" && diffFile.status !== "deleted"
-          ? ((!scope ? reviewHeadFileUri(session, displayPath) : undefined) ??
-            reviewVirtualUri(
-              side,
-              displayPath,
-              diffFile.path,
-              session.session.sessionId,
-              scope?.commit,
-            ))
-          : reviewVirtualUri(
-              side,
-              displayPath,
-              diffFile.path,
-              session.session.sessionId,
-              scope?.commit,
-            ),
+        pinnedResource ??
+        reviewVirtualUri(
+          side,
+          displayPath,
+          diffFile.path,
+          session.session.sessionId,
+          scope?.commit,
+        ),
       diffFile,
       workingTreeFallback: false,
     };
@@ -582,11 +586,16 @@ export class ReviewCodeResourceService
       };
     }
     if (resource.scheme !== "file") return null;
-    const rootPath = session.session.headRootPath;
-    if (!rootPath) return null;
-    const path = extUri.relativePath(URI.file(rootPath), resource);
-    if (!path || path.startsWith("../")) return null;
-    return { path, side: "head" };
+    const roots: readonly [string | undefined, ReviewDiffSide][] = [
+      [session.session.headRootPath, "head"],
+      [session.session.baseRootPath, "base"],
+    ];
+    for (const [rootPath, side] of roots) {
+      if (!rootPath) continue;
+      const path = extUri.relativePath(URI.file(rootPath), resource);
+      if (path && !path.startsWith("../")) return { path, side };
+    }
+    return null;
   }
 
   reset(): void {
@@ -709,6 +718,7 @@ export class ReviewCodeResourceService
       session.headRef,
       session.routePath ?? "",
       session.rootPath,
+      session.baseRootPath ?? "",
       session.headRootPath ?? "",
     ].join("\n");
   }

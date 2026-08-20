@@ -11,10 +11,7 @@ import { Emitter, Event } from "../../base/common/event.js";
 import { URI } from "../../base/common/uri.js";
 import { Range } from "../../editor/common/core/range.js";
 import {
-  REVIEW_BASE_SCHEME,
-  REVIEW_HEAD_SCHEME,
   REVIEW_UNIFIED_SCHEME,
-  reviewVirtualUri,
 } from "../common/reviewCodeResources.js";
 import {
   createGitLabTextDiffPosition,
@@ -116,6 +113,7 @@ test("keeps one stable comment projection per diff resource", async () => {
         sessionId,
         resolvedBaseRef: baseSha,
         headRef: headSha,
+        baseRootPath: "/tmp/review-base",
         headRootPath: "/tmp/review-head",
       },
     },
@@ -152,13 +150,13 @@ test("keeps one stable comment projection per diff resource", async () => {
       if (resource.toString() === unifiedResource.toString()) {
         return { startLine: 3, endLine: 9 };
       }
-      if (resource.scheme === REVIEW_BASE_SCHEME) {
-        return resource.path === `/${path}`
+      if (resource.path === `/tmp/review-base/${path}`) {
+        return resource.scheme === "file"
           ? { startLine: 267, endLine: 270 }
           : undefined;
       }
-      if (resource.scheme === REVIEW_HEAD_SCHEME) {
-        return resource.path === `/${path}`
+      if (resource.path === `/tmp/review-head/${path}`) {
+        return resource.scheme === "file"
           ? { startLine: 320, endLine: 322 }
           : undefined;
       }
@@ -169,18 +167,26 @@ test("keeps one stable comment projection per diff resource", async () => {
       startLine: number,
       endLine: number,
     ) {
-      if (
-        resource.toString() !== unifiedResource.toString() ||
-        startLine !== 3 ||
-        endLine !== 9
-      ) {
-        return null;
+      if (resource.toString() === unifiedResource.toString()) {
+        if (startLine !== 3 || endLine !== 9) return null;
+        return {
+          diffFile,
+          start: { old_line: 267, new_line: null },
+          end: { old_line: null, new_line: 322 },
+        };
       }
-      return {
-        diffFile,
-        start: { old_line: 267, new_line: null },
-        end: { old_line: null, new_line: 322 },
-      };
+      if (
+        resource.path === `/tmp/review-base/${path}` &&
+        startLine === 267 &&
+        endLine === 270
+      ) {
+        return {
+          diffFile,
+          start: { old_line: 267, new_line: null },
+          end: { old_line: 270, new_line: null },
+        };
+      }
+      return null;
     },
   };
   const controller = new ReviewCommentController(
@@ -197,21 +203,11 @@ test("keeps one stable comment projection per diff resource", async () => {
     } as never,
   );
   assert.equal(commentingRangeUpdates, 1);
-  const baseResource = reviewVirtualUri(
-    "base",
-    path,
-    path,
-    sessionId,
-  );
-  const headResource = reviewVirtualUri(
-    "head",
-    path,
-    path,
-    sessionId,
-  );
+  const baseResource = URI.file(`/tmp/review-base/${path}`);
+  const headResource = URI.file(`/tmp/review-head/${path}`);
 
-  assert.equal(baseResource.scheme, REVIEW_BASE_SCHEME);
-  assert.equal(headResource.scheme, REVIEW_HEAD_SCHEME);
+  assert.equal(baseResource.scheme, "file");
+  assert.equal(headResource.scheme, "file");
   const unified = await controller.getDocumentComments(
     unifiedResource,
     CancellationToken.None,
@@ -229,7 +225,7 @@ test("keeps one stable comment projection per diff resource", async () => {
     CancellationToken.None,
   );
   const unrelated = await controller.getDocumentComments(
-    reviewVirtualUri("head", "src/other.ts", "src/other.ts", sessionId),
+    URI.file("/tmp/review-head/src/other.ts"),
     CancellationToken.None,
   );
 
@@ -278,10 +274,39 @@ test("keeps one stable comment projection per diff resource", async () => {
   );
   const eventCount = commentEvents.length;
   await controller.createCommentThreadTemplate(
+    baseResource,
+    new Range(267, 1, 270, 1),
+  );
+  const baseTemplateEvent = commentEvents[eventCount] as {
+    readonly added: Array<{
+      readonly isTemplate: boolean;
+      readonly threadId: string;
+      readonly resource: string;
+      readonly range: unknown;
+    }>;
+  };
+  const baseTemplate = baseTemplateEvent.added[0]!;
+  assert.equal(baseTemplate.isTemplate, true);
+  await controller.addToReview({
+    thread: baseTemplate as never,
+    text: "Deleted-line comment",
+  });
+  const baseSaved = savedComments[0] as {
+    readonly target: typeof target;
+  };
+  const baseLineRange = baseSaved.target.position.line_range;
+  assert.ok(baseLineRange);
+  assert.equal(baseLineRange.start.old_line, 267);
+  assert.equal(baseLineRange.start.new_line, null);
+  assert.equal(baseLineRange.end.old_line, 270);
+  assert.equal(baseLineRange.end.new_line, null);
+
+  const unifiedEventCount = commentEvents.length;
+  await controller.createCommentThreadTemplate(
     unifiedResource,
     new Range(3, 1, 9, 1),
   );
-  const templateEvent = commentEvents[eventCount] as {
+  const templateEvent = commentEvents[unifiedEventCount] as {
     readonly added: Array<{
       readonly isTemplate: boolean;
       readonly threadId: string;
@@ -295,7 +320,7 @@ test("keeps one stable comment projection per diff resource", async () => {
     thread: template as never,
     text: "New comment",
   });
-  const saved = savedComments[0] as {
+  const saved = savedComments[1] as {
     readonly target: typeof target;
   };
   assert.deepEqual(saved.target.position.line_range, position.line_range);

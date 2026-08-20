@@ -65,6 +65,7 @@ import {
   type ReviewCommentStoreSnapshot,
   type ReviewCommentThreadRecord,
   type ReviewDiffFileWire,
+  type ReviewDiffSide,
 } from "../../common/reviewProtocol.js";
 import {
   IReviewCodeResourceService,
@@ -930,11 +931,16 @@ export class ReviewCommentController
       };
     }
     if (resource.scheme !== "file") return null;
-    const rootPath = model.session.session.headRootPath;
-    if (!rootPath) return null;
-    const path = extUri.relativePath(URI.file(rootPath), resource);
-    if (!path || path.startsWith("../")) return null;
-    return { path, side: "head" };
+    const roots: readonly [string | undefined, ReviewDiffSide][] = [
+      [model.session.session.headRootPath, "head"],
+      [model.session.session.baseRootPath, "base"],
+    ];
+    for (const [rootPath, side] of roots) {
+      if (!rootPath) continue;
+      const path = extUri.relativePath(URI.file(rootPath), resource);
+      if (path && !path.startsWith("../")) return { path, side };
+    }
+    return null;
   }
 
   private projectThread(

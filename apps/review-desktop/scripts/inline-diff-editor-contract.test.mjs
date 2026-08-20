@@ -138,19 +138,17 @@ test("internal changed CodePeeks keep the native multi-diff used by Files", () =
   assert.doesNotMatch(source, /createInstance\(\s*DiffEditorWidget/);
 });
 
-test("authored CodePeeks use one unified native comment editor", () => {
+test("authored CodePeeks comment on the native pinned base/head diff", () => {
+  assert.doesNotMatch(source, /acquireUnifiedDiff\(/);
+  assert.doesNotMatch(source, /initializeUnifiedEditor\(/);
   assert.match(
     source,
-    /if \(this\.spec\.commentsEnabled\) \{[\s\S]*?acquireUnifiedDiff\(/,
+    /reviewInlineDiffEditorContributions\(\s*this\.spec\.commentsEnabled === true,?\s*\)/,
   );
-  assert.match(source, /initializeUnifiedEditor\(/);
-  assert.match(source, /reviewInlineEditorContributions\(true\)/);
-  assert.match(source, /lineNumbers:\s*\(lineNumber\) =>/);
-  assert.match(source, /className:\s*added \? "line-insert" : "line-delete"/);
-  assert.match(resourceSource, /REVIEW_UNIFIED_SCHEME/);
-  assert.match(resourceSource, /version:\s*session\.session\.sessionId/);
-  assert.match(resourceSource, /side,/);
-  assert.doesNotMatch(resourceSource, /instance:\s*generateUuid/);
+  assert.match(source, /diffEditor\.getOriginalEditor\(\)/);
+  assert.match(source, /diffEditor\.getModifiedEditor\(\)/);
+  assert.match(resourceSource, /reviewBaseFileUri\(session, displayPath\)/);
+  assert.match(resourceSource, /reviewHeadFileUri\(session, displayPath\)/);
 });
 
 test("light-theme comments use light surfaces and preserve the diff tint", () => {
@@ -170,10 +168,7 @@ test("light-theme comments use light surfaces and preserve the diff tint", () =>
     reviewStyles,
     /\.monaco-workbench\.review-workbench\.vs\s*{[^}]*--review-comment-surface:\s*var\(--vscode-editorWidget-background, #ffffff\);[^}]*--review-comment-footer:[^}]*--review-comment-shadow:\s*rgb\(0 0 0 \/ 12%\);/s,
   );
-  assert.match(
-    reviewStyles,
-    /color:\s*var\(--review-comment-chip-ink\);/,
-  );
+  assert.match(reviewStyles, /color:\s*var\(--review-comment-chip-ink\);/);
   assert.match(
     reviewStyles,
     /box-shadow:\s*0 10px 28px var\(--review-comment-shadow\);/,
@@ -221,10 +216,7 @@ test("peek scrolling is confined to the window's rendered range", () => {
 
 test("peek code intelligence widgets escape the canvas clip", () => {
   assert.match(source, /fixedOverflowWidgets:\s*true/);
-  assert.match(
-    source,
-    /inlineEditorOptions\(this\.overflowWidgetsDomNode\)/,
-  );
+  assert.match(source, /inlineEditorOptions\(this\.overflowWidgetsDomNode\)/);
   // Multi-diff inner editors get the node through the UI-element factory,
   // not a widget constructor param — keeps upstream call sites untouched.
   assert.match(

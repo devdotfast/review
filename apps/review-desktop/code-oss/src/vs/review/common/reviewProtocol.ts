@@ -1546,6 +1546,7 @@ export type ReviewDesktopGlobalEvent = z.infer<
 export const ReviewSessionSchema = z.strictObject({
   sessionId: requiredString.optional(),
   rootPath: requiredString,
+  baseRootPath: requiredString.optional(),
   headRootPath: requiredString.optional(),
   baseRef: requiredString,
   headRef: requiredString.optional(),

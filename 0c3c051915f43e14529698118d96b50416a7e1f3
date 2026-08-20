@@ -75,7 +75,7 @@ export default defineSoftwareMap({
             agentWorkflows: {
               label: "Agent and trace workflows",
               description:
-                "Launches or observes supported coding agents, records their sessions, and routes reviewer feedback back to them.",
+                "Launches or observes supported coding agents, installs lifecycle and heartbeat hooks, records their traces, and routes reviewer feedback back to them.",
               coverage: {
                 files: [
                   "packages/progressive-review/src/review-agent-traces.ts",
@@ -83,12 +83,27 @@ export default defineSoftwareMap({
                   "packages/progressive-review/src/codex-thread-wakeup.ts",
                   "packages/progressive-review/src/review-source-agent-session.ts",
                   "packages/progressive-review/src/authoring-session.ts",
+                  "packages/progressive-review/src/trace-cli.ts",
+                  "packages/progressive-review/src/trace-git-hook-runner.ts",
+                  "packages/progressive-review/src/trace-hook-runner.ts",
+                  "packages/progressive-review/src/trace-hook-runner.test.ts",
+                  "packages/progressive-review/src/trace-machine-setup.ts",
+                  "packages/progressive-review/src/trace-repository-hooks.ts",
                 ],
                 globs: [
                   "packages/progressive-review/src/native-agent/**",
                   "packages/progressive-review/src/agent-*.ts",
-                  "packages/progressive-review/src/trace-*.ts",
                   "packages/progressive-review/src/review-codex-wait*.ts",
+                ],
+              },
+            },
+            activeTraceSessions: {
+              label: "Active trace-session registry",
+              description:
+                "Persists session identifiers with heartbeat timestamps and removes stale entries so Git and Jujutsu stamp only recently active agent sessions.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/trace-agent-sessions.ts",
                 ],
               },
             },
@@ -400,8 +415,14 @@ export default defineSoftwareMap({
     {
       kind: "semantic",
       from: "reviewProduct.cli.agentWorkflows",
+      to: "reviewProduct.cli.activeTraceSessions",
+      label: "Registers starts, heartbeats, and ends in",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.cli.activeTraceSessions",
       to: "reviewProduct.sharedLibraries.traceContracts",
-      label: "Normalizes sessions with",
+      label: "Validates session identifiers with",
     },
     {
       kind: "semantic",

@@ -273,6 +273,26 @@ test("unified CodePeek navigation opens the mapped review resource", () => {
   assert.match(resourceSource, /resolverReference\.dispose\(\)/);
 });
 
+test("unified CodePeek definitions delegate to the mapped source model", () => {
+  assert.match(
+    source,
+    /definitionProvider\.register\(\s*\{ scheme: REVIEW_UNIFIED_SCHEME, exclusive: true \}/,
+  );
+  assert.match(
+    source,
+    /unified\?\.targetForRange\(\s*position\.lineNumber,\s*position\.lineNumber/,
+  );
+  assert.match(
+    source,
+    /createModelReference\(\s*target\.resource,\s*\)/,
+  );
+  assert.match(
+    source,
+    /getDefinitionsAtPosition\(\s*this\.languageFeaturesService\.definitionProvider,\s*sourceModel,\s*sourcePosition/,
+  );
+  assert.match(source, /sourceReference\.dispose\(\)/);
+});
+
 test("the multi-diff scroller releases the wheel at real content bounds", () => {
   // With the scroll range in place the widget's own wheel handling is
   // honest: handleMouseWheel and alwaysConsumeMouseWheel stay at their

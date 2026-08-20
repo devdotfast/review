@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Dimension } from "../../base/browser/dom.js";
+import type { CancellationToken } from "../../base/common/cancellation.js";
 import { Emitter } from "../../base/common/event.js";
 import {
   Disposable,
@@ -27,13 +28,17 @@ import {
   MultiDiffEditorResourceHeader,
 } from "../../editor/browser/widget/multiDiffEditor/multiDiffEditorResourceHeader.js";
 import type { IDiffEditorOptions } from "../../editor/common/config/editorOptions.js";
+import { Position } from "../../editor/common/core/position.js";
 import { Range } from "../../editor/common/core/range.js";
 import { USUAL_WORD_SEPARATORS } from "../../editor/common/core/wordHelper.js";
 import type {
   ICompositeCodeEditor,
   IEditorDecorationsCollection,
 } from "../../editor/common/editorCommon.js";
+import { getDefinitionsAtPosition } from "../../editor/contrib/gotoSymbol/browser/goToSymbol.js";
+import type { LocationLink } from "../../editor/common/languages.js";
 import type { ITextModel } from "../../editor/common/model.js";
+import { ILanguageFeaturesService } from "../../editor/common/services/languageFeatures.js";
 import { ITextModelService } from "../../editor/common/services/resolverService.js";
 import { ITextResourceConfigurationService } from "../../editor/common/services/textResourceConfiguration.js";
 import { IInstantiationService } from "../../platform/instantiation/common/instantiation.js";
@@ -129,6 +134,8 @@ export class ReviewInlineEditorService
     private readonly textResourceConfigurationService: ITextResourceConfigurationService,
     @ICodeEditorService
     private readonly codeEditorService: ICodeEditorService,
+    @ILanguageFeaturesService
+    private readonly languageFeaturesService: ILanguageFeaturesService,
     @ITextModelService
     private readonly textModelService: ITextModelService,
   ) {
@@ -139,6 +146,62 @@ export class ReviewInlineEditorService
           this.openUnifiedNavigation(input, source, sideBySide),
       ),
     );
+    this._register(
+      this.languageFeaturesService.definitionProvider.register(
+        { scheme: REVIEW_UNIFIED_SCHEME, exclusive: true },
+        {
+          provideDefinition: (model, position, token) =>
+            this.provideUnifiedDefinition(model, position, token),
+        },
+      ),
+    );
+  }
+
+  private async provideUnifiedDefinition(
+    model: ITextModel,
+    position: Position,
+    token: CancellationToken,
+  ): Promise<LocationLink[]> {
+    const unified = this.resources.unifiedResource(model.uri);
+    const mapped = unified?.targetForRange(
+      position.lineNumber,
+      position.lineNumber,
+    );
+    if (!mapped) return [];
+
+    const target = await this.resources.target(mapped.path, mapped.side);
+    const sourceReference = await this.textModelService.createModelReference(
+      target.resource,
+    );
+    try {
+      const sourceModel = sourceReference.object.textEditorModel;
+      if (!sourceModel) return [];
+      const sourcePosition = sourceModel.validatePosition(
+        new Position(mapped.startLine, position.column),
+      );
+      const definitions = await getDefinitionsAtPosition(
+        this.languageFeaturesService.definitionProvider,
+        sourceModel,
+        sourcePosition,
+        false,
+        token,
+      );
+      return definitions.map((definition) => ({
+        ...definition,
+        originSelectionRange: definition.originSelectionRange
+          ? model.validateRange(
+              new Range(
+                position.lineNumber,
+                definition.originSelectionRange.startColumn,
+                position.lineNumber,
+                definition.originSelectionRange.endColumn,
+              ),
+            )
+          : undefined,
+      }));
+    } finally {
+      sourceReference.dispose();
+    }
   }
 
   private async openUnifiedNavigation(

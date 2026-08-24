@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { clearGitCommonDirCacheForTests, gitCommonDir } from ".";
+import { gitCommonDir } from ".";
 import {
   DEV_FAST_NOTES_FETCH_REFSPEC,
   NotesLockTimeoutError,
@@ -87,7 +87,6 @@ function jjCommitId(rootPath: string): string {
 }
 
 beforeEach(() => {
-  clearGitCommonDirCacheForTests();
   clearNotesConfigCacheForTests();
 });
 

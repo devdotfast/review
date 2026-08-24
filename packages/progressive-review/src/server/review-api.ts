@@ -90,11 +90,6 @@ import {
   requestJsonErrorStatus,
 } from "./review-api-parsers";
 
-const softwareMapResolvedDataCache = new Map<
-  string,
-  Promise<SoftwareMapResolvedDataResponse>
->();
-const SOFTWARE_MAP_RESOLVED_DATA_CACHE_VERSION = "resolved-data:v4";
 const REVIEW_SUBMIT_HOOK_ENV = "DEV_FAST_REVIEW_SUBMIT_HOOK";
 const CODE_PEEK_DIFF_CONTEXT_LINES = 100_000;
 const defaultTelemetry = new ProgressiveReviewTelemetry();
@@ -216,12 +211,6 @@ interface ReviewApiOptions {
   session: ReviewSessionWire;
 }
 
-interface ReviewApiRequestCache {
-  sourceTargets: Map<string, Promise<ReviewSourceTarget>>;
-  codePeekDiffs: Map<string, Promise<ReviewDiffFile[]>>;
-  commits?: Promise<LocalVcsCommitSummary[]>;
-}
-
 type ReviewApiHandler = (
   context: Context<ReviewHonoEnv>,
 ) => Promise<Response> | Response;
@@ -237,10 +226,6 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     options.session.storageDir ??
     path.dirname(options.stateReviewPath ?? options.reviewPath);
   const app = new Hono<ReviewHonoEnv>();
-  const requestCache: ReviewApiRequestCache = {
-    sourceTargets: new Map(),
-    codePeekDiffs: new Map(),
-  };
   const {
     reviewPath,
     reviewDocumentsDir,
@@ -849,7 +834,6 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       reviewPath,
       reviewDocumentsDir,
       reviewRootPath,
-      requestCache,
     });
     const baseSourceTarget = sourceTarget.preparedBase;
     const graph = parseCodePeekGraph(body.graph);
@@ -872,7 +856,6 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
             sourceTarget,
             graph,
             includePatch: includeDiff,
-            requestCache,
           })
         : undefined;
     return reviewApiJsonResponse(200, {
@@ -918,22 +901,11 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       reviewDocumentsDir,
       reviewRootPath,
     });
-    const cacheKey = stableSoftwareMapResolvedDataCacheKey({
-      reviewDocument: resolveReviewDocumentPath(url, {
-        reviewPath,
-        reviewDocumentsDir,
-      }),
+    const result = await buildSoftwareMapResolvedData({
       sourceTarget,
       codeElements,
       coverageClaims,
     });
-    const result = await cachedSoftwareMapResolvedData(cacheKey, () =>
-      buildSoftwareMapResolvedData({
-        sourceTarget,
-        codeElements,
-        coverageClaims,
-      }),
-    );
     return reviewApiJsonResponse(200, { ok: true, ...result });
   }
 
@@ -957,7 +929,6 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     const result = await rematerializeReviewSoftwareMapArtifacts({
       reviewRootPath,
     });
-    clearSoftwareMapResolvedDataCache();
     return reviewApiJsonResponse(200, { ok: true, refresh: result });
   }
 
@@ -1019,12 +990,11 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     headCommit: string,
   ): Promise<LocalVcsCommitSummary[]> {
     if (baseCommit === headCommit) return [];
-    requestCache.commits ??= listCommitRange({
+    return listCommitRange({
       rootPath: repoRootPath,
       baseRef: baseCommit,
       headRef: headCommit,
     });
-    return requestCache.commits;
   }
 
   async function resolveScopedDiffTarget(url: URL, commit?: string) {
@@ -1376,27 +1346,15 @@ async function resolveRequestSourceTarget(
     reviewPath: string;
     reviewDocumentsDir: string;
     reviewRootPath: string;
-    requestCache?: ReviewApiRequestCache;
   },
 ) {
   const reviewDocumentPath = resolveReviewDocumentPath(url, input);
   if (!reviewDocumentPath) {
     throw new Error("Review document not found.");
   }
-  const cacheKey = path.resolve(reviewDocumentPath);
-  const cached = input.requestCache?.sourceTargets.get(cacheKey);
-  if (cached) return cached;
-  const resolution = resolveReviewSourceTarget({
+  return resolveReviewSourceTarget({
     reviewRootPath: input.reviewRootPath,
   });
-  if (!input.requestCache) return resolution;
-  input.requestCache.sourceTargets.set(cacheKey, resolution);
-  void resolution.catch(() => {
-    if (input.requestCache?.sourceTargets.get(cacheKey) === resolution) {
-      input.requestCache.sourceTargets.delete(cacheKey);
-    }
-  });
-  return resolution;
 }
 
 interface CodePeekDiffResponse {
@@ -1420,7 +1378,6 @@ async function resolveCodePeekDiff(input: {
   sourceTarget: Awaited<ReturnType<typeof resolveRequestSourceTarget>>;
   graph: "head" | "base";
   includePatch: boolean;
-  requestCache?: ReviewApiRequestCache;
 }): Promise<CodePeekDiffResponse | undefined> {
   if (!input.sourceTarget.baseRef) return undefined;
 
@@ -1437,7 +1394,6 @@ async function resolveCodePeekDiff(input: {
     baseRef: input.sourceTarget.baseRef,
     headRef: input.sourceTarget.headRef,
     paths,
-    requestCache: input.requestCache,
   });
   if (diffFiles.length === 0) return undefined;
   const files = diffFiles
@@ -1467,31 +1423,14 @@ async function resolveCodePeekDiffFiles(input: {
   baseRef?: string;
   headRef?: string;
   paths: string[];
-  requestCache?: ReviewApiRequestCache;
 }): Promise<ReviewDiffFile[]> {
-  const cacheKey = JSON.stringify({
-    rootPath: path.resolve(input.diffRootPath),
-    baseRef: input.baseRef,
-    headRef: input.headRef,
-    paths: input.paths,
-  });
-  const cached = input.requestCache?.codePeekDiffs.get(cacheKey);
-  if (cached) return cached;
-  const resolution = resolveReviewDiffFiles({
+  return resolveReviewDiffFiles({
     rootPath: input.diffRootPath,
     baseRef: input.baseRef,
     headRef: input.headRef,
     contextLines: CODE_PEEK_DIFF_CONTEXT_LINES,
     paths: input.paths,
   }).then((diff) => diff.files);
-  if (!input.requestCache || !input.headRef) return resolution;
-  input.requestCache.codePeekDiffs.set(cacheKey, resolution);
-  void resolution.catch(() => {
-    if (input.requestCache?.codePeekDiffs.get(cacheKey) === resolution) {
-      input.requestCache.codePeekDiffs.delete(cacheKey);
-    }
-  });
-  return resolution;
 }
 
 export function serializeCodePeekDiffFile(
@@ -1540,74 +1479,6 @@ async function buildSoftwareMapResolvedData(input: {
     countsByElementPath: counts.countsByElementPath,
     unmappedByElementPath: counts.unmappedByElementPath,
   };
-}
-
-function cachedSoftwareMapResolvedData(
-  cacheKey: string,
-  factory: () => Promise<SoftwareMapResolvedDataResponse>,
-) {
-  const cached = softwareMapResolvedDataCache.get(cacheKey);
-  if (cached) return cached;
-  const promise = factory().catch((error) => {
-    softwareMapResolvedDataCache.delete(cacheKey);
-    throw error;
-  });
-  softwareMapResolvedDataCache.set(cacheKey, promise);
-  if (softwareMapResolvedDataCache.size > 50) {
-    const oldestKey = softwareMapResolvedDataCache.keys().next().value;
-    if (oldestKey) softwareMapResolvedDataCache.delete(oldestKey);
-  }
-  return promise;
-}
-
-export function clearSoftwareMapResolvedDataCache(): void {
-  softwareMapResolvedDataCache.clear();
-}
-
-function stableSoftwareMapResolvedDataCacheKey(input: {
-  reviewDocument: string | null;
-  sourceTarget: Awaited<ReturnType<typeof resolveRequestSourceTarget>>;
-  codeElements: unknown;
-  coverageClaims: unknown;
-}) {
-  return stableJson({
-    cacheVersion: SOFTWARE_MAP_RESOLVED_DATA_CACHE_VERSION,
-    reviewDocument: input.reviewDocument,
-    reviewDocumentMtimeMs: input.reviewDocument
-      ? optionalFileMtimeMs(input.reviewDocument)
-      : null,
-    repoRoot: input.sourceTarget.repoRoot,
-    sourceRootPath: input.sourceTarget.sourceRootPath,
-    diffRootPath: input.sourceTarget.diffRootPath,
-    baseSourceRootPath: input.sourceTarget.preparedBase?.sourceRootPath,
-    baseRef: input.sourceTarget.baseRef,
-    headRef: input.sourceTarget.headRef,
-    codeElements: input.codeElements,
-    coverageClaims: input.coverageClaims,
-  });
-}
-
-function optionalFileMtimeMs(filePath: string): number | null {
-  try {
-    return statSync(filePath).mtimeMs;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw error;
-  }
-}
-
-function stableJson(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map((entry) => stableJson(entry)).join(",")}]`;
-  }
-  if (value && typeof value === "object") {
-    return `{${Object.entries(value as Record<string, unknown>)
-      .filter(([, entry]) => entry !== undefined)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
 }
 
 function resolveReviewDocumentPath(

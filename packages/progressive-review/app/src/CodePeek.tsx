@@ -17,7 +17,6 @@ import type { SourceSnapshot } from "../../src/source-code-types";
 import type { ReviewSession } from "./host/review-session";
 import { useReviewSession } from "./host/review-session";
 import { InlineCodeEditor } from "./InlineCodeEditor";
-import { readReviewUiState, writeReviewUiState } from "./review-ui-state";
 import { captureUiEvent } from "./ui-telemetry";
 
 type CodePeekRootSpec = {
@@ -76,18 +75,6 @@ export function codePeekLoadState(input: {
     isRefreshing: input.pendingKey !== null && hasDisplayedResult,
   };
 }
-
-interface CodePeekCachedResult extends CodePeekResolveResult {
-  rootSpec: CodePeekRootSpec;
-}
-
-const CODE_PEEK_RESULT_CACHE_VERSION = "code-peek-result:v2";
-const CODE_PEEK_RESULT_MEMORY_CACHE = new Map<string, CodePeekCachedResult>();
-const CODE_PEEK_RESULT_REQUEST_CACHE = new Map<
-  string,
-  Promise<CodePeekResolveResult>
->();
-const CODE_PEEK_RESULT_CACHE_MAX = 30;
 
 export function validatedCodePeekInputFromRef(
   ref: CodePeekRef,
@@ -332,8 +319,8 @@ function useCodePeekResolution(
   );
   const requestKey = useMemo(
     () =>
-      requestInput ? codePeekResultCacheKey(requestPath, requestInput) : "",
-    [requestInput, requestPath],
+      requestInput ? JSON.stringify(requestInput) : "",
+    [requestInput],
   );
 
   useEffect(() => {
@@ -357,15 +344,13 @@ function useCodePeekResolution(
       };
     }
 
-    const cached = restoreCodePeekResult(session, requestKey);
-    setResolution(cached);
+    setResolution(null);
     setPending(true);
     setError(null);
     void fetchCodePeekResultWithRetry(
       session,
       nextRequestInput,
       requestPath,
-      requestKey,
       () => cancelled,
     )
       .then((result) => {
@@ -379,10 +364,6 @@ function useCodePeekResolution(
             root_kind: nextRequestInput.root.kind,
           });
         }
-        rememberCodePeekResult(session, requestKey, {
-          ...result,
-          rootSpec: nextRequestInput.root,
-        });
         setResolution(result);
         setPending(false);
       })
@@ -710,111 +691,13 @@ async function fetchCodePeekResult(
   return { snapshot: json.snapshot, diff: json.diff };
 }
 
-function codePeekResultCacheKey(
-  requestPath: string,
-  input: CodePeekResolveInput,
-): string {
-  return `${CODE_PEEK_RESULT_CACHE_VERSION}\n${requestPath}\n${JSON.stringify(input)}`;
-}
-
-function rememberCodePeekResult(
-  session: ReviewSession,
-  key: string,
-  result: CodePeekCachedResult,
-): void {
-  CODE_PEEK_RESULT_MEMORY_CACHE.set(key, result);
-  evictOldestCodePeekEntries(CODE_PEEK_RESULT_MEMORY_CACHE);
-  writeCodePeekSessionResult(session, key, result);
-}
-
-function restoreCodePeekResult(
-  session: ReviewSession,
-  key: string,
-): CodePeekCachedResult | null {
-  return (
-    CODE_PEEK_RESULT_MEMORY_CACHE.get(key) ??
-    readCodePeekSessionResult(session, key) ??
-    null
-  );
-}
-
-function writeCodePeekSessionResult(
-  session: ReviewSession,
-  key: string,
-  result: CodePeekCachedResult,
-): void {
-  // Session storage is an opportunistic HMR/page-refresh cache.
-  writeReviewUiState("window", codePeekSessionKey(session, key), result);
-}
-
-function readCodePeekSessionResult(
-  session: ReviewSession,
-  key: string,
-): CodePeekCachedResult | null {
-  const parsed = readReviewUiState<CodePeekCachedResult>(
-    "window",
-    codePeekSessionKey(session, key),
-  );
-  if (!parsed?.snapshot || !parsed.rootSpec) return null;
-  CODE_PEEK_RESULT_MEMORY_CACHE.set(key, parsed);
-  evictOldestCodePeekEntries(CODE_PEEK_RESULT_MEMORY_CACHE);
-  return parsed;
-}
-
-function codePeekSessionKey(session: ReviewSession, key: string): string {
-  return session.storageKey(
-    CODE_PEEK_RESULT_CACHE_VERSION,
-    hashCodePeekCacheKey(key),
-  );
-}
-
-function hashCodePeekCacheKey(key: string): string {
-  let hash = 0;
-  for (let index = 0; index < key.length; index += 1) {
-    hash = (hash * 31 + key.charCodeAt(index)) | 0;
-  }
-  return Math.abs(hash).toString(36);
-}
-
-function evictOldestCodePeekEntries<TKey, TValue>(
-  map: Map<TKey, TValue>,
-): void {
-  while (map.size > CODE_PEEK_RESULT_CACHE_MAX) {
-    const oldest = map.keys().next();
-    if (oldest.done) return;
-    map.delete(oldest.value);
-  }
-}
-
 async function fetchCodePeekResultWithRetry(
   session: ReviewSession,
   input: CodePeekResolveInput,
   requestPath: string,
-  cacheKey: string,
   isCancelled: () => boolean,
 ): Promise<CodePeekResolveResult> {
   if (isCancelled()) throw new Error("Cancelled");
-  const cachedRequest = CODE_PEEK_RESULT_REQUEST_CACHE.get(cacheKey);
-  if (cachedRequest) return cachedRequest;
-  const request = fetchCodePeekResultWithRetryUncached(
-    session,
-    input,
-    requestPath,
-    () => false,
-  ).finally(() => {
-    CODE_PEEK_RESULT_REQUEST_CACHE.delete(cacheKey);
-  });
-  CODE_PEEK_RESULT_REQUEST_CACHE.set(cacheKey, request);
-  evictOldestCodePeekEntries(CODE_PEEK_RESULT_REQUEST_CACHE);
-  return request;
-}
-
-async function fetchCodePeekResultWithRetryUncached(
-  session: ReviewSession,
-  input: CodePeekResolveInput,
-  requestPath: string,
-  isCancelled: () => boolean,
-): Promise<CodePeekResolveResult> {
   const delays = [0, 250, 1_000];
   let lastError: unknown;
   for (const delayMs of delays) {

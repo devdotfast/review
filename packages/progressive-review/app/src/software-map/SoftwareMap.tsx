@@ -316,19 +316,7 @@ export interface SoftwareMapResolvedDataInput {
   coverageClaims: SoftwareMapCoverageClaim[];
 }
 
-const softwareMapResolvedDataRequestCache = new Map<
-  string,
-  Promise<SoftwareMapResolvedDataPayload>
->();
-const softwareMapResolvedDataValueCache = new Map<
-  string,
-  SoftwareMapResolvedDataPayload
->();
-const softwareMapLastUsableSnapshotCache = new Map<
-  string,
-  SoftwareMapResolvedSnapshot
->();
-const SOFTWARE_MAP_RESOLVED_DATA_CACHE_VERSION = "resolved-data:v2";
+const SOFTWARE_MAP_RESOLVED_DATA_VERSION = "resolved-data:v2";
 
 export interface SoftwareMapProps {
   model?: NormalizedSoftwareModel;
@@ -762,7 +750,7 @@ export function softwareMapResolvedDataInputKey(
   input: SoftwareMapResolvedDataInput,
 ) {
   const signature = createSoftwareMapSignature();
-  signature.add(SOFTWARE_MAP_RESOLVED_DATA_CACHE_VERSION);
+  signature.add(SOFTWARE_MAP_RESOLVED_DATA_VERSION);
   signature.add("code-elements");
   for (const codeElement of input.codeElements) {
     signature.add(codeElement.path);
@@ -1434,15 +1422,6 @@ function SoftwareMapWithModel({
     () => session.apiUrl("/software-map/resolved-data"),
     [session],
   );
-  const stableSnapshotCacheKey = useMemo(
-    () =>
-      lastUsableSoftwareMapSnapshotKey({
-        requestPath: resolvedDataRequestPath,
-        navigationKey,
-        modelKey,
-      }),
-    [modelKey, navigationKey, resolvedDataRequestPath],
-  );
   const initialData = useReviewInitialData();
   const initialNavigation = restoreSoftwareMapNavigationState(
     session,
@@ -1504,10 +1483,6 @@ function SoftwareMapWithModel({
   const [artifactRefreshPending, setArtifactRefreshPending] = useState(false);
   const [refreshEpoch, setRefreshEpoch] = useState(0);
   const appliedResolvedDataKeyRef = useRef(resolvedDataState.key);
-  const [stableModelSnapshot, setStableModelSnapshot] =
-    useState<SoftwareMapResolvedSnapshot | null>(() =>
-      restoreLastUsableSoftwareMapSnapshot(session, stableSnapshotCacheKey),
-    );
   const instanceId = useRef(nextSoftwareMapInstanceId++);
   const mapRootRef = useRef<HTMLElement | null>(null);
   const [resolveDataWhenVisible, setResolveDataWhenVisible] = useState(false);
@@ -1646,12 +1621,6 @@ function SoftwareMapWithModel({
     session,
   ]);
 
-  useEffect(() => {
-    setStableModelSnapshot(
-      restoreLastUsableSoftwareMapSnapshot(session, stableSnapshotCacheKey),
-    );
-  }, [session, stableSnapshotCacheKey]);
-
   const resolvedDataReady =
     Boolean(resolvedDataKey) && resolvedDataState.key === resolvedDataKey;
 
@@ -1696,18 +1665,6 @@ function SoftwareMapWithModel({
       });
       return;
     }
-    const requestCacheKey = `${resolvedDataRequestPath}\n${resolvedDataKey}`;
-    const cachedResolvedData =
-      softwareMapResolvedDataValueCache.get(requestCacheKey);
-    if (
-      cachedResolvedData &&
-      appliedResolvedDataKeyRef.current !== resolvedDataKey
-    ) {
-      applyResolvedDataState({
-        key: resolvedDataKey,
-        ...cachedResolvedData,
-      });
-    }
     let cancelled = false;
     setResolvedDataError(null);
     setPendingResolvedDataKey(resolvedDataKey);
@@ -1715,8 +1672,6 @@ function SoftwareMapWithModel({
       session,
       softwareMapResolvedDataInput,
       resolvedDataRequestPath,
-      requestCacheKey,
-      { force: true },
     )
       .then((resolvedData) => {
         if (
@@ -1854,26 +1809,11 @@ function SoftwareMapWithModel({
     session,
   ]);
 
-  useEffect(() => {
-    if (modelSnapshotState.snapshot) {
-      rememberLastUsableSoftwareMapSnapshot(
-        session,
-        stableSnapshotCacheKey,
-        modelSnapshotState.snapshot,
-      );
-      setStableModelSnapshot(modelSnapshotState.snapshot);
-    }
-  }, [modelSnapshotState.snapshot, session, stableSnapshotCacheKey]);
-
   const resolvingModelData = Boolean(
     model && pendingResolvedDataKey === resolvedDataKey && !resolvedDataReady,
   );
-  const refreshingModelData =
-    artifactRefreshPending ||
-    (resolvingModelData && Boolean(stableModelSnapshot));
-  const activeModelSnapshot =
-    modelSnapshotState.snapshot ??
-    (resolvingModelData ? stableModelSnapshot : null);
+  const refreshingModelData = artifactRefreshPending;
+  const activeModelSnapshot = modelSnapshotState.snapshot;
   const providedSnapshot =
     snapshot ?? resolvedSnapshot ?? activeModelSnapshot ?? null;
   const hasResolvedSnapshot = Boolean(providedSnapshot);
@@ -2340,116 +2280,8 @@ async function fetchSoftwareMapResolvedData(
   session: ReviewSession,
   input: SoftwareMapResolvedDataInput,
   requestPath: string,
-  cacheKey: string,
-  options: { force?: boolean } = {},
 ): Promise<SoftwareMapResolvedDataPayload> {
-  const cachedValue = softwareMapResolvedDataValueCache.get(cacheKey);
-  if (cachedValue && !options.force) return cachedValue;
-  if (options.force) softwareMapResolvedDataRequestCache.delete(cacheKey);
-  const cached = softwareMapResolvedDataRequestCache.get(cacheKey);
-  if (cached) return cached;
-  const request = fetchSoftwareMapResolvedDataUncached(
-    session,
-    input,
-    requestPath,
-  )
-    .then((resolvedData) => {
-      softwareMapResolvedDataValueCache.set(cacheKey, resolvedData);
-      evictOldestMapEntries(softwareMapResolvedDataValueCache, 20);
-      return resolvedData;
-    })
-    .catch((error: unknown) => {
-      softwareMapResolvedDataRequestCache.delete(cacheKey);
-      throw error;
-    });
-  softwareMapResolvedDataRequestCache.set(cacheKey, request);
-  evictOldestMapEntries(softwareMapResolvedDataRequestCache, 20);
-  return request;
-}
-
-function rememberLastUsableSoftwareMapSnapshot(
-  session: ReviewSession,
-  key: string,
-  snapshot: SoftwareMapResolvedSnapshot,
-): void {
-  softwareMapLastUsableSnapshotCache.set(key, snapshot);
-  evictOldestMapEntries(softwareMapLastUsableSnapshotCache, 20);
-  writeSoftwareMapSnapshotSessionCache(session, key, snapshot);
-}
-
-function restoreLastUsableSoftwareMapSnapshot(
-  session: ReviewSession,
-  key: string,
-): SoftwareMapResolvedSnapshot | null {
-  const cached = softwareMapLastUsableSnapshotCache.get(key);
-  if (cached) return cached;
-  const sessionCached = readSoftwareMapSnapshotSessionCache(session, key);
-  if (sessionCached) {
-    softwareMapLastUsableSnapshotCache.set(key, sessionCached);
-    evictOldestMapEntries(softwareMapLastUsableSnapshotCache, 20);
-  }
-  return sessionCached;
-}
-
-function lastUsableSoftwareMapSnapshotKey(key: {
-  requestPath: string;
-  navigationKey: string;
-  modelKey: string;
-}): string {
-  return `${SOFTWARE_MAP_RESOLVED_DATA_CACHE_VERSION}\n${key.requestPath}\n${key.navigationKey}\n${key.modelKey}`;
-}
-
-function writeSoftwareMapSnapshotSessionCache(
-  session: ReviewSession,
-  key: string,
-  snapshot: SoftwareMapResolvedSnapshot,
-): void {
-  // Session storage is best-effort; the in-memory cache still covers HMR.
-  writeReviewUiState(
-    "window",
-    softwareMapSnapshotSessionKey(session, key),
-    snapshot,
-  );
-}
-
-function readSoftwareMapSnapshotSessionCache(
-  session: ReviewSession,
-  key: string,
-): SoftwareMapResolvedSnapshot | null {
-  const parsed = readReviewUiState<SoftwareMapResolvedSnapshot>(
-    "window",
-    softwareMapSnapshotSessionKey(session, key),
-  );
-  return parsed && typeof parsed === "object" ? parsed : null;
-}
-
-function softwareMapSnapshotSessionKey(
-  session: ReviewSession,
-  key: string,
-): string {
-  return session.storageKey(
-    SOFTWARE_MAP_RESOLVED_DATA_CACHE_VERSION,
-    hashSoftwareMapCacheKey(key),
-  );
-}
-
-function hashSoftwareMapCacheKey(key: string): string {
-  let hash = 0;
-  for (let index = 0; index < key.length; index += 1) {
-    hash = (hash * 31 + key.charCodeAt(index)) | 0;
-  }
-  return Math.abs(hash).toString(36);
-}
-
-function evictOldestMapEntries<TKey, TValue>(
-  map: Map<TKey, TValue>,
-  maxSize: number,
-): void {
-  while (map.size > maxSize) {
-    const oldest = map.keys().next();
-    if (oldest.done) return;
-    map.delete(oldest.value);
-  }
+  return fetchSoftwareMapResolvedDataUncached(session, input, requestPath);
 }
 
 async function fetchSoftwareMapResolvedDataUncached(

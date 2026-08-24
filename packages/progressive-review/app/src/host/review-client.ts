@@ -1,8 +1,6 @@
 import type { ReviewRuntimeConfig } from "@dev.fast/review-protocol";
 
 const REVIEW_API_PREFIX = "/__progressive-review";
-const reviewModuleCache = new Map<string, Promise<unknown>>();
-
 export type ReviewClientConfig = Partial<
   Pick<
     ReviewRuntimeConfig,
@@ -86,23 +84,12 @@ export function importReviewModule<T>(
     );
   }
   const docRuntimeUrl = config.docRuntimeUrl;
-  const cacheKey = `${url.href}\u0000${docRuntimeUrl}`;
-  const cached = reviewModuleCache.get(cacheKey);
-  if (cached) return cached as Promise<T>;
-
-  const pending: Promise<unknown> = loadReviewModule(
+  return loadReviewModule(
     config,
     url,
     docRuntimeUrl,
     importModule,
-  ).catch((error) => {
-    if (reviewModuleCache.get(cacheKey) === pending) {
-      reviewModuleCache.delete(cacheKey);
-    }
-    throw error;
-  });
-  reviewModuleCache.set(cacheKey, pending);
-  return pending as Promise<T>;
+  ) as Promise<T>;
 }
 
 async function loadReviewModule(

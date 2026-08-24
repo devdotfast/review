@@ -130,9 +130,6 @@ interface GeneratedMdxRegion {
   runtimeStartLine: number;
 }
 
-const compilationCache = new Map<string, Promise<ReviewDocumentCompilation>>();
-const MAX_COMPILATION_CACHE_ENTRIES = 50;
-
 const reviewModuleExtensions = [
   ".ts",
   ".tsx",
@@ -147,8 +144,8 @@ const reviewModuleExtensions = [
 
 /**
  * Returns every local path whose contents can affect semantic checking of a
- * Review document. Missing resolution candidates are included deliberately:
- * creating a previously missing module must invalidate a cached diagnostic.
+ * Review document. Missing resolution candidates are included deliberately so
+ * diagnostics include modules created after a previous compilation.
  */
 export function collectReviewDocumentDependencies(
   input: ReviewDocumentInput,
@@ -227,21 +224,7 @@ export function reviewDocumentRevision(input: ReviewDocumentInput): string {
 export async function compileReviewDocument(
   input: ReviewDocumentInput,
 ): Promise<ReviewDocumentCompilation> {
-  const cacheKey = reviewDocumentRevision(input);
-  const cached = compilationCache.get(cacheKey);
-  if (cached) return cached;
-  const compilation = compileReviewDocumentUncached(input);
-  compilationCache.set(cacheKey, compilation);
-  if (compilationCache.size > MAX_COMPILATION_CACHE_ENTRIES) {
-    const oldest = compilationCache.keys().next().value;
-    if (oldest) compilationCache.delete(oldest);
-  }
-  try {
-    return await compilation;
-  } catch (error) {
-    compilationCache.delete(cacheKey);
-    throw error;
-  }
+  return compileReviewDocumentUncached(input);
 }
 
 async function compileReviewDocumentUncached(

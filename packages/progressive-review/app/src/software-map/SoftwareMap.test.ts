@@ -615,53 +615,6 @@ describe("SoftwareMap inline C4 helpers", () => {
     expect(styles).toMatch(/\.software-map-status\s*{[^}]*\bmargin:\s*0;/s);
   });
 
-  it("keys resolved-data request reuse by review document endpoint", () => {
-    const source = readFileSync(
-      new URL("./SoftwareMap.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("softwareMapResolvedDataRequestCache");
-    expect(source).toContain("SOFTWARE_MAP_RESOLVED_DATA_CACHE_VERSION");
-    expect(source).toContain(
-      "`${resolvedDataRequestPath}\\n${resolvedDataKey}`",
-    );
-  });
-
-  it("keeps last usable map state available across tab remounts and refetches", () => {
-    const source = readFileSync(
-      new URL("./SoftwareMap.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("softwareMapResolvedDataValueCache");
-    expect(source).toContain("softwareMapLastUsableSnapshotCache");
-    expect(source).toContain("appliedResolvedDataKeyRef");
-    expect(source).not.toContain(
-      "resolvedDataRequestPath,\n    resolvedDataKey,\n    resolvedDataState.key,\n    softwareMapResolvedDataInput",
-    );
-    expect(source).toContain("restoreLastUsableSoftwareMapSnapshot");
-    expect(source).toContain("rememberLastUsableSoftwareMapSnapshot");
-    expect(source).toContain('"Refreshing software map..."');
-    expect(source).toContain("pendingResolvedDataKey");
-    expect(source).toContain("setRefreshEpoch");
-    expect(source).toMatch(
-      /refreshSoftwareMapArtifacts\(session\)\s*\.then\(\(\) => \{\s*setRefreshEpoch/s,
-    );
-    expect(source).toContain('writeReviewUiState("window"');
-    expect(source).toContain('"Loading software map..."');
-    expect(source).toContain("requestPath");
-    expect(source).toContain('aria-label="Refresh software map"');
-    expect(source).toContain("software-map-floating-actions");
-    expect(source).toContain("showFloatingActions = true");
-    expect(source).toContain("showMapFloatingActions && onRefresh");
-    expect(source).toContain("force: true");
-    expect(source).toContain("softwareMapResolvedDataRequestCache.delete");
-    expect(source).not.toContain(
-      "applyResolvedDataState({\n            key: resolvedDataKey,\n            codeElements: [],",
-    );
-  });
-
   it("hides map floating refresh actions while a side peek is open", () => {
     const styles = readFileSync(
       new URL("./styles.css", import.meta.url),

@@ -12,7 +12,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ReviewSessionProvider } from "./host/review-session";
 import { testReviewSession } from "./review-session-test-utils";
 import { ReviewTraceView } from "./ReviewTraceView";
-import { clearAgentTraceCache } from "./use-agent-trace";
 
 const mockListResponse: Extract<ReviewAgentTraceListResponse, { ok: true }> = {
   ok: true,
@@ -65,7 +64,6 @@ describe("ReviewTraceView", () => {
         IS_REACT_ACT_ENVIRONMENT?: boolean;
       }
     ).IS_REACT_ACT_ENVIRONMENT = true;
-    clearAgentTraceCache();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -77,7 +75,6 @@ describe("ReviewTraceView", () => {
       root = null;
     }
     document.body.replaceChildren();
-    clearAgentTraceCache();
     vi.restoreAllMocks();
   });
 
@@ -117,62 +114,6 @@ describe("ReviewTraceView", () => {
     expect(container.textContent).toContain("Upgraded Trace Title");
     expect(container.textContent).toContain("User turn text");
     expect(container.textContent).not.toContain("Loading trace…");
-  });
-
-  it("upgrades picker trigger and dropdown labels from cached trace metadata", async () => {
-    const requestMock = vi
-      .fn<ReviewCanvasBridge["request"]>()
-      .mockImplementation((url) => {
-        if (url.includes("/agent-traces/session-1")) {
-          return Promise.resolve(
-            new Response(JSON.stringify(mockTraceDetail), { status: 200 }),
-          );
-        }
-        if (url.includes("/agent-traces")) {
-          return Promise.resolve(
-            new Response(JSON.stringify(mockListResponse), { status: 200 }),
-          );
-        }
-        return Promise.reject(new Error(`Unexpected URL: ${url}`));
-      });
-
-    const session = testReviewSession({}, { request: requestMock });
-
-    await act(async () => {
-      root?.render(
-        <ReviewSessionProvider session={session}>
-          <ReviewTraceView />
-        </ReviewSessionProvider>,
-      );
-    });
-
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-
-    // Trigger button should show upgraded title and harness
-    const trigger = container.querySelector(".review-trace-picker-trigger");
-    expect(
-      trigger?.querySelector(".review-trace-picker-harness")?.textContent,
-    ).toBe("PI");
-    expect(
-      trigger?.querySelector(".review-trace-picker-title")?.textContent,
-    ).toBe("Upgraded Trace Title");
-
-    // Open dropdown picker menu
-    act(() => {
-      trigger?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-
-    const items = container.querySelectorAll(".review-trace-picker-item");
-    expect(items.length).toBe(2);
-    // Main session item should show upgraded PI harness and Upgraded Trace Title
-    expect(
-      items[0]?.querySelector(".review-trace-picker-item-harness")?.textContent,
-    ).toBe("PI");
-    expect(
-      items[0]?.querySelector(".review-trace-picker-item-title")?.textContent,
-    ).toBe("Upgraded Trace Title");
   });
 
   it("shows unconfigured state when list returns configured: false", async () => {

@@ -11,7 +11,6 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { clearCommandOutputCacheForTests } from "@dev.fast/local-vcs";
 import { describe, expect, it, vi } from "vitest";
 
 import { createReviewDir } from "./review-home";
@@ -223,7 +222,6 @@ describe("review info", () => {
       await writeFile(path.join(root, "README.md"), "# Feature\n", "utf8");
       await git(root, ["commit", "-am", "feature"]);
       await git(root, ["checkout", "main"]);
-      clearCommandOutputCacheForTests();
 
       const created = await runReviewScaffold({
         cwd: root,
@@ -244,7 +242,6 @@ describe("review info", () => {
       });
 
       await git(root, ["checkout", "feature"]);
-      clearCommandOutputCacheForTests();
       await expect(resolveReviewInfo({ cwd: root })).resolves.toMatchObject({
         reviews: [
           {
@@ -448,7 +445,6 @@ describe("review info", () => {
       await git(root, ["commit", "-m", "main advance"]);
       const movedMain = await git(root, ["rev-parse", "HEAD"]);
       await git(root, ["checkout", "feature"]);
-      clearCommandOutputCacheForTests();
 
       const updated = await runReviewScaffold({
         cwd: root,
@@ -526,7 +522,6 @@ describe("review info", () => {
 
       await writeFile(path.join(root, "README.md"), "# Changed\n", "utf8");
       await git(root, ["commit", "-am", "change evidence"]);
-      clearCommandOutputCacheForTests();
       const progress = vi.fn<(message: string) => void>();
 
       await runReviewScaffold({ cwd: root, update: true, progress });
@@ -584,7 +579,6 @@ describe("review info", () => {
       await git(root, ["commit", "-am", "a2"]);
       const movedFeatATip = await git(root, ["rev-parse", "HEAD"]);
       await git(root, ["checkout", "feat-b"]);
-      clearCommandOutputCacheForTests();
 
       const updated = await runReviewScaffold({
         cwd: root,
@@ -714,7 +708,6 @@ describe("review info", () => {
       await git(root, ["commit", "-am", "feature 2"]);
       const movedTip = await git(root, ["rev-parse", "HEAD"]);
       await git(root, ["checkout", "--detach", oldTip]);
-      clearCommandOutputCacheForTests();
 
       const updated = await runReviewScaffold({ cwd: root, update: true });
       expect(updated.reviews).toHaveLength(1);
@@ -784,7 +777,6 @@ describe("review info", () => {
       await git(root, ["add", "."]);
       await git(root, ["commit", "-m", "other"]);
       const otherTip = await git(root, ["rev-parse", "HEAD"]);
-      clearCommandOutputCacheForTests();
 
       await runReviewRebind({
         cwd: root,
@@ -912,7 +904,6 @@ describe("review info", () => {
 
     try {
       await jj(root, ["git", "init", "--colocate"]);
-      clearCommandOutputCacheForTests();
       await git(root, ["config", "devfast.prepare", "echo ok"]);
       const baseCommit = await git(root, ["rev-parse", "HEAD"]);
       await writeFile(
@@ -960,7 +951,6 @@ describe("review info", () => {
       });
     } finally {
       vi.unstubAllEnvs();
-      clearCommandOutputCacheForTests();
       await rm(home, { recursive: true, force: true });
       await rm(root, { recursive: true, force: true });
     }

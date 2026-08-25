@@ -29,7 +29,7 @@ directory as a reference.
 - [GitHub Issues](https://github.com/devdotfast/review/issues) — bugs and feature
   requests.
 - [Discord](https://discord.gg/FmrJraNvN) — setup questions and community help.
-- [Contributing](../CONTRIBUTING.md)
-- [Security policy](../SECURITY.md)
-- [Desktop build and release guide](../apps/review-desktop/README.md)
-- [Code - OSS provenance](../apps/review-desktop/UPSTREAM)
+- [Contributing](https://github.com/devdotfast/review/blob/main/CONTRIBUTING.md)
+- [Security policy](https://github.com/devdotfast/review/blob/main/SECURITY.md)
+- [Desktop build and release guide](https://github.com/devdotfast/review/blob/main/apps/review-desktop/README.md)
+- [Code - OSS provenance](https://github.com/devdotfast/review/blob/main/apps/review-desktop/UPSTREAM)

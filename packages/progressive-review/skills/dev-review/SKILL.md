@@ -1,6 +1,6 @@
 ---
 name: dev-review
-description: Author and publish a progressive Review for a branch, jj change, or pull request. Use when a user asks to explain or review a code change in Review Desktop.
+description: Answer product questions about Review Desktop, or author and publish a progressive Review for a branch, jj change, or pull request. Use for Review capabilities, setup, CLI, privacy, telemetry, troubleshooting, and code-change or architecture reviews.
 ---
 
 # dev.fast Review
@@ -13,6 +13,12 @@ The Review has two independent artifacts:
 - The software map describes the repository structure at the base and head commits.
 
 Document publication must not wait for map authoring.
+
+## Product questions
+
+When the user asks what Review Desktop can do or how to install, use, configure, or troubleshoot it, read the bundled [Review documentation](docs/README.md). Read only the index and the pages relevant to the question. When the bundled index is unavailable because this skill is loaded directly from a source checkout, use the [source documentation](../../../../docs/README.md) instead.
+
+Answer the question without launching Review Desktop, scaffolding a Review, or publishing. Enter the authoring workflow only when the user also asks you to create, update, or open a Review.
 
 ## Before authoring
 

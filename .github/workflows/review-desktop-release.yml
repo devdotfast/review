@@ -175,7 +175,7 @@ jobs:
 
       - name: Restore Code OSS dependencies
         id: code-oss-deps
-        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             apps/review-desktop/code-oss/node_modules
@@ -212,7 +212,7 @@ jobs:
       - name: Check for existing Code OSS dependency cache
         if: steps.code-oss-deps.outputs.cache-hit != 'true'
         id: code-oss-deps-lookup
-        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             apps/review-desktop/code-oss/node_modules
@@ -221,7 +221,7 @@ jobs:
 
       - name: Save Code OSS dependencies
         if: steps.code-oss-deps.outputs.cache-hit != 'true' && steps.code-oss-deps-lookup.outputs.cache-hit != 'true'
-        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             apps/review-desktop/code-oss/node_modules
@@ -271,7 +271,7 @@ jobs:
 
       - name: Restore Code OSS dependencies
         id: code-oss-deps
-        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             apps/review-desktop/code-oss/node_modules
@@ -357,7 +357,7 @@ jobs:
       - name: Check for existing Code OSS dependency cache
         if: steps.code-oss-deps.outputs.cache-hit != 'true'
         id: code-oss-deps-lookup
-        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             apps/review-desktop/code-oss/node_modules
@@ -366,7 +366,7 @@ jobs:
 
       - name: Save Code OSS dependencies
         if: steps.code-oss-deps.outputs.cache-hit != 'true' && steps.code-oss-deps-lookup.outputs.cache-hit != 'true'
-        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             apps/review-desktop/code-oss/node_modules

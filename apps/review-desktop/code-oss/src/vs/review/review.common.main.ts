@@ -362,6 +362,10 @@ import {
   IReviewDiffTabsService,
   ReviewDiffTabsService,
 } from "./services/reviewDiffTabs.js";
+import {
+  IReviewDiffService,
+  ReviewDiffService,
+} from "./services/reviewDiffService.js";
 
 registerSingleton(
   IReviewSessionService,
@@ -386,6 +390,11 @@ registerSingleton(
 registerSingleton(
   IReviewDiffTabsService,
   ReviewDiffTabsService,
+  InstantiationType.Delayed,
+);
+registerSingleton(
+  IReviewDiffService,
+  ReviewDiffService,
   InstantiationType.Delayed,
 );
 registerSingleton(

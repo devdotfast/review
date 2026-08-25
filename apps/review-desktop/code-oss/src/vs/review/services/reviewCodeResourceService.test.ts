@@ -53,6 +53,17 @@ test("diff targets use the pinned base and head checkouts", async () => {
       },
       onDidChangeActiveModel: Event.None,
     } as never,
+    {
+      files: async () => [
+        {
+          path: "src/new.ts",
+          previousPath: "src/old.ts",
+          status: "renamed",
+          additions: 2,
+          deletions: 2,
+        },
+      ],
+    } as never,
   );
 
   const base = await service.target("src/new.ts", "base");

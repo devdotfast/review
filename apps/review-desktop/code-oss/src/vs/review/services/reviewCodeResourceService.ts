@@ -63,13 +63,12 @@ import type {
 } from "../common/reviewProtocol.js";
 import {
   gitLabDiffPositionRows,
-  parseReviewDiffFilesResponse,
   parseReviewFileContentResponse,
 } from "../common/reviewProtocol.js";
 import {
   reviewDiffFileForReveal,
-  reviewDiffFilesUrl,
 } from "../common/reviewReveal.js";
+import { IReviewDiffService } from "./reviewDiffService.js";
 import {
   IReviewSessionModelService,
   type ReviewDesktopSession,
@@ -219,6 +218,7 @@ export class ReviewCodeResourceService
     @ILanguageService private readonly languageService: ILanguageService,
     @IReviewSessionModelService
     private readonly sessionModelService: IReviewSessionModelService,
+    @IReviewDiffService private readonly diffService: IReviewDiffService,
   ) {
     super();
     this.codeRevision = this.currentCodeRevision();
@@ -267,10 +267,7 @@ export class ReviewCodeResourceService
     side: ReviewDiffSide,
     scope?: ReviewCommitScope,
   ): Promise<ReviewCodeResourceTarget> {
-    const files = await this.diffFilesForSession(session, scope);
-    if (!files) {
-      throw new Error("Review diff metadata is unavailable.");
-    }
+    const files = await this.diffService.files(scope);
     const diffFile = reviewDiffFileForReveal(files, path, side);
     if (!diffFile) {
       const pinnedResource = !scope
@@ -310,11 +307,8 @@ export class ReviewCodeResourceService
   }
 
   async files(scope?: ReviewCommitScope): Promise<readonly ReviewDiffFileWire[]> {
-    const files = await this.diffFilesForSession(this.requireSession(), scope);
-    if (!files) {
-      throw new Error("Review diff metadata is unavailable.");
-    }
-    return files;
+    this.requireSession();
+    return this.diffService.files(scope);
   }
 
   async acquireSnippet(
@@ -367,7 +361,7 @@ export class ReviewCodeResourceService
     ]);
     const patch =
       diffFile.patch ??
-      (await this.diffPatchForSession(session, diffFile.path));
+      (await this.diffService.patch(diffFile.path));
     if (!patch) return undefined;
 
     const mappings = reviewPeekLineMappings(patch);
@@ -699,66 +693,6 @@ export class ReviewCodeResourceService
       session.baseRootPath ?? "",
       session.headRootPath ?? "",
     ].join("\n");
-  }
-
-  private async diffFilesForSession(
-    session: ReviewDesktopSession,
-    scope?: ReviewCommitScope,
-  ): Promise<ReviewDiffFileWire[] | undefined> {
-    const routePath = session.session.routePath ?? "/";
-    try {
-      const response = await this.request(
-        session,
-        reviewDiffFilesUrl(session.sessionUrl, routePath),
-        {
-          method: "POST",
-          headers: {
-            "x-review-token": session.token,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({ includePatch: false, commit: scope?.commit }),
-          signal: AbortSignal.timeout(2_000),
-        },
-      );
-      const result = parseReviewDiffFilesResponse(await response.json());
-      if (!response.ok || !result.ok) return undefined;
-      return result.files.map((file) => ({
-        path: file.path,
-        previousPath: file.previousPath,
-        status: file.status,
-        additions: file.additions,
-        deletions: file.deletions,
-      }));
-    } catch {
-      return undefined;
-    }
-  }
-
-  private async diffPatchForSession(
-    session: ReviewDesktopSession,
-    path: string,
-  ): Promise<string | undefined> {
-    const routePath = session.session.routePath ?? "/";
-    try {
-      const response = await this.request(
-        session,
-        reviewDiffFilesUrl(session.sessionUrl, routePath),
-        {
-          method: "POST",
-          headers: {
-            "x-review-token": session.token,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({ includePatch: true, paths: [path] }),
-          signal: AbortSignal.timeout(5_000),
-        },
-      );
-      const result = parseReviewDiffFilesResponse(await response.json());
-      if (!response.ok || !result.ok) return undefined;
-      return result.files.find((file) => file.path === path)?.patch;
-    } catch {
-      return undefined;
-    }
   }
 
   private async provideDiffContent(

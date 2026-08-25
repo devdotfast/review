@@ -51,6 +51,10 @@ not explain whether the system is right. See the
 [Privacy](docs/privacy.md) ·
 [Troubleshooting](docs/troubleshooting.md)
 
+## Known limitations
+* Review was engineered with reviewing changes to one repo, your coding agent can obviously pull context from other repos on your machine, but we haven't engineered it to map architectural changes across repos. If you need this let us know!
+* Review doesnt properly handle stacked prs right now, but this is coming soon.
+
 ## Development
 
 Review requires Node.js 24 and pnpm 11. See the

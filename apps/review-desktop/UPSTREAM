@@ -95,6 +95,12 @@ one of these entries:
   so the module loads without the package installed.
 - `src/typings/removed-native-modules.d.ts`: ambient declarations replacing
   the typings of removed native dependencies.
+- `extensions/markdown-language-features/src/languageFeatures/copyFiles/snippets.ts`:
+  parse snippet variables linearly instead of using an ambiguous regular
+  expression that can backtrack exponentially on a short workspace setting.
+- `src/vs/platform/terminal/common/terminalEnvironment.ts`: quote complete path
+  arguments with each shell's native rules instead of stripping metacharacters
+  and emitting invalid POSIX quoting for apostrophes.
 - `extensions/package.json` and the extension `package.json`/`package-lock.json`
   files: `@vscode/extension-telemetry` is hoisted to the shared extensions
   install (github keeps its own ^1.0.0 copy; the shared copy is ^0.9.8).

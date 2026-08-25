@@ -5,8 +5,10 @@
 
 import * as assert from 'assert';
 import 'mocha';
+import { performance } from 'node:perf_hooks';
 import * as vscode from 'vscode';
 import { resolveCopyDestination } from '../languageFeatures/copyFiles/copyFiles';
+import { resolveSnippet } from '../languageFeatures/copyFiles/snippets';
 
 
 suite('resolveCopyDestination', () => {
@@ -94,5 +96,16 @@ suite('resolveCopyDestination', () => {
 		const dest = resolveCopyDestination(documentUri, 'img.png', '${fileName/(.+)/x\\/y/}.${fileExtName}', () => undefined);
 
 		assert.strictEqual(dest.toString(), 'test://projects/project/sub/x/y.png');
+	});
+
+	test('Snippet parsing should remain linear for incomplete transforms', () => {
+		const variables = new Map([['fileName', 'docs/video.mp4']]);
+		assert.strictEqual(resolveSnippet('src=${fileName}; escaped=\\${fileName}', variables), 'src=docs/video.mp4; escaped=${fileName}');
+		assert.strictEqual(resolveSnippet('${fileName/docs\\/video/cdn\\/video/}', variables), 'cdn/video.mp4');
+
+		const adversarial = '${fileName/' + '\\/'.repeat(26);
+		const startedAt = performance.now();
+		assert.strictEqual(resolveSnippet(adversarial, variables), adversarial);
+		assert.ok(performance.now() - startedAt < 100, 'snippet parsing should remain linear');
 	});
 });

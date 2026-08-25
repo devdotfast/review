@@ -470,6 +470,15 @@ describe("review protocol parsers", () => {
 
   it("normalizes route paths independently", () => {
     expect(normalizeReviewRoutePath("pr/9/?view=map")).toBe("/pr/9");
+    expect(normalizeReviewRoutePath("/pr/9////")).toBe("/pr/9");
     expect(normalizeReviewRoutePath("/")).toBe("/");
+  });
+
+  it("normalizes adversarial route paths without quadratic scanning", () => {
+    const pathname = `${"/".repeat(32_000)}review`;
+    const startedAt = performance.now();
+
+    expect(normalizeReviewRoutePath(pathname)).toBe(pathname);
+    expect(performance.now() - startedAt).toBeLessThan(100);
   });
 });

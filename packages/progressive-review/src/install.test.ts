@@ -7,6 +7,9 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { runInstall } from "./install";
 
+const REQUIRED_SKILLS = ["dev-review", "dev-review-map"] as const;
+const ALL_SKILLS = [...REQUIRED_SKILLS, "trace-archaeology"] as const;
+
 const tempRoots: string[] = [];
 
 afterEach(async () => {
@@ -34,7 +37,7 @@ async function writeSkill(
 
 async function makePackageRoot(): Promise<string> {
   const packageRoot = await makeTempDir();
-  for (const name of ["dev-review", "dev-review-map", "trace-archaeology"]) {
+  for (const name of ALL_SKILLS) {
     await writeSkill(packageRoot, name);
   }
   return packageRoot;
@@ -66,7 +69,7 @@ describe("runInstall", () => {
     });
 
     expect(code).toBe(0);
-    for (const name of ["dev-review", "dev-review-map", "trace-archaeology"]) {
+    for (const name of REQUIRED_SKILLS) {
       expect(
         await readFile(
           path.join(homeDir, ".claude", "skills", name, "SKILL.md"),
@@ -86,11 +89,14 @@ describe("runInstall", () => {
         ),
       ).toContain(`# ${name}`);
     }
-    // Verify trace hooks are installed
+    // Trace capture is off by default: no agent hooks, no trace skill.
     expect(existsSync(path.join(homeDir, ".claude", "settings.json"))).toBe(
-      true,
+      false,
     );
-    expect(existsSync(path.join(homeDir, ".codex", "config.toml"))).toBe(true);
+    expect(existsSync(path.join(homeDir, ".codex", "config.toml"))).toBe(false);
+    expect(
+      existsSync(path.join(homeDir, ".claude", "skills", "trace-archaeology")),
+    ).toBe(false);
 
     // Legacy prompt/command locations should stay empty.
     await expect(
@@ -162,7 +168,7 @@ describe("runInstall", () => {
         "utf8",
       ),
     ).rejects.toThrow(/ENOENT/);
-    for (const name of ["dev-review", "dev-review-map", "trace-archaeology"]) {
+    for (const name of REQUIRED_SKILLS) {
       expect(
         await readFile(
           path.join(homeDir, ".agents", "skills", name, "SKILL.md"),
@@ -252,7 +258,7 @@ describe("runInstall", () => {
     });
 
     expect(code).toBe(0);
-    for (const name of ["dev-review", "dev-review-map", "trace-archaeology"]) {
+    for (const name of REQUIRED_SKILLS) {
       expect(
         await readFile(
           path.join(homeDir, ".cursor", "skills", name, "SKILL.md"),
@@ -289,7 +295,7 @@ describe("runInstall", () => {
     });
 
     expect(code).toBe(0);
-    for (const name of ["dev-review", "dev-review-map", "trace-archaeology"]) {
+    for (const name of REQUIRED_SKILLS) {
       expect(
         await readFile(
           path.join(homeDir, ".agents", "skills", name, "SKILL.md"),
@@ -297,6 +303,49 @@ describe("runInstall", () => {
         ),
       ).toContain(`# ${name}`);
     }
+    expect(
+      existsSync(
+        path.join(homeDir, ".pi", "agent", "extensions", "review-trace.ts"),
+      ),
+    ).toBe(false);
+  });
+
+  it("installs trace hooks and the trace skill once capture is enabled", async () => {
+    const packageRoot = await makePackageRoot();
+    const homeDir = await makeTempDir();
+    const streams = silentStreams();
+    const settingsPath = path.join(homeDir, "trace-settings.json");
+    await writeFile(
+      settingsPath,
+      JSON.stringify({
+        version: 1,
+        enabled: true,
+        autoActivateRepositories: true,
+      }),
+    );
+
+    const code = await runInstall({
+      targets: ["claude", "codex", "pi"],
+      homeDir,
+      packageRoot,
+      env: { TRACE_SETTINGS_FILE: settingsPath },
+      stdout: streams.stdout,
+      stderr: streams.stderr,
+    });
+
+    expect(code).toBe(0);
+    for (const root of [".claude", ".agents"]) {
+      expect(
+        await readFile(
+          path.join(homeDir, root, "skills", "trace-archaeology", "SKILL.md"),
+          "utf8",
+        ),
+      ).toContain("# trace-archaeology");
+    }
+    expect(existsSync(path.join(homeDir, ".claude", "settings.json"))).toBe(
+      true,
+    );
+    expect(existsSync(path.join(homeDir, ".codex", "config.toml"))).toBe(true);
     expect(
       existsSync(
         path.join(homeDir, ".pi", "agent", "extensions", "review-trace.ts"),

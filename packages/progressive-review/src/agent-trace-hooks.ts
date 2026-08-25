@@ -160,8 +160,7 @@ export async function installCodexTraceHook(
     "SessionEnd",
   ] as const;
   const missingEvents = hookEvents.filter(
-    (eventName) =>
-      !existing.includes(` trace hook ${eventName}`),
+    (eventName) => !existing.includes(` trace hook ${eventName}`),
   );
   if (missingEvents.length === 0) {
     return { agent: "codex", path: configPath, modified: false };
@@ -314,7 +313,9 @@ function shellCommand(command: string): string {
 function isReviewTraceHookCommand(command: unknown): boolean {
   if (typeof command !== "string") return false;
   const match =
-    /^(.*) trace hook (SessionStart|UserPromptSubmit|SessionEnd)$/.exec(command);
+    /^(.*) trace hook (SessionStart|UserPromptSubmit|SessionEnd)$/.exec(
+      command,
+    );
   if (!match) return false;
   return match[1] === "review" || match[1].endsWith("/review'");
 }

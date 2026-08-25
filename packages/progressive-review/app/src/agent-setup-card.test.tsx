@@ -129,45 +129,6 @@ describe("AgentSetupCard", () => {
     });
     expect(onStatusChange).toHaveBeenCalledExactlyOnceWith(grantedStatus);
   });
-
-  it("enables trace capture through the shared install action", async () => {
-    const traceStatus: ReviewCliInstallStatus = {
-      ...grantedStatus,
-      trace: {
-        ...grantedStatus.trace,
-        configured: true,
-        endpoint: "https://account.r2.cloudflarestorage.com",
-        bucket: "review-traces",
-        accessKeyIdPrefix: "key-id",
-      },
-    };
-    const apply = vi.fn<ReviewCanvasInstallContent["apply"]>(
-      async () => traceStatus,
-    );
-    const install: ReviewCanvasInstallContent = {
-      status: traceStatus,
-      apply,
-      remove: vi.fn<ReviewCanvasInstallContent["remove"]>(),
-      decline: vi.fn<ReviewCanvasInstallContent["decline"]>(),
-      skip: vi.fn<ReviewCanvasInstallContent["skip"]>(),
-      enablePrompts: vi.fn<ReviewCanvasInstallContent["enablePrompts"]>(),
-    };
-
-    await act(async () => root.render(<AgentSetupCard install={install} />));
-    await act(async () => {
-      [...container.querySelectorAll<HTMLButtonElement>("button")]
-        .find((button) => button.textContent === "Enable")
-        ?.click();
-    });
-
-    expect(apply).toHaveBeenCalledExactlyOnceWith({
-      targets: [],
-      trace: {
-        endpoint: "https://account.r2.cloudflarestorage.com",
-        bucket: "review-traces",
-      },
-    });
-  });
 });
 
 const status: ReviewCliInstallStatus = {

@@ -125,7 +125,6 @@ describe("AgentSetupCard", () => {
 
     expect(apply).toHaveBeenCalledExactlyOnceWith({
       targets: ["codex"],
-      fff: true,
     });
     expect(onStatusChange).toHaveBeenCalledExactlyOnceWith(grantedStatus);
   });

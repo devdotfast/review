@@ -3,7 +3,7 @@ import type {
   ReviewCliInstallStatus,
   ReviewCliInstallTarget,
 } from "@dev.fast/review-protocol";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { AGENT_LOGOS } from "./agent-logos";
 
@@ -45,6 +45,8 @@ export function AgentSetupCard({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => setStatus(install.status), [install.status]);
+
   const run = async (
     key: string,
     action: () => Promise<ReviewCliInstallStatus>,
@@ -85,14 +87,6 @@ export function AgentSetupCard({
           )),
     )
     .map((agent) => agent.target);
-  const fffReady =
-    fffTargets.length > 0 &&
-    fffTargets.every((target) =>
-      status.fff.registrations.some(
-        (registration) =>
-          registration.target === target && registration.present,
-      ),
-    );
   const firstRun = !status.stamp || status.stamp.consent === "skipped";
 
   return (
@@ -120,7 +114,7 @@ export function AgentSetupCard({
               : "No coding agents were detected on this machine. You can still install the "}
             <code>review</code> terminal command.
           </p>
-          {fffTargets.length > 0 ? (
+          {status.trace.enabled && fffTargets.length > 0 ? (
             <p>
               This action also installs FFF when needed. It registers the
               standard <code>fff</code> server for Claude and Codex, and
@@ -137,7 +131,9 @@ export function AgentSetupCard({
                   install.apply({
                     targets: presentTargets,
                     shim: true,
-                    fff: fffTargets.length > 0,
+                    ...(status.trace.enabled && fffTargets.length > 0
+                      ? { fff: true }
+                      : {}),
                   }),
                 )
               }
@@ -223,7 +219,9 @@ export function AgentSetupCard({
                     void run(`remove-${agent.target}`, () =>
                       install.remove({
                         targets: [agent.target],
-                        ...(supportsFff(agent.target) ? { fff: true } : {}),
+                        ...(status.trace.enabled && supportsFff(agent.target)
+                          ? { fff: true }
+                          : {}),
                       }),
                     )
                   }
@@ -240,7 +238,9 @@ export function AgentSetupCard({
                   void run(agent.target, () =>
                     install.apply({
                       targets: [agent.target],
-                      ...(supportsFff(agent.target) ? { fff: true } : {}),
+                      ...(status.trace.enabled && supportsFff(agent.target)
+                        ? { fff: true }
+                        : {}),
                     }),
                   )
                 }
@@ -255,47 +255,6 @@ export function AgentSetupCard({
           );
         })}
       </ul>
-      <div className="review-agent-setup-terminal">
-        <div className="review-agent-setup-terminal-info">
-          <span className="review-agent-setup-name">Trace search</span>
-          <span
-            className="review-agent-setup-state"
-            data-installed={fffReady}
-            title={`${status.fff.binary.path} · ${status.fff.corpusRoot}`}
-          >
-            {fffReady
-              ? "ready"
-              : status.fff.binary.installed
-                ? "registration needed"
-                : "not installed"}
-          </span>
-          <span className="review-agent-setup-cli">
-            FFF MCP binary:{" "}
-            {status.fff.binary.installed ? "installed" : "not managed here"} ·{" "}
-            {status.fff.registrations
-              .map(
-                (registration) =>
-                  `${TARGET_LABELS[registration.target]}: ${registration.present ? (registration.target === "pi" ? "installed" : "registered") : "missing"}`,
-              )
-              .join(" · ")}
-          </span>
-          <span className="review-agent-setup-cli">
-            Existing FFF integrations stay unchanged. Open a new agent session
-            after setup.
-          </span>
-        </div>
-        <button
-          type="button"
-          disabled={busy !== null || fffTargets.length === 0}
-          onClick={() =>
-            void run("fff", () =>
-              install.apply({ targets: fffTargets, fff: true }),
-            )
-          }
-        >
-          {busy === "fff" ? "Installing…" : fffReady ? "Repair" : "Install"}
-        </button>
-      </div>
       {status.cli ? (
         <div className="review-agent-setup-terminal">
           <div className="review-agent-setup-terminal-info">
@@ -362,6 +321,6 @@ export function AgentSetupCard({
   );
 }
 
-function supportsFff(target: ReviewCliInstallTarget): boolean {
+export function supportsFff(target: ReviewCliInstallTarget): boolean {
   return target === "claude" || target === "codex" || target === "pi";
 }

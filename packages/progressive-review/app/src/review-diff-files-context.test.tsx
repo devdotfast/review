@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import type { ReviewDiffFileWire } from "@dev.fast/review-protocol";
 import { act, useLayoutEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -23,6 +24,57 @@ afterEach(async () => {
 });
 
 describe("ReviewDiffFilesProvider", () => {
+  it("reads the desktop's prefetched diff without a network request", async () => {
+    const files = vi.fn<() => Promise<ReviewDiffFileWire[]>>(async () => [
+      {
+        path: "src/prefetched.ts",
+        status: "modified" as const,
+        additions: 4,
+        deletions: 2,
+        patch: "diff --git a/src/prefetched.ts b/src/prefetched.ts",
+      },
+    ]);
+    const nativeSession = testReviewSession(
+      {},
+      {
+        diffView: {
+          create: () => {
+            throw new Error("unused test diff view");
+          },
+          files,
+        },
+      },
+    );
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    function Probe() {
+      const state = useReviewDiffFiles();
+      return (
+        <span>
+          {state.status === "loaded" ? state.files[0]?.path : state.status}
+        </span>
+      );
+    }
+
+    await act(async () => {
+      root!.render(
+        <ReviewSessionProvider session={nativeSession}>
+          <ReviewDiffFilesProvider documentKey="review-one">
+            <Probe />
+          </ReviewDiffFilesProvider>
+        </ReviewSessionProvider>,
+      );
+    });
+
+    expect(container.textContent).toBe("src/prefetched.ts");
+    expect(files).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("starts one patch-free request after commit and shares it with every consumer", async () => {
     let committed = false;
     let resolveRequest!: (response: Response) => void;

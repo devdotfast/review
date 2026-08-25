@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { LRUCache } from "../../base/common/map.js";
 import { createDecorator } from "../../platform/instantiation/common/instantiation.js";
 import type {
   ReviewCommitScope,
@@ -23,45 +24,53 @@ export interface IReviewDiffService {
   readonly _serviceBrand: undefined;
   files(scope?: ReviewCommitScope): Promise<readonly ReviewDiffFileWire[]>;
   patch(path: string): Promise<string | undefined>;
+  prefetch(scope?: ReviewCommitScope): Promise<void>;
 }
 
 export class ReviewDiffService implements IReviewDiffService {
   declare readonly _serviceBrand: undefined;
+  private readonly corpora = new LRUCache<
+    string,
+    Promise<readonly ReviewDiffFileWire[]>
+  >(8);
 
   constructor(
     @IReviewSessionModelService
     private readonly sessionModelService: IReviewSessionModelService,
   ) {}
 
-  async files(
-    scope?: ReviewCommitScope,
-  ): Promise<readonly ReviewDiffFileWire[]> {
-    const result = await this.request({
-      includePatch: false,
-      commit: scope?.commit,
+  files(scope?: ReviewCommitScope): Promise<readonly ReviewDiffFileWire[]> {
+    const model = this.sessionModelService.activeModel;
+    if (!model) return Promise.reject(new Error("Review session is unavailable."));
+    const key = this.cacheKey(model.session, scope);
+    const cached = this.corpora.get(key);
+    if (cached) return cached;
+
+    let pending: Promise<readonly ReviewDiffFileWire[]>;
+    pending = this.loadCorpus(model.session, scope).catch((error) => {
+      if (this.corpora.get(key) === pending) this.corpora.delete(key);
+      throw error;
     });
-    return result.files.map((file) => ({
-      path: file.path,
-      previousPath: file.previousPath,
-      status: file.status,
-      additions: file.additions,
-      deletions: file.deletions,
-    }));
+    this.corpora.set(key, pending);
+    return pending;
   }
 
   async patch(path: string): Promise<string | undefined> {
-    const result = await this.request({ includePatch: true, paths: [path] });
-    return result.files.find((file) => file.path === path)?.patch;
+    return (await this.files()).find((file) => file.path === path)?.patch;
   }
 
-  private async request(body: {
-    includePatch: boolean;
-    commit?: string;
-    paths?: string[];
-  }) {
+  async prefetch(scope?: ReviewCommitScope): Promise<void> {
+    await this.files(scope);
+  }
+
+  private async loadCorpus(
+    session: ReviewDesktopSession,
+    scope?: ReviewCommitScope,
+  ): Promise<readonly ReviewDiffFileWire[]> {
     const model = this.sessionModelService.activeModel;
-    if (!model) throw new Error("Review session is unavailable.");
-    const session = model.session;
+    if (model?.session.session.sessionId !== session.session.sessionId) {
+      throw new Error("Review diff request belongs to a stale session.");
+    }
     const routePath = session.session.routePath ?? "/";
     const response = await model.request(
       String(reviewDiffFilesUrl(session.sessionUrl, routePath)),
@@ -71,8 +80,11 @@ export class ReviewDiffService implements IReviewDiffService {
           "x-review-token": session.token,
           "content-type": "application/json",
         },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(body.includePatch ? 5_000 : 2_000),
+        body: JSON.stringify({
+          includePatch: true,
+          commit: scope?.commit,
+        }),
+        signal: AbortSignal.timeout(30_000),
       },
     );
     const result = parseReviewDiffFilesResponse(await response.json());
@@ -82,7 +94,25 @@ export class ReviewDiffService implements IReviewDiffService {
       );
     }
     this.requireCurrentSession(session);
-    return result;
+    return result.files;
+  }
+
+  private cacheKey(
+    session: ReviewDesktopSession,
+    scope?: ReviewCommitScope,
+  ): string {
+    const wire = session.session;
+    return [
+      wire.sessionId,
+      wire.resolvedBaseRef,
+      wire.baseRef,
+      wire.headRef ?? "",
+      wire.routePath ?? "/",
+      wire.rootPath,
+      wire.baseRootPath ?? "",
+      wire.headRootPath ?? "",
+      scope?.commit ?? "full",
+    ].join("\n");
   }
 
   private requireCurrentSession(session: ReviewDesktopSession): void {

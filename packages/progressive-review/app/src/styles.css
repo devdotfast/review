@@ -2426,6 +2426,17 @@ button {
   overflow: hidden;
 }
 
+/* Keep the full diff alive while another view is selected. It initializes in
+ * the review page's loading window, then the first Diff click and every return
+ * reuse the same file tree, editor models, selection, and scroll state. */
+.review-diff-view--preloaded {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .review-diff-view--scoped {
   grid-template-rows: 30px minmax(0, 1fr);
 }

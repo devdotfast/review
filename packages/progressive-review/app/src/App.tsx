@@ -691,26 +691,26 @@ function ReviewLayoutContent({
               }}
             />
           )}
-          {activeView === "diff" && (
-            <div
-              className={
-                diffScope
-                  ? "review-diff-view review-diff-view--scoped"
-                  : "review-diff-view"
-              }
-            >
-              {diffScope ? (
-                <CommitDiffScopeBar
-                  commit={diffScope}
-                  onBack={() => {
-                    setDiffScope(null);
-                    applyReviewView("commits");
-                  }}
-                />
-              ) : null}
-              <ReviewDiffView
-                scope={diffScope ? { commit: diffScope.commit } : undefined}
+          <div
+            aria-hidden={activeView !== "diff" || diffScope !== null}
+            className={
+              activeView === "diff" && diffScope === null
+                ? "review-diff-view"
+                : "review-diff-view review-diff-view--preloaded"
+            }
+          >
+            <ReviewDiffView />
+          </div>
+          {activeView === "diff" && diffScope !== null && (
+            <div className="review-diff-view review-diff-view--scoped">
+              <CommitDiffScopeBar
+                commit={diffScope}
+                onBack={() => {
+                  setDiffScope(null);
+                  applyReviewView("commits");
+                }}
               />
+              <ReviewDiffView scope={{ commit: diffScope.commit }} />
             </div>
           )}
           {activeView === "trace" && (

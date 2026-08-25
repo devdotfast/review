@@ -12,6 +12,8 @@ import type { ICodeEditor } from "../../editor/browser/editorBrowser.js";
 import type { IMultiDiffEditorViewState } from "../../editor/browser/widget/multiDiffEditor/multiDiffEditorWidgetImpl.js";
 import { IInstantiationService } from "../../platform/instantiation/common/instantiation.js";
 import type {
+  ReviewCommitScope,
+  ReviewDiffFileWire,
   ReviewDiffViewFactory,
   ReviewDiffViewHandle,
   ReviewDiffViewSpec,
@@ -74,6 +76,12 @@ export class ReviewDiffViewService
     );
     this.handles.add(handle);
     return handle;
+  }
+
+  files(
+    scope?: ReviewCommitScope,
+  ): Promise<readonly ReviewDiffFileWire[]> {
+    return this.codeResources.files(scope);
   }
 
   reset(): void {

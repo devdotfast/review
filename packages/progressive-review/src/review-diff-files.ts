@@ -79,15 +79,18 @@ export async function resolveReviewFileContent(input: {
   path: string;
   side: "base" | "head";
   maxBytes?: number;
+  comparison?: ReviewDiffFilesResult;
 }): Promise<ReviewFileContentResult> {
   const requestedPath = input.path.trim();
   if (!requestedPath) throw new Error("A changed file path is required.");
-  const comparison = await resolveReviewDiffFiles({
-    rootPath: input.rootPath,
-    baseRef: input.baseRef,
-    headRef: input.headRef,
-    includePatch: false,
-  });
+  const comparison =
+    input.comparison ??
+    (await resolveReviewDiffFiles({
+      rootPath: input.rootPath,
+      baseRef: input.baseRef,
+      headRef: input.headRef,
+      includePatch: false,
+    }));
   const file = comparison.files.find((entry) => entry.path === requestedPath);
   if (!file) {
     throw new Error(

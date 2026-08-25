@@ -37,7 +37,10 @@ import {
 } from "../review-agent-traces";
 import { reviewCommentPrompt } from "../review-comment-agent";
 import { resolveReviewCommitScope } from "../review-commits";
-import type { ReviewDiffFile } from "../review-diff-files";
+import type {
+  ReviewDiffFile,
+  ReviewDiffFilesResult,
+} from "../review-diff-files";
 import {
   resolveReviewDiffFiles,
   resolveReviewFileContent,
@@ -253,6 +256,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   const threadServices = new Map<string, ReviewThreadsService>();
   const agentMirrors = new Map<string, NativeMessageMirror>();
   const launchedAgentMessageIds = new Set<string>();
+  const diffCorpora = new Map<string, Promise<ReviewDiffFilesResult>>();
   const startMirror = (
     writableReviewPath: string,
     service: ReviewThreadsService,
@@ -954,13 +958,20 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     const url = new URL(context.req.url);
     const body = parseReviewDiffFilesInput(await readJson(context.req.raw));
     const diffTarget = await resolveScopedDiffTarget(url, body.commit);
-    const result = await resolveReviewDiffFiles({
-      rootPath: diffTarget.rootPath,
-      baseRef: diffTarget.baseRef,
-      headRef: diffTarget.headRef,
-      includePatch: body.includePatch,
-      paths: body.paths,
-    });
+    const corpus = await diffCorpus(diffTarget);
+    const requestedPaths = new Set(body.paths ?? []);
+    const files = corpus.files
+      .filter(
+        (file) =>
+          requestedPaths.size === 0 ||
+          requestedPaths.has(file.path) ||
+          (file.previousPath !== undefined &&
+            requestedPaths.has(file.previousPath)),
+      )
+      .map(({ patch, ...file }) =>
+        body.includePatch ? { ...file, patch } : file,
+      );
+    const result = { ...corpus, files };
     return reviewApiJsonResponse(200, { ok: true, ...result });
   }
 
@@ -977,11 +988,41 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       url,
       contentRequest.commit,
     );
+    const comparison = await diffCorpus(diffTarget);
     const result = await resolveReviewFileContent({
       ...diffTarget,
       ...contentRequest,
+      comparison,
     });
     return reviewApiJsonResponse(200, { ok: true, ...result });
+  }
+
+  function diffCorpus(diffTarget: {
+    rootPath: string;
+    baseRef?: string;
+    headRef?: string;
+  }): Promise<ReviewDiffFilesResult> {
+    const key = JSON.stringify([
+      diffTarget.rootPath,
+      diffTarget.baseRef ?? "",
+      diffTarget.headRef ?? "",
+    ]);
+    const cached = diffCorpora.get(key);
+    if (cached) return cached;
+    let pending: Promise<ReviewDiffFilesResult>;
+    pending = resolveReviewDiffFiles({
+      ...diffTarget,
+      includePatch: true,
+    }).catch((error) => {
+      if (diffCorpora.get(key) === pending) diffCorpora.delete(key);
+      throw error;
+    });
+    diffCorpora.set(key, pending);
+    if (diffCorpora.size > 32) {
+      const oldest = diffCorpora.keys().next().value;
+      if (oldest !== undefined) diffCorpora.delete(oldest);
+    }
+    return pending;
   }
 
   async function reviewCommits(

@@ -4,7 +4,7 @@ import type {
 } from "@dev.fast/review-protocol";
 import { useEffect, useState } from "react";
 
-import { supportsFff, TARGET_LABELS } from "./agent-setup-card";
+import { TARGET_LABELS, supportsFff } from "./agent-setup-card";
 
 /**
  * Experimental trace capture controls. Lives under Settings ▸ Experimental

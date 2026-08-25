@@ -54,6 +54,9 @@ not explain whether the system is right. See the
 ## Known limitations
 * Review was engineered with reviewing changes to one repo, your coding agent can obviously pull context from other repos on your machine, but we haven't engineered it to map architectural changes across repos. If you need this let us know!
 * Review doesnt properly handle stacked prs right now, but this is coming soon.
+* It's currently a pain to share reviews between machines, self-hostable collaboration tools are also on our roadmap.
+
+*If there are any other features you need, feel free to ask on discord or open an issue/discussion!*
 
 ## Development
 

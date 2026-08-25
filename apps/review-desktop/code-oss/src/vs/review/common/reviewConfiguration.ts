@@ -43,7 +43,7 @@ configurationRegistry.registerConfiguration({
 		},
 		[REVIEW_SOFTWARE_MAP_SETTING]: {
 			type: 'boolean',
-			default: true,
+			default: false,
 			description: localize('review.experimental.softwareMap.enabled', "Show the experimental Software Map view in reviews."),
 		},
 	},

@@ -181,15 +181,16 @@ function onboardingSetupComplete(status: ReviewCliInstallStatus): boolean {
   const fffAgents = installedAgents.filter(
     (agent) => agent.target === "claude" || agent.target === "codex",
   );
+  // Trace capture is experimental and lives in Settings; onboarding does
+  // not depend on it.
   return (
-    status.trace.enabled &&
-    (fffAgents.length === 0 ||
-      fffAgents.every((agent) =>
-        status.fff.registrations.some(
-          (registration) =>
-            registration.target === agent.target && registration.present,
-        ),
-      ))
+    fffAgents.length === 0 ||
+    fffAgents.every((agent) =>
+      status.fff.registrations.some(
+        (registration) =>
+          registration.target === agent.target && registration.present,
+      ),
+    )
   );
 }
 

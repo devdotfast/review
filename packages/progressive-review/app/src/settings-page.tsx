@@ -1,11 +1,13 @@
 import type {
   ReviewCanvasSettingsContent,
+  ReviewCliInstallStatus,
   ReviewKeymapChoice,
   ReviewThemeChoice,
 } from "@dev.fast/review-protocol";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import { AgentSetupCard } from "./agent-setup-card";
+import { TraceCaptureSection } from "./trace-capture-section";
 
 const THEME_LABELS: Record<ReviewThemeChoice, string> = {
   light: "Light",
@@ -66,8 +68,21 @@ export function SettingsPage({
   const [softwareMapEnabled, setSoftwareMapEnabled] = useState(
     settings.softwareMapEnabled,
   );
+  const [installStatus, setInstallStatus] = useState<
+    ReviewCliInstallStatus | undefined
+  >(settings.install?.status);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(
+    () => setInstallStatus(settings.install?.status),
+    [settings.install?.status],
+  );
+
+  const install =
+    settings.install && installStatus
+      ? { ...settings.install, status: installStatus }
+      : settings.install;
 
   const run = async <T,>(
     key: string,
@@ -96,9 +111,14 @@ export function SettingsPage({
             Settings apply to Review Desktop on this machine.
           </p>
 
-          {settings.install ? (
+          {install ? (
             <Section label="Agents">
-              <AgentSetupCard install={settings.install} embedded manageOnly />
+              <AgentSetupCard
+                install={install}
+                embedded
+                manageOnly
+                onStatusChange={setInstallStatus}
+              />
             </Section>
           ) : null}
 
@@ -221,6 +241,12 @@ export function SettingsPage({
                 <span>{softwareMapEnabled ? "On" : "Off"}</span>
               </label>
             </Row>
+            {install ? (
+              <TraceCaptureSection
+                install={install}
+                onStatusChange={setInstallStatus}
+              />
+            ) : null}
           </Section>
 
           {error ? <p className="review-settings-error">{error}</p> : null}

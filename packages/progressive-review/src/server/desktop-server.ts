@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 
 import {
   REVIEW_DESKTOP_DISCOVERY_VERSION,
+  type ReviewDescriptor,
   type ReviewDesktopDiscovery,
   type ReviewDesktopGlobalEvent,
   type ReviewRecord,
@@ -35,8 +36,8 @@ import {
 import {
   dismissReview,
   markReviewViewed,
-  reviewReapsAt,
   restoreReview,
+  reviewReapsAt,
   selectReapableReviews,
 } from "../review-attention";
 import { listReviewDocumentVersions } from "../review-document-versions";

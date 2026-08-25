@@ -38,6 +38,7 @@ import {
   type InstallTarget,
   detectInstalledTargets,
   removeInstalledSkills,
+  removeTraceSkills,
   runInstall,
 } from "../install";
 import { readProgressiveReviewPackageVersion } from "../package-paths";
@@ -317,6 +318,14 @@ export async function removeCliInstall(input: {
   if (input.trace) {
     await disableAllTraceRepositories(homeDir);
     await disableTraceMachine({ homeDir, env });
+    // Disabling capture also retires the per-agent pieces that exist only
+    // for it, regardless of which targets this request named.
+    for (const target of await detectInstalledTargets(homeDir)) {
+      await removeTraceSkills(target, homeDir);
+      if (target === "claude" || target === "codex" || target === "pi") {
+        await removeAgentTraceHook(target, homeDir);
+      }
+    }
     chunks.push("[ok] disabled Review trace capture\n");
   }
 

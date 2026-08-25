@@ -45,6 +45,7 @@ import { ensurePinnedReviewWorktreeAtCommit } from "./review-worktree-target";
 import { resolveReviewRoot, resolveReviewSource } from "./runtime";
 import { compileReviewDocumentBundle } from "./server/doc-bundler";
 import { reviewInfoEvent } from "./server/review-info";
+import { traceMachineEnabled } from "./trace-machine-setup";
 
 export interface RunReviewScaffoldInput {
   cwd: string;
@@ -364,6 +365,12 @@ async function discoverAndPullScaffoldTraces(input: {
   headCommit: string;
   progress?: (message: string) => void;
 }): Promise<{ traces: ReviewScaffoldTraces; warnings: string[] }> {
+  // Trace storage is opt-in. Without it there is nothing to discover, and
+  // probing R2 on every scaffold would only produce noise.
+  if (!(await traceMachineEnabled())) {
+    return { traces: emptyScaffoldTraces([]), warnings: [] };
+  }
+
   let resolvedSessions: ReviewAgentTraceSession[];
   try {
     resolvedSessions = await listReviewTraceSessions(input);

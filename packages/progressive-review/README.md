@@ -86,13 +86,14 @@ writes a `review` shim to `~/.local/bin` that always resolves to the app's
 bundled CLI. `review install` remains for headless environments; a standalone
 CLI defers to the app's bundled copy whenever Review Desktop is running.
 
-Explicit agent setup installs FFF. It registers the standard `fff` MCP server
-for Claude and Codex, and installs `npm:@ff-labs/pi-fff` for Pi. The MCP
-registration points FFF at `~/.dev/trace-search`. Review accepts existing FFF
-integrations without changes. Silent app-update synchronization never runs an
-FFF installer.
+Agent setup installs only the Review CLI and skills. Enabling Trace capture in
+Settings ▸ Experimental Features also installs FFF: it registers the standard
+`fff` MCP server for Claude and Codex, and installs `npm:@ff-labs/pi-fff` for
+Pi. The MCP registration points FFF at `~/.dev/trace-search`. Review accepts
+existing FFF integrations without changes. Silent app-update synchronization
+never runs an FFF installer.
 
-The same setup page configures R2 and enables trace capture for the machine.
+The experimental setup configures R2 and enables trace capture for the machine.
 Each agent session activates its current repository. Git receives a managed
 hook dispatcher that chains the repository's prior hooks. Jujutsu receives a
 repository commit-trailer template. A target repository needs no Review files.

@@ -8997,6 +8997,15 @@ a.review-doc-meta-pr:hover {
   background: var(--control-bg);
 }
 
+.review-agent-setup-trace-search {
+  flex-basis: 100%;
+  width: 100%;
+}
+
+.review-agent-setup-trace-search .review-agent-setup-terminal-info {
+  flex-basis: auto;
+}
+
 .review-agent-setup button.review-agent-setup-subtle {
   border-color: var(--transparent);
   color: var(--review-home-meta);

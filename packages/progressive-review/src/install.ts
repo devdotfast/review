@@ -23,15 +23,15 @@ import { emitJsonEvent, failWithJsonError, humanStream } from "./cli-output";
 import {
   type TraceCredentialsInput,
   configureTraceMachine,
+  traceMachineEnabled,
 } from "./trace-machine-setup";
 
 export type InstallTarget = "claude" | "codex" | "cursor" | "pi";
 
-const REQUIRED_SKILL_NAMES = [
-  "dev-review",
-  "dev-review-map",
-  "trace-archaeology",
-] as const;
+const REQUIRED_SKILL_NAMES = ["dev-review", "dev-review-map"] as const;
+// Installed only on machines that capture traces; removed when capture is
+// disabled so agents are not steered toward an unconfigured feature.
+const TRACE_SKILL_NAMES = ["trace-archaeology"] as const;
 const STALE_SKILL_NAMES = [
   "review",
   "review-map",
@@ -77,7 +77,7 @@ export async function runInstall(input: {
   const skillsDir = path.join(packageRoot, "skills");
   const skillDirs = await listSkillDirs(skillsDir);
   const skillNames = new Set(skillDirs.map((skill) => skill.name));
-  const missingSkills = REQUIRED_SKILL_NAMES.filter(
+  const missingSkills = [...REQUIRED_SKILL_NAMES, ...TRACE_SKILL_NAMES].filter(
     (name) => !skillNames.has(name),
   );
   if (missingSkills.length > 0) {
@@ -113,15 +113,26 @@ export async function runInstall(input: {
     }
   }
 
+  // Agent hooks only make sense when this machine captures traces. A
+  // previous install may already have enabled it without credentials in
+  // this request.
+  const installTraceHooks =
+    traceEnabled || (await traceMachineEnabled({ homeDir, env }));
+
   const installed: InstalledItem[] = [];
   for (const target of input.targets) {
     const destRoot = skillsDestRoot(homeDir, target);
     await removeStaleSkills(destRoot);
     for (const skillDir of skillDirs) {
       const skillDest = path.join(destRoot, skillDir.name);
+      if (isTraceSkill(skillDir.name) && !installTraceHooks) {
+        await rm(skillDest, { recursive: true, force: true });
+        continue;
+      }
       await installDirectory(skillDir.src, skillDest);
       installed.push({ kind: "skill", dest: skillDest });
     }
+    if (!installTraceHooks) continue;
     if (target === "claude") {
       await installClaudeTraceHook(homeDir, input.reviewCommand);
     } else if (target === "codex") {
@@ -202,15 +213,37 @@ export async function removeInstalledSkills(
   homeDir = os.homedir(),
 ): Promise<void> {
   const destRoot = skillsDestRoot(homeDir, target);
-  for (const name of [...REQUIRED_SKILL_NAMES, ...STALE_SKILL_NAMES]) {
+  for (const name of [
+    ...REQUIRED_SKILL_NAMES,
+    ...TRACE_SKILL_NAMES,
+    ...STALE_SKILL_NAMES,
+  ]) {
     await rm(path.join(destRoot, name), { recursive: true, force: true });
   }
+}
+
+export async function removeTraceSkills(
+  target: InstallTarget,
+  homeDir = os.homedir(),
+): Promise<void> {
+  const destRoot = skillsDestRoot(homeDir, target);
+  for (const name of TRACE_SKILL_NAMES) {
+    await rm(path.join(destRoot, name), { recursive: true, force: true });
+  }
+}
+
+function isTraceSkill(name: string): boolean {
+  return (TRACE_SKILL_NAMES as readonly string[]).includes(name);
 }
 
 export async function detectInstalledTargets(
   homeDir = os.homedir(),
 ): Promise<InstallTarget[]> {
-  const knownSkillNames = [...REQUIRED_SKILL_NAMES, ...STALE_SKILL_NAMES];
+  const knownSkillNames = [
+    ...REQUIRED_SKILL_NAMES,
+    ...TRACE_SKILL_NAMES,
+    ...STALE_SKILL_NAMES,
+  ];
   const installed: InstallTarget[] = [];
   for (const target of ALL_INSTALL_TARGETS) {
     const destRoot = skillsDestRoot(homeDir, target);

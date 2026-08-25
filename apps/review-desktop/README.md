@@ -264,11 +264,17 @@ like Home and Agent Setup, not the stock VS Code settings editor. It holds:
 | Privacy | Share anonymous usage data — see [docs/telemetry.md](../../docs/telemetry.md) |
 | Editor | Theme, Keymap |
 | Tools | Extensions |
-| Experimental Features | Software Map |
+| Experimental Features | Software Map, Trace capture |
 
 Software Map defaults to off. Enable it to add the Map tab to reviews.
 Disable it to remove Map entry points. This preference persists in the
 application profile. The change does not require a reload.
+
+Trace capture defaults to off and is not part of onboarding. Enabling it
+takes R2 credentials, installs the agent session hooks and the
+`trace-archaeology` skill for every installed agent, and lets reviews quote
+agent sessions. Disabling removes the hooks and skill again. The state lives
+in the review server's machine trace settings, not the application profile.
 
 The application menu is macOS only. On Windows and Linux the same surfaces are
 available from the command palette (`review.openSettings`).

@@ -22,6 +22,11 @@ different CLI and Desktop versions.
 The `review map` command group is experimental. Its verbs, Git-notes storage
 model, and JSON events may change without a migration period before 1.0.
 
+The `review trace` command group and trace capture are experimental and off
+by default. `review install` configures capture only when `--trace-*`
+credentials are given; Review Desktop exposes it under Settings ▸
+Experimental Features.
+
 ## Common workflow
 
 ```sh

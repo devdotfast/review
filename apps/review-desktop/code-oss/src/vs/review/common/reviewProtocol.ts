@@ -66,7 +66,9 @@ const loopbackOriginSchema = urlSchema("origin", (url) =>
 
 export function normalizeReviewRoutePath(pathname: string): string {
   const pathnameOnly = String(pathname || "/").split(/[?#]/)[0] || "/";
-  const trimmed = pathnameOnly.replace(/\/+$/, "") || "/";
+  let end = pathnameOnly.length;
+  while (end > 1 && pathnameOnly.charCodeAt(end - 1) === 47) end--;
+  const trimmed = pathnameOnly.slice(0, end) || "/";
   return trimmed === "/"
     ? "/"
     : trimmed.startsWith("/")

@@ -62,7 +62,7 @@ jobs:
           esac
 
           VERSION="${MAJOR}.${MINOR}.${PATCH}"
-          TAG="review-desktop-v${VERSION}"
+          TAG="v${VERSION}"
           echo "Releasing Review Desktop v${VERSION} (tag: $TAG)"
 
           # Both checks below run before anything is written, so a doomed run

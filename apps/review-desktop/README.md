@@ -119,7 +119,7 @@ Run the **Review Desktop Release** workflow from the Actions tab (or
 patch/minor/major bump. The workflow:
 
 1. bumps `apps/review-desktop/package.json`, commits `[skip ci]`, tags
-   `review-desktop-vX.Y.Z`, and creates a draft GitHub release;
+   `vX.Y.Z`, and creates a draft GitHub release;
 2. compiles the platform-independent Code OSS, Review canvas, Review server,
    workspace packages, and pinned `darwin-arm64` curated extensions on Linux,
    then uploads one `darwin-payload` artifact;

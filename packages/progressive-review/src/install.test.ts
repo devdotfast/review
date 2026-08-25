@@ -238,6 +238,45 @@ describe("runInstall", () => {
     ).rejects.toThrow(/ENOENT/);
   });
 
+  it("installs bundled Review documentation with the dev-review skill", async () => {
+    const packageRoot = await makePackageRoot();
+    const sourceDocs = path.join(packageRoot, "skills", "dev-review", "docs");
+    await mkdir(path.join(sourceDocs, "assets"), { recursive: true });
+    await writeFile(path.join(sourceDocs, "README.md"), "# Review docs\n");
+    await writeFile(path.join(sourceDocs, "assets", "image.png"), "image\n");
+
+    const homeDir = await makeTempDir();
+    const destination = path.join(
+      homeDir,
+      ".agents",
+      "skills",
+      "dev-review",
+      "docs",
+    );
+    await mkdir(destination, { recursive: true });
+    await writeFile(path.join(destination, "stale.md"), "stale\n");
+    const streams = silentStreams();
+
+    const code = await runInstall({
+      targets: ["codex"],
+      homeDir,
+      packageRoot,
+      stdout: streams.stdout,
+      stderr: streams.stderr,
+    });
+
+    expect(code).toBe(0);
+    expect(await readFile(path.join(destination, "README.md"), "utf8")).toBe(
+      "# Review docs\n",
+    );
+    expect(
+      await readFile(path.join(destination, "assets", "image.png"), "utf8"),
+    ).toBe("image\n");
+    await expect(
+      readFile(path.join(destination, "stale.md"), "utf8"),
+    ).rejects.toThrow(/ENOENT/);
+  });
+
   it("installs only Cursor when requested", async () => {
     const packageRoot = await makePackageRoot();
     const homeDir = await makeTempDir();

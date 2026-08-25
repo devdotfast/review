@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import {
   access,
   chmod,
+  cp,
   readFile,
   readdir,
   realpath,
@@ -57,6 +58,7 @@ const REQUIRED_ENTRIES = [
   RUNTIME_CLI_ENTRY,
   "app/src",
   "skills/dev-review/SKILL.md",
+  "skills/dev-review/docs/README.md",
   "skills/dev-review-map/SKILL.md",
   "skills/trace-archaeology/SKILL.md",
   "tutorial/review.mdx",
@@ -115,9 +117,79 @@ export async function stageReviewRuntime(packagedRoot) {
     { cwd: monorepoRoot, maxBuffer: 64 * 1024 * 1024 },
   );
 
+  await stageReviewDocs(runtimeRoot);
   await makeTreeOwnerWritable(path.join(runtimeRoot, "tutorial", "git-stub"));
   await assertRuntimeClosure(runtimeRoot);
   return runtimeRoot;
+}
+
+export async function stageReviewDocs(
+  runtimeRoot,
+  sourceDocsRoot = path.join(monorepoRoot, "docs"),
+) {
+  const skillRoot = path.join(runtimeRoot, "skills", "dev-review");
+  if (!(await isDirectory(skillRoot))) {
+    throw new Error(
+      `Cannot stage Review documentation without the dev-review skill: ${skillRoot}`,
+    );
+  }
+  if (!(await isDirectory(sourceDocsRoot))) {
+    throw new Error(
+      `Review documentation source is missing: ${sourceDocsRoot}`,
+    );
+  }
+
+  const destination = path.join(skillRoot, "docs");
+  await rm(destination, { recursive: true, force: true });
+  await cp(sourceDocsRoot, destination, { recursive: true });
+  await assertMatchingFileTrees(sourceDocsRoot, destination);
+  return destination;
+}
+
+async function assertMatchingFileTrees(sourceRoot, destinationRoot) {
+  const [sourceFiles, destinationFiles] = await Promise.all([
+    listRelativeFiles(sourceRoot),
+    listRelativeFiles(destinationRoot),
+  ]);
+  if (sourceFiles.join("\n") !== destinationFiles.join("\n")) {
+    throw new Error(
+      "The staged Review documentation file list does not match.",
+    );
+  }
+
+  for (const relative of sourceFiles) {
+    const [source, destination] = await Promise.all([
+      readFile(path.join(sourceRoot, relative)),
+      readFile(path.join(destinationRoot, relative)),
+    ]);
+    if (!source.equals(destination)) {
+      throw new Error(
+        `The staged Review documentation differs at ${relative}.`,
+      );
+    }
+  }
+}
+
+async function listRelativeFiles(root) {
+  const files = [];
+  const walk = async (directory) => {
+    const entries = await readdir(directory, { withFileTypes: true });
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await walk(absolute);
+      } else if (entry.isFile()) {
+        files.push(path.relative(root, absolute));
+      } else {
+        throw new Error(
+          `Review documentation contains an unsupported entry: ${absolute}`,
+        );
+      }
+    }
+  };
+  await walk(root);
+  return files;
 }
 
 async function makeTreeOwnerWritable(directory) {

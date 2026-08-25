@@ -159,7 +159,8 @@ attachment controls for Review source, map source, and diffs before it sends
 anything. Read [Privacy](privacy.md#user-initiated-bug-reports) for the exact
 boundary.
 
-For a suspected vulnerability, follow the [security policy](../SECURITY.md) and
+For a suspected vulnerability, follow the
+[security policy](https://github.com/devdotfast/review/blob/main/SECURITY.md) and
 use a private GitHub security advisory. Do not open a public issue with secrets
 or exploit details.
 

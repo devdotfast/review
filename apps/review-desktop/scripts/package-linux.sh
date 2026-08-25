@@ -45,6 +45,7 @@ for artifact in \
   "$PACKAGED_ROOT/resources/app/review-runtime/dist/server/desktop-host.js" \
   "$PACKAGED_ROOT/resources/app/review-runtime/dist/cli.js" \
   "$PACKAGED_ROOT/resources/app/review-runtime/skills/dev-review/SKILL.md" \
+  "$PACKAGED_ROOT/resources/app/review-runtime/skills/dev-review/docs/README.md" \
   "$PACKAGED_ROOT/resources/app/review-runtime/skills/dev-review-map/SKILL.md" \
   "$PACKAGED_ROOT/resources/app/review-runtime/skills/trace-archaeology/SKILL.md" \
   "$PACKAGED_ROOT/resources/app/review-runtime/tutorial/review.mdx" \

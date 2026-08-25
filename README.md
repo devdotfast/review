@@ -52,12 +52,12 @@ not explain whether the system is right. See the
 
 ## Known limitations
 
-- Review was designed to review changes in a single repository. Your coding
-  agent can pull context from other repositories on your machine, but Review
-  does not yet map architectural changes across repositories. If you need this,
-  let us know.
-- Review does not properly handle stacked PRs yet, but support is coming soon.
-- Sharing reviews between machines is currently difficult. Self-hostable
+- Review was engineered with reviewing changes to one repo. Your coding agent
+  can obviously pull context from other repos on your machine, but we haven't
+  engineered it to map architectural changes across repos. If you need this, let
+  us know!
+- Review doesn't properly handle stacked PRs right now, but this is coming soon.
+- It's currently a pain to share reviews between machines; self-hostable
   collaboration tools are also on our roadmap.
 
 _If there are any other features you need, feel free to ask on Discord or open
@@ -66,42 +66,42 @@ an issue or discussion!_
 ## FAQs
 
 <details>
-<summary><strong>Who is Review for?</strong></summary>
+<summary><strong>Who is the Review app for?</strong></summary>
 
-- If you want the productivity gains of generating code with AI while still
-  understanding how your codebase works and maintaining quality, Review is for
-  you.
-- If you do not use AI to write much code and are comfortable reviewing diffs
-  line by line, Review probably is not for you.
+- If you still want the gains of generating code with AI but also want to
+  understand how your codebase works and maintain quality, Review is for you.
+- If you don't use AI to write a lot of code and are content reading diffs line
+  by line, Review probably isn't for you.
 
 </details>
 
 <details>
 <summary>
-<strong>How is Review different from Greptile, Bugbot, and CodeRabbit?</strong>
+<strong>How is this different from Greptile, Bugbot, CodeRabbit, etc.?</strong>
 </summary>
 
-Those tools review LLM-generated code with another LLM. Review is complementary:
-it does not review your code for you, but helps you understand the change and
-spot regressions quickly.
+These tools review your LLM-generated code with another LLM. Review is a
+complementary tool. Review doesn't review your code for you, but helps you
+understand it and spot regressions quickly.
 
 </details>
 
 <details>
-<summary><strong>How is Review different from Plannotator?</strong></summary>
+<summary><strong>How is this different from Plannotator?</strong></summary>
 
-Plannotator is an alternative to using the terminal for reviewing plans and
-simple code diffs. Review draws inspiration from Plannotator's lifecycle, but is
-designed as an opinionated framework for reviewing AI-generated code changes.
+Plannotator is meant as an alternative to using the terminal for reviewing plans
+and simple code diffs. Review takes some inspiration from Plannotator in its
+lifecycle but is engineered as an opinionated framework for reviewing
+AI-generated code diffs.
 
 </details>
 
 <details>
-<summary><strong>How will Review make money?</strong></summary>
+<summary><strong>How are you guys gonna make money on this?</strong></summary>
 
 Eventually, we'll charge companies for a hosted Review product that manages
-review creation alongside features such as trajectory storage and review
-sharing. Everything will remain easy to self-host.
+review creation alongside features like trajectory storage, review sharing,
+etc., but everything will remain easily self-hostable.
 
 </details>
 
@@ -148,12 +148,13 @@ fork retains Microsoft's MIT license and third-party notices; see
 
 ## Influences
 
-- [Geoffrey Litt on understanding as the new bottleneck](https://www.geoffreylitt.com/2026/07/02/understanding-is-the-new-bottleneck)
-  offers a great overview of the constraints of modern software engineering.
-- [Maggie Appleton on vibe coding and legacy code](https://maggieappleton.com/2025-08-vibe-legacy-code/)
-  and [Val Town on vibe code](https://blog.val.town/vibe-code) do a great job
-  describing how AI-generated code fits into our pre-2025 notion of software
-  engineering.
-- We're big fans of Karpathy, so here are two posts we love discussing:
-  - [On LLM agents](https://x.com/karpathy/status/1979644538185752935)
-  - [On agents as "junior engineer savants"](https://x.com/karpathy/status/1915581920022585597)
+- <https://www.geoffreylitt.com/2026/07/02/understanding-is-the-new-bottleneck>
+  — a great overview of the constraints of modern software engineering.
+- <https://maggieappleton.com/2025-08-vibe-legacy-code/> and
+  <https://blog.val.town/vibe-code> — do a great job describing how AI-generated
+  code fits into our pre-2025 notion of software engineering.
+- We're big fans of Karpathy, so here are some of his banger tweets we love
+  discussing:
+  - On LLM agents: <https://x.com/karpathy/status/1979644538185752935>
+  - On agents as "junior engineer savants":
+    <https://x.com/karpathy/status/1915581920022585597>

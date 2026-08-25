@@ -15,8 +15,6 @@ import {
 } from "./trace-document";
 import {
   type LoadedAgentTrace,
-  getAgentTraceCache,
-  makeAgentTraceKey,
   makeTraceKey,
   useAgentTrace,
 } from "./use-agent-trace";
@@ -195,15 +193,10 @@ export function ReviewTraceView({
 
   const detail = useAgentTrace(activeTarget?.sessionId, activeTarget?.trace);
 
-  const activeCached = activeTarget
-    ? getAgentTraceCache(
-        session,
-        makeAgentTraceKey(activeTarget.sessionId, activeTarget.trace),
-      )
-    : undefined;
+  const activeTrace = detail.status === "loaded" ? detail.trace : undefined;
   const activeHarness =
-    activeCached?.session.harness ?? activeTarget?.harness ?? "unknown";
-  const activeTitle = activeCached?.title ?? activeTarget?.title ?? "";
+    activeTrace?.session.harness ?? activeTarget?.harness ?? "unknown";
+  const activeTitle = activeTrace?.title ?? activeTarget?.title ?? "";
 
   return (
     <div className="review-trace-view">
@@ -259,13 +252,8 @@ export function ReviewTraceView({
               <div className="review-trace-picker-menu" role="listbox">
                 {targets.map((target) => {
                   const isActive = target.key === activeKey;
-                  const cached = getAgentTraceCache(
-                    session,
-                    makeAgentTraceKey(target.sessionId, target.trace),
-                  );
-                  const targetHarness =
-                    cached?.session.harness ?? target.harness;
-                  const itemTitle = cached?.title ?? target.title;
+                  const targetHarness = target.harness;
+                  const itemTitle = target.title;
                   return (
                     <button
                       key={target.key}

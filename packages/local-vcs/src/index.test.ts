@@ -8,8 +8,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   changeIdentityForRevision,
-  clearGitCommonDirCacheForTests,
-  clearRepoContextCacheForTests,
   defaultBranch,
   detectLocalVcs,
   detectLocalVcsSync,
@@ -487,7 +485,6 @@ describe("local vcs", () => {
     mkdirSync(path.dirname(rootPath), { recursive: true });
     execJj(parentRootPath, ["git", "init", "--no-colocate", rootPath]);
 
-    clearGitCommonDirCacheForTests();
     const gitDir = await gitCommonDir(rootPath);
     expect(gitDir).not.toBeNull();
     // The jj backing store, not the outer repo's .git.
@@ -496,7 +493,6 @@ describe("local vcs", () => {
       realpathSync.native(path.join(parentRootPath, ".git")),
     );
 
-    clearGitCommonDirCacheForTests();
     expect(gitCommonDirSync(rootPath)).toBe(gitDir);
 
     // From a SUBDIRECTORY of the workspace: jj must walk up from cwd (`-R
@@ -504,9 +500,7 @@ describe("local vcs", () => {
     // walk, resolving the OUTER repo's git dir).
     const subdir = path.join(rootPath, "packages", "deep");
     mkdirSync(subdir, { recursive: true });
-    clearGitCommonDirCacheForTests();
     expect(await gitCommonDir(subdir)).toBe(gitDir);
-    clearGitCommonDirCacheForTests();
     expect(gitCommonDirSync(subdir)).toBe(gitDir);
   });
 
@@ -541,16 +535,12 @@ describe("local vcs", () => {
       { stdio: ["ignore", "ignore", "ignore"] },
     );
 
-    clearGitCommonDirCacheForTests();
-    clearRepoContextCacheForTests();
     await expect(resolveRepoContext(rootPath)).resolves.toEqual({
       commonDir: innerGitDir,
       originUrl: "https://github.com/Fix-Fast/dev.git",
       githubSlug: "Fix-Fast/dev",
     });
 
-    clearGitCommonDirCacheForTests();
-    clearRepoContextCacheForTests();
     expect(resolveRepoContextSync(rootPath)).toEqual({
       commonDir: innerGitDir,
       originUrl: "https://github.com/Fix-Fast/dev.git",
@@ -579,8 +569,6 @@ describe("local vcs", () => {
       ],
       { stdio: ["ignore", "ignore", "ignore"] },
     );
-    clearGitCommonDirCacheForTests();
-    clearRepoContextCacheForTests();
     await expect(resolveRepoContext(rootPath)).resolves.toEqual({
       commonDir: innerGitDir,
       originUrl: "fixture:Fix-Fast/dev.git",
@@ -635,8 +623,6 @@ describe("local vcs", () => {
       "github-work:Fix-Fast/dev.git",
     ]);
 
-    clearGitCommonDirCacheForTests();
-    clearRepoContextCacheForTests();
     await expect(resolveRepoContext(rootPath)).resolves.toMatchObject({
       originUrl: "github-work:Fix-Fast/dev.git",
       githubSlug: "Fix-Fast/dev",

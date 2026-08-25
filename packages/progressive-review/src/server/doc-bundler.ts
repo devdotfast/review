@@ -98,68 +98,62 @@ async function buildReviewDocument(
     reviewDocumentsDir: input.reviewDocumentsDir,
     reviewRootPath: input.reviewRootPath,
   });
-  await scan.ensureReviewDocumentFresh(input.routePath);
   const document = scan.manifests.find(
     (candidate) => candidate.routePath === input.routePath,
   );
   if (!document) {
-    scan.cancel();
     throw new Error(`No Review document exists for route ${input.routePath}.`);
   }
 
-  try {
-    const source = await readFile(document.filePath, "utf8");
-    const compilation = await compileReviewDocument({
-      filePath: document.filePath,
-      source,
-      reviewRootPath: input.reviewRootPath,
-    });
-    const errors = compilation.diagnostics.filter(
-      (diagnostic) => diagnostic.severity === "error",
-    );
-    if (!compilation.runtimeCode || errors.length > 0) {
-      return { diagnostics: errors };
-    }
-
-    let result;
-    try {
-      result = await build({
-        absWorkingDir: input.reviewRootPath,
-        bundle: true,
-        format: "esm",
-        minify: false,
-        platform: "browser",
-        plugins: [
-          reviewDocumentPlugin({
-            document,
-            runtimeCode: compilation.runtimeCode,
-            mode,
-          }),
-        ],
-        sourcemap: mode === "bundle" ? "inline" : false,
-        stdin: {
-          contents:
-            mode === "bundle"
-              ? `export { activeReviewDocument } from ${JSON.stringify(ENTRY_MODULE_ID)};`
-              : `import ${JSON.stringify(ENTRY_MODULE_ID)};`,
-          loader: "js",
-          resolveDir: input.reviewRootPath,
-          sourcefile: "review-document-entry.js",
-        },
-        target: ["chrome120"],
-        treeShaking: true,
-        write: false,
-      });
-    } catch (error) {
-      return { diagnostics: esbuildDiagnostics(error, document.filePath) };
-    }
-    const code =
-      result.outputFiles.find((file) => file.path.endsWith(".js"))?.text ??
-      result.outputFiles[0]?.text;
-    return { code, diagnostics: [], document };
-  } finally {
-    scan.cancel();
+  const source = await readFile(document.filePath, "utf8");
+  const compilation = await compileReviewDocument({
+    filePath: document.filePath,
+    source,
+    reviewRootPath: input.reviewRootPath,
+  });
+  const errors = compilation.diagnostics.filter(
+    (diagnostic) => diagnostic.severity === "error",
+  );
+  if (!compilation.runtimeCode || errors.length > 0) {
+    return { diagnostics: errors };
   }
+
+  let result;
+  try {
+    result = await build({
+      absWorkingDir: input.reviewRootPath,
+      bundle: true,
+      format: "esm",
+      minify: false,
+      platform: "browser",
+      plugins: [
+        reviewDocumentPlugin({
+          document,
+          runtimeCode: compilation.runtimeCode,
+          mode,
+        }),
+      ],
+      sourcemap: mode === "bundle" ? "inline" : false,
+      stdin: {
+        contents:
+          mode === "bundle"
+            ? `export { activeReviewDocument } from ${JSON.stringify(ENTRY_MODULE_ID)};`
+            : `import ${JSON.stringify(ENTRY_MODULE_ID)};`,
+        loader: "js",
+        resolveDir: input.reviewRootPath,
+        sourcefile: "review-document-entry.js",
+      },
+      target: ["chrome120"],
+      treeShaking: true,
+      write: false,
+    });
+  } catch (error) {
+    return { diagnostics: esbuildDiagnostics(error, document.filePath) };
+  }
+  const code =
+    result.outputFiles.find((file) => file.path.endsWith(".js"))?.text ??
+    result.outputFiles[0]?.text;
+  return { code, diagnostics: [], document };
 }
 
 function reviewDocumentPlugin(input: {

@@ -1,7 +1,5 @@
 import { execFileSync } from "node:child_process";
-import crypto from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -11,15 +9,12 @@ import {
   resolveRevision as resolveRevisionAsync,
 } from "@dev.fast/local-vcs";
 
-import { createAsyncLimiter as createReviewDocumentAsyncLimiter } from "../async-limiter";
-import { writeFileAtomic } from "../atomic-write";
 import {
   isInsideDirectory,
   normalizeViteModuleFilePath,
   reviewDocumentRoutePathForFile,
   toViteFsImport,
 } from "../review-paths";
-import { reviewRepoStorageRoot, safeStorageSegment } from "../review-storage";
 import {
   readReviewStoreRecord,
   resolveReviewRepoRootFromStore,
@@ -61,58 +56,10 @@ interface ReviewDocumentScanFingerprint {
   reviewDocuments: ReviewDocumentScanFingerprintEntry[];
 }
 
-interface ReviewDocumentScanCache {
-  fingerprint: ReviewDocumentScanFingerprint;
-  manifests: ReviewDocumentModuleManifest[];
-  softwareMapPaths: string[];
-  sourceRoots: string[];
-}
-
-interface ReviewDocumentScanCacheEntry {
-  version: 1;
-  documentPath: string;
-  fileFingerprint: ReviewDocumentScanFingerprintEntry;
-  resolvedHeadRef: string | null;
-  resolvedBaseRef: string | null;
-  manifest: {
-    slug: string;
-    routePath: string;
-    filePath: string;
-    title: string;
-    resolvedBaseRef?: string | null;
-    modelNames: string[];
-    headSoftwareMapPath: string | null;
-    baseSoftwareMapPath: string | null;
-    isDefault: boolean;
-  };
-  updatedAtMs: number;
-}
-
-interface ReviewDocumentScanState {
-  fingerprint: ReviewDocumentScanFingerprint;
-  documents: Array<ReviewDocumentInputWithMeta>;
-  cachedManifests: Map<string, ReviewDocumentModuleManifest>;
-  inFlightScans: Map<
-    string,
-    Promise<ReviewDocumentModuleManifest | ReviewDocumentModuleManifestFailure>
-  >;
-}
-
-interface ReviewDocumentScanCancellation {
-  isCanceled: boolean;
-}
-
 interface ReviewDocumentScanAsyncResult {
   manifests: ReviewDocumentModuleManifest[];
   softwareMapPaths: string[];
   sourceRoots: string[];
-  activeEntry: ReviewDocumentModuleManifest | null;
-  activeRoutePath: string;
-  ensureReviewDocumentFresh: (routePath: string) => Promise<{
-    softwareMapPaths: string[];
-    shouldInvalidateModule: boolean;
-  }>;
-  cancel: () => void;
 }
 
 interface ReviewDocumentScanInput {
@@ -121,48 +68,20 @@ interface ReviewDocumentScanInput {
   reviewRootPath: string;
 }
 
-const reviewDocumentScanCache = new Map<string, ReviewDocumentScanCache>();
-const reviewDocumentAsyncScanState = new Map<string, ReviewDocumentScanState>();
-const reviewDocumentScanCacheDirSuffix = "review-document-cache";
-const reviewDocumentScanCacheConcurrency = Math.max(
-  1,
-  Math.floor(
-    Number.parseInt(
-      process.env.DEV_FAST_REVIEW_DOCUMENT_SCAN_CONCURRENCY?.trim() ?? "4",
-      10,
-    ) || 4,
-  ),
-);
-const reviewDocumentScanLimiter = createReviewDocumentAsyncLimiter(
-  reviewDocumentScanCacheConcurrency,
-);
-
-function reviewDocumentScanCachePath(
-  reviewRootPath: string,
-  documentPath: string,
-): string {
-  const digest = crypto
-    .createHash("sha256")
-    .update(path.resolve(documentPath))
-    .digest("hex");
-  return path.join(
-    reviewRepoStorageRoot(reviewRootPath),
-    reviewDocumentScanCacheDirSuffix,
-    `${safeStorageSegment(digest)}.json`,
-  );
-}
-
-interface ReviewDocumentModuleManifestFailure {
-  status: "skipped";
-  filePath: string;
-}
-
 type ReviewDocumentInputWithMeta = {
   slug: string;
   routePath: string;
   filePath: string;
   titleFallback: string;
 };
+
+function normalizeReviewDocumentRoutePath(routePath: string): string {
+  if (!routePath) return "/";
+  const pathnameOnly = routePath.split(/[?#]/, 1)[0] || "/";
+  const trimmed = pathnameOnly.replace(/\/+$/, "") || "/";
+  if (trimmed === "/") return "/";
+  return trimmed.endsWith(".mdx") ? trimmed.slice(0, -".mdx".length) : trimmed;
+}
 
 export async function generateActiveReviewDocumentModule(input: {
   reviewPath: string;
@@ -284,12 +203,9 @@ async function collectReviewDocumentScanForRuntimeInner(input: {
   reviewRootPath: string;
 }): Promise<ReviewDocumentScanAsyncResult> {
   const normalized = normalizeReviewDocumentScanInput(input);
-  const scanState: ReviewDocumentScanCancellation = { isCanceled: false };
-  const key = reviewDocumentScanCacheKey(normalized);
   const fingerprint = collectReviewDocumentScanFingerprint(normalized);
-  const state = collectReviewDocumentScanStateForInput(
-    key,
-    normalized,
+  const discoveredDocuments = collectReviewDocumentDirectoryDocuments(
+    normalized.reviewDocumentsDir,
     fingerprint,
   );
   const activeFilePath = path.resolve(input.reviewPath);
@@ -304,8 +220,8 @@ async function collectReviewDocumentScanForRuntimeInner(input: {
     titleFallback: "review",
   };
   const documents = [
-    ...state.documents,
-    ...(state.documents
+    ...discoveredDocuments,
+    ...(discoveredDocuments
       .map((document) => path.resolve(document.filePath))
       .includes(activeFilePath)
       ? []
@@ -321,44 +237,10 @@ async function collectReviewDocumentScanForRuntimeInner(input: {
     })
     .sort((left, right) => (left.routePath > right.routePath ? 1 : -1));
 
-  const activeInputEntry = allDocuments.find(
-    (document) => path.resolve(document.filePath) === activeFilePath,
-  );
-  if (!activeInputEntry) {
-    throw new Error(`Review document not found: ${activeFilePath}`);
-  }
-
-  await Promise.all(
-    allDocuments
-      .filter((document) => path.resolve(document.filePath) !== activeFilePath)
-      .map((document) =>
-        seedReviewDocumentManifestFromCache(document, normalized, state),
-      ),
-  );
-
-  const activeEntryPromise = getReviewDocumentManifestForDocument(
-    activeInputEntry,
-    normalized,
-    state,
-    scanState,
-  );
-
-  const activeEntryResult = await activeEntryPromise.catch(() => null);
-  const activeManifest = isReviewDocumentManifest(activeEntryResult)
-    ? activeEntryResult
-    : reviewDocumentModuleManifestFromMetadata(
-        activeInputEntry,
-        reviewDocumentSourceMetadata(
-          activeInputEntry.filePath,
-          activeInputEntry.titleFallback,
-        ),
-      );
-
-  const manifests = collectReviewDocumentScanManifestsFromState(
-    allDocuments,
-    activeManifest,
-    state,
-    normalized,
+  const manifests = await Promise.all(
+    allDocuments.map((document) =>
+      ensureReviewDocumentManifest(document, normalized),
+    ),
   );
   const softwareMapPaths = new Set<string>();
   const sourceRoots = new Set<string>();
@@ -381,280 +263,18 @@ async function collectReviewDocumentScanForRuntimeInner(input: {
     manifests,
     softwareMapPaths: [...softwareMapPaths],
     sourceRoots: [...sourceRoots],
-    activeEntry: activeManifest,
-    activeRoutePath: activeInputEntry.routePath,
-    ensureReviewDocumentFresh: (routePath) =>
-      ensureReviewDocumentFreshForRoute(
-        routePath,
-        activeInputEntry,
-        normalized,
-        state,
-        scanState,
-      ),
-    cancel: () => {
-      scanState.isCanceled = true;
-    },
   };
-}
-
-async function seedReviewDocumentManifestFromCache(
-  document: ReviewDocumentInputWithMeta,
-  input: ReviewDocumentScanInput,
-  state: ReviewDocumentScanState,
-): Promise<void> {
-  const filePath = path.resolve(document.filePath);
-  const cache = await readReviewDocumentScanCacheFromDisk({
-    reviewRootPath: input.reviewRootPath,
-    filePath,
-    fileFingerprint: reviewDocumentFileFingerprint(filePath),
-  });
-
-  if (cache && path.resolve(cache.manifest.filePath) === filePath) {
-    state.cachedManifests.set(filePath, {
-      ...cache.manifest,
-      resolvedBaseRef:
-        cache.manifest.resolvedBaseRef ?? cache.resolvedBaseRef ?? null,
-      isDefault: document.slug === "",
-      filePath,
-    });
-    return;
-  }
-
-  state.cachedManifests.delete(filePath);
-}
-
-function ensureReviewDocumentFreshForRoute(
-  routePath: string,
-  _activeInput: ReviewDocumentInputWithMeta,
-  input: ReviewDocumentScanInput,
-  state: ReviewDocumentScanState,
-  scanState: ReviewDocumentScanCancellation,
-): Promise<{
-  softwareMapPaths: string[];
-  shouldInvalidateModule: boolean;
-}> {
-  const normalizedRoutePath = normalizeReviewDocumentRoutePath(routePath);
-  const document = state.documents.find(
-    (candidate) => candidate.routePath === normalizedRoutePath,
-  );
-  if (!document) {
-    return Promise.resolve({
-      softwareMapPaths: [],
-      shouldInvalidateModule: false,
-    });
-  }
-
-  const filePath = path.resolve(document.filePath);
-  const previousManifest = state.cachedManifests.get(filePath) ?? null;
-  const previousManifestMissingPaths = previousManifest
-    ? reviewDocumentManifestHasMissingArtifactPaths(previousManifest)
-    : false;
-
-  return getReviewDocumentManifestForDocument(
-    document,
-    input,
-    state,
-    scanState,
-  ).then((nextManifest) => {
-    if (!isReviewDocumentManifest(nextManifest)) {
-      return { softwareMapPaths: [], shouldInvalidateModule: false };
-    }
-    const manifest = { ...nextManifest, filePath };
-    const shouldInvalidateModule =
-      !reviewDocumentModuleManifestEquals(previousManifest, manifest) ||
-      previousManifestMissingPaths;
-    return {
-      softwareMapPaths: reviewDocumentManifestSoftwareMapPaths(manifest),
-      shouldInvalidateModule,
-    };
-  });
-}
-
-function normalizeReviewDocumentRoutePath(routePath: string): string {
-  if (!routePath) return "/";
-  const pathnameOnly = routePath.split(/[?#]/, 1)[0] || "/";
-  const trimmed = pathnameOnly.replace(/\/+$/, "") || "/";
-  if (trimmed === "/") return "/";
-  return trimmed.endsWith(".mdx") ? trimmed.slice(0, -".mdx".length) : trimmed;
-}
-
-function reviewDocumentManifestSoftwareMapPaths(
-  manifest: ReviewDocumentModuleManifest,
-): string[] {
-  const softwareMapPaths = new Set<string>();
-  if (manifest.headSoftwareMapPath) {
-    softwareMapPaths.add(manifest.headSoftwareMapPath);
-  }
-  if (manifest.baseSoftwareMapPath) {
-    softwareMapPaths.add(manifest.baseSoftwareMapPath);
-  }
-  return [...softwareMapPaths];
-}
-
-function reviewDocumentManifestHasMissingArtifactPaths(
-  manifest: ReviewDocumentModuleManifest,
-): boolean {
-  return reviewDocumentManifestSoftwareMapPaths(manifest).some(
-    (mapPath) => !existsSync(mapPath),
-  );
-}
-
-function reviewDocumentModuleManifestEquals(
-  left: ReviewDocumentModuleManifest | null,
-  right: ReviewDocumentModuleManifest,
-): boolean {
-  if (!left) return false;
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
-function collectReviewDocumentScanStateForInput(
-  key: string,
-  input: ReviewDocumentScanInput,
-  fingerprint: ReviewDocumentScanFingerprint,
-): ReviewDocumentScanState {
-  const cached = reviewDocumentAsyncScanState.get(key);
-  if (
-    cached &&
-    reviewDocumentScanFingerprintsMatch(cached.fingerprint, fingerprint)
-  ) {
-    return cached;
-  }
-
-  const documents = collectReviewDocumentDirectoryDocuments(
-    input.reviewDocumentsDir,
-    fingerprint,
-  );
-  const state: ReviewDocumentScanState = {
-    fingerprint,
-    documents,
-    cachedManifests: new Map(),
-    inFlightScans: new Map(),
-  };
-  reviewDocumentAsyncScanState.set(key, state);
-  return state;
-}
-
-function collectReviewDocumentScanManifestsFromState(
-  documents: ReadonlyArray<ReviewDocumentInputWithMeta>,
-  activeManifest: ReviewDocumentModuleManifest | null,
-  state: ReviewDocumentScanState,
-  _input: ReviewDocumentScanInput,
-): ReviewDocumentModuleManifest[] {
-  return documents.map((document) => {
-    const filePath = path.resolve(document.filePath);
-    if (activeManifest && activeManifest.filePath === filePath)
-      return activeManifest;
-    const cached = state.cachedManifests.get(filePath);
-    if (cached) return cached;
-    const metadata = reviewDocumentSourceMetadata(
-      document.filePath,
-      document.titleFallback,
-    );
-    return reviewDocumentModuleManifestFromMetadata(document, metadata);
-  });
-}
-
-function isReviewDocumentManifest(
-  value:
-    | ReviewDocumentModuleManifest
-    | ReviewDocumentModuleManifestFailure
-    | null,
-): value is ReviewDocumentModuleManifest {
-  return (
-    value !== null &&
-    (value as ReviewDocumentModuleManifestFailure).status !== "skipped"
-  );
-}
-
-function getReviewDocumentManifestForDocument(
-  document: ReviewDocumentInputWithMeta,
-  input: ReviewDocumentScanInput,
-  state: ReviewDocumentScanState,
-  scanState: ReviewDocumentScanCancellation,
-): Promise<ReviewDocumentModuleManifest | ReviewDocumentModuleManifestFailure> {
-  const filePath = path.resolve(document.filePath);
-
-  const inFlight = state.inFlightScans.get(filePath);
-  if (inFlight) return inFlight;
-
-  const next = reviewDocumentScanLimiter(() =>
-    scanState.isCanceled
-      ? Promise.resolve({
-          status: "skipped",
-          filePath,
-        } as ReviewDocumentModuleManifestFailure)
-      : ensureReviewDocumentManifest(document, input),
-  )
-    .then((manifest) => {
-      if (isReviewDocumentManifest(manifest)) {
-        state.cachedManifests.set(filePath, manifest);
-      }
-      return manifest;
-    })
-    .finally(() => {
-      state.inFlightScans.delete(filePath);
-    });
-  state.inFlightScans.set(filePath, next);
-  return next;
 }
 
 async function ensureReviewDocumentManifest(
   document: ReviewDocumentInputWithMeta,
   input: ReviewDocumentScanInput,
-): Promise<ReviewDocumentModuleManifest | ReviewDocumentModuleManifestFailure> {
+): Promise<ReviewDocumentModuleManifest> {
   const filePath = path.resolve(document.filePath);
   const metadata = reviewDocumentSourceMetadata(
     document.filePath,
     document.titleFallback,
   );
-  const fallback = reviewDocumentModuleManifestFromMetadata(document, metadata);
-  const cache = await readReviewDocumentScanCacheFromDisk({
-    reviewRootPath: input.reviewRootPath,
-    filePath,
-    fileFingerprint: reviewDocumentFileFingerprint(filePath),
-  });
-
-  if (!cache) {
-    return loadReviewDocumentManifestForDocument(
-      document,
-      input,
-      metadata,
-      null,
-    );
-  }
-
-  const repoRoot = resolveReviewSoftwareMapRepoRootSafe(input);
-
-  if (!repoRoot) {
-    return fallback;
-  }
-
-  if (await isReviewDocumentScanCacheUsable(document, input, repoRoot, cache)) {
-    return {
-      ...cache.manifest,
-      resolvedBaseRef:
-        cache.manifest.resolvedBaseRef ?? cache.resolvedBaseRef ?? null,
-      isDefault: document.slug === "",
-      filePath,
-    };
-  }
-
-  return loadReviewDocumentManifestForDocument(
-    document,
-    input,
-    metadata,
-    cache,
-  );
-}
-
-async function loadReviewDocumentManifestForDocument(
-  document: ReviewDocumentInputWithMeta,
-  input: ReviewDocumentScanInput,
-  metadata: ReturnType<typeof reviewDocumentSourceMetadata>,
-  cached: ReviewDocumentScanCacheEntry | null,
-): Promise<ReviewDocumentModuleManifest | ReviewDocumentModuleManifestFailure> {
-  const filePath = path.resolve(document.filePath);
-  const fileFingerprint = reviewDocumentFileFingerprint(filePath);
   const fallback = reviewDocumentModuleManifestFromMetadata(document, metadata);
   const review = readReviewStoreRecord(input.reviewRootPath);
   const storeRefs: [string, string] | null = review.sourceCommit
@@ -662,53 +282,14 @@ async function loadReviewDocumentManifestForDocument(
     : null;
   const isPinnedRefs = Boolean(storeRefs);
   const repoRoot = resolveReviewSoftwareMapRepoRootSafe(input);
-  let resolvedHeadRef: string | null = null;
-  let resolvedBaseRef: string | null = null;
-
   if (!repoRoot) {
     return fallback;
   }
-  let resolvedCachedRefs: [string | null, string | null] | null = null;
-  if (cached && isPinnedRefs) {
-    resolvedCachedRefs =
-      storeRefs ??
-      (await resolveReviewDocumentRefs(repoRoot, input.reviewRootPath).catch(
-        (): [string | null, string | null] => [null, null],
-      ));
-    if (
-      await isReviewDocumentScanCacheUsable(
-        document,
-        input,
-        repoRoot,
-        cached,
-        resolvedCachedRefs,
-      )
-    ) {
-      return {
-        ...cached.manifest,
-        resolvedBaseRef:
-          cached.manifest.resolvedBaseRef ?? cached.resolvedBaseRef ?? null,
-        isDefault: document.slug === "",
-        filePath,
-      };
-    }
-  }
-
-  if (storeRefs) {
-    [resolvedHeadRef, resolvedBaseRef] = storeRefs;
-  } else if (!isPinnedRefs) {
-    [resolvedHeadRef, resolvedBaseRef] = await resolveReviewDocumentRefs(
-      repoRoot,
-      input.reviewRootPath,
-    ).catch((): [string | null, string | null] => [null, null]);
-  } else if (!resolvedCachedRefs) {
-    [resolvedHeadRef, resolvedBaseRef] = await resolveReviewDocumentRefs(
-      repoRoot,
-      input.reviewRootPath,
-    ).catch((): [string | null, string | null] => [null, null]);
-  } else {
-    [resolvedHeadRef, resolvedBaseRef] = resolvedCachedRefs;
-  }
+  const [resolvedHeadRef, resolvedBaseRef] =
+    storeRefs ??
+    (await resolveReviewDocumentRefs(repoRoot, input.reviewRootPath).catch(
+      (): [string | null, string | null] => [null, null],
+    ));
 
   if (!isPinnedRefs && !resolvedHeadRef && !resolvedBaseRef) {
     return fallback;
@@ -737,83 +318,7 @@ async function loadReviewDocumentManifestForDocument(
     isDefault: document.slug === "",
   };
 
-  if (isPinnedRefs) {
-    await writeReviewDocumentScanCache({
-      reviewRootPath: input.reviewRootPath,
-      filePath,
-      fileFingerprint,
-      resolvedHeadRef: headRefForScan,
-      resolvedBaseRef: baseRefForScan,
-      manifest: result,
-    }).catch(() => {});
-  }
-
   return result;
-}
-
-async function readReviewDocumentScanCacheFromDisk(input: {
-  reviewRootPath: string;
-  filePath: string;
-  fileFingerprint: ReviewDocumentScanFingerprintEntry;
-}): Promise<ReviewDocumentScanCacheEntry | null> {
-  const cachePath = reviewDocumentScanCachePath(
-    input.reviewRootPath,
-    input.filePath,
-  );
-  try {
-    const serialized = await readFile(cachePath, "utf8");
-    const parsed = JSON.parse(serialized) as ReviewDocumentScanCacheEntry;
-    if (parsed.version !== 1) return null;
-    if (parsed.documentPath !== path.resolve(input.filePath)) return null;
-    if (
-      parsed.fileFingerprint.mtimeMs !== input.fileFingerprint.mtimeMs ||
-      parsed.fileFingerprint.size !== input.fileFingerprint.size ||
-      parsed.fileFingerprint.filePath !== path.resolve(input.filePath)
-    ) {
-      return null;
-    }
-    if (!parsed.manifest?.filePath) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-async function isReviewDocumentScanCacheUsable(
-  document: ReviewDocumentInputWithMeta,
-  input: ReviewDocumentScanInput,
-  repoRootPath: string,
-  cacheEntry: ReviewDocumentScanCacheEntry,
-  resolvedRefs?: [string | null, string | null],
-): Promise<boolean> {
-  if (document.routePath !== cacheEntry.manifest.routePath) return false;
-  if (
-    document.filePath !== cacheEntry.manifest.filePath &&
-    path.resolve(document.filePath) !==
-      path.resolve(cacheEntry.manifest.filePath)
-  ) {
-    return false;
-  }
-  if (
-    !cacheEntry.manifest.headSoftwareMapPath ||
-    !cacheEntry.manifest.baseSoftwareMapPath
-  ) {
-    return false;
-  }
-  for (const candidate of [
-    cacheEntry.manifest.headSoftwareMapPath,
-    cacheEntry.manifest.baseSoftwareMapPath,
-  ]) {
-    if (candidate && !existsSync(candidate)) return false;
-  }
-  const [resolvedHeadRef, resolvedBaseRef] = await (resolvedRefs ??
-    resolveReviewDocumentRefs(repoRootPath, input.reviewRootPath).catch(
-      () => [null, null] as [string | null, string | null],
-    ));
-  return (
-    cacheEntry.resolvedHeadRef === resolvedHeadRef &&
-    cacheEntry.resolvedBaseRef === resolvedBaseRef
-  );
 }
 
 async function resolveReviewDocumentRefs(
@@ -858,48 +363,6 @@ function reviewDocumentModuleManifestFromMetadata(
     baseSoftwareMapPath: null,
     isDefault: document.slug === "",
   };
-}
-
-async function writeReviewDocumentScanCache(input: {
-  reviewRootPath: string;
-  filePath: string;
-  fileFingerprint: ReviewDocumentScanFingerprintEntry;
-  resolvedHeadRef: string | null;
-  resolvedBaseRef: string | null;
-  manifest: ReviewDocumentModuleManifest;
-}): Promise<void> {
-  const cachePath = reviewDocumentScanCachePath(
-    input.reviewRootPath,
-    input.filePath,
-  );
-  const entry: ReviewDocumentScanCacheEntry = {
-    version: 1,
-    documentPath: path.resolve(input.filePath),
-    fileFingerprint: input.fileFingerprint,
-    resolvedHeadRef: input.resolvedHeadRef,
-    resolvedBaseRef: input.resolvedBaseRef,
-    manifest: {
-      slug: input.manifest.slug,
-      routePath: input.manifest.routePath,
-      filePath: input.manifest.filePath,
-      title: input.manifest.title,
-      modelNames: input.manifest.modelNames,
-      headSoftwareMapPath: input.manifest.headSoftwareMapPath,
-      baseSoftwareMapPath: input.manifest.baseSoftwareMapPath,
-      isDefault: input.manifest.isDefault,
-    },
-    updatedAtMs: Date.now(),
-  };
-  await mkdir(reviewDocumentScanCacheDir(input.reviewRootPath), {
-    recursive: true,
-  });
-  writeFileAtomic(cachePath, JSON.stringify(entry), "utf8");
-}
-
-function reviewDocumentScanCacheDir(reviewRootPath: string): string {
-  return path.dirname(
-    reviewDocumentScanCachePath(reviewRootPath, "placeholder"),
-  );
 }
 
 function resolveReviewSoftwareMapRepoRootSafe(input: {
@@ -969,26 +432,10 @@ function collectReviewDocumentScan(input: {
   sourceRoots: string[];
 } {
   const normalized = normalizeReviewDocumentScanInput(input);
-  const key = reviewDocumentScanCacheKey(normalized);
-  const nextFingerprint = collectReviewDocumentScanFingerprint(normalized);
-  const cached = reviewDocumentScanCache.get(key);
-
-  if (
-    !cached ||
-    !reviewDocumentScanFingerprintsMatch(cached.fingerprint, nextFingerprint)
-  ) {
-    const scan = spanSync("collectReviewDocumentScan", () =>
-      collectReviewDocumentScanInner(normalized, nextFingerprint),
-    );
-    reviewDocumentScanCache.set(key, { ...scan, fingerprint: nextFingerprint });
-    return scan;
-  }
-
-  return {
-    manifests: [...cached.manifests],
-    softwareMapPaths: [...cached.softwareMapPaths],
-    sourceRoots: [...cached.sourceRoots],
-  };
+  const fingerprint = collectReviewDocumentScanFingerprint(normalized);
+  return spanSync("collectReviewDocumentScan", () =>
+    collectReviewDocumentScanInner(normalized, fingerprint),
+  );
 }
 
 function collectReviewDocumentScanInner(
@@ -1127,35 +574,6 @@ function normalizeReviewDocumentScanInput(input: {
     reviewDocumentsDir: path.resolve(input.reviewDocumentsDir),
     reviewRootPath: path.resolve(input.reviewRootPath),
   };
-}
-
-function reviewDocumentScanCacheKey(input: ReviewDocumentScanInput): string {
-  return JSON.stringify(input);
-}
-
-function reviewDocumentScanFingerprintsMatch(
-  left: ReviewDocumentScanFingerprint,
-  right: ReviewDocumentScanFingerprint,
-): boolean {
-  if (left.reviewStore.mtimeMs !== right.reviewStore.mtimeMs) return false;
-  if (left.reviewStore.size !== right.reviewStore.size) return false;
-  if (left.reviewDocument.mtimeMs !== right.reviewDocument.mtimeMs)
-    return false;
-  if (left.reviewDocument.size !== right.reviewDocument.size) return false;
-  if (left.reviewDocuments.length !== right.reviewDocuments.length)
-    return false;
-  for (let i = 0; i < left.reviewDocuments.length; i++) {
-    const leftEntry = left.reviewDocuments[i];
-    const rightEntry = right.reviewDocuments[i];
-    if (
-      leftEntry.filePath !== rightEntry.filePath ||
-      leftEntry.mtimeMs !== rightEntry.mtimeMs ||
-      leftEntry.size !== rightEntry.size
-    ) {
-      return false;
-    }
-  }
-  return true;
 }
 
 function reviewDocumentFileFingerprint(

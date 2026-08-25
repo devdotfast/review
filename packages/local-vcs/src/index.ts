@@ -6,9 +6,6 @@ import { promisify } from "node:util";
 import gitUrlParse from "git-url-parse";
 
 const execFileAsync = promisify(execFile);
-const LOCAL_VCS_READ_QUERY_CACHE_TTL_MS = 4_000;
-const LOCAL_VCS_DISABLE_COMMAND_CACHE =
-  process.env.DEV_FAST_LOCAL_VCS_NO_CACHE === "1";
 const LOCAL_GIT_ENV_KEYS = [
   "GIT_ALTERNATE_OBJECT_DIRECTORIES",
   "GIT_COMMON_DIR",
@@ -34,22 +31,6 @@ type CommandOutputOptions = {
   maxBuffer?: number;
   trim?: boolean;
 };
-
-type CachedCommandOutput =
-  | {
-      kind: "success";
-      value: string;
-      expiresAt: number;
-    }
-  | {
-      kind: "failure";
-      error: unknown;
-      expiresAt: number;
-    };
-
-const asyncCommandOutputCache = new Map<string, CachedCommandOutput>();
-const asyncCommandOutputInflight = new Map<string, Promise<string>>();
-const syncCommandOutputCache = new Map<string, CachedCommandOutput>();
 
 export type LocalVcsKind = "jj" | "git";
 
@@ -161,9 +142,6 @@ export function detectLocalVcsSync(rootPath: string): LocalVcs | null {
 // Shared git directory resolution
 // ---------------------------------------------------------------------------
 
-const gitCommonDirCache = new Map<string, string | null>();
-const repoContextCache = new Map<string, RepoContext | null>();
-
 export interface RepoContext {
   commonDir: string;
   originUrl: string | null;
@@ -180,8 +158,6 @@ export interface RepoContext {
  */
 export async function gitCommonDir(rootPath: string): Promise<string | null> {
   const key = path.resolve(rootPath);
-  const cached = gitCommonDirCache.get(key);
-  if (cached !== undefined) return cached;
   // cwd-based jj invocation, never `-R`: jj walks UP from cwd like git does,
   // while `-R <subdir>` fails outright for a subdirectory of a workspace and
   // would silently fall through to git's cwd walk — which, from a
@@ -197,14 +173,11 @@ export async function gitCommonDir(rootPath: string): Promise<string | null> {
       { cwd: key },
     ).catch(() => null)) ||
     null;
-  gitCommonDirCache.set(key, resolved);
   return resolved;
 }
 
 export function gitCommonDirSync(rootPath: string): string | null {
   const key = path.resolve(rootPath);
-  const cached = gitCommonDirCache.get(key);
-  if (cached !== undefined) return cached;
   const resolved =
     commandOutputSync("jj", ["git", "root", "--ignore-working-copy"], {
       cwd: key,
@@ -215,20 +188,7 @@ export function gitCommonDirSync(rootPath: string): string | null {
       { cwd: key },
     ) ||
     null;
-  gitCommonDirCache.set(key, resolved);
   return resolved;
-}
-
-/** Test hook: git-common-dir results are cached per root for the process. */
-export function clearGitCommonDirCacheForTests(): void {
-  gitCommonDirCache.clear();
-}
-
-/** Test hook: read-query command outputs are cached for a short TTL. */
-export function clearCommandOutputCacheForTests(): void {
-  asyncCommandOutputCache.clear();
-  asyncCommandOutputInflight.clear();
-  syncCommandOutputCache.clear();
 }
 
 /**
@@ -240,14 +200,9 @@ export async function resolveRepoContext(
   rootPath: string,
 ): Promise<RepoContext | null> {
   const key = path.resolve(rootPath);
-  const cached = repoContextCache.get(key);
-  if (cached !== undefined) return cached;
 
   const commonDir = await gitCommonDir(key);
-  if (!commonDir) {
-    repoContextCache.set(key, null);
-    return null;
-  }
+  if (!commonDir) return null;
   const [originUrl, resolvedOriginUrl] = await Promise.all([
     commandOutput("git", [
       "--git-dir",
@@ -271,20 +226,14 @@ export async function resolveRepoContext(
       (resolvedOriginUrl ? parseGitRemoteSlug(resolvedOriginUrl) : null) ??
       (originUrl ? parseGitRemoteSlug(originUrl) : null),
   };
-  repoContextCache.set(key, context);
   return context;
 }
 
 export function resolveRepoContextSync(rootPath: string): RepoContext | null {
   const key = path.resolve(rootPath);
-  const cached = repoContextCache.get(key);
-  if (cached !== undefined) return cached;
 
   const commonDir = gitCommonDirSync(key);
-  if (!commonDir) {
-    repoContextCache.set(key, null);
-    return null;
-  }
+  if (!commonDir) return null;
   const originUrl =
     commandOutputSync("git", [
       "--git-dir",
@@ -308,13 +257,7 @@ export function resolveRepoContextSync(rootPath: string): RepoContext | null {
       (resolvedOriginUrl ? parseGitRemoteSlug(resolvedOriginUrl) : null) ??
       (originUrl ? parseGitRemoteSlug(originUrl) : null),
   };
-  repoContextCache.set(key, context);
   return context;
-}
-
-/** Test hook: repo-context results are cached per root for the process. */
-export function clearRepoContextCacheForTests(): void {
-  repoContextCache.clear();
 }
 
 /** Git argv prefix that pins a command to the repo's shared git dir. */
@@ -2179,44 +2122,7 @@ async function commandOutput(
   args: string[],
   options: CommandOutputOptions = {},
 ): Promise<string> {
-  if (!shouldCacheCommandOutput(command, args, options)) {
-    return runCommandOutput(command, args, options);
-  }
-
-  const key = commandOutputCacheKey(command, args, options);
-  const now = Date.now();
-  const cached = asyncCommandOutputCache.get(key);
-  if (cached && cached.expiresAt > now) {
-    if (cached.kind === "failure") throw cached.error;
-    return cached.value;
-  }
-  if (cached) asyncCommandOutputCache.delete(key);
-
-  const inFlight = asyncCommandOutputInflight.get(key);
-  if (inFlight) return inFlight;
-
-  const pending = runCommandOutput(command, args, options)
-    .then((value) => {
-      asyncCommandOutputCache.set(key, {
-        kind: "success",
-        value,
-        expiresAt: Date.now() + LOCAL_VCS_READ_QUERY_CACHE_TTL_MS,
-      });
-      return value;
-    })
-    .catch((error) => {
-      // Negative-cache failures for read-only VCS commands.
-      // A revision that does not resolve is still stable within the burst window and
-      // we want to avoid re-running expensive subprocesses until TTL elapses.
-      asyncCommandOutputCache.set(key, {
-        kind: "failure",
-        error,
-        expiresAt: Date.now() + LOCAL_VCS_READ_QUERY_CACHE_TTL_MS,
-      });
-      throw error;
-    });
-  asyncCommandOutputInflight.set(key, pending);
-  return pending.finally(() => asyncCommandOutputInflight.delete(key));
+  return runCommandOutput(command, args, options);
 }
 
 function commandOutputSync(
@@ -2224,47 +2130,7 @@ function commandOutputSync(
   args: string[],
   options: CommandOutputOptions = {},
 ): string | null {
-  if (!shouldCacheCommandOutput(command, args, options)) {
-    return runCommandOutputSync(command, args, options);
-  }
-
-  const key = commandOutputCacheKey(command, args, options);
-  const now = Date.now();
-  const cached = syncCommandOutputCache.get(key);
-  if (cached && cached.expiresAt > now) {
-    if (cached.kind === "failure") return null;
-    return cached.value;
-  }
-  if (cached) syncCommandOutputCache.delete(key);
-
-  const output = runCommandOutputSync(command, args, options);
-  if (output === null) {
-    syncCommandOutputCache.set(key, {
-      kind: "failure",
-      error: new Error(`command failed: ${command} ${args.join(" ")}`),
-      expiresAt: Date.now() + LOCAL_VCS_READ_QUERY_CACHE_TTL_MS,
-    });
-    return null;
-  }
-  syncCommandOutputCache.set(key, {
-    kind: "success",
-    value: output,
-    expiresAt: Date.now() + LOCAL_VCS_READ_QUERY_CACHE_TTL_MS,
-  });
-  return output;
-}
-
-function commandOutputCacheKey(
-  command: string,
-  args: string[],
-  options: CommandOutputOptions,
-): string {
-  return JSON.stringify([
-    command,
-    canonicalPath(options.cwd ?? process.cwd()),
-    Boolean(options.trim ?? true),
-    args,
-  ]);
+  return runCommandOutputSync(command, args, options);
 }
 
 function runCommandOutput(
@@ -2312,59 +2178,6 @@ function commandEnvironment(
     delete env[key];
   }
   return env;
-}
-
-function shouldCacheCommandOutput(
-  command: string,
-  args: string[],
-  options: CommandOutputOptions,
-): boolean {
-  if (LOCAL_VCS_DISABLE_COMMAND_CACHE) return false;
-  if (options.trim === false) return false;
-  if (command === "jj") return shouldCacheJjCommandOutput(args);
-  if (command === "git") return shouldCacheGitCommandOutput(args);
-  return false;
-}
-
-function shouldCacheJjCommandOutput(args: string[]): boolean {
-  if (args[0] === "-R" && args[2] === "root") return true;
-  // cwd-based repo resolution (the cache key includes cwd).
-  if (
-    args[0] === "git" &&
-    args[1] === "root" &&
-    (args.length === 2 ||
-      (args.length === 3 && args[2] === "--ignore-working-copy"))
-  ) {
-    return true;
-  }
-  if (
-    args[0] === "-R" &&
-    args.includes("log") &&
-    args.includes("-T") &&
-    args.includes("-r")
-  ) {
-    const templateIndex = args.indexOf("-T") + 1;
-    const template = args[templateIndex] ?? "";
-    return template.startsWith("commit_id");
-  }
-  return false;
-}
-
-function shouldCacheGitCommandOutput(args: string[]): boolean {
-  if (args[0] !== "-C") return false;
-  const command = args[2];
-  if (command === "rev-parse" && args[3] === "--show-toplevel") return true;
-  if (command === "rev-parse" && args[3] === "--verify") return true;
-  if (command === "merge-base") return true;
-  if (command === "symbolic-ref" && args.includes("refs/remotes/origin/HEAD"))
-    return true;
-  if (
-    command === "config" &&
-    args[3] === "--get" &&
-    args[4] === "remote.origin.url"
-  )
-    return true;
-  return false;
 }
 
 export * from "./notes";

@@ -85,57 +85,6 @@ describe("review host client", () => {
     ).toThrow("no runtime import");
   });
 
-  it("caches an imported document module by URL", async () => {
-    const fetchMock = vi.fn<() => Promise<Response>>(
-      async () => new Response(reviewModuleSource),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    const namespace = { version: 1 };
-    const { importer, setReviewRequestContext } = documentImporter(
-      async () => namespace,
-    );
-    const moduleUrl = uniqueModuleUrl("same");
-
-    const first = await importReviewModule(injectedConfig, moduleUrl, importer);
-    const second = await importReviewModule(
-      injectedConfig,
-      moduleUrl,
-      importer,
-    );
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    // One load imports the runtime (for the request context) and the blob.
-    expect(importer).toHaveBeenCalledTimes(2);
-    expect(setReviewRequestContext).toHaveBeenCalledWith({
-      origin: injectedConfig.sessionUrl,
-      token: injectedConfig.token,
-    });
-    expect(second).toBe(first);
-  });
-
-  it("shares one in-flight document module fetch", async () => {
-    let resolveResponse!: (response: Response) => void;
-    const response = new Promise<Response>((resolve) => {
-      resolveResponse = resolve;
-    });
-    const fetchMock = vi.fn<() => Promise<Response>>(() => response);
-    vi.stubGlobal("fetch", fetchMock);
-    const namespace = { version: 1 };
-    const { importer } = documentImporter(async () => namespace);
-    const moduleUrl = uniqueModuleUrl("concurrent");
-
-    const first = importReviewModule(injectedConfig, moduleUrl, importer);
-    const second = importReviewModule(injectedConfig, moduleUrl, importer);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-
-    resolveResponse(new Response(reviewModuleSource));
-    await expect(Promise.all([first, second])).resolves.toEqual([
-      namespace,
-      namespace,
-    ]);
-    expect(importer).toHaveBeenCalledTimes(2);
-  });
-
   it("retries a rejected document module import", async () => {
     const fetchMock = vi.fn<() => Promise<Response>>(
       async () => new Response(reviewModuleSource),

@@ -542,11 +542,26 @@ export async function runProgressiveReviewCli(
           "all",
         ]),
       )
-      .option("--trace-endpoint <url>", "R2 endpoint URL")
-      .option("--trace-bucket <name>", "R2 bucket name")
-      .option("--trace-key <id>", "R2 access key ID")
-      .option("--trace-secret <key>", "R2 secret access key")
-      .option("--without-traces", "Do not configure trace capture")
+      .option(
+        "--trace-endpoint <url>",
+        "R2 endpoint URL (experimental trace capture)",
+      )
+      .option(
+        "--trace-bucket <name>",
+        "R2 bucket name (experimental trace capture)",
+      )
+      .option(
+        "--trace-key <id>",
+        "R2 access key ID (experimental trace capture)",
+      )
+      .option(
+        "--trace-secret <key>",
+        "R2 secret access key (experimental trace capture)",
+      )
+      .option(
+        "--without-traces",
+        "Deprecated: trace capture is off unless --trace-* options are given",
+      )
       .addHelpText("after", progressiveReviewInstallHelp()),
     "plain",
   );
@@ -566,9 +581,11 @@ export async function runProgressiveReviewCli(
         targets: installTargets(targets),
         env,
         fff: true,
-        ...(options.traces === false
-          ? {}
-          : {
+        // Trace capture is experimental and opt-in: only a request that names
+        // R2 credentials configures it. --without-traces stays accepted so
+        // existing scripts keep working.
+        ...(traceCredentialsRequested(options) && options.traces !== false
+          ? {
               trace: {
                 credentials: {
                   endpoint: options.traceEndpoint,
@@ -577,7 +594,8 @@ export async function runProgressiveReviewCli(
                   secret: options.traceSecret,
                 },
               },
-            }),
+            }
+          : {}),
         json: options.json,
         stdout: input.stdout,
         stderr: input.stderr,
@@ -1219,6 +1237,20 @@ function progressiveReviewTopLevelHelp(): string {
   ].join("\n");
 }
 
+function traceCredentialsRequested(options: {
+  traceEndpoint?: string;
+  traceBucket?: string;
+  traceKey?: string;
+  traceSecret?: string;
+}): boolean {
+  return Boolean(
+    options.traceEndpoint ||
+    options.traceBucket ||
+    options.traceKey ||
+    options.traceSecret,
+  );
+}
+
 function progressiveReviewInstallHelp(): string {
   return [
     "",
@@ -1239,8 +1271,9 @@ function progressiveReviewInstallHelp(): string {
     "  review install codex",
     "  review install claude cursor",
     "  review install all",
+    "",
+    "Trace capture (experimental) is off unless R2 credentials are given:",
     "  review install codex --trace-endpoint <url> --trace-bucket <name> --trace-key <id> --trace-secret <key>",
-    "  review install codex --without-traces",
   ].join("\n");
 }
 

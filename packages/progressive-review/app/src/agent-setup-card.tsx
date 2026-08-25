@@ -146,7 +146,6 @@ export function AgentSetupCard({
                     targets: presentTargets,
                     shim: true,
                     fff: fffTargets.length > 0,
-                    ...(status.trace.configured ? { trace: true } : {}),
                   }),
                 )
               }
@@ -382,8 +381,10 @@ export function AgentSetupCard({
             void run(
               "trace",
               () =>
+                // Hooks and the trace skill are installed per agent alongside
+                // capture, so enabling covers every agent already set up.
                 install.apply({
-                  targets: [],
+                  targets: staleTargets,
                   trace: {
                     ...(traceEndpoint ? { endpoint: traceEndpoint } : {}),
                     ...(traceBucket ? { bucket: traceBucket } : {}),

@@ -35,6 +35,7 @@ import {
 import {
   dismissReview,
   markReviewViewed,
+  reviewReapsAt,
   restoreReview,
   selectReapableReviews,
 } from "../review-attention";
@@ -46,6 +47,7 @@ import {
 import {
   type StoredReview,
   type StoredReviewRecord,
+  countReviewComments,
   findReview,
   listReviews,
   parseStoredReviewRecord,
@@ -105,6 +107,7 @@ import {
 import { createTutorialService } from "./tutorial-service";
 
 const DEFAULT_CAPACITY = 16;
+const REVIEW_REAPER_INTERVAL_MS = 60 * 60 * 1_000;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -219,6 +222,7 @@ export function createGlobalReviewServer(
     deleteReview: deleteStoredReview,
   });
   let tutorialOpenOperation: Promise<ReviewTutorialOpenResponse> | null = null;
+  let reviewReaper: ReturnType<typeof setInterval> | undefined;
   let closing = false;
   const openNativeAgentTerminal = async (
     reviewSessionId: string,
@@ -376,6 +380,7 @@ export function createGlobalReviewServer(
        stay foreground. */
     const openBody = (await context.req.json().catch(() => null)) as {
       background?: unknown;
+      revision?: unknown;
     } | null;
     const background = openBody?.background === true;
     const review = await findReview(uuid);
@@ -401,13 +406,10 @@ export function createGlobalReviewServer(
         "review_unpublished",
       );
     }
-    const body = (await context.req.json().catch(() => undefined)) as
-      | { revision?: unknown }
-      | undefined;
     if (
-      body?.revision !== undefined &&
-      (typeof body.revision !== "string" ||
-        !/^[0-9a-f]{40}$/.test(body.revision))
+      openBody?.revision !== undefined &&
+      (typeof openBody.revision !== "string" ||
+        !/^[0-9a-f]{40}$/.test(openBody.revision))
     ) {
       throw new ReviewServerError(
         "Review revision must be a 40-character hexadecimal commit ID.",
@@ -416,15 +418,16 @@ export function createGlobalReviewServer(
       );
     }
     const requestedRevision =
-      typeof body?.revision === "string" &&
-      body.revision !== review.review.presentedDocumentRevision
-        ? body.revision
+      typeof openBody?.revision === "string" &&
+      openBody.revision !== review.review.presentedDocumentRevision
+        ? openBody.revision
         : undefined;
     if (requestedRevision) {
       return openHistoricalReviewSession(
         review,
         requestedRevision,
         appSessionId,
+        descriptor,
       );
     }
     const documentRevision = review.review.presentedDocumentRevision;
@@ -434,12 +437,14 @@ export function createGlobalReviewServer(
     const wasDismissed = Boolean(review.review.dismissedAt);
     const viewed = await restoreReview(await markReviewViewed(review));
     if (viewed.review !== review.review) {
-      broadcastGlobal({
-        event: "review-attention-changed",
-        uuid: viewed.review.uuid,
-        attention: "viewed",
-      });
+      await broadcastReviewAttention(viewed, "viewed");
     }
+    const homeReview: ReviewDescriptor = {
+      ...descriptor,
+      viewedAt: viewed.review.viewedAt ?? null,
+      dismissedAt: viewed.review.dismissedAt ?? null,
+      reapsAt: null,
+    };
     if (wasDismissed) {
       await captureSanitizedUiTelemetry(
         telemetry,
@@ -460,6 +465,8 @@ export function createGlobalReviewServer(
       return globalJson(200, {
         sessionId: existing.descriptor.sessionId,
         url: existing.descriptor.sessionUrl,
+        session: existing.descriptor,
+        review: homeReview,
       });
     }
     const documentBuildDir = await publishRuntime.materializePublishRevision({
@@ -489,6 +496,8 @@ export function createGlobalReviewServer(
     return globalJson(201, {
       sessionId: active.descriptor.sessionId,
       url: active.descriptor.sessionUrl,
+      session: active.descriptor,
+      review: homeReview,
     });
   });
 
@@ -496,6 +505,7 @@ export function createGlobalReviewServer(
     review: StoredReview,
     revision: string,
     appSessionId: string | undefined,
+    homeReview: ReviewDescriptor,
   ): Promise<Response> {
     const existing = [...sessions.values()].find(
       (session) =>
@@ -511,6 +521,8 @@ export function createGlobalReviewServer(
       return globalJson(200, {
         sessionId: existing.descriptor.sessionId,
         url: existing.descriptor.sessionUrl,
+        session: existing.descriptor,
+        review: homeReview,
       });
     }
     let documentBuildDir: string;
@@ -554,6 +566,8 @@ export function createGlobalReviewServer(
     return globalJson(201, {
       sessionId: active.descriptor.sessionId,
       url: active.descriptor.sessionUrl,
+      session: active.descriptor,
+      review: homeReview,
     });
   }
   app.post("/reviews/:uuid/dismiss", async (context) => {
@@ -962,6 +976,10 @@ export function createGlobalReviewServer(
         broadcastGlobal({
           event: "session-registered",
           session: successor.descriptor,
+          review: await reviewDescriptor(
+            successor.review,
+            (await readReviewPreferences()).dismissedRetentionDays,
+          ),
         });
         const replaced = [...sessions.values()].filter(
           (session) =>
@@ -1081,6 +1099,10 @@ export function createGlobalReviewServer(
         broadcastGlobal({
           event: "session-registered",
           session: successor.descriptor,
+          review: await reviewDescriptor(
+            successor.review,
+            (await readReviewPreferences()).dismissedRetentionDays,
+          ),
         });
         const replaced = [...sessions.values()].filter(
           (session) =>
@@ -1156,6 +1178,7 @@ export function createGlobalReviewServer(
       sessionId: session.descriptor.sessionId,
       url: session.descriptor.sessionUrl,
       review: await reviewDescriptor(session.review),
+      session: session.descriptor,
     };
   }
 
@@ -1311,6 +1334,9 @@ export function createGlobalReviewServer(
             uuid: registration.review.review.uuid,
             sessionId,
             commit,
+            commentCount: countReviewComments(
+              path.join(registration.review.dir, "review.mdx"),
+            ),
           });
         },
         runReviewThreadMutation: (operation) =>
@@ -1438,11 +1464,7 @@ export function createGlobalReviewServer(
       }
       active.review = await dismissReview(active.review);
       await clearReopenPending(active.review.review.worktreePath);
-      broadcastGlobal({
-        event: "review-attention-changed",
-        uuid: active.review.review.uuid,
-        attention: "dismissed",
-      });
+      await broadcastReviewAttention(active.review, "dismissed");
       broadcastGlobal({
         event: "session-updated",
         session: active.descriptor,
@@ -1459,7 +1481,13 @@ export function createGlobalReviewServer(
   async function setReviewDismissed(
     uuid: string,
     dismissed: boolean,
-  ): Promise<{ ok: true; dismissedAt: string | null }> {
+  ): Promise<{
+    ok: true;
+    uuid: string;
+    viewedAt: string | null;
+    dismissedAt: string | null;
+    reapsAt: string | null;
+  }> {
     if (!UUID_PATTERN.test(uuid)) {
       throw new ReviewServerError("Review not found.", 404);
     }
@@ -1469,19 +1497,47 @@ export function createGlobalReviewServer(
       const next = dismissed
         ? await dismissReview(stored)
         : await restoreReview(stored);
+      const attention = dismissed
+        ? "dismissed"
+        : next.review.viewedAt
+          ? "viewed"
+          : "new";
+      const patch = await reviewAttentionPatch(next);
       broadcastGlobal({
         event: "review-attention-changed",
-        uuid,
-        attention: dismissed
-          ? "dismissed"
-          : next.review.viewedAt
-            ? "viewed"
-            : "new",
+        attention,
+        ...patch,
       });
       return {
         ok: true as const,
-        dismissedAt: next.review.dismissedAt ?? null,
+        ...patch,
       };
+    });
+  }
+
+  async function reviewAttentionPatch(review: StoredReview): Promise<{
+    uuid: string;
+    viewedAt: string | null;
+    dismissedAt: string | null;
+    reapsAt: string | null;
+  }> {
+    const { dismissedRetentionDays } = await readReviewPreferences();
+    return {
+      uuid: review.review.uuid,
+      viewedAt: review.review.viewedAt ?? null,
+      dismissedAt: review.review.dismissedAt ?? null,
+      reapsAt: reviewReapsAt(review.review, dismissedRetentionDays),
+    };
+  }
+
+  async function broadcastReviewAttention(
+    review: StoredReview,
+    attention: "new" | "viewed" | "dismissed",
+  ): Promise<void> {
+    broadcastGlobal({
+      event: "review-attention-changed",
+      attention,
+      ...(await reviewAttentionPatch(review)),
     });
   }
 
@@ -1516,6 +1572,11 @@ export function createGlobalReviewServer(
         console.error(`Could not reap review ${uuid}:`, error);
       }
     }
+  }
+
+  async function runReviewReaper(): Promise<void> {
+    const { dismissedRetentionDays } = await readReviewPreferences();
+    await reapDismissedReviews(dismissedRetentionDays);
   }
 
   async function endSessionTelemetry(
@@ -1714,10 +1775,20 @@ export function createGlobalReviewServer(
       boundPort = await listen(httpServer, input.port);
       discovery.url = urlForBoundPort();
       await writePrivateJsonAtomic(discoveryPath, discovery);
+      void runReviewReaper().catch((error) =>
+        console.error("Could not run Review cleanup:", error),
+      );
+      reviewReaper = setInterval(() => {
+        void runReviewReaper().catch((error) =>
+          console.error("Could not run Review cleanup:", error),
+        );
+      }, REVIEW_REAPER_INTERVAL_MS);
     },
     close: async () => {
       if (closing) return;
       closing = true;
+      if (reviewReaper) clearInterval(reviewReaper);
+      reviewReaper = undefined;
       await removeMatchingDiscovery(discoveryPath, discovery);
       await Promise.all(
         [...sessions.values()].map((session) =>

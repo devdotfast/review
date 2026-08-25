@@ -102,6 +102,7 @@ import {
 import { IReviewVerbsService } from "../../../contrib/verbs/reviewVerbs.js";
 import { ReviewInlineEditorService } from "../../../services/reviewInlineEditorService.js";
 import { ReviewDiffViewService } from "../../../services/reviewDiffViewService.js";
+import { IReviewDiffService } from "../../../services/reviewDiffService.js";
 import {
 	ReviewEmbeddedEditorSelection,
 	reviewEmbeddedSelectionFromOptions,
@@ -239,6 +240,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		private readonly sessionService: IReviewSessionService,
 		@IReviewSessionModelService
 		private readonly sessionModelService: IReviewSessionModelService,
+		@IReviewDiffService private readonly diffService: IReviewDiffService,
 		@IReviewVerbsService private readonly verbs: IReviewVerbsService,
 		@IReviewCanvasEditorTabsService
 		private readonly tabsService: IReviewCanvasEditorTabsService,
@@ -1178,6 +1180,9 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			};
 		});
 		try {
+			void this.diffService.prefetch().catch((error) => {
+				this.logService.debug(`[review] diff prefetch failed: ${error}`);
+			});
 			const assets = await this.loadAssets();
 			if (generation !== this.loadGeneration) {
 				return new Error("Review canvas load was superseded.");

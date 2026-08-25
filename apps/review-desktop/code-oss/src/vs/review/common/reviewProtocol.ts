@@ -760,6 +760,8 @@ export interface ReviewDiffViewHandle extends ReviewDisposable {
  */
 export interface ReviewDiffViewFactory {
   create(spec: ReviewDiffViewSpec): ReviewDiffViewHandle;
+  /** Returns the parsed full diff that backs the native diff view. */
+  files?(scope?: ReviewCommitScope): Promise<readonly ReviewDiffFileWire[]>;
 }
 
 export interface ReviewCommitScope {

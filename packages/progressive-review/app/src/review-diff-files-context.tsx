@@ -39,6 +39,7 @@ export function ReviewDiffFilesProvider({
 }) {
   const session = useReviewSession();
   const reviewFetch = session.fetch;
+  const diffView = session.bridge.diffView;
   const container = useReviewContainer();
   const [snapshot, setSnapshot] = useState<ReviewDiffFilesSnapshot>(() => ({
     documentKey,
@@ -60,23 +61,28 @@ export function ReviewDiffFilesProvider({
           },
     );
     recordDiffSummaryRequest(container);
-    reviewFetch("/diff-files", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ includePatch: false }),
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        const result = parseReviewDiffFilesResponse(await response.json());
-        if (!response.ok || !result.ok) {
-          throw new Error(
-            result.ok ? "Unable to load diff files." : result.error,
-          );
-        }
+    const request = diffView.files
+      ? diffView.files().then((files) => [...files])
+      : reviewFetch("/diff-files", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ includePatch: false }),
+          signal: controller.signal,
+        }).then(async (response) => {
+          const result = parseReviewDiffFilesResponse(await response.json());
+          if (!response.ok || !result.ok) {
+            throw new Error(
+              result.ok ? "Unable to load diff files." : result.error,
+            );
+          }
+          return result.files;
+        });
+    request
+      .then((files) => {
         if (controller.signal.aborted) return;
         setSnapshot({
           documentKey,
-          state: { status: "loaded", files: result.files },
+          state: { status: "loaded", files },
         });
         recordDiffSummaryReady(container);
       })
@@ -91,7 +97,7 @@ export function ReviewDiffFilesProvider({
         });
       });
     return () => controller.abort();
-  }, [container, documentKey, reviewFetch]);
+  }, [container, diffView, documentKey, reviewFetch]);
 
   const value = useMemo(() => state, [state]);
   return (

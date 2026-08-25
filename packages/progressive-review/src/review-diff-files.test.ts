@@ -297,6 +297,29 @@ describe("resolveReviewDiffFiles", () => {
     }
   });
 
+  test("reuses a precomputed comparison when reading file content", async () => {
+    const fixture = await createFileContentFixture();
+    try {
+      const comparison = await resolveReviewDiffFiles({
+        rootPath: fixture.rootPath,
+        baseRef: fixture.baseRef,
+        headRef: fixture.headRef,
+      });
+      await expect(
+        resolveReviewFileContent({
+          rootPath: fixture.rootPath,
+          baseRef: "missing-base",
+          headRef: "missing-head",
+          path: "src/modified.ts",
+          side: "head",
+          comparison,
+        }),
+      ).resolves.toEqual({ content: "export const modified = 'head';\n" });
+    } finally {
+      await rm(fixture.rootPath, { recursive: true, force: true });
+    }
+  });
+
   test("reads the live working-tree head while keeping the base pinned", async () => {
     const fixture = await createFileContentFixture();
     try {

@@ -93,21 +93,29 @@ function CommitRow({
     captureUiEvent(session, "commit_expanded", { expanded: next });
     if (!next || filesState) return;
     setFilesState({ status: "loading" });
-    session
-      .fetch("/diff-files", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ includePatch: true, commit: commit.commit }),
-      })
-      .then(async (response) => {
-        const result = parseReviewDiffFilesResponse(await response.json());
-        if (!response.ok || !result.ok) {
-          throw new Error(
-            result.ok ? "Unable to load commit files." : result.error,
-          );
-        }
-        setFilesState({ status: "loaded", files: result.files });
-      })
+    const diffView = session.bridge.diffView;
+    const request = diffView.files
+      ? diffView.files({ commit: commit.commit }).then((files) => [...files])
+      : session
+          .fetch("/diff-files", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              includePatch: true,
+              commit: commit.commit,
+            }),
+          })
+          .then(async (response) => {
+            const result = parseReviewDiffFilesResponse(await response.json());
+            if (!response.ok || !result.ok) {
+              throw new Error(
+                result.ok ? "Unable to load commit files." : result.error,
+              );
+            }
+            return result.files;
+          });
+    request
+      .then((files) => setFilesState({ status: "loaded", files }))
       .catch((error: unknown) => {
         setFilesState({
           status: "error",

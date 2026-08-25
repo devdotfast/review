@@ -1773,9 +1773,11 @@ describe("review app light theme", () => {
     // The canvas never renders diff text itself: the workbench mounts its own
     // widgets into the container this component hands it.
     expect(appSource).toContain("<ReviewDiffView");
+    expect(appSource).toContain("review-diff-view--preloaded");
     expect(appSource).toContain(
-      "scope={diffScope ? { commit: diffScope.commit } : undefined}",
+      'aria-hidden={activeView !== "diff" || diffScope !== null}',
     );
+    expect(appSource).toContain("scope={{ commit: diffScope.commit }}");
     expect(diffViewSource).toContain("session.bridge.diffView");
     expect(contextSource).not.toContain("includePatch: true");
   });

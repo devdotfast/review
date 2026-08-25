@@ -1137,6 +1137,16 @@ describe("review app light theme", () => {
     );
   });
 
+  it("lets the Commits view scroll within the shared view region", () => {
+    const styles = readFileSync(new URL("./styles.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(styles).toMatch(
+      /\.review-view-region\s*{[^}]*overflow:\s*hidden;[^}]*}[\s\S]*\.review-view-region--commits\s*{[^}]*overflow:\s*auto;/s,
+    );
+  });
+
   it("aligns the Review page surface while letting Map fill its view", () => {
     const styles = readFileSync(new URL("./styles.css", import.meta.url), {
       encoding: "utf8",

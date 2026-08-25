@@ -23,6 +23,7 @@ import { emitJsonEvent, failWithJsonError, humanStream } from "./cli-output";
 import {
   type TraceCredentialsInput,
   configureTraceMachine,
+  traceMachineEnabled,
 } from "./trace-machine-setup";
 
 export type InstallTarget = "claude" | "codex" | "cursor" | "pi";
@@ -113,6 +114,12 @@ export async function runInstall(input: {
     }
   }
 
+  // Agent hooks only make sense when this machine captures traces. A
+  // previous install may already have enabled it without credentials in
+  // this request.
+  const installTraceHooks =
+    traceEnabled || (await traceMachineEnabled({ homeDir, env }));
+
   const installed: InstalledItem[] = [];
   for (const target of input.targets) {
     const destRoot = skillsDestRoot(homeDir, target);
@@ -122,6 +129,7 @@ export async function runInstall(input: {
       await installDirectory(skillDir.src, skillDest);
       installed.push({ kind: "skill", dest: skillDest });
     }
+    if (!installTraceHooks) continue;
     if (target === "claude") {
       await installClaudeTraceHook(homeDir, input.reviewCommand);
     } else if (target === "codex") {

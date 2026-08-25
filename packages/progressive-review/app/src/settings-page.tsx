@@ -6,6 +6,7 @@ import type {
 import { type ReactNode, useState } from "react";
 
 import { AgentSetupCard } from "./agent-setup-card";
+import { TraceCaptureSection } from "./trace-capture-section";
 
 const THEME_LABELS: Record<ReviewThemeChoice, string> = {
   light: "Light",
@@ -221,6 +222,9 @@ export function SettingsPage({
                 <span>{softwareMapEnabled ? "On" : "Off"}</span>
               </label>
             </Row>
+            {settings.install ? (
+              <TraceCaptureSection install={settings.install} />
+            ) : null}
           </Section>
 
           {error ? <p className="review-settings-error">{error}</p> : null}

@@ -44,14 +44,6 @@ export function AgentSetupCard({
   const [status, setStatus] = useState<ReviewCliInstallStatus>(install.status);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [traceEndpoint, setTraceEndpoint] = useState(
-    install.status.trace.endpoint ?? "",
-  );
-  const [traceBucket, setTraceBucket] = useState(
-    install.status.trace.bucket ?? "",
-  );
-  const [traceKey, setTraceKey] = useState("");
-  const [traceSecret, setTraceSecret] = useState("");
 
   const run = async (
     key: string,
@@ -302,108 +294,6 @@ export function AgentSetupCard({
           }
         >
           {busy === "fff" ? "Installing…" : fffReady ? "Repair" : "Install"}
-        </button>
-      </div>
-      <div className="review-agent-setup-terminal review-agent-setup-trace">
-        <div className="review-agent-setup-terminal-info">
-          <span className="review-agent-setup-name">Trace capture</span>
-          <span
-            className="review-agent-setup-state"
-            data-installed={status.trace.enabled}
-            title={status.trace.envPath}
-          >
-            {status.trace.enabled
-              ? status.trace.error
-                ? "enabled, storage check failed"
-                : "enabled"
-              : status.trace.configured
-                ? "ready to enable"
-                : "not configured"}
-          </span>
-          <span className="review-agent-setup-cli">
-            Session hooks activate each Git or Jujutsu repository when an agent
-            session starts.
-          </span>
-        </div>
-        <div className="review-agent-setup-trace-fields">
-          <input
-            aria-label="R2 endpoint URL"
-            placeholder="R2 endpoint URL"
-            value={traceEndpoint}
-            onChange={(event) => setTraceEndpoint(event.currentTarget.value)}
-          />
-          <input
-            aria-label="R2 bucket"
-            placeholder="R2 bucket"
-            value={traceBucket}
-            onChange={(event) => setTraceBucket(event.currentTarget.value)}
-          />
-          <input
-            aria-label="R2 access key ID"
-            placeholder={
-              status.trace.accessKeyIdPrefix
-                ? `Access key (${status.trace.accessKeyIdPrefix}…)`
-                : "R2 access key ID"
-            }
-            value={traceKey}
-            onChange={(event) => setTraceKey(event.currentTarget.value)}
-          />
-          <input
-            aria-label="R2 secret access key"
-            type="password"
-            placeholder={
-              status.trace.configured
-                ? "Secret key (unchanged)"
-                : "R2 secret access key"
-            }
-            value={traceSecret}
-            onChange={(event) => setTraceSecret(event.currentTarget.value)}
-          />
-        </div>
-        {status.trace.enabled ? (
-          <button
-            type="button"
-            className="review-agent-setup-subtle"
-            disabled={busy !== null}
-            onClick={() =>
-              void run("trace-remove", () =>
-                install.remove({ targets: [], trace: true }),
-              )
-            }
-          >
-            {busy === "trace-remove" ? "Disabling…" : "Disable"}
-          </button>
-        ) : null}
-        <button
-          type="button"
-          disabled={busy !== null}
-          onClick={() =>
-            void run(
-              "trace",
-              () =>
-                // Hooks and the trace skill are installed per agent alongside
-                // capture, so enabling covers every agent already set up.
-                install.apply({
-                  targets: staleTargets,
-                  trace: {
-                    ...(traceEndpoint ? { endpoint: traceEndpoint } : {}),
-                    ...(traceBucket ? { bucket: traceBucket } : {}),
-                    ...(traceKey ? { key: traceKey } : {}),
-                    ...(traceSecret ? { secret: traceSecret } : {}),
-                  },
-                }),
-              () => {
-                setTraceKey("");
-                setTraceSecret("");
-              },
-            )
-          }
-        >
-          {busy === "trace"
-            ? "Checking…"
-            : status.trace.enabled
-              ? "Repair"
-              : "Enable"}
         </button>
       </div>
       {status.cli ? (

@@ -88,9 +88,16 @@ one of these entries:
   `@vscode/fs-copyfile`, `native-is-elevated`, `@microsoft/mxc-sdk`,
   `@vscode/l10n-dev`, `@vscode/test-web`, and `@vscode/telemetry-extractor`.
   Their import sites typecheck against `src/typings/removed-native-modules.d.ts`.
+  The lockfile also advances Undici, Hono, its Node adapter, `ip-address`, and
+  `body-parser` within their declared ranges to releases that clear their
+  applicable security advisories.
 - `build/package.json` and `build/package-lock.json`: drop unreferenced
   packaging/publishing tooling (`@azure/*`, `tree-sitter`,
-  `tree-sitter-typescript`, the duplicate `@vscode/ripgrep-universal`).
+  `tree-sitter-typescript`, the duplicate `@vscode/ripgrep-universal`). The
+  lockfile carries patched `brace-expansion`, `js-yaml`, and `linkify-it`
+  releases within the existing manifest ranges.
+- `build/npm/gyp/package-lock.json`: advance patched `brace-expansion` and
+  `ip-address` releases within the existing manifest ranges.
 - `build/lib/i18n.ts`: local l10n types and a lazy `@vscode/l10n-dev` import
   so the module loads without the package installed.
 - `src/typings/removed-native-modules.d.ts`: ambient declarations replacing
@@ -103,7 +110,9 @@ one of these entries:
   and emitting invalid POSIX quoting for apostrophes.
 - `extensions/package.json` and the extension `package.json`/`package-lock.json`
   files: `@vscode/extension-telemetry` is hoisted to the shared extensions
-  install (github keeps its own ^1.0.0 copy; the shared copy is ^0.9.8).
+  install (github keeps its own ^1.0.0 copy; the shared copy is ^0.9.8). The
+  CSS, HTML, JSON, and Markdown extension locks also advance security-patched
+  transitive packages without widening their manifest ranges.
 - `product.json`: also carries `reviewVersion`, Review's own release number.
   `version` stays the Code OSS base version because the curated extensions
   match their `engines.vscode` range against it, so the release number needs a

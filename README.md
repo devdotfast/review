@@ -58,6 +58,31 @@ not explain whether the system is right. See the
 
 *If there are any other features you need, feel free to ask on discord or open an issue/discussion!*
 
+## FAQs
+<details>
+<summary><b>Who is the Review app for?</b></summary>
+
+* If you still want the gains of generating code with AI but also want to understand how your codebase works and maintain quality, Review is for you.
+* If you don't use AI to write a lot of code and are content reading diffs line by line, Review probably isn't for you.
+</details>
+<details>
+<summary><b>How is this different from Greptile/Bugbot/CodeRabbit/etc...</b></summary>
+
+These tools review your llm generated code with another llm. Review is a complementary tool. Review doesn't review your code for you but helps you understand it and spot regressions quickly.
+</details>
+<details>
+<summary><b>How is this different from Plannotator</b></summary>
+
+Plannotator is meant as an alternative to using the terminal for reviewing plans and simple code diffs. Review takes some inspiration from Plannotator in lifecycle but is engineered as an opinionated framework for reviewing AI generated code diffs.
+</details>
+
+<details>
+<summary><b>How are you guys gunna make money on this?</b></summary>
+
+Eventually we’ll charge companies for a hosted review product that manages review creation alongside features like trajectory storage, review sharing, etc, but everything will remain easily self-hostable.
+</details>
+
+
 ## Development
 
 Review requires Node.js 24 and pnpm 11. See the
@@ -92,3 +117,11 @@ Review is available under the [MIT License](LICENSE). The vendored Code - OSS
 fork retains Microsoft's MIT license and third-party notices; see
 [`apps/review-desktop/LICENSE`](apps/review-desktop/LICENSE) and
 [`apps/review-desktop/UPSTREAM`](apps/review-desktop/UPSTREAM).
+
+
+## Influences
+* https://www.geoffreylitt.com/2026/07/02/understanding-is-the-new-bottleneck -- a great overview of the constraints of modern software engineering.
+* https://maggieappleton.com/2025-08-vibe-legacy-code/ and https://blog.val.town/vibe-code -- do a great job describing how ai generated code fits into our pre-2025 notion of software engineering.
+* we're big fans of Karpathy, so here are some of his banger tweets we love discussing
+  * on llm agents: https://x.com/karpathy/status/1979644538185752935
+  * on agents as "junior engineer savants": https://x.com/karpathy/status/1915581920022585597

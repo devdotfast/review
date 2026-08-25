@@ -201,25 +201,7 @@ export class ReviewCodeResourceService
 {
   declare readonly _serviceBrand: undefined;
 
-  private diffFilesCache:
-    | {
-        key: string;
-        files: ReviewDiffFileWire[];
-        expiresAt: number;
-      }
-    | undefined;
-  private diffFilesInFlight:
-    | {
-        key: string;
-        promise: Promise<ReviewDiffFileWire[] | undefined>;
-      }
-    | undefined;
   private readonly unavailableSnippetResources = new Set<string>();
-  private readonly diffPatchCache = new Map<string, string>();
-  private readonly diffPatchesInFlight = new Map<
-    string,
-    Promise<string | undefined>
-  >();
   private generation = 0;
   private readonly unifiedResources = new Map<
     string,
@@ -599,10 +581,6 @@ export class ReviewCodeResourceService
   }
 
   reset(): void {
-    this.diffFilesCache = undefined;
-    this.diffFilesInFlight = undefined;
-    this.diffPatchCache.clear();
-    this.diffPatchesInFlight.clear();
     this.unavailableSnippetResources.clear();
     for (const entry of this.unifiedResources.values()) entry.dispose();
     this.unifiedResources.clear();
@@ -728,45 +706,6 @@ export class ReviewCodeResourceService
     scope?: ReviewCommitScope,
   ): Promise<ReviewDiffFileWire[] | undefined> {
     const routePath = session.session.routePath ?? "/";
-    const key = `${session.session.sessionId}\n${routePath}\n${scope?.commit ?? "full"}`;
-    const now = Date.now();
-    if (
-      this.diffFilesCache?.key === key &&
-      this.diffFilesCache.expiresAt > now
-    ) {
-      return this.diffFilesCache.files;
-    }
-    if (this.diffFilesInFlight?.key === key) {
-      return this.diffFilesInFlight.promise;
-    }
-
-    const generation = this.generation;
-    let promise: Promise<ReviewDiffFileWire[] | undefined>;
-    promise = this.fetchDiffFiles(session, routePath, scope)
-      .then((files) => {
-        if (files && generation === this.generation) {
-          this.diffFilesCache = {
-            key,
-            files,
-            expiresAt: Date.now() + 5_000,
-          };
-        }
-        return files;
-      })
-      .finally(() => {
-        if (this.diffFilesInFlight?.promise === promise) {
-          this.diffFilesInFlight = undefined;
-        }
-      });
-    this.diffFilesInFlight = { key, promise };
-    return promise;
-  }
-
-  private async fetchDiffFiles(
-    session: ReviewDesktopSession,
-    routePath: string,
-    scope?: ReviewCommitScope,
-  ): Promise<ReviewDiffFileWire[] | undefined> {
     try {
       const response = await this.request(
         session,
@@ -800,34 +739,6 @@ export class ReviewCodeResourceService
     path: string,
   ): Promise<string | undefined> {
     const routePath = session.session.routePath ?? "/";
-    const key = `${session.session.sessionId}\n${routePath}\n${path}`;
-    const cached = this.diffPatchCache.get(key);
-    if (cached !== undefined) return cached;
-    const existing = this.diffPatchesInFlight.get(key);
-    if (existing) return existing;
-
-    const generation = this.generation;
-    const promise = this.fetchDiffPatch(session, routePath, path)
-      .then((patch) => {
-        if (patch !== undefined && generation === this.generation) {
-          this.diffPatchCache.set(key, patch);
-        }
-        return patch;
-      })
-      .finally(() => {
-        if (this.diffPatchesInFlight.get(key) === promise) {
-          this.diffPatchesInFlight.delete(key);
-        }
-      });
-    this.diffPatchesInFlight.set(key, promise);
-    return promise;
-  }
-
-  private async fetchDiffPatch(
-    session: ReviewDesktopSession,
-    routePath: string,
-    path: string,
-  ): Promise<string | undefined> {
     try {
       const response = await this.request(
         session,

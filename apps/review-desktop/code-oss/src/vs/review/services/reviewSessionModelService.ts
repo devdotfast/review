@@ -89,11 +89,6 @@ export class ReviewSessionModel extends Disposable {
 	private documentPromise: Promise<unknown> | undefined;
 	private softwareMapPromise: Promise<unknown | null> | undefined;
 	private refreshPromise: Promise<void> | undefined;
-	private readonly requestCache = new Map<
-		string,
-		Promise<CachedReviewResponse>
-	>();
-	private readonly requestController = new AbortController();
 	private _comments: ReviewCommentStore;
 	get comments(): ReviewCommentStoreBridge {
 		return this._comments;
@@ -130,7 +125,6 @@ export class ReviewSessionModel extends Disposable {
 				if (event.uuid !== this.reviewUuid || this._state !== "active") {
 					return;
 				}
-				this.requestCache.clear();
 				this._onDidChange.fire();
 			}),
 		);
@@ -143,7 +137,6 @@ export class ReviewSessionModel extends Disposable {
 				) {
 					return;
 				}
-				this.requestCache.clear();
 				this._comments.applyCommit(event.commit);
 				this._onDidChange.fire();
 			}),
@@ -153,7 +146,6 @@ export class ReviewSessionModel extends Disposable {
 				if (event.session.sessionId !== this._session.session.sessionId) {
 					return;
 				}
-				this.requestCache.clear();
 				this._comments.dispose();
 				if (event.review) {
 					this._session = { ...this._session, review: event.review };
@@ -197,7 +189,6 @@ export class ReviewSessionModel extends Disposable {
 				) {
 					return;
 				}
-				this.requestCache.clear();
 				if (this.documentRevision !== previousRevision) {
 					this.documentPromise = undefined;
 					this.softwareMapPromise = undefined;
@@ -206,7 +197,6 @@ export class ReviewSessionModel extends Disposable {
 			})
 			.catch((error) => {
 				if (error instanceof ReviewSessionUnavailableError) {
-					this.requestCache.clear();
 					this._state = "unavailable";
 					this._unavailableMessage = error.message;
 					this._onDidChange.fire();
@@ -256,71 +246,7 @@ export class ReviewSessionModel extends Disposable {
 	}
 
 	async request(url: string, init: RequestInit = {}): Promise<Response> {
-		const method = (init.method ?? "GET").toUpperCase();
-		const cacheKey = reviewRequestCacheKey(url, method, init);
-		if (!cacheKey) {
-			const response = await fetch(url, init);
-			if (response.ok) {
-				await this.updateRequestCacheAfterMutation(
-					url,
-					method,
-					init,
-					response.clone(),
-				);
-			}
-			return response;
-		}
-
-		let pending = this.requestCache.get(cacheKey);
-		if (!pending) {
-			const requestInit = {
-				...init,
-				signal: this.requestController.signal,
-			};
-			pending = fetch(url, requestInit)
-				.then(captureReviewResponse)
-				.catch((error) => {
-					if (this.requestCache.get(cacheKey) === pending) {
-						this.requestCache.delete(cacheKey);
-					}
-					throw error;
-				});
-			this.requestCache.set(cacheKey, pending);
-		}
-		const response = await pending;
-		if (!response.ok && this.requestCache.get(cacheKey) === pending) {
-			this.requestCache.delete(cacheKey);
-		}
-		return restoreReviewResponse(response);
-	}
-
-	private async updateRequestCacheAfterMutation(
-		url: string,
-		method: string,
-		init: RequestInit,
-		response: Response,
-	): Promise<void> {
-		if (method === "GET" || method === "HEAD") {
-			return;
-		}
-		const endpoint = reviewApiEndpoint(url);
-		if (!endpoint || endpoint === "/telemetry/event") {
-			return;
-		}
-		const invalidatedEndpoints =
-			endpoint === "/comments" || endpoint.startsWith("/comments/")
-				? ["/comments"]
-				: null;
-		if (!invalidatedEndpoints) {
-			this.requestCache.clear();
-			return;
-		}
-		for (const key of this.requestCache.keys()) {
-			const cachedEndpoint = reviewRequestCacheEndpoint(key);
-			if (cachedEndpoint && invalidatedEndpoints.includes(cachedEndpoint)) {
-				this.requestCache.delete(key);
-			}
-		}
+		return fetch(url, init);
 	}
 
 	private async loadDocument(
@@ -399,84 +325,8 @@ export class ReviewSessionModel extends Disposable {
 
 	override dispose(): void {
 		this._comments.dispose();
-		this.requestController.abort();
-		this.requestCache.clear();
 		super.dispose();
 	}
-}
-
-interface CachedReviewResponse {
-	readonly body: ArrayBuffer;
-	readonly headers: readonly (readonly [string, string])[];
-	readonly ok: boolean;
-	readonly status: number;
-	readonly statusText: string;
-}
-
-const CACHEABLE_REVIEW_POST_ENDPOINTS = new Set([
-	"/code-peek/resolve",
-	"/diff-files",
-	"/software-map/resolved-data",
-]);
-
-function reviewRequestCacheKey(
-	url: string,
-	method: string,
-	init: RequestInit,
-): string | undefined {
-	const endpoint = reviewApiEndpoint(url);
-	if (!endpoint) {
-		return undefined;
-	}
-	let body = "";
-	if (method === "POST") {
-		if (!CACHEABLE_REVIEW_POST_ENDPOINTS.has(endpoint)) {
-			return undefined;
-		}
-		if (init.body !== undefined && typeof init.body !== "string") {
-			return undefined;
-		}
-		body = init.body ?? "";
-	} else if (method !== "GET") {
-		return undefined;
-	}
-	return JSON.stringify([method, url, body]);
-}
-
-function reviewApiEndpoint(url: string): string | null {
-	const marker = "/__progressive-review";
-	const pathname = new URL(url).pathname;
-	const markerIndex = pathname.indexOf(marker);
-	return markerIndex < 0 ? null : pathname.slice(markerIndex + marker.length);
-}
-
-function reviewRequestCacheEndpoint(key: string): string | null {
-	const value = JSON.parse(key) as unknown;
-	if (!Array.isArray(value) || typeof value[1] !== "string") {
-		return null;
-	}
-	return reviewApiEndpoint(value[1]);
-}
-
-async function captureReviewResponse(
-	response: Response,
-): Promise<CachedReviewResponse> {
-	return {
-		body: await response.arrayBuffer(),
-		headers: [...response.headers.entries()],
-		ok: response.ok,
-		status: response.status,
-		statusText: response.statusText,
-	};
-}
-
-function restoreReviewResponse(response: CachedReviewResponse): Response {
-	const hasBody = ![101, 204, 205, 304].includes(response.status);
-	return new Response(hasBody ? response.body.slice(0) : null, {
-		headers: response.headers as [string, string][],
-		status: response.status,
-		statusText: response.statusText,
-	});
 }
 
 function reviewDocumentRevision(session: ReviewDesktopSession): string {

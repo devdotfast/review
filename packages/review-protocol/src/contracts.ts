@@ -1263,6 +1263,8 @@ export type ReviewThreadsCommandResponse = z.infer<
 export const ReviewOpenResponseSchema = z.strictObject({
   sessionId: requiredString,
   url: loopbackUrlSchema,
+  session: ReviewSessionDescriptorSchema,
+  review: ReviewDescriptorSchema,
 });
 export type ReviewOpenResponse = z.infer<typeof ReviewOpenResponseSchema>;
 
@@ -1274,6 +1276,7 @@ export const ReviewTutorialOpenResponseSchema = z.strictObject({
   sessionId: requiredString,
   url: loopbackUrlSchema,
   review: ReviewDescriptorSchema,
+  session: ReviewSessionDescriptorSchema,
 });
 export type ReviewTutorialOpenResponse = z.infer<
   typeof ReviewTutorialOpenResponseSchema
@@ -1487,6 +1490,9 @@ export const ReviewDesktopGlobalEventSchema = z.discriminatedUnion("event", [
   z.strictObject({
     event: z.literal("session-registered"),
     session: ReviewSessionDescriptorSchema,
+    /* Publish carries the newly authoritative Home row. Ordinary session
+       opens omit it because Home already has the published descriptor. */
+    review: ReviewDescriptorSchema.optional(),
     // True when the session was opened for a non-document surface (the
     // Source tab rooting its file tree): the app must not surface the
     // review document tab for it. Absent means foreground.
@@ -1506,6 +1512,7 @@ export const ReviewDesktopGlobalEventSchema = z.discriminatedUnion("event", [
     uuid: z.uuid({ error: "must be a UUID" }),
     sessionId: requiredString,
     commit: ReviewThreadsCommitSchema,
+    commentCount: nonNegativeInteger,
   }),
   z.strictObject({
     event: z.literal("session-closed"),
@@ -1528,6 +1535,9 @@ export const ReviewDesktopGlobalEventSchema = z.discriminatedUnion("event", [
     event: z.literal("review-attention-changed"),
     uuid: z.uuid({ error: "must be a UUID" }),
     attention: z.enum(["new", "viewed", "dismissed"]),
+    viewedAt: requiredString.nullable(),
+    dismissedAt: requiredString.nullable(),
+    reapsAt: requiredString.nullable(),
   }),
   z.strictObject({
     event: z.literal("preferences-changed"),

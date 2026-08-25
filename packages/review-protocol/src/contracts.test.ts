@@ -201,6 +201,8 @@ const contracts: Array<[string, ZodType, Record<string, unknown>]> = [
     {
       sessionId: descriptor.sessionId,
       url: descriptor.sessionUrl,
+      session: descriptor,
+      review: reviewDescriptor,
     },
   ],
   [

@@ -165,6 +165,7 @@ export class ReviewSessionService
 		return this._reviews;
 	}
 	private _reviewErrors: ReviewListError[] = [];
+	private readonly deletedReviewNotifications = new Set<string>();
 	get reviewErrors(): readonly ReviewListError[] {
 		return this._reviewErrors;
 	}
@@ -176,6 +177,8 @@ export class ReviewSessionService
 	}
 
 	private initializePromise: Promise<void> | null = null;
+	private cliInstallStatus: ReviewCliInstallStatus | undefined;
+	private cliInstallStatusPromise: Promise<ReviewCliInstallStatus> | undefined;
 	private readonly controller = new AbortController();
 	private controlAttached = false;
 	private controlDispatch:
@@ -287,27 +290,23 @@ export class ReviewSessionService
 			);
 		}
 		const payload = parseReviewOpenResponse(await response.json());
-		await this.refreshLists();
-		const descriptor = this._sessionRecords.find(
-			(candidate) => candidate.sessionId === payload.sessionId,
-		);
-		if (!descriptor) {
-			throw new Error(`Review session is unavailable: ${payload.sessionId}`);
-		}
-		return descriptor;
+		this.upsertSession(payload.session);
+		this.upsertReview(payload.review);
+		return payload.session;
 	}
 
 	async closeSession(sessionId: string): Promise<void> {
 		await this.initialize();
-		await fetch(
+		const response = await fetch(
 			`${this.serverUrl}/sessions/${encodeURIComponent(sessionId)}`,
 			{
 				method: "DELETE",
 				headers: this.authHeaders(),
 				signal: AbortSignal.timeout(30_000),
 			},
-		).catch(() => undefined);
-		await this.refreshLists().catch(() => undefined);
+		);
+		await this.requireOk(response, "Review session close");
+		this.removeSession(sessionId);
 	}
 
 	async deleteReview(uuid: string): Promise<void> {
@@ -330,7 +329,7 @@ export class ReviewSessionService
 					: `Review delete returned ${response.status}.`,
 			);
 		}
-		await this.refreshLists();
+		this.removeReview(uuid);
 	}
 
 	/**
@@ -359,7 +358,25 @@ export class ReviewSessionService
 			},
 		);
 		await this.requireOk(response, `Review ${action}`);
-		await this.refreshLists();
+		const payload = (await response.json()) as {
+			uuid?: unknown;
+			viewedAt?: unknown;
+			dismissedAt?: unknown;
+			reapsAt?: unknown;
+		};
+		if (
+			payload.uuid !== uuid ||
+			!isNullableString(payload.viewedAt) ||
+			!isNullableString(payload.dismissedAt) ||
+			!isNullableString(payload.reapsAt)
+		) {
+			throw new Error(`Review ${action} returned an invalid response.`);
+		}
+		this.patchReview(uuid, {
+			viewedAt: payload.viewedAt,
+			dismissedAt: payload.dismissedAt,
+			reapsAt: payload.reapsAt,
+		});
 	}
 
 	/**
@@ -436,9 +453,9 @@ export class ReviewSessionService
 		await this.requireOk(response, "Review tutorial open");
 		const payload = parseReviewTutorialOpenResponse(await response.json());
 		this._tutorialReview = payload.review;
-		// The sessions list must carry the new session before the tab resolves
-		// its model. The reviews list never lists the tutorial.
-		await this.refreshLists();
+		// The reviews list never lists the tutorial, but its confirmed session is
+		// immediately available to the tab that requested it.
+		this.upsertSession(payload.session);
 		return payload;
 	}
 
@@ -450,8 +467,17 @@ export class ReviewSessionService
 			signal: AbortSignal.timeout(30_000),
 		});
 		await this.requireOk(response, "Review tutorial delete");
+		const tutorialUuid = this._tutorialReview?.uuid;
 		this._tutorialReview = undefined;
-		await this.refreshLists();
+		if (tutorialUuid) {
+			const next = this._sessionRecords.filter(
+				(session) => session.reviewUuid !== tutorialUuid,
+			);
+			if (next.length !== this._sessionRecords.length) {
+				this._sessionRecords = next;
+				this._onDidChangeLists.fire();
+			}
+		}
 	}
 
 	/** Raises the server's own error message when it sends one. */
@@ -471,14 +497,22 @@ export class ReviewSessionService
 
 	async getCliInstallStatus(): Promise<ReviewCliInstallStatus> {
 		await this.initialize();
-		const response = await fetch(`${this.serverUrl}/install/status`, {
-			headers: this.authHeaders(),
-			signal: AbortSignal.timeout(30_000),
+		if (this.cliInstallStatus) return this.cliInstallStatus;
+		this.cliInstallStatusPromise ??= (async () => {
+			const response = await fetch(`${this.serverUrl}/install/status`, {
+				headers: this.authHeaders(),
+				signal: AbortSignal.timeout(30_000),
+			});
+			if (!response.ok) {
+				throw new Error(`Review install status returned ${response.status}.`);
+			}
+			const status = parseReviewCliInstallStatus(await response.json());
+			this.cliInstallStatus = status;
+			return status;
+		})().finally(() => {
+			this.cliInstallStatusPromise = undefined;
 		});
-		if (!response.ok) {
-			throw new Error(`Review install status returned ${response.status}.`);
-		}
-		return parseReviewCliInstallStatus(await response.json());
+		return this.cliInstallStatusPromise;
 	}
 
 	async applyCliInstall(request: {
@@ -513,6 +547,7 @@ export class ReviewSessionService
 						: `Review install returned ${response.status}.`,
 			);
 		}
+		this.cliInstallStatus = undefined;
 		return parseReviewCliInstallApplyResponse(payload);
 	}
 
@@ -540,6 +575,7 @@ export class ReviewSessionService
 		if (!response.ok) {
 			throw new Error(`Review install remove returned ${response.status}.`);
 		}
+		this.cliInstallStatus = undefined;
 	}
 
 	async declineCliInstall(): Promise<void> {
@@ -566,6 +602,7 @@ export class ReviewSessionService
 		if (!response.ok) {
 			throw new Error(`Review install ${verb} returned ${response.status}.`);
 		}
+		this.cliInstallStatus = undefined;
 	}
 
 	attachControl(
@@ -596,13 +633,28 @@ export class ReviewSessionService
 	private async initializeGlobalState(): Promise<void> {
 		await this.connect();
 		await this.waitForHealth();
-		await this.refreshLists();
-		void this.maintainGlobalEvents().catch((error) => {
+		let ready = false;
+		let resolveReady!: () => void;
+		let rejectReady!: (error: unknown) => void;
+		const firstSnapshot = new Promise<void>((resolve, reject) => {
+			resolveReady = resolve;
+			rejectReady = reject;
+		});
+		void this.maintainGlobalEvents(() => {
+			if (ready) return;
+			ready = true;
+			resolveReady();
+		}).catch((error) => {
 			if (this.controller.signal.aborted) return;
+			if (!ready) {
+				rejectReady(error);
+				return;
+			}
 			this._onDidFail.fire(
 				error instanceof Error ? error : new Error(String(error)),
 			);
 		});
+		await firstSnapshot;
 	}
 
 	private async initializeAndMaintainControl(
@@ -676,21 +728,6 @@ export class ReviewSessionService
 		this._onDidChangeLists.fire();
 	}
 
-	private async refreshReviews(): Promise<void> {
-		const response = await fetch(`${this.serverUrl}/reviews?limit=100`, {
-			headers: this.authHeaders(),
-			signal: AbortSignal.timeout(REVIEW_LIST_TIMEOUT_MS),
-		});
-		if (!response.ok) {
-			throw await reviewResponseError(
-				response,
-				`Review list returned ${response.status}.`,
-			);
-		}
-		this.applyReviewList(await response.json());
-		this._onDidChangeLists.fire();
-	}
-
 	/**
 	 * The server lists every review, drafts included. A review stays a draft
 	 * until its first publish, so it belongs to no picker or list event yet.
@@ -700,15 +737,19 @@ export class ReviewSessionService
 		this._reviews = parsed.reviews.filter(
 			(review) => review.status !== "draft",
 		);
+		for (const review of this._reviews) {
+			this.deletedReviewNotifications.delete(review.uuid);
+		}
 		this._reviewErrors = parsed.errors;
 	}
 
-	private async maintainGlobalEvents(): Promise<void> {
+	private async maintainGlobalEvents(onConnected: () => void): Promise<void> {
 		let attempt = 0;
 		while (!this.controller.signal.aborted) {
 			try {
 				await this.watchGlobalEvents(() => {
 					attempt = 0;
+					onConnected();
 				});
 				if (this.controller.signal.aborted) return;
 				throw new Error("The embedded Review server event stream ended.");
@@ -749,12 +790,13 @@ export class ReviewSessionService
 					return;
 				}
 				if (event.event === "review-threads-committed") {
+					this.patchReview(event.uuid, { commentCount: event.commentCount });
 					this._onDidCommitReviewThreads.fire(event);
 					return;
 				}
 				if (event.event === "session-registered") {
 					this.upsertSession(event.session);
-					await this.refreshReviews();
+					if (event.review) this.upsertReview(event.review);
 					this._onDidRegisterSession.fire({
 						session: event.session,
 						background: event.background === true,
@@ -763,40 +805,42 @@ export class ReviewSessionService
 				}
 				if (event.event === "session-updated") {
 					this.upsertSession(event.session);
-					await this.refreshReviews();
 					return;
 				}
 				if (event.event === "review-status-changed") {
-					await this.refreshReviews();
+					this.patchReview(event.uuid, { status: event.status });
 					return;
 				}
-				// Dismissal only stamps the review, so the list is re-read rather
-				// than pruned: the row moves to the dismissed group, it does not go.
 				if (event.event === "review-attention-changed") {
-					await this.refreshReviews();
+					this.patchReview(event.uuid, {
+						viewedAt: event.viewedAt,
+						dismissedAt: event.dismissedAt,
+						reapsAt: event.reapsAt,
+					});
 					if (event.attention === "dismissed") {
 						this._onDidDismissReview.fire(event.uuid);
 					}
 					return;
 				}
 				if (event.event === "preferences-changed") {
-					await this.refreshReviews();
+					this._reviews = this._reviews.map((review) => ({
+						...review,
+						reapsAt: reviewReapsAt(
+							review.dismissedAt,
+							event.preferences.dismissedRetentionDays,
+						),
+					}));
+					this._onDidChangeLists.fire();
 					return;
 				}
 				if (event.event === "review-deleted") {
-					this._reviews = this._reviews.filter(
-						(review) => review.uuid !== event.uuid,
-					);
-					this._onDidChangeLists.fire();
-					this._onDidDeleteReview.fire(event.uuid);
+					this.removeReview(event.uuid);
 					return;
 				}
 				const closed = this._sessionRecords.find(
 					(item) => item.sessionId === event.sessionId,
 				);
-				this._sessionRecords = this._sessionRecords.filter(
-					(item) => item.sessionId !== event.sessionId,
-				);
+				this.removeSession(event.sessionId);
 				if (closed) {
 					this._onDidCloseSession.fire({
 						session: closed,
@@ -806,7 +850,6 @@ export class ReviewSessionService
 						reason: event.reason,
 					});
 				}
-				this._onDidChangeLists.fire();
 			},
 			this.controller.signal,
 		);
@@ -890,9 +933,68 @@ export class ReviewSessionService
 		this._onDidChangeLists.fire();
 	}
 
+	private removeSession(sessionId: string): void {
+		const next = this._sessionRecords.filter(
+			(item) => item.sessionId !== sessionId,
+		);
+		if (next.length === this._sessionRecords.length) return;
+		this._sessionRecords = next;
+		this._onDidChangeLists.fire();
+	}
+
+	private upsertReview(review: ReviewDescriptor): void {
+		if (review.status === "draft") return;
+		this.deletedReviewNotifications.delete(review.uuid);
+		this._reviews = [
+			review,
+			...this._reviews.filter((item) => item.uuid !== review.uuid),
+		];
+		this._onDidChangeLists.fire();
+	}
+
+	private patchReview(
+		uuid: string,
+		patch: Partial<ReviewDescriptor>,
+	): void {
+		let changed = false;
+		this._reviews = this._reviews.map((review) => {
+			if (review.uuid !== uuid) return review;
+			changed = Object.entries(patch).some(
+				([key, value]) => review[key as keyof ReviewDescriptor] !== value,
+			);
+			return changed ? { ...review, ...patch } : review;
+		});
+		if (changed) this._onDidChangeLists.fire();
+	}
+
+	private removeReview(uuid: string): void {
+		const next = this._reviews.filter((review) => review.uuid !== uuid);
+		if (next.length !== this._reviews.length) {
+			this._reviews = next;
+			this._onDidChangeLists.fire();
+		}
+		if (this.deletedReviewNotifications.has(uuid)) return;
+		this.deletedReviewNotifications.add(uuid);
+		this._onDidDeleteReview.fire(uuid);
+	}
+
 	private authHeaders(): Record<string, string> {
 		return { "x-review-token": this.token };
 	}
+}
+
+function isNullableString(value: unknown): value is string | null {
+	return value === null || typeof value === "string";
+}
+
+function reviewReapsAt(
+	dismissedAt: string | null | undefined,
+	dismissedRetentionDays: number | null,
+): string | null {
+	if (!dismissedAt || dismissedRetentionDays === null) return null;
+	return new Date(
+		new Date(dismissedAt).getTime() + dismissedRetentionDays * 86_400_000,
+	).toISOString();
 }
 
 async function reviewResponseError(

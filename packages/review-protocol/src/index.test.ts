@@ -71,22 +71,21 @@ describe("review protocol parsers", () => {
       routePath: "/",
       startedAt: 10,
     };
+    const review = {
+      uuid: descriptor.reviewUuid,
+      title: "Protocol rewrite",
+      status: "awaiting-review" as const,
+      worktreePath: "/tmp/repo",
+      repoKey: "repo-1",
+      sourceBranch: "feature/protocol",
+      presentedDocumentRevision: null,
+      presentedSoftwareMapRevision: null,
+      lastPublishedAt: null,
+      available: true,
+    };
     expect(
       parseReviewListResponse({
-        reviews: [
-          {
-            uuid: descriptor.reviewUuid,
-            title: "Protocol rewrite",
-            status: "awaiting-review",
-            worktreePath: "/tmp/repo",
-            repoKey: "repo-1",
-            sourceBranch: "feature/protocol",
-            presentedDocumentRevision: null,
-            presentedSoftwareMapRevision: null,
-            lastPublishedAt: null,
-            available: true,
-          },
-        ],
+        reviews: [review],
         errors: [],
       }),
     ).toMatchObject({ reviews: [{ title: "Protocol rewrite" }] });
@@ -94,10 +93,14 @@ describe("review protocol parsers", () => {
       parseReviewOpenResponse({
         sessionId: descriptor.sessionId,
         url: descriptor.sessionUrl,
+        session: descriptor,
+        review,
       }),
     ).toEqual({
       sessionId: descriptor.sessionId,
       url: descriptor.sessionUrl,
+      session: descriptor,
+      review,
     });
     expect(
       parseReviewSessionLifecycleEvent({

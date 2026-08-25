@@ -375,9 +375,7 @@ export async function reviewDescriptor(
         }).catch(() => [])
       : [],
   ]);
-  const commentCount = documentExists
-    ? safelyCountReviewComments(documentPath)
-    : 0;
+  const commentCount = documentExists ? countReviewComments(documentPath) : 0;
   return {
     uuid: stored.review.uuid,
     title: stored.review.title,
@@ -403,7 +401,7 @@ export async function reviewDescriptor(
   };
 }
 
-function safelyCountReviewComments(reviewMdxPath: string): number {
+export function countReviewComments(reviewMdxPath: string): number {
   try {
     return Object.keys(readReviewComments(reviewMdxPath)).length;
   } catch {

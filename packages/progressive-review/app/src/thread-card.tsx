@@ -638,6 +638,13 @@ export function composeVerbMenuPlacement(input: {
     : "below";
 }
 
+/* The same shortcut the workbench comment form uses (⌘Enter on macOS,
+   Ctrl+Enter elsewhere). */
+const SUBMIT_SHORTCUT_LABEL =
+  typeof navigator !== "undefined" && /Mac|iP/.test(navigator.platform)
+    ? "⌘↩"
+    : "Ctrl↩";
+
 const COMPOSE_VERB_DETAILS: Record<
   ComposeVerb,
   { label: string; description: string }
@@ -875,8 +882,9 @@ export function ThreadComposer(props: ThreadComposerProps): ReactElement {
         return;
       }
       if (event.key !== "Enter") return;
-      const shouldSubmit =
-        !event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey;
+      // Enter submits, as does Cmd/Ctrl+Enter (the workbench composer's
+      // shortcut, shown on the button). Shift/Alt+Enter insert a newline.
+      const shouldSubmit = !event.shiftKey && !event.altKey;
       if (!shouldSubmit) return;
       event.preventDefault();
       event.currentTarget.form?.requestSubmit();
@@ -920,8 +928,10 @@ export function ThreadComposer(props: ThreadComposerProps): ReactElement {
               disabled={!draft.trim()}
               onMouseDown={(event) => event.preventDefault()}
             >
-              <ComposeVerbIcon verb={verb} />
               <span>{COMPOSE_VERB_DETAILS[verb].label}</span>
+              <kbd className="thread-compose-kbd" aria-hidden="true">
+                {SUBMIT_SHORTCUT_LABEL}
+              </kbd>
             </button>
             <div
               id={tooltipId}

@@ -3178,6 +3178,7 @@ function C4MapCanvas({
               <C4HoveredNodeContext.Provider value={hoveredNodeId}>
                 <ReactFlow
                   colorMode={theme}
+                  proOptions={{ hideAttribution: true }}
                   nodes={flow.nodes}
                   edges={flow.edges}
                   nodeTypes={c4NodeTypes}

@@ -52,6 +52,10 @@ export const reviewConfigurationDefaults = {
 	'window.menuBarVisibility': 'hidden',
 	'workbench.editor.showTabs': 'multiple',
 	'workbench.editor.editorActionsLocation': 'hidden',
+	// A terminal that opens beside the Review (Ask now, Resume in terminal)
+	// must not lock its group: the lock adds an Unlock control to a tab row
+	// that otherwise matches the main group.
+	'workbench.editor.autoLockGroups': { terminalEditor: false },
 	// Reduce tab widths when the row fills. The native tab control truncates the
 	// labels first. It keeps horizontal scrolling after tabs reach their minimum.
 	'workbench.editor.tabSizing': 'shrink',

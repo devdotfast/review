@@ -105,6 +105,17 @@
   box-sizing: border-box;
   padding-left: calc(var(--review-chrome-left-width, 0px) + 6px);
   padding-right: calc(var(--review-chrome-right-width, 0px) + 6px);
+}
+
+/* Every tab row, not only the top-left one, drags the window from its
+   empty space: a side group (the agent terminal) sits under no titlebar
+   of its own. Tabs, toolbars, and the scrollbar punch no-drag holes below,
+   and a tab drag lifts the region for its duration. */
+.monaco-workbench
+  .part.editor
+  .editor-group-container
+  > .title
+  > .tabs-and-actions-container {
   user-select: none;
   -webkit-app-region: drag;
 }
@@ -113,20 +124,17 @@
   .part.editor
   .editor-group-container
   > .title
-  > .tabs-and-actions-container.review-chrome-inset {
+  > .tabs-and-actions-container {
   -webkit-app-region: no-drag;
 }
 
-.monaco-workbench
-  .part.editor
-  .tabs-and-actions-container.review-chrome-inset
-  .tabs-container {
+.monaco-workbench .part.editor .tabs-and-actions-container .tabs-container {
   -webkit-app-region: drag;
 }
 
 .monaco-workbench.review-tab-dragging
   .part.editor
-  .tabs-and-actions-container.review-chrome-inset
+  .tabs-and-actions-container
   .tabs-container {
   -webkit-app-region: no-drag;
 }
@@ -365,6 +373,33 @@ body
   --editor-group-tab-height: 28px;
   padding-top: 6px;
   padding-bottom: 6px;
+}
+
+/* The group action toolbar (new terminal, profiles, more) has no place in
+   a Review tab row; editorActionsLocation "hidden" covers the main group and
+   this covers a side group that still renders one. */
+body
+  .monaco-workbench.review-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  > .tabs-and-actions-container
+  > .editor-actions {
+  display: none;
+}
+
+/* Side groups (the agent terminal) get the same 6px side inset as the
+   top-left group's chrome inset, so the first pill clears the sash. */
+body
+  .monaco-workbench.review-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  > .tabs-and-actions-container:not(.review-chrome-inset) {
+  padding-right: 6px;
+  padding-left: 6px;
 }
 
 body
@@ -1282,23 +1317,24 @@ body
   opacity: 0.72;
 }
 
-/* The comment form's primary button shows its shortcut as a keycap. The
-   button already carries the shortcut in its aria-label; this makes it
-   visible, in the same keycap style the canvas uses. */
+/* The comment form's primary button shows its shortcut as a keycap, in the
+   keycap style the canvas uses. The button already names the shortcut in its
+   aria-label. The primary is always the first button in .other-actions,
+   directly or inside the split-button wrapper. */
+.monaco-workbench.review-workbench {
+  --review-submit-keycap: "Ctrl↩";
+}
+
+.monaco-workbench.review-workbench.mac {
+  --review-submit-keycap: "⌘↩";
+}
+
 .monaco-workbench.review-workbench
   .review-widget
-  .form-actions
   .other-actions
-  > .monaco-text-button:first-child
-  > span::after,
-.monaco-workbench.review-workbench
-  .review-widget
-  .form-actions
-  .other-actions
-  > .monaco-button-dropdown
-  > .monaco-text-button:first-child
+  .monaco-text-button:first-child
   > span::after {
-  content: "Ctrl↩";
+  content: var(--review-submit-keycap);
   display: inline-grid;
   height: 15px;
   margin-left: 6px;
@@ -1310,22 +1346,6 @@ body
   line-height: 1;
   place-items: center;
   vertical-align: middle;
-}
-
-.monaco-workbench.review-workbench.mac
-  .review-widget
-  .form-actions
-  .other-actions
-  > .monaco-text-button:first-child
-  > span::after,
-.monaco-workbench.review-workbench.mac
-  .review-widget
-  .form-actions
-  .other-actions
-  > .monaco-button-dropdown
-  > .monaco-text-button:first-child
-  > span::after {
-  content: "⌘↩";
 }
 
 .monaco-workbench.review-workbench

@@ -1298,6 +1298,20 @@ export class ReviewWorkbench extends Disposable implements IAgentWorkbenchLayout
 			return;
 		}
 
+		// Every tab row is a window drag region (see review.css); a tab drag
+		// must lift that region on whichever row it starts in.
+		const finishTabDrag = () => this.mainContainer.classList.remove('review-tab-dragging');
+		const tabStripsInPart = editorPartContainer.getElementsByClassName('tabs-and-actions-container');
+		for (let index = 0; index < tabStripsInPart.length; index++) {
+			const tabStrip = tabStripsInPart[index];
+			if (!isHTMLElement(tabStrip)) {
+				continue;
+			}
+			this.reviewChromeDragListeners.add(addDisposableListener(tabStrip, 'dragstart', () => this.mainContainer.classList.add('review-tab-dragging')));
+			this.reviewChromeDragListeners.add(addDisposableListener(tabStrip, 'dragend', finishTabDrag));
+			this.reviewChromeDragListeners.add(addDisposableListener(tabStrip, 'drop', finishTabDrag));
+		}
+
 		let topLeftGroup: HTMLElement | undefined;
 		let topLeftRect: DOMRect | undefined;
 		const groups = editorPartContainer.getElementsByClassName('editor-group-container');
@@ -1328,10 +1342,6 @@ export class ReviewWorkbench extends Disposable implements IAgentWorkbenchLayout
 			if (isHTMLElement(tabStrip)) {
 				this.reviewChromeInsetElement = tabStrip;
 				tabStrip.classList.add('review-chrome-inset');
-				this.reviewChromeDragListeners.add(addDisposableListener(tabStrip, 'dragstart', () => this.mainContainer.classList.add('review-tab-dragging')));
-				const finishTabDrag = () => this.mainContainer.classList.remove('review-tab-dragging');
-				this.reviewChromeDragListeners.add(addDisposableListener(tabStrip, 'dragend', finishTabDrag));
-				this.reviewChromeDragListeners.add(addDisposableListener(tabStrip, 'drop', finishTabDrag));
 				break;
 			}
 		}

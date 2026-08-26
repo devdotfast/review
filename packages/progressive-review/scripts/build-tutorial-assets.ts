@@ -12,6 +12,7 @@ import {
   readdir,
   rm,
   stat,
+  writeFile,
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -47,9 +48,29 @@ const COMMIT_ENV = {
 };
 
 export interface BuiltTutorialAssets {
+  baseCommit: string;
   commit: string;
   peekCount: number;
 }
+
+const BASE_SOURCE_REWRITES = [
+  {
+    path: "src/inventory/inventory-service.ts",
+    head: `  reserve(items: readonly CheckoutItem[]): void {
+    const unavailable = items.find((item) => item.quantity < 1);
+    if (unavailable) {
+      throw new Error(\`Invalid quantity for \${unavailable.sku}\`);
+    }
+  }`,
+    base: "  reserve(_items: readonly CheckoutItem[]): void {}",
+  },
+  {
+    path: "src/payments/payment-gateway.ts",
+    head: `  charge(paymentToken: string, amountCents: number): PaymentReceipt {
+    if (!paymentToken) throw new Error("A payment token is required");`,
+    base: `  charge(_paymentToken: string, amountCents: number): PaymentReceipt {`,
+  },
+] as const;
 
 export async function buildTutorialAssets(
   input: { outDir?: string } = {},
@@ -67,6 +88,19 @@ export async function buildTutorialAssets(
     await git(repo, ["init", "--initial-branch=main"]);
     await git(repo, ["config", "user.name", "Review Tutorial"]);
     await git(repo, ["config", "user.email", "tutorial@review.local"]);
+    const headSources = new Map<string, string>();
+    for (const rewrite of BASE_SOURCE_REWRITES) {
+      const sourcePath = path.join(repo, rewrite.path);
+      const headSource = await readFile(sourcePath, "utf8");
+      if (!headSource.includes(rewrite.head)) {
+        throw new Error(`Tutorial base rewrite is stale for ${rewrite.path}.`);
+      }
+      headSources.set(rewrite.path, headSource);
+      await writeFile(
+        sourcePath,
+        headSource.replace(rewrite.head, rewrite.base),
+      );
+    }
     await git(repo, ["add", "."]);
     await git(repo, [
       "commit",
@@ -74,10 +108,24 @@ export async function buildTutorialAssets(
       "-m",
       "Create sample order service",
     ]);
+    const baseCommit = (await git(repo, ["rev-parse", "HEAD"])).trim();
+    for (const [relativePath, source] of headSources) {
+      await writeFile(path.join(repo, relativePath), source);
+    }
+    await git(repo, ["add", "."]);
+    await git(repo, [
+      "commit",
+      "--no-gpg-sign",
+      "-m",
+      "Validate checkout inputs",
+    ]);
     const commit = (await git(repo, ["rev-parse", "HEAD"])).trim();
     const count = (await git(repo, ["rev-list", "--count", "HEAD"])).trim();
-    if (count !== "1") {
-      throw new Error(`The tutorial repository must have one commit: ${count}`);
+    const parent = (await git(repo, ["rev-parse", "HEAD^"])).trim();
+    if (count !== "2" || parent !== baseCommit) {
+      throw new Error(
+        `The tutorial repository must have a two-commit base/head history: ${count}`,
+      );
     }
 
     // 2. Software-map note, shipped inside the stub so the runtime
@@ -92,14 +140,20 @@ export async function buildTutorialAssets(
       commit,
       content: canonicalizeModelImport(mapSource),
     });
+    await writeNote({
+      rootPath: repo,
+      ref: SOFTWARE_MAP_NOTES_REF,
+      commit: baseCommit,
+      content: canonicalizeModelImport(mapSource),
+    });
 
     // 3. Compile from a throwaway review dir bound to the stub repo — the
     // compiler's software-map scan reads the store record beside the MDX.
     const review = await createReviewDir({
       reviewsHomePath: temporaryRoot,
       worktreePath: repo,
-      baseRef: "main",
-      baseCommit: commit,
+      baseRef: "main~1",
+      baseCommit,
       sourceCommit: commit,
       sourceIdentity: { kind: "git-branch", name: "main" },
     });
@@ -161,7 +215,7 @@ export async function buildTutorialAssets(
     // 5. Software-map bundle with the commit baked into its manifest.
     const maps = await loadPublishSoftwareMaps({
       repoRootPath: repo,
-      baseCommit: commit,
+      baseCommit,
       headCommit: commit,
     });
     if (maps.errors.length > 0 || !maps.base || !maps.head) {
@@ -173,7 +227,7 @@ export async function buildTutorialAssets(
       head: maps.head,
       base: maps.base,
       headCommit: commit,
-      baseCommit: commit,
+      baseCommit,
     });
 
     // 6. Write outputs only after everything validated.
@@ -197,7 +251,7 @@ export async function buildTutorialAssets(
     await cp(path.join(repo, ".git"), gitStub, { recursive: true });
     await makeTreeOwnerWritable(gitStub);
 
-    return { commit, peekCount: evaluation.peekCount };
+    return { baseCommit, commit, peekCount: evaluation.peekCount };
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
   }

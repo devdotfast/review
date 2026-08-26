@@ -707,6 +707,19 @@ button {
   color: var(--ink);
   background: var(--bg);
   color-scheme: dark;
+  --tutorial-scrim: rgba(2, 5, 10, 0.42);
+  --tutorial-ring: color-mix(in srgb, var(--accent) 82%, white);
+  --tutorial-ring-glow: color-mix(in srgb, var(--accent) 44%, transparent);
+  --tutorial-guide-bg: color-mix(
+    in srgb,
+    var(--surface-raised) 96%,
+    transparent
+  );
+  --tutorial-guide-border: color-mix(
+    in srgb,
+    var(--tutorial-ring) 48%,
+    var(--rule-soft)
+  );
   /* Workbench chrome bridge. The canvas mounts straight into the Code OSS DOM
      (no iframe), so the workbench's --vscode-* theme variables are in scope and
      the topbar can dress itself as native chrome. Each token falls back to the
@@ -1616,92 +1629,202 @@ button {
   margin: 14px 0;
 }
 
-.tutorial-checklist {
-  position: absolute;
-  z-index: 30;
-  top: 60px;
-  right: 18px;
-  width: 250px;
-  overflow: hidden;
-  border: 1px solid var(--rule-soft);
-  border-radius: 10px;
-  color: var(--ink);
-  background: var(--surface-raised);
-  box-shadow: 0 10px 32px var(--shadow-color-strong);
+.tutorial-keymap-picker button[aria-pressed="true"] {
+  border-color: var(--selection);
+  color: var(--selection);
+  background: var(--rpc-wash);
 }
 
-.tutorial-checklist header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  padding: 12px 12px 9px;
-  border-bottom: 1px solid var(--rule-soft);
-}
-
-.tutorial-checklist header div {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.tutorial-checklist header span {
-  color: var(--ink-soft);
-  font: 11px var(--font-mono);
-}
-
-.tutorial-checklist header button {
-  border: 0;
-  color: var(--ink-soft);
-  background: var(--transparent);
-  font-size: 18px;
-}
-
-.tutorial-checklist > div {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 11px 12px 13px;
-}
-
-.tutorial-checklist label {
-  display: flex;
-  gap: 8px;
+.tutorial-view-button {
+  display: inline-flex;
   align-items: center;
-  font: 12px/18px var(--font-mono);
-}
-
-/* Shown only once every step is checked: the tour has nothing left to teach,
-   so it offers the way out. */
-.tutorial-checklist-done {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  padding: 11px 12px 13px;
-  border-top: 1px solid var(--rule-soft);
-}
-
-.tutorial-checklist-done span {
-  color: var(--ink-soft);
-  font: 11px/16px var(--font-mono);
-}
-
-.tutorial-checklist-done button {
-  padding: 5px 10px;
-  border: 1px solid var(--transparent);
+  gap: 8px;
+  margin: 6px 0 12px;
+  padding: 6px 11px;
+  border: 1px solid var(--selection);
   border-radius: 6px;
-  color: var(--on-accent);
-  background: var(--accent);
+  color: var(--selection);
+  background: var(--rpc-wash);
   cursor: pointer;
   font: 12px var(--font-mono);
 }
 
-.tutorial-toolbar-action {
-  padding: 4px 8px;
-  border: 1px solid var(--rule-soft);
+.tutorial-view-button:hover {
+  background: var(--accent-stripe);
+}
+
+.tutorial-experience {
+  position: absolute;
+  /* The sticky review toolbar lives on the shared debug layer. The tutorial
+     must paint one layer above it or a toolbar target hides the spotlight and
+     leaves only the border that spills below the toolbar visible. */
+  z-index: calc(var(--review-debug-layer) + 1);
+  inset: 0;
+  pointer-events: none;
+}
+
+.tutorial-spotlight {
+  position: absolute;
+  z-index: 2;
+  border: 2px solid var(--tutorial-ring);
+  border-radius: 9px;
+  box-shadow: 0 0 0 3px var(--tutorial-ring-glow);
+  pointer-events: none;
+}
+
+.tutorial-scrim {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.tutorial-guide {
+  position: absolute;
+  z-index: 3;
+  top: var(--tutorial-guide-top, 64px);
+  left: var(--tutorial-guide-left, calc(100% - 308px));
+  display: flex;
+  width: min(292px, calc(100% - 32px));
+  overflow: hidden;
+  flex-direction: column;
+  border: 1px solid var(--tutorial-guide-border);
+  border-radius: 10px;
+  color: var(--ink);
+  background: var(--tutorial-guide-bg);
+  box-shadow: 0 10px 32px var(--shadow-color-strong);
+  pointer-events: auto;
+  backdrop-filter: blur(16px);
+}
+
+.tutorial-guide header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px 8px;
+}
+
+.tutorial-guide header span {
+  color: var(--ink-soft);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font: 11px var(--font-mono);
+}
+
+.tutorial-guide header button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: var(--ink-soft);
+  background: var(--transparent);
+  place-items: center;
+  font-size: 17px;
+}
+
+.tutorial-guide header button:hover {
+  color: var(--ink);
+  background: var(--control-bg);
+}
+
+.tutorial-guide-progress {
+  height: 2px;
+  margin-inline: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--rule-soft);
+}
+
+.tutorial-guide-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--tutorial-ring);
+  transition: width 220ms ease;
+}
+
+.tutorial-guide-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 13px 14px 15px;
+}
+
+.tutorial-guide-copy > p:first-child {
+  margin: 0;
+  color: var(--tutorial-ring);
+  font: 11px/16px var(--font-mono);
+}
+
+.tutorial-guide-copy h2 {
+  margin: 0;
+  color: var(--ink);
+  font: 500 17px/22px var(--font-serif);
+}
+
+.tutorial-guide-copy > p:last-of-type {
+  margin: 0;
+  color: var(--ink-soft);
+  font: 12px/18px var(--font-mono);
+}
+
+.tutorial-guide-primary {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 6px 10px;
+  border: 1px solid var(--tutorial-ring);
   border-radius: 6px;
+  color: var(--tutorial-ring);
+  background: var(--rpc-wash);
+  font: 12px var(--font-mono);
+}
+
+.tutorial-guide footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 12px 10px;
+  border-top: 1px solid var(--rule-soft);
+}
+
+.tutorial-guide footer button {
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 5px;
   color: var(--ink-soft);
   background: var(--transparent);
   font: 11px var(--font-mono);
+}
+
+.tutorial-guide footer button:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--control-bg);
+}
+
+.tutorial-guide footer button:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+[data-tutorial-chapter-state="active"] > .review-section-header h2 {
+  color: var(--ink);
+}
+
+[data-tutorial-chapter-state="complete"] > .review-section-header::after {
+  margin-left: auto;
+  color: var(--tutorial-ring);
+  content: "Complete ✓";
+  font: 10px/16px var(--font-mono);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-guide-progress span {
+    transition: none;
+  }
 }
 
 .review-home-prompt-tabs {
@@ -1833,6 +1956,15 @@ button {
   --rule-soft: var(--vscode-editorWidget-border, #cccccc);
   --selection: var(--accent);
   --selection-shadow: color-mix(in srgb, var(--accent) 40%, transparent);
+  --tutorial-scrim: rgba(24, 28, 36, 0.24);
+  --tutorial-ring: color-mix(in srgb, var(--accent) 86%, #14213d);
+  --tutorial-ring-glow: color-mix(in srgb, var(--accent) 34%, transparent);
+  --tutorial-guide-bg: color-mix(in srgb, var(--surface-raised) 98%, white);
+  --tutorial-guide-border: color-mix(
+    in srgb,
+    var(--tutorial-ring) 42%,
+    var(--rule-soft)
+  );
   --map-canvas: var(--vscode-review-map-canvas, #ffffff);
   --map-panel-1: var(--vscode-review-map-panel1, #f4f4f8);
   --map-panel-2: var(--vscode-review-map-panel2, #ecedf3);

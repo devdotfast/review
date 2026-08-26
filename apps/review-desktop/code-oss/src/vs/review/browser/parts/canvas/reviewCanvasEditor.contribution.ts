@@ -131,12 +131,33 @@ class ReviewCanvasEditorContribution
     const available = new Set(
       this.sessionService.reviews.map((review) => review.uuid),
     );
+    /* The tutorial intentionally lives outside the store-backed review list,
+       so normal tab restoration cannot resolve it. Restore it only when it
+       was the active tab: this is the path used by the keymap reload prompt,
+       and avoids reopening an inactive tutorial on an ordinary app launch. */
+    let restoreActiveTutorial = false;
+    if (stored.active && !available.has(stored.active)) {
+      try {
+        const status = await this.sessionService.getTutorialStatus();
+        restoreActiveTutorial = status.reviewUuid === stored.active;
+      } catch {
+        // A tutorial status failure must not prevent real review tabs restoring.
+      }
+    }
     for (const reviewUuid of stored.open) {
       if (!available.has(reviewUuid)) continue;
       await this.tabsService.openReview(
         reviewUuid,
-        reviewUuid === stored.active,
+        reviewUuid === stored.active && !restoreActiveTutorial,
       );
+    }
+    if (restoreActiveTutorial) {
+      try {
+        const opened = await this.sessionService.openTutorial();
+        await this.tabsService.openReview(opened.reviewUuid, true);
+      } catch {
+        // Home remains usable when the off-store tutorial cannot be prepared.
+      }
     }
   }
 

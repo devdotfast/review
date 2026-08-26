@@ -74,8 +74,8 @@ export function WelcomePage({
       body: (
         <>
           <p className="review-home-zero-hint">
-            A real review of a small sample repo, with live code and system
-            views. Three minutes, no agent needed.
+            A real review of a small sample repo, with live code, system views,
+            and your installed agent. About three minutes.
           </p>
           {onOpenTutorial ? (
             <button type="button" onClick={onOpenTutorial}>

@@ -1,21 +1,17 @@
 // @vitest-environment jsdom
 
-import type {
-  ReviewCanvasTutorialBridge,
-  ReviewInlineEditorSpec,
-  TutorialStepId,
-} from "@dev.fast/review-protocol";
+import type { ReviewInlineEditorSpec } from "@dev.fast/review-protocol";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import { InlineCodeEditor } from "./InlineCodeEditor";
 import { ReviewFindProvider, createReviewFindHost } from "./review-find";
+import { REVIEW_INTERACTION_EVENT } from "./review-interaction-event";
 import {
   reviewSessionElement,
   testReviewSession,
 } from "./review-session-test-utils";
-import { TutorialProvider } from "./tutorial-context";
 
 class FakeIntersectionObserver {
   static instances: FakeIntersectionObserver[] = [];
@@ -296,9 +292,7 @@ it("mounts eagerly when IntersectionObserver is unavailable", () => {
   expect(created).toHaveLength(1);
 });
 
-it("keeps the native editor mounted when tutorial progress changes", () => {
-  const setStepBefore = vi.fn<() => void>();
-  const setStepAfter = vi.fn<() => void>();
+it("emits neutral hover and navigation interactions without remounting", () => {
   let disposed = 0;
   const session = testReviewSession(
     {},
@@ -334,53 +328,35 @@ it("keeps the native editor mounted when tutorial progress changes", () => {
   const element = document.createElement("div");
   document.body.append(element);
   root = createRoot(element);
-  const renderWithTutorial = (
-    checked: TutorialStepId[],
-    setStep: ReviewCanvasTutorialBridge["setStep"],
-  ) => {
-    const tutorial: ReviewCanvasTutorialBridge = {
-      content: {
-        reviewUuid: "tutorial-review",
-        progress: { version: 1, checked, dismissed: false },
-      },
-      setStep,
-      dismiss() {},
-      reopen() {},
-      async selectKeymap() {},
-      close() {},
-    };
-    act(() => {
-      root?.render(
-        reviewSessionElement(
-          session,
-          <TutorialProvider tutorial={tutorial}>
-            <InlineCodeEditor
-              path="src/example.ts"
-              title="src/example.ts"
-              side="head"
-              ranges={[{ startLine: 10, endLine: 14 }]}
-              heightMode="content"
-              active
-            />
-          </TutorialProvider>,
-        ),
-      );
-    });
-  };
-
-  renderWithTutorial([], setStepBefore);
+  const interactions: unknown[] = [];
+  element.addEventListener(REVIEW_INTERACTION_EVENT, (event) => {
+    interactions.push((event as CustomEvent).detail);
+  });
+  act(() => {
+    root?.render(
+      reviewSessionElement(
+        session,
+        <InlineCodeEditor
+          path="src/example.ts"
+          title="src/example.ts"
+          side="head"
+          ranges={[{ startLine: 10, endLine: 14 }]}
+          heightMode="content"
+          active
+        />,
+      ),
+    );
+  });
   expect(created).toHaveLength(1);
   const { onDidNavigate, onDidShowHover } = created[0]!;
-
-  renderWithTutorial(["showHover"], setStepAfter);
-
-  expect(created).toHaveLength(1);
-  expect(disposed).toBe(0);
   act(() => {
     onDidShowHover?.();
     onDidNavigate?.();
   });
-  expect(setStepBefore).not.toHaveBeenCalled();
-  expect(setStepAfter).toHaveBeenCalledTimes(1);
-  expect(setStepAfter).toHaveBeenCalledWith("gotoDefinition", true);
+  expect(interactions).toEqual([
+    { kind: "inline-hover", path: "src/example.ts" },
+    { kind: "inline-navigation", path: "src/example.ts" },
+  ]);
+  expect(created).toHaveLength(1);
+  expect(disposed).toBe(0);
 });

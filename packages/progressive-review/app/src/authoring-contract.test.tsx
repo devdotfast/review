@@ -19,6 +19,8 @@ import {
   reviewSectionPropsSchema,
   sequenceDiagramPropsSchema,
   softwareMapPropsSchema,
+  tutorialFeaturePropsSchema,
+  tutorialViewButtonPropsSchema,
 } from "../../src/authoring";
 import { validatedCodePeekInputFromRef } from "./CodePeek";
 import { createSequence } from "./diagrams";
@@ -187,7 +189,9 @@ describe("review authoring contract", () => {
       "ReviewSection",
       "SequenceDiagram",
       "TraceQuote",
+      "TutorialFeature",
       "TutorialKeymapPicker",
+      "TutorialViewButton",
     ]);
   });
 
@@ -309,6 +313,16 @@ describe("review authoring contract", () => {
       },
     ],
     ["SoftwareMap", softwareMapPropsSchema, { title: "Map", extra: true }],
+    [
+      "TutorialFeature",
+      tutorialFeaturePropsSchema,
+      { feature: "softwareMap", children: "Map", extra: true },
+    ],
+    [
+      "TutorialViewButton",
+      tutorialViewButtonPropsSchema,
+      { view: "commits", children: "Commits", extra: true },
+    ],
   ] as const)("uses a strict runtime schema for %s", (_name, schema, input) => {
     expect(() => schema.parse(input)).toThrow(ZodError);
   });

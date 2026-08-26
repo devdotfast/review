@@ -995,12 +995,15 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		status: ReviewCliInstallStatus,
 	): ReviewCanvasOnboarding {
 		const checked = new Set(this.readTutorialProgress().checked);
+		const steps = REVIEW_TUTORIAL_STEP_IDS.filter(
+			(step) => step !== "openMap" || this.currentSoftwareMapEnabled(),
+		);
 		return {
 			installed: status.agents.some((agent) => agent.installed),
-			tutorialChecked: REVIEW_TUTORIAL_STEP_IDS.filter((step) =>
+			tutorialChecked: steps.filter((step) =>
 				checked.has(step),
 			).length,
-			tutorialTotal: REVIEW_TUTORIAL_STEP_IDS.length,
+			tutorialTotal: steps.length,
 			// Drafts are filtered out of this list and the tutorial never
 			// joins it, so this counts only a real published review.
 			published: this.sessionService.reviews.length > 0,
@@ -1046,7 +1049,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			onChange({ ...current, checked: [...values] });
 		};
 		return {
-			content: { reviewUuid, progress },
+			content: { reviewUuid, progress, keymap: this.currentKeymap() },
 			setStep,
 			dismiss: () =>
 				onChange({ ...this.readTutorialProgress(), dismissed: true }),
@@ -1056,8 +1059,16 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				if (keymap !== "none" && keymap !== "vim" && keymap !== "emacs") {
 					throw new Error("Unsupported tutorial keymap choice.");
 				}
-				await this.commandService.executeCommand("review.setKeymap", keymap);
 				setStep("chooseKeymap", true);
+				try {
+					/* The keymap command may reload the window before its promise can
+					   settle. Persist the completed step first so the restored tutorial
+					   advances from the choice the user already made. */
+					await this.commandService.executeCommand("review.setKeymap", keymap);
+				} catch (error) {
+					setStep("chooseKeymap", false);
+					throw error;
+				}
 			},
 			close,
 		};

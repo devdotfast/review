@@ -15,30 +15,35 @@ import { promisify } from "node:util";
 import { resolveRevision } from "@dev.fast/local-vcs";
 
 import {
-  DISABLED_REVIEW_SOURCE_SESSION,
+  type ReviewAgentHarness,
+  authoringSessionKey,
+  parseAuthoringSessionKey,
+} from "../authoring-session";
+import {
   type StoredReview,
   createReviewDir,
   createReviewUuid,
+  findReview,
   listReviews,
-  readStoredReview,
   reviewTitleFromDocument,
+  sealReviewCandidate,
 } from "../review-home";
 import {
   pinReviewSourceHeadRef,
   reviewSourceHeadRef,
 } from "../review-source-ref";
 import { devReviewHome } from "../review-storage";
+import { createTutorialAgentSession } from "../tutorial-agent-session";
 import { writePrivateJsonAtomic } from "./desktop-paths";
 
 const execFilePromise = promisify(execFile);
 const TUTORIAL_STATUS_VERSION = 1;
-/* Version 2 marks the precompiled-assets layout. A version-1 stamp (the old
-   compile-on-open flow) reads as invalid, so the first open after an upgrade
-   cleans up and re-materializes. */
-const TUTORIAL_STAMP_VERSION = 2;
+/* Version 6 adds the database and Get help stops to the bundled document.
+   Older tutorial records are re-materialized on first open. */
+const TUTORIAL_STAMP_VERSION = 6;
 
 export interface TutorialStamp {
-  version: 2;
+  version: 6;
   reviewUuid: string;
 }
 
@@ -49,34 +54,30 @@ export interface TutorialStatus {
 
 export interface TutorialService {
   status(): Promise<TutorialStatus>;
-  /** The tutorial Review record, read from the tutorial root — never the
-      review store. Null when absent or invalid. */
+  /** The hidden system Review record. Null when absent or invalid. */
   find(): Promise<StoredReview | null>;
   /** Returns the ready-to-mount tutorial Review. Materializes the shipped
-      repo and record when absent or invalid. Never compiles or seals:
-      the document and map bundles ship precompiled in app resources. */
-  prepare(): Promise<StoredReview>;
+      repo and a sealed revision when absent or invalid. Compilation remains
+      unnecessary because the document and map bundles ship precompiled. */
+  prepare(agent: ReviewAgentHarness): Promise<StoredReview>;
   cleanup(): Promise<void>;
 }
 
 export function createTutorialService(input: {
   packageRoot: string;
   deleteReview(review: StoredReview): Promise<void>;
+  createAgentSession?: typeof createTutorialAgentSession;
 }): TutorialService {
   const tutorialRoot = path.join(devReviewHome(), "tutorial");
   const sampleRoot = path.join(tutorialRoot, "sample-service");
   const stampPath = path.join(tutorialRoot, "stamp.json");
   const assetsRoot = path.join(input.packageRoot, "tutorial");
 
-  // The tutorial Review lives under ~/.dev/tutorial/reviews/<uuid>, not the
-  // review store, so `listReviews` (Home) never sees it.
   const findTutorialReview = async (
     uuid: string,
   ): Promise<StoredReview | null> => {
-    const loaded = await readStoredReview(
-      path.join(tutorialRoot, "reviews", uuid),
-    );
-    return "error" in loaded || loaded.review.uuid !== uuid ? null : loaded;
+    const loaded = await findReview(uuid);
+    return loaded?.review.visibility === "system" ? loaded : null;
   };
 
   const readValidState = async (): Promise<{
@@ -93,14 +94,18 @@ export function createTutorialService(input: {
     // bound to the old commit is stale: re-materialize instead of serving
     // new bundles against the old repository.
     const manifest = await readShippedMapManifest(assetsRoot).catch(() => null);
-    if (!manifest || manifest.headCommit !== review.review.sourceCommit) {
+    if (
+      !manifest ||
+      manifest.headCommit !== review.review.sourceCommit ||
+      manifest.baseCommit !== review.review.baseCommit
+    ) {
       return null;
     }
     return { stamp, review };
   };
 
   const cleanup = async (): Promise<void> => {
-    const listed = await listReviews();
+    const listed = await listReviews({ includeSystem: true });
     for (const review of listed.reviews) {
       if (await isManagedTutorialPath(review.review.worktreePath, sampleRoot)) {
         await input.deleteReview(review);
@@ -123,7 +128,7 @@ export function createTutorialService(input: {
       return state?.review ?? null;
     },
 
-    async prepare() {
+    async prepare(agent) {
       const current = await readValidState();
       if (current) return current.review;
 
@@ -152,41 +157,75 @@ export function createTutorialService(input: {
         reviewSourceHeadRef(uuid),
         head.commit,
       );
+      const sourceAgent = await (
+        input.createAgentSession ?? createTutorialAgentSession
+      )({
+        harness: agent,
+        rootPath: sampleRoot,
+      });
+      const sourceSession = authoringSessionKey(sourceAgent);
       const created = await createReviewDir({
         uuid,
-        reviewsHomePath: tutorialRoot,
+        visibility: "system",
         worktreePath: sampleRoot,
-        baseRef: "main",
-        baseCommit: head.commit,
+        baseRef: "main~1",
+        baseCommit: manifest.baseCommit,
         sourceCommit: head.commit,
         sourceIdentity: { kind: "git-branch", name: "main" },
-        sourceSession: DISABLED_REVIEW_SOURCE_SESSION,
+        sourceSession,
         title: await reviewTitleFromDocument(
           path.join(assetsRoot, "review.mdx"),
         ),
       });
-      // The tutorial is never published: the shipped bundle is the
-      // presentation, so the record is reviewable from creation.
-      const review: StoredReview = {
+      // Store the shipped source and precompiled bundles as a genuine Review
+      // revision. Opening can then use the same materialization and session
+      // path as any published Review.
+      const publishedAt = new Date().toISOString();
+      const candidate: StoredReview = {
         ...created,
         review: {
           ...created.review,
           status: "awaiting-review",
-          lastPublishedAt: new Date().toISOString(),
+          lastPublishedAt: publishedAt,
+        },
+      };
+      await writePrivateJsonAtomic(
+        path.join(candidate.dir, "review.json"),
+        candidate.review,
+      );
+      await Promise.all([
+        cp(
+          path.join(assetsRoot, "review.mdx"),
+          path.join(candidate.dir, "review.mdx"),
+        ),
+        cp(
+          path.join(assetsRoot, "data.ts"),
+          path.join(candidate.dir, "data.ts"),
+        ),
+        cp(
+          path.join(assetsRoot, ".bundle"),
+          path.join(candidate.dir, ".bundle"),
+          {
+            recursive: true,
+          },
+        ),
+      ]);
+      const revision = await sealReviewCandidate(
+        candidate.dir,
+        "Materialize bundled tutorial Review",
+      );
+      const review: StoredReview = {
+        ...candidate,
+        review: {
+          ...candidate.review,
+          presentedDocumentRevision: revision,
+          presentedSoftwareMapRevision: revision,
         },
       };
       await writePrivateJsonAtomic(
         path.join(review.dir, "review.json"),
         review.review,
       );
-      // The state copy of the document is the comment/thread target.
-      await Promise.all([
-        cp(
-          path.join(assetsRoot, "review.mdx"),
-          path.join(review.dir, "review.mdx"),
-        ),
-        cp(path.join(assetsRoot, "data.ts"), path.join(review.dir, "data.ts")),
-      ]);
       await writePrivateJsonAtomic(stampPath, {
         version: TUTORIAL_STAMP_VERSION,
         reviewUuid: review.review.uuid,
@@ -233,7 +272,7 @@ async function materializeSampleRepository(input: {
 
 async function readShippedMapManifest(
   assetsRoot: string,
-): Promise<{ headCommit: string }> {
+): Promise<{ headCommit: string; baseCommit: string }> {
   const manifestPath = path.join(
     assetsRoot,
     ".bundle",
@@ -242,11 +281,15 @@ async function readShippedMapManifest(
   );
   const value = JSON.parse(await readFile(manifestPath, "utf8")) as {
     headCommit?: unknown;
+    baseCommit?: unknown;
   };
-  if (typeof value.headCommit !== "string") {
+  if (
+    typeof value.headCommit !== "string" ||
+    typeof value.baseCommit !== "string"
+  ) {
     throw new Error("Tutorial software-map manifest is invalid.");
   }
-  return { headCommit: value.headCommit };
+  return { headCommit: value.headCommit, baseCommit: value.baseCommit };
 }
 
 async function isValidTutorialReview(
@@ -256,13 +299,26 @@ async function isValidTutorialReview(
   if (!(await isManagedTutorialPath(review.review.worktreePath, sampleRoot))) {
     return false;
   }
+  if (
+    review.review.visibility !== "system" ||
+    !parseAuthoringSessionKey(review.review.sourceSession) ||
+    !review.review.presentedDocumentRevision ||
+    !review.review.presentedSoftwareMapRevision
+  ) {
+    return false;
+  }
   const sourceCommit = review.review.sourceCommit;
-  if (!sourceCommit || review.review.baseCommit !== sourceCommit) return false;
-  const [head, count] = await Promise.all([
+  if (!sourceCommit || review.review.baseCommit === sourceCommit) return false;
+  const [head, base, count] = await Promise.all([
     resolveRevision(sampleRoot, "HEAD").catch(() => null),
+    resolveRevision(sampleRoot, "HEAD^").catch(() => null),
     runGit(sampleRoot, ["rev-list", "--count", "HEAD"]).catch(() => ""),
   ]);
-  return head?.commit === sourceCommit && count.trim() === "1";
+  return (
+    head?.commit === sourceCommit &&
+    base?.commit === review.review.baseCommit &&
+    count.trim() === "2"
+  );
 }
 
 async function readTutorialStamp(

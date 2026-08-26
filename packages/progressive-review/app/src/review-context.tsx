@@ -34,7 +34,6 @@ import {
   targetAppearsInAnchor,
 } from "./thread-target-index";
 import { useResolvedBaseRef, useResolvedHeadRef } from "./thread-target-model";
-import { useCompleteTutorialStep } from "./tutorial-context";
 import { captureUiEvent, reviewAppTelemetryHeaders } from "./ui-telemetry";
 
 export type LocalCommentThread = ReviewLocalCommentThread;
@@ -268,16 +267,6 @@ function ReviewCoordinator({
     () => buildThreadTargetIndex(commentThreads.values()),
     [commentThreads],
   );
-
-  // The tutorial step for starting a thread. Both composer verbs create a
-  // local comment. Watching the store also catches the code-oss comment widget,
-  // which never calls this file's saveComment.
-  const completeLeaveComment = useCompleteTutorialStep("leaveComment");
-  useEffect(() => {
-    if (commentThreads.size > 0 || localComments.size > 0) {
-      completeLeaveComment?.();
-    }
-  }, [commentThreads, localComments, completeLeaveComment]);
 
   const focusThread = useCallback(
     (threadId: string, options?: { scroll?: boolean; inline?: boolean }) => {

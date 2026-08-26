@@ -47,6 +47,7 @@ const UUID_PATTERN =
 export interface CreateReviewDirBinding {
   uuid?: string;
   reviewsHomePath?: string;
+  visibility?: "system";
   worktreePath: string;
   baseRef: string;
   baseCommit: string;
@@ -72,6 +73,7 @@ export interface ListReviewsFilter {
   worktreePath?: string;
   repoKey?: string;
   status?: ReviewRecord["status"];
+  includeSystem?: boolean;
 }
 
 export interface ReviewHomeError {
@@ -121,6 +123,7 @@ export async function createReviewDir(
   const review: StoredReviewRecord = {
     schemaVersion: REVIEW_SCHEMA_VERSION,
     uuid,
+    ...(binding.visibility ? { visibility: binding.visibility } : {}),
     repoKey: repository.repositoryId,
     worktreePath,
     baseRef: binding.baseRef,
@@ -435,6 +438,7 @@ export async function listReviews(
       continue;
     }
     if (
+      (!filter.includeSystem && entry.review.visibility === "system") ||
       (filter.worktreePath &&
         entry.review.worktreePath !== path.resolve(filter.worktreePath)) ||
       (filter.repoKey && entry.review.repoKey !== filter.repoKey) ||

@@ -134,14 +134,24 @@ describe("review info", () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "review-info-home-"));
     const mockR2Dir = path.join(home, "mock-r2");
     const traceSearchDir = path.join(home, "trace-search");
+    const traceSettingsPath = path.join(home, "trace-settings.json");
     const sessionId = "11111111-1111-4111-8111-111111111111";
     vi.stubEnv("DEV_REVIEW_HOME", home);
     vi.stubEnv("TRACE_R2_MODE", "mock");
     vi.stubEnv("TRACE_R2_MOCK_DIR", mockR2Dir);
+    vi.stubEnv("TRACE_SETTINGS_FILE", traceSettingsPath);
     vi.stubEnv("REVIEW_TEST_TRACE_SEARCH_DIR", traceSearchDir);
     vi.stubEnv("GITHUB_REPOSITORY", "acme/widgets");
 
     try {
+      await writeFile(
+        traceSettingsPath,
+        JSON.stringify({
+          version: 1,
+          enabled: true,
+          autoActivateRepositories: true,
+        }),
+      );
       await git(root, ["config", "devfast.prepare", "echo ok"]);
       await git(root, ["checkout", "-b", "feature"]);
       await writeFile(path.join(root, "README.md"), "# Feature\n", "utf8");

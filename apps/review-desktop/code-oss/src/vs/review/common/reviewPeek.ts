@@ -149,8 +149,8 @@ export function reviewPeekCappedHeight(
 /** The subset of ICodeEditor that window measurement needs. */
 export interface ReviewPeekRenderedEditor {
   getModel(): unknown;
-  getTopForLineNumber(lineNumber: number): number;
-  getBottomForLineNumber(lineNumber: number): number;
+  getTopForLineNumber(lineNumber: number, includeViewZones?: boolean): number;
+  getBottomForLineNumber(lineNumber: number, includeViewZones?: boolean): number;
 }
 
 /**
@@ -167,8 +167,11 @@ export function reviewPeekWindowsRenderedHeight(
   if (!editor.getModel() || windows.length === 0) return undefined;
   let height = 0;
   for (const window of windows) {
-    const top = editor.getTopForLineNumber(window.startLine);
-    const bottom = editor.getBottomForLineNumber(window.endLine);
+    // Monaco excludes view zones by default. Comment composers are view
+    // zones, so omitting this flag leaves their DOM mounted inside an editor
+    // whose host never grows tall enough to reveal them.
+    const top = editor.getTopForLineNumber(window.startLine, true);
+    const bottom = editor.getBottomForLineNumber(window.endLine, true);
     if (bottom <= top) return undefined;
     height += bottom - top;
   }

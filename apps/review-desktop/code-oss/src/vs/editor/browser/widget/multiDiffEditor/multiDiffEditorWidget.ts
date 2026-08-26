@@ -61,6 +61,11 @@ export class MultiDiffEditorWidget extends Disposable {
 	}
 
 	public setViewModel(viewModel: MultiDiffEditorViewModel | undefined, options?: { readonly preserveFocus?: boolean; readonly initialScrollPosition?: 'firstChange' | 'top'; readonly viewState?: IMultiDiffEditorViewState }): void {
+		// clearInput can finish after this widget and its scoped services are disposed.
+		// Do not recreate the derived widget through a disposed instantiation service.
+		if (this._store.isDisposed) {
+			return;
+		}
 		// An editor opened with `preserveFocus` (e.g. restored in the background
 		// or on a session switch) must not have its automatic first-change
 		// selection steal keyboard focus from elsewhere (such as the chat input).

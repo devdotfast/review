@@ -378,14 +378,20 @@ export class TextMateTokenizationFeature extends Disposable implements ITextMate
 	private _getVSCodeOniguruma(): Promise<typeof import('vscode-oniguruma')> {
 		if (!this._vscodeOniguruma) {
 			this._vscodeOniguruma = (async () => {
-				const [vscodeOniguruma, wasm] = await Promise.all([importAMDNodeModule<typeof import('vscode-oniguruma')>('vscode-oniguruma', 'release/main.js'), this._loadVSCodeOnigurumaWASM()]);
-				await vscodeOniguruma.loadWASM({
-					data: wasm,
-					print: (str: string) => {
-						this._debugModePrintFunc(str);
-					}
-				});
-				return vscodeOniguruma;
+				try {
+					const [vscodeOniguruma, wasm] = await Promise.all([importAMDNodeModule<typeof import('vscode-oniguruma')>('vscode-oniguruma', 'release/main.js'), this._loadVSCodeOnigurumaWASM()]);
+					await vscodeOniguruma.loadWASM({
+						data: wasm,
+						print: (str: string) => {
+							this._debugModePrintFunc(str);
+						}
+					});
+					return vscodeOniguruma;
+				} catch (error) {
+					// A transient load error must not disable tokenization for the session.
+					this._vscodeOniguruma = null;
+					throw error;
+				}
 			})();
 		}
 		return this._vscodeOniguruma;

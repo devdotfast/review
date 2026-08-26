@@ -1603,6 +1603,7 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 			this._onProcessExit({
 				message: nls.localize('workspaceEmptyCreateTerminalCwd', "Cannot launch a terminal process in an empty workspace with cwd {0} different from userHome {1}", this._cwd, this._userHome)
 			});
+			return;
 		}
 		// Re-evaluate dimensions if the container has been set since the xterm instance was created
 		if (this._container && this._cols === 0 && this._rows === 0) {

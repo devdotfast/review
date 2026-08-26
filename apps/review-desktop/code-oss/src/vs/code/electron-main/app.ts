@@ -301,6 +301,11 @@ export class CodeApplication extends Disposable {
 		// But allow them if they are made from inside an webview
 		const isSafeFrame = (requestFrame: WebFrameMain | null | undefined): boolean => {
 			for (let frame: WebFrameMain | null | undefined = requestFrame; frame; frame = frame.parent) {
+				// A request callback can run after its webview or window closes.
+				// Electron throws when code reads properties from a destroyed frame.
+				if (frame.isDestroyed()) {
+					return false;
+				}
 				if (frame.url.startsWith(`${Schemas.vscodeWebview}://`)) {
 					return true;
 				}
@@ -314,7 +319,7 @@ export class CodeApplication extends Disposable {
 
 		const isAllowedVsCodeFileRequest = (details: Electron.OnBeforeRequestListenerDetails) => {
 			const frame = details.frame;
-			if (!frame || !this.windowsMainService) {
+			if (!frame || frame.isDestroyed() || !this.windowsMainService) {
 				return false;
 			}
 
@@ -335,7 +340,7 @@ export class CodeApplication extends Disposable {
 			}
 
 			const frame = details.frame;
-			if (!frame || !this.windowsMainService) {
+			if (!frame || frame.isDestroyed() || !this.windowsMainService) {
 				return false;
 			}
 
@@ -1338,7 +1343,10 @@ export class CodeApplication extends Disposable {
 
 		// Native host (main & shared process)
 		this.nativeHostMainService = accessor.get(INativeHostMainService);
-		const nativeHostChannel = ProxyChannel.fromService(this.nativeHostMainService, disposables);
+		const nativeHostChannel = ProxyChannel.fromService(this.nativeHostMainService, disposables, {
+			// This event has main-process consumers but no IPC consumer, so its buffer would never drain.
+			unbufferedEvents: ['onDidBlurMainWindow']
+		});
 		mainProcessElectronServer.registerChannel('nativeHost', nativeHostChannel);
 		sharedProcessClient.then(client => client.registerChannel('nativeHost', nativeHostChannel));
 

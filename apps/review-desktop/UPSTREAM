@@ -4,6 +4,30 @@ Repository: https://github.com/microsoft/vscode.git
 Upstream commit: 8a7abeba6e03ea3af87bfbce9a1b7e48fed567b8
 Serialization tag: code-oss-upstream-8a7abeba
 
+## Post-vendor security and reliability backports
+
+Review applies these focused VS Code changes without changing the source pin:
+
+- Electron 42.9.3 and its authentication type update:
+  `eff5556afcf7a77abefa5d5b83dc26ac895ff8bf`,
+  `28cf0a82a08a5f8e9288d19b4218ec1eb5ee46a6`.
+- Applicable security hardening from
+  `06a2bc84d0555f4c7ebd176809673e61fa49c6ff`. Review includes environment
+  sanitization, owned transfer buffers, production extension-development
+  restrictions, extension URL confirmation ordering, and invalid terminal
+  working-directory termination. Review excludes the workspace trust hunk and
+  changes for pruned subsystems.
+- Native event buffering: `876ce72e199704eb7f85b92ed580a3413e9c9f42`.
+- Listener leak instrumentation: `0e03962871113c2b3c525ede47dcf8197915f10a`.
+- Main-thread editor disposal: `b5f99abe4c3ca01cd5271bbeb562c1c508341f43`.
+- Code action disposal: `507a5a0f09e914160a9e8d45e6d1dd1f25329d5a`.
+- Disposed multi-diff guard: `9302a9e943f45090b8f89f59c9e83362bb973b92`.
+- Destroyed Electron frame guards: `1058ac0ced09b96d5745c379cdfd50f855f57036`.
+- Retry after failed Oniguruma loads: `5c7bf1f5abd4b51d290f4d9861d5d00ecdcb2de0`.
+
+Review also keeps `@anthropic-ai/sdk` as a development-only type dependency.
+It must not appear in the packaged production dependency set.
+
 ## Vendor-time exclusions
 
 The following upstream paths were excluded before the vendor commit was

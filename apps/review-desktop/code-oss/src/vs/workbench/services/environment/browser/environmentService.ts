@@ -298,8 +298,8 @@ export class BrowserWorkbenchEnvironmentService implements IBrowserWorkbenchEnvi
 			extensionDevelopmentKind: undefined
 		};
 
-		// Fill in selected extra environmental properties
-		if (this.payload) {
+		// Extension development options from the payload are valid only in development or smoke tests.
+		if (this.payload && (!this.isBuilt || this.enableSmokeTestDriver)) {
 			for (const [key, value] of this.payload) {
 				switch (key) {
 					case 'extensionDevelopmentPath':

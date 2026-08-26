@@ -1512,7 +1512,7 @@ describe("review app light theme", () => {
     expect(styles).not.toContain(".review-document h1 + p code");
   });
 
-  it("passes the active review theme through every React Flow surface", () => {
+  it("configures every React Flow surface", () => {
     const diagramsSource = readFileSync(
       new URL("./diagrams.tsx", import.meta.url),
       "utf8",
@@ -1526,10 +1526,14 @@ describe("review app light theme", () => {
       "const { theme } = useReviewDebugSettings()",
     );
     expect(diagramsSource).toContain("colorMode={theme}");
+    expect(diagramsSource).toContain("proOptions={{ hideAttribution: true }}");
     expect(softwareMapSource).toContain(
       "const { theme } = useReviewDebugSettings()",
     );
     expect(softwareMapSource).toContain("colorMode={theme}");
+    expect(softwareMapSource).toContain(
+      "proOptions={{ hideAttribution: true }}",
+    );
   });
 
   it("keeps markdown code blocks on the prose measure and highlights explicit languages", () => {

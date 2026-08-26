@@ -33,11 +33,7 @@ export function TutorialKeymapPicker(_props: TutorialKeymapPickerProps) {
               .finally(() => setPending(null));
           }}
         >
-          {pending === choice.value
-            ? "Applying…"
-            : tutorial?.content.keymap === choice.value
-              ? `${choice.label} ✓`
-              : choice.label}
+          {pending === choice.value ? "Applying…" : choice.label}
         </button>
       ))}
     </div>

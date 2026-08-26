@@ -98,10 +98,7 @@ import { diffSoftwareMaps } from "./software-map/topology-diff";
 import { ThreadAnnotations } from "./thread-annotations";
 import { ThreadDraftCard } from "./thread-card";
 import { ThreadTargetModelProvider } from "./thread-target-model";
-import {
-  TutorialExperience,
-  TutorialToolbarAction,
-} from "./tutorial-experience";
+import { TutorialExperienceProvider } from "./tutorial-experience";
 import { captureClientError, captureUiEvent } from "./ui-telemetry";
 import { useReviewTabTelemetry } from "./use-review-tab-telemetry";
 
@@ -472,246 +469,249 @@ function ReviewLayoutContent({
             : "review-document-shell"
         }
       >
-        <header className="review-topbar">
-          <div className="review-topbar-left">
-            <div
-              className="review-segmented"
-              role="group"
-              aria-label="Review views"
-            >
-              {reviewViews.map((view) => (
-                <button
-                  key={view}
-                  type="button"
-                  aria-label={
-                    view === "map"
-                      ? "Map (Experimental)"
-                      : reviewViewLabel(view)
-                  }
-                  aria-pressed={activeView === view}
-                  title={view === "map" ? "Map (Experimental)" : undefined}
-                  className={
-                    activeView === view
-                      ? "review-segment review-segment--active"
-                      : "review-segment"
-                  }
-                  onClick={() => applyReviewView(view)}
-                >
-                  <span>{reviewViewLabel(view)}</span>
-                  {view === "diff" && filesTabFileCount !== null && (
-                    <span className="review-segment-count">
-                      {filesTabFileCount}
-                    </span>
-                  )}
-                  {view === "commits" && (
-                    <span className="review-segment-count">
-                      {commits.length}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              className="review-open-source-tree"
-              title="Open the read-only source tree"
-              onClick={() => {
-                captureUiEvent(session, "source_tree_opened", {
-                  via: "topbar",
-                });
-                session.surface.post({ name: "openSourceTree", args: {} });
-              }}
-            >
-              Open source tree ↗
-            </button>
-          </div>
-          <div className="review-topbar-actions">
-            <TutorialToolbarAction />
-            <ReviewHistoryControl />
-            <BugReportControl />
-            <ReviewBatonChip outcome={review.submissionOutcome} />
-            <div
-              className={
-                threadsPanelOpen || askPanelOpen
-                  ? "topbar-threads-split topbar-threads-split--active"
-                  : "topbar-threads-split"
-              }
-              role="group"
-              aria-label="Threads"
-            >
+        <TutorialExperienceProvider
+          shellRef={shellRef}
+          scrollRegionRef={scrollRegionRef}
+        >
+          <header className="review-topbar">
+            <div className="review-topbar-left">
+              <div
+                className="review-segmented"
+                role="group"
+                aria-label="Review views"
+              >
+                {reviewViews.map((view) => (
+                  <button
+                    key={view}
+                    type="button"
+                    aria-label={
+                      view === "map"
+                        ? "Map (Experimental)"
+                        : reviewViewLabel(view)
+                    }
+                    aria-pressed={activeView === view}
+                    title={view === "map" ? "Map (Experimental)" : undefined}
+                    className={
+                      activeView === view
+                        ? "review-segment review-segment--active"
+                        : "review-segment"
+                    }
+                    onClick={() => applyReviewView(view)}
+                  >
+                    <span>{reviewViewLabel(view)}</span>
+                    {view === "diff" && filesTabFileCount !== null && (
+                      <span className="review-segment-count">
+                        {filesTabFileCount}
+                      </span>
+                    )}
+                    {view === "commits" && (
+                      <span className="review-segment-count">
+                        {commits.length}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
               <button
                 type="button"
-                className={
-                  threadsPanelOpen
-                    ? "topbar-threads-button topbar-threads-button--active"
-                    : "topbar-threads-button"
-                }
+                className="review-open-source-tree"
+                title="Open the read-only source tree"
                 onClick={() => {
-                  captureUiEvent(session, "threads_opened", {
-                    thread_count: threadCount,
+                  captureUiEvent(session, "source_tree_opened", {
+                    via: "topbar",
                   });
-                  session.surface.showThreads();
-                  openThreadsWithDraftCleanup({
-                    draftTarget: review.draftTarget,
-                    closeCommentDraft: review.closeCommentDraft,
-                    openThreads,
-                  });
+                  session.surface.post({ name: "openSourceTree", args: {} });
                 }}
-                aria-pressed={threadsPanelOpen}
               >
-                <ThreadsIcon />
-                <span>Threads</span>
-                {threadCount > 0 && (
-                  <span className="topbar-threads-count">{threadCount}</span>
-                )}
+                Open source tree ↗
               </button>
-              {!review.historicalRevision &&
-                review.submissionOutcome !== "approved" &&
-                review.submissionOutcome !== "dismissed" && (
-                  <button
-                    type="button"
-                    className={
-                      askPanelOpen
-                        ? "topbar-new-ask-button topbar-new-ask-button--active"
-                        : "topbar-new-ask-button"
-                    }
-                    aria-pressed={askPanelOpen}
-                    aria-label={askOrCommentLabel}
-                    title={askOrCommentLabel}
-                    onClick={() => {
-                      captureUiEvent(session, "new_ask_opened", {
-                        via: "topbar",
-                      });
-                      session.surface.showThreads();
-                      openNewAsk();
-                    }}
-                  >
-                    <TerminalIcon />
-                  </button>
-                )}
             </div>
-            {!review.historicalRevision && !review.submissionOutcome && (
-              <div className="topbar-actions-divider" />
-            )}
-            {!review.historicalRevision && !review.submissionOutcome ? (
-              <ReviewCornerAction />
-            ) : null}
-          </div>
-        </header>
-        {review.historicalRevision ? (
-          <div className="review-history-banner" role="status">
-            <span>You are viewing an older version of this review.</span>
-            <button
-              type="button"
-              onClick={() =>
-                void session.surface.post({
-                  name: "openReviewRevision",
-                  args: {},
-                })
-              }
-            >
-              Back to latest
-            </button>
-          </div>
-        ) : null}
-        <section
-          ref={scrollRegionRef}
-          className={`review-view-region review-view-region--${activeView}`}
-          data-review-scroll-owner={
-            activeView === "review" ? "document" : undefined
-          }
-        >
-          <div
-            className="review-document-view"
-            hidden={activeView !== "review"}
-          >
-            <>
-              <ReviewToc />
-              <ReviewDocumentSelectionSurface articleRef={articleRef}>
-                <ReviewDocumentBoundary
-                  key={documentRevision}
-                  session={session}
-                  revision={documentRevision}
-                  onError={(_revision, error) =>
-                    reportReviewDocumentRenderError(session, error)
+            <div className="review-topbar-actions">
+              <ReviewHistoryControl />
+              <BugReportControl />
+              <ReviewBatonChip outcome={review.submissionOutcome} />
+              <div
+                className={
+                  threadsPanelOpen || askPanelOpen
+                    ? "topbar-threads-split topbar-threads-split--active"
+                    : "topbar-threads-split"
+                }
+                role="group"
+                aria-label="Threads"
+              >
+                <button
+                  type="button"
+                  className={
+                    threadsPanelOpen
+                      ? "topbar-threads-button topbar-threads-button--active"
+                      : "topbar-threads-button"
                   }
-                >
-                  <ReviewViewStateProvider
-                    tourRestore={viewStateSync.tourRestore}
-                    persistOverlayTour={viewStateSync.persistOverlayTour}
-                  >
-                    <ReviewDocumentContent ReviewDocument={ReviewDocument} />
-                  </ReviewViewStateProvider>
-                </ReviewDocumentBoundary>
-                <ThreadAnnotations
-                  articleRef={articleRef}
-                  onOpenInPanel={(thread) => {
+                  onClick={() => {
+                    captureUiEvent(session, "threads_opened", {
+                      thread_count: threadCount,
+                    });
                     session.surface.showThreads();
-                    openCommentThread(thread.threadId);
+                    openThreadsWithDraftCleanup({
+                      draftTarget: review.draftTarget,
+                      closeCommentDraft: review.closeCommentDraft,
+                      openThreads,
+                    });
                   }}
-                />
-              </ReviewDocumentSelectionSurface>
-            </>
-          </div>
-          {softwareMapEnabled && activeView === "map" && (
-            <div className="review-map-view">
-              <div className="review-map-canvas-shell">
-                <SoftwareMapTopologyUnavailable
-                  repoSoftwareMap={repoSoftwareMap}
-                  baseSoftwareMap={baseSoftwareMap}
-                  baseRef={review.resolvedBaseRef ?? undefined}
-                  headRef={review.resolvedHeadRef ?? undefined}
-                />
-                <SoftwareMap
-                  model={activeSoftwareMap ?? undefined}
-                  focusRequest={review.softwareMapFocusRequest}
-                  height="100%"
-                  showChrome={false}
-                  showFloatingActions={!activePanel}
-                  registerTargets={false}
-                />
-                <MapSettingsControl />
+                  aria-pressed={threadsPanelOpen}
+                >
+                  <ThreadsIcon />
+                  <span>Threads</span>
+                  {threadCount > 0 && (
+                    <span className="topbar-threads-count">{threadCount}</span>
+                  )}
+                </button>
+                {!review.historicalRevision &&
+                  review.submissionOutcome !== "approved" &&
+                  review.submissionOutcome !== "dismissed" && (
+                    <button
+                      type="button"
+                      className={
+                        askPanelOpen
+                          ? "topbar-new-ask-button topbar-new-ask-button--active"
+                          : "topbar-new-ask-button"
+                      }
+                      aria-pressed={askPanelOpen}
+                      aria-label={askOrCommentLabel}
+                      title={askOrCommentLabel}
+                      onClick={() => {
+                        captureUiEvent(session, "new_ask_opened", {
+                          via: "topbar",
+                        });
+                        session.surface.showThreads();
+                        openNewAsk();
+                      }}
+                    >
+                      <TerminalIcon />
+                    </button>
+                  )}
               </div>
+              {!review.historicalRevision && !review.submissionOutcome && (
+                <div className="topbar-actions-divider" />
+              )}
+              {!review.historicalRevision && !review.submissionOutcome ? (
+                <ReviewCornerAction />
+              ) : null}
             </div>
-          )}
-          {activeView === "commits" && (
-            <ReviewCommitsView
-              commits={commits}
-              range={range}
-              onOpenDiff={(commit, via) => {
-                setDiffScope(commit);
-                captureUiEvent(session, "commit_diff_opened", { via });
-                applyReviewView("diff");
-              }}
-            />
-          )}
-          <div
-            aria-hidden={activeView !== "diff" || diffScope !== null}
-            className={
-              activeView === "diff" && diffScope === null
-                ? "review-diff-view"
-                : "review-diff-view review-diff-view--preloaded"
+          </header>
+          {review.historicalRevision ? (
+            <div className="review-history-banner" role="status">
+              <span>You are viewing an older version of this review.</span>
+              <button
+                type="button"
+                onClick={() =>
+                  void session.surface.post({
+                    name: "openReviewRevision",
+                    args: {},
+                  })
+                }
+              >
+                Back to latest
+              </button>
+            </div>
+          ) : null}
+          <section
+            ref={scrollRegionRef}
+            className={`review-view-region review-view-region--${activeView}`}
+            data-review-scroll-owner={
+              activeView === "review" ? "document" : undefined
             }
           >
-            <ReviewDiffView />
-          </div>
-          {activeView === "diff" && diffScope !== null && (
-            <div className="review-diff-view review-diff-view--scoped">
-              <CommitDiffScopeBar
-                commit={diffScope}
-                onBack={() => {
-                  setDiffScope(null);
-                  applyReviewView("commits");
+            <div
+              className="review-document-view"
+              hidden={activeView !== "review"}
+            >
+              <>
+                <ReviewToc />
+                <ReviewDocumentSelectionSurface articleRef={articleRef}>
+                  <ReviewDocumentBoundary
+                    key={documentRevision}
+                    session={session}
+                    revision={documentRevision}
+                    onError={(_revision, error) =>
+                      reportReviewDocumentRenderError(session, error)
+                    }
+                  >
+                    <ReviewViewStateProvider
+                      tourRestore={viewStateSync.tourRestore}
+                      persistOverlayTour={viewStateSync.persistOverlayTour}
+                    >
+                      <ReviewDocumentContent ReviewDocument={ReviewDocument} />
+                    </ReviewViewStateProvider>
+                  </ReviewDocumentBoundary>
+                  <ThreadAnnotations
+                    articleRef={articleRef}
+                    onOpenInPanel={(thread) => {
+                      session.surface.showThreads();
+                      openCommentThread(thread.threadId);
+                    }}
+                  />
+                </ReviewDocumentSelectionSurface>
+              </>
+            </div>
+            {softwareMapEnabled && activeView === "map" && (
+              <div className="review-map-view">
+                <div className="review-map-canvas-shell">
+                  <SoftwareMapTopologyUnavailable
+                    repoSoftwareMap={repoSoftwareMap}
+                    baseSoftwareMap={baseSoftwareMap}
+                    baseRef={review.resolvedBaseRef ?? undefined}
+                    headRef={review.resolvedHeadRef ?? undefined}
+                  />
+                  <SoftwareMap
+                    model={activeSoftwareMap ?? undefined}
+                    focusRequest={review.softwareMapFocusRequest}
+                    height="100%"
+                    showChrome={false}
+                    showFloatingActions={!activePanel}
+                    registerTargets={false}
+                  />
+                  <MapSettingsControl />
+                </div>
+              </div>
+            )}
+            {activeView === "commits" && (
+              <ReviewCommitsView
+                commits={commits}
+                range={range}
+                onOpenDiff={(commit, via) => {
+                  setDiffScope(commit);
+                  captureUiEvent(session, "commit_diff_opened", { via });
+                  applyReviewView("diff");
                 }}
               />
-              <ReviewDiffView scope={{ commit: diffScope.commit }} />
+            )}
+            <div
+              aria-hidden={activeView !== "diff" || diffScope !== null}
+              className={
+                activeView === "diff" && diffScope === null
+                  ? "review-diff-view"
+                  : "review-diff-view review-diff-view--preloaded"
+              }
+            >
+              <ReviewDiffView />
             </div>
-          )}
-          {activeView === "trace" && (
-            <ReviewTraceView initialSelection={traceSelection} />
-          )}
-        </section>
-        <TutorialExperience />
+            {activeView === "diff" && diffScope !== null && (
+              <div className="review-diff-view review-diff-view--scoped">
+                <CommitDiffScopeBar
+                  commit={diffScope}
+                  onBack={() => {
+                    setDiffScope(null);
+                    applyReviewView("commits");
+                  }}
+                />
+                <ReviewDiffView scope={{ commit: diffScope.commit }} />
+              </div>
+            )}
+            {activeView === "trace" && (
+              <ReviewTraceView initialSelection={traceSelection} />
+            )}
+          </section>
+        </TutorialExperienceProvider>
       </main>
       {rightPanelOpen && (
         <div

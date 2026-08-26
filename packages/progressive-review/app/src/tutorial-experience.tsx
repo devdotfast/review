@@ -1,7 +1,7 @@
-import type { TutorialStepId } from "@dev.fast/review-protocol";
 import {
-  type CSSProperties,
   type ReactElement,
+  type ReactNode,
+  type RefObject,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -9,7 +9,9 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 
+import { TutorialIcon } from "./icons";
 import { useReview } from "./review-context";
 import {
   REVIEW_INTERACTION_EVENT,
@@ -23,36 +25,62 @@ import {
   availableTutorialSteps,
   tutorialChapter,
 } from "./tutorial-plan";
-
-interface TutorialTargetLayout {
-  stepId: TutorialStepId;
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-  chapterLeft: number;
-  chapterTop: number;
-  chapterWidth: number;
-  chapterHeight: number;
-  guideLeft: number;
-  guideTop: number;
-}
+import {
+  type TutorialChapterState,
+  TutorialSectionProvider,
+} from "./tutorial-section-context";
 
 type DiagramTourKind = "sequence" | "database" | "other";
 
-const GUIDE_WIDTH = 292;
-const GUIDE_HEIGHT_ESTIMATE = 224;
-const GUIDE_GAP = 14;
-const EDGE_GAP = 16;
+interface TutorialExperienceState {
+  activeStep: TutorialStepDefinition | null;
+  activeIndex: number;
+  steps: readonly TutorialStepDefinition[];
+  totalSteps: number;
+  hidden: boolean;
+  /** A comment composer has focus: the guide folds to its header. */
+  composing: boolean;
+  onBack(): void;
+  onNext(): void;
+  onDismiss(): void;
+  onFinish(): void;
+  onClose(): void;
+}
 
-export function TutorialExperience(): ReactElement | null {
+const COMPOSER_SELECTOR =
+  ".comment-form-container, .review-widget.compact-comment-thread, .thread-compose";
+
+/**
+ * Drives the tutorial for the document shell it wraps. The guide card sits in
+ * the bottom right corner of the shell in every view; hidden, it shrinks to a
+ * small floating button there. The step's target carries
+ * `data-tutorial-target` for its highlight. Nothing measures the target, so
+ * typing and scrolling never move the card.
+ */
+export function TutorialExperienceProvider({
+  shellRef,
+  scrollRegionRef,
+  children,
+}: {
+  shellRef: RefObject<HTMLElement | null>;
+  /** The scrolling view region; target rings for its content live inside
+      it so they scroll with the content. */
+  scrollRegionRef?: RefObject<HTMLElement | null>;
+  children: ReactNode;
+}): ReactElement {
   const tutorial = useTutorial();
   const review = useReview();
-  const hostRef = useRef<HTMLDivElement | null>(null);
   const revealedChapterRef = useRef<TutorialChapterId | null>(null);
-  const [targetLayout, setTargetLayout] = useState<TutorialTargetLayout | null>(
-    null,
-  );
+  // The shell ref belongs to an ancestor, so it attaches after this
+  // provider's layout effects. Read it once mounted and key effects on it.
+  const [shell, setShell] = useState<HTMLElement | null>(null);
+  const [region, setRegion] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setShell(shellRef.current);
+    setRegion(scrollRegionRef?.current ?? null);
+  }, [scrollRegionRef, shellRef]);
+  const [targets, setTargets] = useState<readonly HTMLElement[]>([]);
+  const [composing, setComposing] = useState(false);
   const [diagramTourKind, setDiagramTourKind] =
     useState<DiagramTourKind | null>(null);
   const steps = useMemo(
@@ -72,7 +100,7 @@ export function TutorialExperience(): ReactElement | null {
     ? steps.findIndex((step) => step.id === activeStep.id)
     : steps.length;
   const threadCount = review.allCommentThreads().length;
-  const guideHidden = dismissed || diagramTourKind !== null;
+  const hidden = !tutorial || dismissed || diagramTourKind !== null;
 
   const completeStep = useCallback(
     (step: TutorialStepDefinition) => {
@@ -95,9 +123,7 @@ export function TutorialExperience(): ReactElement | null {
   }, [activeStep, completeStep, dismissed, threadCount]);
 
   useLayoutEffect(() => {
-    const root = hostRef.current?.closest<HTMLElement>(
-      ".review-document-shell",
-    );
+    const root = shell;
     const canvasRoot =
       root?.closest<HTMLElement>(".review-canvas-root") ?? root?.parentElement;
     if (!canvasRoot) return;
@@ -117,7 +143,7 @@ export function TutorialExperience(): ReactElement | null {
     const observer = new MutationObserver(update);
     observer.observe(canvasRoot, { childList: true, subtree: true });
     return () => observer.disconnect();
-  }, []);
+  }, [shell]);
 
   useEffect(() => {
     if (dismissed || !activeStep) {
@@ -133,9 +159,7 @@ export function TutorialExperience(): ReactElement | null {
   }, [activeStep, completeStep, diagramTourKind, dismissed]);
 
   useEffect(() => {
-    const root = hostRef.current?.closest<HTMLElement>(
-      ".review-document-shell",
-    );
+    const root = shell;
     if (!root || dismissed || !activeStep) return;
     const onClick = (event: Event) => {
       if (activeStep.completion !== "click") return;
@@ -161,209 +185,136 @@ export function TutorialExperience(): ReactElement | null {
       root.removeEventListener("click", onClick, true);
       root.removeEventListener(REVIEW_INTERACTION_EVENT, onReviewInteraction);
     };
-  }, [activeStep, completeStep, dismissed]);
+  }, [activeStep, completeStep, dismissed, shell]);
 
+  // Fold the guide while a comment composer has focus, so it never covers
+  // the text the reader is writing.
+  useEffect(() => {
+    const root = shell;
+    if (!root || hidden) return;
+    const update = () => {
+      const active = document.activeElement;
+      setComposing(
+        active instanceof Element && active.closest(COMPOSER_SELECTOR) !== null,
+      );
+    };
+    root.addEventListener("focusin", update);
+    root.addEventListener("focusout", update);
+    update();
+    return () => {
+      root.removeEventListener("focusin", update);
+      root.removeEventListener("focusout", update);
+    };
+  }, [hidden, shell]);
+
+  // Bring a newly active chapter into view once. The section itself expands
+  // through the section context; nothing collapses the other chapters.
   useLayoutEffect(() => {
-    const root = hostRef.current?.closest<HTMLElement>(
-      ".review-document-shell",
-    );
-    if (!root || dismissed) {
+    const root = shell;
+    if (!root || hidden) {
       revealedChapterRef.current = null;
       return;
     }
+    if (revealedChapterRef.current === activeChapterId) return;
+    revealedChapterRef.current = activeChapterId;
     const activeTitle = tutorialChapter(activeChapterId).title;
-    const availableByChapter = new Map<TutorialChapterId, TutorialStepId[]>();
-    for (const step of steps) {
-      const values = availableByChapter.get(step.chapter) ?? [];
-      values.push(step.id);
-      availableByChapter.set(step.chapter, values);
-    }
-    const sections = [
-      ...root.querySelectorAll<HTMLElement>("[data-review-section]"),
-    ];
-    for (const section of sections) {
-      const title = section.dataset.reviewSection;
-      const chapter = TUTORIAL_CHAPTERS.find(
-        (candidate) => candidate.title === title,
-      );
-      if (!chapter) continue;
-      const chapterSteps = availableByChapter.get(chapter.id) ?? [];
-      const chapterComplete =
-        chapter.id === "finish"
-          ? completed
-          : chapterSteps.every((id) => checked.has(id));
-      section.dataset.tutorialChapterState =
-        chapter.id === activeChapterId
-          ? "active"
-          : chapterComplete
-            ? "complete"
-            : "upcoming";
-      const toggle = section.querySelector<HTMLButtonElement>(
-        ".review-section-toggle",
-      );
-      const shouldExpand = title === activeTitle;
-      const expanded = toggle?.getAttribute("aria-expanded") === "true";
-      if (toggle && shouldExpand !== expanded) toggle.click();
-    }
-    if (revealedChapterRef.current !== activeChapterId) {
-      const activeSection = sections.find(
-        (section) => section.dataset.reviewSection === activeTitle,
-      );
-      activeSection?.scrollIntoView({ block: "start", behavior: "smooth" });
-      revealedChapterRef.current = activeChapterId;
-    }
-    return () => {
-      for (const section of sections) {
-        delete section.dataset.tutorialChapterState;
-      }
-    };
-  }, [activeChapterId, checked, completed, dismissed, steps]);
+    [...root.querySelectorAll<HTMLElement>("[data-review-section]")]
+      .find((section) => section.dataset.reviewSection === activeTitle)
+      ?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [activeChapterId, hidden, shell]);
 
+  // Mark the active step's target. DOM changes coalesce into one query per
+  // frame; no geometry is measured and state changes only when the answer does.
   useLayoutEffect(() => {
-    const root = hostRef.current?.closest<HTMLElement>(
-      ".review-document-shell",
-    );
-    if (!root || guideHidden || !activeStep) {
-      setTargetLayout(null);
+    const root = shell;
+    if (!root || hidden || !activeStep) {
+      setTargets([]);
       return;
     }
-    let target: HTMLElement | null = null;
-    let targetResizeObserver: ResizeObserver | null = null;
-    let frame = 0;
-    let revealedTarget = false;
-    const update = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        const nextTarget = root.querySelector<HTMLElement>(
-          activeStep.targetSelector,
+    // A step can name several targets (a toolbar tab and a prose button that
+    // open the same view); every match is marked.
+    let targets: HTMLElement[] = [];
+    let revealed = false;
+    let scheduledFrame: number | null = null;
+    const apply = () => {
+      let next = [
+        ...root.querySelectorAll<HTMLElement>(activeStep.targetSelector),
+      ];
+      // A line-marking step points at one code block: the first visible match.
+      if (activeStep.lineMatcher) {
+        const first = next.find(
+          (candidate) => candidate.closest("[hidden]") === null,
         );
-        if (nextTarget !== target) {
-          targetResizeObserver?.disconnect();
-          target = nextTarget;
-          if (target && typeof ResizeObserver !== "undefined") {
-            targetResizeObserver = new ResizeObserver(update);
-            targetResizeObserver.observe(target);
-          }
+        next = first ? [first] : [];
+      }
+      for (const target of targets) {
+        if (!next.includes(target)) delete target.dataset.tutorialTarget;
+      }
+      for (const target of next) target.dataset.tutorialTarget = activeStep.id;
+      targets = next;
+      const visible = targets.filter(
+        (target) => target.closest("[hidden]") === null,
+      );
+      setTargets((current) =>
+        current.length === visible.length &&
+        current.every((target, index) => target === visible[index])
+          ? current
+          : visible,
+      );
+      if (activeStep.lineMatcher && visible[0]) {
+        markTutorialLine(root, visible[0], activeStep.lineMatcher);
+      }
+      // Bring an off-screen target into view once per step. This is the only
+      // measurement the tutorial makes, and it happens on a step change, not
+      // on scroll.
+      const first = visible[0];
+      if (first && !revealed) {
+        revealed = true;
+        const view = (
+          root.querySelector(".review-view-region") ?? root
+        ).getBoundingClientRect();
+        const rect = first.getBoundingClientRect();
+        if (rect.bottom > view.bottom || rect.top < view.top) {
+          first.scrollIntoView({ block: "center", behavior: "smooth" });
         }
-        if (!target) {
-          setTargetLayout(null);
-          return;
-        }
-        const rootRect = root.getBoundingClientRect();
-        const targetRect = target.getBoundingClientRect();
-        const viewRect = root
-          .querySelector<HTMLElement>(".review-view-region")
-          ?.getBoundingClientRect();
-        const guideHeight =
-          hostRef.current
-            ?.querySelector<HTMLElement>(".tutorial-guide")
-            ?.getBoundingClientRect().height || GUIDE_HEIGHT_ESTIMATE;
-        const chapterRect = root
-          .querySelector<HTMLElement>('[data-tutorial-chapter-state="active"]')
-          ?.getBoundingClientRect();
-        if (
-          targetRect.width <= 0 ||
-          targetRect.height <= 0 ||
-          targetRect.bottom <= rootRect.top ||
-          targetRect.top >= rootRect.bottom
-        ) {
-          if (
-            !revealedTarget &&
-            targetRect.width > 0 &&
-            targetRect.height > 0
-          ) {
-            revealedTarget = true;
-            target.scrollIntoView({ block: "center", behavior: "smooth" });
-          }
-          setTargetLayout(null);
-          return;
-        }
-        const left = targetRect.left - rootRect.left;
-        const top = targetRect.top - rootRect.top;
-        const width = targetRect.width;
-        const height = targetRect.height;
-        const rightSpace = rootRect.width - (left + width);
-        const belowSpace = rootRect.height - (top + height);
-        const guideMinTop = clamp(
-          (viewRect?.top ?? rootRect.top) - rootRect.top + EDGE_GAP,
-          EDGE_GAP,
-          Math.max(EDGE_GAP, rootRect.height - EDGE_GAP),
-        );
-        const guideBottom = clamp(
-          (viewRect?.bottom ?? rootRect.bottom) - rootRect.top - EDGE_GAP,
-          guideMinTop,
-          Math.max(guideMinTop, rootRect.height - EDGE_GAP),
-        );
-        const guideMaxTop = Math.max(guideMinTop, guideBottom - guideHeight);
-        let guideLeft: number;
-        let guideTop: number;
-        if (rightSpace >= GUIDE_WIDTH + GUIDE_GAP + EDGE_GAP) {
-          guideLeft = left + width + GUIDE_GAP;
-          guideTop = clamp(top, guideMinTop, guideMaxTop);
-        } else if (belowSpace >= GUIDE_HEIGHT_ESTIMATE + GUIDE_GAP) {
-          guideLeft = clamp(
-            left,
-            EDGE_GAP,
-            rootRect.width - GUIDE_WIDTH - EDGE_GAP,
-          );
-          guideTop = clamp(top + height + GUIDE_GAP, guideMinTop, guideMaxTop);
-        } else {
-          guideLeft = rootRect.width - GUIDE_WIDTH - EDGE_GAP;
-          guideTop = guideMinTop;
-        }
-        setTargetLayout({
-          stepId: activeStep.id,
-          left,
-          top,
-          width,
-          height,
-          chapterLeft: chapterRect ? chapterRect.left - rootRect.left : 0,
-          chapterTop: chapterRect ? chapterRect.top - rootRect.top : 0,
-          chapterWidth: chapterRect?.width ?? 0,
-          chapterHeight: chapterRect?.height ?? 0,
-          guideLeft,
-          guideTop,
-        });
+      }
+    };
+    const scheduleApply = () => {
+      if (scheduledFrame !== null) return;
+      scheduledFrame = requestAnimationFrame(() => {
+        scheduledFrame = null;
+        apply();
       });
     };
-    const mutationObserver = new MutationObserver(update);
-    mutationObserver.observe(root, {
+    const observer = new MutationObserver(scheduleApply);
+    observer.observe(root, {
       attributes: true,
-      attributeFilter: ["aria-expanded", "aria-pressed", "class", "hidden"],
+      attributeFilter: ["hidden"],
       childList: true,
       subtree: true,
     });
-    const rootResizeObserver =
-      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
-    rootResizeObserver?.observe(root);
-    root.addEventListener("scroll", update, true);
-    window.addEventListener("resize", update);
-    update();
+    apply();
     return () => {
-      cancelAnimationFrame(frame);
-      mutationObserver.disconnect();
-      rootResizeObserver?.disconnect();
-      targetResizeObserver?.disconnect();
-      root.removeEventListener("scroll", update, true);
-      window.removeEventListener("resize", update);
+      observer.disconnect();
+      if (scheduledFrame !== null) cancelAnimationFrame(scheduledFrame);
+      for (const target of targets) delete target.dataset.tutorialTarget;
+      clearTutorialLine(root);
     };
-  }, [activeStep, guideHidden]);
+  }, [activeStep, hidden, shell]);
 
+  const rings = useTargetRings(targets, shell, region);
+
+  // Back reopens the previous step only, so crossing a chapter boundary
+  // lands on that chapter's last step rather than its first.
   const goBack = useCallback(() => {
     if (!tutorial || activeIndex <= 0) return;
-    const previous = steps[activeIndex - 1]!;
-    if (activeStep?.chapter === "finish") {
-      tutorial.setStep(previous.id, false);
-      return;
-    }
-    if (activeStep && previous.chapter !== activeStep.chapter) {
-      for (const step of steps) {
-        if (step.chapter === previous.chapter) tutorial.setStep(step.id, false);
-      }
-      return;
-    }
-    tutorial.setStep(previous.id, false);
-  }, [activeIndex, activeStep, steps, tutorial]);
+    tutorial.setStep(steps[activeIndex - 1]!.id, false);
+  }, [activeIndex, steps, tutorial]);
+
+  const goNext = useCallback(() => {
+    if (!tutorial || !activeStep || activeStep.completion === "finish") return;
+    tutorial.setStep(activeStep.id, true);
+  }, [activeStep, tutorial]);
 
   const finishTour = useCallback(() => {
     if (!tutorial || activeStep?.completion !== "finish") return;
@@ -371,118 +322,124 @@ export function TutorialExperience(): ReactElement | null {
     tutorial.close();
   }, [activeStep, completeStep, tutorial]);
 
-  if (!tutorial) return null;
-  const activeTargetLayout =
-    targetLayout?.stepId === activeStep?.id ? targetLayout : null;
-  const guideStyle = activeTargetLayout
-    ? ({
-        "--tutorial-guide-left": `${activeTargetLayout.guideLeft}px`,
-        "--tutorial-guide-top": `${activeTargetLayout.guideTop}px`,
-      } as CSSProperties)
-    : undefined;
-  const spotlightStyle = activeTargetLayout
-    ? ({
-        left: activeTargetLayout.left - 5,
-        top: activeTargetLayout.top - 5,
-        width: activeTargetLayout.width + 10,
-        height: activeTargetLayout.height + 10,
-      } as CSSProperties)
-    : undefined;
+  const experience: TutorialExperienceState | null = tutorial
+    ? {
+        activeStep,
+        activeIndex,
+        steps,
+        totalSteps: steps.length,
+        hidden,
+        composing,
+        onBack: goBack,
+        onNext: goNext,
+        onDismiss: tutorial.dismiss,
+        onFinish: finishTour,
+        onClose: tutorial.close,
+      }
+    : null;
+
+  const sectionValue = useMemo(() => {
+    const chapterStates = new Map<string, TutorialChapterState>();
+    if (!tutorial || dismissed) return { chapterStates };
+    for (const chapter of TUTORIAL_CHAPTERS) {
+      const chapterSteps = steps.filter((step) => step.chapter === chapter.id);
+      const chapterComplete =
+        chapter.id === "finish"
+          ? completed
+          : chapterSteps.every((step) => checked.has(step.id));
+      chapterStates.set(
+        chapter.title,
+        chapter.id === activeChapterId
+          ? "active"
+          : chapterComplete
+            ? "complete"
+            : "upcoming",
+      );
+    }
+    return { chapterStates };
+  }, [activeChapterId, checked, completed, dismissed, steps, tutorial]);
 
   return (
-    <div
-      ref={hostRef}
-      className="tutorial-experience"
-      data-tutorial-active-step={activeStep?.id ?? "complete"}
-      style={guideStyle}
-    >
-      {!guideHidden && activeTargetLayout ? (
-        <>
-          <svg className="tutorial-scrim" aria-hidden="true">
-            <defs>
-              <mask id="tutorial-scrim-mask" maskUnits="userSpaceOnUse">
-                <rect width="100%" height="100%" fill="white" />
-                <rect
-                  x={activeTargetLayout.chapterLeft - 8}
-                  y={activeTargetLayout.chapterTop - 8}
-                  width={activeTargetLayout.chapterWidth + 16}
-                  height={activeTargetLayout.chapterHeight + 16}
-                  rx="10"
-                  fill="black"
-                />
-                <rect
-                  x={activeTargetLayout.left - 5}
-                  y={activeTargetLayout.top - 5}
-                  width={activeTargetLayout.width + 10}
-                  height={activeTargetLayout.height + 10}
-                  rx="9"
-                  fill="black"
-                />
-              </mask>
-            </defs>
-            <rect
-              width="100%"
-              height="100%"
-              fill="var(--tutorial-scrim)"
-              mask="url(#tutorial-scrim-mask)"
-            />
-          </svg>
-          <div
-            className="tutorial-spotlight"
-            style={spotlightStyle}
-            aria-hidden="true"
-          />
-        </>
+    <TutorialSectionProvider value={sectionValue}>
+      {children}
+      {region && rings.some((ring) => ring.host === "region")
+        ? createPortal(
+            <div className="tutorial-target-layer" aria-hidden="true">
+              {rings
+                .filter((ring) => ring.host === "region")
+                .map((ring) => (
+                  <TutorialTargetRing key={ring.key} ring={ring} />
+                ))}
+            </div>,
+            region,
+          )
+        : null}
+      {tutorial && diagramTourKind === null ? (
+        <div className="tutorial-experience">
+          {rings
+            .filter((ring) => ring.host === "shell")
+            .map((ring) => (
+              <TutorialTargetRing key={ring.key} ring={ring} />
+            ))}
+          {dismissed ? (
+            <button
+              type="button"
+              className="tutorial-guide-pill"
+              aria-label="Show tutorial"
+              title="Show tutorial"
+              onClick={tutorial.reopen}
+            >
+              <TutorialIcon />
+            </button>
+          ) : (
+            <TutorialGuide experience={experience} />
+          )}
+        </div>
       ) : null}
-      {!guideHidden ? (
-        <TutorialGuide
-          activeStep={activeStep}
-          activeIndex={activeIndex}
-          totalSteps={steps.length}
-          targetFound={activeTargetLayout !== null}
-          onBack={goBack}
-          onDismiss={tutorial.dismiss}
-          onFinish={finishTour}
-          onClose={tutorial.close}
-        />
-      ) : null}
-    </div>
+    </TutorialSectionProvider>
   );
 }
 
+/** The guide card: chapter, step, instruction, and tour controls. */
 function TutorialGuide({
-  activeStep,
-  activeIndex,
-  totalSteps,
-  targetFound,
-  onBack,
-  onDismiss,
-  onFinish,
-  onClose,
+  experience,
 }: {
-  activeStep: TutorialStepDefinition | null;
-  activeIndex: number;
-  totalSteps: number;
-  targetFound: boolean;
-  onBack(): void;
-  onDismiss(): void;
-  onFinish(): void;
-  onClose(): void;
-}): ReactElement {
+  experience: TutorialExperienceState | null;
+}): ReactElement | null {
+  if (!experience || experience.hidden) return null;
+  const { activeStep, activeIndex, totalSteps } = experience;
   const chapter = tutorialChapter(activeStep?.chapter ?? "finish");
   const chapterIndex = TUTORIAL_CHAPTERS.findIndex(
     (candidate) => candidate.id === chapter.id,
   );
-  const fallback = activeStep
-    ? tutorialFallbackAction(activeStep, targetFound)
-    : tutorialViewAction("review", "Return to the tour");
+  // "3.2" reads as chapter 3, step 2 within that chapter.
+  const stepInChapter = activeStep
+    ? experience.steps
+        .filter((step) => step.chapter === activeStep.chapter)
+        .findIndex((step) => step.id === activeStep.id) + 1
+    : 0;
+  const chapterLabel = stepInChapter
+    ? `${chapterIndex + 1}.${stepInChapter}`
+    : `${chapterIndex + 1}`;
   return (
-    <aside className="tutorial-guide" aria-label="Tutorial guide">
+    <aside
+      className={
+        experience.composing
+          ? "tutorial-guide tutorial-guide--folded"
+          : "tutorial-guide"
+      }
+      aria-label="Tutorial guide"
+      data-tutorial-step={activeStep?.id ?? "complete"}
+    >
       <header>
         <span>
-          Chapter {chapterIndex + 1} of {TUTORIAL_CHAPTERS.length}
+          Chapter {chapterLabel} of {TUTORIAL_CHAPTERS.length}
         </span>
-        <button type="button" onClick={onDismiss} aria-label="Hide tutorial">
+        <button
+          type="button"
+          onClick={experience.onDismiss}
+          aria-label="Hide tutorial"
+        >
           ×
         </button>
       </header>
@@ -493,37 +450,32 @@ function TutorialGuide({
           }}
         />
       </div>
-      <div className="tutorial-guide-copy" aria-live="polite">
+      <div className="tutorial-guide-copy">
         <p>{chapter.title}</p>
         <h2>{activeStep?.title ?? "Tour complete"}</h2>
         <p>
           {activeStep?.instruction ??
             "You have walked through the core Review experience."}
         </p>
-        {fallback ? (
-          <button
-            type="button"
-            className="tutorial-guide-primary"
-            onClick={fallback.run}
-          >
-            {fallback.label}
-          </button>
-        ) : null}
       </div>
       <footer>
-        <button type="button" onClick={onBack} disabled={activeIndex <= 0}>
+        <button
+          type="button"
+          onClick={experience.onBack}
+          disabled={activeIndex <= 0}
+        >
           Back
         </button>
         {activeStep?.completion === "finish" ? (
-          <button type="button" onClick={onFinish}>
+          <button type="button" onClick={experience.onFinish}>
             Finish tour
           </button>
         ) : activeStep ? (
-          <button type="button" onClick={onDismiss}>
-            Skip tour
+          <button type="button" onClick={experience.onNext}>
+            Next
           </button>
         ) : (
-          <button type="button" onClick={onClose}>
+          <button type="button" onClick={experience.onClose}>
             Close tutorial
           </button>
         )}
@@ -532,56 +484,173 @@ function TutorialGuide({
   );
 }
 
-function tutorialFallbackAction(
-  step: TutorialStepDefinition,
-  targetFound: boolean,
-): { label: string; run(): void } | null {
-  if (targetFound) return null;
-  if (step.id === "openDiff") {
-    return tutorialViewAction("commits", "Open Commits");
-  }
-  if (
-    step.chapter === "welcome" ||
-    step.chapter === "comments" ||
-    step.chapter === "diagrams" ||
-    step.chapter === "finish"
-  ) {
-    return tutorialViewAction("review", "Return to the tour");
-  }
-  return null;
+interface TutorialRingBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
 }
 
-function tutorialViewAction(
-  view: "review" | "commits",
-  label: string,
-): { label: string; run(): void } {
-  return {
-    label,
-    run: () => {
-      const ariaLabel = view === "review" ? "Review" : "Commits";
-      document
-        .querySelector<HTMLButtonElement>(
-          `.review-segment[aria-label="${ariaLabel}"]`,
-        )
-        ?.click();
-    },
-  };
+interface TutorialRing {
+  key: string;
+  /** Where the ring is drawn: inside the scroll region (moves with the
+      content) or in the shell overlay (toolbar targets). */
+  host: "region" | "shell";
+  /** Inline targets (links) get one wash box per line, no outline. */
+  inline: boolean;
+  radius: number;
+  boxes: TutorialRingBox[];
 }
 
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
+const RING_GAP = 4;
+
+/**
+ * Measures the marked targets and describes a ring for each. Measurement
+ * happens on a target change, on a target or content resize, and on a
+ * window resize — never on scroll. Rings for content inside the scroll
+ * region are placed in the region's own coordinate space, so they travel
+ * with the content and never lag.
+ */
+function useTargetRings(
+  targets: readonly HTMLElement[],
+  shell: HTMLElement | null,
+  region: HTMLElement | null,
+): TutorialRing[] {
+  const [rings, setRings] = useState<TutorialRing[]>([]);
+  useLayoutEffect(() => {
+    if (!shell || targets.length === 0) {
+      setRings([]);
+      return;
+    }
+    let frame = 0;
+    const measure = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const shellRect = shell.getBoundingClientRect();
+        const regionRect = region?.getBoundingClientRect();
+        setRings(
+          targets.map((target, index) => {
+            const inRegion = region !== null && region.contains(target);
+            const originLeft =
+              inRegion && regionRect
+                ? regionRect.left - region.scrollLeft
+                : shellRect.left;
+            const originTop =
+              inRegion && regionRect
+                ? regionRect.top - region.scrollTop
+                : shellRect.top;
+            const inline = target instanceof HTMLAnchorElement;
+            const rects = inline
+              ? [...target.getClientRects()]
+              : [target.getBoundingClientRect()];
+            const radius = parseFloat(getComputedStyle(target).borderRadius);
+            return {
+              key: `${index}:${target.dataset.tutorialTarget ?? ""}`,
+              host: inRegion ? "region" : "shell",
+              inline,
+              radius: (Number.isFinite(radius) ? radius : 4) + RING_GAP,
+              boxes: (rects.length ? rects : [target.getBoundingClientRect()])
+                // A wrapped link reports an empty rect at the break.
+                .filter((rect, _, all) => all.length === 1 || rect.width > 0)
+                .map((rect) => ({
+                  left: rect.left - originLeft,
+                  top: rect.top - originTop,
+                  width: rect.width,
+                  height: rect.height,
+                })),
+            };
+          }),
+        );
+      });
+    };
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(measure);
+    for (const target of targets) resizeObserver?.observe(target);
+    // Content above a target can grow (an editor mounts, a composer opens)
+    // without the target itself resizing, so watch the region's content too.
+    if (region) {
+      for (const child of region.querySelectorAll(
+        ":scope > *, :scope > .review-document-view > *",
+      )) {
+        resizeObserver?.observe(child);
+      }
+    }
+    window.addEventListener("resize", measure);
+    measure();
+    return () => {
+      cancelAnimationFrame(frame);
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [region, shell, targets]);
+  return rings;
 }
 
-export function TutorialToolbarAction(): ReactElement | null {
-  const tutorial = useTutorial();
-  if (!tutorial || !tutorial.content.progress.dismissed) return null;
+function TutorialTargetRing({ ring }: { ring: TutorialRing }): ReactElement {
   return (
-    <button
-      type="button"
-      className="tutorial-toolbar-action review-corner-submit"
-      onClick={tutorial.reopen}
-    >
-      Resume Tutorial
-    </button>
+    <>
+      {ring.boxes.map((box, index) => (
+        <div
+          key={index}
+          className={
+            ring.inline
+              ? "tutorial-target-ring tutorial-target-ring--inline"
+              : "tutorial-target-ring"
+          }
+          style={
+            ring.inline
+              ? {
+                  left: box.left - 4,
+                  top: box.top - 1,
+                  width: box.width + 8,
+                  height: box.height + 2,
+                }
+              : {
+                  left: box.left - RING_GAP,
+                  top: box.top - RING_GAP,
+                  width: box.width + RING_GAP * 2,
+                  height: box.height + RING_GAP * 2,
+                  borderRadius: ring.radius,
+                }
+          }
+        />
+      ))}
+    </>
   );
+}
+
+/**
+ * Marks the first rendered code line whose text matches, plus the gutter
+ * row at the same offset so its comment control can show. Monaco keeps rows
+ * in visual order by their `top` style, not by DOM order.
+ */
+function markTutorialLine(
+  root: HTMLElement,
+  editor: HTMLElement,
+  matcher: RegExp,
+): void {
+  clearTutorialLine(root);
+  const rows = [...editor.querySelectorAll<HTMLElement>(".view-line")].sort(
+    (left, right) => parseFloat(left.style.top) - parseFloat(right.style.top),
+  );
+  const row = rows.find((candidate) =>
+    matcher.test(candidate.textContent ?? ""),
+  );
+  if (!row) return;
+  row.dataset.tutorialLine = "";
+  for (const margin of editor.querySelectorAll<HTMLElement>(
+    ".margin-view-overlays > div",
+  )) {
+    if (margin.style.top === row.style.top) margin.dataset.tutorialLine = "";
+  }
+}
+
+function clearTutorialLine(root: HTMLElement): void {
+  for (const marked of root.querySelectorAll<HTMLElement>(
+    "[data-tutorial-line]",
+  )) {
+    delete marked.dataset.tutorialLine;
+  }
 }

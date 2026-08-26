@@ -184,6 +184,20 @@ export function ContentsIcon(): ReactElement {
   );
 }
 
+export function TutorialIcon(): ReactElement {
+  return (
+    <svg
+      aria-hidden="true"
+      className="ui-icon ui-icon--tutorial"
+      focusable="false"
+      viewBox="0 0 24 24"
+    >
+      <path d="M4.5 5.5h4.75A2.75 2.75 0 0 1 12 8.25V19a2.75 2.75 0 0 0-2.75-2.75H4.5V5.5Z" />
+      <path d="M19.5 5.5h-4.75A2.75 2.75 0 0 0 12 8.25V19a2.75 2.75 0 0 1 2.75-2.75h4.75V5.5Z" />
+    </svg>
+  );
+}
+
 export function PlusIcon(): ReactElement {
   return (
     <svg

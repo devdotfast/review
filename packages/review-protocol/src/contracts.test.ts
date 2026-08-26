@@ -110,6 +110,7 @@ const session = {
   appUrl: "http://127.0.0.1:5570/",
   sessionUrl: "http://127.0.0.1:5570/sessions/session-1",
   reviewPath: "/tmp/repo/review.mdx",
+  freshQuestionHarness: "codex",
   startedAt: 1,
 };
 const submission = {

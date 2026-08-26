@@ -552,6 +552,12 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			return;
 		}
 		if (input.target.kind === "welcome") {
+			void this.sessionService.prepareTutorial().catch((error) =>
+				this.logService.warn(
+					"[Review] Tutorial preparation did not complete:",
+					error,
+				),
+			);
 			this.renderedInput = input;
 			this.renderedModel = null;
 			this.sessionModelService.setActiveModel(null);

@@ -378,6 +378,30 @@ export type TutorialKeymapPickerProps = z.infer<
   typeof tutorialKeymapPickerPropsSchema
 >;
 
+export const tutorialAuthoringConversationSchema = z.strictObject({
+  version: z.literal(1),
+  title: nonEmptyStringSchema,
+  messages: z
+    .array(
+      z.strictObject({
+        role: z.enum(["user", "assistant"]),
+        body: nonEmptyStringSchema,
+      }),
+    )
+    .min(2),
+});
+export type TutorialAuthoringConversation = z.infer<
+  typeof tutorialAuthoringConversationSchema
+>;
+
+export const tutorialAuthoringConversationPropsSchema = z.strictObject({
+  conversation: tutorialAuthoringConversationSchema,
+  children: noChildrenSchema,
+});
+export type TutorialAuthoringConversationProps = z.infer<
+  typeof tutorialAuthoringConversationPropsSchema
+>;
+
 export const tutorialFeaturePropsSchema = z.strictObject({
   feature: z.literal("softwareMap"),
   children: reactNodeSchema,
@@ -510,6 +534,7 @@ export interface ReviewAuthoringComponentRegistry {
   ReviewSection: ComponentType<ReviewSectionProps>;
   SequenceDiagram: ComponentType<SequenceDiagramProps>;
   TraceQuote: ComponentType<TraceQuoteProps>;
+  TutorialAuthoringConversation: ComponentType<TutorialAuthoringConversationProps>;
   TutorialFeature: ComponentType<TutorialFeatureProps>;
   TutorialKeymapPicker: ComponentType<TutorialKeymapPickerProps>;
   TutorialViewButton: ComponentType<TutorialViewButtonProps>;
@@ -531,6 +556,7 @@ export const reviewAuthoringPropsSchemas = {
   ReviewSection: reviewSectionPropsSchema,
   SequenceDiagram: sequenceDiagramPropsSchema,
   TraceQuote: traceQuotePropsSchema,
+  TutorialAuthoringConversation: tutorialAuthoringConversationPropsSchema,
   TutorialFeature: tutorialFeaturePropsSchema,
   TutorialKeymapPicker: tutorialKeymapPickerPropsSchema,
   TutorialViewButton: tutorialViewButtonPropsSchema,

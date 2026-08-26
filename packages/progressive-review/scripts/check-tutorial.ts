@@ -2,14 +2,17 @@
    into a throwaway directory, and checks the outputs plus the static
    authoring contracts. Authoring drift fails here, not on a user machine. */
 import { execFile } from "node:child_process";
-import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
 import ts from "typescript";
 
-import { reviewAuthoringPropsSchemas } from "../src/authoring";
+import {
+  reviewAuthoringPropsSchemas,
+  tutorialAuthoringConversationSchema,
+} from "../src/authoring";
 import { buildTutorialAssets } from "./build-tutorial-assets";
 
 const execFilePromise = promisify(execFile);
@@ -26,6 +29,19 @@ async function main(): Promise<void> {
     checkSequenceEvidence(
       await readFile(path.join(tutorialRoot, "data.ts"), "utf8"),
     );
+    tutorialAuthoringConversationSchema.parse(
+      JSON.parse(
+        await readFile(
+          path.join(tutorialRoot, "authoring-conversation.json"),
+          "utf8",
+        ),
+      ),
+    );
+    if (!("TutorialAuthoringConversation" in reviewAuthoringPropsSchemas)) {
+      throw new Error(
+        "TutorialAuthoringConversation is absent from the authoring registry.",
+      );
+    }
     if (!("TutorialKeymapPicker" in reviewAuthoringPropsSchemas)) {
       throw new Error(
         "TutorialKeymapPicker is absent from the authoring registry.",
@@ -39,6 +55,7 @@ async function main(): Promise<void> {
 
     const outDir = path.join(temporaryRoot, "assets");
     const built = await buildTutorialAssets({ outDir });
+    await checkRuntimeManifest(outDir);
 
     const documentManifest = JSON.parse(
       await readFile(
@@ -99,6 +116,59 @@ async function main(): Promise<void> {
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
   }
+}
+
+async function checkRuntimeManifest(outDir: string): Promise<void> {
+  const manifest = JSON.parse(
+    await readFile(path.join(tutorialRoot, "runtime-manifest.json"), "utf8"),
+  ) as {
+    version?: unknown;
+    reviewFiles?: unknown;
+    requiredPaths?: unknown;
+  };
+  if (
+    manifest.version !== 1 ||
+    !Array.isArray(manifest.reviewFiles) ||
+    !Array.isArray(manifest.requiredPaths) ||
+    manifest.reviewFiles.length === 0 ||
+    manifest.requiredPaths.length === 0 ||
+    !manifest.reviewFiles.every((entry) =>
+      isSafeManifestPath(entry, manifest.requiredPaths),
+    ) ||
+    !manifest.requiredPaths.every((entry) => isSafeManifestPath(entry))
+  ) {
+    throw new Error("Tutorial runtime manifest is invalid.");
+  }
+  for (const entry of manifest.requiredPaths) {
+    if (typeof entry !== "string") {
+      throw new Error("Tutorial runtime manifest contains an invalid path.");
+    }
+    const generated = path.join(outDir, entry);
+    const source = path.join(tutorialRoot, entry);
+    const exists = await stat(generated)
+      .then(() => true)
+      .catch(() =>
+        stat(source)
+          .then(() => true)
+          .catch(() => false),
+      );
+    if (!exists) {
+      throw new Error(`Tutorial runtime manifest references missing ${entry}.`);
+    }
+  }
+}
+
+function isSafeManifestPath(
+  entry: unknown,
+  requiredPaths?: unknown[],
+): entry is string {
+  return (
+    typeof entry === "string" &&
+    entry.length > 0 &&
+    !path.isAbsolute(entry) &&
+    !entry.split(/[\\/]/u).includes("..") &&
+    (!requiredPaths || requiredPaths.includes(entry))
+  );
 }
 
 function checkSampleTypeScript(repositoryRoot: string): void {

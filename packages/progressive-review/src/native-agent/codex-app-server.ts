@@ -177,3 +177,26 @@ export async function forkCodexThread(input: {
     await client.close();
   }
 }
+
+export async function startCodexThread(input: {
+  cwd: string;
+}): Promise<string> {
+  const client = await CodexAppServerClient.connect();
+  try {
+    const result = await client.request("thread/start", {
+      cwd: input.cwd,
+      ephemeral: false,
+    });
+    if (
+      !isJsonRecord(result) ||
+      !isJsonRecord(result.thread) ||
+      typeof result.thread.id !== "string" ||
+      result.thread.id.length === 0
+    ) {
+      throw new Error("Codex returned an invalid new thread.");
+    }
+    return result.thread.id;
+  } finally {
+    await client.close();
+  }
+}

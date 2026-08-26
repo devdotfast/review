@@ -8,6 +8,11 @@ import { Disposable } from "../../base/common/lifecycle.js";
 import { createDecorator } from "../../platform/instantiation/common/instantiation.js";
 import { IMainProcessService } from "../../platform/ipc/common/mainProcessService.js";
 import {
+	IStorageService,
+	StorageScope,
+	StorageTarget,
+} from "../../platform/storage/common/storage.js";
+import {
 	REVIEW_DESKTOP_CHANNEL,
 	REVIEW_DESKTOP_CONNECTION_VERSION,
 	type ReviewDesktopConnection,
@@ -35,6 +40,8 @@ import { REVIEW_CLIENT_RECONNECT_DELAYS } from "../common/reviewReconnect.js";
 import { IReviewTelemetryService } from "./reviewTelemetryService.js";
 
 const REVIEW_LIST_TIMEOUT_MS = 30_000;
+const REVIEW_TUTORIAL_AUTOPREPARE_SUPPRESSED_KEY =
+	"review.tutorial.autoPrepareSuppressed.v1";
 
 export interface ReviewSessionConnection {
 	readonly serverUrl: string;
@@ -99,6 +106,7 @@ export interface IReviewSessionService {
 	readDismissedRetentionDays(): Promise<number | null>;
 	setDismissedRetentionDays(days: number | null): Promise<number | null>;
 	getTutorialStatus(): Promise<{ version: 1; reviewUuid: string | null }>;
+	prepareTutorial(): Promise<void>;
 	openTutorial(): Promise<ReviewTutorialOpenResponse>;
 	deleteTutorial(): Promise<void>;
 	getCliInstallStatus(): Promise<ReviewCliInstallStatus>;
@@ -177,6 +185,8 @@ export class ReviewSessionService
 	}
 
 	private initializePromise: Promise<void> | null = null;
+	private tutorialPreparePromise: Promise<void> | undefined;
+	private tutorialPrepareAttempted = false;
 	private cliInstallStatus: ReviewCliInstallStatus | undefined;
 	private cliInstallStatusPromise: Promise<ReviewCliInstallStatus> | undefined;
 	private readonly controller = new AbortController();
@@ -204,6 +214,7 @@ export class ReviewSessionService
 		private readonly mainProcessService: IMainProcessService,
 		@IReviewTelemetryService
 		private readonly reviewTelemetryService: IReviewTelemetryService,
+		@IStorageService private readonly storageService: IStorageService,
 	) {
 		super();
 	}
@@ -443,6 +454,40 @@ export class ReviewSessionService
 		return { version: 1, reviewUuid: payload.reviewUuid as string | null };
 	}
 
+	prepareTutorial(): Promise<void> {
+		if (
+			this.storageService.getBoolean(
+				REVIEW_TUTORIAL_AUTOPREPARE_SUPPRESSED_KEY,
+				StorageScope.APPLICATION,
+				false,
+			)
+		) {
+			return Promise.resolve();
+		}
+		if (this.tutorialPreparePromise) return this.tutorialPreparePromise;
+		if (this.tutorialPrepareAttempted) return Promise.resolve();
+		this.tutorialPrepareAttempted = true;
+		const operation = this.requestTutorialPreparation();
+		this.tutorialPreparePromise = operation;
+		const clearOperation = () => {
+			if (this.tutorialPreparePromise === operation) {
+				this.tutorialPreparePromise = undefined;
+			}
+		};
+		void operation.then(clearOperation, clearOperation);
+		return operation;
+	}
+
+	private async requestTutorialPreparation(): Promise<void> {
+		await this.initialize();
+		const response = await fetch(`${this.serverUrl}/tutorial/prepare`, {
+			method: "POST",
+			headers: this.authHeaders(),
+			signal: AbortSignal.timeout(120_000),
+		});
+		await this.requireOk(response, "Review tutorial preparation");
+	}
+
 	async openTutorial(): Promise<ReviewTutorialOpenResponse> {
 		await this.initialize();
 		const response = await fetch(`${this.serverUrl}/tutorial/open`, {
@@ -452,6 +497,11 @@ export class ReviewSessionService
 		});
 		await this.requireOk(response, "Review tutorial open");
 		const payload = parseReviewTutorialOpenResponse(await response.json());
+		this.tutorialPrepareAttempted = true;
+		this.storageService.remove(
+			REVIEW_TUTORIAL_AUTOPREPARE_SUPPRESSED_KEY,
+			StorageScope.APPLICATION,
+		);
 		this._tutorialReview = payload.review;
 		// The reviews list never lists the tutorial, but its confirmed session is
 		// immediately available to the tab that requested it.
@@ -467,6 +517,14 @@ export class ReviewSessionService
 			signal: AbortSignal.timeout(30_000),
 		});
 		await this.requireOk(response, "Review tutorial delete");
+		this.tutorialPreparePromise = undefined;
+		this.tutorialPrepareAttempted = true;
+		this.storageService.store(
+			REVIEW_TUTORIAL_AUTOPREPARE_SUPPRESSED_KEY,
+			true,
+			StorageScope.APPLICATION,
+			StorageTarget.MACHINE,
+		);
 		const tutorialUuid = this._tutorialReview?.uuid;
 		this._tutorialReview = undefined;
 		if (tutorialUuid) {

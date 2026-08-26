@@ -19,6 +19,7 @@ import {
   reviewSectionPropsSchema,
   sequenceDiagramPropsSchema,
   softwareMapPropsSchema,
+  tutorialAuthoringConversationPropsSchema,
   tutorialFeaturePropsSchema,
   tutorialViewButtonPropsSchema,
 } from "../../src/authoring";
@@ -189,6 +190,7 @@ describe("review authoring contract", () => {
       "ReviewSection",
       "SequenceDiagram",
       "TraceQuote",
+      "TutorialAuthoringConversation",
       "TutorialFeature",
       "TutorialKeymapPicker",
       "TutorialViewButton",
@@ -313,6 +315,21 @@ describe("review authoring contract", () => {
       },
     ],
     ["SoftwareMap", softwareMapPropsSchema, { title: "Map", extra: true }],
+    [
+      "TutorialAuthoringConversation",
+      tutorialAuthoringConversationPropsSchema,
+      {
+        conversation: {
+          version: 1,
+          title: "How this Review was made",
+          messages: [
+            { role: "user", body: "Create a Review" },
+            { role: "assistant", body: "Review created" },
+          ],
+        },
+        extra: true,
+      },
+    ],
     [
       "TutorialFeature",
       tutorialFeaturePropsSchema,

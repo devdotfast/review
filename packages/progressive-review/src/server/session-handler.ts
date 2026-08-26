@@ -74,6 +74,9 @@ export interface ReviewSessionHandlerInput {
       { name: "openNativeAgentTerminal" }
     >["args"],
   ) => Promise<void>;
+  resolveQuestionSourceSession?: (
+    signal?: AbortSignal,
+  ) => Promise<SessionRef | undefined>;
   onQuestionAgentSession?: (agent: SessionRef) => Promise<void>;
   telemetry?: ProgressiveReviewTelemetry;
 }
@@ -399,6 +402,7 @@ export async function createReviewSessionHandler(
     reviewCliPath: input.reviewCliPath,
     reviewCliRuntimePath: input.reviewCliRuntimePath,
     openNativeAgentTerminal: input.openNativeAgentTerminal,
+    resolveQuestionSourceSession: input.resolveQuestionSourceSession,
     onQuestionAgentSession: input.onQuestionAgentSession,
     submitHook: input.submitHook,
     session,

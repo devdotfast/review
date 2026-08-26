@@ -8,7 +8,7 @@ import type { ReviewVerbRequest } from "@dev.fast/review-protocol";
 
 import { DEV_REVIEW_HOME_ENV, devReviewHome } from "../review-storage";
 import { writePathShim } from "../server/cli-install";
-import { forkCodexThread } from "./codex-app-server";
+import { forkCodexThread, startCodexThread } from "./codex-app-server";
 import { NativeSessionObserverRegistry } from "./native-observer";
 import type {
   LaunchReviewTurnInput,
@@ -35,6 +35,8 @@ export interface NativeReviewTurnLauncherInput {
   reviewCliRuntimePath?: string;
   openTerminal(input: NativeTerminalInput): Promise<void>;
   observer?: NativeSessionObserverRegistry;
+  startCodexThread?: typeof startCodexThread;
+  forkCodexThread?: typeof forkCodexThread;
 }
 
 export interface OpenNativeReviewSessionInput {
@@ -51,6 +53,8 @@ export class NativeReviewTurnLauncher {
   readonly #reviewCliPath: string | undefined;
   readonly #reviewCliRuntimePath: string | undefined;
   readonly #openTerminal: NativeReviewTurnLauncherInput["openTerminal"];
+  readonly #startCodexThread: typeof startCodexThread;
+  readonly #forkCodexThread: typeof forkCodexThread;
   #reviewCommandDirectory: Promise<string | undefined> | undefined;
   readonly observer: NativeSessionObserverRegistry;
 
@@ -61,6 +65,8 @@ export class NativeReviewTurnLauncher {
     this.#reviewCliPath = input.reviewCliPath;
     this.#reviewCliRuntimePath = input.reviewCliRuntimePath;
     this.#openTerminal = input.openTerminal;
+    this.#startCodexThread = input.startCodexThread ?? startCodexThread;
+    this.#forkCodexThread = input.forkCodexThread ?? forkCodexThread;
     this.observer = input.observer ?? new NativeSessionObserverRegistry();
   }
 
@@ -70,7 +76,9 @@ export class NativeReviewTurnLauncher {
     const harness =
       input.route.kind === "fork"
         ? input.route.source.harness
-        : input.route.session.harness;
+        : input.route.kind === "resume"
+          ? input.route.session.harness
+          : input.route.harness;
     const requestedSessionId = await this.#requestedSessionId(input, harness);
     const handle = this.observer.beginLaunch({
       launchId: input.launchId,
@@ -133,8 +141,13 @@ export class NativeReviewTurnLauncher {
     harness: ReviewAgentHarness,
   ): Promise<string> {
     if (input.route.kind === "resume") return input.route.session.sessionId;
+    if (input.route.kind === "new") {
+      return harness === "codex"
+        ? this.#startCodexThread({ cwd: input.cwd })
+        : randomUUID();
+    }
     if (harness === "codex") {
-      return forkCodexThread({
+      return this.#forkCodexThread({
         sourceThreadId: input.route.source.sessionId,
         cwd: input.cwd,
       });
@@ -183,8 +196,11 @@ export class NativeReviewTurnLauncher {
             requestedSessionId,
           );
           if (submitPrompt) args.push(input.prompt);
-        } else {
+        } else if (input.route.kind === "resume") {
           args.push("--resume", input.route.session.sessionId);
+          if (submitPrompt) args.push(input.prompt);
+        } else {
+          args.push("--session-id", requestedSessionId);
           if (submitPrompt) args.push(input.prompt);
         }
         return {
@@ -257,8 +273,10 @@ export class NativeReviewTurnLauncher {
             "--session-id",
             requestedSessionId,
           );
-        } else {
+        } else if (input.route.kind === "resume") {
           args.push("--session", input.route.session.sessionId);
+        } else {
+          args.push("--session-id", requestedSessionId);
         }
         if (submitPrompt) args.push(input.prompt);
         return {

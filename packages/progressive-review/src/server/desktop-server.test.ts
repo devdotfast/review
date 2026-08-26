@@ -67,5 +67,12 @@ describe("reviewAgentKind", () => {
       }),
     ).toBe("codex");
     expect(reviewAgentKind({ ...review, agentSessions: undefined })).toBe("pi");
+    expect(
+      reviewAgentKind({
+        ...review,
+        sourceSession: "fresh:pi",
+        agentSessions: undefined,
+      }),
+    ).toBe("pi");
   });
 });

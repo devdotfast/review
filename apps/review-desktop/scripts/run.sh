@@ -80,12 +80,15 @@ if needs_rebuild \
   "$MONOREPO_ROOT/packages/review-protocol/src"; then
   pnpm --dir "$MONOREPO_ROOT" --filter @dev.fast/review app:desktop:build
 fi
+TUTORIAL_OUTPUT="$REVIEW_PACKAGE/tutorial/.bundle/document/review-document.js"
 if needs_rebuild \
-  "$REVIEW_PACKAGE/tutorial/.bundle/document/review-document.js" \
-  "$REVIEW_PACKAGE/tutorial/review.mdx" \
-  "$REVIEW_PACKAGE/tutorial/data.ts" \
-  "$REVIEW_PACKAGE/tutorial/software-map.ts" \
-  "$REVIEW_PACKAGE/tutorial/sample-service"; then
+  "$TUTORIAL_OUTPUT" \
+  "$REVIEW_PACKAGE/scripts/build-tutorial-assets.ts" ||
+  [[ -n "$(
+    find "$REVIEW_PACKAGE/tutorial" \
+      \( -path "$REVIEW_PACKAGE/tutorial/.bundle" -o -path "$REVIEW_PACKAGE/tutorial/git-stub" \) -prune \
+      -o -type f -newer "$TUTORIAL_OUTPUT" -print -quit
+  )" ]]; then
   pnpm --dir "$MONOREPO_ROOT" --filter @dev.fast/review build:tutorial-assets
 fi
 # A packaged app is immutable and self-contained: its canvas and Review server

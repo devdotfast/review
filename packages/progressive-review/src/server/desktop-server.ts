@@ -27,6 +27,7 @@ import {
   authoringSessionKey,
   parseAuthoringSessionKey,
 } from "../authoring-session";
+import { preferredInstalledReviewAgent } from "../installed-review-agent";
 import { readProgressiveReviewPackageVersion } from "../package-paths";
 import {
   type ProgressiveReviewSessionAgent,
@@ -1130,10 +1131,8 @@ export function createGlobalReviewServer(
     return { ok: true, revision };
   }
 
-  /* The off-store tutorial Review never passes deleteStoredReview, so its
-     live sessions must close here before its directories disappear. Match
-     by path, not by tutorial.find(): an invalid stamp or repo must not
-     leave a session serving files that cleanup is about to delete. */
+  /* Match by path rather than tutorial.find(): an invalid stamp or repo must
+     not leave a session serving files that cleanup is about to delete. */
   async function closeTutorialSessions(): Promise<void> {
     const tutorialRoot = path.join(devReviewHome(), "tutorial") + path.sep;
     const open = [...sessions.values()].filter((session) =>
@@ -1144,12 +1143,9 @@ export function createGlobalReviewServer(
     );
   }
 
-  /* The tutorial mounts the precompiled bundles straight from app
-     resources: no compile, no seal, no revision materialization, and no
-     off-screen validation — the build pipeline validated these exact
-     bytes. No session-registered broadcast either: the tutorial is not in
-     the review store, so Home and the auto-open tab listener must never
-     learn about it. The open response carries the session instead. */
+  /* Tutorial preparation writes a hidden, published system Review. Mount its
+     sealed revision through the ordinary materialization and session path;
+     only preparation and discovery remain tutorial-specific. */
   async function openTutorial(): Promise<ReviewTutorialOpenResponse> {
     const current = await tutorial.find();
     if (!current) {
@@ -1157,7 +1153,19 @@ export function createGlobalReviewServer(
       // session still serving the invalid state first.
       await closeTutorialSessions();
     }
-    const review = await tutorial.prepare();
+    const tutorialAgent =
+      parseAuthoringSessionKey(current?.review.sourceSession)?.harness ??
+      preferredInstalledReviewAgent(
+        await resolveCliInstallStatus({ packageRoot: input.packageRoot }),
+      );
+    if (!tutorialAgent) {
+      throw new ReviewServerError(
+        "Install Claude Code, Codex, or Pi before opening the tutorial.",
+        409,
+        "tutorial_agent_unavailable",
+      );
+    }
+    const review = await tutorial.prepare(tutorialAgent);
     const existing = activeSessionForReview(review.review.uuid);
     if (existing) {
       void relay.dispatch(existing.descriptor.sessionId, {
@@ -1165,12 +1173,35 @@ export function createGlobalReviewServer(
         args: {},
       });
     }
+    const documentRevision = review.review.presentedDocumentRevision;
+    const softwareMapRevision = review.review.presentedSoftwareMapRevision;
+    if (!documentRevision || !softwareMapRevision) {
+      throw new ReviewServerError(
+        "Tutorial Review has no published revision.",
+        409,
+        "review_unpublished",
+      );
+    }
+    const documentBuildDir = await publishRuntime.materializePublishRevision({
+      review,
+      revision: documentRevision,
+    });
+    const softwareMapRootPath = await publishRuntime.materializePublishRevision(
+      {
+        review,
+        revision: softwareMapRevision,
+      },
+    );
+    const presentedReview = await reviewWithPresentedDocumentPins(
+      review,
+      documentBuildDir,
+    );
     const session =
       existing ??
       (await registerSerialized({
-        review,
-        documentPath: path.join(input.packageRoot, "tutorial", "review.mdx"),
-        softwareMapRootPath: path.join(input.packageRoot, "tutorial"),
+        review: presentedReview,
+        documentPath: path.join(documentBuildDir, "review.mdx"),
+        softwareMapRootPath,
         promoted: true,
         focusCanvas: true,
       }));

@@ -31,6 +31,11 @@ async function main(): Promise<void> {
         "TutorialKeymapPicker is absent from the authoring registry.",
       );
     }
+    for (const component of ["TutorialFeature", "TutorialViewButton"]) {
+      if (!(component in reviewAuthoringPropsSchemas)) {
+        throw new Error(`${component} is absent from the authoring registry.`);
+      }
+    }
 
     const outDir = path.join(temporaryRoot, "assets");
     const built = await buildTutorialAssets({ outDir });
@@ -59,7 +64,8 @@ async function main(): Promise<void> {
     ) as { headCommit?: unknown; baseCommit?: unknown };
     if (
       mapManifest.headCommit !== built.commit ||
-      mapManifest.baseCommit !== built.commit ||
+      mapManifest.baseCommit !== built.baseCommit ||
+      !/^[0-9a-f]{40}$/i.test(built.baseCommit) ||
       !/^[0-9a-f]{40}$/i.test(built.commit)
     ) {
       throw new Error("Tutorial software-map manifest commits are invalid.");
@@ -80,8 +86,11 @@ async function main(): Promise<void> {
       );
     }
     const count = (await git(repo, ["rev-list", "--count", "HEAD"])).trim();
-    if (count !== "1") {
-      throw new Error(`The tutorial repository must have one commit: ${count}`);
+    const base = (await git(repo, ["rev-parse", "HEAD^"])).trim();
+    if (count !== "2" || base !== built.baseCommit) {
+      throw new Error(
+        `The tutorial repository must have the expected two-commit history: ${count}`,
+      );
     }
 
     process.stdout.write(

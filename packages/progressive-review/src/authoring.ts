@@ -378,6 +378,20 @@ export type TutorialKeymapPickerProps = z.infer<
   typeof tutorialKeymapPickerPropsSchema
 >;
 
+export const tutorialFeaturePropsSchema = z.strictObject({
+  feature: z.literal("softwareMap"),
+  children: reactNodeSchema,
+});
+export type TutorialFeatureProps = z.infer<typeof tutorialFeaturePropsSchema>;
+
+export const tutorialViewButtonPropsSchema = z.strictObject({
+  view: z.enum(["review", "commits", "diff", "map"]),
+  children: reactNodeSchema,
+});
+export type TutorialViewButtonProps = z.infer<
+  typeof tutorialViewButtonPropsSchema
+>;
+
 export const traceQuotePropsSchema = z.strictObject({
   sessionId: nonEmptyStringSchema,
   trace: optionalNonEmptyStringSchema,
@@ -496,7 +510,9 @@ export interface ReviewAuthoringComponentRegistry {
   ReviewSection: ComponentType<ReviewSectionProps>;
   SequenceDiagram: ComponentType<SequenceDiagramProps>;
   TraceQuote: ComponentType<TraceQuoteProps>;
+  TutorialFeature: ComponentType<TutorialFeatureProps>;
   TutorialKeymapPicker: ComponentType<TutorialKeymapPickerProps>;
+  TutorialViewButton: ComponentType<TutorialViewButtonProps>;
 }
 
 // One props schema per authoring component, keyed by registry name. Publish
@@ -515,7 +531,9 @@ export const reviewAuthoringPropsSchemas = {
   ReviewSection: reviewSectionPropsSchema,
   SequenceDiagram: sequenceDiagramPropsSchema,
   TraceQuote: traceQuotePropsSchema,
+  TutorialFeature: tutorialFeaturePropsSchema,
   TutorialKeymapPicker: tutorialKeymapPickerPropsSchema,
+  TutorialViewButton: tutorialViewButtonPropsSchema,
 } satisfies Record<keyof ReviewAuthoringComponentRegistry, z.ZodType>;
 
 const softwareDataStoreForeignKeyRefSchema = z.union([

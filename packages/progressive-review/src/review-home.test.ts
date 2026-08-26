@@ -604,6 +604,47 @@ describe("review home", () => {
     }
   });
 
+  it("keeps system Reviews addressable but out of ordinary lists", async () => {
+    const root = await makeGitRepository();
+    const home = await mkdtemp(path.join(os.tmpdir(), "review-home-"));
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+
+    try {
+      const sourceCommit = await git(root, ["rev-parse", "HEAD"]);
+      const review = await createReviewDir({
+        visibility: "system",
+        worktreePath: root,
+        baseRef: "main",
+        baseCommit: sourceCommit,
+        sourceCommit,
+      });
+
+      await expect(listReviews()).resolves.toMatchObject({
+        reviews: [],
+        errors: [],
+      });
+      await expect(listReviews({ includeSystem: true })).resolves.toMatchObject(
+        {
+          reviews: [
+            {
+              dir: review.dir,
+              review: { uuid: review.review.uuid, visibility: "system" },
+            },
+          ],
+          errors: [],
+        },
+      );
+      await expect(findReview(review.review.uuid)).resolves.toMatchObject({
+        dir: review.dir,
+        review: { visibility: "system" },
+      });
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(home, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("reports an unresolvable worktree head instead of calling it out of sync", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "review-home-source-"));
     const home = await mkdtemp(path.join(os.tmpdir(), "review-home-"));

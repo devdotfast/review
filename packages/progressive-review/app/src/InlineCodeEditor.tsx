@@ -9,7 +9,7 @@ import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
 import { useReviewSession } from "./host/review-session";
 import { useReviewFindRegistration } from "./review-find";
-import { useCompleteTutorialStep } from "./tutorial-context";
+import { emitReviewInteraction } from "./review-interaction-event";
 
 const LINE_HEIGHT = 20;
 const MAX_VISIBLE_LINES = 18;
@@ -43,20 +43,19 @@ export function InlineCodeEditor({
   collapsed?: boolean;
 }) {
   const session = useReviewSession();
-  const completeNavigation = useCompleteTutorialStep("gotoDefinition");
-  const completeHover = useCompleteTutorialStep("showHover");
-  const completeNavigationRef = useRef(completeNavigation);
-  completeNavigationRef.current = completeNavigation;
-  const handleNavigation = useCallback(
-    () => completeNavigationRef.current?.(),
-    [],
-  );
-  const completeHoverRef = useRef(completeHover);
-  completeHoverRef.current = completeHover;
-  const handleHover = useCallback(() => completeHoverRef.current?.(), []);
-  const navigationObserverEnabled = completeNavigation !== undefined;
-  const hoverObserverEnabled = completeHover !== undefined;
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
+  const handleNavigation = useCallback(
+    () =>
+      emitReviewInteraction(container, {
+        kind: "inline-navigation",
+        path,
+      }),
+    [container, path],
+  );
+  const handleHover = useCallback(
+    () => emitReviewInteraction(container, { kind: "inline-hover", path }),
+    [container, path],
+  );
   const [shouldMount, setShouldMount] = useState(active);
   const [height, setHeight] = useState(() =>
     estimatedHeight(ranges, heightMode),
@@ -178,8 +177,8 @@ export function InlineCodeEditor({
         diffStats,
         onDidFocus: handleFocus,
         onDidOpen: handleOpen,
-        onDidNavigate: navigationObserverEnabled ? handleNavigation : undefined,
-        onDidShowHover: hoverObserverEnabled ? handleHover : undefined,
+        onDidNavigate: handleNavigation,
+        onDidShowHover: handleHover,
         commentsEnabled,
       });
     } catch (caught) {
@@ -213,10 +212,8 @@ export function InlineCodeEditor({
     handleNavigation,
     handleOpen,
     heightMode,
-    hoverObserverEnabled,
     inlineEditorFactory,
     inlineEditorSessionId,
-    navigationObserverEnabled,
     path,
     rangesKey,
     shouldMount,

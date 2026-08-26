@@ -9,7 +9,6 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -34,7 +33,6 @@ import {
 } from "./review-threads";
 import { readReviewUiState, writeReviewUiState } from "./review-ui-state";
 import { useThreadTargetState } from "./thread-target-model";
-import { useTutorial } from "./tutorial-context";
 
 /**
  * The one thread surface (Notion-style): quoted anchor with an accent bar,
@@ -623,7 +621,6 @@ const DEFAULT_COMPOSE_VERBS: readonly ComposeVerb[] = [
   "ask-now",
   "add-to-review",
 ];
-const TUTORIAL_COMPOSE_VERBS: readonly ComposeVerb[] = ["ask-now"];
 export type ComposeVerbMenuPlacement = "above" | "below";
 
 export function composeVerbMenuPlacement(input: {
@@ -701,23 +698,11 @@ export function ThreadComposer(props: ThreadComposerProps): ReactElement {
   } = props;
   const isNewThread = props.kind === "new-thread";
   const initialVerb = isNewThread ? props.initialVerb : undefined;
-  /* The tutorial has nothing to submit to: its corner control is Close, and the
-     tutorial Review sits outside the review store, so no agent can read a
-     submitted batch. "Add to review" would only raise a counter the reader
-     cannot send. "Ask now" answers in the thread, so it is the whole verb set
-     there. */
-  const tutorial = useTutorial();
   const requestedVerbs =
     isNewThread && props.kind === "new-thread"
       ? (props.verbs ?? DEFAULT_COMPOSE_VERBS)
       : DEFAULT_COMPOSE_VERBS;
-  const availableVerbs = useMemo(() => {
-    if (!tutorial) return requestedVerbs;
-    const kept = requestedVerbs.filter(
-      (candidate) => candidate !== "add-to-review",
-    );
-    return kept.length > 0 ? kept : TUTORIAL_COMPOSE_VERBS;
-  }, [requestedVerbs, tutorial]);
+  const availableVerbs = requestedVerbs;
   const [composing, setComposing] = useState(
     autoFocus || Boolean(initialDraft),
   );

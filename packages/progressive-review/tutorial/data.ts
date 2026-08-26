@@ -20,6 +20,15 @@ export const anchors = defineAnchors({
     peek: { file: "src/orders/orders-repository.ts", fromLine: 9, toLine: 12 },
     softwareMapPath: "orderService.data.ordersRepository",
   },
+  validateInventory: {
+    title: "Inventory rejects invalid quantities",
+    peek: {
+      file: "src/inventory/inventory-service.ts",
+      fromLine: 4,
+      toLine: 8,
+    },
+    softwareMapPath: "orderService.application.orders",
+  },
   dequeue: {
     title: "Queue gives work to the fulfillment worker",
     peek: {

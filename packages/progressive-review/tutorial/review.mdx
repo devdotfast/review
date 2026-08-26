@@ -4,46 +4,63 @@ import { actors, anchors, checkoutSequence, stores } from "./data.ts";
 
 ## Welcome
 
-This Review uses a real local TypeScript repository. Review documents connect
-short explanations to live code and system views.
+A Review is a guided, interactive explanation of a code change. The document
+keeps the important code, system views, and feedback in one place.
 
-## Code is live
+### Your keybindings
 
-This path validates a checkout, creates an order, and writes it to storage.
-Hover a typed symbol. Then use F12 or command-click to open its definition.
+Choose your editor keys. Review highlights the active choice and uses its
+existing extension and reload flow for Vim and Emacs.
 
-<AnchorLink anchor={anchors.placeOrder}>Open the order write path</AnchorLink>.
+<TutorialKeymapPicker />
+
+### Put the keybindings to work
+
+The editor below is live. Try hover, **Go to Definition**, or **Go to
+References** with the same commands you use in VS Code.
 
 <CodePeek anchor={anchors.placeOrder} />
 
+Prose in the review also supports <AnchorLink anchor={anchors.placeOrder}>links to code</AnchorLink>.
+
+## Commits and diffs
+
+Review pins an exact base and head before the agent starts writing. Open
+**Commits** to see the change in author order. Expand the sample commit to see
+its files, then choose **Open diff** to inspect only that commit.
+
+The **Diff** tab shows the complete change between the pinned base and head.
+Choose **Review** when you are ready to return to this tour.
+
+<TutorialViewButton view="commits">
+  Explore the sample commits
+</TutorialViewButton>
+
 ## Comments are threads
 
-Move the pointer over the code above. A comment control shows in the left
-gutter. Click it and write a note.
+You can attach a thread to any part of the canvas. Move the pointer over the
+code below, select the comment control in the left gutter, and write a note.
 
-Select **Ask now**. An agent reads your note and answers in the same thread.
-A real Review adds a second button, **Add to review**, that holds the note
-until you submit. This tour has no review round to submit to, so it keeps
-only the one button.
+<CodePeek anchor={anchors.validateInventory} />
+
+Choose **Ask now**. The app starts an agent turn in a read-only checkout and
+puts its answer in the same thread. You can continue the conversation there.
+
+The other standard choice, **Add to review**, holds feedback for the next
+authoring round. This tour uses **Ask now** so you can see the agent reply
+immediately.
 
 Every comment is a thread anchored to one part of the Review. Use the **+**
 button in the toolbar to start a thread about the whole Review instead.
 
-## Your keybindings
+## Interactive Diagrams
 
-Choose the editor keys that you want. Review uses the existing extension and
-reload flow for Vim and Emacs.
-
-<TutorialKeymapPicker />
-
-## Three ways to see the system
-
-The sequence shows how checkout work reaches shipping. Select **Tour** to walk
-each message and its code evidence.
+The sequence diagram connects the checkout request to fulfillment. Select any
+message to open its supporting code.
 
 <SequenceDiagram label="Checkout to fulfillment" messages={checkoutSequence} />
 
-The database lens shows the `orders` record that the write path owns.
+The database view groups writes by use case. Its operations open code too.
 
 <DatabaseLens title="Order storage" stores={stores} height={440}>
   <DbUseCase id="create-order" label="Create an order">
@@ -64,9 +81,15 @@ The database lens shows the `orders` record that the write path owns.
   </DbUseCase>
 </DatabaseLens>
 
-Open the **Map** tab to move from the order system to its main components.
+<TutorialFeature feature="softwareMap">
+  The experimental **Map** moves from the order system to its components and
+  code. Select a node to explore the sample service.
 
-## Where to find things
+  <TutorialViewButton view="map">Open the software map</TutorialViewButton>
+</TutorialFeature>
 
-To install the Review skill for your agent again, open **Preferences →
-Settings**. To open this tour again, use **Preferences → Getting Started**.
+## Get help
+
+To manage the Review skills installed for your agents, open **Preferences →
+Settings**. To revisit setup or take this tour again, open **Preferences →
+Getting Started**.

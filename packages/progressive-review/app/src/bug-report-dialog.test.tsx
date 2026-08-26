@@ -214,6 +214,7 @@ function tutorialBridge(): ReviewCanvasTutorialBridge {
     content: {
       reviewUuid: "tutorial-review",
       progress: { version: 1, checked: [], dismissed: false },
+      keymap: "none",
     },
     setStep() {},
     dismiss() {},

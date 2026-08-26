@@ -318,8 +318,7 @@ function useCodePeekResolution(
     [session],
   );
   const requestKey = useMemo(
-    () =>
-      requestInput ? JSON.stringify(requestInput) : "",
+    () => (requestInput ? JSON.stringify(requestInput) : ""),
     [requestInput],
   );
 

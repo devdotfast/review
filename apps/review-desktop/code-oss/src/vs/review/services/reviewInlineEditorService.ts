@@ -701,7 +701,9 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
         (listener) => editor.onDidScrollChange(listener),
       );
       this.editorStore.add(
-        editor.onDidContentSizeChange(() => this.layoutCodeEditorToContent()),
+        editor.onDidContentSizeChange((event) =>
+          this.layoutCodeEditorToContent(event.contentHeight),
+        ),
       );
       this.applyRange();
       this.markCreated();
@@ -773,7 +775,9 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
       (listener) => editor.onDidScrollChange(listener),
     );
     this.editorStore.add(
-      editor.onDidContentSizeChange(() => this.layoutCodeEditorToContent()),
+      editor.onDidContentSizeChange((event) =>
+        this.layoutCodeEditorToContent(event.contentHeight),
+      ),
     );
     this.applyRange();
     this.markCreated();
@@ -965,7 +969,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
     this.updateDecoration();
   }
 
-  private layoutCodeEditorToContent(): void {
+  private layoutCodeEditorToContent(contentHeight?: number): void {
     const codeEditor = this.editor;
     const modelReference = this.unifiedModelReference ?? this.modelReference;
     if (!codeEditor || !modelReference) return;
@@ -977,10 +981,20 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
         ? lineCount
         : Math.min(REVIEW_PEEK_MAX_VISIBLE_LINES, lineCount)) *
       REVIEW_PEEK_LINE_HEIGHT;
-    const measured =
+    const renderedHeight =
       rendered !== undefined && rendered > CONTENT_HEIGHT_EPSILON
         ? Math.ceil(rendered)
         : estimated;
+    // A comment composer is a Monaco view zone. The editor's content-size
+    // event is the authoritative post-relayout measurement; line geometry
+    // can still reflect the pre-zone layout during that callback and would
+    // leave the real composer mounted behind the fixed-height host.
+    const measured = Math.max(
+      renderedHeight,
+      contentHeight !== undefined && contentHeight > CONTENT_HEIGHT_EPSILON
+        ? Math.ceil(contentHeight)
+        : 0,
+    );
     const height =
       this.spec.heightMode === "content"
         ? measured

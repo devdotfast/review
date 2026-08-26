@@ -98,8 +98,10 @@ import { diffSoftwareMaps } from "./software-map/topology-diff";
 import { ThreadAnnotations } from "./thread-annotations";
 import { ThreadDraftCard } from "./thread-card";
 import { ThreadTargetModelProvider } from "./thread-target-model";
-import { TutorialChecklist, TutorialToolbarAction } from "./tutorial-checklist";
-import { useCompleteTutorialStep } from "./tutorial-context";
+import {
+  TutorialExperience,
+  TutorialToolbarAction,
+} from "./tutorial-experience";
 import { captureClientError, captureUiEvent } from "./ui-telemetry";
 import { useReviewTabTelemetry } from "./use-review-tab-telemetry";
 
@@ -297,14 +299,6 @@ function ReviewLayoutContent({
   const session = useReviewSession();
   const review = useReview();
   const panelStore = useReviewPanelStore();
-  const completeOpenPeek = useCompleteTutorialStep("openPeek");
-  useEffect(
-    () =>
-      panelStore.subscribe((state) => {
-        if (state.detail?.kind === "peek") completeOpenPeek?.();
-      }),
-    [completeOpenPeek, panelStore],
-  );
   useSuppressPanelMotionOnCanvasResume(appRef);
   const activePanel = useReviewPanel(selectActiveReviewPanel);
   const panelMotion = useReviewPanel((state) => state.motion);
@@ -717,7 +711,7 @@ function ReviewLayoutContent({
             <ReviewTraceView initialSelection={traceSelection} />
           )}
         </section>
-        <TutorialChecklist />
+        <TutorialExperience />
       </main>
       {rightPanelOpen && (
         <div

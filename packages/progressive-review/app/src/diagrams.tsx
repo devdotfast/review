@@ -51,7 +51,6 @@ import { useReviewPanel } from "./review-panel";
 import { useTourPersist, useTourRestore } from "./review-view-state";
 import { buildGraphTarget, targetKey } from "./target-fingerprint";
 import { useRegisterLiveDiagram } from "./thread-target-model";
-import { useCompleteTutorialStep } from "./tutorial-context";
 import { captureUiEvent } from "./ui-telemetry";
 
 import "@xyflow/react/dist/style.css";
@@ -374,7 +373,6 @@ function participantsForMessages(messages: SequenceMessage[]): ActorRef[] {
 
 export function SequenceDiagram(input: SequenceInput) {
   const session = useReviewSession();
-  const completeOpenSequence = useCompleteTutorialStep("openSequence");
   const { theme } = useReviewDebugSettings();
   const sequence = useMemo(
     () => createSequence(input),
@@ -409,7 +407,6 @@ export function SequenceDiagram(input: SequenceInput) {
       const nextAnchor = anchor ?? tourAnchor ?? tour.stops[0]?.anchor.id;
       if (!nextAnchor) return;
       if (!tourOpen) {
-        completeOpenSequence?.();
         captureUiEvent(session, "tour_started", { steps: tour.stops.length });
       }
       setTourState((state) => ({
@@ -417,7 +414,7 @@ export function SequenceDiagram(input: SequenceInput) {
         revealRequest: (state?.revealRequest ?? 0) + 1,
       }));
     },
-    [completeOpenSequence, session, tour, tourAnchor, tourOpen],
+    [session, tour, tourAnchor, tourOpen],
   );
   const closeTour = useCallback(() => setTourState(null), []);
   const changeTourAnchor = useCallback(

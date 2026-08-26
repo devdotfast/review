@@ -1,8 +1,5 @@
-import type {
-  ReviewCanvasTutorialBridge,
-  TutorialStepId,
-} from "@dev.fast/review-protocol";
-import { type ReactNode, createContext, useCallback, useContext } from "react";
+import type { ReviewCanvasTutorialBridge } from "@dev.fast/review-protocol";
+import { type ReactNode, createContext, useContext } from "react";
 
 const TutorialContext = createContext<ReviewCanvasTutorialBridge | null>(null);
 
@@ -22,15 +19,4 @@ export function TutorialProvider({
 
 export function useTutorial(): ReviewCanvasTutorialBridge | null {
   return useContext(TutorialContext);
-}
-
-export function useCompleteTutorialStep(
-  step: TutorialStepId,
-): (() => void) | undefined {
-  const tutorial = useTutorial();
-  const checked = tutorial?.content.progress.checked.includes(step) === true;
-  const complete = useCallback(() => {
-    if (!checked) tutorial?.setStep(step, true);
-  }, [checked, step, tutorial]);
-  return tutorial ? complete : undefined;
 }

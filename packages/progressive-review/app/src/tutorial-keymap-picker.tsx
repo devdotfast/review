@@ -23,6 +23,7 @@ export function TutorialKeymapPicker(_props: TutorialKeymapPickerProps) {
         <button
           key={choice.value}
           type="button"
+          aria-pressed={tutorial?.content.keymap === choice.value}
           disabled={!tutorial || pending !== null}
           onClick={() => {
             if (!tutorial) return;
@@ -32,7 +33,11 @@ export function TutorialKeymapPicker(_props: TutorialKeymapPickerProps) {
               .finally(() => setPending(null));
           }}
         >
-          {pending === choice.value ? "Applying…" : choice.label}
+          {pending === choice.value
+            ? "Applying…"
+            : tutorial?.content.keymap === choice.value
+              ? `${choice.label} ✓`
+              : choice.label}
         </button>
       ))}
     </div>

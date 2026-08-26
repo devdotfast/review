@@ -860,8 +860,13 @@ export const REVIEW_TUTORIAL_STEP_IDS = [
   "openPeek",
   "gotoDefinition",
   "showHover",
+  "openCommits",
+  "openDiff",
   "leaveComment",
   "openSequence",
+  "openMap",
+  "openDatabase",
+  "getHelp",
   "chooseKeymap",
 ] as const;
 export type TutorialStepId = (typeof REVIEW_TUTORIAL_STEP_IDS)[number];
@@ -877,6 +882,7 @@ export interface TutorialProgressV1 {
 export interface ReviewCanvasTutorialContent {
   reviewUuid: string;
   progress: TutorialProgressV1;
+  keymap: ReviewKeymapChoice;
 }
 
 export interface ReviewCanvasTutorialBridge {
@@ -1095,6 +1101,10 @@ export type ReviewAgentSessionAttribution = z.infer<
 export const ReviewRecordSchema = z.strictObject({
   schemaVersion: z.literal(REVIEW_SCHEMA_VERSION),
   uuid: z.uuid({ error: "must be a UUID" }),
+  /* System Reviews use the complete stored-Review/session pipeline without
+     appearing in user-facing Review lists. Absence preserves the historical
+     user-visible default. */
+  visibility: z.literal("system").optional(),
   repoKey: requiredString,
   worktreePath: requiredString,
   baseRef: requiredString,

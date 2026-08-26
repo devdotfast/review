@@ -69,6 +69,7 @@ import {
   buildTraceTurns,
   extractEventText,
 } from "./trace-document";
+import { useTutorialSection } from "./tutorial-section-context";
 import { captureUiEvent } from "./ui-telemetry";
 import { useAgentTrace } from "./use-agent-trace";
 
@@ -225,6 +226,14 @@ export function ReviewSection(props: ReviewSectionProps) {
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const [summary, setSummary] = useState<ReviewSectionSummary | null>(null);
   const { heading, body } = reviewSectionContent(title, children);
+  const tutorialSection = useTutorialSection(title);
+
+  // The active tutorial chapter opens itself. Other chapters keep the
+  // reader's own collapse state, so a thread or answer created during a
+  // completed chapter stays visible.
+  useEffect(() => {
+    if (tutorialSection.state === "active") setCollapsed(false);
+  }, [setCollapsed, tutorialSection.state]);
 
   const toggleCollapsed = () => setCollapsed((current) => !current);
 
@@ -263,6 +272,7 @@ export function ReviewSection(props: ReviewSectionProps) {
           : "review-section"
       }
       data-review-section={title}
+      data-tutorial-chapter-state={tutorialSection.state ?? undefined}
     >
       <div className="review-section-header">
         <button

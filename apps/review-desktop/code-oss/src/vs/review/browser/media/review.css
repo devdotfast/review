@@ -1282,6 +1282,52 @@ body
   opacity: 0.72;
 }
 
+/* The comment form's primary button shows its shortcut as a keycap. The
+   button already carries the shortcut in its aria-label; this makes it
+   visible, in the same keycap style the canvas uses. */
+.monaco-workbench.review-workbench
+  .review-widget
+  .form-actions
+  .other-actions
+  > .monaco-text-button:first-child
+  > span::after,
+.monaco-workbench.review-workbench
+  .review-widget
+  .form-actions
+  .other-actions
+  > .monaco-button-dropdown
+  > .monaco-text-button:first-child
+  > span::after {
+  content: "Ctrl↩";
+  display: inline-grid;
+  height: 15px;
+  margin-left: 6px;
+  padding: 0 4px;
+  border: 1px solid color-mix(in srgb, currentColor 34%, transparent);
+  border-radius: 3px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  font: 500 9.5px var(--monaco-monospace-font, monospace);
+  line-height: 1;
+  place-items: center;
+  vertical-align: middle;
+}
+
+.monaco-workbench.review-workbench.mac
+  .review-widget
+  .form-actions
+  .other-actions
+  > .monaco-text-button:first-child
+  > span::after,
+.monaco-workbench.review-workbench.mac
+  .review-widget
+  .form-actions
+  .other-actions
+  > .monaco-button-dropdown
+  > .monaco-text-button:first-child
+  > span::after {
+  content: "⌘↩";
+}
+
 .monaco-workbench.review-workbench
   .monaco-editor
   .review-widget.compact-comment-thread

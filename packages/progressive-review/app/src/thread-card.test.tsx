@@ -67,17 +67,17 @@ describe("ThreadComposer", () => {
     expect(onAddToReview).not.toHaveBeenCalled();
 
     await setTextarea(container, "Queue this finding");
-    const commandEnter = new KeyboardEvent("keydown", {
+    const shiftEnter = new KeyboardEvent("keydown", {
       key: "Enter",
-      metaKey: true,
+      shiftKey: true,
       bubbles: true,
       cancelable: true,
     });
     await act(async () => {
-      textarea(container).dispatchEvent(commandEnter);
+      textarea(container).dispatchEvent(shiftEnter);
     });
 
-    expect(commandEnter.defaultPrevented).toBe(false);
+    expect(shiftEnter.defaultPrevented).toBe(false);
     expect(textarea(container).value).toBe("Queue this finding");
 
     await act(async () => {
@@ -90,6 +90,10 @@ describe("ThreadComposer", () => {
     // sends the other one.
     expect(onAskNow).toHaveBeenNthCalledWith(2, "Queue this finding");
     expect(onAddToReview).not.toHaveBeenCalled();
+    expect(
+      primaryButton(container).querySelector(".thread-compose-kbd")
+        ?.textContent,
+    ).toMatch(/↩$/);
   });
 
   it("clears a submitted ask while the answer is still running", async () => {
@@ -121,30 +125,34 @@ describe("ThreadComposer", () => {
     await act(async () => finishAsk());
   });
 
-  it("submits a message with Enter and keeps Command-Enter for a newline", async () => {
+  it("submits a message with Enter or Command-Enter and keeps Shift-Enter for a newline", async () => {
     const onSubmit = vi.fn<(body: string) => void>();
     const { container } = await renderMessageComposer({
       initialDraft: "Please change this",
       onSubmit,
     });
 
-    const commandEnter = new KeyboardEvent("keydown", {
+    const shiftEnter = new KeyboardEvent("keydown", {
       key: "Enter",
-      metaKey: true,
+      shiftKey: true,
       bubbles: true,
       cancelable: true,
     });
     await act(async () => {
-      textarea(container).dispatchEvent(commandEnter);
+      textarea(container).dispatchEvent(shiftEnter);
     });
 
-    expect(commandEnter.defaultPrevented).toBe(false);
+    expect(shiftEnter.defaultPrevented).toBe(false);
     expect(onSubmit).not.toHaveBeenCalled();
     expect(textarea(container).value).toBe("Please change this");
 
     await act(async () => {
       textarea(container).dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          metaKey: true,
+          bubbles: true,
+        }),
       );
     });
 

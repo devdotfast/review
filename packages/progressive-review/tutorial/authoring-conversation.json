@@ -4,19 +4,11 @@
   "messages": [
     {
       "role": "user",
-      "body": "Create a three-minute Review tutorial for the sample checkout change. Teach the reviewer how to navigate code, inspect commits and diffs, start comment threads, use Ask now, explore diagrams and the software map, and find settings later."
+      "body": "/dev-review I'd like to review the feature we just worked on."
     },
     {
       "role": "assistant",
-      "body": "I’ll use placeOrder for navigation, validateInventory for the comment exercise, the two pinned commits for the history views, and the checkout-to-fulfillment path for the sequence and database diagrams."
-    },
-    {
-      "role": "user",
-      "body": "Keep it guided and concise. Make each diagram interaction open supporting code, and finish by showing where to manage installed skills or reopen Getting Started."
-    },
-    {
-      "role": "assistant",
-      "body": "The bundled Review is compiled, validated against its pinned base and head, and published with code peeks, sequence and database views, the map stop, and the final help step."
+      "body": "Ok, I'm on it..."
     }
   ]
 }

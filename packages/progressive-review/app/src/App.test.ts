@@ -1506,7 +1506,7 @@ describe("review app light theme", () => {
       /\.sequence-diagram,\s*\.database-lens\s*{[^}]*background:\s*var\(--diagram-surface\);/s,
     );
     expect(styles).toMatch(
-      /\.review-document p,\s*\.review-document li\s*{[^}]*font-size:\s*15px;[^}]*line-height:\s*1\.72;/s,
+      /\.review-document p,\s*\.review-document li\s*{[^}]*font-size:\s*15px;[^}]*line-height:\s*1\.72;[^}]*text-align:\s*left;/s,
     );
     expect(styles).not.toContain(".review-document h1 + p");
     expect(styles).not.toContain(".review-document h1 + p code");

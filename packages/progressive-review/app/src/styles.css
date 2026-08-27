@@ -7651,7 +7651,7 @@ a.review-doc-meta-pr:hover {
   font-family: var(--font-serif);
   font-size: 15px;
   line-height: 1.72;
-  text-align: justify;
+  text-align: left;
 }
 
 .review-document li + li {

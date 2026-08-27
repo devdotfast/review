@@ -22,7 +22,12 @@ import {
   summarizeReviewDiffFiles,
 } from "@dev.fast/review-protocol";
 
-import { parseAuthoringSessionKey } from "./authoring-session";
+import {
+  type SessionRef,
+  authoringSessionKey,
+  parseAuthoringSessionKey,
+  parseFreshSourceSessionHarness,
+} from "./authoring-session";
 import { type DismissedRetentionDays, reviewReapsAt } from "./review-attention";
 import {
   remapReviewCodeDrafts,
@@ -223,6 +228,68 @@ export async function touchReviewAgentSession(
   if (!outcome.acquired) {
     throw new Error(
       `Timed out while updating agent sessions for Review ${review.review.uuid}.`,
+    );
+  }
+  return outcome.result;
+}
+
+/** Replaces a tutorial's fresh-session marker with the real source session.
+    The record and author attribution move together under the same lock so a
+    restart can never observe one without the other. */
+export async function bindReviewAuthorSession(
+  review: StoredReview,
+  session: SessionRef,
+  now = new Date().toISOString(),
+): Promise<StoredReview> {
+  const sessionKey = authoringSessionKey(session);
+  const recordPath = path.join(review.dir, "review.json");
+  const outcome = await withFileLock(
+    path.join(review.dir, ".agent-sessions.lock"),
+    AGENT_SESSION_LOCK_OPTIONS,
+    async () => {
+      const current = parseStoredReviewRecord(
+        JSON.parse(await readFile(recordPath, "utf8")),
+      );
+      const freshHarness = parseFreshSourceSessionHarness(
+        current.sourceSession,
+      );
+      const boundSession = parseAuthoringSessionKey(current.sourceSession);
+      if (freshHarness && freshHarness !== session.harness) {
+        throw new Error(
+          `Review fresh-session harness ${freshHarness} does not match ${session.harness}.`,
+        );
+      }
+      if (
+        !freshHarness &&
+        (!boundSession || authoringSessionKey(boundSession) !== sessionKey)
+      ) {
+        throw new Error(
+          "Review is already bound to another authoring session.",
+        );
+      }
+      const prior = current.agentSessions?.[sessionKey];
+      const roles = prior?.roles.includes("author")
+        ? prior.roles
+        : [...(prior?.roles ?? []), "author" as const];
+      const updated: StoredReviewRecord = {
+        ...current,
+        sourceSession: sessionKey,
+        agentSessions: {
+          ...current.agentSessions,
+          [sessionKey]: {
+            roles,
+            firstSeenAt: prior?.firstSeenAt ?? now,
+            lastSeenAt: now,
+          },
+        },
+      };
+      await writePrivateJsonAtomic(recordPath, updated);
+      return { dir: review.dir, review: updated };
+    },
+  );
+  if (!outcome.acquired) {
+    throw new Error(
+      `Timed out while binding the author session for Review ${review.review.uuid}.`,
     );
   }
   return outcome.result;

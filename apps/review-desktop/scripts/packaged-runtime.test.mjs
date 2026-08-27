@@ -5,6 +5,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { canvasLoaderSource, canvasTargets } from "./copy-canvas.mjs";
+import { readTutorialRuntimeManifest } from "./stage-review-runtime.mjs";
 
 const appRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -132,6 +133,8 @@ test("M5 launches the packaged Review binary", async () => {
   assert.match(packageScript, /--packaged-root "\$PACKAGED_ROOT"/);
   assert.match(packageScript, /reviewDesktopHostMain\.js/);
   assert.match(runScript, /DEV_FAST_REVIEW_PACKAGED_ROOT/);
+  assert.match(runScript, /TUTORIAL_OUTPUT=/);
+  assert.match(runScript, /tutorial\/\.bundle.*tutorial\/git-stub.*-prune/s);
   assert.match(runScript, /unset NODE_ENV VSCODE_DEV VSCODE_CLI/);
   assert.match(
     runScript,
@@ -223,16 +226,26 @@ test("the packaged app carries its own Review runtime and is never written to at
     /review-runtime\/skills\/dev-review\/SKILL\.md/,
   );
   assert.match(stagingScript, /"skills\/dev-review\/SKILL\.md"/);
-  assert.match(stagingScript, /"tutorial\/review\.mdx"/);
-  assert.match(stagingScript, /"tutorial\/software-map\.ts"/);
-  assert.match(stagingScript, /"tutorial\/git-stub\/HEAD"/);
-  assert.match(
-    stagingScript,
-    /"tutorial\/\.bundle\/document\/review-document\.js"/,
+  assert.match(stagingScript, /"tutorial\/runtime-manifest\.json"/);
+  assert.doesNotMatch(stagingScript, /tutorial\/authoring-conversation\.json/);
+  const tutorialManifest = await readTutorialRuntimeManifest(
+    path.resolve(appRoot, "../../packages/progressive-review/tutorial"),
   );
-  assert.match(
-    stagingScript,
-    /"tutorial\/\.bundle\/software-map\/manifest\.json"/,
+  assert.ok(tutorialManifest.reviewFiles.includes("review.mdx"));
+  assert.ok(
+    tutorialManifest.reviewFiles.includes("authoring-conversation.json"),
+  );
+  assert.ok(tutorialManifest.requiredPaths.includes("software-map.ts"));
+  assert.ok(tutorialManifest.requiredPaths.includes("git-stub/HEAD"));
+  assert.ok(
+    tutorialManifest.requiredPaths.includes(
+      ".bundle/document/review-document.js",
+    ),
+  );
+  assert.ok(
+    tutorialManifest.requiredPaths.includes(
+      ".bundle/software-map/manifest.json",
+    ),
   );
   assert.match(stagingScript, /RUNTIME_CLI_ENTRY = "dist\/cli\.js"/);
 
@@ -267,22 +280,16 @@ test("the packaged app carries its own Review runtime and is never written to at
     "the Darwin payload must carry the tutorial assets",
   );
   for (const packageScript of [packageLinuxScript, packageMacScript]) {
-    assert.match(packageScript, /review-runtime\/tutorial\/review\.mdx/);
-    assert.match(packageScript, /review-runtime\/tutorial\/data\.ts/);
-    assert.match(packageScript, /review-runtime\/tutorial\/software-map\.ts/);
     assert.match(
       packageScript,
-      /review-runtime\/tutorial\/sample-service\/package\.json/,
-    );
-    assert.match(packageScript, /review-runtime\/tutorial\/git-stub\/HEAD/);
-    assert.match(
-      packageScript,
-      /review-runtime\/tutorial\/\.bundle\/document\/review-document\.js/,
+      /review-runtime\/tutorial\/runtime-manifest\.json/,
     );
     assert.match(
-      packageScript,
-      /review-runtime\/tutorial\/\.bundle\/software-map\/manifest\.json/,
+      stagingScript,
+      /tutorialManifest\.requiredPaths/,
+      "staging must validate every manifest-owned tutorial asset",
     );
+    assert.doesNotMatch(packageScript, /authoring-conversation\.json/);
   }
   assert.match(
     packageMacScript,

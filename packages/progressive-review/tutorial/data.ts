@@ -1,8 +1,20 @@
+import type { TutorialAuthoringConversation } from "@dev.fast/review/authoring";
 import {
   defineActors,
   defineAnchors,
   defineStores,
 } from "virtual:progressive-review-authoring";
+
+import authoringConversationInput from "./authoring-conversation.json";
+
+export const authoringConversation: TutorialAuthoringConversation = {
+  version: authoringConversationInput.version as 1,
+  title: authoringConversationInput.title,
+  messages: authoringConversationInput.messages.map((message) => ({
+    role: message.role as "user" | "assistant",
+    body: message.body,
+  })),
+};
 
 export const anchors = defineAnchors({
   checkout: {

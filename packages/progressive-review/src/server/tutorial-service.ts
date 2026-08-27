@@ -16,8 +16,9 @@ import { resolveRevision } from "@dev.fast/local-vcs";
 
 import {
   type ReviewAgentHarness,
-  authoringSessionKey,
+  freshSourceSessionKey,
   parseAuthoringSessionKey,
+  parseFreshSourceSessionHarness,
 } from "../authoring-session";
 import {
   type StoredReview,
@@ -33,17 +34,16 @@ import {
   reviewSourceHeadRef,
 } from "../review-source-ref";
 import { devReviewHome } from "../review-storage";
-import { createTutorialAgentSession } from "../tutorial-agent-session";
 import { writePrivateJsonAtomic } from "./desktop-paths";
 
 const execFilePromise = promisify(execFile);
 const TUTORIAL_STATUS_VERSION = 1;
-/* Version 6 adds the database and Get help stops to the bundled document.
-   Older tutorial records are re-materialized on first open. */
-const TUTORIAL_STAMP_VERSION = 6;
+/* Version 8 adds the representative authoring conversation and its lazy
+   source-session handoff. Older records are re-materialized on first open. */
+const TUTORIAL_STAMP_VERSION = 8;
 
 export interface TutorialStamp {
-  version: 6;
+  version: 8;
   reviewUuid: string;
 }
 
@@ -54,19 +54,23 @@ export interface TutorialStatus {
 
 export interface TutorialService {
   status(): Promise<TutorialStatus>;
+  /** True when the UUID belongs to the tutorial stamp or managed repository. */
+  referencesReview(reviewUuid: string): Promise<boolean>;
   /** The hidden system Review record. Null when absent or invalid. */
   find(): Promise<StoredReview | null>;
   /** Returns the ready-to-mount tutorial Review. Materializes the shipped
       repo and a sealed revision when absent or invalid. Compilation remains
       unnecessary because the document and map bundles ship precompiled. */
-  prepare(agent: ReviewAgentHarness): Promise<StoredReview>;
+  prepare(
+    agent: ReviewAgentHarness,
+    options?: { beforeReset(): Promise<void> },
+  ): Promise<StoredReview>;
   cleanup(): Promise<void>;
 }
 
 export function createTutorialService(input: {
   packageRoot: string;
   deleteReview(review: StoredReview): Promise<void>;
-  createAgentSession?: typeof createTutorialAgentSession;
 }): TutorialService {
   const tutorialRoot = path.join(devReviewHome(), "tutorial");
   const sampleRoot = path.join(tutorialRoot, "sample-service");
@@ -80,14 +84,19 @@ export function createTutorialService(input: {
     return loaded?.review.visibility === "system" ? loaded : null;
   };
 
-  const readValidState = async (): Promise<{
+  const readValidState = async (
+    expectedHarness?: ReviewAgentHarness,
+  ): Promise<{
     stamp: TutorialStamp;
     review: StoredReview;
   } | null> => {
     const stamp = await readTutorialStamp(stampPath);
     if (!stamp) return null;
     const review = await findTutorialReview(stamp.reviewUuid).catch(() => null);
-    if (!review || !(await isValidTutorialReview(review, sampleRoot))) {
+    if (
+      !review ||
+      !(await isValidTutorialReview(review, sampleRoot, expectedHarness))
+    ) {
       return null;
     }
     // An app update ships new bundles pinned to a new commit. A record
@@ -123,15 +132,25 @@ export function createTutorialService(input: {
       };
     },
 
+    async referencesReview(reviewUuid) {
+      const stamp = await readTutorialStamp(stampPath);
+      if (stamp?.reviewUuid === reviewUuid) return true;
+      const review = await findTutorialReview(reviewUuid).catch(() => null);
+      return review
+        ? isManagedTutorialPath(review.review.worktreePath, sampleRoot)
+        : false;
+    },
+
     async find() {
       const state = await readValidState();
       return state?.review ?? null;
     },
 
-    async prepare(agent) {
-      const current = await readValidState();
+    async prepare(agent, options) {
+      const current = await readValidState(agent);
       if (current) return current.review;
 
+      await options?.beforeReset();
       await cleanup();
       await requireTutorialAssets(assetsRoot);
       await materializeSampleRepository({
@@ -157,13 +176,7 @@ export function createTutorialService(input: {
         reviewSourceHeadRef(uuid),
         head.commit,
       );
-      const sourceAgent = await (
-        input.createAgentSession ?? createTutorialAgentSession
-      )({
-        harness: agent,
-        rootPath: sampleRoot,
-      });
-      const sourceSession = authoringSessionKey(sourceAgent);
+      const sourceSession = freshSourceSessionKey(agent);
       const created = await createReviewDir({
         uuid,
         visibility: "system",
@@ -193,14 +206,10 @@ export function createTutorialService(input: {
         path.join(candidate.dir, "review.json"),
         candidate.review,
       );
+      const runtimeManifest = await readTutorialRuntimeManifest(assetsRoot);
       await Promise.all([
-        cp(
-          path.join(assetsRoot, "review.mdx"),
-          path.join(candidate.dir, "review.mdx"),
-        ),
-        cp(
-          path.join(assetsRoot, "data.ts"),
-          path.join(candidate.dir, "data.ts"),
+        ...runtimeManifest.reviewFiles.map((entry) =>
+          cp(path.join(assetsRoot, entry), path.join(candidate.dir, entry)),
         ),
         cp(
           path.join(assetsRoot, ".bundle"),
@@ -295,18 +304,26 @@ async function readShippedMapManifest(
 async function isValidTutorialReview(
   review: StoredReview,
   sampleRoot: string,
+  expectedHarness?: ReviewAgentHarness,
 ): Promise<boolean> {
   if (!(await isManagedTutorialPath(review.review.worktreePath, sampleRoot))) {
     return false;
   }
   if (
     review.review.visibility !== "system" ||
-    !parseAuthoringSessionKey(review.review.sourceSession) ||
+    !(
+      parseFreshSourceSessionHarness(review.review.sourceSession) ||
+      parseAuthoringSessionKey(review.review.sourceSession)
+    ) ||
     !review.review.presentedDocumentRevision ||
     !review.review.presentedSoftwareMapRevision
   ) {
     return false;
   }
+  const storedHarness =
+    parseAuthoringSessionKey(review.review.sourceSession)?.harness ??
+    parseFreshSourceSessionHarness(review.review.sourceSession);
+  if (expectedHarness && storedHarness !== expectedHarness) return false;
   const sourceCommit = review.review.sourceCommit;
   if (!sourceCommit || review.review.baseCommit === sourceCommit) return false;
   const [head, base, count] = await Promise.all([
@@ -339,18 +356,8 @@ async function readTutorialStamp(
 }
 
 async function requireTutorialAssets(assetsRoot: string): Promise<void> {
-  const required = [
-    "sample-service",
-    "review.mdx",
-    "data.ts",
-    "software-map.ts",
-    "git-stub/HEAD",
-    ".bundle/document/review-document.js",
-    ".bundle/document/manifest.json",
-    ".bundle/software-map/head-map.js",
-    ".bundle/software-map/base-map.js",
-    ".bundle/software-map/manifest.json",
-  ];
+  const { requiredPaths: required } =
+    await readTutorialRuntimeManifest(assetsRoot);
   const missing: string[] = [];
   for (const entry of required) {
     try {
@@ -364,6 +371,43 @@ async function requireTutorialAssets(assetsRoot: string): Promise<void> {
       `Tutorial runtime assets are missing: ${missing.join(", ")}.`,
     );
   }
+}
+
+interface TutorialRuntimeManifest {
+  version: 1;
+  reviewFiles: string[];
+  requiredPaths: string[];
+}
+
+async function readTutorialRuntimeManifest(
+  assetsRoot: string,
+): Promise<TutorialRuntimeManifest> {
+  const value = JSON.parse(
+    await readFile(path.join(assetsRoot, "runtime-manifest.json"), "utf8"),
+  ) as Partial<TutorialRuntimeManifest>;
+  const validEntries = (entries: unknown): entries is string[] =>
+    Array.isArray(entries) &&
+    entries.length > 0 &&
+    entries.every(
+      (entry) =>
+        typeof entry === "string" &&
+        entry.length > 0 &&
+        !path.isAbsolute(entry) &&
+        !entry.split(/[\\/]/u).includes(".."),
+    );
+  if (
+    value.version !== 1 ||
+    !validEntries(value.reviewFiles) ||
+    !validEntries(value.requiredPaths) ||
+    value.reviewFiles.some((entry) => !value.requiredPaths!.includes(entry))
+  ) {
+    throw new Error("Tutorial runtime manifest is invalid.");
+  }
+  return {
+    version: 1,
+    reviewFiles: [...new Set(value.reviewFiles)],
+    requiredPaths: [...new Set(value.requiredPaths)],
+  };
 }
 
 async function isManagedTutorialPath(

@@ -1585,6 +1585,7 @@ export const ReviewSessionSchema = z.strictObject({
   reviewPath: requiredString,
   codeGraphUrl: absoluteUrlSchema.optional(),
   agent: AuthoringAgentSessionSchema.optional(),
+  freshQuestionHarness: AuthoringAgentSessionSchema.shape.harness.optional(),
   codexThreadId: requiredString.optional(),
   resolvedBaseRef: requiredString.nullable().optional(),
   reviewStatus: ReviewStatusSchema.optional(),
@@ -1954,7 +1955,7 @@ export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
     name: z.literal("openNativeAgentTerminal"),
     args: z.strictObject({
       launchId: requiredString,
-      harness: z.enum(["claude-code", "codex", "pi"]),
+      harness: AuthoringAgentSessionSchema.shape.harness,
       cwd: requiredString,
       executable: requiredString,
       args: z.array(z.string()),

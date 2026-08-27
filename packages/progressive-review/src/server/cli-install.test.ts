@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -11,6 +11,7 @@ import {
   readCliInstallStamp,
   removeCliInstall,
   resolveCliInstallStatus,
+  resolveInstalledReviewAgentStatus,
   skipCliInstall,
 } from "./cli-install";
 import { writePrivateJsonAtomic } from "./desktop-paths";
@@ -103,6 +104,51 @@ describe("trace capture installation", () => {
     expect(await readFile(env.TRACE_ENV_FILE!, "utf8")).toContain(
       "mock-secret-value",
     );
+  });
+});
+
+describe("resolveInstalledReviewAgentStatus", () => {
+  it("detects installed agents without invoking their CLIs", async () => {
+    const homeDir = await mkdtemp(path.join(tmpdir(), "review-agent-status-"));
+    temporaryDirectories.push(homeDir);
+    const binDir = path.join(homeDir, "bin");
+    const probeLog = path.join(homeDir, "agent-probes.log");
+    await Promise.all([
+      mkdir(binDir, { recursive: true }),
+      mkdir(path.join(homeDir, ".claude", "skills", "dev-review"), {
+        recursive: true,
+      }),
+    ]);
+    await writeFile(
+      path.join(homeDir, ".claude", "skills", "dev-review", "SKILL.md"),
+      "---\nname: dev-review\n---\n",
+    );
+    const executable = `#!/bin/sh\nprintf '%s\\n' "$0 $*" >> "$AGENT_PROBE_LOG"\nexit 1\n`;
+    await Promise.all(
+      ["claude", "codex"].map((name) =>
+        writeFile(path.join(binDir, name), executable, { mode: 0o755 }),
+      ),
+    );
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      AGENT_PROBE_LOG: probeLog,
+      DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
+      PATH: binDir,
+    };
+
+    const status = await resolveInstalledReviewAgentStatus({
+      homeDir,
+      env,
+    });
+
+    expect(status.agents).toContainEqual({
+      target: "claude",
+      present: true,
+      installed: true,
+    });
+    await expect(readFile(probeLog, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 });
 

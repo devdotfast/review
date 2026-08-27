@@ -10,7 +10,7 @@ const LAUNCHABLE_HARNESS = {
 
 /** Selects the first installed native agent, preserving onboarding order. */
 export function preferredInstalledReviewAgent(
-  status: ReviewCliInstallStatus,
+  status: Pick<ReviewCliInstallStatus, "agents" | "stamp">,
 ): ReviewAgentHarness | undefined {
   const installed = new Set(
     status.agents

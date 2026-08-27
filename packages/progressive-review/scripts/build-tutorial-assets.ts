@@ -76,6 +76,22 @@ export async function buildTutorialAssets(
   input: { outDir?: string } = {},
 ): Promise<BuiltTutorialAssets> {
   const outDir = input.outDir ?? tutorialDir;
+  const runtimeManifest = JSON.parse(
+    await readFile(path.join(tutorialDir, "runtime-manifest.json"), "utf8"),
+  ) as { reviewFiles?: unknown };
+  if (
+    !Array.isArray(runtimeManifest.reviewFiles) ||
+    runtimeManifest.reviewFiles.length === 0 ||
+    !runtimeManifest.reviewFiles.every(
+      (entry) =>
+        typeof entry === "string" &&
+        entry.length > 0 &&
+        !path.isAbsolute(entry) &&
+        !entry.split(/[\\/]/u).includes(".."),
+    )
+  ) {
+    throw new Error("Tutorial runtime manifest is invalid.");
+  }
   const temporaryRoot = await mkdtemp(
     path.join(os.tmpdir(), "review-tutorial-build-"),
   );
@@ -157,13 +173,11 @@ export async function buildTutorialAssets(
       sourceCommit: commit,
       sourceIdentity: { kind: "git-branch", name: "main" },
     });
-    await Promise.all([
-      cp(
-        path.join(tutorialDir, "review.mdx"),
-        path.join(review.dir, "review.mdx"),
+    await Promise.all(
+      runtimeManifest.reviewFiles.map((entry) =>
+        cp(path.join(tutorialDir, entry), path.join(review.dir, entry)),
       ),
-      cp(path.join(tutorialDir, "data.ts"), path.join(review.dir, "data.ts")),
-    ]);
+    );
     const compiled = await compileReviewDocumentBundle({
       reviewPath: path.join(review.dir, "review.mdx"),
       reviewDocumentsDir: path.join(review.dir, ".review-documents"),

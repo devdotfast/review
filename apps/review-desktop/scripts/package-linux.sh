@@ -48,13 +48,7 @@ for artifact in \
   "$PACKAGED_ROOT/resources/app/review-runtime/skills/dev-review/docs/README.md" \
   "$PACKAGED_ROOT/resources/app/review-runtime/skills/dev-review-map/SKILL.md" \
   "$PACKAGED_ROOT/resources/app/review-runtime/skills/trace-archaeology/SKILL.md" \
-  "$PACKAGED_ROOT/resources/app/review-runtime/tutorial/review.mdx" \
-  "$PACKAGED_ROOT/resources/app/review-runtime/tutorial/data.ts" \
-  "$PACKAGED_ROOT/resources/app/review-runtime/tutorial/software-map.ts" \
-  "$PACKAGED_ROOT/resources/app/review-runtime/tutorial/sample-service/package.json" \
-  "$PACKAGED_ROOT/resources/app/review-runtime/tutorial/git-stub/HEAD" \
-  "$PACKAGED_ROOT/resources/app/review-runtime/tutorial/.bundle/document/review-document.js" \
-  "$PACKAGED_ROOT/resources/app/review-runtime/tutorial/.bundle/software-map/manifest.json" \
+  "$PACKAGED_ROOT/resources/app/review-runtime/tutorial/runtime-manifest.json" \
   "$PACKAGED_ROOT/resources/app/review-runtime/node_modules/@dev.fast/local-vcs/dist/index.js" \
   "$PACKAGED_ROOT/resources/app/review-runtime/node_modules/@esbuild/linux-x64/bin/esbuild" \
   "$PACKAGED_ROOT/resources/app/extensions/vscodevim.vim/package.json"; do

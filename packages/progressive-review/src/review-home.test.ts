@@ -20,6 +20,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   ReviewHomeScanError,
+  bindReviewAuthorSession,
   computeSync,
   createReviewDir,
   findReview,
@@ -35,6 +36,45 @@ import { appendReviewComment, readReviewComments } from "./review-state-store";
 const execFilePromise = promisify(execFile);
 
 describe("review home", () => {
+  it("atomically replaces a fresh marker with the durable author session", async () => {
+    const root = await makeGitRepository();
+    const home = await mkdtemp(path.join(os.tmpdir(), "review-home-"));
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+    try {
+      const commit = await git(root, ["rev-parse", "HEAD"]);
+      const created = await createReviewDir({
+        worktreePath: root,
+        baseRef: "main",
+        baseCommit: commit,
+        sourceCommit: commit,
+        sourceSession: "fresh:codex",
+      });
+
+      const bound = await bindReviewAuthorSession(
+        created,
+        { harness: "codex", sessionId: "tutorial-source" },
+        "2026-08-26T10:00:00.000Z",
+      );
+
+      expect(bound.review.sourceSession).toBe("codex:tutorial-source");
+      expect(bound.review.agentSessions?.["codex:tutorial-source"]).toEqual({
+        roles: ["author"],
+        firstSeenAt: "2026-08-26T10:00:00.000Z",
+        lastSeenAt: "2026-08-26T10:00:00.000Z",
+      });
+      await expect(
+        bindReviewAuthorSession(bound, {
+          harness: "codex",
+          sessionId: "another-source",
+        }),
+      ).rejects.toThrow("already bound");
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(home, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("upserts agent roles and timestamps without changing the legacy field", async () => {
     const root = await makeGitRepository();
     const home = await mkdtemp(path.join(os.tmpdir(), "review-home-"));

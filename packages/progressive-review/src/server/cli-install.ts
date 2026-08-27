@@ -66,6 +66,31 @@ export function pathShimPath(homeDir = os.homedir()): string {
   return path.join(homeDir, ".local", "bin", "review");
 }
 
+/** Reads only the filesystem-backed agent state needed to choose a harness. */
+export async function resolveInstalledReviewAgentStatus(
+  input: {
+    homeDir?: string;
+    env?: NodeJS.ProcessEnv;
+  } = {},
+): Promise<Pick<ReviewCliInstallStatus, "agents" | "stamp">> {
+  const homeDir = input.homeDir ?? os.homedir();
+  const env = input.env ?? process.env;
+  const [present, installed, stamp] = await Promise.all([
+    detectPresentAgents(homeDir),
+    detectInstalledTargets(homeDir),
+    readCliInstallStamp(cliInstallStampPath(env)),
+  ]);
+  const installedSet = new Set(installed);
+  return {
+    agents: ALL_INSTALL_TARGETS.map((target) => ({
+      target,
+      present: present.has(target),
+      installed: installedSet.has(target),
+    })),
+    stamp,
+  };
+}
+
 export async function resolveCliInstallStatus(input: {
   packageRoot: string;
   homeDir?: string;
@@ -73,14 +98,12 @@ export async function resolveCliInstallStatus(input: {
 }): Promise<ReviewCliInstallStatus> {
   const homeDir = input.homeDir ?? os.homedir();
   const env = input.env ?? process.env;
-  const [present, installed, fingerprint, stamp, trace] = await Promise.all([
-    detectPresentAgents(homeDir),
-    detectInstalledTargets(homeDir),
+  const [agentStatus, fingerprint, trace] = await Promise.all([
+    resolveInstalledReviewAgentStatus({ homeDir, env }),
     installFingerprint(input.packageRoot),
-    readCliInstallStamp(cliInstallStampPath(env)),
     traceMachineStatus({ homeDir, env }),
   ]);
-  const installedSet = new Set(installed);
+  const { agents, stamp } = agentStatus;
   const shimPath = pathShimPath(homeDir);
   const cliPath = path.join(input.packageRoot, "dist", "cli.js");
   const fffBinary = fffBinaryPath(homeDir);
@@ -103,11 +126,7 @@ export async function resolveCliInstallStatus(input: {
     }),
   );
   return {
-    agents: ALL_INSTALL_TARGETS.map((target) => ({
-      target,
-      present: present.has(target),
-      installed: installedSet.has(target),
-    })),
+    agents,
     fingerprint,
     stamp,
     stale: stamp?.consent === "granted" && stamp.fingerprint !== fingerprint,

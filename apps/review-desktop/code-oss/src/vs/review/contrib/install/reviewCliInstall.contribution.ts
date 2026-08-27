@@ -76,8 +76,6 @@ class OpenTutorialAction extends Action2 {
 		const sessionService = accessor.get(IReviewSessionService);
 		const tabsService = accessor.get(IReviewCanvasEditorTabsService);
 		try {
-			// No progress toast: the assets ship precompiled, so the open
-			// completes in well under a second.
 			const opened = await sessionService.openTutorial();
 			await tabsService.openReview(opened.reviewUuid, true);
 		} catch (error) {

@@ -13,6 +13,19 @@ export function authoringSessionKey(ref: SessionRef): string {
   return `${ref.harness}:${ref.sessionId}`;
 }
 
+export function freshSourceSessionKey(harness: ReviewAgentHarness): string {
+  return `fresh:${harness}`;
+}
+
+export function parseFreshSourceSessionHarness(
+  value: string | null | undefined,
+): ReviewAgentHarness | undefined {
+  const prefix = "fresh:";
+  if (!value?.startsWith(prefix)) return undefined;
+  const harness = value.slice(prefix.length);
+  return isReviewAgentHarness(harness) ? harness : undefined;
+}
+
 export function parseAuthoringSessionKey(
   value: string | null | undefined,
 ): SessionRef | undefined {

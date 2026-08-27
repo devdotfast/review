@@ -56,7 +56,8 @@ export type ReviewTurnRoute =
       kind: "fork";
       source: NativeSessionRef;
     }
-  | { kind: "resume"; session: ReviewThreadAgentBinding };
+  | { kind: "resume"; session: ReviewThreadAgentBinding }
+  | { kind: "new"; harness: ReviewAgentHarness };
 
 export interface LaunchReviewTurnInput {
   launchId: string;

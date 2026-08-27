@@ -5,6 +5,7 @@ import { DatabaseLens, DbRead, DbUseCase, DbWrite } from "./database-lens";
 import { SequenceDiagram } from "./diagrams";
 import { AnchorLink, ReviewSection } from "./review-components";
 import { TraceQuote } from "./trace-quote";
+import { TutorialAuthoringConversation } from "./tutorial-authoring-conversation";
 import {
   TutorialFeature,
   TutorialViewButton,
@@ -22,6 +23,7 @@ export const reviewAuthoringComponents = {
   ReviewSection,
   SequenceDiagram,
   TraceQuote,
+  TutorialAuthoringConversation,
   TutorialFeature,
   TutorialKeymapPicker,
   TutorialViewButton,

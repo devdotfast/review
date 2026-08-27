@@ -28,7 +28,10 @@ import {
 } from "../codepeek-symbol-diff";
 import { mergeErrorTelemetryProperties } from "../error-telemetry";
 import { NativeMessageMirror } from "../native-agent/native-message-mirror";
-import type { ReviewThreadAgentBinding } from "../native-agent/native-session";
+import type {
+  ReviewThreadAgentBinding,
+  ReviewTurnRoute,
+} from "../native-agent/native-session";
 import { NativeReviewTurnLauncher } from "../native-agent/native-turn-launcher";
 import {
   isTraceR2Configured,
@@ -94,6 +97,7 @@ import {
 } from "./review-api-parsers";
 
 const REVIEW_SUBMIT_HOOK_ENV = "DEV_FAST_REVIEW_SUBMIT_HOOK";
+export const TUTORIAL_QUESTION_SOURCE_WAIT_MS = 5_000;
 const CODE_PEEK_DIFF_CONTEXT_LINES = 100_000;
 const defaultTelemetry = new ProgressiveReviewTelemetry();
 const MAX_CLIENT_ERROR_SESSIONS = 100;
@@ -209,6 +213,9 @@ interface ReviewApiOptions {
       { name: "openNativeAgentTerminal" }
     >["args"],
   ) => Promise<void>;
+  resolveQuestionSourceSession?: (
+    signal?: AbortSignal,
+  ) => Promise<SessionRef | undefined>;
   onQuestionAgentSession?: (agent: SessionRef) => Promise<void>;
   submitHook?: string;
   session: ReviewSessionWire;
@@ -239,6 +246,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     onReviewThreadsCommit,
     runReviewThreadMutation = async (operation) => operation(),
     openNativeAgentTerminal,
+    resolveQuestionSourceSession,
     onQuestionAgentSession,
     submitHook,
     stateReviewPath,
@@ -598,15 +606,21 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     }
     launchedAgentMessageIds.add(comment.messageId);
     const mirror = mirrorFor(writableReviewPath);
-    await answerReviewComment({
-      comment,
-      rootPath: agentRootPath,
-      session,
-      service,
-      mirror,
-      nativeTurns,
-      onQuestionAgentSession,
-    });
+    try {
+      await answerReviewComment({
+        comment,
+        rootPath: agentRootPath,
+        session,
+        service,
+        mirror,
+        nativeTurns,
+        resolveQuestionSourceSession,
+        onQuestionAgentSession,
+      });
+    } catch (error) {
+      launchedAgentMessageIds.delete(comment.messageId);
+      throw error;
+    }
     return reviewApiJsonResponse(202, { ok: true });
   }
 
@@ -1119,23 +1133,25 @@ async function answerReviewComment(input: {
   service: ReviewThreadsService;
   mirror: NativeMessageMirror;
   nativeTurns: NativeReviewTurnLauncher;
+  resolveQuestionSourceSession?: (
+    signal?: AbortSignal,
+  ) => Promise<SessionRef | undefined>;
   onQuestionAgentSession?: (agent: SessionRef) => Promise<void>;
 }): Promise<void> {
   const agent = input.session.agent;
-  if (!agent) {
-    throw new Error("This Review has no authoring agent session.");
-  }
   const snapshot = input.service.snapshot();
   const storedSession =
     snapshot.drafts[input.comment.threadId]?.thread.agentSession ??
     snapshot.comments[input.comment.threadId]?.agentSession;
-  const nativeSource = agent;
-  const route = storedSession
-    ? {
-        kind: "resume" as const,
-        session: storedSession as ReviewThreadAgentBinding,
-      }
-    : { kind: "fork" as const, source: nativeSource };
+  const route = await resolveReviewQuestionRoute({
+    storedSession,
+    agent,
+    freshQuestionHarness: input.session.freshQuestionHarness,
+    resolveQuestionSourceSession: input.resolveQuestionSourceSession,
+  });
+  if (!route) {
+    throw new Error("This Review has no authoring agent session.");
+  }
   const handle = await input.nativeTurns.launchTurn({
     launchId: randomUUID(),
     threadId: input.comment.threadId,
@@ -1176,6 +1192,39 @@ async function answerReviewComment(input: {
     await handle.detach();
     throw error;
   }
+}
+
+export async function resolveReviewQuestionRoute(input: {
+  storedSession?: ReviewThreadAgentBinding;
+  agent?: SessionRef;
+  freshQuestionHarness?: ReviewSessionWire["freshQuestionHarness"];
+  resolveQuestionSourceSession?: (
+    signal?: AbortSignal,
+  ) => Promise<SessionRef | undefined>;
+}): Promise<ReviewTurnRoute | undefined> {
+  if (input.storedSession) {
+    return { kind: "resume", session: input.storedSession };
+  }
+  if (input.agent) return { kind: "fork", source: input.agent };
+  const preparedSource = input.resolveQuestionSourceSession
+    ? await resolveQuestionSourceWithinBudget(
+        input.resolveQuestionSourceSession,
+      )
+    : undefined;
+  if (preparedSource) return { kind: "fork", source: preparedSource };
+  return input.freshQuestionHarness
+    ? { kind: "new", harness: input.freshQuestionHarness }
+    : undefined;
+}
+
+async function resolveQuestionSourceWithinBudget(
+  resolveSource: (signal?: AbortSignal) => Promise<SessionRef | undefined>,
+): Promise<SessionRef | undefined> {
+  const signal = AbortSignal.timeout(TUTORIAL_QUESTION_SOURCE_WAIT_MS);
+  const timedOut = new Promise<undefined>((resolve) => {
+    signal.addEventListener("abort", () => resolve(undefined), { once: true });
+  });
+  return Promise.race([resolveSource(signal).catch(() => undefined), timedOut]);
 }
 
 async function acceptedNativeSession<T>(accepted: Promise<T>): Promise<T> {

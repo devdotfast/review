@@ -61,16 +61,7 @@ const REQUIRED_ENTRIES = [
   "skills/dev-review/docs/README.md",
   "skills/dev-review-map/SKILL.md",
   "skills/trace-archaeology/SKILL.md",
-  "tutorial/review.mdx",
-  "tutorial/data.ts",
-  "tutorial/software-map.ts",
-  "tutorial/sample-service/package.json",
-  "tutorial/git-stub/HEAD",
-  "tutorial/.bundle/document/review-document.js",
-  "tutorial/.bundle/document/manifest.json",
-  "tutorial/.bundle/software-map/head-map.js",
-  "tutorial/.bundle/software-map/base-map.js",
-  "tutorial/.bundle/software-map/manifest.json",
+  "tutorial/runtime-manifest.json",
   "node_modules",
   "node_modules/@dev.fast/local-vcs/dist/index.js",
   esbuildPlatformEntry(),
@@ -217,7 +208,45 @@ export async function assertRuntimeClosure(runtimeRoot) {
       throw new Error(`The staged Review runtime is missing ${entry}.`);
     }
   }
+  const tutorialRoot = path.join(runtimeRoot, "tutorial");
+  const tutorialManifest = await readTutorialRuntimeManifest(tutorialRoot);
+  for (const entry of tutorialManifest.requiredPaths) {
+    try {
+      await access(path.join(tutorialRoot, entry));
+    } catch {
+      throw new Error(`The staged Review runtime is missing tutorial/${entry}.`);
+    }
+  }
   await assertNoCheckoutReferences(runtimeRoot);
+}
+
+export async function readTutorialRuntimeManifest(tutorialRoot) {
+  const value = JSON.parse(
+    await readFile(path.join(tutorialRoot, "runtime-manifest.json"), "utf8"),
+  );
+  const validEntries = (entries) =>
+    Array.isArray(entries) &&
+    entries.length > 0 &&
+    entries.every(
+      (entry) =>
+        typeof entry === "string" &&
+        entry.length > 0 &&
+        !path.isAbsolute(entry) &&
+        !entry.split(/[\\/]/u).includes(".."),
+    );
+  if (
+    value?.version !== 1 ||
+    !validEntries(value.reviewFiles) ||
+    !validEntries(value.requiredPaths) ||
+    value.reviewFiles.some((entry) => !value.requiredPaths.includes(entry))
+  ) {
+    throw new Error("Tutorial runtime manifest is invalid.");
+  }
+  return {
+    version: 1,
+    reviewFiles: [...new Set(value.reviewFiles)],
+    requiredPaths: [...new Set(value.requiredPaths)],
+  };
 }
 
 /**

@@ -1651,6 +1651,58 @@ button {
   opacity: 0.6;
 }
 
+.tutorial-authoring-conversation {
+  margin: 18px 0 24px;
+  border: 1px solid var(--review-home-rule-soft);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-raised) 76%, transparent);
+}
+
+.tutorial-authoring-conversation summary {
+  display: flex;
+  cursor: pointer;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  font-weight: 600;
+}
+
+.tutorial-authoring-conversation summary span:last-child {
+  color: var(--review-home-meta);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.tutorial-authoring-conversation ol {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0 14px 14px;
+  list-style: none;
+}
+
+.tutorial-authoring-conversation li {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.tutorial-authoring-conversation li > span {
+  color: var(--review-home-meta);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.tutorial-authoring-conversation li[data-role="assistant"] > span {
+  color: var(--accent);
+}
+
+.tutorial-authoring-conversation p {
+  margin: 0;
+}
+
 .tutorial-keymap-picker button[aria-pressed="true"] {
   color: var(--chrome-fg);
   background: var(--surface-raised);

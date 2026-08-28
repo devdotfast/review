@@ -44,7 +44,7 @@ Do not modify files. Do not publish, resolve, or reply through the CLI. Review D
 
 ### 1. Resolve the Review
 
-Run `review app launch --json` to start Review Desktop. Then run `review info --json` in the source worktree. It lists active Reviews bound to that worktree and reports `matchesCheckout` for each one. Use an existing Review when it matches the requested change. If none matches, run `review scaffold --json` to create one. When the user asks for a fresh Review, pass `--new`; the explicit request overrides reuse.
+Run `review app launch --json` to start Review Desktop. Then run `review info --json` in the source worktree. It lists active Reviews bound to that worktree and reports `matchesCheckout` for each one. Use an existing Review when it matches the requested change. If none matches, run `review scaffold --json` to create one. In OpenCode, call the installed `review` custom tool for scaffold and update commands so Review receives the exact session boundary. When the user asks for a fresh Review, pass `--new`; the explicit request overrides reuse.
 
 Pass resolved commit ids to `--base` and `--head`. Parent suffixes like `<rev>^` do not resolve in a jj workspace; resolve the parent first with `jj log -r '<rev>-'`.
 

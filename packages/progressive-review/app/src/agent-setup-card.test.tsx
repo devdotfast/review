@@ -8,7 +8,7 @@ import { act } from "react";
 import { type Root, createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AgentSetupCard } from "./agent-setup-card";
+import { AgentSetupCard, TARGET_LABELS, supportsFff } from "./agent-setup-card";
 
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -127,6 +127,33 @@ describe("AgentSetupCard", () => {
       targets: ["codex"],
     });
     expect(onStatusChange).toHaveBeenCalledExactlyOnceWith(grantedStatus);
+  });
+
+  it("maps OpenCode setup without enabling FFF", async () => {
+    const openCodeStatus: ReviewCliInstallStatus = {
+      ...status,
+      agents: [{ target: "opencode", present: true, installed: false }],
+      stamp: grantedStatus.stamp,
+    };
+    const install: ReviewCanvasInstallContent = {
+      status: openCodeStatus,
+      apply: vi.fn<ReviewCanvasInstallContent["apply"]>(
+        async () => openCodeStatus,
+      ),
+      remove: vi.fn<ReviewCanvasInstallContent["remove"]>(),
+      decline: vi.fn<ReviewCanvasInstallContent["decline"]>(),
+      skip: vi.fn<ReviewCanvasInstallContent["skip"]>(),
+      enablePrompts: vi.fn<ReviewCanvasInstallContent["enablePrompts"]>(),
+    };
+
+    await act(async () => root.render(<AgentSetupCard install={install} />));
+
+    expect(TARGET_LABELS.opencode).toBe("OpenCode");
+    expect(supportsFff("opencode")).toBe(false);
+    expect(container.textContent).toContain("OpenCode");
+    expect(
+      container.querySelector(".review-agent-logo--opencode"),
+    ).not.toBeNull();
   });
 });
 

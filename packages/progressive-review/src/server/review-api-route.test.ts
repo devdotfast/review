@@ -96,4 +96,26 @@ describe("resolveReviewQuestionRoute", () => {
     });
     expect(resolver).not.toHaveBeenCalled();
   });
+
+  it("preserves resume then frozen-source precedence for OpenCode", async () => {
+    await expect(
+      resolveReviewQuestionRoute({
+        storedSession: { harness: "opencode", sessionId: "thread-session" },
+        agent: { harness: "opencode", sessionId: "frozen-source" },
+        freshQuestionHarness: "opencode",
+      }),
+    ).resolves.toEqual({
+      kind: "resume",
+      session: { harness: "opencode", sessionId: "thread-session" },
+    });
+    await expect(
+      resolveReviewQuestionRoute({
+        agent: { harness: "opencode", sessionId: "frozen-source" },
+        freshQuestionHarness: "opencode",
+      }),
+    ).resolves.toEqual({
+      kind: "fork",
+      source: { harness: "opencode", sessionId: "frozen-source" },
+    });
+  });
 });

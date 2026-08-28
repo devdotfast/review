@@ -37,7 +37,7 @@ describe("migrateStoredReviewData", () => {
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("preserves a legacy draft and removes legacy thread files", async () => {
+  it("rejects a boundary-less legacy OpenCode authoring session", async () => {
     const reviewHome = await tempDir();
     const sourceRoot = await gitRepository();
     const sourceCommit = execFileSync(
@@ -67,29 +67,33 @@ describe("migrateStoredReviewData", () => {
         ...legacy,
         schemaVersion: 2,
         presentedRevision: null,
+        agentSession: "opencode:session-1",
       })}\n`,
     );
     await writeFile(path.join(created.dir, "comments.json"), '{"old":{}}\n');
     await writeFile(path.join(created.dir, "questions.json"), '{"old":{}}\n');
 
+    const log: string[] = [];
     await expect(
-      migrateStoredReviewData({ reviewHome }),
+      migrateStoredReviewData({
+        reviewHome,
+        log: (message) => log.push(message),
+      }),
     ).resolves.toMatchObject({
-      documents: 1,
+      documents: 0,
       droppedLegacyPeekReviews: 0,
-      droppedReviews: 0,
-      droppedComments: 1,
-      droppedQuestions: 1,
+      droppedReviews: 1,
+      droppedComments: 0,
+      droppedQuestions: 0,
     });
     await expect(
-      readFile(path.join(created.dir, "review.json"), "utf8"),
-    ).resolves.toContain('"schemaVersion": 4');
-    await expect(
-      readFile(path.join(created.dir, "review.json"), "utf8"),
-    ).resolves.toContain('"sourceSession": "disabled:review"');
-    await expect(
-      readFile(path.join(created.dir, "comments.json")),
+      readFile(path.join(created.dir, "review.json")),
     ).rejects.toMatchObject({ code: "ENOENT" });
+    expect(log).toContainEqual(
+      expect.stringContaining(
+        "legacy OpenCode authoring sessions have no validated invocation boundary",
+      ),
+    );
   });
 
   it("drops a current Review that uses removed code peek fields", async () => {

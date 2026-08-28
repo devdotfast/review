@@ -10,20 +10,28 @@ export interface NativeSessionRef {
 export type ReviewThreadAgentBinding = NativeSessionRef;
 
 export interface NativeReviewMessage {
+  /** OpenCode supplies stable message/part identity; transcript readers do not. */
+  id?: string;
   role: "user" | "assistant";
   body: string;
+  createdAt: string;
+}
+
+export interface NativeReviewFailure {
+  id: string;
+  error: string;
   createdAt: string;
 }
 
 export interface NativeSessionSnapshot {
   session: ReviewThreadAgentBinding;
   messages: readonly NativeReviewMessage[];
+  failures?: readonly NativeReviewFailure[];
 }
 
-export type NativeSessionUpdate = {
-  type: "message.updated";
-  message: NativeReviewMessage;
-};
+export type NativeSessionUpdate =
+  | { type: "message.updated"; message: NativeReviewMessage }
+  | { type: "session.failed"; failure: NativeReviewFailure };
 
 export interface UpdatePipe<Snapshot, Update> {
   snapshot: Snapshot;

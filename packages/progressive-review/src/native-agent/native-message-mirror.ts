@@ -8,6 +8,7 @@ import type {
 import { reviewCommentPromptPrefix } from "../review-comment-agent";
 import type { ReviewThreadsService } from "../review-threads-service";
 import type {
+  NativeReviewFailure,
   NativeReviewMessage,
   ObservedNativeSession,
   ReviewThreadAgentBinding,
@@ -22,6 +23,7 @@ interface NativeMessageMirrorOptions {
 interface SessionWatcher {
   key: string;
   inReviewConversation: boolean;
+  conversationStartedAt?: string;
   threadCursor: number;
   pipe?: Awaited<ReturnType<ObservedNativeSession["updates"]>>;
   task: Promise<void>;
@@ -66,9 +68,22 @@ export class NativeMessageMirror {
       threadCursor: 0,
       task: Promise.resolve(),
     } satisfies SessionWatcher;
-    watcher.task = this.#mirror(threadId, binding, watcher).catch(
-      this.#onError,
-    );
+    watcher.task = this.#mirror(threadId, binding, watcher).catch((error) => {
+      if (binding.harness === "opencode") {
+        this.#applyFailure(
+          threadId,
+          binding,
+          {
+            id: `${key}:observer-error`,
+            error: error instanceof Error ? error.message : String(error),
+            createdAt: new Date().toISOString(),
+          },
+          watcher,
+          true,
+        );
+      }
+      this.#onError(error);
+    });
     this.#watchers.set(threadId, watcher);
   }
 
@@ -92,9 +107,17 @@ export class NativeMessageMirror {
         if (this.#watchers.get(threadId) !== watcher) return;
         this.#apply(threadId, binding, message, watcher);
       }
+      for (const failure of pipe.snapshot.failures ?? []) {
+        if (this.#watchers.get(threadId) !== watcher) return;
+        this.#applyFailure(threadId, binding, failure, watcher);
+      }
       for await (const update of pipe.updates) {
         if (this.#watchers.get(threadId) !== watcher) return;
-        this.#apply(threadId, binding, update.message, watcher);
+        if (update.type === "message.updated") {
+          this.#apply(threadId, binding, update.message, watcher);
+        } else {
+          this.#applyFailure(threadId, binding, update.failure, watcher);
+        }
       }
     } finally {
       await pipe.close();
@@ -115,6 +138,7 @@ export class NativeMessageMirror {
         return;
       }
       watcher.inReviewConversation = true;
+      watcher.conversationStartedAt = message.createdAt;
     }
     const thread = this.#currentThread(threadId);
     if (thread?.agentSession?.sessionId !== binding.sessionId) return;
@@ -131,7 +155,7 @@ export class NativeMessageMirror {
         message.body.startsWith(reviewCommentPromptPrefix(threadId)),
     );
     if (match) watcher.threadCursor = match.index + 1;
-    const messageId = match?.message.id ?? randomUUID();
+    const messageId = match?.message.id ?? message.id ?? randomUUID();
     this.#service.upsertAgentSessionMessage({
       mutationId: randomUUID(),
       threadId,
@@ -151,6 +175,34 @@ export class NativeMessageMirror {
       );
       if (index !== undefined && index >= 0) watcher.threadCursor = index + 1;
     }
+  }
+
+  #applyFailure(
+    threadId: string,
+    binding: ReviewThreadAgentBinding,
+    failure: NativeReviewFailure,
+    watcher: SessionWatcher,
+    force = false,
+  ): void {
+    if (
+      (!force && !watcher.inReviewConversation) ||
+      (watcher.conversationStartedAt &&
+        failure.createdAt < watcher.conversationStartedAt)
+    ) {
+      return;
+    }
+    const thread = this.#currentThread(threadId);
+    if (thread?.agentSession?.sessionId !== binding.sessionId) return;
+    this.#service.upsertAgentSessionMessage({
+      mutationId: randomUUID(),
+      threadId,
+      messageId: failure.id,
+      role: "agent",
+      author: agentLabel(binding.harness),
+      body: `${agentLabel(binding.harness)} failed: ${failure.error}`,
+      createdAt: failure.createdAt,
+      agentInput: false,
+    });
   }
 
   #currentThread(threadId: string) {
@@ -210,6 +262,8 @@ function agentLabel(harness: ReviewThreadAgentBinding["harness"]): string {
       return "Claude Code";
     case "codex":
       return "Codex";
+    case "opencode":
+      return "OpenCode";
     case "pi":
       return "Pi";
   }

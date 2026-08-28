@@ -79,12 +79,13 @@ Review Desktop language services the dependencies and build output they need.
 Source ranges do not need an indexer. `review publish` reads each range from
 its pinned worktree and rejects paths or line numbers that are not valid.
 
-Review Desktop is the primary install path for Claude Code, Codex, Cursor, Pi,
-and other coding agents. On startup it detects installed agents, offers to
-install the CLI and skills, and re-syncs both after each app update. It also
-writes a `review` shim to `~/.local/bin` that always resolves to the app's
-bundled CLI. `review install` remains for headless environments; a standalone
-CLI defers to the app's bundled copy whenever Review Desktop is running.
+Review Desktop is the primary install path for Claude Code, Codex, Cursor,
+OpenCode, Pi, and other coding agents. On startup it detects installed agents,
+offers to install the CLI and skills, and re-syncs both after each app update.
+It also writes a `review` shim to `~/.local/bin` that always resolves to the
+app's bundled CLI. `review install` remains for headless environments; a
+standalone CLI defers to the app's bundled copy whenever Review Desktop is
+running.
 
 Agent setup installs only the Review CLI and skills. Enabling Trace capture in
 Settings ▸ Experimental Features also installs FFF: it registers the standard
@@ -137,6 +138,12 @@ The installer copies these bundled skills into the selected agent configs:
 Other coding agents that follow the shared Agent Skills convention can load the
 same skills from `~/.agents/skills`.
 
+OpenCode uses its independent `~/.config/opencode/skills` directory. Review
+also installs `~/.config/opencode/tools/review.ts`, which passes the exact
+authoring session boundary when OpenCode scaffolds or updates a Review. This
+integration does not install FFF for OpenCode.
+
 Claude Code exposes skill directories as slash commands such as `/dev-review`.
 In Codex, invoke the installed Review skills via `/skills` or the skill name. In
 Cursor, invoke them from the `/` menu in chat.
+In OpenCode, ask it to use the `dev-review` skill.

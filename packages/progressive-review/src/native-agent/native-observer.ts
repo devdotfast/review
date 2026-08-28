@@ -171,6 +171,8 @@ export class NativeSessionObserverRegistry {
             sessionId,
             transcriptPath: state.transcriptPath,
           });
+        case "opencode":
+          throw new Error("OpenCode observation requires the managed runtime.");
         case "pi":
           return await readPiReviewMessages({
             sessionId,

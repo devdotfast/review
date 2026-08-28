@@ -511,6 +511,11 @@ async function migrateReviewSourceSession(input: {
     typeof input.value.sourceCommit === "string"
       ? input.value.sourceCommit
       : null;
+  if (source?.harness === "opencode") {
+    throw new Error(
+      "legacy OpenCode authoring sessions have no validated invocation boundary",
+    );
+  }
   const { agentSession: _agentSession, ...record } = input.value;
   if (!source || !uuid || !worktreePath || !sourceCommit) {
     input.onWarning?.(
@@ -529,7 +534,7 @@ async function migrateReviewSourceSession(input: {
       throw new Error("the pinned head checkout is unavailable");
     }
     const frozen = await createReviewSourceAgentSession({
-      agent: source,
+      agent: { harness: source.harness, sessionId: source.sessionId },
       reviewUuid: uuid,
       rootPath: checkout,
     });

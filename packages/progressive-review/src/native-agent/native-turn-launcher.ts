@@ -17,6 +17,7 @@ import type {
   ReviewAgentHarness,
   ReviewThreadAgentBinding,
 } from "./native-session";
+import type { OpenCodeWorkspaceRuntime } from "./opencode-runtime";
 
 export const REVIEW_AGENT_HOOK_URL_ENV = "DEV_FAST_REVIEW_AGENT_HOOK_URL";
 export const REVIEW_AGENT_HOOK_TOKEN_ENV = "DEV_FAST_REVIEW_AGENT_HOOK_TOKEN";
@@ -37,6 +38,7 @@ export interface NativeReviewTurnLauncherInput {
   observer?: NativeSessionObserverRegistry;
   startCodexThread?: typeof startCodexThread;
   forkCodexThread?: typeof forkCodexThread;
+  openCodeRuntime?: OpenCodeWorkspaceRuntime;
 }
 
 export interface OpenNativeReviewSessionInput {
@@ -55,6 +57,7 @@ export class NativeReviewTurnLauncher {
   readonly #openTerminal: NativeReviewTurnLauncherInput["openTerminal"];
   readonly #startCodexThread: typeof startCodexThread;
   readonly #forkCodexThread: typeof forkCodexThread;
+  readonly #openCodeRuntime: OpenCodeWorkspaceRuntime | undefined;
   #reviewCommandDirectory: Promise<string | undefined> | undefined;
   readonly observer: NativeSessionObserverRegistry;
 
@@ -67,6 +70,7 @@ export class NativeReviewTurnLauncher {
     this.#openTerminal = input.openTerminal;
     this.#startCodexThread = input.startCodexThread ?? startCodexThread;
     this.#forkCodexThread = input.forkCodexThread ?? forkCodexThread;
+    this.#openCodeRuntime = input.openCodeRuntime;
     this.observer = input.observer ?? new NativeSessionObserverRegistry();
   }
 
@@ -79,6 +83,12 @@ export class NativeReviewTurnLauncher {
         : input.route.kind === "resume"
           ? input.route.session.harness
           : input.route.harness;
+    if (harness === "opencode") {
+      if (!this.#openCodeRuntime) {
+        throw new Error("OpenCode Ask now requires the managed runtime.");
+      }
+      return this.#openCodeRuntime.launchTurn(input);
+    }
     const requestedSessionId = await this.#requestedSessionId(input, harness);
     const handle = this.observer.beginLaunch({
       launchId: input.launchId,
@@ -101,12 +111,21 @@ export class NativeReviewTurnLauncher {
   }
 
   observe(binding: ReviewThreadAgentBinding): ObservedNativeSession {
+    if (binding.harness === "opencode" && this.#openCodeRuntime) {
+      return this.#openCodeRuntime.observe(binding);
+    }
     return this.observer.observe(binding);
   }
 
   async openSession(
     input: OpenNativeReviewSessionInput,
   ): Promise<NativeTerminalHandle> {
+    if (input.binding.harness === "opencode") {
+      if (!this.#openCodeRuntime) {
+        throw new Error("OpenCode Ask now requires the managed runtime.");
+      }
+      return this.#openCodeRuntime.openSession(input);
+    }
     const handle = this.observer.beginLaunch({
       launchId: input.launchId,
       harness: input.binding.harness,
@@ -134,6 +153,10 @@ export class NativeReviewTurnLauncher {
       await handle.detach();
       throw error;
     }
+  }
+
+  async close(): Promise<void> {
+    await this.#openCodeRuntime?.close();
   }
 
   async #requestedSessionId(
@@ -259,6 +282,8 @@ export class NativeReviewTurnLauncher {
           env,
         };
       }
+      case "opencode":
+        throw new Error("OpenCode Ask now requires the managed runtime.");
       case "pi": {
         const args = [
           "-e",

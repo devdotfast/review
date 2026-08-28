@@ -1,9 +1,31 @@
-export type ReviewAgentHarness = "claude-code" | "codex" | "pi";
+import path from "node:path";
+
+export type ReviewAgentHarness = "claude-code" | "codex" | "opencode" | "pi";
+
+export interface OpenCodeInvocationContext {
+  sessionId: string;
+  messageId: string;
+  directory: string;
+  worktree: string;
+}
 
 export interface SessionRef {
   harness: ReviewAgentHarness;
   sessionId: string;
 }
+
+export type AuthoringSessionRef =
+  | {
+      harness: "opencode";
+      sessionId: string;
+      messageId: string;
+      directory: string;
+      worktree: string;
+    }
+  | {
+      harness: Exclude<ReviewAgentHarness, "opencode">;
+      sessionId: string;
+    };
 
 export type EnvironmentValues = Readonly<Record<string, string | undefined>>;
 
@@ -40,7 +62,10 @@ export function parseAuthoringSessionKey(
 
 export function resolveAuthoringSessionRef(
   env: EnvironmentValues,
-): SessionRef | undefined {
+  openCode?: Partial<OpenCodeInvocationContext>,
+): AuthoringSessionRef | undefined {
+  if (openCode) return openCodeSessionRef(openCode);
+
   const hosted = readEnvValue(env[AUTHORING_AGENT_SESSION_ENV]);
   if (hosted) {
     const ref = parseAuthoringSessionKey(hosted);
@@ -49,7 +74,12 @@ export function resolveAuthoringSessionRef(
         `${AUTHORING_AGENT_SESSION_ENV} has an invalid authoring session reference.`,
       );
     }
-    return ref;
+    if (ref.harness === "opencode") {
+      throw new Error(
+        `${AUTHORING_AGENT_SESSION_ENV} cannot carry OpenCode invocation context.`,
+      );
+    }
+    return { harness: ref.harness, sessionId: ref.sessionId };
   }
 
   const codexThreadId = readEnvValue(env.CODEX_THREAD_ID);
@@ -69,7 +99,34 @@ export function resolveAuthoringSessionRef(
 }
 
 function isReviewAgentHarness(value: string): value is ReviewAgentHarness {
-  return value === "claude-code" || value === "codex" || value === "pi";
+  return (
+    value === "claude-code" ||
+    value === "codex" ||
+    value === "opencode" ||
+    value === "pi"
+  );
+}
+
+function openCodeSessionRef(
+  input: Partial<OpenCodeInvocationContext>,
+): AuthoringSessionRef {
+  const sessionId = readEnvValue(input.sessionId);
+  const messageId = readEnvValue(input.messageId);
+  const directory = readEnvValue(input.directory);
+  const worktree = readEnvValue(input.worktree);
+  if (!sessionId || !messageId || !directory || !worktree) {
+    throw new Error("OpenCode invocation context is incomplete.");
+  }
+  if (!path.isAbsolute(directory) || !path.isAbsolute(worktree)) {
+    throw new Error("OpenCode directory and worktree must be absolute paths.");
+  }
+  return {
+    harness: "opencode",
+    sessionId,
+    messageId,
+    directory,
+    worktree,
+  };
 }
 
 function readEnvValue(value: string | undefined): string | undefined {

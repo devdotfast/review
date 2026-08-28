@@ -177,13 +177,16 @@ and exact verb syntax.
 ## Agent integration and migration
 
 ```sh
-review install [claude|claude-code|codex|cursor|all]
+review install [claude|claude-code|codex|cursor|opencode|pi|all]
 review migrate apply
 review migrate apply --force
 review version
 ```
 
 The app normally installs and updates agent skills. Use `review install` for a
-headless environment. Migration is only for legacy Review state; use `--force`
+headless environment. OpenCode installs the skills under
+`~/.config/opencode/skills` and a small `review` custom tool under
+`~/.config/opencode/tools`; it does not share Codex or Pi's skill state.
+Migration is only for legacy Review state; use `--force`
 only to restart an interrupted migration and accept its documented cleanup of
 unrecoverable legacy threads.

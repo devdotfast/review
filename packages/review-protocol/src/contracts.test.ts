@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { ZodType } from "zod";
 
 import {
+  AuthoringAgentSessionSchema,
   CreateReviewCommentInputSchema,
   REVIEW_DESKTOP_DISCOVERY_VERSION,
   REVIEW_SCHEMA_VERSION,
   ReviewCliInstallStampSchema,
+  ReviewCliInstallTargetSchema,
+  ReviewCommentAgentSessionSchema,
   ReviewCommentSchema,
   ReviewCommentTargetSchema,
   ReviewCommentThreadMapSchema,
@@ -49,6 +52,24 @@ import {
   createGitLabTextDiffPosition,
   summarizeReviewDiffFiles,
 } from "./contracts.js";
+
+describe("OpenCode protocol support", () => {
+  it("is native for authoring and comments, but only a CLI install target", () => {
+    expect(
+      AuthoringAgentSessionSchema.parse({
+        harness: "opencode",
+        sessionId: "session-1",
+      }),
+    ).toEqual({ harness: "opencode", sessionId: "session-1" });
+    expect(
+      ReviewCommentAgentSessionSchema.parse({
+        harness: "opencode",
+        sessionId: "session-1",
+      }),
+    ).toEqual({ harness: "opencode", sessionId: "session-1" });
+    expect(ReviewCliInstallTargetSchema.parse("opencode")).toBe("opencode");
+  });
+});
 
 const repository = {
   kind: "jj",

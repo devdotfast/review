@@ -150,6 +150,87 @@ describe("resolveInstalledReviewAgentStatus", () => {
       code: "ENOENT",
     });
   });
+
+  it("tracks OpenCode install state without changing Codex skills", async () => {
+    const homeDir = await mkdtemp(
+      path.join(tmpdir(), "review-opencode-install-"),
+    );
+    const packageRoot = await mkdtemp(
+      path.join(tmpdir(), "review-opencode-package-"),
+    );
+    temporaryDirectories.push(homeDir, packageRoot);
+    const env = { DEV_REVIEW_HOME: path.join(homeDir, ".dev") };
+    for (const name of ["dev-review", "dev-review-map", "trace-archaeology"]) {
+      const directory = path.join(packageRoot, "skills", name);
+      await mkdir(directory, { recursive: true });
+      await writeFile(
+        path.join(directory, "SKILL.md"),
+        `---\nname: ${name}\ndescription: test\n---\n`,
+      );
+    }
+    await mkdir(path.join(packageRoot, "tools"), { recursive: true });
+    await writeFile(
+      path.join(packageRoot, "tools", "review.ts"),
+      "// Managed by Review Desktop (@dev.fast/review). v1\n",
+    );
+    const codexSkill = path.join(
+      homeDir,
+      ".agents",
+      "skills",
+      "dev-review",
+      "SKILL.md",
+    );
+    await mkdir(path.dirname(codexSkill), { recursive: true });
+    await writeFile(codexSkill, "user-owned\n");
+
+    expect(
+      (
+        await applyCliInstall({
+          packageRoot,
+          targets: ["opencode"],
+          homeDir,
+          env,
+        })
+      ).code,
+    ).toBe(0);
+    expect(
+      await resolveCliInstallStatus({ packageRoot, homeDir, env }),
+    ).toMatchObject({
+      stale: false,
+      stamp: { targets: ["opencode"] },
+    });
+
+    await rm(path.join(homeDir, ".config", "opencode", "tools", "review.ts"));
+    expect(
+      await resolveCliInstallStatus({ packageRoot, homeDir, env }),
+    ).toMatchObject({
+      stale: true,
+      agents: expect.arrayContaining([
+        expect.objectContaining({ target: "opencode", installed: false }),
+      ]),
+    });
+    expect(
+      (
+        await applyCliInstall({
+          packageRoot,
+          targets: ["opencode"],
+          homeDir,
+          env,
+        })
+      ).code,
+    ).toBe(0);
+
+    await writeFile(
+      path.join(packageRoot, "tools", "review.ts"),
+      "// Managed by Review Desktop (@dev.fast/review). v2\n",
+    );
+    expect(
+      await resolveCliInstallStatus({ packageRoot, homeDir, env }),
+    ).toMatchObject({ stale: true });
+
+    await removeCliInstall({ targets: ["opencode"], homeDir, env });
+    expect(await readFile(codexSkill, "utf8")).toBe("user-owned\n");
+  });
 });
 
 async function isolatedEnvironment(): Promise<NodeJS.ProcessEnv> {

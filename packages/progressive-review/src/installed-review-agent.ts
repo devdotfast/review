@@ -5,6 +5,7 @@ import type { ReviewAgentHarness } from "./authoring-session";
 const LAUNCHABLE_HARNESS = {
   claude: "claude-code",
   codex: "codex",
+  opencode: "opencode",
   pi: "pi",
 } as const satisfies Record<string, ReviewAgentHarness>;
 

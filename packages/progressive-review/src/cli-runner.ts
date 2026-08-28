@@ -129,6 +129,10 @@ interface ReviewScaffoldOptions {
   update?: boolean;
   review?: string;
   new?: boolean;
+  opencodeSessionId?: string;
+  opencodeMessageId?: string;
+  opencodeDirectory?: string;
+  opencodeWorktree?: string;
 }
 
 interface ReviewWaitOptions {
@@ -510,6 +514,10 @@ export async function runProgressiveReviewCli(
         "create another Review for the same source",
       ).conflicts(["update", "review"]),
     )
+    .addOption(new Option("--opencode-session-id <id>").hideHelp())
+    .addOption(new Option("--opencode-message-id <id>").hideHelp())
+    .addOption(new Option("--opencode-directory <path>").hideHelp())
+    .addOption(new Option("--opencode-worktree <path>").hideHelp())
     .action(async (options: ReviewScaffoldOptions) => {
       const event = await runtime.runReviewScaffold({
         cwd,
@@ -522,6 +530,19 @@ export async function runProgressiveReviewCli(
         update: options.update,
         reviewUuid: options.review,
         newReview: options.new,
+        ...(options.opencodeSessionId ||
+        options.opencodeMessageId ||
+        options.opencodeDirectory ||
+        options.opencodeWorktree
+          ? {
+              openCode: {
+                sessionId: options.opencodeSessionId,
+                messageId: options.opencodeMessageId,
+                directory: options.opencodeDirectory,
+                worktree: options.opencodeWorktree,
+              },
+            }
+          : {}),
         onReviewBound: bindActiveReview,
       });
       input.stdout.write(`${JSON.stringify(event)}\n`);
@@ -538,6 +559,7 @@ export async function runProgressiveReviewCli(
           "claude-code",
           "codex",
           "cursor",
+          "opencode",
           "pi",
           "all",
         ]),
@@ -1264,6 +1286,7 @@ function progressiveReviewInstallHelp(): string {
     "  claude   Claude Code (~/.claude/skills)",
     "  codex    Codex (~/.agents/skills)",
     "  cursor   Cursor (~/.cursor/skills)",
+    "  opencode OpenCode (~/.config/opencode/skills and tools)",
     "  pi       Pi (~/.agents/skills and npm:@ff-labs/pi-fff)",
     "  all      Every supported agent (default)",
     "",

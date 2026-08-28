@@ -438,7 +438,7 @@ export type CreateReviewCommentInput = z.infer<
 >;
 
 export const ReviewCommentAgentSessionSchema = z.strictObject({
-  harness: z.enum(["codex", "claude-code", "pi"]),
+  harness: z.enum(["codex", "claude-code", "opencode", "pi"]),
   sessionId: threadTargetNonEmptyStringSchema,
 });
 export type ReviewCommentAgentSession = z.infer<
@@ -1224,7 +1224,7 @@ export type ReviewDocumentVersionWire = z.infer<
 
 /** The native agent session that authored the review. */
 export const AuthoringAgentSessionSchema = z.strictObject({
-  harness: z.enum(["claude-code", "codex", "pi"]),
+  harness: z.enum(["claude-code", "codex", "opencode", "pi"]),
   sessionId: requiredString,
 });
 export type AuthoringAgentSessionWire = z.infer<
@@ -1328,8 +1328,8 @@ export type ReviewListResponse = z.infer<typeof ReviewListResponseSchema>;
 export type ReviewListError = ReviewListResponse["errors"][number];
 
 export const ReviewCliInstallTargetSchema = z.enum(
-  ["claude", "codex", "cursor", "pi"],
-  { error: "must be claude, codex, cursor, or pi" },
+  ["claude", "codex", "cursor", "opencode", "pi"],
+  { error: "must be claude, codex, cursor, opencode, or pi" },
 );
 export type ReviewCliInstallTarget = z.infer<
   typeof ReviewCliInstallTargetSchema

@@ -1,9 +1,8 @@
 import type { ReactElement } from "react";
 
-// Brand marks vendored from lobe-icons (MIT), unmodified paths:
+// Claude Code, Codex, and Cursor marks are vendored from lobe-icons (MIT):
 // https://github.com/lobehub/lobe-icons/tree/master/packages/static-svg/icons
-// The logos remain trademarks of their owners (Anthropic, OpenAI, Anysphere)
-// and are used nominatively to label the corresponding agent integrations.
+// Brand marks remain trademarks of their owners and are used nominatively.
 
 export function ClaudeCodeLogo(): ReactElement {
   return (
@@ -77,9 +76,26 @@ export function PiLogo(): ReactElement {
   );
 }
 
+export function OpenCodeLogo(): ReactElement {
+  return (
+    <svg
+      aria-hidden="true"
+      className="review-agent-logo review-agent-logo--opencode"
+      focusable="false"
+      viewBox="0 0 24 24"
+    >
+      <path
+        d="M4 5h16v14H4V5zm4 4v6h3V9H8zm5 0v6h3V9h-3z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
 export const AGENT_LOGOS = {
   claude: ClaudeCodeLogo,
   codex: CodexLogo,
   cursor: CursorLogo,
+  opencode: OpenCodeLogo,
   pi: PiLogo,
 } as const;

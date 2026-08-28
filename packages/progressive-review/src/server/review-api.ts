@@ -33,6 +33,7 @@ import type {
   ReviewTurnRoute,
 } from "../native-agent/native-session";
 import { NativeReviewTurnLauncher } from "../native-agent/native-turn-launcher";
+import { OpenCodeWorkspaceRuntime } from "../native-agent/opencode-runtime";
 import {
   isTraceR2Configured,
   listReviewTraceSessions,
@@ -253,6 +254,10 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     session,
   } = options;
   const agentRootPath = session.headRootPath ?? rootPath;
+  const openCodeRuntime = new OpenCodeWorkspaceRuntime({
+    directory: agentRootPath,
+    openTerminal: openNativeAgentTerminal,
+  });
   const nativeTurns = new NativeReviewTurnLauncher({
     hookBaseUrl: `${(session.sessionUrl ?? session.appUrl).replace(/\/$/u, "")}/__progressive-review/native-agent-events`,
     hookToken: options.reviewToken,
@@ -260,6 +265,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     reviewCliPath: options.reviewCliPath,
     reviewCliRuntimePath: options.reviewCliRuntimePath,
     openTerminal: openNativeAgentTerminal,
+    openCodeRuntime,
   });
   const threadServices = new Map<string, ReviewThreadsService>();
   const agentMirrors = new Map<string, NativeMessageMirror>();
@@ -1079,6 +1085,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
         [...agentMirrors.values()].map((mirror) => mirror.close()),
       );
       agentMirrors.clear();
+      await nativeTurns.close();
     },
   };
 }

@@ -248,7 +248,6 @@ class ReviewCliInstallStartup implements IWorkbenchContribution {
 		}
 		await this.reviewSessionService.applyCliInstall({
 			targets,
-			shim: Boolean(status.stamp?.shimPath),
 		});
 		this.notificationService.status(
 			localize('review.cliInstall.resynced', "Review updated the installed CLI and agent skills."),

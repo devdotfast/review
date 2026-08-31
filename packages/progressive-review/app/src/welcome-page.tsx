@@ -52,12 +52,7 @@ export function WelcomePage({
       done: installed,
       note: installedLabels(status) ?? "not installed yet",
       body: install ? (
-        <AgentSetupCard
-          install={install}
-          onSkip={onClose}
-          embedded
-          onStatusChange={setCardStatus}
-        />
+        <AgentSetupCard install={install} onStatusChange={setCardStatus} />
       ) : (
         <p className="review-home-empty">
           The install status is unavailable. Restart Review Desktop and open
@@ -184,13 +179,14 @@ function onboardingSetupComplete(status: ReviewCliInstallStatus): boolean {
   // Trace capture is experimental and lives in Settings; onboarding does
   // not depend on it.
   return (
-    fffAgents.length === 0 ||
-    fffAgents.every((agent) =>
-      status.fff.registrations.some(
-        (registration) =>
-          registration.target === agent.target && registration.present,
-      ),
-    )
+    (!status.cli || status.shim.installed) &&
+    (fffAgents.length === 0 ||
+      fffAgents.every((agent) =>
+        status.fff.registrations.some(
+          (registration) =>
+            registration.target === agent.target && registration.present,
+        ),
+      ))
   );
 }
 

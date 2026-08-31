@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
+import { constants } from "node:fs";
 import {
+  access,
   chmod,
   mkdir,
   readFile,
@@ -56,6 +58,15 @@ const AGENT_HOME_DIR: Record<InstallTarget, string> = {
   cursor: ".cursor",
   pi: ".pi",
 };
+const SHIM_MARKER = "Managed by Review Desktop";
+const PROFILE_MARKER =
+  "# Managed by Review Desktop: review command PATH. Do not edit.";
+const PROFILE_EXPORT = 'export PATH="$HOME/.local/bin:$PATH"';
+const PROFILE_BLOCK = `\n${PROFILE_MARKER}\n${PROFILE_EXPORT}\n`;
+const SHELL_PROFILE_NAMES = [".zprofile", ".bash_profile"] as const;
+const SHADOWING_HELP_URL =
+  "https://github.com/devdotfast/review/blob/main/docs/troubleshooting.md#the-command-opens-a-browser-or-shows-old-options";
+
 export function cliInstallStampPath(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
@@ -132,11 +143,9 @@ export async function resolveCliInstallStatus(input: {
     stale: stamp?.consent === "granted" && stamp.fingerprint !== fingerprint,
     shim: {
       path: shimPath,
-      onPath: (env.PATH ?? "")
-        .split(path.delimiter)
-        .some(
-          (entry) => entry && path.resolve(entry) === path.dirname(shimPath),
-        ),
+      installed: await isOwnedShim(shimPath),
+      profileConfigured: await isShellProfileConfigured(homeDir),
+      onPath: pathContainsDirectory(env.PATH, path.dirname(shimPath)),
     },
     fff: {
       serverName: FFF_SERVER_NAME,
@@ -169,6 +178,7 @@ export async function applyCliInstall(input: {
 }): Promise<{ code: number; output: string; shimPath?: string }> {
   const homeDir = input.homeDir ?? os.homedir();
   const env = input.env ?? process.env;
+  const wantShim = input.shim ?? input.targets.length > 0;
   const chunks: string[] = [];
   const sink = {
     write: (chunk: string) => (chunks.push(chunk), true),
@@ -193,7 +203,7 @@ export async function applyCliInstall(input: {
       env,
       fff: input.fff,
       reviewCommand:
-        input.shim || (await isFile(pathShimPath(homeDir)))
+        wantShim || (await isFile(pathShimPath(homeDir)))
           ? pathShimPath(homeDir)
           : "review",
       ...(input.trace !== undefined
@@ -210,16 +220,26 @@ export async function applyCliInstall(input: {
   }
 
   let shimPath: string | undefined;
-  if (input.shim) {
+  if (wantShim) {
     if (!input.cliPath) {
       chunks.push(
-        "This server has no built CLI to install the command from.\n",
+        input.shim === true
+          ? "This server has no built CLI to install the command from.\n"
+          : "Review did not install the review command because this server has no built CLI. The skills were installed.\n",
       );
-      return { code: 1, output: chunks.join("") };
+      if (input.shim === true) {
+        return { code: 1, output: chunks.join("") };
+      }
+    } else {
+      const installed = await installReviewCommand({
+        cliPath: input.cliPath,
+        cliRuntimePath: input.cliRuntimePath,
+        homeDir,
+        env,
+      });
+      shimPath = installed.shimPath;
+      chunks.push(installed.output);
     }
-    shimPath = pathShimPath(homeDir);
-    await writePathShim(shimPath, input.cliPath, input.cliRuntimePath);
-    chunks.push(`[ok] review command -> ${shimPath}\n`);
   }
 
   const createdFffRegistrations: ReviewFffManagedRegistration[] = [];
@@ -298,8 +318,6 @@ export async function resetCliInstall(
   await rm(cliInstallStampPath(env), { force: true });
 }
 
-const SHIM_MARKER = "Managed by Review Desktop";
-
 export async function removeCliInstall(input: {
   targets: InstallTarget[];
   shim?: boolean;
@@ -331,6 +349,9 @@ export async function removeCliInstall(input: {
       chunks.push(
         `${shimPath} was not installed by Review Desktop; left in place.\n`,
       );
+    }
+    for (const profilePath of await removeShellProfilePath(homeDir)) {
+      chunks.push(`[ok] removed Review PATH entry from ${profilePath}\n`);
     }
   }
 
@@ -515,8 +536,143 @@ exec node "$cli" "$@"
   await chmod(shimPath, 0o755);
 }
 
+export async function installReviewCommand(input: {
+  cliPath: string;
+  cliRuntimePath?: string;
+  homeDir?: string;
+  env?: NodeJS.ProcessEnv;
+}): Promise<{ shimPath: string; output: string }> {
+  const homeDir = input.homeDir ?? os.homedir();
+  const env = input.env ?? process.env;
+  const shimPath = pathShimPath(homeDir);
+  const shadowingCommand = await resolvePathCommand("review", shimPath, env);
+
+  await writePathShim(shimPath, input.cliPath, input.cliRuntimePath);
+  const profileOutput = await ensureShellProfilePath({ homeDir, env });
+  const shadowingOutput = shadowingCommand
+    ? `Warning: ${shadowingCommand} currently shadows ${shimPath}. See ${SHADOWING_HELP_URL}\n`
+    : "";
+  return {
+    shimPath,
+    output: `[ok] review command -> ${shimPath}\n${profileOutput}${shadowingOutput}`,
+  };
+}
+
+export async function ensureShellProfilePath(input: {
+  homeDir: string;
+  env: NodeJS.ProcessEnv;
+}): Promise<string> {
+  const shimDirectory = path.dirname(pathShimPath(input.homeDir));
+  if (pathContainsDirectory(input.env.PATH, shimDirectory)) return "";
+
+  const shell = path.basename(input.env.SHELL?.trim() ?? "");
+  let profileName: (typeof SHELL_PROFILE_NAMES)[number] | undefined;
+  if (shell === "bash") {
+    profileName = ".bash_profile";
+  } else if (
+    shell === "zsh" ||
+    (shell !== "fish" && process.platform === "darwin")
+  ) {
+    profileName = ".zprofile";
+  }
+  if (!profileName) {
+    return "Review did not update PATH for this shell. Add ~/.local/bin to PATH. Fish users can run: fish_add_path ~/.local/bin\n";
+  }
+
+  const profilePath = path.join(input.homeDir, profileName);
+  const source = await readTextIfExists(profilePath);
+  if (source.includes(PROFILE_MARKER) || source.includes(".local/bin")) {
+    return "";
+  }
+  await writeTextAtomic(profilePath, `${source}${PROFILE_BLOCK}`);
+  return `[ok] added ${shimDirectory} to PATH in ${profilePath}\n`;
+}
+
+export async function removeShellProfilePath(
+  homeDir: string,
+): Promise<string[]> {
+  const removed: string[] = [];
+  for (const profileName of SHELL_PROFILE_NAMES) {
+    const profilePath = path.join(homeDir, profileName);
+    const source = await readTextIfExists(profilePath);
+    if (!source.includes(PROFILE_BLOCK)) continue;
+    await writeTextAtomic(profilePath, source.replaceAll(PROFILE_BLOCK, ""));
+    removed.push(profilePath);
+  }
+  return removed;
+}
+
 function shSingleQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+async function resolvePathCommand(
+  command: string,
+  shimPath: string,
+  env: NodeJS.ProcessEnv,
+): Promise<string | undefined> {
+  const entries = (env.PATH ?? "").split(path.delimiter);
+  const shimDirectory = path.resolve(path.dirname(shimPath));
+  const shimIndex = entries.findIndex(
+    (entry) => path.resolve(entry || ".") === shimDirectory,
+  );
+  for (let index = 0; index < entries.length; index += 1) {
+    const candidate = path.join(entries[index] || ".", command);
+    if (!(await isExecutableFile(candidate))) continue;
+    if ((await readTextIfExists(candidate)).includes(SHIM_MARKER)) {
+      return undefined;
+    }
+    return shimIndex === -1 || index < shimIndex
+      ? path.resolve(candidate)
+      : undefined;
+  }
+  return undefined;
+}
+
+function pathContainsDirectory(
+  pathValue: string | undefined,
+  directory: string,
+): boolean {
+  return (pathValue ?? "")
+    .split(path.delimiter)
+    .some(
+      (entry) =>
+        entry.length > 0 && path.resolve(entry) === path.resolve(directory),
+    );
+}
+
+async function isOwnedShim(shimPath: string): Promise<boolean> {
+  return (await readTextIfExists(shimPath)).includes(SHIM_MARKER);
+}
+
+async function isShellProfileConfigured(homeDir: string): Promise<boolean> {
+  const profiles = await Promise.all(
+    SHELL_PROFILE_NAMES.map((profileName) =>
+      readTextIfExists(path.join(homeDir, profileName)),
+    ),
+  );
+  return profiles.some((source) => source.includes(PROFILE_MARKER));
+}
+
+async function writeTextAtomic(
+  filePath: string,
+  source: string,
+): Promise<void> {
+  await mkdir(path.dirname(filePath), { recursive: true });
+  let mode = 0o644;
+  try {
+    mode = (await stat(filePath)).mode & 0o777;
+  } catch {
+    // Use the default profile mode for a new file.
+  }
+  const staging = `${filePath}.tmp-${process.pid}`;
+  try {
+    await writeFile(staging, source, { encoding: "utf8", mode });
+    await rename(staging, filePath);
+  } finally {
+    await rm(staging, { force: true });
+  }
+  await chmod(filePath, mode);
 }
 
 async function listFilesRecursive(
@@ -561,6 +717,16 @@ async function isDirectory(target: string): Promise<boolean> {
 async function isFile(target: string): Promise<boolean> {
   try {
     return (await stat(target)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+async function isExecutableFile(target: string): Promise<boolean> {
+  if (!(await isFile(target))) return false;
+  try {
+    await access(target, constants.X_OK);
+    return true;
   } catch {
     return false;
   }

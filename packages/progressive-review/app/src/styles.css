@@ -9252,32 +9252,7 @@ a.review-doc-meta-pr:hover {
   background: var(--bg);
 }
 
-.review-agent-setup-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.review-agent-setup-header h2 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-}
-
 .review-agent-setup-cli {
-  color: var(--review-home-meta);
-  font-size: 12px;
-}
-
-.review-agent-setup-banner,
-.review-agent-setup-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 10px;
   color: var(--review-home-meta);
   font-size: 12px;
 }
@@ -9333,10 +9308,19 @@ a.review-doc-meta-pr:hover {
   white-space: pre-wrap;
 }
 
-.review-agent-setup-subtitle {
-  margin: 6px 0 0;
+.review-agent-setup-disclosure {
+  margin: 10px 0 0;
   color: var(--review-home-meta);
   font-size: 12px;
+}
+
+.review-agent-setup-disclosure code {
+  padding: 1px 4px;
+  border: 1px solid var(--review-home-rule-soft);
+  border-radius: 4px;
+  color: var(--ink);
+  background: var(--review-home-card-active);
+  font-family: inherit;
 }
 
 .review-agent-setup-terminal {
@@ -9602,7 +9586,7 @@ a.review-doc-meta-pr:hover {
   font-size: 13px;
 }
 
-/* The embedded card drops its own frame — the step card is the frame. */
+/* The onboarding step supplies the frame for the setup card. */
 .review-onboarding-step-body .review-agent-setup {
   margin-top: 0;
   padding: 0;
@@ -9765,37 +9749,6 @@ a.review-doc-meta-pr:hover {
   color: var(--change-removed);
   font-size: 12px;
   white-space: pre-wrap;
-}
-
-.review-agent-setup-firstrun {
-  margin-top: 12px;
-  padding: 12px 14px;
-  border: 1px solid var(--review-home-rule-soft);
-  border-radius: 6px;
-  background: var(--review-home-card-active);
-}
-
-.review-agent-setup-firstrun p {
-  margin: 0 0 10px;
-  font-size: 13px;
-}
-
-.review-agent-setup-firstrun code {
-  font-family: inherit;
-}
-
-.review-agent-setup-firstrun-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.review-agent-setup button.review-agent-setup-primary {
-  padding: 5px 14px;
-  border-color: var(--review-home-comment);
-  color: var(--review-home-comment);
-  font-weight: 600;
 }
 
 .review-home-setup-banner {

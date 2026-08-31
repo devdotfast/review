@@ -371,7 +371,12 @@ describe("setupBannerMessage", () => {
         updatedAt: "2026-08-09T00:00:00.000Z",
       },
       stale: false,
-      shim: { path: "/tmp/review", onPath: false },
+      shim: {
+        path: "/tmp/review",
+        installed: false,
+        profileConfigured: false,
+        onPath: false,
+      },
       fff: {
         serverName: "fff",
         corpusRoot: "/tmp/trace-search",

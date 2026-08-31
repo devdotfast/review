@@ -1375,7 +1375,12 @@ export const ReviewCliInstallStatusSchema = z.strictObject({
   fingerprint: requiredString,
   stamp: ReviewCliInstallStampSchema.nullable(),
   stale: z.boolean(),
-  shim: z.strictObject({ path: requiredString, onPath: z.boolean() }),
+  shim: z.strictObject({
+    path: requiredString,
+    installed: z.boolean(),
+    profileConfigured: z.boolean(),
+    onPath: z.boolean(),
+  }),
   fff: z.strictObject({
     serverName: z.literal("fff"),
     corpusRoot: requiredString,
@@ -1409,9 +1414,10 @@ export type ReviewCliInstallStatus = z.infer<
   typeof ReviewCliInstallStatusSchema
 >;
 
-// Skills and FFF integrations are per-agent. The review command, FFF binary,
-// and trace configuration are per-machine. Silent app updates omit `fff` and
-// `trace`, so they do not run an installer or contact R2.
+// Skills and FFF integrations are per-agent. Skill requests install the review
+// command by default. The command, FFF binary, and trace configuration are
+// per-machine. Silent app updates omit `fff` and `trace`, so they do not run an
+// FFF installer or contact R2.
 export const ReviewCliInstallApplyRequestSchema = z
   .strictObject({
     targets: z.array(ReviewCliInstallTargetSchema),

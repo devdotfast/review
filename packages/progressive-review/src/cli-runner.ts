@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { devfastPrepareCommands } from "@dev.fast/local-vcs";
@@ -10,7 +10,13 @@ import {
   requireCodexThreadId,
   startCodexWaitProcess,
 } from "./codex-thread-wakeup";
-import { ALL_INSTALL_TARGETS, type InstallTarget, runInstall } from "./install";
+import { readReviewDesktopDiscovery } from "./desktop-discovery";
+import {
+  ALL_INSTALL_TARGETS,
+  type InstallTarget,
+  defaultPackageRoot,
+  runInstall,
+} from "./install";
 import { parseSoftwareMapCliArgs, runSoftwareMapCli } from "./map-cli";
 import { runReviewMigration } from "./migrate";
 import { readProgressiveReviewPackageVersion } from "./package-paths";
@@ -45,6 +51,8 @@ import {
 } from "./review-reopen-marker";
 import { runReviewScaffold } from "./review-scaffold";
 import { runReviewWait, validateReviewWait } from "./review-wait";
+import { installReviewCommand, pathShimPath } from "./server/cli-install";
+import { reviewDesktopDiscoveryPath } from "./server/desktop-paths";
 import {
   runReviewThreadsGet,
   runReviewThreadsList,
@@ -87,6 +95,7 @@ interface ProgressiveReviewCliRuntime {
   }>;
   validateReviewWait: typeof validateReviewWait;
   runInstall: typeof runInstall;
+  installReviewCommand: typeof installReviewCommand;
   runReviewMigration: typeof runReviewMigration;
   runSoftwareMapCli: typeof runSoftwareMapCli;
   runReviewTraceStatus: typeof runReviewTraceStatus;
@@ -562,6 +571,10 @@ export async function runProgressiveReviewCli(
         "--without-traces",
         "Deprecated: trace capture is off unless --trace-* options are given",
       )
+      .option(
+        "--no-shim",
+        "Install skills without the review command or PATH changes",
+      )
       .addHelpText("after", progressiveReviewInstallHelp()),
     "plain",
   );
@@ -575,12 +588,19 @@ export async function runProgressiveReviewCli(
         traceBucket?: string;
         traceKey?: string;
         traceSecret?: string;
+        shim?: boolean;
       },
     ) => {
+      const selectedTargets = installTargets(targets);
+      const installShim = options.shim !== false;
+      const cliSource = installShim
+        ? await resolveInstallCliSource(env)
+        : undefined;
       state.exitCode = await runtime.runInstall({
-        targets: installTargets(targets),
+        targets: selectedTargets,
         env,
         fff: true,
+        ...(installShim ? { reviewCommand: pathShimPath() } : {}),
         // Trace capture is experimental and opt-in: only a request that names
         // R2 credentials configures it. --without-traces stays accepted so
         // existing scripts keep working.
@@ -600,6 +620,27 @@ export async function runProgressiveReviewCli(
         stdout: input.stdout,
         stderr: input.stderr,
       });
+      if (state.exitCode !== 0 || !installShim) return;
+
+      const human = humanStream({
+        json: options.json,
+        stdout: input.stdout,
+        stderr: input.stderr,
+      });
+      if (!cliSource) {
+        human.write(
+          "Review did not install the review command because no built CLI was found. The skills were installed.\n",
+        );
+        return;
+      }
+      const installed = await runtime.installReviewCommand({
+        cliPath: cliSource.cliPath,
+        ...(cliSource.cliRuntimePath
+          ? { cliRuntimePath: cliSource.cliRuntimePath }
+          : {}),
+        env,
+      });
+      human.write(installed.output);
     },
   );
 
@@ -1181,6 +1222,7 @@ function progressiveReviewCliRuntime(
     startCodexWaitProcess,
     validateReviewWait,
     runInstall,
+    installReviewCommand,
     runReviewMigration,
     runSoftwareMapCli,
     runReviewTraceStatus,
@@ -1199,6 +1241,39 @@ function progressiveReviewCliRuntime(
     prepareReviewPinnedCheckout,
     ...overrides,
   };
+}
+
+async function resolveInstallCliSource(
+  env: NodeJS.ProcessEnv,
+): Promise<{ cliPath: string; cliRuntimePath?: string } | undefined> {
+  try {
+    const discovery = await readReviewDesktopDiscovery(
+      reviewDesktopDiscoveryPath(env),
+    );
+    if (discovery?.cliPath && (await isFile(discovery.cliPath))) {
+      return {
+        cliPath: discovery.cliPath,
+        ...(discovery.cliRuntimePath
+          ? { cliRuntimePath: discovery.cliRuntimePath }
+          : {}),
+      };
+    }
+  } catch {
+    // A packaged CLI remains a valid fallback when discovery is stale.
+  }
+
+  const packageCliPath = path.join(defaultPackageRoot(), "dist", "cli.js");
+  return (await isFile(packageCliPath))
+    ? { cliPath: packageCliPath }
+    : undefined;
+}
+
+async function isFile(filePath: string): Promise<boolean> {
+  try {
+    return (await stat(filePath)).isFile();
+  } catch {
+    return false;
+  }
 }
 
 function progressiveReviewTopLevelHelp(): string {

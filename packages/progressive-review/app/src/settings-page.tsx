@@ -115,8 +115,6 @@ export function SettingsPage({
             <Section label="Agents">
               <AgentSetupCard
                 install={install}
-                embedded
-                manageOnly
                 onStatusChange={setInstallStatus}
               />
             </Section>

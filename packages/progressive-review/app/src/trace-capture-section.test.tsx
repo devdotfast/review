@@ -104,7 +104,12 @@ const traceStatus: ReviewCliInstallStatus = {
     targets: ["codex"],
   },
   stale: false,
-  shim: { path: "/tmp/review", onPath: false },
+  shim: {
+    path: "/tmp/review",
+    installed: false,
+    profileConfigured: false,
+    onPath: false,
+  },
   fff: {
     serverName: "fff",
     corpusRoot: "/tmp/trace-search",

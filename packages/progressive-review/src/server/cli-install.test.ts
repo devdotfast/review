@@ -231,6 +231,55 @@ describe("resolveInstalledReviewAgentStatus", () => {
     await removeCliInstall({ targets: ["opencode"], homeDir, env });
     expect(await readFile(codexSkill, "utf8")).toBe("user-owned\n");
   });
+
+  it("converges after a partially failed apply by stamping only installed targets", async () => {
+    const homeDir = await mkdtemp(
+      path.join(tmpdir(), "review-partial-install-"),
+    );
+    const packageRoot = await mkdtemp(
+      path.join(tmpdir(), "review-partial-package-"),
+    );
+    temporaryDirectories.push(homeDir, packageRoot);
+    const env = { DEV_REVIEW_HOME: path.join(homeDir, ".dev") };
+    for (const name of ["dev-review", "dev-review-map", "trace-archaeology"]) {
+      const directory = path.join(packageRoot, "skills", name);
+      await mkdir(directory, { recursive: true });
+      await writeFile(
+        path.join(directory, "SKILL.md"),
+        `---\nname: ${name}\ndescription: test\n---\n`,
+      );
+    }
+    await mkdir(path.join(packageRoot, "tools"), { recursive: true });
+    await writeFile(
+      path.join(packageRoot, "tools", "review.ts"),
+      "// Managed by Review Desktop (@dev.fast/review).\n",
+    );
+    const toolPath = path.join(
+      homeDir,
+      ".config",
+      "opencode",
+      "tools",
+      "review.ts",
+    );
+    await mkdir(path.dirname(toolPath), { recursive: true });
+    await writeFile(toolPath, "// user tool\n");
+
+    const result = await applyCliInstall({
+      packageRoot,
+      targets: ["claude", "opencode"],
+      homeDir,
+      env,
+    });
+
+    expect(result.code).toBe(1);
+    const status = await resolveCliInstallStatus({
+      packageRoot,
+      homeDir,
+      env,
+    });
+    expect(status.stamp?.targets).toEqual(["claude"]);
+    expect(status.stale).toBe(false);
+  });
 });
 
 async function isolatedEnvironment(): Promise<NodeJS.ProcessEnv> {

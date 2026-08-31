@@ -33,7 +33,7 @@ export async function forkOpenCodeSourceSession(input: {
     throw new Error("OpenCode source worktree is missing.");
   }
   const client = await (input.connect ?? OpenCodeSourceHttpClient.connect)(
-    input.sourceDirectory,
+    input.sourceWorktree,
   );
   try {
     const messages = await client.messages(

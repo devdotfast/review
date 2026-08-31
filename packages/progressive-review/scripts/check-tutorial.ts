@@ -126,20 +126,22 @@ async function checkRuntimeManifest(outDir: string): Promise<void> {
     reviewFiles?: unknown;
     requiredPaths?: unknown;
   };
+  const reviewFiles = Array.isArray(manifest.reviewFiles)
+    ? manifest.reviewFiles
+    : [];
+  const requiredPaths = Array.isArray(manifest.requiredPaths)
+    ? manifest.requiredPaths
+    : [];
   if (
     manifest.version !== 1 ||
-    !Array.isArray(manifest.reviewFiles) ||
-    !Array.isArray(manifest.requiredPaths) ||
-    manifest.reviewFiles.length === 0 ||
-    manifest.requiredPaths.length === 0 ||
-    !manifest.reviewFiles.every((entry) =>
-      isSafeManifestPath(entry, manifest.requiredPaths),
-    ) ||
-    !manifest.requiredPaths.every((entry) => isSafeManifestPath(entry))
+    reviewFiles.length === 0 ||
+    requiredPaths.length === 0 ||
+    !reviewFiles.every((entry) => isSafeManifestPath(entry, requiredPaths)) ||
+    !requiredPaths.every((entry) => isSafeManifestPath(entry))
   ) {
     throw new Error("Tutorial runtime manifest is invalid.");
   }
-  for (const entry of manifest.requiredPaths) {
+  for (const entry of requiredPaths) {
     if (typeof entry !== "string") {
       throw new Error("Tutorial runtime manifest contains an invalid path.");
     }

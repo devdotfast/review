@@ -10,6 +10,7 @@ import {
   ProgressiveReviewTelemetry,
   type ProgressiveReviewTelemetryCaptureClient,
   REVIEW_APP_VERSION_ENV,
+  sessionAgent,
 } from "./progressive-review-telemetry";
 import {
   type ProgressiveReviewTelemetryInstallConfig,
@@ -24,6 +25,12 @@ describe("ProgressiveReviewTelemetry", () => {
       cleanupPaths
         .splice(0)
         .map((target) => rm(target, { recursive: true, force: true })),
+    );
+  });
+
+  it("classifies OpenCode sessions as opencode", () => {
+    expect(sessionAgent({ harness: "opencode", sessionId: "session-1" })).toBe(
+      "opencode",
     );
   });
 

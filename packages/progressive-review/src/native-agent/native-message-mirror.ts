@@ -68,22 +68,9 @@ export class NativeMessageMirror {
       threadCursor: 0,
       task: Promise.resolve(),
     } satisfies SessionWatcher;
-    watcher.task = this.#mirror(threadId, binding, watcher).catch((error) => {
-      if (binding.harness === "opencode") {
-        this.#applyFailure(
-          threadId,
-          binding,
-          {
-            id: `${key}:observer-error`,
-            error: error instanceof Error ? error.message : String(error),
-            createdAt: new Date().toISOString(),
-          },
-          watcher,
-          true,
-        );
-      }
-      this.#onError(error);
-    });
+    watcher.task = this.#mirror(threadId, binding, watcher).catch(
+      this.#onError,
+    );
     this.#watchers.set(threadId, watcher);
   }
 
@@ -182,10 +169,9 @@ export class NativeMessageMirror {
     binding: ReviewThreadAgentBinding,
     failure: NativeReviewFailure,
     watcher: SessionWatcher,
-    force = false,
   ): void {
     if (
-      (!force && !watcher.inReviewConversation) ||
+      !watcher.inReviewConversation ||
       (watcher.conversationStartedAt &&
         failure.createdAt < watcher.conversationStartedAt)
     ) {

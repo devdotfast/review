@@ -290,6 +290,34 @@ describe("OpenCodeWorkspaceRuntime", () => {
     await fixture.runtime.close();
   });
 
+  it("does not abort a resumed session when the terminal fails to open", async () => {
+    const fixture = runtimeFixture({
+      statuses: { "bound-session": { type: "busy" } },
+      terminalError: new Error("terminal unavailable"),
+    });
+
+    await expect(
+      fixture.runtime.launchTurn({
+        launchId: "failed-terminal",
+        threadId: "thread-1",
+        reviewMessageId: REVIEW_MESSAGE_ID,
+        cwd: "/workspace/review",
+        prompt: "question",
+        route: {
+          kind: "resume",
+          session: { harness: "opencode", sessionId: "bound-session" },
+        },
+      }),
+    ).rejects.toThrow("terminal unavailable");
+
+    expect(
+      fixture.requests.some(
+        (request) => request.path === "/session/bound-session/abort",
+      ),
+    ).toBe(false);
+    await fixture.runtime.close();
+  });
+
   it("accepts an ambiguously failed prompt only after its stable message appears", async () => {
     const fixture = runtimeFixture({
       promptResult: "accepted-transport-failure",
@@ -495,6 +523,20 @@ describe("OpenCode observation fixtures", () => {
     await fixture.runtime.close();
   });
 
+  it("treats an unknown session status type as running instead of throwing", async () => {
+    const fixture = runtimeFixture({
+      statuses: { "bound-session": { type: "queued" } },
+    });
+
+    const pipe = await fixture.runtime
+      .observe({ harness: "opencode", sessionId: "bound-session" })
+      .updates();
+
+    expect(pipe.snapshot.messages).toEqual([]);
+    await pipe.close();
+    await fixture.runtime.close();
+  });
+
   it.each([
     ["idle", "session.idle"],
     ["error", "session.error"],
@@ -602,6 +644,33 @@ describe("OpenCode observation fixtures", () => {
     await fixture.runtime.close();
   });
 
+  it("retries a transiently failing wake snapshot before surfacing the error", async () => {
+    const fixture = runtimeFixture({
+      messageSnapshots: [
+        [message("user-1", "user", "question")],
+        [
+          message("user-1", "user", "question"),
+          message("assistant-1", "assistant", "recovered", true),
+        ],
+      ],
+      messageFailureAt: 1,
+      eventBlocks: [event("message.updated", "bound-session")],
+    });
+    const pipe = await fixture.runtime
+      .observe({ harness: "opencode", sessionId: "bound-session" })
+      .updates();
+
+    await expect(nextUpdate(pipe.updates)).resolves.toMatchObject({
+      type: "message.updated",
+      message: { body: "recovered" },
+    });
+    expect(
+      fixture.requests.filter((request) => request.path.endsWith("/message")),
+    ).toHaveLength(3);
+    await pipe.close();
+    await fixture.runtime.close();
+  });
+
   it("discards a mid-frame disconnect and reconciles after reconnect", async () => {
     const fixture = runtimeFixture({
       messageSnapshots: [
@@ -668,6 +737,36 @@ describe("OpenCode observation fixtures", () => {
     await fixture.runtime.close();
   });
 
+  it("synthesizes a fallback failure for an error without data.message", async () => {
+    const fallbackFailure = {
+      info: {
+        id: "msg_assistant-1",
+        sessionID: "bound-session",
+        role: "assistant",
+        time: { created: 2 },
+        error: { name: "MessageOutputLengthError", data: {} },
+      },
+      parts: [],
+    };
+    const fixture = runtimeFixture({
+      messageSnapshots: [
+        [message("user-1", "user", "question")],
+        [message("user-1", "user", "question"), fallbackFailure],
+      ],
+      eventBlocks: [event("session.error", "bound-session")],
+    });
+    const pipe = await fixture.runtime
+      .observe({ harness: "opencode", sessionId: "bound-session" })
+      .updates();
+
+    await expect(nextUpdate(pipe.updates)).resolves.toMatchObject({
+      type: "session.failed",
+      failure: { error: "MessageOutputLengthError" },
+    });
+    await pipe.close();
+    await fixture.runtime.close();
+  });
+
   it("includes the health version in invalid-contract diagnostics", async () => {
     const client = new OpenCodeClient(
       new OpenCodeHttpClient({
@@ -709,6 +808,7 @@ function runtimeFixture(
     startupError?: Error;
     startupErrorAfter?: number;
     eventFailureAfter?: number;
+    messageFailureAt?: number;
   } = {},
 ): {
   runtime: OpenCodeWorkspaceRuntime;
@@ -737,6 +837,7 @@ function runtimeFixture(
     return child;
   });
   let messageRead = 0;
+  let messageRequest = 0;
   let eventRead = 0;
   let statusRead = 0;
   const messageSnapshots = options.messageSnapshots ?? [[]];
@@ -776,6 +877,11 @@ function runtimeFixture(
       return Response.json(statuses);
     }
     if (url.pathname.endsWith("/message")) {
+      const requestIndex = messageRequest;
+      messageRequest += 1;
+      if (options.messageFailureAt === requestIndex) {
+        throw new TypeError("message network unavailable");
+      }
       if (options.finalMessagesAfterReconnect) {
         return Response.json(messageSnapshots[eventRead >= 2 ? 1 : 0] ?? []);
       }

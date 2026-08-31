@@ -85,7 +85,7 @@ describe("NativeMessageMirror OpenCode failures", () => {
     await mirror.close();
   });
 
-  it.each(["claude-code", "codex", "pi"] as const)(
+  it.each(["claude-code", "codex", "opencode", "pi"] as const)(
     "does not synthesize observer failures for %s",
     async (harness) => {
       const threadId = "thread-1";

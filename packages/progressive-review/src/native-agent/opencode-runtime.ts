@@ -92,7 +92,9 @@ export class OpenCodeWorkspaceRuntime {
       await this.#attach(client, input.cwd, sessionId, input.launchId);
       await client.prompt(sessionId, promptMessageId, input.prompt, input.cwd);
     } catch (error) {
-      await this.#abortIfRunning(sessionId, input.cwd);
+      if (input.route.kind !== "resume") {
+        await this.#abortIfRunning(client, sessionId, input.cwd);
+      }
       throw error;
     }
     return acceptedHandle({ harness: "opencode", sessionId });
@@ -249,9 +251,11 @@ export class OpenCodeWorkspaceRuntime {
     });
   }
 
-  async #abortIfRunning(sessionId: string, directory: string): Promise<void> {
-    const client = await this.#client().catch(() => undefined);
-    if (!client || !this.#ownedSessions.has(sessionId)) return;
+  async #abortIfRunning(
+    client: OpenCodeClient,
+    sessionId: string,
+    directory: string,
+  ): Promise<void> {
     const statuses = await client
       .status(directory)
       .catch((): Record<string, OpenCodeStatus> => ({}));
@@ -483,10 +487,21 @@ class OpenCodeObservedSession implements ObservedNativeSession {
   ): AsyncIterable<NativeSessionUpdate> {
     for await (const wake of wakes) {
       if (wake instanceof Error) throw wake;
-      const snapshot = await this.runtime.snapshot(
-        this.ref.sessionId,
-        this.directory,
-      );
+      let snapshot: OpenCodeSnapshot | undefined;
+      let lastError: unknown;
+      for (const wait of [0, 250, 1_000]) {
+        if (wait > 0) await delay(wait);
+        try {
+          snapshot = await this.runtime.snapshot(
+            this.ref.sessionId,
+            this.directory,
+          );
+          break;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (!snapshot) throw lastError;
       const wasRunning = isRunning(state.status);
       state.status = snapshot.status;
       if (wasRunning && !isRunning(state.status)) {
@@ -585,6 +600,30 @@ function parseSnapshot(
       throw contract(version, "message snapshot contains an invalid entry");
     }
     const info = entry.info;
+    if (info.role === "assistant" && info.error !== undefined) {
+      if (
+        !isOpenCodeMessageId(info.id) ||
+        info.sessionID !== sessionId ||
+        !isJsonRecord(info.time) ||
+        typeof info.time.created !== "number"
+      ) {
+        continue;
+      }
+      const detail =
+        isJsonRecord(info.error) &&
+        isJsonRecord(info.error.data) &&
+        nonEmptyString(info.error.data.message)
+          ? info.error.data.message
+          : isJsonRecord(info.error) && nonEmptyString(info.error.name)
+            ? info.error.name
+            : "unknown error";
+      failures.push({
+        id: `${sessionId}:${info.id}:error`,
+        error: detail,
+        createdAt: new Date(info.time.created).toISOString(),
+      });
+      continue;
+    }
     if (
       !isOpenCodeMessageId(info.id) ||
       info.sessionID !== sessionId ||
@@ -599,21 +638,6 @@ function parseSnapshot(
     }
     const createdAt = new Date(info.time.created).toISOString();
     if (info.role === "assistant") {
-      if (info.error !== undefined) {
-        if (
-          !isJsonRecord(info.error) ||
-          !isJsonRecord(info.error.data) ||
-          !nonEmptyString(info.error.data.message)
-        ) {
-          throw contract(version, "message snapshot contains an invalid error");
-        }
-        failures.push({
-          id: `${sessionId}:${info.id}:error`,
-          error: info.error.data.message,
-          createdAt,
-        });
-        continue;
-      }
       if (typeof info.time.completed !== "number") continue;
     }
     const textParts = entry.parts.filter(
@@ -650,15 +674,15 @@ function parseStatuses(
   if (!isJsonRecord(value)) throw contract(version, "status is not an object");
   const statuses: Record<string, OpenCodeStatus> = {};
   for (const [sessionId, status] of Object.entries(value)) {
-    if (
-      !isJsonRecord(status) ||
-      (status.type !== "idle" &&
-        status.type !== "busy" &&
-        status.type !== "retry")
-    ) {
+    if (!isJsonRecord(status) || !nonEmptyString(status.type)) {
       throw contract(version, `status for session "${sessionId}" is invalid`);
     }
-    statuses[sessionId] = { type: status.type };
+    statuses[sessionId] =
+      status.type === "idle" ||
+      status.type === "busy" ||
+      status.type === "retry"
+        ? { type: status.type }
+        : { type: "busy" };
   }
   return statuses;
 }

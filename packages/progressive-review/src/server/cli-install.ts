@@ -182,6 +182,8 @@ export async function applyCliInstall(input: {
   const sink = {
     write: (chunk: string) => (chunks.push(chunk), true),
   } as NodeJS.WriteStream;
+  let installCode = 0;
+  let failedTargets: InstallTarget[] = [];
   const fffTargets = input.fff ? input.targets.filter(isFffTarget) : [];
   const fffPresentBefore = new Map(
     await Promise.all(
@@ -195,7 +197,11 @@ export async function applyCliInstall(input: {
     ),
   );
   if (input.targets.length > 0 || input.trace !== undefined) {
-    const code = await runInstall({
+    const jsonChunks: string[] = [];
+    const jsonSink = {
+      write: (chunk: string) => (jsonChunks.push(chunk), true),
+    } as NodeJS.WriteStream;
+    installCode = await runInstall({
       targets: input.targets,
       homeDir,
       packageRoot: input.packageRoot,
@@ -212,10 +218,27 @@ export async function applyCliInstall(input: {
             },
           }
         : {}),
-      stdout: sink,
+      json: true,
+      stdout: jsonSink,
       stderr: sink,
     });
-    if (code !== 0) return { code, output: chunks.join("") };
+    const installEvent = jsonChunks
+      .join("")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .find((event) => event.event === "installed");
+    if (!installEvent) {
+      if (installCode !== 0) {
+        return { code: installCode, output: chunks.join("") };
+      }
+    } else if (Array.isArray(installEvent.failedTargets)) {
+      failedTargets = installEvent.failedTargets.filter(
+        (target): target is InstallTarget =>
+          typeof target === "string" &&
+          ALL_INSTALL_TARGETS.includes(target as InstallTarget),
+      );
+    }
   }
 
   let shimPath: string | undefined;
@@ -264,17 +287,24 @@ export async function applyCliInstall(input: {
   const traceManaged =
     input.trace !== undefined ||
     (previous?.consent === "granted" && previous.traceManaged === true);
+  const failedTargetSet = new Set(failedTargets);
   await writePrivateJsonAtomic(cliInstallStampPath(env), {
     consent: "granted",
     fingerprint: await installFingerprint(input.packageRoot),
-    targets: [...new Set([...previousTargets, ...input.targets])],
+    targets: [
+      ...new Set(
+        [...previousTargets, ...input.targets].filter(
+          (target) => !failedTargetSet.has(target),
+        ),
+      ),
+    ],
     ...(stampShimPath ? { shimPath: stampShimPath } : {}),
     ...(fffRegistrations.length > 0 ? { fffRegistrations } : {}),
     ...(traceManaged ? { traceManaged: true } : {}),
     updatedAt: new Date().toISOString(),
   } satisfies ReviewCliInstallStamp);
   return {
-    code: 0,
+    code: installCode,
     output: chunks.join(""),
     ...(shimPath ? { shimPath } : {}),
   };

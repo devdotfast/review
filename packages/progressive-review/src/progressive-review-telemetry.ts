@@ -5,7 +5,10 @@ import path from "node:path";
 import { valid as validSemver } from "semver";
 
 import { writeFileAtomic } from "./atomic-write";
-import { resolveAuthoringSessionRef } from "./authoring-session";
+import {
+  type SessionRef,
+  resolveAuthoringSessionRef,
+} from "./authoring-session";
 import { EMBEDDED_PROGRESSIVE_REVIEW_POSTHOG_KEY } from "./embedded-posthog-key";
 import { findProgressiveReviewPackageRoot } from "./package-paths";
 import {
@@ -78,7 +81,12 @@ export type ProgressiveReviewSourceKind =
   | "git_commit"
   | "jj_bookmark"
   | "jj_change";
-export type ProgressiveReviewSessionAgent = "codex" | "claude" | "pi" | "other";
+export type ProgressiveReviewSessionAgent =
+  | "codex"
+  | "claude"
+  | "opencode"
+  | "pi"
+  | "other";
 export type ProgressiveReviewSessionOutcome =
   | "approve"
   | "request-changes"
@@ -601,15 +609,21 @@ export class ProgressiveReviewTelemetry {
   }
 
   private sessionAgent(): ProgressiveReviewSessionAgent {
-    const harness = resolveAuthoringSessionRef(this.env)?.harness;
-    if (harness === "codex") return "codex";
-    if (harness === "claude-code") return "claude";
-    if (harness === "pi") return "pi";
-    return "other";
+    return sessionAgent(resolveAuthoringSessionRef(this.env));
   }
 }
 
 export { isTelemetryOptedOut } from "./telemetry-config";
+
+export function sessionAgent(
+  session: SessionRef | undefined,
+): ProgressiveReviewSessionAgent {
+  if (session?.harness === "codex") return "codex";
+  if (session?.harness === "claude-code") return "claude";
+  if (session?.harness === "opencode") return "opencode";
+  if (session?.harness === "pi") return "pi";
+  return "other";
+}
 
 function sourceKind(
   input: ProgressiveReviewSessionStartedInput,

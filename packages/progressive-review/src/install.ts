@@ -108,17 +108,6 @@ export async function runInstall(input: {
       `Bundled OpenCode tool not found: ${openCodeToolSource}.`,
     );
   }
-  if (
-    input.targets.includes("opencode") &&
-    (await openCodeToolState(openCodeToolPath(homeDir))) === "unmanaged"
-  ) {
-    return failWithJsonError(
-      input,
-      "install",
-      `${openCodeToolPath(homeDir)} already exists and is not managed by Review.`,
-    );
-  }
-
   // Check machine trace configuration before any per-agent mutation. A
   // headless install with missing credentials must fail without a partial
   // skills or FFF install.
@@ -151,7 +140,18 @@ export async function runInstall(input: {
     traceEnabled || (await traceMachineEnabled({ homeDir, env }));
 
   const installed: InstalledItem[] = [];
+  const failedTargets: InstallTarget[] = [];
   for (const target of input.targets) {
+    if (target === "opencode") {
+      const toolDest = openCodeToolPath(homeDir);
+      if ((await openCodeToolState(toolDest)) === "unmanaged") {
+        failedTargets.push(target);
+        input.stderr.write(
+          `\n${toolDest} already exists and is not managed by Review; skipping OpenCode.\n`,
+        );
+        continue;
+      }
+    }
     const destRoot = skillsDestRoot(homeDir, target);
     await removeStaleSkills(destRoot);
     for (const skillDir of skillDirs) {
@@ -230,13 +230,16 @@ export async function runInstall(input: {
     ),
   ];
   const installedSkills = installedSkillNames.join(", ");
-  if (input.targets.length > 0) {
+  const successfulTargets = input.targets.filter(
+    (target) => !failedTargets.includes(target),
+  );
+  if (successfulTargets.length > 0) {
     human.write(
-      `\nInstalled Review skills for ${formatTargets(input.targets)}: ${installedSkills}.\n` +
-        (input.targets.includes("codex")
+      `\nInstalled Review skills for ${formatTargets(successfulTargets)}: ${installedSkills}.\n` +
+        (successfulTargets.includes("codex")
           ? "In Codex, invoke via /skills or the installed dev-review skill.\n"
           : "") +
-        (input.targets.includes("cursor")
+        (successfulTargets.includes("cursor")
           ? "In Cursor, invoke the skills from the / menu (for example /dev-review).\n"
           : "") +
         "Restart the agent (or open a new session) to pick up the changes.\n",
@@ -245,12 +248,13 @@ export async function runInstall(input: {
   emitJsonEvent(input, {
     event: "installed",
     targets: input.targets,
+    failedTargets,
     skills: installedSkillNames,
     items: installed,
     gitNotesConfigured,
     traceEnabled,
   });
-  return 0;
+  return failedTargets.length > 0 ? 1 : 0;
 }
 
 /** Removes the app-managed Review skills (current and stale names) for one agent. */

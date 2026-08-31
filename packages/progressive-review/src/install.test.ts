@@ -464,6 +464,47 @@ describe("runInstall", () => {
     expect(await readFile(toolPath, "utf8")).toBe("// user tool\n");
   });
 
+  it("installs other targets and reports failure when the OpenCode tool is unmanaged", async () => {
+    const packageRoot = await makePackageRoot();
+    const homeDir = await makeTempDir();
+    const toolPath = path.join(
+      homeDir,
+      ".config",
+      "opencode",
+      "tools",
+      "review.ts",
+    );
+    await mkdir(path.dirname(toolPath), { recursive: true });
+    await writeFile(toolPath, "// user tool\n");
+    const streams = silentStreams();
+
+    expect(
+      await runInstall({
+        targets: ["claude", "opencode"],
+        homeDir,
+        packageRoot,
+        json: true,
+        stdout: streams.stdout,
+        stderr: streams.stderr,
+      }),
+    ).toBe(1);
+    expect(
+      existsSync(path.join(homeDir, ".claude", "skills", "dev-review")),
+    ).toBe(true);
+    expect(await readFile(toolPath, "utf8")).toBe("// user tool\n");
+    expect(
+      existsSync(
+        path.join(homeDir, ".config", "opencode", "skills", "dev-review"),
+      ),
+    ).toBe(false);
+    expect(streams.err.join("")).toContain("is not managed by Review");
+    expect(JSON.parse(streams.out.join(""))).toMatchObject({
+      event: "installed",
+      targets: ["claude", "opencode"],
+      failedTargets: ["opencode"],
+    });
+  });
+
   it("installs trace hooks and the trace skill once capture is enabled", async () => {
     const packageRoot = await makePackageRoot();
     const homeDir = await makeTempDir();

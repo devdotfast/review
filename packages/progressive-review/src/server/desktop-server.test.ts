@@ -74,5 +74,19 @@ describe("reviewAgentKind", () => {
         agentSessions: undefined,
       }),
     ).toBe("pi");
+    expect(
+      reviewAgentKind({
+        ...review,
+        sourceSession: "fresh:opencode",
+        agentSessions: undefined,
+      }),
+    ).toBe("opencode");
+    expect(
+      reviewAgentKind({
+        ...review,
+        sourceSession: "opencode:legacy",
+        agentSessions: undefined,
+      }),
+    ).toBe("opencode");
   });
 });

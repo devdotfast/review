@@ -2201,10 +2201,12 @@ export function reviewAgentKind(
   const freshHarness = parseFreshSourceSessionHarness(sessionKey);
   if (freshHarness === "codex") return "codex";
   if (freshHarness === "claude-code") return "claude";
+  if (freshHarness === "opencode") return "opencode";
   if (freshHarness === "pi") return "pi";
   const kind = sessionKey?.split(":", 1)[0];
   if (kind === "codex") return "codex";
   if (kind === "claude" || kind === "claude-code") return "claude";
+  if (kind === "opencode") return "opencode";
   if (kind === "pi") return "pi";
   return "other";
 }

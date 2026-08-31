@@ -37,7 +37,7 @@ describe("migrateStoredReviewData", () => {
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("rejects a boundary-less legacy OpenCode authoring session", async () => {
+  it("preserves a legacy OpenCode review with its source session disabled", async () => {
     const reviewHome = await tempDir();
     const sourceRoot = await gitRepository();
     const sourceCommit = execFileSync(
@@ -80,15 +80,13 @@ describe("migrateStoredReviewData", () => {
         log: (message) => log.push(message),
       }),
     ).resolves.toMatchObject({
-      documents: 0,
+      documents: 1,
       droppedLegacyPeekReviews: 0,
-      droppedReviews: 1,
-      droppedComments: 0,
-      droppedQuestions: 0,
+      droppedReviews: 0,
     });
     await expect(
-      readFile(path.join(created.dir, "review.json")),
-    ).rejects.toMatchObject({ code: "ENOENT" });
+      readFile(path.join(created.dir, "review.json"), "utf8"),
+    ).resolves.toContain('"sourceSession": "disabled:review"');
     expect(log).toContainEqual(
       expect.stringContaining(
         "legacy OpenCode authoring sessions have no validated invocation boundary",

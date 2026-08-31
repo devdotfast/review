@@ -16,6 +16,7 @@ import {
   removeLegacyReviewCheckouts,
 } from "./review-head-checkout";
 import {
+  DISABLED_REVIEW_SOURCE_SESSION,
   materializeReviewRevision,
   parseStoredReviewRecord,
   parseStoredReviewRecordForMigration,
@@ -511,17 +512,18 @@ async function migrateReviewSourceSession(input: {
     typeof input.value.sourceCommit === "string"
       ? input.value.sourceCommit
       : null;
-  if (source?.harness === "opencode") {
-    throw new Error(
-      "legacy OpenCode authoring sessions have no validated invocation boundary",
-    );
-  }
   const { agentSession: _agentSession, ...record } = input.value;
+  if (source?.harness === "opencode") {
+    input.onWarning?.(
+      "legacy OpenCode authoring sessions have no validated invocation boundary; Ask Agent is disabled for this Review",
+    );
+    return { ...record, sourceSession: DISABLED_REVIEW_SOURCE_SESSION };
+  }
   if (!source || !uuid || !worktreePath || !sourceCommit) {
     input.onWarning?.(
       `Review ${uuid ?? "with unknown UUID"} has no usable authoring session. Ask Agent is disabled, but the Review was preserved.`,
     );
-    return { ...record, sourceSession: "disabled:review" };
+    return { ...record, sourceSession: DISABLED_REVIEW_SOURCE_SESSION };
   }
   try {
     const checkout = await ensureReviewPinnedCheckout({
@@ -565,7 +567,7 @@ async function migrateReviewSourceSession(input: {
   }
   return {
     ...record,
-    sourceSession: "disabled:review",
+    sourceSession: DISABLED_REVIEW_SOURCE_SESSION,
   };
 }
 

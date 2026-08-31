@@ -45,6 +45,12 @@ describe("OpenCode source freezing", () => {
       })),
       close: vi.fn<OpenCodeSourceClient["close"]>(async () => undefined),
     };
+    const connect = vi.fn<(cwd: string) => Promise<OpenCodeSourceClient>>(
+      async (cwd) => {
+        expect(cwd).toBe("/workspace");
+        return client;
+      },
+    );
 
     await expect(
       forkOpenCodeSourceSession({
@@ -53,9 +59,10 @@ describe("OpenCode source freezing", () => {
         sourceDirectory: "/workspace/subdir",
         sourceWorktree: "/workspace",
         targetDirectory: "/managed/head",
-        connect: async () => client,
+        connect,
       }),
     ).resolves.toBe("frozen-session");
+    expect(connect).toHaveBeenCalledWith("/workspace");
     expect(client.messages).toHaveBeenCalledWith(
       "session-1",
       "/workspace/subdir",

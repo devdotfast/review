@@ -1,0 +1,54 @@
+import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
+
+export default defineSoftwareMap({
+  people: {},
+  systems: {
+    progressiveReview: {
+      label: "Progressive Review",
+      description:
+        "Authors, validates, and renders executable Review documents and their diagrams.",
+      containers: {
+        authoringRuntime: {
+          label: "Review authoring runtime",
+          description:
+            "Defines the public document-authoring contract and resolves authored references into validated runtime values.",
+          components: {
+            authoringContract: {
+              label: "Authoring contract",
+              description:
+                "Builds typed actors, stores, collections, and field targets used by Review documents.",
+              coverage: {
+                files: ["packages/progressive-review/src/authoring.ts"],
+              },
+            },
+          },
+        },
+        reviewApp: {
+          label: "Review application",
+          description:
+            "Renders authored documents and turns datastore operations into interactive diagrams.",
+          components: {
+            databaseLens: {
+              label: "Database lens",
+              description:
+                "Validates datastore operations and projects their actors, collections, fields, and relationships into an interactive diagram.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/app/src/database-lens.tsx",
+                ],
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  relationships: [
+    {
+      kind: "semantic",
+      from: "progressiveReview.reviewApp.databaseLens",
+      to: "progressiveReview.authoringRuntime.authoringContract",
+      label: "Consumes validated datastore references",
+    },
+  ],
+});

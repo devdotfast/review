@@ -22,7 +22,12 @@ Answer the question without launching Review Desktop, scaffolding a Review, or p
 
 ## Before authoring
 
-Read `DEV-REVIEW.md` at the source repository root when it exists. Follow its review rules and domain language.
+Read these Review guidance files when they exist, in this order:
+
+1. `$DEV_REVIEW_HOME/DEV-REVIEW.md` for user-level guidance. Use `~/.dev/DEV-REVIEW.md` when `DEV_REVIEW_HOME` is not set.
+2. `DEV-REVIEW.md` at the source repository root for repository guidance.
+
+Follow the review rules and domain language in both files. The repository guidance takes precedence when the files conflict.
 
 Read [Document authoring](references/document-authoring.md) for writing rules and document structure.
 

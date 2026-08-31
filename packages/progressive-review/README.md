@@ -7,6 +7,16 @@ has a durable UUID directory under
 it of sealed revisions. The server owns review discovery, session state, and
 presentation.
 
+## Review guidance
+
+You can add optional guidance for generated Review documents:
+
+- User-level guidance: `$DEV_REVIEW_HOME/DEV-REVIEW.md`. Review uses
+  `~/.dev/DEV-REVIEW.md` by default.
+- Repository guidance: `DEV-REVIEW.md` at the source repository root.
+
+Repository guidance takes precedence over user-level guidance.
+
 ## Migration
 
 To move legacy Review data with a compatible `review` command, run:

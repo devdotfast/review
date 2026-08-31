@@ -10,7 +10,8 @@ directory as a reference.
 
 ## Start here
 
-- [Quickstart](quickstart.md) — install Review and complete a first review.
+- [Quickstart](quickstart.md) — install Review, add authoring guidance, and
+  complete a first review.
 - [How Review works](how-review-works.md) — understand documents, live code,
   maps, threads, and the review lifecycle.
 - [Coding agents](agents.md) — connect Claude Code, Codex, and other coding

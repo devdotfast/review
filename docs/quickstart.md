@@ -53,6 +53,16 @@ The agent scaffolds a Review, writes and validates the walkthrough, publishes
 it, and opens it in Review Desktop. You can also review a specific GitHub pull
 request or ask for an architecture review of a repository.
 
+### Add Review guidance
+
+You can add optional guidance for generated Review documents:
+
+- User-level guidance: `$DEV_REVIEW_HOME/DEV-REVIEW.md`. Review uses
+  `~/.dev/DEV-REVIEW.md` by default.
+- Repository guidance: `DEV-REVIEW.md` at the source repository root.
+
+Repository guidance takes precedence over user-level guidance.
+
 ## 4. Read and respond
 
 Use the three main surfaces together:

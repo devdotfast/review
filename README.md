@@ -44,6 +44,9 @@ Review works especially well for large changes where a file-by-file diff does
 not explain whether the system is right. See the
 [quickstart](docs/quickstart.md) for the complete first-review flow.
 
+Review authors can add user and repository guidance for generated documents.
+See [Review guidance](docs/quickstart.md#add-review-guidance).
+
 ## Documentation
 
 [How Review works](docs/how-review-works.md) · [Coding agents](docs/agents.md) ·

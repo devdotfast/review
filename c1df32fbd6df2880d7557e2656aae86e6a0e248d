@@ -1,0 +1,496 @@
+import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
+
+export default defineSoftwareMap({
+  people: {
+    reviewUser: {
+      label: "Review user",
+      description:
+        "Onboards Review Desktop, installs agent integrations, and tunes settings.",
+    },
+  },
+  systems: {
+    reviewProduct: {
+      label: "Review",
+      description:
+        "Desktop code-review product that installs agent skills, captures agent traces, and renders guided Reviews.",
+      containers: {
+        desktopShell: {
+          label: "Review Desktop shell",
+          description:
+            "Code OSS-based desktop shell hosting the Review canvas and its settings registry.",
+          components: {
+            configurationRegistry: {
+              label: "Desktop configuration",
+              description:
+                "Declares Review's setting keys and defaults, including telemetry and the experimental Software Map toggle.",
+              coverage: {
+                files: [
+                  "apps/review-desktop/code-oss/src/vs/review/common/reviewConfiguration.ts",
+                  "apps/review-desktop/code-oss/src/vs/review/common/reviewConfigurationDefaults.ts",
+                ],
+              },
+              codeElements: {
+                reviewConfigurationDefaults: {
+                  label: "reviewConfigurationDefaults",
+                  description:
+                    "Default values for Review settings; the experimental Software Map view now ships disabled by default.",
+                  sourceRanges: [
+                    {
+                      file: "apps/review-desktop/code-oss/src/vs/review/common/reviewConfigurationDefaults.ts",
+                      fromLine: 31,
+                      toLine: 91,
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        canvas: {
+          label: "Review canvas",
+          description:
+            "React application rendering onboarding, Home, settings, and the interactive Review document.",
+          components: {
+            onboarding: {
+              label: "Onboarding and agent setup",
+              description:
+                "Welcome flow and agent setup card that install the CLI, skills, and FFF search; trace capture is no longer part of first-run setup.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/app/src/welcome-page.tsx",
+                  "packages/progressive-review/app/src/agent-setup-card.tsx",
+                  "packages/progressive-review/app/src/agent-setup-card.test.tsx",
+                ],
+              },
+              codeElements: {
+                agentSetupCard: {
+                  label: "AgentSetupCard",
+                  description:
+                    "Per-agent install rows and FFF status; the trace-capture credential fields moved to Settings.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/app/src/agent-setup-card.tsx",
+                      fromLine: 31,
+                      toLine: 322,
+                    },
+                  ],
+                },
+                onboardingSetupComplete: {
+                  label: "onboardingSetupComplete",
+                  description:
+                    "Marks onboarding done when agents and FFF are installed; trace capture no longer gates completion.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/app/src/welcome-page.tsx",
+                      fromLine: 178,
+                      toLine: 195,
+                    },
+                  ],
+                },
+              },
+            },
+            homeView: {
+              label: "Review Home",
+              description:
+                "Lists Reviews and nudges the user toward incomplete agent or skill setup; it never nags about trace capture.",
+              coverage: {
+                files: ["packages/progressive-review/app/src/review-home-view.tsx"],
+              },
+              codeElements: {
+                setupBannerMessage: {
+                  label: "setupBannerMessage",
+                  description:
+                    "Chooses the Home setup nudge from agent and skill state; trace capture is experimental and opt-in, so it is excluded.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/app/src/review-home-view.tsx",
+                      fromLine: 292,
+                      toLine: 315,
+                    },
+                  ],
+                },
+              },
+            },
+            settingsUi: {
+              label: "Settings page",
+              description:
+                "In-app settings surface; Experimental Features now hosts the Software Map toggle and the relocated trace-capture controls.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/app/src/settings-page.tsx",
+                  "packages/progressive-review/app/src/trace-capture-section.tsx",
+                  "packages/progressive-review/app/src/trace-capture-section.test.tsx",
+                ],
+              },
+              codeElements: {
+                settingsPage: {
+                  label: "SettingsPage",
+                  description:
+                    "Renders the settings sections and keeps agent install status in sync while the page is open.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/app/src/settings-page.tsx",
+                      fromLine: 55,
+                      toLine: 257,
+                    },
+                  ],
+                },
+                traceCaptureSection: {
+                  label: "TraceCaptureSection",
+                  description:
+                    "New Experimental Features section for entering R2 credentials and enabling or disabling trace capture.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/app/src/trace-capture-section.tsx",
+                      fromLine: 18,
+                      toLine: 236,
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        reviewRuntime: {
+          label: "Review CLI and runtime",
+          description:
+            "Bundled Node runtime providing the review CLI, installer, trace capture, scaffolding, and the desktop server.",
+          components: {
+            cli: {
+              label: "CLI commands",
+              description:
+                "Commander-based `review` CLI; its install command wires targets, FFF, and trace credential flags.",
+              coverage: {
+                files: ["packages/progressive-review/src/cli-runner.ts"],
+              },
+              codeElements: {
+                installCommand: {
+                  label: "review install command",
+                  description:
+                    "Registers `review install`; trace capture is configured only when R2 credential flags are given, and --without-traces is deprecated.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/src/cli-runner.ts",
+                      fromLine: 531,
+                      toLine: 605,
+                    },
+                  ],
+                },
+              },
+            },
+            installer: {
+              label: "Skill and integration installer",
+              description:
+                "Copies bundled skills into agent homes and registers FFF; trace hooks and the trace-archaeology skill install only when trace capture is enabled.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/install.ts",
+                  "packages/progressive-review/src/install.test.ts",
+                  "packages/progressive-review/src/agent-fff.ts",
+                ],
+              },
+              codeElements: {
+                runInstall: {
+                  label: "runInstall",
+                  description:
+                    "Installs the core dev-review skills; gates trace hooks and the trace-archaeology skill on credentials or an already-enabled trace machine.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/src/install.ts",
+                      fromLine: 55,
+                      toLine: 208,
+                    },
+                  ],
+                },
+                removeTraceSkills: {
+                  label: "removeTraceSkills",
+                  description:
+                    "Removes the trace-archaeology skill from agent homes when trace capture is disabled.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/src/install.ts",
+                      fromLine: 225,
+                      toLine: 233,
+                    },
+                  ],
+                },
+              },
+            },
+            traceCapture: {
+              label: "Agent trace capture",
+              description:
+                "Installs per-agent trace hooks, stores machine credentials, and records and syncs coding-agent session traces.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/agent-trace-hooks.ts",
+                  "packages/progressive-review/src/trace-machine-setup.ts",
+                  "packages/progressive-review/src/trace-cli.ts",
+                  "packages/progressive-review/src/trace-hook-runner.ts",
+                  "packages/progressive-review/src/trace-repository-hooks.ts",
+                  "packages/progressive-review/src/review-agent-traces.ts",
+                ],
+              },
+              codeElements: {
+                installClaudeTraceHook: {
+                  label: "installClaudeTraceHook",
+                  description:
+                    "Writes the Claude Code settings hooks that pipe session events into `review trace hook`.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/src/agent-trace-hooks.ts",
+                      fromLine: 78,
+                      toLine: 140,
+                    },
+                  ],
+                },
+                configureTraceMachine: {
+                  label: "configureTraceMachine",
+                  description:
+                    "Persists R2 trace credentials and enables trace capture for the machine.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/src/trace-machine-setup.ts",
+                      fromLine: 126,
+                      toLine: 207,
+                    },
+                  ],
+                },
+              },
+            },
+            scaffold: {
+              label: "Review scaffold",
+              description:
+                "Creates and repins Review directories and discovers matching agent trace sessions for authoring.",
+              coverage: {
+                files: ["packages/progressive-review/src/review-scaffold.ts"],
+              },
+              codeElements: {
+                discoverAndPullScaffoldTraces: {
+                  label: "discoverAndPullScaffoldTraces",
+                  description:
+                    "Lists and materializes agent trace sessions, returning empty traces immediately when trace storage is disabled.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/src/review-scaffold.ts",
+                      fromLine: 362,
+                      toLine: 430,
+                    },
+                  ],
+                },
+              },
+            },
+            desktopServer: {
+              label: "Desktop server",
+              description:
+                "Local server behind the desktop shell that reports install status and applies install, decline, and removal actions.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/server/cli-install.ts",
+                  "packages/progressive-review/src/server/desktop-server.ts",
+                ],
+              },
+              codeElements: {
+                resolveCliInstallStatus: {
+                  label: "resolveCliInstallStatus",
+                  description:
+                    "Aggregates agent, FFF, and trace-capture state into the install status the canvas renders, keeping Settings in sync.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/src/server/cli-install.ts",
+                      fromLine: 69,
+                      toLine: 138,
+                    },
+                  ],
+                },
+                applyCliInstall: {
+                  label: "applyCliInstall",
+                  description:
+                    "Runs the bundled installer with the targets and optional trace credentials chosen in the UI.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/src/server/cli-install.ts",
+                      fromLine: 140,
+                      toLine: 253,
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+      dataStores: {
+        agentConfigs: {
+          label: "Agent config directories",
+          kind: "fileStore",
+          description:
+            "Per-agent home directories (~/.claude, ~/.codex, ~/.cursor, ~/.pi) holding installed skills, hooks, and extensions.",
+        },
+        traceMachineState: {
+          label: "Trace machine state",
+          kind: "fileStore",
+          description:
+            "Machine-level trace credentials and enablement files consulted by the CLI and desktop server.",
+        },
+      },
+    },
+    codingAgents: {
+      label: "Coding-agent runtimes",
+      description:
+        "Claude Code, Codex, Cursor, and Pi runtimes that load the installed skills and fire trace hooks.",
+      external: true,
+    },
+    traceStorage: {
+      label: "Trace storage (R2)",
+      description:
+        "Remote R2 bucket that receives and serves captured agent-session trace corpora.",
+      external: true,
+    },
+  },
+  relationships: [
+    {
+      kind: "semantic",
+      from: "reviewUser",
+      to: "reviewProduct.canvas.onboarding",
+      label: "Completes onboarding",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.canvas.onboarding.agentSetupCard",
+      to: "reviewProduct.reviewRuntime.desktopServer.applyCliInstall",
+      label: "Submits agent install",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.canvas.settingsUi.traceCaptureSection",
+      to: "reviewProduct.reviewRuntime.desktopServer",
+      label: "Configures, enables, and disables trace capture",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.reviewRuntime.desktopServer",
+      to: "reviewProduct.reviewRuntime.installer.removeTraceSkills",
+      label: "Retires trace skills when capture is disabled",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.canvas.onboarding.onboardingSetupComplete",
+      to: "reviewProduct.reviewRuntime.desktopServer.resolveCliInstallStatus",
+      label: "Reads agent, FFF, and trace state",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.canvas.homeView.setupBannerMessage",
+      to: "reviewProduct.reviewRuntime.desktopServer.resolveCliInstallStatus",
+      label: "Reads install status",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.reviewRuntime.desktopServer.applyCliInstall",
+      to: "reviewProduct.reviewRuntime.installer.runInstall",
+      label: "Invokes bundled installer",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.reviewRuntime.cli.installCommand",
+      to: "reviewProduct.reviewRuntime.installer.runInstall",
+      label: "Runs install action",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.reviewRuntime.installer.runInstall",
+      to: "reviewProduct.reviewRuntime.traceCapture.installClaudeTraceHook",
+      label: "Installs agent trace hooks when capture is enabled",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.reviewRuntime.installer.runInstall",
+      to: "reviewProduct.reviewRuntime.traceCapture.configureTraceMachine",
+      label: "Configures trace credentials",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.reviewRuntime.traceCapture.configureTraceMachine",
+      to: "reviewProduct.traceMachineState",
+      label: "Writes machine credentials",
+    },
+    {
+      kind: "semantic",
+      from: "reviewUser",
+      to: "reviewProduct.canvas.settingsUi",
+      label: "Adjusts settings",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.canvas.homeView",
+      to: "reviewProduct.reviewRuntime.desktopServer",
+      label: "Reads install status for setup nudges",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.canvas.onboarding",
+      to: "reviewProduct.reviewRuntime.desktopServer",
+      label: "Applies CLI install",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.canvas.settingsUi",
+      to: "reviewProduct.desktopShell.configurationRegistry",
+      label: "Toggles registered settings",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.reviewRuntime.desktopServer",
+      to: "reviewProduct.reviewRuntime.installer",
+      label: "Runs install and removal",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.reviewRuntime.cli",
+      to: "reviewProduct.reviewRuntime.installer",
+      label: "Dispatches `review install`",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.reviewRuntime.installer",
+      to: "reviewProduct.agentConfigs",
+      label: "Copies skills, hooks, and extensions",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.reviewRuntime.installer",
+      to: "reviewProduct.reviewRuntime.traceCapture",
+      label: "Enables trace hooks only when capture is on",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.reviewRuntime.traceCapture",
+      to: "reviewProduct.traceMachineState",
+      label: "Stores credentials and enablement",
+    },
+    {
+      kind: "semantic",
+      from: "codingAgents",
+      to: "reviewProduct.agentConfigs",
+      label: "Loads installed skills and hooks",
+    },
+    {
+      kind: "semantic",
+      from: "codingAgents",
+      to: "reviewProduct.reviewRuntime.traceCapture",
+      label: "Fires session trace hooks",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.reviewRuntime.traceCapture",
+      to: "traceStorage",
+      label: "Syncs captured traces",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.reviewRuntime.scaffold",
+      to: "reviewProduct.reviewRuntime.traceCapture",
+      label: "Discovers and pulls trace sessions",
+    },
+  ],
+});

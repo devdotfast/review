@@ -679,7 +679,7 @@ describe("OpenCode observation fixtures", () => {
         ),
       }),
     );
-    client.version = "1.18.23";
+    client.http.version = "1.18.23";
 
     await expect(client.status("/workspace/review")).rejects.toThrow(
       "reported version 1.18.23",

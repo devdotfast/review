@@ -164,6 +164,12 @@ export async function startOpenCodeServer(
     });
     try {
       await waitForOpenCodeHealth(http, child, () => spawnError);
+      // The log buffer exists only for startup diagnostics; detach so
+      // steady-state server output costs nothing for the process lifetime.
+      for (const output of [child.stdout, child.stderr]) {
+        output?.removeAllListeners("data");
+        output?.resume();
+      }
       return { child, http };
     } catch (error) {
       lastError = error;

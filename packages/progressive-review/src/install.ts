@@ -362,15 +362,28 @@ async function listSkillDirs(
 }
 
 async function installDirectory(src: string, dest: string): Promise<void> {
+  await installPath(src, dest, (from, to) => cp(from, to, { recursive: true }));
+}
+
+async function installFile(src: string, dest: string): Promise<void> {
+  await installPath(src, dest, copyFile);
+}
+
+async function installPath(
+  src: string,
+  dest: string,
+  copy: (src: string, dest: string) => Promise<void>,
+): Promise<void> {
   await mkdir(path.dirname(dest), { recursive: true });
-  // Stage into a sibling temp dir, then swap into place with renames so an
-  // interruption mid-install never leaves the user with a half-removed skill.
-  // The temp dirs are siblings of dest, so the renames stay on one filesystem.
+  // Stage into a sibling temp path, then swap into place with renames so an
+  // interruption mid-install never leaves the user with a half-removed skill
+  // or tool. The temp paths are siblings of dest, so the renames stay on one
+  // filesystem.
   const staging = `${dest}.tmp-${process.pid}`;
   const backup = `${dest}.bak-${process.pid}`;
   await rm(staging, { recursive: true, force: true });
   await rm(backup, { recursive: true, force: true });
-  await cp(src, staging, { recursive: true });
+  await copy(src, staging);
   let movedExisting = false;
   try {
     await rename(dest, backup);
@@ -385,29 +398,6 @@ async function installDirectory(src: string, dest: string): Promise<void> {
     throw error;
   }
   if (movedExisting) await rm(backup, { recursive: true, force: true });
-}
-
-async function installFile(src: string, dest: string): Promise<void> {
-  await mkdir(path.dirname(dest), { recursive: true });
-  const staging = `${dest}.tmp-${process.pid}`;
-  const backup = `${dest}.bak-${process.pid}`;
-  await rm(staging, { force: true });
-  await rm(backup, { force: true });
-  await copyFile(src, staging);
-  let movedExisting = false;
-  try {
-    await rename(dest, backup);
-    movedExisting = true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  try {
-    await rename(staging, dest);
-  } catch (error) {
-    if (movedExisting) await rename(backup, dest).catch(() => {});
-    throw error;
-  }
-  if (movedExisting) await rm(backup, { force: true });
 }
 
 function openCodeToolPath(homeDir: string): string {

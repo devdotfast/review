@@ -78,7 +78,6 @@ export class OpenCodeWorkspaceRuntime {
     let sessionId: string;
     if (input.route.kind === "resume") {
       sessionId = input.route.session.sessionId;
-      await client.confirmSession(sessionId, input.cwd);
     } else if (input.route.kind === "fork") {
       sessionId = await client.fork(input.route.source.sessionId, input.cwd);
     } else {
@@ -89,7 +88,6 @@ export class OpenCodeWorkspaceRuntime {
     }
     this.#ownedSessions.add(sessionId);
     await client.confirmSession(sessionId, input.cwd);
-    await client.snapshot(sessionId, input.cwd);
     try {
       await this.#attach(client, input.cwd, sessionId, input.launchId);
       await client.prompt(sessionId, promptMessageId, input.prompt, input.cwd);
@@ -238,15 +236,15 @@ export class OpenCodeWorkspaceRuntime {
       executable: "opencode",
       args: [
         "attach",
-        client.baseUrl,
+        client.http.baseUrl,
         "--dir",
         directory,
         "--session",
         sessionId,
       ],
       env: {
-        OPENCODE_SERVER_USERNAME: client.username,
-        OPENCODE_SERVER_PASSWORD: client.password,
+        OPENCODE_SERVER_USERNAME: client.http.username,
+        OPENCODE_SERVER_PASSWORD: client.http.password,
       },
     });
   }
@@ -265,26 +263,6 @@ export class OpenCodeWorkspaceRuntime {
 
 export class OpenCodeClient {
   constructor(readonly http: OpenCodeHttpClient) {}
-
-  get baseUrl(): string {
-    return this.http.baseUrl;
-  }
-
-  get username(): string {
-    return this.http.username;
-  }
-
-  get password(): string {
-    return this.http.password;
-  }
-
-  get version(): string {
-    return this.http.version;
-  }
-
-  set version(value: string) {
-    this.http.version = value;
-  }
 
   async create(title: string, directory: string): Promise<string> {
     return sessionId(
@@ -371,14 +349,15 @@ export class OpenCodeClient {
     sessionId: string,
     directory: string,
   ): Promise<OpenCodeSnapshot> {
-    const statuses = await this.status(directory);
-    const messages = await this.http.json(
-      `/session/${encodeURIComponent(sessionId)}/message`,
-      directory,
-    );
+    const [statuses, messages] = await Promise.all([
+      this.status(directory),
+      this.http.json(
+        `/session/${encodeURIComponent(sessionId)}/message`,
+        directory,
+      ),
+    ]);
     return {
-      messages: parseMessages(messages, sessionId, this.version),
-      failures: parseFailures(messages, sessionId, this.version),
+      ...parseSnapshot(messages, sessionId, this.http.version),
       status: statuses[sessionId],
     };
   }
@@ -386,7 +365,7 @@ export class OpenCodeClient {
   async status(directory: string): Promise<Record<string, OpenCodeStatus>> {
     return parseStatuses(
       await this.http.json("/session/status", directory),
-      this.version,
+      this.http.version,
     );
   }
 
@@ -411,9 +390,9 @@ export class OpenCodeClient {
     if (!response.body) throw this.http.contract("event stream has no body");
     return {
       done: readServerSentEvents(response.body, signal, (data) =>
-        onEvent(parseEvent(data, this.version)),
+        onEvent(parseEvent(data, this.http.version)),
       ),
-      version: this.version,
+      version: this.http.version,
     };
   }
 }
@@ -588,14 +567,15 @@ class OpenCodeObservedSession implements ObservedNativeSession {
   }
 }
 
-function parseMessages(
+function parseSnapshot(
   value: unknown,
   sessionId: string,
   version: string,
-): NativeReviewMessage[] {
+): { messages: NativeReviewMessage[]; failures: NativeReviewFailure[] } {
   if (!Array.isArray(value))
     throw contract(version, "messages are not an array");
   const messages: NativeReviewMessage[] = [];
+  const failures: NativeReviewFailure[] = [];
   for (const entry of value) {
     if (
       !isJsonRecord(entry) ||
@@ -617,10 +597,24 @@ function parseMessages(
         "message snapshot contains invalid message metadata",
       );
     }
+    const createdAt = new Date(info.time.created).toISOString();
     if (info.role === "assistant") {
-      if (typeof info.time.completed !== "number" || info.error !== undefined) {
+      if (info.error !== undefined) {
+        if (
+          !isJsonRecord(info.error) ||
+          !isJsonRecord(info.error.data) ||
+          !nonEmptyString(info.error.data.message)
+        ) {
+          throw contract(version, "message snapshot contains an invalid error");
+        }
+        failures.push({
+          id: `${sessionId}:${info.id}:error`,
+          error: info.error.data.message,
+          createdAt,
+        });
         continue;
       }
+      if (typeof info.time.completed !== "number") continue;
     }
     const textParts = entry.parts.filter(
       (part): part is Record<string, unknown> =>
@@ -643,44 +637,10 @@ function parseMessages(
       id: `${sessionId}:${info.id}:${textParts.map((part) => part.id).join(",")}`,
       role: info.role,
       body,
-      createdAt: new Date(info.time.created).toISOString(),
+      createdAt,
     });
   }
-  return messages.sort(compareCreated);
-}
-
-function parseFailures(
-  value: unknown,
-  sessionId: string,
-  version: string,
-): NativeReviewFailure[] {
-  if (!Array.isArray(value))
-    throw contract(version, "messages are not an array");
-  return value.flatMap((entry): NativeReviewFailure[] => {
-    if (!isJsonRecord(entry) || !isJsonRecord(entry.info)) return [];
-    const info = entry.info;
-    if (info.sessionID !== sessionId || info.role !== "assistant") {
-      return [];
-    }
-    if (info.error === undefined) return [];
-    if (
-      !isOpenCodeMessageId(info.id) ||
-      !isJsonRecord(info.error) ||
-      !isJsonRecord(info.error.data) ||
-      !nonEmptyString(info.error.data.message) ||
-      !isJsonRecord(info.time) ||
-      typeof info.time.created !== "number"
-    ) {
-      throw contract(version, "message snapshot contains an invalid error");
-    }
-    return [
-      {
-        id: `${sessionId}:${info.id}:error`,
-        error: info.error.data.message,
-        createdAt: new Date(info.time.created).toISOString(),
-      },
-    ];
-  });
+  return { messages: messages.sort(compareCreated), failures };
 }
 
 function parseStatuses(

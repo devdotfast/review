@@ -20,27 +20,29 @@ const PROMPT_KINDS: ReadonlyArray<{ kind: PromptKind; label: string }> = [
  * documents how to scaffold one (same commit as base and head, system-shaped
  * sections), so the prompt does not have to carry the mechanics.
  */
+// Claude Code and OpenCode share the skill-invocation phrasing.
+const SKILL_CHANGE_PROMPT =
+  "Use the dev-review skill to review my current branch against up to date main, then open it in Review.";
+const SKILL_ARCHITECTURE_PROMPT =
+  "Use the dev-review skill to sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it. Open it in Review when you're done.";
+
 export const PROMPT_VARIANTS: Record<
   PromptKind,
   Record<PromptAgent, string>
 > = {
   change: {
-    claude:
-      "Use the dev-review skill to review my current branch against up to date main, then open it in Review.",
+    claude: SKILL_CHANGE_PROMPT,
     codex:
       "Use $dev-review to review my current branch against up to date main, then open it in Review.",
-    opencode:
-      "Use the dev-review skill to review my current branch against up to date main, then open it in Review.",
+    opencode: SKILL_CHANGE_PROMPT,
     generic:
       "Use the `review` CLI to review my current branch against up to date main: run `review scaffold`, write the review, then `review publish`.",
   },
   architecture: {
-    claude:
-      "Use the dev-review skill to sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it. Open it in Review when you're done.",
+    claude: SKILL_ARCHITECTURE_PROMPT,
     codex:
       "Use $dev-review to sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it. Open it in Review when you're done.",
-    opencode:
-      "Use the dev-review skill to sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it. Open it in Review when you're done.",
+    opencode: SKILL_ARCHITECTURE_PROMPT,
     generic:
       "Use the `review` CLI to sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it: run `review scaffold` with the same commit as base and head, write the review, then `review publish`.",
   },

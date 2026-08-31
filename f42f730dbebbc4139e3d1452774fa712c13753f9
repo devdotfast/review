@@ -1,0 +1,305 @@
+import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
+
+/**
+ * Software map for f42f730 (base) — the Review Desktop code-resource subsystem:
+ * how the workbench resolves review paths to pinned or synthetic resources,
+ * how unified CodePeek editors are built over them, and how the local server
+ * wires session roots (working tree + pinned head checkout) to the workbench.
+ * At this commit only the head side has a pinned checkout; base-side resources
+ * are always synthetic virtual documents, and unified CodePeeks expose no
+ * language features of their own.
+ */
+export default defineSoftwareMap({
+  people: {
+    reviewer: {
+      label: "Reviewer",
+      description:
+        "Developer reading agent-authored changes in Review Desktop; clicks through unified CodePeeks to real files.",
+    },
+  },
+  systems: {
+    review: {
+      label: "Review Desktop",
+      description:
+        "Local desktop app (a code-oss fork) plus its local server that turn agent-authored changes into guided Reviews.",
+      containers: {
+        workbench: {
+          label: "Review workbench (code-oss)",
+          description:
+            "The review layer inside the forked VS Code renderer: resource identity, diff/code-peek services, and inline editors embedded in Review documents.",
+          coverage: {
+            files: [
+              { path: "apps/review-desktop/code-oss/src/vs/review/common/reviewCodeResources.ts" },
+              { path: "apps/review-desktop/code-oss/src/vs/review/common/reviewProtocol.ts" },
+              { path: "apps/review-desktop/code-oss/src/vs/review/services/reviewCodeResourceService.ts" },
+              { path: "apps/review-desktop/code-oss/src/vs/review/services/reviewInlineEditorService.ts" },
+            ],
+          },
+          components: {
+            codeResources: {
+              label: "Review code resources",
+              description:
+                "URI schemes and helpers that name review resources: synthetic base/head/unified virtual documents and files inside session roots.",
+              coverage: {
+                files: [
+                  { path: "apps/review-desktop/code-oss/src/vs/review/common/reviewCodeResources.ts" },
+                ],
+              },
+              codeElements: {
+                reviewVirtualUri: {
+                  label: "reviewVirtualUri",
+                  description:
+                    "Builds a devfast-review-base/head virtual URI carrying path, session cache key, and optional commit.",
+                },
+                reviewFileUri: {
+                  label: "reviewFileUri",
+                  description:
+                    "Joins a review-relative path onto a session root, rejecting paths that escape the repository.",
+                },
+                reviewHeadFileUri: {
+                  label: "reviewHeadFileUri",
+                  description:
+                    "Resolves a path inside the pinned head checkout root when the session has one.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.workbench.codeResources.reviewFileUri",
+                      label: "joins path onto head root",
+                    },
+                  ],
+                },
+                reviewResourceIdentity: {
+                  label: "reviewResourceIdentity",
+                  description:
+                    "Maps an editor resource back to a review path, recognising virtual schemes and files under the head or working-tree roots.",
+                },
+              },
+            },
+            codeResourceService: {
+              label: "Code resource service",
+              description:
+                "Workbench service that resolves review paths to concrete resources, caches diff patches, and materialises unified CodePeek documents with row mappings.",
+              coverage: {
+                files: [
+                  { path: "apps/review-desktop/code-oss/src/vs/review/services/reviewCodeResourceService.ts" },
+                ],
+              },
+              codeElements: {
+                target: {
+                  label: "target",
+                  description:
+                    "Resolves a path and diff side to a resource: pinned head file when available for head-side reveals, otherwise a synthetic virtual document or working-tree fallback.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.workbench.codeResources.reviewHeadFileUri",
+                      label: "prefers pinned head files",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.workbench.codeResources.reviewVirtualUri",
+                      label: "falls back to synthetic docs",
+                    },
+                  ],
+                },
+                acquireUnifiedDiff: {
+                  label: "acquireUnifiedDiff",
+                  description:
+                    "Builds the synthetic unified CodePeek model for a file, tracking which unified rows map to base or head source lines.",
+                },
+                unifiedResource: {
+                  label: "unifiedResource",
+                  description:
+                    "Looks up the row-mapping info for a live unified CodePeek resource so rows can be projected back to a path and side.",
+                },
+                resourceIdentity: {
+                  label: "resourceIdentity",
+                  description:
+                    "Maps an open editor resource to a review path and side; file-scheme resources are only recognised under the pinned head root.",
+                },
+              },
+            },
+            inlineEditorService: {
+              label: "Inline editor service",
+              description:
+                "Creates the inline unified and multi-diff editors embedded in Review documents and routes navigation out of them.",
+              coverage: {
+                files: [
+                  { path: "apps/review-desktop/code-oss/src/vs/review/services/reviewInlineEditorService.ts" },
+                ],
+              },
+              codeElements: {
+                openUnifiedNavigation: {
+                  label: "openUnifiedNavigation",
+                  description:
+                    "Intercepts editor opens targeting a unified CodePeek and reroutes them to the mapped real file resource.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.workbench.codeResourceService.unifiedResource",
+                      label: "maps unified rows",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.workbench.codeResourceService.target",
+                      label: "resolves the real file",
+                    },
+                  ],
+                },
+                initializeUnifiedEditor: {
+                  label: "initializeUnifiedEditor",
+                  description:
+                    "Mounts a unified CodePeek code editor over the acquired unified model; the synthetic document itself offers no hover or go-to-definition.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.workbench.codeResourceService.acquireUnifiedDiff",
+                      label: "acquires unified model",
+                    },
+                  ],
+                },
+              },
+            },
+            workbenchProtocol: {
+              label: "Workbench protocol mirror",
+              description:
+                "The code-oss copy of the review wire contracts consumed by workbench services.",
+              coverage: {
+                files: [
+                  { path: "apps/review-desktop/code-oss/src/vs/review/common/reviewProtocol.ts" },
+                ],
+              },
+              codeElements: {
+                reviewSessionSchema: {
+                  label: "ReviewSessionSchema",
+                  description:
+                    "Session wire shape: working-tree rootPath plus optional pinned headRootPath and refs.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.cliServer.protocolContracts.reviewSessionSchema",
+                      semanticKind: "mirrors",
+                      label: "kept in sync with review-protocol",
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        cliServer: {
+          label: "progressive-review local server",
+          description:
+            "The npm package's local desktop server: registers reviews, prepares managed checkouts, and serves session wires to the workbench.",
+          coverage: {
+            files: [
+              { path: "packages/progressive-review/src/server/desktop-server.ts" },
+              { path: "packages/progressive-review/src/review-head-checkout.ts" },
+              { path: "packages/review-protocol/src/contracts.ts" },
+            ],
+          },
+          components: {
+            desktopServer: {
+              label: "Desktop server",
+              description:
+                "Global review server: session activation pins the head commit into a managed checkout and hands its root to the workbench.",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/src/server/desktop-server.ts" },
+                ],
+              },
+              codeElements: {
+                sessionActivation: {
+                  label: "session activation",
+                  description:
+                    "On activation, ensures the pinned head checkout exists and fails the session when it cannot be created.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliServer.pinnedCheckout.ensureReviewPinnedCheckout",
+                      label: "pins head commit",
+                    },
+                  ],
+                },
+                sessionWireFor: {
+                  label: "sessionWireFor",
+                  description:
+                    "Builds the ReviewSessionWire sent to the workbench: rootPath, optional headRootPath, refs, and ports.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.cliServer.protocolContracts.reviewSessionSchema",
+                      semanticKind: "conforms",
+                      label: "emits ReviewSessionSchema wires",
+                    },
+                  ],
+                },
+              },
+            },
+            pinnedCheckout: {
+              label: "Pinned checkout manager",
+              description:
+                "Creates and reuses commit-pinned managed checkouts for review sessions.",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/src/review-head-checkout.ts" },
+                ],
+              },
+              codeElements: {
+                ensureReviewPinnedCheckout: {
+                  label: "ensureReviewPinnedCheckout",
+                  description:
+                    "Materialises a checkout of a specific ref for a review role and returns its root path.",
+                },
+              },
+            },
+            protocolContracts: {
+              label: "review-protocol contracts",
+              description:
+                "Canonical zod wire contracts shared between the server and desktop clients.",
+              coverage: {
+                files: [{ path: "packages/review-protocol/src/contracts.ts" }],
+              },
+              codeElements: {
+                reviewSessionSchema: {
+                  label: "ReviewSessionSchema",
+                  description:
+                    "Strict session wire schema: rootPath, optional headRootPath, baseRef, optional headRef.",
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  relationships: [
+    {
+      kind: "semantic",
+      from: "reviewer",
+      to: "review",
+      semanticKind: "uses",
+      label: "reads reviews",
+      description:
+        "Opens Review documents and navigates from unified CodePeeks into real code.",
+    },
+    {
+      kind: "semantic",
+      from: "review.workbench",
+      to: "review.cliServer.desktopServer",
+      semanticKind: "consumes",
+      label: "session wire",
+      description:
+        "The workbench receives ReviewSessionWire (rootPath, headRootPath) and uses those roots for resource identity.",
+    },
+  ],
+});

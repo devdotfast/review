@@ -3,9 +3,10 @@ import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import type { SessionRef } from "./authoring-session";
+import type { AuthoringSessionRef, SessionRef } from "./authoring-session";
 import { findClaudeTranscript } from "./native-agent/claude-transcript";
 import { forkCodexThread } from "./native-agent/codex-app-server";
+import { forkOpenCodeSourceSession } from "./native-agent/opencode-source";
 
 /**
  * Fork the invoking session once and bind the frozen copy to the Review.
@@ -14,9 +15,10 @@ import { forkCodexThread } from "./native-agent/codex-app-server";
  * is ever named here, so the fork keeps the invoking session's model.
  */
 export async function createReviewSourceAgentSession(input: {
-  agent: SessionRef;
+  agent: AuthoringSessionRef;
   reviewUuid: string;
   rootPath: string;
+  forkOpenCodeSourceSession?: typeof forkOpenCodeSourceSession;
 }): Promise<SessionRef> {
   if (input.agent.harness === "claude-code") {
     return createClaudeReviewSourceSession(input);
@@ -24,13 +26,32 @@ export async function createReviewSourceAgentSession(input: {
   if (input.agent.harness === "pi") {
     return createPiReviewSourceSession(input);
   }
-  return {
-    harness: "codex",
-    sessionId: await forkCodexThread({
-      sourceThreadId: input.agent.sessionId,
-      cwd: input.rootPath,
-    }),
-  };
+  if (input.agent.harness === "codex") {
+    return {
+      harness: "codex",
+      sessionId: await forkCodexThread({
+        sourceThreadId: input.agent.sessionId,
+        cwd: input.rootPath,
+      }),
+    };
+  }
+  if (input.agent.harness === "opencode") {
+    return {
+      harness: "opencode",
+      sessionId: await (
+        input.forkOpenCodeSourceSession ?? forkOpenCodeSourceSession
+      )({
+        sessionId: input.agent.sessionId,
+        messageId: input.agent.messageId,
+        sourceDirectory: input.agent.directory,
+        sourceWorktree: input.agent.worktree,
+        targetDirectory: input.rootPath,
+      }),
+    };
+  }
+  throw new Error(
+    `Unsupported Review agent harness: ${String(input.agent.harness)}`,
+  );
 }
 
 /**

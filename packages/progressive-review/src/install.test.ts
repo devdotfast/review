@@ -5,7 +5,11 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { runInstall } from "./install";
+import {
+  detectInstalledTargets,
+  removeInstalledSkills,
+  runInstall,
+} from "./install";
 
 const REQUIRED_SKILLS = ["dev-review", "dev-review-map"] as const;
 const ALL_SKILLS = [...REQUIRED_SKILLS, "trace-archaeology"] as const;
@@ -40,6 +44,11 @@ async function makePackageRoot(): Promise<string> {
   for (const name of ALL_SKILLS) {
     await writeSkill(packageRoot, name);
   }
+  await mkdir(path.join(packageRoot, "tools"), { recursive: true });
+  await writeFile(
+    path.join(packageRoot, "tools", "review.ts"),
+    "// Managed by Review Desktop (@dev.fast/review).\n",
+  );
   return packageRoot;
 }
 
@@ -349,6 +358,112 @@ describe("runInstall", () => {
     ).toBe(false);
   });
 
+  it("installs and removes OpenCode independently", async () => {
+    const packageRoot = await makePackageRoot();
+    const homeDir = await makeTempDir();
+    const streams = silentStreams();
+
+    expect(
+      await runInstall({
+        targets: ["opencode"],
+        homeDir,
+        packageRoot,
+        stdout: streams.stdout,
+        stderr: streams.stderr,
+      }),
+    ).toBe(0);
+
+    expect(
+      await readFile(
+        path.join(
+          homeDir,
+          ".config",
+          "opencode",
+          "skills",
+          "dev-review",
+          "SKILL.md",
+        ),
+        "utf8",
+      ),
+    ).toContain("# dev-review");
+    const tool = await readFile(
+      path.join(homeDir, ".config", "opencode", "tools", "review.ts"),
+      "utf8",
+    );
+    expect(tool).toContain("Managed by Review Desktop (@dev.fast/review)");
+    expect(await detectInstalledTargets(homeDir)).toEqual(["opencode"]);
+    expect(existsSync(path.join(homeDir, ".agents", "skills"))).toBe(false);
+
+    await removeInstalledSkills("opencode", homeDir);
+
+    expect(await detectInstalledTargets(homeDir)).toEqual([]);
+    expect(existsSync(path.join(homeDir, ".agents", "skills"))).toBe(false);
+  });
+
+  it("requires every OpenCode artifact before reporting it installed", async () => {
+    const packageRoot = await makePackageRoot();
+    const homeDir = await makeTempDir();
+    const streams = silentStreams();
+    await runInstall({
+      targets: ["opencode"],
+      homeDir,
+      packageRoot,
+      stdout: streams.stdout,
+      stderr: streams.stderr,
+    });
+
+    await rm(
+      path.join(homeDir, ".config", "opencode", "skills", "dev-review-map"),
+      { recursive: true },
+    );
+    expect(await detectInstalledTargets(homeDir)).toEqual([]);
+
+    await runInstall({
+      targets: ["opencode"],
+      homeDir,
+      packageRoot,
+      stdout: streams.stdout,
+      stderr: streams.stderr,
+    });
+    await rm(path.join(homeDir, ".config", "opencode", "tools", "review.ts"));
+    expect(await detectInstalledTargets(homeDir)).toEqual([]);
+  });
+
+  it("refuses an unmanaged OpenCode tool collision and never removes it", async () => {
+    const packageRoot = await makePackageRoot();
+    const homeDir = await makeTempDir();
+    const toolPath = path.join(
+      homeDir,
+      ".config",
+      "opencode",
+      "tools",
+      "review.ts",
+    );
+    await mkdir(path.dirname(toolPath), { recursive: true });
+    await writeFile(toolPath, "// user tool\n");
+    const streams = silentStreams();
+
+    expect(
+      await runInstall({
+        targets: ["opencode"],
+        homeDir,
+        packageRoot,
+        stdout: streams.stdout,
+        stderr: streams.stderr,
+      }),
+    ).toBe(1);
+    expect(streams.err.join("")).toContain("is not managed by Review");
+    expect(await readFile(toolPath, "utf8")).toBe("// user tool\n");
+    expect(
+      existsSync(
+        path.join(homeDir, ".config", "opencode", "skills", "dev-review"),
+      ),
+    ).toBe(false);
+
+    await removeInstalledSkills("opencode", homeDir);
+    expect(await readFile(toolPath, "utf8")).toBe("// user tool\n");
+  });
+
   it("installs trace hooks and the trace skill once capture is enabled", async () => {
     const packageRoot = await makePackageRoot();
     const homeDir = await makeTempDir();
@@ -364,7 +479,7 @@ describe("runInstall", () => {
     );
 
     const code = await runInstall({
-      targets: ["claude", "codex", "pi"],
+      targets: ["claude", "codex", "opencode", "pi"],
       homeDir,
       packageRoot,
       env: { TRACE_SETTINGS_FILE: settingsPath },
@@ -390,6 +505,17 @@ describe("runInstall", () => {
         path.join(homeDir, ".pi", "agent", "extensions", "review-trace.ts"),
       ),
     ).toBe(true);
+    expect(
+      existsSync(
+        path.join(
+          homeDir,
+          ".config",
+          "opencode",
+          "skills",
+          "trace-archaeology",
+        ),
+      ),
+    ).toBe(false);
   });
 
   it("fails clearly when the bundled skill is missing", async () => {

@@ -54,6 +54,7 @@ const AGENT_HOME_DIR: Record<InstallTarget, string> = {
   claude: ".claude",
   codex: ".codex",
   cursor: ".cursor",
+  opencode: ".config/opencode",
   pi: ".pi",
 };
 export function cliInstallStampPath(
@@ -104,6 +105,12 @@ export async function resolveCliInstallStatus(input: {
     traceMachineStatus({ homeDir, env }),
   ]);
   const { agents, stamp } = agentStatus;
+  const missingStampedTarget =
+    stamp?.consent === "granted" &&
+    (stamp.targets ?? []).some(
+      (target) =>
+        !agents.some((agent) => agent.target === target && agent.installed),
+    );
   const shimPath = pathShimPath(homeDir);
   const cliPath = path.join(input.packageRoot, "dist", "cli.js");
   const fffBinary = fffBinaryPath(homeDir);
@@ -129,7 +136,9 @@ export async function resolveCliInstallStatus(input: {
     agents,
     fingerprint,
     stamp,
-    stale: stamp?.consent === "granted" && stamp.fingerprint !== fingerprint,
+    stale:
+      stamp?.consent === "granted" &&
+      (stamp.fingerprint !== fingerprint || missingStampedTarget),
     shim: {
       path: shimPath,
       onPath: (env.PATH ?? "")
@@ -417,6 +426,13 @@ export async function installFingerprint(packageRoot: string): Promise<string> {
   hash.update(await readTextIfExists(cliPath));
   for (const file of await listFilesRecursive(
     path.join(packageRoot, "skills"),
+  )) {
+    hash.update(`${file.relPath}\0`);
+    hash.update(await readFile(file.absPath));
+    hash.update("\0");
+  }
+  for (const file of await listFilesRecursive(
+    path.join(packageRoot, "tools"),
   )) {
     hash.update(`${file.relPath}\0`);
     hash.update(await readFile(file.absPath));

@@ -613,6 +613,41 @@ describe("Review CLI", () => {
     );
   });
 
+  it("passes structured OpenCode source context to scaffold", async () => {
+    const runReviewScaffold = vi.fn<typeof runReviewScaffoldActual>(async () =>
+      emptyScaffoldEvent(),
+    );
+
+    await expect(
+      runProgressiveReviewCli({
+        argv: [
+          "scaffold",
+          "--opencode-session-id",
+          "session-1",
+          "--opencode-message-id",
+          "message-1",
+          "--opencode-directory",
+          "/workspace/subdir",
+          "--opencode-worktree",
+          "/workspace",
+        ],
+        stdout: outputStream(),
+        stderr: outputStream(),
+        runtime: { runReviewScaffold },
+      }),
+    ).resolves.toBe(0);
+    expect(runReviewScaffold).toHaveBeenCalledWith(
+      expect.objectContaining({
+        openCode: {
+          sessionId: "session-1",
+          messageId: "message-1",
+          directory: "/workspace/subdir",
+          worktree: "/workspace",
+        },
+      }),
+    );
+  });
+
   it("accepts source selectors only on scaffold", async () => {
     await expect(
       runProgressiveReviewCli({

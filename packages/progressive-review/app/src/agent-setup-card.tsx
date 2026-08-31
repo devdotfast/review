@@ -11,6 +11,7 @@ export const TARGET_LABELS: Record<ReviewCliInstallTarget, string> = {
   claude: "Claude Code",
   codex: "Codex",
   cursor: "Cursor",
+  opencode: "OpenCode",
   pi: "Pi",
 };
 

@@ -98,6 +98,35 @@ describe("createTutorialAuthoringSession", () => {
     );
   });
 
+  it("creates an OpenCode source through the managed runtime", async () => {
+    const createTutorialSource = vi.fn<
+      () => Promise<{ harness: "opencode"; sessionId: string }>
+    >(async () => ({
+      harness: "opencode",
+      sessionId: "opencode-tutorial",
+    }));
+    const close = vi.fn<() => Promise<void>>(async () => undefined);
+
+    await expect(
+      createTutorialAuthoringSession({
+        harness: "opencode",
+        rootPath: "/tutorial/head",
+        openCodeRuntimeFactory: (rootPath) => {
+          expect(rootPath).toBe("/tutorial/head");
+          return { createTutorialSource, close };
+        },
+      }),
+    ).resolves.toEqual({
+      harness: "opencode",
+      sessionId: "opencode-tutorial",
+    });
+    expect(createTutorialSource).toHaveBeenCalledWith(
+      expectedPrompt,
+      undefined,
+    );
+    expect(close).toHaveBeenCalledOnce();
+  });
+
   it("passes cancellation through to the command runner", async () => {
     const controller = new AbortController();
     const runCommand = vi.fn<RunTutorialAuthoringCommand>(async (input) => {

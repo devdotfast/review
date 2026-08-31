@@ -2,7 +2,7 @@ import type { ReviewCliInstallStatus } from "@dev.fast/review-protocol";
 import { useEffect, useRef, useState } from "react";
 
 /** Which agent's invocation syntax the prompt uses. Derived, never asked. */
-export type PromptAgent = "claude" | "codex" | "generic";
+export type PromptAgent = "claude" | "codex" | "generic" | "opencode";
 
 /** What the review covers. This is the only choice the reader makes. */
 export type PromptKind = "change" | "architecture";
@@ -29,6 +29,8 @@ export const PROMPT_VARIANTS: Record<
       "Use the dev-review skill to review my current branch against up to date main, then open it in Review.",
     codex:
       "Use $dev-review to review my current branch against up to date main, then open it in Review.",
+    opencode:
+      "Use the dev-review skill to review my current branch against up to date main, then open it in Review.",
     generic:
       "Use the `review` CLI to review my current branch against up to date main: run `review scaffold`, write the review, then `review publish`.",
   },
@@ -37,6 +39,8 @@ export const PROMPT_VARIANTS: Record<
       "Use the dev-review skill to sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it. Open it in Review when you're done.",
     codex:
       "Use $dev-review to sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it. Open it in Review when you're done.",
+    opencode:
+      "Use the dev-review skill to sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it. Open it in Review when you're done.",
     generic:
       "Use the `review` CLI to sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it: run `review scaffold` with the same commit as base and head, write the review, then `review publish`.",
   },
@@ -135,8 +139,10 @@ export function promptAgent(
   status: ReviewCliInstallStatus | undefined,
 ): PromptAgent {
   if (!status) return "generic";
-  const has = (target: "claude" | "codex", key: "installed" | "present") =>
-    status.agents.some((agent) => agent.target === target && agent[key]);
+  const has = (
+    target: "claude" | "codex" | "opencode",
+    key: "installed" | "present",
+  ) => status.agents.some((agent) => agent.target === target && agent[key]);
   const stored = readStoredPromptAgent();
   if (stored === "generic") return "generic";
   if (stored && (has(stored, "installed") || has(stored, "present"))) {
@@ -145,6 +151,7 @@ export function promptAgent(
   for (const key of ["installed", "present"] as const) {
     if (has("claude", key)) return "claude";
     if (has("codex", key)) return "codex";
+    if (has("opencode", key)) return "opencode";
   }
   return "generic";
 }

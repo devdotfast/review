@@ -14,6 +14,7 @@ import type {
 } from "@dev.fast/review-protocol";
 
 import {
+  type OpenCodeInvocationContext,
   authoringSessionKey,
   resolveAuthoringSessionRef,
 } from "./authoring-session";
@@ -24,7 +25,10 @@ import {
   pullReviewTraceCorpus,
 } from "./review-agent-traces";
 import { isPositionalChangeIdentity } from "./review-change-scope";
-import { removeReviewManagedCheckouts } from "./review-head-checkout";
+import {
+  removeReviewManagedCheckouts,
+  removeReviewPinnedCheckout,
+} from "./review-head-checkout";
 import {
   DISABLED_REVIEW_SOURCE_SESSION,
   type StoredReview,
@@ -60,6 +64,7 @@ export interface RunReviewScaffoldInput {
   newReview?: boolean;
   background?: boolean;
   onReviewBound?: (uuid: string) => void | Promise<void>;
+  openCode?: Partial<OpenCodeInvocationContext>;
 }
 
 // Scaffold's event carries pinned commits, managed checkouts, and normalized
@@ -151,31 +156,35 @@ async function createReview(
     sourceHeadCommit,
   );
   const sourceCommit = sourceHeadCommit;
-  const setup = await materializeReviewSetup({
-    reviewRoot: source.reviewRoot,
-    uuid,
-    headCommit: sourceCommit,
-    baseCommit,
-    progress: input.progress,
-    background: input.background,
-  });
-  const invokingAgent = resolveAuthoringSessionRef(input.env ?? process.env);
-  let sourceAgentSession: string | null = null;
-  if (invokingAgent) {
-    if (!setup.headRootPath) {
-      throw new Error(
-        "Review scaffold cannot create a source session without its managed head checkout.",
-      );
-    }
-    const frozen = await createReviewSourceAgentSession({
-      agent: invokingAgent,
-      reviewUuid: uuid,
-      rootPath: setup.headRootPath,
-    });
-    sourceAgentSession = authoringSessionKey(frozen);
-  }
+  let setup: Awaited<ReturnType<typeof materializeReviewSetup>>;
   let created: StoredReview;
   try {
+    setup = await materializeReviewSetup({
+      reviewRoot: source.reviewRoot,
+      uuid,
+      headCommit: sourceCommit,
+      baseCommit,
+      progress: input.progress,
+      background: input.background,
+    });
+    const invokingAgent = resolveAuthoringSessionRef(
+      input.env ?? process.env,
+      input.openCode,
+    );
+    let sourceAgentSession: string | null = null;
+    if (invokingAgent) {
+      if (!setup.headRootPath) {
+        throw new Error(
+          "Review scaffold cannot create a source session without its managed head checkout.",
+        );
+      }
+      const frozen = await createReviewSourceAgentSession({
+        agent: invokingAgent,
+        reviewUuid: uuid,
+        rootPath: setup.headRootPath,
+      });
+      sourceAgentSession = authoringSessionKey(frozen);
+    }
     created = await createReviewDir({
       uuid,
       worktreePath: source.reviewRoot,
@@ -273,7 +282,10 @@ export async function repinReview(
     progress: input.progress,
     background: input.background,
   });
-  const invokingAgent = resolveAuthoringSessionRef(input.env ?? process.env);
+  const invokingAgent = resolveAuthoringSessionRef(
+    input.env ?? process.env,
+    input.openCode,
+  );
   let sourceSession = DISABLED_REVIEW_SOURCE_SESSION;
   if (invokingAgent) {
     if (!setup.headRootPath) {
@@ -284,12 +296,33 @@ export async function repinReview(
     // The fork belongs to the same unit of work as the pin. A Review whose
     // Ask Agent cannot answer is not a usable Review, so a failure here fails
     // the update and leaves the stored pins untouched.
-    const frozen = await createReviewSourceAgentSession({
-      agent: invokingAgent,
-      reviewUuid: uuid,
-      rootPath: setup.headRootPath,
-    });
-    sourceSession = authoringSessionKey(frozen);
+    try {
+      const frozen = await createReviewSourceAgentSession({
+        agent: invokingAgent,
+        reviewUuid: uuid,
+        rootPath: setup.headRootPath,
+      });
+      sourceSession = authoringSessionKey(frozen);
+    } catch (error) {
+      const changedCheckouts = new Set([
+        ...(sourceCommit !== oldHeadCommit && setup.headRootPath
+          ? [setup.headRootPath]
+          : []),
+        ...(baseCommit !== oldBaseCommit && setup.baseRootPath
+          ? [setup.baseRootPath]
+          : []),
+      ]);
+      await Promise.allSettled(
+        [...changedCheckouts].map((checkoutPath) =>
+          removeReviewPinnedCheckout({
+            rootPath: root,
+            reviewUuid: uuid,
+            checkoutPath,
+          }),
+        ),
+      );
+      throw error;
+    }
   }
   await pinReviewSourceHeadRef(root, reviewSourceHeadRef(uuid), headCommit);
   const updated = await updateReviewPins(review, {

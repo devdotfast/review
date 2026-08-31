@@ -11,7 +11,7 @@ This guide takes you from a fresh install to a completed first review.
 - An Apple silicon Mac.
 - A Git or Jujutsu repository with a branch, bookmark, change, or pull request
   to review.
-- Claude Code, Codex, and other coding agents.
+- Claude Code, Codex, OpenCode, Pi, or another coding agent.
 
 ## 1. Install Review
 
@@ -53,6 +53,10 @@ The agent scaffolds a Review, writes and validates the walkthrough, publishes
 it, and opens it in Review Desktop. You can also review a specific GitHub pull
 request or ask for an architecture review of a repository.
 
+In OpenCode, use the same prompt. The installed skill calls Review's custom
+tool when it scaffolds or updates a Review, preserving the authoring session for
+later **Ask now** questions.
+
 ## 4. Read and respond
 
 Use the three main surfaces together:
@@ -66,6 +70,8 @@ Leave an anchored comment where something should change, or use **Ask now** for
 a question the agent can answer immediately. When you finish, choose **Approve**
 or **Request changes**. A request-changes round returns your comments to the
 authoring agent so it can update and republish the walkthrough.
+OpenCode uses the same `review wait --requires-agent` Request-changes loop as
+other coding agents.
 
 ## Verify the command-line setup
 

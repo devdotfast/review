@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
 import { type ReviewAgentHarness, type SessionRef } from "./authoring-session";
+import { OpenCodeWorkspaceRuntime } from "./native-agent/opencode-runtime";
 
 const TUTORIAL_AUTHORING_TIMEOUT_MS = 120_000;
 
@@ -28,6 +29,9 @@ export async function createTutorialAuthoringSession(input: {
   rootPath: string;
   signal?: AbortSignal;
   runCommand?: RunTutorialAuthoringCommand;
+  openCodeRuntimeFactory?: (
+    rootPath: string,
+  ) => Pick<OpenCodeWorkspaceRuntime, "close" | "createTutorialSource">;
 }): Promise<SessionRef> {
   const runCommand = input.runCommand ?? runTutorialAuthoringCommand;
   const prompt = tutorialAuthoringPrompt();
@@ -76,6 +80,19 @@ export async function createTutorialAuthoringSession(input: {
         harness: input.harness,
         sessionId: codexThreadId(result.stdout),
       };
+    }
+    case "opencode": {
+      const runtime = input.openCodeRuntimeFactory
+        ? input.openCodeRuntimeFactory(input.rootPath)
+        : new OpenCodeWorkspaceRuntime({
+            directory: input.rootPath,
+            openTerminal: async () => undefined,
+          });
+      try {
+        return await runtime.createTutorialSource(prompt, input.signal);
+      } finally {
+        await runtime.close();
+      }
     }
     case "pi": {
       const sessionId = randomUUID();

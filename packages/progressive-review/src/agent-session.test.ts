@@ -39,4 +39,35 @@ describe("resolveAuthoringSessionRef", () => {
       }),
     ).toEqual({ harness: "claude-code", sessionId: "claude-session" });
   });
+
+  it("uses exact OpenCode custom-tool context", () => {
+    expect(
+      resolveAuthoringSessionRef(
+        { CODEX_THREAD_ID: "must-not-win" },
+        {
+          sessionId: "session-1",
+          messageId: "message-1",
+          directory: "/workspace/subdir",
+          worktree: "/workspace",
+        },
+      ),
+    ).toEqual({
+      harness: "opencode",
+      sessionId: "session-1",
+      messageId: "message-1",
+      directory: "/workspace/subdir",
+      worktree: "/workspace",
+    });
+  });
+
+  it("rejects incomplete OpenCode custom-tool context", () => {
+    expect(() =>
+      resolveAuthoringSessionRef({}, { sessionId: "session-1" }),
+    ).toThrow("OpenCode invocation context is incomplete");
+    expect(() =>
+      resolveAuthoringSessionRef({
+        DEV_FAST_AGENT_SESSION: "opencode:session-1",
+      }),
+    ).toThrow("cannot carry OpenCode invocation context");
+  });
 });

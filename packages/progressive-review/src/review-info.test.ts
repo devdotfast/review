@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
@@ -26,6 +27,8 @@ const createReviewSourceAgentSession = vi.hoisted(() =>
   vi.fn<
     (input: {
       agent: { harness: string; sessionId: string };
+      reviewUuid: string;
+      rootPath: string;
     }) => Promise<{ harness: string; sessionId: string }>
   >(async ({ agent }: { agent: { harness: string; sessionId: string } }) => ({
     harness: agent.harness,
@@ -124,6 +127,41 @@ describe("review info", () => {
     } finally {
       vi.unstubAllEnvs();
       closeAllReviewThreadStores();
+      await rm(home, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("removes the source ref and managed checkouts when source freezing fails", async () => {
+    const root = await makeGitRepository();
+    const home = await mkdtemp(path.join(os.tmpdir(), "review-info-home-"));
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+    createReviewSourceAgentSession.mockRejectedValueOnce(
+      new Error("invalid source boundary"),
+    );
+
+    try {
+      await expect(
+        runReviewScaffold({
+          cwd: root,
+          env: { CODEX_THREAD_ID: "thread-invalid" },
+        }),
+      ).rejects.toThrow("invalid source boundary");
+      const call = createReviewSourceAgentSession.mock.calls.at(-1)?.[0];
+      expect(call).toBeDefined();
+      await expect(
+        git(root, [
+          "rev-parse",
+          "--verify",
+          reviewSourceHeadRef(call!.reviewUuid),
+        ]),
+      ).rejects.toThrow("Command failed");
+      expect(existsSync(call!.rootPath)).toBe(false);
+      expect(
+        await git(root, ["worktree", "list", "--porcelain"]),
+      ).not.toContain(call!.reviewUuid);
+    } finally {
+      vi.unstubAllEnvs();
       await rm(home, { recursive: true, force: true });
       await rm(root, { recursive: true, force: true });
     }
@@ -760,6 +798,71 @@ describe("review info", () => {
       await expect(
         git(root, ["rev-parse", reviewSourceHeadRef(uuid)]),
       ).resolves.toBe(refBefore);
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(home, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("removes newly materialized checkouts when update source freezing fails", async () => {
+    const root = await makeGitRepository();
+    const home = await mkdtemp(path.join(os.tmpdir(), "review-info-home-"));
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+
+    try {
+      await git(root, ["checkout", "-b", "feature"]);
+      await writeFile(path.join(root, "README.md"), "# Feature\n", "utf8");
+      await git(root, ["commit", "-am", "feature"]);
+      const created = await runReviewScaffold({
+        cwd: root,
+        baseRef: "main",
+        headRef: "feature",
+      });
+      const uuid = created.reviews[0]!.uuid;
+      const oldCheckout = created.checkouts!.head!;
+      const oldRecord = JSON.parse(
+        await readFile(
+          path.join(created.reviews[0]!.dir, "review.json"),
+          "utf8",
+        ),
+      ) as Record<string, unknown>;
+      const oldRef = await git(root, ["rev-parse", reviewSourceHeadRef(uuid)]);
+
+      await writeFile(path.join(root, "README.md"), "# Feature 2\n", "utf8");
+      await git(root, ["commit", "-am", "feature 2"]);
+      createReviewSourceAgentSession.mockClear();
+      createReviewSourceAgentSession.mockRejectedValueOnce(
+        new Error("invalid source boundary"),
+      );
+
+      await expect(
+        runReviewScaffold({
+          cwd: root,
+          update: true,
+          reviewUuid: uuid,
+          env: {},
+          openCode: {
+            sessionId: "session-1",
+            messageId: "msg_boundary",
+            directory: root,
+            worktree: root,
+          },
+        }),
+      ).rejects.toThrow("invalid source boundary");
+
+      const newCheckout =
+        createReviewSourceAgentSession.mock.calls[0]?.[0].rootPath;
+      expect(newCheckout).toBeDefined();
+      expect(newCheckout).not.toBe(oldCheckout);
+      expect(existsSync(newCheckout!)).toBe(false);
+      expect(existsSync(oldCheckout)).toBe(true);
+      await expect(
+        git(root, ["rev-parse", reviewSourceHeadRef(uuid)]),
+      ).resolves.toBe(oldRef);
+      await expect(
+        readFile(path.join(created.reviews[0]!.dir, "review.json"), "utf8"),
+      ).resolves.toBe(`${JSON.stringify(oldRecord, null, 2)}\n`);
     } finally {
       vi.unstubAllEnvs();
       await rm(home, { recursive: true, force: true });

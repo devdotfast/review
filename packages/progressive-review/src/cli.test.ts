@@ -1,4 +1,11 @@
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -21,12 +28,98 @@ import { runReviewInfo as runReviewInfoActual } from "./review-info";
 import { runReviewPublish as runReviewPublishActual } from "./review-publish";
 import { runReviewScaffold as runReviewScaffoldActual } from "./review-scaffold";
 import {
+  installReviewCommand as installReviewCommandActual,
+  pathShimPath,
+} from "./server/cli-install";
+import {
   runReviewThreadsList as runReviewThreadsListActual,
   runReviewThreadsReply as runReviewThreadsReplyActual,
   runReviewThreadsResolve as runReviewThreadsResolveActual,
 } from "./threads-cli";
 
 describe("Review CLI", () => {
+  it("installs the review command with headless skills", async () => {
+    const rootPath = await mkdtemp(
+      path.join(os.tmpdir(), "review-cli-shim-install-"),
+    );
+    const discoveryDir = path.join(rootPath, ".dev", "review-desktop");
+    const cliPath = path.join(rootPath, "cli.js");
+    const cliRuntimePath = path.join(rootPath, "runtime");
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      DEV_REVIEW_HOME: path.join(rootPath, ".dev"),
+    };
+    await mkdir(discoveryDir, { recursive: true });
+    await Promise.all([
+      writeFile(cliPath, "// test CLI\n"),
+      writeFile(
+        path.join(discoveryDir, "server.json"),
+        `${JSON.stringify({
+          version: 3,
+          instanceId: "test-instance",
+          url: "http://127.0.0.1:43819",
+          appPid: 100,
+          serverPid: 101,
+          token: "test-token",
+          startedAt: 1,
+          cliPath,
+          cliRuntimePath,
+        })}\n`,
+      ),
+    ]);
+    const runInstall = vi.fn<typeof runInstallActual>(async () => 0);
+    const installReviewCommand = vi.fn<typeof installReviewCommandActual>(
+      async () => ({
+        shimPath: pathShimPath(),
+        output: "[ok] installed review command\n",
+      }),
+    );
+
+    try {
+      await expect(
+        runProgressiveReviewCli({
+          argv: ["install", "codex"],
+          env,
+          stdout: outputStream(),
+          stderr: outputStream(),
+          runtime: { runInstall, installReviewCommand },
+        }),
+      ).resolves.toBe(0);
+
+      expect(runInstall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targets: ["codex"],
+          reviewCommand: pathShimPath(),
+        }),
+      );
+      expect(installReviewCommand).toHaveBeenCalledExactlyOnceWith({
+        cliPath,
+        cliRuntimePath,
+        env,
+      });
+    } finally {
+      await rm(rootPath, { force: true, recursive: true });
+    }
+  });
+
+  it("supports a headless shim opt-out", async () => {
+    const runInstall = vi.fn<typeof runInstallActual>(async () => 0);
+    const installReviewCommand = vi.fn<typeof installReviewCommandActual>();
+
+    await expect(
+      runProgressiveReviewCli({
+        argv: ["install", "codex", "--no-shim"],
+        stdout: outputStream(),
+        stderr: outputStream(),
+        runtime: { runInstall, installReviewCommand },
+      }),
+    ).resolves.toBe(0);
+
+    expect(runInstall).toHaveBeenCalledOnce();
+    expect(runInstall.mock.calls[0]?.[0]).not.toHaveProperty("reviewCommand");
+    expect(installReviewCommand).not.toHaveBeenCalled();
+  });
+
   it("routes trace configuration through the shared installer", async () => {
     const runInstall = vi.fn<typeof runInstallActual>(async () => 0);
 

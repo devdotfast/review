@@ -30,70 +30,6 @@ describe("AgentSetupCard", () => {
     vi.restoreAllMocks();
   });
 
-  it("persists a skip before it closes the setup card", async () => {
-    let finishSkip: ((status: ReviewCliInstallStatus) => void) | undefined;
-    const skip = vi.fn<ReviewCanvasInstallContent["skip"]>(
-      () =>
-        new Promise<ReviewCliInstallStatus>((resolve) => {
-          finishSkip = resolve;
-        }),
-    );
-    const onSkip = vi.fn<() => void>();
-    const install: ReviewCanvasInstallContent = {
-      status,
-      apply: vi.fn<ReviewCanvasInstallContent["apply"]>(),
-      remove: vi.fn<ReviewCanvasInstallContent["remove"]>(),
-      decline: vi.fn<ReviewCanvasInstallContent["decline"]>(),
-      skip,
-      enablePrompts: vi.fn<ReviewCanvasInstallContent["enablePrompts"]>(),
-    };
-
-    await act(async () =>
-      root.render(<AgentSetupCard install={install} onSkip={onSkip} />),
-    );
-    await act(async () => {
-      container
-        .querySelector<HTMLButtonElement>("button.review-agent-setup-subtle")
-        ?.click();
-    });
-
-    expect(skip).toHaveBeenCalledOnce();
-    expect(onSkip).not.toHaveBeenCalled();
-    expect(container.textContent).toContain("Skipping…");
-
-    await act(async () => finishSkip?.(skippedStatus));
-    expect(onSkip).toHaveBeenCalledOnce();
-  });
-
-  it("reports the refreshed status after the first-run install", async () => {
-    const onStatusChange = vi.fn<(status: ReviewCliInstallStatus) => void>();
-    const apply = vi.fn<ReviewCanvasInstallContent["apply"]>(
-      async () => grantedStatus,
-    );
-    const install: ReviewCanvasInstallContent = {
-      status,
-      apply,
-      remove: vi.fn<ReviewCanvasInstallContent["remove"]>(),
-      decline: vi.fn<ReviewCanvasInstallContent["decline"]>(),
-      skip: vi.fn<ReviewCanvasInstallContent["skip"]>(),
-      enablePrompts: vi.fn<ReviewCanvasInstallContent["enablePrompts"]>(),
-    };
-
-    await act(async () =>
-      root.render(
-        <AgentSetupCard install={install} onStatusChange={onStatusChange} />,
-      ),
-    );
-    await act(async () => {
-      container
-        .querySelector<HTMLButtonElement>("button.review-agent-setup-primary")
-        ?.click();
-    });
-
-    expect(apply).toHaveBeenCalledOnce();
-    expect(onStatusChange).toHaveBeenCalledExactlyOnceWith(grantedStatus);
-  });
-
   it("reports the refreshed status after a per-agent install", async () => {
     const onStatusChange = vi.fn<(status: ReviewCliInstallStatus) => void>();
     const apply = vi.fn<ReviewCanvasInstallContent["apply"]>(
@@ -128,6 +64,34 @@ describe("AgentSetupCard", () => {
     });
     expect(onStatusChange).toHaveBeenCalledExactlyOnceWith(grantedStatus);
   });
+
+  it("only shows per-agent install controls and the command disclosure", async () => {
+    const install: ReviewCanvasInstallContent = {
+      status: {
+        ...grantedStatus,
+        shim: {
+          ...grantedStatus.shim,
+          installed: true,
+          profileConfigured: true,
+          onPath: false,
+        },
+      },
+      apply: vi.fn<ReviewCanvasInstallContent["apply"]>(),
+      remove: vi.fn<ReviewCanvasInstallContent["remove"]>(),
+      decline: vi.fn<ReviewCanvasInstallContent["decline"]>(),
+      skip: vi.fn<ReviewCanvasInstallContent["skip"]>(),
+      enablePrompts: vi.fn<ReviewCanvasInstallContent["enablePrompts"]>(),
+    };
+
+    await act(async () => root.render(<AgentSetupCard install={install} />));
+
+    expect(container.textContent).toContain(
+      "Installing skills will also install review to your shell PATH.",
+    );
+    expect(container.textContent).not.toContain("Install for");
+    expect(container.textContent).not.toContain("terminal command");
+    expect(container.querySelectorAll("button")).toHaveLength(2);
+  });
 });
 
 const status: ReviewCliInstallStatus = {
@@ -135,7 +99,12 @@ const status: ReviewCliInstallStatus = {
   fingerprint: "fingerprint",
   stamp: null,
   stale: false,
-  shim: { path: "/tmp/review", onPath: false },
+  shim: {
+    path: "/tmp/review",
+    installed: false,
+    profileConfigured: false,
+    onPath: false,
+  },
   fff: {
     serverName: "fff",
     corpusRoot: "/tmp/trace-search",
@@ -150,11 +119,6 @@ const status: ReviewCliInstallStatus = {
     settingsPath: "/tmp/trace-settings.json",
   },
   cli: { path: "/tmp/cli.js", version: "0.0.1" },
-};
-
-const skippedStatus: ReviewCliInstallStatus = {
-  ...status,
-  stamp: { consent: "skipped", updatedAt: "2026-08-09T00:00:00.000Z" },
 };
 
 const grantedStatus: ReviewCliInstallStatus = {

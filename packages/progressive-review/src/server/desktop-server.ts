@@ -728,7 +728,7 @@ export function createGlobalReviewServer(
     const result = await applyCliInstall({
       packageRoot: input.packageRoot,
       targets: request.targets,
-      ...(request.shim ? { shim: true } : {}),
+      ...(request.shim !== undefined ? { shim: request.shim } : {}),
       ...(request.fff ? { fff: true } : {}),
       ...(request.trace !== undefined ? { trace: request.trace } : {}),
       ...(discovery.cliPath ? { cliPath: discovery.cliPath } : {}),

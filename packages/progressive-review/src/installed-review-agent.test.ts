@@ -22,7 +22,12 @@ function status(
       updatedAt: "2026-08-25T00:00:00.000Z",
     },
     stale: false,
-    shim: { path: "/tmp/review", onPath: true },
+    shim: {
+      path: "/tmp/review",
+      installed: true,
+      profileConfigured: true,
+      onPath: true,
+    },
     fff: {
       serverName: "fff",
       corpusRoot: "/tmp/fff",

@@ -73,6 +73,15 @@ export default defineSoftwareMap({
                   label: "reviewResourceIdentity",
                   description:
                     "Maps an editor resource back to a review path, recognising virtual schemes and files under the head or working-tree roots.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.workbench.workbenchProtocol.reviewSessionSchema",
+                      semanticKind: "reads",
+                      label: "walks session roots",
+                    },
+                  ],
                 },
               },
             },
@@ -119,6 +128,15 @@ export default defineSoftwareMap({
                   label: "resourceIdentity",
                   description:
                     "Maps an open editor resource to a review path and side; file-scheme resources are only recognised under the pinned head root.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.workbench.codeResources.reviewResourceIdentity",
+                      semanticKind: "parallels",
+                      label: "same root-walk convention",
+                    },
+                  ],
                 },
               },
             },

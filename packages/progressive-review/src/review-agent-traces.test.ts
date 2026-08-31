@@ -613,6 +613,111 @@ describe("review-agent-traces", () => {
     });
   });
 
+  describe("listReviewTraceSessions squash-merge fallback", () => {
+    it("scans PR branches when range commits carry no trailers", async () => {
+      const originBare = path.join(tempDir, "range-remote.git");
+      const clientRepo = path.join(tempDir, "range-client");
+
+      execFileSync("git", ["init", "--bare", "--quiet", originBare]);
+      execFileSync("git", ["clone", "--quiet", originBare, clientRepo]);
+      execFileSync("git", ["config", "user.name", "Test"], {
+        cwd: clientRepo,
+      });
+      execFileSync("git", ["config", "user.email", "test@test.com"], {
+        cwd: clientRepo,
+      });
+
+      writeFileSync(path.join(clientRepo, "f.txt"), "base");
+      execFileSync("git", ["add", "f.txt"], { cwd: clientRepo });
+      execFileSync("git", ["commit", "-m", "Base commit"], {
+        cwd: clientRepo,
+      });
+      execFileSync("git", ["push", "--quiet", "origin", "HEAD:main"], {
+        cwd: clientRepo,
+      });
+      const baseSha = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: clientRepo,
+        encoding: "utf8",
+      }).trim();
+
+      execFileSync("git", ["checkout", "-b", "feature"], { cwd: clientRepo });
+      writeFileSync(path.join(clientRepo, "f.txt"), "branch change");
+      execFileSync("git", ["add", "f.txt"], { cwd: clientRepo });
+      execFileSync(
+        "git",
+        [
+          "commit",
+          "-m",
+          "Feature work\n\nAgent-Session: 55555555-aaaa-bbbb-cccc-000000000005",
+        ],
+        { cwd: clientRepo },
+      );
+      execFileSync(
+        "git",
+        ["push", "--quiet", "origin", "HEAD:refs/pull/7/head"],
+        { cwd: clientRepo },
+      );
+
+      execFileSync("git", ["checkout", "main"], { cwd: clientRepo });
+      writeFileSync(path.join(clientRepo, "f.txt"), "squashed branch change");
+      execFileSync("git", ["add", "f.txt"], { cwd: clientRepo });
+      execFileSync("git", ["commit", "-m", "Squash merged feature work (#7)"], {
+        cwd: clientRepo,
+      });
+      const squashSha = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: clientRepo,
+        encoding: "utf8",
+      }).trim();
+
+      const sessions = await listReviewTraceSessions({
+        rootPath: clientRepo,
+        baseCommit: baseSha,
+        headCommit: squashSha,
+      });
+      expect(sessions.map((session) => session.sessionId)).toEqual([
+        "55555555-aaaa-bbbb-cccc-000000000005",
+      ]);
+      expect(sessions[0]?.commits).toEqual([
+        { sha: squashSha, subject: "Squash merged feature work (#7)" },
+      ]);
+    });
+
+    it("returns nothing when the squash subject has no PR number", async () => {
+      const gitDir = path.join(tempDir, "range-no-pr");
+      mkdirSync(gitDir, { recursive: true });
+      execFileSync("git", ["init", "--quiet"], { cwd: gitDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: gitDir });
+      execFileSync("git", ["config", "user.email", "test@test.com"], {
+        cwd: gitDir,
+      });
+
+      writeFileSync(path.join(gitDir, "a.txt"), "base");
+      execFileSync("git", ["add", "a.txt"], { cwd: gitDir });
+      execFileSync("git", ["commit", "-m", "Base commit"], { cwd: gitDir });
+      const baseSha = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: gitDir,
+        encoding: "utf8",
+      }).trim();
+
+      writeFileSync(path.join(gitDir, "a.txt"), "change");
+      execFileSync("git", ["add", "a.txt"], { cwd: gitDir });
+      execFileSync("git", ["commit", "-m", "Plain commit without trailer"], {
+        cwd: gitDir,
+      });
+      const headSha = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: gitDir,
+        encoding: "utf8",
+      }).trim();
+
+      const sessions = await listReviewTraceSessions({
+        rootPath: gitDir,
+        baseCommit: baseSha,
+        headCommit: headSha,
+      });
+      expect(sessions).toEqual([]);
+    });
+  });
+
   describe("lookupReviewTraceBlame", () => {
     it("blames lines and resolves unique commits in default mode and history mode", async () => {
       const gitDir = path.join(tempDir, "repo-blame");

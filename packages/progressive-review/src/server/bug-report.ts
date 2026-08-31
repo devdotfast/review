@@ -18,6 +18,10 @@ import {
   resolveReviewSourceTarget,
 } from "../review-worktree-target";
 import { readSoftwareMapSourceForRef } from "../software-map-artifact";
+import {
+  type AuthoringTraceAttachment,
+  readAuthoringTraceAttachment,
+} from "./bug-report-trace";
 
 const BUG_REPORT_URL = "https://bug.dev.fast/api/v1/reports";
 const MAX_MULTIPART_BYTES = 10 * 1024 * 1024;
@@ -38,14 +42,14 @@ const MAX_REVIEW_SOURCE_FILES = 20;
 // 2 MiB leaves room for a generated one.
 const MAX_REVIEW_SOURCE_FILE_BYTES = 2 * 1024 * 1024;
 
-type AttachmentName = "review" | "map" | "diff";
+type AttachmentName = "review" | "map" | "diff" | "trace";
 type AttachmentError = {
   attachment: AttachmentName;
   error: "unavailable";
 };
 
 interface BugReportPayload {
-  schema_version: 2;
+  schema_version: 3;
   description: string;
   screenshot?: { mime: "image/jpeg"; base64: string };
   // File name to text. The document alone cannot render: every anchor lives in
@@ -53,6 +57,7 @@ interface BugReportPayload {
   review?: Record<string, string>;
   map?: string;
   diff?: ReviewDiffFilesResult;
+  trace?: AuthoringTraceAttachment;
   diagnostics: {
     app_version: string;
     cli_version: string;
@@ -86,7 +91,7 @@ export async function submitReviewBugReport(input: {
   const cliVersion = readProgressiveReviewPackageVersion();
   const attachmentErrors: AttachmentError[] = [];
   const payload: BugReportPayload = {
-    schema_version: 2,
+    schema_version: 3,
     description: input.report.description,
     ...(input.report.screenshot ? { screenshot: input.report.screenshot } : {}),
     diagnostics: {
@@ -102,6 +107,7 @@ export async function submitReviewBugReport(input: {
   let omittedReviewFiles: string[] | undefined;
   let mapSource: string | undefined;
   let changedFileDiffs: ReviewDiffFilesResult | undefined;
+  let traceAttachment: AuthoringTraceAttachment | undefined;
   let sourceTargetPromise: Promise<ReviewSourceTarget> | undefined;
   const sourceTarget = () =>
     (sourceTargetPromise ??= resolveReviewSourceTarget({
@@ -153,6 +159,24 @@ export async function submitReviewBugReport(input: {
         ),
     );
   }
+  if (input.report.include_trace) {
+    tasks.push(
+      readAuthoringTraceAttachment({
+        reviewRootPath: input.reviewRootPath,
+      }).then(
+        (trace) => {
+          if (trace === null) {
+            attachmentErrors.push(unavailable("trace"));
+            return;
+          }
+          traceAttachment = trace;
+        },
+        () => {
+          attachmentErrors.push(unavailable("trace"));
+        },
+      ),
+    );
+  }
   await Promise.all(tasks);
   if (reviewSource !== undefined) payload.review = reviewSource;
   if (omittedReviewFiles !== undefined) {
@@ -160,68 +184,17 @@ export async function submitReviewBugReport(input: {
   }
   if (mapSource !== undefined) payload.map = mapSource;
   if (changedFileDiffs !== undefined) payload.diff = changedFileDiffs;
+  if (traceAttachment !== undefined) payload.trace = traceAttachment;
   if (attachmentErrors.length > 0) {
     payload.diagnostics.attachment_errors = attachmentErrors.sort(
       (left, right) => left.attachment.localeCompare(right.attachment),
     );
   }
 
-  let truncatedDiff = false;
-  let truncatedMap = false;
-  let truncatedScreenshot = false;
-  let request = buildBugReportRequest(payload, {
+  const request = buildSizedBugReportRequest(payload, {
     appVersion: input.report.app_version,
     cliVersion,
-    truncatedDiff,
-    truncatedMap,
-    truncatedScreenshot,
   });
-  if (request.body.byteLength > MAX_MULTIPART_BYTES && payload.diff) {
-    delete payload.diff;
-    truncatedDiff = true;
-    request = buildBugReportRequest(payload, {
-      appVersion: input.report.app_version,
-      cliVersion,
-      truncatedDiff,
-      truncatedMap,
-      truncatedScreenshot,
-    });
-  }
-  if (request.body.byteLength > MAX_MULTIPART_BYTES && payload.map) {
-    delete payload.map;
-    truncatedMap = true;
-    request = buildBugReportRequest(payload, {
-      appVersion: input.report.app_version,
-      cliVersion,
-      truncatedDiff,
-      truncatedMap,
-      truncatedScreenshot,
-    });
-  }
-  if (request.body.byteLength > MAX_MULTIPART_BYTES && payload.screenshot) {
-    delete payload.screenshot;
-    truncatedScreenshot = true;
-    request = buildBugReportRequest(payload, {
-      appVersion: input.report.app_version,
-      cliVersion,
-      truncatedDiff,
-      truncatedMap,
-      truncatedScreenshot,
-    });
-  }
-  if (request.body.byteLength > MAX_MULTIPART_BYTES && payload.review) {
-    delete payload.review;
-    request = buildBugReportRequest(payload, {
-      appVersion: input.report.app_version,
-      cliVersion,
-      truncatedDiff,
-      truncatedMap,
-      truncatedScreenshot,
-    });
-  }
-  if (request.body.byteLength > MAX_MULTIPART_BYTES) {
-    throw new BugReportUpstreamError(413, "Bug report is too large.");
-  }
 
   const response = await (input.fetchImpl ?? fetch)(BUG_REPORT_URL, {
     method: "POST",
@@ -250,6 +223,59 @@ export async function submitReviewBugReport(input: {
   const result = parseReviewBugReportResponse(responseBody);
   if (!result.ok) throw new BugReportUpstreamError(502, result.error);
   return result;
+}
+
+export function buildSizedBugReportRequest(
+  payload: BugReportPayload,
+  input: {
+    appVersion: string;
+    cliVersion: string;
+  },
+) {
+  let truncatedDiff = false;
+  let truncatedMap = false;
+  let truncatedScreenshot = false;
+  let truncatedTrace = payload.trace?.truncated ?? false;
+  const traceHarness = payload.trace?.harness;
+  const build = () =>
+    buildBugReportRequest(payload, {
+      ...input,
+      truncatedDiff,
+      truncatedMap,
+      truncatedScreenshot,
+      truncatedTrace,
+      traceHarness,
+    });
+
+  let request = build();
+  if (request.body.byteLength > MAX_MULTIPART_BYTES && payload.trace) {
+    delete payload.trace;
+    truncatedTrace = true;
+    request = build();
+  }
+  if (request.body.byteLength > MAX_MULTIPART_BYTES && payload.diff) {
+    delete payload.diff;
+    truncatedDiff = true;
+    request = build();
+  }
+  if (request.body.byteLength > MAX_MULTIPART_BYTES && payload.map) {
+    delete payload.map;
+    truncatedMap = true;
+    request = build();
+  }
+  if (request.body.byteLength > MAX_MULTIPART_BYTES && payload.screenshot) {
+    delete payload.screenshot;
+    truncatedScreenshot = true;
+    request = build();
+  }
+  if (request.body.byteLength > MAX_MULTIPART_BYTES && payload.review) {
+    delete payload.review;
+    request = build();
+  }
+  if (request.body.byteLength > MAX_MULTIPART_BYTES) {
+    throw new BugReportUpstreamError(413, "Bug report is too large.");
+  }
+  return request;
 }
 
 // The document is required: a failure to read it makes the attachment
@@ -331,6 +357,8 @@ function buildBugReportRequest(
     truncatedDiff: boolean;
     truncatedMap: boolean;
     truncatedScreenshot: boolean;
+    truncatedTrace: boolean;
+    traceHarness?: AuthoringTraceAttachment["harness"];
   },
 ) {
   const payloadBytes = gzipSync(Buffer.from(JSON.stringify(payload)), {
@@ -343,6 +371,13 @@ function buildBugReportRequest(
     has_map: payload.map !== undefined,
     has_diff: payload.diff !== undefined,
     has_screenshot: payload.screenshot !== undefined,
+    ...(input.traceHarness
+      ? {
+          has_trace: payload.trace !== undefined,
+          trace_harness: input.traceHarness,
+          truncated_trace: input.truncatedTrace,
+        }
+      : {}),
     payload_bytes: payloadBytes.byteLength,
     app_version: input.appVersion,
     cli_version: input.cliVersion,

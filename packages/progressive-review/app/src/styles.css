@@ -3051,6 +3051,64 @@ button {
   align-items: center;
 }
 
+.bug-report-option {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.bug-report-trace-info {
+  position: relative;
+  display: inline-flex;
+}
+
+.bug-report-trace-info > button {
+  display: grid;
+  width: 15px;
+  height: 15px;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  padding: 0;
+  background: transparent;
+  color: var(--ink-faint);
+  font: 600 9px/1 var(--font-mono);
+  cursor: help;
+}
+
+.bug-report-trace-info > button:hover,
+.bug-report-trace-info > button:focus-visible {
+  color: var(--ink);
+  outline: none;
+}
+
+.bug-report-trace-tooltip {
+  position: absolute;
+  top: calc(100% + 7px);
+  right: -8px;
+  z-index: 13;
+  width: min(320px, calc(100vw - 64px));
+  padding: 7px 9px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  box-shadow: 0 8px 20px var(--shadow-color-strong);
+  color: var(--ink-soft);
+  font: 10px/1.45 var(--font-mono);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-2px);
+  transition:
+    opacity 100ms ease,
+    transform 100ms ease;
+}
+
+.bug-report-trace-info:hover .bug-report-trace-tooltip,
+.bug-report-trace-info:focus-within .bug-report-trace-tooltip {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .bug-report-screenshot {
   display: flex;
   min-height: 54px;

@@ -9,6 +9,7 @@ export const ReviewBugReportRequestSchema = z.strictObject({
   include_review: z.boolean(),
   include_map: z.boolean(),
   include_diff: z.boolean(),
+  include_trace: z.boolean().default(false),
   screenshot: z
     .strictObject({
       mime: z.literal("image/jpeg"),
@@ -32,6 +33,8 @@ export const ReviewBugReportMetaSchema = z.strictObject({
   has_map: z.boolean(),
   has_diff: z.boolean(),
   has_screenshot: z.boolean(),
+  has_trace: z.boolean().default(false),
+  trace_harness: z.enum(["claude-code", "codex", "pi"]).optional(),
   payload_bytes: z
     .number()
     .int()
@@ -55,6 +58,7 @@ export const ReviewBugReportMetaSchema = z.strictObject({
   truncated_diff: z.boolean(),
   truncated_map: z.boolean(),
   truncated_screenshot: z.boolean(),
+  truncated_trace: z.boolean().default(false),
 });
 export type ReviewBugReportMeta = z.infer<typeof ReviewBugReportMetaSchema>;
 

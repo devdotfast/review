@@ -374,11 +374,12 @@ frame a second time. Both steps run on your machine, before anything is sent.
 The **Report bug** dialog sends data only after the user selects **Send**. The
 description is optional. It has one **Review** consent control for both the
 current review source and head software map source, plus a separate control for
-changed-file diffs. Both controls are on by default. Review also captures a
-screenshot before the dialog opens and attaches it by default. The dialog shows
-a removable preview and accepts a replacement image by paste or drag. A
-selected attachment can be unavailable. The report still sends the other
-available data.
+changed-file diffs. Both controls are on by default. A third **Agent session
+trace** control attaches the raw local JSONL trace for the session that authored
+the Review and is off by default. Review also captures a screenshot before the
+dialog opens and attaches it by default. The dialog shows a removable preview
+and accepts a replacement image by paste or drag. A selected attachment can be
+unavailable. The report still sends the other available data.
 
 A review does not always have a software map. The report then omits the map and
 records no error, because an absent map is a normal state.
@@ -387,7 +388,7 @@ The report payload contains these fields:
 
 | Field                              | Value                                                                               |
 | ---------------------------------- | ----------------------------------------------------------------------------------- |
-| `schema_version`                   | Payload schema version `2`                                                          |
+| `schema_version`                   | Payload schema version `3`                                                          |
 | `description`                      | Optional user-entered description, limited to 64 KiB of UTF-8 data                  |
 | `screenshot.mime`                  | `image/jpeg` when a screenshot is attached                                          |
 | `screenshot.base64`                | JPEG screenshot data, limited to 3 MiB decoded                                      |
@@ -402,6 +403,12 @@ The report payload contains these fields:
 | `diff.files[].additions`           | Added line count                                                                    |
 | `diff.files[].deletions`           | Deleted line count                                                                  |
 | `diff.files[].patch`               | Unified patch used to resolve the review's exact CodePeek ranges                    |
+| `trace.harness`                    | Authoring harness: `claude-code`, `codex`, or `pi`                                  |
+| `trace.session_id`                 | Authoring session identifier from the Review record                                 |
+| `trace.files["trace.jsonl"]`       | Tail-capped raw JSONL for the authoring session, when the user opts in              |
+| `trace.files["subagents/<name>"]`  | Tail-capped raw JSONL for an included subagent                                      |
+| `trace.omitted_files`              | Subagent trace names omitted because of limits or read failures                     |
+| `trace.truncated`                  | Whether any trace was tail-capped or omitted                                        |
 | `diagnostics.app_version`          | Review Desktop product version                                                      |
 | `diagnostics.cli_version`          | `@dev.fast/review` package version                                                  |
 | `diagnostics.platform`             | Node platform enum                                                                  |
@@ -422,6 +429,24 @@ The report never sends these review files:
 - the compiled document in `.bundle/`, and the build output in `.build/`
 - `review.db`, which holds the comment threads and the questions
 
+The trace attachment is independent of trace sync. Review finds the source
+session's raw trace directly in the supported harness's local home-directory
+storage, so disabling remote trace storage does not disable this explicit
+attachment.
+
+Before attaching a selected trace, Review replaces recognizable Google API
+keys, JWTs, Slack tokens, GitHub tokens, and Microsoft Entra tokens with labelled
+markers. This secret-format redaction preserves the surrounding JSONL. It does
+not detect every credential or secret format, and it does not anonymize file
+paths, URLs, email addresses, prompts, model output, or source code; those
+values are sent when the user selects the trace checkbox.
+
+The main trace keeps at most its newest 6 MiB on complete JSONL line boundaries.
+Review includes the ten most recently modified subagent files, each keeping at
+most its newest 1 MiB, and records omitted names. If the complete compressed
+multipart report still exceeds 10 MiB, the size ladder drops the whole trace
+first, followed by the diff, map, screenshot, and Review source.
+
 The local server compresses the payload and sends it to
 `https://bug.dev.fast/api/v1/reports`. The Worker stores it in the private
 `dev-fast-bug-reports` Cloudflare R2 bucket. Only credentialed dev.fast
@@ -432,8 +457,9 @@ The Worker sends a `review_bug_report` PostHog event after the R2
 write. The event contains the report ID, UTC report date, description byte
 length, attachment presence flags (including `has_screenshot`), compressed
 payload size, app version, platform, and map, diff, or screenshot truncation
-flags (including `truncated_screenshot`). It does not contain the description
-or attachments.
+flags (including `truncated_screenshot`). It also receives `has_trace`,
+`truncated_trace`, and, after a trace resolves, the closed `trace_harness` enum.
+It does not contain the description or attachments.
 
 Cloudflare uses `CF-Connecting-IP` only as the rate-limit key. The Worker does
 not store that value in R2. The Worker does not send it to PostHog as report

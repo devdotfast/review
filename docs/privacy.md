@@ -75,13 +75,19 @@ The **Report bug** dialog sends a report only after you select **Send**.
 ![The previous Review bug-report dialog with all three diagnostic attachments selected by default.](assets/bug-report-consent.png)
 
 > This image is stale. Re-capture `docs/assets/bug-report-consent.png` with the
-> two-checkbox dialog and screenshot preview after the UI lands.
+> three-checkbox dialog and screenshot preview after the UI lands.
 
-Under **Include diagnostic attachments**, two independent checkboxes control
+Under **Include diagnostic attachments**, three independent checkboxes control
 whether Review attaches:
 
 - **Review**: the current Review source and head software-map source
 - changed-file diffs used by the review codepeeks (only the diff lines)
+- **Agent session trace**: the raw local JSONL trace for the agent session that
+  authored the Review
+
+The Review and changed-file diff attachments are selected by default. The agent
+session trace is opt-in and starts unselected. An information icon beside it
+explains the trace's redaction limits and what it sends.
 
 Review captures a screenshot before the dialog opens, so the dialog itself is
 not in the image. The screenshot is attached by default with a visible preview.
@@ -89,7 +95,16 @@ You can remove it with the × button, or paste or drag an image to replace it.
 Pasted and dropped PNG, JPEG, and WebP images are normalized to JPEG and limited
 to 3 MiB.
 
-You can turn off either checkbox and remove the screenshot before sending.
+You can turn off either default attachment, leave the trace unselected, and
+remove the screenshot before sending.
+
+When selected, the agent trace includes prompts, model output, source code, and
+file paths. Review redacts recognizable Google API keys, JWTs, Slack tokens,
+GitHub tokens, and Microsoft Entra tokens on your machine before attaching the
+trace. Other credentials and secrets that do not match those formats may remain
+and are sent. Review deliberately does not redact paths, URLs, email addresses,
+prompts, or code. The trace comes directly from the supported agent harness's
+local storage and does not require trace sync or remote trace storage.
 
 The checkboxes control only those optional attachments. Every submitted report
 also includes the optional description (which may be empty), app and CLI
@@ -101,6 +116,12 @@ If a selected attachment is unavailable, Review omits it and sends the other
 available data. The report never attaches Review metadata, comment threads, or
 question threads. Review stores submitted reports in a private /dev/fast
 Cloudflare R2 bucket and deletes them after 90 days.
+
+Review caps the main trace at its newest 6 MiB and includes the ten most recently
+modified subagent traces, each capped at its newest 1 MiB, retaining complete
+JSONL lines. If the compressed report still exceeds 10 MiB, Review drops the
+complete trace attachment before dropping diffs, the software map, the
+screenshot, or Review source.
 
 An explicit bug report is separate from passive telemetry and is sent even when
 anonymous telemetry is disabled. Review shows the attachment choices before

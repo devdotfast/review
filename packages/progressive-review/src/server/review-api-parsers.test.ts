@@ -22,6 +22,7 @@ const bugReport = {
   include_review: true,
   include_map: true,
   include_diff: true,
+  include_trace: false,
   app_session_id: "session-1234567890",
   app_version: "1.2.3",
 };

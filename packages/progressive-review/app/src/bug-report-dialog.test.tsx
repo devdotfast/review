@@ -92,11 +92,8 @@ describe("BugReportControl", () => {
 
   it("maps the Review checkbox to both wire flags", async () => {
     await renderAndOpen();
-    const reviewCheckbox = [...container.querySelectorAll("label")]
-      .find((label) => label.textContent?.trim() === "Review")
-      ?.querySelector<HTMLInputElement>('input[type="checkbox"]');
 
-    await act(async () => reviewCheckbox?.click());
+    await act(async () => checkbox("Review").click());
     await act(async () => sendButton().click());
 
     expect(reportBody()).toMatchObject({
@@ -104,7 +101,35 @@ describe("BugReportControl", () => {
       include_review: false,
       include_map: false,
       include_diff: true,
+      include_trace: false,
     });
+  });
+
+  it("requires trace consent and exposes its privacy tooltip", async () => {
+    await renderAndOpen();
+    const traceCheckbox = checkbox("Agent session trace");
+    const privacyButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Agent session trace privacy information"]',
+    );
+    const tooltipId = privacyButton?.getAttribute("aria-describedby") ?? "";
+    const tooltip = document.getElementById(tooltipId);
+
+    expect(traceCheckbox.checked).toBe(false);
+    expect(privacyButton).not.toBeNull();
+    expect(tooltip?.getAttribute("role")).toBe("tooltip");
+    expect(tooltip?.textContent).toContain(
+      "Recognizable secrets are redacted, but other secrets may be included. The trace includes your prompts and code and is sent to /dev/fast",
+    );
+
+    await act(async () => traceCheckbox.click());
+
+    expect(traceCheckbox.checked).toBe(true);
+
+    await act(async () => sendButton().click());
+    expect(reportBody()).toMatchObject({ include_trace: true });
+
+    await act(async () => reportButton().click());
+    expect(checkbox("Agent session trace").checked).toBe(false);
   });
 
   it("shows an automatic screenshot and omits it after removal", async () => {
@@ -198,6 +223,14 @@ describe("BugReportControl", () => {
     );
     if (!button) throw new Error("Report bug button not found");
     return button;
+  }
+
+  function checkbox(labelText: string) {
+    const input = [...container.querySelectorAll("label")]
+      .find((label) => label.textContent?.trim() === labelText)
+      ?.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    if (!input) throw new Error(labelText + " checkbox not found");
+    return input;
   }
 
   function reportBody(): Record<string, unknown> {

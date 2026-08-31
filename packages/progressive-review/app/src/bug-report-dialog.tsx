@@ -4,6 +4,7 @@ import {
   type DragEvent,
   type FormEvent,
   useEffect,
+  useId,
   useRef,
   useState,
 } from "react";
@@ -20,6 +21,8 @@ import { useTutorial } from "./tutorial-context";
 import { captureUiEvent, clientErrorName } from "./ui-telemetry";
 
 const MAX_DESCRIPTION_BYTES = 64 * 1024;
+const TRACE_PRIVACY_COPY =
+  "Recognizable secrets are redacted, but other secrets may be included. The trace includes your prompts and code and is sent to /dev/fast.";
 
 type Toast = { kind: "success" | "error"; text: string };
 
@@ -30,11 +33,13 @@ export function BugReportControl() {
   const [description, setDescription] = useState("");
   const [includeContext, setIncludeContext] = useState(true);
   const [includeDiff, setIncludeDiff] = useState(true);
+  const [includeTrace, setIncludeTrace] = useState(false);
   const [screenshot, setScreenshot] = useState<string | null>(null);
   const [dropActive, setDropActive] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [sending, setSending] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
+  const tracePrivacyTooltipId = useId();
   const capturePending = useRef(false);
   const descriptionBytes = new TextEncoder().encode(description).byteLength;
   const canSend = descriptionBytes <= MAX_DESCRIPTION_BYTES && !sending;
@@ -49,6 +54,7 @@ export function BugReportControl() {
     setDescription("");
     setIncludeContext(true);
     setIncludeDiff(true);
+    setIncludeTrace(false);
     setScreenshot(null);
     setDropActive(false);
     setSending(false);
@@ -71,6 +77,7 @@ export function BugReportControl() {
           include_review: includeContext,
           include_map: includeContext,
           include_diff: includeDiff,
+          include_trace: includeTrace,
           ...(screenshot
             ? {
                 screenshot: {
@@ -252,6 +259,34 @@ export function BugReportControl() {
                   />
                   Changed-file diffs used by CodePeeks
                 </label>
+                <div className="bug-report-option">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={includeTrace}
+                      onChange={(event) =>
+                        setIncludeTrace(event.target.checked)
+                      }
+                    />
+                    Agent session trace
+                  </label>
+                  <span className="bug-report-trace-info">
+                    <button
+                      type="button"
+                      aria-label="Agent session trace privacy information"
+                      aria-describedby={tracePrivacyTooltipId}
+                    >
+                      i
+                    </button>
+                    <span
+                      id={tracePrivacyTooltipId}
+                      role="tooltip"
+                      className="bug-report-trace-tooltip"
+                    >
+                      {TRACE_PRIVACY_COPY}
+                    </span>
+                  </span>
+                </div>
                 <div className="bug-report-screenshot">
                   {screenshot ? (
                     <>

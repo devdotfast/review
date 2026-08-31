@@ -368,6 +368,12 @@ export default defineSoftwareMap({
     },
     {
       kind: "semantic",
+      from: "reviewProduct.canvas.settingsUi.settingsPage",
+      to: "reviewProduct.reviewRuntime.desktopServer.resolveCliInstallStatus",
+      label: "Synchronizes agent install status",
+    },
+    {
+      kind: "semantic",
       from: "reviewProduct.reviewRuntime.desktopServer",
       to: "reviewProduct.reviewRuntime.installer.removeTraceSkills",
       label: "Retires trace skills when capture is disabled",

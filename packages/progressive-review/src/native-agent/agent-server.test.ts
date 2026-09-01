@@ -12,7 +12,6 @@ import type {
   NativeReviewMessage,
   SessionUpdate,
 } from "./native-session";
-import * as pi from "./pi";
 
 const temporaryDirectories: string[] = [];
 
@@ -90,21 +89,6 @@ describe("launch", () => {
     expect(command.args).not.toContain("--resume");
     expect(command.args).not.toContain("--fork-session");
     expect(command.args.at(-1)).toBe("Explain this code");
-  });
-
-  it("starts a fresh Pi session with a generated session ID", async () => {
-    const server = pi.server(await options());
-    const { sessionId, command } = await server.launch({
-      prompt: "Explain this code",
-      cwd: "/tmp/tutorial",
-    });
-    expect(command.executable).toBe("pi");
-    expect(sessionId).toMatch(/^[0-9a-f-]{36}$/);
-    expect(command.args).toEqual(
-      expect.arrayContaining(["--session-id", sessionId]),
-    );
-    expect(command.args).not.toContain("--session");
-    expect(command.args).not.toContain("--fork");
   });
 });
 

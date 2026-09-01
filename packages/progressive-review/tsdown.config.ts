@@ -18,8 +18,8 @@ export default defineConfig({
     authoring: "src/authoring.ts",
     cli: "src/cli.ts",
     "native-agent/native-hook-client": "src/native-agent/native-hook-client.ts",
-    "native-agent/pi-observer-extension":
-      "src/native-agent/pi-observer-extension.ts",
+    "native-agent/pi-bridge-extension":
+      "src/native-agent/pi-bridge-extension.ts",
     runtime: "src/runtime.ts",
     "desktop-server": "src/server/desktop-server.ts",
     "server/desktop-host": "src/server/desktop-host.ts",

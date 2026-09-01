@@ -1,7 +1,7 @@
 import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
 
 /**
- * Software map for a923884e (head) — the native agent integration subsystem of
+ * Software map for 7686a315 (head) — the native agent integration subsystem of
  * Review: harness detection, skill/trace-hook install, native turn launching
  * and observation, and authoring-session attribution. At this commit the
  * install surface bundles the review command shim (and shell-profile PATH
@@ -12,7 +12,8 @@ import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-mod
  * expanded lens elisions via TraceCollapseRow spans, and the agent trace view
  * carries an event-ruler scrollbar (TraceRuler) for whole-session navigation.
  * This commit factors the SPA's transcript presentation into shared agent-chat
- * rows consumed by both the trace document and comment threads.
+ * rows consumed by the trace document and the sidebar thread panel's
+ * ThreadChat; anchored thread mini-cards keep their compact presentation.
  */
 export default defineSoftwareMap({
   people: {
@@ -544,7 +545,7 @@ export default defineSoftwareMap({
         reviewApp: {
           label: "Review SPA",
           description:
-            "In-app review UI served to Review Desktop, including the bug report dialog and the agent transcript surfaces (agent trace view and comment threads).",
+            "In-app review UI served to Review Desktop, including the bug report dialog and the agent transcript surfaces (agent trace view and the sidebar thread chat).",
           coverage: {
             files: [
               { path: "packages/progressive-review/app/src/bug-report-dialog.tsx" },
@@ -552,7 +553,7 @@ export default defineSoftwareMap({
               { path: "packages/progressive-review/app/src/trace-document.tsx" },
               { path: "packages/progressive-review/app/src/trace-ruler.tsx" },
               { path: "packages/progressive-review/app/src/agent-chat.tsx" },
-              { path: "packages/progressive-review/app/src/thread-card.tsx" },
+              { path: "packages/progressive-review/app/src/review-components.tsx" },
               { path: "packages/progressive-review/app/src/styles.css" },
             ],
           },
@@ -580,7 +581,7 @@ export default defineSoftwareMap({
                 agentChatStatusRow: {
                   label: "AgentChatStatusRow",
                   description:
-                    "Mono status label against a hairline; tone=running adds the live accent dot.",
+                    "Mono status label against a hairline; tone=running adds the live accent dot. Exported as part of the shared row vocabulary; no surface consumes it yet at this commit.",
                 },
               },
             },
@@ -696,33 +697,37 @@ export default defineSoftwareMap({
                 },
               },
             },
-            threadCard: {
-              label: "Thread card",
+            threadChat: {
+              label: "Sidebar thread chat",
               description:
-                "Per-thread comment UI; renders thread messages through the shared agent-chat rows with thread-scoped density overrides, and running agent turns as status rows instead of pseudo-comments.",
+                "The sidebar thread panel's conversation view in review-components; the anchored thread mini-cards (thread-card.tsx) deliberately keep their own compact presentation and never adopt the agent-chat skin.",
               coverage: {
-                files: [{ path: "packages/progressive-review/app/src/thread-card.tsx" }],
+                files: [{ path: "packages/progressive-review/app/src/review-components.tsx" }],
               },
-              relationships: [
-                {
-                  kind: "call",
-                  from: ".",
-                  to: "review.reviewApp.agentChat.agentChatUserMessage",
-                  label: "user-authored messages",
+              codeElements: {
+                threadChatView: {
+                  label: "ThreadChat",
+                  description:
+                    "Renders a thread's transcript through the shared agent-chat rows with an author-and-relative-time caption per message, replacing the bespoke thread-chat-message skin.",
+                  sourceRanges: [
+                    { file: "packages/progressive-review/app/src/review-components.tsx", fromLine: 1649, toLine: 1704 },
+                  ],
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.reviewApp.agentChat.agentChatUserMessage",
+                      label: "user-authored messages",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.reviewApp.agentChat.agentChatAgentMessage",
+                      label: "agent replies",
+                    },
+                  ],
                 },
-                {
-                  kind: "call",
-                  from: ".",
-                  to: "review.reviewApp.agentChat.agentChatAgentMessage",
-                  label: "agent replies",
-                },
-                {
-                  kind: "call",
-                  from: ".",
-                  to: "review.reviewApp.agentChat.agentChatStatusRow",
-                  label: "running turn status",
-                },
-              ],
+              },
             },
             bugReportDialog: {
               label: "Bug report dialog",

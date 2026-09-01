@@ -13,6 +13,9 @@ export interface TraceCredentialsInput {
   bucket?: string;
   key?: string;
   secret?: string;
+  // SigV4 signing region. R2 accepts "auto"; AWS S3 needs the bucket's
+  // real region.
+  region?: string;
 }
 
 export interface TraceMachineStatus {
@@ -23,6 +26,7 @@ export interface TraceMachineStatus {
   settingsPath: string;
   endpoint?: string;
   bucket?: string;
+  region?: string;
   accessKeyIdPrefix?: string;
   verifiedAt?: string;
   error?: string;
@@ -80,7 +84,11 @@ export async function readTraceCredentials(
     secret:
       env.TRACE_R2_SECRET_ACCESS_KEY ?? values.TRACE_R2_SECRET_ACCESS_KEY ?? "",
   };
-  return Object.values(credentials).every(Boolean) ? credentials : null;
+  if (!Object.values(credentials).every(Boolean)) return null;
+  return {
+    ...credentials,
+    region: env.TRACE_R2_REGION ?? values.TRACE_R2_REGION ?? "auto",
+  };
 }
 
 export async function traceMachineStatus(
@@ -106,6 +114,7 @@ export async function traceMachineStatus(
       ? {
           endpoint: credentials.endpoint,
           bucket: credentials.bucket,
+          region: credentials.region,
           accessKeyIdPrefix: credentials.key.slice(0, 6),
         }
       : {}),
@@ -140,9 +149,11 @@ export async function configureTraceMachine(input: {
   };
   if (!Object.values(credentials).every(Boolean)) {
     throw new Error(
-      "Trace setup needs an R2 endpoint, bucket, access key ID, and secret access key.",
+      "Trace setup needs an S3/R2 endpoint, bucket, access key ID, and secret access key.",
     );
   }
+  const region =
+    input.credentials?.region?.trim() || existing?.region || "auto";
 
   const envPath = traceEnvPath(homeDir, env);
   await mkdir(path.dirname(envPath), { recursive: true });
@@ -153,6 +164,7 @@ export async function configureTraceMachine(input: {
       `export TRACE_R2_BUCKET=${JSON.stringify(credentials.bucket)}`,
       `export TRACE_R2_ACCESS_KEY_ID=${JSON.stringify(credentials.key)}`,
       `export TRACE_R2_SECRET_ACCESS_KEY=${JSON.stringify(credentials.secret)}`,
+      `export TRACE_R2_REGION=${JSON.stringify(region)}`,
       "",
     ].join("\n"),
     { mode: 0o600 },
@@ -171,7 +183,7 @@ export async function configureTraceMachine(input: {
           "aws",
           [
             "--region",
-            "auto",
+            region,
             "--endpoint-url",
             credentials.endpoint,
             "s3api",

@@ -31,6 +31,9 @@ export function TraceCaptureSection({
   const [traceBucket, setTraceBucket] = useState(
     install.status.trace.bucket ?? "",
   );
+  const [traceRegion, setTraceRegion] = useState(
+    install.status.trace.region ?? "",
+  );
   const [traceKey, setTraceKey] = useState("");
   const [traceSecret, setTraceSecret] = useState("");
 
@@ -99,41 +102,47 @@ export function TraceCaptureSection({
               : "off"}
         </span>
         <span className="review-agent-setup-cli">
-          Records agent sessions to your own R2 bucket so reviews can quote
+          Records agent sessions to your own S3/R2 bucket so reviews can quote
           them. Session hooks activate each Git or Jujutsu repository when an
           agent session starts.
         </span>
       </div>
       <div className="review-agent-setup-trace-fields">
         <input
-          aria-label="R2 endpoint URL"
-          placeholder="R2 endpoint URL"
+          aria-label="S3/R2 endpoint URL"
+          placeholder="S3/R2 endpoint URL"
           value={traceEndpoint}
           onChange={(event) => setTraceEndpoint(event.currentTarget.value)}
         />
         <input
-          aria-label="R2 bucket"
-          placeholder="R2 bucket"
+          aria-label="S3/R2 bucket"
+          placeholder="S3/R2 bucket"
           value={traceBucket}
           onChange={(event) => setTraceBucket(event.currentTarget.value)}
         />
         <input
-          aria-label="R2 access key ID"
+          aria-label="S3/R2 region"
+          placeholder="Region (auto for R2)"
+          value={traceRegion}
+          onChange={(event) => setTraceRegion(event.currentTarget.value)}
+        />
+        <input
+          aria-label="S3/R2 access key ID"
           placeholder={
             status.trace.accessKeyIdPrefix
               ? `Access key (${status.trace.accessKeyIdPrefix}…)`
-              : "R2 access key ID"
+              : "S3/R2 access key ID"
           }
           value={traceKey}
           onChange={(event) => setTraceKey(event.currentTarget.value)}
         />
         <input
-          aria-label="R2 secret access key"
+          aria-label="S3/R2 secret access key"
           type="password"
           placeholder={
             status.trace.configured
               ? "Secret key (unchanged)"
-              : "R2 secret access key"
+              : "S3/R2 secret access key"
           }
           value={traceSecret}
           onChange={(event) => setTraceSecret(event.currentTarget.value)}
@@ -166,6 +175,7 @@ export function TraceCaptureSection({
                 trace: {
                   ...(traceEndpoint ? { endpoint: traceEndpoint } : {}),
                   ...(traceBucket ? { bucket: traceBucket } : {}),
+                  ...(traceRegion ? { region: traceRegion } : {}),
                   ...(traceKey ? { key: traceKey } : {}),
                   ...(traceSecret ? { secret: traceSecret } : {}),
                 },

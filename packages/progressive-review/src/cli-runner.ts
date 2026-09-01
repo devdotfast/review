@@ -553,19 +553,23 @@ export async function runProgressiveReviewCli(
       )
       .option(
         "--trace-endpoint <url>",
-        "R2 endpoint URL (experimental trace capture)",
+        "S3/R2 endpoint URL (experimental trace capture)",
       )
       .option(
         "--trace-bucket <name>",
-        "R2 bucket name (experimental trace capture)",
+        "S3/R2 bucket name (experimental trace capture)",
       )
       .option(
         "--trace-key <id>",
-        "R2 access key ID (experimental trace capture)",
+        "S3/R2 access key ID (experimental trace capture)",
       )
       .option(
         "--trace-secret <key>",
-        "R2 secret access key (experimental trace capture)",
+        "S3/R2 secret access key (experimental trace capture)",
+      )
+      .option(
+        "--trace-region <region>",
+        "SigV4 signing region; default auto for R2, set the bucket region for S3",
       )
       .option(
         "--without-traces",
@@ -588,6 +592,7 @@ export async function runProgressiveReviewCli(
         traceBucket?: string;
         traceKey?: string;
         traceSecret?: string;
+        traceRegion?: string;
         shim?: boolean;
       },
     ) => {
@@ -612,6 +617,7 @@ export async function runProgressiveReviewCli(
                   bucket: options.traceBucket,
                   key: options.traceKey,
                   secret: options.traceSecret,
+                  region: options.traceRegion,
                 },
               },
             }
@@ -775,7 +781,7 @@ export async function runProgressiveReviewCli(
   configureOutput(
     trace
       .command("status")
-      .description("Verify R2 trace storage configuration and connectivity"),
+      .description("Verify S3/R2 trace storage configuration and connectivity"),
     "plain",
   ).action(async () => {
     state.exitCode = await runtime.runReviewTraceStatus({
@@ -1347,7 +1353,7 @@ function progressiveReviewInstallHelp(): string {
     "  review install claude cursor",
     "  review install all",
     "",
-    "Trace capture (experimental) is off unless R2 credentials are given:",
+    "Trace capture (experimental) is off unless S3/R2 credentials are given:",
     "  review install codex --trace-endpoint <url> --trace-bucket <name> --trace-key <id> --trace-secret <key>",
   ].join("\n");
 }

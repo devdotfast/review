@@ -73,6 +73,26 @@ describe("trace-cli", () => {
     expect(content).toContain(
       'export TRACE_R2_SECRET_ACCESS_KEY="test-secret-key"',
     );
+    // Without an explicit region the machine keeps R2's "auto" signing region.
+    expect(content).toContain('export TRACE_R2_REGION="auto"');
+    expect(status.region).toBe("auto");
+  });
+
+  it("stores an explicit S3 signing region", async () => {
+    const status = await configureTraceMachine({
+      credentials: {
+        endpoint: "https://s3.us-east-1.amazonaws.com",
+        bucket: "test-bucket",
+        key: "test-key-id",
+        secret: "test-secret-key",
+        region: "us-east-1",
+      },
+    });
+
+    expect(readFileSync(envFile, "utf8")).toContain(
+      'export TRACE_R2_REGION="us-east-1"',
+    );
+    expect(status.region).toBe("us-east-1");
   });
 
   it("fails setup when required options are missing in nonInteractive mode", async () => {

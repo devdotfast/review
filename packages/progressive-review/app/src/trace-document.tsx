@@ -691,12 +691,55 @@ export function TraceGapChip({
   );
 }
 
+export interface TraceCollapseSpan {
+  from: number;
+  count: number;
+}
+
+export function TraceCollapseRow({
+  span,
+  edge,
+  onCollapse,
+}: {
+  span: TraceCollapseSpan;
+  edge: "top" | "bottom";
+  onCollapse: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="review-trace-lens-collapse"
+      onClick={onCollapse}
+    >
+      <span className="review-trace-lens-collapse-line" />
+      <span className="review-trace-lens-collapse-chip">
+        <svg
+          viewBox="0 0 16 16"
+          className="review-trace-lens-collapse-chevron"
+          aria-hidden="true"
+        >
+          {edge === "top" ? (
+            <polyline points="4 6 8 10 12 6" />
+          ) : (
+            <polyline points="4 10 8 6 12 10" />
+          )}
+        </svg>
+        collapse {span.count} {span.count === 1 ? "event" : "events"}
+      </span>
+      <span className="review-trace-lens-collapse-line" />
+    </button>
+  );
+}
+
 export function TraceTurn({
   turn,
   effectiveIncluded,
   expandedEvents,
+  collapseStarts,
+  collapseEnds,
   onExpandGap,
   onExpandEvent,
+  onCollapseGap,
   targetEventIndex,
   highlightQuote,
   turnCoalesce,
@@ -704,8 +747,11 @@ export function TraceTurn({
   turn: IndexedTraceTurnGroup;
   effectiveIncluded: Map<number, string[] | null> | null;
   expandedEvents: ReadonlySet<number>;
+  collapseStarts?: ReadonlyMap<number, TraceCollapseSpan> | null;
+  collapseEnds?: ReadonlyMap<number, TraceCollapseSpan> | null;
   onExpandGap: (from: number, count: number) => void;
   onExpandEvent: (index: number) => void;
+  onCollapseGap?: (from: number) => void;
   targetEventIndex?: number;
   highlightQuote?: string;
   turnCoalesce: boolean;
@@ -758,6 +804,21 @@ export function TraceTurn({
           <TraceEvent event={item.event} highlightQuote={quote} />
         )}
       </div>
+    );
+  };
+
+  // Rows that bracket an expanded elision so the reader can fold it back.
+  const collapseRowFor = (index: number, edge: "top" | "bottom"): ReactNode => {
+    const span =
+      edge === "top" ? collapseStarts?.get(index) : collapseEnds?.get(index);
+    if (!span || !onCollapseGap) return null;
+    return (
+      <TraceCollapseRow
+        key={`collapse-${edge}-${span.from}`}
+        span={span}
+        edge={edge}
+        onCollapse={() => onCollapseGap(span.from)}
+      />
     );
   };
 
@@ -831,11 +892,21 @@ export function TraceTurn({
       }
 
       flushGapRun();
+      const topRow = collapseRowFor(item.index, "top");
+      if (topRow) {
+        flushToolRun();
+        elements.push(topRow);
+      }
       if (turnCoalesce && item.event.kind === "tool") {
         toolRun.push(item as IndexedTraceToolItem);
       } else {
         flushToolRun();
         elements.push(renderTurnEvent(item));
+      }
+      const bottomRow = collapseRowFor(item.index, "bottom");
+      if (bottomRow) {
+        flushToolRun();
+        elements.push(bottomRow);
       }
     }
     flushToolRun();
@@ -875,7 +946,11 @@ export function TraceTurn({
         }
       } else {
         flushGapRun();
+        const topRow = collapseRowFor(item.index, "top");
+        if (topRow) elements.push(topRow);
         elements.push(renderTurnEvent(item));
+        const bottomRow = collapseRowFor(item.index, "bottom");
+        if (bottomRow) elements.push(bottomRow);
       }
     }
     flushGapRun();
@@ -885,7 +960,21 @@ export function TraceTurn({
   let userElement: ReactNode = null;
   if (turn.user) {
     if (effectiveIncluded === null || effectiveIncluded.has(turn.user.index)) {
-      userElement = renderTurnEvent(turn.user);
+      const topRow = collapseRowFor(turn.user.index, "top");
+      const bottomRow = collapseRowFor(turn.user.index, "bottom");
+      userElement =
+        topRow || bottomRow ? (
+          <div
+            key={`user-${turn.user.index}`}
+            className="review-trace-user-slot"
+          >
+            {topRow}
+            {renderTurnEvent(turn.user)}
+            {bottomRow}
+          </div>
+        ) : (
+          renderTurnEvent(turn.user)
+        );
     } else {
       userElement = (
         <TraceGapChip
@@ -1002,6 +1091,32 @@ export function TraceDocument({
     setExpandedGaps((prev) => new Set(prev).add(from));
   };
 
+  const handleCollapseGap = (from: number) => {
+    setExpandedGaps((prev) => {
+      const next = new Set(prev);
+      next.delete(from);
+      return next;
+    });
+  };
+
+  // Each expanded gap becomes a collapse span bracketed by rows at its first
+  // and last event, so the reader can fold the reveal back from either end.
+  const collapseMarkers = useMemo(() => {
+    if (!baseIncluded) return null;
+    const starts = new Map<number, TraceCollapseSpan>();
+    const ends = new Map<number, TraceCollapseSpan>();
+    for (const from of expandedGaps) {
+      let cursor = from;
+      while (cursor < events.length && !baseIncluded.has(cursor)) cursor++;
+      const count = cursor - from;
+      if (count <= 0) continue;
+      const span = { from, count };
+      starts.set(from, span);
+      ends.set(cursor - 1, span);
+    }
+    return { starts, ends };
+  }, [baseIncluded, expandedGaps, events.length]);
+
   const handleExpandEvent = (index: number) => {
     setExpandedEvents((prev) => new Set(prev).add(index));
   };
@@ -1101,8 +1216,11 @@ export function TraceDocument({
           turn={turn}
           effectiveIncluded={effectiveIncluded}
           expandedEvents={expandedEvents}
+          collapseStarts={collapseMarkers?.starts}
+          collapseEnds={collapseMarkers?.ends}
           onExpandGap={handleExpandGap}
           onExpandEvent={handleExpandEvent}
+          onCollapseGap={handleCollapseGap}
           targetEventIndex={targetEventIndex}
           highlightQuote={highlightQuote}
           turnCoalesce={turnCoalesce}
@@ -1115,6 +1233,7 @@ export function TraceDocument({
     turns,
     effectiveIncluded,
     expandedEvents,
+    collapseMarkers,
     targetEventIndex,
     highlightQuote,
     coalesce,

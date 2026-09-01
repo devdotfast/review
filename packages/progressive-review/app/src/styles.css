@@ -10739,6 +10739,72 @@ a.review-doc-meta-pr:hover {
   border-color: var(--ink-faint);
 }
 
+/* Collapse rows bracket an expanded elision. Same geometry as the gap row,
+   but solid: dashed marks hidden content, solid marks the boundary of a
+   revealed span. */
+.review-trace-lens-collapse {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  width: 100%;
+}
+
+.review-trace-lens-collapse-line {
+  flex-grow: 1;
+  height: 1px;
+  border-top: 1px solid var(--rule-soft);
+}
+
+.review-trace-lens-collapse-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 10px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 999px;
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+.review-trace-lens-collapse-chevron {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.review-trace-lens-collapse:hover .review-trace-lens-collapse-chip {
+  color: var(--ink-soft);
+  border-color: var(--ink-faint);
+}
+
+.review-trace-lens-collapse:hover .review-trace-lens-collapse-line {
+  border-color: var(--ink-faint);
+}
+
+.review-trace-user-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: 100%;
+}
+
 .review-trace-lens-elided {
   display: inline;
 }

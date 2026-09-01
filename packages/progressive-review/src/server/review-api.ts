@@ -34,10 +34,7 @@ import {
 } from "../codepeek-symbol-diff";
 import { mergeErrorTelemetryProperties } from "../error-telemetry";
 import { NativeMessageMirror } from "../native-agent/native-message-mirror";
-import type {
-  ReviewThreadAgentBinding,
-  ReviewTurnRoute,
-} from "../native-agent/native-session";
+import type { ReviewTurnRoute } from "../native-agent/native-session";
 import { NativeReviewTurnLauncher } from "../native-agent/native-turn-launcher";
 import {
   listReviewTraceSessions,
@@ -1188,7 +1185,7 @@ async function answerReviewComment(input: {
 }
 
 export async function resolveReviewQuestionRoute(input: {
-  storedSession?: ReviewThreadAgentBinding;
+  storedSession?: SessionRef;
   agent?: SessionRef;
   freshQuestionHarness?: ReviewSessionWire["freshQuestionHarness"];
   resolveQuestionSourceSession?: (

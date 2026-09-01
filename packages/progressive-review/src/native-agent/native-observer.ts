@@ -22,29 +22,21 @@ interface SessionState {
 }
 
 interface LaunchState {
-  harness: ReviewAgentHarness;
-  expectedSessionId?: string;
-  acceptedSessionId?: string;
+  accepted: boolean;
   resolveAccepted(session: SessionRef): void;
   rejectAccepted(error: Error): void;
   events: AsyncQueue<NativeTerminalEvent>;
   detached: boolean;
 }
 
-export interface BeginNativeLaunchInput {
-  launchId: string;
-  harness: ReviewAgentHarness;
-  expectedSessionId?: string;
-}
-
 export class NativeSessionObserverRegistry {
   readonly #launches = new Map<string, LaunchState>();
   readonly #sessions = new Map<string, SessionState>();
 
-  beginLaunch(input: BeginNativeLaunchInput): NativeTerminalHandle {
-    if (this.#launches.has(input.launchId)) {
-      throw new Error(`Native launch "${input.launchId}" already exists.`);
-    }
+  /** Wait for a terminal to report in on this session. Replaces any earlier pending launch for it. */
+  beginLaunch(ref: SessionRef): NativeTerminalHandle {
+    const key = sessionKey(ref);
+    this.#detachLaunch(key);
     let resolveAccepted!: (session: SessionRef) => void;
     let rejectAccepted!: (error: Error) => void;
     const accepted = new Promise<SessionRef>((resolve, reject) => {
@@ -52,68 +44,51 @@ export class NativeSessionObserverRegistry {
       rejectAccepted = reject;
     });
     const events = new AsyncQueue<NativeTerminalEvent>();
-    const launch: LaunchState = {
-      harness: input.harness,
-      expectedSessionId: input.expectedSessionId,
+    this.#launches.set(key, {
+      accepted: false,
       resolveAccepted,
       rejectAccepted,
       events,
       detached: false,
-    };
-    this.#launches.set(input.launchId, launch);
+    });
     return {
       accepted,
       events,
       detach: async () => {
-        this.#detachLaunch(input.launchId);
+        this.#detachLaunch(key);
       },
     };
   }
 
-  acceptEvent(launchId: string, payload: unknown): void {
-    const launch = this.#launches.get(launchId);
-    if (!launch || launch.detached || !isJsonRecord(payload)) return;
+  /** A native hook fired for `ref`. Wakes observers whether or not a launch is pending. */
+  acceptEvent(ref: SessionRef, payload: unknown): void {
+    if (!isJsonRecord(payload)) return;
+    const key = sessionKey(ref);
+    const launch = this.#launches.get(key);
     const event = nativeHookEvent(payload);
-    const actualSessionId =
-      event.sessionId ?? launch.acceptedSessionId ?? launch.expectedSessionId;
-    if (!actualSessionId) {
-      this.observerFailed(
-        launchId,
-        "The native observer event did not identify its session.",
-      );
-      return;
-    }
-    const expected = launch.acceptedSessionId ?? launch.expectedSessionId;
-    if (expected && actualSessionId !== expected) {
-      launch.events.push({
-        type: "session.mismatch",
-        expectedSessionId: expected,
-        actualSessionId,
-      });
-      if (!launch.acceptedSessionId) {
-        launch.rejectAccepted(
-          new Error(
-            `The terminal opened session "${actualSessionId}" instead of "${expected}".`,
-          ),
-        );
+    if (event.sessionId && event.sessionId !== ref.sessionId) {
+      if (launch) {
+        launch.events.push({
+          type: "session.mismatch",
+          expectedSessionId: ref.sessionId,
+          actualSessionId: event.sessionId,
+        });
+        if (!launch.accepted) {
+          launch.rejectAccepted(
+            new Error(
+              `The terminal opened session "${event.sessionId}" instead of "${ref.sessionId}".`,
+            ),
+          );
+        }
+        this.#detachLaunch(key);
       }
-      launch.detached = true;
-      launch.events.close();
-      this.#launches.delete(launchId);
       return;
     }
-    if (!launch.acceptedSessionId) {
-      launch.acceptedSessionId = actualSessionId;
-      launch.resolveAccepted({
-        harness: launch.harness,
-        sessionId: actualSessionId,
-      });
+    if (launch && !launch.accepted) {
+      launch.accepted = true;
+      launch.resolveAccepted(ref);
     }
-    const binding = {
-      harness: launch.harness,
-      sessionId: actualSessionId,
-    } satisfies SessionRef;
-    const state = this.#session(binding);
+    const state = this.#session(ref);
     if (event.transcriptPath) state.transcriptPath = event.transcriptPath;
     wakeSession(state);
     if (event.completesTurn) {
@@ -124,15 +99,14 @@ export class NativeSessionObserverRegistry {
     }
   }
 
-  observerFailed(launchId: string, error: unknown): void {
-    const launch = this.#launches.get(launchId);
-    if (!launch || launch.detached) return;
+  observerFailed(ref: SessionRef, error: unknown): void {
+    const key = sessionKey(ref);
+    const launch = this.#launches.get(key);
+    if (!launch) return;
     const message = error instanceof Error ? error.message : String(error);
     launch.events.push({ type: "observer.failed", error: message });
-    if (!launch.acceptedSessionId) launch.rejectAccepted(new Error(message));
-    launch.detached = true;
-    launch.events.close();
-    this.#launches.delete(launchId);
+    if (!launch.accepted) launch.rejectAccepted(new Error(message));
+    this.#detachLaunch(key);
   }
 
   observe(binding: SessionRef): ObservedNativeSession {
@@ -182,12 +156,12 @@ export class NativeSessionObserverRegistry {
     return state;
   }
 
-  #detachLaunch(launchId: string): void {
-    const launch = this.#launches.get(launchId);
+  #detachLaunch(key: string): void {
+    const launch = this.#launches.get(key);
     if (!launch) return;
     launch.detached = true;
     launch.events.close();
-    this.#launches.delete(launchId);
+    this.#launches.delete(key);
   }
 }
 

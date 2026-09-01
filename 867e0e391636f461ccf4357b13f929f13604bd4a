@@ -423,6 +423,12 @@ export default defineSoftwareMap({
                       to: "nativeSession",
                       semanticKind: "types",
                     },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.threadWorkflow.appendReviewAgentMessage",
+                      label: "mirror agent turn messages as role \"agent\" (via ReviewThreadsService)",
+                    },
                   ],
                 },
                 codexAppServer: {

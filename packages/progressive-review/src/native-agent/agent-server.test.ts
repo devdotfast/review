@@ -5,7 +5,6 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import * as claudeCode from "./claude-code";
-import * as codex from "./codex";
 import type { HarnessDialect } from "./harness";
 import { HookObservedAgentServer } from "./hook-observed-server";
 import type {
@@ -106,34 +105,6 @@ describe("launch", () => {
     );
     expect(command.args).not.toContain("--session");
     expect(command.args).not.toContain("--fork");
-  });
-
-  it("creates a Codex thread before opening it in the terminal", async () => {
-    const startCodexThread = vi.fn<
-      NonNullable<codex.CodexDialectDependencies["startCodexThread"]>
-    >(async () => "codex-new-thread");
-    const forkCodexThread = vi.fn<
-      NonNullable<codex.CodexDialectDependencies["forkCodexThread"]>
-    >(async () => "codex-forked-thread");
-    const server = codex.server({
-      ...(await options()),
-      dependencies: { startCodexThread, forkCodexThread },
-    });
-    const { sessionId, command } = await server.launch({
-      prompt: "Explain this code",
-      cwd: "/tmp/tutorial",
-    });
-    expect(startCodexThread).toHaveBeenCalledWith({ cwd: "/tmp/tutorial" });
-    expect(forkCodexThread).not.toHaveBeenCalled();
-    expect(sessionId).toBe("codex-new-thread");
-    expect(command.executable).toBe("codex");
-    expect(command.args).toEqual(
-      expect.arrayContaining([
-        "resume",
-        "codex-new-thread",
-        "Explain this code",
-      ]),
-    );
   });
 });
 

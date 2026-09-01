@@ -10058,6 +10058,9 @@ a.review-doc-meta-pr:hover {
 
 .review-view-region--trace {
   overflow: auto;
+  /* The trace view anchors scroll itself across elision changes; the
+     browser's own heuristic would otherwise adjust a second time. */
+  overflow-anchor: none;
 }
 
 .review-trace-view {

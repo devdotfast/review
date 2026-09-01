@@ -156,6 +156,8 @@ describe("TraceDocument", () => {
     const initialGaps = container.querySelectorAll(".review-trace-lens-gap");
     expect(initialGaps.length).toBe(1);
     expect(initialGaps[0].textContent).toContain("5 hidden events");
+    // The chip carries its gap start so scroll anchoring can find it after a fold.
+    expect(initialGaps[0].getAttribute("data-trace-gap")).toBe("0");
 
     // Click to expand gap
     const gapButton = initialGaps[0] as HTMLButtonElement;

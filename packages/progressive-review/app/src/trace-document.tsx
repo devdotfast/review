@@ -1,6 +1,7 @@
 import type { ReviewAgentTraceEvent } from "@dev.fast/review-protocol";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 
+import { AgentChatUserMessage } from "./agent-chat";
 import { AgentMarkdown } from "./agent-markdown";
 import {
   HighlightedText,
@@ -278,18 +279,15 @@ export function TraceEvent({
 }) {
   if (event.kind === "user") {
     return (
-      <div className="review-trace-user">
-        <div className="review-trace-user-bubble">
-          {highlightQuote ? (
-            <HighlightedText text={event.text} quote={highlightQuote} />
-          ) : (
-            event.text
-          )}
-        </div>
-        {event.at && (
-          <span className="review-trace-timestamp">{timeLabel(event.at)}</span>
+      <AgentChatUserMessage
+        caption={event.at ? timeLabel(event.at) : undefined}
+      >
+        {highlightQuote ? (
+          <HighlightedText text={event.text} quote={highlightQuote} />
+        ) : (
+          event.text
         )}
-      </div>
+      </AgentChatUserMessage>
     );
   }
   if (event.kind === "assistant") {
@@ -626,14 +624,12 @@ export function ElidedMessage({
   );
   if (event.kind === "user") {
     return (
-      <div className="review-trace-user">
-        <div className="review-trace-user-bubble review-trace-user-bubble--elided">
-          {body}
-        </div>
-        {event.at && (
-          <span className="review-trace-timestamp">{timeLabel(event.at)}</span>
-        )}
-      </div>
+      <AgentChatUserMessage
+        bubbleClassName="agent-chat-user-bubble--elided"
+        caption={event.at ? timeLabel(event.at) : undefined}
+      >
+        {body}
+      </AgentChatUserMessage>
     );
   }
   if (event.thinking) {

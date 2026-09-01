@@ -272,7 +272,7 @@ describe("TraceDocument", () => {
 
     // Full text of the user message is visible without ellipsis chips
     expect(container.querySelector(".review-trace-lens-chip")).toBeNull();
-    const userBubble = container.querySelector(".review-trace-user-bubble");
+    const userBubble = container.querySelector(".agent-chat-user-bubble");
     expect(userBubble?.textContent).toBe("Second turn question");
     expect(
       userBubble?.querySelector(".review-trace-quote-mark")?.textContent,

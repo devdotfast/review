@@ -3775,36 +3775,6 @@ button {
   overflow-y: auto;
 }
 
-.thread-chat-message {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-}
-
-.thread-chat-speaker {
-  flex-shrink: 0;
-  width: 42px;
-  padding-top: 2px;
-  color: var(--ink-faint);
-  font: 600 10px/1 var(--font-mono);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.thread-chat-message--agent .thread-chat-speaker {
-  color: var(--rpc);
-}
-
-.thread-chat-message-body {
-  min-width: 0;
-  color: var(--ink);
-  font: 400 12px/18px var(--font-mono);
-}
-
-.thread-chat-message--agent .thread-chat-message-body {
-  color: var(--ink-soft);
-}
-
 .thread-chat-composer {
   flex-shrink: 0;
   padding: 10px 0 12px;
@@ -3835,6 +3805,23 @@ button {
 
 .question-panel .thread-chat-composer .thread-compose textarea:focus {
   border-color: var(--accent);
+}
+
+/* Rest state mirrors the boxed textarea's geometry with the colors off, and
+   reserves the action row's height (24px verb + 8px gap) below: the composer
+   is bottom-anchored, so without the reservation the input jumps up when the
+   form opens. */
+.question-panel .thread-chat-composer .thread-reply-row {
+  box-sizing: border-box;
+  width: 100%;
+  height: 44px;
+  min-height: 44px;
+  margin-bottom: 32px;
+  padding: 9px 10px;
+  border: 1px solid var(--transparent);
+  border-radius: 7px;
+  background: var(--transparent);
+  font: 400 12px/17px var(--font-mono);
 }
 
 .question-panel .thread-chat-composer .thread-compose-verb {
@@ -5475,6 +5462,9 @@ button {
 }
 
 /* Bare reply row; controls appear only while composing. */
+/* The resting row shares the focused textarea's exact metrics (padding,
+   border-width, font, line-height), so focusing only changes colors and the
+   placeholder text never moves. */
 .thread-reply-row {
   min-height: 23px;
   padding: 2px 0;
@@ -5482,7 +5472,8 @@ button {
   background: var(--transparent);
   color: var(--ink-faint);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 12.5px;
+  line-height: 19px;
   text-align: left;
 }
 
@@ -5499,7 +5490,7 @@ button {
 }
 
 .thread-compose textarea {
-  min-height: 34px;
+  min-height: 23px;
   max-height: 160px;
   padding: 2px 0;
   resize: none;
@@ -10311,7 +10302,7 @@ a.review-doc-meta-pr:hover {
   gap: 18px;
 }
 
-.review-trace-user {
+.agent-chat-user {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -10322,7 +10313,7 @@ a.review-doc-meta-pr:hover {
   min-width: 0;
 }
 
-.review-trace-user-bubble {
+.agent-chat-user-bubble {
   padding: 12px 14px;
   background: var(--bg-2);
   border-radius: 12px 12px 4px 12px;
@@ -10336,7 +10327,7 @@ a.review-doc-meta-pr:hover {
   max-width: 100%;
 }
 
-.review-trace-timestamp {
+.agent-chat-caption {
   font-family: var(--font-mono);
   font-size: 10.5px;
   color: var(--ink-faint);
@@ -10363,7 +10354,64 @@ a.review-doc-meta-pr:hover {
   margin-bottom: 6px;
 }
 
-.review-trace-prose .agent-markdown {
+.agent-chat-prose {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 26px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.agent-chat-agent {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.agent-chat-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 22px;
+}
+
+.agent-chat-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+.agent-chat-status-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.agent-chat-status-line {
+  flex-grow: 1;
+  height: 1px;
+  background: var(--rule);
+}
+
+/* The shared rows inside the sidebar thread view: the trace skin as-is,
+   minus the transcript top margin the trace turns carry. The anchored mini
+   cards keep their own compact presentation and never use these rows. */
+.thread-chat-transcript .agent-chat-user {
+  margin-top: 0;
+  max-width: 100%;
+}
+
+.thread-chat-transcript .agent-chat-user-bubble {
+  max-width: min(480px, 90%);
+}
+
+.review-trace-prose .agent-markdown,
+.agent-chat-prose .agent-markdown {
   font-family: var(--font-serif);
   font-size: 15px;
   line-height: 26px;
@@ -10818,7 +10866,7 @@ a.review-doc-meta-pr:hover {
   color: var(--ink);
 }
 
-.review-trace-user-bubble--elided .review-trace-lens-kept {
+.agent-chat-user-bubble--elided .review-trace-lens-kept {
   line-height: 24px;
 }
 

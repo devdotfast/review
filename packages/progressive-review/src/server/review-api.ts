@@ -643,11 +643,11 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       });
     }
     const binding = agentSession as SessionRef;
-    const { terminal } = await agentServer(binding.harness).launch({
+    const { command } = await agentServer(binding.harness).launch({
       session: { resume: binding.sessionId },
       cwd: agentRootPath,
     });
-    await openNativeAgentTerminal(terminal);
+    await openNativeAgentTerminal({ session: binding, command });
     return reviewApiJsonResponse(200, { ok: true });
   }
 
@@ -1124,15 +1124,15 @@ async function answerReviewComment(input: {
   if (!launch) {
     throw new Error("This Review has no authoring agent session.");
   }
-  const { sessionId, terminal } = await input
+  const { sessionId, command } = await input
     .agentServer(launch.harness)
     .launch({
       ...(launch.session ? { session: launch.session } : {}),
       prompt: reviewCommentPrompt(input.comment),
       cwd: input.rootPath,
     });
-  await input.openNativeAgentTerminal(terminal);
   const binding: SessionRef = { harness: launch.harness, sessionId };
+  await input.openNativeAgentTerminal({ session: binding, command });
   const commit = input.service.setAgentSession({
     mutationId: randomUUID(),
     threadId: input.comment.threadId,

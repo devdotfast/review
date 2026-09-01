@@ -3,16 +3,16 @@ import type { ReviewVerbRequest } from "@dev.fast/review-protocol";
 import type { ReviewAgentHarness } from "../authoring-session";
 import type { NativeReviewMessage } from "./native-session";
 
-export type NativeTerminalInput = Extract<
+/** What a native terminal runs. The desktop pairs it with the session. */
+export type NativeTerminalCommand = Extract<
   ReviewVerbRequest,
   { name: "openNativeAgentTerminal" }
->["args"];
+>["args"]["command"];
 
 /** Which native session a terminal should land in. Absent means a fresh one. */
 export type LaunchSession = { resume: string } | { forkOf: string };
 
 export interface TerminalCommandInput {
-  launchId: string;
   session?: LaunchSession;
   /** The session the terminal will run. Reserved by `reserveSessionId`. */
   sessionId: string;
@@ -32,7 +32,7 @@ export interface HarnessDialect {
     session?: LaunchSession;
     cwd: string;
   }): Promise<string>;
-  terminalCommand(input: TerminalCommandInput): Promise<NativeTerminalInput>;
+  terminalCommand(input: TerminalCommandInput): Promise<NativeTerminalCommand>;
   /** Project the native transcript into Review-visible messages. */
   readMessages(input: {
     sessionId: string;

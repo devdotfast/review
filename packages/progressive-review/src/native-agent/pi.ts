@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { HarnessDialect, NativeTerminalInput } from "./harness";
+import type { HarnessDialect, NativeTerminalCommand } from "./harness";
 import { HookObservedAgentServer } from "./hook-observed-server";
 import type { AgentServer, AgentServerOptions } from "./native-session";
 import { readPiReviewMessages } from "./pi-transcript";
@@ -39,13 +39,11 @@ export const dialect: HarnessDialect = {
     }
     if (input.prompt !== undefined) args.push(input.prompt);
     return {
-      launchId: input.launchId,
-      harness: "pi",
       cwd: input.cwd,
       executable: "pi",
       args,
       env: input.env,
-    } satisfies NativeTerminalInput;
+    } satisfies NativeTerminalCommand;
   },
 
   readMessages: readPiReviewMessages,

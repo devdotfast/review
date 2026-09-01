@@ -261,13 +261,24 @@ export class ReviewVerbsService
       event: "agentTerminalOpening",
       sessionId: this.requireSession().session.sessionId,
     });
+    const key = `native:${input.session.harness}:${input.session.sessionId}`;
+    const existing = this.agentSessionTerminals.get(key);
+    if (existing && this.terminalEditorService.instances.includes(existing)) {
+      // The session already has a live terminal: bring it forward.
+      await this.terminalEditorService.openEditor(existing, {
+        viewColumn: SIDE_GROUP,
+      });
+      this.terminalService.setActiveInstance(existing);
+      await existing.focusWhenReady(true);
+      return;
+    }
     const instance = await this.terminalService.createTerminal({
       config: {
-        executable: input.executable,
-        args: input.args,
-        cwd: input.cwd,
+        executable: input.command.executable,
+        args: input.command.args,
+        cwd: input.command.cwd,
         env: {
-          ...input.env,
+          ...input.command.env,
           CLICOLOR: "1",
           CLICOLOR_FORCE: "1",
           COLORTERM: "truecolor",
@@ -276,15 +287,15 @@ export class ReviewVerbsService
           TERM: "xterm-256color",
         },
         isTransient: true,
-        name: `${input.harness} · ${input.launchId.slice(0, 8)}`,
+        name: `${input.session.harness} · ${input.session.sessionId.slice(0, 8)}`,
         useShellEnvironment: true,
       },
       location: { viewColumn: SIDE_GROUP },
     });
-    this.agentSessionTerminals.set(`native:${input.launchId}`, instance);
+    this.agentSessionTerminals.set(key, instance);
     this._register(instance.onDisposed(() => {
-      if (this.agentSessionTerminals.get(`native:${input.launchId}`) === instance) {
-        this.agentSessionTerminals.delete(`native:${input.launchId}`);
+      if (this.agentSessionTerminals.get(key) === instance) {
+        this.agentSessionTerminals.delete(key);
       }
     }));
     await this.terminalEditorService.openEditor(instance, {

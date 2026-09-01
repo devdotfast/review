@@ -1,5 +1,5 @@
 import type { ReviewAgentHarness } from "../authoring-session";
-import type { NativeTerminalInput } from "./harness";
+import type { NativeTerminalCommand } from "./harness";
 
 export type { ReviewAgentHarness, SessionRef } from "../authoring-session";
 
@@ -51,7 +51,7 @@ export interface AgentServer {
   readonly harness: ReviewAgentHarness;
   launch(input: LaunchInput): Promise<{
     sessionId: string;
-    terminal: NativeTerminalInput;
+    command: NativeTerminalCommand;
   }>;
   updates(
     sessionId: string,

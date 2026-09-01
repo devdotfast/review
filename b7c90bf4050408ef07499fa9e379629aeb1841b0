@@ -1,7 +1,7 @@
 import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
 
 /**
- * Software map for 17b12089 (head) — the native agent integration subsystem of
+ * Software map for b7c90bf4 (head) — the native agent integration subsystem of
  * Review: harness detection, skill/trace-hook install, native turn launching
  * and observation, and authoring-session attribution. At this commit the
  * install surface bundles the review command shim (and shell-profile PATH
@@ -10,7 +10,8 @@ import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-mod
  * and the trace store speaks to any S3-compatible backend (R2 or AWS S3, via
  * a configurable signing region). The trace document view re-collapses
  * expanded lens elisions via TraceCollapseRow spans, and the agent trace view
- * carries an event-ruler scrollbar (TraceRuler) for whole-session navigation.
+ * carries a turn-ruler scrollbar (TraceRuler, one tick per document turn) for
+ * whole-session navigation.
  * This commit factors the SPA's transcript presentation into shared agent-chat
  * rows consumed by the trace document and the sidebar thread panel's
  * ThreadChat — which also renders a running agent turn as the shared status
@@ -589,7 +590,7 @@ export default defineSoftwareMap({
             traceView: {
               label: "Agent trace view",
               description:
-                "Renders an agent session trace as a turn-grouped document: lens picks keep the salient events and elide the rest behind expandable gap chips; expanded elisions can be folded back via collapse rows. Once the trace loads, ReviewTraceView mounts an event-ruler scrollbar that maps the whole session.",
+                "Renders an agent session trace as a turn-grouped document: lens picks keep the salient events and elide the rest behind expandable gap chips; expanded elisions can be folded back via collapse rows. Once the trace loads, ReviewTraceView mounts a turn-ruler scrollbar that maps the whole session, one tick per turn, sharing the document's turn grouping (buildIndexedTraceTurns).",
               coverage: {
                 files: [
                   { path: "packages/progressive-review/app/src/ReviewTraceView.tsx" },
@@ -629,8 +630,14 @@ export default defineSoftwareMap({
                 traceRuler: {
                   label: "TraceRuler",
                   description:
-                    "Event-ruler scrollbar: uniform dash ticks bucket the session's events at even pitch, brightness marks the viewport range, hover bulges a comb of nearby ticks and previews the nearest user turn, click jumps to a bucket. Pointer hit-testing measures the rendered tick rects on the rail and picks the tick whose center is nearest the pointer (rulerNearestTick) rather than deriving a tick from pitch arithmetic; while a tick is hovered the viewport brightness is suppressed so only the comb treatment shows, returning when the pointer leaves. Pure helpers (rulerTickCount, rulerBucketRange, rulerCombWidth, rulerNearestTick, rulerPreview) carry the geometry and preview logic; the geometry constants (11px tick pitch, 6px rest width, 30px hovered comb, ticks inset from the rail edge) are tuning, not structure.",
+                    "Turn-ruler scrollbar: uniform dash ticks map the session at even pitch, one tick per turn (a user prompt, its collapsed work, and the final response, grouped by the same buildIndexedTraceTurns the document renders), bucketing turns only when they outnumber the rail. Brightness marks the turns in the viewport: the measured visible event range is mapped onto turns (rulerTurnStarts gives each turn's first event index; rulerTurnForEvent binary-searches the turn containing an event). Hover bulges a comb of nearby ticks and previews the hovered turn (rulerPreview takes a turn and returns its prompt as the title plus its final agent response as the snippet); click jumps to the turn's first event. Pointer hit-testing measures the rendered tick rects and picks the tick whose center is nearest the pointer (rulerNearestTick); while a tick is hovered the viewport brightness is suppressed so only the comb treatment shows. Pure helpers (rulerTickCount, rulerBucketRange, rulerCombWidth, rulerNearestTick, rulerTurnStarts, rulerTurnForEvent, rulerPreview) carry the geometry, turn mapping, and preview logic; the geometry constants (11px tick pitch, 6px rest width, 30px hovered comb, ticks inset from the rail edge) are tuning, not structure.",
                   relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "traceTurnModel",
+                      label: "buildIndexedTraceTurns groups the events into ruler ticks",
+                    },
                     {
                       kind: "semantic",
                       from: ".",
@@ -640,11 +647,22 @@ export default defineSoftwareMap({
                     },
                   ],
                 },
+                traceTurnModel: {
+                  label: "Trace turn model",
+                  description:
+                    "buildIndexedTraceTurns groups a trace's events into IndexedTraceTurnGroup turns (user prompt, work, final response, each event keeping its index; a long idle gap closes a turn). Shared by the document renderer and the ruler so both agree on what a turn is.",
+                },
                 traceDocument: {
                   label: "TraceDocument",
                   description:
                     "Stateful trace reader: computes lens-included events, tracks expanded gaps and expanded events, derives collapse spans (start/end markers for each expanded gap), and renders one TraceTurn per turn.",
                   relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "traceTurnModel",
+                      label: "buildIndexedTraceTurns groups events into turns",
+                    },
                     {
                       kind: "call",
                       from: ".",

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- /dev/fast mark: two slashes, centred on Apple's 1024 icon canvas.
+       Transparent background - the preview tile colour is #D97757 in Icon Composer. -->
+  <path fill="#FFFFFF" d="M 256.00 765.44 L 432.82 258.56 L 498.93 258.56 L 322.11 765.44 Z" />
+  <path fill="#2B4FE0" d="M 525.07 765.44 L 701.89 258.56 L 768.00 258.56 L 591.18 765.44 Z" />
+</svg>

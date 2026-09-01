@@ -1,0 +1,31 @@
+{
+  "fill": {
+    "automatic-gradient": "display-p3:0.85098,0.46667,0.34118,1.00000"
+  },
+  "groups": [
+    {
+      "layers": [
+        {
+          "image-name": "review-slashes-1024.svg",
+          "name": "review-slashes-1024",
+          "position": {
+            "scale": 1,
+            "translation-in-points": [0, 0]
+          }
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.5
+      }
+    }
+  ],
+  "supported-platforms": {
+    "circles": ["watchOS"],
+    "squares": "shared"
+  }
+}

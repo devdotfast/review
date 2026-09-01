@@ -7,7 +7,8 @@
 // is kept only as the pre-Tahoe fallback. code-oss packaging has no asset-catalog step, so
 // this patches the bundle afterwards rather than modifying the vendored gulp pipeline.
 //
-// Usage: node apply-app-icon.mjs <path-to .app> [--icon-name NAME]
+// Usage: [REVIEW_APP_ICON_CHANNEL=preview] node apply-app-icon.mjs <path-to .app>
+//        [--icon-name NAME]
 
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
@@ -15,19 +16,23 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  DEPLOYMENT_TARGET,
+  getIconVariant,
+} from "./build-app-icon-catalog.mjs";
+
 const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
-const ICONS_DIR = path.resolve(
-  SCRIPTS_DIR,
-  "../../../packages/progressive-review/app/icons",
-);
-const ICON_SOURCE = path.join(ICONS_DIR, "dev-fast.icon");
+const ICON_VARIANT = getIconVariant(process.env.REVIEW_APP_ICON_CHANNEL);
+const ICON_SOURCE = ICON_VARIANT.iconSource;
 // Compiling the .icon needs Xcode 26, which release runners do not have, so the compiled
 // catalog is committed alongside the source and used when actool cannot produce one.
 // app-icon-catalog.test.mjs fails if the two drift apart.
-const PREBUILT_CATALOG = path.join(ICONS_DIR, "Assets.car");
+const PREBUILT_CATALOG = ICON_VARIANT.catalog;
 // Asset-catalog app icons require macOS 26; the .icns fallback covers anything older.
-const DEPLOYMENT_TARGET = "26.0";
-const DEFAULT_ICON_NAME = "dev-fast";
+const FALLBACK_ICNS =
+  ICON_VARIANT.fallback ??
+  path.resolve(SCRIPTS_DIR, "../code-oss/resources/darwin/code.icns");
+const DEFAULT_ICON_NAME = ICON_VARIANT.iconName;
 
 function fail(message) {
   console.error("apply-app-icon: " + message);
@@ -88,11 +93,7 @@ if (!existsSync(infoPlist)) fail("no Contents/Info.plist in " + appPath);
 // skips that step whenever the binary already exists, so an existing checkout would keep
 // whatever .icns it was first built with. Refresh it here so the fallback tracks the repo.
 function refreshFallbackIcns() {
-  const source = path.resolve(
-    SCRIPTS_DIR,
-    "../code-oss/resources/darwin/code.icns",
-  );
-  if (!existsSync(source)) return;
+  if (!existsSync(FALLBACK_ICNS)) return;
 
   const iconFile = run("/usr/libexec/PlistBuddy", [
     "-c",
@@ -109,9 +110,12 @@ function refreshFallbackIcns() {
   );
   if (!existsSync(target)) return;
 
-  copyFileSync(source, target);
+  copyFileSync(FALLBACK_ICNS, target);
   console.log(
-    "apply-app-icon: refreshed " + path.basename(target) + " fallback",
+    "apply-app-icon: refreshed " +
+      path.basename(target) +
+      " fallback for " +
+      ICON_VARIANT.channel,
   );
 }
 
@@ -167,7 +171,9 @@ function installIconCatalog(workDir) {
     "apply-app-icon: installed " +
       iconName +
       " asset catalog into " +
-      path.basename(appPath),
+      path.basename(appPath) +
+      " for " +
+      ICON_VARIANT.channel,
   );
 }
 

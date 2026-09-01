@@ -4,7 +4,8 @@ set -euo pipefail
 MONOREPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
 APP_DIR="$MONOREPO_ROOT/apps/review-desktop"
 CHECKOUT="$APP_DIR/code-oss"
-PACKAGED_APP="$APP_DIR/VSCode-darwin-arm64/Review.app"
+PRODUCT_NAME="$(node -p "require('$CHECKOUT/product.json').nameShort")"
+PACKAGED_APP="$APP_DIR/VSCode-darwin-arm64/$PRODUCT_NAME.app"
 VERSION="$(node -p "require('$APP_DIR/package.json').version")"
 ARTIFACT_DIR="${DEV_FAST_REVIEW_ARTIFACT_DIR:-$APP_DIR/dist}"
 UPDATE_ZIP="$ARTIFACT_DIR/Review-darwin-arm64-$VERSION.zip"
@@ -139,10 +140,10 @@ mkdir -p "$ARTIFACT_DIR"
 rm -f -- "$UPDATE_ZIP" "$DMG"
 
 mkdir -p "$DMG_STAGE"
-ditto "$PACKAGED_APP" "$DMG_STAGE/Review.app"
+ditto "$PACKAGED_APP" "$DMG_STAGE/$PRODUCT_NAME.app"
 ln -s /Applications "$DMG_STAGE/Applications"
 hdiutil create \
-  -volname "Review" \
+  -volname "$PRODUCT_NAME" \
   -srcfolder "$DMG_STAGE" \
   -ov \
   -format UDZO \

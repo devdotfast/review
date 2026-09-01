@@ -37,3 +37,22 @@ test("preview downstream jobs pin the commit resolved by versioning", () => {
     assert.doesNotMatch(downstream, /ref: \$\{\{ inputs\.ref \}\}/);
   }
 });
+
+test("preview publishing preserves a distinct installer identity", () => {
+  const build = job("build");
+
+  assert.match(
+    build,
+    /DMG_DISPOSITION="attachment; filename=\\"df-review-preview-\$\{RELEASE_VERSION\}\.dmg\\""/,
+  );
+  assert.match(build, /https:\/\/install\.dev\.fast\/preview/);
+  assert.match(
+    build,
+    /https:\/\/install\.dev\.fast\/releases\/preview-latest\/darwin-arm64\/Review\.dmg/,
+  );
+  assert.match(
+    build,
+    /name: review-desktop-preview-\$\{\{ env\.RELEASE_VERSION \}\}-dmg/,
+  );
+  assert.doesNotMatch(build, /curl[^\n]*https:\/\/install\.dev\.fast\/$/m);
+});

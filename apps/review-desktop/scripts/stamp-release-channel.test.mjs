@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
 
+import { releaseIdentityFor } from "./release-channel.mjs";
 import { stampReleaseChannel } from "./stamp-release-channel.mjs";
 
 const temporaryRoots = [];
@@ -26,7 +27,7 @@ async function writeFixtures(product) {
 
 test("stamps the package version, review version, and release quality", async () => {
   const paths = await writeFixtures({
-    nameShort: "Review",
+    ...releaseIdentityFor("stable"),
     reviewVersion: "1.2.3",
     quality: "stable",
   });
@@ -42,10 +43,14 @@ test("stamps the package version, review version, and release quality", async ()
   assert.equal(pkg.version, "1.2.4-preview.20260901.42");
   assert.equal(product.reviewVersion, "1.2.4-preview.20260901.42");
   assert.equal(product.quality, "preview");
+  for (const [field, value] of Object.entries(releaseIdentityFor("preview"))) {
+    assert.equal(product[field], value, field);
+  }
 });
 
 test("defaults to the stable release quality", async () => {
   const paths = await writeFixtures({
+    ...releaseIdentityFor("stable"),
     reviewVersion: "1.2.3",
     quality: "stable",
   });
@@ -55,11 +60,19 @@ test("defaults to the stable release quality", async () => {
   const product = JSON.parse(await readFile(paths.productPath, "utf8"));
   assert.equal(product.reviewVersion, "1.2.4");
   assert.equal(product.quality, "stable");
+  for (const [field, value] of Object.entries(releaseIdentityFor("stable"))) {
+    assert.equal(product[field], value, field);
+  }
 });
 
-for (const marker of ["reviewVersion", "quality"]) {
+for (const marker of [
+  "reviewVersion",
+  "quality",
+  ...Object.keys(releaseIdentityFor("stable")),
+]) {
   test(`rejects a product without a ${marker} marker`, async () => {
     const product = {
+      ...releaseIdentityFor("stable"),
       reviewVersion: "1.2.3",
       quality: "stable",
     };
@@ -80,6 +93,7 @@ for (const marker of ["reviewVersion", "quality"]) {
 
 test("rejects an unsupported release quality", async () => {
   const paths = await writeFixtures({
+    ...releaseIdentityFor("stable"),
     reviewVersion: "1.2.3",
     quality: "stable",
   });
@@ -92,6 +106,7 @@ test("rejects an unsupported release quality", async () => {
 
 test("requires a release version", async () => {
   const paths = await writeFixtures({
+    ...releaseIdentityFor("stable"),
     reviewVersion: "1.2.3",
     quality: "stable",
   });

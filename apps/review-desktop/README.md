@@ -152,14 +152,19 @@ already contains this workflow and its scripts. Updates are keyed by commit;
 publishing an older commit intentionally rolls preview installations back to
 that build.
 
-Install the latest preview from
-<https://install.dev.fast/releases/preview-latest/darwin-arm64/Review.dmg>.
-Preview builds use an orange app-icon background so they stay visually distinct
-from stable installs in Finder, the Dock, and the app switcher.
-Preview and stable use the same app name and bundle identifier, so installing
-one replaces the other while retaining settings and data. To return to stable,
-reinstall from <https://install.dev.fast>; the stable app points the updater
-back at the stable feed.
+Install the latest preview from <https://install.dev.fast/preview>. It installs
+as `Review Preview.app`, displays as `/dev/fast Review Preview`, and uses an
+orange app-icon background so it stays visually distinct from stable in Finder,
+the Dock, and the app switcher.
+
+Preview uses its own bundle identifier, URL scheme, CLI name, and data folders,
+so it can run beside stable without replacing the stable app or sharing its
+settings. Preview updates continue to use the preview feed. To return to stable,
+open the existing `Review.app` or install it from <https://install.dev.fast>.
+
+Builds from before the preview identity split installed as `Review.app`.
+Reinstall once from <https://install.dev.fast/preview> after the split so the
+preview lands at the new application path; later preview updates retain it.
 
 ### Linux-to-macOS build handoff
 
@@ -204,15 +209,17 @@ disjoint, so both hostnames answer all of them and the Worker needs no
 host discrimination; the two names exist to give humans and Squirrel separate
 front doors.
 
-`GET /` is the install landing: it redirects to the
-`releases/latest/darwin-arm64/Review.dmg` alias, so
+`GET /` is the stable install landing: it redirects to the
+`releases/latest/darwin-arm64/Review.dmg` alias, while `GET /preview` redirects
+to `releases/preview-latest/darwin-arm64/Review.dmg`. For example,
 `curl -fLOJ https://install.dev.fast` downloads the current disk image. It
 deliberately does not read `latest.json` — the alias is uploaded with the
 payloads, so the download keeps working while the manifest is mid-upload. The
-key stays version-free for that reason, so the version rides on the object's
-`Content-Disposition: attachment; filename="df-review-<version>.dmg"` instead
-and the saved file names itself. curl only honours that with `-J`; a browser
-download always does.
+keys stay version-free for that reason, so the version rides on each object's
+`Content-Disposition` instead and the saved file names itself. Stable uses
+`df-review-<version>.dmg`; preview uses
+`df-review-preview-<preview-version>.dmg`. curl only honours that with `-J`; a
+browser download always does.
 
 ```
 update/stable/darwin-arm64/latest.json     current-release manifest
@@ -222,7 +229,7 @@ releases/latest/darwin-arm64/Review.dmg    direct-download alias, saved as
                                            df-review-<version>.dmg
 releases/preview-latest/darwin-arm64/Review.dmg
                                            preview-download alias, saved as
-                                           df-review-<preview-version>.dmg
+                                           df-review-preview-<preview-version>.dmg
 ```
 
 `GET /api/update/:platform/:quality/:commit` answers 204 when the caller's

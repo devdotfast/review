@@ -2,8 +2,12 @@ import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 
+import {
+  assertReleaseChannel,
+  releaseIdentityFor,
+} from "./release-channel.mjs";
+
 const APP_DIR = path.resolve(import.meta.dirname, "..");
-const RELEASE_QUALITIES = new Set(["stable", "preview"]);
 
 function replaceRequired(source, pattern, replacement, marker, file) {
   if (!pattern.test(source)) {
@@ -21,33 +25,30 @@ export function stampReleaseChannel({
   if (!version) {
     throw new Error("version is required");
   }
-  if (!RELEASE_QUALITIES.has(quality)) {
-    throw new Error(
-      `quality must be one of stable or preview, received ${JSON.stringify(quality)}`,
-    );
-  }
+  assertReleaseChannel(quality);
 
   const pkg = JSON.parse(readFileSync(packagePath, "utf8"));
   pkg.version = version;
 
   const product = readFileSync(productPath, "utf8");
-  const withVersion = replaceRequired(
-    product,
-    /("reviewVersion":\s*")[^"]*(")/,
-    `$1${version}$2`,
-    "reviewVersion",
-    productPath,
-  );
-  const withQuality = replaceRequired(
-    withVersion,
-    /("quality":\s*")[^"]*(")/,
-    `$1${quality}$2`,
-    "quality",
-    productPath,
-  );
+  const fields = {
+    reviewVersion: version,
+    quality,
+    ...releaseIdentityFor(quality),
+  };
+  let stampedProduct = product;
+  for (const [field, value] of Object.entries(fields)) {
+    stampedProduct = replaceRequired(
+      stampedProduct,
+      new RegExp(`("${field}":\\s*")[^"]*(")`),
+      `$1${value}$2`,
+      field,
+      productPath,
+    );
+  }
 
   writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
-  writeFileSync(productPath, withQuality);
+  writeFileSync(productPath, stampedProduct);
 }
 
 function main() {

@@ -21,13 +21,21 @@
  * announce a ready server.
  */
 import { execFileSync, spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 
 const APP_DIR = path.resolve(import.meta.dirname, "..");
-const DEFAULT_APP = path.join(APP_DIR, "VSCode-darwin-arm64", "Review.app");
+const PRODUCT_NAME = JSON.parse(
+  readFileSync(path.join(APP_DIR, "code-oss", "product.json"), "utf8"),
+).nameShort;
+const DEFAULT_APP = path.join(
+  APP_DIR,
+  "VSCode-darwin-arm64",
+  `${PRODUCT_NAME}.app`,
+);
 const POLL_INTERVAL_MS = 500;
 const SERVER_READY_PATTERN = /\[Review Desktop\] server ready at https?:\/\//;
 
@@ -97,7 +105,7 @@ export async function smokeLaunch({
   app = DEFAULT_APP,
   timeoutMs = 90_000,
 } = {}) {
-  const binary = path.join(app, "Contents", "MacOS", "Review");
+  const binary = path.join(app, "Contents", "MacOS", PRODUCT_NAME);
   const userDataDir = await mkdtemp(path.join(os.tmpdir(), "review-smoke-"));
 
   // A launch that finds a running instance hands its arguments over and exits 0

@@ -45,7 +45,10 @@ test("keeps Review disconnected from Microsoft update and extension services", (
 
 test("updates only from the sanctioned dev.fast feed", () => {
   assert.equal(product.updateUrl, "https://update.dev.fast");
-  assert.equal(product.quality, "stable");
+  assert.equal(
+    product.quality,
+    process.env.REVIEW_EXPECTED_QUALITY ?? "stable",
+  );
 });
 
 test("publishes the release number the About panel shows", async () => {

@@ -87,9 +87,9 @@ session; candidates never appear on Home.
 
 ## Packaging and releases
 
-macOS arm64 is the only packaged platform with a release channel; Linux has a
+macOS arm64 is the only packaged platform with release channels; Linux has a
 packaging script but no distribution. Signed builds auto-update from
-`https://update.dev.fast` on the `stable` channel.
+`https://update.dev.fast` on either the `stable` or `preview` channel.
 
 ### Local packaging
 
@@ -134,6 +134,30 @@ patch/minor/major bump. The workflow:
    last — so a client can never see a manifest whose payload is missing;
 6. curls the live feed to confirm the new release is served, attaches the dmg
    to the GitHub release, and publishes it.
+
+### Preview builds
+
+Run the **Review Desktop Preview** workflow from `main`, and pass the branch,
+tag, or commit to build as its `ref` input:
+
+```sh
+gh workflow run review-desktop-preview.yml -f ref=<branch>
+```
+
+The workflow makes no commit, tag, or GitHub release. It stamps the working
+tree with the next patch version plus
+`-preview.<yyyymmdd>.<run-number>`, then publishes only to preview R2 keys.
+The ref must include the preview tooling, so branch it from a `main` that
+already contains this workflow and its scripts. Updates are keyed by commit;
+publishing an older commit intentionally rolls preview installations back to
+that build.
+
+Install the latest preview from
+<https://install.dev.fast/releases/preview-latest/darwin-arm64/Review.dmg>.
+Preview and stable use the same app name and bundle identifier, so installing
+one replaces the other while retaining settings and data. To return to stable,
+reinstall from <https://install.dev.fast>; the stable app points the updater
+back at the stable feed.
 
 ### Linux-to-macOS build handoff
 
@@ -190,9 +214,13 @@ download always does.
 
 ```
 update/stable/darwin-arm64/latest.json     current-release manifest
+update/preview/darwin-arm64/latest.json    current-preview manifest
 releases/<version>/darwin-arm64/           Review-darwin-arm64-<version>.zip + .dmg
 releases/latest/darwin-arm64/Review.dmg    direct-download alias, saved as
                                            df-review-<version>.dmg
+releases/preview-latest/darwin-arm64/Review.dmg
+                                           preview-download alias, saved as
+                                           df-review-<preview-version>.dmg
 ```
 
 `GET /api/update/:platform/:quality/:commit` answers 204 when the caller's
@@ -213,9 +241,12 @@ embedded into release builds; source builds embed none), and `SKIP_NOTARIZE`
 
 Normal CI uses GitHub's standard Ubuntu runner. The manual release workflow
 uses the `review_big_boy` larger runner. Its `review_release` runner group
-allows only `review-desktop-release.yml` from `main`. The first release job
-also uses the `review-release` environment, which requires repository-admin
-approval before GitHub assigns the job to the runner.
+allows `review-desktop-release.yml` and `review-desktop-preview.yml` from
+`main`. The first stable or preview job also uses the `review-release`
+environment, which requires repository-admin approval before downstream jobs
+can use the release infrastructure. Adding the preview workflow requires a
+repository admin to add `review-desktop-preview.yml @ main` to that runner
+group's allowed-workflows list.
 
 ## Curated extensions
 

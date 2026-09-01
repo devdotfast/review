@@ -1,7 +1,7 @@
 import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
 
 /**
- * Software map for 3ed210e4 (head) — the native agent integration subsystem of
+ * Software map for 045ba121 (head) — the native agent integration subsystem of
  * Review: harness detection, skill/trace-hook install, native turn launching
  * and observation, and authoring-session attribution. At this commit the
  * install surface bundles the review command shim (and shell-profile PATH
@@ -636,7 +636,7 @@ export default defineSoftwareMap({
                 traceRuler: {
                   label: "TraceRuler",
                   description:
-                    "Event-ruler scrollbar: uniform dash ticks bucket the session's events at even pitch, brightness marks the viewport range, hover bulges a comb of nearby ticks and previews the nearest user turn, click jumps to a bucket. Pointer hit-testing measures the rendered tick rects on the rail and picks the tick whose center is nearest the pointer (rulerNearestTick) rather than deriving a tick from pitch arithmetic; while a tick is hovered the viewport brightness is suppressed so only the comb treatment shows, returning when the pointer leaves. Pure helpers (rulerTickCount, rulerBucketRange, rulerCombWidth, rulerNearestTick, rulerPreview) carry the geometry and preview logic.",
+                    "Event-ruler scrollbar: uniform dash ticks bucket the session's events at even pitch, brightness marks the viewport range, hover bulges a comb of nearby ticks and previews the nearest user turn, click jumps to a bucket. Pointer hit-testing measures the rendered tick rects on the rail and picks the tick whose center is nearest the pointer (rulerNearestTick) rather than deriving a tick from pitch arithmetic; while a tick is hovered the viewport brightness is suppressed so only the comb treatment shows, returning when the pointer leaves. Pure helpers (rulerTickCount, rulerBucketRange, rulerCombWidth, rulerNearestTick, rulerPreview) carry the geometry and preview logic; the geometry constants (11px tick pitch, 6px rest width, 30px hovered comb, ticks inset from the rail edge) are tuning, not structure.",
                   relationships: [
                     {
                       kind: "semantic",

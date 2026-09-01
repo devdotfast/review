@@ -152,6 +152,9 @@ export async function listReviewTraceSessions(input: {
   if (sessions.size === 0 && commits.length <= R2_COMMIT_LOOKUP_LIMIT) {
     await addSessionsFromR2Index(commits, sessions);
   }
+  if (sessions.size === 0 && commits.length <= R2_COMMIT_LOOKUP_LIMIT) {
+    await addSessionsFromPrScan(input.rootPath, commits, sessions);
+  }
 
   const descriptors: ReviewTraceSessionDescriptor[] = [];
   for (const ref of sessions.values()) {
@@ -672,56 +675,17 @@ export async function lookupReviewTraceCommit(input: {
 
   // Step 3: PR scan if commit subject ends in PR number
   if (pr !== null) {
-    const fetchRes = await runGit(input.cwd, [
-      "fetch",
-      "--quiet",
-      "origin",
-      `refs/pull/${pr}/head`,
-    ]);
-    if (fetchRes.ok) {
-      let revListRes = await runGit(input.cwd, [
-        "rev-list",
-        "FETCH_HEAD",
-        "--not",
-        `${commit}^`,
-      ]);
-      if (!revListRes.ok) {
-        revListRes = await runGit(input.cwd, [
-          "rev-list",
-          "FETCH_HEAD",
-          "--not",
-          `${commit}~1`,
-        ]);
-      }
-      if (!revListRes.ok) {
-        revListRes = await runGit(input.cwd, ["rev-list", "FETCH_HEAD"]);
-      }
-      if (revListRes.ok) {
-        const branchShas = revListRes.stdout
-          .trim()
-          .split(/\s+/)
-          .filter(Boolean);
-        const prSessions: string[] = [];
-        for (const branchSha of branchShas) {
-          const sessionsOnSha = await readTrailerSessions(input.cwd, branchSha);
-          for (const s of sessionsOnSha) {
-            if (!prSessions.includes(s)) {
-              prSessions.push(s);
-            }
-          }
-        }
-        if (prSessions.length > 0) {
-          const sessionMeta = await enrichSessionMeta(prSessions);
-          return {
-            commit,
-            sessions: prSessions,
-            pr,
-            branch: null,
-            source: "pr-scan",
-            ...(sessionMeta ? { session_meta: sessionMeta } : {}),
-          };
-        }
-      }
+    const prSessions = await prScanTrailerSessions(input.cwd, commit, pr);
+    if (prSessions.length > 0) {
+      const sessionMeta = await enrichSessionMeta(prSessions);
+      return {
+        commit,
+        sessions: prSessions,
+        pr,
+        branch: null,
+        source: "pr-scan",
+        ...(sessionMeta ? { session_meta: sessionMeta } : {}),
+      };
     }
   }
 
@@ -1380,7 +1344,10 @@ export async function readSubjectPullNumber(
     { allowFailure: true },
   );
   if (!result.ok) return null;
-  const subject = result.stdout.trim();
+  return subjectPullNumber(result.stdout.trim());
+}
+
+export function subjectPullNumber(subject: string): number | null {
   const match = /\(#(\d+)\)$/.exec(subject);
   return match ? Number(match[1]) : null;
 }
@@ -1843,6 +1810,79 @@ export async function listSessionSubagents(
   }
 
   return [...subagents].sort();
+}
+
+export async function prScanTrailerSessions(
+  cwd: string,
+  commit: string,
+  pr: number,
+): Promise<string[]> {
+  const fetchRes = await runGit(cwd, [
+    "fetch",
+    "--quiet",
+    "origin",
+    `refs/pull/${pr}/head`,
+  ]);
+  if (!fetchRes.ok) return [];
+  let revListRes = await runGit(cwd, [
+    "rev-list",
+    "FETCH_HEAD",
+    "--not",
+    `${commit}^`,
+  ]);
+  if (!revListRes.ok) {
+    revListRes = await runGit(cwd, [
+      "rev-list",
+      "FETCH_HEAD",
+      "--not",
+      `${commit}~1`,
+    ]);
+  }
+  if (!revListRes.ok) {
+    revListRes = await runGit(cwd, ["rev-list", "FETCH_HEAD"]);
+  }
+  if (!revListRes.ok) return [];
+  const branchShas = revListRes.stdout.trim().split(/\s+/).filter(Boolean);
+  const prSessions: string[] = [];
+  for (const branchSha of branchShas) {
+    const sessionsOnSha = await readTrailerSessions(cwd, branchSha);
+    for (const s of sessionsOnSha) {
+      if (!prSessions.includes(s)) {
+        prSessions.push(s);
+      }
+    }
+  }
+  return prSessions;
+}
+
+// A squash merge rewrites the commit message from the pull request title
+// and body, so the Agent-Session trailers written by the repository hooks
+// never reach the commit that lands on the target branch. When the range
+// carries no trailers and no index entries, scan each commit's pull
+// request branch for the trailers instead.
+async function addSessionsFromPrScan(
+  rootPath: string,
+  commits: CommitWithSessions[],
+  sessions: Map<string, ReviewTraceSessionRef>,
+): Promise<void> {
+  const scannedPrs = new Set<number>();
+  for (const commit of commits) {
+    const pr = subjectPullNumber(commit.subject);
+    if (pr === null || scannedPrs.has(pr)) continue;
+    scannedPrs.add(pr);
+    const prSessions = await prScanTrailerSessions(rootPath, commit.sha, pr);
+    for (const sessionId of prSessions) {
+      const existing = sessions.get(sessionId);
+      if (existing) {
+        existing.commits.push({ sha: commit.sha, subject: commit.subject });
+      } else {
+        sessions.set(sessionId, {
+          sessionId,
+          commits: [{ sha: commit.sha, subject: commit.subject }],
+        });
+      }
+    }
+  }
 }
 
 async function addSessionsFromR2Index(

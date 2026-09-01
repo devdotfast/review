@@ -174,6 +174,53 @@ describe("TraceDocument", () => {
     expect(toolGroups[0].textContent).toContain("Edited 3 files");
   });
 
+  it("brackets an expanded gap with collapse rows that fold it back", async () => {
+    const picks = [
+      { event: 5, keep: ["Second turn"] },
+      { events: [6, 9] as [number, number] },
+    ];
+
+    await act(async () => {
+      root?.render(
+        <TraceDocument
+          events={sampleEvents}
+          targetEventIndex={5}
+          picks={picks}
+        />,
+      );
+    });
+
+    const gapButton = container.querySelector(
+      ".review-trace-lens-gap",
+    ) as HTMLButtonElement;
+    await act(async () => {
+      gapButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    // The revealed span is bracketed by one collapse row at each end.
+    const collapseRows = container.querySelectorAll(
+      ".review-trace-lens-collapse",
+    );
+    expect(collapseRows.length).toBe(2);
+    expect(collapseRows[0].textContent).toContain("collapse 5 events");
+    expect(collapseRows[1].textContent).toContain("collapse 5 events");
+
+    // The bottom row re-collapses the whole span back to a gap chip.
+    await act(async () => {
+      (collapseRows[1] as HTMLButtonElement).dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(
+      container.querySelectorAll(".review-trace-lens-collapse").length,
+    ).toBe(0);
+    expect(container.textContent).not.toContain("First turn question");
+    const gapsAfter = container.querySelectorAll(".review-trace-lens-gap");
+    expect(gapsAfter.length).toBe(1);
+    expect(gapsAfter[0].textContent).toContain("5 hidden events");
+  });
+
   it("expands elided message text when ellipsis chip is clicked", async () => {
     const picks = [{ event: 9, keep: ["optimize database queries"] }];
 

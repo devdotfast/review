@@ -283,6 +283,7 @@ jobs:
           APPLE_API_ISSUER_ID: ${{ vars.APPLE_API_ISSUER_ID }}
           SKIP_NOTARIZE: ${{ vars.SKIP_NOTARIZE }}
           REVIEW_DESKTOP_PRECOMPILED: "1"
+          REVIEW_APP_ICON_CHANNEL: preview
         run: |
           # The build can run well over an hour before the first codesign call.
           security unlock-keychain -p "${{ secrets.APPLE_KEYCHAIN_PASSWORD }}" \

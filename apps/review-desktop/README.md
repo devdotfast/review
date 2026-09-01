@@ -154,6 +154,8 @@ that build.
 
 Install the latest preview from
 <https://install.dev.fast/releases/preview-latest/darwin-arm64/Review.dmg>.
+Preview builds use an orange app-icon background so they stay visually distinct
+from stable installs in Finder, the Dock, and the app switcher.
 Preview and stable use the same app name and bundle identifier, so installing
 one replaces the other while retaining settings and data. To return to stable,
 reinstall from <https://install.dev.fast>; the stable app points the updater

@@ -32,6 +32,8 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       commit: ${{ steps.version.outputs.commit }}
     steps:
+      # Resolve the mutable input only once. Downstream jobs pin this commit so
+      # retries cannot silently build a branch that moved after versioning.
       - name: Checkout preview ref
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -62,10 +64,10 @@ jobs:
     runs-on: review_big_boy
     timeout-minutes: 45
     steps:
-      - name: Checkout preview ref
+      - name: Checkout resolved preview commit
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ needs.version.outputs.commit }}
 
       - name: Stamp preview release channel
         run: |
@@ -173,10 +175,10 @@ jobs:
       RELEASE_VERSION: ${{ needs.version.outputs.version }}
       RELEASE_COMMIT: ${{ needs.version.outputs.commit }}
     steps:
-      - name: Checkout preview ref
+      - name: Checkout resolved preview commit
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ needs.version.outputs.commit }}
 
       - name: Stamp preview release channel
         run: |

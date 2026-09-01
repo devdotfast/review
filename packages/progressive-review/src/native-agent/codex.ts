@@ -7,12 +7,12 @@ import {
   forkThread,
   startThread,
 } from "./codex-app-server";
-import type { NativeTerminalCommand } from "./harness";
 import type {
   AgentServer,
   AgentServerOptions,
   LaunchInput,
   NativeReviewMessage,
+  NativeTerminalCommand,
   SessionSnapshot,
   SessionUpdate,
   UpdatePipe,

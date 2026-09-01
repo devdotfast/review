@@ -10071,7 +10071,9 @@ a.review-doc-meta-pr:hover {
 
 .review-trace-view {
   min-height: 100%;
-  padding: 36px 24px 96px;
+  /* The left inset clears the event ruler: 14px edge inset + 6px resting
+     tick + 28px gap, so the 30px hover comb stops just short of the text. */
+  padding: 36px 24px 96px 48px;
 }
 
 .review-trace-column {
@@ -10818,6 +10820,84 @@ a.review-doc-meta-pr:hover {
 
 .review-trace-user-bubble--elided .review-trace-lens-kept {
   line-height: 24px;
+}
+
+/* Event-ruler scrollbar: a left-edge column of uniform dashes mapping the
+   whole session at even pitch. Brightness marks the events currently in the
+   viewport; hovering bulges nearby ticks toward the content and shows a
+   preview card. Strictly grayscale via the ink tokens. */
+
+.review-trace-ruler {
+  height: 0;
+  overflow: visible;
+}
+
+.review-trace-ruler-rail {
+  position: fixed;
+  width: 40px;
+  z-index: 3;
+}
+
+.review-trace-ruler-tick {
+  position: absolute;
+  /* Inset from the panel edge; the comb grows rightward from here. */
+  left: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--ink-faint);
+  opacity: 0.55;
+  transition:
+    width 90ms ease,
+    opacity 90ms ease;
+  pointer-events: none;
+}
+
+.review-trace-ruler-tick--visible {
+  background: var(--ink);
+  opacity: 0.9;
+}
+
+.review-trace-ruler-tick--hovered {
+  background: var(--ink);
+  opacity: 1;
+}
+
+.review-trace-ruler-card {
+  position: absolute;
+  left: 52px;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  background: var(--bg-2);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+  pointer-events: none;
+}
+
+.review-trace-ruler-card-title {
+  font-family: var(--font-serif);
+  font-size: 14px;
+  line-height: 19px;
+  font-weight: 600;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.review-trace-ruler-card-snippet {
+  font-family: var(--font-serif);
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--ink-soft);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .review-trace-lens-chip {

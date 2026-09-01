@@ -15,7 +15,7 @@ import type {
   NativeTerminalHandle,
   ObservedNativeSession,
   ReviewAgentHarness,
-  ReviewThreadAgentBinding,
+  SessionRef,
 } from "./native-session";
 
 export const REVIEW_AGENT_HOOK_URL_ENV = "DEV_FAST_REVIEW_AGENT_HOOK_URL";
@@ -42,7 +42,7 @@ export interface NativeReviewTurnLauncherInput {
 export interface OpenNativeReviewSessionInput {
   launchId: string;
   cwd: string;
-  binding: ReviewThreadAgentBinding;
+  binding: SessionRef;
 }
 
 /** Launches Review questions in normal native agent terminals. */
@@ -100,7 +100,7 @@ export class NativeReviewTurnLauncher {
     }
   }
 
-  observe(binding: ReviewThreadAgentBinding): ObservedNativeSession {
+  observe(binding: SessionRef): ObservedNativeSession {
     return this.observer.observe(binding);
   }
 

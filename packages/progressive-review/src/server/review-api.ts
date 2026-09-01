@@ -28,10 +28,7 @@ import {
 } from "../codepeek-symbol-diff";
 import { mergeErrorTelemetryProperties } from "../error-telemetry";
 import { NativeMessageMirror } from "../native-agent/native-message-mirror";
-import type {
-  ReviewThreadAgentBinding,
-  ReviewTurnRoute,
-} from "../native-agent/native-session";
+import type { ReviewTurnRoute } from "../native-agent/native-session";
 import { NativeReviewTurnLauncher } from "../native-agent/native-turn-launcher";
 import {
   isTraceR2Configured,
@@ -691,7 +688,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     await nativeTurns.openSession({
       launchId: randomUUID(),
       cwd: agentRootPath,
-      binding: agentSession as ReviewThreadAgentBinding,
+      binding: agentSession as SessionRef,
     });
     return reviewApiJsonResponse(200, { ok: true });
   }
@@ -1162,9 +1159,7 @@ async function answerReviewComment(input: {
   });
   try {
     const accepted = await acceptedNativeSession(handle.accepted);
-    const binding = storedSession
-      ? (storedSession as ReviewThreadAgentBinding)
-      : accepted;
+    const binding = storedSession ? (storedSession as SessionRef) : accepted;
     if (
       accepted.harness !== binding.harness ||
       accepted.sessionId !== binding.sessionId
@@ -1195,7 +1190,7 @@ async function answerReviewComment(input: {
 }
 
 export async function resolveReviewQuestionRoute(input: {
-  storedSession?: ReviewThreadAgentBinding;
+  storedSession?: SessionRef;
   agent?: SessionRef;
   freshQuestionHarness?: ReviewSessionWire["freshQuestionHarness"];
   resolveQuestionSourceSession?: (

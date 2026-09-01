@@ -10,11 +10,11 @@ import type { ReviewThreadsService } from "../review-threads-service";
 import type {
   NativeReviewMessage,
   ObservedNativeSession,
-  ReviewThreadAgentBinding,
+  SessionRef,
 } from "./native-session";
 
 interface NativeMessageMirrorOptions {
-  observe(binding: ReviewThreadAgentBinding): ObservedNativeSession;
+  observe(binding: SessionRef): ObservedNativeSession;
   service: ReviewThreadsService;
   onError?: (error: unknown) => void;
 }
@@ -55,7 +55,7 @@ export class NativeMessageMirror {
     }
   }
 
-  watch(threadId: string, binding: ReviewThreadAgentBinding): void {
+  watch(threadId: string, binding: SessionRef): void {
     if (this.#closed) return;
     const key = `${binding.harness}:${binding.sessionId}`;
     if (this.#watchers.get(threadId)?.key === key) return;
@@ -82,7 +82,7 @@ export class NativeMessageMirror {
 
   async #mirror(
     threadId: string,
-    binding: ReviewThreadAgentBinding,
+    binding: SessionRef,
     watcher: SessionWatcher,
   ): Promise<void> {
     const pipe = await this.#observe(binding).updates();
@@ -103,7 +103,7 @@ export class NativeMessageMirror {
 
   #apply(
     threadId: string,
-    binding: ReviewThreadAgentBinding,
+    binding: SessionRef,
     message: NativeReviewMessage,
     watcher: SessionWatcher,
   ): void {
@@ -169,7 +169,7 @@ export class NativeMessageMirror {
 
 function isNativeBinding(
   session: ReviewCommentAgentSession | undefined,
-): session is ReviewThreadAgentBinding {
+): session is SessionRef {
   return Boolean(session?.harness && session.sessionId);
 }
 
@@ -204,7 +204,7 @@ function reviewQuestionBody(threadId: string, body: string): string {
   return body.startsWith(prefix) ? body.slice(prefix.length) : body;
 }
 
-function agentLabel(harness: ReviewThreadAgentBinding["harness"]): string {
+function agentLabel(harness: SessionRef["harness"]): string {
   switch (harness) {
     case "claude-code":
       return "Claude Code";

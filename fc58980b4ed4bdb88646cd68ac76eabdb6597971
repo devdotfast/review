@@ -1,7 +1,7 @@
 import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
 
 /**
- * Software map for 7686a315 (head) — the native agent integration subsystem of
+ * Software map for fc58980b (head) — the native agent integration subsystem of
  * Review: harness detection, skill/trace-hook install, native turn launching
  * and observation, and authoring-session attribution. At this commit the
  * install surface bundles the review command shim (and shell-profile PATH
@@ -13,7 +13,8 @@ import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-mod
  * carries an event-ruler scrollbar (TraceRuler) for whole-session navigation.
  * This commit factors the SPA's transcript presentation into shared agent-chat
  * rows consumed by the trace document and the sidebar thread panel's
- * ThreadChat; anchored thread mini-cards keep their compact presentation.
+ * ThreadChat — which also renders a running agent turn as the shared status
+ * row; anchored thread mini-cards keep their compact presentation.
  */
 export default defineSoftwareMap({
   people: {
@@ -581,7 +582,7 @@ export default defineSoftwareMap({
                 agentChatStatusRow: {
                   label: "AgentChatStatusRow",
                   description:
-                    "Mono status label against a hairline; tone=running adds the live accent dot. Exported as part of the shared row vocabulary; no surface consumes it yet at this commit.",
+                    "Mono status label against a hairline; tone=running adds the live accent dot. The sidebar ThreadChat renders a running agent turn as this row.",
                 },
               },
             },
@@ -708,9 +709,9 @@ export default defineSoftwareMap({
                 threadChatView: {
                   label: "ThreadChat",
                   description:
-                    "Renders a thread's transcript through the shared agent-chat rows with an author-and-relative-time caption per message, replacing the bespoke thread-chat-message skin.",
+                    "Renders a thread's transcript through the shared agent-chat rows with an author-and-relative-time caption per message, replacing the bespoke thread-chat-message skin; a running agent turn renders as the shared status row.",
                   sourceRanges: [
-                    { file: "packages/progressive-review/app/src/review-components.tsx", fromLine: 1649, toLine: 1704 },
+                    { file: "packages/progressive-review/app/src/review-components.tsx", fromLine: 1653, toLine: 1717 },
                   ],
                   relationships: [
                     {
@@ -724,6 +725,12 @@ export default defineSoftwareMap({
                       from: ".",
                       to: "review.reviewApp.agentChat.agentChatAgentMessage",
                       label: "agent replies",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.reviewApp.agentChat.agentChatStatusRow",
+                      label: "running agent turn as status row",
                     },
                   ],
                 },

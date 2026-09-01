@@ -26,6 +26,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 import {
   type SessionRef,
+  parseAuthoringSessionKey,
   resolveAuthoringSessionRef,
 } from "../authoring-session";
 import {
@@ -361,9 +362,9 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   app.get("/comments", writable(commentsList));
   app.post("/thread-commands", threadMutation(threadCommand));
   app.post("/agent-runs", writable(agentRunCreate));
-  app.post("/native-agent-events/:launchId", route(nativeAgentEvent));
+  app.post("/native-agent-events/:harness/:sessionId", route(nativeAgentEvent));
   app.get(
-    "/native-agent-events/:launchId/thread/:threadId",
+    "/native-agent-events/:harness/:sessionId/thread/:threadId",
     writable(nativeAgentThreadGet),
   );
   app.post("/comments/:threadId/agent-terminal", writable(agentTerminalOpen));
@@ -620,15 +621,17 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   async function nativeAgentEvent(
     context: Context<ReviewHonoEnv>,
   ): Promise<Response> {
-    const launchId = context.req.param("launchId");
-    if (!launchId) return reviewApiJsonResponse(200, { ok: true });
+    const ref = parseAuthoringSessionKey(
+      `${context.req.param("harness")}:${context.req.param("sessionId")}`,
+    );
+    if (!ref) return reviewApiJsonResponse(200, { ok: true });
     try {
       nativeTurns.observer.acceptEvent(
-        launchId,
+        ref,
         await readBoundedRequestJson(context.req.raw, 2 * 1024 * 1024, {}),
       );
     } catch (error) {
-      nativeTurns.observer.observerFailed(launchId, error);
+      nativeTurns.observer.observerFailed(ref, error);
     }
     return reviewApiJsonResponse(200, { ok: true });
   }

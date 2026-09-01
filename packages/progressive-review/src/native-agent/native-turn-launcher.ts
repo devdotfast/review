@@ -74,11 +74,8 @@ export class NativeReviewTurnLauncher {
           ? input.route.session.harness
           : input.route.harness;
     const requestedSessionId = await this.#requestedSessionId(input, harness);
-    const handle = this.observer.beginLaunch({
-      launchId: input.launchId,
-      harness,
-      expectedSessionId: requestedSessionId,
-    });
+    const ref = { harness, sessionId: requestedSessionId };
+    const handle = this.observer.beginLaunch(ref);
     try {
       const terminal = await this.#terminalInput(
         input,
@@ -88,7 +85,7 @@ export class NativeReviewTurnLauncher {
       await this.#openTerminal(terminal);
       return handle;
     } catch (error) {
-      this.observer.observerFailed(input.launchId, error);
+      this.observer.observerFailed(ref, error);
       await handle.detach();
       throw error;
     }
@@ -101,11 +98,7 @@ export class NativeReviewTurnLauncher {
   async openSession(
     input: OpenNativeReviewSessionInput,
   ): Promise<NativeTerminalHandle> {
-    const handle = this.observer.beginLaunch({
-      launchId: input.launchId,
-      harness: input.binding.harness,
-      expectedSessionId: input.binding.sessionId,
-    });
+    const handle = this.observer.beginLaunch(input.binding);
     try {
       await this.#openTerminal(
         await this.#terminalInput(
@@ -124,7 +117,7 @@ export class NativeReviewTurnLauncher {
       );
       return handle;
     } catch (error) {
-      this.observer.observerFailed(input.launchId, error);
+      this.observer.observerFailed(input.binding, error);
       await handle.detach();
       throw error;
     }
@@ -146,7 +139,7 @@ export class NativeReviewTurnLauncher {
     requestedSessionId: string,
     submitPrompt = true,
   ): Promise<NativeTerminalInput> {
-    const hookUrl = `${this.#hookBaseUrl}/${encodeURIComponent(input.launchId)}`;
+    const hookUrl = `${this.#hookBaseUrl}/${harness}/${encodeURIComponent(requestedSessionId)}`;
     const pathValue = await this.#commandPath.resolve();
     return this.#dialects[harness].terminalCommand({
       launchId: input.launchId,

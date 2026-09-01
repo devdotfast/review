@@ -15,7 +15,8 @@ import {
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 
-import type { SessionRef } from "../authoring-session";
+import type { ReviewAgentHarness, SessionRef } from "../authoring-session";
+import type { AgentServer } from "../native-agent/native-session";
 import { readReviewDocumentBundle } from "../review-bundle";
 import { resolveReviewSessionBaseCommit } from "../review-worktree-target";
 import {
@@ -57,8 +58,6 @@ export interface ReviewSessionHandlerInput {
   token?: string;
   sessionId?: string;
   reviewUuid?: string;
-  reviewCliPath?: string;
-  reviewCliRuntimePath?: string;
   submitHook?: string;
   historicalRevision?: string;
   listDocumentVersions?: () => Promise<ReviewDocumentVersionWire[]>;
@@ -70,6 +69,7 @@ export interface ReviewSessionHandlerInput {
   onReviewDataChange?: () => void;
   onReviewThreadsCommit?: (commit: ReviewThreadsCommit) => void;
   runReviewThreadMutation?: <T>(operation: () => T | Promise<T>) => Promise<T>;
+  agentServer: (harness: ReviewAgentHarness) => AgentServer;
   openNativeAgentTerminal: (
     input: Extract<
       ReviewVerbRequest,
@@ -392,8 +392,7 @@ export async function createReviewSessionHandler(
     },
     runReviewThreadMutation: input.runReviewThreadMutation,
     reviewToken: token,
-    reviewCliPath: input.reviewCliPath,
-    reviewCliRuntimePath: input.reviewCliRuntimePath,
+    agentServer: input.agentServer,
     openNativeAgentTerminal: input.openNativeAgentTerminal,
     resolveQuestionSourceSession: input.resolveQuestionSourceSession,
     onQuestionAgentSession: input.onQuestionAgentSession,

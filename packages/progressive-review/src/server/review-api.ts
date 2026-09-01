@@ -25,6 +25,7 @@ import { type Context, Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 import {
+  type ReviewAgentHarness,
   type SessionRef,
   parseAuthoringSessionKey,
   resolveAuthoringSessionRef,
@@ -35,8 +36,7 @@ import {
 } from "../codepeek-symbol-diff";
 import { mergeErrorTelemetryProperties } from "../error-telemetry";
 import { NativeMessageMirror } from "../native-agent/native-message-mirror";
-import type { ReviewTurnRoute } from "../native-agent/native-session";
-import { NativeReviewTurnLauncher } from "../native-agent/native-turn-launcher";
+import type { AgentServer, LaunchInput } from "../native-agent/native-session";
 import {
   listReviewTraceSessions,
   loadReviewAgentTrace,
@@ -205,8 +205,7 @@ interface ReviewApiOptions {
   onReviewThreadsCommit?: (commit: ReviewThreadsCommit) => void;
   runReviewThreadMutation?: <T>(operation: () => T | Promise<T>) => Promise<T>;
   reviewToken: string;
-  reviewCliPath?: string;
-  reviewCliRuntimePath?: string;
+  agentServer: (harness: ReviewAgentHarness) => AgentServer;
   openNativeAgentTerminal: (
     input: Extract<
       ReviewVerbRequest,
@@ -245,6 +244,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     onReviewDismiss,
     onReviewThreadsCommit,
     runReviewThreadMutation = async (operation) => operation(),
+    agentServer,
     openNativeAgentTerminal,
     resolveQuestionSourceSession,
     onQuestionAgentSession,
@@ -253,14 +253,10 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     session,
   } = options;
   const agentRootPath = session.headRootPath ?? rootPath;
-  const nativeTurns = new NativeReviewTurnLauncher({
-    hookBaseUrl: `${(session.sessionUrl ?? session.appUrl).replace(/\/$/u, "")}/__progressive-review/native-agent-events`,
-    hookToken: options.reviewToken,
-    runtimeDirectory: path.join(reviewRootPath, ".native-agent"),
-    reviewCliPath: options.reviewCliPath,
-    reviewCliRuntimePath: options.reviewCliRuntimePath,
-    openTerminal: openNativeAgentTerminal,
-  });
+  const hookEndpoint: LaunchInput["hookEndpoint"] = {
+    baseUrl: `${(session.sessionUrl ?? session.appUrl).replace(/\/$/u, "")}/__progressive-review/native-agent-events`,
+    token: options.reviewToken,
+  };
   const threadServices = new Map<string, ReviewThreadsService>();
   const agentMirrors = new Map<string, NativeMessageMirror>();
   const launchedAgentMessageIds = new Set<string>();
@@ -270,7 +266,8 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     service: ReviewThreadsService,
   ): NativeMessageMirror => {
     const mirror = new NativeMessageMirror({
-      observe: (binding) => nativeTurns.observe(binding),
+      updates: (binding) =>
+        agentServer(binding.harness).updates(binding.sessionId),
       service,
     });
     agentMirrors.set(writableReviewPath, mirror);
@@ -607,7 +604,9 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
         session,
         service,
         mirror,
-        nativeTurns,
+        agentServer,
+        hookEndpoint,
+        openNativeAgentTerminal,
         resolveQuestionSourceSession,
         onQuestionAgentSession,
       });
@@ -625,14 +624,10 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       `${context.req.param("harness")}:${context.req.param("sessionId")}`,
     );
     if (!ref) return reviewApiJsonResponse(200, { ok: true });
-    try {
-      nativeTurns.observer.acceptEvent(
-        ref,
-        await readBoundedRequestJson(context.req.raw, 2 * 1024 * 1024, {}),
-      );
-    } catch (error) {
-      nativeTurns.observer.observerFailed(ref, error);
-    }
+    agentServer(ref.harness).receiveHookEvent?.(
+      ref.sessionId,
+      await readBoundedRequestJson(context.req.raw, 2 * 1024 * 1024, {}),
+    );
     return reviewApiJsonResponse(200, { ok: true });
   }
 
@@ -684,11 +679,13 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
         error: "This thread has no agent terminal.",
       });
     }
-    await nativeTurns.openSession({
-      launchId: randomUUID(),
+    const binding = agentSession as SessionRef;
+    const { terminal } = await agentServer(binding.harness).launch({
+      session: { resume: binding.sessionId },
       cwd: agentRootPath,
-      binding: agentSession,
+      hookEndpoint,
     });
+    await openNativeAgentTerminal(terminal);
     return reviewApiJsonResponse(200, { ok: true });
   }
 
@@ -1127,86 +1124,89 @@ async function answerReviewComment(input: {
   session: ReviewSessionWire;
   service: ReviewThreadsService;
   mirror: NativeMessageMirror;
-  nativeTurns: NativeReviewTurnLauncher;
+  agentServer: (harness: ReviewAgentHarness) => AgentServer;
+  hookEndpoint: LaunchInput["hookEndpoint"];
+  openNativeAgentTerminal: ReviewApiOptions["openNativeAgentTerminal"];
   resolveQuestionSourceSession?: (
     signal?: AbortSignal,
   ) => Promise<SessionRef | undefined>;
   onQuestionAgentSession?: (agent: SessionRef) => Promise<void>;
 }): Promise<void> {
-  const agent = input.session.agent;
   const snapshot = input.service.snapshot();
   const storedSession =
     snapshot.drafts[input.comment.threadId]?.thread.agentSession ??
     snapshot.comments[input.comment.threadId]?.agentSession;
-  const route = await resolveReviewQuestionRoute({
+  const launch = await resolveReviewQuestionLaunch({
     storedSession,
-    agent,
+    agent: input.session.agent,
     freshQuestionHarness: input.session.freshQuestionHarness,
     resolveQuestionSourceSession: input.resolveQuestionSourceSession,
   });
-  if (!route) {
+  if (!launch) {
     throw new Error("This Review has no authoring agent session.");
   }
-  const handle = await input.nativeTurns.launchTurn({
-    launchId: randomUUID(),
-    threadId: input.comment.threadId,
-    reviewMessageId: input.comment.messageId,
-    cwd: input.rootPath,
-    prompt: reviewCommentPrompt(input.comment),
-    route,
-  });
-  try {
-    const accepted = await acceptedNativeSession(handle.accepted);
-    const binding = storedSession ?? accepted;
-    if (
-      accepted.harness !== binding.harness ||
-      accepted.sessionId !== binding.sessionId
-    ) {
-      throw new Error(
-        `The native terminal opened session "${accepted.sessionId}" instead of "${binding.sessionId}".`,
-      );
-    }
-    const commit = input.service.setAgentSession({
-      mutationId: randomUUID(),
-      threadId: input.comment.threadId,
-      agentSession: binding,
+  const { sessionId, terminal } = await input
+    .agentServer(launch.harness)
+    .launch({
+      ...(launch.session ? { session: launch.session } : {}),
+      prompt: reviewCommentPrompt(input.comment),
+      cwd: input.rootPath,
+      hookEndpoint: input.hookEndpoint,
     });
-    if (!commit) {
-      throw new Error(
-        `Review comment thread ${input.comment.threadId} no longer exists.`,
-      );
-    }
-    input.mirror.watch(input.comment.threadId, binding);
-    await input.onQuestionAgentSession?.(accepted);
-    void observeNativeTerminalEvents(handle).catch((error) =>
-      console.error(error),
+  await input.openNativeAgentTerminal(terminal);
+  const binding: SessionRef = { harness: launch.harness, sessionId };
+  const commit = input.service.setAgentSession({
+    mutationId: randomUUID(),
+    threadId: input.comment.threadId,
+    agentSession: binding,
+  });
+  if (!commit) {
+    throw new Error(
+      `Review comment thread ${input.comment.threadId} no longer exists.`,
     );
-  } catch (error) {
-    await handle.detach();
-    throw error;
   }
+  input.mirror.watch(input.comment.threadId, binding);
+  await input.onQuestionAgentSession?.(binding);
 }
 
-export async function resolveReviewQuestionRoute(input: {
+export interface ReviewQuestionLaunch {
+  harness: ReviewAgentHarness;
+  session?: LaunchInput["session"];
+}
+
+export async function resolveReviewQuestionLaunch(input: {
   storedSession?: SessionRef;
   agent?: SessionRef;
   freshQuestionHarness?: ReviewSessionWire["freshQuestionHarness"];
   resolveQuestionSourceSession?: (
     signal?: AbortSignal,
   ) => Promise<SessionRef | undefined>;
-}): Promise<ReviewTurnRoute | undefined> {
+}): Promise<ReviewQuestionLaunch | undefined> {
   if (input.storedSession) {
-    return { kind: "resume", session: input.storedSession };
+    return {
+      harness: input.storedSession.harness,
+      session: { resume: input.storedSession.sessionId },
+    };
   }
-  if (input.agent) return { kind: "fork", source: input.agent };
+  if (input.agent) {
+    return {
+      harness: input.agent.harness,
+      session: { forkOf: input.agent.sessionId },
+    };
+  }
   const preparedSource = input.resolveQuestionSourceSession
     ? await resolveQuestionSourceWithinBudget(
         input.resolveQuestionSourceSession,
       )
     : undefined;
-  if (preparedSource) return { kind: "fork", source: preparedSource };
+  if (preparedSource) {
+    return {
+      harness: preparedSource.harness,
+      session: { forkOf: preparedSource.sessionId },
+    };
+  }
   return input.freshQuestionHarness
-    ? { kind: "new", harness: input.freshQuestionHarness }
+    ? { harness: input.freshQuestionHarness }
     : undefined;
 }
 
@@ -1218,41 +1218,6 @@ async function resolveQuestionSourceWithinBudget(
     signal.addEventListener("abort", () => resolve(undefined), { once: true });
   });
   return Promise.race([resolveSource(signal).catch(() => undefined), timedOut]);
-}
-
-async function acceptedNativeSession<T>(accepted: Promise<T>): Promise<T> {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      accepted,
-      new Promise<never>((_resolve, reject) => {
-        timeout = setTimeout(
-          () =>
-            reject(
-              new Error(
-                "The native agent did not report its session within 60 seconds.",
-              ),
-            ),
-          60_000,
-        );
-      }),
-    ]);
-  } finally {
-    if (timeout) clearTimeout(timeout);
-  }
-}
-
-async function observeNativeTerminalEvents(
-  handle: Awaited<ReturnType<NativeReviewTurnLauncher["launchTurn"]>>,
-): Promise<void> {
-  for await (const event of handle.events) {
-    if (event.type === "session.mismatch") {
-      throw new Error(
-        `The native terminal changed from session "${event.expectedSessionId}" to "${event.actualSessionId}".`,
-      );
-    }
-    if (event.type === "observer.failed") throw new Error(event.error);
-  }
 }
 
 function buildReviewSubmissionEvent(input: {

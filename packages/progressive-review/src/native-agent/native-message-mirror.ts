@@ -9,12 +9,16 @@ import { reviewCommentPromptPrefix } from "../review-comment-agent";
 import type { ReviewThreadsService } from "../review-threads-service";
 import type {
   NativeReviewMessage,
-  ObservedNativeSession,
   SessionRef,
+  SessionSnapshot,
+  SessionUpdate,
+  UpdatePipe,
 } from "./native-session";
 
 interface NativeMessageMirrorOptions {
-  observe(binding: SessionRef): ObservedNativeSession;
+  updates(
+    binding: SessionRef,
+  ): Promise<UpdatePipe<SessionSnapshot, SessionUpdate>>;
   service: ReviewThreadsService;
   onError?: (cause: unknown) => void;
 }
@@ -23,20 +27,20 @@ interface SessionWatcher {
   key: string;
   inReviewConversation: boolean;
   threadCursor: number;
-  pipe?: Awaited<ReturnType<ObservedNativeSession["updates"]>>;
+  pipe?: UpdatePipe<SessionSnapshot, SessionUpdate>;
   task: Promise<void>;
 }
 
 /** Mirrors native user and final assistant messages into Review threads. */
 export class NativeMessageMirror {
-  readonly #observe: NativeMessageMirrorOptions["observe"];
+  readonly #updates: NativeMessageMirrorOptions["updates"];
   readonly #service: ReviewThreadsService;
   readonly #onError: (cause: unknown) => void;
   readonly #watchers = new Map<string, SessionWatcher>();
   #closed = false;
 
   constructor(options: NativeMessageMirrorOptions) {
-    this.#observe = options.observe;
+    this.#updates = options.updates;
     this.#service = options.service;
     this.#onError = options.onError ?? ((cause) => console.error(cause));
   }
@@ -85,7 +89,7 @@ export class NativeMessageMirror {
     binding: SessionRef,
     watcher: SessionWatcher,
   ): Promise<void> {
-    const pipe = await this.#observe(binding).updates();
+    const pipe = await this.#updates(binding);
     watcher.pipe = pipe;
     try {
       for (const message of pipe.snapshot.messages) {
@@ -94,6 +98,7 @@ export class NativeMessageMirror {
       }
       for await (const update of pipe.updates) {
         if (this.#watchers.get(threadId) !== watcher) return;
+        if (update.type !== "message.updated") continue;
         this.#apply(threadId, binding, update.message, watcher);
       }
     } finally {

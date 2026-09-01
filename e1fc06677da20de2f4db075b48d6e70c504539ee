@@ -522,7 +522,7 @@ export default defineSoftwareMap({
             contracts: {
               label: "contracts",
               description:
-                "Canonical schemas: AuthoringAgentSession harness enum, ReviewVerbRequest, install targets, and shim install status (installed, profileConfigured, onPath).",
+                "Canonical schemas: AuthoringAgentSession harness enum, ReviewVerbRequest, install targets, shim install status (installed, profileConfigured, onPath), and region-aware trace credential status.",
               coverage: {
                 files: [{ path: "packages/review-protocol/src/contracts.ts" }],
               },

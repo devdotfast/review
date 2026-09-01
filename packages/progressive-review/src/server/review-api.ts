@@ -21,7 +21,6 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import {
   type ReviewAgentHarness,
   type SessionRef,
-  parseAuthoringSessionKey,
   resolveAuthoringSessionRef,
 } from "../authoring-session";
 import {
@@ -222,8 +221,19 @@ type ReviewApiHandler = (
   context: Context<ReviewHonoEnv>,
 ) => Promise<Response> | Response;
 
+export interface AgentThreadLookup {
+  review: string;
+  state: "draft" | "submitted";
+  comment: ReturnType<ReviewThreadsService["snapshot"]>["comments"][string];
+}
+
 export interface ReviewApi {
   app: Hono<ReviewHonoEnv>;
+  /** The comment thread bound to a native agent session, if this review owns it. */
+  findAgentThread(
+    binding: SessionRef,
+    threadId: string,
+  ): AgentThreadLookup | undefined;
   close(): Promise<void>;
 }
 
@@ -251,10 +261,6 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     session,
   } = options;
   const agentRootPath = session.headRootPath ?? rootPath;
-  const hookEndpoint: LaunchInput["hookEndpoint"] = {
-    baseUrl: `${(session.sessionUrl ?? session.appUrl).replace(/\/$/u, "")}/__progressive-review/native-agent-events`,
-    token: options.reviewToken,
-  };
   const threadServices = new Map<string, ReviewThreadsService>();
   const agentMirrors = new Map<string, NativeMessageMirror>();
   const launchedAgentMessageIds = new Set<string>();
@@ -357,11 +363,6 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   app.get("/comments", writable(commentsList));
   app.post("/thread-commands", threadMutation(threadCommand));
   app.post("/agent-runs", writable(agentRunCreate));
-  app.post("/native-agent-events/:harness/:sessionId", route(nativeAgentEvent));
-  app.get(
-    "/native-agent-events/:harness/:sessionId/thread/:threadId",
-    writable(nativeAgentThreadGet),
-  );
   app.post("/comments/:threadId/agent-terminal", writable(agentTerminalOpen));
   app.post("/submissions", writable(submissionCreate));
   app.post("/dismiss", route(reviewDismiss));
@@ -609,7 +610,6 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
         service,
         mirror,
         agentServer,
-        hookEndpoint,
         openNativeAgentTerminal,
         resolveQuestionSourceSession,
         onQuestionAgentSession,
@@ -619,47 +619,6 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       throw error;
     }
     return reviewApiJsonResponse(202, { ok: true });
-  }
-
-  async function nativeAgentEvent(
-    context: Context<ReviewHonoEnv>,
-  ): Promise<Response> {
-    const ref = parseAuthoringSessionKey(
-      `${context.req.param("harness")}:${context.req.param("sessionId")}`,
-    );
-    if (!ref) return reviewApiJsonResponse(200, { ok: true });
-    agentServer(ref.harness).receiveHookEvent?.(
-      ref.sessionId,
-      await readBoundedRequestJson(context.req.raw, 2 * 1024 * 1024, {}),
-    );
-    return reviewApiJsonResponse(200, { ok: true });
-  }
-
-  function nativeAgentThreadGet(
-    context: Context<ReviewHonoEnv>,
-    writableReviewPath: string,
-  ): Response {
-    const threadId = context.req.param("threadId");
-    if (!threadId) {
-      return reviewApiJsonResponse(404, {
-        ok: false,
-        error: "Comment thread not found.",
-      });
-    }
-    const snapshot = threadsFor(writableReviewPath).snapshot();
-    const draft = snapshot.drafts[threadId];
-    const comment = snapshot.comments[threadId];
-    if (!draft && !comment) {
-      return reviewApiJsonResponse(404, {
-        ok: false,
-        error: `Comment thread not found: ${threadId}`,
-      });
-    }
-    return reviewApiJsonResponse(200, {
-      review: path.basename(path.dirname(writableReviewPath)),
-      state: draft ? "draft" : "submitted",
-      comment: draft?.thread ?? comment,
-    });
   }
 
   async function agentTerminalOpen(
@@ -687,7 +646,6 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     const { terminal } = await agentServer(binding.harness).launch({
       session: { resume: binding.sessionId },
       cwd: agentRootPath,
-      hookEndpoint,
     });
     await openNativeAgentTerminal(terminal);
     return reviewApiJsonResponse(200, { ok: true });
@@ -1071,6 +1029,23 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
 
   return {
     app,
+    findAgentThread: (binding, threadId) => {
+      if (!stateReviewPath) return undefined;
+      const snapshot = threadsFor(stateReviewPath).snapshot();
+      const draft = snapshot.drafts[threadId];
+      const thread = draft?.thread ?? snapshot.comments[threadId];
+      if (
+        thread?.agentSession?.harness !== binding.harness ||
+        thread.agentSession.sessionId !== binding.sessionId
+      ) {
+        return undefined;
+      }
+      return {
+        review: path.basename(path.dirname(stateReviewPath)),
+        state: draft ? "draft" : "submitted",
+        comment: thread,
+      };
+    },
     close: async () => {
       await Promise.allSettled(
         [...agentMirrors.values()].map((mirror) => mirror.close()),
@@ -1130,7 +1105,6 @@ async function answerReviewComment(input: {
   service: ReviewThreadsService;
   mirror: NativeMessageMirror;
   agentServer: (harness: ReviewAgentHarness) => AgentServer;
-  hookEndpoint: LaunchInput["hookEndpoint"];
   openNativeAgentTerminal: ReviewApiOptions["openNativeAgentTerminal"];
   resolveQuestionSourceSession?: (
     signal?: AbortSignal,
@@ -1156,7 +1130,6 @@ async function answerReviewComment(input: {
       ...(launch.session ? { session: launch.session } : {}),
       prompt: reviewCommentPrompt(input.comment),
       cwd: input.rootPath,
-      hookEndpoint: input.hookEndpoint,
     });
   await input.openNativeAgentTerminal(terminal);
   const binding: SessionRef = { harness: launch.harness, sessionId };

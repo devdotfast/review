@@ -9,7 +9,6 @@ import type {
   LaunchInput,
   NativeReviewMessage,
   SessionSnapshot,
-  SessionStatus,
   SessionUpdate,
   UpdatePipe,
 } from "./native-session";
@@ -22,7 +21,6 @@ import {
 import { isJsonRecord } from "./transcript-json";
 
 interface SessionState {
-  status: SessionStatus;
   transcriptPath?: string;
   subscribers: Set<Subscriber>;
 }
@@ -46,6 +44,8 @@ export class HookObservedAgentServer implements AgentServer {
   readonly harness: HarnessDialect["harness"];
   readonly #dialect: HarnessDialect;
   readonly #runtimeDirectory: string;
+  readonly #hookBaseUrl: string;
+  readonly #hookToken: string;
   readonly #commandPath: ReviewCommandPath;
   readonly #sessions = new Map<string, SessionState>();
 
@@ -53,6 +53,8 @@ export class HookObservedAgentServer implements AgentServer {
     this.harness = dialect.harness;
     this.#dialect = dialect;
     this.#runtimeDirectory = options.runtimeDirectory;
+    this.#hookBaseUrl = options.hookBaseUrl.replace(/\/$/u, "");
+    this.#hookToken = options.hookToken;
     this.#commandPath = new ReviewCommandPath(options);
   }
 
@@ -63,7 +65,7 @@ export class HookObservedAgentServer implements AgentServer {
       session: input.session,
       cwd: input.cwd,
     });
-    const hookUrl = `${input.hookEndpoint.baseUrl.replace(/\/$/u, "")}/${this.harness}/${encodeURIComponent(sessionId)}`;
+    const hookUrl = `${this.#hookBaseUrl}/${this.harness}/${encodeURIComponent(sessionId)}`;
     const pathValue = await this.#commandPath.resolve();
     const terminal = await this.#dialect.terminalCommand({
       launchId: randomUUID(),
@@ -73,7 +75,7 @@ export class HookObservedAgentServer implements AgentServer {
       cwd: input.cwd,
       env: {
         [REVIEW_AGENT_HOOK_URL_ENV]: hookUrl,
-        [REVIEW_AGENT_HOOK_TOKEN_ENV]: input.hookEndpoint.token,
+        [REVIEW_AGENT_HOOK_TOKEN_ENV]: this.#hookToken,
         [REVIEW_AGENT_THREAD_URL_ENV]: `${hookUrl}/thread`,
         [DEV_REVIEW_HOME_ENV]: devReviewHome(),
         ...(pathValue ? { PATH: pathValue } : {}),
@@ -97,7 +99,7 @@ export class HookObservedAgentServer implements AgentServer {
     };
     state.subscribers.add(subscriber);
     return {
-      snapshot: { sessionId, status: state.status, messages },
+      snapshot: { sessionId, messages },
       updates: subscriber.queue,
       close: async () => {
         state.subscribers.delete(subscriber);
@@ -117,28 +119,8 @@ export class HookObservedAgentServer implements AgentServer {
     }
     const state = this.#session(sessionId);
     if (event.transcriptPath) state.transcriptPath = event.transcriptPath;
-    if (state.status === "pending") {
-      state.status = "idle";
-      this.#broadcast(state, { type: "attached" });
-    }
-    switch (event.kind) {
-      case "turn.started":
-        state.status = "running";
-        this.#broadcast(state, { type: "turn.started" });
-        break;
-      case "turn.completed":
-        state.status = "idle";
-        this.#broadcast(state, { type: "turn.completed" });
-        break;
-      case "closed":
-        state.status = "closed";
-        this.#broadcast(state, { type: "closed", reason: "session ended" });
-        break;
-      case "other":
-        break;
-    }
     this.#wake(sessionId, state);
-    if (event.kind === "turn.completed" || event.kind === "closed") {
+    if (event.completesTurn) {
       // Hooks can fire before the harness flushes the transcript.
       for (const delay of [250, 1_000]) {
         const timer = setTimeout(() => this.#wake(sessionId, state), delay);
@@ -162,14 +144,10 @@ export class HookObservedAgentServer implements AgentServer {
   #session(sessionId: string): SessionState {
     let state = this.#sessions.get(sessionId);
     if (!state) {
-      state = { status: "pending", subscribers: new Set() };
+      state = { subscribers: new Set() };
       this.#sessions.set(sessionId, state);
     }
     return state;
-  }
-
-  #broadcast(state: SessionState, update: SessionUpdate): void {
-    for (const subscriber of state.subscribers) subscriber.queue.push(update);
   }
 
   #wake(sessionId: string, state: SessionState): void {
@@ -214,7 +192,7 @@ function isMissingTranscript(error: unknown): boolean {
 function hookEvent(payload: Record<string, unknown>): {
   sessionId?: string;
   transcriptPath?: string;
-  kind: "turn.started" | "turn.completed" | "closed" | "other";
+  completesTurn: boolean;
 } {
   const sessionId = firstString(
     payload.session_id,
@@ -231,18 +209,11 @@ function hookEvent(payload: Record<string, unknown>): {
     payload.hookEventName,
     payload.event,
   )?.toLowerCase();
-  const kind =
-    name === "userpromptsubmit" || name === "message_start"
-      ? "turn.started"
-      : name === "stop" || name === "agent_settled"
-        ? "turn.completed"
-        : name === "sessionend" || name === "session_shutdown"
-          ? "closed"
-          : "other";
   return {
     ...(sessionId ? { sessionId } : {}),
     ...(transcriptPath ? { transcriptPath } : {}),
-    kind,
+    completesTurn:
+      name === "stop" || name === "sessionend" || name === "agent_settled",
   };
 }
 

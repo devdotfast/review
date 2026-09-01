@@ -8,7 +8,11 @@ import * as claudeCode from "./claude-code";
 import * as codex from "./codex";
 import type { HarnessDialect } from "./harness";
 import { HookObservedAgentServer } from "./hook-observed-server";
-import type { NativeReviewMessage, SessionUpdate } from "./native-session";
+import type {
+  AgentServerOptions,
+  NativeReviewMessage,
+  SessionUpdate,
+} from "./native-session";
 import * as pi from "./pi";
 
 const temporaryDirectories: string[] = [];
@@ -22,23 +26,22 @@ afterEach(async () => {
   );
 });
 
-const hookEndpoint = { baseUrl: "http://127.0.0.1:4000/hooks", token: "s" };
-
-async function runtimeDirectory(): Promise<string> {
+async function options(): Promise<AgentServerOptions> {
   const directory = await mkdtemp(path.join(tmpdir(), "review-agent-server-"));
   temporaryDirectories.push(directory);
-  return directory;
+  return {
+    runtimeDirectory: directory,
+    hookBaseUrl: "http://127.0.0.1:4000/hooks",
+    hookToken: "s",
+  };
 }
 
 describe("launch", () => {
   it("resumes Claude as a normal interactive terminal", async () => {
-    const server = claudeCode.server({
-      runtimeDirectory: await runtimeDirectory(),
-    });
+    const server = claudeCode.server(await options());
     const { sessionId, terminal } = await server.launch({
       session: { resume: "tutorial-thread" },
       cwd: "/tmp/tutorial",
-      hookEndpoint,
     });
     expect(sessionId).toBe("tutorial-thread");
     expect(terminal.executable).toBe("claude");
@@ -53,14 +56,11 @@ describe("launch", () => {
   });
 
   it("forks a Claude source session in the normal interactive terminal", async () => {
-    const server = claudeCode.server({
-      runtimeDirectory: await runtimeDirectory(),
-    });
+    const server = claudeCode.server(await options());
     const { sessionId, terminal } = await server.launch({
       session: { forkOf: "tutorial-source" },
       prompt: "Explain this Review",
       cwd: "/tmp/tutorial",
-      hookEndpoint,
     });
     expect(sessionId).toMatch(/^[0-9a-f-]{36}$/);
     expect(terminal.args).toEqual(
@@ -76,13 +76,10 @@ describe("launch", () => {
   });
 
   it("starts a fresh Claude session without resuming or forking", async () => {
-    const server = claudeCode.server({
-      runtimeDirectory: await runtimeDirectory(),
-    });
+    const server = claudeCode.server(await options());
     const { sessionId, terminal } = await server.launch({
       prompt: "Explain this code",
       cwd: "/tmp/tutorial",
-      hookEndpoint,
     });
     expect(terminal.args).toEqual(
       expect.arrayContaining(["--session-id", sessionId]),
@@ -93,11 +90,10 @@ describe("launch", () => {
   });
 
   it("starts a fresh Pi session with a generated session ID", async () => {
-    const server = pi.server({ runtimeDirectory: await runtimeDirectory() });
+    const server = pi.server(await options());
     const { sessionId, terminal } = await server.launch({
       prompt: "Explain this code",
       cwd: "/tmp/tutorial",
-      hookEndpoint,
     });
     expect(terminal.executable).toBe("pi");
     expect(sessionId).toMatch(/^[0-9a-f-]{36}$/);
@@ -116,13 +112,12 @@ describe("launch", () => {
       NonNullable<codex.CodexDialectDependencies["forkCodexThread"]>
     >(async () => "codex-forked-thread");
     const server = codex.server({
-      runtimeDirectory: await runtimeDirectory(),
+      ...(await options()),
       dependencies: { startCodexThread, forkCodexThread },
     });
     const { sessionId, terminal } = await server.launch({
       prompt: "Explain this code",
       cwd: "/tmp/tutorial",
-      hookEndpoint,
     });
     expect(startCodexThread).toHaveBeenCalledWith({ cwd: "/tmp/tutorial" });
     expect(forkCodexThread).not.toHaveBeenCalled();
@@ -169,13 +164,13 @@ describe("updates", () => {
 
   it("snapshots the transcript, then forwards the tail on every hook", async () => {
     const transcript = [message("user", "hello")];
-    const server = new HookObservedAgentServer(fakeDialect(transcript), {
-      runtimeDirectory: await runtimeDirectory(),
-    });
+    const server = new HookObservedAgentServer(
+      fakeDialect(transcript),
+      await options(),
+    );
     const pipe = await server.updates("session");
     expect(pipe.snapshot).toEqual({
       sessionId: "session",
-      status: "pending",
       messages: [message("user", "hello")],
     });
 
@@ -184,37 +179,18 @@ describe("updates", () => {
       hook_event_name: "Stop",
       session_id: "session",
     });
-    expect(await nextUpdates(pipe.updates, 3)).toEqual([
-      { type: "attached" },
-      { type: "turn.completed" },
+    expect(await nextUpdates(pipe.updates, 1)).toEqual([
       { type: "message.updated", message: message("assistant", "hi") },
     ]);
-    await pipe.close();
-  });
-
-  it("tracks status across turn hooks", async () => {
-    const server = new HookObservedAgentServer(fakeDialect([]), {
-      runtimeDirectory: await runtimeDirectory(),
-    });
-    const pipe = await server.updates("session");
-    server.receiveHookEvent("session", { hook_event_name: "UserPromptSubmit" });
-    server.receiveHookEvent("session", { hook_event_name: "Stop" });
-    server.receiveHookEvent("session", { hook_event_name: "SessionEnd" });
-    expect(await nextUpdates(pipe.updates, 4)).toEqual([
-      { type: "attached" },
-      { type: "turn.started" },
-      { type: "turn.completed" },
-      { type: "closed", reason: "session ended" },
-    ]);
-    expect((await server.updates("session")).snapshot.status).toBe("closed");
     await pipe.close();
     await server.close();
   });
 
   it("rejects a hook that names a different session", async () => {
-    const server = new HookObservedAgentServer(fakeDialect([]), {
-      runtimeDirectory: await runtimeDirectory(),
-    });
+    const server = new HookObservedAgentServer(
+      fakeDialect([]),
+      await options(),
+    );
     expect(() =>
       server.receiveHookEvent("session", { session_id: "other" }),
     ).toThrow(/posted to session "session"/);

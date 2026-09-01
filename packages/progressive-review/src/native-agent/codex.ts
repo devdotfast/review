@@ -1,7 +1,7 @@
 import { DEV_REVIEW_HOME_ENV } from "../review-storage";
 import { forkCodexThread, startCodexThread } from "./codex-app-server";
 import { readCodexReviewMessages } from "./codex-transcript";
-import type { HarnessDialect, NativeTerminalInput } from "./harness";
+import type { HarnessDialect, NativeTerminalCommand } from "./harness";
 import { HookObservedAgentServer } from "./hook-observed-server";
 import type { AgentServer, AgentServerOptions } from "./native-session";
 import { nativeHookCommand, tomlInline } from "./terminal-command";
@@ -62,13 +62,11 @@ export function createDialect(
       args.push("resume", "--dangerously-bypass-hook-trust", input.sessionId);
       if (input.prompt !== undefined) args.push(input.prompt);
       return {
-        launchId: input.launchId,
-        harness: "codex",
         cwd: input.cwd,
         executable: "codex",
         args,
         env: input.env,
-      } satisfies NativeTerminalInput;
+      } satisfies NativeTerminalCommand;
     },
 
     readMessages: readCodexReviewMessages,

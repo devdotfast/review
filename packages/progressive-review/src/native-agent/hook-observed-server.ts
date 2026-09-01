@@ -1,10 +1,10 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { type IncomingMessage, type Server, createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 
 import { DEV_REVIEW_HOME_ENV, devReviewHome } from "../review-storage";
 import { AsyncQueue } from "./async-queue";
-import type { HarnessDialect, NativeTerminalInput } from "./harness";
+import type { HarnessDialect, NativeTerminalCommand } from "./harness";
 import type {
   AgentServer,
   AgentServerOptions,
@@ -69,7 +69,7 @@ export class HookObservedAgentServer implements AgentServer {
 
   async launch(
     input: LaunchInput,
-  ): Promise<{ sessionId: string; terminal: NativeTerminalInput }> {
+  ): Promise<{ sessionId: string; command: NativeTerminalCommand }> {
     const sessionId = await this.#dialect.reserveSessionId({
       session: input.session,
       cwd: input.cwd,
@@ -77,8 +77,7 @@ export class HookObservedAgentServer implements AgentServer {
     const { url: hookBaseUrl } = await this.#listen();
     const sessionPath = `${this.harness}/${encodeURIComponent(sessionId)}`;
     const pathValue = await this.#commandPath.resolve();
-    const terminal = await this.#dialect.terminalCommand({
-      launchId: randomUUID(),
+    const command = await this.#dialect.terminalCommand({
       session: input.session,
       sessionId,
       ...(input.prompt === undefined ? {} : { prompt: input.prompt }),
@@ -97,7 +96,7 @@ export class HookObservedAgentServer implements AgentServer {
       runtimeDirectory: this.#runtimeDirectory,
     });
     this.#session(sessionId);
-    return { sessionId, terminal };
+    return { sessionId, command };
   }
 
   async updates(

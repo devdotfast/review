@@ -38,36 +38,36 @@ async function options(): Promise<AgentServerOptions> {
 describe("launch", () => {
   it("resumes Claude as a normal interactive terminal", async () => {
     const server = claudeCode.server(await options());
-    const { sessionId, terminal } = await server.launch({
+    const { sessionId, command } = await server.launch({
       session: { resume: "tutorial-thread" },
       cwd: "/tmp/tutorial",
     });
     expect(sessionId).toBe("tutorial-thread");
-    expect(terminal.executable).toBe("claude");
-    expect(terminal.args).not.toContain("--print");
-    expect(terminal.args).toEqual(
+    expect(command.executable).toBe("claude");
+    expect(command.args).not.toContain("--print");
+    expect(command.args).toEqual(
       expect.arrayContaining(["--resume", "tutorial-thread"]),
     );
-    expect(terminal.args.at(-1)).toBe("tutorial-thread");
-    expect(terminal.env.DEV_FAST_REVIEW_AGENT_HOOK_URL).toMatch(
+    expect(command.args.at(-1)).toBe("tutorial-thread");
+    expect(command.env.DEV_FAST_REVIEW_AGENT_HOOK_URL).toMatch(
       /^http:\/\/127\.0\.0\.1:\d+\/claude-code\/tutorial-thread$/,
     );
-    expect(terminal.env.DEV_FAST_REVIEW_AGENT_THREAD_URL).toBe(
+    expect(command.env.DEV_FAST_REVIEW_AGENT_THREAD_URL).toBe(
       "http://127.0.0.1:4000/native-agent-events/claude-code/tutorial-thread/thread",
     );
-    expect(terminal.env.DEV_FAST_REVIEW_AGENT_THREAD_TOKEN).toBe("s");
+    expect(command.env.DEV_FAST_REVIEW_AGENT_THREAD_TOKEN).toBe("s");
     await server.close();
   });
 
   it("forks a Claude source session in the normal interactive terminal", async () => {
     const server = claudeCode.server(await options());
-    const { sessionId, terminal } = await server.launch({
+    const { sessionId, command } = await server.launch({
       session: { forkOf: "tutorial-source" },
       prompt: "Explain this Review",
       cwd: "/tmp/tutorial",
     });
     expect(sessionId).toMatch(/^[0-9a-f-]{36}$/);
-    expect(terminal.args).toEqual(
+    expect(command.args).toEqual(
       expect.arrayContaining([
         "--resume",
         "tutorial-source",
@@ -76,36 +76,36 @@ describe("launch", () => {
         sessionId,
       ]),
     );
-    expect(terminal.args.at(-1)).toBe("Explain this Review");
+    expect(command.args.at(-1)).toBe("Explain this Review");
   });
 
   it("starts a fresh Claude session without resuming or forking", async () => {
     const server = claudeCode.server(await options());
-    const { sessionId, terminal } = await server.launch({
+    const { sessionId, command } = await server.launch({
       prompt: "Explain this code",
       cwd: "/tmp/tutorial",
     });
-    expect(terminal.args).toEqual(
+    expect(command.args).toEqual(
       expect.arrayContaining(["--session-id", sessionId]),
     );
-    expect(terminal.args).not.toContain("--resume");
-    expect(terminal.args).not.toContain("--fork-session");
-    expect(terminal.args.at(-1)).toBe("Explain this code");
+    expect(command.args).not.toContain("--resume");
+    expect(command.args).not.toContain("--fork-session");
+    expect(command.args.at(-1)).toBe("Explain this code");
   });
 
   it("starts a fresh Pi session with a generated session ID", async () => {
     const server = pi.server(await options());
-    const { sessionId, terminal } = await server.launch({
+    const { sessionId, command } = await server.launch({
       prompt: "Explain this code",
       cwd: "/tmp/tutorial",
     });
-    expect(terminal.executable).toBe("pi");
+    expect(command.executable).toBe("pi");
     expect(sessionId).toMatch(/^[0-9a-f-]{36}$/);
-    expect(terminal.args).toEqual(
+    expect(command.args).toEqual(
       expect.arrayContaining(["--session-id", sessionId]),
     );
-    expect(terminal.args).not.toContain("--session");
-    expect(terminal.args).not.toContain("--fork");
+    expect(command.args).not.toContain("--session");
+    expect(command.args).not.toContain("--fork");
   });
 
   it("creates a Codex thread before opening it in the terminal", async () => {
@@ -119,15 +119,15 @@ describe("launch", () => {
       ...(await options()),
       dependencies: { startCodexThread, forkCodexThread },
     });
-    const { sessionId, terminal } = await server.launch({
+    const { sessionId, command } = await server.launch({
       prompt: "Explain this code",
       cwd: "/tmp/tutorial",
     });
     expect(startCodexThread).toHaveBeenCalledWith({ cwd: "/tmp/tutorial" });
     expect(forkCodexThread).not.toHaveBeenCalled();
     expect(sessionId).toBe("codex-new-thread");
-    expect(terminal.executable).toBe("codex");
-    expect(terminal.args).toEqual(
+    expect(command.executable).toBe("codex");
+    expect(command.args).toEqual(
       expect.arrayContaining([
         "resume",
         "codex-new-thread",
@@ -143,8 +143,6 @@ describe("updates", () => {
       harness: "claude-code",
       reserveSessionId: async () => "session",
       terminalCommand: async (input) => ({
-        launchId: input.launchId,
-        harness: "claude-code",
         cwd: input.cwd,
         executable: "claude",
         args: [],
@@ -193,7 +191,7 @@ describe("updates", () => {
       fakeDialect(transcript),
       await options(),
     );
-    const { terminal } = await server.launch({ cwd: "/tmp/tutorial" });
+    const { command } = await server.launch({ cwd: "/tmp/tutorial" });
     const pipe = await server.updates("session");
     expect(pipe.snapshot).toEqual({
       sessionId: "session",
@@ -201,7 +199,7 @@ describe("updates", () => {
     });
 
     transcript.push(message("assistant", "hi"));
-    const response = await postHook(terminal.env, {
+    const response = await postHook(command.env, {
       hook_event_name: "Stop",
       session_id: "session",
     });
@@ -218,8 +216,8 @@ describe("updates", () => {
       fakeDialect([]),
       await options(),
     );
-    const { terminal } = await server.launch({ cwd: "/tmp/tutorial" });
-    const response = await postHook(terminal.env, { session_id: "other" });
+    const { command } = await server.launch({ cwd: "/tmp/tutorial" });
+    const response = await postHook(command.env, { session_id: "other" });
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({
       error: expect.stringContaining('posted to session "session"'),
@@ -232,8 +230,8 @@ describe("updates", () => {
       fakeDialect([]),
       await options(),
     );
-    const { terminal } = await server.launch({ cwd: "/tmp/tutorial" });
-    expect((await postHook(terminal.env, {}, "wrong")).status).toBe(401);
+    const { command } = await server.launch({ cwd: "/tmp/tutorial" });
+    expect((await postHook(command.env, {}, "wrong")).status).toBe(401);
     await server.close();
   });
 });

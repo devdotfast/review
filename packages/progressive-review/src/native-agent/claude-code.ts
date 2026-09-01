@@ -3,11 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { readClaudeReviewMessages } from "./claude-transcript";
-import type {
-  HarnessDialect,
-  NativeTerminalInput,
-  TerminalCommandInput,
-} from "./harness";
+import type { HarnessDialect, NativeTerminalCommand } from "./harness";
 import { HookObservedAgentServer } from "./hook-observed-server";
 import type { AgentServer, AgentServerOptions } from "./native-session";
 import { nativeHookCommand } from "./terminal-command";
@@ -32,7 +28,7 @@ export const dialect: HarnessDialect = {
   },
 
   async terminalCommand(input) {
-    const settingsPath = await writeSettings(input);
+    const settingsPath = await writeSettings(input.runtimeDirectory);
     const args = [
       "--settings",
       settingsPath,
@@ -61,8 +57,6 @@ export const dialect: HarnessDialect = {
     }
     if (input.prompt !== undefined) args.push(input.prompt);
     return {
-      launchId: input.launchId,
-      harness: "claude-code",
       cwd: input.cwd,
       executable: "claude",
       args,
@@ -70,16 +64,16 @@ export const dialect: HarnessDialect = {
         ...input.env,
         CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: "1",
       },
-    } satisfies NativeTerminalInput;
+    } satisfies NativeTerminalCommand;
   },
 
   readMessages: readClaudeReviewMessages,
 };
 
-async function writeSettings(input: TerminalCommandInput): Promise<string> {
-  const launchDirectory = join(input.runtimeDirectory, input.launchId);
-  const settingsPath = join(launchDirectory, "claude-settings.json");
-  await mkdir(launchDirectory, { recursive: true, mode: 0o700 });
+/** The observer settings never vary per launch, so one file serves every terminal. */
+async function writeSettings(runtimeDirectory: string): Promise<string> {
+  const settingsPath = join(runtimeDirectory, "claude-settings.json");
+  await mkdir(runtimeDirectory, { recursive: true, mode: 0o700 });
   const observerHook = { command: nativeHookCommand(), type: "command" };
   const hooks = Object.fromEntries(
     OBSERVER_EVENTS.map((event) => [event, [{ hooks: [observerHook] }]]),

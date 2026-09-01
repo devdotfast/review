@@ -1919,12 +1919,14 @@ export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
   z.strictObject({
     name: z.literal("openNativeAgentTerminal"),
     args: z.strictObject({
-      launchId: requiredString,
-      harness: AuthoringAgentSessionSchema.shape.harness,
-      cwd: requiredString,
-      executable: requiredString,
-      args: z.array(z.string()),
-      env: z.record(requiredString, z.string()),
+      /** The native session the terminal runs; the app keys terminals by it. */
+      session: AuthoringAgentSessionSchema,
+      command: z.strictObject({
+        cwd: requiredString,
+        executable: requiredString,
+        args: z.array(z.string()),
+        env: z.record(requiredString, z.string()),
+      }),
     }),
   }),
   // Server-to-app only: mount the (unpromoted) session's document off-screen

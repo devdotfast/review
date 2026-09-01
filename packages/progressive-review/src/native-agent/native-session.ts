@@ -1,13 +1,6 @@
-import type { ReviewAgentHarness } from "../authoring-session";
+import type { ReviewAgentHarness, SessionRef } from "../authoring-session";
 
-export type { ReviewAgentHarness } from "../authoring-session";
-
-export interface NativeSessionRef {
-  harness: ReviewAgentHarness;
-  sessionId: string;
-}
-
-export type ReviewThreadAgentBinding = NativeSessionRef;
+export type { ReviewAgentHarness, SessionRef } from "../authoring-session";
 
 export interface NativeReviewMessage {
   role: "user" | "assistant";
@@ -16,7 +9,7 @@ export interface NativeReviewMessage {
 }
 
 export interface NativeSessionSnapshot {
-  session: ReviewThreadAgentBinding;
+  session: SessionRef;
   messages: readonly NativeReviewMessage[];
 }
 
@@ -32,7 +25,7 @@ export interface UpdatePipe<Snapshot, Update> {
 }
 
 export interface ObservedNativeSession {
-  readonly ref: ReviewThreadAgentBinding;
+  readonly ref: SessionRef;
   updates(): Promise<UpdatePipe<NativeSessionSnapshot, NativeSessionUpdate>>;
 }
 
@@ -42,11 +35,10 @@ export type NativeTerminalEvent =
       expectedSessionId: string;
       actualSessionId: string;
     }
-  | { type: "observer.failed"; error: string }
-  | { type: "terminal.closed" };
+  | { type: "observer.failed"; error: string };
 
 export interface NativeTerminalHandle {
-  readonly accepted: Promise<NativeSessionRef>;
+  readonly accepted: Promise<SessionRef>;
   readonly events: AsyncIterable<NativeTerminalEvent>;
   detach(): Promise<void>;
 }
@@ -54,9 +46,9 @@ export interface NativeTerminalHandle {
 export type ReviewTurnRoute =
   | {
       kind: "fork";
-      source: NativeSessionRef;
+      source: SessionRef;
     }
-  | { kind: "resume"; session: ReviewThreadAgentBinding }
+  | { kind: "resume"; session: SessionRef }
   | { kind: "new"; harness: ReviewAgentHarness };
 
 export interface LaunchReviewTurnInput {

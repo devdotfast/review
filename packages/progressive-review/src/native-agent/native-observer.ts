@@ -11,21 +11,20 @@ import { readClaudeReviewMessages } from "./claude-transcript";
 import { readCodexReviewMessages } from "./codex-transcript";
 import type {
   NativeReviewMessage,
-  NativeSessionRef,
   NativeSessionSnapshot,
   NativeSessionUpdate,
   NativeTerminalEvent,
   NativeTerminalHandle,
   ObservedNativeSession,
   ReviewAgentHarness,
-  ReviewThreadAgentBinding,
+  SessionRef,
   UpdatePipe,
 } from "./native-session";
 import { readPiReviewMessages } from "./pi-transcript";
 import { isMissingFileError } from "./transcript-json";
 
 interface SessionState {
-  binding: ReviewThreadAgentBinding;
+  binding: SessionRef;
   transcriptPath?: string;
   listeners: Set<() => void>;
 }
@@ -34,7 +33,7 @@ interface LaunchState {
   harness: ReviewAgentHarness;
   expectedSessionId?: string;
   acceptedSessionId?: string;
-  resolveAccepted(session: NativeSessionRef): void;
+  resolveAccepted(session: SessionRef): void;
   rejectAccepted(error: Error): void;
   events: AsyncQueue<NativeTerminalEvent>;
   detached: boolean;
@@ -54,9 +53,9 @@ export class NativeSessionObserverRegistry {
     if (this.#launches.has(input.launchId)) {
       throw new Error(`Native launch "${input.launchId}" already exists.`);
     }
-    let resolveAccepted!: (session: NativeSessionRef) => void;
+    let resolveAccepted!: (session: SessionRef) => void;
     let rejectAccepted!: (error: Error) => void;
-    const accepted = new Promise<NativeSessionRef>((resolve, reject) => {
+    const accepted = new Promise<SessionRef>((resolve, reject) => {
       resolveAccepted = resolve;
       rejectAccepted = reject;
     });
@@ -121,7 +120,7 @@ export class NativeSessionObserverRegistry {
     const binding = {
       harness: launch.harness,
       sessionId: actualSessionId,
-    } satisfies ReviewThreadAgentBinding;
+    } satisfies SessionRef;
     const state = this.#session(binding);
     if (event.transcriptPath) state.transcriptPath = event.transcriptPath;
     wakeSession(state);
@@ -144,19 +143,7 @@ export class NativeSessionObserverRegistry {
     this.#launches.delete(launchId);
   }
 
-  terminalClosed(launchId: string): void {
-    const launch = this.#launches.get(launchId);
-    if (!launch || launch.detached) return;
-    launch.events.push({ type: "terminal.closed" });
-    if (!launch.acceptedSessionId) {
-      launch.rejectAccepted(
-        new Error("The native terminal closed before it accepted the prompt."),
-      );
-    }
-    this.#detachLaunch(launchId);
-  }
-
-  observe(binding: ReviewThreadAgentBinding): ObservedNativeSession {
+  observe(binding: SessionRef): ObservedNativeSession {
     return new RegistryObservedSession(this, this.#session(binding));
   }
 
@@ -193,7 +180,7 @@ export class NativeSessionObserverRegistry {
     }
   }
 
-  #session(binding: ReviewThreadAgentBinding): SessionState {
+  #session(binding: SessionRef): SessionState {
     const key = sessionKey(binding);
     let state = this.#sessions.get(key);
     if (!state) {
@@ -218,7 +205,7 @@ class RegistryObservedSession implements ObservedNativeSession {
     readonly state: SessionState,
   ) {}
 
-  get ref(): ReviewThreadAgentBinding {
+  get ref(): SessionRef {
     return this.state.binding;
   }
 
@@ -267,7 +254,7 @@ class RegistryObservedSession implements ObservedNativeSession {
   }
 }
 
-function sessionKey(ref: NativeSessionRef): string {
+function sessionKey(ref: SessionRef): string {
   return `${ref.harness}:${ref.sessionId}`;
 }
 

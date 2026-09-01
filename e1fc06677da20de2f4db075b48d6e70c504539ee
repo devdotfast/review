@@ -539,11 +539,56 @@ export default defineSoftwareMap({
         },
         reviewApp: {
           label: "Review SPA",
-          description: "In-app review UI served to Review Desktop, including the bug report dialog.",
+          description:
+            "In-app review UI served to Review Desktop, including the trace reading view and the bug report dialog.",
           coverage: {
-            files: [{ path: "packages/progressive-review/app/src/bug-report-dialog.tsx" }],
+            files: [
+              { path: "packages/progressive-review/app/src/bug-report-dialog.tsx" },
+              { path: "packages/progressive-review/app/src/trace-document.tsx" },
+            ],
           },
           components: {
+            traceView: {
+              label: "Trace document view",
+              description:
+                "Renders an agent session trace as a turn-grouped document: lens picks keep the salient events and elide the rest behind expandable gap chips. Hosted by ReviewTraceView and the review canvas.",
+              coverage: {
+                files: [{ path: "packages/progressive-review/app/src/trace-document.tsx" }],
+              },
+              codeElements: {
+                traceDocument: {
+                  label: "TraceDocument",
+                  description:
+                    "Stateful trace reader: computes lens-included events, tracks expanded gaps and expanded events, and renders one TraceTurn per turn.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "traceTurn",
+                      label: "renders turns with expansion callbacks",
+                    },
+                  ],
+                },
+                traceTurn: {
+                  label: "TraceTurn",
+                  description:
+                    "Renders a turn's user, work, and final events, coalescing tool runs and collapsing runs of elided events into gap chips.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "gapElision",
+                      label: "TraceGapChip for elided runs",
+                    },
+                  ],
+                },
+                gapElision: {
+                  label: "Lens elision helpers",
+                  description:
+                    "applyLensPicks/elideByKeep decide which events a lens keeps; TraceGapChip and ElidedMessage present the elided remainder with expand affordances.",
+                },
+              },
+            },
             bugReportDialog: {
               label: "Bug report dialog",
               description:

@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
+import {
+  REVIEW_AGENT_HOOK_TOKEN_ENV,
+  REVIEW_AGENT_THREAD_URL_ENV,
+} from "./native-agent/terminal-command";
 import { ReviewCommentThreadRecordSchema } from "./review-comment-schema";
 import { reviewUuidForManagedCheckout } from "./review-head-checkout";
 import { type StoredReview, findReview, listReviews } from "./review-home";
@@ -17,9 +21,6 @@ export interface ReviewThreadsTarget {
   cwd: string;
   reviewUuid?: string;
 }
-
-const REVIEW_AGENT_THREAD_URL_ENV = "DEV_FAST_REVIEW_AGENT_THREAD_URL";
-const REVIEW_AGENT_HOOK_TOKEN_ENV = "DEV_FAST_REVIEW_AGENT_HOOK_TOKEN";
 
 export async function runReviewThreadsList(
   input: ReviewThreadsTarget & { json?: boolean; stdout: NodeJS.WriteStream },

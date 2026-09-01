@@ -1,13 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
-import { delimiter, dirname, extname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 import type { ReviewVerbRequest } from "@dev.fast/review-protocol";
 
 import { DEV_REVIEW_HOME_ENV, devReviewHome } from "../review-storage";
-import { writePathShim } from "../server/cli-install";
 import { forkCodexThread, startCodexThread } from "./codex-app-server";
 import { NativeSessionObserverRegistry } from "./native-observer";
 import type {
@@ -17,10 +14,15 @@ import type {
   ReviewAgentHarness,
   SessionRef,
 } from "./native-session";
-
-export const REVIEW_AGENT_HOOK_URL_ENV = "DEV_FAST_REVIEW_AGENT_HOOK_URL";
-export const REVIEW_AGENT_HOOK_TOKEN_ENV = "DEV_FAST_REVIEW_AGENT_HOOK_TOKEN";
-export const REVIEW_AGENT_THREAD_URL_ENV = "DEV_FAST_REVIEW_AGENT_THREAD_URL";
+import {
+  REVIEW_AGENT_HOOK_TOKEN_ENV,
+  REVIEW_AGENT_HOOK_URL_ENV,
+  REVIEW_AGENT_THREAD_URL_ENV,
+  ReviewCommandPath,
+  companionModulePath,
+  nativeHookCommand,
+  tomlInline,
+} from "./terminal-command";
 
 type NativeTerminalInput = Extract<
   ReviewVerbRequest,
@@ -50,20 +52,17 @@ export class NativeReviewTurnLauncher {
   readonly #hookBaseUrl: string;
   readonly #hookToken: string;
   readonly #runtimeDirectory: string;
-  readonly #reviewCliPath: string | undefined;
-  readonly #reviewCliRuntimePath: string | undefined;
+  readonly #commandPath: ReviewCommandPath;
   readonly #openTerminal: NativeReviewTurnLauncherInput["openTerminal"];
   readonly #startCodexThread: typeof startCodexThread;
   readonly #forkCodexThread: typeof forkCodexThread;
-  #reviewCommandDirectory: Promise<string | undefined> | undefined;
   readonly observer: NativeSessionObserverRegistry;
 
   constructor(input: NativeReviewTurnLauncherInput) {
     this.#hookBaseUrl = input.hookBaseUrl.replace(/\/$/u, "");
     this.#hookToken = input.hookToken;
     this.#runtimeDirectory = input.runtimeDirectory;
-    this.#reviewCliPath = input.reviewCliPath;
-    this.#reviewCliRuntimePath = input.reviewCliRuntimePath;
+    this.#commandPath = new ReviewCommandPath(input);
     this.#openTerminal = input.openTerminal;
     this.#startCodexThread = input.startCodexThread ?? startCodexThread;
     this.#forkCodexThread = input.forkCodexThread ?? forkCodexThread;
@@ -162,7 +161,7 @@ export class NativeReviewTurnLauncher {
     submitPrompt = true,
   ): Promise<NativeTerminalInput> {
     const hookUrl = `${this.#hookBaseUrl}/${encodeURIComponent(input.launchId)}`;
-    const pathValue = await this.#nativeAgentPath();
+    const pathValue = await this.#commandPath.resolve();
     const reviewHome = devReviewHome();
     const env = {
       [REVIEW_AGENT_HOOK_URL_ENV]: hookUrl,
@@ -291,30 +290,6 @@ export class NativeReviewTurnLauncher {
     }
   }
 
-  async #nativeAgentPath(): Promise<string | undefined> {
-    const commandDirectory = await this.#prepareReviewCommand();
-    const inheritedPath = process.env.PATH;
-    if (!commandDirectory) return inheritedPath;
-    return inheritedPath
-      ? `${commandDirectory}${delimiter}${inheritedPath}`
-      : commandDirectory;
-  }
-
-  async #prepareReviewCommand(): Promise<string | undefined> {
-    const reviewCliPath = this.#reviewCliPath;
-    if (!reviewCliPath) return undefined;
-    this.#reviewCommandDirectory ??= (async () => {
-      const commandDirectory = join(this.#runtimeDirectory, "bin");
-      await writePathShim(
-        join(commandDirectory, "review"),
-        reviewCliPath,
-        this.#reviewCliRuntimePath,
-      );
-      return commandDirectory;
-    })();
-    return this.#reviewCommandDirectory;
-  }
-
   async #writeClaudeSettings(launchId: string): Promise<string> {
     const launchDirectory = join(this.#runtimeDirectory, launchId);
     const settingsPath = join(launchDirectory, "claude-settings.json");
@@ -342,56 +317,3 @@ const CLAUDE_OBSERVER_EVENTS = [
 ] as const;
 
 const CODEX_OBSERVER_EVENTS = ["UserPromptSubmit", "Stop"] as const;
-
-function companionModulePath(name: string): string {
-  const currentPath = fileURLToPath(import.meta.url);
-  const extension = extname(currentPath) === ".ts" ? ".ts" : ".js";
-  const direct = join(dirname(currentPath), `${name}${extension}`);
-  if (extension === ".ts" || existsSync(direct)) return direct;
-  return join(dirname(currentPath), "native-agent", `${name}${extension}`);
-}
-
-function nativeHookCommand(): string {
-  const modulePath = companionModulePath("native-hook-client");
-  const nodeArgs =
-    extname(modulePath) === ".ts"
-      ? [
-          process.execPath,
-          "--import",
-          fileURLToPath(import.meta.resolve("tsx/esm")),
-          modulePath,
-        ]
-      : [process.execPath, modulePath];
-  const command =
-    process.versions.electron === undefined
-      ? nodeArgs
-      : ["/usr/bin/env", "ELECTRON_RUN_AS_NODE=1", ...nodeArgs];
-  return command.map(shellQuote).join(" ");
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", `'"'"'`)}'`;
-}
-
-function tomlInline(value: unknown): string {
-  if (typeof value === "boolean" || typeof value === "number") {
-    return String(value);
-  }
-  if (typeof value === "string") return JSON.stringify(value);
-  if (Array.isArray(value)) {
-    return `[${value.map(tomlInline).join(", ")}]`;
-  }
-  if (isRecord(value)) {
-    return `{ ${Object.entries(value)
-      .map(([key, entry]) => {
-        const name = /^[A-Za-z0-9_-]+$/u.test(key) ? key : JSON.stringify(key);
-        return `${name} = ${tomlInline(entry)}`;
-      })
-      .join(", ")} }`;
-  }
-  throw new TypeError("Codex hook configuration contains an invalid value.");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}

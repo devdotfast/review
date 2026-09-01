@@ -1,15 +1,17 @@
 import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
 
 /**
- * Software map for ffc3e772 (head) — the native agent integration subsystem of
+ * Software map for dea1b534 (head) — the native agent integration subsystem of
  * Review: harness detection, skill/trace-hook install, native turn launching
  * and observation, and authoring-session attribution. At this commit the
  * install surface bundles the review command shim (and shell-profile PATH
  * management) with skill installs by default, bug reports can attach an
  * opt-in authoring session trace resolved from the harness-local trace store,
- * the trace store speaks to any S3-compatible backend (R2 or AWS S3, via
- * a configurable signing region), and the SPA's agent trace view gains an
- * event-ruler scrollbar for whole-session navigation.
+ * and the trace store speaks to any S3-compatible backend (R2 or AWS S3, via
+ * a configurable signing region). The trace document view re-collapses
+ * expanded lens elisions via TraceCollapseRow spans, and this commit adds an
+ * event-ruler scrollbar (TraceRuler) to the SPA's agent trace view for
+ * whole-session navigation.
  */
 export default defineSoftwareMap({
   people: {
@@ -541,7 +543,7 @@ export default defineSoftwareMap({
         reviewApp: {
           label: "Review SPA",
           description:
-            "In-app review UI served to Review Desktop, including the bug report dialog and the agent trace view.",
+            "In-app review UI served to Review Desktop, including the agent trace view and the bug report dialog.",
           coverage: {
             files: [
               { path: "packages/progressive-review/app/src/bug-report-dialog.tsx" },
@@ -554,7 +556,7 @@ export default defineSoftwareMap({
             traceView: {
               label: "Agent trace view",
               description:
-                "Renders a loaded agent session as a scrollable event document and, once the trace loads, mounts an event-ruler scrollbar that maps the whole session.",
+                "Renders an agent session trace as a turn-grouped document: lens picks keep the salient events and elide the rest behind expandable gap chips; expanded elisions can be folded back via collapse rows. Once the trace loads, ReviewTraceView mounts an event-ruler scrollbar that maps the whole session.",
               coverage: {
                 files: [
                   { path: "packages/progressive-review/app/src/ReviewTraceView.tsx" },
@@ -562,6 +564,15 @@ export default defineSoftwareMap({
                   { path: "packages/progressive-review/app/src/trace-ruler.tsx" },
                 ],
               },
+              relationships: [
+                {
+                  kind: "semantic",
+                  from: ".",
+                  to: "review.protocolPackage.contracts",
+                  semanticKind: "types",
+                  label: "renders ReviewAgentTraceEvent streams",
+                },
+              ],
               codeElements: {
                 reviewTraceView: {
                   label: "ReviewTraceView",
@@ -582,11 +593,6 @@ export default defineSoftwareMap({
                     },
                   ],
                 },
-                traceDocument: {
-                  label: "trace-document",
-                  description:
-                    "Renders trace events as turns and collapsible tool groups; stamps data-trace-event indexes on event wrappers and tool groups so the ruler can measure and target them.",
-                },
                 traceRuler: {
                   label: "TraceRuler",
                   description:
@@ -600,6 +606,48 @@ export default defineSoftwareMap({
                       label: "measures and scrolls data-trace-event wrappers; extractEventText for previews",
                     },
                   ],
+                },
+                traceDocument: {
+                  label: "TraceDocument",
+                  description:
+                    "Stateful trace reader: computes lens-included events, tracks expanded gaps and expanded events, derives collapse spans (start/end markers for each expanded gap), and renders one TraceTurn per turn.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "traceTurn",
+                      label: "renders turns with expand and collapse callbacks",
+                    },
+                  ],
+                },
+                traceTurn: {
+                  label: "TraceTurn",
+                  description:
+                    "Renders a turn's user, work, and final events, coalescing tool runs, collapsing runs of elided events into gap chips, and bracketing each expanded elision with collapse rows; stamps data-trace-event indexes on event wrappers and tool groups so the ruler can measure and target them.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "gapElision",
+                      label: "TraceGapChip for elided runs",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "traceCollapseRow",
+                      label: "collapse rows at expanded-gap edges",
+                    },
+                  ],
+                },
+                traceCollapseRow: {
+                  label: "TraceCollapseRow",
+                  description:
+                    "Full-width rule-and-chip button rendered at the top and bottom edge of an expanded elision; clicking either edge folds the whole revealed span back into its gap chip.",
+                },
+                gapElision: {
+                  label: "Lens elision helpers",
+                  description:
+                    "applyLensPicks/elideByKeep decide which events a lens keeps; TraceGapChip and ElidedMessage present the elided remainder with expand affordances.",
                 },
               },
             },
@@ -715,7 +763,7 @@ export default defineSoftwareMap({
       kind: "semantic",
       from: "reviewer",
       to: "review.reviewApp.traceView.reviewTraceView",
-      label: "reads authoring agent sessions, scrubbing the event ruler",
+      label: "reads authoring session traces through the lens, scrubbing the event ruler",
     },
     {
       kind: "semantic",

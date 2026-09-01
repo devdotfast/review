@@ -6,6 +6,7 @@ import { after, test } from "node:test";
 
 import {
   assertPackagedProduct,
+  assertReleaseChannel,
   assertUpdaterCompatibleApp,
   buildManifest,
 } from "./validate-release-artifacts.mjs";
@@ -46,6 +47,28 @@ test("buildManifest emits the schema the update Worker serves", () => {
 
 test("assertPackagedProduct accepts a correctly stamped product", () => {
   assertPackagedProduct(PRODUCT, { commit: "abc123" });
+});
+
+test("assertPackagedProduct accepts a preview-stamped product", () => {
+  assertPackagedProduct(
+    { ...PRODUCT, quality: "preview" },
+    { commit: "abc123", channel: "preview" },
+  );
+});
+
+test("assertPackagedProduct rejects a cross-channel product", () => {
+  assert.throws(
+    () =>
+      assertPackagedProduct(PRODUCT, {
+        commit: "abc123",
+        channel: "preview",
+      }),
+    /quality/,
+  );
+});
+
+test("assertReleaseChannel rejects an unsupported channel", () => {
+  assert.throws(() => assertReleaseChannel("nightly"), /stable or preview/);
 });
 
 test("assertPackagedProduct rejects a mismatched commit", () => {

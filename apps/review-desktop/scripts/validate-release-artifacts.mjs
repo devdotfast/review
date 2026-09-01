@@ -5,7 +5,8 @@
 // Curated extension checks also read code-oss/package.json from this checkout.
 //
 //   node scripts/validate-release-artifacts.mjs \
-//     --version 1.2.3 --commit <tag sha> [--artifact-dir dist]
+//     --version 1.2.3 --commit <tag sha> [--channel stable|preview]
+//     [--artifact-dir dist]
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -16,6 +17,14 @@ import { verifyCuratedExtensions } from "./curated-extensions.mjs";
 
 const APP_DIR = path.resolve(import.meta.dirname, "..");
 const UPDATE_URL = "https://update.dev.fast";
+
+export function assertReleaseChannel(channel) {
+  if (channel !== "stable" && channel !== "preview") {
+    throw new Error(
+      `channel must be one of stable or preview, received ${JSON.stringify(channel)}`,
+    );
+  }
+}
 
 export function buildManifest({
   version,
@@ -34,10 +43,11 @@ export function buildManifest({
   };
 }
 
-export function assertPackagedProduct(product, { commit }) {
+export function assertPackagedProduct(product, { commit, channel = "stable" }) {
+  assertReleaseChannel(channel);
   const expectations = {
     commit,
-    quality: "stable",
+    quality: channel,
     updateUrl: UPDATE_URL,
     darwinBundleIdentifier: "dev.fast.review",
   };
@@ -90,16 +100,18 @@ function main() {
     options: {
       version: { type: "string" },
       commit: { type: "string" },
+      channel: { type: "string", default: "stable" },
       "artifact-dir": { type: "string" },
     },
   });
-  const { version, commit } = values;
+  const { version, commit, channel } = values;
   if (!version || !commit) {
     console.error(
-      "usage: validate-release-artifacts.mjs --version <semver> --commit <sha> [--artifact-dir <dir>]",
+      "usage: validate-release-artifacts.mjs --version <semver> --commit <sha> [--channel stable|preview] [--artifact-dir <dir>]",
     );
     process.exit(2);
   }
+  assertReleaseChannel(channel);
 
   const artifactDir = path.resolve(
     values["artifact-dir"] ?? path.join(APP_DIR, "dist"),
@@ -115,7 +127,7 @@ function main() {
       "utf8",
     ),
   );
-  assertPackagedProduct(product, { commit });
+  assertPackagedProduct(product, { commit, channel });
   verifyCuratedExtensions({
     root: path.join(app, "Contents", "Resources", "app", "extensions"),
     target: "darwin-arm64",

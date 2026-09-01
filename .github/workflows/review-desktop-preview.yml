@@ -1,0 +1,400 @@
+name: Review Desktop Preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag, or commit to build"
+        required: true
+        type: string
+        default: main
+      dry_run:
+        description: "Build and validate only. Do not upload."
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: review-desktop-preview
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Compute preview version
+    # Approval gates every downstream job before any preview code reaches the
+    # release-only build infrastructure or signing credentials.
+    environment: review-release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      commit: ${{ steps.version.outputs.commit }}
+    steps:
+      - name: Checkout preview ref
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Compute preview version
+        id: version
+        shell: bash
+        run: |
+          CURRENT=$(node -p "require('./apps/review-desktop/package.json').version")
+          if [[ "$CURRENT" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)([-+].*)?$ ]]; then
+            PATCH="${BASH_REMATCH[3]}"
+            NEXT_PATCH="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((PATCH + 1))"
+          else
+            echo "::error::Cannot compute next patch from ${CURRENT}"
+            exit 1
+          fi
+          VERSION="${NEXT_PATCH}-preview.$(date -u +%Y%m%d).${GITHUB_RUN_NUMBER}"
+          COMMIT=$(git rev-parse HEAD)
+
+          echo "Building Review Desktop ${VERSION} from ${COMMIT}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+
+  compile:
+    name: Compile Darwin payload on Linux
+    needs: version
+    runs-on: review_big_boy
+    timeout-minutes: 45
+    steps:
+      - name: Checkout preview ref
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Stamp preview release channel
+        run: |
+          node apps/review-desktop/scripts/stamp-release-channel.mjs \
+            --version "${{ needs.version.outputs.version }}" \
+            --quality preview
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - name: Setup monorepo Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install monorepo dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Headers for the Code OSS native modules npm ci builds from source.
+      - name: Install Code OSS native build prerequisites
+        run: |
+          # The hosted runner image lists an HTTP Azure mirror first. That
+          # mirror can accept the release file and then hang on package indexes.
+          echo 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libx11-dev libxkbfile-dev libkrb5-dev libsecret-1-dev
+
+      - name: Setup Code OSS Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: apps/review-desktop/code-oss/.nvmrc
+          cache: npm
+          cache-dependency-path: apps/review-desktop/code-oss/**/package-lock.json
+
+      - name: Restore Code OSS dependencies
+        id: code-oss-deps
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            apps/review-desktop/code-oss/node_modules
+            apps/review-desktop/code-oss/build/node_modules
+            apps/review-desktop/code-oss/extensions/node_modules
+            apps/review-desktop/code-oss/extensions/*/node_modules
+            apps/review-desktop/code-oss/extensions/*/server/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/remote/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/remote/web/node_modules
+            ~/.cache/node-gyp
+          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/review-desktop/code-oss/**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-code-oss-deps-v2-
+
+      # Linux owns every platform-independent build output and also downloads
+      # the pinned darwin-arm64 VSIX payloads. The macOS job packages this
+      # archive; it must not silently rebuild or omit anything transferred here.
+      - name: Compile Darwin payload on Linux
+        env:
+          # Embeds the PostHog project key into the review runtime build so
+          # released apps ship telemetry enabled. Source builds embed nothing.
+          REVIEW_POSTHOG_KEY: ${{ vars.REVIEW_POSTHOG_KEY }}
+        run: bash apps/review-desktop/scripts/compile-darwin-payload.sh
+
+      - name: Upload darwin payload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: darwin-payload
+          path: apps/review-desktop/dist/darwin-payload.tar.zst
+          retention-days: 3
+          compression-level: 0
+
+      - name: Check for existing Code OSS dependency cache
+        if: steps.code-oss-deps.outputs.cache-hit != 'true'
+        id: code-oss-deps-lookup
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            apps/review-desktop/code-oss/node_modules
+          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/review-desktop/code-oss/**/package-lock.json') }}
+          lookup-only: true
+
+      - name: Save Code OSS dependencies
+        if: steps.code-oss-deps.outputs.cache-hit != 'true' && steps.code-oss-deps-lookup.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            apps/review-desktop/code-oss/node_modules
+            apps/review-desktop/code-oss/build/node_modules
+            apps/review-desktop/code-oss/extensions/node_modules
+            apps/review-desktop/code-oss/extensions/*/node_modules
+            apps/review-desktop/code-oss/extensions/*/server/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/remote/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/remote/web/node_modules
+            ~/.cache/node-gyp
+          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/review-desktop/code-oss/**/package-lock.json') }}
+
+  build:
+    name: Build, sign, publish preview
+    needs: [version, compile]
+    runs-on: macos-15-xlarge
+    timeout-minutes: 90
+    env:
+      RELEASE_VERSION: ${{ needs.version.outputs.version }}
+      RELEASE_COMMIT: ${{ needs.version.outputs.commit }}
+    steps:
+      - name: Checkout preview ref
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Stamp preview release channel
+        run: |
+          node apps/review-desktop/scripts/stamp-release-channel.mjs \
+            --version "$RELEASE_VERSION" \
+            --quality preview
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - name: Setup monorepo Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install monorepo dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup Code OSS Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: apps/review-desktop/code-oss/.nvmrc
+          cache: npm
+          cache-dependency-path: apps/review-desktop/code-oss/**/package-lock.json
+
+      - name: Restore Code OSS dependencies
+        id: code-oss-deps
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            apps/review-desktop/code-oss/node_modules
+            apps/review-desktop/code-oss/build/node_modules
+            apps/review-desktop/code-oss/extensions/node_modules
+            apps/review-desktop/code-oss/extensions/*/node_modules
+            apps/review-desktop/code-oss/extensions/*/server/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/remote/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/remote/web/node_modules
+            apps/review-desktop/code-oss/.build/electron
+            ~/.cache/node-gyp
+          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/review-desktop/code-oss/**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-code-oss-deps-v2-
+
+      - name: Download darwin payload
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: darwin-payload
+          path: ${{ runner.temp }}/darwin-payload
+
+      - name: Extract darwin payload
+        run: |
+          zstd -dc "$RUNNER_TEMP/darwin-payload/darwin-payload.tar.zst" | tar -xf - -C .
+
+      # package-macos.sh checks the complete handoff before Gulp runs, stages
+      # every manifest-selected curated extension, and verifies the final app
+      # before signing. validate-release-artifacts.mjs repeats that extension
+      # check after notarization and before any upload.
+
+      # Carson's keychain bootstrap: decode the Developer ID cert into a
+      # throwaway keychain that sign.ts finds via AGENT_TEMPDIRECTORY.
+      - name: Import Apple signing certificate
+        env:
+          APPLE_CERT_BASE64: ${{ secrets.APPLE_CERT_BASE64 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+        run: |
+          CERT_PATH="$RUNNER_TEMP/apple-signing-cert.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/buildagent.keychain"
+          echo "$APPLE_CERT_BASE64" | base64 --decode > "$CERT_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "$APPLE_CERT_PASSWORD" -T /usr/bin/codesign
+          # Append rather than replace: `-s "$KEYCHAIN_PATH"` alone evicts
+          # login.keychain from the search list for the rest of the job.
+          # shellcheck disable=SC2046
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | xargs)
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+          rm -f "$CERT_PATH"
+
+      # An App Store Connect team key, not an Apple ID password: it survives
+      # password and 2FA changes on the Apple ID, and the private key stays a
+      # file rather than an environment value.
+      - name: Write App Store Connect notary key
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          KEY_PATH="$RUNNER_TEMP/notary-key.p8"
+          printf '%s\n' "$APPLE_API_KEY_P8" > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+
+      - name: Package, sign, and notarize
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          AGENT_TEMPDIRECTORY: ${{ runner.temp }}
+          CODESIGN_IDENTITY: "Developer ID Application: ${{ vars.APPLE_SIGN_IDENTITY }}"
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          APPLE_API_KEY_PATH: ${{ runner.temp }}/notary-key.p8
+          APPLE_API_KEY_ID: ${{ vars.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ vars.APPLE_API_ISSUER_ID }}
+          SKIP_NOTARIZE: ${{ vars.SKIP_NOTARIZE }}
+          REVIEW_DESKTOP_PRECOMPILED: "1"
+        run: |
+          # The build can run well over an hour before the first codesign call.
+          security unlock-keychain -p "${{ secrets.APPLE_KEYCHAIN_PASSWORD }}" \
+            "$RUNNER_TEMP/buildagent.keychain"
+          pnpm --filter @dev-fast/review-desktop app:package:macos
+
+      - name: Check for existing Code OSS dependency cache
+        if: steps.code-oss-deps.outputs.cache-hit != 'true'
+        id: code-oss-deps-lookup
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            apps/review-desktop/code-oss/node_modules
+          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/review-desktop/code-oss/**/package-lock.json') }}
+          lookup-only: true
+
+      - name: Save Code OSS dependencies
+        if: steps.code-oss-deps.outputs.cache-hit != 'true' && steps.code-oss-deps-lookup.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            apps/review-desktop/code-oss/node_modules
+            apps/review-desktop/code-oss/build/node_modules
+            apps/review-desktop/code-oss/extensions/node_modules
+            apps/review-desktop/code-oss/extensions/*/node_modules
+            apps/review-desktop/code-oss/extensions/*/server/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/remote/node_modules
+            apps/review-desktop/code-oss/.build/distro/npm/remote/web/node_modules
+            apps/review-desktop/code-oss/.build/electron
+            ~/.cache/node-gyp
+          key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/review-desktop/code-oss/**/package-lock.json') }}
+
+      - name: Validate release artifacts
+        run: |
+          node apps/review-desktop/scripts/validate-release-artifacts.mjs \
+            --version "$RELEASE_VERSION" \
+            --commit "$RELEASE_COMMIT" \
+            --channel preview
+
+      # Signed and stapled says nothing about whether the app runs. Launch it
+      # and require a renderer before anything reaches R2.
+      - name: Smoke launch the packaged app
+        run: node apps/review-desktop/scripts/smoke-launch-packaged.mjs
+
+      # Payloads first, manifest last: a client must never see a latest.json
+      # whose zip is not yet downloadable.
+      - name: Upload preview to R2
+        if: ${{ !inputs.dry_run }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_ENDPOINT_URL: ${{ vars.R2_ENDPOINT_URL }}
+          AWS_REGION: auto
+          R2_BUCKET: ${{ vars.R2_RELEASE_BUCKET }}
+        run: |
+          DIST=apps/review-desktop/dist
+          RELEASE_PREFIX="s3://${R2_BUCKET}/releases/${RELEASE_VERSION}/darwin-arm64"
+          DMG_DISPOSITION="attachment; filename=\"df-review-${RELEASE_VERSION}.dmg\""
+
+          aws s3 cp "$DIST/Review-darwin-arm64-${RELEASE_VERSION}.zip" \
+            "${RELEASE_PREFIX}/Review-darwin-arm64-${RELEASE_VERSION}.zip" \
+            --content-type application/zip
+          aws s3 cp "$DIST/Review-darwin-arm64-${RELEASE_VERSION}.dmg" \
+            "${RELEASE_PREFIX}/Review-darwin-arm64-${RELEASE_VERSION}.dmg" \
+            --content-type application/x-apple-diskimage \
+            --content-disposition "$DMG_DISPOSITION"
+          aws s3 cp "$DIST/Review-darwin-arm64-${RELEASE_VERSION}.dmg" \
+            "s3://${R2_BUCKET}/releases/preview-latest/darwin-arm64/Review.dmg" \
+            --content-type application/x-apple-diskimage \
+            --content-disposition "$DMG_DISPOSITION"
+
+          aws s3 cp "$DIST/latest.json" \
+            "s3://${R2_BUCKET}/update/preview/darwin-arm64/latest.json" \
+            --content-type application/json
+
+      - name: Verify preview update feed
+        if: ${{ !inputs.dry_run }}
+        run: |
+          echo "Feed for an outdated preview client (expect 200 with ${RELEASE_VERSION}):"
+          RESPONSE=$(curl -sf "https://update.dev.fast/api/update/darwin-arm64/preview/0000000000000000000000000000000000000000")
+          echo "$RESPONSE"
+          echo "$RESPONSE" | grep -F "\"productVersion\":\"${RELEASE_VERSION}\""
+          echo "$RESPONSE" | grep -F "\"version\":\"${RELEASE_COMMIT}\""
+
+          echo "Feed for the just-released commit (expect 204):"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://update.dev.fast/api/update/darwin-arm64/preview/${RELEASE_COMMIT}")
+          echo "$STATUS"
+          test "$STATUS" = "204"
+
+      - name: Verify install landing
+        if: ${{ !inputs.dry_run }}
+        run: |
+          echo "install.dev.fast (expect 302 to the disk image):"
+          LOCATION=$(curl -s -o /dev/null -w "%{redirect_url}" https://install.dev.fast/)
+          echo "$LOCATION"
+          test "$LOCATION" = "https://install.dev.fast/releases/latest/darwin-arm64/Review.dmg"
+
+          echo "Following it (expect 200 and a disk image):"
+          curl -sfL -o /dev/null -w "%{http_code} %{content_type}\n" https://install.dev.fast/ \
+            | grep -F "200 application/x-apple-diskimage"
+
+      - name: Upload preview DMG artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: review-desktop-${{ env.RELEASE_VERSION }}-dmg
+          path: apps/review-desktop/dist/Review-darwin-arm64-${{ env.RELEASE_VERSION }}.dmg
+          retention-days: 3
+          compression-level: 0
+
+      - name: Remove signing credentials
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/buildagent.keychain" || true
+          rm -f "$RUNNER_TEMP/notary-key.p8"

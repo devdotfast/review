@@ -1,0 +1,691 @@
+import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
+
+/**
+ * Software map for fbff61f (head) — the Review runtime after "Remove review
+ * runtime caches". Every memoization layer between a reviewer's click and a
+ * VCS subprocess is gone: the renderer's CodePeek, software-map, agent-trace,
+ * and document-module caches; the server's request cache and process-wide
+ * resolved-data cache; the compilation cache and the in-memory and on-disk
+ * document scan caches; and local-vcs's TTL command-output and repo-identity
+ * caches. Each call site now does the work every time, and the cache
+ * invalidation hooks and stale-data fallbacks that existed only to keep those
+ * caches honest are removed with them.
+ */
+export default defineSoftwareMap({
+  people: {
+    reviewer: {
+      label: "Reviewer",
+      description:
+        "Developer reading agent-authored changes in Review Desktop: opens CodePeeks, software maps, and agent traces.",
+    },
+  },
+  systems: {
+    review: {
+      label: "Review Desktop",
+      description:
+        "Local desktop app plus its local server that turn agent-authored changes into guided Reviews.",
+      containers: {
+        reviewApp: {
+          label: "Review renderer app",
+          description:
+            "The React app rendered inside Review documents: CodePeeks, software maps, agent traces, and the module loader that pulls compiled documents from the server. Each view now fetches its own data on every mount.",
+          changeStatus: "modified",
+          coverage: {
+            files: [
+              { path: "packages/progressive-review/app/src/CodePeek.tsx" },
+              { path: "packages/progressive-review/app/src/ReviewTraceView.tsx" },
+              { path: "packages/progressive-review/app/src/desktop-entry.tsx" },
+              { path: "packages/progressive-review/app/src/host/review-client.ts" },
+              { path: "packages/progressive-review/app/src/software-map/SoftwareMap.tsx" },
+              { path: "packages/progressive-review/app/src/use-agent-trace.ts" },
+            ],
+          },
+          components: {
+            codePeek: {
+              label: "CodePeek",
+              description:
+                "Inline code excerpt embedded in a Review document; resolves a validated ref to a source snapshot and optional diff.",
+              changeStatus: "modified",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/app/src/CodePeek.tsx" },
+                ],
+              },
+              codeElements: {
+                useCodePeekResolution: {
+                  label: "useCodePeekResolution",
+                  description:
+                    "Hook whose request key is now just the serialized resolve input; it clears resolution to null and fetches on every key change instead of seeding from a cached result.",
+                  changeStatus: "modified",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.reviewApp.codePeek.fetchCodePeekResultWithRetry",
+                      label: "fetches on key change",
+                    },
+                  ],
+                },
+                codePeekResultCache: {
+                  label: "CodePeek result cache",
+                  description:
+                    "Removed: the version-tagged in-memory Map of resolved CodePeek results, its window session-storage mirror, the 30-entry eviction, and the key hashing that fed them.",
+                  changeStatus: "removed",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.reviewServer.reviewApi.codePeekResolve",
+                      semanticKind: "shadows",
+                      label: "answered repeats without a request",
+                    },
+                  ],
+                },
+                fetchCodePeekResultWithRetry: {
+                  label: "fetchCodePeekResultWithRetry",
+                  description:
+                    "Now retries the resolve endpoint directly on the fixed backoff schedule; the in-flight request map that collapsed concurrent resolves and its uncached inner function are gone.",
+                  changeStatus: "modified",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.reviewServer.reviewApi.codePeekResolve",
+                      label: "POST /code-peek/resolve",
+                    },
+                  ],
+                },
+              },
+            },
+            softwareMapView: {
+              label: "Software map view",
+              description:
+                "Renders a Review's software map and resolves per-element diff counts, coverage, and source ranges from the server.",
+              changeStatus: "modified",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/app/src/software-map/SoftwareMap.tsx" },
+                ],
+              },
+              codeElements: {
+                fetchSoftwareMapResolvedData: {
+                  label: "fetchSoftwareMapResolvedData",
+                  description:
+                    "Now a direct pass-through to the uncached fetch; the cache key and force parameters are gone from its signature and from every call site.",
+                  changeStatus: "modified",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.reviewServer.reviewApi.softwareMapResolvedData",
+                      label: "POST /software-map/resolved-data",
+                    },
+                  ],
+                },
+                resolvedDataCaches: {
+                  label: "resolved-data caches",
+                  description:
+                    "Removed: the module-level request, value, and last-usable-snapshot Maps, their session-storage mirrors, key hashing, and 20-entry eviction. Only the resolved-data version tag survives, renamed off the cache vocabulary and still used to build the input signature.",
+                  changeStatus: "removed",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.reviewServer.reviewApi.softwareMapResolvedDataCache",
+                      semanticKind: "mirrors",
+                      label: "was the client-side twin of the server cache",
+                    },
+                  ],
+                },
+                stableModelSnapshot: {
+                  label: "stable model snapshot",
+                  description:
+                    "Removed: the map no longer keeps a previous snapshot to render while a resolve is in flight, so the active snapshot is whatever the current resolution produced and the refreshing state reduces to the artifact refresh.",
+                  changeStatus: "removed",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "reviewer",
+                      semanticKind: "serves",
+                      label: "showed stale map data during refresh",
+                    },
+                  ],
+                },
+              },
+            },
+            agentTraceLoader: {
+              label: "Agent trace loader",
+              description:
+                "Hook that loads the currently selected agent session trace for one component instance, aborting on unmount.",
+              changeStatus: "modified",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/app/src/use-agent-trace.ts" },
+                ],
+              },
+              codeElements: {
+                useAgentTrace: {
+                  label: "useAgentTrace",
+                  description:
+                    "Now owns a single AbortController per key: it always starts in loading, fetches, and writes loaded or error state itself, replacing the subscriber fan-out, cache seeding, and render-time state sync.",
+                  changeStatus: "modified",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.reviewServer.reviewApi.agentTraceDetail",
+                      label: "GET /agent-traces/:sessionId",
+                    },
+                  ],
+                },
+                agentTraceCaches: {
+                  label: "agent trace caches",
+                  description:
+                    "Removed: the session-scoped WeakMaps of loaded traces and in-flight requests, along with their subscriber sets and shared abort controllers.",
+                  changeStatus: "removed",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.reviewServer.reviewApi.agentTraceDetail",
+                      semanticKind: "shadows",
+                      label: "collapsed repeats into one fetch",
+                    },
+                  ],
+                },
+                getAgentTraceCache: {
+                  label: "getAgentTraceCache",
+                  description:
+                    "Removed: nothing reads trace metadata without loading it anymore.",
+                  changeStatus: "removed",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.reviewApp.traceView.traceHeaderMetadata",
+                      semanticKind: "served",
+                      label: "supplied harness and title without a fetch",
+                    },
+                  ],
+                },
+                clearAgentTraceCache: {
+                  label: "clearAgentTraceCache",
+                  description:
+                    "Removed: with no cache to invalidate, the canvas no longer needs an invalidation hook.",
+                  changeStatus: "removed",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.reviewApp.appEntry.mountReviewCanvas",
+                      semanticKind: "served",
+                      label: "invalidated traces on canvas update",
+                    },
+                  ],
+                },
+              },
+            },
+            traceView: {
+              label: "Review trace view",
+              description:
+                "Trace picker and header rendered inside a Review document for the selected agent session.",
+              changeStatus: "modified",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/app/src/ReviewTraceView.tsx" },
+                ],
+              },
+              codeElements: {
+                traceHeaderMetadata: {
+                  label: "trace header metadata",
+                  description:
+                    "Now takes the active harness and title from the loaded trace the hook returns, and renders picker rows straight from each target's declared values instead of peeking into the cache for every row.",
+                  changeStatus: "modified",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.reviewApp.agentTraceLoader.useAgentTrace",
+                      label: "reads the loaded trace",
+                    },
+                  ],
+                },
+              },
+            },
+            reviewClient: {
+              label: "Review host client",
+              description:
+                "Fetch and dynamic-import helpers that talk to the local review server from the renderer.",
+              changeStatus: "modified",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/app/src/host/review-client.ts" },
+                ],
+              },
+              codeElements: {
+                importReviewModule: {
+                  label: "importReviewModule",
+                  description:
+                    "Now returns the load promise directly; the memoized promise lookup and the rejection-eviction path around it are gone.",
+                  changeStatus: "modified",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.reviewServer.docBundler.buildReviewDocument",
+                      label: "loads the bundled document module",
+                    },
+                  ],
+                },
+                reviewModuleCache: {
+                  label: "reviewModuleCache",
+                  description:
+                    "Removed: the promise Map keyed by module URL plus doc-runtime URL that bundled and evaluated a document module once per renderer.",
+                  changeStatus: "removed",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.reviewServer.docBundler.buildReviewDocument",
+                      semanticKind: "shadows",
+                      label: "repeat imports never reached the bundler",
+                    },
+                  ],
+                },
+              },
+            },
+            appEntry: {
+              label: "Desktop app entry",
+              description:
+                "Mounts the Review canvas and its providers into the desktop shell and updates it as document content changes.",
+              changeStatus: "modified",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/app/src/desktop-entry.tsx" },
+                ],
+              },
+              codeElements: {
+                mountReviewCanvas: {
+                  label: "mountReviewCanvas",
+                  description:
+                    "Content updates now just swap the content and re-render; the agent-trace cache invalidation that ran on every update is gone.",
+                  changeStatus: "modified",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "reviewer",
+                      semanticKind: "serves",
+                      label: "renders the review canvas",
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        reviewServer: {
+          label: "progressive-review local server",
+          description:
+            "The local Node server behind a Review: the HTTP API the renderer calls, the esbuild document bundler, and the document compiler and scanner that feed it. Handlers now recompute per request.",
+          changeStatus: "modified",
+          coverage: {
+            files: [
+              { path: "packages/progressive-review/src/compiler/review-document-compiler.ts" },
+              { path: "packages/progressive-review/src/compiler/review-documents-module.ts" },
+              { path: "packages/progressive-review/src/server/doc-bundler.ts" },
+              { path: "packages/progressive-review/src/server/review-api.ts" },
+            ],
+          },
+          components: {
+            reviewApi: {
+              label: "Review HTTP API",
+              description:
+                "Hono app serving one review session: CodePeek resolution, software-map resolved data, agent traces, comments, and diffs.",
+              changeStatus: "modified",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/src/server/review-api.ts" },
+                ],
+              },
+              codeElements: {
+                requestCache: {
+                  label: "ReviewApiRequestCache",
+                  description:
+                    "Removed: the per-server cache of source-target, CodePeek diff, and commit-range promises, together with the parameter that threaded it through every helper.",
+                  changeStatus: "removed",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.localVcs.commandLayer.commandOutput",
+                      semanticKind: "avoids",
+                      label: "skipped repeat VCS subprocesses",
+                    },
+                  ],
+                },
+                codePeekResolve: {
+                  label: "codePeekResolve",
+                  description:
+                    "Resolves a CodePeek request to a source snapshot and optional diff; no longer passes a request cache into source-target or diff resolution.",
+                  changeStatus: "modified",
+                },
+                resolveRequestSourceTarget: {
+                  label: "resolveRequestSourceTarget",
+                  description:
+                    "Still resolves the review's pinned head and base checkouts for a request, but returns the resolution directly instead of memoizing it by review document path.",
+                  changeStatus: "modified",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.localVcs.commandLayer.repoIdentityResolution",
+                      semanticKind: "resolves",
+                      label: "repo root and refs",
+                    },
+                  ],
+                },
+                resolveCodePeekDiffFiles: {
+                  label: "resolveCodePeekDiffFiles",
+                  description:
+                    "Runs the review diff for a set of paths on every call; the key built from diff root, refs, and paths and the head-ref condition that gated caching are gone.",
+                  changeStatus: "modified",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.localVcs.commandLayer.commandOutput",
+                      semanticKind: "invokes",
+                      label: "one diff per request",
+                    },
+                  ],
+                },
+                softwareMapResolvedData: {
+                  label: "softwareMapResolvedData",
+                  description:
+                    "Builds per-element diff counts, coverage, and source ranges for a software map directly, without the stable cache key derived from the document mtime, roots, and refs.",
+                  changeStatus: "modified",
+                },
+                softwareMapResolvedDataCache: {
+                  label: "software map resolved-data cache",
+                  description:
+                    "Removed: the process-wide resolved-data promise cache, its stable key builder and stableJson/mtime helpers, its 50-entry eviction, and the exported reset the artifacts-refresh route called.",
+                  changeStatus: "removed",
+                },
+                reviewCommits: {
+                  label: "reviewCommits",
+                  description:
+                    "Lists the commit range between the pinned base and head on each call; the once-per-server memo is gone.",
+                  changeStatus: "modified",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.localVcs.commandLayer.commandOutput",
+                      semanticKind: "invokes",
+                      label: "lists the commit range",
+                    },
+                  ],
+                },
+                agentTraceDetail: {
+                  label: "agentTraceDetail",
+                  description:
+                    "Serves one agent session's parsed trace to the renderer.",
+                },
+              },
+            },
+            docBundler: {
+              label: "Review document bundler",
+              description:
+                "Compiles and esbuild-bundles the active Review document into the ES module the renderer imports.",
+              changeStatus: "modified",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/src/server/doc-bundler.ts" },
+                ],
+              },
+              codeElements: {
+                buildReviewDocument: {
+                  label: "buildReviewDocument",
+                  description:
+                    "Looks the route up in the scan result, then compiles and bundles it. The freshness pass over the route and the try/finally that cancelled the scan on every exit path are gone, so the body is no longer nested in a cancellation scope.",
+                  changeStatus: "modified",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.reviewServer.documentCompiler.compileReviewDocument",
+                      label: "compiles the MDX document",
+                    },
+                  ],
+                },
+              },
+            },
+            documentCompiler: {
+              label: "Review document compiler",
+              description:
+                "Turns a Review MDX document into runtime code plus diagnostics, keyed by a revision over the document and its dependencies.",
+              changeStatus: "modified",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/src/compiler/review-document-compiler.ts" },
+                ],
+              },
+              codeElements: {
+                compileReviewDocument: {
+                  label: "compileReviewDocument",
+                  description:
+                    "Now delegates straight to the uncached compile; the revision lookup, insertion, eviction, and delete-on-failure path are gone.",
+                  changeStatus: "modified",
+                },
+                compilationCache: {
+                  label: "compilation cache",
+                  description:
+                    "Removed: the revision-keyed Map of compilation promises and its 50-entry oldest-first eviction.",
+                  changeStatus: "removed",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.reviewServer.docBundler.buildReviewDocument",
+                      semanticKind: "serves",
+                      label: "repeat builds skipped type checking",
+                    },
+                  ],
+                },
+                reviewDocumentRevision: {
+                  label: "reviewDocumentRevision",
+                  description:
+                    "Still hashes the document source and every dependency path, including missing resolution candidates, but that set is now documented as making diagnostics see modules created after a previous compilation rather than as cache invalidation.",
+                  changeStatus: "modified",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.reviewServer.documentScan",
+                      semanticKind: "parallels",
+                      label: "both fingerprint document inputs",
+                    },
+                  ],
+                },
+              },
+            },
+            documentScan: {
+              label: "Review document scan",
+              description:
+                "Discovers Review documents, resolves each one's manifest (title, models, pinned software-map artifact paths), and generates the module the renderer imports. Every scan now resolves every document's manifest in full.",
+              changeStatus: "modified",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/src/compiler/review-documents-module.ts" },
+                ],
+              },
+              codeElements: {
+                collectReviewDocumentScan: {
+                  label: "collectReviewDocumentScan",
+                  description:
+                    "Always runs the traced inner scan; the input-keyed cache and the mtime/size fingerprint comparison that decided whether to reuse it are gone, though the fingerprint is still computed and passed through.",
+                  changeStatus: "modified",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.localVcs.commandLayer.commandOutputSync",
+                      semanticKind: "invokes",
+                      label: "sync ref reads",
+                    },
+                  ],
+                },
+                asyncScanState: {
+                  label: "async scan state",
+                  description:
+                    "Removed: the per-key scan state, its cached and in-flight manifest maps, the cancellation flag, and the DEV_FAST_REVIEW_DOCUMENT_SCAN_CONCURRENCY limiter. The async scan now maps every discovered document through the manifest loader in parallel and returns only manifests, software-map paths, and source roots.",
+                  changeStatus: "removed",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.reviewServer.docBundler.buildReviewDocument",
+                      semanticKind: "served",
+                      label: "non-active documents resolved lazily",
+                    },
+                  ],
+                },
+                scanDiskCache: {
+                  label: "document scan disk cache",
+                  description:
+                    "Removed: the per-document JSON entries under the repo storage root, their sha256 path keys, the usability check over fingerprints, refs, and artifact existence, and the atomic writer that produced them.",
+                  changeStatus: "removed",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.reviewServer.docBundler.buildReviewDocument",
+                      semanticKind: "served",
+                      label: "cold builds skipped artifact materialization",
+                    },
+                  ],
+                },
+                ensureReviewDocumentManifest: {
+                  label: "ensureReviewDocumentManifest",
+                  description:
+                    "Now always resolves refs — from the review store when pinned, otherwise from the repo — and materializes the manifest, returning a manifest rather than a manifest-or-skipped union. The disk read, the cached-refs revalidation, and the write-back are gone.",
+                  changeStatus: "modified",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.localVcs.commandLayer.commandOutput",
+                      semanticKind: "invokes",
+                      label: "resolves head and base refs",
+                    },
+                  ],
+                },
+                ensureReviewDocumentFresh: {
+                  label: "ensureReviewDocumentFresh",
+                  description:
+                    "Removed along with the manifest-equality and missing-artifact checks it used to decide whether the generated module needed invalidating.",
+                  changeStatus: "removed",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.reviewServer.docBundler.buildReviewDocument",
+                      semanticKind: "served",
+                      label: "refreshed one route before bundling",
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        localVcs: {
+          label: "@dev.fast/local-vcs",
+          description:
+            "Shared jj-first Git and jj wrapper: every ref, diff, and repo-identity query in Review goes through it, and now every one of them spawns.",
+          changeStatus: "modified",
+          coverage: {
+            files: [{ path: "packages/local-vcs/src/index.ts" }],
+          },
+          components: {
+            commandLayer: {
+              label: "VCS command layer",
+              description:
+                "Runs jj and git subprocesses for the whole product. The memoization in front of read-only queries is gone.",
+              changeStatus: "modified",
+              coverage: {
+                files: [{ path: "packages/local-vcs/src/index.ts" }],
+              },
+              codeElements: {
+                commandOutput: {
+                  label: "commandOutput",
+                  description:
+                    "Now a one-line delegation to the raw subprocess runner; the cacheability check, TTL lookup, in-flight join, and the success and negative recording around it are gone.",
+                  changeStatus: "modified",
+                },
+                commandOutputSync: {
+                  label: "commandOutputSync",
+                  description:
+                    "Now delegates straight to the synchronous runner, so a failing query returns null by respawning rather than from a negative cache entry.",
+                  changeStatus: "modified",
+                },
+                commandOutputCaches: {
+                  label: "command output caches",
+                  description:
+                    "Removed: the 4s-TTL success and failure caches, the in-flight promise map, the cache key over command, cwd, trim flag and argv, the read-only jj and git argv allow-list, the DEV_FAST_LOCAL_VCS_NO_CACHE escape hatch, and the exported test hook that cleared them.",
+                  changeStatus: "removed",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.reviewServer.reviewApi.requestCache",
+                      semanticKind: "backs",
+                      label: "was the second layer behind request caches",
+                    },
+                  ],
+                },
+                repoIdentityResolution: {
+                  label: "repo identity resolution",
+                  description:
+                    "gitCommonDir and resolveRepoContext, with their sync twins, now resolve the shared Git directory and origin identity on every call; the per-root process-lifetime maps, their negative entries, and the test hooks that cleared them are gone.",
+                  changeStatus: "modified",
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  relationships: [
+    {
+      kind: "semantic",
+      from: "reviewer",
+      to: "review",
+      semanticKind: "uses",
+      label: "reads reviews",
+      description:
+        "Opens Review documents and navigates their CodePeeks, software maps, and agent traces.",
+    },
+    {
+      kind: "semantic",
+      from: "review.reviewApp",
+      to: "review.reviewServer",
+      semanticKind: "consumes",
+      label: "local review HTTP API",
+      description:
+        "Every renderer view resolves its data from the session-scoped local server, now on every mount rather than once per key.",
+    },
+    {
+      kind: "semantic",
+      from: "review.reviewServer",
+      to: "review.localVcs",
+      semanticKind: "uses",
+      label: "ref, diff, and identity queries",
+      description:
+        "Source-target resolution, diffs, commit ranges, and document ref resolution all bottom out in local-vcs subprocesses, with no layer memoizing them.",
+    },
+  ],
+});

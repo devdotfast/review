@@ -21,25 +21,23 @@ export interface UpdatePipe<Snapshot, Update> {
 // launch terminals into sessions and report what happens in them. Codex has a
 // real one; the other backends emulate it. Callers never see the difference.
 
-export type SessionStatus = "pending" | "idle" | "running" | "closed";
-
 export interface SessionSnapshot {
   sessionId: string;
-  status: SessionStatus;
   messages: readonly NativeReviewMessage[];
 }
 
-export type SessionUpdate =
-  | { type: "attached" }
-  | { type: "message.updated"; message: NativeReviewMessage }
-  | { type: "turn.started" }
-  | { type: "turn.completed" }
-  | { type: "closed"; reason: string };
+export type SessionUpdate = {
+  type: "message.updated";
+  message: NativeReviewMessage;
+};
 
 export interface AgentServerOptions {
   runtimeDirectory: string;
   reviewCliPath?: string;
   reviewCliRuntimePath?: string;
+  /** Desktop-global endpoint that accepts native hook events and `review threads` calls. */
+  hookBaseUrl: string;
+  hookToken: string;
 }
 
 export interface LaunchInput {
@@ -48,8 +46,6 @@ export interface LaunchInput {
   /** Submitted when the terminal starts. Absent opens the session silently. */
   prompt?: string;
   cwd: string;
-  /** Where this review accepts native hook events and `review threads` calls. */
-  hookEndpoint: { baseUrl: string; token: string };
 }
 
 export interface AgentServer {

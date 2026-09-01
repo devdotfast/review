@@ -520,6 +520,7 @@ function stubSessionHandler(): ReviewSessionHandler {
   return {
     token,
     handle: async () => new Response("not found", { status: 404 }),
+    findAgentThread: () => undefined,
     close: async () => undefined,
   };
 }

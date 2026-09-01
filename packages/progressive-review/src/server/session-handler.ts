@@ -36,7 +36,7 @@ import {
   isAuthorizedRequest,
   jsonResponse,
 } from "./hono-http";
-import { createReviewApi } from "./review-api";
+import { createReviewApi, type ReviewApi } from "./review-api";
 
 const API_PREFIX = "/__progressive-review";
 const MODULE_PATH_PREFIX = `${API_PREFIX}/doc-modules/`;
@@ -86,6 +86,7 @@ export interface ReviewSessionHandlerInput {
 export interface ReviewSessionHandler {
   readonly token: string;
   handle(request: Request, env?: ReviewHonoEnv["Bindings"]): Promise<Response>;
+  findAgentThread: ReviewApi["findAgentThread"];
   close(): Promise<void>;
 }
 
@@ -442,6 +443,7 @@ export async function createReviewSessionHandler(
 
   return {
     token,
+    findAgentThread: reviewApi.findAgentThread,
     async handle(request, env) {
       // The desktop proxy forwards its own node bindings so response-close
       // hooks (submission acks, reject teardown) observe the real socket.

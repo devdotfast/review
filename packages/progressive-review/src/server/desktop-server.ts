@@ -298,8 +298,7 @@ export function createGlobalReviewServer(
         runtimeDirectory: path.join(devReviewHome(), "native-agent"),
         reviewCliPath: discovery.cliPath,
         reviewCliRuntimePath: discovery.cliRuntimePath,
-        hookBaseUrl: `${urlForBoundPort()}/native-agent-events`,
-        hookToken: token,
+        desktopEndpoint: { baseUrl: urlForBoundPort(), token },
       });
       agentServers.set(harness, server);
     }
@@ -360,30 +359,8 @@ export function createGlobalReviewServer(
     }
     await next();
   });
-  // Native agent terminals report here. The servers are desktop-global, so
-  // their hook ingress is too; the thread lookup finds the owning review.
-  app.post("/native-agent-events/:harness/:sessionId", async (context) => {
-    const ref = parseAuthoringSessionKey(
-      `${context.req.param("harness")}:${context.req.param("sessionId")}`,
-    );
-    if (!ref) {
-      return globalJson(404, { ok: false, error: "Unknown agent session." });
-    }
-    const payload = await readBoundedRequestJson(
-      context.req.raw,
-      2 * 1024 * 1024,
-      {},
-    );
-    try {
-      agentServerFor(ref.harness).receiveHookEvent?.(ref.sessionId, payload);
-    } catch (error) {
-      return globalJson(400, {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-    return globalJson(200, { ok: true });
-  });
+  // `review threads get` inside a native agent terminal reads its thread
+  // here; the owning review is found through the session binding.
   app.get(
     "/native-agent-events/:harness/:sessionId/thread/:threadId",
     (context) => {

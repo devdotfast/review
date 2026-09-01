@@ -13,6 +13,8 @@ import { writePathShim } from "../server/cli-install";
 export const REVIEW_AGENT_HOOK_URL_ENV = "DEV_FAST_REVIEW_AGENT_HOOK_URL";
 export const REVIEW_AGENT_HOOK_TOKEN_ENV = "DEV_FAST_REVIEW_AGENT_HOOK_TOKEN";
 export const REVIEW_AGENT_THREAD_URL_ENV = "DEV_FAST_REVIEW_AGENT_THREAD_URL";
+export const REVIEW_AGENT_THREAD_TOKEN_ENV =
+  "DEV_FAST_REVIEW_AGENT_THREAD_TOKEN";
 
 /**
  * Exposes the `review` CLI to native agent terminals through a PATH shim.

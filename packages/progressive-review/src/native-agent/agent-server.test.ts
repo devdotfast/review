@@ -31,8 +31,7 @@ async function options(): Promise<AgentServerOptions> {
   temporaryDirectories.push(directory);
   return {
     runtimeDirectory: directory,
-    hookBaseUrl: "http://127.0.0.1:4000/hooks",
-    hookToken: "s",
+    desktopEndpoint: { baseUrl: "http://127.0.0.1:4000", token: "s" },
   };
 }
 
@@ -50,9 +49,14 @@ describe("launch", () => {
       expect.arrayContaining(["--resume", "tutorial-thread"]),
     );
     expect(terminal.args.at(-1)).toBe("tutorial-thread");
-    expect(terminal.env.DEV_FAST_REVIEW_AGENT_HOOK_URL).toBe(
-      "http://127.0.0.1:4000/hooks/claude-code/tutorial-thread",
+    expect(terminal.env.DEV_FAST_REVIEW_AGENT_HOOK_URL).toMatch(
+      /^http:\/\/127\.0\.0\.1:\d+\/claude-code\/tutorial-thread$/,
     );
+    expect(terminal.env.DEV_FAST_REVIEW_AGENT_THREAD_URL).toBe(
+      "http://127.0.0.1:4000/native-agent-events/claude-code/tutorial-thread/thread",
+    );
+    expect(terminal.env.DEV_FAST_REVIEW_AGENT_THREAD_TOKEN).toBe("s");
+    await server.close();
   });
 
   it("forks a Claude source session in the normal interactive terminal", async () => {
@@ -138,9 +142,14 @@ describe("updates", () => {
     return {
       harness: "claude-code",
       reserveSessionId: async () => "session",
-      terminalCommand: async () => {
-        throw new Error("not used");
-      },
+      terminalCommand: async (input) => ({
+        launchId: input.launchId,
+        harness: "claude-code",
+        cwd: input.cwd,
+        executable: "claude",
+        args: [],
+        env: input.env,
+      }),
       readMessages: async () => [...transcript],
     };
   }
@@ -162,12 +171,29 @@ describe("updates", () => {
     return collected;
   }
 
+  /** Posts a hook the way the native hook client does. */
+  async function postHook(
+    env: Record<string, string>,
+    payload: unknown,
+    token = env.DEV_FAST_REVIEW_AGENT_HOOK_TOKEN,
+  ): Promise<Response> {
+    return fetch(env.DEV_FAST_REVIEW_AGENT_HOOK_URL!, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(token ? { "x-review-token": token } : {}),
+      },
+      body: JSON.stringify(payload),
+    });
+  }
+
   it("snapshots the transcript, then forwards the tail on every hook", async () => {
     const transcript = [message("user", "hello")];
     const server = new HookObservedAgentServer(
       fakeDialect(transcript),
       await options(),
     );
+    const { terminal } = await server.launch({ cwd: "/tmp/tutorial" });
     const pipe = await server.updates("session");
     expect(pipe.snapshot).toEqual({
       sessionId: "session",
@@ -175,10 +201,11 @@ describe("updates", () => {
     });
 
     transcript.push(message("assistant", "hi"));
-    server.receiveHookEvent("session", {
+    const response = await postHook(terminal.env, {
       hook_event_name: "Stop",
       session_id: "session",
     });
+    expect(response.status).toBe(200);
     expect(await nextUpdates(pipe.updates, 1)).toEqual([
       { type: "message.updated", message: message("assistant", "hi") },
     ]);
@@ -191,8 +218,22 @@ describe("updates", () => {
       fakeDialect([]),
       await options(),
     );
-    expect(() =>
-      server.receiveHookEvent("session", { session_id: "other" }),
-    ).toThrow(/posted to session "session"/);
+    const { terminal } = await server.launch({ cwd: "/tmp/tutorial" });
+    const response = await postHook(terminal.env, { session_id: "other" });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: expect.stringContaining('posted to session "session"'),
+    });
+    await server.close();
+  });
+
+  it("rejects a hook without this server's token", async () => {
+    const server = new HookObservedAgentServer(
+      fakeDialect([]),
+      await options(),
+    );
+    const { terminal } = await server.launch({ cwd: "/tmp/tutorial" });
+    expect((await postHook(terminal.env, {}, "wrong")).status).toBe(401);
+    await server.close();
   });
 });

@@ -1,5 +1,12 @@
 import type { ReviewAgentTraceEvent } from "@dev.fast/review-protocol";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import {
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { AgentChatUserMessage } from "./agent-chat";
 import { AgentMarkdown } from "./agent-markdown";
@@ -7,6 +14,12 @@ import {
   HighlightedText,
   findWhitespaceNormalizedSpan,
 } from "./highlighted-text";
+import {
+  type TraceScrollAnchor,
+  captureTraceScrollAnchor,
+  findScrollContainer,
+  restoreTraceScrollAnchor,
+} from "./trace-scroll-anchor";
 
 export type TraceTurnEvent = Exclude<
   ReviewAgentTraceEvent,
@@ -680,6 +693,7 @@ export function TraceGapChip({
       key={`gap-${from}`}
       type="button"
       className="review-trace-lens-gap"
+      data-trace-gap={from}
       onClick={onExpand}
     >
       <span className="review-trace-lens-gap-line" />
@@ -1088,11 +1102,46 @@ export function TraceDocument({
     return map;
   }, [baseIncluded, expandedGaps, events.length]);
 
+  // Expanding or collapsing an elision changes the rows above or below the
+  // reader while the browser holds scrollTop still. Capture a visible row
+  // before each change and restore its viewport offset once React commits,
+  // so the reader's position never moves; the revealed content lands above
+  // or below, in reach by scrolling.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const pendingAnchorRef = useRef<{
+    anchor: TraceScrollAnchor;
+    fallbackGap?: number;
+  } | null>(null);
+
+  const captureAnchor = (fallbackGap?: number) => {
+    const root = rootRef.current;
+    const container = root ? findScrollContainer(root) : null;
+    if (!container) return;
+    const anchor = captureTraceScrollAnchor(container);
+    pendingAnchorRef.current = anchor
+      ? fallbackGap === undefined
+        ? { anchor }
+        : { anchor, fallbackGap }
+      : null;
+  };
+
+  useLayoutEffect(() => {
+    const pending = pendingAnchorRef.current;
+    if (!pending) return;
+    pendingAnchorRef.current = null;
+    const root = rootRef.current;
+    const container = root ? findScrollContainer(root) : null;
+    if (!container) return;
+    restoreTraceScrollAnchor(container, pending.anchor, pending.fallbackGap);
+  }, [expandedGaps, expandedEvents]);
+
   const handleExpandGap = (from: number, _count: number) => {
+    captureAnchor();
     setExpandedGaps((prev) => new Set(prev).add(from));
   };
 
   const handleCollapseGap = (from: number) => {
+    captureAnchor(from);
     setExpandedGaps((prev) => {
       const next = new Set(prev);
       next.delete(from);
@@ -1119,6 +1168,7 @@ export function TraceDocument({
   }, [baseIncluded, expandedGaps, events.length]);
 
   const handleExpandEvent = (index: number) => {
+    captureAnchor();
     setExpandedEvents((prev) => new Set(prev).add(index));
   };
 
@@ -1242,6 +1292,7 @@ export function TraceDocument({
 
   return (
     <div
+      ref={rootRef}
       className={
         className ? `review-trace-events ${className}` : "review-trace-events"
       }

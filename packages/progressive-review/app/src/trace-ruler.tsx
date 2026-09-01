@@ -13,6 +13,7 @@ import {
   buildIndexedTraceTurns,
   extractEventText,
 } from "./trace-document";
+import { findScrollContainer } from "./trace-scroll-anchor";
 
 /**
  * Turn-ruler scrollbar for the agent trace view. A left-edge column of
@@ -140,21 +141,6 @@ export function rulerPreview(
 
 function collapseWhitespace(text: string): string {
   return text.replace(/\s+/g, " ").trim();
-}
-
-function findScrollContainer(element: HTMLElement): HTMLElement | null {
-  let parent = element.parentElement;
-  while (parent) {
-    const style = window.getComputedStyle(parent);
-    if (
-      /(auto|scroll)/.test(style.overflowY) ||
-      /(auto|scroll)/.test(style.overflow)
-    ) {
-      return parent;
-    }
-    parent = parent.parentElement;
-  }
-  return null;
 }
 
 export function TraceRuler({

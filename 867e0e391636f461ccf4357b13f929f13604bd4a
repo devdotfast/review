@@ -564,6 +564,12 @@ export default defineSoftwareMap({
                       to: "review.cliPackage.nativeAgents.nativeMessageMirror",
                       label: "watch via NativeMessageMirror",
                     },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.threadWorkflow.appendReviewComment",
+                      label: "reviewer comment.create via ReviewThreadsService",
+                    },
                   ],
                 },
               },

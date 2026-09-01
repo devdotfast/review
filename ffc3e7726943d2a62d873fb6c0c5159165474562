@@ -713,6 +713,19 @@ export default defineSoftwareMap({
     },
     {
       kind: "semantic",
+      from: "reviewer",
+      to: "review.reviewApp.traceView.reviewTraceView",
+      label: "reads authoring agent sessions, scrubbing the event ruler",
+    },
+    {
+      kind: "semantic",
+      from: "review.reviewApp.traceView.reviewTraceView",
+      to: "review.cliPackage.traceStore",
+      semanticKind: "reads",
+      label: "displays sessions and trace events resolved by the trace store",
+    },
+    {
+      kind: "semantic",
       from: "review.cliPackage.serverSurface.desktopServer",
       to: "review.desktopApp.terminalHost.reviewVerbs",
       label: "dispatches openNativeAgentTerminal verb",

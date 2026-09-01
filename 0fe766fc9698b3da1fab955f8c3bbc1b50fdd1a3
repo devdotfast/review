@@ -450,6 +450,12 @@ export default defineSoftwareMap({
                     {
                       kind: "call",
                       from: ".",
+                      to: "review.cliPackage.traceStore.sessionResolution",
+                      label: "listReviewTraceSessions",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
                       to: "review.cliPackage.nativeAgents.nativeTurnLauncher",
                       label: "launchTurn",
                     },
@@ -487,6 +493,13 @@ export default defineSoftwareMap({
                       from: ".",
                       to: "review.cliPackage.installer.installReviewCommand",
                       label: "install shim after skill install",
+                    },
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.cliPackage.traceStore.commitLookup",
+                      semanticKind: "calls",
+                      label: "review trace lookup commands",
                     },
                   ],
                 },

@@ -344,7 +344,7 @@ jobs:
         run: |
           DIST=apps/review-desktop/dist
           RELEASE_PREFIX="s3://${R2_BUCKET}/releases/${RELEASE_VERSION}/darwin-arm64"
-          DMG_DISPOSITION="attachment; filename=\"df-review-${RELEASE_VERSION}.dmg\""
+          DMG_DISPOSITION="attachment; filename=\"df-review-preview-${RELEASE_VERSION}.dmg\""
 
           aws s3 cp "$DIST/Review-darwin-arm64-${RELEASE_VERSION}.zip" \
             "${RELEASE_PREFIX}/Review-darwin-arm64-${RELEASE_VERSION}.zip" \
@@ -376,22 +376,22 @@ jobs:
           echo "$STATUS"
           test "$STATUS" = "204"
 
-      - name: Verify install landing
+      - name: Verify preview install landing
         if: ${{ !inputs.dry_run }}
         run: |
-          echo "install.dev.fast (expect 302 to the disk image):"
-          LOCATION=$(curl -s -o /dev/null -w "%{redirect_url}" https://install.dev.fast/)
+          echo "install.dev.fast/preview (expect 302 to the preview disk image):"
+          LOCATION=$(curl -s -o /dev/null -w "%{redirect_url}" https://install.dev.fast/preview)
           echo "$LOCATION"
-          test "$LOCATION" = "https://install.dev.fast/releases/latest/darwin-arm64/Review.dmg"
+          test "$LOCATION" = "https://install.dev.fast/releases/preview-latest/darwin-arm64/Review.dmg"
 
           echo "Following it (expect 200 and a disk image):"
-          curl -sfL -o /dev/null -w "%{http_code} %{content_type}\n" https://install.dev.fast/ \
+          curl -sfL -o /dev/null -w "%{http_code} %{content_type}\n" https://install.dev.fast/preview \
             | grep -F "200 application/x-apple-diskimage"
 
       - name: Upload preview DMG artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: review-desktop-${{ env.RELEASE_VERSION }}-dmg
+          name: review-desktop-preview-${{ env.RELEASE_VERSION }}-dmg
           path: apps/review-desktop/dist/Review-darwin-arm64-${{ env.RELEASE_VERSION }}.dmg
           retention-days: 3
           compression-level: 0

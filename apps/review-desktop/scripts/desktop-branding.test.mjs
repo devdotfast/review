@@ -42,12 +42,19 @@ test("keeps compatibility-sensitive Desktop identifiers unchanged", () => {
   assert.equal(product.urlProtocol, "dev-fast-review");
   assert.equal(product.dataFolderName, ".dev-fast-review");
   assert.equal(product.sharedDataFolderName, ".dev-fast-review-shared");
+
+  assert.match(
+    electronBuild,
+    /darwinBundleIdentifier: product\.darwinBundleIdentifier/,
+  );
+  assert.match(electronBuild, /urlSchemes: \[product\.urlProtocol\]/);
 });
 
-test("uses Review.app instead of putting the branded name in paths", async () => {
+test("uses the product short name for app bundle paths", async () => {
   assert.equal(product.nameShort, "Review");
   assert.equal(product.win32DirName, "Review");
   assert.match(electronBuild, /productAppName: product\.nameShort/);
+  assert.match(electronBuild, /darwinExecutable: product\.nameShort/);
 
   const bundlePathSources = await Promise.all(
     [
@@ -76,11 +83,15 @@ test("uses Review.app instead of putting the branded name in paths", async () =>
     assert.doesNotMatch(source, /\$\{product\.nameLong\}\.app/);
   }
 
-  assert.match(await readSource("./package-macos.sh"), /Review\.app/);
-  assert.match(await readSource("./notarize-macos.sh"), /Review\.app/);
-  assert.match(await readSource("./smoke-launch-packaged.mjs"), /Review\.app/);
-  assert.match(
-    await readSource("./validate-release-artifacts.mjs"),
-    /Review\.app/,
-  );
+  for (const source of await Promise.all(
+    [
+      "./package-macos.sh",
+      "./notarize-macos.sh",
+      "./smoke-launch-packaged.mjs",
+      "./validate-release-artifacts.mjs",
+    ].map(readSource),
+  )) {
+    assert.match(source, /nameShort/);
+    assert.doesNotMatch(source, /Review\.app/);
+  }
 });

@@ -8,7 +8,9 @@ set -euo pipefail
 MONOREPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
 APP_DIR="$MONOREPO_ROOT/apps/review-desktop"
 CHECKOUT="$APP_DIR/code-oss"
-PACKAGED_APP="$APP_DIR/VSCode-darwin-arm64/Review.app"
+PRODUCT_NAME="$(node -p "require('$CHECKOUT/product.json').nameShort")"
+PACKAGED_APP="$APP_DIR/VSCode-darwin-arm64/$PRODUCT_NAME.app"
+PACKAGED_BINARY="$PACKAGED_APP/Contents/MacOS/$PRODUCT_NAME"
 
 # shellcheck source=darwin-payload-manifest.sh
 source "$APP_DIR/scripts/darwin-payload-manifest.sh"
@@ -61,8 +63,8 @@ else
   npm --prefix "$CHECKOUT" run gulp -- vscode-darwin-arm64-min
 fi
 
-if [[ ! -x "$PACKAGED_APP/Contents/MacOS/Review" ]]; then
-  echo "Review Desktop packaging did not create $PACKAGED_APP/Contents/MacOS/Review" >&2
+if [[ ! -x "$PACKAGED_BINARY" ]]; then
+  echo "Review Desktop packaging did not create $PACKAGED_BINARY" >&2
   exit 1
 fi
 node "$APP_DIR/scripts/copy-canvas.mjs" --packaged-root "$PACKAGED_APP"

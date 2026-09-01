@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
 
+import { releaseIdentityFor } from "./release-channel.mjs";
 import {
   assertPackagedProduct,
   assertReleaseChannel,
@@ -19,10 +20,10 @@ after(async () => {
 });
 
 const PRODUCT = {
+  ...releaseIdentityFor("stable"),
   commit: "abc123",
   quality: "stable",
   updateUrl: "https://update.dev.fast",
-  darwinBundleIdentifier: "dev.fast.review",
 };
 
 test("buildManifest emits the schema the update Worker serves", () => {
@@ -51,8 +52,23 @@ test("assertPackagedProduct accepts a correctly stamped product", () => {
 
 test("assertPackagedProduct accepts a preview-stamped product", () => {
   assertPackagedProduct(
-    { ...PRODUCT, quality: "preview" },
+    {
+      ...PRODUCT,
+      ...releaseIdentityFor("preview"),
+      quality: "preview",
+    },
     { commit: "abc123", channel: "preview" },
+  );
+});
+
+test("assertPackagedProduct rejects stable identity on a preview build", () => {
+  assert.throws(
+    () =>
+      assertPackagedProduct(
+        { ...PRODUCT, quality: "preview" },
+        { commit: "abc123", channel: "preview" },
+      ),
+    /nameShort/,
   );
 });
 

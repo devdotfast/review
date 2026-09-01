@@ -14,17 +14,15 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 
 import { verifyCuratedExtensions } from "./curated-extensions.mjs";
+import {
+  assertReleaseChannel,
+  releaseIdentityFor,
+} from "./release-channel.mjs";
 
 const APP_DIR = path.resolve(import.meta.dirname, "..");
 const UPDATE_URL = "https://update.dev.fast";
 
-export function assertReleaseChannel(channel) {
-  if (channel !== "stable" && channel !== "preview") {
-    throw new Error(
-      `channel must be one of stable or preview, received ${JSON.stringify(channel)}`,
-    );
-  }
-}
+export { assertReleaseChannel };
 
 export function buildManifest({
   version,
@@ -49,7 +47,7 @@ export function assertPackagedProduct(product, { commit, channel = "stable" }) {
     commit,
     quality: channel,
     updateUrl: UPDATE_URL,
-    darwinBundleIdentifier: "dev.fast.review",
+    ...releaseIdentityFor(channel),
   };
   for (const [key, expected] of Object.entries(expectations)) {
     if (product[key] !== expected) {
@@ -116,7 +114,14 @@ function main() {
   const artifactDir = path.resolve(
     values["artifact-dir"] ?? path.join(APP_DIR, "dist"),
   );
-  const app = path.join(APP_DIR, "VSCode-darwin-arm64", "Review.app");
+  const sourceProduct = JSON.parse(
+    readFileSync(path.join(APP_DIR, "code-oss", "product.json"), "utf8"),
+  );
+  const app = path.join(
+    APP_DIR,
+    "VSCode-darwin-arm64",
+    `${sourceProduct.nameShort}.app`,
+  );
   const zip = path.join(artifactDir, `Review-darwin-arm64-${version}.zip`);
   const dmg = path.join(artifactDir, `Review-darwin-arm64-${version}.dmg`);
 

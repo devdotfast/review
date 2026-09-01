@@ -27,6 +27,11 @@ import {
   reviewSectionPropsSchema,
 } from "../../src/authoring";
 import type { ThreadTarget } from "../../src/types";
+import {
+  AgentChatAgentMessage,
+  AgentChatStatusRow,
+  AgentChatUserMessage,
+} from "./agent-chat";
 import { AgentMarkdown } from "./agent-markdown";
 import {
   CodePeekCard,
@@ -53,6 +58,7 @@ import {
   commentThreadView,
   targetQuote,
   threadListStatus,
+  threadRelativeTimeLabel,
 } from "./review-threads";
 import { useReviewUiState } from "./review-ui-state";
 import { useBottomSheetResize } from "./side-panel-resizer";
@@ -1666,28 +1672,32 @@ function ThreadChat({
         <span>{quote}</span>
       </div>
       <div className="thread-chat-transcript">
-        {thread?.messages.map((message) => (
-          <div
-            key={message.id}
-            className={
-              message.userAuthored
-                ? "thread-chat-message thread-chat-message--you"
-                : "thread-chat-message thread-chat-message--agent"
-            }
-          >
-            <span className="thread-chat-speaker">
-              {message.userAuthored ? "you" : "agent"}
-            </span>
-            {message.agentMarkdown ? (
-              <AgentMarkdown
-                source={message.body}
-                className="thread-chat-message-body"
-              />
-            ) : (
-              <div className="thread-chat-message-body">{message.body}</div>
-            )}
-          </div>
-        ))}
+        {thread?.messages.map((message) => {
+          const caption = `${message.by} · ${threadRelativeTimeLabel(message.at)}`;
+          const body = message.agentMarkdown ? (
+            <AgentMarkdown source={message.body} />
+          ) : (
+            message.body
+          );
+          // A running agent turn renders as a transcript status row, the
+          // same register as the trace document's worked separator.
+          if (message.running) {
+            return (
+              <AgentChatStatusRow key={message.id} tone="running">
+                {message.body}
+              </AgentChatStatusRow>
+            );
+          }
+          return message.userAuthored ? (
+            <AgentChatUserMessage key={message.id} caption={caption}>
+              {body}
+            </AgentChatUserMessage>
+          ) : (
+            <AgentChatAgentMessage key={message.id} caption={caption}>
+              {body}
+            </AgentChatAgentMessage>
+          );
+        })}
       </div>
       {!readOnly && !thread?.resolved && (
         <div className="thread-chat-composer">

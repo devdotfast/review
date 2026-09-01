@@ -200,6 +200,66 @@ describe("compose verb menu placement", () => {
   });
 });
 
+describe("ThreadCard compact presentation", () => {
+  it("keeps the anchored card's head/body rows and never adopts the agent-chat skin", async () => {
+    const thread: ThreadView = {
+      key: "thread-1",
+      threadId: "thread-1",
+      target: { kind: "document" },
+      quote: "Entire document",
+      resolved: false,
+      latestAt: "2026-01-01T00:00:02.000Z",
+      messages: [
+        {
+          id: "user-1",
+          by: "You",
+          at: "2026-01-01T00:00:00.000Z",
+          body: "Please change this",
+          userAuthored: true,
+        },
+        {
+          id: "agent-1",
+          by: "Agent",
+          at: "2026-01-01T00:00:01.000Z",
+          body: "Understood",
+          userAuthored: false,
+          agentMarkdown: true,
+        },
+        {
+          id: "activity-1",
+          by: "Agent",
+          at: "2026-01-01T00:00:02.000Z",
+          body: "Running…",
+          userAuthored: false,
+          running: true,
+        },
+      ],
+    };
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    roots.push(root);
+    await act(async () => {
+      root.render(<ThreadCard thread={thread} variant="panel" />);
+    });
+
+    const messages = container.querySelectorAll(".thread-message");
+    expect(messages).toHaveLength(3);
+    expect(
+      messages[0]?.querySelector(".thread-message-head strong")?.textContent,
+    ).toBe("You");
+    expect(
+      messages[0]?.querySelector(".thread-message-body")?.textContent,
+    ).toBe("Please change this");
+    expect(
+      messages[1]?.querySelector(".thread-message-body .agent-markdown"),
+    ).not.toBeNull();
+    // The anchored mini cards deliberately keep their compact presentation;
+    // only the sidebar thread view and traces use the agent-chat rows.
+    expect(container.querySelector('[class*="agent-chat"]')).toBeNull();
+  });
+});
+
 describe("ThreadCard message actions", () => {
   it("puts thread delete in the ordered header and Edit/Delete on user messages", async () => {
     const thread: ThreadView = {

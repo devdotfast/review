@@ -198,7 +198,11 @@ export function TraceToolGroup({
     items.some((item) => item.index === targetEventIndex);
   const events = items.map((i) => i.event);
   return (
-    <details className="review-trace-toolgroup" open={hasTarget}>
+    <details
+      className="review-trace-toolgroup"
+      open={hasTarget}
+      data-trace-event={items[0]?.index}
+    >
       <summary>
         <span className="review-trace-tool-icon">
           {iconSvg(
@@ -787,6 +791,7 @@ export function TraceTurn({
         key={item.index}
         id={isTarget ? "review-trace-target-event" : undefined}
         className={isTarget ? "review-trace-target-turn" : undefined}
+        data-trace-event={item.index}
       >
         {shouldElide ? (
           <ElidedMessage

@@ -13,6 +13,7 @@ import {
   type TraceTurnEvent,
   formatDuration,
 } from "./trace-document";
+import { TraceRuler } from "./trace-ruler";
 import {
   type LoadedAgentTrace,
   makeTraceKey,
@@ -200,6 +201,9 @@ export function ReviewTraceView({
 
   return (
     <div className="review-trace-view">
+      {detail.status === "loaded" && (
+        <TraceRuler events={detail.trace.events} />
+      )}
       <div className="review-trace-column">
         {list.status === "loading" && (
           <p className="review-trace-note">Resolving agent sessions…</p>

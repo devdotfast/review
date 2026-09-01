@@ -1,12 +1,13 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-
-import type { ReviewVerbRequest } from "@dev.fast/review-protocol";
-
 import { DEV_REVIEW_HOME_ENV, devReviewHome } from "../review-storage";
-import { forkCodexThread, startCodexThread } from "./codex-app-server";
+import * as claudeCode from "./claude-code";
+import * as codex from "./codex";
+import type {
+  HarnessDialect,
+  LaunchSession,
+  NativeTerminalInput,
+} from "./harness";
 import { NativeSessionObserverRegistry } from "./native-observer";
+import type { ReviewTurnRoute } from "./native-session";
 import type {
   LaunchReviewTurnInput,
   NativeTerminalHandle,
@@ -14,20 +15,13 @@ import type {
   ReviewAgentHarness,
   SessionRef,
 } from "./native-session";
+import * as pi from "./pi";
 import {
   REVIEW_AGENT_HOOK_TOKEN_ENV,
   REVIEW_AGENT_HOOK_URL_ENV,
   REVIEW_AGENT_THREAD_URL_ENV,
   ReviewCommandPath,
-  companionModulePath,
-  nativeHookCommand,
-  tomlInline,
 } from "./terminal-command";
-
-type NativeTerminalInput = Extract<
-  ReviewVerbRequest,
-  { name: "openNativeAgentTerminal" }
->["args"];
 
 export interface NativeReviewTurnLauncherInput {
   hookBaseUrl: string;
@@ -37,8 +31,7 @@ export interface NativeReviewTurnLauncherInput {
   reviewCliRuntimePath?: string;
   openTerminal(input: NativeTerminalInput): Promise<void>;
   observer?: NativeSessionObserverRegistry;
-  startCodexThread?: typeof startCodexThread;
-  forkCodexThread?: typeof forkCodexThread;
+  codex?: codex.CodexDialectDependencies;
 }
 
 export interface OpenNativeReviewSessionInput {
@@ -54,8 +47,7 @@ export class NativeReviewTurnLauncher {
   readonly #runtimeDirectory: string;
   readonly #commandPath: ReviewCommandPath;
   readonly #openTerminal: NativeReviewTurnLauncherInput["openTerminal"];
-  readonly #startCodexThread: typeof startCodexThread;
-  readonly #forkCodexThread: typeof forkCodexThread;
+  readonly #dialects: Record<ReviewAgentHarness, HarnessDialect>;
   readonly observer: NativeSessionObserverRegistry;
 
   constructor(input: NativeReviewTurnLauncherInput) {
@@ -64,8 +56,11 @@ export class NativeReviewTurnLauncher {
     this.#runtimeDirectory = input.runtimeDirectory;
     this.#commandPath = new ReviewCommandPath(input);
     this.#openTerminal = input.openTerminal;
-    this.#startCodexThread = input.startCodexThread ?? startCodexThread;
-    this.#forkCodexThread = input.forkCodexThread ?? forkCodexThread;
+    this.#dialects = {
+      "claude-code": claudeCode.dialect,
+      codex: codex.createDialect(input.codex),
+      pi: pi.dialect,
+    };
     this.observer = input.observer ?? new NativeSessionObserverRegistry();
   }
 
@@ -139,19 +134,10 @@ export class NativeReviewTurnLauncher {
     input: LaunchReviewTurnInput,
     harness: ReviewAgentHarness,
   ): Promise<string> {
-    if (input.route.kind === "resume") return input.route.session.sessionId;
-    if (input.route.kind === "new") {
-      return harness === "codex"
-        ? this.#startCodexThread({ cwd: input.cwd })
-        : randomUUID();
-    }
-    if (harness === "codex") {
-      return this.#forkCodexThread({
-        sourceThreadId: input.route.source.sessionId,
-        cwd: input.cwd,
-      });
-    }
-    return randomUUID();
+    return this.#dialects[harness].reserveSessionId({
+      session: launchSession(input.route),
+      cwd: input.cwd,
+    });
   }
 
   async #terminalInput(
@@ -162,158 +148,31 @@ export class NativeReviewTurnLauncher {
   ): Promise<NativeTerminalInput> {
     const hookUrl = `${this.#hookBaseUrl}/${encodeURIComponent(input.launchId)}`;
     const pathValue = await this.#commandPath.resolve();
-    const reviewHome = devReviewHome();
-    const env = {
-      [REVIEW_AGENT_HOOK_URL_ENV]: hookUrl,
-      [REVIEW_AGENT_HOOK_TOKEN_ENV]: this.#hookToken,
-      [REVIEW_AGENT_THREAD_URL_ENV]: `${hookUrl}/thread`,
-      [DEV_REVIEW_HOME_ENV]: reviewHome,
-      ...(pathValue ? { PATH: pathValue } : {}),
-    };
-    switch (harness) {
-      case "claude-code": {
-        const settingsPath = await this.#writeClaudeSettings(input.launchId);
-        const args = [
-          "--settings",
-          settingsPath,
-          "--permission-mode",
-          "dontAsk",
-          "--allowedTools",
-          "Bash",
-          "--tools",
-          "Bash",
-          "Glob",
-          "Grep",
-          "Read",
-        ];
-        if (input.route.kind === "fork") {
-          args.push(
-            "--resume",
-            input.route.source.sessionId,
-            "--fork-session",
-            "--session-id",
-            requestedSessionId,
-          );
-          if (submitPrompt) args.push(input.prompt);
-        } else if (input.route.kind === "resume") {
-          args.push("--resume", input.route.session.sessionId);
-          if (submitPrompt) args.push(input.prompt);
-        } else {
-          args.push("--session-id", requestedSessionId);
-          if (submitPrompt) args.push(input.prompt);
-        }
-        return {
-          launchId: input.launchId,
-          harness,
-          cwd: input.cwd,
-          executable: "claude",
-          args,
-          env: {
-            ...env,
-            CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: "1",
-          },
-        };
-      }
-      case "codex": {
-        const args = ["--enable", "hooks"];
-        if (pathValue) {
-          args.push(
-            "-c",
-            `shell_environment_policy.set.PATH=${tomlInline(pathValue)}`,
-          );
-        }
-        args.push(
-          "-c",
-          `shell_environment_policy.set.${DEV_REVIEW_HOME_ENV}=${tomlInline(reviewHome)}`,
-        );
-        for (const hookEvent of CODEX_OBSERVER_EVENTS) {
-          args.push(
-            "-c",
-            `hooks.${hookEvent}=${tomlInline([
-              {
-                hooks: [
-                  {
-                    command: nativeHookCommand(),
-                    timeout: 60,
-                    type: "command",
-                  },
-                ],
-                matcher: "*",
-              },
-            ])}`,
-          );
-        }
-        args.push(
-          "resume",
-          "--dangerously-bypass-hook-trust",
-          requestedSessionId,
-        );
-        if (submitPrompt) args.push(input.prompt);
-        return {
-          launchId: input.launchId,
-          harness,
-          cwd: input.cwd,
-          executable: "codex",
-          args,
-          env,
-        };
-      }
-      case "pi": {
-        const args = [
-          "-e",
-          companionModulePath("pi-observer-extension"),
-          "--tools",
-          "bash,find,grep,ls,read",
-        ];
-        if (input.route.kind === "fork") {
-          args.push(
-            "--fork",
-            input.route.source.sessionId,
-            "--session-id",
-            requestedSessionId,
-          );
-        } else if (input.route.kind === "resume") {
-          args.push("--session", input.route.session.sessionId);
-        } else {
-          args.push("--session-id", requestedSessionId);
-        }
-        if (submitPrompt) args.push(input.prompt);
-        return {
-          launchId: input.launchId,
-          harness,
-          cwd: input.cwd,
-          executable: "pi",
-          args,
-          env,
-        };
-      }
-    }
-  }
-
-  async #writeClaudeSettings(launchId: string): Promise<string> {
-    const launchDirectory = join(this.#runtimeDirectory, launchId);
-    const settingsPath = join(launchDirectory, "claude-settings.json");
-    await mkdir(launchDirectory, { recursive: true, mode: 0o700 });
-    const observerHook = {
-      command: nativeHookCommand(),
-      type: "command",
-    };
-    const hooks = Object.fromEntries(
-      CLAUDE_OBSERVER_EVENTS.map((event) => [
-        event,
-        [{ hooks: [observerHook] }],
-      ]),
-    );
-    await writeFile(settingsPath, `${JSON.stringify({ hooks })}\n`, "utf8");
-    return settingsPath;
+    return this.#dialects[harness].terminalCommand({
+      launchId: input.launchId,
+      session: launchSession(input.route),
+      sessionId: requestedSessionId,
+      ...(submitPrompt ? { prompt: input.prompt } : {}),
+      cwd: input.cwd,
+      env: {
+        [REVIEW_AGENT_HOOK_URL_ENV]: hookUrl,
+        [REVIEW_AGENT_HOOK_TOKEN_ENV]: this.#hookToken,
+        [REVIEW_AGENT_THREAD_URL_ENV]: `${hookUrl}/thread`,
+        [DEV_REVIEW_HOME_ENV]: devReviewHome(),
+        ...(pathValue ? { PATH: pathValue } : {}),
+      },
+      runtimeDirectory: this.#runtimeDirectory,
+    });
   }
 }
 
-const CLAUDE_OBSERVER_EVENTS = [
-  "SessionStart",
-  "UserPromptSubmit",
-  "Stop",
-  "SessionEnd",
-] as const;
-
-const CODEX_OBSERVER_EVENTS = ["UserPromptSubmit", "Stop"] as const;
+function launchSession(route: ReviewTurnRoute): LaunchSession | undefined {
+  switch (route.kind) {
+    case "fork":
+      return { forkOf: route.source.sessionId };
+    case "resume":
+      return { resume: route.session.sessionId };
+    case "new":
+      return undefined;
+  }
+}

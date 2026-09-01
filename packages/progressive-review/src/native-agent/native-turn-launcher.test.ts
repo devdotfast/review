@@ -15,6 +15,10 @@ type NativeTerminalInput = Extract<
   { name: "openNativeAgentTerminal" }
 >["args"];
 
+type CodexDependency<
+  Name extends keyof NonNullable<NativeReviewTurnLauncherInput["codex"]>,
+> = NonNullable<NonNullable<NativeReviewTurnLauncherInput["codex"]>[Name]>;
+
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
@@ -151,30 +155,27 @@ async function createLauncher(): Promise<{
   launcher: NativeReviewTurnLauncher;
   openTerminal: ReturnType<typeof vi.fn<(input: NativeTerminalInput) => void>>;
   startCodexThread: ReturnType<
-    typeof vi.fn<NonNullable<NativeReviewTurnLauncherInput["startCodexThread"]>>
+    typeof vi.fn<CodexDependency<"startCodexThread">>
   >;
-  forkCodexThread: ReturnType<
-    typeof vi.fn<NonNullable<NativeReviewTurnLauncherInput["forkCodexThread"]>>
-  >;
+  forkCodexThread: ReturnType<typeof vi.fn<CodexDependency<"forkCodexThread">>>;
 }> {
   const runtimeDirectory = await mkdtemp(
     path.join(tmpdir(), "review-native-launcher-"),
   );
   temporaryDirectories.push(runtimeDirectory);
   const openTerminal = vi.fn<(input: NativeTerminalInput) => void>();
-  const startCodexThread = vi.fn<
-    NonNullable<NativeReviewTurnLauncherInput["startCodexThread"]>
-  >(async () => "codex-new-thread");
-  const forkCodexThread = vi.fn<
-    NonNullable<NativeReviewTurnLauncherInput["forkCodexThread"]>
-  >(async () => "codex-forked-thread");
+  const startCodexThread = vi.fn<CodexDependency<"startCodexThread">>(
+    async () => "codex-new-thread",
+  );
+  const forkCodexThread = vi.fn<CodexDependency<"forkCodexThread">>(
+    async () => "codex-forked-thread",
+  );
   return {
     launcher: new NativeReviewTurnLauncher({
       hookBaseUrl: "http://127.0.0.1:4000/hooks",
       hookToken: "secret",
       runtimeDirectory,
-      startCodexThread,
-      forkCodexThread,
+      codex: { startCodexThread, forkCodexThread },
       openTerminal: async (input) => openTerminal(input),
     }),
     openTerminal,

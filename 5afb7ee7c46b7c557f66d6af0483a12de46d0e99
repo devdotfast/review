@@ -248,6 +248,15 @@ export default defineSoftwareMap({
                   label: "readTraceCredentials",
                   description:
                     "Resolves trace credentials from env or the trace env file, attaching the optional region with default \"auto\".",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "configureTraceMachine",
+                      semanticKind: "reads",
+                      label: "reads the trace env file configureTraceMachine writes",
+                    },
+                  ],
                 },
                 configureTraceMachine: {
                   label: "configureTraceMachine",

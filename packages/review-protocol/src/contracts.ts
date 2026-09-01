@@ -1398,6 +1398,7 @@ export const ReviewCliInstallStatusSchema = z.strictObject({
     settingsPath: requiredString,
     endpoint: requiredString.optional(),
     bucket: requiredString.optional(),
+    region: requiredString.optional(),
     accessKeyIdPrefix: requiredString.optional(),
     verifiedAt: requiredString.optional(),
     error: requiredString.optional(),
@@ -1428,6 +1429,7 @@ export const ReviewCliInstallApplyRequestSchema = z
           bucket: requiredString.optional(),
           key: requiredString.optional(),
           secret: requiredString.optional(),
+          region: requiredString.optional(),
         }),
       ])
       .optional(),

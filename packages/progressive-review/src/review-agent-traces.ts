@@ -1066,7 +1066,7 @@ export async function syncReviewTrace(input: {
   }
   if (!isTraceR2Configured()) {
     throw new Error(
-      "R2 storage is not configured. Use Review Agent Setup to configure trace capture.",
+      "S3/R2 storage is not configured. Use Review Agent Setup to configure trace capture.",
     );
   }
 
@@ -1136,7 +1136,7 @@ export async function syncReviewTrace(input: {
   );
   if (!metaSaved) {
     throw new Error(
-      `Failed to update session metadata for ${sessionId} in R2 storage.`,
+      `Failed to update session metadata for ${sessionId} in S3/R2 storage.`,
     );
   }
 
@@ -1216,7 +1216,7 @@ export async function checkReviewTraceDoctor(input?: {
       ok: false,
       envPath,
       reachable: false,
-      error: "Configuration is missing one or more required R2 values.",
+      error: "Configuration is missing one or more required S3/R2 values.",
     };
   }
 
@@ -1225,7 +1225,7 @@ export async function checkReviewTraceDoctor(input?: {
       "aws",
       [
         "--region",
-        "auto",
+        config.region,
         "--endpoint-url",
         config.endpoint,
         "s3api",
@@ -1448,6 +1448,9 @@ export interface TraceR2Config {
   endpoint: string;
   accessKeyId: string;
   secretAccessKey: string;
+  // SigV4 signing region. R2 accepts "auto"; AWS S3 needs the bucket's
+  // real region.
+  region: string;
 }
 
 let cachedTraceEnv: Record<string, string> | null = null;
@@ -1490,7 +1493,8 @@ export function traceR2Config(): TraceR2Config | null {
     traceEnvValue("TRACE_R2_SECRET_ACCESS_KEY") ??
     traceEnvValue("AWS_SECRET_ACCESS_KEY");
   if (!bucket || !endpoint || !accessKeyId || !secretAccessKey) return null;
-  return { bucket, endpoint, accessKeyId, secretAccessKey };
+  const region = traceEnvValue("TRACE_R2_REGION") ?? "auto";
+  return { bucket, endpoint, accessKeyId, secretAccessKey, region };
 }
 
 const execFileAsync = promisify(execFile);
@@ -1515,7 +1519,7 @@ export async function r2HeadObjectSize(key: string): Promise<number | null> {
       "aws",
       [
         "--region",
-        "auto",
+        config.region,
         "--endpoint-url",
         config.endpoint,
         "s3api",
@@ -1569,7 +1573,7 @@ export async function r2GetObject(
       "aws",
       [
         "--region",
-        "auto",
+        config.region,
         "--endpoint-url",
         config.endpoint,
         "s3api",
@@ -1653,7 +1657,7 @@ export async function r2PutFile(
       "aws",
       [
         "--region",
-        "auto",
+        config.region,
         "--endpoint-url",
         config.endpoint,
         "s3",
@@ -1724,7 +1728,7 @@ export async function r2PutIfGrown(
   }
   const uploaded = await r2PutFile(key, filePath);
   if (!uploaded) {
-    throw new Error(`Failed to upload ${key} to R2 storage.`);
+    throw new Error(`Failed to upload ${key} to S3/R2 storage.`);
   }
   return true;
 }
@@ -1771,7 +1775,7 @@ export async function listSessionSubagents(
           "aws",
           [
             "--region",
-            "auto",
+            config.region,
             "--endpoint-url",
             config.endpoint,
             "s3api",

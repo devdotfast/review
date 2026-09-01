@@ -64,13 +64,15 @@ export async function runReviewTraceStatus(input: {
   }
 
   if (doctor.reachable && doctor.config) {
-    input.stdout.write(`✓ R2 bucket "${doctor.config.bucket}" is reachable.\n`);
+    input.stdout.write(
+      `✓ S3/R2 bucket "${doctor.config.bucket}" is reachable.\n`,
+    );
     return 0;
   }
 
   if (doctor.config) {
     input.stderr.write(
-      `✗ Cannot reach R2 bucket "${doctor.config.bucket}": ${doctor.error ?? "unknown error"}\n`,
+      `✗ Cannot reach S3/R2 bucket "${doctor.config.bucket}": ${doctor.error ?? "unknown error"}\n`,
     );
   }
   return 1;
@@ -183,7 +185,7 @@ export async function runReviewTraceList(input: {
   for (const session of publicSessions) {
     input.stdout.write(
       `${session.id}  (${session.harness}, ${
-        session.available ? "R2 synced" : "not synced"
+        session.available ? "S3/R2 synced" : "not synced"
       })\n`,
     );
     for (const commit of session.commits) {

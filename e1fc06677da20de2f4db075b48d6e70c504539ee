@@ -555,6 +555,15 @@ export default defineSoftwareMap({
               coverage: {
                 files: [{ path: "packages/progressive-review/app/src/trace-document.tsx" }],
               },
+              relationships: [
+                {
+                  kind: "semantic",
+                  from: ".",
+                  to: "review.protocolPackage.contracts",
+                  semanticKind: "types",
+                  label: "renders ReviewAgentTraceEvent streams",
+                },
+              ],
               codeElements: {
                 traceDocument: {
                   label: "TraceDocument",
@@ -696,6 +705,12 @@ export default defineSoftwareMap({
       from: "reviewer",
       to: "review.cliPackage.bugReport.submitReviewBugReport",
       label: "files bug reports, optionally attaching the authoring trace",
+    },
+    {
+      kind: "semantic",
+      from: "reviewer",
+      to: "review.reviewApp.traceView.traceDocument",
+      label: "reads authoring session traces through the lens",
     },
     {
       kind: "semantic",

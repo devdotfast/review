@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 
 import type { HarnessDialect, NativeTerminalInput } from "./harness";
+import { HookObservedAgentServer } from "./hook-observed-server";
+import type { AgentServer, AgentServerOptions } from "./native-session";
+import { readPiReviewMessages } from "./pi-transcript";
 import { companionModulePath } from "./terminal-command";
 
 export const dialect: HarnessDialect = {
@@ -44,4 +47,10 @@ export const dialect: HarnessDialect = {
       env: input.env,
     } satisfies NativeTerminalInput;
   },
+
+  readMessages: readPiReviewMessages,
 };
+
+export function server(options: AgentServerOptions): AgentServer {
+  return new HookObservedAgentServer(dialect, options);
+}

@@ -1,6 +1,7 @@
 import type { ReviewVerbRequest } from "@dev.fast/review-protocol";
 
 import type { ReviewAgentHarness } from "../authoring-session";
+import type { NativeReviewMessage } from "./native-session";
 
 export type NativeTerminalInput = Extract<
   ReviewVerbRequest,
@@ -32,4 +33,9 @@ export interface HarnessDialect {
     cwd: string;
   }): Promise<string>;
   terminalCommand(input: TerminalCommandInput): Promise<NativeTerminalInput>;
+  /** Project the native transcript into Review-visible messages. */
+  readMessages(input: {
+    sessionId: string;
+    transcriptPath?: string;
+  }): Promise<NativeReviewMessage[]>;
 }

@@ -1,6 +1,9 @@
 import { DEV_REVIEW_HOME_ENV } from "../review-storage";
 import { forkCodexThread, startCodexThread } from "./codex-app-server";
+import { readCodexReviewMessages } from "./codex-transcript";
 import type { HarnessDialect, NativeTerminalInput } from "./harness";
+import { HookObservedAgentServer } from "./hook-observed-server";
+import type { AgentServer, AgentServerOptions } from "./native-session";
 import { nativeHookCommand, tomlInline } from "./terminal-command";
 
 const OBSERVER_EVENTS = ["UserPromptSubmit", "Stop"] as const;
@@ -67,7 +70,18 @@ export function createDialect(
         env: input.env,
       } satisfies NativeTerminalInput;
     },
+
+    readMessages: readCodexReviewMessages,
   };
 }
 
 export const dialect = createDialect();
+
+export function server(
+  options: AgentServerOptions & { dependencies?: CodexDialectDependencies },
+): AgentServer {
+  return new HookObservedAgentServer(
+    createDialect(options.dependencies),
+    options,
+  );
+}

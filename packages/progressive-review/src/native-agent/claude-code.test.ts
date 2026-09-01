@@ -5,8 +5,6 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import * as claudeCode from "./claude-code";
-import type { HarnessDialect } from "./harness";
-import { HookObservedAgentServer } from "./hook-observed-server";
 import type {
   AgentServerOptions,
   NativeReviewMessage,
@@ -93,18 +91,12 @@ describe("launch", () => {
 });
 
 describe("updates", () => {
-  function fakeDialect(transcript: NativeReviewMessage[]): HarnessDialect {
-    return {
-      harness: "claude-code",
-      reserveSessionId: async () => "session",
-      terminalCommand: async (input) => ({
-        cwd: input.cwd,
-        executable: "claude",
-        args: [],
-        env: input.env,
-      }),
-      readMessages: async () => [...transcript],
-    };
+  /** A server whose transcript reader returns the given messages. */
+  async function serverOver(transcript: NativeReviewMessage[]) {
+    return claudeCode.server({
+      ...(await options()),
+      readTranscript: async () => [...transcript],
+    });
   }
 
   const message = (
@@ -142,11 +134,11 @@ describe("updates", () => {
 
   it("snapshots the transcript, then forwards the tail on every hook", async () => {
     const transcript = [message("user", "hello")];
-    const server = new HookObservedAgentServer(
-      fakeDialect(transcript),
-      await options(),
-    );
-    const { command } = await server.launch({ cwd: "/tmp/tutorial" });
+    const server = await serverOver(transcript);
+    const { command } = await server.launch({
+      session: { resume: "session" },
+      cwd: "/tmp/tutorial",
+    });
     const pipe = await server.updates("session");
     expect(pipe.snapshot).toEqual({
       sessionId: "session",
@@ -167,11 +159,11 @@ describe("updates", () => {
   });
 
   it("rejects a hook that names a different session", async () => {
-    const server = new HookObservedAgentServer(
-      fakeDialect([]),
-      await options(),
-    );
-    const { command } = await server.launch({ cwd: "/tmp/tutorial" });
+    const server = await serverOver([]);
+    const { command } = await server.launch({
+      session: { resume: "session" },
+      cwd: "/tmp/tutorial",
+    });
     const response = await postHook(command.env, { session_id: "other" });
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({
@@ -181,11 +173,11 @@ describe("updates", () => {
   });
 
   it("rejects a hook without this server's token", async () => {
-    const server = new HookObservedAgentServer(
-      fakeDialect([]),
-      await options(),
-    );
-    const { command } = await server.launch({ cwd: "/tmp/tutorial" });
+    const server = await serverOver([]);
+    const { command } = await server.launch({
+      session: { resume: "session" },
+      cwd: "/tmp/tutorial",
+    });
     expect((await postHook(command.env, {}, "wrong")).status).toBe(401);
     await server.close();
   });

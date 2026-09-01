@@ -1,5 +1,6 @@
+import type { ReviewVerbRequest } from "@dev.fast/review-protocol";
+
 import type { ReviewAgentHarness } from "../authoring-session";
-import type { NativeTerminalCommand } from "./harness";
 
 export type { ReviewAgentHarness, SessionRef } from "../authoring-session";
 
@@ -8,6 +9,12 @@ export interface NativeReviewMessage {
   body: string;
   createdAt: string;
 }
+
+/** What a native terminal runs. The desktop pairs it with the session. */
+export type NativeTerminalCommand = Extract<
+  ReviewVerbRequest,
+  { name: "openNativeAgentTerminal" }
+>["args"]["command"];
 
 export interface UpdatePipe<Snapshot, Update> {
   snapshot: Snapshot;

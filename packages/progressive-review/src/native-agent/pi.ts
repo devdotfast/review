@@ -2,13 +2,13 @@ import { randomUUID } from "node:crypto";
 
 import { DEV_REVIEW_HOME_ENV, devReviewHome } from "../review-storage";
 import { AsyncQueue } from "./async-queue";
-import type { NativeTerminalCommand } from "./harness";
 import { LoopbackIngress } from "./loopback-ingress";
 import type {
   AgentServer,
   AgentServerOptions,
   LaunchInput,
   NativeReviewMessage,
+  NativeTerminalCommand,
   SessionSnapshot,
   SessionUpdate,
   UpdatePipe,

@@ -1,7 +1,7 @@
 import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
 
 /**
- * Software map for b9080f34 (head) — the native agent integration subsystem of
+ * Software map for 28e15515 (head) — the native agent integration subsystem of
  * Review: harness detection, skill/trace-hook install, native turn launching
  * and observation, and authoring-session attribution. At this commit the
  * install surface bundles the review command shim (and shell-profile PATH

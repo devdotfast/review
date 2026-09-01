@@ -1,15 +1,15 @@
 import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
 
 /**
- * Software map for 0fe766fc (base) — the native agent integration subsystem of
- * Review: harness detection, skill/trace-hook install, native turn launching
- * and observation, and authoring-session attribution. At this commit the
- * install surface bundles the review command shim (and shell-profile PATH
- * management) with skill installs by default, and bug reports can attach an
- * opt-in authoring session trace resolved from the harness-local trace store.
- * At this commit trace session resolution falls back to scanning pull-request
- * branches, so squash-merged commits (whose rewritten messages drop the
- * Agent-Session trailers) still resolve their authoring sessions.
+ * Software map for 867e0e39 (base) — the native agent integration subsystem of
+ * Review (harness detection, skill/trace-hook install, native turn launching
+ * and observation, authoring-session attribution) plus the review thread
+ * workflow: the threads CLI, the review thread state store, and the republish
+ * gate that requires a completed model response on every current-round
+ * comment thread. At this commit `review threads reply` appends its reply
+ * through appendReviewComment, which records a plain comment message with no
+ * role, so the republish gate does not count a CLI reply as a completed model
+ * response.
  */
 export default defineSoftwareMap({
   people: {
@@ -59,6 +59,10 @@ export default defineSoftwareMap({
               { path: "packages/progressive-review/src/review-agent-traces.ts" },
               { path: "packages/progressive-review/src/server/bug-report.ts" },
               { path: "packages/progressive-review/src/server/bug-report-trace.ts" },
+              { path: "packages/progressive-review/src/threads-cli.ts" },
+              { path: "packages/progressive-review/src/review-state-store.ts" },
+              { path: "packages/progressive-review/src/review-publish-thread-gate.ts" },
+              { path: "packages/progressive-review/src/server/publish-preparation.ts" },
             ],
           },
           components: {
@@ -439,6 +443,71 @@ export default defineSoftwareMap({
                 },
               },
             },
+            threadWorkflow: {
+              label: "Review threads and publish gate",
+              description:
+                "Comment-thread workflow: the review threads CLI, the thread state store on review.db, and the republish gate requiring a completed model response per current-round thread.",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/src/threads-cli.ts" },
+                  { path: "packages/progressive-review/src/review-state-store.ts" },
+                  { path: "packages/progressive-review/src/review-publish-thread-gate.ts" },
+                  { path: "packages/progressive-review/src/server/publish-preparation.ts" },
+                ],
+              },
+              codeElements: {
+                threadsCliReply: {
+                  label: "runReviewThreadsReply",
+                  description:
+                    "CLI reply into a comment thread (review threads reply): resolves the review, requires an existing thread, and appends the reply via appendReviewComment with author defaulting to \"Agent\" — a plain comment message with no role, so the republish gate does not count it as a model response.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "appendReviewComment",
+                      label: "append reply as a comment message",
+                    },
+                  ],
+                },
+                appendReviewComment: {
+                  label: "appendReviewComment",
+                  description:
+                    "Appends a reviewer-shaped comment message (id, author, body; no role) to an existing or new thread, validating the target on new threads.",
+                },
+                appendReviewAgentMessage: {
+                  label: "appendReviewAgentMessage",
+                  description:
+                    "Appends a normalized role-carrying agent message into a draft or committed comment thread, deduplicating by message id.",
+                },
+                publishGate: {
+                  label: "requireCompletedAgentResponsesForRepublish",
+                  description:
+                    "Republish gate: every thread with a current-round reviewer message (role !== \"agent\" after lastPublishedAt) must have a later message with role \"agent\", else publish fails with ReviewMissingAgentResponsesError.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.cliPackage.threadWorkflow",
+                      semanticKind: "reads",
+                      label: "readReviewComments message roles",
+                    },
+                  ],
+                },
+                publishPreparation: {
+                  label: "prepareReviewPublish",
+                  description:
+                    "Publish preparation shared by review publish: resolves the review and enforces the closed-threads and completed-agent-responses gates before publishing.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "publishGate",
+                      label: "gate republish on completed agent responses",
+                    },
+                  ],
+                },
+              },
+            },
             serverSurface: {
               label: "Local server surface",
               description:
@@ -661,6 +730,18 @@ export default defineSoftwareMap({
       from: "authoringAgent",
       to: "review.cliPackage.authoring.authoringSession",
       label: "identified from agent session env",
+    },
+    {
+      kind: "semantic",
+      from: "authoringAgent",
+      to: "review.cliPackage.threadWorkflow.threadsCliReply",
+      label: "answers reviewer comment threads via review threads reply",
+    },
+    {
+      kind: "call",
+      from: "review.cliPackage.cliRunner.cliRunner",
+      to: "review.cliPackage.threadWorkflow.threadsCliReply",
+      label: "review threads reply command",
     },
     {
       kind: "semantic",

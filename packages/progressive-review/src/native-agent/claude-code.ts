@@ -2,11 +2,14 @@ import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { readClaudeReviewMessages } from "./claude-transcript";
 import type {
   HarnessDialect,
   NativeTerminalInput,
   TerminalCommandInput,
 } from "./harness";
+import { HookObservedAgentServer } from "./hook-observed-server";
+import type { AgentServer, AgentServerOptions } from "./native-session";
 import { nativeHookCommand } from "./terminal-command";
 
 const OBSERVER_EVENTS = [
@@ -69,6 +72,8 @@ export const dialect: HarnessDialect = {
       },
     } satisfies NativeTerminalInput;
   },
+
+  readMessages: readClaudeReviewMessages,
 };
 
 async function writeSettings(input: TerminalCommandInput): Promise<string> {
@@ -81,4 +86,8 @@ async function writeSettings(input: TerminalCommandInput): Promise<string> {
   );
   await writeFile(settingsPath, `${JSON.stringify({ hooks })}\n`, "utf8");
   return settingsPath;
+}
+
+export function server(options: AgentServerOptions): AgentServer {
+  return new HookObservedAgentServer(dialect, options);
 }

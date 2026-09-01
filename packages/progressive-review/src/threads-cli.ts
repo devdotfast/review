@@ -5,7 +5,7 @@ import { ReviewCommentThreadRecordSchema } from "./review-comment-schema";
 import { reviewUuidForManagedCheckout } from "./review-head-checkout";
 import { type StoredReview, findReview, listReviews } from "./review-home";
 import {
-  appendReviewComment,
+  appendReviewAgentMessage,
   readReviewComments,
   updateReviewComment,
 } from "./review-state-store";
@@ -149,12 +149,16 @@ export async function runReviewThreadsReply(
     throw new Error(`Comment thread not found: ${input.threadId}`);
   }
   const messageId = randomUUID();
-  appendReviewComment(document, {
-    threadId: input.threadId,
-    messageId,
-    target: thread.target,
+  // The republish gate requires a completed model response with role "agent"
+  // on every current-round thread, so a CLI reply must not read as another
+  // reviewer message.
+  appendReviewAgentMessage(document, input.threadId, {
+    id: messageId,
+    by: input.author?.trim() || "Agent",
+    at: new Date().toISOString(),
     body,
-    author: input.author?.trim() || "Agent",
+    role: "agent",
+    format: "plain",
   });
   input.stdout.write(
     `${JSON.stringify({

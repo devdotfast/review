@@ -35,9 +35,8 @@ export interface AgentServerOptions {
   runtimeDirectory: string;
   reviewCliPath?: string;
   reviewCliRuntimePath?: string;
-  /** Desktop-global endpoint that accepts native hook events and `review threads` calls. */
-  hookBaseUrl: string;
-  hookToken: string;
+  /** The desktop every native terminal can reach, for `review threads` lookups. */
+  desktopEndpoint: { baseUrl: string; token: string };
 }
 
 export interface LaunchInput {
@@ -57,7 +56,5 @@ export interface AgentServer {
   updates(
     sessionId: string,
   ): Promise<UpdatePipe<SessionSnapshot, SessionUpdate>>;
-  /** Present on servers that learn about sessions through native hooks. */
-  receiveHookEvent?(sessionId: string, payload: unknown): void;
   close(): Promise<void>;
 }

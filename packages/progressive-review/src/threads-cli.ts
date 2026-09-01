@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 import {
-  REVIEW_AGENT_HOOK_TOKEN_ENV,
+  REVIEW_AGENT_THREAD_TOKEN_ENV,
   REVIEW_AGENT_THREAD_URL_ENV,
 } from "./native-agent/terminal-command";
 import { ReviewCommentThreadRecordSchema } from "./review-comment-schema";
@@ -64,7 +64,7 @@ async function readAttachedReviewThread(input: {
 }> {
   const env = input.env ?? process.env;
   const baseUrl = env[REVIEW_AGENT_THREAD_URL_ENV]?.trim();
-  const token = env[REVIEW_AGENT_HOOK_TOKEN_ENV]?.trim();
+  const token = env[REVIEW_AGENT_THREAD_TOKEN_ENV]?.trim();
   if (!baseUrl || !token) {
     throw new Error(
       "review threads get requires an attached Review Desktop server.",

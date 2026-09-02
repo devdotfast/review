@@ -1,3 +1,5 @@
+import type { ReviewView } from "@dev.fast/review-protocol";
+
 import { resolveAuthoringSessionRef } from "./authoring-session";
 import { emitJsonEvent } from "./cli-output";
 import type { ReviewDocumentDiagnostic } from "./compiler/review-document-compiler";
@@ -17,6 +19,7 @@ import { prepareReviewPublish } from "./server/publish-preparation";
 export async function runReviewPublish(input: {
   cwd: string;
   reviewUuid?: string;
+  view?: ReviewView;
   json?: boolean;
   toolingRoot?: string;
   stdout: NodeJS.WriteStream;
@@ -43,6 +46,7 @@ async function publish(
   input: {
     cwd: string;
     reviewUuid?: string;
+    view?: ReviewView;
     toolingRoot?: string;
     env?: NodeJS.ProcessEnv;
     onReviewBound?: (uuid: string) => void | Promise<void>;
@@ -105,6 +109,7 @@ async function publish(
       reviewUuid: prepared.uuid,
       revision,
       agent: resolveAuthoringSessionRef(input.env ?? process.env),
+      ...(input.view ? { view: input.view } : {}),
     }),
   });
   const result = (await response.json().catch(() => null)) as {

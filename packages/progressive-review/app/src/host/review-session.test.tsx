@@ -116,7 +116,9 @@ describe("ReviewSessionProvider", () => {
     await sessionB.fetch("/session");
 
     expect(postedA).toEqual([]);
-    expect(postedB).toEqual([{ name: "openFiles", args: {} }]);
+    expect(postedB).toEqual([
+      { name: "showReviewView", args: { view: "diff" } },
+    ]);
     expect(fetchMock).toHaveBeenCalledWith(
       "http://127.0.0.1:5570/sessions/b/__progressive-review/session?document=%2Fb.mdx",
       expect.objectContaining({
@@ -139,7 +141,10 @@ function SessionProbe() {
       <button
         type="button"
         onClick={() => {
-          session.surface.post({ name: "openFiles", args: {} });
+          session.surface.post({
+            name: "showReviewView",
+            args: { view: "diff" },
+          });
           setClicks((current) => current + 1);
         }}
       >

@@ -9,6 +9,7 @@ import {
   type ReactNode,
   type RefObject,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -364,6 +365,8 @@ function ReviewLayoutContent({
     ...(softwareMapEnabled ? (["map"] as const) : []),
     ...(hasTraceSessions ? (["trace"] as const) : []),
   ];
+  const reviewViewsRef = useRef(reviewViews);
+  reviewViewsRef.current = reviewViews;
   const applyReviewView = (view: ReviewView) => {
     const normalizedView = normalizeReviewView(
       view,
@@ -418,11 +421,16 @@ function ReviewLayoutContent({
   }, [review.softwareMapFocusRequest, softwareMapEnabled]);
   const applyReviewViewRef = useRef(applyReviewView);
   applyReviewViewRef.current = applyReviewView;
-  // The server and the CLI still send the openFiles verb. The workbench turns
-  // it into this event once it reveals the Review tab.
-  useEffect(() => {
+  // Subscribe before the canvas signals ready so a reveal immediately after
+  // mounting cannot outrun the listener.
+  useLayoutEffect(() => {
     return session.surface.subscribe((event) => {
-      if (event.event === "showDiffView") applyReviewViewRef.current("diff");
+      if (
+        event.event === "showReviewView" &&
+        reviewViewsRef.current.includes(event.view)
+      ) {
+        applyReviewViewRef.current(event.view);
+      }
     });
   }, [session.surface]);
   const activeSoftwareMapSource = useMemo(

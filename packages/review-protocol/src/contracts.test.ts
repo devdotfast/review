@@ -47,6 +47,7 @@ import {
   ReviewVerbResponseSchema,
   ThreadTargetSchema,
   createGitLabTextDiffPosition,
+  reviewViewSchema,
   summarizeReviewDiffFiles,
 } from "./contracts.js";
 
@@ -188,6 +189,7 @@ const contracts: Array<[string, ZodType, Record<string, unknown>]> = [
       reviewUuid: reviewRecord.uuid,
       revision: "a".repeat(40),
       agent: { harness: "codex", sessionId: "session-1" },
+      view: "diff",
     },
   ],
   ["session descriptor", ReviewSessionDescriptorSchema, descriptor],
@@ -404,6 +406,29 @@ describe("Review protocol Zod contracts", () => {
     expect(schema.safeParse({ ...value, unexpected: true }).success).toBe(
       tolerantContracts.has(name),
     );
+  });
+});
+
+describe("review views", () => {
+  it("accepts the five shared views and rejects unknown values", () => {
+    expect(
+      ["review", "commits", "diff", "map", "trace"].every(
+        (view) => reviewViewSchema.safeParse(view).success,
+      ),
+    ).toBe(true);
+    expect(reviewViewSchema.safeParse("files").success).toBe(false);
+    expect(
+      ReviewVerbRequestSchema.safeParse({
+        name: "showReviewView",
+        args: { view: "diff" },
+      }).success,
+    ).toBe(true);
+    expect(
+      ReviewSurfaceEventSchema.safeParse({
+        event: "showReviewView",
+        view: "map",
+      }).success,
+    ).toBe(true);
   });
 });
 

@@ -47,6 +47,7 @@ import {
   type ReviewSurfaceEvent,
   type ReviewVerbRequest,
   type ReviewVerbResponse,
+  type ReviewView,
   parseReviewVerbRequest,
 } from "../../common/reviewProtocol.js";
 import {
@@ -165,8 +166,8 @@ export class ReviewVerbsService
         case "openFile":
           await this.openFile(request.args);
           break;
-        case "openFiles":
-          await this.openFiles();
+        case "showReviewView":
+          await this.showReviewView(request.args.view);
           break;
         case "openSourceTree":
           // Bind the tab to the active review so a later re-activation can
@@ -424,14 +425,12 @@ export class ReviewVerbsService
   }
 
   /**
-   * The diff is a view inside the Review tab, not a separate editor. The
-   * dispatcher reveals that tab before this runs, so the verb only has to
-   * focus the canvas and ask the app to show the Diff view.
+   * The dispatcher reveals the Review tab before asking the app to show a view.
    */
-  private async openFiles(): Promise<void> {
+  private async showReviewView(view: ReviewView): Promise<void> {
     this.requireSession();
     this._onDidRequestCanvasFocus.fire();
-    this._onDidEmitSurfaceEvent.fire({ event: "showDiffView" });
+    this._onDidEmitSurfaceEvent.fire({ event: "showReviewView", view });
   }
 
   private async openDiffEditor(args: {

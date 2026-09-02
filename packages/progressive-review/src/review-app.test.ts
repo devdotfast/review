@@ -85,6 +85,7 @@ describe("review app", () => {
           stdin: fakeTty(),
           stdout: process.stdout,
           reviewUuid: selected.review.uuid,
+          view: "diff",
         },
         {
           launch: async () => ({
@@ -108,6 +109,17 @@ describe("review app", () => {
       reviewUuid: selected.review.uuid,
       title: selected.review.title,
     });
+    expect(fetch).toHaveBeenCalledWith(
+      `${discovery.url}/reviews/${selected.review.uuid}/open`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-review-token": discovery.token,
+        },
+        body: JSON.stringify({ view: "diff" }),
+      },
+    );
   });
 
   it("requires a TTY only for the interactive picker", async () => {

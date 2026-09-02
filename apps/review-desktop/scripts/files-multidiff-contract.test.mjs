@@ -87,12 +87,19 @@ test("Diff is a Review-tab view with a native changed-files tree beside one scro
   assert.match(reviewDiffView, /create\(\{ container, scope \}\)/);
   assert.match(reviewDiffView, /review-diff-view-host/);
 
-  // The openFiles verb survives for server and CLI callers; it now switches
-  // the Review tab to the Diff view instead of opening an editor.
-  assert.match(reviewVerbs, /case "openFiles"/);
-  assert.match(reviewVerbs, /event: "showDiffView"/);
+  // Server and CLI callers use one typed verb to select any Review-tab view.
+  assert.match(reviewVerbs, /case "showReviewView"/);
+  assert.match(reviewVerbs, /event: "showReviewView", view/);
   assert.doesNotMatch(reviewVerbs, /ReviewFilesEditorInput/);
-  assert.match(reviewApp, /event\.event === "showDiffView"/);
+  assert.match(reviewApp, /event\.event === "showReviewView"/);
+  assert.match(
+    reviewApp,
+    /useLayoutEffect\(\(\) => \{\s*return session\.surface\.subscribe/,
+  );
+  assert.doesNotMatch(
+    reviewCanvasPart,
+    /pendingReviewViews|surfaceSubscriptionCounts/,
+  );
 
   assert.match(reviewCanvasPart, /diffView: this\.diffViews/);
   assert.match(reviewCanvasPart, /this\.diffViews\.reset\(\)/);

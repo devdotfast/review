@@ -68,10 +68,10 @@ $ review version --json
 | --- | --- |
 | `review app` | Start Review Desktop. Bare `review app` aliases `app launch`. |
 | `review app launch` | Start or activate Review Desktop. |
-| `review app pick` | Select a published Review, interactively or by UUID. |
+| `review app pick` | Select a published Review and optionally choose its opened view. |
 | `review info` | List Reviews associated with the current checkout. |
 | `review scaffold` | Create or update a pinned UUID Review. |
-| `review publish` | Validate and publish the Review document. |
+| `review publish` | Validate and publish the Review document, optionally opening a chosen view. |
 | `review rebind` | Move a Review to another branch, bookmark, or change ID. |
 | `review wait` | Wait for reviewer activity or an agent-action state. |
 | `review threads` | Read, reply to, and resolve Review threads. |
@@ -85,7 +85,7 @@ $ review version --json
 ```sh
 review app launch
 review app pick
-review app pick --review <uuid>
+review app pick --review <uuid> --view diff
 review info
 review info --all
 ```
@@ -97,6 +97,9 @@ active Reviews for every worktree in the current repository.
 
 The legacy `review app --review <uuid>` form remains a compatibility alias for
 `review app pick --review <uuid>`.
+
+Both `review app pick` and `review publish` accept `--view` with one of
+`review`, `commits`, `diff`, `map`, or `trace`.
 
 ## Scaffold and update
 
@@ -120,7 +123,7 @@ moves the pins automatically.
 ## Publish, rebind, and wait
 
 ```sh
-review publish --review <uuid>
+review publish --review <uuid> --view diff
 review rebind <branch-bookmark-or-change> --review <uuid>
 review wait --review <uuid>
 review wait --timeout <seconds> --review <uuid>

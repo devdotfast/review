@@ -26,6 +26,76 @@ const token = "live-review-server-token";
 afterEach(() => vi.unstubAllEnvs());
 
 describe("Review Desktop live Review transport", () => {
+  it("renders a validated interactive database lens from live MDX", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "live-review-server-"));
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+    const server = liveReviewServer(home, []);
+
+    try {
+      await server.listen();
+      const created = await liveJson(server.url, "/live-reviews", {
+        cwd: repoRoot,
+        source: { kind: "current-checkout" },
+        title: "Database tracer",
+      });
+      const uuid = String(
+        (created.body as { info: { reviewId: string } }).info.reviewId,
+      );
+      const rendered = await liveJson(
+        server.url,
+        `/live-reviews/${uuid}/render`,
+        {
+          targetNodeId: "root",
+          mode: "append",
+          title: "Persisted state",
+          mdx: `
+<DatabaseLens
+  title="Thread storage"
+  stores={{ reviewDb: { kind: "relational", label: "review.db", tables: { threads: { key: "id", schema: { id: { type: "text", pk: true }, agentSessionId: { type: "text" } } } } } }}
+  height={440}
+>
+  <DbUseCase id="bind-session" label="Bind an agent session">
+    <DbWrite
+      from={{ id: "reviewApi", label: "Review API" }}
+      to={{ store: "reviewDb", collectionKind: "tables", collection: "threads", path: ["agentSessionId"] }}
+      label="persist session binding"
+      anchor={{ peek: { file: "package.json", fromLine: 1, toLine: 3 } }}
+    />
+  </DbUseCase>
+</DatabaseLens>`,
+        },
+      );
+      expect(rendered.response.status).toBe(200);
+      const stored = await findReview(uuid);
+      const page = readLiveReviewPage(stored!.dir)!;
+      expect(Object.values(page.projection.elements)).toContainEqual(
+        expect.objectContaining({
+          type: "DatabaseLens",
+          props: expect.objectContaining({
+            title: "Thread storage",
+            useCases: [
+              expect.objectContaining({
+                id: "bind-session",
+                operations: [
+                  expect.objectContaining({
+                    kind: "write",
+                    label: "persist session binding",
+                    anchor: expect.objectContaining({
+                      __kind: "db-anchor-ref",
+                    }),
+                  }),
+                ],
+              }),
+            ],
+          }),
+        }),
+      );
+    } finally {
+      await server.close();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   it("owns create, render, lifecycle, and open mutations behind authentication", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "live-review-server-"));
     vi.stubEnv("DEV_REVIEW_HOME", home);

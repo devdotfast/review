@@ -2,19 +2,30 @@ import type { ReviewAuthoringTarget } from "@dev.fast/review-protocol";
 import type { Spec } from "@json-render/core";
 import { JSONUIProvider, Renderer, defineRegistry } from "@json-render/react";
 import {
+  type ReactNode,
   createContext,
   createElement,
-  type ReactNode,
   useCallback,
   useContext,
   useSyncExternalStore,
 } from "react";
 
-import type { AnchorRef, SequenceDiagramProps } from "../../src/authoring";
+import {
+  type ActorRef,
+  type AnchorRef,
+  type AuthoredTargetRef,
+  type SequenceDiagramProps,
+  type StoreRef,
+  createReviewDefinitionSession,
+} from "../../src/authoring";
 import { liveReviewCatalog } from "../../src/live-review-catalog";
-import type { LiveReviewTutorialProps } from "../../src/live-review-catalog";
+import type {
+  LiveDatabaseLensProps,
+  LiveReviewTutorialProps,
+} from "../../src/live-review-catalog";
 import type { LiveReviewPage } from "../../src/live-review-types";
 import { MarkdownContent } from "./agent-markdown";
+import { DatabaseLens, DbRead, DbUseCase, DbWrite } from "./database-lens";
 import { SequenceDiagram } from "./diagrams";
 import { useReviewSession } from "./host/review-session";
 import { LiveTutorialDocument } from "./live-tutorial-document";
@@ -34,11 +45,77 @@ const { registry } = defineRegistry(liveReviewCatalog, {
     SequenceDiagram: ({ props }) => (
       <SequenceDiagram {...(props as SequenceDiagramProps)} />
     ),
+    DatabaseLens: ({ props }) => (
+      <LiveDatabaseLens {...(props as LiveDatabaseLensProps)} />
+    ),
     Tutorial: ({ props }) => (
       <LiveTutorialDocument {...(props as LiveReviewTutorialProps)} />
     ),
   },
 });
+
+function LiveDatabaseLens(props: LiveDatabaseLensProps) {
+  const definitions = createReviewDefinitionSession({
+    softwareMap: null,
+    baseSoftwareMap: null,
+  });
+  const stores = definitions.defineStores(props.stores);
+  return (
+    <DatabaseLens title={props.title} stores={stores} height={props.height}>
+      {props.useCases.map((useCase) => (
+        <DbUseCase
+          key={useCase.id}
+          id={useCase.id}
+          label={useCase.label}
+          summary={useCase.summary}
+        >
+          {useCase.operations.map((operation, index) => {
+            const actor: ActorRef = {
+              __kind: "db-actor-ref",
+              id: operation.actor.id,
+              label: operation.actor.label,
+            };
+            const target = liveDatabaseTarget(stores, operation.target);
+            return operation.kind === "read" ? (
+              <DbRead
+                key={`${useCase.id}-${index}`}
+                from={target}
+                to={actor}
+                label={operation.label}
+                anchor={operation.anchor}
+              />
+            ) : (
+              <DbWrite
+                key={`${useCase.id}-${index}`}
+                from={actor}
+                to={target}
+                label={operation.label}
+                anchor={operation.anchor}
+              />
+            );
+          })}
+        </DbUseCase>
+      ))}
+    </DatabaseLens>
+  );
+}
+
+function liveDatabaseTarget(
+  stores: Record<string, StoreRef>,
+  target: LiveDatabaseLensProps["useCases"][number]["operations"][number]["target"],
+): AuthoredTargetRef {
+  let current: unknown =
+    stores[target.store]?.[target.collectionKind]?.[target.collection];
+  for (const segment of target.path) {
+    current = (current as Record<string, unknown> | undefined)?.[segment];
+  }
+  if (!current) {
+    throw new Error(
+      `Database target does not exist: ${target.store}.${target.collectionKind}.${target.collection}.${target.path.join(".")}`,
+    );
+  }
+  return current as AuthoredTargetRef;
+}
 
 export const LiveReviewAuthoringTargetContext =
   createContext<ReviewAuthoringTarget | null>(null);
@@ -172,6 +249,13 @@ function liveReviewAnchors(spec: Spec): {
           anchorContents.set(message.anchor.id, message.code);
         } else if (message.code?.text) {
           anchorContents.set(message.anchor.id, message.code.text);
+        }
+      }
+    } else if (element.type === "DatabaseLens") {
+      const useCases = (element.props as LiveDatabaseLensProps).useCases;
+      for (const useCase of useCases) {
+        for (const operation of useCase.operations) {
+          anchors.set(operation.anchor.id, operation.anchor);
         }
       }
     }

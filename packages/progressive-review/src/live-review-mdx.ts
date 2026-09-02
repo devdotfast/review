@@ -1,4 +1,4 @@
-import { validateSpec, type Spec } from "@json-render/core";
+import { type Spec, validateSpec } from "@json-render/core";
 import type { Expression, Program, Property, SpreadElement } from "estree";
 import type { Root } from "mdast";
 import { fromMarkdown } from "mdast-util-from-markdown";
@@ -9,11 +9,16 @@ import { mdxjs } from "micromark-extension-mdxjs";
 import { z } from "zod";
 
 import {
-  sequenceDiagramPropsSchema,
   type AnchorRef,
   type SequenceDiagramProps,
+  sequenceDiagramPropsSchema,
+  storeInputMapSchema,
 } from "./authoring";
-import { liveReviewCatalog } from "./live-review-catalog";
+import {
+  type LiveDatabaseLensProps,
+  liveDatabaseLensPropsSchema,
+  liveReviewCatalog,
+} from "./live-review-catalog";
 import type {
   LiveReviewPage,
   RenderDiagnostic,
@@ -88,6 +93,91 @@ const liveSequenceSchema = z.strictObject({
   messages: z.array(liveMessageSchema).min(1),
 });
 
+const liveDatabaseTargetInputSchema = z.strictObject({
+  store: z.string().min(1),
+  collectionKind: z.enum(["tables", "documents"]),
+  collection: z.string().min(1),
+  path: z.array(z.string().min(1)).optional(),
+});
+
+const liveDatabaseOperationInputSchema = z.strictObject({
+  kind: z.enum(["read", "write"]),
+  actor: actorSchema,
+  target: liveDatabaseTargetInputSchema,
+  label: z.string().min(1),
+  anchor: liveAnchorSchema,
+});
+
+const liveDatabaseInputSchema = z.strictObject({
+  title: z.string().min(1).optional(),
+  stores: storeInputMapSchema,
+  height: z.number().positive().optional(),
+  useCases: z
+    .array(
+      z.strictObject({
+        id: z.string().min(1),
+        label: z.string().min(1),
+        summary: z.string().min(1).optional(),
+        operations: z.array(liveDatabaseOperationInputSchema).min(1),
+      }),
+    )
+    .min(1),
+});
+
+async function resolveLiveAnchor(input: {
+  raw: z.infer<typeof liveAnchorSchema>;
+  fallbackId: string;
+  fallbackTitle: string;
+  diagnosticPath: string;
+  anchorIds: Set<string>;
+  sourceTarget: () => ReturnType<typeof resolveReviewSourceTarget>;
+}): Promise<AnchorRef> {
+  const anchorId = input.raw.id ?? input.fallbackId;
+  if (input.anchorIds.has(anchorId)) {
+    throw new LiveReviewMdxError([
+      {
+        path: `${input.diagnosticPath}.id`,
+        message: `Anchor ID must be unique: ${anchorId}`,
+      },
+    ]);
+  }
+  input.anchorIds.add(anchorId);
+  const peek = input.raw.peek;
+  const target = await input.sourceTarget();
+  const sourceRoot =
+    peek.graph === "base"
+      ? target.preparedBase?.sourceRootPath
+      : target.sourceRootPath;
+  if (!sourceRoot) {
+    throw new LiveReviewMdxError([
+      {
+        path: `${input.diagnosticPath}.peek`,
+        message: "The pinned source checkout is unavailable.",
+      },
+    ]);
+  }
+  const snapshot = await resolveReviewSourceRange({
+    rootPath: sourceRoot,
+    root: {
+      kind: "range",
+      file: peek.file,
+      fromLine: peek.fromLine,
+      toLine: peek.toLine,
+    },
+  });
+  return {
+    __kind: "db-anchor-ref",
+    id: anchorId,
+    title: input.raw.title ?? input.fallbackTitle,
+    detail: input.raw.detail,
+    peek: {
+      __kind: "code-peek-ref",
+      props: peek,
+      resolution: { snapshot },
+    },
+  };
+}
+
 export class LiveReviewMdxError extends Error {
   override readonly name = "LiveReviewMdxError";
 
@@ -135,6 +225,57 @@ export async function projectLiveReviewPage(input: {
         };
         continue;
       }
+      if (block.kind === "database") {
+        const raw = liveDatabaseInputSchema.parse(block.props);
+        const label = raw.title ?? "Database lens";
+        if (diagramLabels.has(label)) {
+          throw new LiveReviewMdxError([
+            {
+              path: `${nodeId}.DatabaseLens.title`,
+              message: `Diagram label must be unique: ${label}`,
+            },
+          ]);
+        }
+        diagramLabels.add(label);
+        const useCases = await Promise.all(
+          raw.useCases.map(async (useCase, useCaseIndex) => ({
+            ...useCase,
+            operations: await Promise.all(
+              useCase.operations.map(async (operation, operationIndex) => ({
+                ...operation,
+                actor: {
+                  id: operation.actor.id ?? slug(operation.actor.label),
+                  label: operation.actor.label,
+                },
+                target: {
+                  ...operation.target,
+                  path: operation.target.path ?? [],
+                },
+                anchor: await resolveLiveAnchor({
+                  raw: operation.anchor,
+                  fallbackId: `${nodeId}-${slug(label)}-${useCaseIndex + 1}-${operationIndex + 1}`,
+                  fallbackTitle: operation.label,
+                  diagnosticPath: `${nodeId}.DatabaseLens.useCases.${useCaseIndex}.operations.${operationIndex}.anchor`,
+                  anchorIds,
+                  sourceTarget,
+                }),
+              })),
+            ),
+          })),
+        );
+        const props = liveDatabaseLensPropsSchema.parse({
+          ...(raw.title ? { title: raw.title } : {}),
+          stores: raw.stores,
+          ...(raw.height ? { height: raw.height } : {}),
+          useCases,
+        }) as LiveDatabaseLensProps;
+        elements[key] = {
+          type: "DatabaseLens",
+          props,
+          children: [],
+        };
+        continue;
+      }
       const raw = liveSequenceSchema.parse(block.props);
       if (diagramLabels.has(raw.label)) {
         throw new LiveReviewMdxError([
@@ -155,55 +296,16 @@ export async function projectLiveReviewPage(input: {
               },
             ]);
           }
-          let anchor: AnchorRef | undefined;
-          if (message.anchor) {
-            const anchorId =
-              message.anchor.id ??
-              `${nodeId}-${slug(raw.label)}-message-${messageIndex + 1}`;
-            if (anchorIds.has(anchorId)) {
-              throw new LiveReviewMdxError([
-                {
-                  path: `${nodeId}.SequenceDiagram.messages.${messageIndex}.anchor.id`,
-                  message: `Anchor ID must be unique: ${anchorId}`,
-                },
-              ]);
-            }
-            anchorIds.add(anchorId);
-            const peek = message.anchor.peek;
-            const target = await sourceTarget();
-            const sourceRoot =
-              peek.graph === "base"
-                ? target.preparedBase?.sourceRootPath
-                : target.sourceRootPath;
-            if (!sourceRoot) {
-              throw new LiveReviewMdxError([
-                {
-                  path: `${nodeId}.SequenceDiagram.messages.${messageIndex}.anchor.peek`,
-                  message: "The pinned source checkout is unavailable.",
-                },
-              ]);
-            }
-            const snapshot = await resolveReviewSourceRange({
-              rootPath: sourceRoot,
-              root: {
-                kind: "range",
-                file: peek.file,
-                fromLine: peek.fromLine,
-                toLine: peek.toLine,
-              },
-            });
-            anchor = {
-              __kind: "db-anchor-ref",
-              id: anchorId,
-              title: message.anchor.title ?? message.label,
-              detail: message.anchor.detail,
-              peek: {
-                __kind: "code-peek-ref",
-                props: peek,
-                resolution: { snapshot },
-              },
-            };
-          }
+          const anchor = message.anchor
+            ? await resolveLiveAnchor({
+                raw: message.anchor,
+                fallbackId: `${nodeId}-${slug(raw.label)}-message-${messageIndex + 1}`,
+                fallbackTitle: message.label,
+                diagnosticPath: `${nodeId}.SequenceDiagram.messages.${messageIndex}.anchor`,
+                anchorIds,
+                sourceTarget,
+              })
+            : undefined;
           return {
             from: message.from,
             to: message.to,
@@ -333,7 +435,8 @@ function assertReviewNodeTree(input: {
 
 type ParsedBlock =
   | { kind: "markdown"; source: string }
-  | { kind: "sequence"; props: unknown };
+  | { kind: "sequence"; props: unknown }
+  | { kind: "database"; props: unknown };
 
 function parseMdxBlocks(source: string, nodeId: string): ParsedBlock[] {
   if (!source.trim()) return [];
@@ -370,6 +473,10 @@ function parseMdxBlocks(source: string, nodeId: string): ParsedBlock[] {
       blocks.push({ kind: "sequence", props: jsxProps(child, nodeId) });
       continue;
     }
+    if (child.type === "mdxJsxFlowElement" && child.name === "DatabaseLens") {
+      blocks.push({ kind: "database", props: databaseProps(child, nodeId) });
+      continue;
+    }
     const start = child.position?.start.offset;
     const end = child.position?.end.offset;
     if (typeof start !== "number" || typeof end !== "number") continue;
@@ -377,6 +484,56 @@ function parseMdxBlocks(source: string, nodeId: string): ParsedBlock[] {
     if (markdown) blocks.push({ kind: "markdown", source: markdown });
   }
   return blocks;
+}
+
+function databaseProps(
+  node: MdastNode,
+  nodeId: string,
+): Record<string, unknown> {
+  const useCases = (node.children ?? [])
+    .filter(
+      (child) =>
+        child.type === "mdxJsxFlowElement" && child.name === "DbUseCase",
+    )
+    .map((useCase) => {
+      const operations = (useCase.children ?? [])
+        .filter(
+          (child) =>
+            child.type === "mdxJsxFlowElement" &&
+            (child.name === "DbRead" || child.name === "DbWrite"),
+        )
+        .map((operation) => {
+          if ((operation.children?.length ?? 0) > 0) {
+            throw new LiveReviewMdxError([
+              {
+                path: `${nodeId}.${operation.name}`,
+                message: `${operation.name} does not accept children.`,
+              },
+            ]);
+          }
+          const props = jsxProps(
+            operation,
+            nodeId,
+            operation.name ?? "operation",
+          );
+          const kind = operation.name === "DbRead" ? "read" : "write";
+          return {
+            kind,
+            actor: kind === "read" ? props.to : props.from,
+            target: kind === "read" ? props.from : props.to,
+            label: props.label,
+            anchor: props.anchor,
+          };
+        });
+      return {
+        ...jsxProps(useCase, nodeId, "DbUseCase"),
+        operations,
+      };
+    });
+  return {
+    ...jsxProps(node, nodeId, "DatabaseLens"),
+    useCases,
+  };
 }
 
 function rejectExecutableMdx(node: MdastNode, nodeId: string): void {
@@ -394,7 +551,11 @@ function rejectExecutableMdx(node: MdastNode, nodeId: string): void {
   }
   if (
     (node.type === "mdxJsxFlowElement" || node.type === "mdxJsxTextElement") &&
-    node.name !== "SequenceDiagram"
+    node.name !== "SequenceDiagram" &&
+    node.name !== "DatabaseLens" &&
+    node.name !== "DbUseCase" &&
+    node.name !== "DbRead" &&
+    node.name !== "DbWrite"
   ) {
     throw new LiveReviewMdxError([
       {
@@ -406,13 +567,17 @@ function rejectExecutableMdx(node: MdastNode, nodeId: string): void {
   for (const child of node.children ?? []) rejectExecutableMdx(child, nodeId);
 }
 
-function jsxProps(node: MdastNode, nodeId: string): Record<string, unknown> {
+function jsxProps(
+  node: MdastNode,
+  nodeId: string,
+  component = node.name ?? "component",
+): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const attribute of node.attributes ?? []) {
     if (attribute.type !== "mdxJsxAttribute" || !attribute.name) {
       throw new LiveReviewMdxError([
         {
-          path: `${nodeId}.SequenceDiagram`,
+          path: `${nodeId}.${component}`,
           message: "Spread attributes are not supported.",
         },
       ]);
@@ -426,7 +591,7 @@ function jsxProps(node: MdastNode, nodeId: string): Record<string, unknown> {
     if (!statement || statement.type !== "ExpressionStatement") {
       throw new LiveReviewMdxError([
         {
-          path: `${nodeId}.SequenceDiagram.${attribute.name}`,
+          path: `${nodeId}.${component}.${attribute.name}`,
           message: "Component props must be JSON-like literals.",
         },
       ]);

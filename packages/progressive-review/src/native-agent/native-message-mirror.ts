@@ -215,6 +215,8 @@ function agentLabel(harness: SessionRef["harness"]): string {
       return "Claude Code";
     case "codex":
       return "Codex";
+    case "opencode":
+      return "OpenCode";
     case "pi":
       return "Pi";
   }

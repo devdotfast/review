@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import type { SessionRef } from "./authoring-session";
 import { findClaudeTranscript } from "./native-agent/claude-transcript";
 import { forkCodexThread } from "./native-agent/codex-app-server";
+import { forkOpencodeSession } from "./native-agent/opencode";
 
 /**
  * Fork the invoking session once and bind the frozen copy to the Review.
@@ -23,6 +24,15 @@ export async function createReviewSourceAgentSession(input: {
   }
   if (input.agent.harness === "pi") {
     return createPiReviewSourceSession(input);
+  }
+  if (input.agent.harness === "opencode") {
+    return {
+      harness: "opencode",
+      sessionId: await forkOpencodeSession({
+        sourceSessionId: input.agent.sessionId,
+        cwd: input.rootPath,
+      }),
+    };
   }
   return {
     harness: "codex",

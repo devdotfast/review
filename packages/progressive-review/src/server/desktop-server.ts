@@ -34,6 +34,7 @@ import { preferredInstalledReviewAgent } from "../installed-review-agent";
 import * as claudeCode from "../native-agent/claude-code";
 import * as codex from "../native-agent/codex";
 import type { AgentServer } from "../native-agent/native-session";
+import * as opencode from "../native-agent/opencode";
 import * as pi from "../native-agent/pi";
 import { readProgressiveReviewPackageVersion } from "../package-paths";
 import {
@@ -280,7 +281,7 @@ export function createGlobalReviewServer(
   const tutorialAuthoringStates = new Map<string, TutorialAuthoringState>();
   let reviewReaper: ReturnType<typeof setInterval> | undefined;
   let closing = false;
-  const harnesses = { "claude-code": claudeCode, codex, pi } as const;
+  const harnesses = { "claude-code": claudeCode, codex, opencode, pi } as const;
   const agentServers = new Map<ReviewAgentHarness, AgentServer>();
   const agentServerFor = (harness: ReviewAgentHarness): AgentServer => {
     let server = agentServers.get(harness);

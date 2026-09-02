@@ -1,0 +1,697 @@
+import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
+
+/**
+ * Software map for 426b7b2 (head) — the native agent integration subsystem of
+ * Review: harness detection, skill/trace-hook install, the AgentServer layer
+ * that launches and observes native agent terminals, and authoring-session
+ * attribution. Head replaces the turn launcher + observer registry with one
+ * AgentServer interface and three per-harness AgentServer classes, each
+ * observing its harness the way that harness allows: ClaudeAgentServer
+ * simulates a server from lifecycle hooks posted to a LoopbackIngress plus
+ * transcript re-reads; CodexAgentServer drives threads through one shared
+ * `codex app-server --listen` process and consumes its notifications (the TUI
+ * attaches with `codex --remote`); PiAgentServer receives projections posted
+ * by an in-process bridge extension. The desktop keeps only the thread lookup
+ * route (resolved across review sessions via findAgentThread), reached with a
+ * separate desktopEndpoint {baseUrl, token} handed to every AgentServer.
+ */
+export default defineSoftwareMap({
+  people: {
+    reviewer: {
+      label: "Reviewer",
+      description:
+        "Developer reviewing agent-written changes in Review Desktop; asks per-thread questions and watches agent turns.",
+    },
+    authoringAgent: {
+      label: "Coding agent",
+      description:
+        "The user's terminal coding agent (Claude Code, Codex, Cursor agent, or Pi) that authors reviews and answers review questions.",
+    },
+  },
+  systems: {
+    review: {
+      label: "Review Desktop",
+      description:
+        "Local desktop app plus its CLI and local server that turn agent-authored changes into guided Reviews and relay reviewer questions back into agent terminals.",
+      containers: {
+        cliPackage: {
+          label: "progressive-review package",
+          description:
+            "CLI, local server, and the native agent integration subsystem (install, launch, observe, attribute).",
+          coverage: {
+            files: [
+              { path: "packages/progressive-review/src/installed-review-agent.ts" },
+              { path: "packages/progressive-review/src/install.ts" },
+              { path: "packages/progressive-review/src/server/cli-install.ts" },
+              { path: "packages/progressive-review/src/agent-trace-hooks.ts" },
+              { path: "packages/progressive-review/src/agent-trace-parser.ts" },
+              { path: "packages/progressive-review/src/authoring-session.ts" },
+              { path: "packages/progressive-review/src/review-source-agent-session.ts" },
+              { path: "packages/progressive-review/src/tutorial-authoring-session.ts" },
+              { path: "packages/progressive-review/src/native-agent/native-session.ts" },
+              { path: "packages/progressive-review/src/native-agent/loopback-ingress.ts" },
+              { path: "packages/progressive-review/src/native-agent/claude-code.ts" },
+              { path: "packages/progressive-review/src/native-agent/codex.ts" },
+              { path: "packages/progressive-review/src/native-agent/pi.ts" },
+              { path: "packages/progressive-review/src/native-agent/pi-bridge-extension.ts" },
+              { path: "packages/progressive-review/src/native-agent/terminal-command.ts" },
+              { path: "packages/progressive-review/src/native-agent/native-hook-client.ts" },
+              { path: "packages/progressive-review/src/native-agent/native-message-mirror.ts" },
+              { path: "packages/progressive-review/src/native-agent/codex-app-server.ts" },
+              { path: "packages/progressive-review/src/native-agent/claude-transcript.ts" },
+              { path: "packages/progressive-review/src/server/desktop-server.ts" },
+              { path: "packages/progressive-review/src/server/session-handler.ts" },
+              { path: "packages/progressive-review/src/server/review-api.ts" },
+              { path: "packages/progressive-review/src/cli-runner.ts" },
+              { path: "packages/progressive-review/src/threads-cli.ts" },
+            ],
+          },
+          components: {
+            harnessRegistry: {
+              label: "Harness registry",
+              description:
+                "Maps install targets to launchable ReviewAgentHarness values and picks the preferred installed agent.",
+              coverage: {
+                files: [{ path: "packages/progressive-review/src/installed-review-agent.ts" }],
+              },
+              codeElements: {
+                preferredInstalledReviewAgent: {
+                  label: "preferredInstalledReviewAgent",
+                  description:
+                    "Selects the first installed launchable agent, preserving onboarding order.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.cliPackage.authoring.authoringSession",
+                      semanticKind: "types",
+                      label: "ReviewAgentHarness contract",
+                    },
+                  ],
+                },
+              },
+            },
+            installer: {
+              label: "Install surface",
+              description:
+                "Installs skills and per-agent trace hooks; also the server-driven install status and removal path.",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/src/install.ts" },
+                  { path: "packages/progressive-review/src/server/cli-install.ts" },
+                ],
+              },
+              codeElements: {
+                runInstall: {
+                  label: "runInstall",
+                  description:
+                    "Installs Review skills per target and configures agent lifecycle hooks for trace capture.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.traceHooks.agentTraceHooks",
+                      label: "install per-agent trace hooks",
+                    },
+                  ],
+                },
+                cliInstall: {
+                  label: "CLI install service",
+                  description:
+                    "Server-side install status, apply, and removal; retires per-agent pieces when trace capture is disabled. Also exports the PATH shim writer reused by native terminals.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.traceHooks.agentTraceHooks",
+                      label: "removeAgentTraceHook on uninstall",
+                    },
+                  ],
+                },
+              },
+            },
+            traceHooks: {
+              label: "Trace hook installation and parsing",
+              description:
+                "Installs session lifecycle hooks for Claude, Codex, and Pi, and parses agent trace formats for the trace subsystem.",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/src/agent-trace-hooks.ts" },
+                  { path: "packages/progressive-review/src/agent-trace-parser.ts" },
+                ],
+              },
+              codeElements: {
+                agentTraceHooks: {
+                  label: "agent-trace-hooks",
+                  description:
+                    "Idempotent installers for Claude settings hooks, Codex config hooks, and the Pi extension.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "agentTraceParser",
+                      semanticKind: "feeds",
+                      label: "captured sessions feed transcript parsing",
+                    },
+                  ],
+                },
+                agentTraceParser: {
+                  label: "agent-trace-parser",
+                  description: "Sniffs and parses agent transcript JSONL into trace events.",
+                },
+              },
+            },
+            authoring: {
+              label: "Authoring sessions",
+              description:
+                "Detects the invoking agent session from environment, freezes or forks it as the Review source session, and resolves fresh-harness fallbacks.",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/src/authoring-session.ts" },
+                  { path: "packages/progressive-review/src/review-source-agent-session.ts" },
+                  { path: "packages/progressive-review/src/tutorial-authoring-session.ts" },
+                ],
+              },
+              codeElements: {
+                authoringSession: {
+                  label: "authoring-session",
+                  description:
+                    "ReviewAgentHarness type, SessionRef, session env detection (CODEX_THREAD_ID, CLAUDE_CODE_SESSION_ID, PI_SESSION_ID), and fresh-harness keys.",
+                  sourceRanges: [
+                    { file: "packages/progressive-review/src/authoring-session.ts", fromLine: 41, toLine: 78 },
+                  ],
+                },
+                reviewSourceAgentSession: {
+                  label: "createReviewSourceAgentSession",
+                  description:
+                    "Forks or freezes the invoking session per harness: native Codex fork, Claude transcript copy, Pi --fork.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.nativeAgents.codexAppServer",
+                      label: "forkCodexThread",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.nativeAgents.claudeTranscript",
+                      label: "findClaudeTranscript",
+                    },
+                  ],
+                },
+                tutorialAuthoringSession: {
+                  label: "createTutorialAuthoringSession",
+                  description:
+                    "Runs one authoring turn per harness to seed the tutorial's genuine source session.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "authoringSession",
+                      semanticKind: "types",
+                      label: "SessionRef harness",
+                    },
+                  ],
+                },
+              },
+            },
+            nativeAgents: {
+              label: "Native agent bridge",
+              description:
+                "Models every harness as an AgentServer that launches terminals into sessions and streams session updates. Each harness has its own AgentServer class: Claude is observed through hooks posted to a loopback ingress plus transcript re-reads, Codex through the shared app-server's notifications, and Pi through a bridge extension posting projections to a loopback ingress. Updates are mirrored into review threads.",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/src/native-agent/native-session.ts" },
+                  { path: "packages/progressive-review/src/native-agent/loopback-ingress.ts" },
+                  { path: "packages/progressive-review/src/native-agent/claude-code.ts" },
+                  { path: "packages/progressive-review/src/native-agent/codex.ts" },
+                  { path: "packages/progressive-review/src/native-agent/pi.ts" },
+                  { path: "packages/progressive-review/src/native-agent/pi-bridge-extension.ts" },
+                  { path: "packages/progressive-review/src/native-agent/terminal-command.ts" },
+                  { path: "packages/progressive-review/src/native-agent/native-hook-client.ts" },
+                  { path: "packages/progressive-review/src/native-agent/native-message-mirror.ts" },
+                  { path: "packages/progressive-review/src/native-agent/codex-app-server.ts" },
+                  { path: "packages/progressive-review/src/native-agent/claude-transcript.ts" },
+                ],
+              },
+              codeElements: {
+                nativeSession: {
+                  label: "AgentServer contract",
+                  description:
+                    "native-session: the AgentServer interface (launch, updates, close), AgentServerOptions carrying the desktopEndpoint {baseUrl, token} that terminals use for thread lookups, LaunchInput, SessionSnapshot, the message.updated SessionUpdate, UpdatePipe shared by the server surface and the mirror, and NativeTerminalCommand, now derived from the protocol's openNativeAgentTerminal verb args. launch returns the reserved sessionId separately from the command that the desktop will run.",
+                  sourceRanges: [
+                    { file: "packages/progressive-review/src/native-agent/native-session.ts", fromLine: 7, toLine: 67 },
+                  ],
+                },
+                loopbackIngress: {
+                  label: "LoopbackIngress",
+                  description:
+                    "loopback-ingress: a lazily started loopback HTTP listener (127.0.0.1, ephemeral port, per-listener random token checked via x-review-token) that a native terminal reports to. Posts to /<scope>/<sessionId> are dispatched to the owning server's onPost; bodies are size-capped JSON. Owned by ClaudeAgentServer (hooks) and PiAgentServer (bridge projections).",
+                  sourceRanges: [
+                    { file: "packages/progressive-review/src/native-agent/loopback-ingress.ts", fromLine: 19, toLine: 92 },
+                  ],
+                },
+                claudeCodeServer: {
+                  label: "ClaudeAgentServer",
+                  description:
+                    "claude-code: the AgentServer for Claude Code, simulated because Claude has no server of its own. Mints or resumes a session id, writes one shared observer-hook settings file (SessionStart, UserPromptSubmit, Stop, SessionEnd) in the runtime directory, and hands the terminal its per-session hook URL/token on its own LoopbackIngress plus the desktop thread URL/token. Each received hook re-reads the transcript on disk and fans the new tail out to subscribers, with delayed re-reads after turn-completing hooks. close() drains subscribers and shuts the ingress.",
+                  sourceRanges: [
+                    { file: "packages/progressive-review/src/native-agent/claude-code.ts", fromLine: 61, toLine: 289 },
+                  ],
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "nativeSession",
+                      semanticKind: "implements",
+                      label: "AgentServer",
+                    },
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "loopbackIngress",
+                      semanticKind: "owns",
+                      label: "hook ingress scoped to claude-code",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "claudeTranscript",
+                      label: "readClaudeReviewMessages",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "terminalCommand",
+                      label: "nativeHookCommand / ReviewCommandPath / hook env names",
+                    },
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "nativeHookClient",
+                      semanticKind: "installs",
+                      label: "as settings hook command",
+                    },
+                  ],
+                },
+                codexServer: {
+                  label: "CodexAgentServer",
+                  description:
+                    "codex: the AgentServer for Codex, built on the real app-server. Review owns one shared `codex app-server --listen` process through a CodexHost; launch starts or forks a thread on it (thread/start, thread/fork, or thread/resume for a resumed id), drives the review prompt with turn/start and waits for the thread to materialize, then hands the terminal `codex --remote <url> resume <threadId>` with env policy as inline TOML. updates seeds from thread/read and streams item/turn notifications; no transcript is read and no hooks are installed. close() closes subscribers and the host.",
+                  sourceRanges: [
+                    { file: "packages/progressive-review/src/native-agent/codex.ts", fromLine: 42, toLine: 160 },
+                  ],
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "nativeSession",
+                      semanticKind: "implements",
+                      label: "AgentServer",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "codexAppServer",
+                      label: "CodexAppServerHost client/url; startThread / forkThread; request + onNotification",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "terminalCommand",
+                      label: "ReviewCommandPath / tomlInline",
+                    },
+                  ],
+                },
+                piServer: {
+                  label: "PiAgentServer",
+                  description:
+                    "pi: the AgentServer for Pi, whose server is an in-process extension. Mints or resumes a session id, launches pi with the pi-bridge-extension companion module and a per-session bridge URL/token on its own LoopbackIngress, and keeps the latest projection each bridge post carries, forwarding only the tail to subscribers. No transcript is read.",
+                  sourceRanges: [
+                    { file: "packages/progressive-review/src/native-agent/pi.ts", fromLine: 37, toLine: 130 },
+                  ],
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "nativeSession",
+                      semanticKind: "implements",
+                      label: "AgentServer",
+                    },
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "loopbackIngress",
+                      semanticKind: "owns",
+                      label: "bridge ingress scoped to pi",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "terminalCommand",
+                      label: "companionModulePath / bridge env names",
+                    },
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "piBridgeExtension",
+                      semanticKind: "installs",
+                      label: "loaded via --extension in the terminal",
+                    },
+                  ],
+                },
+                terminalCommand: {
+                  label: "terminal-command",
+                  description:
+                    "Shared launch helpers: env variable names (hook URL/token for Claude's ingress, bridge URL/token for Pi's ingress, thread URL/token for the desktop), ReviewCommandPath PATH shim, companion module resolution, the native hook shell command, and inline TOML serialization.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.installer.cliInstall",
+                      label: "writePathShim",
+                    },
+                  ],
+                },
+                nativeHookClient: {
+                  label: "native-hook-client",
+                  description:
+                    "Standalone hook relay run by Claude Code's settings hooks: posts the hook payload to the hook URL handed to the launch, which is the owning ClaudeAgentServer's LoopbackIngress. Env-gated and fail-open.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "claudeCodeServer",
+                      label: "POST hook payload to the loopback ingress",
+                    },
+                  ],
+                },
+                nativeMessageMirror: {
+                  label: "NativeMessageMirror",
+                  description:
+                    "Subscribes to an AgentServer update pipe per thread binding and mirrors message.updated events into review thread storage.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "nativeSession",
+                      semanticKind: "types",
+                      label: "UpdatePipe<SessionSnapshot, SessionUpdate>",
+                    },
+                  ],
+                },
+                codexAppServer: {
+                  label: "Codex app-server client and host",
+                  description:
+                    "codex-app-server: CodexAppServerClient speaks JSON-RPC over a pluggable Transport (stdio child or WebSocket via undici), with request, notify, and onNotification; CodexAppServerHost lazily spawns one shared `codex app-server --listen ws://127.0.0.1:0` child, exposes its URL and a reconnecting client, and kills it on close. startThread/forkThread run on a given client; startCodexThread/forkCodexThread open a one-off stdio client for callers outside the AgentServer.",
+                  sourceRanges: [
+                    { file: "packages/progressive-review/src/native-agent/codex-app-server.ts", fromLine: 36, toLine: 145 },
+                    { file: "packages/progressive-review/src/native-agent/codex-app-server.ts", fromLine: 264, toLine: 402 },
+                  ],
+                },
+                claudeTranscript: {
+                  label: "Claude transcript reader",
+                  description: "Locates and projects Claude Code JSONL transcripts into review messages.",
+                },
+                piBridgeExtension: {
+                  label: "pi-bridge-extension",
+                  description:
+                    "Companion module Pi loads in-process: on session_start, message_end, and agent_settled it projects the session manager's active branch into review messages and POSTs the whole projection to the bridge URL/token from its env. Fail-open. Bundled as its own tsdown entry.",
+                  sourceRanges: [
+                    { file: "packages/progressive-review/src/native-agent/pi-bridge-extension.ts", fromLine: 47, toLine: 130 },
+                  ],
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "piServer",
+                      label: "POST projected messages to the loopback ingress",
+                    },
+                  ],
+                },
+              },
+            },
+            serverSurface: {
+              label: "Local server surface",
+              description:
+                "Desktop session server: creates sessions, owns one AgentServer per harness, hosts the thread lookup route used by native agent terminals, and routes Review API verbs through it.",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/src/server/desktop-server.ts" },
+                  { path: "packages/progressive-review/src/server/session-handler.ts" },
+                  { path: "packages/progressive-review/src/server/review-api.ts" },
+                ],
+              },
+              codeElements: {
+                desktopServer: {
+                  label: "desktop-server",
+                  description:
+                    "Global server: session registry, terminal-open relay to the desktop app, install status resolution, and the lazily created per-harness AgentServer map (built with its own desktopEndpoint {baseUrl, token}) handed to each session handler and closed on shutdown. Hook ingress no longer lives here; the only native-agent-events route is the thread lookup, which asks every session handler's findAgentThread for the owning review.",
+                  sourceRanges: [
+                    { file: "packages/progressive-review/src/server/desktop-server.ts", fromLine: 284, toLine: 297 },
+                    { file: "packages/progressive-review/src/server/desktop-server.ts", fromLine: 355, toLine: 375 },
+                  ],
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "sessionHandler",
+                      label: "findAgentThread per session",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.harnessRegistry.preferredInstalledReviewAgent",
+                      label: "resolveInstalledReviewAgentStatus -> preferred agent",
+                    },
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.cliPackage.nativeAgents.claudeCodeServer",
+                      semanticKind: "owns",
+                      label: "server() per harness",
+                    },
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.cliPackage.nativeAgents.codexServer",
+                      semanticKind: "owns",
+                      label: "server() per harness",
+                    },
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.cliPackage.nativeAgents.piServer",
+                      semanticKind: "owns",
+                      label: "server() per harness",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "sessionHandler",
+                      label: "agentServer factory",
+                    },
+                  ],
+                },
+                sessionHandler: {
+                  label: "session-handler",
+                  description:
+                    "Per-session Hono handler; threads the agentServer factory from the global server into the review API and exposes the API's findAgentThread to the global hook routes.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "reviewApi",
+                      label: "agentServer",
+                    },
+                  ],
+                },
+                reviewApi: {
+                  label: "review-api",
+                  description:
+                    "Per-session API: resolves question routes (fork/resume/new), launches Ask-agent turns via AgentServer.launch, pairs the returned session identity with its terminal command for the desktop verb, feeds AgentServer.updates into message mirrors, and answers findAgentThread by matching a thread's bound agent session.",
+                  sourceRanges: [
+                    { file: "packages/progressive-review/src/server/review-api.ts", fromLine: 587, toLine: 652 },
+                    { file: "packages/progressive-review/src/server/review-api.ts", fromLine: 1032, toLine: 1048 },
+                    { file: "packages/progressive-review/src/server/review-api.ts", fromLine: 1101, toLine: 1148 },
+                  ],
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.nativeAgents.nativeSession",
+                      label: "AgentServer.launch / updates",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.nativeAgents.nativeMessageMirror",
+                      label: "watch via NativeMessageMirror",
+                    },
+                  ],
+                },
+              },
+            },
+            cliRunner: {
+              label: "CLI runner",
+              description:
+                "Commander surface for review commands, including trace hook relays, runtime wiring, and the in-terminal thread reader.",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/src/cli-runner.ts" },
+                  { path: "packages/progressive-review/src/threads-cli.ts" },
+                ],
+              },
+              codeElements: {
+                cliRunner: {
+                  label: "cli-runner",
+                  description: "Registers all review commands and their runtime implementations.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.installer.runInstall",
+                      label: "review install",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "threadsCli",
+                      label: "review threads get",
+                    },
+                  ],
+                },
+                threadsCli: {
+                  label: "threads-cli",
+                  description:
+                    "Runs inside a native agent terminal: reads the attached thread from the desktop using the thread URL and thread token env handed to the launch.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.cliPackage.nativeAgents.terminalCommand",
+                      semanticKind: "types",
+                      label: "thread URL/token env names",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.serverSurface.desktopServer",
+                      label: "GET native-agent-events thread lookup",
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        protocolPackage: {
+          label: "review-protocol package",
+          description: "Shared zod contracts between the CLI/server and the desktop app (verbs, sessions, install status).",
+          coverage: {
+            files: [{ path: "packages/review-protocol/src/contracts.ts" }],
+          },
+          components: {
+            contracts: {
+              label: "contracts",
+              description:
+                "Canonical schemas: AuthoringAgentSession harness enum, ReviewVerbRequest, install targets. The openNativeAgentTerminal verb carries session identity alongside a nested terminal command so desktop terminals can be keyed by the native session.",
+              coverage: {
+                files: [{ path: "packages/review-protocol/src/contracts.ts" }],
+              },
+            },
+          },
+        },
+        desktopApp: {
+          label: "Review Desktop shell",
+          description:
+            "VS Code fork hosting the review canvas, thread UI, and the terminals that run native agent turns.",
+          coverage: {
+            files: [
+              { path: "apps/review-desktop/code-oss/src/vs/review/contrib/verbs/reviewVerbs.ts" },
+              { path: "apps/review-desktop/code-oss/src/vs/review/common/reviewProtocol.ts" },
+            ],
+          },
+          components: {
+            terminalHost: {
+              label: "Terminal host",
+              description:
+                "Executes openNativeAgentTerminal verbs by reusing and focusing an existing terminal for the requested native session, or creating one from the nested command when none is live.",
+              coverage: {
+                files: [{ path: "apps/review-desktop/code-oss/src/vs/review/contrib/verbs/reviewVerbs.ts" }],
+              },
+              codeElements: {
+                reviewVerbs: {
+                  label: "reviewVerbs",
+                  description:
+                    "Verb sink for the desktop app: keys terminals by harness and session id, focuses a live terminal when reopening that session, otherwise creates one from the supplied command, and shows threads.",
+                  sourceRanges: [
+                    { file: "apps/review-desktop/code-oss/src/vs/review/contrib/verbs/reviewVerbs.ts", fromLine: 257, toLine: 295 },
+                  ],
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.desktopApp.protocolMirror.reviewProtocol",
+                      semanticKind: "types",
+                      label: "verb schemas",
+                    },
+                  ],
+                },
+              },
+            },
+            protocolMirror: {
+              label: "Protocol mirror",
+              description: "Desktop-side copy of the shared review-protocol schemas.",
+              coverage: {
+                files: [{ path: "apps/review-desktop/code-oss/src/vs/review/common/reviewProtocol.ts" }],
+              },
+              codeElements: {
+                reviewProtocol: {
+                  label: "reviewProtocol",
+                  description: "Mirrored zod schemas, kept in sync with review-protocol.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.protocolPackage.contracts",
+                      semanticKind: "mirrors",
+                      label: "synced schema copy",
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  relationships: [
+    {
+      kind: "semantic",
+      from: "authoringAgent",
+      to: "review.cliPackage.cliRunner.cliRunner",
+      label: "runs review CLI inside agent sessions",
+    },
+    {
+      kind: "semantic",
+      from: "authoringAgent",
+      to: "review.cliPackage.authoring.authoringSession",
+      label: "identified from agent session env",
+    },
+    {
+      kind: "semantic",
+      from: "reviewer",
+      to: "review.desktopApp.terminalHost.reviewVerbs",
+      label: "asks questions and watches agent terminals",
+    },
+    {
+      kind: "semantic",
+      from: "review.cliPackage.serverSurface.desktopServer",
+      to: "review.desktopApp.terminalHost.reviewVerbs",
+      label: "dispatches openNativeAgentTerminal verb",
+    },
+  ],
+});

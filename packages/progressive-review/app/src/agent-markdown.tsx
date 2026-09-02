@@ -31,6 +31,12 @@ interface MarkdownNode {
   alt?: string | null;
 }
 
+export type MarkdownLinkRenderer = (input: {
+  href: string;
+  title?: string;
+  children: ReactNode;
+}) => ReactNode | undefined;
+
 export function AgentMarkdown({
   source,
   className,
@@ -50,9 +56,11 @@ export function AgentMarkdown({
 export function MarkdownContent({
   source,
   highlightQuote,
+  renderLink,
 }: {
   source: string;
   highlightQuote?: string;
+  renderLink?: MarkdownLinkRenderer;
 }): ReactElement {
   const tree = fromMarkdown(source, {
     extensions: [gfm()],
@@ -60,7 +68,12 @@ export function MarkdownContent({
   }) as MarkdownNode;
   return (
     <Fragment>
-      {renderMarkdownChildren(tree.children ?? [], "root", highlightQuote)}
+      {renderMarkdownChildren(
+        tree.children ?? [],
+        "root",
+        highlightQuote,
+        renderLink,
+      )}
     </Fragment>
   );
 }
@@ -95,9 +108,15 @@ function renderMarkdownChildren(
   children: MarkdownNode[],
   keyPrefix: string,
   highlightQuote?: string,
+  renderLink?: MarkdownLinkRenderer,
 ): ReactNode {
   return children.map((child, index) =>
-    renderMarkdownNode(child, `${keyPrefix}:${index}`, highlightQuote),
+    renderMarkdownNode(
+      child,
+      `${keyPrefix}:${index}`,
+      highlightQuote,
+      renderLink,
+    ),
   );
 }
 
@@ -105,18 +124,29 @@ function renderMarkdownNode(
   node: MarkdownNode,
   key: string,
   highlightQuote?: string,
+  renderLink?: MarkdownLinkRenderer,
 ): ReactNode {
   switch (node.type) {
     case "root":
       return (
         <Fragment key={key}>
-          {renderMarkdownChildren(node.children ?? [], key, highlightQuote)}
+          {renderMarkdownChildren(
+            node.children ?? [],
+            key,
+            highlightQuote,
+            renderLink,
+          )}
         </Fragment>
       );
     case "paragraph":
       return (
         <p key={key}>
-          {renderMarkdownChildren(node.children ?? [], key, highlightQuote)}
+          {renderMarkdownChildren(
+            node.children ?? [],
+            key,
+            highlightQuote,
+            renderLink,
+          )}
         </p>
       );
     case "text":
@@ -133,19 +163,34 @@ function renderMarkdownNode(
     case "emphasis":
       return (
         <em key={key}>
-          {renderMarkdownChildren(node.children ?? [], key, highlightQuote)}
+          {renderMarkdownChildren(
+            node.children ?? [],
+            key,
+            highlightQuote,
+            renderLink,
+          )}
         </em>
       );
     case "strong":
       return (
         <strong key={key}>
-          {renderMarkdownChildren(node.children ?? [], key, highlightQuote)}
+          {renderMarkdownChildren(
+            node.children ?? [],
+            key,
+            highlightQuote,
+            renderLink,
+          )}
         </strong>
       );
     case "delete":
       return (
         <del key={key}>
-          {renderMarkdownChildren(node.children ?? [], key, highlightQuote)}
+          {renderMarkdownChildren(
+            node.children ?? [],
+            key,
+            highlightQuote,
+            renderLink,
+          )}
         </del>
       );
     case "inlineCode":
@@ -174,12 +219,22 @@ function renderMarkdownNode(
       return createElement(
         headingTag(node.depth),
         { key },
-        renderMarkdownChildren(node.children ?? [], key, highlightQuote),
+        renderMarkdownChildren(
+          node.children ?? [],
+          key,
+          highlightQuote,
+          renderLink,
+        ),
       );
     case "blockquote":
       return (
         <blockquote key={key}>
-          {renderMarkdownChildren(node.children ?? [], key, highlightQuote)}
+          {renderMarkdownChildren(
+            node.children ?? [],
+            key,
+            highlightQuote,
+            renderLink,
+          )}
         </blockquote>
       );
     case "list": {
@@ -187,7 +242,12 @@ function renderMarkdownNode(
       return createElement(
         Tag,
         { key, start: node.ordered ? (node.start ?? undefined) : undefined },
-        renderMarkdownChildren(node.children ?? [], key, highlightQuote),
+        renderMarkdownChildren(
+          node.children ?? [],
+          key,
+          highlightQuote,
+          renderLink,
+        ),
       );
     }
     case "listItem":
@@ -196,7 +256,12 @@ function renderMarkdownNode(
           {node.checked !== null && node.checked !== undefined && (
             <input type="checkbox" checked={node.checked} readOnly />
           )}
-          {renderMarkdownChildren(node.children ?? [], key, highlightQuote)}
+          {renderMarkdownChildren(
+            node.children ?? [],
+            key,
+            highlightQuote,
+            renderLink,
+          )}
         </li>
       );
     case "link": {
@@ -204,7 +269,18 @@ function renderMarkdownNode(
         node.children ?? [],
         key,
         highlightQuote,
+        renderLink,
       );
+      const customLink = node.url
+        ? renderLink?.({
+            href: node.url,
+            title: node.title ?? undefined,
+            children,
+          })
+        : undefined;
+      if (customLink !== undefined) {
+        return <Fragment key={key}>{customLink}</Fragment>;
+      }
       if (isLocalFilesystemHref(node.url)) {
         return (
           <code key={key} className="agent-markdown-code-reference">
@@ -225,20 +301,34 @@ function renderMarkdownNode(
     case "image":
       return node.alt ? <em key={key}>{node.alt}</em> : null;
     case "table":
-      return renderTable(node, key);
+      return renderTable(node, key, highlightQuote, renderLink);
     case "tableRow":
       return (
-        <tr key={key}>{renderMarkdownChildren(node.children ?? [], key)}</tr>
+        <tr key={key}>
+          {renderMarkdownChildren(
+            node.children ?? [],
+            key,
+            highlightQuote,
+            renderLink,
+          )}
+        </tr>
       );
     case "tableCell":
       return (
-        <td key={key}>{renderMarkdownChildren(node.children ?? [], key)}</td>
+        <td key={key}>
+          {renderMarkdownChildren(
+            node.children ?? [],
+            key,
+            highlightQuote,
+            renderLink,
+          )}
+        </td>
       );
     case "html":
       return node.value ?? "";
     default:
       return node.children
-        ? renderMarkdownChildren(node.children, key)
+        ? renderMarkdownChildren(node.children, key, highlightQuote, renderLink)
         : (node.value ?? null);
   }
 }
@@ -250,15 +340,36 @@ function headingTag(depth: number | undefined): "h1" | "h2" | "h3" | "h4" {
   return "h4";
 }
 
-function renderTable(node: MarkdownNode, key: string): ReactElement {
+function renderTable(
+  node: MarkdownNode,
+  key: string,
+  highlightQuote?: string,
+  renderLink?: MarkdownLinkRenderer,
+): ReactElement {
   const rows = node.children ?? [];
   const [header, ...body] = rows;
   return (
     <table key={key}>
-      {header && <thead>{renderTableRow(header, `${key}:head`, true)}</thead>}
+      {header && (
+        <thead>
+          {renderTableRow(
+            header,
+            `${key}:head`,
+            true,
+            highlightQuote,
+            renderLink,
+          )}
+        </thead>
+      )}
       <tbody>
         {body.map((row, index) =>
-          renderTableRow(row, `${key}:body:${index}`, false),
+          renderTableRow(
+            row,
+            `${key}:body:${index}`,
+            false,
+            highlightQuote,
+            renderLink,
+          ),
         )}
       </tbody>
     </table>
@@ -269,6 +380,8 @@ function renderTableRow(
   node: MarkdownNode,
   key: string,
   isHeader: boolean,
+  highlightQuote?: string,
+  renderLink?: MarkdownLinkRenderer,
 ): ReactElement {
   const Cell = isHeader ? "th" : "td";
   return (
@@ -277,7 +390,12 @@ function renderTableRow(
         createElement(
           Cell,
           { key: `${key}:cell:${index}` },
-          renderMarkdownChildren(cell.children ?? [], `${key}:cell:${index}`),
+          renderMarkdownChildren(
+            cell.children ?? [],
+            `${key}:cell:${index}`,
+            highlightQuote,
+            renderLink,
+          ),
         ),
       )}
     </tr>

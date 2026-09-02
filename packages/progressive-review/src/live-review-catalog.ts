@@ -16,7 +16,35 @@ export const liveReviewNodePropsSchema = z.strictObject({
 
 export const liveReviewMarkdownPropsSchema = z.strictObject({
   source: z.string().min(1),
+  links: z
+    .record(
+      z.string().min(1),
+      z.discriminatedUnion("kind", [
+        z.strictObject({
+          kind: z.literal("anchor"),
+          anchor: peekableAnchorRefSchema,
+        }),
+        z.strictObject({
+          kind: z.literal("trace-quote"),
+          sessionId: z.string().min(1),
+          trace: z.string().min(1).optional(),
+          event: z.number().int().nonnegative().optional(),
+          quote: z.string().min(1),
+        }),
+      ]),
+    )
+    .default({}),
 });
+export type LiveReviewMarkdownProps = z.infer<
+  typeof liveReviewMarkdownPropsSchema
+>;
+
+export const liveReviewCodePeekPropsSchema = z.strictObject({
+  anchor: peekableAnchorRefSchema,
+});
+export type LiveReviewCodePeekProps = z.infer<
+  typeof liveReviewCodePeekPropsSchema
+>;
 
 export const liveReviewTutorialPropsSchema = z.strictObject({
   anchors: z.record(z.string().min(1), peekableAnchorRefSchema),
@@ -73,7 +101,13 @@ export const liveReviewCatalog = defineCatalog(schema, {
     Markdown: {
       props: liveReviewMarkdownPropsSchema,
       slots: [],
-      description: "Trusted Markdown prose parsed without executable MDX.",
+      description:
+        "Trusted Markdown prose with validated source and trace links.",
+    },
+    CodePeek: {
+      props: liveReviewCodePeekPropsSchema,
+      slots: [],
+      description: "An inline editor for one validated source anchor.",
     },
     SequenceDiagram: {
       props: sequenceDiagramPropsSchema,

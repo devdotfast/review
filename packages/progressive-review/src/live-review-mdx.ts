@@ -8,14 +8,17 @@ import { gfm } from "micromark-extension-gfm";
 import { mdxjs } from "micromark-extension-mdxjs";
 import { z } from "zod";
 
+import { extractTraceEventText } from "./agent-trace-parser";
 import {
-  type AnchorRef,
+  type PeekableAnchorRef,
   type SequenceDiagramProps,
   sequenceDiagramPropsSchema,
   storeInputMapSchema,
 } from "./authoring";
 import {
   type LiveDatabaseLensProps,
+  type LiveReviewCodePeekProps,
+  type LiveReviewMarkdownProps,
   liveDatabaseLensPropsSchema,
   liveReviewCatalog,
 } from "./live-review-catalog";
@@ -24,6 +27,7 @@ import type {
   RenderDiagnostic,
   StoredLiveReviewNode,
 } from "./live-review-types";
+import { loadReviewAgentTrace } from "./review-agent-traces";
 import { resolveReviewSourceTarget } from "./review-worktree-target";
 import { resolveReviewSourceRange } from "./source-range-resolver";
 
@@ -70,6 +74,12 @@ const liveAnchorSchema = z.strictObject({
   title: z.string().min(1).optional(),
   detail: z.string().min(1).optional(),
   peek: peekSchema,
+});
+
+const liveTraceQuoteSchema = z.strictObject({
+  sessionId: z.string().min(1),
+  trace: z.string().min(1).optional(),
+  event: z.number().int().nonnegative().optional(),
 });
 
 const messageCodeSchema = z.union([
@@ -126,7 +136,7 @@ const liveDatabaseInputSchema = z.strictObject({
 
 interface LiveAnchorRegistryEntry {
   signature: string;
-  anchor: Promise<AnchorRef>;
+  anchor: Promise<PeekableAnchorRef>;
 }
 
 function resolveLiveAnchor(input: {
@@ -136,7 +146,7 @@ function resolveLiveAnchor(input: {
   diagnosticPath: string;
   anchors: Map<string, LiveAnchorRegistryEntry>;
   sourceTarget: () => ReturnType<typeof resolveReviewSourceTarget>;
-}): Promise<AnchorRef> {
+}): Promise<PeekableAnchorRef> {
   const anchorId = input.raw.id ?? input.fallbackId;
   const title = input.raw.title ?? input.fallbackTitle;
   const signature = JSON.stringify({
@@ -154,7 +164,7 @@ function resolveLiveAnchor(input: {
       },
     ]);
   }
-  const anchor = (async (): Promise<AnchorRef> => {
+  const anchor = (async (): Promise<PeekableAnchorRef> => {
     const peek = input.raw.peek;
     const target = await input.sourceTarget();
     const sourceRoot =
@@ -194,6 +204,64 @@ function resolveLiveAnchor(input: {
   return anchor;
 }
 
+function validateLiveTraceQuote(input: {
+  sessionId: string;
+  trace?: string;
+  event?: number;
+  quote: string;
+  diagnosticPath: string;
+  traceQuotes: Map<string, Promise<void>>;
+  sourceTarget: () => ReturnType<typeof resolveReviewSourceTarget>;
+}): Promise<void> {
+  const normalizedQuote = input.quote.trim().replace(/\s+/g, " ");
+  const key = JSON.stringify({
+    sessionId: input.sessionId,
+    trace: input.trace ?? null,
+    quote: normalizedQuote,
+  });
+  const existing = input.traceQuotes.get(key);
+  if (existing) return existing;
+  const validation = (async () => {
+    if (!normalizedQuote) {
+      throw new LiveReviewMdxError([
+        {
+          path: input.diagnosticPath,
+          message: "TraceQuote text must not be empty.",
+        },
+      ]);
+    }
+    const target = await input.sourceTarget();
+    const loaded = await loadReviewAgentTrace({
+      sessionId: input.sessionId,
+      trace: input.trace,
+      cwd: target.sourceRootPath,
+    });
+    if (!loaded) {
+      throw new LiveReviewMdxError([
+        {
+          path: input.diagnosticPath,
+          message: `Trace not found for session ${input.sessionId}${input.trace ? ` (${input.trace})` : ""}.`,
+        },
+      ]);
+    }
+    const found = loaded.trace.events.some((event) =>
+      extractTraceEventText(event)
+        .replace(/\s+/g, " ")
+        .includes(normalizedQuote),
+    );
+    if (!found) {
+      throw new LiveReviewMdxError([
+        {
+          path: input.diagnosticPath,
+          message: `TraceQuote text was not found in session ${input.sessionId}.`,
+        },
+      ]);
+    }
+  })();
+  input.traceQuotes.set(key, validation);
+  return validation;
+}
+
 export class LiveReviewMdxError extends Error {
   override readonly name = "LiveReviewMdxError";
 
@@ -210,6 +278,7 @@ export async function projectLiveReviewPage(input: {
   const elements: Spec["elements"] = {};
   const diagramLabels = new Set<string>();
   const anchors = new Map<string, LiveAnchorRegistryEntry>();
+  const traceQuotes = new Map<string, Promise<void>>();
   let sourceTargetPromise: ReturnType<typeof resolveReviewSourceTarget> | null =
     null;
   const sourceTarget = () =>
@@ -234,9 +303,58 @@ export async function projectLiveReviewPage(input: {
       const key = `${nodeId}:content:${index + 1}`;
       contentKeys.push(key);
       if (block.kind === "markdown") {
+        const links = Object.fromEntries(
+          await Promise.all(
+            block.links.map(async (link) => {
+              if (link.kind === "anchor") {
+                const anchor = await resolveLiveAnchor({
+                  raw: liveAnchorSchema.parse(link.anchor),
+                  fallbackId: `${nodeId}-prose-${link.key}`,
+                  fallbackTitle: link.text,
+                  diagnosticPath: `${nodeId}.AnchorLink.${link.key}.anchor`,
+                  anchors,
+                  sourceTarget,
+                });
+                return [link.key, { kind: "anchor", anchor }] as const;
+              }
+              const props = liveTraceQuoteSchema.parse(link.props);
+              await validateLiveTraceQuote({
+                ...props,
+                quote: link.text,
+                diagnosticPath: `${nodeId}.TraceQuote.${link.key}`,
+                traceQuotes,
+                sourceTarget,
+              });
+              return [
+                link.key,
+                { kind: "trace-quote", ...props, quote: link.text },
+              ] as const;
+            }),
+          ),
+        );
         elements[key] = {
           type: "Markdown",
-          props: { source: block.source },
+          props: {
+            source: block.source,
+            links,
+          } satisfies LiveReviewMarkdownProps,
+          children: [],
+        };
+        continue;
+      }
+      if (block.kind === "code-peek") {
+        const raw = liveAnchorSchema.parse(block.anchor);
+        const anchor = await resolveLiveAnchor({
+          raw,
+          fallbackId: `${nodeId}-code-peek-${index + 1}`,
+          fallbackTitle: raw.title ?? "Code peek",
+          diagnosticPath: `${nodeId}.CodePeek.${index + 1}.anchor`,
+          anchors,
+          sourceTarget,
+        });
+        elements[key] = {
+          type: "CodePeek",
+          props: { anchor } satisfies LiveReviewCodePeekProps,
           children: [],
         };
         continue;
@@ -450,9 +568,28 @@ function assertReviewNodeTree(input: {
 }
 
 type ParsedBlock =
-  | { kind: "markdown"; source: string }
+  | {
+      kind: "markdown";
+      source: string;
+      links: ParsedInlineLink[];
+    }
+  | { kind: "code-peek"; anchor: unknown }
   | { kind: "sequence"; props: unknown }
   | { kind: "database"; props: unknown };
+
+type ParsedInlineLink =
+  | {
+      kind: "anchor";
+      key: string;
+      text: string;
+      anchor: unknown;
+    }
+  | {
+      kind: "trace-quote";
+      key: string;
+      text: string;
+      props: unknown;
+    };
 
 function parseMdxBlocks(source: string, nodeId: string): ParsedBlock[] {
   if (!source.trim()) return [];
@@ -493,13 +630,102 @@ function parseMdxBlocks(source: string, nodeId: string): ParsedBlock[] {
       blocks.push({ kind: "database", props: databaseProps(child, nodeId) });
       continue;
     }
+    if (child.type === "mdxJsxFlowElement" && child.name === "CodePeek") {
+      if ((child.children?.length ?? 0) > 0) {
+        throw new LiveReviewMdxError([
+          {
+            path: `${nodeId}.CodePeek`,
+            message: "CodePeek does not accept children.",
+          },
+        ]);
+      }
+      blocks.push({
+        kind: "code-peek",
+        anchor: jsxProps(child, nodeId, "CodePeek").anchor,
+      });
+      continue;
+    }
     const start = child.position?.start.offset;
     const end = child.position?.end.offset;
     if (typeof start !== "number" || typeof end !== "number") continue;
-    const markdown = source.slice(start, end).trim();
-    if (markdown) blocks.push({ kind: "markdown", source: markdown });
+    const markdown = markdownWithInlineLinks(source, child, nodeId);
+    if (markdown.source) blocks.push({ kind: "markdown", ...markdown });
   }
   return blocks;
+}
+
+function markdownWithInlineLinks(
+  source: string,
+  root: MdastNode,
+  nodeId: string,
+): { source: string; links: ParsedInlineLink[] } {
+  const blockStart = root.position?.start.offset;
+  const blockEnd = root.position?.end.offset;
+  if (typeof blockStart !== "number" || typeof blockEnd !== "number") {
+    return { source: "", links: [] };
+  }
+  const links: ParsedInlineLink[] = [];
+  const replacements: Array<{ start: number; end: number; value: string }> = [];
+  const visit = (node: MdastNode): void => {
+    if (
+      node.type === "mdxJsxTextElement" &&
+      (node.name === "AnchorLink" || node.name === "TraceQuote")
+    ) {
+      const start = node.position?.start.offset;
+      const end = node.position?.end.offset;
+      const firstChild = node.children?.[0]?.position?.start.offset;
+      const lastChild = node.children?.at(-1)?.position?.end.offset;
+      if (
+        typeof start !== "number" ||
+        typeof end !== "number" ||
+        typeof firstChild !== "number" ||
+        typeof lastChild !== "number"
+      ) {
+        throw new LiveReviewMdxError([
+          {
+            path: `${nodeId}.${node.name}`,
+            message: `${node.name} requires text children.`,
+          },
+        ]);
+      }
+      const text = mdastText(node).trim();
+      if (!text) {
+        throw new LiveReviewMdxError([
+          {
+            path: `${nodeId}.${node.name}`,
+            message: `${node.name} requires text children.`,
+          },
+        ]);
+      }
+      const key = `link-${links.length + 1}`;
+      const props = jsxProps(node, nodeId, node.name);
+      links.push(
+        node.name === "AnchorLink"
+          ? { kind: "anchor", key, text, anchor: props.anchor }
+          : { kind: "trace-quote", key, text, props },
+      );
+      replacements.push({
+        start,
+        end,
+        value: `[${source.slice(firstChild, lastChild)}](#review-inline-${key})`,
+      });
+      return;
+    }
+    for (const child of node.children ?? []) visit(child);
+  };
+  visit(root);
+  let markdown = source.slice(blockStart, blockEnd);
+  for (const replacement of replacements.sort((a, b) => b.start - a.start)) {
+    const start = replacement.start - blockStart;
+    const end = replacement.end - blockStart;
+    markdown = `${markdown.slice(0, start)}${replacement.value}${markdown.slice(end)}`;
+  }
+  return { source: markdown.trim(), links };
+}
+
+function mdastText(node: MdastNode): string {
+  if (typeof node.value === "string") return node.value;
+  return (node.children ?? []).map(mdastText).join("");
 }
 
 function databaseProps(
@@ -571,7 +797,10 @@ function rejectExecutableMdx(node: MdastNode, nodeId: string): void {
     node.name !== "DatabaseLens" &&
     node.name !== "DbUseCase" &&
     node.name !== "DbRead" &&
-    node.name !== "DbWrite"
+    node.name !== "DbWrite" &&
+    node.name !== "CodePeek" &&
+    node.name !== "AnchorLink" &&
+    node.name !== "TraceQuote"
   ) {
     throw new LiveReviewMdxError([
       {

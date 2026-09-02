@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { AgentMarkdown } from "./agent-markdown";
+import { AgentMarkdown, MarkdownContent } from "./agent-markdown";
 
 describe("agent markdown", () => {
   it("renders agent answers as GitHub-flavored markdown", () => {
@@ -98,5 +98,20 @@ describe("agent markdown", () => {
     );
 
     expect(html).toContain("a &amp; b &gt; c");
+  });
+
+  it("lets a trusted document replace reserved links with interactive content", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownContent, {
+        source: "Open [the source](#review-inline-link-1) here.",
+        renderLink: ({ href, children }) =>
+          href === "#review-inline-link-1"
+            ? createElement("button", { type: "button" }, children)
+            : undefined,
+      }),
+    );
+
+    expect(html).toContain('<button type="button">the source</button>');
+    expect(html).not.toContain("review-inline-link-1");
   });
 });

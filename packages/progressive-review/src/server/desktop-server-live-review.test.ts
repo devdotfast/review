@@ -16,6 +16,30 @@ import type {
   ReviewSessionHandlerInput,
 } from "./session-handler";
 
+vi.mock("../review-agent-traces", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../review-agent-traces")>();
+  return {
+    ...actual,
+    loadReviewAgentTrace: async (input: { sessionId: string }) =>
+      input.sessionId === "live-trace"
+        ? ({
+            trace: {
+              events: [
+                {
+                  kind: "user",
+                  text: "Keep the trace interactive.",
+                  at: "2026-09-02T00:00:00Z",
+                },
+              ],
+            },
+          } as NonNullable<
+            Awaited<ReturnType<typeof actual.loadReviewAgentTrace>>
+          >)
+        : actual.loadReviewAgentTrace(input),
+  };
+});
+
 const packageRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../..",
@@ -111,11 +135,35 @@ describe("Review Desktop live Review transport", () => {
   to: { label: "Agent" },
   label: "show source",
   anchor: { id: "shared-source", title: "Shared source", peek: { file: "package.json", fromLine: 1, toLine: 3 } }
-}]} />`,
+}]} />
+
+Open <AnchorLink anchor={{ id: "shared-source", title: "Shared source", peek: { file: "package.json", fromLine: 1, toLine: 3 } }}>the shared source</AnchorLink> in the side peek. <TraceQuote sessionId="live-trace" event={0}>Keep the trace interactive.</TraceQuote>
+
+<CodePeek anchor={{ id: "shared-source", title: "Shared source", peek: { file: "package.json", fromLine: 1, toLine: 3 } }} />`,
         },
       );
       expect(reused.response.status).toBe(200);
-      expect(readLiveReviewPage(stored!.dir)).toMatchObject({ version: 2 });
+      const reusedPage = readLiveReviewPage(stored!.dir)!;
+      expect(reusedPage).toMatchObject({ version: 2 });
+      expect(Object.values(reusedPage.projection.elements)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "Markdown",
+            props: expect.objectContaining({
+              links: expect.objectContaining({
+                "link-1": expect.objectContaining({ kind: "anchor" }),
+                "link-2": expect.objectContaining({ kind: "trace-quote" }),
+              }),
+            }),
+          }),
+          expect.objectContaining({
+            type: "CodePeek",
+            props: expect.objectContaining({
+              anchor: expect.objectContaining({ id: "shared-source" }),
+            }),
+          }),
+        ]),
+      );
 
       const conflicting = await liveJson(
         server.url,

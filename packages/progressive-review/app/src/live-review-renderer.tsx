@@ -21,18 +21,22 @@ import {
 import { liveReviewCatalog } from "../../src/live-review-catalog";
 import type {
   LiveDatabaseLensProps,
+  LiveReviewCodePeekProps,
+  LiveReviewMarkdownProps,
   LiveReviewTutorialProps,
 } from "../../src/live-review-catalog";
 import type { LiveReviewPage } from "../../src/live-review-types";
 import { MarkdownContent } from "./agent-markdown";
+import { ReviewCodePeek } from "./CodePeek";
 import { DatabaseLens, DbRead, DbUseCase, DbWrite } from "./database-lens";
 import { SequenceDiagram } from "./diagrams";
 import { useReviewSession } from "./host/review-session";
 import { LiveTutorialDocument } from "./live-tutorial-document";
-import { ReviewSection } from "./review-components";
+import { AnchorLink, ReviewSection } from "./review-components";
 import { ReviewDocumentMetaLine } from "./review-doc-meta";
 import type { ReadyReviewDocumentEntry } from "./review-document";
 import { useActiveReviewDocument } from "./review-document-context";
+import { TraceQuote } from "./trace-quote";
 
 const { registry } = defineRegistry(liveReviewCatalog, {
   components: {
@@ -41,7 +45,12 @@ const { registry } = defineRegistry(liveReviewCatalog, {
         {children}
       </ReviewNode>
     ),
-    Markdown: ({ props }) => <MarkdownContent source={props.source} />,
+    Markdown: ({ props }) => (
+      <LiveMarkdown {...(props as LiveReviewMarkdownProps)} />
+    ),
+    CodePeek: ({ props }) => (
+      <ReviewCodePeek anchor={(props as LiveReviewCodePeekProps).anchor} />
+    ),
     SequenceDiagram: ({ props }) => (
       <SequenceDiagram {...(props as SequenceDiagramProps)} />
     ),
@@ -53,6 +62,32 @@ const { registry } = defineRegistry(liveReviewCatalog, {
     ),
   },
 });
+
+function LiveMarkdown(props: LiveReviewMarkdownProps) {
+  return (
+    <MarkdownContent
+      source={props.source}
+      renderLink={({ href, children }) => {
+        const key = href.startsWith("#review-inline-")
+          ? href.slice("#review-inline-".length)
+          : null;
+        const link = key ? props.links?.[key] : undefined;
+        if (!link) return undefined;
+        return link.kind === "anchor" ? (
+          <AnchorLink anchor={link.anchor}>{children}</AnchorLink>
+        ) : (
+          <TraceQuote
+            sessionId={link.sessionId}
+            trace={link.trace}
+            event={link.event}
+          >
+            {children}
+          </TraceQuote>
+        );
+      }}
+    />
+  );
+}
 
 function LiveDatabaseLens(props: LiveDatabaseLensProps) {
   const definitions = createReviewDefinitionSession({
@@ -240,6 +275,14 @@ function liveReviewAnchors(spec: Spec): {
       )) {
         anchors.set(anchor.id, anchor);
       }
+    } else if (element.type === "Markdown") {
+      const links = (element.props as LiveReviewMarkdownProps).links;
+      for (const link of Object.values(links ?? {})) {
+        if (link.kind === "anchor") anchors.set(link.anchor.id, link.anchor);
+      }
+    } else if (element.type === "CodePeek") {
+      const anchor = (element.props as LiveReviewCodePeekProps).anchor;
+      anchors.set(anchor.id, anchor);
     } else if (element.type === "SequenceDiagram") {
       const messages = (element.props as SequenceDiagramProps).messages;
       for (const message of messages) {

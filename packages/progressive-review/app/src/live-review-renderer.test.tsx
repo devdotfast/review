@@ -31,6 +31,18 @@ describe("live Review renderer", () => {
     expect(second.liveSpec).not.toBe(first.liveSpec);
   });
 
+  it("opens stored Markdown projections created before interactive links", () => {
+    const page = fixturePage("Legacy");
+    page.projection.elements.root!.children = ["legacy-markdown"];
+    page.projection.elements["legacy-markdown"] = {
+      type: "Markdown",
+      props: { source: "Stored prose" },
+      children: [],
+    };
+
+    expect(() => createLiveReviewDocument(page)).not.toThrow();
+  });
+
   it("stamps the exact target and outlines only its top-level section", () => {
     const container = document.createElement("div");
     document.body.append(container);

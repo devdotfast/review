@@ -37,15 +37,8 @@ export const ReviewBugReportPartSchema = z.discriminatedUnion("field", [
     sha256: compressedSha256,
   }),
   z.strictObject({
-    field: z.literal("source_trace"),
-    filename: z.literal("source.jsonl.gz"),
-    bytes: compressedPartBytes,
-    sha256: compressedSha256,
-    session_id: requiredString.max(128),
-  }),
-  z.strictObject({
-    field: z.literal("parent_trace"),
-    filename: z.literal("parent.jsonl.gz"),
+    field: z.literal("trace"),
+    filename: z.string().regex(/^trace-(0|[1-9]\d?)\.jsonl\.gz$/),
     bytes: compressedPartBytes,
     sha256: compressedSha256,
     session_id: requiredString.max(128),
@@ -87,25 +80,31 @@ export const ReviewBugReportMetaV2Schema = z
     truncated_map: z.boolean(),
     truncated_screenshot: z.boolean(),
     truncated_trace: z.boolean(),
-    parts: z.array(ReviewBugReportPartSchema).min(1).max(3),
+    parts: z.array(ReviewBugReportPartSchema).min(1).max(34),
   })
   .superRefine((meta, context) => {
-    const fields = meta.parts.map((part) => part.field);
-    const hasParent = fields.includes("parent_trace");
-    const expected = meta.has_trace
-      ? hasParent
-        ? ["payload", "source_trace", "parent_trace"]
-        : ["payload", "source_trace"]
-      : ["payload"];
-    if (
-      fields.length !== expected.length ||
-      fields.some((field, index) => field !== expected[index])
-    ) {
+    const [first, ...traces] = meta.parts;
+    const validOrder =
+      first?.field === "payload" &&
+      traces.every(
+        (part, index) =>
+          part.field === "trace" && part.filename === `trace-${index}.jsonl.gz`,
+      );
+    const sessionIds = traces.map((part) =>
+      part.field === "trace" ? part.session_id : "",
+    );
+    if (!validOrder || new Set(sessionIds).size !== sessionIds.length) {
       context.addIssue({
         code: "custom",
         path: ["parts"],
-        message:
-          "must list payload and the optional source and parent traces in order",
+        message: "must list the payload then trace-<n> parts in order",
+      });
+    }
+    if (meta.has_trace !== traces.length > 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["has_trace"],
+        message: "must match the presence of trace parts",
       });
     }
     if (meta.has_trace !== (meta.trace_harness !== undefined)) {

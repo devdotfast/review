@@ -68,36 +68,40 @@ export class OpencodeAgentServer implements AgentServer {
     input: LaunchInput,
   ): Promise<{ sessionId: string; command: NativeTerminalCommand }> {
     const client = await this.#client();
-    let sessionId: string;
+    // OpenCode sessions belong to a project keyed by directory. A fork stays
+    // in its source's project, so the session's own directory scopes every
+    // request and the terminal, not the review's checkout.
+    let session: { id: string; directory: string };
     if (!input.session) {
-      sessionId = sessionIdOf(
+      session = sessionOf(
         await client.json("POST", "/session", input.cwd, {
           title: "Review question",
         }),
       );
     } else if ("forkOf" in input.session) {
-      sessionId = sessionIdOf(
+      const source = await client.session(input.session.forkOf);
+      session = sessionOf(
         await client.json(
           "POST",
-          `/session/${encodeURIComponent(input.session.forkOf)}/fork`,
-          input.cwd,
+          `/session/${encodeURIComponent(source.id)}/fork`,
+          source.directory,
           {},
         ),
       );
     } else {
-      sessionId = input.session.resume;
+      session = await client.session(input.session.resume);
     }
-    const state = this.#session(sessionId, input.cwd);
+    const sessionId = session.id;
+    this.#session(sessionId, session.directory);
     if (input.prompt !== undefined) {
       // Review drives the turn; the TUI attaches to a session already at work.
       await client.json(
         "POST",
         `/session/${encodeURIComponent(sessionId)}/prompt_async`,
-        input.cwd,
+        session.directory,
         { parts: [{ type: "text", text: input.prompt }] },
       );
     }
-    void state;
     const pathValue = await this.#commandPath.resolve();
     return {
       sessionId,
@@ -110,7 +114,7 @@ export class OpencodeAgentServer implements AgentServer {
           "--session",
           sessionId,
           "--dir",
-          input.cwd,
+          session.directory,
         ],
         env: {
           OPENCODE_SERVER_PASSWORD: client.password,
@@ -128,6 +132,9 @@ export class OpencodeAgentServer implements AgentServer {
   ): Promise<UpdatePipe<SessionSnapshot, SessionUpdate>> {
     const client = await this.#client();
     const state = this.#session(sessionId);
+    if (!state.directory) {
+      state.directory = (await client.session(sessionId)).directory;
+    }
     if (!state.loaded) {
       await this.#refresh(client, sessionId, state);
       state.loaded = true;
@@ -300,11 +307,16 @@ function eventSessionId(event: unknown): string | undefined {
   return undefined;
 }
 
-function sessionIdOf(value: unknown): string {
-  if (!isJsonRecord(value) || typeof value.id !== "string" || !value.id) {
+function sessionOf(value: unknown): { id: string; directory: string } {
+  if (
+    !isJsonRecord(value) ||
+    typeof value.id !== "string" ||
+    !value.id ||
+    typeof value.directory !== "string"
+  ) {
     throw new Error("OpenCode returned an invalid session.");
   }
-  return value.id;
+  return { id: value.id, directory: value.directory };
 }
 
 function millisToIso(value: unknown): string {
@@ -330,9 +342,25 @@ export class OpencodeClient {
     directory: string | undefined,
     body?: unknown,
   ): Promise<unknown> {
+    const response = await this.#fetch(method, pathname, directory, body);
+    const text = await response.text();
+    if (!response.ok) {
+      throw new Error(
+        `OpenCode ${method} ${pathname} failed (${response.status}): ${text}`,
+      );
+    }
+    return text ? (JSON.parse(text) as unknown) : undefined;
+  }
+
+  #fetch(
+    method: "GET" | "POST",
+    pathname: string,
+    directory: string | undefined,
+    body?: unknown,
+  ): Promise<Response> {
     const url = new URL(pathname, this.baseUrl);
     if (directory) url.searchParams.set("directory", directory);
-    const response = await fetch(url, {
+    return fetch(url, {
       method,
       headers: {
         authorization: this.#authorization,
@@ -341,13 +369,37 @@ export class OpencodeClient {
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
-    const text = await response.text();
-    if (!response.ok) {
-      throw new Error(
-        `OpenCode ${method} ${pathname} failed (${response.status}): ${text}`,
-      );
+  }
+
+  /**
+   * Find a session by id. Sessions are stored per project, and a lookup is
+   * scoped to one directory, so every project the server knows is tried.
+   */
+  async session(id: string): Promise<{ id: string; directory: string }> {
+    const projects = await this.json("GET", "/project", undefined);
+    if (!Array.isArray(projects)) {
+      throw new Error("OpenCode returned an invalid project list.");
     }
-    return text ? (JSON.parse(text) as unknown) : undefined;
+    const worktrees = projects.flatMap((project) =>
+      isJsonRecord(project) && typeof project.worktree === "string"
+        ? [project.worktree]
+        : [],
+    );
+    for (const worktree of new Set(worktrees)) {
+      const response = await this.#fetch(
+        "GET",
+        `/session/${encodeURIComponent(id)}`,
+        worktree,
+      );
+      if (response.status === 404) continue;
+      if (!response.ok) {
+        throw new Error(
+          `OpenCode GET /session/${id} failed (${response.status}): ${await response.text()}`,
+        );
+      }
+      return sessionOf(JSON.parse(await response.text()) as unknown);
+    }
+    throw new Error(`OpenCode has no session ${id} in any known project.`);
   }
 
   /** Parsed `/global/event` server-sent events until the signal aborts. */
@@ -491,14 +543,17 @@ export async function forkOpencodeSession(input: {
   try {
     const { baseUrl, password } = await host.endpoint();
     const client = new OpencodeClient(baseUrl, password);
-    return sessionIdOf(
+    // The fork lands in the source session's project, whatever the review's
+    // checkout is; the terminal later attaches with that directory.
+    const source = await client.session(input.sourceSessionId);
+    return sessionOf(
       await client.json(
         "POST",
-        `/session/${encodeURIComponent(input.sourceSessionId)}/fork`,
-        input.cwd,
+        `/session/${encodeURIComponent(source.id)}/fork`,
+        source.directory,
         {},
       ),
-    );
+    ).id;
   } finally {
     await host.close();
   }
@@ -523,9 +578,9 @@ export async function createOpencodeSession(input: {
   try {
     const { baseUrl, password } = await host.endpoint();
     const client = new OpencodeClient(baseUrl, password);
-    const sessionId = sessionIdOf(
+    const sessionId = sessionOf(
       await client.json("POST", "/session", input.cwd, { title: input.title }),
-    );
+    ).id;
     await client.json(
       "POST",
       `/session/${encodeURIComponent(sessionId)}/prompt_async`,

@@ -3,6 +3,7 @@ import { rm } from "node:fs/promises";
 import path from "node:path";
 
 import { currentHead } from "@dev.fast/local-vcs";
+import type { ReviewAuthoringTarget } from "@dev.fast/review-protocol";
 
 import { projectLiveReviewPage, parentIdForNode } from "../live-review-mdx";
 import {
@@ -141,6 +142,27 @@ export function liveReviewNode(page: LiveReviewPage, nodeId: string): Node {
     source: node.source,
     childIds: [...node.children],
   };
+}
+
+export function liveReviewAuthoringTarget(
+  page: LiveReviewPage,
+  targetNodeId: string,
+): ReviewAuthoringTarget {
+  if (!page.nodes[targetNodeId]) {
+    throw new Error(`Review node not found: ${targetNodeId}`);
+  }
+  let sectionNodeId: string | null = null;
+  let currentNodeId = targetNodeId;
+  while (currentNodeId !== page.rootNodeId) {
+    const parentId = parentIdForNode(page.nodes, currentNodeId);
+    if (parentId === page.rootNodeId) {
+      sectionNodeId = currentNodeId;
+      break;
+    }
+    if (!parentId) break;
+    currentNodeId = parentId;
+  }
+  return { targetNodeId, sectionNodeId };
 }
 
 export async function renderLiveReviewMdx(input: {

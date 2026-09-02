@@ -7605,6 +7605,13 @@ button {
   padding-inline-start: 26px;
 }
 
+.review-live-node--authoring-section {
+  border-radius: 8px;
+  outline: 2px solid var(--accent);
+  outline-offset: 6px;
+  box-shadow: 0 0 0 6px var(--accent-wash);
+}
+
 .review-document h1 {
   width: min(100%, var(--review-prose-max-width));
   margin: 0 auto 18px;

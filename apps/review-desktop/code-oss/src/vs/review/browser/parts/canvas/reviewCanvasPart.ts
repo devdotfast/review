@@ -1416,6 +1416,12 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			post: (request) =>
 				this.verbs.dispatch(session.session.sessionId, request),
 			subscribe: (listener) => this.surfaceEvents.event(listener),
+			currentAuthoringTarget: () =>
+				this.sessionService.currentReviewAuthoringTarget(model.reviewUuid),
+			onDidChangeAuthoringTarget: (listener) =>
+				this.sessionService.onDidChangeReviewAuthoringTarget((event) => {
+					if (event.uuid === model.reviewUuid) listener(event.target);
+				}),
 			currentTheme: () => this.colorScheme(),
 			onDidChangeTheme: (listener) => this.themeEvents.event(listener),
 			ready: () => {

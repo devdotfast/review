@@ -1,6 +1,14 @@
+import type { ReviewAuthoringTarget } from "@dev.fast/review-protocol";
 import type { Spec } from "@json-render/core";
 import { JSONUIProvider, Renderer, defineRegistry } from "@json-render/react";
-import { createElement, type ReactNode } from "react";
+import {
+  createContext,
+  createElement,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useSyncExternalStore,
+} from "react";
 
 import type { AnchorRef, SequenceDiagramProps } from "../../src/authoring";
 import { liveReviewCatalog } from "../../src/live-review-catalog";
@@ -8,6 +16,7 @@ import type { LiveReviewTutorialProps } from "../../src/live-review-catalog";
 import type { LiveReviewPage } from "../../src/live-review-types";
 import { MarkdownContent } from "./agent-markdown";
 import { SequenceDiagram } from "./diagrams";
+import { useReviewSession } from "./host/review-session";
 import { LiveTutorialDocument } from "./live-tutorial-document";
 import { ReviewSection } from "./review-components";
 import { ReviewDocumentMetaLine } from "./review-doc-meta";
@@ -31,7 +40,10 @@ const { registry } = defineRegistry(liveReviewCatalog, {
   },
 });
 
-function ReviewNode({
+export const LiveReviewAuthoringTargetContext =
+  createContext<ReviewAuthoringTarget | null>(null);
+
+export function ReviewNode({
   nodeId,
   depth,
   title,
@@ -42,11 +54,19 @@ function ReviewNode({
   title?: string;
   children?: ReactNode;
 }) {
+  const authoringTarget = useContext(LiveReviewAuthoringTargetContext);
+  const isExactTarget = authoringTarget?.targetNodeId === nodeId;
+  const isTargetSection =
+    depth === 1 && authoringTarget?.sectionNodeId === nodeId;
+  const authoringAttributes = {
+    "data-review-node-id": nodeId,
+    ...(isExactTarget ? { "data-review-authoring-target": "true" } : {}),
+  };
   if (depth === 0) {
     return (
       <div
         className="review-live-node review-live-node--root"
-        data-review-node-id={nodeId}
+        {...authoringAttributes}
       >
         {title && <h1>{title}</h1>}
         {title && <ReviewDocumentMetaLine />}
@@ -56,7 +76,10 @@ function ReviewNode({
   }
   if (depth === 1 && title) {
     return (
-      <div className="review-live-node" data-review-node-id={nodeId}>
+      <div
+        className={`review-live-node${isTargetSection ? " review-live-node--authoring-section" : ""}`}
+        {...authoringAttributes}
+      >
         <ReviewSection title={title}>
           <h2>{title}</h2>
           {children}
@@ -65,7 +88,7 @@ function ReviewNode({
     );
   }
   return (
-    <div className="review-live-node" data-review-node-id={nodeId}>
+    <div className="review-live-node" {...authoringAttributes}>
       {title && createElement(`h${Math.min(depth + 1, 6)}`, {}, title)}
       {children}
     </div>
@@ -74,14 +97,35 @@ function ReviewNode({
 
 function LiveReviewDocument() {
   const document = useActiveReviewDocument();
+  const authoringTarget = useLiveReviewAuthoringTarget();
   if (!document.liveSpec) {
     throw new Error("The live Review document has no validated projection.");
   }
   return (
-    <JSONUIProvider registry={registry}>
-      <Renderer spec={document.liveSpec} registry={registry} />
-    </JSONUIProvider>
+    <LiveReviewAuthoringTargetContext.Provider value={authoringTarget}>
+      <JSONUIProvider registry={registry}>
+        <Renderer spec={document.liveSpec} registry={registry} />
+      </JSONUIProvider>
+    </LiveReviewAuthoringTargetContext.Provider>
   );
+}
+
+function useLiveReviewAuthoringTarget(): ReviewAuthoringTarget | null {
+  const { bridge } = useReviewSession();
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => {
+      const disposable = bridge.onDidChangeAuthoringTarget?.(() =>
+        onStoreChange(),
+      );
+      return () => disposable?.dispose();
+    },
+    [bridge],
+  );
+  const getSnapshot = useCallback(
+    () => bridge.currentAuthoringTarget?.() ?? null,
+    [bridge],
+  );
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
 export function createLiveReviewDocument(

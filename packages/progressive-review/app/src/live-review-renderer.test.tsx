@@ -1,7 +1,17 @@
+// @vitest-environment jsdom
+
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { describe, expect, it } from "vitest";
 
 import type { LiveReviewPage } from "../../src/live-review-types";
-import { createLiveReviewDocument } from "./live-review-renderer";
+import { ReviewSessionProvider } from "./host/review-session";
+import {
+  createLiveReviewDocument,
+  LiveReviewAuthoringTargetContext,
+  ReviewNode,
+} from "./live-review-renderer";
+import { testReviewSession } from "./review-session-test-utils";
 
 describe("live Review renderer", () => {
   it("keeps one React component identity across accepted page updates", () => {
@@ -11,6 +21,42 @@ describe("live Review renderer", () => {
     expect(second.Component).toBe(first.Component);
     expect(second.filePath).toBe(first.filePath);
     expect(second.liveSpec).not.toBe(first.liveSpec);
+  });
+
+  it("stamps the exact target and outlines only its top-level section", () => {
+    (
+      globalThis as typeof globalThis & {
+        IS_REACT_ACT_ENVIRONMENT?: boolean;
+      }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <ReviewSessionProvider session={testReviewSession()}>
+          <LiveReviewAuthoringTargetContext.Provider
+            value={{ targetNodeId: "nested", sectionNodeId: "section" }}
+          >
+            <ReviewNode nodeId="section" depth={1} title="Section">
+              <ReviewNode nodeId="nested" depth={2} title="Nested" />
+            </ReviewNode>
+          </LiveReviewAuthoringTargetContext.Provider>
+        </ReviewSessionProvider>,
+      );
+    });
+
+    const section = container.querySelector('[data-review-node-id="section"]');
+    const nested = container.querySelector('[data-review-node-id="nested"]');
+    expect(
+      section?.classList.contains("review-live-node--authoring-section"),
+    ).toBe(true);
+    expect(section?.getAttribute("data-review-authoring-target")).toBeNull();
+    expect(nested?.getAttribute("data-review-authoring-target")).toBe("true");
+
+    act(() => root.unmount());
+    container.remove();
   });
 });
 

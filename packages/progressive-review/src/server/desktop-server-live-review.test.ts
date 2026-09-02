@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import type { ReviewDesktopGlobalEvent } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { readLiveReviewPage } from "../live-review-store";
@@ -29,6 +30,7 @@ describe("Review Desktop live Review transport", () => {
     vi.stubEnv("DEV_REVIEW_HOME", home);
     const handlers: ReviewSessionHandlerInput[] = [];
     const server = liveReviewServer(home, handlers);
+    let events: Awaited<ReturnType<typeof openReviewEvents>> | undefined;
 
     try {
       await server.listen();
@@ -69,6 +71,7 @@ describe("Review Desktop live Review transport", () => {
       const stored = await findReview(createResult.info.reviewId);
       expect(stored?.review.status).toBe("awaiting-agent-updates");
       expect(readLiveReviewPage(stored!.dir)).toMatchObject({ version: 0 });
+      events = await openReviewEvents(server.url);
 
       const rejected = await liveJson(
         server.url,
@@ -82,6 +85,19 @@ describe("Review Desktop live Review transport", () => {
       expect(rejected.response.status).toBe(422);
       expect(rejected.body).toMatchObject({ ok: false });
       expect(readLiveReviewPage(stored!.dir)).toMatchObject({ version: 0 });
+      await expect(events.next()).resolves.toEqual({
+        event: "review-authoring-target-changed",
+        uuid: createResult.info.reviewId,
+        target: { targetNodeId: "root", sectionNodeId: null },
+      });
+      const rootSelection = await liveRequest(
+        server.url,
+        `/live-reviews/${createResult.info.reviewId}/selection`,
+      );
+      await expect(rootSelection.json()).resolves.toEqual({
+        reviewId: createResult.info.reviewId,
+        nodeIds: ["root"],
+      });
 
       const appended = await Promise.all(
         ["First", "Second"].map((title) =>
@@ -105,6 +121,16 @@ describe("Review Desktop live Review transport", () => {
           .map(({ body }) => Number((body as { version: number }).version))
           .sort(),
       ).toEqual([1, 2]);
+      for (let index = 0; index < 2; index += 1) {
+        await expect(events.next()).resolves.toMatchObject({
+          event: "review-authoring-target-changed",
+          target: { targetNodeId: "root", sectionNodeId: null },
+        });
+        await expect(events.next()).resolves.toMatchObject({
+          event: "review-data-changed",
+          uuid: createResult.info.reviewId,
+        });
+      }
 
       const children = await liveRequest(
         server.url,
@@ -121,6 +147,59 @@ describe("Review Desktop live Review transport", () => {
         { parentId: "root", title: "First" },
         { parentId: "root", title: "Second" },
       ]);
+      await expect(events.next()).resolves.toMatchObject({
+        event: "review-authoring-target-changed",
+        target: { targetNodeId: "root", sectionNodeId: null },
+      });
+
+      const firstSection = readLiveReviewPage(stored!.dir)!
+        .nodes.root!.children.map(
+          (nodeId) => readLiveReviewPage(stored!.dir)!.nodes[nodeId]!,
+        )
+        .find((node) => node.title === "First")!;
+      const nested = await liveJson(
+        server.url,
+        `/live-reviews/${createResult.info.reviewId}/render`,
+        {
+          targetNodeId: firstSection.id,
+          mode: "append",
+          title: "Nested",
+          mdx: "Nested body",
+        },
+      );
+      expect(nested.response.status).toBe(200);
+      const nestedNodeId = String((nested.body as { nodeId: string }).nodeId);
+      await expect(events.next()).resolves.toMatchObject({
+        event: "review-authoring-target-changed",
+        target: {
+          targetNodeId: firstSection.id,
+          sectionNodeId: firstSection.id,
+        },
+      });
+      await expect(events.next()).resolves.toMatchObject({
+        event: "review-data-changed",
+      });
+
+      const nestedInfo = await liveRequest(
+        server.url,
+        `/live-reviews/${createResult.info.reviewId}/nodes/${nestedNodeId}`,
+      );
+      expect(nestedInfo.status).toBe(200);
+      await expect(events.next()).resolves.toMatchObject({
+        event: "review-authoring-target-changed",
+        target: {
+          targetNodeId: nestedNodeId,
+          sectionNodeId: firstSection.id,
+        },
+      });
+      const nestedSelection = await liveRequest(
+        server.url,
+        `/live-reviews/${createResult.info.reviewId}/selection`,
+      );
+      await expect(nestedSelection.json()).resolves.toEqual({
+        reviewId: createResult.info.reviewId,
+        nodeIds: [nestedNodeId],
+      });
 
       const forbiddenStatus = await liveJson(
         server.url,
@@ -136,7 +215,7 @@ describe("Review Desktop live Review transport", () => {
       );
       expect(handedOff.response.status).toBe(200);
       expect(handedOff.body).toMatchObject({ status: "awaiting-review" });
-      expect(readLiveReviewPage(stored!.dir)).toMatchObject({ version: 2 });
+      expect(readLiveReviewPage(stored!.dir)).toMatchObject({ version: 3 });
 
       await handlers[0]!.onSubmission!(submissionEvent());
       const terminal = await liveJson(
@@ -155,7 +234,7 @@ describe("Review Desktop live Review transport", () => {
       expect(opened.status).toBe(200);
       await expect(opened.json()).resolves.toMatchObject({
         sessionId: createResult.sessionId,
-        info: { reviewId: createResult.info.reviewId, nodeCount: 3 },
+        info: { reviewId: createResult.info.reviewId, nodeCount: 4 },
       });
 
       const missing = await liveRequest(
@@ -164,6 +243,7 @@ describe("Review Desktop live Review transport", () => {
       );
       expect(missing.status).toBe(404);
     } finally {
+      await events?.close();
       await server.close();
       await rm(home, { recursive: true, force: true });
     }
@@ -244,6 +324,48 @@ function liveReviewServer(home: string, handlers: ReviewSessionHandlerInput[]) {
       return stubSessionHandler();
     },
   });
+}
+
+async function openReviewEvents(serverUrl: string): Promise<{
+  next(): Promise<ReviewDesktopGlobalEvent>;
+  close(): Promise<void>;
+}> {
+  const controller = new AbortController();
+  const response = await fetch(`${serverUrl}/events`, {
+    headers: { "x-review-token": token },
+    signal: controller.signal,
+  });
+  if (!response.ok || !response.body) {
+    throw new Error(`Could not open Review events: ${response.status}`);
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const next = async (): Promise<ReviewDesktopGlobalEvent> => {
+    while (true) {
+      const boundary = buffer.indexOf("\n\n");
+      if (boundary >= 0) {
+        const frame = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        const data = frame
+          .split("\n")
+          .find((line) => line.startsWith("data: "))
+          ?.slice(6);
+        if (data) return JSON.parse(data) as ReviewDesktopGlobalEvent;
+        continue;
+      }
+      const chunk = await reader.read();
+      if (chunk.done) throw new Error("Review event stream ended.");
+      buffer += decoder.decode(chunk.value, { stream: true });
+    }
+  };
+  return {
+    next,
+    async close() {
+      controller.abort();
+      await reader.cancel().catch(() => undefined);
+    },
+  };
 }
 
 function stubSessionHandler(): ReviewSessionHandler {

@@ -21,6 +21,7 @@ import {
 	type ReviewCliInstallApplyResponse,
 	type ReviewCliInstallStatus,
 	type ReviewCliInstallTarget,
+	type ReviewAuthoringTarget,
 	type ReviewDescriptor,
 	type ReviewDesktopGlobalEvent,
 	type ReviewListError,
@@ -53,6 +54,11 @@ export type ReviewDataChangedEvent = Extract<
 	{ event: "review-data-changed" }
 >;
 
+export type ReviewAuthoringTargetChangedEvent = Extract<
+	ReviewDesktopGlobalEvent,
+	{ event: "review-authoring-target-changed" }
+>;
+
 export type ReviewThreadsCommittedEvent = Extract<
 	ReviewDesktopGlobalEvent,
 	{ event: "review-threads-committed" }
@@ -82,6 +88,9 @@ export interface IReviewSessionService {
 	readonly _serviceBrand: undefined;
 	readonly onDidChangeLists: Event<void>;
 	readonly onDidChangeReviewData: Event<ReviewDataChangedEvent>;
+	readonly onDidChangeReviewAuthoringTarget: Event<
+		ReviewAuthoringTargetChangedEvent
+	>;
 	readonly onDidCommitReviewThreads: Event<ReviewThreadsCommittedEvent>;
 	readonly onDidCloseSession: Event<ReviewSessionClosedEvent>;
 	readonly onDidRegisterSession: Event<ReviewSessionRegisteredEvent>;
@@ -92,6 +101,9 @@ export interface IReviewSessionService {
 	readonly reviews: readonly ReviewDescriptor[];
 	readonly reviewErrors: readonly ReviewListError[];
 	readonly tutorialReview: ReviewDescriptor | undefined;
+	currentReviewAuthoringTarget(
+		reviewUuid: string,
+	): ReviewAuthoringTarget | null;
 	initialize(): Promise<void>;
 	getConnection(): Promise<ReviewSessionConnection>;
 	refresh(): Promise<void>;
@@ -145,6 +157,11 @@ export class ReviewSessionService
 		new Emitter<ReviewDataChangedEvent>(),
 	);
 	readonly onDidChangeReviewData = this._onDidChangeReviewData.event;
+	private readonly _onDidChangeReviewAuthoringTarget = this._register(
+		new Emitter<ReviewAuthoringTargetChangedEvent>(),
+	);
+	readonly onDidChangeReviewAuthoringTarget =
+		this._onDidChangeReviewAuthoringTarget.event;
 	private readonly _onDidCommitReviewThreads = this._register(
 		new Emitter<ReviewThreadsCommittedEvent>(),
 	);
@@ -165,6 +182,10 @@ export class ReviewSessionService
 	readonly onDidFail = this._onDidFail.event;
 
 	private _sessionRecords: ReviewSessionDescriptor[] = [];
+	private readonly reviewAuthoringTargets = new Map<
+		string,
+		ReviewAuthoringTarget
+	>();
 	get sessions(): readonly ReviewSessionDescriptor[] {
 		return this._sessionRecords;
 	}
@@ -182,6 +203,12 @@ export class ReviewSessionService
 	private _tutorialReview: ReviewDescriptor | undefined;
 	get tutorialReview(): ReviewDescriptor | undefined {
 		return this._tutorialReview;
+	}
+
+	currentReviewAuthoringTarget(
+		reviewUuid: string,
+	): ReviewAuthoringTarget | null {
+		return this.reviewAuthoringTargets.get(reviewUuid) ?? null;
 	}
 
 	private initializePromise: Promise<void> | null = null;
@@ -841,76 +868,84 @@ export class ReviewSessionService
 		onConnected();
 		await consumeReviewEventStream(
 			response.body,
-			async (value) => {
-				const event = parseReviewDesktopGlobalEvent(value);
-				if (event.event === "review-data-changed") {
-					this._onDidChangeReviewData.fire(event);
-					return;
-				}
-				if (event.event === "review-threads-committed") {
-					this.patchReview(event.uuid, { commentCount: event.commentCount });
-					this._onDidCommitReviewThreads.fire(event);
-					return;
-				}
-				if (event.event === "session-registered") {
-					this.upsertSession(event.session);
-					if (event.review) this.upsertReview(event.review);
-					this._onDidRegisterSession.fire({
-						session: event.session,
-						background: event.background === true,
-					});
-					return;
-				}
-				if (event.event === "session-updated") {
-					this.upsertSession(event.session);
-					return;
-				}
-				if (event.event === "review-status-changed") {
-					this.patchReview(event.uuid, { status: event.status });
-					return;
-				}
-				if (event.event === "review-attention-changed") {
-					this.patchReview(event.uuid, {
-						viewedAt: event.viewedAt,
-						dismissedAt: event.dismissedAt,
-						reapsAt: event.reapsAt,
-					});
-					if (event.attention === "dismissed") {
-						this._onDidDismissReview.fire(event.uuid);
-					}
-					return;
-				}
-				if (event.event === "preferences-changed") {
-					this._reviews = this._reviews.map((review) => ({
-						...review,
-						reapsAt: reviewReapsAt(
-							review.dismissedAt,
-							event.preferences.dismissedRetentionDays,
-						),
-					}));
-					this._onDidChangeLists.fire();
-					return;
-				}
-				if (event.event === "review-deleted") {
-					this.removeReview(event.uuid);
-					return;
-				}
-				const closed = this._sessionRecords.find(
-					(item) => item.sessionId === event.sessionId,
-				);
-				this.removeSession(event.sessionId);
-				if (closed) {
-					this._onDidCloseSession.fire({
-						session: closed,
-						review: this._reviews.find(
-							(review) => review.uuid === closed.reviewUuid,
-						),
-						reason: event.reason,
-					});
-				}
-			},
+			async (value) =>
+				this.acceptGlobalEvent(parseReviewDesktopGlobalEvent(value)),
 			this.controller.signal,
 		);
+	}
+
+	private acceptGlobalEvent(event: ReviewDesktopGlobalEvent): void {
+		if (event.event === "review-data-changed") {
+			this._onDidChangeReviewData.fire(event);
+			return;
+		}
+		if (event.event === "review-authoring-target-changed") {
+			this.reviewAuthoringTargets.set(event.uuid, event.target);
+			this._onDidChangeReviewAuthoringTarget.fire(event);
+			return;
+		}
+		if (event.event === "review-threads-committed") {
+			this.patchReview(event.uuid, { commentCount: event.commentCount });
+			this._onDidCommitReviewThreads.fire(event);
+			return;
+		}
+		if (event.event === "session-registered") {
+			this.upsertSession(event.session);
+			if (event.review) this.upsertReview(event.review);
+			this._onDidRegisterSession.fire({
+				session: event.session,
+				background: event.background === true,
+			});
+			return;
+		}
+		if (event.event === "session-updated") {
+			this.upsertSession(event.session);
+			return;
+		}
+		if (event.event === "review-status-changed") {
+			this.patchReview(event.uuid, { status: event.status });
+			return;
+		}
+		if (event.event === "review-attention-changed") {
+			this.patchReview(event.uuid, {
+				viewedAt: event.viewedAt,
+				dismissedAt: event.dismissedAt,
+				reapsAt: event.reapsAt,
+			});
+			if (event.attention === "dismissed") {
+				this._onDidDismissReview.fire(event.uuid);
+			}
+			return;
+		}
+		if (event.event === "preferences-changed") {
+			this._reviews = this._reviews.map((review) => ({
+				...review,
+				reapsAt: reviewReapsAt(
+					review.dismissedAt,
+					event.preferences.dismissedRetentionDays,
+				),
+			}));
+			this._onDidChangeLists.fire();
+			return;
+		}
+		if (event.event === "review-deleted") {
+			this.reviewAuthoringTargets.delete(event.uuid);
+			this.removeReview(event.uuid);
+			return;
+		}
+		const closed = this._sessionRecords.find(
+			(item) => item.sessionId === event.sessionId,
+		);
+		this.removeSession(event.sessionId);
+		if (closed) {
+			this._onDidCloseSession.fire({
+				session: closed,
+				review: this._reviews.find(
+					(review) => review.uuid === closed.reviewUuid,
+				),
+				reason: event.reason,
+			});
+		}
 	}
 
 	private async maintainControl(

@@ -785,6 +785,10 @@ export interface ReviewCanvasBridge {
   request(url: string, init?: RequestInit): Promise<Response>;
   post(request: ReviewVerbRequest): Promise<ReviewVerbResponse>;
   subscribe(listener: (event: ReviewSurfaceEvent) => void): ReviewDisposable;
+  currentAuthoringTarget?(): ReviewAuthoringTarget | null;
+  onDidChangeAuthoringTarget?(
+    listener: (target: ReviewAuthoringTarget) => void,
+  ): ReviewDisposable;
   currentTheme(): ReviewTheme;
   onDidChangeTheme(listener: (theme: ReviewTheme) => void): ReviewDisposable;
   ready(): void;
@@ -1502,6 +1506,12 @@ export type ReviewSessionLifecycleEvent = z.infer<
   typeof ReviewSessionLifecycleEventSchema
 >;
 
+export const ReviewAuthoringTargetSchema = z.strictObject({
+  targetNodeId: requiredString,
+  sectionNodeId: requiredString.nullable(),
+});
+export type ReviewAuthoringTarget = z.infer<typeof ReviewAuthoringTargetSchema>;
+
 export const ReviewDesktopGlobalEventSchema = z.discriminatedUnion("event", [
   z.strictObject({
     event: z.literal("session-registered"),
@@ -1522,6 +1532,11 @@ export const ReviewDesktopGlobalEventSchema = z.discriminatedUnion("event", [
     event: z.literal("review-data-changed"),
     uuid: z.uuid({ error: "must be a UUID" }),
     sessionId: requiredString,
+  }),
+  z.strictObject({
+    event: z.literal("review-authoring-target-changed"),
+    uuid: z.uuid({ error: "must be a UUID" }),
+    target: ReviewAuthoringTargetSchema,
   }),
   z.strictObject({
     event: z.literal("review-threads-committed"),

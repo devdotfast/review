@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 
 import {
   REVIEW_DESKTOP_DISCOVERY_VERSION,
+  type ReviewAuthoringTarget,
   type ReviewDescriptor,
   type ReviewDesktopDiscovery,
   type ReviewDesktopGlobalEvent,
@@ -127,6 +128,7 @@ import {
   createLiveReview,
   handoffLiveReview,
   listLiveReviews,
+  liveReviewAuthoringTarget,
   liveReviewInfo,
   liveReviewNode,
   LiveReviewTerminalError,
@@ -294,6 +296,7 @@ export function createGlobalReviewServer(
   const telemetry = input.telemetry ?? ProgressiveReviewTelemetry.fromEnv();
   const relay = new GlobalReviewDesktopVerbRelay();
   const sessions = new Map<string, ActiveReviewSession>();
+  const liveReviewAuthoringTargets = new Map<string, ReviewAuthoringTarget>();
   const reviewLocks = new Map<string, Promise<void>>();
   const globalClients = new Set<ReviewDesktopEventClient>();
   const tutorial = createTutorialService({
@@ -496,10 +499,10 @@ export function createGlobalReviewServer(
   });
   app.get("/live-reviews/:uuid/selection", async (context) => {
     const review = await requireStoredLiveReview(context.req.param("uuid"));
-    // This global route is the integration point for the next selection slice.
+    const target = liveReviewAuthoringTargets.get(review.review.uuid);
     return globalJson(200, {
       reviewId: review.review.uuid,
-      nodeIds: [],
+      nodeIds: target ? [target.targetNodeId] : [],
     });
   });
   app.get("/live-reviews/:uuid/nodes/:nodeId", async (context) => {
@@ -513,6 +516,7 @@ export function createGlobalReviewServer(
         "node_not_found",
       );
     }
+    setLiveReviewAuthoringTarget(review.review.uuid, page, nodeId);
     return globalJson(200, liveReviewNode(page, nodeId));
   });
   app.get("/live-reviews/:uuid/nodes/:nodeId/children", async (context) => {
@@ -527,6 +531,7 @@ export function createGlobalReviewServer(
         "node_not_found",
       );
     }
+    setLiveReviewAuthoringTarget(review.review.uuid, page, nodeId);
     return globalJson(200, {
       children: node.children.map((childId) => liveReviewNode(page, childId)),
     });
@@ -538,13 +543,15 @@ export function createGlobalReviewServer(
     );
     return withReviewLock(uuid, async () => {
       const review = await requireStoredLiveReview(uuid);
-      if (!requireLiveReviewPage(review).nodes[request.targetNodeId]) {
+      const page = requireLiveReviewPage(review);
+      if (!page.nodes[request.targetNodeId]) {
         throw new ReviewServerError(
           "Review node not found.",
           404,
           "node_not_found",
         );
       }
+      setLiveReviewAuthoringTarget(uuid, page, request.targetNodeId);
       const result = await renderLiveReviewMdx({ review, ...request });
       if (!result.ok) return globalJson(422, result);
       broadcastLiveReviewChange(uuid);
@@ -964,6 +971,20 @@ export function createGlobalReviewServer(
       event: "review-data-changed",
       uuid,
       sessionId: active.descriptor.sessionId,
+    });
+  }
+
+  function setLiveReviewAuthoringTarget(
+    uuid: string,
+    page: ReturnType<typeof requireLiveReviewPage>,
+    targetNodeId: string,
+  ): void {
+    const target = liveReviewAuthoringTarget(page, targetNodeId);
+    liveReviewAuthoringTargets.set(uuid, target);
+    broadcastGlobal({
+      event: "review-authoring-target-changed",
+      uuid,
+      target,
     });
   }
 
@@ -1726,6 +1747,7 @@ export function createGlobalReviewServer(
       if (worktreePath) {
         await clearReopenPending(worktreePath).catch(() => undefined);
       }
+      liveReviewAuthoringTargets.delete(uuid);
       broadcastGlobal({ event: "review-deleted", uuid });
     });
   }
@@ -1751,6 +1773,7 @@ export function createGlobalReviewServer(
     });
     await rm(review.dir, { recursive: true, force: true });
     await clearReopenPending(review.review.worktreePath).catch(() => undefined);
+    liveReviewAuthoringTargets.delete(review.review.uuid);
     broadcastGlobal({ event: "review-deleted", uuid: review.review.uuid });
   }
 
@@ -2133,6 +2156,7 @@ export function createGlobalReviewServer(
           await clearReopenPending(stored.review.worktreePath).catch(
             () => undefined,
           );
+          liveReviewAuthoringTargets.delete(uuid);
           broadcastGlobal({ event: "review-deleted", uuid });
         });
         console.info(

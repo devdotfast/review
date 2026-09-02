@@ -406,7 +406,7 @@ The report payload contains these fields:
 | `diff.files[].patch`               | Unified patch used to resolve the review's exact CodePeek ranges                    |
 | `trace.harness`                    | Authoring harness: `claude-code`, `codex`, or `pi`                                  |
 | `trace.session_id`                 | Authoring session identifier from the Review record                                 |
-| `trace.parent_session_id`          | Immediate Codex parent session identifier, when the source session is forked        |
+| `trace.sessions[]`                 | Attached session identifiers and available parent fork points                       |
 | `trace.files["subagents/<name>"]`  | Tail-capped raw JSONL for an included subagent                                      |
 | `trace.omitted_files`              | Subagent trace names omitted because of limits or read failures                     |
 | `trace.truncated`                  | Whether any subagent trace was tail-capped or omitted                               |
@@ -432,9 +432,9 @@ The report never sends these review files:
 
 Trace attachment consent is independent of passive telemetry and trace sync.
 Neither setting enables trace attachment for a bug report. If the user opts in,
-the report includes the complete source-session JSONL trace and, for a forked
-Codex session, its parent history through the fork point. It can also include
-up to ten of the most recently modified subagent traces.
+the report includes the complete authoring-session trace and available ancestor
+history through each fork point. It can also include up to ten of the most
+recently modified subagent trace tails.
 
 The trace can contain prompts, model output, source code, file paths, URLs, and
 email addresses. Review replaces recognizable Google API keys, JWTs, Slack

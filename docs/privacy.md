@@ -77,9 +77,9 @@ whether Review attaches:
 
 - **Review**: the current Review source and head software-map source
 - changed-file diffs used by the review codepeeks (only the diff lines)
-- **Agent session trace**: the complete raw local JSONL trace for the agent
-  session that authored the Review and, for a forked Codex session, its complete
-  parent history through the fork point
+- **Agent session trace**: the complete local trace records for the session that
+  authored the Review and available ancestor-session history through each fork
+  point
 
 The Review and changed-file diff attachments are selected by default. **The
 agent session trace is off by default and is included only when you explicitly
@@ -94,10 +94,9 @@ to 3 MiB.
 You can turn off either default attachment, leave the trace unselected, and
 remove the screenshot before sending.
 
-If you opt in, the report includes the complete source-session JSONL trace and,
-for a forked Codex session, its parent history through the fork point. It can
-also include up to ten of the most recently modified subagent traces. This data
-can contain prompts, model output, source code, file paths, URLs, and email
+If you opt in, the report includes those session records and can also include
+up to ten of the most recently modified subagent trace tails. This data can
+contain prompts, model output, source code, file paths, URLs, and email
 addresses.
 
 Review replaces recognizable Google API keys, JWTs, Slack tokens, GitHub

@@ -54,10 +54,16 @@ describe("libavoid Trusted Types hardening", () => {
       return (...values: unknown[]) =>
         body.trustedScript === "return value + 1" ? Number(values[0]) + 1 : 7;
     });
-    const canvasGlobal = {
+    interface LibavoidCanvasGlobal {
+      Function: typeof functionConstructor;
+      trustedTypes: { createPolicy: typeof createPolicy };
+      first?: number;
+      second?: number;
+    }
+    const canvasGlobal: LibavoidCanvasGlobal = {
       Function: functionConstructor,
       trustedTypes: { createPolicy },
-    } as unknown as typeof globalThis;
+    };
 
     Function("globalThis", transformed)(canvasGlobal);
 

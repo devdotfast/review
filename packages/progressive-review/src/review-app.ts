@@ -1,3 +1,5 @@
+import type { Writable } from "node:stream";
+
 import type { ReviewView } from "@dev.fast/review-protocol";
 
 import { readReviewDesktopDiscovery } from "./desktop-discovery";
@@ -21,7 +23,7 @@ export interface RunReviewAppInput {
   reviewUuid?: string;
   view?: ReviewView;
   stdin: NodeJS.ReadStream;
-  stdout: NodeJS.WriteStream;
+  stdout: Writable;
 }
 
 export interface ReviewAppEvent {

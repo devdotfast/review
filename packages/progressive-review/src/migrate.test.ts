@@ -10,10 +10,12 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { Writable } from "node:stream";
 
 import * as git from "isomorphic-git";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { collectingWritable } from "./cli-output";
 import {
   type ReviewPackageManager,
   migrateJjReviewRepositories,
@@ -33,8 +35,8 @@ type TestRunProcess = (input: {
   command: string;
   args: string[];
   env: NodeJS.ProcessEnv;
-  stdout: NodeJS.WriteStream;
-  stderr: NodeJS.WriteStream;
+  stdout: Writable;
+  stderr: Writable;
 }) => Promise<number>;
 
 afterEach(async () => {
@@ -494,11 +496,7 @@ function streams() {
   return {
     out,
     err,
-    stdout: {
-      write: (value: string) => (out.push(value), true),
-    } as NodeJS.WriteStream,
-    stderr: {
-      write: (value: string) => (err.push(value), true),
-    } as NodeJS.WriteStream,
+    stdout: collectingWritable(out),
+    stderr: collectingWritable(err),
   };
 }

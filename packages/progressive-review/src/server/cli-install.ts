@@ -35,6 +35,7 @@ import {
   removeFffRegistration,
 } from "../agent-fff";
 import { removeAgentTraceHook } from "../agent-trace-hooks";
+import { collectingWritable } from "../cli-output";
 import {
   ALL_INSTALL_TARGETS,
   type InstallTarget,
@@ -180,9 +181,7 @@ export async function applyCliInstall(input: {
   const env = input.env ?? process.env;
   const wantShim = input.shim ?? input.targets.length > 0;
   const chunks: string[] = [];
-  const sink = {
-    write: (chunk: string) => (chunks.push(chunk), true),
-  } as NodeJS.WriteStream;
+  const sink = collectingWritable(chunks);
   const fffTargets = input.fff ? input.targets.filter(isFffTarget) : [];
   const fffPresentBefore = new Map(
     await Promise.all(

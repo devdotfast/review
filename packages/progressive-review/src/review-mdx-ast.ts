@@ -207,9 +207,8 @@ export function walkEstree(
   visit: (node: EstreeNode) => void,
 ): void {
   visit(node);
-  for (const value of Object.values(
-    node as unknown as Record<string, unknown>,
-  )) {
+  const fields: unknown[] = Object.values(node);
+  for (const value of fields) {
     if (Array.isArray(value)) {
       for (const item of value) {
         if (isEstreeNode(item)) walkEstree(item, visit);

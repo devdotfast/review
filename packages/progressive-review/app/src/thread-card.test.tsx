@@ -7,11 +7,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // jsdom does not implement ResizeObserver, which ThreadCard uses to re-measure
 // clamped message bodies. These tests assert markup, not layout, so a stub that
 // never fires is enough — the observer's real behaviour is verified in a browser.
-globalThis.ResizeObserver ??= class {
+class StubResizeObserver implements ResizeObserver {
   observe(): void {}
   unobserve(): void {}
   disconnect(): void {}
-} as unknown as typeof ResizeObserver;
+}
+globalThis.ResizeObserver ??= StubResizeObserver;
 
 import type { ThreadView } from "./review-threads";
 import { readReviewUiState, writeReviewUiState } from "./review-ui-state";

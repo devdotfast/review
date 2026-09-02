@@ -695,13 +695,16 @@ function summarizeTrace(trace: { traceEvents?: unknown[] }) {
   };
 }
 
+/** What the stop probe script reports back from the page. */
+type ScrollEvalPageSummary = {
+  frameGapMs: Stats;
+  longTaskMs: Stats;
+  activeLongTaskMs?: Stats;
+  viewportsPerSecond: number | null;
+};
+
 function passFail(summary: {
-  pageSummary: {
-    frameGapMs: Stats;
-    longTaskMs: Stats;
-    activeLongTaskMs?: Stats;
-    viewportsPerSecond: number | null;
-  };
+  pageSummary: ScrollEvalPageSummary;
   traceSummary: ReturnType<typeof summarizeTrace> | null;
 }) {
   const failures: string[] = [];
@@ -943,7 +946,7 @@ async function main() {
       }
     }
 
-    const pageSummary = await evaluate<Record<string, Json>>(
+    const pageSummary = await evaluate<ScrollEvalPageSummary>(
       client,
       buildStopProbeScript(),
     );
@@ -962,14 +965,7 @@ async function main() {
       },
       pageSummary,
       traceSummary,
-      result: passFail({
-        pageSummary: pageSummary as unknown as {
-          frameGapMs: Stats;
-          longTaskMs: Stats;
-          viewportsPerSecond: number | null;
-        },
-        traceSummary,
-      }),
+      result: passFail({ pageSummary, traceSummary }),
       artifacts: {
         summary: summaryPath,
         trace: opts.noTrace ? null : tracePath,

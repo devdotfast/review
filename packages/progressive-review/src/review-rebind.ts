@@ -1,4 +1,5 @@
 import path from "node:path";
+import type { Writable } from "node:stream";
 
 import {
   changeIdentityForRevision,
@@ -23,7 +24,7 @@ export async function runReviewRebind(input: {
   toolingRoot?: string;
   progress?: (message: string) => void;
   env?: NodeJS.ProcessEnv;
-  stdout: NodeJS.WriteStream;
+  stdout: Writable;
 }): Promise<number> {
   const reviewRoot = await resolveReviewRoot(input.cwd);
   const review = await resolvePublishReview(reviewRoot, input.reviewUuid);

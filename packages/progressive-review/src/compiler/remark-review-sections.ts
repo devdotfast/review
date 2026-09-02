@@ -1,19 +1,13 @@
-import type { Heading, Root, RootContent } from "mdast";
+import type {
+  BlockContent,
+  DefinitionContent,
+  Heading,
+  Root,
+  RootContent,
+} from "mdast";
+import type { MdxJsxAttribute, MdxJsxFlowElement } from "mdast-util-mdx-jsx";
 
 const COLLAPSED_MARKER = /\s*\[collapsed\]\s*$/i;
-
-interface MdxJsxAttribute {
-  type: "mdxJsxAttribute";
-  name: string;
-  value?: string | null;
-}
-
-interface MdxJsxFlowElement {
-  type: "mdxJsxFlowElement";
-  name: string;
-  attributes: MdxJsxAttribute[];
-  children: RootContent[];
-}
 
 /**
  * Wraps every `##` heading and the content that follows it (up to the next
@@ -32,7 +26,7 @@ export function remarkReviewSections() {
     let section: MdxJsxFlowElement | null = null;
 
     const closeSection = () => {
-      if (section) next.push(section as unknown as RootContent);
+      if (section) next.push(section);
       section = null;
     };
 
@@ -51,7 +45,9 @@ export function remarkReviewSections() {
         continue;
       }
       if (section) {
-        section.children.push(node);
+        // SAFETY: remark-parse only emits flow content as root children, and
+        // ESM nodes are hoisted above; mdast types Root.children more loosely.
+        section.children.push(node as BlockContent | DefinitionContent);
         continue;
       }
       next.push(node);

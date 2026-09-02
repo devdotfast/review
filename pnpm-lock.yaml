@@ -26,6 +26,9 @@ importers:
 
   .:
     devDependencies:
+      '@oxlint/plugins':
+        specifier: 1.63.0
+        version: 1.63.0
       '@types/node':
         specifier: 24.12.2
         version: 24.12.2
@@ -90,7 +93,7 @@ importers:
         version: typescript@7.0.1-rc
       vitest:
         specifier: ^4.1.5
-        version: 4.1.10(@types/node@24.12.2)(esbuild@0.28.1)(jsdom@29.1.1)(tsx@4.21.0)
+        version: 4.1.10(@types/node@24.12.2)(jsdom@29.1.1)(vite@8.0.16(@types/node@24.12.2)(esbuild@0.28.1)(tsx@4.21.0))
 
   packages/progressive-review:
     dependencies:
@@ -230,6 +233,9 @@ importers:
       jsdom:
         specifier: 29.1.1
         version: 29.1.1
+      mdast-util-mdx-jsx:
+        specifier: 3.2.0
+        version: 3.2.0
       tsdown:
         specifier: ^0.22.3
         version: 0.22.14(tsx@4.21.0)(typescript@6.0.3)
@@ -247,7 +253,7 @@ importers:
         version: 8.0.16(@types/node@24.12.2)(esbuild@0.28.1)(tsx@4.21.0)
       vitest:
         specifier: ^4.1.5
-        version: 4.1.10(@types/node@24.12.2)(esbuild@0.28.1)(jsdom@29.1.1)(tsx@4.21.0)
+        version: 4.1.10(@types/node@24.12.2)(jsdom@29.1.1)(vite@8.0.16(@types/node@24.12.2)(esbuild@0.28.1)(tsx@4.21.0))
 
   packages/review-protocol:
     dependencies:
@@ -266,7 +272,7 @@ importers:
         version: typescript@7.0.1-rc
       vitest:
         specifier: ^4.1.5
-        version: 4.1.10(@types/node@24.12.2)(esbuild@0.28.1)(jsdom@29.1.1)(tsx@4.21.0)
+        version: 4.1.10(@types/node@24.12.2)(jsdom@29.1.1)(vite@8.0.16(@types/node@24.12.2)(esbuild@0.28.1)(tsx@4.21.0))
 
   packages/trace-shared:
     dependencies:
@@ -282,7 +288,7 @@ importers:
         version: typescript@7.0.1-rc
       vitest:
         specifier: ^4.1.5
-        version: 4.1.10(@types/node@24.12.2)(esbuild@0.28.1)(jsdom@29.1.1)(tsx@4.21.0)
+        version: 4.1.10(@types/node@24.12.2)(jsdom@29.1.1)(vite@8.0.16(@types/node@24.12.2)(esbuild@0.28.1)(tsx@4.21.0))
 
 packages:
 
@@ -809,6 +815,10 @@ packages:
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [x64]
     os: [win32]
+
+  '@oxlint/plugins@1.63.0':
+    resolution: {integrity: sha512-vZAzaUQkwgdN62RHgPFzfCsiBI6SDJMUdUlBGpJK0V++UHCMUk7UeJseygOhE/wOUSgV3ccE4ORkgab3C3MC6g==}
+    engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
 
   '@pinojs/redact@0.4.0':
     resolution: {integrity: sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg==}
@@ -2688,6 +2698,7 @@ packages:
       '@vitest/ui': 4.1.10
       happy-dom: '*'
       jsdom: '*'
+      vite: 8.0.16
     peerDependenciesMeta:
       '@edge-runtime/vm':
         optional: true
@@ -3106,6 +3117,8 @@ snapshots:
 
   '@oxlint/binding-win32-x64-msvc@1.63.0':
     optional: true
+
+  '@oxlint/plugins@1.63.0': {}
 
   '@pinojs/redact@0.4.0': {}
 
@@ -5180,7 +5193,7 @@ snapshots:
       fsevents: 2.3.3
       tsx: 4.21.0
 
-  vitest@4.1.10(@types/node@24.12.2)(esbuild@0.28.1)(jsdom@29.1.1)(tsx@4.21.0):
+  vitest@4.1.10(@types/node@24.12.2)(jsdom@29.1.1)(vite@8.0.16(@types/node@24.12.2)(esbuild@0.28.1)(tsx@4.21.0)):
     dependencies:
       '@vitest/expect': 4.1.10
       '@vitest/mocker': 4.1.10(vite@8.0.16(@types/node@24.12.2)(esbuild@0.28.1)(tsx@4.21.0))
@@ -5206,18 +5219,7 @@ snapshots:
       '@types/node': 24.12.2
       jsdom: 29.1.1
     transitivePeerDependencies:
-      - '@vitejs/devtools'
-      - esbuild
-      - jiti
-      - less
       - msw
-      - sass
-      - sass-embedded
-      - stylus
-      - sugarss
-      - terser
-      - tsx
-      - yaml
 
   w3c-xmlserializer@5.0.0:
     dependencies:

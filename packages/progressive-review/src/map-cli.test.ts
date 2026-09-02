@@ -10,6 +10,7 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { Writable } from "node:stream";
 
 import {
   listNoteCommits,
@@ -19,6 +20,7 @@ import {
 } from "@dev.fast/local-vcs";
 import { describe, expect, it } from "vitest";
 
+import { collectingWritable } from "./cli-output";
 import { parseSoftwareMapCliArgs, runSoftwareMapCli } from "./map-cli";
 import { createReviewDir } from "./review-home";
 import { SOFTWARE_MAP_NOTES_REF } from "./review-storage";
@@ -1323,13 +1325,8 @@ describe("review map push / fetch", () => {
   });
 });
 
-function writable(chunks: string[]): NodeJS.WriteStream {
-  return {
-    write: (chunk: string) => {
-      chunks.push(chunk);
-      return true;
-    },
-  } as NodeJS.WriteStream;
+function writable(chunks: string[]): Writable {
+  return collectingWritable(chunks);
 }
 
 function authoredMapSource(label: string): string {

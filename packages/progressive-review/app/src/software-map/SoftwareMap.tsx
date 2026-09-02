@@ -20,7 +20,7 @@ import {
   type NodeProps as ReactFlowNodeProps,
   type Viewport,
 } from "@xyflow/react";
-import ELK from "elkjs/lib/elk.bundled.js";
+import ELK, { type ElkNode } from "elkjs/lib/elk.bundled.js";
 import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -1314,9 +1314,11 @@ const SOFTWARE_MAP_KEYBOARD_NODE_SELECTOR = `[${SOFTWARE_MAP_KEYBOARD_NODE_ID_AT
 function softwareMapKeyboardNodeDomAttributes(
   nodeId: string,
 ): C4MapAnyFlowNode["domAttributes"] {
+  // SAFETY: React types data-* attributes only in JSX. React Flow spreads
+  // domAttributes onto the node wrapper, so this attribute reaches the DOM.
   return {
     [SOFTWARE_MAP_KEYBOARD_NODE_ID_ATTRIBUTE]: nodeId,
-  } as unknown as C4MapAnyFlowNode["domAttributes"];
+  } as C4MapAnyFlowNode["domAttributes"];
 }
 
 function softwareMapEventTargetNodeId(
@@ -5050,7 +5052,7 @@ async function runC4ElkLayout(
         : undefined,
     };
   });
-  const result = (await c4Elk.layout({
+  const result: C4ElkLayoutGraph = await c4Elk.layout({
     id: "software-map-c4",
     layoutOptions: {
       "elk.algorithm": "layered",
@@ -5090,7 +5092,7 @@ async function runC4ElkLayout(
       }),
     ),
     edges: elkEdges,
-  } as never)) as unknown as C4ElkLayoutGraph;
+  });
 
   const nodeOffsets = new Map<string, C4ElkPoint>([
     [result.id, { x: 0, y: 0 }],
@@ -5203,7 +5205,7 @@ function c4ElkNodeForSnapshot(
     portsByNodeId?: ReadonlyMap<string, C4ElkPort[]>;
   },
   parentOffset: C4ElkPoint = { x: 0, y: 0 },
-): C4ElkLayoutNode {
+): ElkNode {
   const hint = context.layoutHints?.get(node.id);
   const nodeOffset = hint ? { x: hint.x, y: hint.y } : parentOffset;
   const dimensions = c4MeasuredNodeDimensions(node, context.nodeDimensions);

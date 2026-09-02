@@ -131,9 +131,7 @@ describe("runReviewTraceHook", () => {
       hook_event_name: "SessionStart",
       session_id: sessionId,
     });
-    const stdinStart = Readable.from([
-      startPayload,
-    ]) as unknown as NodeJS.ReadStream;
+    const stdinStart = Readable.from([startPayload]);
 
     await runReviewTraceHook({
       cwd: repo,
@@ -153,9 +151,7 @@ describe("runReviewTraceHook", () => {
       hook_event_name: "SessionEnd",
       session_id: sessionId,
     });
-    const stdinEnd = Readable.from([
-      endPayload,
-    ]) as unknown as NodeJS.ReadStream;
+    const stdinEnd = Readable.from([endPayload]);
 
     await runReviewTraceHook({
       cwd: repo,

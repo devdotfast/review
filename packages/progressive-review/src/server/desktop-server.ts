@@ -2209,8 +2209,14 @@ function reviewSourceKind(review: ReviewRecord): ProgressiveReviewSourceKind {
   return "git_branch";
 }
 
+/** The review fields that identify which agent a review belongs to. */
+export type ReviewAgentSessionSource = Pick<
+  ReviewRecord,
+  "sourceSession" | "agentSessions"
+>;
+
 export function reviewAgentKind(
-  review: ReviewRecord,
+  review: ReviewAgentSessionSource,
 ): ProgressiveReviewSessionAgent {
   const sessionKey =
     latestAgentSessionWithRole(review, "publisher") ??
@@ -2228,7 +2234,7 @@ export function reviewAgentKind(
 }
 
 function latestAgentSessionWithRole(
-  review: ReviewRecord,
+  review: ReviewAgentSessionSource,
   role: "publisher" | "author",
 ): string | undefined {
   return Object.entries(review.agentSessions ?? {})

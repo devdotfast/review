@@ -13,9 +13,13 @@ import {
   testReviewSession,
 } from "./review-session-test-utils";
 
-class FakeIntersectionObserver {
+class FakeIntersectionObserver implements IntersectionObserver {
   static instances: FakeIntersectionObserver[] = [];
   observed: Element[] = [];
+  readonly root = null;
+  readonly rootMargin = "";
+  readonly scrollMargin = "";
+  readonly thresholds: readonly number[] = [];
 
   constructor(private readonly callback: IntersectionObserverCallback) {
     FakeIntersectionObserver.instances.push(this);
@@ -41,7 +45,7 @@ class FakeIntersectionObserver {
         (target) =>
           ({ isIntersecting: true, target }) as IntersectionObserverEntry,
       ),
-      this as unknown as IntersectionObserver,
+      this,
     );
   }
 }

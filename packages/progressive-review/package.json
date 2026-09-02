@@ -114,6 +114,7 @@
     "@types/write-file-atomic": "4.0.3",
     "@vitejs/plugin-react": "6.0.1",
     "jsdom": "29.1.1",
+    "mdast-util-mdx-jsx": "3.2.0",
     "tsdown": "^0.22.3",
     "tsx": "4.21.0",
     "typescript-7": "npm:typescript@7.0.1-rc",

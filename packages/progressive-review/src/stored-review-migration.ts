@@ -712,7 +712,7 @@ async function removedCodePeekKeys(reviewDir: string): Promise<string[]> {
 
   let program: Program;
   try {
-    program = reviewTypescriptEstreeParser.parse(source) as unknown as Program;
+    program = reviewTypescriptEstreeParser.parse(source);
   } catch {
     return [];
   }

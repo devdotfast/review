@@ -1,3 +1,5 @@
+import type { Writable } from "node:stream";
+
 import {
   type ReviewDesktopGlobalEvent,
   ReviewDesktopGlobalEventSchema,
@@ -86,7 +88,7 @@ export async function runReviewWait(
     reviewUuid?: string;
     requiresAgent?: boolean;
     timeoutSeconds?: number;
-    stdout: NodeJS.WriteStream;
+    stdout: Writable;
   },
   dependencies: ReviewWaitDependencies = defaultReviewWaitDependencies,
 ): Promise<number> {
@@ -225,10 +227,7 @@ function reviewWaitRequiresAgentStatus(status: ReviewStatus): boolean {
   );
 }
 
-function writeWaitResult(
-  stdout: NodeJS.WriteStream,
-  result: ReviewWaitResult,
-): void {
+function writeWaitResult(stdout: Writable, result: ReviewWaitResult): void {
   if (result.event === "timeout") {
     stdout.write(
       `${JSON.stringify({

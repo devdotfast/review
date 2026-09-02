@@ -8,7 +8,7 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { PassThrough } from "node:stream";
+import { PassThrough, Readable } from "node:stream";
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -16,7 +16,10 @@ import { runProgressiveReviewCli } from "./cli-runner";
 import { runInstall as runInstallActual } from "./install";
 import { runReviewMigration as runReviewMigrationActual } from "./migrate";
 import { PostHogCaptureClient } from "./posthog-capture-client";
-import { ProgressiveReviewTelemetry } from "./progressive-review-telemetry";
+import {
+  type ProgressiveReviewCommandTelemetry,
+  ProgressiveReviewTelemetry,
+} from "./progressive-review-telemetry";
 import { runReviewApp as runReviewAppActual } from "./review-app";
 import { runReviewAppLaunch as runReviewAppLaunchActual } from "./review-app-launcher";
 import {
@@ -308,7 +311,7 @@ describe("Review CLI", () => {
         runProgressiveReviewCli({
           argv: [...argv, "--json"],
           cwd: "/outside-a-repository",
-          stdin: { isTTY: false } as NodeJS.ReadStream,
+          stdin: Readable.from([]),
           stdout,
           stderr: outputStream(),
           runtime: { runReviewAppLaunch },
@@ -351,7 +354,7 @@ describe("Review CLI", () => {
         async () => undefined,
       ),
       shutdown: vi.fn<() => Promise<undefined>>(async () => undefined),
-    } as unknown as ProgressiveReviewTelemetry;
+    } satisfies ProgressiveReviewCommandTelemetry;
 
     await expect(
       runProgressiveReviewCli({
@@ -491,7 +494,7 @@ describe("Review CLI", () => {
       shutdown: vi.fn<ProgressiveReviewTelemetry["shutdown"]>(
         async () => undefined,
       ),
-    } as unknown as ProgressiveReviewTelemetry;
+    } satisfies ProgressiveReviewCommandTelemetry;
 
     await expect(
       runProgressiveReviewCli({
@@ -544,7 +547,7 @@ describe("Review CLI", () => {
       shutdown: vi.fn<ProgressiveReviewTelemetry["shutdown"]>(
         async () => undefined,
       ),
-    } as unknown as ProgressiveReviewTelemetry;
+    } satisfies ProgressiveReviewCommandTelemetry;
     const runReviewScaffold = vi.fn<typeof runReviewScaffoldActual>(
       async (input) => {
         await input.onReviewBound?.(reviewUuid);
@@ -958,6 +961,6 @@ function emptyScaffoldEvent(): Awaited<
   };
 }
 
-function outputStream(): NodeJS.WriteStream {
-  return new PassThrough() as unknown as NodeJS.WriteStream;
+function outputStream(): PassThrough {
+  return new PassThrough();
 }

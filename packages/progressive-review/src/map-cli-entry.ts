@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import path from "node:path";
+import type { Writable } from "node:stream";
 import { pathToFileURL } from "node:url";
 
 import { runProgressiveReviewCli } from "./cli-runner";
@@ -9,8 +10,8 @@ export interface SoftwareMapCliEntryInput {
   args: string[];
   cwd: string;
   env: NodeJS.ProcessEnv;
-  stdout: NodeJS.WriteStream;
-  stderr: NodeJS.WriteStream;
+  stdout: Writable;
+  stderr: Writable;
   runSoftwareMapCli?: typeof runSoftwareMapCli;
 }
 

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import type { Writable } from "node:stream";
 
 import { ReviewCommentThreadRecordSchema } from "./review-comment-schema";
 import { reviewUuidForManagedCheckout } from "./review-head-checkout";
@@ -22,7 +23,7 @@ const REVIEW_AGENT_THREAD_URL_ENV = "DEV_FAST_REVIEW_AGENT_THREAD_URL";
 const REVIEW_AGENT_HOOK_TOKEN_ENV = "DEV_FAST_REVIEW_AGENT_HOOK_TOKEN";
 
 export async function runReviewThreadsList(
-  input: ReviewThreadsTarget & { json?: boolean; stdout: NodeJS.WriteStream },
+  input: ReviewThreadsTarget & { json?: boolean; stdout: Writable },
 ): Promise<number> {
   const review = await resolveThreadsReview(input.cwd, input.reviewUuid);
   const document = reviewDocumentPath(review);
@@ -44,7 +45,7 @@ export async function runReviewThreadsGet(
   input: ReviewThreadsTarget & {
     env?: NodeJS.ProcessEnv;
     threadId: string;
-    stdout: NodeJS.WriteStream;
+    stdout: Writable;
   },
 ): Promise<number> {
   const thread = await readAttachedReviewThread(input);
@@ -114,7 +115,7 @@ async function readAttachedReviewThread(input: {
 export async function runReviewThreadsResolve(
   input: ReviewThreadsTarget & {
     threadId: string;
-    stdout: NodeJS.WriteStream;
+    stdout: Writable;
   },
 ): Promise<number> {
   const review = await resolveThreadsReview(input.cwd, input.reviewUuid);
@@ -137,7 +138,7 @@ export async function runReviewThreadsReply(
     threadId: string;
     body: string;
     author?: string;
-    stdout: NodeJS.WriteStream;
+    stdout: Writable;
   },
 ): Promise<number> {
   const body = input.body.trim();

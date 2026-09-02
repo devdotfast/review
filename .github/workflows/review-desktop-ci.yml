@@ -41,6 +41,12 @@ jobs:
       - name: Install monorepo dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Lint
+        run: pnpm lint
+
+      - name: Check formatting
+        run: pnpm format:check
+
       # Headers for the Code OSS native modules npm ci builds from source:
       # native-keymap needs x11/xkbfile, kerberos needs krb5, and the secret
       # storage bindings need libsecret.

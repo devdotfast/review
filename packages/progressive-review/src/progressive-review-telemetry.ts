@@ -193,6 +193,18 @@ export function createLogger(_scope: string): Logger {
   return noopLogger;
 }
 
+/** The telemetry surface a CLI command run drives; tests fake this contract. */
+export type ProgressiveReviewCommandTelemetry = Pick<
+  ProgressiveReviewTelemetry,
+  | "createCommandRunId"
+  | "captureInstallationCreated"
+  | "captureCommandStarted"
+  | "captureCommandBound"
+  | "captureCommandSucceeded"
+  | "captureCommandFailed"
+  | "shutdown"
+>;
+
 export class ProgressiveReviewTelemetry {
   private readonly captureClient: ProgressiveReviewTelemetryCaptureClient;
   private readonly env: NodeJS.ProcessEnv;

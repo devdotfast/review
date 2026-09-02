@@ -1,8 +1,18 @@
 import type { ParserOptions } from "@babel/parser";
 import { parse, parseExpression } from "@babel/parser";
+import type { Comment, Expression, Program } from "estree";
 
 interface EstreeNode extends Record<string, unknown> {
   type?: string;
+}
+
+/**
+ * What `@babel/parser` returns under the "estree" plugin. Its typings describe
+ * the Babel AST, but the plugin rewrites nodes and comments into ESTree form.
+ */
+interface EstreeParseResult {
+  program: Program;
+  comments: Comment[] | null;
 }
 
 const parserOptions = {
@@ -14,23 +24,30 @@ const parserOptions = {
 
 /** Acorn-compatible syntax adapter used by MDX's micromark extensions. */
 export const reviewTypescriptEstreeParser = {
-  parse(value: string, options?: { sourceType?: "script" | "module" }) {
+  parse(
+    value: string,
+    options?: { sourceType?: "script" | "module" },
+  ): Program {
     return withAcornCompatibleError(() => {
+      // SAFETY: parserOptions enables the "estree" plugin, so the returned
+      // program and comments are ESTree nodes despite Babel's declared types.
       const file = parse(value, {
         ...parserOptions,
         sourceType: options?.sourceType ?? "module",
-      });
-      const program = file.program as unknown as EstreeNode;
+      }) as EstreeParseResult;
+      const program = file.program;
       program.comments = file.comments ?? [];
       return program;
     });
   },
-  parseExpressionAt(value: string, offset: number) {
+  parseExpressionAt(value: string, offset: number): Expression {
     return withAcornCompatibleError(() => {
+      // SAFETY: parserOptions enables the "estree" plugin, so the returned
+      // expression is an ESTree node despite Babel's declared type.
       const expression = parseExpression(
         value.slice(offset),
         parserOptions,
-      ) as unknown as EstreeNode;
+      ) as Expression;
       if (offset > 0) offsetEstreeNode(expression, offset);
       return expression;
     });

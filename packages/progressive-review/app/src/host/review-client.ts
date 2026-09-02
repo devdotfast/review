@@ -4,17 +4,9 @@ const REVIEW_API_PREFIX = "/__progressive-review";
 export type ReviewClientConfig = Partial<
   Pick<
     ReviewRuntimeConfig,
-    | "docRuntimeUrl"
-    | "routePath"
-    | "serverUrl"
-    | "sessionId"
-    | "sessionUrl"
-    | "token"
-    | "wasmUrl"
+    "routePath" | "serverUrl" | "sessionId" | "sessionUrl" | "token" | "wasmUrl"
   >
 >;
-
-export type ReviewModuleImporter = (url: string) => Promise<unknown>;
 
 export interface ReviewRequestOptions {
   origin?: string;
@@ -69,78 +61,6 @@ export function reviewEventSource(
   return new EventSource(
     reviewApiUrl(config, endpoint, { ...options, tokenInQuery: true }),
   );
-}
-
-export function importReviewModule<T>(
-  config: ReviewClientConfig,
-  moduleUrl: string,
-  importModule: ReviewModuleImporter = importBlobReviewModule,
-): Promise<T> {
-  const url = new URL(moduleUrl, config.serverUrl ?? browserOrigin());
-  if (config.token) url.searchParams.set("token", config.token);
-  if (!config.docRuntimeUrl) {
-    return Promise.reject(
-      new Error("Review document runtime URL is unavailable."),
-    );
-  }
-  const docRuntimeUrl = config.docRuntimeUrl;
-  return loadReviewModule(
-    config,
-    url,
-    docRuntimeUrl,
-    importModule,
-  ) as Promise<T>;
-}
-
-async function loadReviewModule(
-  config: ReviewClientConfig,
-  url: URL,
-  docRuntimeUrl: string,
-  importModule: ReviewModuleImporter,
-): Promise<unknown> {
-  const response = await reviewFetchUrl(config, url);
-  if (!response.ok) {
-    throw new Error(`Review document module returned ${response.status}.`);
-  }
-  const source = await response.text();
-  const rewritten = rewriteReviewDocumentRuntime(source, docRuntimeUrl);
-  // Published bundles carry no origin or token; hand the runtime this
-  // session's request context before the document module evaluates.
-  const runtime = (await importModule(new URL(docRuntimeUrl).href)) as {
-    setReviewRequestContext?: (context: {
-      origin?: string;
-      token?: string;
-    }) => void;
-  };
-  runtime.setReviewRequestContext?.({
-    origin: config.sessionUrl,
-    token: config.token,
-  });
-  const blobUrl = URL.createObjectURL(
-    new Blob([rewritten], { type: "text/javascript" }),
-  );
-  try {
-    return await importModule(blobUrl);
-  } finally {
-    URL.revokeObjectURL(blobUrl);
-  }
-}
-
-function importBlobReviewModule(url: string): Promise<unknown> {
-  return import(/* @vite-ignore */ url);
-}
-
-export function rewriteReviewDocumentRuntime(
-  source: string,
-  runtimeUrl: string,
-): string {
-  const runtimeSpecifier = JSON.stringify("review-doc-runtime");
-  if (!source.includes(runtimeSpecifier)) {
-    throw new Error("Review document module has no runtime import.");
-  }
-  return source
-    .split(runtimeSpecifier)
-    .join(JSON.stringify(new URL(runtimeUrl).href));
 }
 
 export function reviewBeaconUrl(

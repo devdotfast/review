@@ -31,6 +31,7 @@ import {
   parseFreshSourceSessionHarness,
 } from "../authoring-session";
 import { preferredInstalledReviewAgent } from "../installed-review-agent";
+import { hasLiveReviewPage } from "../live-review-store";
 import * as claudeCode from "../native-agent/claude-code";
 import * as codex from "../native-agent/codex";
 import type { AgentServer } from "../native-agent/native-session";
@@ -501,11 +502,11 @@ export function createGlobalReviewServer(
         "review_unavailable",
       );
     }
-    if (!review.review.presentedDocumentRevision) {
+    if (!hasLiveReviewPage(review.dir)) {
       throw new ReviewServerError(
-        "Review has no published revision yet. Run `review publish` first.",
+        "Review has no live canvas page.",
         409,
-        "review_unpublished",
+        "review_page_missing",
       );
     }
     if (
@@ -532,7 +533,6 @@ export function createGlobalReviewServer(
         descriptor,
       );
     }
-    const documentRevision = review.review.presentedDocumentRevision;
     /* Opening is what "viewed" means. Stamping here rather than on first
        render keeps the rule in one place and survives a canvas that never
        finishes loading. A dismissed review the reader reopens comes back. */
@@ -571,24 +571,9 @@ export function createGlobalReviewServer(
         review: homeReview,
       });
     }
-    const documentBuildDir = await publishRuntime.materializePublishRevision({
-      review: viewed,
-      revision: documentRevision,
-    });
-    const presentedReview = await reviewWithPresentedDocumentPins(
-      viewed,
-      documentBuildDir,
-    );
-    const softwareMapRootPath = viewed.review.presentedSoftwareMapRevision
-      ? await publishRuntime.materializePublishRevision({
-          review: viewed,
-          revision: viewed.review.presentedSoftwareMapRevision,
-        })
-      : undefined;
     const active = await registerSerialized({
-      review: presentedReview,
-      documentPath: path.join(documentBuildDir, "review.mdx"),
-      softwareMapRootPath,
+      review: viewed,
+      documentPath: path.join(viewed.dir, "review.mdx"),
       promoted: true,
       announce: true,
       focusCanvas: !background,
@@ -601,6 +586,23 @@ export function createGlobalReviewServer(
       session: active.descriptor,
       review: homeReview,
     });
+  });
+
+  app.post("/reviews/:uuid/page-updated", async (context) => {
+    const uuid = context.req.param("uuid");
+    const review = await findReview(uuid);
+    if (!review || !hasLiveReviewPage(review.dir)) {
+      throw new ReviewServerError("Live Review not found.", 404);
+    }
+    const active = activeSessionForReview(uuid);
+    if (active) {
+      broadcastGlobal({
+        event: "review-data-changed",
+        uuid,
+        sessionId: active.descriptor.sessionId,
+      });
+    }
+    return globalJson(200, { ok: true });
   });
 
   async function openHistoricalReviewSession(
@@ -1801,6 +1803,10 @@ export function createGlobalReviewServer(
       broadcastGlobal({
         event: "session-registered",
         session: descriptor,
+        review: await reviewDescriptor(
+          active.review,
+          (await readReviewPreferences()).dismissedRetentionDays,
+        ),
         ...(registration.background ? { background: true } : {}),
       });
     }

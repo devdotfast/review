@@ -7583,6 +7583,28 @@ button {
   font-family: var(--font-serif);
 }
 
+.review-live-node > p,
+.review-live-node > h2,
+.review-live-node > h3,
+.review-live-node > ul,
+.review-live-node > ol,
+.review-live-node > blockquote,
+.review-live-node > pre,
+.review-live-node--root > h1,
+.review-live-node--root > .review-doc-meta {
+  width: min(100%, var(--review-prose-max-width));
+  max-width: calc(
+    100cqi - var(--review-document-padding-inline) -
+      var(--review-document-padding-inline)
+  );
+  margin-inline: auto;
+}
+
+.review-live-node > ul,
+.review-live-node > ol {
+  padding-inline-start: 26px;
+}
+
 .review-document h1 {
   width: min(100%, var(--review-prose-max-width));
   margin: 0 auto 18px;

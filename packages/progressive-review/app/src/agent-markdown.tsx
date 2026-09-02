@@ -40,14 +40,28 @@ export function AgentMarkdown({
   className?: string;
   highlightQuote?: string;
 }): ReactElement {
+  return (
+    <div className={["agent-markdown", className].filter(Boolean).join(" ")}>
+      <MarkdownContent source={source} highlightQuote={highlightQuote} />
+    </div>
+  );
+}
+
+export function MarkdownContent({
+  source,
+  highlightQuote,
+}: {
+  source: string;
+  highlightQuote?: string;
+}): ReactElement {
   const tree = fromMarkdown(source, {
     extensions: [gfm()],
     mdastExtensions: [gfmFromMarkdown()],
   }) as MarkdownNode;
   return (
-    <div className={["agent-markdown", className].filter(Boolean).join(" ")}>
+    <Fragment>
       {renderMarkdownChildren(tree.children ?? [], "root", highlightQuote)}
-    </div>
+    </Fragment>
   );
 }
 

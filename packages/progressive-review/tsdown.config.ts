@@ -17,6 +17,7 @@ export default defineConfig({
   entry: {
     authoring: "src/authoring.ts",
     cli: "src/cli.ts",
+    "live-review-api": "src/live-review-api.ts",
     "native-agent/native-hook-client": "src/native-agent/native-hook-client.ts",
     "native-agent/pi-bridge-extension":
       "src/native-agent/pi-bridge-extension.ts",

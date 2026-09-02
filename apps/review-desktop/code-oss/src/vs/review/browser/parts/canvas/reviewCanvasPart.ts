@@ -56,7 +56,6 @@ import {
 	parseReviewListResponse,
 	parseReviewVerbRequest,
 	parseReviewSessionResponse,
-	ReviewDocModuleResponseSchema,
 	ReviewSoftwareMapModuleResponseSchema,
 	DEFAULT_DISMISSED_RETENTION_DAYS,
 	REVIEW_CANVAS_RESUME_EVENT,
@@ -122,14 +121,10 @@ import {
 import { IReviewCanvasEditorTabsService } from "../../../services/reviewCanvasEditorTabsService.js";
 import { IReviewExplorerPartsService } from "../explorer/reviewExplorerPart.js";
 import { ReviewCanvasEditorInput } from "./reviewCanvasEditorInput.js";
-import {
-	loadReviewDocumentModule,
-	loadReviewSoftwareMapModules,
-} from "./reviewDocumentModule.js";
+import { loadReviewSoftwareMapModules } from "./reviewSoftwareMapModule.js";
 
 interface ReviewCanvasAssetsModule extends ReviewCanvasModule {
 	readonly clearReviewViewState: (config: ReviewRuntimeConfig) => void;
-	readonly reviewDocRuntimeUrl: string;
 	readonly reviewWasmUrl: string;
 	readonly reviewStylesheetUrls: readonly string[];
 }
@@ -1204,13 +1199,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			if (generation !== this.loadGeneration) {
 				return new Error("Review canvas load was superseded.");
 			}
-			const document = model.resolveDocument((activeSession, moduleUrl) =>
-				loadReviewDocumentModule(
-					activeSession,
-					moduleUrl,
-					assets.reviewDocRuntimeUrl,
-				),
-			);
+			const page = model.resolvePage();
 			const softwareMapEnabled = this.currentSoftwareMapEnabled();
 			const softwareMap = softwareMapEnabled
 				? model.resolveSoftwareMap(
@@ -1244,7 +1233,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					{
 					kind: "session",
 					bridge,
-					document,
+					page,
 					softwareMap,
 					softwareMapEnabled,
 					reviewErrors: this.sessionService.reviewErrors,
@@ -1412,7 +1401,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			sessionId: session.session.sessionId,
 			token: session.token,
 			wasmUrl: assets.reviewWasmUrl,
-			docRuntimeUrl: assets.reviewDocRuntimeUrl,
 			appVersion:
 				this.productService.reviewVersion ?? this.productService.version,
 			theme: this.colorScheme(),
@@ -1492,10 +1480,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		try {
 			const assets = await this.loadAssets();
 			const session = await this.resolveValidationSession(sessionId);
-			const documentPromise = this.loadValidationDocument(
-				session,
-				assets.reviewDocRuntimeUrl,
-			);
+			const pagePromise = this.loadValidationPage(session);
 			const softwareMapPromise = this.loadValidationSoftwareMap(session);
 			const request = (endpoint: string, init: RequestInit = {}) => {
 				const url = new URL(
@@ -1529,7 +1514,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					sessionId: session.descriptor.sessionId,
 					token: session.token,
 					wasmUrl: assets.reviewWasmUrl,
-					docRuntimeUrl: assets.reviewDocRuntimeUrl,
 					appVersion:
 						this.productService.reviewVersion ?? this.productService.version,
 					theme: this.colorScheme(),
@@ -1580,7 +1564,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			handle = assets.mountReviewCanvas(container, {
 				kind: "session",
 				bridge,
-				document: documentPromise,
+				page: pagePromise,
 				softwareMap: softwareMapPromise,
 				softwareMapEnabled: true,
 				reviewErrors: this.sessionService.reviewErrors,
@@ -1688,34 +1672,25 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		};
 	}
 
-	private async loadValidationDocument(
+	private async loadValidationPage(
 		session: ReviewDesktopSession,
-		reviewDocRuntimeUrl: string,
 	): Promise<unknown> {
-		const url = new URL(
-			`${session.sessionUrl}/__progressive-review/doc-module`,
-		);
-		const routePath = session.session.routePath ?? session.descriptor.routePath;
-		if (routePath && routePath !== "/") {
-			url.searchParams.set("document", routePath);
-		}
+		const url = new URL(`${session.sessionUrl}/__progressive-review/page`);
 		const response = await fetch(url, {
 			headers: { "x-review-token": session.token },
 			signal: AbortSignal.timeout(30_000),
 		});
-		const payload = ReviewDocModuleResponseSchema.parse(await response.json());
-		if (!response.ok || !payload.ok) {
+		const payload = (await response.json()) as {
+			ok?: boolean;
+			page?: unknown;
+			error?: string;
+		};
+		if (!response.ok || payload.ok !== true || !payload.page) {
 			throw new Error(
-				payload.ok
-					? `Review document module returned ${response.status}.`
-					: payload.error,
+				payload.error ?? `Review page returned ${response.status}.`,
 			);
 		}
-		return loadReviewDocumentModule(
-			session,
-			payload.moduleUrl,
-			reviewDocRuntimeUrl,
-		);
+		return payload.page;
 	}
 
 	private async loadValidationSoftwareMap(

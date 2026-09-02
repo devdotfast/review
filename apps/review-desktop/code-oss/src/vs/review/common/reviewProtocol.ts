@@ -85,7 +85,6 @@ export const ReviewRuntimeConfigSchema = z.strictObject({
   sessionId: requiredString,
   token: stringAllowEmpty,
   wasmUrl: absoluteUrlSchema,
-  docRuntimeUrl: absoluteUrlSchema,
   appVersion: requiredString.max(100),
   theme: reviewThemeSchema,
   host: z.literal("desktop"),
@@ -996,7 +995,7 @@ export type ReviewCanvasContent =
   | {
       kind: "session";
       bridge: ReviewCanvasBridge;
-      document: Promise<unknown>;
+      page: Promise<unknown>;
       softwareMap: Promise<unknown | null>;
       softwareMapEnabled: boolean;
       reviewErrors: readonly ReviewListError[];
@@ -1689,18 +1688,6 @@ export const ReviewSessionResponseSchema = z.discriminatedUnion("ok", [
   ReviewErrorResponseSchema,
 ]);
 export type ReviewSessionResponse = z.infer<typeof ReviewSessionResponseSchema>;
-
-export const ReviewDocModuleResponseSchema = z.discriminatedUnion("ok", [
-  z.strictObject({
-    ok: z.literal(true),
-    contentHash: requiredString,
-    moduleUrl: absoluteUrlSchema,
-  }),
-  ReviewErrorResponseSchema,
-]);
-export type ReviewDocModuleResponse = z.infer<
-  typeof ReviewDocModuleResponseSchema
->;
 
 export const ReviewSoftwareMapModuleResponseSchema = z.discriminatedUnion(
   "ok",

@@ -31,6 +31,10 @@
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js"
     },
+    "./live-api": {
+      "types": "./dist/live-review-api.d.ts",
+      "import": "./dist/live-review-api.js"
+    },
     "./desktop-server": {
       "types": "./dist/desktop-server.d.ts",
       "import": "./dist/desktop-server.js"
@@ -70,6 +74,8 @@
     "@babel/parser": "7.29.7",
     "@dev.fast/local-vcs": "^0.1.0",
     "@hono/node-server": "2.0.12",
+    "@json-render/core": "0.20.0",
+    "@json-render/react": "0.20.0",
     "@mdx-js/mdx": "3.1.1",
     "@mr_mint/elkjs-libavoid": "0.5.0",
     "@speed-highlight/core": "1.2.15",

@@ -5,6 +5,7 @@ import type {
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
+import type { LiveReviewPage } from "../../src/live-review-types";
 import { App, type PublishedSoftwareMap } from "./App";
 import {
   type ReviewSession,
@@ -12,9 +13,10 @@ import {
   createReviewSession,
   useReviewSession,
 } from "./host/review-session";
+import { createLiveReviewDocument } from "./live-review-renderer";
 import { ReviewCanvasLoading } from "./review-canvas-loading";
 import { reviewDefinitionDiagnostics } from "./review-definition-runtime";
-import type { ReadyReviewDocumentEntry } from "./review-documents-runtime";
+import type { ReadyReviewDocumentEntry } from "./review-document";
 import { type ReviewFindHost, createReviewFindHost } from "./review-find";
 import { ReviewHome, ReviewMigrationWarning } from "./review-home-view";
 import {
@@ -30,12 +32,8 @@ import "./styles.css";
 
 export { clearPersistedReviewViewState as clearReviewViewState } from "./review-view-state";
 
-interface ReviewDocumentBundle {
-  activeReviewDocument: ReadyReviewDocumentEntry;
-}
-
 function DesktopReviewApp({
-  documentBundle,
+  page,
   softwareMapBundle,
   softwareMapEnabled,
   range,
@@ -44,7 +42,7 @@ function DesktopReviewApp({
   tutorial,
   findHost,
 }: {
-  documentBundle: Promise<unknown>;
+  page: Promise<unknown>;
   softwareMapBundle: Promise<unknown | null>;
   softwareMapEnabled: boolean;
   range: Extract<ReviewCanvasContent, { kind: "session" }>["range"];
@@ -75,11 +73,10 @@ function DesktopReviewApp({
     setSoftwareMap(null);
     setSoftwareMapLoaded(false);
     setError(null);
-    void Promise.all([documentBundle, softwareMapBundle]).then(
-      ([documentValue, softwareMapValue]) => {
+    void Promise.all([page, softwareMapBundle]).then(
+      ([pageValue, softwareMapValue]) => {
         if (cancelled) return;
-        const bundle = documentValue as ReviewDocumentBundle;
-        setDocument(bundle.activeReviewDocument);
+        setDocument(createLiveReviewDocument(pageValue as LiveReviewPage));
         setSoftwareMap(softwareMapValue as PublishedSoftwareMap | null);
         setSoftwareMapLoaded(true);
       },
@@ -102,7 +99,7 @@ function DesktopReviewApp({
     return () => {
       cancelled = true;
     };
-  }, [documentBundle, softwareMapBundle]);
+  }, [page, softwareMapBundle]);
 
   useEffect(() => {
     if (document && softwareMapLoaded && !error) session.signalReady();
@@ -159,7 +156,7 @@ function ReviewCanvas({
     return (
       <DesktopReviewApp
         key={content.bridge.config.sessionId}
-        documentBundle={content.document}
+        page={content.page}
         softwareMapBundle={content.softwareMap}
         softwareMapEnabled={content.softwareMapEnabled}
         range={content.range}

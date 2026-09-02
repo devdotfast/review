@@ -10,7 +10,6 @@ import {
   ProgressiveReviewTelemetry,
   type ProgressiveReviewTelemetryCaptureClient,
 } from "../progressive-review-telemetry";
-import { writeReviewDocumentBundle } from "../review-bundle";
 import { readReviewComments } from "../review-state-store";
 import {
   type ReviewSessionHandlerInput,
@@ -218,48 +217,6 @@ describe("createReviewSessionHandler", () => {
       );
       expect(response.status).toBe(200);
       await expect(response.json()).resolves.toEqual({ ok: true, versions });
-    } finally {
-      await handler.close();
-    }
-  });
-
-  it("serves the stored document bundle", async () => {
-    rootPath = await mkdtemp(path.join(tmpdir(), "review-session-handler-"));
-    const reviewPath = path.join(rootPath, "review.mdx");
-    const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
-    const token = "session-secret";
-    await writeFile(reviewPath, "# Review\n", "utf8");
-    await writeReviewDocumentBundle(rootPath, {
-      code: "export const activeReviewDocument = {};",
-      contentHash: "0123456789abcdef0123",
-      routePath: "/",
-      sourcePath: reviewPath,
-    });
-    const handler = await createReviewSessionHandler({
-      ...unusedAgentServices,
-      rootPath,
-      toolingRoot: rootPath,
-      reviewPath,
-      routePath: "/",
-      token,
-      session: {
-        rootPath,
-        baseRef: "HEAD",
-        appUrl: sessionUrl,
-        reviewPath,
-        startedAt: Date.now(),
-      },
-    });
-
-    try {
-      const response = await handler.handle(
-        new Request(new URL("/__progressive-review/doc-module", sessionUrl), {
-          headers: { "x-review-token": token },
-        }),
-      );
-
-      expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({ ok: true });
     } finally {
       await handler.close();
     }

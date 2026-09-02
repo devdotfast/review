@@ -1,6 +1,6 @@
 import { type ReactNode, createContext, useContext } from "react";
 
-import type { ReadyReviewDocumentEntry } from "./review-documents-runtime";
+import type { ReadyReviewDocumentEntry } from "./review-document";
 
 const ActiveReviewDocumentContext =
   createContext<ReadyReviewDocumentEntry | null>(null);

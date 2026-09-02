@@ -16,7 +16,6 @@ import {
 	IInstantiationService,
 } from "../../platform/instantiation/common/instantiation.js";
 import {
-	ReviewDocModuleResponseSchema,
 	ReviewSoftwareMapModuleResponseSchema,
 	type ReviewCommentStoreBridge,
 	type ReviewDescriptor,
@@ -44,11 +43,6 @@ export interface ReviewDesktopSession {
 		readonly storageDir: string;
 	};
 }
-
-export type ReviewDocumentModuleLoader = (
-	session: ReviewDesktopSession,
-	moduleUrl: string,
-) => Promise<unknown>;
 
 export type ReviewSoftwareMapModuleLoader = (
 	session: ReviewDesktopSession,
@@ -86,7 +80,7 @@ export class ReviewSessionModel extends Disposable {
 	}
 
 	private documentRevision: string;
-	private documentPromise: Promise<unknown> | undefined;
+	private pagePromise: Promise<unknown> | undefined;
 	private softwareMapPromise: Promise<unknown | null> | undefined;
 	private refreshPromise: Promise<void> | undefined;
 	private _comments: ReviewCommentStore;
@@ -125,6 +119,7 @@ export class ReviewSessionModel extends Disposable {
 				if (event.uuid !== this.reviewUuid || this._state !== "active") {
 					return;
 				}
+				this.pagePromise = undefined;
 				this._onDidChange.fire();
 			}),
 		);
@@ -190,7 +185,7 @@ export class ReviewSessionModel extends Disposable {
 					return;
 				}
 				if (this.documentRevision !== previousRevision) {
-					this.documentPromise = undefined;
+					this.pagePromise = undefined;
 					this.softwareMapPromise = undefined;
 				}
 				this._onDidChange.fire();
@@ -215,18 +210,18 @@ export class ReviewSessionModel extends Disposable {
 		return this.refreshPromise;
 	}
 
-	resolveDocument(loader: ReviewDocumentModuleLoader): Promise<unknown> {
-		if (this.documentPromise) {
-			return this.documentPromise;
+	resolvePage(): Promise<unknown> {
+		if (this.pagePromise) {
+			return this.pagePromise;
 		}
 		let pending: Promise<unknown>;
-		pending = this.loadDocument(loader).catch((error) => {
-			if (this.documentPromise === pending) {
-				this.documentPromise = undefined;
+		pending = this.loadPage().catch((error) => {
+			if (this.pagePromise === pending) {
+				this.pagePromise = undefined;
 			}
 			throw error;
 		});
-		this.documentPromise = pending;
+		this.pagePromise = pending;
 		return pending;
 	}
 
@@ -249,30 +244,24 @@ export class ReviewSessionModel extends Disposable {
 		return fetch(url, init);
 	}
 
-	private async loadDocument(
-		loader: ReviewDocumentModuleLoader,
-	): Promise<unknown> {
+	private async loadPage(): Promise<unknown> {
 		const session = this._session;
-		const url = new URL(
-			`${session.sessionUrl}/__progressive-review/doc-module`,
-		);
-		const routePath = session.session.routePath ?? session.descriptor.routePath;
-		if (routePath && routePath !== "/") {
-			url.searchParams.set("document", routePath);
-		}
+		const url = new URL(`${session.sessionUrl}/__progressive-review/page`);
 		const response = await fetch(url, {
 			headers: { "x-review-token": session.token },
 			signal: AbortSignal.timeout(30_000),
 		});
-		const payload = ReviewDocModuleResponseSchema.parse(await response.json());
-		if (!response.ok || !payload.ok) {
+		const payload = (await response.json()) as {
+			ok?: boolean;
+			page?: unknown;
+			error?: string;
+		};
+		if (!response.ok || payload.ok !== true || !payload.page) {
 			throw new Error(
-				payload.ok
-					? `Review document module returned ${response.status}.`
-					: payload.error,
+				payload.error ?? `Review page returned ${response.status}.`,
 			);
 		}
-		return loader(session, payload.moduleUrl);
+		return payload.page;
 	}
 
 	private async loadSoftwareMap(

@@ -1,14 +1,12 @@
 import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
 
 /**
- * Software map for 8306f714 (base) — the native agent integration subsystem of
+ * Software map for ddccd221 (head) — the native agent integration subsystem of
  * Review: harness detection, skill/trace-hook install, native turn launching
- * and observation, and authoring-session attribution. At this commit the
- * install surface bundles the review command shim (and shell-profile PATH
- * management) with skill installs by default, bug reports can attach an
- * opt-in authoring session trace resolved from the harness-local trace store,
- * and the trace store speaks to any S3-compatible backend (R2 or AWS S3, via
- * a configurable signing region).
+ * and observation, and authoring-session attribution. At this commit, the
+ * runtime and tooling are simplified: the separate trace-shared package is
+ * folded into review-protocol, the desktop server drops the lifecycle registry
+ * and obsolete endpoints, and software map layout dependencies are streamlined.
  */
 export default defineSoftwareMap({
   people: {
@@ -177,7 +175,7 @@ export default defineSoftwareMap({
                 sessionResolution: {
                   label: "listReviewTraceSessions",
                   description:
-                    "Resolves the sessions behind a commit range from Agent-Session commit trailers, falling back to the R2 commit index, then to a PR-branch trailer scan for squash-merged commits.",
+                    "Resolves the sessions behind a commit range from Agent-Session commit trailers, falling back to the R2 commit index, consuming trace schemas directly from review-protocol.",
                 },
                 commitLookup: {
                   label: "lookupReviewTraceCommit",
@@ -431,7 +429,7 @@ export default defineSoftwareMap({
                 desktopServer: {
                   label: "desktop-server",
                   description:
-                    "Global server: session registry, terminal-open relay to the desktop app, install status resolution.",
+                    "Global server: session registry, terminal-open relay to the desktop app, install status resolution; streamlined without the separate lifecycle registry.",
                   relationships: [
                     {
                       kind: "call",
@@ -446,7 +444,7 @@ export default defineSoftwareMap({
                   description:
                     "Per-session API: resolves question routes (fork/resume/new), launches turns, and starts message mirrors.",
                   sourceRanges: [
-                    { file: "packages/progressive-review/src/server/review-api.ts", fromLine: 1140, toLine: 1225 },
+                    { file: "packages/progressive-review/src/server/review-api.ts", fromLine: 1060, toLine: 1145 },
                   ],
                   relationships: [
                     {
@@ -522,7 +520,7 @@ export default defineSoftwareMap({
             contracts: {
               label: "contracts",
               description:
-                "Canonical schemas: AuthoringAgentSession harness enum, ReviewVerbRequest, install targets, shim install status (installed, profileConfigured, onPath), and region-aware trace credential status.",
+                "Canonical schemas: AuthoringAgentSession harness enum, ReviewVerbRequest, install targets, shim install status, and session/commit trace schemas folded from trace-shared.",
               coverage: {
                 files: [{ path: "packages/review-protocol/src/contracts.ts" }],
               },
@@ -656,14 +654,14 @@ export default defineSoftwareMap({
             },
             protocolMirror: {
               label: "Protocol mirror",
-              description: "Desktop-side copy of the shared review-protocol schemas.",
+              description: "Desktop-side copy of the shared review-protocol schemas with parseZod validation.",
               coverage: {
                 files: [{ path: "apps/review-desktop/code-oss/src/vs/review/common/reviewProtocol.ts" }],
               },
               codeElements: {
                 reviewProtocol: {
                   label: "reviewProtocol",
-                  description: "Mirrored zod schemas, kept in sync with review-protocol.",
+                  description: "Mirrored zod schemas and parseZod helper, kept in sync with review-protocol.",
                   relationships: [
                     {
                       kind: "semantic",

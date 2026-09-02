@@ -9,6 +9,7 @@ import {
   type ReactNode,
   type RefObject,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -420,8 +421,9 @@ function ReviewLayoutContent({
   }, [review.softwareMapFocusRequest, softwareMapEnabled]);
   const applyReviewViewRef = useRef(applyReviewView);
   applyReviewViewRef.current = applyReviewView;
-  // The workbench emits this event after it reveals the Review tab.
-  useEffect(() => {
+  // Subscribe before the canvas signals ready so a reveal immediately after
+  // mounting cannot outrun the listener.
+  useLayoutEffect(() => {
     return session.surface.subscribe((event) => {
       if (
         event.event === "showReviewView" &&

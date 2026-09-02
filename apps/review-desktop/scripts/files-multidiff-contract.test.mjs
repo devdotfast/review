@@ -92,6 +92,14 @@ test("Diff is a Review-tab view with a native changed-files tree beside one scro
   assert.match(reviewVerbs, /event: "showReviewView", view/);
   assert.doesNotMatch(reviewVerbs, /ReviewFilesEditorInput/);
   assert.match(reviewApp, /event\.event === "showReviewView"/);
+  assert.match(
+    reviewApp,
+    /useLayoutEffect\(\(\) => \{\s*return session\.surface\.subscribe/,
+  );
+  assert.doesNotMatch(
+    reviewCanvasPart,
+    /pendingReviewViews|surfaceSubscriptionCounts/,
+  );
 
   assert.match(reviewCanvasPart, /diffView: this\.diffViews/);
   assert.match(reviewCanvasPart, /this\.diffViews\.reset\(\)/);

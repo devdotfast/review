@@ -16,8 +16,10 @@ import {
   type ReviewSessionWire,
   type ReviewTutorialOpenResponse,
   type ReviewVerbRequest,
+  type ReviewView,
   parseReviewCliInstallApplyRequest,
   parseReviewPublishReadyRequest,
+  reviewViewSchema,
 } from "@dev.fast/review-protocol";
 import { type Context, Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -159,6 +161,7 @@ interface RegisterSessionInput {
   promoted: boolean;
   announce?: boolean;
   focusCanvas?: boolean;
+  view?: ReviewView;
   // True when opened for a non-document surface (the Source tab). Stamped on
   // the session-registered broadcast so the app suppresses the document tab.
   background?: boolean;
@@ -172,6 +175,12 @@ interface RegisterSessionInput {
 interface ReviewCheckoutRoots {
   baseRootPath: string;
   headRootPath: string;
+}
+
+function revealVerb(view?: ReviewView): ReviewVerbRequest {
+  return view
+    ? { name: "showReviewView", args: { view } }
+    : { name: "focusCanvas", args: {} };
 }
 
 interface PreparedTutorial {
@@ -442,8 +451,18 @@ export function createGlobalReviewServer(
     const openBody = (await context.req.json().catch(() => null)) as {
       background?: unknown;
       revision?: unknown;
+      view?: unknown;
     } | null;
     const background = openBody?.background === true;
+    const parsedView = reviewViewSchema.safeParse(openBody?.view);
+    if (openBody?.view !== undefined && !parsedView.success) {
+      throw new ReviewServerError(
+        "Review view must be one of review, commits, diff, map, or trace.",
+        400,
+        "invalid_view",
+      );
+    }
+    const view = parsedView.success ? parsedView.data : undefined;
     const review = await findReview(uuid);
     if (!review) {
       throw new ReviewServerError("Review not found.", 404);
@@ -489,6 +508,7 @@ export function createGlobalReviewServer(
         requestedRevision,
         appSessionId,
         descriptor,
+        view,
       );
     }
     const documentRevision = review.review.presentedDocumentRevision;
@@ -518,10 +538,7 @@ export function createGlobalReviewServer(
     if (existing) {
       existing.appSessionId ??= appSessionId;
       if (!background) {
-        void relay.dispatch(existing.descriptor.sessionId, {
-          name: "focusCanvas",
-          args: {},
-        });
+        void relay.dispatch(existing.descriptor.sessionId, revealVerb(view));
       }
       return globalJson(200, {
         sessionId: existing.descriptor.sessionId,
@@ -551,6 +568,7 @@ export function createGlobalReviewServer(
       promoted: true,
       announce: true,
       focusCanvas: !background,
+      view,
       background,
       appSessionId,
     });
@@ -567,6 +585,7 @@ export function createGlobalReviewServer(
     revision: string,
     appSessionId: string | undefined,
     homeReview: ReviewDescriptor,
+    view: ReviewView | undefined,
   ): Promise<Response> {
     const existing = [...sessions.values()].find(
       (session) =>
@@ -575,10 +594,7 @@ export function createGlobalReviewServer(
     );
     if (existing) {
       existing.appSessionId ??= appSessionId;
-      void relay.dispatch(existing.descriptor.sessionId, {
-        name: "focusCanvas",
-        args: {},
-      });
+      void relay.dispatch(existing.descriptor.sessionId, revealVerb(view));
       return globalJson(200, {
         sessionId: existing.descriptor.sessionId,
         url: existing.descriptor.sessionUrl,
@@ -622,6 +638,7 @@ export function createGlobalReviewServer(
       historicalRevision: revision,
       announce: true,
       focusCanvas: true,
+      view,
       appSessionId,
     });
     return globalJson(201, {
@@ -786,7 +803,7 @@ export function createGlobalReviewServer(
       }
       return globalJson(
         201,
-        await mountPublishedDocument(review, request.revision),
+        await mountPublishedDocument(review, request.revision, request.view),
       );
     } catch (error) {
       await telemetry.capturePublishGateRejected({ gate: "publish_ready" });
@@ -952,6 +969,7 @@ export function createGlobalReviewServer(
   async function mountPublishedDocument(
     review: StoredReview,
     revision: string,
+    view?: ReviewView,
   ): Promise<{
     ok: true;
     revision: string;
@@ -1057,10 +1075,10 @@ export function createGlobalReviewServer(
     // Promotion already happened: from here on nothing can fail the publish.
     // A focus failure is a warning — the promoted revision is live either
     // way — and a prune failure is ignored.
-    const focus = await relay.dispatch(successor.descriptor.sessionId, {
-      name: "focusCanvas",
-      args: {},
-    });
+    const focus = await relay.dispatch(
+      successor.descriptor.sessionId,
+      revealVerb(view),
+    );
     await pruneReviewBuilds(review.dir, [
       revision,
       ...(successor.review.review.presentedSoftwareMapRevision
@@ -1765,7 +1783,7 @@ export function createGlobalReviewServer(
       });
     }
     if (registration.focusCanvas) {
-      void relay.dispatch(sessionId, { name: "focusCanvas", args: {} });
+      void relay.dispatch(sessionId, revealVerb(registration.view));
     }
     return active;
   }

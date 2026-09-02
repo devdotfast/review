@@ -2,6 +2,7 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { devfastPrepareCommands } from "@dev.fast/local-vcs";
+import type { ReviewView } from "@dev.fast/review-protocol";
 import { Argument, Command, CommanderError, Option } from "commander";
 
 import { humanStream, jsonRequestedInArgv } from "./cli-output";
@@ -216,6 +217,14 @@ export async function runProgressiveReviewCli(
     configureOutput(command, surface).addOption(
       new Option("--json", "print machine-readable JSON events on stdout"),
     );
+  const viewOption = () =>
+    new Option("--view <view>", "view to show after opening").choices([
+      "review",
+      "commits",
+      "diff",
+      "map",
+      "trace",
+    ]);
 
   const executeMap = async (mapArgs: string[]) => {
     const parsed = parseSoftwareMapCliArgs(mapArgs);
@@ -279,10 +288,15 @@ export async function runProgressiveReviewCli(
       input.stdout.write(`Review Desktop is showing "${event.title}".\n`);
     }
   };
-  const pickReview = async (options: { review?: string; json?: boolean }) => {
+  const pickReview = async (options: {
+    review?: string;
+    view?: ReviewView;
+    json?: boolean;
+  }) => {
     const event = await runtime.runReviewAppPick({
       cwd,
       reviewUuid: options.review,
+      view: options.view,
       stdin: (input.stdin ?? process.stdin) as NodeJS.ReadStream,
       // This stream carries only the interactive picker. Under --json it must
       // not be stdout: the picker's ANSI frames would corrupt the event line.
@@ -316,12 +330,15 @@ export async function runProgressiveReviewCli(
     program
       .command("app")
       .description("Start or activate Review Desktop")
-      .option("--review <uuid>", "compatibility alias for app pick --review"),
+      .option("--review <uuid>", "compatibility alias for app pick --review")
+      .addOption(viewOption()),
     "plain",
-  ).action(async (options: { review?: string; json?: boolean }) => {
-    if (options.review) return pickReview(options);
-    return launchApp(options);
-  });
+  ).action(
+    async (options: { review?: string; view?: ReviewView; json?: boolean }) => {
+      if (options.review) return pickReview(options);
+      return launchApp(options);
+    },
+  );
   configureJsonOutput(
     app.command("launch").description("Start or activate Review Desktop"),
     "plain",
@@ -332,7 +349,8 @@ export async function runProgressiveReviewCli(
       .description(
         "Select a published Review (interactive picker without --review)",
       )
-      .option("--review <uuid>", "review UUID"),
+      .option("--review <uuid>", "review UUID")
+      .addOption(viewOption()),
     "plain",
   ).action(pickReview);
 
@@ -362,20 +380,24 @@ export async function runProgressiveReviewCli(
       .description(
         "Present the Review document in the local Review Desktop app",
       )
-      .option("--review <uuid>", "review UUID"),
+      .option("--review <uuid>", "review UUID")
+      .addOption(viewOption()),
     "plain",
-  ).action(async (options: { review?: string; json?: boolean }) => {
-    state.exitCode = await runtime.runReviewPublish({
-      cwd,
-      reviewUuid: options.review,
-      json: options.json,
-      toolingRoot: env.DEV_FAST_REVIEW_TOOLING_ROOT || undefined,
-      stdout: input.stdout,
-      stderr: input.stderr,
-      env,
-      onReviewBound: bindActiveReview,
-    });
-  });
+  ).action(
+    async (options: { review?: string; view?: ReviewView; json?: boolean }) => {
+      state.exitCode = await runtime.runReviewPublish({
+        cwd,
+        reviewUuid: options.review,
+        view: options.view,
+        json: options.json,
+        toolingRoot: env.DEV_FAST_REVIEW_TOOLING_ROOT || undefined,
+        stdout: input.stdout,
+        stderr: input.stderr,
+        env,
+        onReviewBound: bindActiveReview,
+      });
+    },
+  );
 
   configureJsonOutput(
     program
@@ -1289,6 +1311,7 @@ function progressiveReviewTopLevelHelp(): string {
     "Edit the returned review.mdx and data.ts files, then use `review present` (alias of `review publish`). It validates in the CLI before contacting Review Desktop.",
     "The CLI validates before publishing; Review Desktop promotes the revision before mounting it.",
     "Use `review app launch` to start Review Desktop. Use `review app pick --review <uuid>` after publication.",
+    "Use `--view <review|commits|diff|map|trace>` with `review publish` or `review app pick` to choose the opened tab.",
     "",
     "Every command accepts --json. Stdout then carries only JSON events, one per line,",
     "human progress moves to stderr, and a failure prints a JSON error event too.",

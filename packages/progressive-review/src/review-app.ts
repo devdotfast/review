@@ -1,3 +1,5 @@
+import type { ReviewView } from "@dev.fast/review-protocol";
+
 import { readReviewDesktopDiscovery } from "./desktop-discovery";
 import { runReviewAppLaunch } from "./review-app-launcher";
 import { type ReviewPickerItem, pickReview } from "./review-app-picker";
@@ -17,6 +19,7 @@ interface ReviewAppRuntime {
 export interface RunReviewAppInput {
   cwd: string;
   reviewUuid?: string;
+  view?: ReviewView;
   stdin: NodeJS.ReadStream;
   stdout: NodeJS.WriteStream;
 }
@@ -68,7 +71,11 @@ export async function runReviewAppPick(
     `${discovery.url}/reviews/${encodeURIComponent(review.review.uuid)}/open`,
     {
       method: "POST",
-      headers: { "x-review-token": discovery.token },
+      headers: {
+        "x-review-token": discovery.token,
+        ...(input.view ? { "content-type": "application/json" } : {}),
+      },
+      ...(input.view ? { body: JSON.stringify({ view: input.view }) } : {}),
     },
   );
   const payload: unknown = await response.json();

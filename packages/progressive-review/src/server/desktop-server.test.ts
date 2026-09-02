@@ -1,14 +1,19 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import type { ReviewRecord } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { reviewTitleFromDocument } from "../review-home";
-import { reviewAgentKind } from "./desktop-server";
+import { createGlobalReviewServer, reviewAgentKind } from "./desktop-server";
 
 let directory: string | undefined;
+const packageRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../..",
+);
 
 afterEach(async () => {
   if (directory) await rm(directory, { recursive: true, force: true });
@@ -74,5 +79,43 @@ describe("reviewAgentKind", () => {
         agentSessions: undefined,
       }),
     ).toBe("pi");
+  });
+});
+
+describe("Review Desktop open requests", () => {
+  it("rejects an unknown Review view before opening a session", async () => {
+    directory = await mkdtemp(path.join(tmpdir(), "review-view-server-"));
+    const token = "review-view-test-token";
+    const server = createGlobalReviewServer({
+      appPid: process.pid,
+      packageRoot,
+      toolingRoot: packageRoot,
+      port: 0,
+      token,
+      discoveryPath: path.join(directory, "desktop.json"),
+    });
+
+    try {
+      await server.listen();
+      const response = await fetch(
+        `${server.url}/reviews/11111111-1111-4111-8111-111111111111/open`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-review-token": token,
+          },
+          body: JSON.stringify({ view: "files" }),
+        },
+      );
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        ok: false,
+        code: "invalid_view",
+      });
+    } finally {
+      await server.close();
+    }
   });
 });

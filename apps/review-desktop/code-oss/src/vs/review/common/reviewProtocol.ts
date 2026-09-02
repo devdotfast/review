@@ -24,6 +24,14 @@ const nonNegativeInteger = z
 const reviewDiffSideSchema = z.enum(["base", "head"], {
   error: "must be base or head",
 });
+export const reviewViewSchema = z.enum([
+  "review",
+  "commits",
+  "diff",
+  "map",
+  "trace",
+]);
+export type ReviewView = z.infer<typeof reviewViewSchema>;
 const reviewThemeSchema = z.enum(["light", "dark"], {
   error: "must be light or dark",
 });
@@ -1466,6 +1474,7 @@ export const ReviewPublishReadyRequestSchema = z.strictObject({
     .string({ error: "must be a 40-hex revision" })
     .regex(/^[0-9a-f]{40}$/i, "must be a 40-hex revision"),
   agent: AuthoringAgentSessionSchema.optional(),
+  view: reviewViewSchema.optional(),
 });
 export type ReviewPublishReadyRequest = z.infer<
   typeof ReviewPublishReadyRequestSchema
@@ -1914,7 +1923,10 @@ const revealArgsSchema = z
 
 export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
   z.strictObject({ name: z.literal("openFile"), args: openFileArgsSchema }),
-  z.strictObject({ name: z.literal("openFiles"), args: z.strictObject({}) }),
+  z.strictObject({
+    name: z.literal("showReviewView"),
+    args: z.strictObject({ view: reviewViewSchema }),
+  }),
   z.strictObject({
     name: z.literal("openSourceTree"),
     args: z.strictObject({}),
@@ -2034,7 +2046,8 @@ export const ReviewSurfaceEventSchema = z.discriminatedUnion("event", [
     theme: reviewThemeSchema,
   }),
   z.strictObject({
-    event: z.literal("showDiffView"),
+    event: z.literal("showReviewView"),
+    view: reviewViewSchema,
   }),
 ]);
 export type ReviewSurfaceEvent = z.infer<typeof ReviewSurfaceEventSchema>;

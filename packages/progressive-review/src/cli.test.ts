@@ -577,8 +577,14 @@ describe("Review CLI", () => {
   });
 
   it.each([
-    ["pick subcommand", ["app", "pick", "--review", "review-uuid"]],
-    ["compatibility alias", ["app", "--review", "review-uuid"]],
+    [
+      "pick subcommand",
+      ["app", "pick", "--review", "review-uuid", "--view", "diff"],
+    ],
+    [
+      "compatibility alias",
+      ["app", "--review", "review-uuid", "--view", "diff"],
+    ],
   ])("supports the app %s", async (_label, argv) => {
     const runReviewAppPick = vi.fn<typeof runReviewAppActual>(async () => ({
       event: "app",
@@ -599,13 +605,44 @@ describe("Review CLI", () => {
       }),
     ).resolves.toBe(0);
     expect(runReviewAppPick).toHaveBeenCalledWith(
-      expect.objectContaining({ reviewUuid: "review-uuid" }),
+      expect.objectContaining({ reviewUuid: "review-uuid", view: "diff" }),
     );
     expect(JSON.parse(output)).toMatchObject({
       event: "app",
       action: "pick",
       reviewUuid: "review-uuid",
     });
+  });
+
+  it("forwards the selected view when publishing", async () => {
+    const runReviewPublish = vi.fn<typeof runReviewPublishActual>(
+      async () => 0,
+    );
+
+    await expect(
+      runProgressiveReviewCli({
+        argv: ["publish", "--review", "review-uuid", "--view", "diff"],
+        stdout: outputStream(),
+        stderr: outputStream(),
+        runtime: { runReviewPublish },
+      }),
+    ).resolves.toBe(0);
+    expect(runReviewPublish).toHaveBeenCalledWith(
+      expect.objectContaining({ reviewUuid: "review-uuid", view: "diff" }),
+    );
+  });
+
+  it.each([
+    ["app pick", ["app", "pick", "--review", "review-uuid"]],
+    ["publish", ["publish", "--review", "review-uuid"]],
+  ])("rejects an invalid --view for %s", async (_label, argv) => {
+    await expect(
+      runProgressiveReviewCli({
+        argv: [...argv, "--view", "files"],
+        stdout: outputStream(),
+        stderr: outputStream(),
+      }),
+    ).resolves.toBe(1);
   });
 
   it("accepts --json on scaffold and keeps stdout to one JSON line", async () => {

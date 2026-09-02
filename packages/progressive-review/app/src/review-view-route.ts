@@ -1,4 +1,6 @@
-export type ReviewView = "review" | "commits" | "map" | "diff" | "trace";
+import type { ReviewView } from "@dev.fast/review-protocol";
+
+export type { ReviewView } from "@dev.fast/review-protocol";
 
 export function normalizeReviewView(
   view: ReviewView,

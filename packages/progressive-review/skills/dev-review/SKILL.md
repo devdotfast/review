@@ -66,7 +66,17 @@ Read the scaffold JSON event and `<review-dir>/review.json`. Together they carry
 
 `inSync: false` in `review info` means only that the source worktree does not sit on the pinned commit. That alone requires no action. Use `review scaffold --update --review <uuid>` only when the bound branch or pull request gained commits past the pin. Re-read each file whose anchored range changed after the update.
 
-### 2. Dispatch the map worker
+### 2. Show small changes immediately
+
+Measure the change from the source worktree: `git diff --shortstat <baseCommit> <sourceCommit>`. When insertions plus deletions total under 300, publish the untouched scaffolded stub at once and land the reader on the diff:
+
+```sh
+review publish --review <uuid> --view diff --json
+```
+
+Then write a short document (a few sentences with `AnchorLink`s; no diagrams unless one claim needs one), publish again, and continue with the normal steps. Larger changes skip this step.
+
+### 3. Dispatch the map worker
 
 Use the current harness sub-agent facility. Dispatch one worker after Review resolution provides the UUID and pinned commits. The worker must follow the dev-review-map skill.
 
@@ -92,7 +102,7 @@ Continue document work while the worker runs. Do not author the map in the main-
 
 If no sub-agent facility exists, publish the document. Report that the map is not published. Do not silently author it in the main-agent context.
 
-### 3. Author the document
+### 4. Author the document
 
 Read [Document authoring](references/document-authoring.md) before you edit `review.mdx` or `data.ts`.
 
@@ -102,13 +112,15 @@ Use the smallest document that explains the important change. Default to `Anchor
 
 Read every referenced range from the correct pinned checkout before you add it. Use the `checkouts` paths from the scaffold event: the head checkout for a head range, the base checkout for a base range.
 
-### 4. Publish the document
+### 5. Publish the document
 
 Run:
 
 ```sh
 review publish --review <uuid> --json
 ```
+
+Both `review publish` and `review app pick` accept `--view <review|commits|diff|map|trace>` to choose the tab the reader lands on. Without `--view`, the Review tab remains the default.
 
 Read each NDJSON error event. Correct all document errors and publish again. A missing software map is not a document error.
 
@@ -120,7 +132,7 @@ Show the published document immediately:
 review app pick --review <uuid> --json
 ```
 
-### 5. Publish the map
+### 6. Publish the map
 
 Join the map worker after document publication. If the Review became terminal, report the valid unpublished-map state and do not retry.
 
@@ -136,7 +148,7 @@ This command updates only `presentedSoftwareMapRevision`. It preserves the docum
 
 If the worker fails, keep the valid document publication. Report the map failure and the smallest next action.
 
-### 6. Handle feedback
+### 7. Handle feedback
 
 Wait for a status that requires agent action. Use the command for the current harness:
 

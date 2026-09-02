@@ -91,6 +91,8 @@ export async function createTutorialAuthoringSession(input: {
         sessionId: await createOpencodeSession({
           cwd: input.rootPath,
           prompt,
+          title: "Review tutorial authoring",
+          signal: input.signal,
         }),
       };
     }

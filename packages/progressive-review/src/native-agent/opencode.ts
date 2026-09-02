@@ -504,31 +504,75 @@ export async function forkOpencodeSession(input: {
   }
 }
 
-/** Create a session and run one synchronous prompt on a throwaway server. Used for the tutorial source. */
+const REPLY_TIMEOUT_MS = 10 * 60_000;
+const REPLY_POLL_MS = 1_000;
+
+/**
+ * Create a session, prompt it, and return once the assistant has replied.
+ * Runs on a throwaway server; used for the tutorial source. The prompt is
+ * submitted asynchronously and the session polled, because one model turn
+ * can outlast any single request timeout.
+ */
 export async function createOpencodeSession(input: {
   cwd: string;
   prompt: string;
+  title: string;
+  signal?: AbortSignal;
 }): Promise<string> {
   const host = new OpencodeServeHost();
   try {
     const { baseUrl, password } = await host.endpoint();
     const client = new OpencodeClient(baseUrl, password);
     const sessionId = sessionIdOf(
-      await client.json("POST", "/session", input.cwd, {
-        title: "Review tutorial authoring",
-      }),
+      await client.json("POST", "/session", input.cwd, { title: input.title }),
     );
-    // `message` (unlike `prompt_async`) answers once the assistant finished.
     await client.json(
       "POST",
-      `/session/${encodeURIComponent(sessionId)}/message`,
+      `/session/${encodeURIComponent(sessionId)}/prompt_async`,
       input.cwd,
       { parts: [{ type: "text", text: input.prompt }] },
     );
-    return sessionId;
+    const deadline = Date.now() + REPLY_TIMEOUT_MS;
+    for (;;) {
+      if (input.signal?.aborted) {
+        throw new Error("OpenCode session creation was canceled.");
+      }
+      const messages = await client.json(
+        "GET",
+        `/session/${encodeURIComponent(sessionId)}/message`,
+        input.cwd,
+      );
+      const failure = assistantFailure(messages);
+      if (failure) throw new Error(`OpenCode could not reply: ${failure}`);
+      if (
+        projectOpencodeMessages(messages).some((m) => m.role === "assistant")
+      ) {
+        return sessionId;
+      }
+      if (Date.now() > deadline) {
+        throw new Error("OpenCode did not reply within the time limit.");
+      }
+      await new Promise((resolve) => setTimeout(resolve, REPLY_POLL_MS));
+    }
   } finally {
     await host.close();
   }
+}
+
+/** The first assistant message that ended in an error, as a short description. */
+function assistantFailure(messages: unknown): string | undefined {
+  if (!Array.isArray(messages)) return undefined;
+  for (const entry of messages) {
+    if (!isJsonRecord(entry) || !isJsonRecord(entry.info)) continue;
+    const info = entry.info;
+    if (info.role !== "assistant" || !isJsonRecord(info.error)) continue;
+    const name =
+      typeof info.error.name === "string" ? info.error.name : "error";
+    const data = isJsonRecord(info.error.data) ? info.error.data : {};
+    const message = typeof data.message === "string" ? `: ${data.message}` : "";
+    return `${name}${message}`;
+  }
+  return undefined;
 }
 
 export function server(

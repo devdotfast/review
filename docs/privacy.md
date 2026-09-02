@@ -72,11 +72,6 @@ Review document or does not pass a second local path-and-secret check.
 
 The **Report bug** dialog sends a report only after you select **Send**.
 
-![The previous Review bug-report dialog with all three diagnostic attachments selected by default.](assets/bug-report-consent.png)
-
-> This image is stale. Re-capture `docs/assets/bug-report-consent.png` with the
-> three-checkbox dialog and screenshot preview after the UI lands.
-
 Under **Include diagnostic attachments**, three independent checkboxes control
 whether Review attaches:
 
@@ -86,9 +81,9 @@ whether Review attaches:
   session that authored the Review and, for a forked Codex session, its complete
   parent history through the fork point
 
-The Review and changed-file diff attachments are selected by default. The agent
-session trace is opt-in and starts unselected. An information icon beside it
-explains the trace's redaction limits and what it sends.
+The Review and changed-file diff attachments are selected by default. **The
+agent session trace is off by default and is included only when you explicitly
+select it for that report.**
 
 Review captures a screenshot before the dialog opens, so the dialog itself is
 not in the image. The screenshot is attached by default with a visible preview.
@@ -99,13 +94,16 @@ to 3 MiB.
 You can turn off either default attachment, leave the trace unselected, and
 remove the screenshot before sending.
 
-When selected, the agent trace includes prompts, model output, source code, and
-file paths. Review redacts recognizable Google API keys, JWTs, Slack tokens,
-GitHub tokens, and Microsoft Entra tokens on your machine before attaching the
-trace. Other credentials and secrets that do not match those formats may remain
-and are sent. Review deliberately does not redact paths, URLs, email addresses,
-prompts, or code. The trace comes directly from the supported agent harness's
-local storage and does not require trace sync or remote trace storage.
+If you opt in, the report includes the complete source-session JSONL trace and,
+for a forked Codex session, its parent history through the fork point. It can
+also include up to ten of the most recently modified subagent traces. This data
+can contain prompts, model output, source code, file paths, URLs, and email
+addresses.
+
+Review replaces recognizable Google API keys, JWTs, Slack tokens, GitHub
+tokens, and Microsoft Entra tokens before attaching the trace. Other
+credentials or secrets may remain. Passive telemetry and trace-sync settings do
+not enable this attachment.
 
 The checkboxes control only those optional attachments. Every submitted report
 also includes the optional description (which may be empty), app and CLI
@@ -114,21 +112,8 @@ sanitized JavaScript error class names seen during that canvas session. It does
 not include error messages in that list.
 
 If a selected Review, map, or diff attachment is unavailable, Review omits it
-and sends the other available data. A selected trace is different. Review stops
-the report if the source trace, a declared Codex parent, or any JSONL record is
-unavailable or invalid. It does not silently send a partial main trace.
-
-Review sends the complete source trace. For a forked Codex session, it also
-sends the complete logical parent history through the exact recorded ordinal
-and byte offset. It follows nested parent references up to 32 levels. It rejects
-a deeper chain, a cycle, or inconsistent fork metadata. Review still includes
-only the ten most recently modified subagent traces, each capped at its newest
-1 MiB on complete JSONL lines.
-
-The compressed payload remains limited to 10 MiB. Review can drop the diff,
-map, screenshot, or Review source to fit that payload. It never drops or
-shortens a selected main trace to fit. The complete multipart upload is limited
-by the Cloudflare request limit; an oversized report fails.
+and sends the other available data. Review does not send a partial source or
+parent trace.
 
 The report never attaches Review metadata, comment threads, or question
 threads. Review stores completed reports in a private /dev/fast Cloudflare R2

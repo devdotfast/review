@@ -374,12 +374,13 @@ frame a second time. Both steps run on your machine, before anything is sent.
 The **Report bug** dialog sends data only after the user selects **Send**. The
 description is optional. It has one **Review** consent control for both the
 current review source and head software map source, plus a separate control for
-changed-file diffs. Both controls are on by default. A third **Agent session
-trace** control attaches the raw local JSONL trace for the session that authored
-the Review and is off by default. Review also captures a screenshot before the
-dialog opens and attaches it by default. The dialog shows a removable preview
-and accepts a replacement image by paste or drag. A selected attachment can be
-unavailable. The report still sends the other available data.
+changed-file diffs. Both controls are on by default. Review also captures a
+screenshot before the dialog opens and attaches it by default. The dialog shows
+a removable preview and accepts a replacement image by paste or drag.
+
+**Agent traces require separate, explicit consent for every report.** The
+**Agent session trace** control is off by default. Review does not attach any
+agent trace unless the user turns on this control before selecting **Send**.
 
 A review does not always have a software map. The report then omits the map and
 records no error, because an absent map is a normal state.
@@ -388,7 +389,7 @@ The report payload contains these fields:
 
 | Field                              | Value                                                                               |
 | ---------------------------------- | ----------------------------------------------------------------------------------- |
-| `schema_version`                   | Payload schema version `3`, or `4` for the separate trace-part transport            |
+| `schema_version`                   | Internal report payload format version                                              |
 | `description`                      | Optional user-entered description, limited to 64 KiB of UTF-8 data                  |
 | `screenshot.mime`                  | `image/jpeg` when a screenshot is attached                                          |
 | `screenshot.base64`                | JPEG screenshot data, limited to 3 MiB decoded                                      |
@@ -429,51 +430,25 @@ The report never sends these review files:
 - the compiled document in `.bundle/`, and the build output in `.build/`
 - `review.db`, which holds the comment threads and the questions
 
-The trace attachment is independent of trace sync. Review finds the source
-session's raw trace directly in the supported harness's local home-directory
-storage, so disabling remote trace storage does not disable this explicit
-attachment.
+Trace attachment consent is independent of passive telemetry and trace sync.
+Neither setting enables trace attachment for a bug report. If the user opts in,
+the report includes the complete source-session JSONL trace and, for a forked
+Codex session, its parent history through the fork point. It can also include
+up to ten of the most recently modified subagent traces.
 
-Before attaching a selected trace, Review replaces recognizable Google API
-keys, JWTs, Slack tokens, GitHub tokens, and Microsoft Entra tokens with labelled
-markers. This secret-format redaction preserves the surrounding JSONL. It does
-not detect every credential or secret format, and it does not anonymize file
-paths, URLs, email addresses, prompts, model output, or source code; those
-values are sent when the user selects the trace checkbox.
+The trace can contain prompts, model output, source code, file paths, URLs, and
+email addresses. Review replaces recognizable Google API keys, JWTs, Slack
+tokens, GitHub tokens, and Microsoft Entra tokens with labelled markers. Other
+credentials or secrets may remain.
 
-Review validates every main-trace JSONL record and sends the complete fixed
-source snapshot as a separate gzip part. For a forked Codex session, it uses the
-recorded parent session ID, exclusive ordinal, and byte offset. It sends the
-complete logical parent history through that boundary as a second gzip part.
-Nested parents are materialized recursively. Review rejects missing parents,
-invalid boundaries, cycles, or more than 32 ancestry levels.
+The Worker stores reports in a private Cloudflare R2 bucket. Only credentialed
+dev.fast operators can read the bucket. Reports are deleted after 90 days.
 
-Review includes the ten most recently modified subagent files in the payload.
-Each keeps at most its newest 1 MiB, and the payload records omitted names. The
-compressed payload remains limited to 10 MiB. The size ladder can drop the diff,
-map, screenshot, and Review source, but it does not drop or shorten a selected
-main trace. The whole request remains subject to the Cloudflare request limit.
-
-The local server sends all current reports to
-`https://bug.dev.fast/api/v2/reports`. Every report has ordered `meta` and
-`payload` parts. A trace report adds `source_trace` and optional `parent_trace`
-parts. The Worker keeps `/api/v1/reports` only for older installed clients.
-
-The Worker stores a schema 2 report below one private R2 prefix. It writes the
-payload and trace objects first, then writes `complete.json` last. A report is
-complete only when this marker exists. Failed uploads have no completion marker
-and the Worker removes any partial objects. Only credentialed dev.fast operators
-can read the bucket. An R2 lifecycle rule deletes objects under `reports/` after
-90 days.
-
-The Worker sends a `review_bug_report` PostHog event only after the completion
-marker exists. The event contains the report ID, UTC report date, description byte
-length, attachment presence flags (including `has_screenshot`), compressed
-payload size, app version, platform, and map, diff, or screenshot truncation
-flags (including `truncated_screenshot`). It also receives `has_trace`,
-`truncated_trace`, the closed `trace_harness` enum, transport schema version,
-compressed source and parent trace sizes, and a completion flag. It does not
-contain the description, attachments, or trace session identifiers.
+After storage completes, the Worker sends a `review_bug_report` PostHog event
+with the report ID, date, app version, platform, sizes, attachment presence, and
+truncation flags. For an explicitly included trace, it also sends the harness
+type and trace sizes. The event does not contain the description, attachments,
+or trace session identifiers.
 
 Cloudflare uses `CF-Connecting-IP` only as the rate-limit key. The Worker does
 not store that value in R2. The Worker does not send it to PostHog as report

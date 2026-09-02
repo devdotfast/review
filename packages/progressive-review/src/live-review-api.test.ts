@@ -21,9 +21,6 @@ const discovery: ReviewDesktopDiscovery = {
   token: "live-review-secret",
   startedAt: 1,
 };
-const createRequestId = "10000000-0000-4000-8000-000000000001";
-const renderRequestId = "10000000-0000-4000-8000-000000000002";
-
 describe("live Review API transport", () => {
   it("is a thin authenticated client with stable default Review state", async () => {
     const requests: Request[] = [];
@@ -36,7 +33,6 @@ describe("live Review API transport", () => {
       expect(request.headers.get("x-review-token")).toBe(discovery.token);
       if (url.pathname === "/live-reviews" && request.method === "POST") {
         expect(await request.json()).toEqual({
-          requestId: createRequestId,
           cwd: path.resolve("/repo"),
           source: { kind: "current-checkout" },
           title: "Transport tracer",
@@ -45,7 +41,6 @@ describe("live Review API transport", () => {
       }
       if (url.pathname.endsWith("/render")) {
         expect(await request.json()).toEqual({
-          requestId: renderRequestId,
           targetNodeId: "root",
           mode: "append",
           title: "Child",
@@ -103,14 +98,12 @@ describe("live Review API transport", () => {
     );
     await expect(
       api.createReview({
-        requestId: createRequestId,
         source: { kind: "current-checkout" },
         title: "Transport tracer",
       }),
     ).resolves.toEqual(info);
     await expect(
       api.renderMdx({
-        requestId: renderRequestId,
         targetNodeId: "root",
         mode: "append",
         title: "Child",
@@ -193,7 +186,6 @@ describe("live Review API transport", () => {
 
     await expect(
       api.renderMdx({
-        requestId: "10000000-0000-4000-8000-000000000003",
         targetNodeId: "root",
         mode: "replace",
         mdx: "<Bad />",
@@ -208,7 +200,6 @@ describe("live Review API transport", () => {
     endpointStatus = 409;
     const conflict = await api
       .renderMdx({
-        requestId: "10000000-0000-4000-8000-000000000004",
         targetNodeId: "root",
         mode: "replace",
         mdx: "Body",

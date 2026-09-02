@@ -135,7 +135,6 @@ export function createReviewApi(
         await request("/live-reviews", {
           method: "POST",
           body: {
-            requestId: createInput.requestId,
             cwd,
             source: createInput.source,
             title: createInput.title,
@@ -195,7 +194,6 @@ export function createReviewApi(
           await request(`/live-reviews/${encodeURIComponent(id)}/render`, {
             method: "POST",
             body: {
-              requestId: renderInput.requestId,
               targetNodeId: renderInput.targetNodeId,
               mode: renderInput.mode,
               ...(renderInput.title === undefined

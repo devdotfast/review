@@ -125,7 +125,6 @@ import {
 import { HttpJsonError } from "./http-json";
 import { ReviewLifecycleRegistry } from "./lifecycle-registry";
 import {
-  LiveReviewRequestConflictError,
   LiveReviewTerminalError,
   createLiveReview,
   handoffLiveReview,
@@ -455,32 +454,25 @@ export function createGlobalReviewServer(
     const request = liveReviewCreateRequestSchema.parse(
       await readBoundedRequestJson(context.req.raw),
     );
-    return withReviewLock(`live-create:${request.requestId}`, async () => {
-      const created = await createLiveReview(request);
-      try {
-        // The request lock spans persistence, registration, and rollback so a
-        // same-ID retry cannot observe a receipt that the first caller is
-        // about to remove. Registration takes the distinct per-review lock.
-        const opened = await openStoredLiveReview({
-          review: created.review,
-          background: false,
-        });
-        return globalJson(created.replayed ? 200 : 201, {
-          ...opened.body,
-          info: created.info,
-        });
-      } catch (error) {
-        if (!created.replayed) {
-          await deleteStoredReview(created.review).catch((cleanupError) => {
-            console.error(
-              "Could not roll back live Review creation:",
-              cleanupError,
-            );
-          });
-        }
-        throw error;
-      }
-    });
+    const created = await createLiveReview(request);
+    try {
+      const opened = await openStoredLiveReview({
+        review: created.review,
+        background: false,
+      });
+      return globalJson(201, {
+        ...opened.body,
+        info: created.info,
+      });
+    } catch (error) {
+      await deleteStoredReview(created.review).catch((cleanupError) => {
+        console.error(
+          "Could not roll back live Review creation:",
+          cleanupError,
+        );
+      });
+      throw error;
+    }
   });
   app.post("/live-reviews/:uuid/open", async (context) => {
     const review = await requireStoredLiveReview(context.req.param("uuid"));
@@ -557,10 +549,9 @@ export function createGlobalReviewServer(
         );
       }
       setLiveReviewAuthoringTarget(uuid, page, request.targetNodeId);
-      const outcome = await renderLiveReviewMdx({ review, ...request });
-      const { result } = outcome;
+      const result = await renderLiveReviewMdx({ review, ...request });
       if (!result.ok) return globalJson(422, result);
-      if (!outcome.replayed) broadcastLiveReviewChange(uuid);
+      broadcastLiveReviewChange(uuid);
       return globalJson(200, result);
     });
   });
@@ -910,15 +901,9 @@ export function createGlobalReviewServer(
         ? error
         : error instanceof LiveReviewVersionConflictError
           ? new ReviewServerError(error.message, 409, "review_version_conflict")
-          : error instanceof LiveReviewRequestConflictError
-            ? new ReviewServerError(
-                error.message,
-                409,
-                "review_request_conflict",
-              )
-            : error instanceof LiveReviewTerminalError
-              ? new ReviewServerError(error.message, 409, "review_terminal")
-              : undefined;
+          : error instanceof LiveReviewTerminalError
+            ? new ReviewServerError(error.message, 409, "review_terminal")
+            : undefined;
     return globalJson(serverError?.statusCode ?? httpJsonStatus(error), {
       ok: false,
       ...(serverError?.code ? { code: serverError.code } : {}),

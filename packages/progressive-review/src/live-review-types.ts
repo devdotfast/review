@@ -69,8 +69,6 @@ export interface ReviewAPI {
     scope?: "current-checkout" | "all";
   }): Promise<ReviewSummary[]>;
   createReview(input: {
-    /** Reuse this UUID only when retrying the same logical create operation. */
-    requestId: string;
     source: { kind: "current-checkout" };
     title: string;
   }): Promise<BasicInfo>;
@@ -80,8 +78,6 @@ export interface ReviewAPI {
   getNodeInfo(input: { reviewId?: string; nodeId: string }): Promise<Node>;
   getChildren(input: { reviewId?: string; nodeId: string }): Promise<Node[]>;
   renderMdx(input: {
-    /** Reuse this UUID only when retrying the same logical render operation. */
-    requestId: string;
     reviewId?: string;
     targetNodeId: string;
     mode: "append" | "replace";

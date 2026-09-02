@@ -5,7 +5,6 @@ import path from "node:path";
 import { gzipSync } from "node:zlib";
 
 import {
-  type ReviewBugReportMetaV1,
   type ReviewBugReportMetaV2,
   type ReviewBugReportRequest,
   parseReviewBugReportResponse,
@@ -27,15 +26,13 @@ import {
   readAuthoringTraceAttachment,
 } from "./bug-report-trace";
 
-const BUG_REPORT_V1_URL = "https://bug.dev.fast/api/v1/reports";
-const BUG_REPORT_V2_URL = "https://bug.dev.fast/api/v2/reports";
-const MAX_MULTIPART_BYTES = 10 * 1024 * 1024;
-const MULTIPART_BOUNDARY = "dev-fast-review-bug-report-v1";
+const BUG_REPORT_URL = "https://bug.dev.fast/api/v2/reports";
+const MAX_PAYLOAD_BYTES = 10 * 1024 * 1024;
 const UPSTREAM_TIMEOUT_MS = 20_000;
 const TRACE_UPSTREAM_TIMEOUT_MS = 5 * 60_000;
-const MAX_TRACE_MULTIPART_PART_BYTES = 100_000_000;
+const MAX_MULTIPART_PART_BYTES = 100_000_000;
 // Keep room for multipart headers and boundaries below the Worker request cap.
-const MAX_TRACE_MULTIPART_CONTENT_BYTES = 99_000_000;
+const MAX_MULTIPART_CONTENT_BYTES = 99_000_000;
 // The review directory is a git repo, but its tracked set also holds
 // `review.json` (an absolute home path, the repo key, the pull request URL) and
 // the compiled `.bundle/` output. So the report attaches an explicit source set
@@ -44,7 +41,7 @@ const MAX_TRACE_MULTIPART_CONTENT_BYTES = 99_000_000;
 // `.build/<revision>/` holds a second copy of every source file.
 const REVIEW_SOURCE_MODULE_RE = /\.tsx?$/;
 const MAX_REVIEW_SOURCE_FILES = 20;
-// Not a transfer limit: `MAX_MULTIPART_BYTES` already bounds what reaches the
+// Not a transfer limit: `MAX_PAYLOAD_BYTES` already bounds what reaches the
 // Worker. This bounds one file, because the size ladder below drops the whole
 // review attachment rather than one module. So a single huge file would cost
 // the report its entire review. Authored modules run to a few kilobytes, and
@@ -209,27 +206,18 @@ export async function submitReviewBugReport(input: {
   }
 
   try {
-    const request = traceAttachment
-      ? await buildTraceBugReportRequest(payload, traceAttachment, {
-          appVersion: input.report.app_version,
-          cliVersion,
-        })
-      : buildSizedBugReportRequest(payload, {
-          appVersion: input.report.app_version,
-          cliVersion,
-        });
+    const request = await buildBugReportRequest(payload, traceAttachment, {
+      appVersion: input.report.app_version,
+      cliVersion,
+    });
 
-    const response = await (input.fetchImpl ?? fetch)(
-      traceAttachment ? BUG_REPORT_V2_URL : BUG_REPORT_V1_URL,
-      {
-        method: "POST",
-        headers: request.headers,
-        body: request.body,
-        signal: AbortSignal.timeout(
-          traceAttachment ? TRACE_UPSTREAM_TIMEOUT_MS : UPSTREAM_TIMEOUT_MS,
-        ),
-      },
-    ).catch((error) => {
+    const response = await (input.fetchImpl ?? fetch)(BUG_REPORT_URL, {
+      method: "POST",
+      body: request.body,
+      signal: AbortSignal.timeout(
+        traceAttachment ? TRACE_UPSTREAM_TIMEOUT_MS : UPSTREAM_TIMEOUT_MS,
+      ),
+    }).catch((error) => {
       throw new BugReportUpstreamError(
         502,
         error instanceof Error ? error.message : "Bug report service failed.",
@@ -256,106 +244,57 @@ export async function submitReviewBugReport(input: {
   }
 }
 
-export function buildSizedBugReportRequest(
+async function buildBugReportRequest(
   payload: BugReportPayload,
-  input: {
-    appVersion: string;
-    cliVersion: string;
-  },
-) {
-  if (payload.trace) {
-    throw new BugReportUpstreamError(
-      400,
-      "Trace reports require the v2 transport.",
-    );
-  }
-  let truncatedDiff = false;
-  let truncatedMap = false;
-  let truncatedScreenshot = false;
-  const build = () =>
-    buildBugReportRequest(payload, {
-      ...input,
-      truncatedDiff,
-      truncatedMap,
-      truncatedScreenshot,
-    });
-
-  let request = build();
-  if (request.body.byteLength > MAX_MULTIPART_BYTES && payload.diff) {
-    delete payload.diff;
-    truncatedDiff = true;
-    request = build();
-  }
-  if (request.body.byteLength > MAX_MULTIPART_BYTES && payload.map) {
-    delete payload.map;
-    truncatedMap = true;
-    request = build();
-  }
-  if (request.body.byteLength > MAX_MULTIPART_BYTES && payload.screenshot) {
-    delete payload.screenshot;
-    truncatedScreenshot = true;
-    request = build();
-  }
-  if (request.body.byteLength > MAX_MULTIPART_BYTES && payload.review) {
-    delete payload.review;
-    request = build();
-  }
-  if (request.body.byteLength > MAX_MULTIPART_BYTES) {
-    throw new BugReportUpstreamError(413, "Bug report is too large.");
-  }
-  return request;
-}
-
-async function buildTraceBugReportRequest(
-  payload: BugReportPayload,
-  trace: AuthoringTraceAttachment,
+  trace: AuthoringTraceAttachment | undefined,
   input: { appVersion: string; cliVersion: string },
-): Promise<{ body: FormData; headers: HeadersInit }> {
+): Promise<{ body: FormData }> {
   let truncatedDiff = false;
   let truncatedMap = false;
   let truncatedScreenshot = false;
   let payloadBytes = gzipPayload(payload);
 
-  if (payloadBytes.byteLength > MAX_MULTIPART_BYTES && payload.diff) {
+  if (payloadBytes.byteLength > MAX_PAYLOAD_BYTES && payload.diff) {
     delete payload.diff;
     truncatedDiff = true;
     payloadBytes = gzipPayload(payload);
   }
-  if (payloadBytes.byteLength > MAX_MULTIPART_BYTES && payload.map) {
+  if (payloadBytes.byteLength > MAX_PAYLOAD_BYTES && payload.map) {
     delete payload.map;
     truncatedMap = true;
     payloadBytes = gzipPayload(payload);
   }
-  if (payloadBytes.byteLength > MAX_MULTIPART_BYTES && payload.screenshot) {
+  if (payloadBytes.byteLength > MAX_PAYLOAD_BYTES && payload.screenshot) {
     delete payload.screenshot;
     truncatedScreenshot = true;
     payloadBytes = gzipPayload(payload);
   }
-  if (payloadBytes.byteLength > MAX_MULTIPART_BYTES && payload.review) {
+  if (payloadBytes.byteLength > MAX_PAYLOAD_BYTES && payload.review) {
     delete payload.review;
     payloadBytes = gzipPayload(payload);
   }
-  if (payloadBytes.byteLength > MAX_MULTIPART_BYTES) {
+  if (payloadBytes.byteLength > MAX_PAYLOAD_BYTES) {
     throw new BugReportUpstreamError(413, "Bug report is too large.");
   }
 
-  const traceParts: ReviewBugReportMetaV2["parts"] = trace.parts.map((part) =>
-    part.field === "source_trace"
-      ? {
-          field: "source_trace",
-          filename: "source.jsonl.gz",
-          session_id: part.session_id,
-          bytes: part.bytes,
-          sha256: part.sha256,
-        }
-      : {
-          field: "parent_trace",
-          filename: "parent.jsonl.gz",
-          session_id: part.session_id,
-          bytes: part.bytes,
-          sha256: part.sha256,
-        },
-  );
+  const traceParts: ReviewBugReportMetaV2["parts"] =
+    trace?.parts.map((part) =>
+      part.field === "source_trace"
+        ? {
+            field: "source_trace",
+            filename: "source.jsonl.gz",
+            session_id: part.session_id,
+            bytes: part.bytes,
+            sha256: part.sha256,
+          }
+        : {
+            field: "parent_trace",
+            filename: "parent.jsonl.gz",
+            session_id: part.session_id,
+            bytes: part.bytes,
+            sha256: part.sha256,
+          },
+    ) ?? [];
   const parts: ReviewBugReportMetaV2["parts"] = [
     {
       field: "payload",
@@ -367,8 +306,8 @@ async function buildTraceBugReportRequest(
   ];
   const contentBytes = parts.reduce((total, part) => total + part.bytes, 0);
   if (
-    parts.some((part) => part.bytes > MAX_TRACE_MULTIPART_PART_BYTES) ||
-    contentBytes > MAX_TRACE_MULTIPART_CONTENT_BYTES
+    parts.some((part) => part.bytes > MAX_MULTIPART_PART_BYTES) ||
+    contentBytes > MAX_MULTIPART_CONTENT_BYTES
   ) {
     throw new BugReportUpstreamError(413, "Bug report is too large.");
   }
@@ -380,8 +319,8 @@ async function buildTraceBugReportRequest(
     has_map: payload.map !== undefined,
     has_diff: payload.diff !== undefined,
     has_screenshot: payload.screenshot !== undefined,
-    has_trace: true,
-    trace_harness: trace.payload.harness,
+    has_trace: trace !== undefined,
+    ...(trace ? { trace_harness: trace.payload.harness } : {}),
     payload_bytes: payloadBytes.byteLength,
     app_version: input.appVersion,
     cli_version: input.cliVersion,
@@ -389,7 +328,7 @@ async function buildTraceBugReportRequest(
     truncated_diff: truncatedDiff,
     truncated_map: truncatedMap,
     truncated_screenshot: truncatedScreenshot,
-    truncated_trace: trace.payload.truncated,
+    truncated_trace: trace?.payload.truncated ?? false,
     parts,
   };
   const form = new FormData();
@@ -399,17 +338,14 @@ async function buildTraceBugReportRequest(
     new Blob([Uint8Array.from(payloadBytes)], { type: "application/gzip" }),
     "payload.json.gz",
   );
-  for (const part of trace.parts) {
+  for (const part of trace?.parts ?? []) {
     form.append(
       part.field,
       await openAsBlob(part.path, { type: "application/gzip" }),
       part.filename,
     );
   }
-  return {
-    body: form,
-    headers: {},
-  };
+  return { body: form };
 }
 
 function gzipPayload(payload: BugReportPayload): Buffer {
@@ -489,54 +425,6 @@ async function readChangedFileDiffs(
     headRef: target.headRef,
     includePatch: true,
   });
-}
-
-function buildBugReportRequest(
-  payload: BugReportPayload,
-  input: {
-    appVersion: string;
-    cliVersion: string;
-    truncatedDiff: boolean;
-    truncatedMap: boolean;
-    truncatedScreenshot: boolean;
-  },
-) {
-  const payloadBytes = gzipSync(Buffer.from(JSON.stringify(payload)), {
-    level: 9,
-  });
-  const meta: ReviewBugReportMetaV1 = {
-    schema_version: 1,
-    description_length: Buffer.byteLength(payload.description),
-    has_review: payload.review !== undefined,
-    has_map: payload.map !== undefined,
-    has_diff: payload.diff !== undefined,
-    has_screenshot: payload.screenshot !== undefined,
-    has_trace: false,
-    payload_bytes: payloadBytes.byteLength,
-    app_version: input.appVersion,
-    cli_version: input.cliVersion,
-    platform: process.platform,
-    truncated_diff: input.truncatedDiff,
-    truncated_map: input.truncatedMap,
-    truncated_screenshot: input.truncatedScreenshot,
-    truncated_trace: false,
-  };
-  const body = Buffer.concat([
-    Buffer.from(
-      `--${MULTIPART_BOUNDARY}\r\nContent-Disposition: form-data; name="meta"\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(meta)}\r\n`,
-    ),
-    Buffer.from(
-      `--${MULTIPART_BOUNDARY}\r\nContent-Disposition: form-data; name="payload"; filename="payload.json.gz"\r\nContent-Type: application/gzip\r\n\r\n`,
-    ),
-    payloadBytes,
-    Buffer.from(`\r\n--${MULTIPART_BOUNDARY}--\r\n`),
-  ]);
-  return {
-    body,
-    headers: {
-      "content-type": `multipart/form-data; boundary=${MULTIPART_BOUNDARY}`,
-    },
-  };
 }
 
 function unavailable(attachment: AttachmentName): AttachmentError {

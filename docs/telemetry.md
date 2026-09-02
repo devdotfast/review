@@ -454,10 +454,10 @@ compressed payload remains limited to 10 MiB. The size ladder can drop the diff,
 map, screenshot, and Review source, but it does not drop or shorten a selected
 main trace. The whole request remains subject to the Cloudflare request limit.
 
-The local server sends reports without a trace to
-`https://bug.dev.fast/api/v1/reports` with the original schema 1 multipart
-request. It sends trace reports to `https://bug.dev.fast/api/v2/reports` with
-ordered `meta`, `payload`, `source_trace`, and optional `parent_trace` parts.
+The local server sends all current reports to
+`https://bug.dev.fast/api/v2/reports`. Every report has ordered `meta` and
+`payload` parts. A trace report adds `source_trace` and optional `parent_trace`
+parts. The Worker keeps `/api/v1/reports` only for older installed clients.
 
 The Worker stores a schema 2 report below one private R2 prefix. It writes the
 payload and trace objects first, then writes `complete.json` last. A report is

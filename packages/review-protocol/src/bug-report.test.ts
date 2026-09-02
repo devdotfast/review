@@ -108,4 +108,37 @@ describe("bug report protocol", () => {
       }),
     ).toThrow(/must list payload/);
   });
+
+  it("accepts a schema 2 report without a trace", () => {
+    const meta = {
+      schema_version: 2,
+      description_length: 12,
+      has_review: false,
+      has_map: false,
+      has_diff: false,
+      has_screenshot: false,
+      has_trace: false,
+      payload_bytes: 100,
+      app_version: "1.2.3",
+      cli_version: "0.0.1",
+      platform: "darwin",
+      truncated_diff: false,
+      truncated_map: false,
+      truncated_screenshot: false,
+      truncated_trace: false,
+      parts: [
+        {
+          field: "payload",
+          filename: "payload.json.gz",
+          bytes: 100,
+          sha256: "a".repeat(64),
+        },
+      ],
+    };
+
+    expect(parseReviewBugReportMeta(meta)).toEqual(meta);
+    expect(() =>
+      parseReviewBugReportMeta({ ...meta, trace_harness: "codex" }),
+    ).toThrow(/present only when the report has a trace/);
+  });
 });

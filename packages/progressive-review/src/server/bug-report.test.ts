@@ -126,35 +126,64 @@ describe("submitReviewBugReport", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it("keeps the schema 1 multipart path for reports without traces", async () => {
+  it("sends schema 2 payload parts for reports without traces", async () => {
     writeReview("disabled:review");
-    let url: string | undefined;
-    let headers: Headers | undefined;
-    let body: Buffer | undefined;
-    const fetchImpl: typeof fetch = async (input, init) => {
-      url = input.toString();
-      headers = new Headers(init?.headers);
-      body = Buffer.from(init?.body as Buffer);
-      return successResponse();
-    };
+    const capture = captureFetch();
 
     await submitReviewBugReport({
       report: report(),
       reviewDocumentPath: path.join(reviewRootPath, "review.mdx"),
       reviewRootPath,
       clientErrorNames: [],
-      fetchImpl,
+      fetchImpl: capture.fetchImpl,
     });
 
-    expect(url).toBe("https://bug.dev.fast/api/v1/reports");
-    expect(headers?.get("X-Review-Bug-Report-Schema")).toBeNull();
-    expect(headers?.get("content-type")).toContain(
-      "boundary=dev-fast-review-bug-report-v1",
-    );
-    expect(parseV1Multipart(body ?? Buffer.alloc(0)).payload).toMatchObject({
-      schema_version: 3,
-      description: "",
+    expect(capture.url()).toBe("https://bug.dev.fast/api/v2/reports");
+    expect(capture.headers().get("X-Review-Bug-Report-Schema")).toBeNull();
+    expect(capture.parts().map((part) => part.name)).toEqual([
+      "meta",
+      "payload",
+    ]);
+    const meta = JSON.parse(capture.textPart("meta")) as {
+      schema_version: number;
+      has_trace: boolean;
+      parts: Array<{ field: string; bytes: number; sha256: string }>;
+    };
+    expect(meta).toMatchObject({
+      schema_version: 2,
+      has_trace: false,
+      parts: [{ field: "payload" }],
     });
+    const payloadBytes = capture.filePart("payload");
+    expect(JSON.parse(gunzipSync(payloadBytes).toString("utf8"))).toMatchObject(
+      {
+        schema_version: 3,
+        description: "",
+      },
+    );
+    expect(meta.parts[0].bytes).toBe(payloadBytes.byteLength);
+    expect(meta.parts[0].sha256).toBe(sha256(payloadBytes));
+  });
+
+  it("does not retry a failed schema 2 report through schema 1", async () => {
+    writeReview("disabled:review");
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      Response.json({ ok: false, error: "Unavailable." }, { status: 503 }),
+    );
+
+    await expect(
+      submitReviewBugReport({
+        report: report(),
+        reviewDocumentPath: path.join(reviewRootPath, "review.mdx"),
+        reviewRootPath,
+        clientErrorNames: [],
+        fetchImpl,
+      }),
+    ).rejects.toMatchObject({ status: 502 });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(fetchImpl.mock.calls[0][0].toString()).toBe(
+      "https://bug.dev.fast/api/v2/reports",
+    );
   });
 
   function writeReview(sourceSession: string): void {
@@ -312,26 +341,4 @@ function codexTrace(
 
 function sha256(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
-}
-
-function parseV1Multipart(body: Buffer): {
-  meta: Record<string, unknown>;
-  payload: Record<string, unknown>;
-} {
-  const metaHeader = Buffer.from('Content-Disposition: form-data; name="meta"');
-  const payloadHeader = Buffer.from(
-    'Content-Disposition: form-data; name="payload"',
-  );
-  const metaPart = body.indexOf(metaHeader);
-  const metaStart = body.indexOf(Buffer.from("\r\n\r\n"), metaPart) + 4;
-  const metaEnd = body.indexOf(Buffer.from("\r\n--"), metaStart);
-  const payloadPart = body.indexOf(payloadHeader);
-  const payloadStart = body.indexOf(Buffer.from("\r\n\r\n"), payloadPart) + 4;
-  const payloadEnd = body.lastIndexOf(Buffer.from("\r\n--"));
-  return {
-    meta: JSON.parse(body.subarray(metaStart, metaEnd).toString("utf8")),
-    payload: JSON.parse(
-      gunzipSync(body.subarray(payloadStart, payloadEnd)).toString("utf8"),
-    ),
-  };
 }

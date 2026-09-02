@@ -97,8 +97,8 @@ export const ReviewBugReportMetaV2Schema = z
     has_map: z.boolean(),
     has_diff: z.boolean(),
     has_screenshot: z.boolean(),
-    has_trace: z.literal(true),
-    trace_harness: z.enum(["claude-code", "codex", "pi"]),
+    has_trace: z.boolean(),
+    trace_harness: z.enum(["claude-code", "codex", "pi"]).optional(),
     payload_bytes: z
       .number()
       .int()
@@ -123,20 +123,39 @@ export const ReviewBugReportMetaV2Schema = z
     truncated_map: z.boolean(),
     truncated_screenshot: z.boolean(),
     truncated_trace: z.boolean(),
-    parts: z.array(ReviewBugReportPartSchema).min(2).max(3),
+    parts: z.array(ReviewBugReportPartSchema).min(1).max(3),
   })
   .superRefine((meta, context) => {
     const fields = meta.parts.map((part) => part.field);
-    const expected =
-      meta.parts.length === 2
-        ? ["payload", "source_trace"]
-        : ["payload", "source_trace", "parent_trace"];
-    if (fields.some((field, index) => field !== expected[index])) {
+    const hasParent = fields.includes("parent_trace");
+    const expected = meta.has_trace
+      ? hasParent
+        ? ["payload", "source_trace", "parent_trace"]
+        : ["payload", "source_trace"]
+      : ["payload"];
+    if (
+      fields.length !== expected.length ||
+      fields.some((field, index) => field !== expected[index])
+    ) {
       context.addIssue({
         code: "custom",
         path: ["parts"],
         message:
-          "must list payload, source trace, and optional parent trace in order",
+          "must list payload and the optional source and parent traces in order",
+      });
+    }
+    if (meta.has_trace !== (meta.trace_harness !== undefined)) {
+      context.addIssue({
+        code: "custom",
+        path: ["trace_harness"],
+        message: "must be present only when the report has a trace",
+      });
+    }
+    if (!meta.has_trace && meta.truncated_trace) {
+      context.addIssue({
+        code: "custom",
+        path: ["truncated_trace"],
+        message: "must be false when the report has no trace",
       });
     }
     if (meta.parts[0]?.bytes !== meta.payload_bytes) {

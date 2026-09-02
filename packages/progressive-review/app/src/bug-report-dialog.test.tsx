@@ -118,8 +118,12 @@ describe("BugReportControl", () => {
     expect(privacyButton).not.toBeNull();
     expect(tooltip?.getAttribute("role")).toBe("tooltip");
     expect(tooltip?.textContent).toContain(
-      "Recognizable secrets are redacted, but other secrets may be included. The trace includes your prompts and code and is sent to /dev/fast",
+      "complete, uncapped authoring session trace",
     );
+    expect(tooltip?.textContent).toContain(
+      "each ancestor session up to its fork point",
+    );
+    expect(tooltip?.textContent).toContain("tail-capped subagent traces");
 
     await act(async () => traceCheckbox.click());
 
@@ -130,6 +134,22 @@ describe("BugReportControl", () => {
 
     await act(async () => reportButton().click());
     expect(checkbox("Agent session trace").checked).toBe(false);
+  });
+
+  it("explains how to send when the complete trace is unavailable", async () => {
+    request.mockImplementation(async (url) =>
+      url.includes("/telemetry/bug-report")
+        ? jsonResponse({ error: "Trace unavailable." }, 422)
+        : jsonResponse({ ok: true }),
+    );
+    await renderAndOpen();
+    await act(async () => checkbox("Agent session trace").click());
+
+    await act(async () => sendButton().click());
+
+    expect(container.textContent).toContain(
+      "The complete agent session trace couldn't be read. Uncheck 'Agent session trace' to send the report without it.",
+    );
   });
 
   it("shows an automatic screenshot and omits it after removal", async () => {
@@ -257,9 +277,9 @@ function tutorialBridge(): ReviewCanvasTutorialBridge {
   };
 }
 
-function jsonResponse(body: unknown): Response {
+function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
-    status: 200,
+    status,
     headers: { "content-type": "application/json" },
   });
 }

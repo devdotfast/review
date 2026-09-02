@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { mkdtemp, open, readdir, rm, stat } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -12,13 +12,21 @@ import {
   type ReviewAgentHarness,
   parseAuthoringSessionKey,
 } from "../authoring-session";
-import { findLocalTrace, traceEnvValue } from "../review-agent-traces";
+import {
+  codexSessionsRoot,
+  findCodexTraceInFiles,
+  findLocalTrace,
+  indexCodexTraceFiles,
+} from "../review-agent-traces";
 import { readReviewStoreRecord } from "../review-worktree-target";
 import { USER_DATA_REGEXES } from "../telemetry-clean-text";
 
 const MAX_SUBAGENT_TRACE_BYTES = 1024 * 1024;
 const MAX_SUBAGENT_TRACES = 10;
 const MAX_CODEX_ANCESTRY_DEPTH = 32;
+export const MAX_AUTHORING_TRACE_BYTES = 256 * 1024 * 1024;
+const MAX_CODEX_METADATA_BYTES = 1024 * 1024;
+const MAX_JSONL_RECORD_COMPLETION_BYTES = 1024 * 1024;
 const INCOMPLETE_FINAL_LINE_RETRIES = 3;
 const INCOMPLETE_FINAL_LINE_RETRY_MS = 50;
 
@@ -64,41 +72,48 @@ interface CodexHistoryBase {
   endOrdinalExclusive: number;
 }
 
-interface CodexSnapshot extends JsonlSnapshot {
+interface CodexMetadata {
   sessionId: string;
   historyBase?: CodexHistoryBase;
 }
 
 interface ResolvedTraceFile {
   sessionId: string;
-  snapshot: JsonlSnapshot;
+  path: string;
+  snapshotBytes: number;
   endOrdinalExclusive?: number;
 }
 
-const TRACE_SECRET_LABELS = new Set([
+const TRACE_SECRET_LABELS = [
   "Google API Key",
+  "Microsoft Entra ID",
   "JWT",
   "Slack Token",
   "GitHub Token",
-  "Microsoft Entra ID",
-]);
+] as const;
 
-const TRACE_SECRET_REGEXES = USER_DATA_REGEXES.filter(({ label }) =>
-  TRACE_SECRET_LABELS.has(label),
-).map(({ label, regex }) => ({
-  label,
-  // Shared telemetry only needs to detect these values. Trace reports retain
-  // their lines, so these expressions must consume the complete secret.
-  regex:
-    label === "Slack Token"
-      ? /xox[pbar]-[A-Za-z0-9-]+/g
-      : label === "Microsoft Entra ID"
-        ? /eyJ(?:0eXAiOiJKV1Qi|hbGci)[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g
-        : new RegExp(
-            regex.source,
-            regex.flags.includes("g") ? regex.flags : `${regex.flags}g`,
-          ),
-}));
+const TRACE_SECRET_REGEXES = TRACE_SECRET_LABELS.map((label) => {
+  const entry = USER_DATA_REGEXES.find(
+    (candidate) => candidate.label === label,
+  );
+  if (!entry) throw new Error(`Missing trace secret redaction for ${label}.`);
+  return {
+    label,
+    // Shared telemetry only needs to detect these values. Trace reports retain
+    // their lines, so these expressions must consume the complete secret.
+    regex:
+      label === "Slack Token"
+        ? /xox[pbar]-[A-Za-z0-9-]+/g
+        : label === "Microsoft Entra ID"
+          ? /eyJ(?:0eXAiOiJKV1Qi|hbGci)[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g
+          : new RegExp(
+              entry.regex.source,
+              entry.regex.flags.includes("g")
+                ? entry.regex.flags
+                : `${entry.regex.flags}g`,
+            ),
+  };
+});
 
 export async function readAuthoringTraceAttachment(input: {
   reviewRootPath: string;
@@ -117,19 +132,20 @@ export async function readAuthoringTraceAttachment(input: {
       sourceSession.sessionId,
       localTrace.tracePath,
     );
-    const parts = await Promise.all(
-      lineage.map((entry, index) =>
-        writeTracePart({
-          index,
-          sessionId: entry.sessionId,
-          outputPath: path.join(tempRoot, `trace-${index}.jsonl.gz`),
-          snapshot: entry.snapshot,
-          ...(entry.endOrdinalExclusive !== undefined
-            ? { endOrdinalExclusive: entry.endOrdinalExclusive }
-            : {}),
-        }),
-      ),
-    );
+    const parts: AuthoringTraceUploadPart[] = [];
+    for (const entry of lineage) {
+      const snapshot = await readJsonlSnapshot(entry.path, entry.snapshotBytes);
+      const part = await writeTracePart({
+        index: parts.length,
+        sessionId: entry.sessionId,
+        outputPath: path.join(tempRoot, `trace-${parts.length}.jsonl.gz`),
+        snapshot,
+        ...(entry.endOrdinalExclusive !== undefined
+          ? { endOrdinalExclusive: entry.endOrdinalExclusive }
+          : {}),
+      });
+      if (part) parts.push(part);
+    }
 
     const subagents = await readSubagentAttachments(localTrace.subagentPaths);
     return {
@@ -145,7 +161,7 @@ export async function readAuthoringTraceAttachment(input: {
       cleanup: () => rm(tempRoot, { recursive: true, force: true }),
     };
   } catch (error) {
-    await rm(tempRoot, { recursive: true, force: true });
+    await rm(tempRoot, { recursive: true, force: true }).catch(() => {});
     throw error;
   }
 }
@@ -156,61 +172,68 @@ async function resolveTraceLineage(
   tracePath: string,
 ): Promise<ResolvedTraceFile[]> {
   if (harness !== "codex") {
-    return [{ sessionId, snapshot: await readJsonlSnapshot(tracePath) }];
+    const snapshotBytes = await traceFileSize(tracePath);
+    return [{ sessionId, path: tracePath, snapshotBytes }];
   }
 
+  const rollouts = await listFilesRecursive(codexSessionsRoot());
+  const rolloutIndex = indexCodexTraceFiles(rollouts);
+  const resolvePath = (targetSessionId: string): string => {
+    if (targetSessionId === sessionId) return tracePath;
+    const resolved =
+      rolloutIndex.get(targetSessionId) ??
+      findCodexTraceInFiles(rollouts, targetSessionId);
+    if (!resolved) throw new Error("Codex trace parent could not be resolved.");
+    return resolved;
+  };
   const chain: ResolvedTraceFile[] = [];
   const seen = new Set<string>();
-  let current = await resolveCodexSnapshot(sessionId);
-  if (path.resolve(current.path) !== path.resolve(tracePath)) {
-    throw new Error("Codex source trace resolution is ambiguous.");
-  }
+  let currentSessionId = sessionId;
   let endOrdinalExclusive: number | undefined;
   while (true) {
-    if (seen.has(current.sessionId)) {
+    if (seen.has(currentSessionId)) {
       throw new Error("Codex trace ancestry contains a cycle.");
     }
     if (seen.size >= MAX_CODEX_ANCESTRY_DEPTH + 1) {
       throw new Error("Codex trace ancestry exceeds the supported depth.");
     }
-    seen.add(current.sessionId);
+    seen.add(currentSessionId);
+    const currentPath = resolvePath(currentSessionId);
+    const current = await readCodexMetadata(currentPath, currentSessionId);
     chain.push({
       sessionId: current.sessionId,
-      snapshot: current,
+      path: currentPath,
+      snapshotBytes: await traceFileSize(currentPath),
       ...(endOrdinalExclusive !== undefined ? { endOrdinalExclusive } : {}),
     });
-    if (!current.historyBase) return chain;
-    endOrdinalExclusive = current.historyBase.endOrdinalExclusive;
-    current = await resolveCodexSnapshot(current.historyBase.threadId);
+    if (!current.historyBase) break;
+    endOrdinalExclusive = Math.min(
+      endOrdinalExclusive ?? Number.POSITIVE_INFINITY,
+      current.historyBase.endOrdinalExclusive,
+    );
+    currentSessionId = current.historyBase.threadId;
   }
+  const lineageBytes = chain.reduce(
+    (total, entry) => total + entry.snapshotBytes,
+    0,
+  );
+  if (lineageBytes > MAX_AUTHORING_TRACE_BYTES) {
+    throw new Error("Trace lineage exceeds the supported size.");
+  }
+  return chain;
 }
 
-async function resolveCodexSnapshot(sessionId: string): Promise<CodexSnapshot> {
-  const codexRoot =
-    traceEnvValue("TRACE_CODEX_SESSIONS_ROOT") ||
-    path.join(homedir(), ".codex", "sessions");
-  const suffix = `-${sessionId}.jsonl`;
-  const candidates = (await listFilesRecursive(codexRoot)).filter((entry) => {
-    const name = path.basename(entry);
-    return name.startsWith("rollout-") && name.endsWith(suffix);
-  });
-  if (candidates.length !== 1) {
-    throw new Error("Codex trace resolution requires exactly one rollout.");
-  }
-
-  const snapshot = await readJsonlSnapshot(candidates[0]);
-  const first = snapshot.records[0];
-  if (first?.value.type !== "session_meta") {
+async function readCodexMetadata(
+  filePath: string,
+  sessionId: string,
+): Promise<CodexMetadata> {
+  const first = await readFirstJsonlRecord(filePath);
+  if (first.type !== "session_meta") {
     throw new Error("Codex trace does not start with session metadata.");
   }
-  const payload = objectValue(first.value.payload);
+  const payload = objectValue(first.payload);
   if (payload?.id !== sessionId) {
     throw new Error("Codex trace metadata does not match its session id.");
-  }
-  for (const record of snapshot.records) {
-    if (!Number.isSafeInteger(record.ordinal) || (record.ordinal ?? -1) < 0) {
-      throw new Error("Codex trace record is missing a valid ordinal.");
-    }
   }
   const historyBaseValue = objectValue(payload.history_base);
   let historyBase: CodexHistoryBase | undefined;
@@ -229,10 +252,38 @@ async function resolveCodexSnapshot(sessionId: string): Promise<CodexSnapshot> {
   }
 
   return {
-    ...snapshot,
     sessionId,
     ...(historyBase ? { historyBase } : {}),
   };
+}
+
+async function readFirstJsonlRecord(filePath: string): Promise<JsonObject> {
+  const handle = await open(filePath, "r");
+  try {
+    const { size } = await handle.stat();
+    if (size <= 0) throw new Error("Trace file is empty.");
+    const length = Math.min(size, MAX_CODEX_METADATA_BYTES);
+    const bytes = await readBytes(handle, 0, length);
+    const newline = bytes.indexOf(0x0a);
+    if (newline === -1 && size > length) {
+      throw new Error("Codex session metadata is too large.");
+    }
+    const record = parseJsonl(
+      newline === -1 ? bytes : bytes.subarray(0, newline + 1),
+    );
+    return record[0].value;
+  } finally {
+    await handle.close();
+  }
+}
+
+async function traceFileSize(filePath: string): Promise<number> {
+  const { size } = await stat(filePath);
+  if (size <= 0) throw new Error("Trace file is empty.");
+  if (size > MAX_AUTHORING_TRACE_BYTES) {
+    throw new Error("Trace lineage exceeds the supported size.");
+  }
+  return size;
 }
 
 async function listFilesRecursive(root: string): Promise<string[]> {
@@ -249,28 +300,36 @@ async function listFilesRecursive(root: string): Promise<string[]> {
   return results.sort();
 }
 
-async function readJsonlSnapshot(filePath: string): Promise<JsonlSnapshot> {
+async function readJsonlSnapshot(
+  filePath: string,
+  snapshotBytes: number,
+): Promise<JsonlSnapshot> {
   const handle = await open(filePath, "r");
   try {
-    const initialSize = (await handle.stat()).size;
-    if (initialSize <= 0) throw new Error("Trace file is empty.");
-    let bytes = await readBytes(handle, initialSize);
-    try {
-      return { path: filePath, records: parseJsonl(bytes) };
-    } catch (error) {
-      if (!(error instanceof IncompleteFinalRecordError)) throw error;
-    }
-
-    for (let attempt = 0; attempt < INCOMPLETE_FINAL_LINE_RETRIES; attempt++) {
-      await delay(INCOMPLETE_FINAL_LINE_RETRY_MS);
-      const currentSize = (await handle.stat()).size;
-      if (currentSize <= initialSize) continue;
-      const currentBytes = await readBytes(handle, currentSize);
-      const completionEnd = currentBytes.indexOf(0x0a, initialSize);
-      bytes =
-        completionEnd === -1
-          ? currentBytes
-          : currentBytes.subarray(0, completionEnd + 1);
+    let bytes = await readBytes(handle, 0, snapshotBytes);
+    for (let attempt = 0; attempt <= INCOMPLETE_FINAL_LINE_RETRIES; attempt++) {
+      if (attempt > 0) {
+        await delay(INCOMPLETE_FINAL_LINE_RETRY_MS);
+        const currentSize = (await handle.stat()).size;
+        if (currentSize > bytes.length) {
+          const nextSize = Math.min(
+            currentSize,
+            bytes.length + MAX_JSONL_RECORD_COMPLETION_BYTES,
+          );
+          const appended = await readBytes(
+            handle,
+            bytes.length,
+            nextSize - bytes.length,
+          );
+          const completionEnd = appended.indexOf(0x0a);
+          bytes = Buffer.concat([
+            bytes,
+            completionEnd === -1
+              ? appended
+              : appended.subarray(0, completionEnd + 1),
+          ]);
+        }
+      }
       try {
         return { path: filePath, records: parseJsonl(bytes) };
       } catch (error) {
@@ -285,12 +344,18 @@ async function readJsonlSnapshot(filePath: string): Promise<JsonlSnapshot> {
 
 async function readBytes(
   handle: Awaited<ReturnType<typeof open>>,
+  position: number,
   size: number,
 ): Promise<Buffer> {
   const bytes = Buffer.alloc(size);
   let offset = 0;
   while (offset < size) {
-    const result = await handle.read(bytes, offset, size - offset, offset);
+    const result = await handle.read(
+      bytes,
+      offset,
+      size - offset,
+      position + offset,
+    );
     if (result.bytesRead === 0) break;
     offset += result.bytesRead;
   }
@@ -344,19 +409,17 @@ async function writeTracePart(input: {
   outputPath: string;
   snapshot: JsonlSnapshot;
   endOrdinalExclusive?: number;
-}): Promise<AuthoringTraceUploadPart> {
+}): Promise<AuthoringTraceUploadPart | null> {
   const records =
     input.endOrdinalExclusive === undefined
       ? input.snapshot.records
       : input.snapshot.records.filter((record) => {
-          if (record.ordinal === undefined) {
-            throw new Error("Codex trace record is missing an ordinal.");
+          if (record.ordinal === undefined || record.ordinal < 0) {
+            throw new Error("Codex trace record is missing a valid ordinal.");
           }
           return record.ordinal < input.endOrdinalExclusive!;
         });
-  if (records.length === 0) {
-    throw new Error("Trace part has no records before the fork point.");
-  }
+  if (records.length === 0) return null;
   const source = Readable.from(
     (async function* () {
       for (const record of records) {

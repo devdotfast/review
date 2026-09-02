@@ -54,7 +54,7 @@ type AttachmentError = {
   error: "unavailable";
 };
 
-interface BugReportPayload {
+export interface BugReportPayload {
   schema_version: 4;
   description: string;
   screenshot?: { mime: "image/jpeg"; base64: string };
@@ -93,6 +93,7 @@ export async function submitReviewBugReport(input: {
   reviewRootPath: string;
   clientErrorNames: string[];
   fetchImpl?: typeof fetch;
+  readTraceAttachment?: typeof readAuthoringTraceAttachment;
 }) {
   const cliVersion = readProgressiveReviewPackageVersion();
   const attachmentErrors: AttachmentError[] = [];
@@ -167,7 +168,7 @@ export async function submitReviewBugReport(input: {
   }
   if (input.report.include_trace) {
     tasks.push(
-      readAuthoringTraceAttachment({
+      (input.readTraceAttachment ?? readAuthoringTraceAttachment)({
         reviewRootPath: input.reviewRootPath,
       }).then(
         (trace) => {
@@ -225,54 +226,79 @@ export async function submitReviewBugReport(input: {
     const responseBody = await response.json().catch(() => null);
     if (!response.ok) {
       throw new BugReportUpstreamError(
-        response.status === 429 || response.status === 413
+        response.status === 429 ||
+          response.status === 413 ||
+          response.status === 422
           ? response.status
           : 502,
         response.status === 429
           ? "Too many reports. Try again later."
           : response.status === 413
             ? "Bug report is too large."
-            : "Bug report service failed.",
+            : response.status === 422
+              ? "The complete authoring trace is unavailable."
+              : "Bug report service failed.",
       );
     }
     const result = parseReviewBugReportResponse(responseBody);
     if (!result.ok) throw new BugReportUpstreamError(502, result.error);
     return result;
   } finally {
-    await traceAttachment?.cleanup();
+    await traceAttachment?.cleanup().catch(() => {});
   }
 }
 
-async function buildBugReportRequest(
+export async function buildBugReportRequest(
   payload: BugReportPayload,
   trace: AuthoringTraceAttachment | undefined,
-  input: { appVersion: string; cliVersion: string },
+  input: {
+    appVersion: string;
+    cliVersion: string;
+    maxPayloadBytes?: number;
+  },
 ): Promise<{ body: FormData }> {
+  const maxPayloadBytes = input.maxPayloadBytes ?? MAX_PAYLOAD_BYTES;
   let truncatedDiff = false;
   let truncatedMap = false;
   let truncatedScreenshot = false;
   let payloadBytes = gzipPayload(payload);
 
-  if (payloadBytes.byteLength > MAX_PAYLOAD_BYTES && payload.diff) {
+  if (
+    payloadBytes.byteLength > maxPayloadBytes &&
+    payload.trace &&
+    Object.keys(payload.trace.files).length > 0
+  ) {
+    payload.trace.omitted_files = [
+      ...new Set([
+        ...(payload.trace.omitted_files ?? []),
+        ...Object.keys(payload.trace.files),
+      ]),
+    ].sort();
+    payload.trace.files = {};
+    payload.trace.truncated = true;
+    payloadBytes = gzipPayload(payload);
+  }
+
+  if (payloadBytes.byteLength > maxPayloadBytes && payload.diff) {
     delete payload.diff;
     truncatedDiff = true;
     payloadBytes = gzipPayload(payload);
   }
-  if (payloadBytes.byteLength > MAX_PAYLOAD_BYTES && payload.map) {
+  if (payloadBytes.byteLength > maxPayloadBytes && payload.map) {
     delete payload.map;
     truncatedMap = true;
     payloadBytes = gzipPayload(payload);
   }
-  if (payloadBytes.byteLength > MAX_PAYLOAD_BYTES && payload.screenshot) {
+  if (payloadBytes.byteLength > maxPayloadBytes && payload.screenshot) {
     delete payload.screenshot;
     truncatedScreenshot = true;
     payloadBytes = gzipPayload(payload);
   }
-  if (payloadBytes.byteLength > MAX_PAYLOAD_BYTES && payload.review) {
+  if (payloadBytes.byteLength > maxPayloadBytes && payload.review) {
     delete payload.review;
     payloadBytes = gzipPayload(payload);
   }
-  if (payloadBytes.byteLength > MAX_PAYLOAD_BYTES) {
+  if (payloadBytes.byteLength > maxPayloadBytes) {
     throw new BugReportUpstreamError(413, "Bug report is too large.");
   }
 

@@ -908,9 +908,7 @@ export async function findLocalTrace(
   const claudeRoot =
     traceEnvValue("TRACE_LOCAL_TRACE_ROOT") ||
     path.join(homedir(), ".claude", "projects");
-  const codexRoot =
-    traceEnvValue("TRACE_CODEX_SESSIONS_ROOT") ||
-    path.join(homedir(), ".codex", "sessions");
+  const codexRoot = codexSessionsRoot();
   const piRoot =
     traceEnvValue("TRACE_PI_SESSIONS_ROOT") ||
     path.join(homedir(), ".pi", "agent", "sessions");
@@ -956,15 +954,33 @@ function findClaudeTrace(root: string, sessionId: string): string | null {
 
 function findCodexTrace(root: string, sessionId: string): string | null {
   if (!existsSync(root)) return null;
+  return findCodexTraceInFiles(listFilesRecursive(root), sessionId);
+}
+
+export function findCodexTraceInFiles(
+  files: string[],
+  sessionId: string,
+): string | null {
   const suffix = `-${sessionId}.jsonl`;
-  const allFiles = listFilesRecursive(root);
-  for (const entry of allFiles.sort()) {
+  return (
+    [...files].sort().find((entry) => {
+      const name = path.basename(entry);
+      return name.startsWith("rollout-") && name.endsWith(suffix);
+    }) ?? null
+  );
+}
+
+export function indexCodexTraceFiles(files: string[]): Map<string, string> {
+  const index = new Map<string, string>();
+  for (const entry of [...files].sort()) {
     const name = path.basename(entry);
-    if (name.startsWith("rollout-") && name.endsWith(suffix)) {
-      return entry;
-    }
+    const match =
+      /^rollout-.*-([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\.jsonl$/i.exec(
+        name,
+      );
+    if (match && !index.has(match[1])) index.set(match[1], entry);
   }
-  return null;
+  return index;
 }
 
 function findPiTrace(root: string, sessionId: string): string | null {
@@ -1481,6 +1497,17 @@ function traceEnvFile(): Record<string, string> {
 
 export function traceEnvValue(name: string): string | undefined {
   return process.env[name] ?? traceEnvFile()[name];
+}
+
+export function codexSessionsRoot(): string {
+  const codexHome = traceEnvValue("CODEX_HOME");
+  return (
+    traceEnvValue("TRACE_CODEX_SESSIONS_ROOT") ||
+    path.join(
+      codexHome ? path.resolve(codexHome) : path.join(homedir(), ".codex"),
+      "sessions",
+    )
+  );
 }
 
 export function traceR2Config(): TraceR2Config | null {

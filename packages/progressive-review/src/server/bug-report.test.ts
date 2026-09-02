@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -11,7 +11,12 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { clearTraceEnvCache } from "../review-agent-traces";
-import { submitReviewBugReport } from "./bug-report";
+import {
+  type BugReportPayload,
+  buildBugReportRequest,
+  submitReviewBugReport,
+} from "./bug-report";
+import type { AuthoringTraceAttachment } from "./bug-report-trace";
 
 describe("submitReviewBugReport", () => {
   let tempDir: string;
@@ -243,6 +248,89 @@ describe("submitReviewBugReport", () => {
     );
   });
 
+  it("drops subagent trace files before a changed-file diff", async () => {
+    const trace: AuthoringTraceAttachment = {
+      payload: {
+        harness: "claude-code",
+        files: {
+          "subagents/agent.jsonl": randomBytes(2048).toString("base64"),
+        },
+        truncated: false,
+      },
+      parts: [],
+      cleanup: async () => {},
+    };
+    const payload: BugReportPayload = {
+      schema_version: 4,
+      description: "",
+      trace: trace.payload,
+      diff: {
+        baseRef: "base",
+        headRef: "head",
+        files: [
+          {
+            path: "src/example.ts",
+            status: "modified",
+            additions: 1,
+            deletions: 1,
+            patch: "@@ -1 +1 @@\n-old\n+new",
+          },
+        ],
+      },
+      diagnostics: diagnostics(),
+    };
+
+    const request = await buildBugReportRequest(payload, trace, {
+      appVersion: "1.2.3",
+      cliVersion: "0.0.1",
+      maxPayloadBytes: 1024,
+    });
+    const formPayload = request.body.get("payload");
+    if (!(formPayload instanceof Blob)) throw new Error("Missing payload.");
+    const fitted = JSON.parse(
+      gunzipSync(Buffer.from(await formPayload.arrayBuffer())).toString("utf8"),
+    );
+    const meta = JSON.parse(String(request.body.get("meta")));
+
+    expect(fitted.trace).toEqual({
+      harness: "claude-code",
+      files: {},
+      omitted_files: ["subagents/agent.jsonl"],
+      truncated: true,
+    });
+    expect(fitted).toHaveProperty("diff.files.0.path", "src/example.ts");
+    expect(meta).toMatchObject({
+      has_diff: true,
+      truncated_diff: false,
+      truncated_trace: true,
+    });
+  });
+
+  it("does not replace a successful submit when trace cleanup fails", async () => {
+    writeReview("claude-code:cleanup-test");
+    const cleanup = vi.fn<() => Promise<void>>(async () => {
+      throw new Error("busy");
+    });
+    const trace: AuthoringTraceAttachment = {
+      payload: { harness: "claude-code", files: {}, truncated: false },
+      parts: [],
+      cleanup,
+    };
+    const capture = captureFetch();
+
+    await expect(
+      submitReviewBugReport({
+        report: report({ include_trace: true }),
+        reviewDocumentPath: path.join(reviewRootPath, "review.mdx"),
+        reviewRootPath,
+        clientErrorNames: [],
+        fetchImpl: capture.fetchImpl,
+        readTraceAttachment: async () => trace,
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    expect(cleanup).toHaveBeenCalledOnce();
+  });
+
   function writeReview(sourceSession: string): void {
     writeFileSync(
       path.join(reviewRootPath, "review.json"),
@@ -311,6 +399,16 @@ function report(
     app_session_id: "session-1234567890",
     app_version: "1.2.3",
     ...overrides,
+  };
+}
+
+function diagnostics(): BugReportPayload["diagnostics"] {
+  return {
+    app_version: "1.2.3",
+    cli_version: "0.0.1",
+    platform: process.platform,
+    app_session_id: "session-1234567890",
+    client_error_names: [],
   };
 }
 

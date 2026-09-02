@@ -7,6 +7,7 @@ import type { ReviewDesktopGlobalEvent } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { readLiveReviewPage } from "../live-review-store";
+import { ProgressiveReviewTelemetry } from "../progressive-review-telemetry";
 import { findReview } from "../review-home";
 import type { ReviewSubmissionEvent } from "../types";
 import { createGlobalReviewServer } from "./desktop-server";
@@ -350,7 +351,7 @@ describe("Review Desktop live Review transport", () => {
       await server.close();
       await rm(home, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   it("reports unexpected persisted-state failures as server errors", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "live-review-server-"));
@@ -421,6 +422,78 @@ describe("Review Desktop live Review transport", () => {
       });
       expect(stored?.review.viewedAt).toEqual(expect.any(String));
     } finally {
+      await server.close();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("installs the latest lifecycle state when open races a status write", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "live-review-server-"));
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+    const handlers: ReviewSessionHandlerInput[] = [];
+    const telemetry = new ProgressiveReviewTelemetry({
+      env: { ...process.env, DO_NOT_TRACK: "1" },
+    });
+    const openReachedTelemetry = deferred();
+    const releaseOpen = deferred();
+    let pauseRestoredOpen = false;
+    vi.spyOn(telemetry, "captureUiEvent").mockImplementation(async (event) => {
+      if (pauseRestoredOpen && event === "review_review_restored") {
+        openReachedTelemetry.resolve();
+        await releaseOpen.promise;
+      }
+    });
+    const server = createGlobalReviewServer({
+      appPid: process.pid,
+      packageRoot,
+      toolingRoot: packageRoot,
+      port: 0,
+      token,
+      discoveryPath: path.join(home, "desktop.json"),
+      telemetry,
+      sessionHandlerFactory: async (input) => {
+        handlers.push(input);
+        return stubSessionHandler();
+      },
+    });
+
+    try {
+      await server.listen();
+      const created = await liveJson(server.url, "/live-reviews", {
+        requestId: requestId(51),
+        cwd: repoRoot,
+        source: { kind: "current-checkout" },
+        title: "Open state race tracer",
+      });
+      const uuid = String(
+        (created.body as { info: { reviewId: string } }).info.reviewId,
+      );
+      const dismissed = await liveRequest(
+        server.url,
+        `/reviews/${uuid}/dismiss`,
+        { method: "POST" },
+      );
+      expect(dismissed.status).toBe(200);
+
+      pauseRestoredOpen = true;
+      const opening = liveRequest(server.url, `/live-reviews/${uuid}/open`, {
+        method: "POST",
+      });
+      await openReachedTelemetry.promise;
+      const status = await liveJson(
+        server.url,
+        `/live-reviews/${uuid}/status`,
+        { status: "awaiting-review" },
+      );
+      expect(status.response.status).toBe(200);
+      releaseOpen.resolve();
+
+      expect((await opening).status).toBe(200);
+      expect((await findReview(uuid))?.review.status).toBe("awaiting-review");
+      expect(handlers).toHaveLength(1);
+      expect(handlers[0]!.getReviewStatus?.()).toBe("awaiting-review");
+    } finally {
+      releaseOpen.resolve();
       await server.close();
       await rm(home, { recursive: true, force: true });
     }
@@ -523,7 +596,74 @@ describe("Review Desktop live Review transport", () => {
       await rm(home, { recursive: true, force: true });
     }
   });
+
+  it("keeps a concurrent same-request create retry isolated from bootstrap rollback", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "live-review-server-"));
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+    const firstRegistrationStarted = deferred();
+    const releaseFirstRegistration = deferred();
+    let registrationAttempts = 0;
+    const server = createGlobalReviewServer({
+      appPid: process.pid,
+      packageRoot,
+      toolingRoot: packageRoot,
+      port: 0,
+      token,
+      discoveryPath: path.join(home, "desktop.json"),
+      sessionHandlerFactory: async () => {
+        registrationAttempts += 1;
+        if (registrationAttempts === 1) {
+          firstRegistrationStarted.resolve();
+          await releaseFirstRegistration.promise;
+          throw new Error("first canvas registration failed");
+        }
+        return stubSessionHandler();
+      },
+    });
+
+    try {
+      await server.listen();
+      const body = {
+        requestId: requestId(52),
+        cwd: repoRoot,
+        source: { kind: "current-checkout" },
+        title: "Concurrent rollback tracer",
+      };
+      const first = liveJson(server.url, "/live-reviews", body);
+      await firstRegistrationStarted.promise;
+      const retry = liveJson(server.url, "/live-reviews", body);
+      releaseFirstRegistration.resolve();
+
+      const [failed, succeeded] = await Promise.all([first, retry]);
+      expect(failed.response.status).toBe(500);
+      expect(succeeded.response.status).toBe(201);
+      expect(registrationAttempts).toBe(2);
+      const retryUuid = String(
+        (succeeded.body as { info: { reviewId: string } }).info.reviewId,
+      );
+      const listed = await liveRequest(
+        server.url,
+        `/live-reviews?cwd=${encodeURIComponent(repoRoot)}`,
+      );
+      await expect(listed.json()).resolves.toMatchObject({
+        reviews: [{ id: retryUuid }],
+      });
+      expect(await findReview(retryUuid)).toBeDefined();
+    } finally {
+      releaseFirstRegistration.resolve();
+      await server.close();
+      await rm(home, { recursive: true, force: true });
+    }
+  }, 15_000);
 });
+
+function deferred(): { promise: Promise<void>; resolve(): void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 
 function liveReviewServer(home: string, handlers: ReviewSessionHandlerInput[]) {
   return createGlobalReviewServer({

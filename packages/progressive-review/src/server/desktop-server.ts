@@ -35,8 +35,8 @@ import {
 } from "../authoring-session";
 import { preferredInstalledReviewAgent } from "../installed-review-agent";
 import {
-  hasLiveReviewPage,
   LiveReviewVersionConflictError,
+  hasLiveReviewPage,
 } from "../live-review-store";
 import {
   liveReviewCreateRequestSchema,
@@ -125,14 +125,14 @@ import {
 import { HttpJsonError } from "./http-json";
 import { ReviewLifecycleRegistry } from "./lifecycle-registry";
 import {
+  LiveReviewRequestConflictError,
+  LiveReviewTerminalError,
   createLiveReview,
   handoffLiveReview,
   listLiveReviews,
   liveReviewAuthoringTarget,
   liveReviewInfo,
   liveReviewNode,
-  LiveReviewRequestConflictError,
-  LiveReviewTerminalError,
   renderLiveReviewMdx,
   requireLiveReviewPage,
 } from "./live-review-service";
@@ -455,33 +455,32 @@ export function createGlobalReviewServer(
     const request = liveReviewCreateRequestSchema.parse(
       await readBoundedRequestJson(context.req.raw),
     );
-    const created = await withReviewLock(
-      `live-create:${request.requestId}`,
-      () => createLiveReview(request),
-    );
-    try {
-      // Persistence completes before registration because the review lock is
-      // intentionally non-reentrant. A failed registration removes the new
-      // Review, so callers never receive an unusable bootstrap.
-      const opened = await openStoredLiveReview({
-        review: created.review,
-        background: false,
-      });
-      return globalJson(created.replayed ? 200 : 201, {
-        ...opened.body,
-        info: created.info,
-      });
-    } catch (error) {
-      if (!created.replayed) {
-        await deleteStoredReview(created.review).catch((cleanupError) => {
-          console.error(
-            "Could not roll back live Review creation:",
-            cleanupError,
-          );
+    return withReviewLock(`live-create:${request.requestId}`, async () => {
+      const created = await createLiveReview(request);
+      try {
+        // The request lock spans persistence, registration, and rollback so a
+        // same-ID retry cannot observe a receipt that the first caller is
+        // about to remove. Registration takes the distinct per-review lock.
+        const opened = await openStoredLiveReview({
+          review: created.review,
+          background: false,
         });
+        return globalJson(created.replayed ? 200 : 201, {
+          ...opened.body,
+          info: created.info,
+        });
+      } catch (error) {
+        if (!created.replayed) {
+          await deleteStoredReview(created.review).catch((cleanupError) => {
+            console.error(
+              "Could not roll back live Review creation:",
+              cleanupError,
+            );
+          });
+        }
+        throw error;
       }
-      throw error;
-    }
+    });
   });
   app.post("/live-reviews/:uuid/open", async (context) => {
     const review = await requireStoredLiveReview(context.req.param("uuid"));
@@ -1065,13 +1064,6 @@ export function createGlobalReviewServer(
         return { viewed, wasDismissed };
       },
     );
-    const descriptor = await reviewDescriptor(viewed);
-    const homeReview: ReviewDescriptor = {
-      ...descriptor,
-      viewedAt: viewed.review.viewedAt ?? null,
-      dismissedAt: viewed.review.dismissedAt ?? null,
-      reapsAt: null,
-    };
     if (wasDismissed && input.request) {
       await captureSanitizedUiTelemetry(
         telemetry,
@@ -1081,43 +1073,49 @@ export function createGlobalReviewServer(
       );
     }
 
-    const existing = activeSessionForReview(review.review.uuid);
-    if (existing) {
-      existing.review = viewed;
-      existing.appSessionId ??= input.appSessionId;
-      if (!input.background) {
-        void relay.dispatch(existing.descriptor.sessionId, {
-          name: "focusCanvas",
-          args: {},
-        });
+    // Descriptor and telemetry work above intentionally happens outside the
+    // lock. Reload at the point of installation so a lifecycle mutation that
+    // completed in that gap cannot be overwritten by the older `viewed`
+    // snapshot in the in-memory session.
+    const installed = await withReviewLock(review.review.uuid, async () => {
+      const latest = await requireStoredReview(review.review.uuid);
+      const existing = activeSessionForReview(review.review.uuid);
+      if (existing) {
+        existing.review = latest;
+        existing.appSessionId ??= input.appSessionId;
+        return { active: existing, review: latest, existed: true } as const;
       }
-      return {
-        status: 200,
-        review: viewed,
-        body: {
-          sessionId: existing.descriptor.sessionId,
-          url: existing.descriptor.sessionUrl,
-          session: existing.descriptor,
-          review: homeReview,
-        },
-      };
-    }
-    const active = await registerSerialized({
-      review: viewed,
-      documentPath: path.join(viewed.dir, "review.mdx"),
-      promoted: true,
-      announce: true,
-      focusCanvas: !input.background,
-      background: input.background,
-      appSessionId: input.appSessionId,
+      const active = await registerSession({
+        review: latest,
+        documentPath: path.join(latest.dir, "review.mdx"),
+        promoted: true,
+        announce: true,
+        focusCanvas: !input.background,
+        background: input.background,
+        appSessionId: input.appSessionId,
+      });
+      return { active, review: latest, existed: false } as const;
     });
+    const descriptor = await reviewDescriptor(installed.review);
+    const homeReview: ReviewDescriptor = {
+      ...descriptor,
+      viewedAt: installed.review.review.viewedAt ?? null,
+      dismissedAt: installed.review.review.dismissedAt ?? null,
+      reapsAt: null,
+    };
+    if (installed.existed && !input.background) {
+      void relay.dispatch(installed.active.descriptor.sessionId, {
+        name: "focusCanvas",
+        args: {},
+      });
+    }
     return {
-      status: 201,
-      review: viewed,
+      status: installed.existed ? 200 : 201,
+      review: installed.review,
       body: {
-        sessionId: active.descriptor.sessionId,
-        url: active.descriptor.sessionUrl,
-        session: active.descriptor,
+        sessionId: installed.active.descriptor.sessionId,
+        url: installed.active.descriptor.sessionUrl,
+        session: installed.active.descriptor,
         review: homeReview,
       },
     };

@@ -20,7 +20,7 @@ import {
 import { readReviewStoreRecord } from "../review-worktree-target";
 import { USER_DATA_REGEXES } from "../telemetry-clean-text";
 
-const MAX_SUBAGENT_TRACE_BYTES = 1024 * 1024;
+const MAX_SUBAGENT_TRACE_BYTES = 5 * 1024 * 1024;
 const MAX_SUBAGENT_TRACES = 10;
 const MAX_CODEX_ANCESTRY_DEPTH = 32;
 export const MAX_AUTHORING_TRACE_BYTES = 256 * 1024 * 1024;

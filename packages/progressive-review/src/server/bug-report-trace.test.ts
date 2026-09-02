@@ -22,7 +22,7 @@ import {
   readAuthoringTraceAttachment,
 } from "./bug-report-trace";
 
-const SUBAGENT_TRACE_CAP_BYTES = 1024 * 1024;
+const SUBAGENT_TRACE_CAP_BYTES = 5 * 1024 * 1024;
 
 describe("readAuthoringTraceAttachment", () => {
   let tempDir: string;

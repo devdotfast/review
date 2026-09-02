@@ -278,23 +278,13 @@ async function buildBugReportRequest(
   }
 
   const traceParts: ReviewBugReportMetaV2["parts"] =
-    trace?.parts.map((part) =>
-      part.field === "source_trace"
-        ? {
-            field: "source_trace",
-            filename: "source.jsonl.gz",
-            session_id: part.session_id,
-            bytes: part.bytes,
-            sha256: part.sha256,
-          }
-        : {
-            field: "parent_trace",
-            filename: "parent.jsonl.gz",
-            session_id: part.session_id,
-            bytes: part.bytes,
-            sha256: part.sha256,
-          },
-    ) ?? [];
+    trace?.parts.map((part) => ({
+      field: "trace",
+      filename: part.filename,
+      session_id: part.session_id,
+      bytes: part.bytes,
+      sha256: part.sha256,
+    })) ?? [];
   const parts: ReviewBugReportMetaV2["parts"] = [
     {
       field: "payload",

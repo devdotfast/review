@@ -16,14 +16,16 @@ import { submitReviewBugReport } from "./bug-report";
 describe("submitReviewBugReport", () => {
   let tempDir: string;
   let reviewRootPath: string;
+  let claudeRoot: string;
   let codexRoot: string;
+  let piRoot: string;
 
   beforeEach(() => {
     tempDir = mkdtempSync(path.join(tmpdir(), "bug-report-submit-"));
     reviewRootPath = path.join(tempDir, "review");
     codexRoot = path.join(tempDir, "codex");
-    const claudeRoot = path.join(tempDir, "claude");
-    const piRoot = path.join(tempDir, "pi");
+    claudeRoot = path.join(tempDir, "claude");
+    piRoot = path.join(tempDir, "pi");
     for (const directory of [reviewRootPath, codexRoot, claudeRoot, piRoot]) {
       mkdirSync(directory, { recursive: true });
     }
@@ -41,7 +43,7 @@ describe("submitReviewBugReport", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("sends ordered schema 2 parts for the complete child and parent traces", async () => {
+  it("sends ordered generic parts for a complete Codex lineage", async () => {
     const parentId = "11111111-1111-4111-8111-111111111111";
     const childId = "22222222-2222-4222-8222-222222222222";
     const parentAtFork = codexTrace(parentId, 0, [{ parent: true }]);
@@ -70,19 +72,29 @@ describe("submitReviewBugReport", () => {
     expect(capture.parts().map((part) => part.name)).toEqual([
       "meta",
       "payload",
-      "source_trace",
-      "parent_trace",
+      "trace",
+      "trace",
     ]);
     const meta = JSON.parse(capture.textPart("meta")) as {
       schema_version: number;
       payload_bytes: number;
-      parts: Array<{ field: string; bytes: number; sha256: string }>;
+      parts: Array<{
+        field: string;
+        filename: string;
+        bytes: number;
+        sha256: string;
+      }>;
     };
     expect(meta.schema_version).toBe(2);
     expect(meta.parts.map((part) => part.field)).toEqual([
       "payload",
-      "source_trace",
-      "parent_trace",
+      "trace",
+      "trace",
+    ]);
+    expect(meta.parts.map((part) => part.filename)).toEqual([
+      "payload.json.gz",
+      "trace-0.jsonl.gz",
+      "trace-1.jsonl.gz",
     ]);
 
     const payloadBytes = capture.filePart("payload");
@@ -92,23 +104,80 @@ describe("submitReviewBugReport", () => {
       trace: {
         harness: "codex",
         session_id: childId,
-        parent_session_id: parentId,
+        sessions: [
+          {
+            session_id: childId,
+            parent_session_id: parentId,
+            parent_end_ordinal_exclusive: 2,
+          },
+          { session_id: parentId },
+        ],
         truncated: false,
       },
     });
-    expect(gunzipSync(capture.filePart("source_trace")).toString("utf8")).toBe(
-      child,
-    );
-    expect(gunzipSync(capture.filePart("parent_trace")).toString("utf8")).toBe(
-      parent,
-    );
+    const traceFiles = capture.fileParts("trace");
+    expect(traceFiles).toHaveLength(2);
+    expect(gunzipSync(traceFiles[0]).toString("utf8")).toBe(child);
+    expect(gunzipSync(traceFiles[1]).toString("utf8")).toBe(parentAtFork);
     expect(meta.payload_bytes).toBe(payloadBytes.byteLength);
-    for (const part of meta.parts) {
-      const bytes = capture.filePart(part.field);
+    const files = [payloadBytes, ...traceFiles];
+    for (const [index, part] of meta.parts.entries()) {
+      const bytes = files[index];
       expect(part.bytes).toBe(bytes.byteLength);
       expect(part.sha256).toBe(sha256(bytes));
     }
   });
+
+  it.each([
+    ["claude-code", "33333333-3333-4333-8333-333333333333"],
+    ["pi", "44444444-4444-4444-8444-444444444444"],
+  ] as const)(
+    "sends an opted-in %s trace through the generic field",
+    async (harness, id) => {
+      const source = JSON.stringify({ harness, id }) + "\n";
+      writeReview(harness + ":" + id);
+      writeHarnessTrace(harness, id, source);
+      const capture = captureFetch();
+
+      await submitReviewBugReport({
+        report: report({ include_trace: true }),
+        reviewDocumentPath: path.join(reviewRootPath, "review.mdx"),
+        reviewRootPath,
+        clientErrorNames: [],
+        fetchImpl: capture.fetchImpl,
+      });
+
+      expect(capture.parts().map((part) => part.name)).toEqual([
+        "meta",
+        "payload",
+        "trace",
+      ]);
+      const meta = JSON.parse(capture.textPart("meta"));
+      expect(meta).toMatchObject({
+        has_trace: true,
+        trace_harness: harness,
+        parts: [
+          { field: "payload", filename: "payload.json.gz" },
+          {
+            field: "trace",
+            filename: "trace-0.jsonl.gz",
+            session_id: id,
+          },
+        ],
+      });
+      const payload = JSON.parse(
+        gunzipSync(capture.filePart("payload")).toString("utf8"),
+      );
+      expect(payload.trace).toMatchObject({
+        harness,
+        session_id: id,
+        sessions: [{ session_id: id }],
+      });
+      expect(gunzipSync(capture.filePart("trace")).toString("utf8")).toBe(
+        source,
+      );
+    },
+  );
 
   it("fails instead of omitting a selected trace", async () => {
     writeReview("codex:missing-session");
@@ -219,6 +288,27 @@ describe("submitReviewBugReport", () => {
       contents,
     );
   }
+
+  function writeHarnessTrace(
+    harness: "claude-code" | "pi",
+    id: string,
+    contents: string,
+  ): void {
+    const directory = path.join(
+      harness === "claude-code" ? claudeRoot : piRoot,
+      "project",
+    );
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(
+      path.join(
+        directory,
+        harness === "claude-code"
+          ? id + ".jsonl"
+          : "2026-08-31T12-00-00_" + id + ".jsonl",
+      ),
+      contents,
+    );
+  }
 });
 
 function report(
@@ -248,6 +338,7 @@ function captureFetch(): {
   parts: () => CapturedPart[];
   textPart: (name: string) => string;
   filePart: (name: string) => Buffer;
+  fileParts: (name: string) => Buffer[];
 } {
   let url: string | undefined;
   let headers: Headers | undefined;
@@ -292,6 +383,15 @@ function captureFetch(): {
       if (typeof value === "string") throw new Error(`${name} is not a file.`);
       return value.bytes;
     },
+    fileParts: (name) =>
+      capturedParts
+        .filter((candidate) => candidate.name === name)
+        .map((candidate) => {
+          if (typeof candidate.value === "string") {
+            throw new Error(`${name} is not a file.`);
+          }
+          return candidate.value.bytes;
+        }),
   };
 }
 

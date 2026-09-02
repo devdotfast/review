@@ -188,7 +188,11 @@ function writeReviewComments(
 
 export function appendReviewComment(
   reviewMdxPath: string,
-  input: CreateReviewCommentInput & { author: string },
+  input: CreateReviewCommentInput & {
+    author: string;
+    role?: ReviewCommentMessage["role"];
+    format?: ReviewCommentMessage["format"];
+  },
 ): { threadId: string; thread: ReviewCommentThreadRecord } {
   if (!input.threadId.trim()) {
     throw new Error("Comment threadId is required.");
@@ -221,6 +225,8 @@ export function appendReviewComment(
     by: input.author,
     at: new Date().toISOString(),
     body: input.body,
+    ...(input.role !== undefined ? { role: input.role } : {}),
+    ...(input.format !== undefined ? { format: input.format } : {}),
     agentInput: input.agentInput ?? false,
   };
   const thread: ReviewCommentThreadRecord = existing

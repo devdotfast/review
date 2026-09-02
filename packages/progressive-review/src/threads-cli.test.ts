@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { type StoredReview, createReviewDir } from "./review-home";
+import { requireCompletedAgentResponsesForRepublish } from "./review-publish-thread-gate";
 import { appendReviewComment } from "./review-state-store";
 import {
   closeAllReviewThreadStores,
@@ -86,9 +87,25 @@ describe("review threads CLI", () => {
       status: "resolved",
       messages: [
         { body: "Please fix.", by: "Reviewer" },
-        { body: "Fixed in the latest revision.", by: "Agent" },
+        {
+          body: "Fixed in the latest revision.",
+          by: "Agent",
+          role: "agent",
+          format: "markdown",
+        },
       ],
     });
+
+    expect(() =>
+      requireCompletedAgentResponsesForRepublish({
+        ...review,
+        review: {
+          ...review.review,
+          presentedDocumentRevision: "published-revision",
+          lastPublishedAt: "2000-01-01T00:00:00.000Z",
+        },
+      }),
+    ).not.toThrow();
 
     expect(existsSync(reviewThreadDbPath(document))).toBe(true);
   });

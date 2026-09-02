@@ -155,6 +155,8 @@ export async function runReviewThreadsReply(
     target: thread.target,
     body,
     author: input.author?.trim() || "Agent",
+    role: "agent",
+    format: "markdown",
   });
   input.stdout.write(
     `${JSON.stringify({

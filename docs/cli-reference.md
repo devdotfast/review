@@ -146,9 +146,10 @@ review threads reply <thread-id> --body <text> [--author <name>] --review <uuid>
 review threads resolve <thread-id> --review <uuid>
 ```
 
-Thread commands return JSON. Replies use `Agent` as the author unless
-`--author` is provided. Resolve a comment only after its exact request is
-addressed. Review owns the SQLite thread store; do not edit it directly.
+Thread commands return JSON. Replies are recorded as agent responses and use
+`Agent` as the author unless `--author` is provided. After addressing a
+submitted comment, reply with a concise disposition and then resolve it. Review
+owns the SQLite thread store; do not edit it directly.
 
 ## Software maps
 

@@ -77,15 +77,34 @@ describe("readAuthoringTraceAttachment", () => {
     expect(attachment.payload).toEqual({
       harness,
       session_id: id,
+      sessions: [{ session_id: id }],
       files: {},
       truncated: false,
     });
-    expect(readPart(attachment, "source_trace")).toBe(source);
+    expect(readPart(attachment, 0)).toBe(source);
+    expect(attachment.parts[0]).toMatchObject({
+      field: "trace",
+      filename: "trace-0.jsonl.gz",
+      session_id: id,
+    });
     expect(attachment.parts).toHaveLength(1);
     await attachment.cleanup();
   });
 
-  it("stores the physical child and the complete recursive parent history", async () => {
+  it("stores a standalone Codex trace as one complete source part", async () => {
+    const id = "10101010-1010-4010-8010-101010101010";
+    const source = codexTrace(id, 0, [{ standalone: true }]);
+    writeCodexTrace(id, source);
+    writeReview("codex:" + id);
+
+    const attachment = await requiredAttachment();
+    expect(attachment.payload.sessions).toEqual([{ session_id: id }]);
+    expect(readPart(attachment, 0)).toBe(source);
+    expect(attachment.parts).toHaveLength(1);
+    await attachment.cleanup();
+  });
+
+  it("stores Codex lineage leaf first and excludes post-fork records", async () => {
     const grandparentId = "11111111-1111-4111-8111-111111111111";
     const parentId = "22222222-2222-4222-8222-222222222222";
     const childId = "33333333-3333-4333-8333-333333333333";
@@ -94,14 +113,14 @@ describe("readAuthoringTraceAttachment", () => {
       parentId,
       2,
       [{ parent: true }],
-      historyBase(grandparentId, 2, Buffer.byteLength(grandparent)),
+      historyBase(grandparentId, 2, 1),
     );
     const parent = parentAtFork + jsonLine({ parentLater: true, ordinal: 4 });
     const child = codexTrace(
       childId,
       4,
       [{ child: true }],
-      historyBase(parentId, 4, Buffer.byteLength(parentAtFork)),
+      historyBase(parentId, 4, 1),
     );
     writeCodexTrace(grandparentId, grandparent);
     writeCodexTrace(parentId, parent);
@@ -112,14 +131,33 @@ describe("readAuthoringTraceAttachment", () => {
     expect(attachment.payload).toMatchObject({
       harness: "codex",
       session_id: childId,
-      parent_session_id: parentId,
+      sessions: [
+        {
+          session_id: childId,
+          parent_session_id: parentId,
+          parent_end_ordinal_exclusive: 4,
+        },
+        {
+          session_id: parentId,
+          parent_session_id: grandparentId,
+          parent_end_ordinal_exclusive: 2,
+        },
+        { session_id: grandparentId },
+      ],
       truncated: false,
     });
-    expect(readPart(attachment, "source_trace")).toBe(child);
-    expect(readPart(attachment, "parent_trace")).toBe(grandparent + parent);
+    expect(readPart(attachment, 0)).toBe(child);
+    expect(readPart(attachment, 1)).toBe(parentAtFork);
+    expect(readPart(attachment, 2)).toBe(grandparent);
     expect(attachment.parts.map((part) => part.field)).toEqual([
-      "source_trace",
-      "parent_trace",
+      "trace",
+      "trace",
+      "trace",
+    ]);
+    expect(attachment.parts.map((part) => part.filename)).toEqual([
+      "trace-0.jsonl.gz",
+      "trace-1.jsonl.gz",
+      "trace-2.jsonl.gz",
     ]);
     await attachment.cleanup();
   });
@@ -142,32 +180,118 @@ describe("readAuthoringTraceAttachment", () => {
     ).rejects.toThrow("malformed JSONL");
   });
 
-  it("rejects more than 32 Codex parent levels", async () => {
-    let parentId = codexId(0);
-    let parent = codexTrace(parentId, 0, [{ depth: 0 }]);
+  it("rejects malformed Codex history metadata", async () => {
+    const childId = "45454545-4545-4545-8545-454545454545";
+    const parentId = "56565656-5656-4656-8656-565656565656";
+    writeCodexTrace(
+      childId,
+      [
+        {
+          type: "session_meta",
+          payload: { id: childId, history_base: { thread_id: parentId } },
+          ordinal: 2,
+        },
+        { child: true, ordinal: 3 },
+      ]
+        .map(jsonLine)
+        .join(""),
+    );
+    writeReview("codex:" + childId);
+
+    await expect(
+      readAuthoringTraceAttachment({ reviewRootPath }),
+    ).rejects.toThrow("history base is malformed");
+  });
+
+  it("rejects Codex ancestry cycles", async () => {
+    const childId = "47474747-4747-4747-8747-474747474747";
+    const parentId = "58585858-5858-4858-8858-585858585858";
+    writeCodexTrace(
+      childId,
+      codexTrace(childId, 4, [{ child: true }], historyBase(parentId, 4, 1)),
+    );
+    writeCodexTrace(
+      parentId,
+      codexTrace(parentId, 2, [{ parent: true }], historyBase(childId, 2, 1)),
+    );
+    writeReview("codex:" + childId);
+
+    await expect(
+      readAuthoringTraceAttachment({ reviewRootPath }),
+    ).rejects.toThrow("ancestry contains a cycle");
+  });
+
+  it("rejects an ancestor record without an ordinal", async () => {
+    const childId = "48484848-4848-4848-8848-484848484848";
+    const parentId = "59595959-5959-4959-8959-595959595959";
+    writeCodexTrace(
+      parentId,
+      jsonLine({
+        type: "session_meta",
+        payload: { id: parentId },
+        ordinal: 0,
+      }) + jsonLine({ missing: "ordinal" }),
+    );
+    writeCodexTrace(
+      childId,
+      codexTrace(childId, 2, [{ child: true }], historyBase(parentId, 2, 1)),
+    );
+    writeReview("codex:" + childId);
+
+    await expect(
+      readAuthoringTraceAttachment({ reviewRootPath }),
+    ).rejects.toThrow("missing a valid ordinal");
+  });
+
+  it("does not require contiguous Codex ordinals", async () => {
+    const childId = "49494949-4949-4949-8949-494949494949";
+    const parentId = "60606060-6060-4060-8060-606060606060";
+    const parent =
+      jsonLine({
+        type: "session_meta",
+        payload: { id: parentId },
+        ordinal: 0,
+      }) + jsonLine({ gap: true, ordinal: 2 });
     writeCodexTrace(parentId, parent);
-    let nextOrdinal = 2;
-    for (let depth = 1; depth <= 33; depth++) {
+    writeCodexTrace(
+      childId,
+      codexTrace(childId, 3, [{ child: true }], historyBase(parentId, 3, 1)),
+    );
+    writeReview("codex:" + childId);
+
+    const attachment = await requiredAttachment();
+    expect(readPart(attachment, 1)).toBe(parent);
+    await attachment.cleanup();
+  });
+
+  it("accepts 32 Codex parent levels and rejects 33", async () => {
+    let parentId = codexId(0);
+    writeCodexTrace(parentId, codexTrace(parentId, 0, [{ depth: 0 }]));
+    for (let depth = 1; depth <= 32; depth++) {
       const id = codexId(depth);
       const trace = codexTrace(
         id,
-        nextOrdinal,
+        depth * 2,
         [{ depth }],
-        historyBase(parentId, nextOrdinal, Buffer.byteLength(parent)),
+        historyBase(parentId, depth * 2, 1),
       );
       writeCodexTrace(id, trace);
       parentId = id;
-      parent = trace;
-      nextOrdinal += 2;
     }
-    const sourceId = codexId(34);
+    writeReview("codex:" + parentId);
+
+    const accepted = await requiredAttachment();
+    expect(accepted.parts).toHaveLength(33);
+    await accepted.cleanup();
+
+    const sourceId = codexId(33);
     writeCodexTrace(
       sourceId,
       codexTrace(
         sourceId,
-        nextOrdinal,
+        66,
         [{ source: true }],
-        historyBase(parentId, nextOrdinal, Buffer.byteLength(parent)),
+        historyBase(parentId, 66, 1),
       ),
     );
     writeReview("codex:" + sourceId);
@@ -184,7 +308,7 @@ describe("readAuthoringTraceAttachment", () => {
     writeHarnessTrace("claude-code", id, source);
 
     const attachment = await requiredAttachment();
-    expect(readPart(attachment, "source_trace")).toBe(source);
+    expect(readPart(attachment, 0)).toBe(source);
     expect(attachment.payload.truncated).toBe(false);
     await attachment.cleanup();
   });
@@ -202,9 +326,7 @@ describe("readAuthoringTraceAttachment", () => {
 
     const attachment = await requiredAttachment();
     clearTimeout(finish);
-    expect(readPart(attachment, "source_trace")).toBe(
-      complete + jsonLine({ later: true }),
-    );
+    expect(readPart(attachment, 0)).toBe(complete + jsonLine({ later: true }));
     await attachment.cleanup();
   });
 
@@ -236,7 +358,7 @@ describe("readAuthoringTraceAttachment", () => {
     writeHarnessTrace("claude-code", id, source);
 
     const attachment = await requiredAttachment();
-    const trace = readPart(attachment, "source_trace");
+    const trace = readPart(attachment, 0);
     expect(trace).not.toContain(slackToken);
     expect(trace).not.toContain(githubToken);
     expect(trace).toContain("<REDACTED: Slack Token>");
@@ -390,12 +512,9 @@ function codexTrace(
     .join("");
 }
 
-function readPart(
-  attachment: AuthoringTraceAttachment,
-  field: "source_trace" | "parent_trace",
-): string {
-  const part = attachment.parts.find((candidate) => candidate.field === field);
-  if (!part) throw new Error(`Missing ${field}.`);
+function readPart(attachment: AuthoringTraceAttachment, index: number): string {
+  const part = attachment.parts[index];
+  if (!part) throw new Error(`Missing trace part ${index}.`);
   return gunzipSync(readFileSync(part.path)).toString("utf8");
 }
 

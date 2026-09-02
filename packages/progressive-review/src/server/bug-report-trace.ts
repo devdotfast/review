@@ -22,18 +22,24 @@ const MAX_CODEX_ANCESTRY_DEPTH = 32;
 const INCOMPLETE_FINAL_LINE_RETRIES = 3;
 const INCOMPLETE_FINAL_LINE_RETRY_MS = 50;
 
+export interface AuthoringTraceSessionRef {
+  session_id: string;
+  parent_session_id?: string;
+  parent_end_ordinal_exclusive?: number;
+}
+
 export interface AuthoringTracePayload {
   harness: ReviewAgentHarness;
   session_id: string;
-  parent_session_id?: string;
+  sessions: AuthoringTraceSessionRef[];
   files: Record<string, string>;
   omitted_files?: string[];
   truncated: boolean;
 }
 
 export interface AuthoringTraceUploadPart {
-  field: "source_trace" | "parent_trace";
-  filename: "source.jsonl.gz" | "parent.jsonl.gz";
+  field: "trace";
+  filename: string;
   session_id: string;
   path: string;
   bytes: number;
@@ -70,19 +76,19 @@ interface JsonlSnapshot {
 interface CodexHistoryBase {
   threadId: string;
   endOrdinalExclusive: number;
-  endByteOffset: number;
 }
 
 interface CodexSnapshot extends JsonlSnapshot {
   sessionId: string;
-  forkedFromId?: string;
-  forkedFromOrdinalExclusive?: number;
   historyBase?: CodexHistoryBase;
 }
 
-interface SnapshotSegment {
+interface ResolvedTraceFile {
+  sessionId: string;
   snapshot: JsonlSnapshot;
-  endByteOffset: number;
+  endOrdinalExclusive?: number;
+  parentSessionId?: string;
+  parentEndOrdinalExclusive?: number;
 }
 
 const TRACE_SECRET_LABELS = new Set([
@@ -122,66 +128,41 @@ export async function readAuthoringTraceAttachment(input: {
 
   const tempRoot = await mkdtemp(path.join(tmpdir(), "review-bug-trace-"));
   try {
-    const parts: AuthoringTraceUploadPart[] = [];
-    let parentSessionId: string | undefined;
-
-    if (sourceSession.harness === "codex") {
-      const source = await resolveCodexSnapshot(sourceSession.sessionId);
-      if (path.resolve(source.path) !== path.resolve(localTrace.tracePath)) {
-        throw new Error("Codex source trace resolution is ambiguous.");
-      }
-      parts.push(
-        await writeTracePart({
-          field: "source_trace",
-          filename: "source.jsonl.gz",
-          sessionId: source.sessionId,
-          outputPath: path.join(tempRoot, "source.jsonl.gz"),
-          segments: [{ snapshot: source, endByteOffset: source.bytes.length }],
-          requireContiguousOrdinals: true,
+    const lineage = await resolveTraceLineage(
+      sourceSession.harness,
+      sourceSession.sessionId,
+      localTrace.tracePath,
+    );
+    const parts = await Promise.all(
+      lineage.map((entry, index) =>
+        writeTracePart({
+          index,
+          sessionId: entry.sessionId,
+          outputPath: path.join(tempRoot, `trace-${index}.jsonl.gz`),
+          snapshot: entry.snapshot,
+          ...(entry.endOrdinalExclusive !== undefined
+            ? { endOrdinalExclusive: entry.endOrdinalExclusive }
+            : {}),
         }),
-      );
-
-      if (source.historyBase) {
-        validateForkMetadata(source);
-        parentSessionId = source.historyBase.threadId;
-        const parent = await resolveCodexSnapshot(parentSessionId);
-        validateHistoryBoundary(source, parent);
-        const parentSegments = await materializeCodexHistory(
-          parent,
-          new Set([source.sessionId]),
-          1,
-        );
-        parts.push(
-          await writeTracePart({
-            field: "parent_trace",
-            filename: "parent.jsonl.gz",
-            sessionId: parent.sessionId,
-            outputPath: path.join(tempRoot, "parent.jsonl.gz"),
-            segments: parentSegments,
-            requireContiguousOrdinals: true,
-          }),
-        );
-      }
-    } else {
-      const source = await readJsonlSnapshot(localTrace.tracePath);
-      parts.push(
-        await writeTracePart({
-          field: "source_trace",
-          filename: "source.jsonl.gz",
-          sessionId: sourceSession.sessionId,
-          outputPath: path.join(tempRoot, "source.jsonl.gz"),
-          segments: [{ snapshot: source, endByteOffset: source.bytes.length }],
-          requireContiguousOrdinals: false,
-        }),
-      );
-    }
+      ),
+    );
 
     const subagents = await readSubagentAttachments(localTrace.subagentPaths);
     return {
       payload: {
         harness: sourceSession.harness,
         session_id: sourceSession.sessionId,
-        ...(parentSessionId ? { parent_session_id: parentSessionId } : {}),
+        sessions: lineage.map((entry) => ({
+          session_id: entry.sessionId,
+          ...(entry.parentSessionId
+            ? { parent_session_id: entry.parentSessionId }
+            : {}),
+          ...(entry.parentEndOrdinalExclusive !== undefined
+            ? {
+                parent_end_ordinal_exclusive: entry.parentEndOrdinalExclusive,
+              }
+            : {}),
+        })),
         files: subagents.files,
         ...(subagents.omittedFiles.length > 0
           ? { omitted_files: subagents.omittedFiles }
@@ -197,68 +178,44 @@ export async function readAuthoringTraceAttachment(input: {
   }
 }
 
-async function materializeCodexHistory(
-  snapshot: CodexSnapshot,
-  seen: Set<string>,
-  depth: number,
-): Promise<SnapshotSegment[]> {
-  if (depth > MAX_CODEX_ANCESTRY_DEPTH) {
-    throw new Error("Codex trace ancestry exceeds the supported depth.");
+async function resolveTraceLineage(
+  harness: ReviewAgentHarness,
+  sessionId: string,
+  tracePath: string,
+): Promise<ResolvedTraceFile[]> {
+  if (harness !== "codex") {
+    return [{ sessionId, snapshot: await readJsonlSnapshot(tracePath) }];
   }
-  if (seen.has(snapshot.sessionId)) {
-    throw new Error("Codex trace ancestry contains a cycle.");
+
+  const chain: ResolvedTraceFile[] = [];
+  const seen = new Set<string>();
+  let current = await resolveCodexSnapshot(sessionId);
+  if (path.resolve(current.path) !== path.resolve(tracePath)) {
+    throw new Error("Codex source trace resolution is ambiguous.");
   }
-  const nextSeen = new Set(seen).add(snapshot.sessionId);
-  const segments: SnapshotSegment[] = [];
-  if (snapshot.historyBase) {
-    validateForkMetadata(snapshot);
-    const parent = await resolveCodexSnapshot(snapshot.historyBase.threadId);
-    validateHistoryBoundary(snapshot, parent);
-    segments.push(
-      ...(await materializeCodexHistory(parent, nextSeen, depth + 1)),
-    );
-    const baseSegment = segments.at(-1);
-    if (!baseSegment || baseSegment.snapshot.sessionId !== parent.sessionId) {
-      throw new Error("Codex parent history did not materialize correctly.");
+  let endOrdinalExclusive: number | undefined;
+  while (true) {
+    if (seen.has(current.sessionId)) {
+      throw new Error("Codex trace ancestry contains a cycle.");
     }
-    baseSegment.endByteOffset = snapshot.historyBase.endByteOffset;
-  }
-  segments.push({ snapshot, endByteOffset: snapshot.bytes.length });
-  return segments;
-}
-
-function validateForkMetadata(snapshot: CodexSnapshot): void {
-  const base = snapshot.historyBase;
-  if (!base) return;
-  if (
-    snapshot.forkedFromId !== base.threadId ||
-    snapshot.forkedFromOrdinalExclusive !== base.endOrdinalExclusive
-  ) {
-    throw new Error("Codex fork metadata does not match its history base.");
-  }
-  if (snapshot.records[0]?.ordinal !== base.endOrdinalExclusive) {
-    throw new Error("Codex child trace starts at the wrong ordinal.");
-  }
-}
-
-function validateHistoryBoundary(
-  child: CodexSnapshot,
-  parent: CodexSnapshot,
-): void {
-  const base = child.historyBase;
-  if (!base) return;
-  if (base.endByteOffset <= 0 || base.endByteOffset > parent.bytes.length) {
-    throw new Error("Codex parent byte offset is outside the trace snapshot.");
-  }
-  const boundaryRecord = parent.records.find(
-    (record) => record.end === base.endByteOffset,
-  );
-  if (
-    !boundaryRecord ||
-    boundaryRecord.terminator !== "\n" ||
-    boundaryRecord.ordinal !== base.endOrdinalExclusive - 1
-  ) {
-    throw new Error("Codex parent byte offset is not an ordinal boundary.");
+    if (seen.size >= MAX_CODEX_ANCESTRY_DEPTH + 1) {
+      throw new Error("Codex trace ancestry exceeds the supported depth.");
+    }
+    seen.add(current.sessionId);
+    chain.push({
+      sessionId: current.sessionId,
+      snapshot: current,
+      ...(endOrdinalExclusive !== undefined ? { endOrdinalExclusive } : {}),
+      ...(current.historyBase
+        ? {
+            parentSessionId: current.historyBase.threadId,
+            parentEndOrdinalExclusive: current.historyBase.endOrdinalExclusive,
+          }
+        : {}),
+    });
+    if (!current.historyBase) return chain;
+    endOrdinalExclusive = current.historyBase.endOrdinalExclusive;
+    current = await resolveCodexSnapshot(current.historyBase.threadId);
   }
 }
 
@@ -289,47 +246,25 @@ async function resolveCodexSnapshot(sessionId: string): Promise<CodexSnapshot> {
       throw new Error("Codex trace record is missing a valid ordinal.");
     }
   }
-  validateContiguousOrdinals(snapshot.records);
-
   const historyBaseValue = objectValue(payload.history_base);
-  const forkedFromId = stringValue(payload.forked_from_id);
-  const forkedFromOrdinalExclusive = integerValue(
-    payload.forked_from_ordinal_exclusive,
-  );
   let historyBase: CodexHistoryBase | undefined;
-  if (historyBaseValue) {
+  if (payload.history_base !== undefined) {
+    if (!historyBaseValue) {
+      throw new Error("Codex history base is malformed.");
+    }
     const threadId = stringValue(historyBaseValue.thread_id);
     const endOrdinalExclusive = integerValue(
       historyBaseValue.end_ordinal_exclusive,
     );
-    const endByteOffset = integerValue(historyBaseValue.end_byte_offset);
-    if (
-      !threadId ||
-      endOrdinalExclusive === undefined ||
-      endByteOffset === undefined
-    ) {
+    if (!threadId || endOrdinalExclusive === undefined) {
       throw new Error("Codex history base is malformed.");
     }
-    historyBase = { threadId, endOrdinalExclusive, endByteOffset };
-  }
-  const hasPartialForkMetadata =
-    historyBase !== undefined ||
-    forkedFromId !== undefined ||
-    forkedFromOrdinalExclusive !== undefined;
-  if (
-    hasPartialForkMetadata &&
-    (!historyBase || !forkedFromId || forkedFromOrdinalExclusive === undefined)
-  ) {
-    throw new Error("Codex fork metadata is incomplete.");
+    historyBase = { threadId, endOrdinalExclusive };
   }
 
   return {
     ...snapshot,
     sessionId,
-    ...(forkedFromId ? { forkedFromId } : {}),
-    ...(forkedFromOrdinalExclusive !== undefined
-      ? { forkedFromOrdinalExclusive }
-      : {}),
     ...(historyBase ? { historyBase } : {}),
   };
 }
@@ -440,41 +375,31 @@ function parseJsonl(bytes: Buffer): JsonlRecord[] {
 }
 
 async function writeTracePart(input: {
-  field: AuthoringTraceUploadPart["field"];
-  filename: AuthoringTraceUploadPart["filename"];
+  index: number;
   sessionId: string;
   outputPath: string;
-  segments: SnapshotSegment[];
-  requireContiguousOrdinals: boolean;
+  snapshot: JsonlSnapshot;
+  endOrdinalExclusive?: number;
 }): Promise<AuthoringTraceUploadPart> {
   let uncompressedBytes = 0;
-  let previousOrdinal: number | undefined;
+  const records =
+    input.endOrdinalExclusive === undefined
+      ? input.snapshot.records
+      : input.snapshot.records.filter((record) => {
+          if (record.ordinal === undefined) {
+            throw new Error("Codex trace record is missing an ordinal.");
+          }
+          return record.ordinal < input.endOrdinalExclusive!;
+        });
+  if (records.length === 0) {
+    throw new Error("Trace part has no records before the fork point.");
+  }
   const source = Readable.from(
     (async function* () {
-      for (const segment of input.segments) {
-        const records = segment.snapshot.records.filter(
-          (record) => record.end <= segment.endByteOffset,
-        );
-        if (records.at(-1)?.end !== segment.endByteOffset) {
-          throw new Error("Trace segment does not end on a record boundary.");
-        }
-        for (const record of records) {
-          if (input.requireContiguousOrdinals) {
-            if (record.ordinal === undefined) {
-              throw new Error("Codex trace record is missing an ordinal.");
-            }
-            if (
-              previousOrdinal !== undefined &&
-              record.ordinal !== previousOrdinal + 1
-            ) {
-              throw new Error("Codex trace ordinals are not contiguous.");
-            }
-            previousOrdinal = record.ordinal;
-          }
-          const redacted = redactTraceText(record.raw) + record.terminator;
-          uncompressedBytes += Buffer.byteLength(redacted);
-          yield Buffer.from(redacted);
-        }
+      for (const record of records) {
+        const redacted = redactTraceText(record.raw) + record.terminator;
+        uncompressedBytes += Buffer.byteLength(redacted);
+        yield Buffer.from(redacted);
       }
     })(),
   );
@@ -485,8 +410,8 @@ async function writeTracePart(input: {
   );
   const fileStat = await stat(input.outputPath);
   return {
-    field: input.field,
-    filename: input.filename,
+    field: "trace",
+    filename: `trace-${input.index}.jsonl.gz`,
     session_id: input.sessionId,
     path: input.outputPath,
     bytes: fileStat.size,
@@ -601,14 +526,6 @@ function retainCompleteJsonlLines(contents: string): string {
     return contents;
   } catch {
     return lastLineBreak === -1 ? "" : contents.slice(0, lastLineBreak + 1);
-  }
-}
-
-function validateContiguousOrdinals(records: JsonlRecord[]): void {
-  for (let index = 1; index < records.length; index++) {
-    if (records[index].ordinal !== (records[index - 1].ordinal ?? -2) + 1) {
-      throw new Error("Codex trace ordinals are not contiguous.");
-    }
   }
 }
 

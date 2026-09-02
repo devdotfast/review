@@ -22,29 +22,19 @@ const MAX_CODEX_ANCESTRY_DEPTH = 32;
 const INCOMPLETE_FINAL_LINE_RETRIES = 3;
 const INCOMPLETE_FINAL_LINE_RETRY_MS = 50;
 
-export interface AuthoringTraceSessionRef {
-  session_id: string;
-  parent_session_id?: string;
-  parent_end_ordinal_exclusive?: number;
-}
-
 export interface AuthoringTracePayload {
   harness: ReviewAgentHarness;
-  session_id: string;
-  sessions: AuthoringTraceSessionRef[];
   files: Record<string, string>;
   omitted_files?: string[];
   truncated: boolean;
 }
 
 export interface AuthoringTraceUploadPart {
-  field: "trace";
   filename: string;
   session_id: string;
   path: string;
   bytes: number;
   sha256: string;
-  uncompressed_bytes: number;
 }
 
 export interface AuthoringTraceAttachment {
@@ -67,7 +57,6 @@ interface JsonlRecord {
 interface JsonlSnapshot {
   path: string;
   records: JsonlRecord[];
-  sessionId?: string;
 }
 
 interface CodexHistoryBase {
@@ -84,8 +73,6 @@ interface ResolvedTraceFile {
   sessionId: string;
   snapshot: JsonlSnapshot;
   endOrdinalExclusive?: number;
-  parentSessionId?: string;
-  parentEndOrdinalExclusive?: number;
 }
 
 const TRACE_SECRET_LABELS = new Set([
@@ -148,18 +135,6 @@ export async function readAuthoringTraceAttachment(input: {
     return {
       payload: {
         harness: sourceSession.harness,
-        session_id: sourceSession.sessionId,
-        sessions: lineage.map((entry) => ({
-          session_id: entry.sessionId,
-          ...(entry.parentSessionId
-            ? { parent_session_id: entry.parentSessionId }
-            : {}),
-          ...(entry.parentEndOrdinalExclusive !== undefined
-            ? {
-                parent_end_ordinal_exclusive: entry.parentEndOrdinalExclusive,
-              }
-            : {}),
-        })),
         files: subagents.files,
         ...(subagents.omittedFiles.length > 0
           ? { omitted_files: subagents.omittedFiles }
@@ -203,12 +178,6 @@ async function resolveTraceLineage(
       sessionId: current.sessionId,
       snapshot: current,
       ...(endOrdinalExclusive !== undefined ? { endOrdinalExclusive } : {}),
-      ...(current.historyBase
-        ? {
-            parentSessionId: current.historyBase.threadId,
-            parentEndOrdinalExclusive: current.historyBase.endOrdinalExclusive,
-          }
-        : {}),
     });
     if (!current.historyBase) return chain;
     endOrdinalExclusive = current.historyBase.endOrdinalExclusive;
@@ -376,7 +345,6 @@ async function writeTracePart(input: {
   snapshot: JsonlSnapshot;
   endOrdinalExclusive?: number;
 }): Promise<AuthoringTraceUploadPart> {
-  let uncompressedBytes = 0;
   const records =
     input.endOrdinalExclusive === undefined
       ? input.snapshot.records
@@ -393,7 +361,6 @@ async function writeTracePart(input: {
     (async function* () {
       for (const record of records) {
         const redacted = redactTraceText(record.raw) + record.terminator;
-        uncompressedBytes += Buffer.byteLength(redacted);
         yield Buffer.from(redacted);
       }
     })(),
@@ -405,13 +372,11 @@ async function writeTracePart(input: {
   );
   const fileStat = await stat(input.outputPath);
   return {
-    field: "trace",
     filename: `trace-${input.index}.jsonl.gz`,
     session_id: input.sessionId,
     path: input.outputPath,
     bytes: fileStat.size,
     sha256: await sha256File(input.outputPath),
-    uncompressed_bytes: uncompressedBytes,
   };
 }
 

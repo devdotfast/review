@@ -405,8 +405,6 @@ The report payload contains these fields:
 | `diff.files[].deletions`           | Deleted line count                                                                  |
 | `diff.files[].patch`               | Unified patch used to resolve the review's exact CodePeek ranges                    |
 | `trace.harness`                    | Authoring harness: `claude-code`, `codex`, or `pi`                                  |
-| `trace.session_id`                 | Authoring session identifier from the Review record                                 |
-| `trace.sessions[]`                 | Attached session identifiers and available parent fork points                       |
 | `trace.files["subagents/<name>"]`  | Tail-capped raw JSONL for an included subagent                                      |
 | `trace.omitted_files`              | Subagent trace names omitted because of limits or read failures                     |
 | `trace.truncated`                  | Whether any subagent trace was tail-capped or omitted                               |

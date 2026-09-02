@@ -52,7 +52,6 @@ describe("submitReviewBugReport", () => {
     const child = codexTrace(childId, 2, [{ child: true }], {
       parentId,
       endOrdinalExclusive: 2,
-      endByteOffset: Buffer.byteLength(parentAtFork),
     });
     writeCodexTrace(parentId, parent);
     writeCodexTrace(childId, child);
@@ -103,15 +102,6 @@ describe("submitReviewBugReport", () => {
       schema_version: 4,
       trace: {
         harness: "codex",
-        session_id: childId,
-        sessions: [
-          {
-            session_id: childId,
-            parent_session_id: parentId,
-            parent_end_ordinal_exclusive: 2,
-          },
-          { session_id: parentId },
-        ],
         truncated: false,
       },
     });
@@ -170,8 +160,6 @@ describe("submitReviewBugReport", () => {
       );
       expect(payload.trace).toMatchObject({
         harness,
-        session_id: id,
-        sessions: [{ session_id: id }],
       });
       expect(gunzipSync(capture.filePart("trace")).toString("utf8")).toBe(
         source,
@@ -226,7 +214,7 @@ describe("submitReviewBugReport", () => {
     const payloadBytes = capture.filePart("payload");
     expect(JSON.parse(gunzipSync(payloadBytes).toString("utf8"))).toMatchObject(
       {
-        schema_version: 3,
+        schema_version: 4,
         description: "",
       },
     );
@@ -413,20 +401,15 @@ function codexTrace(
   parent?: {
     parentId: string;
     endOrdinalExclusive: number;
-    endByteOffset: number;
   },
 ): string {
   const payload = {
     id,
     ...(parent
       ? {
-          history_mode: "paginated",
-          forked_from_id: parent.parentId,
-          forked_from_ordinal_exclusive: parent.endOrdinalExclusive,
           history_base: {
             thread_id: parent.parentId,
             end_ordinal_exclusive: parent.endOrdinalExclusive,
-            end_byte_offset: parent.endByteOffset,
           },
         }
       : {}),

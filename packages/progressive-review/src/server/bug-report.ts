@@ -55,7 +55,7 @@ type AttachmentError = {
 };
 
 interface BugReportPayload {
-  schema_version: 3 | 4;
+  schema_version: 4;
   description: string;
   screenshot?: { mime: "image/jpeg"; base64: string };
   // File name to text. The document alone cannot render: every anchor lives in
@@ -97,7 +97,7 @@ export async function submitReviewBugReport(input: {
   const cliVersion = readProgressiveReviewPackageVersion();
   const attachmentErrors: AttachmentError[] = [];
   const payload: BugReportPayload = {
-    schema_version: 3,
+    schema_version: 4,
     description: input.report.description,
     ...(input.report.screenshot ? { screenshot: input.report.screenshot } : {}),
     diagnostics: {
@@ -196,7 +196,6 @@ export async function submitReviewBugReport(input: {
   if (mapSource !== undefined) payload.map = mapSource;
   if (changedFileDiffs !== undefined) payload.diff = changedFileDiffs;
   if (traceAttachment !== undefined) {
-    payload.schema_version = 4;
     payload.trace = traceAttachment.payload;
   }
   if (attachmentErrors.length > 0) {
@@ -330,7 +329,7 @@ async function buildBugReportRequest(
   );
   for (const part of trace?.parts ?? []) {
     form.append(
-      part.field,
+      "trace",
       await openAsBlob(part.path, { type: "application/gzip" }),
       part.filename,
     );

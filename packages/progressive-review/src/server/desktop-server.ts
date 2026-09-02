@@ -10,6 +10,7 @@ import {
   type ReviewDescriptor,
   type ReviewDesktopDiscovery,
   type ReviewDesktopGlobalEvent,
+  type ReviewOpenResponse,
   type ReviewRecord,
   type ReviewSessionDescriptor,
   type ReviewSessionLifecycleEvent,
@@ -22,6 +23,7 @@ import {
 import { type Context, Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { ZodError } from "zod";
 
 import {
   type ReviewAgentHarness,
@@ -31,7 +33,16 @@ import {
   parseFreshSourceSessionHarness,
 } from "../authoring-session";
 import { preferredInstalledReviewAgent } from "../installed-review-agent";
-import { hasLiveReviewPage } from "../live-review-store";
+import {
+  hasLiveReviewPage,
+  LiveReviewVersionConflictError,
+} from "../live-review-store";
+import {
+  liveReviewCreateRequestSchema,
+  liveReviewListRequestSchema,
+  liveReviewRenderRequestSchema,
+  liveReviewStatusRequestSchema,
+} from "../live-review-transport";
 import * as claudeCode from "../native-agent/claude-code";
 import * as codex from "../native-agent/codex";
 import type { AgentServer } from "../native-agent/native-session";
@@ -112,6 +123,16 @@ import {
 } from "./hono-http";
 import { HttpJsonError } from "./http-json";
 import { ReviewLifecycleRegistry } from "./lifecycle-registry";
+import {
+  createLiveReview,
+  handoffLiveReview,
+  listLiveReviews,
+  liveReviewInfo,
+  liveReviewNode,
+  LiveReviewTerminalError,
+  renderLiveReviewMdx,
+  requireLiveReviewPage,
+} from "./live-review-service";
 import { materializePublishRevision } from "./publish-stage";
 import { captureSanitizedUiTelemetry } from "./review-api";
 import { resolveReviewInfo } from "./review-info";
@@ -418,6 +439,138 @@ export function createGlobalReviewServer(
     }
     return globalJson(200, { ok: true });
   });
+  app.get("/live-reviews", async (context) => {
+    const scope = context.req.query("scope");
+    const request = liveReviewListRequestSchema.parse({
+      cwd: context.req.query("cwd"),
+      ...(scope === undefined ? {} : { scope }),
+    });
+    return globalJson(200, { reviews: await listLiveReviews(request) });
+  });
+  app.post("/live-reviews", async (context) => {
+    const request = liveReviewCreateRequestSchema.parse(
+      await readBoundedRequestJson(context.req.raw),
+    );
+    const created = await createLiveReview(request);
+    try {
+      // Persistence completes before registration because the review lock is
+      // intentionally non-reentrant. A failed registration removes the new
+      // Review, so callers never receive an unusable bootstrap.
+      const opened = await openStoredLiveReview({
+        review: created.review,
+        background: false,
+      });
+      return globalJson(201, {
+        ...opened.body,
+        info: liveReviewInfo(created.review, created.page),
+      });
+    } catch (error) {
+      await deleteStoredReview(created.review).catch((cleanupError) => {
+        console.error(
+          "Could not roll back live Review creation:",
+          cleanupError,
+        );
+      });
+      throw error;
+    }
+  });
+  app.post("/live-reviews/:uuid/open", async (context) => {
+    const review = await requireStoredLiveReview(context.req.param("uuid"));
+    const appSessionIdHeader = context.req.header(REVIEW_APP_SESSION_ID_HEADER);
+    const opened = await openStoredLiveReview({
+      review,
+      background: false,
+      appSessionId: isValidReviewAppSessionId(appSessionIdHeader)
+        ? appSessionIdHeader
+        : undefined,
+      request: context.req.raw,
+    });
+    return globalJson(opened.status, {
+      ...opened.body,
+      info: liveReviewInfo(opened.review),
+    });
+  });
+  app.get("/live-reviews/:uuid", async (context) => {
+    const review = await requireStoredLiveReview(context.req.param("uuid"));
+    return globalJson(200, liveReviewInfo(review));
+  });
+  app.get("/live-reviews/:uuid/selection", async (context) => {
+    const review = await requireStoredLiveReview(context.req.param("uuid"));
+    // This global route is the integration point for the next selection slice.
+    return globalJson(200, {
+      reviewId: review.review.uuid,
+      nodeIds: [],
+    });
+  });
+  app.get("/live-reviews/:uuid/nodes/:nodeId", async (context) => {
+    const review = await requireStoredLiveReview(context.req.param("uuid"));
+    const page = requireLiveReviewPage(review);
+    const nodeId = context.req.param("nodeId");
+    if (!page.nodes[nodeId]) {
+      throw new ReviewServerError(
+        "Review node not found.",
+        404,
+        "node_not_found",
+      );
+    }
+    return globalJson(200, liveReviewNode(page, nodeId));
+  });
+  app.get("/live-reviews/:uuid/nodes/:nodeId/children", async (context) => {
+    const review = await requireStoredLiveReview(context.req.param("uuid"));
+    const page = requireLiveReviewPage(review);
+    const nodeId = context.req.param("nodeId");
+    const node = page.nodes[nodeId];
+    if (!node) {
+      throw new ReviewServerError(
+        "Review node not found.",
+        404,
+        "node_not_found",
+      );
+    }
+    return globalJson(200, {
+      children: node.children.map((childId) => liveReviewNode(page, childId)),
+    });
+  });
+  app.post("/live-reviews/:uuid/render", async (context) => {
+    const uuid = requireLiveReviewUuid(context.req.param("uuid"));
+    const request = liveReviewRenderRequestSchema.parse(
+      await readBoundedRequestJson(context.req.raw),
+    );
+    return withReviewLock(uuid, async () => {
+      const review = await requireStoredLiveReview(uuid);
+      if (!requireLiveReviewPage(review).nodes[request.targetNodeId]) {
+        throw new ReviewServerError(
+          "Review node not found.",
+          404,
+          "node_not_found",
+        );
+      }
+      const result = await renderLiveReviewMdx({ review, ...request });
+      if (!result.ok) return globalJson(422, result);
+      broadcastLiveReviewChange(uuid);
+      return globalJson(200, result);
+    });
+  });
+  app.post("/live-reviews/:uuid/status", async (context) => {
+    const uuid = requireLiveReviewUuid(context.req.param("uuid"));
+    liveReviewStatusRequestSchema.parse(
+      await readBoundedRequestJson(context.req.raw),
+    );
+    return withReviewLock(uuid, async () => {
+      const review = await requireStoredLiveReview(uuid);
+      const updated = await handoffLiveReview(review);
+      const active = activeSessionForReview(uuid);
+      if (active) active.review = updated;
+      broadcastGlobal({
+        event: "review-status-changed",
+        uuid,
+        status: updated.review.status,
+      });
+      broadcastLiveReviewChange(uuid);
+      return globalJson(200, liveReviewInfo(updated));
+    });
+  });
+
   app.get("/reviews", async () => {
     const { dismissedRetentionDays } = await readReviewPreferences();
     await reapDismissedReviews(dismissedRetentionDays);
@@ -475,10 +628,6 @@ export function createGlobalReviewServer(
     return globalJson(200, { ok: true });
   });
   app.post("/reviews/:uuid/open", async (context) => {
-    const uuid = context.req.param("uuid");
-    if (!UUID_PATTERN.test(uuid)) {
-      throw new ReviewServerError("Review not found.", 404);
-    }
     /* A background open keeps the canvas where it is: the Source tab opens
        sessions purely to root its file tree. Body-less requests (the CLI)
        stay foreground. */
@@ -487,118 +636,18 @@ export function createGlobalReviewServer(
       revision?: unknown;
     } | null;
     const background = openBody?.background === true;
-    const review = await findReview(uuid);
-    if (!review) {
-      throw new ReviewServerError("Review not found.", 404);
-    }
-    const descriptor = await reviewDescriptor(review);
     const appSessionIdHeader = context.req.header(REVIEW_APP_SESSION_ID_HEADER);
     const appSessionId = isValidReviewAppSessionId(appSessionIdHeader)
       ? appSessionIdHeader
       : undefined;
-    if (!descriptor.available) {
-      throw new ReviewServerError(
-        "The review worktree or document is unavailable.",
-        409,
-        "review_unavailable",
-      );
-    }
-    if (!hasLiveReviewPage(review.dir)) {
-      throw new ReviewServerError(
-        "Review has no live canvas page.",
-        409,
-        "review_page_missing",
-      );
-    }
-    if (
-      openBody?.revision !== undefined &&
-      (typeof openBody.revision !== "string" ||
-        !/^[0-9a-f]{40}$/.test(openBody.revision))
-    ) {
-      throw new ReviewServerError(
-        "Review revision must be a 40-character hexadecimal commit ID.",
-        400,
-        "invalid_revision",
-      );
-    }
-    if (typeof openBody?.revision === "string") {
-      throw new ReviewServerError(
-        "Live Review version history is not available yet.",
-        409,
-        "live_review_history_unsupported",
-      );
-    }
-    /* Opening is what "viewed" means. Stamping here rather than on first
-       render keeps the rule in one place and survives a canvas that never
-       finishes loading. A dismissed review the reader reopens comes back. */
-    const wasDismissed = Boolean(review.review.dismissedAt);
-    const viewed = await restoreReview(await markReviewViewed(review));
-    if (viewed.review !== review.review) {
-      await broadcastReviewAttention(viewed, "viewed");
-    }
-    const homeReview: ReviewDescriptor = {
-      ...descriptor,
-      viewedAt: viewed.review.viewedAt ?? null,
-      dismissedAt: viewed.review.dismissedAt ?? null,
-      reapsAt: null,
-    };
-    if (wasDismissed) {
-      await captureSanitizedUiTelemetry(
-        telemetry,
-        context.req.raw,
-        "review_restored",
-        { via: "open" },
-      );
-    }
-    const existing = activeSessionForReview(review.review.uuid);
-    if (existing) {
-      existing.appSessionId ??= appSessionId;
-      if (!background) {
-        void relay.dispatch(existing.descriptor.sessionId, {
-          name: "focusCanvas",
-          args: {},
-        });
-      }
-      return globalJson(200, {
-        sessionId: existing.descriptor.sessionId,
-        url: existing.descriptor.sessionUrl,
-        session: existing.descriptor,
-        review: homeReview,
-      });
-    }
-    const active = await registerSerialized({
-      review: viewed,
-      documentPath: path.join(viewed.dir, "review.mdx"),
-      promoted: true,
-      announce: true,
-      focusCanvas: !background,
+    const opened = await openStoredLiveReview({
+      review: await requireStoredReview(context.req.param("uuid")),
       background,
+      revision: openBody?.revision,
       appSessionId,
+      request: context.req.raw,
     });
-    return globalJson(201, {
-      sessionId: active.descriptor.sessionId,
-      url: active.descriptor.sessionUrl,
-      session: active.descriptor,
-      review: homeReview,
-    });
-  });
-
-  app.post("/reviews/:uuid/page-updated", async (context) => {
-    const uuid = context.req.param("uuid");
-    const review = await findReview(uuid);
-    if (!review || !hasLiveReviewPage(review.dir)) {
-      throw new ReviewServerError("Live Review not found.", 404);
-    }
-    const active = activeSessionForReview(uuid);
-    if (active) {
-      active.review = review;
-      broadcastGlobal({
-        event: "review-data-changed",
-        uuid,
-        sessionId: active.descriptor.sessionId,
-      });
-    }
-    return globalJson(200, { ok: true });
+    return globalJson(opened.status, opened.body);
   });
 
   app.post("/reviews/:uuid/dismiss", async (context) => {
@@ -846,7 +895,11 @@ export function createGlobalReviewServer(
       error instanceof ReviewServerError ||
       error instanceof ReviewOpenThreadsError
         ? error
-        : undefined;
+        : error instanceof LiveReviewVersionConflictError
+          ? new ReviewServerError(error.message, 409, "review_version_conflict")
+          : error instanceof LiveReviewTerminalError
+            ? new ReviewServerError(error.message, 409, "review_terminal")
+            : undefined;
     return globalJson(serverError?.statusCode ?? httpJsonStatus(error), {
       ok: false,
       ...(serverError?.code ? { code: serverError.code } : {}),
@@ -870,6 +923,159 @@ export function createGlobalReviewServer(
       suffix,
       context.env,
     );
+  }
+
+  function requireLiveReviewUuid(value: string): string {
+    if (!UUID_PATTERN.test(value)) {
+      throw new ReviewServerError(
+        "Live Review not found.",
+        404,
+        "review_not_found",
+      );
+    }
+    return value;
+  }
+
+  async function requireStoredLiveReview(
+    uuidInput: string,
+  ): Promise<StoredReview> {
+    const review = await requireStoredReview(uuidInput);
+    if (!review || !hasLiveReviewPage(review.dir)) {
+      throw new ReviewServerError(
+        "Live Review not found.",
+        404,
+        "review_not_found",
+      );
+    }
+    return review;
+  }
+
+  async function requireStoredReview(uuidInput: string): Promise<StoredReview> {
+    const uuid = requireLiveReviewUuid(uuidInput);
+    const review = await findReview(uuid);
+    if (!review) throw new ReviewServerError("Review not found.", 404);
+    return review;
+  }
+
+  function broadcastLiveReviewChange(uuid: string): void {
+    const active = activeSessionForReview(uuid);
+    if (!active) return;
+    broadcastGlobal({
+      event: "review-data-changed",
+      uuid,
+      sessionId: active.descriptor.sessionId,
+    });
+  }
+
+  async function openStoredLiveReview(input: {
+    review: StoredReview;
+    background: boolean;
+    revision?: unknown;
+    appSessionId?: string;
+    request?: Request;
+  }): Promise<{
+    status: 200 | 201;
+    body: ReviewOpenResponse;
+    review: StoredReview;
+  }> {
+    const { review } = input;
+    const descriptor = await reviewDescriptor(review);
+    if (!descriptor.available) {
+      throw new ReviewServerError(
+        "The review worktree or document is unavailable.",
+        409,
+        "review_unavailable",
+      );
+    }
+    if (!hasLiveReviewPage(review.dir)) {
+      throw new ReviewServerError(
+        "Review has no live canvas page.",
+        409,
+        "review_page_missing",
+      );
+    }
+    if (
+      input.revision !== undefined &&
+      (typeof input.revision !== "string" ||
+        !/^[0-9a-f]{40}$/.test(input.revision))
+    ) {
+      throw new ReviewServerError(
+        "Review revision must be a 40-character hexadecimal commit ID.",
+        400,
+        "invalid_revision",
+      );
+    }
+    if (typeof input.revision === "string") {
+      throw new ReviewServerError(
+        "Live Review version history is not available yet.",
+        409,
+        "live_review_history_unsupported",
+      );
+    }
+
+    /* Opening is what "viewed" means. Stamping here rather than on first
+       render keeps the rule in one place and survives a canvas that never
+       finishes loading. A dismissed review the reader reopens comes back. */
+    const wasDismissed = Boolean(review.review.dismissedAt);
+    const viewed = await restoreReview(await markReviewViewed(review));
+    if (viewed.review !== review.review) {
+      await broadcastReviewAttention(viewed, "viewed");
+    }
+    const homeReview: ReviewDescriptor = {
+      ...descriptor,
+      viewedAt: viewed.review.viewedAt ?? null,
+      dismissedAt: viewed.review.dismissedAt ?? null,
+      reapsAt: null,
+    };
+    if (wasDismissed && input.request) {
+      await captureSanitizedUiTelemetry(
+        telemetry,
+        input.request,
+        "review_restored",
+        { via: "open" },
+      );
+    }
+
+    const existing = activeSessionForReview(review.review.uuid);
+    if (existing) {
+      existing.review = viewed;
+      existing.appSessionId ??= input.appSessionId;
+      if (!input.background) {
+        void relay.dispatch(existing.descriptor.sessionId, {
+          name: "focusCanvas",
+          args: {},
+        });
+      }
+      return {
+        status: 200,
+        review: viewed,
+        body: {
+          sessionId: existing.descriptor.sessionId,
+          url: existing.descriptor.sessionUrl,
+          session: existing.descriptor,
+          review: homeReview,
+        },
+      };
+    }
+    const active = await registerSerialized({
+      review: viewed,
+      documentPath: path.join(viewed.dir, "review.mdx"),
+      promoted: true,
+      announce: true,
+      focusCanvas: !input.background,
+      background: input.background,
+      appSessionId: input.appSessionId,
+    });
+    return {
+      status: 201,
+      review: viewed,
+      body: {
+        sessionId: active.descriptor.sessionId,
+        url: active.descriptor.sessionUrl,
+        session: active.descriptor,
+        review: homeReview,
+      },
+    };
   }
 
   function openControlEvents(context: Context<ReviewHonoEnv>): Response {
@@ -2468,7 +2674,9 @@ function lifecycleFrame(record: {
 }
 
 function httpJsonStatus(error: unknown): number {
-  return error instanceof HttpJsonError ? error.statusCode : 400;
+  if (error instanceof HttpJsonError) return error.statusCode;
+  if (error instanceof ZodError) return 400;
+  return 500;
 }
 
 function globalJson(status: number, body: unknown): Response {

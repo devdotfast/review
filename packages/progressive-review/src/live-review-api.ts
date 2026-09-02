@@ -1,37 +1,22 @@
-import { randomUUID } from "node:crypto";
 import path from "node:path";
 
-import { currentHead } from "@dev.fast/local-vcs";
+import type { ReviewDesktopDiscovery } from "@dev.fast/review-protocol";
 
 import {
   readHealthyReviewDesktopDiscovery,
   type ReviewDesktopHealthDependencies,
 } from "./desktop-discovery";
-import { projectLiveReviewPage, parentIdForNode } from "./live-review-mdx";
 import {
-  commitLiveReviewPage,
-  initializeLiveReviewPage,
-  readLiveReviewPage,
-} from "./live-review-store";
-import type {
-  BasicInfo,
-  LiveReviewPage,
-  LiveReviewStatus,
-  Node,
-  RenderResult,
-  ReviewAPI,
-  ReviewBinding,
-  ReviewSummary,
-  Selection,
-} from "./live-review-types";
+  parseLiveReviewBasicInfo,
+  parseLiveReviewBootstrapResponse,
+  parseLiveReviewChildren,
+  parseLiveReviewListResponse,
+  parseLiveReviewNode,
+  parseLiveReviewRenderResult,
+  parseLiveReviewSelection,
+} from "./live-review-transport";
+import type { RenderResult, ReviewAPI } from "./live-review-types";
 import { runReviewAppLaunch } from "./review-app-launcher";
-import {
-  computeSync,
-  createReviewDir,
-  findReview,
-  listReviews as listStoredReviews,
-  type StoredReview,
-} from "./review-home";
 export type {
   BasicInfo,
   LiveReviewStatus,
@@ -42,14 +27,22 @@ export type {
   ReviewSummary,
   Selection,
 } from "./live-review-types";
-import { resolveReviewRoot } from "./runtime";
-import { writePrivateJsonAtomic } from "./server/desktop-paths";
 
 interface LiveReviewApiDependencies extends ReviewDesktopHealthDependencies {
   launchDesktop?: typeof runReviewAppLaunch;
-  now?: () => Date;
-  focusReview?: (review: StoredReview) => Promise<void>;
-  notifyPageUpdated?: (reviewId: string) => Promise<void>;
+}
+
+export class LiveReviewDesktopRequestError extends Error {
+  override readonly name = "LiveReviewDesktopRequestError";
+
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: string,
+    readonly payload?: unknown,
+  ) {
+    super(message);
+  }
 }
 
 export function createReviewApi(
@@ -57,328 +50,174 @@ export function createReviewApi(
   dependencies: LiveReviewApiDependencies = {},
 ): ReviewAPI {
   const cwd = path.resolve(input.cwd);
-  const now = dependencies.now ?? (() => new Date());
+  const fetch = dependencies.fetch ?? globalThis.fetch;
   let defaultReviewId: string | undefined;
+  let connecting: Promise<ReviewDesktopDiscovery> | undefined;
 
-  const requireReview = async (reviewId?: string): Promise<StoredReview> => {
-    const resolvedId = reviewId ?? defaultReviewId;
-    if (!resolvedId) {
+  const connect = (): Promise<ReviewDesktopDiscovery> => {
+    if (connecting) return connecting;
+    connecting = (async () => {
+      let discovery = await readHealthyReviewDesktopDiscovery(dependencies);
+      if (!discovery) {
+        await (dependencies.launchDesktop ?? runReviewAppLaunch)();
+        discovery = await readHealthyReviewDesktopDiscovery(dependencies);
+      }
+      if (!discovery) throw new Error("Review Desktop is not ready.");
+      return discovery;
+    })().finally(() => {
+      connecting = undefined;
+    });
+    return connecting;
+  };
+
+  const request = async (
+    route: string,
+    options: { method?: "GET" | "POST"; body?: unknown } = {},
+  ): Promise<unknown> => {
+    const discovery = await connect();
+    const response = await fetch(`${discovery.url}${route}`, {
+      method: options.method ?? "GET",
+      headers: {
+        "x-review-token": discovery.token,
+        ...(options.body === undefined
+          ? {}
+          : { "content-type": "application/json" }),
+      },
+      ...(options.body === undefined
+        ? {}
+        : { body: JSON.stringify(options.body) }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      const error =
+        payload &&
+        typeof payload === "object" &&
+        !Array.isArray(payload) &&
+        typeof (payload as { error?: unknown }).error === "string"
+          ? (payload as { error: string }).error
+          : `Review Desktop returned ${response.status}.`;
+      const code =
+        payload &&
+        typeof payload === "object" &&
+        !Array.isArray(payload) &&
+        typeof (payload as { code?: unknown }).code === "string"
+          ? (payload as { code: string }).code
+          : undefined;
+      throw new LiveReviewDesktopRequestError(
+        error,
+        response.status,
+        code,
+        payload,
+      );
+    }
+    return payload;
+  };
+
+  const reviewId = (explicit?: string): string => {
+    const resolved = explicit ?? defaultReviewId;
+    if (!resolved) {
       throw new Error("reviewId is required until a Review has been opened.");
     }
-    const review = await findReview(resolvedId);
-    const page = review ? readLiveReviewPage(review.dir) : null;
-    if (!review || !page || page.id !== review.review.uuid) {
-      throw new Error(`Live Review not found: ${resolvedId}`);
-    }
-    return review;
-  };
-
-  const readPage = (review: StoredReview): LiveReviewPage => {
-    const page = readLiveReviewPage(review.dir);
-    if (!page)
-      throw new Error(`Live Review page is missing: ${review.review.uuid}`);
-    if (page.id !== review.review.uuid) {
-      throw new Error(
-        `Live Review page ID does not match ${review.review.uuid}.`,
-      );
-    }
-    return page;
-  };
-
-  const info = (review: StoredReview, page: LiveReviewPage): BasicInfo => ({
-    reviewId: page.id,
-    title: page.nodes[page.rootNodeId]?.title ?? review.review.title,
-    status: liveStatusForStored(review.review.status),
-    rootNodeId: page.rootNodeId,
-    nodeCount: Object.keys(page.nodes).length,
-    binding: bindingFor(review),
-  });
-
-  const notifyPageUpdated = async (reviewId: string): Promise<void> => {
-    if (dependencies.notifyPageUpdated) {
-      await dependencies.notifyPageUpdated(reviewId);
-      return;
-    }
-    const discovery = await readHealthyReviewDesktopDiscovery(dependencies);
-    if (!discovery) return;
-    await (dependencies.fetch ?? globalThis.fetch)(
-      `${discovery.url}/reviews/${encodeURIComponent(reviewId)}/page-updated`,
-      {
-        method: "POST",
-        headers: { "x-review-token": discovery.token },
-      },
-    ).catch(() => undefined);
-  };
-
-  const focusReview = async (review: StoredReview): Promise<void> => {
-    if (dependencies.focusReview) {
-      await dependencies.focusReview(review);
-      return;
-    }
-    await (dependencies.launchDesktop ?? runReviewAppLaunch)();
-    const discovery = await readHealthyReviewDesktopDiscovery(dependencies);
-    if (!discovery) throw new Error("Review Desktop is not ready.");
-    const response = await (dependencies.fetch ?? globalThis.fetch)(
-      `${discovery.url}/reviews/${encodeURIComponent(review.review.uuid)}/open`,
-      {
-        method: "POST",
-        headers: { "x-review-token": discovery.token },
-      },
-    );
-    if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as {
-        error?: unknown;
-      } | null;
-      throw new Error(
-        typeof payload?.error === "string"
-          ? payload.error
-          : `Review Desktop returned ${response.status}.`,
-      );
-    }
+    return resolved;
   };
 
   return {
     async listReviews(listInput = {}) {
-      const reviewRoot = await resolveReviewRoot(cwd);
-      const listed = await listStoredReviews(
-        listInput.scope === "current-checkout"
-          ? { worktreePath: reviewRoot }
-          : {},
-      );
-      if (listed.errors.length > 0) {
-        throw new Error(
-          `Could not read Reviews: ${listed.errors.map((error) => error.message).join("; ")}`,
-        );
-      }
-      const summaries: ReviewSummary[] = [];
-      for (const review of listed.reviews) {
-        const page = readLiveReviewPage(review.dir);
-        if (!page) continue;
-        summaries.push({
-          id: page.id,
-          title: page.nodes[page.rootNodeId]?.title ?? review.review.title,
-          status: liveStatusForStored(review.review.status),
-          updatedAt: page.updatedAt,
-          binding: bindingFor(review),
-          matchesCheckout: await computeSync(review.review, reviewRoot),
-        });
-      }
-      return summaries.sort((left, right) =>
-        right.updatedAt.localeCompare(left.updatedAt),
+      const query = new URLSearchParams({ cwd });
+      if (listInput.scope) query.set("scope", listInput.scope);
+      return parseLiveReviewListResponse(
+        await request(`/live-reviews?${query}`),
       );
     },
 
     async createReview(createInput) {
-      if (createInput.source.kind !== "current-checkout") {
-        throw new Error("Only current-checkout sources are supported.");
-      }
-      const title = createInput.title.trim();
-      if (!title) throw new Error("Review title must not be empty.");
-      const reviewRoot = await resolveReviewRoot(cwd);
-      const head = await currentHead(reviewRoot);
-      if (!head)
-        throw new Error(`Could not resolve the checkout at ${reviewRoot}.`);
-      const review = await createReviewDir({
-        worktreePath: reviewRoot,
-        baseRef: head.commit,
-        baseCommit: head.commit,
-        sourceCommit: head.commit,
-        title,
-      });
-      const rootNodeId = "root";
-      const pageWithoutProjection = {
-        id: review.review.uuid,
-        rootNodeId,
-        nodes: {
-          [rootNodeId]: {
-            id: rootNodeId,
-            title,
-            source: "",
-            children: [],
-          },
-        },
-        version: 0,
-        updatedAt: now().toISOString(),
-      };
-      const projection = await projectLiveReviewPage({
-        page: pageWithoutProjection,
-        reviewRootPath: review.dir,
-      });
-      const page: LiveReviewPage = { ...pageWithoutProjection, projection };
-      initializeLiveReviewPage(review.dir, page);
-      const activeReview: StoredReview = {
-        ...review,
-        review: { ...review.review, status: "awaiting-agent-updates" },
-      };
-      await writePrivateJsonAtomic(
-        path.join(review.dir, "review.json"),
-        activeReview.review,
+      const info = parseLiveReviewBootstrapResponse(
+        await request("/live-reviews", {
+          method: "POST",
+          body: { cwd, ...createInput },
+        }),
       );
-      defaultReviewId = review.review.uuid;
-      await focusReview(activeReview);
-      return info(activeReview, page);
+      defaultReviewId = info.reviewId;
+      return info;
     },
 
-    async openReview({ reviewId }) {
-      const review = await requireReview(reviewId);
-      await focusReview(review);
-      defaultReviewId = reviewId;
-      return info(review, readPage(review));
+    async openReview({ reviewId: requestedId }) {
+      const info = parseLiveReviewBootstrapResponse(
+        await request(`/live-reviews/${encodeURIComponent(requestedId)}/open`, {
+          method: "POST",
+        }),
+      );
+      defaultReviewId = info.reviewId;
+      return info;
     },
 
     async getBasicInfo(infoInput = {}) {
-      const review = await requireReview(infoInput.reviewId);
-      return info(review, readPage(review));
+      const id = reviewId(infoInput.reviewId);
+      return parseLiveReviewBasicInfo(
+        await request(`/live-reviews/${encodeURIComponent(id)}`),
+      );
     },
 
-    async getSelection(selectionInput = {}): Promise<Selection> {
-      const review = await requireReview(selectionInput.reviewId);
-      return { reviewId: review.review.uuid, nodeIds: [] };
+    async getSelection(selectionInput = {}) {
+      const id = reviewId(selectionInput.reviewId);
+      return parseLiveReviewSelection(
+        await request(`/live-reviews/${encodeURIComponent(id)}/selection`),
+      );
     },
 
-    async getNodeInfo({ reviewId, nodeId }) {
-      const review = await requireReview(reviewId);
-      return publicNode(readPage(review), nodeId);
+    async getNodeInfo({ reviewId: explicitId, nodeId }) {
+      const id = reviewId(explicitId);
+      return parseLiveReviewNode(
+        await request(
+          `/live-reviews/${encodeURIComponent(id)}/nodes/${encodeURIComponent(nodeId)}`,
+        ),
+      );
     },
 
-    async getChildren({ reviewId, nodeId }) {
-      const review = await requireReview(reviewId);
-      const page = readPage(review);
-      const node = publicNode(page, nodeId);
-      return node.childIds.map((childId) => publicNode(page, childId));
+    async getChildren({ reviewId: explicitId, nodeId }) {
+      const id = reviewId(explicitId);
+      return parseLiveReviewChildren(
+        await request(
+          `/live-reviews/${encodeURIComponent(id)}/nodes/${encodeURIComponent(nodeId)}/children`,
+        ),
+      );
     },
 
     async renderMdx(renderInput): Promise<RenderResult> {
-      const review = await requireReview(renderInput.reviewId);
-      const page = readPage(review);
-      const target = page.nodes[renderInput.targetNodeId];
-      if (!target) {
-        throw new Error(`Review node not found: ${renderInput.targetNodeId}`);
-      }
-      const next = structuredClone(page);
-      const nodeId =
-        renderInput.mode === "append" ? randomUUID() : renderInput.targetNodeId;
-      if (renderInput.mode === "append") {
-        next.nodes[nodeId] = {
-          id: nodeId,
-          ...(renderInput.title?.trim()
-            ? { title: renderInput.title.trim() }
-            : {}),
-          source: renderInput.mdx,
-          children: [],
-        };
-        next.nodes[renderInput.targetNodeId]!.children.push(nodeId);
-      } else {
-        next.nodes[nodeId] = {
-          ...next.nodes[nodeId]!,
-          ...(renderInput.title?.trim()
-            ? { title: renderInput.title.trim() }
-            : {}),
-          source: renderInput.mdx,
-        };
-      }
-      next.version = page.version + 1;
-      next.updatedAt = now().toISOString();
+      const id = reviewId(renderInput.reviewId);
       try {
-        next.projection = await projectLiveReviewPage({
-          page: next,
-          reviewRootPath: review.dir,
-        });
+        return parseLiveReviewRenderResult(
+          await request(`/live-reviews/${encodeURIComponent(id)}/render`, {
+            method: "POST",
+            body: {
+              targetNodeId: renderInput.targetNodeId,
+              mode: renderInput.mode,
+              ...(renderInput.title === undefined
+                ? {}
+                : { title: renderInput.title }),
+              mdx: renderInput.mdx,
+            },
+          }),
+        );
       } catch (error) {
-        const diagnostics =
-          error &&
-          typeof error === "object" &&
-          "diagnostics" in error &&
-          Array.isArray(error.diagnostics)
-            ? error.diagnostics
-            : [
-                {
-                  path: renderInput.targetNodeId,
-                  message:
-                    error instanceof Error ? error.message : String(error),
-                },
-              ];
-        return {
-          ok: false,
-          reviewId: review.review.uuid,
-          targetNodeId: renderInput.targetNodeId,
-          diagnostics,
-        };
+        if (
+          error instanceof LiveReviewDesktopRequestError &&
+          error.status === 422
+        ) {
+          return parseLiveReviewRenderResult(error.payload);
+        }
+        throw error;
       }
-      commitLiveReviewPage(review.dir, next, page.version);
-      await notifyPageUpdated(review.review.uuid);
-      return {
-        ok: true,
-        reviewId: review.review.uuid,
-        targetNodeId: renderInput.targetNodeId,
-        nodeId,
-        version: next.version,
-      };
     },
 
     async setReviewStatus(statusInput) {
-      const review = await requireReview(statusInput.reviewId);
-      if (statusInput.status !== "awaiting-review") {
-        throw new Error(
-          "The model-facing Review API may only hand work to the reader.",
-        );
-      }
-      if (
-        review.review.status === "accepted" ||
-        review.review.status === "rejected"
-      ) {
-        throw new Error("A terminal Review cannot change lifecycle status.");
-      }
-      const page = readPage(review);
-      const nextReview = {
-        ...review.review,
-        status: storedStatus(statusInput.status),
-      };
-      await writePrivateJsonAtomic(
-        path.join(review.dir, "review.json"),
-        nextReview,
+      const id = reviewId(statusInput.reviewId);
+      return parseLiveReviewBasicInfo(
+        await request(`/live-reviews/${encodeURIComponent(id)}/status`, {
+          method: "POST",
+          body: { status: statusInput.status },
+        }),
       );
-      await notifyPageUpdated(review.review.uuid);
-      return info({ ...review, review: nextReview }, page);
     },
   };
-}
-
-function publicNode(page: LiveReviewPage, nodeId: string): Node {
-  const node = page.nodes[nodeId];
-  if (!node) throw new Error(`Review node not found: ${nodeId}`);
-  return {
-    id: node.id,
-    parentId: parentIdForNode(page.nodes, node.id),
-    ...(node.title ? { title: node.title } : {}),
-    source: node.source,
-    childIds: [...node.children],
-  };
-}
-
-function bindingFor(review: StoredReview): ReviewBinding {
-  const sourceCommit = review.review.sourceCommit;
-  if (!sourceCommit)
-    throw new Error(`Review ${review.review.uuid} is unbound.`);
-  return {
-    kind: "current-checkout",
-    worktreePath: review.review.worktreePath,
-    baseCommit: review.review.baseCommit,
-    sourceCommit,
-  };
-}
-
-function storedStatus(
-  status: LiveReviewStatus,
-): StoredReview["review"]["status"] {
-  return status === "awaiting-agent" ? "awaiting-agent-updates" : status;
-}
-
-function liveStatusForStored(
-  status: StoredReview["review"]["status"],
-): LiveReviewStatus {
-  if (status === "draft" || status === "awaiting-agent-updates") {
-    return "awaiting-agent";
-  }
-  return status;
 }

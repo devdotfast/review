@@ -1,118 +1,253 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  REVIEW_DESKTOP_DISCOVERY_VERSION,
+  type ReviewDesktopDiscovery,
+} from "@dev.fast/review-protocol";
+import { describe, expect, it, vi } from "vitest";
 
-import { createReviewApi } from "./live-review-api";
-import { readLiveReviewPage } from "./live-review-store";
-import { findReview } from "./review-home";
+import {
+  createReviewApi,
+  LiveReviewDesktopRequestError,
+} from "./live-review-api";
+import type { BasicInfo } from "./live-review-types";
 
-const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
-let reviewHome: string | undefined;
+const discovery: ReviewDesktopDiscovery = {
+  version: REVIEW_DESKTOP_DISCOVERY_VERSION,
+  instanceId: "live-review-desktop",
+  url: "http://127.0.0.1:4567",
+  appPid: 100,
+  serverPid: 101,
+  token: "live-review-secret",
+  startedAt: 1,
+};
 
-afterEach(async () => {
-  vi.unstubAllEnvs();
-  if (reviewHome) await rm(reviewHome, { recursive: true, force: true });
-  reviewHome = undefined;
-});
-
-describe("live Review API", () => {
-  it("keeps stable nodes while validating append and replace atomically", async () => {
-    reviewHome = await mkdtemp(path.join(tmpdir(), "live-review-api-"));
-    vi.stubEnv("DEV_REVIEW_HOME", reviewHome);
-    const focusReview = vi.fn(async () => undefined);
-    const notifyPageUpdated = vi.fn(async () => undefined);
-    const review = createReviewApi(
-      { cwd: repoRoot },
-      { focusReview, notifyPageUpdated },
+describe("live Review API transport", () => {
+  it("is a thin authenticated client with stable default Review state", async () => {
+    const requests: Request[] = [];
+    const info = fixtureInfo();
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      const request = new Request(input, init);
+      requests.push(request);
+      const url = new URL(request.url);
+      if (url.pathname === "/health") return healthResponse();
+      expect(request.headers.get("x-review-token")).toBe(discovery.token);
+      if (url.pathname === "/live-reviews" && request.method === "POST") {
+        expect(await request.json()).toEqual({
+          cwd: path.resolve("/repo"),
+          source: { kind: "current-checkout" },
+          title: "Transport tracer",
+        });
+        return json({ sessionId: "session-1", info }, 201);
+      }
+      if (url.pathname.endsWith("/render")) {
+        return json({
+          ok: true,
+          reviewId: info.reviewId,
+          targetNodeId: "root",
+          nodeId: "child",
+          version: 1,
+        });
+      }
+      if (url.pathname.endsWith("/nodes/root/children")) {
+        return json({
+          children: [
+            {
+              id: "child",
+              parentId: "root",
+              title: "Child",
+              source: "Body",
+              childIds: [],
+            },
+          ],
+        });
+      }
+      if (url.pathname.endsWith("/selection")) {
+        return json({ reviewId: info.reviewId, nodeIds: [] });
+      }
+      if (url.pathname.endsWith("/status")) {
+        return json({ ...info, status: "awaiting-review" });
+      }
+      if (url.pathname === `/live-reviews/${info.reviewId}`) {
+        return json(info);
+      }
+      throw new Error(`Unexpected request: ${request.method} ${url.pathname}`);
+    });
+    const launchDesktop = vi.fn(async () => ({
+      event: "app" as const,
+      action: "launch" as const,
+      state: "running" as const,
+      instanceId: discovery.instanceId,
+    }));
+    const api = createReviewApi(
+      { cwd: "/repo" },
+      {
+        fetch,
+        readDiscovery: async () => discovery,
+        launchDesktop,
+      },
     );
 
-    const info = await review.createReview({
-      source: { kind: "current-checkout" },
-      title: "Sequence diagram tracer",
-    });
-    expect(info).toMatchObject({ rootNodeId: "root", nodeCount: 1 });
-    expect(focusReview).toHaveBeenCalledOnce();
-
+    await expect(api.getBasicInfo()).rejects.toThrow(
+      "reviewId is required until a Review has been opened",
+    );
     await expect(
-      review.renderMdx({
-        targetNodeId: info.rootNodeId,
-        mode: "replace",
-        title: "Renamed tracer",
-        mdx: "**Summary**\n\nThe root is lossless MDX.",
+      api.createReview({
+        source: { kind: "current-checkout" },
+        title: "Transport tracer",
       }),
-    ).resolves.toMatchObject({ ok: true, nodeId: info.rootNodeId });
-
-    const append = await review.renderMdx({
-      targetNodeId: info.rootNodeId,
-      mode: "append",
-      title: "Desktop health check",
-      mdx: '<SequenceDiagram label="Review Desktop health check" messages={[{ from: { label: "Review CLI" }, to: { label: "Review Desktop" }, label: "Verify active instance", anchor: { id: "active-instance", peek: { file: "packages/progressive-review/src/desktop-discovery.ts", fromLine: 71, toLine: 103 } } }]} />',
-    });
-    expect(append).toMatchObject({ ok: true });
-    if (!append.ok) throw new Error("append unexpectedly failed");
-
-    const child = await review.getNodeInfo({ nodeId: append.nodeId });
-    expect(child).toMatchObject({
-      id: append.nodeId,
-      parentId: info.rootNodeId,
-      title: "Desktop health check",
-      childIds: [],
-    });
-    expect(await review.getChildren({ nodeId: info.rootNodeId })).toEqual([
-      child,
-    ]);
-
-    const beforeRejectedWrite = await review.getBasicInfo();
-    const rejected = await review.renderMdx({
-      targetNodeId: append.nodeId,
-      mode: "replace",
-      mdx: "<UnknownComponent />",
-    });
-    expect(rejected).toMatchObject({ ok: false });
-    expect(await review.getNodeInfo({ nodeId: append.nodeId })).toEqual(child);
-    expect(await review.getBasicInfo()).toEqual(beforeRejectedWrite);
-
+    ).resolves.toEqual(info);
     await expect(
-      review.renderMdx({
-        targetNodeId: info.rootNodeId,
+      api.renderMdx({
+        targetNodeId: "root",
         mode: "append",
-        mdx: '<SequenceDiagram label="Duplicate anchor" messages={[{ from: { label: "Review CLI" }, to: { label: "Review Desktop" }, label: "Again", anchor: { id: "active-instance", peek: { file: "packages/progressive-review/src/desktop-discovery.ts", fromLine: 71, toLine: 103 } } }]} />',
+        title: "Child",
+        mdx: "Body",
       }),
-    ).resolves.toMatchObject({
-      ok: false,
-      diagnostics: [
-        expect.objectContaining({ message: expect.stringContaining("unique") }),
-      ],
-    });
-    expect(await review.getBasicInfo()).toEqual(beforeRejectedWrite);
-
-    await expect(
-      review.setReviewStatus({ status: "awaiting-review" }),
-    ).resolves.toMatchObject({
-      title: "Renamed tracer",
-      status: "awaiting-review",
-    });
-    expect(notifyPageUpdated).toHaveBeenCalledTimes(3);
-
-    const storedReview = await findReview(info.reviewId);
-    if (!storedReview) throw new Error("stored Review is missing");
-    expect(storedReview.review).toMatchObject({
-      title: "Sequence diagram tracer",
-      status: "awaiting-review",
-    });
-    expect(readLiveReviewPage(storedReview.dir)).toMatchObject({ version: 2 });
-    await expect(
-      review.setReviewStatus({ status: "accepted" }),
-    ).rejects.toThrow("model-facing Review API");
-    await expect(review.listReviews()).resolves.toEqual([
-      expect.objectContaining({
-        id: info.reviewId,
-        title: "Renamed tracer",
-        status: "awaiting-review",
-      }),
+    ).resolves.toMatchObject({ ok: true, version: 1 });
+    await expect(api.getChildren({ nodeId: "root" })).resolves.toEqual([
+      expect.objectContaining({ id: "child", parentId: "root" }),
     ]);
+    await expect(api.getSelection()).resolves.toEqual({
+      reviewId: info.reviewId,
+      nodeIds: [],
+    });
+    await expect(
+      api.setReviewStatus({ status: "awaiting-review" }),
+    ).resolves.toMatchObject({ status: "awaiting-review" });
+    await expect(api.getBasicInfo()).resolves.toEqual(info);
+    expect(launchDesktop).not.toHaveBeenCalled();
+    expect(
+      requests.filter((request) => new URL(request.url).pathname !== "/health"),
+    ).toHaveLength(6);
+  });
+
+  it("launches once when Desktop is absent, then uses the discovered token", async () => {
+    const readDiscovery = vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue(discovery);
+    const launchDesktop = vi.fn(async () => ({
+      event: "app" as const,
+      action: "launch" as const,
+      state: "launched" as const,
+      instanceId: discovery.instanceId,
+    }));
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      const request = new Request(input, init);
+      if (new URL(request.url).pathname === "/health") return healthResponse();
+      expect(request.headers.get("x-review-token")).toBe(discovery.token);
+      return json({ reviews: [] });
+    });
+    const api = createReviewApi(
+      { cwd: "/repo" },
+      { readDiscovery, launchDesktop, fetch },
+    );
+
+    await expect(api.listReviews()).resolves.toEqual([]);
+    expect(launchDesktop).toHaveBeenCalledOnce();
+  });
+
+  it("returns validation diagnostics from 422 and exposes transport failures", async () => {
+    let endpointStatus = 422;
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      const request = new Request(input, init);
+      const pathname = new URL(request.url).pathname;
+      if (pathname === "/health") return healthResponse();
+      if (pathname.endsWith("/open")) {
+        return json({ sessionId: "session-1", info: fixtureInfo() }, 200);
+      }
+      if (endpointStatus === 422) {
+        return json(
+          {
+            ok: false,
+            reviewId: fixtureInfo().reviewId,
+            targetNodeId: "root",
+            diagnostics: [{ path: "root", message: "Unknown component" }],
+          },
+          422,
+        );
+      }
+      return json(
+        { ok: false, code: "review_version_conflict", error: "Retry render." },
+        endpointStatus,
+      );
+    });
+    const api = createReviewApi(
+      { cwd: "/repo" },
+      { readDiscovery: async () => discovery, fetch },
+    );
+    await api.openReview({ reviewId: fixtureInfo().reviewId });
+
+    await expect(
+      api.renderMdx({ targetNodeId: "root", mode: "replace", mdx: "<Bad />" }),
+    ).resolves.toEqual({
+      ok: false,
+      reviewId: fixtureInfo().reviewId,
+      targetNodeId: "root",
+      diagnostics: [{ path: "root", message: "Unknown component" }],
+    });
+
+    endpointStatus = 409;
+    const conflict = await api
+      .renderMdx({ targetNodeId: "root", mode: "replace", mdx: "Body" })
+      .catch((error: unknown) => error);
+    expect(conflict).toBeInstanceOf(LiveReviewDesktopRequestError);
+    expect(conflict).toMatchObject({
+      status: 409,
+      code: "review_version_conflict",
+      message: "Retry render.",
+    });
+  });
+
+  it("rejects unauthorized and malformed successful responses", async () => {
+    let malformed = false;
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
+      const pathname = new URL(String(input)).pathname;
+      if (pathname === "/health") return healthResponse();
+      return malformed
+        ? json({ reviews: [{ id: "incomplete" }] })
+        : json({ ok: false, code: "unauthorized", error: "Unauthorized" }, 401);
+    });
+    const api = createReviewApi(
+      { cwd: "/repo" },
+      { readDiscovery: async () => discovery, fetch },
+    );
+
+    await expect(api.listReviews()).rejects.toMatchObject({
+      status: 401,
+      code: "unauthorized",
+      message: "Unauthorized",
+    });
+    malformed = true;
+    await expect(api.listReviews()).rejects.toThrow();
   });
 });
+
+function fixtureInfo(): BasicInfo {
+  return {
+    reviewId: "11111111-1111-4111-8111-111111111111",
+    title: "Transport tracer",
+    status: "awaiting-agent",
+    rootNodeId: "root",
+    nodeCount: 1,
+    binding: {
+      kind: "current-checkout",
+      worktreePath: path.resolve("/repo"),
+      baseCommit: "a".repeat(40),
+      sourceCommit: "a".repeat(40),
+    },
+  };
+}
+
+function healthResponse(): Response {
+  return json({
+    ok: true,
+    instanceId: discovery.instanceId,
+    desktopAttached: true,
+  });
+}
+
+function json(value: unknown, status = 200): Response {
+  return Response.json(value, { status });
+}

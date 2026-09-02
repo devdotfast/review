@@ -1,0 +1,253 @@
+import { randomUUID } from "node:crypto";
+import { rm } from "node:fs/promises";
+import path from "node:path";
+
+import { currentHead } from "@dev.fast/local-vcs";
+
+import { projectLiveReviewPage, parentIdForNode } from "../live-review-mdx";
+import {
+  commitLiveReviewPage,
+  initializeLiveReviewPage,
+  readLiveReviewPage,
+} from "../live-review-store";
+import type {
+  BasicInfo,
+  LiveReviewPage,
+  Node,
+  RenderResult,
+  ReviewBinding,
+  ReviewSummary,
+} from "../live-review-types";
+import {
+  computeSync,
+  createReviewDir,
+  listReviews,
+  type StoredReview,
+} from "../review-home";
+import { resolveReviewRoot } from "../runtime";
+import { writePrivateJsonAtomic } from "./desktop-paths";
+
+export class LiveReviewTerminalError extends Error {
+  override readonly name = "LiveReviewTerminalError";
+}
+
+export function requireLiveReviewPage(review: StoredReview): LiveReviewPage {
+  const page = readLiveReviewPage(review.dir);
+  if (!page || page.id !== review.review.uuid) {
+    throw new Error(`Live Review page is missing: ${review.review.uuid}`);
+  }
+  return page;
+}
+
+export function liveReviewInfo(
+  review: StoredReview,
+  page = requireLiveReviewPage(review),
+): BasicInfo {
+  return {
+    reviewId: page.id,
+    title: page.nodes[page.rootNodeId]?.title ?? review.review.title,
+    status: liveStatusForStored(review.review.status),
+    rootNodeId: page.rootNodeId,
+    nodeCount: Object.keys(page.nodes).length,
+    binding: bindingFor(review),
+  };
+}
+
+export async function listLiveReviews(input: {
+  cwd: string;
+  scope?: "current-checkout" | "all";
+}): Promise<ReviewSummary[]> {
+  const reviewRoot = await resolveReviewRoot(path.resolve(input.cwd));
+  const listed = await listReviews(
+    input.scope === "current-checkout" ? { worktreePath: reviewRoot } : {},
+  );
+  if (listed.errors.length > 0) {
+    throw new Error(
+      `Could not read Reviews: ${listed.errors.map((error) => error.message).join("; ")}`,
+    );
+  }
+  const summaries: ReviewSummary[] = [];
+  for (const review of listed.reviews) {
+    const page = readLiveReviewPage(review.dir);
+    if (!page) continue;
+    summaries.push({
+      id: page.id,
+      title: page.nodes[page.rootNodeId]?.title ?? review.review.title,
+      status: liveStatusForStored(review.review.status),
+      updatedAt: page.updatedAt,
+      binding: bindingFor(review),
+      matchesCheckout: await computeSync(review.review, reviewRoot),
+    });
+  }
+  return summaries.sort((left, right) =>
+    right.updatedAt.localeCompare(left.updatedAt),
+  );
+}
+
+export async function createLiveReview(input: {
+  cwd: string;
+  title: string;
+}): Promise<{ review: StoredReview; page: LiveReviewPage }> {
+  const title = input.title.trim();
+  if (!title) throw new Error("Review title must not be empty.");
+  const reviewRoot = await resolveReviewRoot(path.resolve(input.cwd));
+  const head = await currentHead(reviewRoot);
+  if (!head)
+    throw new Error(`Could not resolve the checkout at ${reviewRoot}.`);
+  const review = await createReviewDir({
+    worktreePath: reviewRoot,
+    baseRef: head.commit,
+    baseCommit: head.commit,
+    sourceCommit: head.commit,
+    title,
+  });
+  try {
+    const rootNodeId = "root";
+    const pageWithoutProjection = {
+      id: review.review.uuid,
+      rootNodeId,
+      nodes: {
+        [rootNodeId]: {
+          id: rootNodeId,
+          title,
+          source: "",
+          children: [],
+        },
+      },
+      version: 0,
+      updatedAt: new Date().toISOString(),
+    };
+    const projection = await projectLiveReviewPage({
+      page: pageWithoutProjection,
+      reviewRootPath: review.dir,
+    });
+    const page: LiveReviewPage = { ...pageWithoutProjection, projection };
+    initializeLiveReviewPage(review.dir, page);
+    const active = await setLiveReviewStatus(review, "awaiting-agent-updates");
+    return { review: active, page };
+  } catch (error) {
+    await rm(review.dir, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+export function liveReviewNode(page: LiveReviewPage, nodeId: string): Node {
+  const node = page.nodes[nodeId];
+  if (!node) throw new Error(`Review node not found: ${nodeId}`);
+  return {
+    id: node.id,
+    parentId: parentIdForNode(page.nodes, node.id),
+    ...(node.title ? { title: node.title } : {}),
+    source: node.source,
+    childIds: [...node.children],
+  };
+}
+
+export async function renderLiveReviewMdx(input: {
+  review: StoredReview;
+  targetNodeId: string;
+  mode: "append" | "replace";
+  title?: string;
+  mdx: string;
+}): Promise<RenderResult> {
+  const page = requireLiveReviewPage(input.review);
+  if (!page.nodes[input.targetNodeId]) {
+    throw new Error(`Review node not found: ${input.targetNodeId}`);
+  }
+  const next = structuredClone(page);
+  const nodeId = input.mode === "append" ? randomUUID() : input.targetNodeId;
+  if (input.mode === "append") {
+    next.nodes[nodeId] = {
+      id: nodeId,
+      ...(input.title?.trim() ? { title: input.title.trim() } : {}),
+      source: input.mdx,
+      children: [],
+    };
+    next.nodes[input.targetNodeId]!.children.push(nodeId);
+  } else {
+    next.nodes[nodeId] = {
+      ...next.nodes[nodeId]!,
+      ...(input.title?.trim() ? { title: input.title.trim() } : {}),
+      source: input.mdx,
+    };
+  }
+  next.version = page.version + 1;
+  next.updatedAt = new Date().toISOString();
+  try {
+    next.projection = await projectLiveReviewPage({
+      page: next,
+      reviewRootPath: input.review.dir,
+    });
+  } catch (error) {
+    const diagnostics =
+      error &&
+      typeof error === "object" &&
+      "diagnostics" in error &&
+      Array.isArray(error.diagnostics)
+        ? error.diagnostics
+        : [
+            {
+              path: input.targetNodeId,
+              message: error instanceof Error ? error.message : String(error),
+            },
+          ];
+    return {
+      ok: false,
+      reviewId: input.review.review.uuid,
+      targetNodeId: input.targetNodeId,
+      diagnostics,
+    };
+  }
+  commitLiveReviewPage(input.review.dir, next, page.version);
+  return {
+    ok: true,
+    reviewId: input.review.review.uuid,
+    targetNodeId: input.targetNodeId,
+    nodeId,
+    version: next.version,
+  };
+}
+
+export async function handoffLiveReview(
+  review: StoredReview,
+): Promise<StoredReview> {
+  if (
+    review.review.status === "accepted" ||
+    review.review.status === "rejected"
+  ) {
+    throw new LiveReviewTerminalError(
+      "A terminal Review cannot change lifecycle status.",
+    );
+  }
+  return setLiveReviewStatus(review, "awaiting-review");
+}
+
+async function setLiveReviewStatus(
+  review: StoredReview,
+  status: StoredReview["review"]["status"],
+): Promise<StoredReview> {
+  const next = { ...review.review, status };
+  await writePrivateJsonAtomic(path.join(review.dir, "review.json"), next);
+  return { ...review, review: next };
+}
+
+function bindingFor(review: StoredReview): ReviewBinding {
+  const sourceCommit = review.review.sourceCommit;
+  if (!sourceCommit)
+    throw new Error(`Review ${review.review.uuid} is unbound.`);
+  return {
+    kind: "current-checkout",
+    worktreePath: review.review.worktreePath,
+    baseCommit: review.review.baseCommit,
+    sourceCommit,
+  };
+}
+
+function liveStatusForStored(
+  status: StoredReview["review"]["status"],
+): BasicInfo["status"] {
+  if (status === "draft" || status === "awaiting-agent-updates") {
+    return "awaiting-agent";
+  }
+  return status;
+}

@@ -82,8 +82,9 @@ whether Review attaches:
 
 - **Review**: the current Review source and head software-map source
 - changed-file diffs used by the review codepeeks (only the diff lines)
-- **Agent session trace**: the raw local JSONL trace for the agent session that
-  authored the Review
+- **Agent session trace**: the complete raw local JSONL trace for the agent
+  session that authored the Review and, for a forked Codex session, its complete
+  parent history through the fork point
 
 The Review and changed-file diff attachments are selected by default. The agent
 session trace is opt-in and starts unselected. An information icon beside it
@@ -112,16 +113,26 @@ versions, operating-system category, a random app-session ID, and up to 20
 sanitized JavaScript error class names seen during that canvas session. It does
 not include error messages in that list.
 
-If a selected attachment is unavailable, Review omits it and sends the other
-available data. The report never attaches Review metadata, comment threads, or
-question threads. Review stores submitted reports in a private /dev/fast
-Cloudflare R2 bucket and deletes them after 90 days.
+If a selected Review, map, or diff attachment is unavailable, Review omits it
+and sends the other available data. A selected trace is different. Review stops
+the report if the source trace, a declared Codex parent, or any JSONL record is
+unavailable or invalid. It does not silently send a partial main trace.
 
-Review caps the main trace at its newest 6 MiB and includes the ten most recently
-modified subagent traces, each capped at its newest 1 MiB, retaining complete
-JSONL lines. If the compressed report still exceeds 10 MiB, Review drops the
-complete trace attachment before dropping diffs, the software map, the
-screenshot, or Review source.
+Review sends the complete source trace. For a forked Codex session, it also
+sends the complete logical parent history through the exact recorded ordinal
+and byte offset. It follows nested parent references up to 32 levels. It rejects
+a deeper chain, a cycle, or inconsistent fork metadata. Review still includes
+only the ten most recently modified subagent traces, each capped at its newest
+1 MiB on complete JSONL lines.
+
+The compressed payload remains limited to 10 MiB. Review can drop the diff,
+map, screenshot, or Review source to fit that payload. It never drops or
+shortens a selected main trace to fit. The complete multipart upload is limited
+by the Cloudflare request limit; an oversized report fails.
+
+The report never attaches Review metadata, comment threads, or question
+threads. Review stores completed reports in a private /dev/fast Cloudflare R2
+bucket and deletes them after 90 days.
 
 An explicit bug report is separate from passive telemetry and is sent even when
 anonymous telemetry is disabled. Review shows the attachment choices before

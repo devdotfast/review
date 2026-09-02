@@ -388,7 +388,7 @@ The report payload contains these fields:
 
 | Field                              | Value                                                                               |
 | ---------------------------------- | ----------------------------------------------------------------------------------- |
-| `schema_version`                   | Payload schema version `3`                                                          |
+| `schema_version`                   | Payload schema version `3`, or `4` for the separate trace-part transport            |
 | `description`                      | Optional user-entered description, limited to 64 KiB of UTF-8 data                  |
 | `screenshot.mime`                  | `image/jpeg` when a screenshot is attached                                          |
 | `screenshot.base64`                | JPEG screenshot data, limited to 3 MiB decoded                                      |
@@ -405,10 +405,10 @@ The report payload contains these fields:
 | `diff.files[].patch`               | Unified patch used to resolve the review's exact CodePeek ranges                    |
 | `trace.harness`                    | Authoring harness: `claude-code`, `codex`, or `pi`                                  |
 | `trace.session_id`                 | Authoring session identifier from the Review record                                 |
-| `trace.files["trace.jsonl"]`       | Tail-capped raw JSONL for the authoring session, when the user opts in              |
+| `trace.parent_session_id`          | Immediate Codex parent session identifier, when the source session is forked        |
 | `trace.files["subagents/<name>"]`  | Tail-capped raw JSONL for an included subagent                                      |
 | `trace.omitted_files`              | Subagent trace names omitted because of limits or read failures                     |
-| `trace.truncated`                  | Whether any trace was tail-capped or omitted                                        |
+| `trace.truncated`                  | Whether any subagent trace was tail-capped or omitted                               |
 | `diagnostics.app_version`          | Review Desktop product version                                                      |
 | `diagnostics.cli_version`          | `@dev.fast/review` package version                                                  |
 | `diagnostics.platform`             | Node platform enum                                                                  |
@@ -441,25 +441,39 @@ not detect every credential or secret format, and it does not anonymize file
 paths, URLs, email addresses, prompts, model output, or source code; those
 values are sent when the user selects the trace checkbox.
 
-The main trace keeps at most its newest 6 MiB on complete JSONL line boundaries.
-Review includes the ten most recently modified subagent files, each keeping at
-most its newest 1 MiB, and records omitted names. If the complete compressed
-multipart report still exceeds 10 MiB, the size ladder drops the whole trace
-first, followed by the diff, map, screenshot, and Review source.
+Review validates every main-trace JSONL record and sends the complete fixed
+source snapshot as a separate gzip part. For a forked Codex session, it uses the
+recorded parent session ID, exclusive ordinal, and byte offset. It sends the
+complete logical parent history through that boundary as a second gzip part.
+Nested parents are materialized recursively. Review rejects missing parents,
+invalid boundaries, cycles, or more than 32 ancestry levels.
 
-The local server compresses the payload and sends it to
-`https://bug.dev.fast/api/v1/reports`. The Worker stores it in the private
-`dev-fast-bug-reports` Cloudflare R2 bucket. Only credentialed dev.fast
-operators can read this bucket. An R2 lifecycle rule deletes objects under
-`reports/` after 90 days.
+Review includes the ten most recently modified subagent files in the payload.
+Each keeps at most its newest 1 MiB, and the payload records omitted names. The
+compressed payload remains limited to 10 MiB. The size ladder can drop the diff,
+map, screenshot, and Review source, but it does not drop or shorten a selected
+main trace. The whole request remains subject to the Cloudflare request limit.
 
-The Worker sends a `review_bug_report` PostHog event after the R2
-write. The event contains the report ID, UTC report date, description byte
+The local server sends reports without a trace to
+`https://bug.dev.fast/api/v1/reports` with the original schema 1 multipart
+request. It sends trace reports to `https://bug.dev.fast/api/v2/reports` with
+ordered `meta`, `payload`, `source_trace`, and optional `parent_trace` parts.
+
+The Worker stores a schema 2 report below one private R2 prefix. It writes the
+payload and trace objects first, then writes `complete.json` last. A report is
+complete only when this marker exists. Failed uploads have no completion marker
+and the Worker removes any partial objects. Only credentialed dev.fast operators
+can read the bucket. An R2 lifecycle rule deletes objects under `reports/` after
+90 days.
+
+The Worker sends a `review_bug_report` PostHog event only after the completion
+marker exists. The event contains the report ID, UTC report date, description byte
 length, attachment presence flags (including `has_screenshot`), compressed
 payload size, app version, platform, and map, diff, or screenshot truncation
 flags (including `truncated_screenshot`). It also receives `has_trace`,
-`truncated_trace`, and, after a trace resolves, the closed `trace_harness` enum.
-It does not contain the description or attachments.
+`truncated_trace`, the closed `trace_harness` enum, transport schema version,
+compressed source and parent trace sizes, and a completion flag. It does not
+contain the description, attachments, or trace session identifiers.
 
 Cloudflare uses `CF-Connecting-IP` only as the rate-limit key. The Worker does
 not store that value in R2. The Worker does not send it to PostHog as report

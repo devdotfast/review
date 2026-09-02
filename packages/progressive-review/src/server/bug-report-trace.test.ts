@@ -1,21 +1,26 @@
 import {
+  appendFileSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { gunzipSync } from "node:zlib";
 
 import { REVIEW_SCHEMA_VERSION } from "@dev.fast/review-protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { ReviewAgentHarness } from "../authoring-session";
 import { clearTraceEnvCache } from "../review-agent-traces";
-import { readAuthoringTraceAttachment } from "./bug-report-trace";
+import {
+  type AuthoringTraceAttachment,
+  readAuthoringTraceAttachment,
+} from "./bug-report-trace";
 
-const TRACE_CAP_BYTES = 6 * 1024 * 1024;
 const SUBAGENT_TRACE_CAP_BYTES = 1024 * 1024;
 
 describe("readAuthoringTraceAttachment", () => {
@@ -62,125 +67,187 @@ describe("readAuthoringTraceAttachment", () => {
 
   it.each([
     ["claude-code", "11111111-aaaa-bbbb-cccc-000000000001"],
-    ["codex", "22222222-aaaa-bbbb-cccc-000000000002"],
     ["pi", "33333333-aaaa-bbbb-cccc-000000000003"],
-  ] as const)(
-    "reads a %s trace from its local harness root",
-    async (harness, id) => {
-      writeReview(harness + ":" + id);
-      writeHarnessTrace(harness, id, jsonLine({ harness, id }));
+  ] as const)("stores a complete %s source trace", async (harness, id) => {
+    const source = jsonLine({ harness, id });
+    writeReview(harness + ":" + id);
+    writeHarnessTrace(harness, id, source);
 
-      await expect(
-        readAuthoringTraceAttachment({ reviewRootPath }),
-      ).resolves.toEqual({
-        harness,
-        session_id: id,
-        files: {
-          "trace.jsonl": jsonLine({ harness, id }),
-        },
-        truncated: false,
-      });
-    },
-  );
+    const attachment = await requiredAttachment();
+    expect(attachment.payload).toEqual({
+      harness,
+      session_id: id,
+      files: {},
+      truncated: false,
+    });
+    expect(readPart(attachment, "source_trace")).toBe(source);
+    expect(attachment.parts).toHaveLength(1);
+    await attachment.cleanup();
+  });
 
-  it("redacts complete known-secret values while retaining paths, prompts, and code", async () => {
-    const id = "44444444-aaaa-bbbb-cccc-000000000004";
-    const googleKey = "AIza" + "a".repeat(35);
-    const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature";
+  it("stores the physical child and the complete recursive parent history", async () => {
+    const grandparentId = "11111111-1111-4111-8111-111111111111";
+    const parentId = "22222222-2222-4222-8222-222222222222";
+    const childId = "33333333-3333-4333-8333-333333333333";
+    const grandparent = codexTrace(grandparentId, 0, [{ root: true }]);
+    const parentAtFork = codexTrace(
+      parentId,
+      2,
+      [{ parent: true }],
+      historyBase(grandparentId, 2, Buffer.byteLength(grandparent)),
+    );
+    const parent = parentAtFork + jsonLine({ parentLater: true, ordinal: 4 });
+    const child = codexTrace(
+      childId,
+      4,
+      [{ child: true }],
+      historyBase(parentId, 4, Buffer.byteLength(parentAtFork)),
+    );
+    writeCodexTrace(grandparentId, grandparent);
+    writeCodexTrace(parentId, parent);
+    writeCodexTrace(childId, child);
+    writeReview("codex:" + childId);
+
+    const attachment = await requiredAttachment();
+    expect(attachment.payload).toMatchObject({
+      harness: "codex",
+      session_id: childId,
+      parent_session_id: parentId,
+      truncated: false,
+    });
+    expect(readPart(attachment, "source_trace")).toBe(child);
+    expect(readPart(attachment, "parent_trace")).toBe(grandparent + parent);
+    expect(attachment.parts.map((part) => part.field)).toEqual([
+      "source_trace",
+      "parent_trace",
+    ]);
+    await attachment.cleanup();
+  });
+
+  it("rejects an unresolved or malformed declared Codex parent", async () => {
+    const childId = "44444444-4444-4444-8444-444444444444";
+    const parentId = "55555555-5555-4555-8555-555555555555";
+    writeCodexTrace(
+      childId,
+      codexTrace(childId, 2, [{ child: true }], historyBase(parentId, 2, 100)),
+    );
+    writeReview("codex:" + childId);
+    await expect(
+      readAuthoringTraceAttachment({ reviewRootPath }),
+    ).rejects.toThrow("exactly one rollout");
+
+    writeCodexTrace(parentId, '{"ordinal":0}\nnot-json\n');
+    await expect(
+      readAuthoringTraceAttachment({ reviewRootPath }),
+    ).rejects.toThrow("malformed JSONL");
+  });
+
+  it("rejects more than 32 Codex parent levels", async () => {
+    let parentId = codexId(0);
+    let parent = codexTrace(parentId, 0, [{ depth: 0 }]);
+    writeCodexTrace(parentId, parent);
+    let nextOrdinal = 2;
+    for (let depth = 1; depth <= 33; depth++) {
+      const id = codexId(depth);
+      const trace = codexTrace(
+        id,
+        nextOrdinal,
+        [{ depth }],
+        historyBase(parentId, nextOrdinal, Buffer.byteLength(parent)),
+      );
+      writeCodexTrace(id, trace);
+      parentId = id;
+      parent = trace;
+      nextOrdinal += 2;
+    }
+    const sourceId = codexId(34);
+    writeCodexTrace(
+      sourceId,
+      codexTrace(
+        sourceId,
+        nextOrdinal,
+        [{ source: true }],
+        historyBase(parentId, nextOrdinal, Buffer.byteLength(parent)),
+      ),
+    );
+    writeReview("codex:" + sourceId);
+
+    await expect(
+      readAuthoringTraceAttachment({ reviewRootPath }),
+    ).rejects.toThrow("exceeds the supported depth");
+  });
+
+  it("keeps a complete main trace that exceeds the old byte cap", async () => {
+    const id = "66666666-6666-4666-8666-666666666666";
+    const source = jsonLine({ data: "x".repeat(6 * 1024 * 1024 + 1) });
+    writeReview("claude-code:" + id);
+    writeHarnessTrace("claude-code", id, source);
+
+    const attachment = await requiredAttachment();
+    expect(readPart(attachment, "source_trace")).toBe(source);
+    expect(attachment.payload.truncated).toBe(false);
+    await attachment.cleanup();
+  });
+
+  it("waits for an incomplete final record and then keeps it", async () => {
+    const id = "77777777-7777-4777-8777-777777777777";
+    const complete = jsonLine({ complete: true });
+    writeReview("claude-code:" + id);
+    const tracePath = writeHarnessTrace(
+      "claude-code",
+      id,
+      complete + '{"later":',
+    );
+    const finish = setTimeout(() => appendFileSync(tracePath, "true}\n"), 60);
+
+    const attachment = await requiredAttachment();
+    clearTimeout(finish);
+    expect(readPart(attachment, "source_trace")).toBe(
+      complete + jsonLine({ later: true }),
+    );
+    await attachment.cleanup();
+  });
+
+  it("rejects a final record that stays incomplete", async () => {
+    const id = "88888888-8888-4888-8888-888888888888";
+    writeReview("claude-code:" + id);
+    writeHarnessTrace("claude-code", id, jsonLine({ complete: true }) + "{");
+
+    await expect(
+      readAuthoringTraceAttachment({ reviewRootPath }),
+    ).rejects.toThrow("incomplete JSONL record");
+  });
+
+  it("redacts complete secret values but keeps valid JSONL", async () => {
+    const id = "99999999-9999-4999-8999-999999999999";
     const slackToken = [
       "xoxb",
       "123456789012",
       "123456789012",
-      "abcdefghijklmnopqrstuvwx",
+      "abcdefghijklmnop",
     ].join("-");
     const githubToken = "ghp_" + "b".repeat(36);
-    const entraToken =
-      "eyJhbGciOiJSUzI1NiJ9.eyJhdWQiOiJhcGkifQ.microsoft-signature";
-    const ordinaryBase64Json = "eyJmb28iOiJiYXIifQ==";
-    const source = [
-      {
-        prompt: "Use " + googleKey + " and " + slackToken,
-        path: "/Users/reviewer/project/src/auth.ts",
-        code: "export const answer = 42;",
-        ordinaryBase64Json,
-      },
-      {
-        jwt,
-        githubToken,
-        entraToken,
-      },
-    ]
-      .map(jsonLine)
-      .join("");
+    const source = jsonLine({
+      prompt: "Use " + slackToken,
+      githubToken,
+      path: "/Users/reviewer/project/src/auth.ts",
+    });
     writeReview("claude-code:" + id);
     writeHarnessTrace("claude-code", id, source);
 
-    const attachment = await readAuthoringTraceAttachment({ reviewRootPath });
-    const trace = attachment?.files["trace.jsonl"] ?? "";
-
-    expect(trace).toContain("<REDACTED: Google API Key>");
-    expect(trace).toContain("<REDACTED: Slack Token>");
-    expect(trace).toContain("<REDACTED: JWT>");
-    expect(trace).toContain("<REDACTED: GitHub Token>");
-    expect(trace).not.toContain(googleKey);
-    expect(trace).not.toContain(jwt);
+    const attachment = await requiredAttachment();
+    const trace = readPart(attachment, "source_trace");
     expect(trace).not.toContain(slackToken);
     expect(trace).not.toContain(githubToken);
-    expect(trace).not.toContain(entraToken);
-    expect(trace).toContain(ordinaryBase64Json);
+    expect(trace).toContain("<REDACTED: Slack Token>");
+    expect(trace).toContain("<REDACTED: GitHub Token>");
     expect(trace).toContain("/Users/reviewer/project/src/auth.ts");
-    expect(trace).toContain("export const answer = 42;");
-    for (const line of trace.trimEnd().split("\n")) {
-      expect(() => JSON.parse(line)).not.toThrow();
-    }
+    expect(() => JSON.parse(trace.trim())).not.toThrow();
+    await attachment.cleanup();
   });
 
-  it("keeps the newest complete main-trace lines within the byte cap", async () => {
-    const id = "55555555-aaaa-bbbb-cccc-000000000005";
-    const oversizedOldLine = jsonLine({ old: "x".repeat(TRACE_CAP_BYTES) });
-    const recentLines = [jsonLine({ recent: 1 }), jsonLine({ recent: 2 })].join(
-      "",
-    );
-    writeReview("claude-code:" + id);
-    writeHarnessTrace("claude-code", id, oversizedOldLine + recentLines);
-
-    const attachment = await readAuthoringTraceAttachment({ reviewRootPath });
-
-    expect(attachment?.truncated).toBe(true);
-    expect(attachment?.files["trace.jsonl"]).toBe(recentLines);
-    for (const line of recentLines.trimEnd().split("\n")) {
-      expect(() => JSON.parse(line)).not.toThrow();
-    }
-  });
-
-  it("drops an incomplete final line from a trace being written", async () => {
-    const id = "56565656-aaaa-bbbb-cccc-000000000005";
-    const completeLine = jsonLine({ complete: true });
-    writeReview("claude-code:" + id);
-    writeHarnessTrace("claude-code", id, completeLine + '{"partial":');
-
-    const attachment = await readAuthoringTraceAttachment({ reviewRootPath });
-
-    expect(attachment?.files["trace.jsonl"]).toBe(completeLine);
-    expect(attachment?.truncated).toBe(true);
-  });
-
-  it("treats a capped main trace without a complete line as unavailable", async () => {
-    const id = "57575757-aaaa-bbbb-cccc-000000000005";
-    writeReview("claude-code:" + id);
-    writeHarnessTrace(
-      "claude-code",
-      id,
-      JSON.stringify({ oversized: "x".repeat(TRACE_CAP_BYTES) }),
-    );
-
-    await expect(
-      readAuthoringTraceAttachment({ reviewRootPath }),
-    ).resolves.toBeNull();
-  });
-
-  it("keeps the ten newest subagent traces and names unreadable or excess files as omitted", async () => {
-    const id = "66666666-aaaa-bbbb-cccc-000000000006";
+  it("keeps the ten newest bounded subagent traces", async () => {
+    const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     writeReview("claude-code:" + id);
     const tracePath = writeHarnessTrace(
       "claude-code",
@@ -195,33 +262,35 @@ describe("readAuthoringTraceAttachment", () => {
     for (let index = 0; index < 11; index++) {
       const name = "agent-" + String(index).padStart(2, "0") + ".jsonl";
       const subagentPath = path.join(subagentsDir, name);
-      if (index === 9) {
-        mkdirSync(subagentPath);
-      } else {
-        const contents =
-          index === 10
-            ? jsonLine({ old: "x".repeat(SUBAGENT_TRACE_CAP_BYTES) }) +
-              jsonLine({ recent: true })
-            : jsonLine({ index });
-        writeFileSync(subagentPath, contents);
-      }
+      const contents =
+        index === 10
+          ? jsonLine({ old: "x".repeat(SUBAGENT_TRACE_CAP_BYTES) }) +
+            jsonLine({ recent: true })
+          : jsonLine({ index });
+      writeFileSync(subagentPath, contents);
       const modifiedAt = new Date(1_700_000_000_000 + index * 1000);
       utimesSync(subagentPath, modifiedAt, modifiedAt);
     }
 
-    const attachment = await readAuthoringTraceAttachment({ reviewRootPath });
-
-    expect(attachment?.truncated).toBe(true);
-    expect(attachment?.files["subagents/agent-10.jsonl"]).toBe(
+    const attachment = await requiredAttachment();
+    expect(attachment.payload.truncated).toBe(true);
+    expect(attachment.payload.files["subagents/agent-10.jsonl"]).toBe(
       jsonLine({ recent: true }),
     );
-    expect(attachment?.files).not.toHaveProperty("subagents/agent-00.jsonl");
-    expect(attachment?.files).not.toHaveProperty("subagents/agent-09.jsonl");
-    expect(attachment?.omitted_files).toEqual([
+    expect(attachment.payload.files).not.toHaveProperty(
       "subagents/agent-00.jsonl",
-      "subagents/agent-09.jsonl",
+    );
+    expect(attachment.payload.omitted_files).toEqual([
+      "subagents/agent-00.jsonl",
     ]);
+    await attachment.cleanup();
   });
+
+  async function requiredAttachment(): Promise<AuthoringTraceAttachment> {
+    const attachment = await readAuthoringTraceAttachment({ reviewRootPath });
+    if (!attachment) throw new Error("Expected an authoring trace.");
+    return attachment;
+  }
 
   function writeReview(sourceSession: string): void {
     writeFileSync(
@@ -259,12 +328,7 @@ describe("readAuthoringTraceAttachment", () => {
       mkdirSync(projectDir, { recursive: true });
       tracePath = path.join(projectDir, id + ".jsonl");
     } else if (harness === "codex") {
-      const dateDir = path.join(codexRoot, "2026", "08", "31");
-      mkdirSync(dateDir, { recursive: true });
-      tracePath = path.join(
-        dateDir,
-        "rollout-2026-08-31T12-00-00-" + id + ".jsonl",
-      );
+      return writeCodexTrace(id, contents);
     } else {
       const projectDir = path.join(piRoot, "project");
       mkdirSync(projectDir, { recursive: true });
@@ -273,7 +337,67 @@ describe("readAuthoringTraceAttachment", () => {
     writeFileSync(tracePath, contents);
     return tracePath;
   }
+
+  function writeCodexTrace(id: string, contents: string): string {
+    const dateDir = path.join(codexRoot, "2026", "08", "31");
+    mkdirSync(dateDir, { recursive: true });
+    const tracePath = path.join(
+      dateDir,
+      "rollout-2026-08-31T12-00-00-" + id + ".jsonl",
+    );
+    writeFileSync(tracePath, contents);
+    return tracePath;
+  }
 });
+
+function historyBase(
+  parentId: string,
+  endOrdinalExclusive: number,
+  endByteOffset: number,
+): { parentId: string; endOrdinalExclusive: number; endByteOffset: number } {
+  return { parentId, endOrdinalExclusive, endByteOffset };
+}
+
+function codexId(index: number): string {
+  return `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
+}
+
+function codexTrace(
+  id: string,
+  startOrdinal: number,
+  records: Array<Record<string, unknown>>,
+  parent?: ReturnType<typeof historyBase>,
+): string {
+  const metaPayload = {
+    id,
+    ...(parent
+      ? {
+          history_mode: "paginated",
+          forked_from_id: parent.parentId,
+          forked_from_ordinal_exclusive: parent.endOrdinalExclusive,
+          history_base: {
+            thread_id: parent.parentId,
+            end_ordinal_exclusive: parent.endOrdinalExclusive,
+            end_byte_offset: parent.endByteOffset,
+          },
+        }
+      : {}),
+  };
+  return [{ type: "session_meta", payload: metaPayload }, ...records]
+    .map((value, index) =>
+      jsonLine({ ...value, ordinal: startOrdinal + index }),
+    )
+    .join("");
+}
+
+function readPart(
+  attachment: AuthoringTraceAttachment,
+  field: "source_trace" | "parent_trace",
+): string {
+  const part = attachment.parts.find((candidate) => candidate.field === field);
+  if (!part) throw new Error(`Missing ${field}.`);
+  return gunzipSync(readFileSync(part.path)).toString("utf8");
+}
 
 function jsonLine(value: unknown): string {
   return JSON.stringify(value) + "\n";

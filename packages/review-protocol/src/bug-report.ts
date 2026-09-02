@@ -26,7 +26,7 @@ export type ReviewBugReportRequest = z.infer<
   typeof ReviewBugReportRequestSchema
 >;
 
-export const ReviewBugReportMetaSchema = z.strictObject({
+export const ReviewBugReportMetaV1Schema = z.strictObject({
   schema_version: z.literal(1),
   description_length: z.number().int().nonnegative().max(65_536),
   has_review: z.boolean(),
@@ -60,6 +60,99 @@ export const ReviewBugReportMetaSchema = z.strictObject({
   truncated_screenshot: z.boolean(),
   truncated_trace: z.boolean().default(false),
 });
+export type ReviewBugReportMetaV1 = z.infer<typeof ReviewBugReportMetaV1Schema>;
+
+const compressedPartBytes = z.number().int().positive().max(100_000_000);
+const compressedSha256 = z.string().regex(/^[a-f0-9]{64}$/);
+
+export const ReviewBugReportPartSchema = z.discriminatedUnion("field", [
+  z.strictObject({
+    field: z.literal("payload"),
+    filename: z.literal("payload.json.gz"),
+    bytes: compressedPartBytes,
+    sha256: compressedSha256,
+  }),
+  z.strictObject({
+    field: z.literal("source_trace"),
+    filename: z.literal("source.jsonl.gz"),
+    bytes: compressedPartBytes,
+    sha256: compressedSha256,
+    session_id: requiredString.max(128),
+  }),
+  z.strictObject({
+    field: z.literal("parent_trace"),
+    filename: z.literal("parent.jsonl.gz"),
+    bytes: compressedPartBytes,
+    sha256: compressedSha256,
+    session_id: requiredString.max(128),
+  }),
+]);
+export type ReviewBugReportPart = z.infer<typeof ReviewBugReportPartSchema>;
+
+export const ReviewBugReportMetaV2Schema = z
+  .strictObject({
+    schema_version: z.literal(2),
+    description_length: z.number().int().nonnegative().max(65_536),
+    has_review: z.boolean(),
+    has_map: z.boolean(),
+    has_diff: z.boolean(),
+    has_screenshot: z.boolean(),
+    has_trace: z.literal(true),
+    trace_harness: z.enum(["claude-code", "codex", "pi"]),
+    payload_bytes: z
+      .number()
+      .int()
+      .positive()
+      .max(10 * 1024 * 1024),
+    app_version: requiredString.max(100),
+    cli_version: requiredString.max(100),
+    platform: z.enum([
+      "aix",
+      "android",
+      "darwin",
+      "freebsd",
+      "haiku",
+      "linux",
+      "openbsd",
+      "sunos",
+      "win32",
+      "cygwin",
+      "netbsd",
+    ]),
+    truncated_diff: z.boolean(),
+    truncated_map: z.boolean(),
+    truncated_screenshot: z.boolean(),
+    truncated_trace: z.boolean(),
+    parts: z.array(ReviewBugReportPartSchema).min(2).max(3),
+  })
+  .superRefine((meta, context) => {
+    const fields = meta.parts.map((part) => part.field);
+    const expected =
+      meta.parts.length === 2
+        ? ["payload", "source_trace"]
+        : ["payload", "source_trace", "parent_trace"];
+    if (fields.some((field, index) => field !== expected[index])) {
+      context.addIssue({
+        code: "custom",
+        path: ["parts"],
+        message:
+          "must list payload, source trace, and optional parent trace in order",
+      });
+    }
+    if (meta.parts[0]?.bytes !== meta.payload_bytes) {
+      context.addIssue({
+        code: "custom",
+        path: ["payload_bytes"],
+        message: "must match the payload part size",
+      });
+    }
+  });
+export type ReviewBugReportMetaV2 = z.infer<typeof ReviewBugReportMetaV2Schema>;
+
+export const ReviewBugReportMetaSchema = z.discriminatedUnion(
+  "schema_version",
+  [ReviewBugReportMetaV1Schema, ReviewBugReportMetaV2Schema],
+);
 export type ReviewBugReportMeta = z.infer<typeof ReviewBugReportMetaSchema>;
 
 export const ReviewBugReportResponseSchema = z.discriminatedUnion("ok", [

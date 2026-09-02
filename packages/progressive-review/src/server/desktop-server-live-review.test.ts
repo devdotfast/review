@@ -90,6 +90,58 @@ describe("Review Desktop live Review transport", () => {
           }),
         }),
       );
+
+      const reused = await liveJson(
+        server.url,
+        `/live-reviews/${uuid}/render`,
+        {
+          targetNodeId: "root",
+          mode: "append",
+          title: "Shared evidence",
+          mdx: `
+<SequenceDiagram label="First use" messages={[{
+  from: { label: "Agent" },
+  to: { label: "Desktop" },
+  label: "open source",
+  anchor: { id: "shared-source", title: "Shared source", peek: { file: "package.json", fromLine: 1, toLine: 3 } }
+}]} />
+
+<SequenceDiagram label="Second use" messages={[{
+  from: { label: "Desktop" },
+  to: { label: "Agent" },
+  label: "show source",
+  anchor: { id: "shared-source", title: "Shared source", peek: { file: "package.json", fromLine: 1, toLine: 3 } }
+}]} />`,
+        },
+      );
+      expect(reused.response.status).toBe(200);
+      expect(readLiveReviewPage(stored!.dir)).toMatchObject({ version: 2 });
+
+      const conflicting = await liveJson(
+        server.url,
+        `/live-reviews/${uuid}/render`,
+        {
+          targetNodeId: "root",
+          mode: "append",
+          title: "Conflicting evidence",
+          mdx: `<SequenceDiagram label="Conflict" messages={[{
+  from: { label: "Agent" },
+  to: { label: "Desktop" },
+  label: "open different source",
+  anchor: { id: "shared-source", title: "Shared source", peek: { file: "package.json", fromLine: 1, toLine: 4 } }
+}]} />`,
+        },
+      );
+      expect(conflicting.response.status).toBe(422);
+      expect(conflicting.body).toMatchObject({
+        diagnostics: [
+          expect.objectContaining({
+            message:
+              "Anchor ID is reused with different source or metadata: shared-source",
+          }),
+        ],
+      });
+      expect(readLiveReviewPage(stored!.dir)).toMatchObject({ version: 2 });
     } finally {
       await server.close();
       await rm(home, { recursive: true, force: true });

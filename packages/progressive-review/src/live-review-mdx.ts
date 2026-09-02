@@ -124,58 +124,74 @@ const liveDatabaseInputSchema = z.strictObject({
     .min(1),
 });
 
-async function resolveLiveAnchor(input: {
+interface LiveAnchorRegistryEntry {
+  signature: string;
+  anchor: Promise<AnchorRef>;
+}
+
+function resolveLiveAnchor(input: {
   raw: z.infer<typeof liveAnchorSchema>;
   fallbackId: string;
   fallbackTitle: string;
   diagnosticPath: string;
-  anchorIds: Set<string>;
+  anchors: Map<string, LiveAnchorRegistryEntry>;
   sourceTarget: () => ReturnType<typeof resolveReviewSourceTarget>;
 }): Promise<AnchorRef> {
   const anchorId = input.raw.id ?? input.fallbackId;
-  if (input.anchorIds.has(anchorId)) {
+  const title = input.raw.title ?? input.fallbackTitle;
+  const signature = JSON.stringify({
+    title,
+    detail: input.raw.detail ?? null,
+    peek: input.raw.peek,
+  });
+  const existing = input.anchors.get(anchorId);
+  if (existing?.signature === signature) return existing.anchor;
+  if (existing) {
     throw new LiveReviewMdxError([
       {
         path: `${input.diagnosticPath}.id`,
-        message: `Anchor ID must be unique: ${anchorId}`,
+        message: `Anchor ID is reused with different source or metadata: ${anchorId}`,
       },
     ]);
   }
-  input.anchorIds.add(anchorId);
-  const peek = input.raw.peek;
-  const target = await input.sourceTarget();
-  const sourceRoot =
-    peek.graph === "base"
-      ? target.preparedBase?.sourceRootPath
-      : target.sourceRootPath;
-  if (!sourceRoot) {
-    throw new LiveReviewMdxError([
-      {
-        path: `${input.diagnosticPath}.peek`,
-        message: "The pinned source checkout is unavailable.",
+  const anchor = (async (): Promise<AnchorRef> => {
+    const peek = input.raw.peek;
+    const target = await input.sourceTarget();
+    const sourceRoot =
+      peek.graph === "base"
+        ? target.preparedBase?.sourceRootPath
+        : target.sourceRootPath;
+    if (!sourceRoot) {
+      throw new LiveReviewMdxError([
+        {
+          path: `${input.diagnosticPath}.peek`,
+          message: "The pinned source checkout is unavailable.",
+        },
+      ]);
+    }
+    const snapshot = await resolveReviewSourceRange({
+      rootPath: sourceRoot,
+      root: {
+        kind: "range",
+        file: peek.file,
+        fromLine: peek.fromLine,
+        toLine: peek.toLine,
       },
-    ]);
-  }
-  const snapshot = await resolveReviewSourceRange({
-    rootPath: sourceRoot,
-    root: {
-      kind: "range",
-      file: peek.file,
-      fromLine: peek.fromLine,
-      toLine: peek.toLine,
-    },
-  });
-  return {
-    __kind: "db-anchor-ref",
-    id: anchorId,
-    title: input.raw.title ?? input.fallbackTitle,
-    detail: input.raw.detail,
-    peek: {
-      __kind: "code-peek-ref",
-      props: peek,
-      resolution: { snapshot },
-    },
-  };
+    });
+    return {
+      __kind: "db-anchor-ref",
+      id: anchorId,
+      title,
+      detail: input.raw.detail,
+      peek: {
+        __kind: "code-peek-ref",
+        props: peek,
+        resolution: { snapshot },
+      },
+    };
+  })();
+  input.anchors.set(anchorId, { signature, anchor });
+  return anchor;
 }
 
 export class LiveReviewMdxError extends Error {
@@ -193,7 +209,7 @@ export async function projectLiveReviewPage(input: {
   assertReviewNodeTree(input.page);
   const elements: Spec["elements"] = {};
   const diagramLabels = new Set<string>();
-  const anchorIds = new Set<string>();
+  const anchors = new Map<string, LiveAnchorRegistryEntry>();
   let sourceTargetPromise: ReturnType<typeof resolveReviewSourceTarget> | null =
     null;
   const sourceTarget = () =>
@@ -256,7 +272,7 @@ export async function projectLiveReviewPage(input: {
                   fallbackId: `${nodeId}-${slug(label)}-${useCaseIndex + 1}-${operationIndex + 1}`,
                   fallbackTitle: operation.label,
                   diagnosticPath: `${nodeId}.DatabaseLens.useCases.${useCaseIndex}.operations.${operationIndex}.anchor`,
-                  anchorIds,
+                  anchors,
                   sourceTarget,
                 }),
               })),
@@ -302,7 +318,7 @@ export async function projectLiveReviewPage(input: {
                 fallbackId: `${nodeId}-${slug(raw.label)}-message-${messageIndex + 1}`,
                 fallbackTitle: message.label,
                 diagnosticPath: `${nodeId}.SequenceDiagram.messages.${messageIndex}.anchor`,
-                anchorIds,
+                anchors,
                 sourceTarget,
               })
             : undefined;

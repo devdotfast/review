@@ -1,7 +1,7 @@
 import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
 
 /**
- * Software map for ad457e7 (base) — the native agent integration subsystem of
+ * Software map for 004f66a (base) — the native agent integration subsystem of
  * Review: harness detection, skill/trace-hook install, native turn launching
  * and observation, and authoring-session attribution. Modeled before the
  * Cursor ask-agent integration.

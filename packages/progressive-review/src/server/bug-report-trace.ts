@@ -61,14 +61,11 @@ interface JsonlRecord {
   value: JsonObject;
   raw: string;
   terminator: string;
-  start: number;
-  end: number;
   ordinal?: number;
 }
 
 interface JsonlSnapshot {
   path: string;
-  bytes: Buffer;
   records: JsonlRecord[];
   sessionId?: string;
 }
@@ -290,7 +287,7 @@ async function readJsonlSnapshot(filePath: string): Promise<JsonlSnapshot> {
     if (initialSize <= 0) throw new Error("Trace file is empty.");
     let bytes = await readBytes(handle, initialSize);
     try {
-      return { path: filePath, bytes, records: parseJsonl(bytes) };
+      return { path: filePath, records: parseJsonl(bytes) };
     } catch (error) {
       if (!(error instanceof IncompleteFinalRecordError)) throw error;
     }
@@ -306,7 +303,7 @@ async function readJsonlSnapshot(filePath: string): Promise<JsonlSnapshot> {
           ? currentBytes
           : currentBytes.subarray(0, completionEnd + 1);
       try {
-        return { path: filePath, bytes, records: parseJsonl(bytes) };
+        return { path: filePath, records: parseJsonl(bytes) };
       } catch (error) {
         if (!(error instanceof IncompleteFinalRecordError)) throw error;
       }
@@ -362,8 +359,6 @@ function parseJsonl(bytes: Buffer): JsonlRecord[] {
       value,
       raw,
       terminator: lineFeed === -1 ? "" : "\n",
-      start,
-      end,
       ...(Number.isSafeInteger(value.ordinal)
         ? { ordinal: value.ordinal as number }
         : {}),

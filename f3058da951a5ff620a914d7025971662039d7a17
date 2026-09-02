@@ -568,6 +568,15 @@ export default defineSoftwareMap({
                     "AgentChatUserMessage, AgentChatAgentMessage, and AgentChatStatusRow provide the shared transcript primitives.",
                 },
               },
+              relationships: [
+                {
+                  kind: "semantic",
+                  from: ".",
+                  to: "review.reviewApp.traceView.traceDocument",
+                  semanticKind: "renders",
+                  label: "shared transcript rows",
+                },
+              ],
             },
             traceView: {
               label: "Trace document view",
@@ -601,6 +610,12 @@ export default defineSoftwareMap({
                       from: ".",
                       to: "traceTurn",
                       label: "renders turns with expansion callbacks",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "traceScrollAnchor",
+                      label: "preserves viewport position across elision changes",
                     },
                   ],
                 },
@@ -706,11 +721,29 @@ export default defineSoftwareMap({
                   label: "reviewCliInstallResyncRequest",
                   description:
                     "Reconstructs the consented targets and shim choice for silent post-update synchronization.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.cliPackage.installer.cliInstall",
+                      semanticKind: "configures",
+                      label: "replays the server install request",
+                    },
+                  ],
                 },
                 commandPaletteLabel: {
                   label: "reviewCommandPaletteLabel",
                   description:
                     "Builds readable category-qualified labels for Review's filtered command quick access.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "installCliInPath",
+                      semanticKind: "labels",
+                      label: "presents the install action",
+                    },
+                  ],
                 },
               },
             },

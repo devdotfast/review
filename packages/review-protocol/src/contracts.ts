@@ -782,8 +782,8 @@ export interface ReviewCanvasBridge {
   request(url: string, init?: RequestInit): Promise<Response>;
   post(request: ReviewVerbRequest): Promise<ReviewVerbResponse>;
   subscribe(listener: (event: ReviewSurfaceEvent) => void): ReviewDisposable;
-  currentAuthoringTarget?(): ReviewAuthoringTarget | null;
-  onDidChangeAuthoringTarget?(
+  currentAuthoringTarget(): ReviewAuthoringTarget | null;
+  onDidChangeAuthoringTarget(
     listener: (target: ReviewAuthoringTarget) => void,
   ): ReviewDisposable;
   currentTheme(): ReviewTheme;

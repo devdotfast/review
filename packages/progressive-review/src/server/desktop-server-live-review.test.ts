@@ -71,7 +71,6 @@ describe("Review Desktop live Review transport", () => {
       const stored = await findReview(createResult.info.reviewId);
       expect(stored?.review.status).toBe("awaiting-agent-updates");
       expect(readLiveReviewPage(stored!.dir)).toMatchObject({ version: 0 });
-      events = await openReviewEvents(server.url);
 
       const rejected = await liveJson(
         server.url,
@@ -85,7 +84,24 @@ describe("Review Desktop live Review transport", () => {
       expect(rejected.response.status).toBe(422);
       expect(rejected.body).toMatchObject({ ok: false });
       expect(readLiveReviewPage(stored!.dir)).toMatchObject({ version: 0 });
+      events = await openReviewEvents(server.url);
       await expect(events.next()).resolves.toEqual({
+        event: "review-authoring-target-changed",
+        uuid: createResult.info.reviewId,
+        target: { targetNodeId: "root", sectionNodeId: null },
+      });
+      const rejectedWhileConnected = await liveJson(
+        server.url,
+        `/live-reviews/${createResult.info.reviewId}/render`,
+        {
+          targetNodeId: "root",
+          mode: "replace",
+          mdx: "<StillUnknown />",
+        },
+      );
+      expect(rejectedWhileConnected.response.status).toBe(422);
+      expect(readLiveReviewPage(stored!.dir)).toMatchObject({ version: 0 });
+      await expect(events.next()).resolves.toMatchObject({
         event: "review-authoring-target-changed",
         uuid: createResult.info.reviewId,
         target: { targetNodeId: "root", sectionNodeId: null },

@@ -1541,6 +1541,8 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				// touch it, so verb posts succeed as no-ops.
 				post: async () => ({ ok: true }),
 				subscribe: () => ({ dispose: () => undefined }),
+				currentAuthoringTarget: () => null,
+				onDidChangeAuthoringTarget: () => ({ dispose: () => undefined }),
 				currentTheme: () => this.colorScheme(),
 				onDidChangeTheme: () => ({ dispose: () => undefined }),
 				ready: () => {

@@ -2338,6 +2338,15 @@ export function createGlobalReviewServer(
       };
       output.onAbort(finish);
       globalClients.add(client);
+      for (const [uuid, target] of liveReviewAuthoringTargets) {
+        client.write(
+          `data: ${JSON.stringify({
+            event: "review-authoring-target-changed",
+            uuid,
+            target,
+          } satisfies ReviewDesktopGlobalEvent)}\n\n`,
+        );
+      }
       const heartbeat = setInterval(
         () => client.write(": heartbeat\n\n"),
         15_000,

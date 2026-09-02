@@ -51,6 +51,8 @@ export function testReviewBridge(
     request: (url, init) => reviewFetchUrl({}, url, init),
     post: async () => ({ ok: true }),
     subscribe: () => ({ dispose() {} }),
+    currentAuthoringTarget: () => null,
+    onDidChangeAuthoringTarget: () => ({ dispose() {} }),
     currentTheme: () => "dark",
     onDidChangeTheme: () => ({ dispose() {} }),
     ready() {},

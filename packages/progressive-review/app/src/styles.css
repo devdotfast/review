@@ -7605,7 +7605,7 @@ button {
   padding-inline-start: 26px;
 }
 
-.review-live-node--authoring-section {
+.review-live-node--authoring-active {
   border-radius: 8px;
   outline: 2px solid var(--accent);
   outline-offset: 6px;

@@ -58,16 +58,21 @@ export function ReviewNode({
   const isExactTarget = authoringTarget?.targetNodeId === nodeId;
   const isTargetSection =
     depth === 1 && authoringTarget?.sectionNodeId === nodeId;
+  const isActiveContainer = isTargetSection || (depth === 0 && isExactTarget);
+  const className = [
+    "review-live-node",
+    depth === 0 ? "review-live-node--root" : undefined,
+    isActiveContainer ? "review-live-node--authoring-active" : undefined,
+  ]
+    .filter(Boolean)
+    .join(" ");
   const authoringAttributes = {
     "data-review-node-id": nodeId,
     ...(isExactTarget ? { "data-review-authoring-target": "true" } : {}),
   };
   if (depth === 0) {
     return (
-      <div
-        className="review-live-node review-live-node--root"
-        {...authoringAttributes}
-      >
+      <div className={className} {...authoringAttributes}>
         {title && <h1>{title}</h1>}
         {title && <ReviewDocumentMetaLine />}
         {children}
@@ -76,10 +81,7 @@ export function ReviewNode({
   }
   if (depth === 1 && title) {
     return (
-      <div
-        className={`review-live-node${isTargetSection ? " review-live-node--authoring-section" : ""}`}
-        {...authoringAttributes}
-      >
+      <div className={className} {...authoringAttributes}>
         <ReviewSection title={title}>
           <h2>{title}</h2>
           {children}
@@ -88,7 +90,7 @@ export function ReviewNode({
     );
   }
   return (
-    <div className="review-live-node" {...authoringAttributes}>
+    <div className={className} {...authoringAttributes}>
       {title && createElement(`h${Math.min(depth + 1, 6)}`, {}, title)}
       {children}
     </div>
@@ -110,19 +112,19 @@ function LiveReviewDocument() {
   );
 }
 
-function useLiveReviewAuthoringTarget(): ReviewAuthoringTarget | null {
+export function useLiveReviewAuthoringTarget(): ReviewAuthoringTarget | null {
   const { bridge } = useReviewSession();
   const subscribe = useCallback(
     (onStoreChange: () => void) => {
-      const disposable = bridge.onDidChangeAuthoringTarget?.(() =>
+      const disposable = bridge.onDidChangeAuthoringTarget(() =>
         onStoreChange(),
       );
-      return () => disposable?.dispose();
+      return () => disposable.dispose();
     },
     [bridge],
   );
   const getSnapshot = useCallback(
-    () => bridge.currentAuthoringTarget?.() ?? null,
+    () => bridge.currentAuthoringTarget(),
     [bridge],
   );
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);

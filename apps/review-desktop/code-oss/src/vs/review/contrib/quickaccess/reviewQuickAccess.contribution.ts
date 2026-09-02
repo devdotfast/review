@@ -5,7 +5,7 @@
 
 import { CancellationToken } from '../../../base/common/cancellation.js';
 import { localize } from '../../../nls.js';
-import { registerAction2 } from '../../../platform/actions/common/actions.js';
+import { MenuRegistry, registerAction2 } from '../../../platform/actions/common/actions.js';
 import { CommandsRegistry, ICommandService } from '../../../platform/commands/common/commands.js';
 import { IDialogService } from '../../../platform/dialogs/common/dialogs.js';
 import { IInstantiationService } from '../../../platform/instantiation/common/instantiation.js';
@@ -16,6 +16,7 @@ import { Registry } from '../../../platform/registry/common/platform.js';
 import { ITelemetryService } from '../../../platform/telemetry/common/telemetry.js';
 import { ShowAllCommandsAction } from '../../../workbench/contrib/quickaccess/browser/commandsQuickAccess.js';
 import { IExtensionService } from '../../../workbench/services/extensions/common/extensions.js';
+import { reviewCommandPaletteLabel } from '../../common/reviewCommandPalette.js';
 
 const FOREIGN_COMMAND = /chat|debug|extension|git|keybinding|mcp|notebook|preference|profile|remote|scm|setting|sync|task|terminal|test|update/i;
 
@@ -43,7 +44,10 @@ export class ReviewCommandsQuickAccessProvider extends AbstractCommandsQuickAcce
 		return [...CommandsRegistry.getCommands().keys()]
 			.filter(commandId => commandId.startsWith('review.') || extensionCommands.has(commandId) || !FOREIGN_COMMAND.test(commandId))
 			.sort((left, right) => left.localeCompare(right))
-			.map(commandId => ({ commandId, label: commandId }));
+			.map(commandId => ({
+				commandId,
+				label: reviewCommandPaletteLabel(commandId, MenuRegistry.getCommand(commandId)),
+			}));
 	}
 
 	protected override hasAdditionalCommandPicks(_filter: string, _token: CancellationToken): boolean {

@@ -56,6 +56,11 @@ export interface INativeHostOptions {
 	readonly targetWindowId?: number;
 }
 
+export interface IUninstallShellCommandOptions {
+	readonly commandName?: string;
+	readonly symlinkOnly?: boolean;
+}
+
 export interface IStartTracingOptions {
 
 	/**
@@ -275,7 +280,7 @@ export interface ICommonNativeHostService {
 
 	// macOS Shell command
 	installShellCommand(): Promise<void>;
-	uninstallShellCommand(): Promise<void>;
+	uninstallShellCommand(options?: IUninstallShellCommandOptions): Promise<void>;
 
 	// Lifecycle
 	notifyReady(): Promise<void>;

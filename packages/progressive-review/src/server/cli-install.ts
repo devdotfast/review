@@ -487,7 +487,7 @@ export async function writePathShim(
   runtimePath?: string,
 ): Promise<void> {
   const source = `#!/bin/sh
-# Managed by Review Desktop ("Review: Manage CLI and Skills..."). Do not edit.
+# Managed by Review Desktop ("Review: Install CLI in PATH"). Do not edit.
 FALLBACK_CLI=${shSingleQuote(cliPath)}
 FALLBACK_RUNTIME=${shSingleQuote(runtimePath ?? "")}
 DISCOVERY="\${DEV_REVIEW_HOME:-$HOME/.dev}/review-desktop/server.json"

@@ -81,9 +81,7 @@ async function resolveCodePeekRequest(
   requestOrigin: string | undefined,
   requestToken: string | undefined,
 ): Promise<CodePeekResolution> {
-  const includeDiff = false;
-  const includeDiffSummary = true;
-  recordAuthoredCodePeekRequest(includeDiff);
+  recordAuthoredCodePeekRequest(false);
   const response = await reviewFetch(
     {
       sessionUrl: requestOrigin,
@@ -99,8 +97,8 @@ async function resolveCodePeekRequest(
       body: JSON.stringify({
         root: codePeekRoot(props),
         graph: props.graph ?? "head",
-        includeDiff,
-        includeDiffSummary,
+        includeDiff: false,
+        includeDiffSummary: true,
       }),
     },
   );

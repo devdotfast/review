@@ -1,6 +1,5 @@
 import {
   type ReactElement,
-  type ReactNode,
   type PointerEvent as ReactPointerEvent,
   useEffect,
   useLayoutEffect,
@@ -214,17 +213,6 @@ export function panelLineRangeLabel(range: PanelLineRange): string {
   return range.fromLine === range.toLine
     ? `L${range.fromLine}`
     : `L${range.fromLine}–${range.toLine}`;
-}
-
-export function panelDiffLineSelector(
-  attribute: "data-line" | "data-column-number",
-  line: number,
-  side?: PanelSelectionSide,
-): string {
-  const base = `[${attribute}="${line}"]`;
-  if (side === "deletions") return `${base}[data-line-type*="deletion"]`;
-  if (side === "additions") return `${base}:not([data-line-type*="deletion"])`;
-  return base;
 }
 
 export function panelThreadInjectionTarget(input: {
@@ -1351,84 +1339,5 @@ export function PanelThreadRail({
         );
       })}
     </div>
-  );
-}
-
-export function applyPanelThreadHighlights(
-  root: ShadowRoot,
-  controller: Pick<
-    PanelThreadController,
-    "dragRange" | "selectedRange" | "threadRanges"
-  >,
-): void {
-  for (const element of root.querySelectorAll<HTMLElement>(
-    "[data-panel-thread-highlight]",
-  )) {
-    element.removeAttribute("data-panel-thread-highlight");
-  }
-  for (const range of controller.threadRanges) {
-    for (let line = range.fromLine; line <= range.toLine; line += 1) {
-      const state =
-        controller.dragRange &&
-        panelRangeSidesMatch(controller.dragRange, range) &&
-        line >= controller.dragRange.fromLine &&
-        line <= controller.dragRange.toLine
-          ? "candidate"
-          : controller.selectedRange &&
-              panelRangeSidesMatch(controller.selectedRange, range) &&
-              line >= controller.selectedRange.fromLine &&
-              line <= controller.selectedRange.toLine
-            ? "active"
-            : "idle";
-      const selector = [
-        panelDiffLineSelector("data-line", line, range.side),
-        panelDiffLineSelector("data-column-number", line, range.side),
-      ].join(", ");
-      for (const element of root.querySelectorAll<HTMLElement>(selector)) {
-        element.setAttribute("data-panel-thread-highlight", state);
-      }
-    }
-  }
-  if (!controller.dragRange) return;
-  for (
-    let line = controller.dragRange.fromLine;
-    line <= controller.dragRange.toLine;
-    line += 1
-  ) {
-    const selector = [
-      panelDiffLineSelector("data-line", line, controller.dragRange.side),
-      panelDiffLineSelector(
-        "data-column-number",
-        line,
-        controller.dragRange.side,
-      ),
-    ].join(", ");
-    for (const element of root.querySelectorAll<HTMLElement>(selector)) {
-      element.setAttribute("data-panel-thread-highlight", "candidate");
-    }
-  }
-}
-
-function panelRangeSidesMatch(
-  left: PanelLineRange,
-  right: PanelLineRange,
-): boolean {
-  return !left.side || !right.side || left.side === right.side;
-}
-
-export function PanelTextThreadArea({
-  anchor,
-  children,
-}: {
-  anchor: AnchorRef;
-  children?: ReactNode;
-}): ReactElement {
-  const controller = usePanelThreadController({ anchor });
-  return (
-    <>
-      {children}
-      {controller.renderThreadArea()}
-      {controller.renderThreadFooter()}
-    </>
   );
 }

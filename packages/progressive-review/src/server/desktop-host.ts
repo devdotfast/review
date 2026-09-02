@@ -1,16 +1,10 @@
 #!/usr/bin/env node
 
-import path from "node:path";
-import { pathToFileURL } from "node:url";
-
 import { findProgressiveReviewPackageRoot } from "../package-paths";
 import { ProgressiveReviewTelemetry } from "../progressive-review-telemetry";
 import { ensureBundledRustAnalyzer } from "../review-bundled-tools";
 import { listenForDesktopHostShutdown } from "./desktop-host-shutdown";
-import {
-  type ReviewDesktopDevelopmentModule,
-  createGlobalReviewServer,
-} from "./desktop-server";
+import { createGlobalReviewServer } from "./desktop-server";
 
 export async function runDesktopHost(
   env: NodeJS.ProcessEnv = process.env,
@@ -23,10 +17,6 @@ export async function runDesktopHost(
   );
   const packageRoot = findProgressiveReviewPackageRoot(import.meta.url);
   const toolingRoot = env.DEV_FAST_REVIEW_TOOLING_ROOT || packageRoot;
-  const developmentModule = await loadDevelopmentModule(
-    env.DEV_FAST_REVIEW_DEVELOPMENT_MODULE,
-    toolingRoot,
-  );
   const telemetryEnv = { ...env };
   delete telemetryEnv.DEV_FAST_REVIEW_TELEMETRY_DISABLED;
   const telemetry = ProgressiveReviewTelemetry.fromEnv(telemetryEnv);
@@ -45,7 +35,6 @@ export async function runDesktopHost(
     token: env.DEV_FAST_REVIEW_SERVER_TOKEN,
     instanceId: env.DEV_FAST_REVIEW_INSTANCE_ID,
     telemetry,
-    ...(developmentModule ? { developmentModule } : {}),
     ...(env.DEV_FAST_REVIEW_CLI_RUNTIME
       ? { cliRuntimePath: env.DEV_FAST_REVIEW_CLI_RUNTIME }
       : {}),
@@ -89,34 +78,6 @@ export async function runDesktopHost(
   process.once("SIGTERM", () => {
     void stop().then(() => process.exit(0));
   });
-}
-
-async function loadDevelopmentModule(
-  modulePath: string | undefined,
-  toolingRoot: string,
-): Promise<ReviewDesktopDevelopmentModule | undefined> {
-  const configured = modulePath?.trim();
-  if (!configured) return undefined;
-  const imported = (await import(
-    pathToFileURL(path.resolve(configured)).href
-  )) as {
-    createReviewDesktopDevelopmentModule?: (input: {
-      toolingRoot: string;
-    }) => Promise<ReviewDesktopDevelopmentModule>;
-  };
-  if (typeof imported.createReviewDesktopDevelopmentModule !== "function") {
-    throw new Error(
-      `Review development module ${configured} has no createReviewDesktopDevelopmentModule export.`,
-    );
-  }
-  const module = await imported.createReviewDesktopDevelopmentModule({
-    toolingRoot,
-  });
-  if (!module.routePath.startsWith("/")) {
-    await module.close();
-    throw new Error("Review development module routePath must start with '/'.");
-  }
-  return module;
 }
 
 function isEnabledEnvValue(value: string | undefined): boolean {

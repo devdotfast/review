@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { Writable } from "node:stream";
 
@@ -17,6 +17,7 @@ import {
   startCodexWaitProcess,
 } from "./codex-thread-wakeup";
 import { readReviewDesktopDiscovery } from "./desktop-discovery";
+import { isFile } from "./fs-utils";
 import {
   ALL_INSTALL_TARGETS,
   type InstallTarget,
@@ -1302,14 +1303,6 @@ async function resolveInstallCliSource(
     : undefined;
 }
 
-async function isFile(filePath: string): Promise<boolean> {
-  try {
-    return (await stat(filePath)).isFile();
-  } catch {
-    return false;
-  }
-}
-
 function progressiveReviewTopLevelHelp(): string {
   return [
     "",
@@ -1639,8 +1632,7 @@ function errorClassification(
 
 async function attemptTelemetry(fn: () => Promise<void>): Promise<void> {
   try {
-    const { span } = await import("./startup-trace");
-    await span("telemetry capture", fn);
+    await fn();
   } catch {
     // Telemetry must never affect CLI behavior.
   }

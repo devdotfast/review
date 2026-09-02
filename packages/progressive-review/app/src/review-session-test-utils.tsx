@@ -226,15 +226,3 @@ export function reviewSessionElement(
     <ReviewSessionProvider session={session}>{children}</ReviewSessionProvider>
   );
 }
-
-export function TestReviewSessionProvider({
-  session = testReviewSession(),
-  children,
-}: {
-  session?: ReviewSession;
-  children: ReactNode;
-}) {
-  return (
-    <ReviewSessionProvider session={session}>{children}</ReviewSessionProvider>
-  );
-}

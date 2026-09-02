@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { reviewOptionalExtensionCatalog } from './reviewOptionalExtensionCatalog.js';
+import { reviewOptionalExtensionCatalog } from '../../node/reviewOptionalExtensionCatalog.js';
 import * as semver from '../../../base/common/semver/semver.js';
 
 export type OptionalExtensionInstallPhase = 'download' | 'install';

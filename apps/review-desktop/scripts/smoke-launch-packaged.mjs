@@ -27,6 +27,8 @@ import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 
+import { assertNoBlockedReviewRequests } from "./review-network-policy.mjs";
+
 const APP_DIR = path.resolve(import.meta.dirname, "..");
 const PRODUCT_NAME = JSON.parse(
   readFileSync(path.join(APP_DIR, "code-oss", "product.json"), "utf8"),
@@ -136,6 +138,9 @@ export async function smokeLaunch({
     while (Date.now() < deadline) {
       mainLog = await readMainLog(userDataDir);
       const startupOutput = `${output}\n${mainLog}`;
+      assertNoBlockedReviewRequests(
+        startupOutput.match(/https?:\/\/[^\s"'<>]+/g) ?? [],
+      );
       const fatal = FATAL_PATTERNS.find((pattern) =>
         pattern.test(startupOutput),
       );

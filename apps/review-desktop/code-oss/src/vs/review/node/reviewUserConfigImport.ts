@@ -222,7 +222,7 @@ function shouldImportSetting(key: string): boolean {
 	return !BLOCKED_SETTING_PREFIXES.some(prefix => key.startsWith(prefix));
 }
 
-export function filterReviewUserSettings(settings: Record<string, unknown>): Record<string, unknown> {
+function filterReviewUserSettings(settings: Record<string, unknown>): Record<string, unknown> {
 	return Object.fromEntries(Object.entries(settings).filter(([key]) => shouldImportSetting(key)));
 }
 

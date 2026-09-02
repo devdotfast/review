@@ -349,8 +349,6 @@ export function TraceEvent({
   return <TraceToolRow event={event} />;
 }
 
-export { HighlightedText } from "./highlighted-text";
-
 export function TraceToolRow({
   event,
 }: {
@@ -1177,11 +1175,6 @@ export function TraceDocument({
   const turnElements = useMemo(() => {
     if (effectiveIncluded === null) {
       return turns.map((turn, index) => {
-        const isTargetTurn =
-          targetEventIndex !== undefined &&
-          (turn.user?.index === targetEventIndex ||
-            turn.work.some((w) => w.index === targetEventIndex) ||
-            turn.final.some((f) => f.index === targetEventIndex));
         // Groups containing the target render open (TraceToolGroup), so
         // even the quoted turn coalesces; quotes in tool text stay visible.
         const turnCoalesce = coalesce;
@@ -1252,11 +1245,6 @@ export function TraceDocument({
 
       flushHiddenTurns();
 
-      const isTargetTurn =
-        targetEventIndex !== undefined &&
-        (turn.user?.index === targetEventIndex ||
-          turn.work.some((w) => w.index === targetEventIndex) ||
-          turn.final.some((f) => f.index === targetEventIndex));
       // Groups containing the target render open (TraceToolGroup), so
       // even the quoted turn coalesces; quotes in tool text stay visible.
       const turnCoalesce = coalesce;

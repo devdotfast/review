@@ -39,14 +39,6 @@ export async function resolveReviewRepositoryIdentity(
   return identity("none", worktreeRoot, worktreeRoot);
 }
 
-export function reviewKeyFor(worktreeRoot: string, reviewPath: string): string {
-  return crypto
-    .createHash("sha256")
-    .update(`${path.resolve(worktreeRoot)}\0${path.resolve(reviewPath)}`)
-    .digest("hex")
-    .slice(0, 32);
-}
-
 async function resolveJjRepositoryPath(repoFile: string): Promise<string> {
   const info = await stat(repoFile);
   if (info.isDirectory()) return canonicalPath(repoFile);

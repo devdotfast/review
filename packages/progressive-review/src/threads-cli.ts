@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { Writable } from "node:stream";
 
-import { ReviewCommentThreadRecordSchema } from "./review-comment-schema";
+import { ReviewCommentThreadRecordSchema } from "@dev.fast/review-protocol";
+
 import { reviewUuidForManagedCheckout } from "./review-head-checkout";
 import { type StoredReview, findReview, listReviews } from "./review-home";
 import {

@@ -6,8 +6,6 @@ APP_DIR="$MONOREPO_ROOT/apps/review-desktop"
 CHECKOUT="$APP_DIR/code-oss"
 REVIEW_PACKAGE="$MONOREPO_ROOT/packages/progressive-review"
 REVIEW_SERVER="$REVIEW_PACKAGE/dist/server/desktop-host.js"
-DEVELOPMENT_MODULE_PACKAGE="$MONOREPO_ROOT/packages/review-agent-session-host"
-DEVELOPMENT_MODULE="$DEVELOPMENT_MODULE_PACKAGE/dist/index.js"
 CANVAS_MANIFEST="$REVIEW_PACKAGE/app/dist/desktop/.vite/manifest.json"
 
 if (( $# > 0 )); then
@@ -91,24 +89,7 @@ if needs_rebuild \
   )" ]]; then
   pnpm --dir "$MONOREPO_ROOT" --filter @dev.fast/review build:tutorial-assets
 fi
-# A packaged app is immutable and self-contained: its canvas and Review server
-# runtime are staged before signing, and the main process mints the server
-# endpoint and credentials itself. Only a development checkout is pointed at
-# monorepo build output here.
 if [[ -z "$PACKAGED_ROOT" ]]; then
-  # The agent-session development module is optional: checkouts without the
-  # package (the open-source carve-out) run without it.
-  if [[ -d "$DEVELOPMENT_MODULE_PACKAGE" ]]; then
-    if needs_rebuild \
-      "$DEVELOPMENT_MODULE" \
-      "$DEVELOPMENT_MODULE_PACKAGE/src" \
-      "$DEVELOPMENT_MODULE_PACKAGE/package.json" \
-      "$MONOREPO_ROOT/packages/agent-session/src" \
-      "$MONOREPO_ROOT/packages/review-protocol/src"; then
-      pnpm --dir "$MONOREPO_ROOT" --filter @dev.fast/review-agent-session-host build
-    fi
-    export DEV_FAST_REVIEW_DEVELOPMENT_MODULE="$DEVELOPMENT_MODULE"
-  fi
   node "$APP_DIR/scripts/copy-canvas.mjs"
   export DEV_FAST_REVIEW_SERVER_ENTRY="$REVIEW_SERVER"
   export DEV_FAST_REVIEW_TOOLING_ROOT="$MONOREPO_ROOT"
@@ -135,7 +116,7 @@ if [[ "${DEV_FAST_REVIEW_FORCE_ACCESSIBILITY:-0}" == "1" ]]; then
 fi
 
 if [[ -n "$PACKAGED_ROOT" ]]; then
-  unset DEV_FAST_REVIEW_DEVELOPMENT_MODULE DEV_FAST_REVIEW_TOOLING_ROOT
+  unset DEV_FAST_REVIEW_TOOLING_ROOT
   unset NODE_ENV VSCODE_DEV VSCODE_CLI
 else
   (

@@ -28,8 +28,6 @@ type CodePeekRootSpec = {
 
 export type CodePeekProps = AuthoringCodePeekProps;
 export type CodePeekGraph = NonNullable<CodePeekProps["graph"]>;
-export type CodePeekTheme = NonNullable<CodePeekProps["theme"]>;
-
 const validatedCodePeekInput = Symbol("validatedCodePeekInput");
 
 export interface ValidatedCodePeekInput {

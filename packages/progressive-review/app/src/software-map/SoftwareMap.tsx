@@ -46,7 +46,8 @@ import {
 } from "../debug-settings";
 import { hasTextSelectionWithin } from "../diagram-text-selection";
 import { type ReviewSession, useReviewSession } from "../host/review-session";
-import { CloseIcon, CommentIcon, RefreshIcon } from "../icons";
+import { HoverCommentButton } from "../hover-comment-button";
+import { CloseIcon, RefreshIcon } from "../icons";
 import { type CommentDraftPlacement, useReview } from "../review-context";
 import { useReviewInitialData } from "../review-initial-data-context";
 import {
@@ -59,10 +60,6 @@ import { buildGraphTarget, targetKey } from "../target-fingerprint";
 import { useRegisterLiveDiagram } from "../thread-target-model";
 import type { LiveDiagramTarget } from "../thread-target-state";
 import { captureUiEvent } from "../ui-telemetry";
-import {
-  type C4LayoutBox,
-  type C4LayoutResult as InlineC4LayoutResult,
-} from "./c4-layout";
 import {
   type C4Projection,
   type ProjectedC4Relationship,
@@ -457,6 +454,19 @@ interface C4LayoutResult {
   edgeLabels: Map<string, C4ElkLabel>;
 }
 
+export interface C4LayoutBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface InlineC4LayoutResult {
+  nodeBboxes: Map<string, C4LayoutBox>;
+  groupBboxes: Map<string, C4LayoutBox>;
+  childLayoutKeys: Map<string, string>;
+}
+
 interface C4ElkPoint {
   x: number;
   y: number;
@@ -638,53 +648,6 @@ const softwareMapNavigationStateByKey = new Map<
   string,
   SoftwareMapNavigationState
 >();
-const SOFTWARE_MAP_DEBUG_ENABLED = false;
-const SOFTWARE_MAP_DEBUG_PREFIX = "[DEBUG-software-map-reset]";
-let nextSoftwareMapInstanceId = 1;
-let nextSoftwareMapDebugObjectId = 1;
-const softwareMapDebugObjectIds = new WeakMap<object, number>();
-
-function softwareMapDebugObjectToken(value: unknown) {
-  if (
-    value === null ||
-    (typeof value !== "object" && typeof value !== "function")
-  ) {
-    return value;
-  }
-  const objectValue = value as object;
-  const existing = softwareMapDebugObjectIds.get(objectValue);
-  if (existing) return `object#${existing}`;
-  const next = nextSoftwareMapDebugObjectId;
-  nextSoftwareMapDebugObjectId += 1;
-  softwareMapDebugObjectIds.set(objectValue, next);
-  return `object#${next}`;
-}
-
-function softwareMapDebugStack() {
-  return new Error().stack
-    ?.split("\n")
-    .slice(2, 8)
-    .map((line) => line.trim());
-}
-
-function logSoftwareMapDebug(
-  session: ReviewSession,
-  event: string,
-  details: Record<string, unknown> = {},
-) {
-  if (!SOFTWARE_MAP_DEBUG_ENABLED || typeof window === "undefined") return;
-  const entry = {
-    at: new Date().toISOString(),
-    event,
-    ...details,
-  };
-  console.log(SOFTWARE_MAP_DEBUG_PREFIX, entry.at, event, details);
-  const storageKey = session.storageKey("software-map-debug-log");
-  const entries = readReviewUiState<unknown[]>("session", storageKey) ?? [];
-  entries.push(entry);
-  writeReviewUiState("session", storageKey, entries.slice(-500));
-}
-
 function createSoftwareMapSignature() {
   let hash = 0x811c9dc5;
   const addText = (text: string) => {
@@ -1485,12 +1448,10 @@ function SoftwareMapWithModel({
   const [artifactRefreshPending, setArtifactRefreshPending] = useState(false);
   const [refreshEpoch, setRefreshEpoch] = useState(0);
   const appliedResolvedDataKeyRef = useRef(resolvedDataState.key);
-  const instanceId = useRef(nextSoftwareMapInstanceId++);
   const mapRootRef = useRef<HTMLElement | null>(null);
   const [resolveDataWhenVisible, setResolveDataWhenVisible] = useState(false);
   const previousBaseView = useRef(view);
   const defaultExpansionActiveRef = useRef(!hasInitialNavigation);
-  const previousStateLog = useRef<string | null>(null);
   const rememberedChildNodeIdsRef = useRef(new Map<string, string>());
 
   useEffect(() => {
@@ -1503,85 +1464,13 @@ function SoftwareMapWithModel({
   }, [resolveDataWhenVisible]);
 
   useEffect(() => {
-    logSoftwareMapDebug(session, "mount", {
-      instanceId: instanceId.current,
-      navigationKey,
-      propView: view,
-      title,
-      placeholderLabel,
-      restoredExpandedNodeIds: initialNavigation.expandedNodeIds,
-      restoredSelectedNodeId: initialNavigation.selectedNodeId,
-      restoredExpanded: initialNavigation.expanded,
-      modelToken: softwareMapDebugObjectToken(model),
-      snapshotToken: softwareMapDebugObjectToken(snapshot),
-      resolvedSnapshotToken: softwareMapDebugObjectToken(resolvedSnapshot),
-    });
-    return () => {
-      logSoftwareMapDebug(session, "unmount", {
-        instanceId: instanceId.current,
-        navigationKey,
-        propView: view,
-      });
-    };
-  }, [session]);
-
-  useEffect(() => {
-    const stateLog = JSON.stringify({
-      navigationKey,
-      propView: view,
-      expandedNodeIds: [...expandedNodeIds],
-      selectedNodeId,
-      expanded,
-      modelToken: softwareMapDebugObjectToken(model),
-      snapshotToken: softwareMapDebugObjectToken(snapshot),
-      resolvedSnapshotToken: softwareMapDebugObjectToken(resolvedSnapshot),
-    });
-    if (previousStateLog.current !== stateLog) {
-      previousStateLog.current = stateLog;
-      logSoftwareMapDebug(session, "state", {
-        instanceId: instanceId.current,
-        navigationKey,
-        propView: view,
-        expandedNodeIds: [...expandedNodeIds],
-        selectedNodeId,
-        expanded,
-        modelToken: softwareMapDebugObjectToken(model),
-        snapshotToken: softwareMapDebugObjectToken(snapshot),
-        resolvedSnapshotToken: softwareMapDebugObjectToken(resolvedSnapshot),
-      });
-    }
-  }, [
-    expanded,
-    expandedNodeIds,
-    model,
-    navigationKey,
-    resolvedSnapshot,
-    session,
-    selectedNodeId,
-    snapshot,
-    view,
-  ]);
-
-  useEffect(() => {
     if (previousBaseView.current === view) {
-      logSoftwareMapDebug(session, "prop-view-effect-skip", {
-        instanceId: instanceId.current,
-        propView: view,
-        navigationKey,
-      });
       return;
     }
-    logSoftwareMapDebug(session, "prop-view-changed-reset", {
-      instanceId: instanceId.current,
-      from: previousBaseView.current,
-      to: view,
-      navigationKey,
-      stack: softwareMapDebugStack(),
-    });
     previousBaseView.current = view;
     setSelectedNodeId(null);
     setExpandedNodeIds(new Set());
-  }, [view, navigationKey, session]);
+  }, [view]);
 
   useEffect(() => {
     if (!focusRequest) return;
@@ -1601,13 +1490,6 @@ function SoftwareMapWithModel({
   }, [focusRequest]);
 
   useEffect(() => {
-    logSoftwareMapDebug(session, "cache-write", {
-      instanceId: instanceId.current,
-      navigationKey,
-      modelKey,
-      expandedNodeIds: [...expandedNodeIds],
-      selectedNodeId,
-    });
     rememberSoftwareMapNavigationState(session, navigationKey, {
       modelKey,
       expandedNodeIds: [...expandedNodeIds],
@@ -1760,21 +1642,12 @@ function SoftwareMapWithModel({
 
   const modelSnapshotState = useMemo(() => {
     if (!projectionModel) {
-      logSoftwareMapDebug(session, "model-view-state-empty", {
-        instanceId: instanceId.current,
-        hasModel: Boolean(projectionModel),
-      });
       return {
         snapshot: null,
         error: null,
       };
     }
     try {
-      logSoftwareMapDebug(session, "model-view-state-inline-c4", {
-        instanceId: instanceId.current,
-        expandedNodeIds: [...expandedNodeIds],
-        modelToken: softwareMapDebugObjectToken(projectionModel),
-      });
       return {
         snapshot: softwareMapSnapshotFromInlineC4Projection({
           projection: projectInlineC4({
@@ -1790,11 +1663,6 @@ function SoftwareMapWithModel({
         error: null,
       };
     } catch (caught) {
-      logSoftwareMapDebug(session, "model-view-state-error", {
-        instanceId: instanceId.current,
-        error: caught instanceof Error ? caught.message : String(caught),
-        stack: softwareMapDebugStack(),
-      });
       return {
         snapshot: null,
         error: caught instanceof Error ? caught.message : String(caught),
@@ -1808,7 +1676,6 @@ function SoftwareMapWithModel({
     shouldApplyModifiedOnly,
     showRemovedNodes,
     projectionModel,
-    session,
   ]);
 
   const resolvingModelData = Boolean(
@@ -1934,11 +1801,6 @@ function SoftwareMapWithModel({
     [],
   );
   const handleSelectNode = (node: SoftwareMapNodeSnapshot) => {
-    logSoftwareMapDebug(session, "select-node", {
-      instanceId: instanceId.current,
-      nodeId: node.id,
-      nodePath: node.path,
-    });
     rememberChildNodeFocus(node);
     setViewportFocusRequest(null);
     setSelectedNodeId(node.id);
@@ -2041,13 +1903,7 @@ function SoftwareMapWithModel({
       showFloatingActions={showFloatingActions}
       interactionMode={showChrome ? "inline" : "standalone"}
       onRefresh={handleRefreshSoftwareMap}
-      onExpand={() => {
-        logSoftwareMapDebug(session, "expanded-open", {
-          instanceId: instanceId.current,
-          frameView,
-        });
-        setExpanded(true);
-      }}
+      onExpand={() => setExpanded(true)}
       onCloseCodeInspector={handleCloseCodeInspector}
       inspectedNode={inspectedNode}
       inspectedNodeDiffPeeks={inspectedNodeDiffPeeks}
@@ -2098,13 +1954,7 @@ function SoftwareMapWithModel({
                 showFloatingActions={showFloatingActions}
                 interactionMode="standalone"
                 onRefresh={handleRefreshSoftwareMap}
-                onClose={() => {
-                  logSoftwareMapDebug(session, "expanded-close-button", {
-                    instanceId: instanceId.current,
-                    frameView,
-                  });
-                  setExpanded(false);
-                }}
+                onClose={() => setExpanded(false)}
                 onCloseCodeInspector={handleCloseCodeInspector}
                 inspectedNode={inspectedNode}
                 inspectedNodeDiffPeeks={inspectedNodeDiffPeeks}
@@ -6534,29 +6384,6 @@ function c4NodeCommentPlacement(button: HTMLElement): CommentDraftPlacement {
     y: rect.top - 4,
     side: "right",
   };
-}
-
-function HoverCommentButton({
-  onClick,
-  className = "",
-  style,
-}: {
-  onClick: (event: ReactMouseEvent<HTMLButtonElement>) => void;
-  className?: string;
-  style?: CSSProperties;
-}) {
-  return (
-    <button
-      type="button"
-      className={["comment-hover-button", className].filter(Boolean).join(" ")}
-      style={style}
-      onClick={onClick}
-      aria-label="Comment"
-      title="Comment"
-    >
-      <CommentIcon />
-    </button>
-  );
 }
 
 export function softwareMapNodeLabelPath(

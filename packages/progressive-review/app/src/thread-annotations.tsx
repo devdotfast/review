@@ -178,25 +178,6 @@ export function ThreadAnnotations({
     : commentDraftTargetForSurface(review.draftTarget, "document");
   const liveAnchors = useLiveAnchors();
   const liveDiagrams = useLiveDiagrams();
-  const annotationKeySource = useMemo(
-    () =>
-      JSON.stringify([
-        ...commentThreads.map((thread) => [
-          "comment",
-          thread.threadId,
-          targetKey(thread.target),
-          thread.clientStatus,
-          thread.status,
-          thread.messages.length,
-          thread.messages.at(-1)?.at,
-          thread.messages.at(-1)?.body,
-        ]),
-      ]),
-    [commentThreads],
-  );
-  // Keyed off serialized state because allCommentThreads() returns a fresh
-  // array on each render.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const threads = useMemo(() => {
     const byKey = new Map<string, ThreadView>();
     for (const thread of commentThreads) {
@@ -204,7 +185,7 @@ export function ThreadAnnotations({
       byKey.set(view.key, view);
     }
     return byKey;
-  }, [annotationKeySource]);
+  }, [commentThreads]);
 
   const [annotations, setAnnotations] = useState<CommentAnnotationPosition[]>(
     [],
@@ -236,7 +217,6 @@ export function ThreadAnnotations({
   // Recompute annotations when a draft opens/closes too, so the selected
   // text is highlighted while the comment is being written (not only after
   // it is submitted).
-  const annotationKey = `${annotationKeySource}|draft:${draftTarget?.threadId ?? ""}`;
   const focusedThreadId = review.focusedThreadId;
   // "inline" focus opens the thread's inline surface (expanded margin card /
   // popover); "highlight" focus (Threads-sidebar clicks) only scrolls to and
@@ -430,7 +410,7 @@ export function ThreadAnnotations({
       resizeObserver.disconnect();
       window.removeEventListener("resize", placeAnnotations);
     };
-  }, [articleRef, annotationKey, liveAnchors, liveDiagrams]);
+  }, [articleRef, draftTarget?.threadId, liveAnchors, liveDiagrams, threads]);
 
   // Cards change height while mounted (reply composer opening, text
   // wrapping, Read more) — watch them so the stacking pass reruns and

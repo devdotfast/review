@@ -1,4 +1,4 @@
-import { type CompileOptions, compile } from "@mdx-js/mdx";
+import type { CompileOptions } from "@mdx-js/mdx";
 import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 
@@ -18,40 +18,3 @@ export const reviewMdxOptions = {
     remarkReviewSections,
   ],
 } satisfies CompileOptions;
-
-const TABLE_SENTINEL = [
-  "| State | Meaning |",
-  "| --- | --- |",
-  "| ready | renders as a table |",
-].join("\n");
-
-export async function compileReviewMdx(source: string): Promise<string> {
-  return String(await compile(source, { ...reviewMdxOptions, jsx: true }));
-}
-
-export async function checkReviewMdxTableSupport(): Promise<
-  { ok: true } | { ok: false; message: string }
-> {
-  try {
-    const compiled = await compileReviewMdx(TABLE_SENTINEL);
-    if (
-      !compiled.includes("table") ||
-      !compiled.includes("thead") ||
-      !compiled.includes("td")
-    ) {
-      return {
-        ok: false,
-        message:
-          "GFM table sentinel did not compile to table output. Check reviewMdxOptions remarkPlugins.",
-      };
-    }
-    return { ok: true };
-  } catch (error) {
-    return {
-      ok: false,
-      message: `GFM table sentinel failed to compile: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    };
-  }
-}

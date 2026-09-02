@@ -3,9 +3,7 @@ import path from "node:path";
 
 import {
   currentHead,
-  defaultBase,
   devfastPrepareCommands,
-  gitCommonDir,
   resolveRevision,
 } from "@dev.fast/local-vcs";
 
@@ -21,11 +19,7 @@ import {
   reviewPrepareMarkerPath,
   spawnReviewPrepareBackground,
 } from "./review-prepare";
-import {
-  type ReviewCheckoutRole,
-  reviewManagedCheckoutDir,
-} from "./review-storage";
-import { span } from "./startup-trace";
+import { type ReviewCheckoutRole } from "./review-storage";
 
 export interface PreparedReviewSourceTarget {
   ref: string;
@@ -46,7 +40,7 @@ export async function resolveReviewSourceTarget(input: {
   warning?: (message: string) => void;
 }): Promise<ReviewSourceTarget> {
   const review = readReviewStoreRecord(input.reviewRootPath);
-  const repoRoot = resolveReviewRepoRootFromStore(input.reviewRootPath);
+  const repoRoot = resolveReviewRepoRootFromStore(input.reviewRootPath, review);
   const headRef = review.sourceCommit
     ? await resolveRevisionCommit(repoRoot, review.sourceCommit)
     : await resolveDefaultReviewHeadRef(repoRoot);
@@ -121,17 +115,12 @@ export interface EnsurePinnedReviewWorktreeInput {
 export async function ensurePinnedReviewWorktreeAtCommit(
   input: EnsurePinnedReviewWorktreeInput,
 ): Promise<string> {
-  const sourceRootPath = await span(
-    "ensureReviewPinnedCheckout",
-    () =>
-      ensureReviewPinnedCheckout({
-        rootPath: input.repoRoot,
-        ref: input.commit,
-        reviewUuid: input.reviewUuid,
-        role: input.role,
-      }),
-    `${input.commit} -> ${input.repoRoot}`,
-  );
+  const sourceRootPath = await ensureReviewPinnedCheckout({
+    rootPath: input.repoRoot,
+    ref: input.commit,
+    reviewUuid: input.reviewUuid,
+    role: input.role,
+  });
   if (!sourceRootPath) {
     throw new Error(
       `Cannot materialize a pinned worktree for ${input.commit} in ${input.repoRoot}.`,
@@ -163,33 +152,13 @@ export async function ensurePinnedReviewWorktreeAtCommit(
     return sourceRootPath;
   }
 
-  await span(
-    "prepareReviewPinnedCheckout",
-    () =>
-      prepareReviewPinnedCheckout({
-        checkoutPath: sourceRootPath,
-        commit: input.commit,
-        commands,
-        warning: input.warning,
-      }),
-    `${input.commit} -> ${sourceRootPath}`,
-  );
+  await prepareReviewPinnedCheckout({
+    checkoutPath: sourceRootPath,
+    commit: input.commit,
+    commands,
+    warning: input.warning,
+  });
   return sourceRootPath;
-}
-
-export async function pinnedSourceRootPath(
-  repoRoot: string,
-  reviewUuid: string,
-  role: ReviewCheckoutRole,
-  commit: string,
-): Promise<string> {
-  const commonDir = await gitCommonDir(repoRoot).catch(() => null);
-  if (!commonDir) {
-    throw new Error(
-      `Cannot pin a source worktree for ${commit}: repository ${repoRoot} has no shared git directory.`,
-    );
-  }
-  return reviewManagedCheckoutDir(commonDir, reviewUuid, role, commit);
 }
 
 export async function resolveDefaultReviewHeadRef(
@@ -198,25 +167,19 @@ export async function resolveDefaultReviewHeadRef(
   return currentHead(repoRoot).then((head) => head?.commit);
 }
 
-export async function resolveDefaultReviewBaseRef(
-  repoRoot: string,
-  headRef: string,
-): Promise<string | undefined> {
-  return defaultBase({ rootPath: repoRoot, headRef }).then(
-    (base) => base?.commit,
-  );
-}
-
 export async function resolveReviewSessionBaseCommit(input: {
   reviewRootPath: string;
 }): Promise<string | null> {
   const review = readReviewStoreRecord(input.reviewRootPath);
-  const repoRoot = resolveReviewRepoRootFromStore(input.reviewRootPath);
+  const repoRoot = resolveReviewRepoRootFromStore(input.reviewRootPath, review);
   return resolveRevisionCommit(repoRoot, review.baseCommit);
 }
 
-export function resolveReviewRepoRootFromStore(reviewRootPath: string): string {
-  const worktreePath = readReviewStoreRecord(reviewRootPath).worktreePath;
+export function resolveReviewRepoRootFromStore(
+  reviewRootPath: string,
+  review = readReviewStoreRecord(reviewRootPath),
+): string {
+  const worktreePath = review.worktreePath;
   const resolvedWorktreePath = path.resolve(worktreePath);
   if (!fs.existsSync(resolvedWorktreePath)) {
     throw new Error(

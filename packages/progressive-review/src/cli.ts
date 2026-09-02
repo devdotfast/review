@@ -6,11 +6,6 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-// startup-trace instrumentation: cli-runner (and its transitive MDX/React
-// imports) is loaded dynamically so the module-graph import cost shows up as
-// its own span instead of hiding before main().
-import { span } from "./startup-trace.js";
-
 // A standalone build (npx/global install) defers to the CLI bundled with a
 // running Review Desktop so the CLI can never skew from the server it talks
 // to. Checkout runs execute src/cli.ts via tsx and therefore never delegate.
@@ -26,19 +21,14 @@ if (delegatedExitCode !== null) {
   );
   process.exitCode = 1;
 } else {
-  const { runProgressiveReviewCli } = await span(
-    "import ./cli-runner module graph",
-    () => import("./cli-runner.js"),
-  );
+  const { runProgressiveReviewCli } = await import("./cli-runner.js");
 
-  process.exitCode = await span("runProgressiveReviewCli", () =>
-    runProgressiveReviewCli({
-      argv: process.argv.slice(2),
-      stdin: process.stdin,
-      stdout: process.stdout,
-      stderr: process.stderr,
-    }),
-  );
+  process.exitCode = await runProgressiveReviewCli({
+    argv: process.argv.slice(2),
+    stdin: process.stdin,
+    stdout: process.stdout,
+    stderr: process.stderr,
+  });
 }
 
 // An Electron-as-Node runtime (the app's) is trusted as-is: it is the same

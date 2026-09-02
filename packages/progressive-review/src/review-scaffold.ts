@@ -17,6 +17,7 @@ import {
   authoringSessionKey,
   resolveAuthoringSessionRef,
 } from "./authoring-session";
+import { errorMessage } from "./error-message";
 import {
   type ReviewTracePullSessionResult,
   inferRepoFromGit,
@@ -377,7 +378,7 @@ async function discoverAndPullScaffoldTraces(input: {
   } catch (error) {
     return traceSetupFailure(
       [],
-      `Agent trace discovery failed: ${formatError(error)}`,
+      `Agent trace discovery failed: ${errorMessage(error)}`,
       input.progress,
     );
   }
@@ -423,7 +424,7 @@ async function discoverAndPullScaffoldTraces(input: {
   } catch (error) {
     return traceSetupFailure(
       sessions,
-      `Agent trace materialization failed: ${formatError(error)}`,
+      `Agent trace materialization failed: ${errorMessage(error)}`,
       input.progress,
     );
   }
@@ -617,7 +618,7 @@ async function materializeReviewSetup(input: {
         return { role: pin.role, checkoutPath };
       } catch (error) {
         warnings.push(
-          `Pinned-${pin.role} worktree creation failed. Review will retry it: ${formatError(error)}`,
+          `Pinned-${pin.role} worktree creation failed. Review will retry it: ${errorMessage(error)}`,
         );
         return { role: pin.role, checkoutPath: undefined };
       }
@@ -726,8 +727,4 @@ async function resolveRequiredRevision(
     throw new Error(`Review ${label} revision does not exist: ${ref}`);
   }
   return resolved.commit;
-}
-
-function formatError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

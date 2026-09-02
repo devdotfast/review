@@ -8,6 +8,7 @@ import {
   authoringSessionKey,
   parseAuthoringSessionKey,
 } from "./authoring-session";
+import { errorMessage } from "./error-message";
 import { writeReviewDocumentBundle } from "./review-bundle";
 import { createLegacyCodeRecordMigrator } from "./review-code-target-migration";
 import { maskReviewFrontmatter } from "./review-frontmatter";
@@ -780,8 +781,4 @@ async function readDirectory(directory: string) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;
   }
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

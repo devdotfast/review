@@ -105,7 +105,7 @@ function isExecutableFile(file: string): boolean {
   }
 }
 
-export function resolveInstalledRustAnalyzer(userExtensionsPath: string | undefined): string | undefined {
+function resolveInstalledRustAnalyzer(userExtensionsPath: string | undefined): string | undefined {
   if (!userExtensionsPath) return undefined;
   const candidates: { version: string; executable: string }[] = [];
   let entries: fs.Dirent[];
@@ -136,7 +136,7 @@ export function resolveInstalledRustAnalyzer(userExtensionsPath: string | undefi
   return candidates[0]?.executable;
 }
 
-export function resolveRustAnalyzerSource(options: {
+function resolveRustAnalyzerSource(options: {
   readonly userExtensionsPath?: string;
   readonly appRoot: string;
   readonly isBuilt: boolean;

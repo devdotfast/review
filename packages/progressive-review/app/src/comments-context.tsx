@@ -6,15 +6,11 @@ import { useSyncExternalStore } from "react";
 
 import { useReviewSession } from "./host/review-session";
 
-export function useCommentsStore(): ReviewCommentStoreBridge {
-  return useReviewSession().bridge.comments;
-}
-
 export function useComments(): [
   ReviewCommentStoreBridge,
   ReviewCommentStoreSnapshot,
 ] {
-  const store = useCommentsStore();
+  const store = useReviewSession().bridge.comments;
   const snapshot = useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,

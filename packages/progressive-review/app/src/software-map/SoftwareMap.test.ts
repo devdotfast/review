@@ -3,12 +3,12 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 
 import { testReviewSession } from "../review-session-test-utils";
-import type { C4LayoutResult as InlineC4LayoutResult } from "./c4-layout";
 import { collapseInlineC4Node, projectInlineC4 } from "./c4-projection";
 import { defineSoftwareModel } from "./model";
 import {
   C4LayoutQueue,
   C4_MAP_HOTKEY_GROUPS,
+  type InlineC4LayoutResult,
   type SoftwareMapNodeSnapshot,
   type SoftwareMapRelationshipSnapshot,
   type SoftwareMapResolvedSnapshot,
@@ -4350,40 +4350,4 @@ function labelBoxesOverlapForTest(
     left.y + left.height <= right.y ||
     right.y + right.height <= left.y
   );
-}
-
-function softwareMapModelForMergeTests({
-  relationships,
-}: {
-  relationships: NonNullable<
-    Parameters<typeof defineSoftwareModel>[0]["relationships"]
-  >;
-}) {
-  return defineSoftwareModel({
-    systems: {
-      progressiveReview: {
-        containers: {
-          reactCanvas: {
-            components: {
-              renderer: {
-                codeElements: {
-                  SoftwareMap: {
-                    sourceRanges: [
-                      { file: "src/example.ts", fromLine: 1, toLine: 1 },
-                    ],
-                  },
-                  runLayout: {
-                    sourceRanges: [
-                      { file: "src/example.ts", fromLine: 1, toLine: 1 },
-                    ],
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-    relationships,
-  });
 }

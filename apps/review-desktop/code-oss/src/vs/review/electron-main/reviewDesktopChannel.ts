@@ -19,7 +19,7 @@ export class ReviewDesktopChannel implements IServerChannel {
   constructor(private readonly host: ReviewDesktopHost) {}
 
   listen<T>(): Event<T> {
-    throw new Error("The Review Desktop channel has no events.");
+    return Event.None as Event<T>;
   }
 
   async call<T>(_context: string, command: string): Promise<T> {

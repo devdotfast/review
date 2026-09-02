@@ -54,21 +54,6 @@ export function TerminalIcon(): ReactElement {
   );
 }
 
-export function QuestionIcon(): ReactElement {
-  return (
-    <svg
-      aria-hidden="true"
-      className="ui-icon ui-icon--question"
-      focusable="false"
-      viewBox="0 0 24 24"
-    >
-      <path d="M9.25 9a3.1 3.1 0 0 1 5.95 1.2c0 2.35-2.95 2.55-2.95 4.55" />
-      <path d="M12.25 18h.01" />
-      <circle cx="12" cy="12" r="8.25" />
-    </svg>
-  );
-}
-
 export function SparkIcon(): ReactElement {
   return (
     <svg
@@ -137,20 +122,6 @@ export function BugIcon(): ReactElement {
       <rect x="8" y="7" width="8" height="12" rx="4" />
       <path d="M10 7V6a2 2 0 0 1 4 0v1M12 8v10" />
       <path d="M8 10H5M19 10h-3M8 14H5M19 14h-3M8.75 18 6 20M15.25 18 18 20" />
-    </svg>
-  );
-}
-
-export function EditIcon(): ReactElement {
-  return (
-    <svg
-      aria-hidden="true"
-      className="ui-icon ui-icon--edit"
-      focusable="false"
-      viewBox="0 0 24 24"
-    >
-      <path d="M5 19h4" />
-      <path d="M8 16 17.5 6.5a1.8 1.8 0 0 1 2.5 2.5L10.5 18.5 6 19l.5-4.5Z" />
     </svg>
   );
 }
@@ -291,19 +262,6 @@ export function ExpandIcon(): ReactElement {
       viewBox="0 0 24 24"
     >
       <path d="M14 5h5v5M19 5l-7.5 7.5M10 19H5v-5" />
-    </svg>
-  );
-}
-
-export function OpenInEditorIcon(): ReactElement {
-  return (
-    <svg
-      aria-hidden="true"
-      className="ui-icon ui-icon--open-in-editor"
-      focusable="false"
-      viewBox="0 0 24 24"
-    >
-      <path d="M7 17 17 7M10 7h7v7" />
     </svg>
   );
 }

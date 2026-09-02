@@ -1,4 +1,3 @@
-import { type ReviewAgentTraceEvent } from "@dev.fast/review-protocol";
 import type {
   CSSProperties,
   ComponentPropsWithoutRef,
@@ -70,11 +69,7 @@ import {
 import { buildAnchorTextTarget, targetKey } from "./target-fingerprint";
 import { ThreadComposer } from "./thread-card";
 import { useThreadTargetState } from "./thread-target-model";
-import {
-  TraceDocument,
-  buildTraceTurns,
-  extractEventText,
-} from "./trace-document";
+import { TraceDocument, extractEventText } from "./trace-document";
 import { useTutorialSection } from "./tutorial-section-context";
 import { captureUiEvent } from "./ui-telemetry";
 import { useAgentTrace } from "./use-agent-trace";

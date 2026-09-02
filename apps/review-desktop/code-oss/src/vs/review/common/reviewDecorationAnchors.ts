@@ -42,7 +42,7 @@ export class ReviewDecorationAnchors {
   }
 }
 
-export function reviewDecorationAnchorsKey(
+function reviewDecorationAnchorsKey(
   sessionId: string,
   path: string,
 ): string {

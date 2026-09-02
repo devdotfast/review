@@ -32,8 +32,6 @@ export interface ReviewDocumentBundlerInput {
   routePath: string;
 }
 
-export type ReviewDocumentValidationInput = ReviewDocumentBundlerInput;
-
 export async function bundleReviewDocument(
   input: ReviewDocumentBundlerInput,
 ): Promise<ReviewDocumentBundle> {
@@ -53,7 +51,7 @@ export async function compileReviewDocumentBundle(
   bundle: ReviewDocumentBundle | null;
   diagnostics: ReviewDocumentDiagnostic[];
 }> {
-  const result = await buildReviewDocument(input, "bundle");
+  const result = await buildReviewDocument(input);
   if (result.diagnostics.length > 0) {
     return { bundle: null, diagnostics: result.diagnostics };
   }
@@ -76,17 +74,7 @@ export async function compileReviewDocumentBundle(
   };
 }
 
-export async function validateReviewDocument(
-  input: ReviewDocumentValidationInput,
-): Promise<{ diagnostics: ReviewDocumentDiagnostic[] }> {
-  const result = await buildReviewDocument(input, "validation");
-  return { diagnostics: result.diagnostics };
-}
-
-async function buildReviewDocument(
-  input: ReviewDocumentValidationInput | ReviewDocumentBundlerInput,
-  mode: "bundle" | "validation",
-): Promise<{
+async function buildReviewDocument(input: ReviewDocumentBundlerInput): Promise<{
   code?: string;
   diagnostics: ReviewDocumentDiagnostic[];
   document?: Awaited<
@@ -130,15 +118,11 @@ async function buildReviewDocument(
         reviewDocumentPlugin({
           document,
           runtimeCode: compilation.runtimeCode,
-          mode,
         }),
       ],
-      sourcemap: mode === "bundle" ? "inline" : false,
+      sourcemap: "inline",
       stdin: {
-        contents:
-          mode === "bundle"
-            ? `export { activeReviewDocument } from ${JSON.stringify(ENTRY_MODULE_ID)};`
-            : `import ${JSON.stringify(ENTRY_MODULE_ID)};`,
+        contents: `export { activeReviewDocument } from ${JSON.stringify(ENTRY_MODULE_ID)};`,
         loader: "js",
         resolveDir: input.reviewRootPath,
         sourcefile: "review-document-entry.js",
@@ -161,7 +145,6 @@ function reviewDocumentPlugin(input: {
     ReturnType<typeof collectReviewDocumentScanForRuntime>
   >["manifests"][number];
   runtimeCode: string;
-  mode: "bundle" | "validation";
 }): Plugin {
   return {
     name: "progressive-review-document-bundle",
@@ -204,19 +187,13 @@ function reviewDocumentPlugin(input: {
           }
           if (moduleId === REVIEW_AUTHORING_MODULE_ID) {
             return {
-              contents:
-                input.mode === "bundle"
-                  ? authoringModuleSource({ document: input.document })
-                  : validationAuthoringModuleSource(),
+              contents: authoringModuleSource({ document: input.document }),
               loader: "js",
               resolveDir: path.dirname(input.document.filePath),
             };
           }
           return {
-            contents:
-              input.mode === "bundle"
-                ? entryModuleSource(input)
-                : validationEntryModuleSource(),
+            contents: entryModuleSource(input),
             loader: "js",
             resolveDir: path.dirname(input.document.filePath),
           };
@@ -224,25 +201,6 @@ function reviewDocumentPlugin(input: {
       );
     },
   };
-}
-
-function validationAuthoringModuleSource(): string {
-  return [
-    "const identity = (value) => value;",
-    "export const calls = (parent, child, reason) =>",
-    '  ({ __kind: "call-assertion", parent, child, reason });',
-    "export const defineSoftwareModel = identity;",
-    "export const defineActors = identity;",
-    "export const defineAnchors = identity;",
-    "export const defineStores = identity;",
-    "export const defineSoftwareActors = identity;",
-    "export const defineSoftwareStores = identity;",
-    "export const __reviewDefinitionsReady = Promise.resolve();",
-  ].join("\n");
-}
-
-function validationEntryModuleSource(): string {
-  return `import ${JSON.stringify(DOCUMENT_MODULE_ID)};`;
 }
 
 // The generated authoring module names no origin and no token: the runtime

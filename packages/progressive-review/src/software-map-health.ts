@@ -58,6 +58,20 @@ export async function checkSoftwareMapSource(input: {
   // copy's current commit — so there is exactly one frame of reference, and
   // the errors name it.
   const treeFiles = await listCommitTreeFiles(input.repoRootPath, input.commit);
+  const filesToRead = [
+    ...new Set(
+      model.elements.flatMap((element) =>
+        (element.coverage?.files ?? [])
+          .filter((file) => file.ranges.length > 0)
+          .map((file) => file.path),
+      ),
+    ),
+  ].filter((filePath) => treeFiles.includes(filePath));
+  const treeFileContents = readCommitTreeFilesSync(
+    input.repoRootPath,
+    input.commit,
+    filesToRead,
+  );
   const errors = [
     // An element-free model is the unauthored schema stub; green-lighting it
     // would flush a stub note that ancestor hydration then propagates to
@@ -71,23 +85,17 @@ export async function checkSoftwareMapSource(input: {
       rootPath: input.repoRootPath,
       model,
       listFiles: () => treeFiles,
-      readFile: (_rootPath, filePath) =>
-        readCommitTreeFileSync(input.repoRootPath, input.commit, filePath),
+      readFile: (_rootPath, filePath) => {
+        const source = treeFileContents.get(filePath);
+        if (source === undefined) {
+          throw new Error(`Commit tree file is missing: ${filePath}`);
+        }
+        return source;
+      },
       pathsFrame: `tree of ${input.commit.slice(0, 12)}`,
     }),
   ];
   return { canonicalSource, model, errors };
-}
-
-// Publish gate: both pinned commits must carry a software map note, and each
-// note must pass the same validation as `review map check`. Returns one
-// message per defect; an empty array means the maps are healthy.
-export async function collectPublishSoftwareMapHealthErrors(input: {
-  repoRootPath: string;
-  baseCommit: string;
-  headCommit: string;
-}): Promise<string[]> {
-  return (await loadPublishSoftwareMaps(input)).errors;
 }
 
 export interface PublishSoftwareMaps {
@@ -234,20 +242,37 @@ export async function listCommitTreeFiles(
   return listed.stdout.split("\0").filter(Boolean);
 }
 
-export function readCommitTreeFileSync(
+function readCommitTreeFilesSync(
   rootPath: string,
   commit: string,
-  filePath: string,
-): string {
-  return execFileSync(
+  filePaths: readonly string[],
+): Map<string, string> {
+  if (filePaths.length === 0) return new Map();
+  const output = execFileSync(
     "git",
-    gitArgsSync(rootPath, ["cat-file", "blob", `${commit}:${filePath}`]),
+    gitArgsSync(rootPath, ["cat-file", "--batch"]),
     {
-      encoding: "utf8",
+      input: `${filePaths.map((filePath) => `${commit}:${filePath}`).join("\n")}\n`,
       maxBuffer: 64 * 1024 * 1024,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
     },
   );
+  const contents = new Map<string, string>();
+  let offset = 0;
+  for (const filePath of filePaths) {
+    const headerEnd = output.indexOf(0x0a, offset);
+    if (headerEnd < 0) throw new Error(`Missing git object for ${filePath}.`);
+    const header = output.subarray(offset, headerEnd).toString("utf8");
+    const size = Number(header.split(" ").at(-1));
+    if (!Number.isSafeInteger(size) || size < 0) {
+      throw new Error(`Invalid git object header for ${filePath}: ${header}`);
+    }
+    const start = headerEnd + 1;
+    const end = start + size;
+    contents.set(filePath, output.subarray(start, end).toString("utf8"));
+    offset = end + 1;
+  }
+  return contents;
 }
 
 function isNormalizedSoftwareModel(

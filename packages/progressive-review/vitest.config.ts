@@ -16,12 +16,9 @@ const isolatedTests = [
   "app/src/review-panel.test.tsx",
   "app/src/review-ui-state.test.ts",
   "app/src/side-panel-resizer.test.tsx",
-  "src/compiler/review-documents-module.test.ts",
   "src/compiler/review-document-compiler.test.ts",
   "src/review-source-ref-errors.test.ts",
   "src/map-cli-entry.test.ts",
-  "src/review-comment-agent.test.ts",
-  "src/server/review-api.test.ts",
 ];
 
 export default defineConfig({
@@ -29,9 +26,6 @@ export default defineConfig({
     alias: {
       "@dev.fast/local-vcs": fileURLToPath(
         new URL("../local-vcs/src/index.ts", import.meta.url),
-      ),
-      "@dev-fast/trace-shared": fileURLToPath(
-        new URL("../trace-shared/src/index.ts", import.meta.url),
       ),
       "decode-named-character-reference": decodeNamedCharacterReferenceIndex,
     },

@@ -1,36 +1,21 @@
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
 import {
   currentHead as currentHeadAsync,
-  currentHeadSync,
   gitCommonDirSync,
   resolveRevision as resolveRevisionAsync,
 } from "@dev.fast/local-vcs";
 
-import {
-  isInsideDirectory,
-  normalizeViteModuleFilePath,
-  reviewDocumentRoutePathForFile,
-  toViteFsImport,
-} from "../review-paths";
+import { reviewDocumentRoutePathForFile } from "../review-paths";
 import {
   readReviewStoreRecord,
   resolveReviewRepoRootFromStore,
 } from "../review-worktree-target";
-import {
-  materializeSoftwareMapAtRef,
-  materializeSoftwareMapAtRefSync,
-} from "../software-map-artifact";
-import { span, spanSync } from "../startup-trace";
+import { materializeSoftwareMapAtRef } from "../software-map-artifact";
 
-export const ACTIVE_REVIEW_DOCUMENT_MODULE_ID =
-  "virtual:progressive-review-active-document";
-export const RESOLVED_ACTIVE_REVIEW_DOCUMENT_MODULE_ID = `\0${ACTIVE_REVIEW_DOCUMENT_MODULE_ID}`;
 export const REVIEW_AUTHORING_MODULE_ID =
   "virtual:progressive-review-authoring";
-export const RESOLVED_REVIEW_AUTHORING_MODULE_ID = `\0${REVIEW_AUTHORING_MODULE_ID}`;
 
 interface ReviewDocumentModuleManifest {
   slug: string;
@@ -75,126 +60,12 @@ type ReviewDocumentInputWithMeta = {
   titleFallback: string;
 };
 
-function normalizeReviewDocumentRoutePath(routePath: string): string {
-  if (!routePath) return "/";
-  const pathnameOnly = routePath.split(/[?#]/, 1)[0] || "/";
-  const trimmed = pathnameOnly.replace(/\/+$/, "") || "/";
-  if (trimmed === "/") return "/";
-  return trimmed.endsWith(".mdx") ? trimmed.slice(0, -".mdx".length) : trimmed;
-}
-
-export async function generateActiveReviewDocumentModule(input: {
-  reviewPath: string;
-  reviewDocumentsDir: string;
-  reviewRootPath: string;
-  activeRoutePath: string;
-}): Promise<string> {
-  const scan = await collectReviewDocumentScanForRuntime(input);
-  const activeRoutePath = normalizeReviewDocumentRoutePath(
-    input.activeRoutePath,
-  );
-  const document = scan.manifests.find(
-    (manifest) =>
-      normalizeReviewDocumentRoutePath(manifest.routePath) === activeRoutePath,
-  );
-  if (!document) {
-    throw new Error(`No Review document exists for route ${activeRoutePath}.`);
-  }
-  return activeReviewDocumentModuleSource(document);
-}
-
-export async function generateReviewAuthoringModule(input: {
-  reviewPath: string;
-  reviewDocumentsDir: string;
-  reviewRootPath: string;
-  activeRoutePath: string;
-}): Promise<string> {
-  const scan = await collectReviewDocumentScanForRuntime(input);
-  const activeRoutePath = normalizeReviewDocumentRoutePath(
-    input.activeRoutePath,
-  );
-  const document = scan.manifests.find(
-    (manifest) =>
-      normalizeReviewDocumentRoutePath(manifest.routePath) === activeRoutePath,
-  );
-  if (!document) {
-    throw new Error(`No Review document exists for route ${activeRoutePath}.`);
-  }
-  return reviewAuthoringModuleSource(document);
-}
-
-function activeReviewDocumentModuleSource(
-  document: ReviewDocumentModuleManifest,
-): string {
-  const documentImport = JSON.stringify(toViteFsImport(document.filePath));
-  const lines = [
-    `import * as reviewDocumentModule from ${documentImport};`,
-    `import { createActiveReviewDocument } from "/src/review-documents-runtime";`,
-    `import { __reviewDefinitionsReady } from "${REVIEW_AUTHORING_MODULE_ID}";`,
-    ``,
-    `await __reviewDefinitionsReady();`,
-    ``,
-    `export const activeReviewDocument = createActiveReviewDocument({`,
-    ...reviewDocumentDescriptorMetadataSource(document, "  "),
-    `  models: reviewDocumentModule,`,
-    `  Component: reviewDocumentModule.default,`,
-    `});`,
-    ``,
-  ];
-  return lines.join("\n");
-}
-
-function reviewAuthoringModuleSource(
-  document: ReviewDocumentModuleManifest,
-): string {
-  return [
-    `import { createBrowserReviewDefinitionSession } from "/src/review-definition-runtime";`,
-    `export { calls } from "/src/review-definition-runtime";`,
-    `export { defineSoftwareModel } from "/src/software-map/model";`,
-    ``,
-    `const session = createBrowserReviewDefinitionSession({`,
-    `  routePath: ${JSON.stringify(document.routePath)},`,
-    `  softwareMap: null,`,
-    `  baseSoftwareMap: null,`,
-    `  requestOrigin: import.meta.env.SSR ? import.meta.env.DEV_FAST_REVIEW_SSR_ORIGIN : undefined,`,
-    `});`,
-    `session.begin();`,
-    ``,
-    `export const defineActors = session.defineActors;`,
-    `export const defineAnchors = session.defineAnchors;`,
-    `export const defineStores = session.defineStores;`,
-    `export const defineSoftwareActors = session.defineSoftwareActors;`,
-    `export const defineSoftwareStores = session.defineSoftwareStores;`,
-    `export const __reviewDefinitionsReady = session.ready;`,
-    `export const __reviewDefinitionDiagnostics = session.diagnostics;`,
-    ``,
-  ].join("\n");
-}
-
-export function collectReviewDocumentSoftwareMapPaths(input: {
-  reviewPath: string;
-  reviewDocumentsDir: string;
-  reviewRootPath: string;
-}): Set<string> {
-  return new Set(collectReviewDocumentScan(input).softwareMapPaths);
-}
-
-export function collectReviewDocumentSourceRoots(input: {
-  reviewPath: string;
-  reviewDocumentsDir: string;
-  reviewRootPath: string;
-}): Set<string> {
-  return new Set(collectReviewDocumentScan(input).sourceRoots);
-}
-
 export function collectReviewDocumentScanForRuntime(input: {
   reviewPath: string;
   reviewDocumentsDir: string;
   reviewRootPath: string;
 }): Promise<ReviewDocumentScanAsyncResult> {
-  return span("collectReviewDocumentScanForRuntime", () =>
-    collectReviewDocumentScanForRuntimeInner(input),
-  );
+  return collectReviewDocumentScanForRuntimeInner(input);
 }
 
 async function collectReviewDocumentScanForRuntimeInner(input: {
@@ -325,24 +196,22 @@ async function resolveReviewDocumentRefs(
   repoRootPath: string,
   reviewRootPath: string,
 ): Promise<[string | null, string | null]> {
-  return span("resolveReviewDocumentRefs", async () => {
-    const review = readReviewStoreRecord(reviewRootPath);
-    const headRef = review.sourceCommit
-      ? ((
-          await resolveRevisionAsync(repoRootPath, review.sourceCommit).catch(
-            () => null,
-          )
-        )?.commit ?? review.sourceCommit)
-      : ((await currentHeadAsync(repoRootPath).catch(() => null))?.commit ??
-        null);
-    const baseRef =
-      (
-        await resolveRevisionAsync(repoRootPath, review.baseCommit).catch(
+  const review = readReviewStoreRecord(reviewRootPath);
+  const headRef = review.sourceCommit
+    ? ((
+        await resolveRevisionAsync(repoRootPath, review.sourceCommit).catch(
           () => null,
         )
-      )?.commit ?? review.baseCommit;
-    return [headRef, baseRef];
-  });
+      )?.commit ?? review.sourceCommit)
+    : ((await currentHeadAsync(repoRootPath).catch(() => null))?.commit ??
+      null);
+  const baseRef =
+    (
+      await resolveRevisionAsync(repoRootPath, review.baseCommit).catch(
+        () => null,
+      )
+    )?.commit ?? review.baseCommit;
+  return [headRef, baseRef];
 }
 
 function reviewDocumentModuleManifestFromMetadata(
@@ -379,134 +248,31 @@ async function reviewDocumentSoftwareMapPathsAsyncInner(input: {
   headSoftwareMapPath: string | null;
   baseSoftwareMapPath: string | null;
 }> {
-  return span("reviewDocumentSoftwareMapPathsAsyncInner", async () => {
-    const repoRootPath = input.repoRoot;
-    // Both roles are strict note reads: an unpinned head resolves to the
-    // working copy's commit (the caller passed it as headRef) and reads that
-    // commit's note like any pinned ref. There is no live-map fallback.
-    const [materializedHeadSoftwareMapPath, baseSoftwareMapPath] =
-      await Promise.all([
-        input.headRef
-          ? materializeSoftwareMapAtRef({
-              repoRootPath,
-              ref: input.headRef,
-              role: "head",
-            })
-          : Promise.resolve(null),
-        input.baseRef
-          ? materializeSoftwareMapAtRef({
-              repoRootPath,
-              ref: input.baseRef,
-              role: "base",
-            })
-          : Promise.resolve(null),
-      ]);
+  const repoRootPath = input.repoRoot;
+  // Both roles are strict note reads: an unpinned head resolves to the
+  // working copy's commit (the caller passed it as headRef) and reads that
+  // commit's note like any pinned ref. There is no live-map fallback.
+  const [materializedHeadSoftwareMapPath, baseSoftwareMapPath] =
+    await Promise.all([
+      input.headRef
+        ? materializeSoftwareMapAtRef({
+            repoRootPath,
+            ref: input.headRef,
+            role: "head",
+          })
+        : Promise.resolve(null),
+      input.baseRef
+        ? materializeSoftwareMapAtRef({
+            repoRootPath,
+            ref: input.baseRef,
+            role: "base",
+          })
+        : Promise.resolve(null),
+    ]);
 
-    return {
-      headSoftwareMapPath: materializedHeadSoftwareMapPath,
-      baseSoftwareMapPath: baseSoftwareMapPath ?? null,
-    };
-  });
-}
-
-export function isReviewDocumentModule(
-  id: string,
-  input: { reviewPath: string; reviewDocumentsDir: string },
-): boolean {
-  const modulePath = normalizeViteModuleFilePath(id);
-  if (modulePath === normalizeViteModuleFilePath(input.reviewPath)) return true;
-  if (path.extname(modulePath) !== ".mdx") return false;
-  return isInsideDirectory(
-    modulePath,
-    normalizeViteModuleFilePath(input.reviewDocumentsDir),
-  );
-}
-
-function collectReviewDocumentScan(input: {
-  reviewPath: string;
-  reviewDocumentsDir: string;
-  reviewRootPath: string;
-}): {
-  manifests: ReviewDocumentModuleManifest[];
-  softwareMapPaths: string[];
-  sourceRoots: string[];
-} {
-  const normalized = normalizeReviewDocumentScanInput(input);
-  const fingerprint = collectReviewDocumentScanFingerprint(normalized);
-  return spanSync("collectReviewDocumentScan", () =>
-    collectReviewDocumentScanInner(normalized, fingerprint),
-  );
-}
-
-function collectReviewDocumentScanInner(
-  input: ReviewDocumentScanInput,
-  fingerprint: ReviewDocumentScanFingerprint,
-): {
-  manifests: ReviewDocumentModuleManifest[];
-  softwareMapPaths: string[];
-  sourceRoots: string[];
-} {
-  const reviewPath = path.resolve(input.reviewPath);
-  const documents = [
-    {
-      slug: "",
-      routePath: "/",
-      filePath: reviewPath,
-      titleFallback: "review",
-    },
-    ...collectReviewDocumentDirectoryDocuments(
-      input.reviewDocumentsDir,
-      fingerprint,
-    ),
-  ];
-
-  const sourceRoots = new Set<string>();
-  const softwareMapPaths = new Set<string>();
-  const manifests = documents.map((document) => {
-    const { title, modelNames } = reviewDocumentSourceMetadata(
-      document.filePath,
-      document.titleFallback,
-    );
-    const softwareMapPathsResult = spanSync(
-      `mapPaths ${path.basename(document.filePath)}`,
-      () =>
-        reviewDocumentSoftwareMapPaths({
-          reviewRootPath: input.reviewRootPath,
-        }),
-      document.filePath,
-    );
-    if (softwareMapPathsResult.headSoftwareMapPath) {
-      softwareMapPaths.add(
-        path.resolve(softwareMapPathsResult.headSoftwareMapPath),
-      );
-    }
-    if (softwareMapPathsResult.baseSoftwareMapPath) {
-      softwareMapPaths.add(
-        path.resolve(softwareMapPathsResult.baseSoftwareMapPath),
-      );
-    }
-
-    sourceRoots.add(resolveReviewRepoRootFromStore(input.reviewRootPath));
-
-    return {
-      ...document,
-      filePath: path.resolve(document.filePath),
-      title,
-      resolvedBaseRef: null,
-      modelNames,
-      isDefault: document.slug === "",
-      ...softwareMapPathsResult,
-    };
-  });
-  for (const sourceRoot of sourceRoots) {
-    for (const watchPath of softwareMapWatchPathsForRepo(sourceRoot)) {
-      softwareMapPaths.add(watchPath);
-    }
-  }
   return {
-    manifests,
-    softwareMapPaths: [...softwareMapPaths],
-    sourceRoots: [...sourceRoots],
+    headSoftwareMapPath: materializedHeadSoftwareMapPath,
+    baseSoftwareMapPath: baseSoftwareMapPath ?? null,
   };
 }
 
@@ -596,65 +362,6 @@ function reviewDocumentFileFingerprint(
   };
 }
 
-function reviewDocumentDescriptorMetadataSource(
-  document: ReviewDocumentModuleManifest,
-  indent: string,
-): string[] {
-  return [
-    `${indent}slug: ${JSON.stringify(document.slug)},`,
-    `${indent}routePath: ${JSON.stringify(document.routePath)},`,
-    `${indent}filePath: ${JSON.stringify(document.filePath)},`,
-    `${indent}title: ${JSON.stringify(document.title)},`,
-    `${indent}modelNames: ${JSON.stringify(document.modelNames)},`,
-    `${indent}isDefault: ${String(document.isDefault)},`,
-  ];
-}
-
-function reviewDocumentSoftwareMapPaths(input: { reviewRootPath: string }): {
-  headSoftwareMapPath: string | null;
-  baseSoftwareMapPath: string | null;
-} {
-  const repoRootPath = resolveReviewRepoRootFromStore(input.reviewRootPath);
-  const review = readReviewStoreRecord(input.reviewRootPath);
-  const headRef =
-    review.sourceCommit ??
-    spanSync("currentHeadSync (git)", () =>
-      resolveDefaultReviewHeadRefSync(repoRootPath),
-    );
-  const baseRef = review.baseCommit;
-  // Strict note reads for both roles: an unpinned head is the working copy's
-  // current commit, materialized like any pinned ref (no live-map fallback).
-  const materializedHeadSoftwareMapPath = headRef
-    ? spanSync(
-        "materializeSoftwareMapAtRefSync head",
-        () =>
-          materializeSoftwareMapAtRefSync({
-            repoRootPath,
-            ref: headRef,
-            role: "head",
-          }),
-        headRef,
-      )
-    : null;
-  const baseSoftwareMapPath = baseRef
-    ? spanSync(
-        "materializeSoftwareMapAtRefSync base",
-        () =>
-          materializeSoftwareMapAtRefSync({
-            repoRootPath,
-            ref: baseRef,
-            role: "base",
-          }),
-        baseRef,
-      )
-    : null;
-
-  return {
-    headSoftwareMapPath: materializedHeadSoftwareMapPath,
-    baseSoftwareMapPath,
-  };
-}
-
 // Paths the dev server should watch for map changes: notes are the only
 // durable map state, so watch the notes refs themselves and packed-refs.
 export function softwareMapWatchPathsForRepo(repoRootPath: string): string[] {
@@ -664,51 +371,6 @@ export function softwareMapWatchPathsForRepo(repoRootPath: string): string[] {
     path.join(gitDir, "refs", "notes", "dev-fast"),
     path.join(gitDir, "packed-refs"),
   ];
-}
-
-const NOTES_REFS_SUFFIX = path.join("refs", "notes", "dev-fast");
-
-export function gitDirForSoftwareMapWatchPath(
-  watchPath: string,
-): string | null {
-  const resolved = path.resolve(watchPath);
-  if (resolved.endsWith(`${path.sep}${NOTES_REFS_SUFFIX}`)) {
-    return resolved.slice(0, -(NOTES_REFS_SUFFIX.length + path.sep.length));
-  }
-  if (path.basename(resolved) === "packed-refs") {
-    return path.dirname(resolved);
-  }
-  return null;
-}
-
-export function softwareMapNotesRefFingerprint(
-  gitDirs: Iterable<string>,
-): string {
-  const parts: string[] = [];
-  for (const gitDir of [...new Set(gitDirs)].sort()) {
-    let refs: string;
-    try {
-      refs = execFileSync(
-        "git",
-        [
-          "--git-dir",
-          gitDir,
-          "for-each-ref",
-          "refs/notes/dev-fast",
-          "--format=%(refname) %(objectname)",
-        ],
-        { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-      );
-    } catch {
-      refs = "unavailable";
-    }
-    parts.push(`${gitDir}\n${refs}`);
-  }
-  return parts.join("\0");
-}
-
-function resolveDefaultReviewHeadRefSync(repoRootPath: string): string | null {
-  return currentHeadSync(repoRootPath)?.commit ?? null;
 }
 
 function reviewDocumentSoftwareModelNamesFromSource(source: string): string[] {
@@ -745,20 +407,6 @@ function reviewDocumentSourceMetadata(
       title: fallback,
       modelNames: [],
     };
-  }
-}
-
-export function reviewDocumentTitle(
-  filePath: string,
-  fallback: string,
-): string {
-  try {
-    return reviewDocumentTitleFromSource(
-      readFileSync(filePath, "utf8"),
-      fallback,
-    );
-  } catch {
-    return fallback;
   }
 }
 

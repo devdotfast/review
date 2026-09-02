@@ -39,7 +39,7 @@ describe("native Review Protocol source generation", () => {
       "// GENERATED from @dev.fast/review-protocol. Do not edit.",
     );
     expect(output).toContain("export const ReviewRuntimeConfigSchema");
-    expect(output).toContain("export function parseReviewRuntimeConfig");
+    expect(output).toContain("export const ReviewRuntimeConfigSchema");
     expect(output).not.toContain("./contracts.js");
     expect(output.match(/from "zod\/v4"/g)).toHaveLength(1);
     expect(output).toContain("z.config({ jitless: true });");
@@ -67,7 +67,7 @@ describe("native Review Protocol source generation", () => {
     expect(output).not.toContain('from "zod');
     const protocol = await import(pathToFileURL(outputPath).href);
     expect(
-      protocol.parseReviewRange({
+      protocol.ReviewRangeSchema.parse({
         fromLine: 1,
         toLine: 2,
       }),

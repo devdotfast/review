@@ -36,15 +36,12 @@ import type {
   SequenceMessageCodeInput,
   SequenceMessageInput,
 } from "../../src/authoring";
-import {
-  type ValidatedCodePeekInput,
-  validatedCodePeekInputFromRef,
-} from "./CodePeek";
+import { validatedCodePeekInputFromRef } from "./CodePeek";
 import { useReviewDebugSettings } from "./debug-settings";
 import { hasTextSelectionWithin } from "./diagram-text-selection";
 import { DiagramTourOverlay, useDiagramTourShell } from "./diagram-tour";
 import { useReviewSession } from "./host/review-session";
-import { CommentIcon } from "./icons";
+import { HoverCommentButton } from "./hover-comment-button";
 import type { GuidedTour } from "./review-components";
 import { useReview } from "./review-context";
 import { useReviewPanel } from "./review-panel";
@@ -743,21 +740,6 @@ export function sequenceTargetElements(
   ];
 }
 
-export function sequencePeekInputs(
-  sequence: SequenceRef,
-): Map<string, ValidatedCodePeekInput> {
-  const validatedPeeks = new Map<string, ValidatedCodePeekInput>();
-  for (const message of sequence.messages) {
-    if (message.anchor.peek) {
-      validatedPeeks.set(
-        message.anchor.id,
-        validatedCodePeekInputFromRef(message.anchor.peek),
-      );
-    }
-  }
-  return validatedPeeks;
-}
-
 export function sequenceDiagramClassName(isTourActive: boolean): string {
   return isTourActive
     ? "sequence-diagram sequence-tour sequence-tour--active"
@@ -1041,29 +1023,6 @@ function SequenceMessageEdge(props: ReactFlowEdgeProps) {
         </div>
       </EdgeLabelRenderer>
     </>
-  );
-}
-
-function HoverCommentButton({
-  onClick,
-  className = "",
-  style,
-}: {
-  onClick: (event: MouseEvent<HTMLButtonElement>) => void;
-  className?: string;
-  style?: CSSProperties;
-}) {
-  return (
-    <button
-      type="button"
-      className={["comment-hover-button", className].filter(Boolean).join(" ")}
-      style={style}
-      onClick={onClick}
-      aria-label="Comment"
-      title="Comment"
-    >
-      <CommentIcon />
-    </button>
   );
 }
 

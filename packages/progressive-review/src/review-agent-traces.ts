@@ -1,11 +1,8 @@
 import { execFile } from "node:child_process";
 import {
-  closeSync,
   existsSync,
   mkdirSync,
-  openSync,
   readFileSync,
-  readSync,
   readdirSync,
   renameSync,
   rmSync,
@@ -16,16 +13,16 @@ import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { git, resolveRepoContext } from "@dev.fast/local-vcs";
 import {
   type ByCommitEntry,
+  type ReviewAgentTraceSession,
   type SessionMeta,
   byCommitSchema,
   commitShaSchema,
   sessionIdSchema,
   sessionMetaSchema,
-} from "@dev-fast/trace-shared";
-import { git, resolveRepoContext } from "@dev.fast/local-vcs";
-import type { ReviewAgentTraceSession } from "@dev.fast/review-protocol";
+} from "@dev.fast/review-protocol";
 
 import {
   AGENT_TRACE_PARSER_VERSION,
@@ -34,7 +31,6 @@ import {
   type AgentTraceParseResult,
   extractTraceEventText,
   parseAgentTraceJsonl,
-  sniffAgentTraceHarness,
 } from "./agent-trace-parser";
 
 /**
@@ -162,22 +158,6 @@ export async function listReviewTraceSessions(input: {
     descriptors.push(desc);
   }
   return descriptors;
-}
-
-export function sniffTraceHarnessFromFile(filePath: string): AgentTraceHarness {
-  try {
-    const fd = openSync(filePath, "r");
-    try {
-      const buffer = Buffer.alloc(4096);
-      const bytesRead = readSync(fd, buffer, 0, 4096, 0);
-      const chunk = buffer.toString("utf8", 0, bytesRead);
-      return sniffAgentTraceHarness(chunk);
-    } finally {
-      closeSync(fd);
-    }
-  } catch {
-    return "unknown";
-  }
 }
 
 export async function describeTraceSession(
@@ -621,8 +601,6 @@ async function runGit(
   }
 }
 
-export const r2ListSubagents = listSessionSubagents;
-
 // --- Lookup Commit & Session -----------------------------------------------
 
 export async function lookupReviewTraceCommit(input: {
@@ -793,7 +771,7 @@ export async function lookupReviewTraceSession(input: {
 
   const subagentSet = new Set<string>();
   if (isTraceR2Configured()) {
-    const r2Subs = await r2ListSubagents(sessionId);
+    const r2Subs = await listSessionSubagents(sessionId);
     for (const s of r2Subs) {
       subagentSet.add(s);
     }

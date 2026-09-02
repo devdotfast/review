@@ -4,7 +4,6 @@ import {
   REVIEW_DESKTOP_DISCOVERY_VERSION,
   normalizeReviewRoutePath,
   parseReviewDesktopDiscovery,
-  parseReviewDesktopState,
   parseReviewDesktopVerbFrame,
   parseReviewDesktopVerbResult,
   parseReviewDiffFilesResponse,
@@ -12,13 +11,7 @@ import {
   parseReviewFileContentResponse,
   parseReviewListResponse,
   parseReviewOpenResponse,
-  parseReviewRuntimeConfig,
-  parseReviewServerEvent,
-  parseReviewSession,
-  parseReviewSessionLifecycleEvent,
   parseReviewSessionResponse,
-  parseReviewSurfaceEvent,
-  parseReviewThreadAnchorsResponse,
   parseReviewVerbRequest,
 } from "./index.js";
 
@@ -35,21 +28,6 @@ describe("review protocol parsers", () => {
         startedAt: 12,
       }),
     ).toMatchObject({ url: "http://127.0.0.1:5590", instanceId: "desktop-1" });
-    expect(
-      parseReviewRuntimeConfig({
-        serverUrl: "http://127.0.0.1:5590",
-        sessionUrl: "http://127.0.0.1:5590/sessions/session-1/",
-        routePath: "/",
-        sessionId: "session-1",
-        token: "secret",
-        wasmUrl:
-          "http://127.0.0.1:5590/sessions/session-1/assets/libavoid.wasm",
-        docRuntimeUrl: "vscode-file://review/doc-runtime.js",
-        appVersion: "0.0.13",
-        theme: "light",
-        host: "desktop",
-      }).sessionUrl,
-    ).toBe("http://127.0.0.1:5590/sessions/session-1");
     expect(() =>
       parseReviewDesktopDiscovery({
         version: REVIEW_DESKTOP_DISCOVERY_VERSION + 1,
@@ -103,17 +81,6 @@ describe("review protocol parsers", () => {
       review,
     });
     expect(
-      parseReviewSessionLifecycleEvent({
-        event: "dismissed",
-        sessionId: "session-1",
-        reason: "replaced",
-      }),
-    ).toEqual({
-      event: "dismissed",
-      sessionId: "session-1",
-      reason: "replaced",
-    });
-    expect(
       parseReviewDesktopVerbFrame({
         event: "desktop-verb",
         id: "verb-1",
@@ -130,60 +97,7 @@ describe("review protocol parsers", () => {
     ).toEqual({ id: "verb-1", sessionId: "session-1", response: { ok: true } });
   });
 
-  it("normalizes and validates the injected runtime config", () => {
-    expect(
-      parseReviewRuntimeConfig({
-        serverUrl: "http://127.0.0.1:5570/ignored",
-        sessionUrl: "http://127.0.0.1:5570/sessions/session-12",
-        routePath: "pr/12/",
-        sessionId: "session-12",
-        token: "",
-        wasmUrl: "vscode-webview://review/libavoid.wasm",
-        docRuntimeUrl: "vscode-file://review/doc-runtime.js",
-        appVersion: "0.0.13",
-        theme: "dark",
-        host: "desktop",
-      }),
-    ).toEqual({
-      serverUrl: "http://127.0.0.1:5570",
-      sessionUrl: "http://127.0.0.1:5570/sessions/session-12",
-      routePath: "/pr/12",
-      sessionId: "session-12",
-      token: "",
-      wasmUrl: "vscode-webview://review/libavoid.wasm",
-      docRuntimeUrl: "vscode-file://review/doc-runtime.js",
-      appVersion: "0.0.13",
-      theme: "dark",
-      host: "desktop",
-    });
-    expect(() =>
-      parseReviewRuntimeConfig({
-        serverUrl: "http://localhost:5570",
-        sessionUrl: "http://127.0.0.1:5570/sessions/session",
-        routePath: "/",
-        sessionId: "session",
-        token: "",
-        wasmUrl: "http://localhost/wasm",
-        docRuntimeUrl: "vscode-file://review/doc-runtime.js",
-        appVersion: "0.0.13",
-        theme: "dark",
-        host: "desktop",
-      }),
-    ).toThrow("127.0.0.1");
-  });
-
   it("parses event and one-based range verb boundaries", () => {
-    expect(
-      parseReviewServerEvent({
-        event: "submitted",
-        submissionId: "submission-12",
-        decision: "approve",
-      }),
-    ).toEqual({
-      event: "submitted",
-      submissionId: "submission-12",
-      decision: "approve",
-    });
     expect(
       parseReviewVerbRequest({
         name: "reveal",
@@ -275,28 +189,6 @@ describe("review protocol parsers", () => {
     });
   });
 
-  it("parses surface events and one-based desktop state", () => {
-    expect(
-      parseReviewSurfaceEvent({
-        event: "activeEditorChanged",
-        path: "src/cli.ts",
-      }),
-    ).toEqual({ event: "activeEditorChanged", path: "src/cli.ts" });
-    expect(
-      parseReviewDesktopState({
-        openEditors: [{ path: "src/cli.ts", scheme: "file" }],
-        activeEditor: { path: "src/cli.ts", scheme: "file" },
-        selection: {
-          path: "src/cli.ts",
-          startLine: 10,
-          startColumn: 2,
-          endLine: 12,
-          endColumn: 4,
-        },
-      }),
-    ).toMatchObject({ selection: { startLine: 10, endLine: 12 } });
-  });
-
   it("parses thread decoration verbs at the one-based boundary", () => {
     expect(
       parseReviewVerbRequest({
@@ -367,30 +259,6 @@ describe("review protocol parsers", () => {
     ).toThrow("must be >=");
   });
 
-  it("parses grouped server thread anchors", () => {
-    expect(
-      parseReviewThreadAnchorsResponse({
-        ok: true,
-        files: [
-          {
-            path: "src/review.ts",
-            anchors: [
-              {
-                startLine: 4,
-                endLine: 6,
-                threadId: "code:head:src/review.ts:L4-L6",
-                kind: "comment",
-              },
-            ],
-          },
-        ],
-      }),
-    ).toMatchObject({
-      ok: true,
-      files: [{ path: "src/review.ts", anchors: [{ startLine: 4 }] }],
-    });
-  });
-
   it("parses open-file options at the one-based boundary", () => {
     expect(
       parseReviewVerbRequest({
@@ -410,39 +278,6 @@ describe("review protocol parsers", () => {
         args: { path: "src/cli.ts", line: 10, endLine: 9 },
       }),
     ).toThrow("must be >=");
-  });
-
-  it("preserves the resolved base commit on the session boundary", () => {
-    expect(
-      parseReviewSession({
-        rootPath: "/tmp/repo",
-        baseRef: "main",
-        appUrl: "http://127.0.0.1:5570/",
-        reviewPath: "/tmp/review-session/review.mdx",
-        resolvedBaseRef: "base-commit",
-        startedAt: 1,
-      }),
-    ).toMatchObject({
-      resolvedBaseRef: "base-commit",
-    });
-  });
-
-  it("preserves server discovery fields on the session boundary", () => {
-    expect(
-      parseReviewSession({
-        rootPath: "/tmp/repo",
-        baseRef: "main",
-        appUrl: "http://127.0.0.1:5570/",
-        appPort: 5570,
-        serverUrl: "http://127.0.0.1:5570/path",
-        storageDir: "/tmp/review-session",
-        reviewPath: "/tmp/review-session/review.mdx",
-        startedAt: 1,
-      }),
-    ).toMatchObject({
-      serverUrl: "http://127.0.0.1:5570",
-      storageDir: "/tmp/review-session",
-    });
   });
 
   it("parses the authenticated session response", () => {

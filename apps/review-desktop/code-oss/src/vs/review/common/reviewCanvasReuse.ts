@@ -17,7 +17,7 @@ export interface ReviewCanvasScrollSnapshot {
 	readonly scrollTop: number;
 }
 
-export function captureReviewCanvasScrollSnapshot(
+function captureReviewCanvasScrollSnapshot(
 	input: object,
 	model: { readonly state: "active" | "completed" | "unavailable" },
 	document: Document,

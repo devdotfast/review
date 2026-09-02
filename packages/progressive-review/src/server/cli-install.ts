@@ -35,7 +35,9 @@ import {
   removeFffRegistration,
 } from "../agent-fff";
 import { removeAgentTraceHook } from "../agent-trace-hooks";
+import { writeFileAtomicAsync } from "../atomic-write";
 import { collectingWritable } from "../cli-output";
+import { isDirectory, isFile } from "../fs-utils";
 import {
   ALL_INSTALL_TARGETS,
   type InstallTarget,
@@ -657,21 +659,13 @@ async function writeTextAtomic(
   filePath: string,
   source: string,
 ): Promise<void> {
-  await mkdir(path.dirname(filePath), { recursive: true });
   let mode = 0o644;
   try {
     mode = (await stat(filePath)).mode & 0o777;
   } catch {
     // Use the default profile mode for a new file.
   }
-  const staging = `${filePath}.tmp-${process.pid}`;
-  try {
-    await writeFile(staging, source, { encoding: "utf8", mode });
-    await rename(staging, filePath);
-  } finally {
-    await rm(staging, { force: true });
-  }
-  await chmod(filePath, mode);
+  await writeFileAtomicAsync(filePath, source, { encoding: "utf8", mode });
 }
 
 async function listFilesRecursive(
@@ -702,22 +696,6 @@ async function readTextIfExists(filePath: string): Promise<string> {
     return await readFile(filePath, "utf8");
   } catch {
     return "";
-  }
-}
-
-async function isDirectory(target: string): Promise<boolean> {
-  try {
-    return (await stat(target)).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
-async function isFile(target: string): Promise<boolean> {
-  try {
-    return (await stat(target)).isFile();
-  } catch {
-    return false;
   }
 }
 

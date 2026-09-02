@@ -74,10 +74,10 @@ export async function runReviewAppPick(
     {
       method: "POST",
       headers: {
+        "content-type": "application/json",
         "x-review-token": discovery.token,
-        ...(input.view ? { "content-type": "application/json" } : {}),
       },
-      ...(input.view ? { body: JSON.stringify({ view: input.view }) } : {}),
+      body: JSON.stringify(input.view ? { view: input.view } : {}),
     },
   );
   const payload: unknown = await response.json();

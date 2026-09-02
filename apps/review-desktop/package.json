@@ -11,25 +11,20 @@
     "app:notarize:macos": "bash scripts/notarize-macos.sh",
     "app:run": "bash scripts/run.sh",
     "app:watch": "npm --prefix code-oss run watch",
-    "build": "pnpm run canvas:build && pnpm run canvas:copy",
-    "build:workspace-deps": "node ../../scripts/run-workspace-build.mjs pnpm --filter @dev.fast/local-vcs --filter @dev.fast/review-protocol build",
-    "canvas:build": "pnpm --filter @dev.fast/review app:desktop:build",
-    "canvas:copy": "node scripts/copy-canvas.mjs",
-    "prebuild": "pnpm run build:workspace-deps",
     "protocol:check": "node scripts/protocol-sync.mjs --check",
     "protocol:sync": "node scripts/protocol-sync.mjs",
     "smoke:error-telemetry": "node scripts/smoke-error-telemetry.mjs",
     "smoke:telemetry-delivery": "node scripts/smoke-telemetry-delivery.mjs",
-    "test": "pnpm run protocol:check && node --test \"scripts/**/*.test.mjs\" && TSX_TSCONFIG_PATH=tsconfig.test.json node --import tsx --test \"code-oss/src/vs/review/common/**/*.test.ts\" \"code-oss/src/vs/review/electron-main/**/*.test.ts\" \"code-oss/src/vs/review/services/**/*.test.ts\"",
-    "typecheck": "pnpm run protocol:check"
+    "test": "pnpm run protocol:check && node --test \"scripts/**/*.test.mjs\" && TSX_TSCONFIG_PATH=tsconfig.test.json node --import tsx --test \"code-oss/src/vs/review/**/*.test.ts\"",
+    "typecheck": "npm --prefix code-oss run typecheck-client"
   },
   "dependencies": {
     "@dev.fast/review": "workspace:*",
     "@dev.fast/review-protocol": "workspace:*"
   },
   "devDependencies": {
-    "@playwright/mcp": "0.0.78",
     "@types/node": "24.12.2",
+    "playwright": "1.62.1",
     "tsx": "4.21.0",
     "typescript": "6.0.3"
   },

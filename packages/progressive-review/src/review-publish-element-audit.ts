@@ -2,11 +2,11 @@ import { z } from "zod";
 
 import {
   type CallStackDiffProps,
-  type TraceQuoteProps,
   callStackDiffPropsSchema,
   reviewAuthoringPropsSchemas,
   traceQuotePropsSchema,
 } from "./authoring";
+import { errorMessage } from "./error-message";
 
 // Publish-time element audit. The validation runtime's React substitute does
 // not render: `jsx` builds cheap element records, and the audit invokes the
@@ -323,8 +323,4 @@ function auditElement(
   ) {
     reportError(`<DbUseCase> must contain at least one <DbRead> or <DbWrite>.`);
   }
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

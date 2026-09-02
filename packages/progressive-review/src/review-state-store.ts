@@ -4,6 +4,7 @@ import { isDeepStrictEqual } from "node:util";
 
 import { readFileAtRevisionSync } from "@dev.fast/local-vcs";
 import {
+  CodeThreadTargetSchema,
   type GitLabDiffPosition,
   ReviewRecordSchema,
   gitLabDiffPositionRows,
@@ -14,7 +15,6 @@ import {
   reviewStateDir,
   reviewThreadStoreBackend,
 } from "./review-thread-store-backend";
-import { CodeThreadTargetSchema } from "./thread-target-schema";
 import type {
   CreateReviewCommentInput,
   ReviewCommentAgentSession,

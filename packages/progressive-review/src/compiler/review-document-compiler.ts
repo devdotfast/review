@@ -23,7 +23,6 @@ import {
 } from "../review-mdx-ast";
 import { reviewTypescriptEstreeParser } from "../review-mdx-typescript-parser";
 import { normalizeViteModuleFilePath } from "../review-paths";
-import { span, spanSync } from "../startup-trace";
 import { unsupportedTypescriptDiagnostics } from "./review-document-syntax-validator";
 import type { AuthoredTypescriptRegion } from "./review-document-syntax-validator";
 import { reviewMdxOptions } from "./review-mdx-options";
@@ -224,40 +223,25 @@ export function reviewDocumentRevision(input: ReviewDocumentInput): string {
 export async function compileReviewDocument(
   input: ReviewDocumentInput,
 ): Promise<ReviewDocumentCompilation> {
-  return compileReviewDocumentUncached(input);
-}
-
-async function compileReviewDocumentUncached(
-  input: ReviewDocumentInput,
-): Promise<ReviewDocumentCompilation> {
   const authoredTypescript: AuthoredTypescriptRegion[] = [];
   const source = maskReviewFrontmatter(input.source);
-  const reviewDocument = spanSync(
-    "review document: parse validation model",
-    () => parseReviewMdxDocument(source),
-    input.filePath,
-  );
+  const reviewDocument = parseReviewMdxDocument(source);
   let file: Awaited<ReturnType<typeof compile>>;
   try {
-    file = await span(
-      "review document: compile MDX",
-      () =>
-        compile(
-          { path: input.filePath, value: source },
-          {
-            ...reviewMdxOptions,
-            SourceMapGenerator,
-            format: "md",
-            jsx: true,
-            remarkPlugins: [
-              [remarkMdx, { acorn: reviewTypescriptEstreeParser }],
-              collectAuthoredTypescript(authoredTypescript),
-              ...(reviewMdxOptions.remarkPlugins ?? []),
-            ],
-            recmaPlugins: [eraseTypescriptRecma],
-          },
-        ),
-      input.filePath,
+    file = await compile(
+      { path: input.filePath, value: source },
+      {
+        ...reviewMdxOptions,
+        SourceMapGenerator,
+        format: "md",
+        jsx: true,
+        remarkPlugins: [
+          [remarkMdx, { acorn: reviewTypescriptEstreeParser }],
+          collectAuthoredTypescript(authoredTypescript),
+          ...(reviewMdxOptions.remarkPlugins ?? []),
+        ],
+        recmaPlugins: [eraseTypescriptRecma],
+      },
     );
   } catch (error) {
     const unsupportedDiagnostics = unsupportedTypescriptDiagnostics(
@@ -285,21 +269,17 @@ async function compileReviewDocumentUncached(
   ) {
     return { diagnostics: syntaxDiagnostics, reviewDocument };
   }
-  const typescriptDiagnostics = await span(
-    "review document: type-check",
-    () =>
-      checkAuthoredTypescript(input, authoredTypescript, mdxCode, runtimeMap),
-    input.filePath,
+  const typescriptDiagnostics = await checkAuthoredTypescript(
+    input,
+    authoredTypescript,
+    mdxCode,
+    runtimeMap,
   );
   const diagnostics = [...syntaxDiagnostics, ...typescriptDiagnostics];
   if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
     return { diagnostics, reviewDocument };
   }
-  const runtime = await span(
-    "review document: emit runtime",
-    () => emitReviewRuntime(input.filePath, mdxCode, runtimeMap),
-    input.filePath,
-  );
+  const runtime = await emitReviewRuntime(input.filePath, mdxCode, runtimeMap);
   return {
     runtimeCode: runtime.code,
     runtimeMap: runtime.map,

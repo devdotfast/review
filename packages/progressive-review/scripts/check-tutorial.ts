@@ -53,8 +53,15 @@ async function main(): Promise<void> {
       }
     }
 
-    const outDir = path.join(temporaryRoot, "assets");
-    const built = await buildTutorialAssets({ outDir });
+    const builtAssetsPresent = await stat(path.join(tutorialRoot, ".bundle"))
+      .then((entry) => entry.isDirectory())
+      .catch(() => false);
+    const outDir = builtAssetsPresent
+      ? tutorialRoot
+      : path.join(temporaryRoot, "assets");
+    const built = builtAssetsPresent
+      ? await readBuiltTutorialIdentity(outDir)
+      : await buildTutorialAssets({ outDir });
     await checkRuntimeManifest(outDir);
 
     const documentManifest = JSON.parse(
@@ -118,6 +125,30 @@ async function main(): Promise<void> {
   }
 }
 
+async function readBuiltTutorialIdentity(outDir: string): Promise<{
+  baseCommit: string;
+  commit: string;
+  peekCount: number;
+}> {
+  const manifest = JSON.parse(
+    await readFile(
+      path.join(outDir, ".bundle", "software-map", "manifest.json"),
+      "utf8",
+    ),
+  ) as { baseCommit?: unknown; headCommit?: unknown };
+  if (
+    typeof manifest.baseCommit !== "string" ||
+    typeof manifest.headCommit !== "string"
+  ) {
+    throw new Error("Tutorial software-map manifest commits are invalid.");
+  }
+  return {
+    baseCommit: manifest.baseCommit,
+    commit: manifest.headCommit,
+    peekCount: 0,
+  };
+}
+
 async function checkRuntimeManifest(outDir: string): Promise<void> {
   const manifest = JSON.parse(
     await readFile(path.join(tutorialRoot, "runtime-manifest.json"), "utf8"),
@@ -133,7 +164,7 @@ async function checkRuntimeManifest(outDir: string): Promise<void> {
     manifest.reviewFiles.length === 0 ||
     manifest.requiredPaths.length === 0 ||
     !manifest.reviewFiles.every((entry) =>
-      isSafeManifestPath(entry, manifest.requiredPaths),
+      isSafeManifestPath(entry, manifest.requiredPaths as unknown[]),
     ) ||
     !manifest.requiredPaths.every((entry) => isSafeManifestPath(entry))
   ) {

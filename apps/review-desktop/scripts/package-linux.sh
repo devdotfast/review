@@ -37,23 +37,4 @@ node "$APP_DIR/scripts/curated-extensions.mjs" \
 pnpm --dir "$MONOREPO_ROOT" --filter @dev.fast/review build
 node "$APP_DIR/scripts/stage-review-runtime.mjs" --packaged-root "$PACKAGED_ROOT"
 
-for artifact in \
-  "$PACKAGED_ROOT/resources/app/out/vs/review/review.desktop.main.js" \
-  "$PACKAGED_ROOT/resources/app/out/vs/review/review.desktop.main.css" \
-  "$PACKAGED_ROOT/resources/app/out/vs/review/electron-utility/reviewDesktopHostMain.js" \
-  "$PACKAGED_ROOT/resources/app/out/vs/review/canvas/canvas-loader.js" \
-  "$PACKAGED_ROOT/resources/app/review-runtime/dist/server/desktop-host.js" \
-  "$PACKAGED_ROOT/resources/app/review-runtime/dist/cli.js" \
-  "$PACKAGED_ROOT/resources/app/review-runtime/skills/dev-review/SKILL.md" \
-  "$PACKAGED_ROOT/resources/app/review-runtime/skills/dev-review/docs/README.md" \
-  "$PACKAGED_ROOT/resources/app/review-runtime/skills/dev-review-map/SKILL.md" \
-  "$PACKAGED_ROOT/resources/app/review-runtime/skills/trace-archaeology/SKILL.md" \
-  "$PACKAGED_ROOT/resources/app/review-runtime/tutorial/runtime-manifest.json" \
-  "$PACKAGED_ROOT/resources/app/review-runtime/node_modules/@dev.fast/local-vcs/dist/index.js" \
-  "$PACKAGED_ROOT/resources/app/review-runtime/node_modules/@esbuild/linux-x64/bin/esbuild" \
-  "$PACKAGED_ROOT/resources/app/extensions/vscodevim.vim/package.json"; do
-  if [[ ! -f "$artifact" ]]; then
-    echo "Review Desktop package is missing $artifact" >&2
-    exit 1
-  fi
-done
+node "$APP_DIR/scripts/stage-review-runtime.mjs" --verify --packaged-root "$PACKAGED_ROOT"

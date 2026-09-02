@@ -11,12 +11,6 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "paths": {
-      "@dev-fast/ci-runtime": ["./packages/ci-runtime/src/index.ts"],
-      "@dev-fast/ci-runtime/internal/*": ["./packages/ci-runtime/src/*"],
-      "@dev-fast/ci-runtime/internal/testing": [
-        "./packages/ci-runtime/src/testing/fakes.ts"
-      ],
-      "@/*": ["./apps/web/src/*"],
       "@dev-fast/*": ["./packages/*/src"],
       "@dev.fast/review/authoring": [
         "./packages/progressive-review/src/authoring.ts"

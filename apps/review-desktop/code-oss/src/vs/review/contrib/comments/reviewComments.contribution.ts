@@ -5,7 +5,7 @@
 
 import { CancellationToken } from "../../../base/common/cancellation.js";
 import { Codicon } from "../../../base/common/codicons.js";
-import { Emitter } from "../../../base/common/event.js";
+import { Emitter, Event } from "../../../base/common/event.js";
 import {
   Disposable,
   MutableDisposable,
@@ -186,31 +186,26 @@ function agentActivityLabel(activity: ReviewCommentAgentActivity): string {
   return `Failed: ${"error" in activity ? activity.error : "Unknown error"}`;
 }
 
-class ReviewCommentThread implements CommentThread<IRange> {
-  private readonly _onDidChangeComments = new Emitter<
+class ReviewCommentThread extends Disposable implements CommentThread<IRange> {
+  private readonly _onDidChangeComments = this._register(new Emitter<
     readonly Comment[] | undefined
-  >();
+  >());
   readonly onDidChangeComments = this._onDidChangeComments.event;
-  private readonly _onDidChangeInput = new Emitter<CommentInput | undefined>();
-  readonly onDidChangeInput = this._onDidChangeInput.event;
-  private readonly _onDidChangeLabel = new Emitter<string | undefined>();
+  readonly onDidChangeInput = Event.None;
+  private readonly _onDidChangeLabel = this._register(new Emitter<string | undefined>());
   readonly onDidChangeLabel = this._onDidChangeLabel.event;
-  private readonly _onDidChangeCollapsibleState = new Emitter<
+  private readonly _onDidChangeCollapsibleState = this._register(new Emitter<
     CommentThreadCollapsibleState | undefined
-  >();
+  >());
   readonly onDidChangeCollapsibleState =
     this._onDidChangeCollapsibleState.event;
-  private readonly _onDidChangeState = new Emitter<
+  private readonly _onDidChangeState = this._register(new Emitter<
     CommentThreadState | undefined
-  >();
+  >());
   readonly onDidChangeState = this._onDidChangeState.event;
-  private readonly _onDidChangeCanReply = new Emitter<boolean>();
+  private readonly _onDidChangeCanReply = this._register(new Emitter<boolean>());
   readonly onDidChangeCanReply = this._onDidChangeCanReply.event;
-  private readonly _onDidChangeInitialCollapsibleState = new Emitter<
-    CommentThreadCollapsibleState | undefined
-  >();
-  readonly onDidChangeInitialCollapsibleState =
-    this._onDidChangeInitialCollapsibleState.event;
+  readonly onDidChangeInitialCollapsibleState = Event.None;
 
   readonly controllerHandle = 1;
   readonly extensionId = undefined;
@@ -248,6 +243,7 @@ class ReviewCommentThread implements CommentThread<IRange> {
     editorId?: string,
     label?: string,
   ) {
+    super();
     this.resource = resource.toString();
     this.range = range;
     this.isTemplate = template;
@@ -355,16 +351,10 @@ class ReviewCommentThread implements CommentThread<IRange> {
     this._onDidChangeComments.fire(this.comments);
   }
 
-  dispose(): void {
+  override dispose(): void {
     if (this.isDisposed) return;
     this.isDisposed = true;
-    this._onDidChangeComments.dispose();
-    this._onDidChangeInput.dispose();
-    this._onDidChangeLabel.dispose();
-    this._onDidChangeCollapsibleState.dispose();
-    this._onDidChangeState.dispose();
-    this._onDidChangeCanReply.dispose();
-    this._onDidChangeInitialCollapsibleState.dispose();
+    super.dispose();
   }
 }
 

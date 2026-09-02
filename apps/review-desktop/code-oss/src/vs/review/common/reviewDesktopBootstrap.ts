@@ -36,7 +36,7 @@ export interface ReviewDesktopCredentials {
  * The Review runtime is staged inside the application bundle at packaging time
  * so an installed app never reaches back into a development checkout.
  */
-export const REVIEW_RUNTIME_SERVER_ENTRY =
+const REVIEW_RUNTIME_SERVER_ENTRY =
   "review-runtime/dist/server/desktop-host.js";
 
 /**

@@ -16,10 +16,10 @@
     "access": "public"
   },
   "scripts": {
-    "build": "node ./scripts/build.mjs",
+    "build": "tsdown",
     "prepack": "pnpm run build",
     "test": "vitest run --config vitest.config.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "pnpm -w exec tsc -p packages/local-vcs/tsconfig.json --noEmit"
   },
   "dependencies": {
     "git-url-parse": "16.1.0",
@@ -29,8 +29,7 @@
     "@types/node": "24.12.2",
     "@types/proper-lockfile": "4.1.4",
     "tsdown": "^0.22.3",
-    "typescript": "npm:@typescript/typescript6@6.0.1",
-    "typescript-7": "npm:typescript@7.0.1-rc",
+    "typescript": "6.0.3",
     "vitest": "^4.1.5"
   },
   "engines": {

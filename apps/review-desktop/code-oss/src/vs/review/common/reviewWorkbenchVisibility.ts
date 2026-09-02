@@ -3,15 +3,6 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-export interface ReviewPartVisibility {
-  sidebar: boolean;
-  auxiliaryBar: boolean;
-  editor: boolean;
-  panel: boolean;
-  sessions: boolean;
-  explorer: boolean;
-}
-
 /**
  * Review hosts Home, review canvases, files, and diffs in one native editor
  * group. The legacy sessions part remains registered only as a hidden layout
@@ -26,16 +17,11 @@ export interface ReviewPartVisibility {
  * `ReviewExplorerParts` persists it on its own key (`review.explorer.userClosed`)
  * and folds it into the derived value. No part visibility is stored here.
  */
-export function initialReviewPartVisibility(
-  defaults: ReviewPartVisibility,
-  _persisted?: { editor?: boolean },
-): ReviewPartVisibility {
-  return {
-    sidebar: false,
-    auxiliaryBar: false,
-    editor: true,
-    panel: false,
-    sessions: false,
-    explorer: false,
-  };
-}
+export const initialReviewPartVisibility = {
+	sidebar: false,
+	auxiliaryBar: false,
+	editor: true,
+	panel: false,
+	sessions: false,
+	explorer: false,
+} as const;

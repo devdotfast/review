@@ -4,6 +4,7 @@ import path from "node:path";
 import writeFileAtomicPackage from "write-file-atomic";
 
 export interface AtomicWriteOptions {
+  mode?: number;
   tmpfileCreated?: (tmpfile: string) => void;
 }
 
@@ -27,7 +28,21 @@ export function writeFileAtomic(
     typeof contents === "string" ? contents : Buffer.from(contents),
     {
       encoding,
+      mode: options.mode,
       tmpfileCreated: options.tmpfileCreated,
     },
+  );
+}
+
+export async function writeFileAtomicAsync(
+  filePath: string,
+  contents: string | Uint8Array,
+  options: AtomicWriteOptions & { encoding?: BufferEncoding } = {},
+): Promise<void> {
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  await writeFileAtomicPackage(
+    filePath,
+    typeof contents === "string" ? contents : Buffer.from(contents),
+    options,
   );
 }

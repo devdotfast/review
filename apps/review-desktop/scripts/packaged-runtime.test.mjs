@@ -131,7 +131,10 @@ test("M5 launches the packaged Review binary", async () => {
 
   assert.match(packageScript, /gulp -- vscode-linux-x64/);
   assert.match(packageScript, /--packaged-root "\$PACKAGED_ROOT"/);
-  assert.match(packageScript, /reviewDesktopHostMain\.js/);
+  assert.match(
+    packageScript,
+    /stage-review-runtime\.mjs" --verify --packaged-root "\$PACKAGED_ROOT"/,
+  );
   assert.match(runScript, /DEV_FAST_REVIEW_PACKAGED_ROOT/);
   assert.match(runScript, /TUTORIAL_OUTPUT=/);
   assert.match(runScript, /tutorial\/\.bundle.*tutorial\/git-stub.*-prune/s);
@@ -207,10 +210,10 @@ test("the packaged app carries its own Review runtime and is never written to at
     "the Review runtime must be staged before the app is signed and notarized",
   );
   assert.match(
-    packageMacScript,
-    /review-runtime\/dist\/server\/desktop-host\.js/,
+    stagingScript,
+    /RUNTIME_SERVER_ENTRY = "dist\/server\/desktop-host\.js"/,
   );
-  assert.match(packageMacScript, /@esbuild\/darwin-arm64\/bin\/esbuild/);
+  assert.match(stagingScript, /@esbuild\/\$\{platform\}\/bin\/esbuild/);
   for (const packageScript of [packageLinuxScript, packageMacScript]) {
     assert.doesNotMatch(
       packageScript,
@@ -220,11 +223,7 @@ test("the packaged app carries its own Review runtime and is never written to at
   }
   // The app distributes the Review CLI and agent skills; a bundle without
   // them silently reverts users to the npx flow.
-  assert.match(packageMacScript, /review-runtime\/dist\/cli\.js/);
-  assert.match(
-    packageMacScript,
-    /review-runtime\/skills\/dev-review\/SKILL\.md/,
-  );
+  assert.match(stagingScript, /RUNTIME_CLI_ENTRY = "dist\/cli\.js"/);
   assert.match(stagingScript, /"skills\/dev-review\/SKILL\.md"/);
   assert.match(stagingScript, /"tutorial\/runtime-manifest\.json"/);
   assert.doesNotMatch(stagingScript, /tutorial\/authoring-conversation\.json/);
@@ -280,10 +279,7 @@ test("the packaged app carries its own Review runtime and is never written to at
     "the Darwin payload must carry the tutorial assets",
   );
   for (const packageScript of [packageLinuxScript, packageMacScript]) {
-    assert.match(
-      packageScript,
-      /review-runtime\/tutorial\/runtime-manifest\.json/,
-    );
+    assert.match(packageScript, /stage-review-runtime\.mjs" --verify/);
     assert.match(
       stagingScript,
       /tutorialManifest\.requiredPaths/,
@@ -305,10 +301,7 @@ test("the packaged app carries its own Review runtime and is never written to at
     /node_modules\/@dev\.fast\/local-vcs\/dist\/index\.js/,
   );
   for (const packageScript of [packageLinuxScript, packageMacScript]) {
-    assert.match(
-      packageScript,
-      /review-runtime\/node_modules\/@dev\.fast\/local-vcs\/dist\/index\.js/,
-    );
+    assert.match(packageScript, /stage-review-runtime\.mjs" --verify/);
   }
 
   // The agent-session host belongs to development Review Desktop only.

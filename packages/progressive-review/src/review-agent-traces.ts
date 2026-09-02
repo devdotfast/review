@@ -908,9 +908,7 @@ export async function findLocalTrace(
   const claudeRoot =
     traceEnvValue("TRACE_LOCAL_TRACE_ROOT") ||
     path.join(homedir(), ".claude", "projects");
-  const codexRoot =
-    traceEnvValue("TRACE_CODEX_SESSIONS_ROOT") ||
-    path.join(homedir(), ".codex", "sessions");
+  const codexRoot = codexSessionsRoot();
   const piRoot =
     traceEnvValue("TRACE_PI_SESSIONS_ROOT") ||
     path.join(homedir(), ".pi", "agent", "sessions");
@@ -957,14 +955,27 @@ function findClaudeTrace(root: string, sessionId: string): string | null {
 function findCodexTrace(root: string, sessionId: string): string | null {
   if (!existsSync(root)) return null;
   const suffix = `-${sessionId}.jsonl`;
-  const allFiles = listFilesRecursive(root);
-  for (const entry of allFiles.sort()) {
+  return (
+    listFilesRecursive(root)
+      .sort()
+      .find((entry) => {
+        const name = path.basename(entry);
+        return name.startsWith("rollout-") && name.endsWith(suffix);
+      }) ?? null
+  );
+}
+
+export function indexCodexTraceFiles(files: string[]): Map<string, string> {
+  const index = new Map<string, string>();
+  for (const entry of [...files].sort()) {
     const name = path.basename(entry);
-    if (name.startsWith("rollout-") && name.endsWith(suffix)) {
-      return entry;
-    }
+    const match =
+      /^rollout-.*-([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\.jsonl$/i.exec(
+        name,
+      );
+    if (match && !index.has(match[1])) index.set(match[1], entry);
   }
-  return null;
+  return index;
 }
 
 function findPiTrace(root: string, sessionId: string): string | null {
@@ -1483,6 +1494,19 @@ export function traceEnvValue(name: string): string | undefined {
   return process.env[name] ?? traceEnvFile()[name];
 }
 
+// Codex reads CODEX_HOME from its own environment only, so this does not
+// consult the trace env file for it.
+export function codexSessionsRoot(): string {
+  const codexHome = process.env.CODEX_HOME;
+  return (
+    traceEnvValue("TRACE_CODEX_SESSIONS_ROOT") ||
+    path.join(
+      codexHome ? path.resolve(codexHome) : path.join(homedir(), ".codex"),
+      "sessions",
+    )
+  );
+}
+
 export function traceR2Config(): TraceR2Config | null {
   const bucket = traceEnvValue("TRACE_R2_BUCKET");
   const endpoint = traceEnvValue("TRACE_R2_ENDPOINT");
@@ -1941,7 +1965,7 @@ function isDirectory(targetPath: string): boolean {
   }
 }
 
-function listFilesRecursive(dirPath: string): string[] {
+export function listFilesRecursive(dirPath: string): string[] {
   const files: string[] = [];
   try {
     const entries = readdirSync(dirPath, { withFileTypes: true });

@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
+import { openAsBlob } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { gzipSync } from "node:zlib";
 
 import {
-  type ReviewBugReportMeta,
+  type ReviewBugReportMetaV2,
   type ReviewBugReportRequest,
   parseReviewBugReportResponse,
 } from "@dev.fast/review-protocol";
@@ -20,13 +22,16 @@ import {
 import { readSoftwareMapSourceForRef } from "../software-map-artifact";
 import {
   type AuthoringTraceAttachment,
+  type AuthoringTracePayload,
   readAuthoringTraceAttachment,
 } from "./bug-report-trace";
 
-const BUG_REPORT_URL = "https://bug.dev.fast/api/v1/reports";
-const MAX_MULTIPART_BYTES = 10 * 1024 * 1024;
-const MULTIPART_BOUNDARY = "dev-fast-review-bug-report-v1";
+const BUG_REPORT_URL = "https://bug.dev.fast/api/v2/reports";
+const MAX_PAYLOAD_BYTES = 10 * 1024 * 1024;
 const UPSTREAM_TIMEOUT_MS = 20_000;
+const TRACE_UPSTREAM_TIMEOUT_MS = 5 * 60_000;
+// Keep room for multipart headers and boundaries below the Worker request cap.
+const MAX_MULTIPART_CONTENT_BYTES = 99_000_000;
 // The review directory is a git repo, but its tracked set also holds
 // `review.json` (an absolute home path, the repo key, the pull request URL) and
 // the compiled `.bundle/` output. So the report attaches an explicit source set
@@ -35,7 +40,7 @@ const UPSTREAM_TIMEOUT_MS = 20_000;
 // `.build/<revision>/` holds a second copy of every source file.
 const REVIEW_SOURCE_MODULE_RE = /\.tsx?$/;
 const MAX_REVIEW_SOURCE_FILES = 20;
-// Not a transfer limit: `MAX_MULTIPART_BYTES` already bounds what reaches the
+// Not a transfer limit: `MAX_PAYLOAD_BYTES` already bounds what reaches the
 // Worker. This bounds one file, because the size ladder below drops the whole
 // review attachment rather than one module. So a single huge file would cost
 // the report its entire review. Authored modules run to a few kilobytes, and
@@ -45,11 +50,11 @@ const MAX_REVIEW_SOURCE_FILE_BYTES = 2 * 1024 * 1024;
 type AttachmentName = "review" | "map" | "diff" | "trace";
 type AttachmentError = {
   attachment: AttachmentName;
-  error: "unavailable";
+  error: "unavailable" | "too_large";
 };
 
-interface BugReportPayload {
-  schema_version: 3;
+export interface BugReportPayload {
+  schema_version: 4;
   description: string;
   screenshot?: { mime: "image/jpeg"; base64: string };
   // File name to text. The document alone cannot render: every anchor lives in
@@ -57,7 +62,7 @@ interface BugReportPayload {
   review?: Record<string, string>;
   map?: string;
   diff?: ReviewDiffFilesResult;
-  trace?: AuthoringTraceAttachment;
+  trace?: AuthoringTracePayload;
   diagnostics: {
     app_version: string;
     cli_version: string;
@@ -87,11 +92,12 @@ export async function submitReviewBugReport(input: {
   reviewRootPath: string;
   clientErrorNames: string[];
   fetchImpl?: typeof fetch;
+  readTraceAttachment?: typeof readAuthoringTraceAttachment;
 }) {
   const cliVersion = readProgressiveReviewPackageVersion();
   const attachmentErrors: AttachmentError[] = [];
   const payload: BugReportPayload = {
-    schema_version: 3,
+    schema_version: 4,
     description: input.report.description,
     ...(input.report.screenshot ? { screenshot: input.report.screenshot } : {}),
     diagnostics: {
@@ -161,18 +167,23 @@ export async function submitReviewBugReport(input: {
   }
   if (input.report.include_trace) {
     tasks.push(
-      readAuthoringTraceAttachment({
+      (input.readTraceAttachment ?? readAuthoringTraceAttachment)({
         reviewRootPath: input.reviewRootPath,
       }).then(
         (trace) => {
           if (trace === null) {
-            attachmentErrors.push(unavailable("trace"));
-            return;
+            throw new BugReportUpstreamError(
+              422,
+              "The complete authoring trace is unavailable.",
+            );
           }
           traceAttachment = trace;
         },
         () => {
-          attachmentErrors.push(unavailable("trace"));
+          throw new BugReportUpstreamError(
+            422,
+            "The complete authoring trace is unavailable.",
+          );
         },
       ),
     );
@@ -184,98 +195,191 @@ export async function submitReviewBugReport(input: {
   }
   if (mapSource !== undefined) payload.map = mapSource;
   if (changedFileDiffs !== undefined) payload.diff = changedFileDiffs;
-  if (traceAttachment !== undefined) payload.trace = traceAttachment;
+  if (traceAttachment !== undefined) {
+    payload.trace = traceAttachment.payload;
+  }
   if (attachmentErrors.length > 0) {
-    payload.diagnostics.attachment_errors = attachmentErrors.sort(
-      (left, right) => left.attachment.localeCompare(right.attachment),
-    );
+    payload.diagnostics.attachment_errors = attachmentErrors.sort(byAttachment);
   }
 
-  const request = buildSizedBugReportRequest(payload, {
-    appVersion: input.report.app_version,
-    cliVersion,
-  });
+  try {
+    const request = await buildBugReportRequest(payload, traceAttachment, {
+      appVersion: input.report.app_version,
+      cliVersion,
+    });
 
-  const response = await (input.fetchImpl ?? fetch)(BUG_REPORT_URL, {
-    method: "POST",
-    headers: { "content-type": request.contentType },
-    body: request.body,
-    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-  }).catch((error) => {
-    throw new BugReportUpstreamError(
-      502,
-      error instanceof Error ? error.message : "Bug report service failed.",
-    );
-  });
-  const responseBody = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new BugReportUpstreamError(
-      response.status === 429 || response.status === 413
-        ? response.status
-        : 502,
-      response.status === 429
-        ? "Too many reports. Try again later."
-        : response.status === 413
-          ? "Bug report is too large."
-          : "Bug report service failed.",
-    );
+    const response = await (input.fetchImpl ?? fetch)(BUG_REPORT_URL, {
+      method: "POST",
+      body: request.body,
+      signal: AbortSignal.timeout(
+        traceAttachment ? TRACE_UPSTREAM_TIMEOUT_MS : UPSTREAM_TIMEOUT_MS,
+      ),
+    }).catch((error) => {
+      throw new BugReportUpstreamError(
+        502,
+        error instanceof Error ? error.message : "Bug report service failed.",
+      );
+    });
+    const responseBody = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new BugReportUpstreamError(
+        response.status === 429 || response.status === 413
+          ? response.status
+          : 502,
+        response.status === 429
+          ? "Too many reports. Try again later."
+          : response.status === 413
+            ? "Bug report is too large."
+            : "Bug report service failed.",
+      );
+    }
+    const result = parseReviewBugReportResponse(responseBody);
+    if (!result.ok) throw new BugReportUpstreamError(502, result.error);
+    return result;
+  } finally {
+    await traceAttachment?.cleanup().catch(() => {});
   }
-  const result = parseReviewBugReportResponse(responseBody);
-  if (!result.ok) throw new BugReportUpstreamError(502, result.error);
-  return result;
 }
 
-export function buildSizedBugReportRequest(
+export async function buildBugReportRequest(
   payload: BugReportPayload,
+  trace: AuthoringTraceAttachment | undefined,
   input: {
     appVersion: string;
     cliVersion: string;
+    maxPayloadBytes?: number;
   },
-) {
+): Promise<{ body: FormData }> {
+  const maxPayloadBytes = input.maxPayloadBytes ?? MAX_PAYLOAD_BYTES;
   let truncatedDiff = false;
   let truncatedMap = false;
   let truncatedScreenshot = false;
-  let truncatedTrace = payload.trace?.truncated ?? false;
-  const traceHarness = payload.trace?.harness;
-  const build = () =>
-    buildBugReportRequest(payload, {
-      ...input,
-      truncatedDiff,
-      truncatedMap,
-      truncatedScreenshot,
-      truncatedTrace,
-      traceHarness,
-    });
+  let traceParts = trace?.parts ?? [];
+  let payloadBytes = gzipPayload(payload);
 
-  let request = build();
-  if (request.body.byteLength > MAX_MULTIPART_BYTES && payload.trace) {
-    delete payload.trace;
-    truncatedTrace = true;
-    request = build();
+  if (
+    payloadBytes.byteLength > maxPayloadBytes &&
+    payload.trace &&
+    Object.keys(payload.trace.files).length > 0
+  ) {
+    payload.trace = {
+      ...payload.trace,
+      files: {},
+      omitted_files: [
+        ...new Set([
+          ...(payload.trace.omitted_files ?? []),
+          ...Object.keys(payload.trace.files),
+        ]),
+      ].sort(),
+      truncated: true,
+    };
+    payloadBytes = gzipPayload(payload);
   }
-  if (request.body.byteLength > MAX_MULTIPART_BYTES && payload.diff) {
+
+  if (payloadBytes.byteLength > maxPayloadBytes && payload.diff) {
     delete payload.diff;
     truncatedDiff = true;
-    request = build();
+    payloadBytes = gzipPayload(payload);
   }
-  if (request.body.byteLength > MAX_MULTIPART_BYTES && payload.map) {
+  if (payloadBytes.byteLength > maxPayloadBytes && payload.map) {
     delete payload.map;
     truncatedMap = true;
-    request = build();
+    payloadBytes = gzipPayload(payload);
   }
-  if (request.body.byteLength > MAX_MULTIPART_BYTES && payload.screenshot) {
+  if (payloadBytes.byteLength > maxPayloadBytes && payload.screenshot) {
     delete payload.screenshot;
     truncatedScreenshot = true;
-    request = build();
+    payloadBytes = gzipPayload(payload);
   }
-  if (request.body.byteLength > MAX_MULTIPART_BYTES && payload.review) {
+  if (payloadBytes.byteLength > maxPayloadBytes && payload.review) {
     delete payload.review;
-    request = build();
+    payloadBytes = gzipPayload(payload);
   }
-  if (request.body.byteLength > MAX_MULTIPART_BYTES) {
+  if (payloadBytes.byteLength > maxPayloadBytes) {
     throw new BugReportUpstreamError(413, "Bug report is too large.");
   }
-  return request;
+
+  // The trace parts are the only attachment that can outgrow the Worker's
+  // request cap on their own. The rest of the report still helps triage, so
+  // it goes without the trace instead of being refused.
+  const contentBytes = () =>
+    traceParts.reduce(
+      (total, part) => total + part.bytes,
+      payloadBytes.byteLength,
+    );
+  if (contentBytes() > MAX_MULTIPART_CONTENT_BYTES && payload.trace) {
+    traceParts = [];
+    delete payload.trace;
+    const tooLarge: AttachmentError = {
+      attachment: "trace",
+      error: "too_large",
+    };
+    payload.diagnostics.attachment_errors = [
+      ...(payload.diagnostics.attachment_errors ?? []),
+      tooLarge,
+    ].sort(byAttachment);
+    payloadBytes = gzipPayload(payload);
+  }
+  if (contentBytes() > MAX_MULTIPART_CONTENT_BYTES) {
+    throw new BugReportUpstreamError(413, "Bug report is too large.");
+  }
+
+  const meta: ReviewBugReportMetaV2 = {
+    schema_version: 2,
+    description_length: Buffer.byteLength(payload.description),
+    has_review: payload.review !== undefined,
+    has_map: payload.map !== undefined,
+    has_diff: payload.diff !== undefined,
+    has_screenshot: payload.screenshot !== undefined,
+    has_trace: payload.trace !== undefined,
+    ...(payload.trace ? { trace_harness: payload.trace.harness } : {}),
+    payload_bytes: payloadBytes.byteLength,
+    app_version: input.appVersion,
+    cli_version: input.cliVersion,
+    platform: process.platform,
+    truncated_diff: truncatedDiff,
+    truncated_map: truncatedMap,
+    truncated_screenshot: truncatedScreenshot,
+    truncated_trace: payload.trace?.truncated ?? false,
+    parts: [
+      {
+        field: "payload",
+        filename: "payload.json.gz",
+        bytes: payloadBytes.byteLength,
+        sha256: sha256Bytes(payloadBytes),
+      },
+      ...traceParts.map((part) => ({
+        field: "trace" as const,
+        filename: part.filename,
+        session_id: part.session_id,
+        bytes: part.bytes,
+        sha256: part.sha256,
+      })),
+    ],
+  };
+  const form = new FormData();
+  form.append("meta", JSON.stringify(meta));
+  form.append(
+    "payload",
+    new Blob([Uint8Array.from(payloadBytes)], { type: "application/gzip" }),
+    "payload.json.gz",
+  );
+  for (const part of traceParts) {
+    form.append(
+      "trace",
+      await openAsBlob(part.path, { type: "application/gzip" }),
+      part.filename,
+    );
+  }
+  return { body: form };
+}
+
+function gzipPayload(payload: BugReportPayload): Buffer {
+  return gzipSync(Buffer.from(JSON.stringify(payload)), { level: 9 });
+}
+
+function sha256Bytes(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
 }
 
 // The document is required: a failure to read it makes the attachment
@@ -349,59 +453,10 @@ async function readChangedFileDiffs(
   });
 }
 
-function buildBugReportRequest(
-  payload: BugReportPayload,
-  input: {
-    appVersion: string;
-    cliVersion: string;
-    truncatedDiff: boolean;
-    truncatedMap: boolean;
-    truncatedScreenshot: boolean;
-    truncatedTrace: boolean;
-    traceHarness?: AuthoringTraceAttachment["harness"];
-  },
-) {
-  const payloadBytes = gzipSync(Buffer.from(JSON.stringify(payload)), {
-    level: 9,
-  });
-  const meta: ReviewBugReportMeta = {
-    schema_version: 1,
-    description_length: Buffer.byteLength(payload.description),
-    has_review: payload.review !== undefined,
-    has_map: payload.map !== undefined,
-    has_diff: payload.diff !== undefined,
-    has_screenshot: payload.screenshot !== undefined,
-    ...(input.traceHarness
-      ? {
-          has_trace: payload.trace !== undefined,
-          trace_harness: input.traceHarness,
-          truncated_trace: input.truncatedTrace,
-        }
-      : {}),
-    payload_bytes: payloadBytes.byteLength,
-    app_version: input.appVersion,
-    cli_version: input.cliVersion,
-    platform: process.platform,
-    truncated_diff: input.truncatedDiff,
-    truncated_map: input.truncatedMap,
-    truncated_screenshot: input.truncatedScreenshot,
-  };
-  const body = Buffer.concat([
-    Buffer.from(
-      `--${MULTIPART_BOUNDARY}\r\nContent-Disposition: form-data; name="meta"\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(meta)}\r\n`,
-    ),
-    Buffer.from(
-      `--${MULTIPART_BOUNDARY}\r\nContent-Disposition: form-data; name="payload"; filename="payload.json.gz"\r\nContent-Type: application/gzip\r\n\r\n`,
-    ),
-    payloadBytes,
-    Buffer.from(`\r\n--${MULTIPART_BOUNDARY}--\r\n`),
-  ]);
-  return {
-    body,
-    contentType: `multipart/form-data; boundary=${MULTIPART_BOUNDARY}`,
-  };
-}
-
 function unavailable(attachment: AttachmentName): AttachmentError {
   return { attachment, error: "unavailable" };
+}
+
+function byAttachment(left: AttachmentError, right: AttachmentError): number {
+  return left.attachment.localeCompare(right.attachment);
 }

@@ -22,7 +22,7 @@ import { captureUiEvent, clientErrorName } from "./ui-telemetry";
 
 const MAX_DESCRIPTION_BYTES = 64 * 1024;
 const TRACE_PRIVACY_COPY =
-  "Recognizable secrets are redacted, but other secrets may be included. The trace includes your prompts and code and is sent to /dev/fast.";
+  "Includes the complete, uncapped authoring session trace. For forked sessions, it also includes each ancestor session up to its fork point, plus up to ten tail-capped subagent traces. Recognizable secrets are redacted, but other secrets may be included; everything is sent to /dev/fast.";
 
 type Toast = { kind: "success" | "error"; text: string };
 
@@ -102,7 +102,9 @@ export function BugReportControl() {
               ? "Too many reports. Try again later."
               : response.status === 413
                 ? "The report is too large. Remove an attachment and try again."
-                : "The report could not be sent. Try again.",
+                : response.status === 422
+                  ? "The complete agent session trace couldn't be read. Uncheck 'Agent session trace' to send the report without it."
+                  : "The report could not be sent. Try again.",
         });
         return;
       }

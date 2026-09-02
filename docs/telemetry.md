@@ -59,14 +59,14 @@ dialog. Bug reports do not pass through the passive telemetry system.
 
 ## What Review collects
 
-| Category | Examples | What is not included |
-| --- | --- | --- |
-| App usage | A review opened, a tab viewed, a map expanded | Review text, code, paths, or repository details |
-| CLI usage | Command category, success or failure, duration | Command arguments, refs, process output, or exception text |
-| Code navigation | Feature category, language category, editor surface | Symbols, declarations, search text, or source code |
-| Extensions | An allowlisted extension ID, install outcome and duration | Extension version, configuration, or extension data |
-| Review outcome | Approve, request changes, dismiss, comment count | Comments, questions, thread text, or reviewer identity |
-| Reliability | Error class, cleaned message, Review-only stack frames | User paths, repository frames, secrets, or authored Review text |
+| Category        | Examples                                                  | What is not included                                            |
+| --------------- | --------------------------------------------------------- | --------------------------------------------------------------- |
+| App usage       | A review opened, a tab viewed, a map expanded             | Review text, code, paths, or repository details                 |
+| CLI usage       | Command category, success or failure, duration            | Command arguments, refs, process output, or exception text      |
+| Code navigation | Feature category, language category, editor surface       | Symbols, declarations, search text, or source code              |
+| Extensions      | An allowlisted extension ID, install outcome and duration | Extension version, configuration, or extension data             |
+| Review outcome  | Approve, request changes, dismiss, comment count          | Comments, questions, thread text, or reviewer identity          |
+| Reliability     | Error class, cleaned message, Review-only stack frames    | User paths, repository frames, secrets, or authored Review text |
 
 Every event is checked against an allowlist on your machine. Unknown events,
 unknown properties, and values outside their allowed categories are dropped.
@@ -169,19 +169,19 @@ event includes only `reason`, `count`, and the random installation identifier.
 
 ### CLI and lifecycle events
 
-| Event                                     | Additional properties                                                      | When                               |
-| ----------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------- |
-| `review_installation_created` | None                                                                       | The first enabled Review use       |
-| `review_command_started`      | `command_path`, `command_run_id`, `agent_kind`                             | A public CLI handler is about to run |
-| `review_command_bound`        | Start properties plus `review_id`                                          | Scaffold or publish resolves its Review |
-| `review_command_succeeded`    | `command_path`, `command_run_id`, `exit_code`, `duration_ms`, optional `review_id`, and closed command flags | A public CLI command succeeds      |
-| `review_command_failed`       | The success properties plus `error_name` and `error_category` closed enums | A public CLI command fails         |
-| `review_session_started`      | `source_kind`, `agent_kind`, `review_id`, `presentation_id`, optional `app_session_id` | A Desktop review session opens     |
-| `review_session_ended`        | Start properties plus `outcome`, `duration_ms`                             | A review submits or is dismissed   |
-| `review_review_deleted`       | None                                                                       | A user deletes a stored review     |
-| `review_review_reaped`        | `retention_days`                                                           | Retention deletes a dismissed review |
-| `review_publish_gate_rejected` | `gate` in publish_ready, map_publish_ready                                | A publish readiness gate rejects   |
-| `review_telemetry_dropped`    | `reason`, `count`                                                          | The queue drops one or more events |
+| Event                          | Additional properties                                                                                        | When                                    |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------ | --------------------------------------- |
+| `review_installation_created`  | None                                                                                                         | The first enabled Review use            |
+| `review_command_started`       | `command_path`, `command_run_id`, `agent_kind`                                                               | A public CLI handler is about to run    |
+| `review_command_bound`         | Start properties plus `review_id`                                                                            | Scaffold or publish resolves its Review |
+| `review_command_succeeded`     | `command_path`, `command_run_id`, `exit_code`, `duration_ms`, optional `review_id`, and closed command flags | A public CLI command succeeds           |
+| `review_command_failed`        | The success properties plus `error_name` and `error_category` closed enums                                   | A public CLI command fails              |
+| `review_session_started`       | `source_kind`, `agent_kind`, `review_id`, `presentation_id`, optional `app_session_id`                       | A Desktop review session opens          |
+| `review_session_ended`         | Start properties plus `outcome`, `duration_ms`                                                               | A review submits or is dismissed        |
+| `review_review_deleted`        | None                                                                                                         | A user deletes a stored review          |
+| `review_review_reaped`         | `retention_days`                                                                                             | Retention deletes a dismissed review    |
+| `review_publish_gate_rejected` | `gate` in publish_ready, map_publish_ready                                                                   | A publish readiness gate rejects        |
+| `review_telemetry_dropped`     | `reason`, `count`                                                                                            | The queue drops one or more events      |
 
 `command_path` is a closed enum for all public commands. It includes `help`,
 `version`, `app.launch`, `app.pick`, `rebind`, `publish`, `wait`, `info`,
@@ -220,38 +220,38 @@ text, and only as described in "Error reports".
 The server checks all properties in this table against
 `packages/progressive-review/src/ui-telemetry-events.ts`.
 
-| Event                                         | Additional properties                                                                                    | When                                      |
-| --------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| `review_app_opened`               | None                                                                                                     | The canvas app opens                      |
-| `review_tab_viewed`               | `tab` in review, commits, map, files; `duration_ms`; `reason` in tab_change, visibility_hidden, pagehide, unmount | A tab dwell period ends                   |
-| `review_peek_opened`              | `via` in prose_link, diagram, marker, map, db_lens                                                       | A user opens a code peek                  |
-| `review_peek_resolved`            | `root_kind` in symbol, declaration, range                                                                | A code peek resolves                      |
-| `review_peek_resolve_failed`      | `root_kind` in symbol, declaration, range                                                                | A code peek does not resolve              |
-| `review_tour_started`             | `steps`                                                                                                  | A user starts a tour                      |
-| `review_tour_step_advanced`       | `step`, `steps`                                                                                          | A user moves to the next tour step        |
-| `review_tour_abandoned`           | `step`, `steps`                                                                                          | A user closes an incomplete tour          |
-| `review_tour_completed`           | `steps`                                                                                                  | A user completes a tour                   |
-| `review_map_expanded`             | `level` in system, container, component, code                                                            | A user expands a map element              |
-| `review_commit_expanded`          | `expanded`                                                                                               | A user expands or collapses a commit      |
-| `review_commit_diff_opened`       | `via` in row, file, footer                                                                                | A user opens a commit diff                |
-| `review_thread_draft_opened`      | `intent` in comment, ask-agent                                                                           | A user opens a thread draft               |
-| `review_threads_opened`           | `thread_count`                                                                                           | A user opens the Threads panel            |
-| `review_new_ask_opened`           | `via` in topbar, threads_panel                                                                           | A user opens the new-ask composer         |
-| `review_source_tree_opened`       | `via` in topbar, home                                                                                    | A user opens the source tree              |
-| `review_comment_created`          | `is_reply`                                                                                               | A user creates a comment                  |
-| `review_agent_run_started`        | None                                                                                                     | A user starts an agent run                |
-| `review_thread_resolved`          | `kind: comment`                                                                                          | A user resolves a comment                 |
-| `review_client_error`             | See "Error reports"                                                                                      | A part of Review reports an error         |
-| `review_update_started`           | Random `update_attempt_id`, `target_version`                                                              | An update is downloaded and ready to install |
-| `review_update_completed`         | Start properties plus `duration_ms`                                                                      | The downloaded target launches after restart |
-| `review_update_failed`            | `phase` in check, download, install; `message_source` in electron, request, shipit, fallback; optional start properties and `duration_ms`; see "Error reports" | An update check, download, or install fails |
-| `review_bug_report_dialog_opened` | None                                                                                                     | A user opens the bug report dialog        |
-| `review_bug_report_cancelled`     | None                                                                                                     | A user closes the dialog without a report |
-| `review_bug_report_send_failed`   | Short `error_name`                                                                                       | A bug report request fails                |
-| `review_setting_changed`          | `setting` in telemetry_enabled, keymap, dismissed_retention_days, software_map_enabled; `enabled`        | A user changes a Review setting           |
-| `review_review_opened`            | `via` in home, cli, other                                                                                | A user opens a review                     |
-| `review_review_presented`         | `review_id`, `presentation_id`                                                                           | A visible canvas loads and signals ready  |
-| `review_home_empty_state_viewed`  | None                                                                                                     | The empty Home state opens                |
+| Event                             | Additional properties                                                                                                                                          | When                                         |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `review_app_opened`               | None                                                                                                                                                           | The canvas app opens                         |
+| `review_tab_viewed`               | `tab` in review, commits, map, files; `duration_ms`; `reason` in tab_change, visibility_hidden, pagehide, unmount                                              | A tab dwell period ends                      |
+| `review_peek_opened`              | `via` in prose_link, diagram, marker, map, db_lens                                                                                                             | A user opens a code peek                     |
+| `review_peek_resolved`            | `root_kind` in symbol, declaration, range                                                                                                                      | A code peek resolves                         |
+| `review_peek_resolve_failed`      | `root_kind` in symbol, declaration, range                                                                                                                      | A code peek does not resolve                 |
+| `review_tour_started`             | `steps`                                                                                                                                                        | A user starts a tour                         |
+| `review_tour_step_advanced`       | `step`, `steps`                                                                                                                                                | A user moves to the next tour step           |
+| `review_tour_abandoned`           | `step`, `steps`                                                                                                                                                | A user closes an incomplete tour             |
+| `review_tour_completed`           | `steps`                                                                                                                                                        | A user completes a tour                      |
+| `review_map_expanded`             | `level` in system, container, component, code                                                                                                                  | A user expands a map element                 |
+| `review_commit_expanded`          | `expanded`                                                                                                                                                     | A user expands or collapses a commit         |
+| `review_commit_diff_opened`       | `via` in row, file, footer                                                                                                                                     | A user opens a commit diff                   |
+| `review_thread_draft_opened`      | `intent` in comment, ask-agent                                                                                                                                 | A user opens a thread draft                  |
+| `review_threads_opened`           | `thread_count`                                                                                                                                                 | A user opens the Threads panel               |
+| `review_new_ask_opened`           | `via` in topbar, threads_panel                                                                                                                                 | A user opens the new-ask composer            |
+| `review_source_tree_opened`       | `via` in topbar, home                                                                                                                                          | A user opens the source tree                 |
+| `review_comment_created`          | `is_reply`                                                                                                                                                     | A user creates a comment                     |
+| `review_agent_run_started`        | None                                                                                                                                                           | A user starts an agent run                   |
+| `review_thread_resolved`          | `kind: comment`                                                                                                                                                | A user resolves a comment                    |
+| `review_client_error`             | See "Error reports"                                                                                                                                            | A part of Review reports an error            |
+| `review_update_started`           | Random `update_attempt_id`, `target_version`                                                                                                                   | An update is downloaded and ready to install |
+| `review_update_completed`         | Start properties plus `duration_ms`                                                                                                                            | The downloaded target launches after restart |
+| `review_update_failed`            | `phase` in check, download, install; `message_source` in electron, request, shipit, fallback; optional start properties and `duration_ms`; see "Error reports" | An update check, download, or install fails  |
+| `review_bug_report_dialog_opened` | None                                                                                                                                                           | A user opens the bug report dialog           |
+| `review_bug_report_cancelled`     | None                                                                                                                                                           | A user closes the dialog without a report    |
+| `review_bug_report_send_failed`   | Short `error_name`                                                                                                                                             | A bug report request fails                   |
+| `review_setting_changed`          | `setting` in telemetry_enabled, keymap, dismissed_retention_days, software_map_enabled; `enabled`                                                              | A user changes a Review setting              |
+| `review_review_opened`            | `via` in home, cli, other                                                                                                                                      | A user opens a review                        |
+| `review_review_presented`         | `review_id`, `presentation_id`                                                                                                                                 | A visible canvas loads and signals ready     |
+| `review_home_empty_state_viewed`  | None                                                                                                                                                           | The empty Home state opens                   |
 
 The server emits `review_review_submitted` after it stores a submission. Its
 properties are `decision` and `comment_count`. The server emits
@@ -281,15 +281,15 @@ terminal or ready event removes the match automatically.
 
 ### Workbench events
 
-| Event                                           | Additional properties                                                                                                      | When                                        |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| `review_lsp_used`                   | `feature` in hover, goto_definition, peek_definition, goto_type_definition, goto_implementation, references, rename, format, code_action, symbol_search; `via` in command, mouse; `language`; `editor_kind` in files_tab, inline_peek, diff | A user invokes an LSP feature               |
-| `review_ls_activated`               | `group` in python, go, rust, swift, csharp; `ok`                                                                            | A language server activation check ends     |
-| `review_extension_installed`        | Allowlisted `extension_id`; `trigger` in user, auto_upgrade, startup_seed, keymap, rollback; `cached`; `duration_ms`         | An optional extension installs              |
-| `review_extension_install_failed`   | Allowlisted `extension_id`; allowlisted `trigger`; `phase` in download, install                                              | An optional extension install fails         |
-| `review_extension_enabled`          | Allowlisted `extension_id`; allowlisted `trigger`                                                                            | Review enables an optional extension        |
-| `review_extension_disabled`         | Allowlisted `extension_id`; allowlisted `trigger`                                                                            | Review disables an optional extension       |
-| `review_extension_uninstalled`      | Allowlisted `extension_id`; allowlisted `trigger`                                                                            | Review uninstalls an optional extension     |
+| Event                             | Additional properties                                                                                                                                                                                                                       | When                                    |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `review_lsp_used`                 | `feature` in hover, goto_definition, peek_definition, goto_type_definition, goto_implementation, references, rename, format, code_action, symbol_search; `via` in command, mouse; `language`; `editor_kind` in files_tab, inline_peek, diff | A user invokes an LSP feature           |
+| `review_ls_activated`             | `group` in python, go, rust, swift, csharp; `ok`                                                                                                                                                                                            | A language server activation check ends |
+| `review_extension_installed`      | Allowlisted `extension_id`; `trigger` in user, auto_upgrade, startup_seed, keymap, rollback; `cached`; `duration_ms`                                                                                                                        | An optional extension installs          |
+| `review_extension_install_failed` | Allowlisted `extension_id`; allowlisted `trigger`; `phase` in download, install                                                                                                                                                             | An optional extension install fails     |
+| `review_extension_enabled`        | Allowlisted `extension_id`; allowlisted `trigger`                                                                                                                                                                                           | Review enables an optional extension    |
+| `review_extension_disabled`       | Allowlisted `extension_id`; allowlisted `trigger`                                                                                                                                                                                           | Review disables an optional extension   |
+| `review_extension_uninstalled`    | Allowlisted `extension_id`; allowlisted `trigger`                                                                                                                                                                                           | Review uninstalls an optional extension |
 
 The `language` property is one of typescript, javascript, python, go, rust,
 swift, csharp, json, css, html, markdown, yaml, toml, shell, sql, or other.
@@ -314,15 +314,15 @@ Install failures read at most 64 KiB appended to ShipIt's stderr log after the
 matching update was staged. Review extracts only the last NSError summary (or
 the fixed retry-exhausted line); it neither stores nor uploads the raw log.
 
-| Property        | Value                                                                                     |
-| --------------- | ----------------------------------------------------------------------------------------- |
-| `error_process` | Which part of Review failed: `main`, `renderer`, `canvas`, or `server`                      |
-| `error_source`  | Which handler caught it, from a closed list                                                 |
-| `error_name`    | The error class name, such as `TypeError`. Identifier characters only, 40 at most           |
-| `component`     | A fixed Review component name, when the reporter has one. Identifier characters only        |
-| `message`       | The error message, cleaned. See below                                                       |
-| `message_hash`  | A fingerprint of the original message. See below                                            |
-| `frames`        | Up to 10 stack lines, all inside the Review program. See below                              |
+| Property        | Value                                                                                |
+| --------------- | ------------------------------------------------------------------------------------ |
+| `error_process` | Which part of Review failed: `main`, `renderer`, `canvas`, or `server`               |
+| `error_source`  | Which handler caught it, from a closed list                                          |
+| `error_name`    | The error class name, such as `TypeError`. Identifier characters only, 40 at most    |
+| `component`     | A fixed Review component name, when the reporter has one. Identifier characters only |
+| `message`       | The error message, cleaned. See below                                                |
+| `message_hash`  | A fingerprint of the original message. See below                                     |
+| `frames`        | Up to 10 stack lines, all inside the Review program. See below                       |
 
 **Review cleans the message before it sends it.** The cleaner replaces each of
 these with a marker that names what it removed, such as
@@ -374,12 +374,13 @@ frame a second time. Both steps run on your machine, before anything is sent.
 The **Report bug** dialog sends data only after the user selects **Send**. The
 description is optional. It has one **Review** consent control for both the
 current review source and head software map source, plus a separate control for
-changed-file diffs. Both controls are on by default. A third **Agent session
-trace** control attaches the raw local JSONL trace for the session that authored
-the Review and is off by default. Review also captures a screenshot before the
-dialog opens and attaches it by default. The dialog shows a removable preview
-and accepts a replacement image by paste or drag. A selected attachment can be
-unavailable. The report still sends the other available data.
+changed-file diffs. Both controls are on by default. Review also captures a
+screenshot before the dialog opens and attaches it by default. The dialog shows
+a removable preview and accepts a replacement image by paste or drag.
+
+**Agent traces require separate, explicit consent for every report.** The
+**Agent session trace** control is off by default. Review does not attach any
+agent trace unless the user turns on this control before selecting **Send**.
 
 A review does not always have a software map. The report then omits the map and
 records no error, because an absent map is a normal state.
@@ -388,7 +389,7 @@ The report payload contains these fields:
 
 | Field                              | Value                                                                               |
 | ---------------------------------- | ----------------------------------------------------------------------------------- |
-| `schema_version`                   | Payload schema version `3`                                                          |
+| `schema_version`                   | Internal report payload format version                                              |
 | `description`                      | Optional user-entered description, limited to 64 KiB of UTF-8 data                  |
 | `screenshot.mime`                  | `image/jpeg` when a screenshot is attached                                          |
 | `screenshot.base64`                | JPEG screenshot data, limited to 3 MiB decoded                                      |
@@ -405,16 +406,15 @@ The report payload contains these fields:
 | `diff.files[].patch`               | Unified patch used to resolve the review's exact CodePeek ranges                    |
 | `trace.harness`                    | Authoring harness: `claude-code`, `codex`, or `pi`                                  |
 | `trace.session_id`                 | Authoring session identifier from the Review record                                 |
-| `trace.files["trace.jsonl"]`       | Tail-capped raw JSONL for the authoring session, when the user opts in              |
 | `trace.files["subagents/<name>"]`  | Tail-capped raw JSONL for an included subagent                                      |
-| `trace.omitted_files`              | Subagent trace names omitted because of limits or read failures                     |
-| `trace.truncated`                  | Whether any trace was tail-capped or omitted                                        |
+| `trace.omitted_files`              | Ancestor or subagent trace names omitted because of limits or read failures         |
+| `trace.truncated`                  | Whether any trace record, ancestor, or subagent trace was dropped or tail-capped    |
 | `diagnostics.app_version`          | Review Desktop product version                                                      |
 | `diagnostics.cli_version`          | `@dev.fast/review` package version                                                  |
 | `diagnostics.platform`             | Node platform enum                                                                  |
 | `diagnostics.app_session_id`       | Random identifier for the canvas window                                             |
 | `diagnostics.client_error_names`   | Last 20 sanitized JavaScript error class names from that canvas session             |
-| `diagnostics.attachment_errors`    | Selected attachment names with the value `unavailable`                              |
+| `diagnostics.attachment_errors`    | Selected attachment names with the value `unavailable`, or `too_large` for a trace  |
 | `diagnostics.review_omitted_files` | Names of review source files the report did not send                                |
 
 The `review` field holds a file map. It contains the current review document and
@@ -429,37 +429,28 @@ The report never sends these review files:
 - the compiled document in `.bundle/`, and the build output in `.build/`
 - `review.db`, which holds the comment threads and the questions
 
-The trace attachment is independent of trace sync. Review finds the source
-session's raw trace directly in the supported harness's local home-directory
-storage, so disabling remote trace storage does not disable this explicit
-attachment.
+Trace attachment consent is independent of passive telemetry and trace sync.
+Neither setting enables trace attachment for a bug report. If the user opts in,
+the report includes the complete authoring-session trace and available ancestor
+history through each fork point. It can also include up to ten of the most
+recently modified subagent trace tails. Review drops a record the harness has
+not finished writing, an ancestor it cannot read, and, when the compressed
+report would exceed the upload cap, the whole trace; each case is recorded in
+the payload rather than failing the report.
 
-Before attaching a selected trace, Review replaces recognizable Google API
-keys, JWTs, Slack tokens, GitHub tokens, and Microsoft Entra tokens with labelled
-markers. This secret-format redaction preserves the surrounding JSONL. It does
-not detect every credential or secret format, and it does not anonymize file
-paths, URLs, email addresses, prompts, model output, or source code; those
-values are sent when the user selects the trace checkbox.
+The trace can contain prompts, model output, source code, file paths, URLs, and
+email addresses. Review replaces recognizable Google API keys, JWTs, Slack
+tokens, GitHub tokens, and Microsoft Entra tokens with labelled markers. Other
+credentials or secrets may remain.
 
-The main trace keeps at most its newest 6 MiB on complete JSONL line boundaries.
-Review includes the ten most recently modified subagent files, each keeping at
-most its newest 1 MiB, and records omitted names. If the complete compressed
-multipart report still exceeds 10 MiB, the size ladder drops the whole trace
-first, followed by the diff, map, screenshot, and Review source.
+The Worker stores reports in a private Cloudflare R2 bucket. Only credentialed
+dev.fast operators can read the bucket. Reports are deleted after 90 days.
 
-The local server compresses the payload and sends it to
-`https://bug.dev.fast/api/v1/reports`. The Worker stores it in the private
-`dev-fast-bug-reports` Cloudflare R2 bucket. Only credentialed dev.fast
-operators can read this bucket. An R2 lifecycle rule deletes objects under
-`reports/` after 90 days.
-
-The Worker sends a `review_bug_report` PostHog event after the R2
-write. The event contains the report ID, UTC report date, description byte
-length, attachment presence flags (including `has_screenshot`), compressed
-payload size, app version, platform, and map, diff, or screenshot truncation
-flags (including `truncated_screenshot`). It also receives `has_trace`,
-`truncated_trace`, and, after a trace resolves, the closed `trace_harness` enum.
-It does not contain the description or attachments.
+After storage completes, the Worker sends a `review_bug_report` PostHog event
+with the report ID, date, app version, platform, sizes, attachment presence, and
+truncation flags. For an explicitly included trace, it also sends the harness
+type and trace sizes. The event does not contain the description, attachments,
+or trace session identifiers.
 
 Cloudflare uses `CF-Connecting-IP` only as the rate-limit key. The Worker does
 not store that value in R2. The Worker does not send it to PostHog as report

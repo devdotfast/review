@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -8,11 +8,12 @@ import {
   REVIEW_SCHEMA_VERSION,
   type ReviewBugReportRequest,
 } from "@dev.fast/review-protocol";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { clearTraceEnvCache } from "../review-agent-traces";
 import {
-  buildSizedBugReportRequest,
+  type BugReportPayload,
+  buildBugReportRequest,
   submitReviewBugReport,
 } from "./bug-report";
 import type { AuthoringTraceAttachment } from "./bug-report-trace";
@@ -20,14 +21,16 @@ import type { AuthoringTraceAttachment } from "./bug-report-trace";
 describe("submitReviewBugReport", () => {
   let tempDir: string;
   let reviewRootPath: string;
+  let claudeRoot: string;
   let codexRoot: string;
+  let piRoot: string;
 
   beforeEach(() => {
     tempDir = mkdtempSync(path.join(tmpdir(), "bug-report-submit-"));
     reviewRootPath = path.join(tempDir, "review");
     codexRoot = path.join(tempDir, "codex");
-    const claudeRoot = path.join(tempDir, "claude");
-    const piRoot = path.join(tempDir, "pi");
+    claudeRoot = path.join(tempDir, "claude");
+    piRoot = path.join(tempDir, "pi");
     for (const directory of [reviewRootPath, codexRoot, claudeRoot, piRoot]) {
       mkdirSync(directory, { recursive: true });
     }
@@ -45,15 +48,19 @@ describe("submitReviewBugReport", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("attaches the resolved authoring trace and exposes filterable metadata", async () => {
-    const sessionId = "77777777-aaaa-bbbb-cccc-000000000007";
-    writeReview("codex:" + sessionId);
-    const dateDir = path.join(codexRoot, "2026", "08", "31");
-    mkdirSync(dateDir, { recursive: true });
-    writeFileSync(
-      path.join(dateDir, "rollout-2026-08-31T12-00-00-" + sessionId + ".jsonl"),
-      JSON.stringify({ prompt: "Fix the bug" }) + "\n",
-    );
+  it("sends ordered generic parts for a complete Codex lineage", async () => {
+    const parentId = "11111111-1111-4111-8111-111111111111";
+    const childId = "22222222-2222-4222-8222-222222222222";
+    const parentAtFork = codexTrace(parentId, 0, [{ parent: true }]);
+    const parent =
+      parentAtFork + JSON.stringify({ parentLater: true, ordinal: 2 }) + "\n";
+    const child = codexTrace(childId, 2, [{ child: true }], {
+      parentId,
+      endOrdinalExclusive: 2,
+    });
+    writeCodexTrace(parentId, parent);
+    writeCodexTrace(childId, child);
+    writeReview("codex:" + childId);
     const capture = captureFetch();
 
     await submitReviewBugReport({
@@ -64,64 +71,326 @@ describe("submitReviewBugReport", () => {
       fetchImpl: capture.fetchImpl,
     });
 
-    const { meta, payload } = parseMultipart(capture.body());
-    expect(meta).toMatchObject({
-      has_trace: true,
-      trace_harness: "codex",
-      truncated_trace: false,
-    });
+    expect(capture.url()).toBe("https://bug.dev.fast/api/v2/reports");
+    expect(capture.headers().get("X-Review-Bug-Report-Schema")).toBeNull();
+    expect(capture.parts().map((part) => part.name)).toEqual([
+      "meta",
+      "payload",
+      "trace",
+      "trace",
+    ]);
+    const meta = JSON.parse(capture.textPart("meta")) as {
+      schema_version: number;
+      payload_bytes: number;
+      parts: Array<{
+        field: string;
+        filename: string;
+        bytes: number;
+        sha256: string;
+      }>;
+    };
+    expect(meta.schema_version).toBe(2);
+    expect(meta.parts.map((part) => part.field)).toEqual([
+      "payload",
+      "trace",
+      "trace",
+    ]);
+    expect(meta.parts.map((part) => part.filename)).toEqual([
+      "payload.json.gz",
+      "trace-0.jsonl.gz",
+      "trace-1.jsonl.gz",
+    ]);
+
+    const payloadBytes = capture.filePart("payload");
+    const payload = JSON.parse(gunzipSync(payloadBytes).toString("utf8"));
     expect(payload).toMatchObject({
-      schema_version: 3,
+      schema_version: 4,
       trace: {
         harness: "codex",
-        session_id: sessionId,
         truncated: false,
       },
     });
+    const traceFiles = capture.fileParts("trace");
+    expect(traceFiles).toHaveLength(2);
+    expect(gunzipSync(traceFiles[0]).toString("utf8")).toBe(child);
+    expect(gunzipSync(traceFiles[1]).toString("utf8")).toBe(parentAtFork);
+    expect(meta.payload_bytes).toBe(payloadBytes.byteLength);
+    const files = [payloadBytes, ...traceFiles];
+    for (const [index, part] of meta.parts.entries()) {
+      const bytes = files[index];
+      expect(part.bytes).toBe(bytes.byteLength);
+      expect(part.sha256).toBe(sha256(bytes));
+    }
   });
 
-  it("records an unavailable trace without failing the report", async () => {
+  it.each([
+    ["claude-code", "33333333-3333-4333-8333-333333333333"],
+    ["pi", "44444444-4444-4444-8444-444444444444"],
+  ] as const)(
+    "sends an opted-in %s trace through the generic field",
+    async (harness, id) => {
+      const source = JSON.stringify({ harness, id }) + "\n";
+      writeReview(harness + ":" + id);
+      writeHarnessTrace(harness, id, source);
+      const capture = captureFetch();
+
+      await submitReviewBugReport({
+        report: report({ include_trace: true }),
+        reviewDocumentPath: path.join(reviewRootPath, "review.mdx"),
+        reviewRootPath,
+        clientErrorNames: [],
+        fetchImpl: capture.fetchImpl,
+      });
+
+      expect(capture.parts().map((part) => part.name)).toEqual([
+        "meta",
+        "payload",
+        "trace",
+      ]);
+      const meta = JSON.parse(capture.textPart("meta"));
+      expect(meta).toMatchObject({
+        has_trace: true,
+        trace_harness: harness,
+        parts: [
+          { field: "payload", filename: "payload.json.gz" },
+          {
+            field: "trace",
+            filename: "trace-0.jsonl.gz",
+            session_id: id,
+          },
+        ],
+      });
+      const payload = JSON.parse(
+        gunzipSync(capture.filePart("payload")).toString("utf8"),
+      );
+      expect(payload.trace).toMatchObject({
+        harness,
+      });
+      expect(gunzipSync(capture.filePart("trace")).toString("utf8")).toBe(
+        source,
+      );
+    },
+  );
+
+  it("fails instead of omitting a selected trace", async () => {
     writeReview("codex:missing-session");
+    const fetchImpl = vi.fn<typeof fetch>();
+
+    await expect(
+      submitReviewBugReport({
+        report: report({ include_trace: true }),
+        reviewDocumentPath: path.join(reviewRootPath, "review.mdx"),
+        reviewRootPath,
+        clientErrorNames: [],
+        fetchImpl,
+      }),
+    ).rejects.toMatchObject({ status: 422 });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("sends schema 2 payload parts for reports without traces", async () => {
+    writeReview("disabled:review");
     const capture = captureFetch();
 
     await submitReviewBugReport({
-      report: report({ include_trace: true }),
+      report: report(),
       reviewDocumentPath: path.join(reviewRootPath, "review.mdx"),
       reviewRootPath,
       clientErrorNames: [],
       fetchImpl: capture.fetchImpl,
     });
 
-    const { meta, payload } = parseMultipart(capture.body());
-    expect(meta).not.toHaveProperty("has_trace");
-    expect(meta).not.toHaveProperty("trace_harness");
-    expect(meta).not.toHaveProperty("truncated_trace");
-    expect(payload).not.toHaveProperty("trace");
-    expect(payload).toMatchObject({
-      diagnostics: {
-        attachment_errors: [{ attachment: "trace", error: "unavailable" }],
-      },
+    expect(capture.url()).toBe("https://bug.dev.fast/api/v2/reports");
+    expect(capture.headers().get("X-Review-Bug-Report-Schema")).toBeNull();
+    expect(capture.parts().map((part) => part.name)).toEqual([
+      "meta",
+      "payload",
+    ]);
+    const meta = JSON.parse(capture.textPart("meta")) as {
+      schema_version: number;
+      has_trace: boolean;
+      parts: Array<{ field: string; bytes: number; sha256: string }>;
+    };
+    expect(meta).toMatchObject({
+      schema_version: 2,
+      has_trace: false,
+      parts: [{ field: "payload" }],
     });
+    const payloadBytes = capture.filePart("payload");
+    expect(JSON.parse(gunzipSync(payloadBytes).toString("utf8"))).toMatchObject(
+      {
+        schema_version: 4,
+        description: "",
+      },
+    );
+    expect(meta.parts[0].bytes).toBe(payloadBytes.byteLength);
+    expect(meta.parts[0].sha256).toBe(sha256(payloadBytes));
   });
 
-  it("drops an oversized trace before a changed-file diff", () => {
-    const payload = bugReportPayload(largeTraceAttachment());
+  it.each([503, 422])(
+    "reports an upstream %s as a service failure without retrying",
+    async (status) => {
+      writeReview("disabled:review");
+      const fetchImpl = vi.fn<typeof fetch>(async () =>
+        Response.json({ ok: false, error: "Rejected." }, { status }),
+      );
 
-    const request = buildSizedBugReportRequest(payload, {
+      await expect(
+        submitReviewBugReport({
+          report: report(),
+          reviewDocumentPath: path.join(reviewRootPath, "review.mdx"),
+          reviewRootPath,
+          clientErrorNames: [],
+          fetchImpl,
+        }),
+      ).rejects.toMatchObject({ status: 502 });
+      expect(fetchImpl).toHaveBeenCalledOnce();
+      expect(fetchImpl.mock.calls[0][0].toString()).toBe(
+        "https://bug.dev.fast/api/v2/reports",
+      );
+    },
+  );
+
+  it("drops subagent trace files before a changed-file diff", async () => {
+    const trace: AuthoringTraceAttachment = {
+      payload: {
+        harness: "claude-code",
+        session_id: "11111111-1111-4111-8111-111111111111",
+        files: {
+          "subagents/agent.jsonl": randomBytes(2048).toString("base64"),
+        },
+        truncated: false,
+      },
+      parts: [],
+      cleanup: async () => {},
+    };
+    const payload: BugReportPayload = {
+      schema_version: 4,
+      description: "",
+      trace: trace.payload,
+      diff: {
+        baseRef: "base",
+        headRef: "head",
+        files: [
+          {
+            path: "src/example.ts",
+            status: "modified",
+            additions: 1,
+            deletions: 1,
+            patch: "@@ -1 +1 @@\n-old\n+new",
+          },
+        ],
+      },
+      diagnostics: diagnostics(),
+    };
+
+    const request = await buildBugReportRequest(payload, trace, {
+      appVersion: "1.2.3",
+      cliVersion: "0.0.1",
+      maxPayloadBytes: 1024,
+    });
+    const formPayload = request.body.get("payload");
+    if (!(formPayload instanceof Blob)) throw new Error("Missing payload.");
+    const fitted = JSON.parse(
+      gunzipSync(Buffer.from(await formPayload.arrayBuffer())).toString("utf8"),
+    );
+    const meta = JSON.parse(String(request.body.get("meta")));
+
+    expect(fitted.trace).toEqual({
+      harness: "claude-code",
+      session_id: "11111111-1111-4111-8111-111111111111",
+      files: {},
+      omitted_files: ["subagents/agent.jsonl"],
+      truncated: true,
+    });
+    expect(fitted).toHaveProperty("diff.files.0.path", "src/example.ts");
+    expect(meta).toMatchObject({
+      has_diff: true,
+      truncated_diff: false,
+      truncated_trace: true,
+    });
+    expect(trace.payload.truncated).toBe(false);
+  });
+
+  it("drops trace parts that exceed the upload cap instead of the report", async () => {
+    const trace: AuthoringTraceAttachment = {
+      payload: {
+        harness: "codex",
+        session_id: "22222222-2222-4222-8222-222222222222",
+        files: {},
+        truncated: false,
+      },
+      parts: [
+        {
+          filename: "trace-0.jsonl.gz",
+          session_id: "22222222-2222-4222-8222-222222222222",
+          path: path.join(tempDir, "missing-trace-0.jsonl.gz"),
+          bytes: 99_000_001,
+          sha256: "0".repeat(64),
+        },
+      ],
+      cleanup: async () => {},
+    };
+    const payload: BugReportPayload = {
+      schema_version: 4,
+      description: "",
+      trace: trace.payload,
+      diagnostics: {
+        ...diagnostics(),
+        attachment_errors: [{ attachment: "review", error: "unavailable" }],
+      },
+    };
+
+    const request = await buildBugReportRequest(payload, trace, {
       appVersion: "1.2.3",
       cliVersion: "0.0.1",
     });
+    const formPayload = request.body.get("payload");
+    if (!(formPayload instanceof Blob)) throw new Error("Missing payload.");
+    const fitted = JSON.parse(
+      gunzipSync(Buffer.from(await formPayload.arrayBuffer())).toString("utf8"),
+    );
+    const meta = JSON.parse(String(request.body.get("meta")));
 
-    const { meta, payload: fittedPayload } = parseMultipart(request.body);
-    expect(meta).toMatchObject({
-      has_trace: false,
-      has_diff: true,
-      trace_harness: "claude-code",
-      truncated_trace: true,
-      truncated_diff: false,
+    expect(request.body.getAll("trace")).toEqual([]);
+    expect(fitted).not.toHaveProperty("trace");
+    expect(fitted.diagnostics.attachment_errors).toEqual([
+      { attachment: "review", error: "unavailable" },
+      { attachment: "trace", error: "too_large" },
+    ]);
+    expect(meta).toMatchObject({ has_trace: false, truncated_trace: false });
+    expect(meta).not.toHaveProperty("trace_harness");
+    expect(meta.parts).toHaveLength(1);
+  });
+
+  it("does not replace a successful submit when trace cleanup fails", async () => {
+    writeReview("claude-code:cleanup-test");
+    const cleanup = vi.fn<() => Promise<void>>(async () => {
+      throw new Error("busy");
     });
-    expect(fittedPayload).not.toHaveProperty("trace");
-    expect(fittedPayload).toHaveProperty("diff.files.0.path", "src/example.ts");
+    const trace: AuthoringTraceAttachment = {
+      payload: {
+        harness: "claude-code",
+        session_id: "cleanup-test",
+        files: {},
+        truncated: false,
+      },
+      parts: [],
+      cleanup,
+    };
+    const capture = captureFetch();
+
+    await expect(
+      submitReviewBugReport({
+        report: report({ include_trace: true }),
+        reviewDocumentPath: path.join(reviewRootPath, "review.mdx"),
+        reviewRootPath,
+        clientErrorNames: [],
+        fetchImpl: capture.fetchImpl,
+        readTraceAttachment: async () => trace,
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    expect(cleanup).toHaveBeenCalledOnce();
   });
 
   function writeReview(sourceSession: string): void {
@@ -148,6 +417,36 @@ describe("submitReviewBugReport", () => {
       }),
     );
   }
+
+  function writeCodexTrace(id: string, contents: string): void {
+    const dateDir = path.join(codexRoot, "2026", "08", "31");
+    mkdirSync(dateDir, { recursive: true });
+    writeFileSync(
+      path.join(dateDir, "rollout-2026-08-31T12-00-00-" + id + ".jsonl"),
+      contents,
+    );
+  }
+
+  function writeHarnessTrace(
+    harness: "claude-code" | "pi",
+    id: string,
+    contents: string,
+  ): void {
+    const directory = path.join(
+      harness === "claude-code" ? claudeRoot : piRoot,
+      "project",
+    );
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(
+      path.join(
+        directory,
+        harness === "claude-code"
+          ? id + ".jsonl"
+          : "2026-08-31T12-00-00_" + id + ".jsonl",
+      ),
+      contents,
+    );
+  }
 });
 
 function report(
@@ -165,108 +464,124 @@ function report(
   };
 }
 
+function diagnostics(): BugReportPayload["diagnostics"] {
+  return {
+    app_version: "1.2.3",
+    cli_version: "0.0.1",
+    platform: process.platform,
+    app_session_id: "session-1234567890",
+    client_error_names: [],
+  };
+}
+
+interface CapturedPart {
+  name: string;
+  value: string | { filename: string; type: string; bytes: Buffer };
+}
+
 function captureFetch(): {
   fetchImpl: typeof fetch;
-  body: () => Buffer;
+  url: () => string;
+  headers: () => Headers;
+  parts: () => CapturedPart[];
+  textPart: (name: string) => string;
+  filePart: (name: string) => Buffer;
+  fileParts: (name: string) => Buffer[];
 } {
-  let body: Buffer | undefined;
-  const fetchImpl: typeof fetch = async (_input, init) => {
-    body = Buffer.from(init?.body as Buffer);
-    return new Response(
-      JSON.stringify({
-        ok: true,
-        report_id: "00000000-0000-4000-8000-000000000000",
-        short_id: "123456789012",
-      }),
-      { status: 200, headers: { "content-type": "application/json" } },
-    );
+  let url: string | undefined;
+  let headers: Headers | undefined;
+  const capturedParts: CapturedPart[] = [];
+  const fetchImpl: typeof fetch = async (input, init) => {
+    url = input.toString();
+    headers = new Headers(init?.headers);
+    const form = init?.body;
+    if (!(form instanceof FormData)) throw new Error("Expected FormData.");
+    for (const [name, value] of form.entries()) {
+      capturedParts.push({
+        name,
+        value:
+          typeof value === "string"
+            ? value
+            : {
+                filename: value.name,
+                type: value.type,
+                bytes: Buffer.from(await value.arrayBuffer()),
+              },
+      });
+    }
+    return successResponse();
+  };
+  const part = (name: string) => {
+    const result = capturedParts.find((candidate) => candidate.name === name);
+    if (!result) throw new Error(`Missing captured ${name} part.`);
+    return result.value;
   };
   return {
     fetchImpl,
-    body: () => {
-      if (!body) throw new Error("Bug-report body was not captured");
-      return body;
+    url: () => url ?? "",
+    headers: () => headers ?? new Headers(),
+    parts: () => capturedParts,
+    textPart: (name) => {
+      const value = part(name);
+      if (typeof value !== "string") throw new Error(`${name} is not text.`);
+      return value;
     },
+    filePart: (name) => {
+      const value = part(name);
+      if (typeof value === "string") throw new Error(`${name} is not a file.`);
+      return value.bytes;
+    },
+    fileParts: (name) =>
+      capturedParts
+        .filter((candidate) => candidate.name === name)
+        .map((candidate) => {
+          if (typeof candidate.value === "string") {
+            throw new Error(`${name} is not a file.`);
+          }
+          return candidate.value.bytes;
+        }),
   };
 }
 
-function parseMultipart(body: Buffer): {
-  meta: Record<string, unknown>;
-  payload: Record<string, unknown>;
-} {
-  const metaHeader = Buffer.from('Content-Disposition: form-data; name="meta"');
-  const payloadHeader = Buffer.from(
-    'Content-Disposition: form-data; name="payload"',
+function successResponse(): Response {
+  return new Response(
+    JSON.stringify({
+      ok: true,
+      report_id: "00000000-0000-4000-8000-000000000000",
+      short_id: "123456789012",
+    }),
+    { status: 200, headers: { "content-type": "application/json" } },
   );
-  const metaPart = body.indexOf(metaHeader);
-  const metaStart = body.indexOf(Buffer.from("\r\n\r\n"), metaPart) + 4;
-  const metaEnd = body.indexOf(Buffer.from("\r\n--"), metaStart);
-  const payloadPart = body.indexOf(payloadHeader);
-  const payloadStart = body.indexOf(Buffer.from("\r\n\r\n"), payloadPart) + 4;
-  const payloadEnd = body.lastIndexOf(Buffer.from("\r\n--"));
-  return {
-    meta: JSON.parse(body.subarray(metaStart, metaEnd).toString("utf8")),
-    payload: JSON.parse(
-      gunzipSync(body.subarray(payloadStart, payloadEnd)).toString("utf8"),
-    ),
-  };
 }
 
-function bugReportPayload(
-  trace: AuthoringTraceAttachment,
-): Parameters<typeof buildSizedBugReportRequest>[0] {
-  return {
-    schema_version: 3,
-    description: "",
-    trace,
-    diff: {
-      baseRef: "base",
-      headRef: "head",
-      files: [
-        {
-          path: "src/example.ts",
-          status: "modified",
-          additions: 1,
-          deletions: 1,
-          patch: "@@ -1 +1 @@\n-old\n+new",
-        },
-      ],
-    },
-    diagnostics: {
-      app_version: "1.2.3",
-      cli_version: "0.0.1",
-      platform: process.platform,
-      app_session_id: "session-1234567890",
-      client_error_names: [],
-    },
+function codexTrace(
+  id: string,
+  startOrdinal: number,
+  records: Array<Record<string, unknown>>,
+  parent?: {
+    parentId: string;
+    endOrdinalExclusive: number;
+  },
+): string {
+  const payload = {
+    id,
+    ...(parent
+      ? {
+          history_base: {
+            thread_id: parent.parentId,
+            end_ordinal_exclusive: parent.endOrdinalExclusive,
+          },
+        }
+      : {}),
   };
+  return [{ type: "session_meta", payload }, ...records]
+    .map(
+      (value, index) =>
+        JSON.stringify({ ...value, ordinal: startOrdinal + index }) + "\n",
+    )
+    .join("");
 }
 
-function largeTraceAttachment(): AuthoringTraceAttachment {
-  const files: Record<string, string> = {
-    "trace.jsonl": incompressibleJsonl(6 * 1024 * 1024),
-  };
-  for (let index = 0; index < 10; index++) {
-    files["subagents/agent-" + index + ".jsonl"] = incompressibleJsonl(
-      1024 * 1024,
-    );
-  }
-  return {
-    harness: "claude-code",
-    session_id: "session-oversized",
-    files,
-    truncated: false,
-  };
-}
-
-function incompressibleJsonl(targetBytes: number): string {
-  const lines: string[] = [];
-  let bytes = 0;
-  while (bytes < targetBytes) {
-    const line =
-      JSON.stringify({ data: randomBytes(768).toString("base64") }) + "\n";
-    lines.push(line);
-    bytes += Buffer.byteLength(line);
-  }
-  return lines.join("");
+function sha256(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
 }

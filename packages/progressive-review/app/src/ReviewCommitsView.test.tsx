@@ -49,12 +49,14 @@ describe("shapeCommitFiles", () => {
 
 describe("groupCommitsByDate", () => {
   it("sorts by author time and creates one group for each date", () => {
+    const localTime = (day: number, hour: number) =>
+      new Date(2026, 7, day, hour).toISOString();
     const commit = {
       commit: "a".repeat(40),
       parentCommit: "b".repeat(40),
       subject: "Change",
       author: "Developer",
-      authoredAt: "2026-08-11T18:00:00-04:00",
+      authoredAt: localTime(11, 18),
       fileCount: 1,
       additions: 1,
       deletions: 0,
@@ -64,12 +66,12 @@ describe("groupCommitsByDate", () => {
       {
         ...commit,
         commit: "c".repeat(40),
-        authoredAt: "2026-08-12T12:00:00-04:00",
+        authoredAt: localTime(12, 12),
       },
       {
         ...commit,
         commit: "d".repeat(40),
-        authoredAt: "2026-08-11T20:00:00-04:00",
+        authoredAt: localTime(11, 20),
       },
     ]);
 

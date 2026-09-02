@@ -22,6 +22,10 @@ const packageRoot = path.resolve(
 const repoRoot = path.resolve(packageRoot, "../..");
 const token = "live-review-server-token";
 
+function requestId(index: number): string {
+  return `00000000-0000-4000-8000-${index.toString().padStart(12, "0")}`;
+}
+
 afterEach(() => vi.unstubAllEnvs());
 
 describe("Review Desktop live Review transport", () => {
@@ -35,6 +39,7 @@ describe("Review Desktop live Review transport", () => {
     try {
       await server.listen();
       const createBody = {
+        requestId: requestId(1),
         cwd: repoRoot,
         source: { kind: "current-checkout" },
         title: "Server-owned tracer",
@@ -53,6 +58,17 @@ describe("Review Desktop live Review transport", () => {
       });
       expect(wrongMediaType.status).toBe(415);
 
+      const missingCreateRequestId = await liveJson(
+        server.url,
+        "/live-reviews",
+        {
+          cwd: createBody.cwd,
+          source: createBody.source,
+          title: createBody.title,
+        },
+      );
+      expect(missingCreateRequestId.response.status).toBe(400);
+
       const created = await liveRequest(server.url, "/live-reviews", {
         method: "POST",
         body: JSON.stringify(createBody),
@@ -67,23 +83,66 @@ describe("Review Desktop live Review transport", () => {
         nodeCount: 1,
       });
       expect(handlers).toHaveLength(1);
+      const replayedCreate = await liveRequest(server.url, "/live-reviews", {
+        method: "POST",
+        body: JSON.stringify(createBody),
+      });
+      expect(replayedCreate.status).toBe(200);
+      await expect(replayedCreate.json()).resolves.toMatchObject({
+        info: { reviewId: createResult.info.reviewId },
+      });
+      expect(handlers).toHaveLength(1);
+      const conflictingCreate = await liveJson(server.url, "/live-reviews", {
+        ...createBody,
+        title: "Different create input",
+      });
+      expect(conflictingCreate.response.status).toBe(409);
+      expect(conflictingCreate.body).toMatchObject({
+        code: "review_request_conflict",
+      });
 
       const stored = await findReview(createResult.info.reviewId);
       expect(stored?.review.status).toBe("awaiting-agent-updates");
       expect(readLiveReviewPage(stored!.dir)).toMatchObject({ version: 0 });
 
+      const missingRenderRequestId = await liveJson(
+        server.url,
+        `/live-reviews/${createResult.info.reviewId}/render`,
+        { targetNodeId: "root", mode: "replace", mdx: "Body" },
+      );
+      expect(missingRenderRequestId.response.status).toBe(400);
+
+      const rejectedBody = {
+        requestId: requestId(2),
+        targetNodeId: "root",
+        mode: "replace",
+        mdx: "<UnknownComponent />",
+      } as const;
       const rejected = await liveJson(
         server.url,
         `/live-reviews/${createResult.info.reviewId}/render`,
-        {
-          targetNodeId: "root",
-          mode: "replace",
-          mdx: "<UnknownComponent />",
-        },
+        rejectedBody,
       );
       expect(rejected.response.status).toBe(422);
       expect(rejected.body).toMatchObject({ ok: false });
       expect(readLiveReviewPage(stored!.dir)).toMatchObject({ version: 0 });
+      const replayedRejection = await liveJson(
+        server.url,
+        `/live-reviews/${createResult.info.reviewId}/render`,
+        rejectedBody,
+      );
+      expect(replayedRejection.response.status).toBe(422);
+      expect(replayedRejection.body).toEqual(rejected.body);
+      expect(readLiveReviewPage(stored!.dir)).toMatchObject({ version: 0 });
+      const conflictingRejection = await liveJson(
+        server.url,
+        `/live-reviews/${createResult.info.reviewId}/render`,
+        { ...rejectedBody, mdx: "Different input" },
+      );
+      expect(conflictingRejection.response.status).toBe(409);
+      expect(conflictingRejection.body).toMatchObject({
+        code: "review_request_conflict",
+      });
       events = await openReviewEvents(server.url);
       await expect(events.next()).resolves.toEqual({
         event: "review-authoring-target-changed",
@@ -94,6 +153,7 @@ describe("Review Desktop live Review transport", () => {
         server.url,
         `/live-reviews/${createResult.info.reviewId}/render`,
         {
+          requestId: requestId(3),
           targetNodeId: "root",
           mode: "replace",
           mdx: "<StillUnknown />",
@@ -115,17 +175,19 @@ describe("Review Desktop live Review transport", () => {
         nodeIds: ["root"],
       });
 
+      const appendRequests = ["First", "Second"].map((title, index) => ({
+        requestId: requestId(10 + index),
+        targetNodeId: "root",
+        mode: "append" as const,
+        title,
+        mdx: `**${title}**`,
+      }));
       const appended = await Promise.all(
-        ["First", "Second"].map((title) =>
+        appendRequests.map((request) =>
           liveJson(
             server.url,
             `/live-reviews/${createResult.info.reviewId}/render`,
-            {
-              targetNodeId: "root",
-              mode: "append",
-              title,
-              mdx: `**${title}**`,
-            },
+            request,
           ),
         ),
       );
@@ -147,6 +209,30 @@ describe("Review Desktop live Review transport", () => {
           uuid: createResult.info.reviewId,
         });
       }
+      const replayedAppend = await liveJson(
+        server.url,
+        `/live-reviews/${createResult.info.reviewId}/render`,
+        appendRequests[0],
+      );
+      expect(replayedAppend.response.status).toBe(200);
+      expect(replayedAppend.body).toEqual(appended[0]!.body);
+      await expect(events.next()).resolves.toMatchObject({
+        event: "review-authoring-target-changed",
+        target: { targetNodeId: "root", sectionNodeId: null },
+      });
+      const conflictingAppend = await liveJson(
+        server.url,
+        `/live-reviews/${createResult.info.reviewId}/render`,
+        { ...appendRequests[0], mdx: "Different append" },
+      );
+      expect(conflictingAppend.response.status).toBe(409);
+      expect(conflictingAppend.body).toMatchObject({
+        code: "review_request_conflict",
+      });
+      await expect(events.next()).resolves.toMatchObject({
+        event: "review-authoring-target-changed",
+        target: { targetNodeId: "root", sectionNodeId: null },
+      });
 
       const children = await liveRequest(
         server.url,
@@ -177,6 +263,7 @@ describe("Review Desktop live Review transport", () => {
         server.url,
         `/live-reviews/${createResult.info.reviewId}/render`,
         {
+          requestId: requestId(20),
           targetNodeId: firstSection.id,
           mode: "append",
           title: "Nested",
@@ -273,6 +360,7 @@ describe("Review Desktop live Review transport", () => {
     try {
       await server.listen();
       const created = await liveJson(server.url, "/live-reviews", {
+        requestId: requestId(40),
         cwd: repoRoot,
         source: { kind: "current-checkout" },
         title: "Corruption tracer",
@@ -287,6 +375,115 @@ describe("Review Desktop live Review transport", () => {
       expect(response.status).toBe(500);
     } finally {
       await server.close();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("serializes live open attention with lifecycle writes", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "live-review-server-"));
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+    const server = liveReviewServer(home, []);
+
+    try {
+      await server.listen();
+      const created = await liveJson(server.url, "/live-reviews", {
+        requestId: requestId(45),
+        cwd: repoRoot,
+        source: { kind: "current-checkout" },
+        title: "Attention lock tracer",
+      });
+      const uuid = String(
+        (created.body as { info: { reviewId: string } }).info.reviewId,
+      );
+      const dismissed = await liveRequest(
+        server.url,
+        `/reviews/${uuid}/dismiss`,
+        { method: "POST" },
+      );
+      expect(dismissed.status).toBe(200);
+
+      const [status, ...opens] = await Promise.all([
+        liveJson(server.url, `/live-reviews/${uuid}/status`, {
+          status: "awaiting-review",
+        }),
+        ...Array.from({ length: 12 }, () =>
+          liveRequest(server.url, `/live-reviews/${uuid}/open`, {
+            method: "POST",
+          }),
+        ),
+      ]);
+      expect(status.response.status).toBe(200);
+      expect(opens.every((response) => response.status === 200)).toBe(true);
+      const stored = await findReview(uuid);
+      expect(stored?.review).toMatchObject({
+        status: "awaiting-review",
+        dismissedAt: null,
+      });
+      expect(stored?.review.viewedAt).toEqual(expect.any(String));
+    } finally {
+      await server.close();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("replays durable create and render receipts after a server restart", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "live-review-server-"));
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+    const createBody = {
+      requestId: requestId(46),
+      cwd: repoRoot,
+      source: { kind: "current-checkout" },
+      title: "Restart receipt tracer",
+    };
+    const renderBody = {
+      requestId: requestId(47),
+      targetNodeId: "root",
+      mode: "append",
+      title: "One child",
+      mdx: "Body",
+    };
+    let server = liveReviewServer(home, []);
+
+    try {
+      await server.listen();
+      const created = await liveJson(server.url, "/live-reviews", createBody);
+      const createReceipt = created.body as {
+        info: { reviewId: string };
+      };
+      const uuid = createReceipt.info.reviewId;
+      const rendered = await liveJson(
+        server.url,
+        `/live-reviews/${uuid}/render`,
+        renderBody,
+      );
+      expect(rendered.response.status).toBe(200);
+      await server.close("app-exit");
+
+      server = liveReviewServer(home, []);
+      await server.listen();
+      const replayedCreate = await liveJson(
+        server.url,
+        "/live-reviews",
+        createBody,
+      );
+      expect(replayedCreate.response.status).toBe(200);
+      expect(replayedCreate.body).toMatchObject({
+        info: { reviewId: uuid, status: "awaiting-agent" },
+      });
+      const replayedRender = await liveJson(
+        server.url,
+        `/live-reviews/${uuid}/render`,
+        renderBody,
+      );
+      expect(replayedRender.response.status).toBe(200);
+      expect(replayedRender.body).toEqual(rendered.body);
+      const stored = await findReview(uuid);
+      expect(readLiveReviewPage(stored!.dir)).toMatchObject({ version: 1 });
+      expect(
+        readLiveReviewPage(stored!.dir)?.nodes.root?.children,
+      ).toHaveLength(1);
+    } finally {
+      await server.close("app-exit");
       await rm(home, { recursive: true, force: true });
     }
   });
@@ -309,6 +506,7 @@ describe("Review Desktop live Review transport", () => {
     try {
       await server.listen();
       const response = await liveJson(server.url, "/live-reviews", {
+        requestId: requestId(50),
         cwd: repoRoot,
         source: { kind: "current-checkout" },
         title: "Rollback tracer",

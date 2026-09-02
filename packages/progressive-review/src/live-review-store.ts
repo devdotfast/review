@@ -160,7 +160,21 @@ CREATE TABLE IF NOT EXISTS live_review_page (
   page_json TEXT NOT NULL CHECK (json_valid(page_json)),
   version INTEGER NOT NULL CHECK (version >= 0)
 ) STRICT;
+CREATE TABLE IF NOT EXISTS live_review_request (
+  kind TEXT NOT NULL CHECK (kind IN ('create', 'render')),
+  request_id TEXT NOT NULL,
+  request_hash TEXT NOT NULL,
+  receipt_json TEXT NOT NULL CHECK (json_valid(receipt_json)),
+  PRIMARY KEY (kind, request_id)
+) STRICT;
 `;
+
+export interface LiveReviewRequestReceipt {
+  kind: "create" | "render";
+  requestId: string;
+  requestHash: string;
+  result: unknown;
+}
 
 export class LiveReviewVersionConflictError extends Error {
   override readonly name = "LiveReviewVersionConflictError";
@@ -209,13 +223,23 @@ export function readLiveReviewPage(reviewDir: string): LiveReviewPage | null {
 export function initializeLiveReviewPage(
   reviewDir: string,
   page: LiveReviewPage,
+  receipt?: LiveReviewRequestReceipt,
 ): void {
   const parsed = storedPage(page);
   const db = openWritableLiveReviewDb(reviewDir);
+  let inTransaction = false;
   try {
+    db.exec("BEGIN IMMEDIATE");
+    inTransaction = true;
     db.prepare(
       "INSERT INTO live_review_page (singleton, page_json, version) VALUES (1, ?, ?)",
     ).run(JSON.stringify(parsed), page.version);
+    if (receipt) insertLiveReviewReceipt(db, receipt);
+    db.exec("COMMIT");
+    inTransaction = false;
+  } catch (error) {
+    if (inTransaction) db.exec("ROLLBACK");
+    throw error;
   } finally {
     db.close();
   }
@@ -225,6 +249,7 @@ export function commitLiveReviewPage(
   reviewDir: string,
   page: LiveReviewPage,
   expectedVersion: number,
+  receipt?: LiveReviewRequestReceipt,
 ): void {
   if (page.version !== expectedVersion + 1) {
     throw new Error(
@@ -247,6 +272,61 @@ export function commitLiveReviewPage(
         "The Review page changed while the mutation was being validated.",
       );
     }
+    if (receipt) insertLiveReviewReceipt(db, receipt);
+    db.exec("COMMIT");
+    inTransaction = false;
+  } catch (error) {
+    if (inTransaction) db.exec("ROLLBACK");
+    throw error;
+  } finally {
+    db.close();
+  }
+}
+
+export function readLiveReviewReceipt(
+  reviewDir: string,
+  kind: LiveReviewRequestReceipt["kind"],
+  requestId: string,
+): LiveReviewRequestReceipt | null {
+  const dbPath = path.join(reviewDir, "review.db");
+  if (!existsSync(dbPath)) return null;
+  const db = new DatabaseSync(dbPath, { readOnly: true });
+  try {
+    const table = db
+      .prepare(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'live_review_request'",
+      )
+      .get();
+    if (!table) return null;
+    const row = db
+      .prepare(
+        "SELECT request_hash, receipt_json FROM live_review_request WHERE kind = ? AND request_id = ?",
+      )
+      .get(kind, requestId) as
+      | { request_hash: string; receipt_json: string }
+      | undefined;
+    if (!row) return null;
+    return {
+      kind,
+      requestId,
+      requestHash: row.request_hash,
+      result: JSON.parse(row.receipt_json),
+    };
+  } finally {
+    db.close();
+  }
+}
+
+export function commitLiveReviewReceipt(
+  reviewDir: string,
+  receipt: LiveReviewRequestReceipt,
+): void {
+  const db = openWritableLiveReviewDb(reviewDir);
+  let inTransaction = false;
+  try {
+    db.exec("BEGIN IMMEDIATE");
+    inTransaction = true;
+    insertLiveReviewReceipt(db, receipt);
     db.exec("COMMIT");
     inTransaction = false;
   } catch (error) {
@@ -269,4 +349,17 @@ function openWritableLiveReviewDb(reviewDir: string): DatabaseSync {
   );
   db.exec(LIVE_REVIEW_DDL);
   return db;
+}
+
+function insertLiveReviewReceipt(
+  db: DatabaseSync,
+  receipt: LiveReviewRequestReceipt,
+): void {
+  const receiptJson = JSON.stringify(receipt.result);
+  if (receiptJson === undefined) {
+    throw new Error("A live Review request receipt must be JSON serializable.");
+  }
+  db.prepare(
+    "INSERT INTO live_review_request (kind, request_id, request_hash, receipt_json) VALUES (?, ?, ?, ?)",
+  ).run(receipt.kind, receipt.requestId, receipt.requestHash, receiptJson);
 }

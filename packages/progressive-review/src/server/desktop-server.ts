@@ -131,6 +131,7 @@ import {
   liveReviewAuthoringTarget,
   liveReviewInfo,
   liveReviewNode,
+  LiveReviewRequestConflictError,
   LiveReviewTerminalError,
   renderLiveReviewMdx,
   requireLiveReviewPage,
@@ -454,7 +455,10 @@ export function createGlobalReviewServer(
     const request = liveReviewCreateRequestSchema.parse(
       await readBoundedRequestJson(context.req.raw),
     );
-    const created = await createLiveReview(request);
+    const created = await withReviewLock(
+      `live-create:${request.requestId}`,
+      () => createLiveReview(request),
+    );
     try {
       // Persistence completes before registration because the review lock is
       // intentionally non-reentrant. A failed registration removes the new
@@ -463,17 +467,19 @@ export function createGlobalReviewServer(
         review: created.review,
         background: false,
       });
-      return globalJson(201, {
+      return globalJson(created.replayed ? 200 : 201, {
         ...opened.body,
-        info: liveReviewInfo(created.review, created.page),
+        info: created.info,
       });
     } catch (error) {
-      await deleteStoredReview(created.review).catch((cleanupError) => {
-        console.error(
-          "Could not roll back live Review creation:",
-          cleanupError,
-        );
-      });
+      if (!created.replayed) {
+        await deleteStoredReview(created.review).catch((cleanupError) => {
+          console.error(
+            "Could not roll back live Review creation:",
+            cleanupError,
+          );
+        });
+      }
       throw error;
     }
   });
@@ -552,9 +558,10 @@ export function createGlobalReviewServer(
         );
       }
       setLiveReviewAuthoringTarget(uuid, page, request.targetNodeId);
-      const result = await renderLiveReviewMdx({ review, ...request });
+      const outcome = await renderLiveReviewMdx({ review, ...request });
+      const { result } = outcome;
       if (!result.ok) return globalJson(422, result);
-      broadcastLiveReviewChange(uuid);
+      if (!outcome.replayed) broadcastLiveReviewChange(uuid);
       return globalJson(200, result);
     });
   });
@@ -904,9 +911,15 @@ export function createGlobalReviewServer(
         ? error
         : error instanceof LiveReviewVersionConflictError
           ? new ReviewServerError(error.message, 409, "review_version_conflict")
-          : error instanceof LiveReviewTerminalError
-            ? new ReviewServerError(error.message, 409, "review_terminal")
-            : undefined;
+          : error instanceof LiveReviewRequestConflictError
+            ? new ReviewServerError(
+                error.message,
+                409,
+                "review_request_conflict",
+              )
+            : error instanceof LiveReviewTerminalError
+              ? new ReviewServerError(error.message, 409, "review_terminal")
+              : undefined;
     return globalJson(serverError?.statusCode ?? httpJsonStatus(error), {
       ok: false,
       ...(serverError?.code ? { code: serverError.code } : {}),
@@ -1000,8 +1013,8 @@ export function createGlobalReviewServer(
     review: StoredReview;
   }> {
     const { review } = input;
-    const descriptor = await reviewDescriptor(review);
-    if (!descriptor.available) {
+    const initialDescriptor = await reviewDescriptor(review);
+    if (!initialDescriptor.available) {
       throw new ReviewServerError(
         "The review worktree or document is unavailable.",
         409,
@@ -1037,11 +1050,22 @@ export function createGlobalReviewServer(
     /* Opening is what "viewed" means. Stamping here rather than on first
        render keeps the rule in one place and survives a canvas that never
        finishes loading. A dismissed review the reader reopens comes back. */
-    const wasDismissed = Boolean(review.review.dismissedAt);
-    const viewed = await restoreReview(await markReviewViewed(review));
-    if (viewed.review !== review.review) {
-      await broadcastReviewAttention(viewed, "viewed");
-    }
+    const { viewed, wasDismissed } = await withReviewLock(
+      review.review.uuid,
+      async () => {
+        const current = await requireStoredReview(review.review.uuid);
+        const wasDismissed = Boolean(current.review.dismissedAt);
+        const viewed = await restoreReview(await markReviewViewed(current));
+        if (
+          viewed.review.viewedAt !== current.review.viewedAt ||
+          viewed.review.dismissedAt !== current.review.dismissedAt
+        ) {
+          await broadcastReviewAttention(viewed, "viewed");
+        }
+        return { viewed, wasDismissed };
+      },
+    );
+    const descriptor = await reviewDescriptor(viewed);
     const homeReview: ReviewDescriptor = {
       ...descriptor,
       viewedAt: viewed.review.viewedAt ?? null,

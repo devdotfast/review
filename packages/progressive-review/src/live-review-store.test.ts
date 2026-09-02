@@ -9,9 +9,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   LiveReviewVersionConflictError,
   commitLiveReviewPage,
+  commitLiveReviewReceipt,
   hasLiveReviewPage,
   initializeLiveReviewPage,
   readLiveReviewPage,
+  readLiveReviewReceipt,
 } from "./live-review-store";
 import type { LiveReviewPage } from "./live-review-types";
 
@@ -32,9 +34,20 @@ describe("live Review page store", () => {
   it("commits only the expected SQLite version", async () => {
     reviewDir = await mkdtemp(path.join(tmpdir(), "live-review-store-"));
     const page = fixturePage();
-    initializeLiveReviewPage(reviewDir, page);
+    initializeLiveReviewPage(reviewDir, page, {
+      kind: "create",
+      requestId: "create-1",
+      requestHash: "create-hash",
+      result: { reviewId: page.id },
+    });
     expect(hasLiveReviewPage(reviewDir)).toBe(true);
     expect(readLiveReviewPage(reviewDir)).toEqual(page);
+    expect(readLiveReviewReceipt(reviewDir, "create", "create-1")).toEqual({
+      kind: "create",
+      requestId: "create-1",
+      requestHash: "create-hash",
+      result: { reviewId: page.id },
+    });
 
     const db = new DatabaseSync(path.join(reviewDir, "review.db"));
     const stored = JSON.parse(
@@ -50,11 +63,51 @@ describe("live Review page store", () => {
     expect(stored).not.toHaveProperty("presentedVersionId");
 
     const next = { ...page, version: 1, updatedAt: "2026-09-02T00:00:01.000Z" };
-    commitLiveReviewPage(reviewDir, next, 0);
+    commitLiveReviewPage(reviewDir, next, 0, {
+      kind: "render",
+      requestId: "render-1",
+      requestHash: "render-hash",
+      result: { ok: true, version: 1 },
+    });
     expect(readLiveReviewPage(reviewDir)).toEqual(next);
+    expect(readLiveReviewReceipt(reviewDir, "render", "render-1")).toEqual({
+      kind: "render",
+      requestId: "render-1",
+      requestHash: "render-hash",
+      result: { ok: true, version: 1 },
+    });
     expect(() => commitLiveReviewPage(reviewDir!, next, 0)).toThrow(
       LiveReviewVersionConflictError,
     );
+  });
+
+  it("rolls back the page when its render receipt cannot commit", async () => {
+    reviewDir = await mkdtemp(path.join(tmpdir(), "live-review-store-"));
+    const page = fixturePage();
+    initializeLiveReviewPage(reviewDir, page);
+    commitLiveReviewReceipt(reviewDir, {
+      kind: "render",
+      requestId: "duplicate",
+      requestHash: "first",
+      result: { ok: false },
+    });
+    const next = { ...page, version: 1, updatedAt: "2026-09-02T00:00:01.000Z" };
+
+    expect(() =>
+      commitLiveReviewPage(reviewDir!, next, 0, {
+        kind: "render",
+        requestId: "duplicate",
+        requestHash: "second",
+        result: { ok: true },
+      }),
+    ).toThrow();
+    expect(readLiveReviewPage(reviewDir)).toEqual(page);
+    expect(readLiveReviewReceipt(reviewDir, "render", "duplicate")).toEqual({
+      kind: "render",
+      requestId: "duplicate",
+      requestHash: "first",
+      result: { ok: false },
+    });
   });
 
   it("validates the persisted projection on every read", async () => {

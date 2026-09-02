@@ -134,7 +134,12 @@ export function createReviewApi(
       const info = parseLiveReviewBootstrapResponse(
         await request("/live-reviews", {
           method: "POST",
-          body: { cwd, ...createInput },
+          body: {
+            requestId: createInput.requestId,
+            cwd,
+            source: createInput.source,
+            title: createInput.title,
+          },
         }),
       );
       defaultReviewId = info.reviewId;
@@ -190,6 +195,7 @@ export function createReviewApi(
           await request(`/live-reviews/${encodeURIComponent(id)}/render`, {
             method: "POST",
             body: {
+              requestId: renderInput.requestId,
               targetNodeId: renderInput.targetNodeId,
               mode: renderInput.mode,
               ...(renderInput.title === undefined

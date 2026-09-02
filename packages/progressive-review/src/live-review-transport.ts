@@ -80,12 +80,14 @@ export const liveReviewListRequestSchema = z.strictObject({
 });
 
 export const liveReviewCreateRequestSchema = z.strictObject({
+  requestId: z.uuid(),
   cwd: z.string().min(1),
   source: z.strictObject({ kind: z.literal("current-checkout") }),
   title: z.string().trim().min(1),
 });
 
 export const liveReviewRenderRequestSchema = z.strictObject({
+  requestId: z.uuid(),
   targetNodeId: z.string().min(1),
   mode: z.enum(["append", "replace"]),
   title: z.string().optional(),

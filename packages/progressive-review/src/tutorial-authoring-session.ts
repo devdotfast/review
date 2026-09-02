@@ -9,6 +9,7 @@ import {
 } from "@dev.fast/review-protocol";
 
 import { type ReviewAgentHarness, type SessionRef } from "./authoring-session";
+import { createOpencodeSession } from "./native-agent/opencode";
 
 const TUTORIAL_AUTHORING_TIMEOUT_MS = 120_000;
 
@@ -82,6 +83,15 @@ export async function createTutorialAuthoringSession(input: {
       return {
         harness: input.harness,
         sessionId: codexThreadId(result.stdout),
+      };
+    }
+    case "opencode": {
+      return {
+        harness: input.harness,
+        sessionId: await createOpencodeSession({
+          cwd: input.rootPath,
+          prompt,
+        }),
       };
     }
     case "pi": {

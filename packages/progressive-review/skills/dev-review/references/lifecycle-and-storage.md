@@ -108,9 +108,9 @@ review threads reply <threadId> --body <text> --review <uuid>
 review threads resolve <threadId> --review <uuid>
 ```
 
-Do not invent, rewrite, or merge opaque thread targets. Resolve a thread only after its requested document or code change is present.
+Do not invent, rewrite, or merge opaque thread targets. After making the requested document or code change, reply with a concise disposition and then resolve the thread.
 
-A document re-publish requires zero open comment threads. Before each re-publish, run `review threads list`. Address every open thread. Mark each addressed thread with `review threads resolve <threadId> --review <uuid>`. Run `review threads list` again. Do not re-publish until no comment thread has `status: "open"`. The first document publication does not use this gate.
+A document re-publish requires zero open comment threads and a completed agent response for every current-round reviewer message. Before each re-publish, run `review threads list`. Address every open thread, reply with `review threads reply`, and mark it with `review threads resolve`. Run `review threads list` again. Do not re-publish until no comment thread has `status: "open"`. The first document publication does not use this gate.
 
 ## Migration
 

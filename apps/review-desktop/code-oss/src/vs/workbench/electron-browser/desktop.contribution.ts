@@ -63,7 +63,7 @@ import product from '../../platform/product/common/product.js';
 	}
 
 	// Actions: Install Shell Script (macOS only)
-	if (isMacintosh) {
+	if (isMacintosh && !product.reviewVersion) {
 		registerAction2(InstallShellScriptAction);
 		registerAction2(UninstallShellScriptAction);
 	}

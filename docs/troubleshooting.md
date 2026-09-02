@@ -19,8 +19,10 @@ offer the commands documented in the [CLI reference](cli-reference.md).
 
 ## `review: command not found`
 
-Open Review Desktop and install the command from the welcome screen or Review
-settings. Then open a new terminal and check that `~/.local/bin` is on `PATH`.
+Open Review Desktop, open the Command Palette, and run **Review: Install CLI in
+PATH**. Review refreshes `~/.local/bin/review` and removes the obsolete
+`/usr/local/bin/review` symlink if it exists. Then open a new terminal and check
+that `~/.local/bin` is on `PATH`.
 
 For a headless setup with a separately installed CLI, run:
 

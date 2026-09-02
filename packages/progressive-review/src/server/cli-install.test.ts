@@ -192,6 +192,44 @@ describe("shell profile PATH management", () => {
 });
 
 describe("skill and review command installation", () => {
+  it("installs only the command and replaces a previous app shim", async () => {
+    const homeDir = await temporaryHome("review-cli-only-shim-");
+    const env = profileEnvironment(homeDir, "/bin/zsh");
+    const cliPath = path.join(homeDir, "current-app", "cli.js");
+    const shimPath = path.join(homeDir, ".local", "bin", "review");
+    await Promise.all([
+      mkdir(path.dirname(cliPath), { recursive: true }),
+      mkdir(path.dirname(shimPath), { recursive: true }),
+    ]);
+    await Promise.all([
+      writeFile(cliPath, "// current CLI\n"),
+      writeFile(
+        shimPath,
+        "#!/bin/sh\n# Managed by Review Desktop\nFALLBACK_CLI='/Applications/Old Review.app/cli.js'\n",
+        { mode: 0o755 },
+      ),
+    ]);
+
+    const applied = await applyCliInstall({
+      packageRoot,
+      targets: [],
+      shim: true,
+      cliPath,
+      homeDir,
+      env,
+    });
+
+    expect(applied).toMatchObject({ code: 0, shimPath });
+    const installed = await readFile(shimPath, "utf8");
+    expect(installed).toContain(cliPath);
+    expect(installed).not.toContain("Old Review.app");
+    expect(await readCliInstallStamp(cliInstallStampPath(env))).toMatchObject({
+      consent: "granted",
+      targets: [],
+      shimPath,
+    });
+  });
+
   it("installs the command and profile by default for a skill target", async () => {
     const homeDir = await temporaryHome("review-default-shim-");
     const env = profileEnvironment(homeDir, "/bin/zsh");

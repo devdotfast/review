@@ -4,6 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { localize, localize2 } from '../../../nls.js';
+import { isCancellationError } from '../../../base/common/errors.js';
+import { isMacintosh } from '../../../base/common/platform.js';
 import { Action2, registerAction2 } from '../../../platform/actions/common/actions.js';
 import { IDialogService } from '../../../platform/dialogs/common/dialogs.js';
 import type { ServicesAccessor } from '../../../platform/instantiation/common/instantiation.js';
@@ -23,6 +25,7 @@ import {
 	type ReviewCliInstallTarget,
 	REVIEW_TUTORIAL_PROGRESS_STORAGE_KEY,
 } from '../../common/reviewProtocol.js';
+import { reviewCliInstallResyncRequest } from '../../common/reviewCliInstall.js';
 import { IReviewCanvasEditorTabsService } from '../../services/reviewCanvasEditorTabsService.js';
 import { IReviewSessionService } from '../../services/reviewSessionService.js';
 
@@ -87,6 +90,44 @@ class OpenTutorialAction extends Action2 {
 }
 
 registerAction2(OpenTutorialAction);
+
+class InstallReviewCliInPathAction extends Action2 {
+	constructor() {
+		super({
+			id: 'review.installCliInPath',
+			title: localize2('review.installCliInPath', "Review: Install CLI in PATH"),
+			f1: true,
+		});
+	}
+
+	override async run(accessor: ServicesAccessor): Promise<void> {
+		const nativeHostService = accessor.get(INativeHostService);
+		const notificationService = accessor.get(INotificationService);
+		const sessionService = accessor.get(IReviewSessionService);
+		try {
+			if (isMacintosh) {
+				await nativeHostService.uninstallShellCommand({ commandName: 'review', symlinkOnly: true });
+			}
+			const installed = await sessionService.applyCliInstall({ targets: [], shim: true });
+			notificationService.info(
+				localize(
+					'review.cliInstall.installed',
+					"Review installed the CLI at {0}. New terminals can use the review command.",
+					installed.shimPath ?? '~/.local/bin/review',
+				),
+			);
+		} catch (error) {
+			if (isCancellationError(error)) {
+				return;
+			}
+			notificationService.error(
+				localize('review.cliInstall.failed', "Review could not install the CLI in PATH: {0}", String(error)),
+			);
+		}
+	}
+}
+
+registerAction2(InstallReviewCliInPathAction);
 
 /**
  * Removes everything the app installed on this machine: the tutorial, the
@@ -240,17 +281,18 @@ class ReviewCliInstallStartup implements IWorkbenchContribution {
 	}
 
 	private async resync(status: ReviewCliInstallStatus): Promise<void> {
-		const targets = status.stamp?.targets?.length
-			? status.stamp.targets
-			: status.agents.filter(agent => agent.installed).map(agent => agent.target);
-		if (targets.length === 0) {
+		const request = reviewCliInstallResyncRequest(status);
+		if (!request) {
 			return;
 		}
-		await this.reviewSessionService.applyCliInstall({
-			targets,
-		});
+		await this.reviewSessionService.applyCliInstall(request);
+		const message = request.targets.length === 0
+			? localize('review.cliInstall.resyncedCli', "Review updated the installed CLI.")
+			: request.shim
+				? localize('review.cliInstall.resynced', "Review updated the installed CLI and agent skills.")
+				: localize('review.cliInstall.resyncedSkills', "Review updated the installed agent skills.");
 		this.notificationService.status(
-			localize('review.cliInstall.resynced', "Review updated the installed CLI and agent skills."),
+			message,
 			{ hideAfter: 10_000 },
 		);
 	}

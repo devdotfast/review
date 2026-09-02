@@ -27,7 +27,7 @@ import { IEnvironmentMainService } from '../../environment/electron-main/environ
 import { createDecorator, IInstantiationService } from '../../instantiation/common/instantiation.js';
 import { ILifecycleMainService, IRelaunchOptions } from '../../lifecycle/electron-main/lifecycleMainService.js';
 import { ILogService } from '../../log/common/log.js';
-import { FocusMode, ICommonNativeHostService, INativeHostOptions, INativeSystemWideKeybinding, INativeSystemWideKeybindingResult, IOSProperties, IOSStatistics, IStartTracingOptions, IToastOptions, IToastResult, PowerSaveBlockerType, SystemIdleState, ThermalState } from '../common/native.js';
+import { FocusMode, ICommonNativeHostService, INativeHostOptions, INativeSystemWideKeybinding, INativeSystemWideKeybindingResult, IOSProperties, IOSStatistics, IStartTracingOptions, IToastOptions, IToastResult, IUninstallShellCommandOptions, PowerSaveBlockerType, SystemIdleState, ThermalState } from '../common/native.js';
 import { IGlobalKeybindingsMainService } from '../../globalKeybindings/electron-main/globalKeybindingsMainService.js';
 import { IProductService } from '../../product/common/productService.js';
 import { IPartsSplash } from '../../theme/common/themeService.js';
@@ -517,14 +517,29 @@ export class NativeHostMainService extends Disposable implements INativeHostMain
 		}
 	}
 
-	async uninstallShellCommand(windowId: number | undefined): Promise<void> {
-		const { source } = await this.getShellCommandLink();
+	async uninstallShellCommand(windowId: number | undefined, options?: IUninstallShellCommandOptions): Promise<void> {
+		const source = this.getShellCommandSource(options?.commandName);
+
+		if (options?.symlinkOnly) {
+			try {
+				const { symbolicLink } = await SymlinkSupport.stat(source);
+				if (!symbolicLink) {
+					throw new Error(localize('notShellCommandLink', "Refusing to remove '{0}' because it is not a symbolic link.", source));
+				}
+			} catch (error) {
+				if (error.code === 'ENOENT') {
+					return;
+				}
+				throw error;
+			}
+		}
 
 		try {
 			await fs.promises.unlink(source);
 		} catch (error) {
 			switch (error.code) {
-				case 'EACCES': {
+				case 'EACCES':
+				case 'EPERM': {
 					const { response } = await this.showMessageBox(windowId, {
 						type: 'info',
 						message: localize('warnEscalationUninstall', "{0} will now prompt with 'osascript' for Administrator privileges to uninstall the shell command.", this.productService.nameShort),
@@ -539,7 +554,10 @@ export class NativeHostMainService extends Disposable implements INativeHostMain
 					}
 
 					try {
-						const command = `osascript -e "do shell script \\"rm \'${source}\'\\" with administrator privileges"`;
+						const removeCommand = options?.symlinkOnly
+							? `if [ -L '${source}' ]; then rm '${source}'; elif [ -e '${source}' ]; then exit 64; fi`
+							: `rm '${source}'`;
+						const command = `osascript -e "do shell script \\"${removeCommand}\\" with administrator privileges"`;
 						await promisify(exec)(command);
 					} catch (error) {
 						throw new Error(localize('cantUninstall', "Unable to uninstall the shell command '{0}'.", source));
@@ -556,7 +574,7 @@ export class NativeHostMainService extends Disposable implements INativeHostMain
 
 	private async getShellCommandLink(): Promise<{ readonly source: string; readonly target: string }> {
 		const target = resolve(this.environmentMainService.appRoot, 'bin', 'code');
-		const source = `/usr/local/bin/${this.productService.applicationName}`;
+		const source = this.getShellCommandSource();
 
 		// Ensure source exists
 		const sourceExists = await Promises.exists(target);
@@ -565,6 +583,13 @@ export class NativeHostMainService extends Disposable implements INativeHostMain
 		}
 
 		return { source, target };
+	}
+
+	private getShellCommandSource(commandName = this.productService.applicationName): string {
+		if (!/^[A-Za-z0-9._-]+$/.test(commandName) || commandName === '.' || commandName === '..') {
+			throw new Error(localize('invalidShellCommandName', "Invalid shell command name '{0}'.", commandName));
+		}
+		return `/usr/local/bin/${commandName}`;
 	}
 
 	//#endregion

@@ -81,6 +81,7 @@ import { clearReopenPending, markReopenPending } from "../review-reopen-marker";
 import { devReviewHome } from "../review-storage";
 import { readReviewSoftwareMapBundle } from "../software-map-bundle";
 import { createTutorialAuthoringSession } from "../tutorial-authoring-session";
+import { ensureTutorialLiveReviewPage } from "../tutorial-live-page";
 import type { ReviewSubmissionEvent } from "../types";
 import {
   REVIEW_APP_SESSION_ID_HEADER,
@@ -520,17 +521,11 @@ export function createGlobalReviewServer(
         "invalid_revision",
       );
     }
-    const requestedRevision =
-      typeof openBody?.revision === "string" &&
-      openBody.revision !== review.review.presentedDocumentRevision
-        ? openBody.revision
-        : undefined;
-    if (requestedRevision) {
-      return openHistoricalReviewSession(
-        review,
-        requestedRevision,
-        appSessionId,
-        descriptor,
+    if (typeof openBody?.revision === "string") {
+      throw new ReviewServerError(
+        "Live Review version history is not available yet.",
+        409,
+        "live_review_history_unsupported",
       );
     }
     /* Opening is what "viewed" means. Stamping here rather than on first
@@ -596,6 +591,7 @@ export function createGlobalReviewServer(
     }
     const active = activeSessionForReview(uuid);
     if (active) {
+      active.review = review;
       broadcastGlobal({
         event: "review-data-changed",
         uuid,
@@ -605,75 +601,6 @@ export function createGlobalReviewServer(
     return globalJson(200, { ok: true });
   });
 
-  async function openHistoricalReviewSession(
-    review: StoredReview,
-    revision: string,
-    appSessionId: string | undefined,
-    homeReview: ReviewDescriptor,
-  ): Promise<Response> {
-    const existing = [...sessions.values()].find(
-      (session) =>
-        session.review.review.uuid === review.review.uuid &&
-        session.historicalRevision === revision,
-    );
-    if (existing) {
-      existing.appSessionId ??= appSessionId;
-      void relay.dispatch(existing.descriptor.sessionId, {
-        name: "focusCanvas",
-        args: {},
-      });
-      return globalJson(200, {
-        sessionId: existing.descriptor.sessionId,
-        url: existing.descriptor.sessionUrl,
-        session: existing.descriptor,
-        review: homeReview,
-      });
-    }
-    let documentBuildDir: string;
-    try {
-      documentBuildDir = await publishRuntime.materializePublishRevision({
-        review,
-        revision,
-      });
-    } catch {
-      throw new ReviewServerError(
-        "Review version not found.",
-        404,
-        "revision_not_found",
-      );
-    }
-    const presentedReview = await reviewWithPresentedDocumentPins(
-      review,
-      documentBuildDir,
-    );
-    const presentedRecord = parseStoredReviewRecord(
-      JSON.parse(
-        await readFile(path.join(documentBuildDir, "review.json"), "utf8"),
-      ),
-    );
-    const softwareMapRootPath = presentedRecord.presentedSoftwareMapRevision
-      ? await publishRuntime.materializePublishRevision({
-          review,
-          revision: presentedRecord.presentedSoftwareMapRevision,
-        })
-      : undefined;
-    const active = await registerSerialized({
-      review: presentedReview,
-      documentPath: path.join(documentBuildDir, "review.mdx"),
-      softwareMapRootPath,
-      promoted: false,
-      historicalRevision: revision,
-      announce: true,
-      focusCanvas: true,
-      appSessionId,
-    });
-    return globalJson(201, {
-      sessionId: active.descriptor.sessionId,
-      url: active.descriptor.sessionUrl,
-      session: active.descriptor,
-      review: homeReview,
-    });
-  }
   app.post("/reviews/:uuid/dismiss", async (context) => {
     const descriptor = await setReviewDismissed(
       context.req.param("uuid"),
@@ -816,6 +743,13 @@ export function createGlobalReviewServer(
       );
       let review = await findReview(request.reviewUuid);
       if (!review) throw new ReviewServerError("Review not found.", 404);
+      if (hasLiveReviewPage(review.dir)) {
+        throw new ReviewServerError(
+          "Live Reviews are updated through renderMdx and setReviewStatus, not document publication.",
+          409,
+          "live_review_publish_unsupported",
+        );
+      }
       const agent = request.agent;
       if (agent) {
         const found = review;
@@ -1282,7 +1216,8 @@ export function createGlobalReviewServer(
       documentExists &&
       softwareMapExists &&
       existsSync(cached.checkoutRoots.baseRootPath) &&
-      existsSync(cached.checkoutRoots.headRootPath);
+      existsSync(cached.checkoutRoots.headRootPath) &&
+      hasLiveReviewPage(cached.review.dir);
     if (
       !currentReview ||
       currentReview.uuid !== cachedReview.uuid ||
@@ -1348,6 +1283,11 @@ export function createGlobalReviewServer(
       documentBuildDir,
     );
     const checkoutRoots = await ensureReviewCheckouts(presentedReview);
+    await ensureTutorialLiveReviewPage({
+      reviewDir: presentedReview.dir,
+      reviewId: presentedReview.review.uuid,
+      sourceRootPath: checkoutRoots.headRootPath,
+    });
     console.info(
       `[Review tutorial] local preparation completed in ${Date.now() - startedAt}ms.`,
     );
@@ -1725,10 +1665,12 @@ export function createGlobalReviewServer(
         sessionId,
         reviewUuid: registration.review.review.uuid,
         historicalRevision: registration.historicalRevision,
-        listDocumentVersions: async () => {
-          const latest = await findReview(registration.review.review.uuid);
-          return latest ? listReviewDocumentVersions(latest) : [];
-        },
+        listDocumentVersions: hasLiveReviewPage(registration.review.dir)
+          ? async () => []
+          : async () => {
+              const latest = await findReview(registration.review.review.uuid);
+              return latest ? listReviewDocumentVersions(latest) : [];
+            },
         session: sessionWire,
         getReviewStatus: () => active.review.review.status,
         onSubmission: (submission) => onSubmission(active, submission),

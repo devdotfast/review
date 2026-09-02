@@ -67,39 +67,56 @@ function DesktopReviewApp({
   const [softwareMapLoaded, setSoftwareMapLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const reportLoadError = (loadError: unknown) => {
+    captureClientError(sessionRef.current, "document", loadError);
+    const message =
+      loadError instanceof Error ? loadError.message : String(loadError);
+    sessionRef.current.reportDiagnostic({
+      level: "error",
+      source: "loader",
+      message,
+      ...(loadError instanceof Error && loadError.stack
+        ? { stack: loadError.stack }
+        : {}),
+    });
+    setError(message);
+  };
+
   useEffect(() => {
     let cancelled = false;
-    setDocument(null);
-    setSoftwareMap(null);
-    setSoftwareMapLoaded(false);
     setError(null);
-    void Promise.all([page, softwareMapBundle]).then(
-      ([pageValue, softwareMapValue]) => {
+    void page.then(
+      (pageValue) => {
         if (cancelled) return;
         setDocument(createLiveReviewDocument(pageValue as LiveReviewPage));
-        setSoftwareMap(softwareMapValue as PublishedSoftwareMap | null);
-        setSoftwareMapLoaded(true);
       },
       (loadError) => {
         if (cancelled) return;
-        captureClientError(sessionRef.current, "document", loadError);
-        const message =
-          loadError instanceof Error ? loadError.message : String(loadError);
-        sessionRef.current.reportDiagnostic({
-          level: "error",
-          source: "loader",
-          message,
-          ...(loadError instanceof Error && loadError.stack
-            ? { stack: loadError.stack }
-            : {}),
-        });
-        setError(message);
+        reportLoadError(loadError);
       },
     );
     return () => {
       cancelled = true;
     };
-  }, [page, softwareMapBundle]);
+  }, [page]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void softwareMapBundle.then(
+      (softwareMapValue) => {
+        if (cancelled) return;
+        setSoftwareMap(softwareMapValue as PublishedSoftwareMap | null);
+        setSoftwareMapLoaded(true);
+      },
+      (loadError) => {
+        if (cancelled) return;
+        reportLoadError(loadError);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [softwareMapBundle]);
 
   useEffect(() => {
     if (document && softwareMapLoaded && !error) session.signalReady();

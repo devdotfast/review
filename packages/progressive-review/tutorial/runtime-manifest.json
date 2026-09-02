@@ -1,10 +1,16 @@
 {
   "version": 1,
-  "reviewFiles": ["review.mdx", "data.ts", "authoring-conversation.json"],
+  "reviewFiles": [
+    "review.mdx",
+    "data.ts",
+    "fixture.ts",
+    "authoring-conversation.json"
+  ],
   "requiredPaths": [
     "sample-service/package.json",
     "review.mdx",
     "data.ts",
+    "fixture.ts",
     "authoring-conversation.json",
     "software-map.ts",
     "git-stub/HEAD",

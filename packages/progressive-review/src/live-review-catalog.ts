@@ -2,7 +2,10 @@ import { defineCatalog } from "@json-render/core";
 import { schema } from "@json-render/react/schema";
 import { z } from "zod";
 
-import { sequenceDiagramPropsSchema } from "./authoring";
+import {
+  peekableAnchorRefSchema,
+  sequenceDiagramPropsSchema,
+} from "./authoring";
 
 export const liveReviewNodePropsSchema = z.strictObject({
   nodeId: z.string().min(1),
@@ -13,6 +16,13 @@ export const liveReviewNodePropsSchema = z.strictObject({
 export const liveReviewMarkdownPropsSchema = z.strictObject({
   source: z.string().min(1),
 });
+
+export const liveReviewTutorialPropsSchema = z.strictObject({
+  anchors: z.record(z.string().min(1), peekableAnchorRefSchema),
+});
+export type LiveReviewTutorialProps = z.infer<
+  typeof liveReviewTutorialPropsSchema
+>;
 
 export const liveReviewCatalog = defineCatalog(schema, {
   components: {
@@ -32,6 +42,12 @@ export const liveReviewCatalog = defineCatalog(schema, {
       slots: [],
       description:
         "A Review-owned sequence diagram whose messages carry validated source evidence.",
+    },
+    Tutorial: {
+      props: liveReviewTutorialPropsSchema,
+      slots: [],
+      description:
+        "The trusted, shipped Review Desktop tutorial with pinned source evidence.",
     },
   },
   actions: {},

@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -10,13 +10,22 @@ import {
   compileReviewDocument,
   formatReviewDocumentDiagnostics,
 } from "../compiler/review-document-compiler";
-import { collectReviewDocumentScanForRuntime } from "../compiler/review-documents-module";
-import { REVIEW_AUTHORING_MODULE_ID } from "../compiler/review-documents-module";
+import { reviewDocumentRoutePathForFile } from "../review-paths";
 
 const DOCUMENT_MODULE_ID = "review:document";
 const ENTRY_MODULE_ID = "review:entry";
 const VIRTUAL_NAMESPACE = "review-document";
+const REVIEW_AUTHORING_MODULE_ID = "virtual:progressive-review-authoring";
 export const REVIEW_DOC_RUNTIME_SPECIFIER = "review-doc-runtime";
+
+interface ReviewDocumentManifest {
+  slug: string;
+  routePath: string;
+  filePath: string;
+  title: string;
+  modelNames: string[];
+  isDefault: boolean;
+}
 
 export interface ReviewDocumentBundle {
   code: string;
@@ -89,16 +98,13 @@ async function buildReviewDocument(
 ): Promise<{
   code?: string;
   diagnostics: ReviewDocumentDiagnostic[];
-  document?: Awaited<
-    ReturnType<typeof collectReviewDocumentScanForRuntime>
-  >["manifests"][number];
+  document?: ReviewDocumentManifest;
 }> {
-  const scan = await collectReviewDocumentScanForRuntime({
+  const documents = await collectReviewDocumentManifests({
     reviewPath: input.reviewPath,
     reviewDocumentsDir: input.reviewDocumentsDir,
-    reviewRootPath: input.reviewRootPath,
   });
-  const document = scan.manifests.find(
+  const document = documents.find(
     (candidate) => candidate.routePath === input.routePath,
   );
   if (!document) {
@@ -157,9 +163,7 @@ async function buildReviewDocument(
 }
 
 function reviewDocumentPlugin(input: {
-  document: Awaited<
-    ReturnType<typeof collectReviewDocumentScanForRuntime>
-  >["manifests"][number];
+  document: ReviewDocumentManifest;
   runtimeCode: string;
   mode: "bundle" | "validation";
 }): Plugin {
@@ -249,9 +253,7 @@ function validationEntryModuleSource(): string {
 // receives the session's request context from the canvas at mount time, so
 // one published bundle can be served from any origin.
 function authoringModuleSource(input: {
-  document: Awaited<
-    ReturnType<typeof collectReviewDocumentScanForRuntime>
-  >["manifests"][number];
+  document: ReviewDocumentManifest;
 }): string {
   return [
     `import { calls, createBrowserReviewDefinitionSession, defineSoftwareModel } from ${JSON.stringify(REVIEW_DOC_RUNTIME_SPECIFIER)};`,
@@ -272,9 +274,7 @@ function authoringModuleSource(input: {
 }
 
 function entryModuleSource(input: {
-  document: Awaited<
-    ReturnType<typeof collectReviewDocumentScanForRuntime>
-  >["manifests"][number];
+  document: ReviewDocumentManifest;
 }): string {
   return [
     `import * as reviewDocumentModule from ${JSON.stringify(DOCUMENT_MODULE_ID)};`,
@@ -290,6 +290,93 @@ function entryModuleSource(input: {
     `  isDefault: ${String(input.document.isDefault)},`,
     `});`,
   ].join("\n");
+}
+
+async function collectReviewDocumentManifests(input: {
+  reviewPath: string;
+  reviewDocumentsDir: string;
+}): Promise<ReviewDocumentManifest[]> {
+  const reviewPath = path.resolve(input.reviewPath);
+  const reviewDocumentsDir = path.resolve(input.reviewDocumentsDir);
+  const entries = await readdir(reviewDocumentsDir, {
+    withFileTypes: true,
+  }).catch(() => []);
+  const discovered = entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".mdx"))
+    .map((entry) => {
+      const filePath = path.join(reviewDocumentsDir, entry.name);
+      const routePath = reviewDocumentRoutePathForFile({
+        reviewDocumentsDir,
+        filePath,
+      });
+      if (!routePath) return null;
+      return {
+        slug: path.basename(entry.name, ".mdx"),
+        routePath,
+        filePath,
+        titleFallback: path.basename(entry.name, ".mdx"),
+        isDefault: false,
+      };
+    })
+    .filter((document) => document !== null);
+  const candidates = [
+    {
+      slug: "",
+      routePath:
+        reviewDocumentRoutePathForFile({
+          reviewDocumentsDir,
+          filePath: reviewPath,
+        }) ?? "/",
+      filePath: reviewPath,
+      titleFallback: "review",
+      isDefault: true,
+    },
+    ...discovered.filter(
+      (document) => path.resolve(document.filePath) !== reviewPath,
+    ),
+  ].sort((left, right) => left.routePath.localeCompare(right.routePath));
+
+  return Promise.all(
+    candidates.map(async (document) => {
+      const source = await readFile(document.filePath, "utf8").catch(() => "");
+      return {
+        slug: document.slug,
+        routePath: document.routePath,
+        filePath: document.filePath,
+        title: reviewDocumentTitleFromSource(source, document.titleFallback),
+        modelNames: reviewDocumentSoftwareModelNamesFromSource(source),
+        isDefault: document.isDefault,
+      };
+    }),
+  );
+}
+
+function reviewDocumentSoftwareModelNamesFromSource(source: string): string[] {
+  const names: string[] = [];
+  const pattern =
+    /export\s+const\s+([A-Za-z_$][\w$]*)\s*=\s*defineSoftwareModel\s*\(/g;
+  let match;
+  while ((match = pattern.exec(source))) names.push(match[1]);
+  return names;
+}
+
+function reviewDocumentTitleFromSource(
+  source: string,
+  fallback: string,
+): string {
+  let inFence = false;
+  for (const line of source.split(/\r?\n/)) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const match = /^#\s+(.+?)\s*$/.exec(line);
+    if (!match) continue;
+    const title = match[1].replace(/\s+#+\s*$/, "").trim();
+    if (title) return title;
+  }
+  return fallback;
 }
 
 function esbuildDiagnostics(

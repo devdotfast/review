@@ -16,7 +16,6 @@ const isolatedTests = [
   "app/src/review-panel.test.tsx",
   "app/src/review-ui-state.test.ts",
   "app/src/side-panel-resizer.test.tsx",
-  "src/compiler/review-documents-module.test.ts",
   "src/compiler/review-document-compiler.test.ts",
   "src/review-source-ref-errors.test.ts",
   "src/map-cli-entry.test.ts",

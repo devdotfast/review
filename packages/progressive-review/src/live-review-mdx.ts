@@ -100,8 +100,10 @@ export async function projectLiveReviewPage(input: {
   page: Omit<LiveReviewPage, "projection"> & { projection?: Spec };
   reviewRootPath: string;
 }): Promise<Spec> {
+  assertReviewNodeTree(input.page);
   const elements: Spec["elements"] = {};
   const diagramLabels = new Set<string>();
+  const anchorIds = new Set<string>();
   let sourceTargetPromise: ReturnType<typeof resolveReviewSourceTarget> | null =
     null;
   const sourceTarget = () =>
@@ -155,6 +157,18 @@ export async function projectLiveReviewPage(input: {
           }
           let anchor: AnchorRef | undefined;
           if (message.anchor) {
+            const anchorId =
+              message.anchor.id ??
+              `${nodeId}-${slug(raw.label)}-message-${messageIndex + 1}`;
+            if (anchorIds.has(anchorId)) {
+              throw new LiveReviewMdxError([
+                {
+                  path: `${nodeId}.SequenceDiagram.messages.${messageIndex}.anchor.id`,
+                  message: `Anchor ID must be unique: ${anchorId}`,
+                },
+              ]);
+            }
+            anchorIds.add(anchorId);
             const peek = message.anchor.peek;
             const target = await sourceTarget();
             const sourceRoot =
@@ -180,9 +194,7 @@ export async function projectLiveReviewPage(input: {
             });
             anchor = {
               __kind: "db-anchor-ref",
-              id:
-                message.anchor.id ??
-                `${nodeId}-${slug(raw.label)}-message-${messageIndex + 1}`,
+              id: anchorId,
               title: message.anchor.title ?? message.label,
               detail: message.anchor.detail,
               peek: {
@@ -247,6 +259,76 @@ export async function projectLiveReviewPage(input: {
     );
   }
   return spec;
+}
+
+function assertReviewNodeTree(input: {
+  rootNodeId: string;
+  nodes: Record<string, StoredLiveReviewNode>;
+}): void {
+  const diagnostics: RenderDiagnostic[] = [];
+  if (!input.nodes[input.rootNodeId]) {
+    throw new LiveReviewMdxError([
+      { path: "rootNodeId", message: "The Review root node is missing." },
+    ]);
+  }
+  const visited = new Set<string>();
+  const visiting = new Set<string>();
+  const parentCounts = new Map<string, number>();
+  const visit = (nodeId: string): void => {
+    const node = input.nodes[nodeId];
+    if (!node) return;
+    if (visiting.has(nodeId)) {
+      diagnostics.push({
+        path: `nodes.${nodeId}.children`,
+        message: "Review node tree contains a cycle.",
+      });
+      return;
+    }
+    if (visited.has(nodeId)) return;
+    visiting.add(nodeId);
+    visited.add(nodeId);
+    if (node.id !== nodeId) {
+      diagnostics.push({
+        path: `nodes.${nodeId}.id`,
+        message: "Review node ID must match its adjacency-list key.",
+      });
+    }
+    if (new Set(node.children).size !== node.children.length) {
+      diagnostics.push({
+        path: `nodes.${nodeId}.children`,
+        message: "Review node children must be unique.",
+      });
+    }
+    for (const childId of node.children) {
+      if (!input.nodes[childId]) {
+        diagnostics.push({
+          path: `nodes.${nodeId}.children`,
+          message: `Review child node is missing: ${childId}.`,
+        });
+        continue;
+      }
+      const parentCount = (parentCounts.get(childId) ?? 0) + 1;
+      parentCounts.set(childId, parentCount);
+      if (parentCount > 1) {
+        diagnostics.push({
+          path: `nodes.${childId}`,
+          message: "Review node must have exactly one parent.",
+        });
+      }
+      visit(childId);
+    }
+    visiting.delete(nodeId);
+  };
+  visit(input.rootNodeId);
+  for (const nodeId of Object.keys(input.nodes)) {
+    if (!visited.has(nodeId)) {
+      diagnostics.push({
+        path: `nodes.${nodeId}`,
+        message: "Review node is not reachable from the root.",
+      });
+    }
+  }
+  if (diagnostics.length > 0) throw new LiveReviewMdxError(diagnostics);
 }
 
 type ParsedBlock =

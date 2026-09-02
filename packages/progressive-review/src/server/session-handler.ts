@@ -245,6 +245,12 @@ export async function createReviewSessionHandler(
   });
   app.get(`${API_PREFIX}/page`, () => {
     const page = readLiveReviewPage(reviewRootPath);
+    if (page && input.reviewUuid && page.id !== input.reviewUuid) {
+      return jsonResponse(
+        { ok: false, error: "Live Review page identity does not match" },
+        409,
+      );
+    }
     return page
       ? jsonResponse({ ok: true, page }, 200)
       : jsonResponse({ ok: false, error: "Live Review page not found" }, 404);

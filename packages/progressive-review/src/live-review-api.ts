@@ -66,7 +66,8 @@ export function createReviewApi(
       throw new Error("reviewId is required until a Review has been opened.");
     }
     const review = await findReview(resolvedId);
-    if (!review || !readLiveReviewPage(review.dir)) {
+    const page = review ? readLiveReviewPage(review.dir) : null;
+    if (!review || !page || page.id !== review.review.uuid) {
       throw new Error(`Live Review not found: ${resolvedId}`);
     }
     return review;
@@ -76,13 +77,18 @@ export function createReviewApi(
     const page = readLiveReviewPage(review.dir);
     if (!page)
       throw new Error(`Live Review page is missing: ${review.review.uuid}`);
+    if (page.id !== review.review.uuid) {
+      throw new Error(
+        `Live Review page ID does not match ${review.review.uuid}.`,
+      );
+    }
     return page;
   };
 
   const info = (review: StoredReview, page: LiveReviewPage): BasicInfo => ({
     reviewId: page.id,
     title: page.nodes[page.rootNodeId]?.title ?? review.review.title,
-    status: page.status,
+    status: liveStatusForStored(review.review.status),
     rootNodeId: page.rootNodeId,
     nodeCount: Object.keys(page.nodes).length,
     binding: bindingFor(review),
@@ -151,7 +157,7 @@ export function createReviewApi(
         summaries.push({
           id: page.id,
           title: page.nodes[page.rootNodeId]?.title ?? review.review.title,
-          status: page.status,
+          status: liveStatusForStored(review.review.status),
           updatedAt: page.updatedAt,
           binding: bindingFor(review),
           matchesCheckout: await computeSync(review.review, reviewRoot),
@@ -191,8 +197,6 @@ export function createReviewApi(
             children: [],
           },
         },
-        status: "awaiting-agent" as const,
-        presentedVersionId: null,
         version: 0,
         updatedAt: now().toISOString(),
       };
@@ -302,16 +306,6 @@ export function createReviewApi(
         };
       }
       commitLiveReviewPage(review.dir, next, page.version);
-      if (
-        renderInput.mode === "replace" &&
-        nodeId === page.rootNodeId &&
-        renderInput.title?.trim()
-      ) {
-        await writePrivateJsonAtomic(path.join(review.dir, "review.json"), {
-          ...review.review,
-          title: renderInput.title.trim(),
-        });
-      }
       await notifyPageUpdated(review.review.uuid);
       return {
         ok: true,
@@ -324,29 +318,28 @@ export function createReviewApi(
 
     async setReviewStatus(statusInput) {
       const review = await requireReview(statusInput.reviewId);
+      if (statusInput.status !== "awaiting-review") {
+        throw new Error(
+          "The model-facing Review API may only hand work to the reader.",
+        );
+      }
+      if (
+        review.review.status === "accepted" ||
+        review.review.status === "rejected"
+      ) {
+        throw new Error("A terminal Review cannot change lifecycle status.");
+      }
       const page = readPage(review);
-      const next: LiveReviewPage = {
-        ...page,
-        status: statusInput.status,
-        version: page.version + 1,
-        updatedAt: now().toISOString(),
-      };
-      commitLiveReviewPage(review.dir, next, page.version);
-      await writePrivateJsonAtomic(path.join(review.dir, "review.json"), {
+      const nextReview = {
         ...review.review,
         status: storedStatus(statusInput.status),
-      });
-      await notifyPageUpdated(review.review.uuid);
-      return info(
-        {
-          ...review,
-          review: {
-            ...review.review,
-            status: storedStatus(statusInput.status),
-          },
-        },
-        next,
+      };
+      await writePrivateJsonAtomic(
+        path.join(review.dir, "review.json"),
+        nextReview,
       );
+      await notifyPageUpdated(review.review.uuid);
+      return info({ ...review, review: nextReview }, page);
     },
   };
 }
@@ -379,4 +372,13 @@ function storedStatus(
   status: LiveReviewStatus,
 ): StoredReview["review"]["status"] {
   return status === "awaiting-agent" ? "awaiting-agent-updates" : status;
+}
+
+function liveStatusForStored(
+  status: StoredReview["review"]["status"],
+): LiveReviewStatus {
+  if (status === "draft" || status === "awaiting-agent-updates") {
+    return "awaiting-agent";
+  }
+  return status;
 }

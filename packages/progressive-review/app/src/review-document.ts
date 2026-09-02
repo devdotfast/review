@@ -1,3 +1,4 @@
+import type { Spec } from "@json-render/core";
 import type { ComponentType } from "react";
 
 import type { AnchorRef } from "../../src/authoring";
@@ -11,6 +12,7 @@ export interface ReadyReviewDocumentEntry {
   documentSoftwareModels: NormalizedSoftwareModel[];
   anchors: ReadonlyMap<string, AnchorRef>;
   anchorContents: ReadonlyMap<string, string>;
+  liveSpec?: Spec;
   Component: ComponentType<{ components?: Record<string, unknown> }>;
   isDefault: boolean;
 }

@@ -101,8 +101,6 @@ export interface LiveReviewPage {
   id: string;
   rootNodeId: string;
   nodes: Record<string, StoredLiveReviewNode>;
-  status: LiveReviewStatus;
-  presentedVersionId: string | null;
   version: number;
   updatedAt: string;
   projection: Spec;

@@ -54,7 +54,10 @@ export function ReviewHistoryControl(): ReactElement | null {
     };
   }, [open]);
 
-  if (historicalRevision || (!tutorial && !Array.isArray(versions))) {
+  if (
+    historicalRevision ||
+    (!tutorial && (!Array.isArray(versions) || versions.length === 0))
+  ) {
     return null;
   }
   const versionItems = Array.isArray(versions) ? versions : [];

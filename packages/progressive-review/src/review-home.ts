@@ -28,6 +28,7 @@ import {
   parseAuthoringSessionKey,
   parseFreshSourceSessionHarness,
 } from "./authoring-session";
+import { readLiveReviewPage } from "./live-review-store";
 import { type DismissedRetentionDays, reviewReapsAt } from "./review-attention";
 import {
   remapReviewCodeDrafts,
@@ -413,13 +414,16 @@ export async function reviewDescriptor(
   retentionDays: DismissedRetentionDays = DEFAULT_DISMISSED_RETENTION_DAYS,
 ): Promise<ReviewDescriptor> {
   const documentPath = path.join(stored.dir, "review.mdx");
+  const livePage = readLiveReviewPage(stored.dir);
+  const liveRoot = livePage?.nodes[livePage.rootNodeId];
   const [reviewDirExists, worktreeExists, documentStats] = await Promise.all([
     pathExists(stored.dir),
     pathExists(stored.review.worktreePath),
     statIfExists(documentPath),
   ]);
   const documentExists = documentStats !== null;
-  const available = reviewDirExists && worktreeExists && documentExists;
+  const available =
+    reviewDirExists && worktreeExists && (Boolean(livePage) || documentExists);
   /* Same diff target as the review document (resolveRequestDiffTarget):
      the pinned baseCommit..sourceCommit from review.json. An empty diff
      reports null so the views omit the numbers, as the document does. */
@@ -448,7 +452,7 @@ export async function reviewDescriptor(
   const commentCount = documentExists ? countReviewComments(documentPath) : 0;
   return {
     uuid: stored.review.uuid,
-    title: stored.review.title,
+    title: liveRoot?.title ?? stored.review.title,
     status: stored.review.status,
     worktreePath: stored.review.worktreePath,
     repoKey: stored.review.repoKey,
@@ -460,8 +464,11 @@ export async function reviewDescriptor(
     pullRequestUrl: stored.review.pullRequestUrl ?? null,
     diffStats,
     commentCount,
-    documentUpdatedAt: documentStats?.mtime.toISOString() ?? null,
-    presentedDocumentRevision: stored.review.presentedDocumentRevision,
+    documentUpdatedAt:
+      livePage?.updatedAt ?? documentStats?.mtime.toISOString() ?? null,
+    presentedDocumentRevision: livePage
+      ? null
+      : stored.review.presentedDocumentRevision,
     presentedSoftwareMapRevision: stored.review.presentedSoftwareMapRevision,
     lastPublishedAt: stored.review.lastPublishedAt,
     available,

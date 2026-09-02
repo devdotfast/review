@@ -17,7 +17,9 @@ test("presented telemetry follows a successful visible canvas ready signal", asy
     readFile(desktopEntryUrl, "utf8"),
   ]);
 
-  assert.match(desktopEntry, /Promise\.all\(\[page, softwareMapBundle\]\)/);
+  assert.match(desktopEntry, /void page\.then\(/);
+  assert.match(desktopEntry, /void softwareMapBundle\.then\(/);
+  assert.doesNotMatch(desktopEntry, /setDocument\(null\)/);
   assert.match(
     desktopEntry,
     /if \(document && softwareMapLoaded && !error\) session\.signalReady\(\)/,

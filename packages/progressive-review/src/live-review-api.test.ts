@@ -7,8 +7,8 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  createReviewApi,
   LiveReviewDesktopRequestError,
+  createReviewApi,
 } from "./live-review-api";
 import type { BasicInfo } from "./live-review-types";
 
@@ -22,8 +22,44 @@ const discovery: ReviewDesktopDiscovery = {
   startedAt: 1,
 };
 describe("live Review API transport", () => {
+  it("forwards the invoking agent session on create and open", async () => {
+    const bodies: unknown[] = [];
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      const request = new Request(input, init);
+      if (new URL(request.url).pathname === "/health") return healthResponse();
+      bodies.push(await request.json());
+      return json({ sessionId: "session-1", info: fixtureInfo() }, 200);
+    });
+    const api = createReviewApi(
+      { cwd: "/repo" },
+      {
+        readDiscovery: async () => discovery,
+        fetch,
+        env: { CODEX_THREAD_ID: "thread-123" },
+      },
+    );
+
+    await api.createReview({
+      source: { kind: "current-checkout" },
+      title: "Session-aware Review",
+    });
+    await api.openReview({ reviewId: fixtureInfo().reviewId });
+
+    expect(bodies).toEqual([
+      {
+        cwd: path.resolve("/repo"),
+        source: { kind: "current-checkout" },
+        title: "Session-aware Review",
+        agent: { harness: "codex", sessionId: "thread-123" },
+      },
+      { agent: { harness: "codex", sessionId: "thread-123" } },
+    ]);
+  });
+
   it("is a thin authenticated client with stable default Review state", async () => {
     const requests: Request[] = [];
+    let createBody: unknown;
+    let renderBody: unknown;
     const info = fixtureInfo();
     const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
       const request = new Request(input, init);
@@ -32,20 +68,11 @@ describe("live Review API transport", () => {
       if (url.pathname === "/health") return healthResponse();
       expect(request.headers.get("x-review-token")).toBe(discovery.token);
       if (url.pathname === "/live-reviews" && request.method === "POST") {
-        expect(await request.json()).toEqual({
-          cwd: path.resolve("/repo"),
-          source: { kind: "current-checkout" },
-          title: "Transport tracer",
-        });
+        createBody = await request.json();
         return json({ sessionId: "session-1", info }, 201);
       }
       if (url.pathname.endsWith("/render")) {
-        expect(await request.json()).toEqual({
-          targetNodeId: "root",
-          mode: "append",
-          title: "Child",
-          mdx: "Body",
-        });
+        renderBody = await request.json();
         return json({
           ok: true,
           reviewId: info.reviewId,
@@ -78,7 +105,14 @@ describe("live Review API transport", () => {
       }
       throw new Error(`Unexpected request: ${request.method} ${url.pathname}`);
     });
-    const launchDesktop = vi.fn(async () => ({
+    const launchDesktop = vi.fn<
+      () => Promise<{
+        event: "app";
+        action: "launch";
+        state: "running";
+        instanceId: string;
+      }>
+    >(async () => ({
       event: "app" as const,
       action: "launch" as const,
       state: "running" as const,
@@ -90,6 +124,7 @@ describe("live Review API transport", () => {
         fetch,
         readDiscovery: async () => discovery,
         launchDesktop,
+        env: {},
       },
     );
 
@@ -121,6 +156,17 @@ describe("live Review API transport", () => {
       api.setReviewStatus({ status: "awaiting-review" }),
     ).resolves.toMatchObject({ status: "awaiting-review" });
     await expect(api.getBasicInfo()).resolves.toEqual(info);
+    expect(createBody).toEqual({
+      cwd: path.resolve("/repo"),
+      source: { kind: "current-checkout" },
+      title: "Transport tracer",
+    });
+    expect(renderBody).toEqual({
+      targetNodeId: "root",
+      mode: "append",
+      title: "Child",
+      mdx: "Body",
+    });
     expect(launchDesktop).not.toHaveBeenCalled();
     expect(
       requests.filter((request) => new URL(request.url).pathname !== "/health"),
@@ -129,10 +175,17 @@ describe("live Review API transport", () => {
 
   it("launches once when Desktop is absent, then uses the discovered token", async () => {
     const readDiscovery = vi
-      .fn()
+      .fn<() => Promise<ReviewDesktopDiscovery | null>>()
       .mockResolvedValueOnce(null)
       .mockResolvedValue(discovery);
-    const launchDesktop = vi.fn(async () => ({
+    const launchDesktop = vi.fn<
+      () => Promise<{
+        event: "app";
+        action: "launch";
+        state: "launched";
+        instanceId: string;
+      }>
+    >(async () => ({
       event: "app" as const,
       action: "launch" as const,
       state: "launched" as const,
@@ -146,7 +199,7 @@ describe("live Review API transport", () => {
     });
     const api = createReviewApi(
       { cwd: "/repo" },
-      { readDiscovery, launchDesktop, fetch },
+      { readDiscovery, launchDesktop, fetch, env: {} },
     );
 
     await expect(api.listReviews()).resolves.toEqual([]);
@@ -180,7 +233,7 @@ describe("live Review API transport", () => {
     });
     const api = createReviewApi(
       { cwd: "/repo" },
-      { readDiscovery: async () => discovery, fetch },
+      { readDiscovery: async () => discovery, fetch, env: {} },
     );
     await api.openReview({ reviewId: fixtureInfo().reviewId });
 
@@ -224,7 +277,7 @@ describe("live Review API transport", () => {
     });
     const api = createReviewApi(
       { cwd: "/repo" },
-      { readDiscovery: async () => discovery, fetch },
+      { readDiscovery: async () => discovery, fetch, env: {} },
     );
 
     await expect(api.listReviews()).rejects.toMatchObject({
@@ -233,7 +286,7 @@ describe("live Review API transport", () => {
       message: "Unauthorized",
     });
     malformed = true;
-    await expect(api.listReviews()).rejects.toThrow();
+    await expect(api.listReviews()).rejects.toThrow("Invalid input");
   });
 });
 

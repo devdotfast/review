@@ -5,7 +5,8 @@ import path from "node:path";
 import { currentHead } from "@dev.fast/local-vcs";
 import type { ReviewAuthoringTarget } from "@dev.fast/review-protocol";
 
-import { projectLiveReviewPage, parentIdForNode } from "../live-review-mdx";
+import { type SessionRef, authoringSessionKey } from "../authoring-session";
+import { parentIdForNode, projectLiveReviewPage } from "../live-review-mdx";
 import {
   commitLiveReviewPage,
   initializeLiveReviewPage,
@@ -20,10 +21,10 @@ import type {
   ReviewSummary,
 } from "../live-review-types";
 import {
+  type StoredReview,
   computeSync,
   createReviewDir,
   listReviews,
-  type StoredReview,
 } from "../review-home";
 import { resolveReviewRoot } from "../runtime";
 import { writePrivateJsonAtomic } from "./desktop-paths";
@@ -93,6 +94,7 @@ export async function listLiveReviews(input: {
 export async function createLiveReview(input: {
   cwd: string;
   title: string;
+  agent?: SessionRef;
 }): Promise<LiveReviewCreateOutcome> {
   const title = input.title.trim();
   if (!title) throw new Error("Review title must not be empty.");
@@ -106,6 +108,7 @@ export async function createLiveReview(input: {
     baseCommit: head.commit,
     sourceCommit: head.commit,
     title,
+    ...(input.agent ? { sourceSession: authoringSessionKey(input.agent) } : {}),
   });
   try {
     const rootNodeId = "root";

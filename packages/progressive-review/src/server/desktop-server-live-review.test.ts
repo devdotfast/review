@@ -65,6 +65,17 @@ describe("Review Desktop live Review transport", () => {
       const uuid = String(
         (created.body as { info: { reviewId: string } }).info.reviewId,
       );
+      const initialPageResponse = await liveRequest(
+        server.url,
+        `/live-reviews/${uuid}/page`,
+      );
+      const initialPage = await initialPageResponse.json();
+      expect(initialPageResponse.status).toBe(200);
+      expect(initialPage).toMatchObject({
+        ok: true,
+        page: { id: uuid, rootNodeId: "root", version: 0 },
+        authoringTarget: null,
+      });
       const rendered = await liveJson(
         server.url,
         `/live-reviews/${uuid}/render`,
@@ -90,6 +101,15 @@ describe("Review Desktop live Review transport", () => {
         },
       );
       expect(rendered.response.status).toBe(200);
+      const updatedPageResponse = await liveRequest(
+        server.url,
+        `/live-reviews/${uuid}/page`,
+      );
+      expect(await updatedPageResponse.json()).toMatchObject({
+        ok: true,
+        page: { id: uuid, version: 1 },
+        authoringTarget: { targetNodeId: "root", sectionNodeId: null },
+      });
       const stored = await findReview(uuid);
       const page = readLiveReviewPage(stored!.dir)!;
       expect(Object.values(page.projection.elements)).toContainEqual(
@@ -209,6 +229,7 @@ Open <AnchorLink anchor={{ id: "shared-source", title: "Shared source", peek: { 
         cwd: repoRoot,
         source: { kind: "current-checkout" },
         title: "Server-owned tracer",
+        agent: { harness: "codex", sessionId: "source-thread" },
       };
       const unauthorized = await fetch(`${server.url}/live-reviews`, {
         method: "POST",
@@ -241,6 +262,10 @@ Open <AnchorLink anchor={{ id: "shared-source", title: "Shared source", peek: { 
 
       const stored = await findReview(createResult.info.reviewId);
       expect(stored?.review.status).toBe("awaiting-agent-updates");
+      expect(stored?.review.sourceSession).toBe("codex:source-thread");
+      expect(stored?.review.agentSessions).toMatchObject({
+        "codex:source-thread": { roles: ["author"] },
+      });
       expect(readLiveReviewPage(stored!.dir)).toMatchObject({ version: 0 });
 
       const rejectedBody = {

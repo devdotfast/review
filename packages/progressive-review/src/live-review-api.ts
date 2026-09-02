@@ -3,8 +3,12 @@ import path from "node:path";
 import type { ReviewDesktopDiscovery } from "@dev.fast/review-protocol";
 
 import {
-  readHealthyReviewDesktopDiscovery,
+  type EnvironmentValues,
+  resolveAuthoringSessionRef,
+} from "./authoring-session";
+import {
   type ReviewDesktopHealthDependencies,
+  readHealthyReviewDesktopDiscovery,
 } from "./desktop-discovery";
 import {
   parseLiveReviewBasicInfo,
@@ -30,6 +34,7 @@ export type {
 
 interface LiveReviewApiDependencies extends ReviewDesktopHealthDependencies {
   launchDesktop?: typeof runReviewAppLaunch;
+  env?: EnvironmentValues;
 }
 
 export class LiveReviewDesktopRequestError extends Error {
@@ -51,6 +56,7 @@ export function createReviewApi(
 ): ReviewAPI {
   const cwd = path.resolve(input.cwd);
   const fetch = dependencies.fetch ?? globalThis.fetch;
+  const agent = resolveAuthoringSessionRef(dependencies.env ?? process.env);
   let defaultReviewId: string | undefined;
   let connecting: Promise<ReviewDesktopDiscovery> | undefined;
 
@@ -138,6 +144,7 @@ export function createReviewApi(
             cwd,
             source: createInput.source,
             title: createInput.title,
+            ...(agent ? { agent } : {}),
           },
         }),
       );
@@ -149,6 +156,7 @@ export function createReviewApi(
       const info = parseLiveReviewBootstrapResponse(
         await request(`/live-reviews/${encodeURIComponent(requestedId)}/open`, {
           method: "POST",
+          body: agent ? { agent } : {},
         }),
       );
       defaultReviewId = info.reviewId;

@@ -779,13 +779,8 @@ export interface ReviewCanvasBridge {
   readonly comments: ReviewCommentStoreBridge;
   readonly inlineEditors: ReviewInlineEditorFactory;
   readonly diffView: ReviewDiffViewFactory;
-  request(url: string, init?: RequestInit): Promise<Response>;
   post(request: ReviewVerbRequest): Promise<ReviewVerbResponse>;
   subscribe(listener: (event: ReviewSurfaceEvent) => void): ReviewDisposable;
-  currentAuthoringTarget(): ReviewAuthoringTarget | null;
-  onDidChangeAuthoringTarget(
-    listener: (target: ReviewAuthoringTarget) => void,
-  ): ReviewDisposable;
   currentTheme(): ReviewTheme;
   onDidChangeTheme(listener: (theme: ReviewTheme) => void): ReviewDisposable;
   ready(): void;
@@ -996,7 +991,7 @@ export type ReviewCanvasContent =
   | {
       kind: "session";
       bridge: ReviewCanvasBridge;
-      page: Promise<unknown>;
+      reviewUuid: string;
       softwareMap: Promise<unknown | null>;
       softwareMapEnabled: boolean;
       reviewErrors: readonly ReviewListError[];
@@ -1528,7 +1523,6 @@ export const ReviewDesktopGlobalEventSchema = z.discriminatedUnion("event", [
   z.strictObject({
     event: z.literal("review-data-changed"),
     uuid: z.uuid({ error: "must be a UUID" }),
-    sessionId: requiredString,
   }),
   z.strictObject({
     event: z.literal("review-authoring-target-changed"),

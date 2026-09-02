@@ -134,38 +134,6 @@ test("open uses the returned descriptors without listing reviews", async (t) => 
 	service.dispose();
 });
 
-test("authoring targets use a dedicated ephemeral cache and event", () => {
-	const service = serviceWith([review]);
-	const targets: unknown[] = [];
-	let pageChanges = 0;
-	service.onDidChangeReviewAuthoringTarget((event) => targets.push(event.target));
-	service.onDidChangeReviewData(() => {
-		pageChanges += 1;
-	});
-	const accept = Reflect.get(service, "acceptGlobalEvent") as (
-		event: unknown,
-	) => void;
-
-	accept.call(service, {
-		event: "review-authoring-target-changed",
-		uuid,
-		target: { targetNodeId: "nested", sectionNodeId: "section" },
-	});
-
-	assert.deepEqual(service.currentReviewAuthoringTarget(uuid), {
-		targetNodeId: "nested",
-		sectionNodeId: "section",
-	});
-	assert.deepEqual(targets, [
-		{ targetNodeId: "nested", sectionNodeId: "section" },
-	]);
-	assert.equal(pageChanges, 0);
-
-	accept.call(service, { event: "review-deleted", uuid });
-	assert.equal(service.currentReviewAuthoringTarget(uuid), null);
-	service.dispose();
-});
-
 test("tutorial auto-prepare runs at most once per app process", async (t) => {
 	const service = serviceWith();
 	let requests = 0;

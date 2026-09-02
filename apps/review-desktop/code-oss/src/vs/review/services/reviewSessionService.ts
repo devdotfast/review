@@ -21,7 +21,6 @@ import {
 	type ReviewCliInstallApplyResponse,
 	type ReviewCliInstallStatus,
 	type ReviewCliInstallTarget,
-	type ReviewAuthoringTarget,
 	type ReviewDescriptor,
 	type ReviewDesktopGlobalEvent,
 	type ReviewListError,
@@ -48,16 +47,6 @@ export interface ReviewSessionConnection {
 	readonly serverUrl: string;
 	readonly token: string;
 }
-
-export type ReviewDataChangedEvent = Extract<
-	ReviewDesktopGlobalEvent,
-	{ event: "review-data-changed" }
->;
-
-export type ReviewAuthoringTargetChangedEvent = Extract<
-	ReviewDesktopGlobalEvent,
-	{ event: "review-authoring-target-changed" }
->;
 
 export type ReviewThreadsCommittedEvent = Extract<
 	ReviewDesktopGlobalEvent,
@@ -87,10 +76,6 @@ export const IReviewSessionService = createDecorator<IReviewSessionService>(
 export interface IReviewSessionService {
 	readonly _serviceBrand: undefined;
 	readonly onDidChangeLists: Event<void>;
-	readonly onDidChangeReviewData: Event<ReviewDataChangedEvent>;
-	readonly onDidChangeReviewAuthoringTarget: Event<
-		ReviewAuthoringTargetChangedEvent
-	>;
 	readonly onDidCommitReviewThreads: Event<ReviewThreadsCommittedEvent>;
 	readonly onDidCloseSession: Event<ReviewSessionClosedEvent>;
 	readonly onDidRegisterSession: Event<ReviewSessionRegisteredEvent>;
@@ -101,9 +86,6 @@ export interface IReviewSessionService {
 	readonly reviews: readonly ReviewDescriptor[];
 	readonly reviewErrors: readonly ReviewListError[];
 	readonly tutorialReview: ReviewDescriptor | undefined;
-	currentReviewAuthoringTarget(
-		reviewUuid: string,
-	): ReviewAuthoringTarget | null;
 	initialize(): Promise<void>;
 	getConnection(): Promise<ReviewSessionConnection>;
 	refresh(): Promise<void>;
@@ -153,15 +135,6 @@ export class ReviewSessionService
 
 	private readonly _onDidChangeLists = this._register(new Emitter<void>());
 	readonly onDidChangeLists = this._onDidChangeLists.event;
-	private readonly _onDidChangeReviewData = this._register(
-		new Emitter<ReviewDataChangedEvent>(),
-	);
-	readonly onDidChangeReviewData = this._onDidChangeReviewData.event;
-	private readonly _onDidChangeReviewAuthoringTarget = this._register(
-		new Emitter<ReviewAuthoringTargetChangedEvent>(),
-	);
-	readonly onDidChangeReviewAuthoringTarget =
-		this._onDidChangeReviewAuthoringTarget.event;
 	private readonly _onDidCommitReviewThreads = this._register(
 		new Emitter<ReviewThreadsCommittedEvent>(),
 	);
@@ -182,10 +155,6 @@ export class ReviewSessionService
 	readonly onDidFail = this._onDidFail.event;
 
 	private _sessionRecords: ReviewSessionDescriptor[] = [];
-	private readonly reviewAuthoringTargets = new Map<
-		string,
-		ReviewAuthoringTarget
-	>();
 	get sessions(): readonly ReviewSessionDescriptor[] {
 		return this._sessionRecords;
 	}
@@ -203,12 +172,6 @@ export class ReviewSessionService
 	private _tutorialReview: ReviewDescriptor | undefined;
 	get tutorialReview(): ReviewDescriptor | undefined {
 		return this._tutorialReview;
-	}
-
-	currentReviewAuthoringTarget(
-		reviewUuid: string,
-	): ReviewAuthoringTarget | null {
-		return this.reviewAuthoringTargets.get(reviewUuid) ?? null;
 	}
 
 	private initializePromise: Promise<void> | null = null;
@@ -876,12 +839,11 @@ export class ReviewSessionService
 
 	private acceptGlobalEvent(event: ReviewDesktopGlobalEvent): void {
 		if (event.event === "review-data-changed") {
-			this._onDidChangeReviewData.fire(event);
+			// The React canvas owns live page invalidation directly.
 			return;
 		}
 		if (event.event === "review-authoring-target-changed") {
-			this.reviewAuthoringTargets.set(event.uuid, event.target);
-			this._onDidChangeReviewAuthoringTarget.fire(event);
+			// The React canvas consumes ephemeral authoring state directly.
 			return;
 		}
 		if (event.event === "review-threads-committed") {
@@ -929,7 +891,6 @@ export class ReviewSessionService
 			return;
 		}
 		if (event.event === "review-deleted") {
-			this.reviewAuthoringTargets.delete(event.uuid);
 			this.removeReview(event.uuid);
 			return;
 		}

@@ -23,6 +23,7 @@ const isolatedTests = [
   "src/review-source-ref-errors.test.ts",
   "src/map-cli-entry.test.ts",
   "src/review-comment-agent.test.ts",
+  "src/server/desktop-server-live-review.test.ts",
   "src/server/review-api.test.ts",
   "src/live-review-api.test.ts",
 ];

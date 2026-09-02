@@ -5,9 +5,7 @@ import {
   type ReactNode,
   createContext,
   createElement,
-  useCallback,
   useContext,
-  useSyncExternalStore,
 } from "react";
 
 import {
@@ -30,7 +28,6 @@ import { MarkdownContent } from "./agent-markdown";
 import { ReviewCodePeek } from "./CodePeek";
 import { DatabaseLens, DbRead, DbUseCase, DbWrite } from "./database-lens";
 import { SequenceDiagram } from "./diagrams";
-import { useReviewSession } from "./host/review-session";
 import { LiveTutorialDocument } from "./live-tutorial-document";
 import { AnchorLink, ReviewSection } from "./review-components";
 import { ReviewDocumentMetaLine } from "./review-doc-meta";
@@ -211,35 +208,14 @@ export function ReviewNode({
 
 function LiveReviewDocument() {
   const document = useActiveReviewDocument();
-  const authoringTarget = useLiveReviewAuthoringTarget();
   if (!document.liveSpec) {
     throw new Error("The live Review document has no validated projection.");
   }
   return (
-    <LiveReviewAuthoringTargetContext.Provider value={authoringTarget}>
-      <JSONUIProvider registry={registry}>
-        <Renderer spec={document.liveSpec} registry={registry} />
-      </JSONUIProvider>
-    </LiveReviewAuthoringTargetContext.Provider>
+    <JSONUIProvider registry={registry}>
+      <Renderer spec={document.liveSpec} registry={registry} />
+    </JSONUIProvider>
   );
-}
-
-export function useLiveReviewAuthoringTarget(): ReviewAuthoringTarget | null {
-  const { bridge } = useReviewSession();
-  const subscribe = useCallback(
-    (onStoreChange: () => void) => {
-      const disposable = bridge.onDidChangeAuthoringTarget(() =>
-        onStoreChange(),
-      );
-      return () => disposable.dispose();
-    },
-    [bridge],
-  );
-  const getSnapshot = useCallback(
-    () => bridge.currentAuthoringTarget(),
-    [bridge],
-  );
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
 export function createLiveReviewDocument(

@@ -254,6 +254,8 @@ export async function bindReviewAuthorSession(
       const freshHarness = parseFreshSourceSessionHarness(
         current.sourceSession,
       );
+      const isUnbound =
+        current.sourceSession === DISABLED_REVIEW_SOURCE_SESSION;
       const boundSession = parseAuthoringSessionKey(current.sourceSession);
       if (freshHarness && freshHarness !== session.harness) {
         throw new Error(
@@ -262,6 +264,7 @@ export async function bindReviewAuthorSession(
       }
       if (
         !freshHarness &&
+        !isUnbound &&
         (!boundSession || authoringSessionKey(boundSession) !== sessionKey)
       ) {
         throw new Error(

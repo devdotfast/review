@@ -36,6 +36,35 @@ import { appendReviewComment, readReviewComments } from "./review-state-store";
 const execFilePromise = promisify(execFile);
 
 describe("review home", () => {
+  it("binds a previously unbound Review", async () => {
+    const root = await makeGitRepository();
+    const home = await mkdtemp(path.join(os.tmpdir(), "review-home-"));
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+    try {
+      const commit = await git(root, ["rev-parse", "HEAD"]);
+      const created = await createReviewDir({
+        worktreePath: root,
+        baseRef: "main",
+        baseCommit: commit,
+        sourceCommit: commit,
+      });
+
+      const bound = await bindReviewAuthorSession(created, {
+        harness: "codex",
+        sessionId: "live-source",
+      });
+
+      expect(bound.review.sourceSession).toBe("codex:live-source");
+      expect(bound.review.agentSessions).toMatchObject({
+        "codex:live-source": { roles: ["author"] },
+      });
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(home, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("atomically replaces a fresh marker with the durable author session", async () => {
     const root = await makeGitRepository();
     const home = await mkdtemp(path.join(os.tmpdir(), "review-home-"));

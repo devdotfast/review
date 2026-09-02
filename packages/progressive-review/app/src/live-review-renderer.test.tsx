@@ -1,21 +1,24 @@
 // @vitest-environment jsdom
 
 import type { ReviewAuthoringTarget } from "@dev.fast/review-protocol";
-import { act, type ReactNode } from "react";
+import { type ReactNode, act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it } from "vitest";
 
 import type { LiveReviewPage } from "../../src/live-review-types";
 import { ReviewSessionProvider } from "./host/review-session";
 import {
-  createLiveReviewDocument,
   LiveReviewAuthoringTargetContext,
   ReviewNode,
-  useLiveReviewAuthoringTarget,
+  createLiveReviewDocument,
 } from "./live-review-renderer";
 import { testReviewSession } from "./review-session-test-utils";
 
 const activeClass = "review-live-node--authoring-active";
+const nestedTarget: ReviewAuthoringTarget = {
+  targetNodeId: "nested",
+  sectionNodeId: "section",
+};
 
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -51,9 +54,7 @@ describe("live Review renderer", () => {
     act(() => {
       root.render(
         <ReviewSessionProvider session={testReviewSession()}>
-          <LiveReviewAuthoringTargetContext.Provider
-            value={{ targetNodeId: "nested", sectionNodeId: "section" }}
-          >
+          <LiveReviewAuthoringTargetContext.Provider value={nestedTarget}>
             <ReviewNode nodeId="section" depth={1} title="Section">
               <ReviewNode nodeId="nested" depth={2} title="Nested" />
             </ReviewNode>
@@ -95,55 +96,7 @@ describe("live Review renderer", () => {
     expect(section?.getAttribute("data-review-authoring-target")).toBe("true");
     unmount();
   });
-
-  it("shows a rejected-write target without a document update", () => {
-    let target: ReviewAuthoringTarget | null = null;
-    const listeners = new Set<(target: ReviewAuthoringTarget) => void>();
-    const session = testReviewSession(
-      {},
-      {
-        currentAuthoringTarget: () => target,
-        onDidChangeAuthoringTarget: (listener) => {
-          listeners.add(listener);
-          return { dispose: () => listeners.delete(listener) };
-        },
-      },
-    );
-    const container = document.createElement("div");
-    document.body.append(container);
-    const root = createRoot(container);
-    act(() => {
-      root.render(
-        <ReviewSessionProvider session={session}>
-          <BridgeTargetNode />
-        </ReviewSessionProvider>,
-      );
-    });
-    expect(container.querySelector(`.${activeClass}`)).toBeNull();
-
-    act(() => {
-      target = { targetNodeId: "root", sectionNodeId: null };
-      for (const listener of listeners) listener(target);
-    });
-
-    expect(
-      container
-        .querySelector('[data-review-node-id="root"]')
-        ?.classList.contains(activeClass),
-    ).toBe(true);
-    act(() => root.unmount());
-    container.remove();
-  });
 });
-
-function BridgeTargetNode() {
-  const target = useLiveReviewAuthoringTarget();
-  return (
-    <LiveReviewAuthoringTargetContext.Provider value={target}>
-      <ReviewNode nodeId="root" depth={0} title="Review" />
-    </LiveReviewAuthoringTargetContext.Provider>
-  );
-}
 
 function renderNode(target: ReviewAuthoringTarget, node: ReactNode) {
   const container = document.createElement("div");

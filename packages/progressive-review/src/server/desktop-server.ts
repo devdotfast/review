@@ -41,6 +41,7 @@ import {
 import {
   liveReviewCreateRequestSchema,
   liveReviewListRequestSchema,
+  liveReviewOpenRequestSchema,
   liveReviewRenderRequestSchema,
   liveReviewStatusRequestSchema,
 } from "../live-review-transport";
@@ -68,6 +69,7 @@ import {
   removeReviewManagedCheckouts,
 } from "../review-head-checkout";
 import {
+  DISABLED_REVIEW_SOURCE_SESSION,
   type StoredReview,
   type StoredReviewRecord,
   bindReviewAuthorSession,
@@ -475,7 +477,21 @@ export function createGlobalReviewServer(
     }
   });
   app.post("/live-reviews/:uuid/open", async (context) => {
-    const review = await requireStoredLiveReview(context.req.param("uuid"));
+    const hasBody = context.req.header("content-type") !== undefined;
+    const request = liveReviewOpenRequestSchema.parse(
+      hasBody
+        ? await readBoundedRequestJson(context.req.raw, undefined, {})
+        : {},
+    );
+    let review = await requireStoredLiveReview(context.req.param("uuid"));
+    if (
+      request.agent &&
+      review.review.sourceSession === DISABLED_REVIEW_SOURCE_SESSION
+    ) {
+      const staleSession = activeSessionForReview(review.review.uuid);
+      review = await bindReviewAuthorSession(review, request.agent);
+      if (staleSession) await closeSession(staleSession, "replaced", false);
+    }
     const appSessionIdHeader = context.req.header(REVIEW_APP_SESSION_ID_HEADER);
     const opened = await openStoredLiveReview({
       review,
@@ -488,6 +504,15 @@ export function createGlobalReviewServer(
     return globalJson(opened.status, {
       ...opened.body,
       info: liveReviewInfo(opened.review),
+    });
+  });
+  app.get("/live-reviews/:uuid/page", async (context) => {
+    const review = await requireStoredLiveReview(context.req.param("uuid"));
+    return globalJson(200, {
+      ok: true,
+      page: requireLiveReviewPage(review),
+      authoringTarget:
+        liveReviewAuthoringTargets.get(review.review.uuid) ?? null,
     });
   });
   app.get("/live-reviews/:uuid", async (context) => {
@@ -962,12 +987,9 @@ export function createGlobalReviewServer(
   }
 
   function broadcastLiveReviewChange(uuid: string): void {
-    const active = activeSessionForReview(uuid);
-    if (!active) return;
     broadcastGlobal({
       event: "review-data-changed",
       uuid,
-      sessionId: active.descriptor.sessionId,
     });
   }
 
@@ -1911,13 +1933,8 @@ export function createGlobalReviewServer(
         getReviewStatus: () => active.review.review.status,
         onSubmission: (submission) => onSubmission(active, submission),
         onReviewDismiss: () => onReviewDismiss(active),
-        onReviewDataChange: () => {
-          broadcastGlobal({
-            event: "review-data-changed",
-            uuid: registration.review.review.uuid,
-            sessionId,
-          });
-        },
+        onReviewDataChange: () =>
+          broadcastLiveReviewChange(registration.review.review.uuid),
         onReviewThreadsCommit: (commit) => {
           broadcastGlobal({
             event: "review-threads-committed",

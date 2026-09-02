@@ -25,7 +25,6 @@ import {
 } from "../common/reviewProtocol.js";
 import {
 	IReviewSessionService,
-	type ReviewDataChangedEvent,
 	type ReviewSessionConnection,
 	type ReviewSessionClosedEvent,
 	type ReviewThreadsCommittedEvent,
@@ -80,7 +79,6 @@ export class ReviewSessionModel extends Disposable {
 	}
 
 	private documentRevision: string;
-	private pagePromise: Promise<unknown> | undefined;
 	private softwareMapPromise: Promise<unknown | null> | undefined;
 	private refreshPromise: Promise<void> | undefined;
 	private _comments: ReviewCommentStore;
@@ -92,7 +90,6 @@ export class ReviewSessionModel extends Disposable {
 		session: ReviewDesktopSession,
 		private readonly resolveSession: ReviewSessionResolver,
 		onDidChangeLists: Event<void>,
-		onDidChangeReviewData: Event<ReviewDataChangedEvent> = Event.None,
 		onDidCloseSession: Event<ReviewSessionClosedEvent> = Event.None,
 		private readonly shouldRefresh: ReviewSessionRefreshPredicate = () => true,
 		onDidCommitReviewThreads: Event<ReviewThreadsCommittedEvent> = Event.None,
@@ -112,15 +109,6 @@ export class ReviewSessionModel extends Disposable {
 						error,
 					);
 				});
-			}),
-		);
-		this._register(
-			onDidChangeReviewData((event) => {
-				if (event.uuid !== this.reviewUuid || this._state !== "active") {
-					return;
-				}
-				this.pagePromise = undefined;
-				this._onDidChange.fire();
 			}),
 		);
 		this._register(
@@ -185,7 +173,6 @@ export class ReviewSessionModel extends Disposable {
 					return;
 				}
 				if (this.documentRevision !== previousRevision) {
-					this.pagePromise = undefined;
 					this.softwareMapPromise = undefined;
 				}
 				this._onDidChange.fire();
@@ -210,21 +197,6 @@ export class ReviewSessionModel extends Disposable {
 		return this.refreshPromise;
 	}
 
-	resolvePage(): Promise<unknown> {
-		if (this.pagePromise) {
-			return this.pagePromise;
-		}
-		let pending: Promise<unknown>;
-		pending = this.loadPage().catch((error) => {
-			if (this.pagePromise === pending) {
-				this.pagePromise = undefined;
-			}
-			throw error;
-		});
-		this.pagePromise = pending;
-		return pending;
-	}
-
 	resolveSoftwareMap(
 		loader: ReviewSoftwareMapModuleLoader,
 	): Promise<unknown | null> {
@@ -242,26 +214,6 @@ export class ReviewSessionModel extends Disposable {
 
 	async request(url: string, init: RequestInit = {}): Promise<Response> {
 		return fetch(url, init);
-	}
-
-	private async loadPage(): Promise<unknown> {
-		const session = this._session;
-		const url = new URL(`${session.sessionUrl}/__progressive-review/page`);
-		const response = await fetch(url, {
-			headers: { "x-review-token": session.token },
-			signal: AbortSignal.timeout(30_000),
-		});
-		const payload = (await response.json()) as {
-			ok?: boolean;
-			page?: unknown;
-			error?: string;
-		};
-		if (!response.ok || payload.ok !== true || !payload.page) {
-			throw new Error(
-				payload.error ?? `Review page returned ${response.status}.`,
-			);
-		}
-		return payload.page;
 	}
 
 	private async loadSoftwareMap(
@@ -524,7 +476,6 @@ export class ReviewSessionModelService
 			session,
 			resolveSession,
 			this.sessionService.onDidChangeLists,
-			this.sessionService.onDidChangeReviewData,
 			this.sessionService.onDidCloseSession,
 			(current) => this.shouldRefreshModel(current),
 			this.sessionService.onDidCommitReviewThreads ?? Event.None,

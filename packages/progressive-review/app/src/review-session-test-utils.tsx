@@ -11,6 +11,7 @@ import type { ReactNode } from "react";
 
 import { reviewFetchUrl } from "./host/review-client";
 import {
+  type ReviewFetch,
   type ReviewSession,
   ReviewSessionProvider,
   createReviewSession,
@@ -48,11 +49,8 @@ export function testReviewBridge(
         throw new Error("unused test inline editor");
       },
     },
-    request: (url, init) => reviewFetchUrl({}, url, init),
     post: async () => ({ ok: true }),
     subscribe: () => ({ dispose() {} }),
-    currentAuthoringTarget: () => null,
-    onDidChangeAuthoringTarget: () => ({ dispose() {} }),
     currentTheme: () => "dark",
     onDidChangeTheme: () => ({ dispose() {} }),
     ready() {},
@@ -212,9 +210,15 @@ function createTestCommentStore(): ReviewCommentStoreBridge {
 
 export function testReviewSession(
   config: Partial<ReviewRuntimeConfig> = {},
-  bridge: Partial<Omit<ReviewCanvasBridge, "config">> = {},
+  overrides: Partial<Omit<ReviewCanvasBridge, "config">> & {
+    request?: ReviewFetch;
+  } = {},
 ): ReviewSession {
-  return createReviewSession(testReviewBridge(config, bridge));
+  const { request, ...bridge } = overrides;
+  return createReviewSession(
+    testReviewBridge(config, bridge),
+    request ?? ((url, init) => reviewFetchUrl({}, url, init)),
+  );
 }
 
 // Test files that are plain .ts cannot write JSX, and passing `children`

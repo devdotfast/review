@@ -230,7 +230,6 @@ const contracts: Array<[string, ZodType, Record<string, unknown>]> = [
     {
       event: "review-data-changed",
       uuid: reviewRecord.uuid,
-      sessionId: descriptor.sessionId,
     },
   ],
   [

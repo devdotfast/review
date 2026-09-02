@@ -3,13 +3,12 @@
 import type {
   ReviewAgentTraceListResponse,
   ReviewAgentTraceResponse,
-  ReviewCanvasBridge,
 } from "@dev.fast/review-protocol";
 import { act } from "react";
 import { type Root, createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ReviewSessionProvider } from "./host/review-session";
+import { type ReviewFetch, ReviewSessionProvider } from "./host/review-session";
 import { testReviewSession } from "./review-session-test-utils";
 import { ReviewTraceView } from "./ReviewTraceView";
 
@@ -79,21 +78,19 @@ describe("ReviewTraceView", () => {
   });
 
   it("loads session list and active trace detail without getting stuck in loading state", async () => {
-    const requestMock = vi
-      .fn<ReviewCanvasBridge["request"]>()
-      .mockImplementation((url) => {
-        if (url.includes("/agent-traces/session-1")) {
-          return Promise.resolve(
-            new Response(JSON.stringify(mockTraceDetail), { status: 200 }),
-          );
-        }
-        if (url.includes("/agent-traces")) {
-          return Promise.resolve(
-            new Response(JSON.stringify(mockListResponse), { status: 200 }),
-          );
-        }
-        return Promise.reject(new Error(`Unexpected URL: ${url}`));
-      });
+    const requestMock = vi.fn<ReviewFetch>().mockImplementation((url) => {
+      if (url.includes("/agent-traces/session-1")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(mockTraceDetail), { status: 200 }),
+        );
+      }
+      if (url.includes("/agent-traces")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(mockListResponse), { status: 200 }),
+        );
+      }
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    });
 
     const session = testReviewSession({}, { request: requestMock });
 
@@ -126,16 +123,14 @@ describe("ReviewTraceView", () => {
       sessions: [],
     };
 
-    const requestMock = vi
-      .fn<ReviewCanvasBridge["request"]>()
-      .mockImplementation((url) => {
-        if (url.includes("/agent-traces")) {
-          return Promise.resolve(
-            new Response(JSON.stringify(unconfiguredList), { status: 200 }),
-          );
-        }
-        return Promise.reject(new Error(`Unexpected URL: ${url}`));
-      });
+    const requestMock = vi.fn<ReviewFetch>().mockImplementation((url) => {
+      if (url.includes("/agent-traces")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(unconfiguredList), { status: 200 }),
+        );
+      }
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    });
 
     const session = testReviewSession({}, { request: requestMock });
 
@@ -198,21 +193,19 @@ describe("ReviewTraceView", () => {
       ],
     };
 
-    const requestMock = vi
-      .fn<ReviewCanvasBridge["request"]>()
-      .mockImplementation((url) => {
-        if (url.includes("/agent-traces/session-1")) {
-          return Promise.resolve(
-            new Response(JSON.stringify(traceWithThinking), { status: 200 }),
-          );
-        }
-        if (url.includes("/agent-traces")) {
-          return Promise.resolve(
-            new Response(JSON.stringify(mockListResponse), { status: 200 }),
-          );
-        }
-        return Promise.reject(new Error(`Unexpected URL: ${url}`));
-      });
+    const requestMock = vi.fn<ReviewFetch>().mockImplementation((url) => {
+      if (url.includes("/agent-traces/session-1")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(traceWithThinking), { status: 200 }),
+        );
+      }
+      if (url.includes("/agent-traces")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(mockListResponse), { status: 200 }),
+        );
+      }
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    });
 
     const session = testReviewSession({}, { request: requestMock });
 

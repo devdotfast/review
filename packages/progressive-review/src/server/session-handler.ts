@@ -14,7 +14,6 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 
 import type { ReviewAgentHarness, SessionRef } from "../authoring-session";
-import { readLiveReviewPage } from "../live-review-store";
 import type { AgentServer } from "../native-agent/native-session";
 import { resolveReviewSessionBaseCommit } from "../review-worktree-target";
 import {
@@ -33,7 +32,7 @@ import {
   isAuthorizedRequest,
   jsonResponse,
 } from "./hono-http";
-import { createReviewApi, type ReviewApi } from "./review-api";
+import { type ReviewApi, createReviewApi } from "./review-api";
 
 const API_PREFIX = "/__progressive-review";
 const MAP_MODULE_PATH_PREFIX = `${API_PREFIX}/software-map-modules/`;
@@ -242,18 +241,6 @@ export async function createReviewSessionHandler(
       { ok: true, versions: await input.listDocumentVersions() },
       200,
     );
-  });
-  app.get(`${API_PREFIX}/page`, () => {
-    const page = readLiveReviewPage(reviewRootPath);
-    if (page && input.reviewUuid && page.id !== input.reviewUuid) {
-      return jsonResponse(
-        { ok: false, error: "Live Review page identity does not match" },
-        409,
-      );
-    }
-    return page
-      ? jsonResponse({ ok: true, page }, 200)
-      : jsonResponse({ ok: false, error: "Live Review page not found" }, 404);
   });
   app.get(`${API_PREFIX}/software-map-module`, async () => {
     const bundle = await getSoftwareMapBundle();

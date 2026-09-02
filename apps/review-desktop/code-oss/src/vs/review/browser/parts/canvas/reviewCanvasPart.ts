@@ -1199,7 +1199,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			if (generation !== this.loadGeneration) {
 				return new Error("Review canvas load was superseded.");
 			}
-			const page = model.resolvePage();
 			const softwareMapEnabled = this.currentSoftwareMapEnabled();
 			const softwareMap = softwareMapEnabled
 				? model.resolveSoftwareMap(
@@ -1233,7 +1232,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					{
 					kind: "session",
 					bridge,
-					page,
+					reviewUuid: model.reviewUuid,
 					softwareMap,
 					softwareMapEnabled,
 					reviewErrors: this.sessionService.reviewErrors,
@@ -1412,16 +1411,9 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			comments: model.comments,
 			inlineEditors: this.inlineEditors,
 			diffView: this.diffViews,
-			request: (url, init) => model.request(url, init),
 			post: (request) =>
 				this.verbs.dispatch(session.session.sessionId, request),
 			subscribe: (listener) => this.surfaceEvents.event(listener),
-			currentAuthoringTarget: () =>
-				this.sessionService.currentReviewAuthoringTarget(model.reviewUuid),
-			onDidChangeAuthoringTarget: (listener) =>
-				this.sessionService.onDidChangeReviewAuthoringTarget((event) => {
-					if (event.uuid === model.reviewUuid) listener(event.target);
-				}),
 			currentTheme: () => this.colorScheme(),
 			onDidChangeTheme: (listener) => this.themeEvents.event(listener),
 			ready: () => {
@@ -1486,7 +1478,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		try {
 			const assets = await this.loadAssets();
 			const session = await this.resolveValidationSession(sessionId);
-			const pagePromise = this.loadValidationPage(session);
 			const softwareMapPromise = this.loadValidationSoftwareMap(session);
 			const request = (endpoint: string, init: RequestInit = {}) => {
 				const url = new URL(
@@ -1536,13 +1527,10 @@ export class ReviewCanvasEditorPane extends EditorPane {
 						onDidError: () => ({ dispose: () => undefined }),
 					}),
 				},
-				request: (url, init) => fetch(url, init),
 				// Verbs act on the visible workbench; a validation mount must not
 				// touch it, so verb posts succeed as no-ops.
 				post: async () => ({ ok: true }),
 				subscribe: () => ({ dispose: () => undefined }),
-				currentAuthoringTarget: () => null,
-				onDidChangeAuthoringTarget: () => ({ dispose: () => undefined }),
 				currentTheme: () => this.colorScheme(),
 				onDidChangeTheme: () => ({ dispose: () => undefined }),
 				ready: () => {
@@ -1572,7 +1560,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			handle = assets.mountReviewCanvas(container, {
 				kind: "session",
 				bridge,
-				page: pagePromise,
+				reviewUuid: session.review.uuid,
 				softwareMap: softwareMapPromise,
 				softwareMapEnabled: true,
 				reviewErrors: this.sessionService.reviewErrors,
@@ -1678,27 +1666,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			review,
 			session: payload.session as ReviewDesktopSession["session"],
 		};
-	}
-
-	private async loadValidationPage(
-		session: ReviewDesktopSession,
-	): Promise<unknown> {
-		const url = new URL(`${session.sessionUrl}/__progressive-review/page`);
-		const response = await fetch(url, {
-			headers: { "x-review-token": session.token },
-			signal: AbortSignal.timeout(30_000),
-		});
-		const payload = (await response.json()) as {
-			ok?: boolean;
-			page?: unknown;
-			error?: string;
-		};
-		if (!response.ok || payload.ok !== true || !payload.page) {
-			throw new Error(
-				payload.error ?? `Review page returned ${response.status}.`,
-			);
-		}
-		return payload.page;
 	}
 
 	private async loadValidationSoftwareMap(

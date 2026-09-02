@@ -38,13 +38,21 @@ export interface ReviewSession {
   reportDiagnostic(diagnostic: ReviewCanvasDiagnostic): void;
 }
 
-export function createReviewSession(bridge: ReviewCanvasBridge): ReviewSession {
+export type ReviewFetch = (
+  url: string,
+  init?: RequestInit,
+) => Promise<Response>;
+
+export function createReviewSession(
+  bridge: ReviewCanvasBridge,
+  fetchUrl: ReviewFetch = (url, init) => globalThis.fetch(url, init),
+): ReviewSession {
   const config = bridge.config;
   const appSessionId = bridge.appSessionId ?? createReviewAppSessionId();
   const request = (url: string | URL, init: RequestInit = {}) => {
     const headers = new Headers(init.headers);
     if (config.token) headers.set("x-review-token", config.token);
-    return bridge.request(String(url), { ...init, headers });
+    return fetchUrl(String(url), { ...init, headers });
   };
   return {
     appSessionId,

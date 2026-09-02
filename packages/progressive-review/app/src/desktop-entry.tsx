@@ -1,4 +1,5 @@
 import type {
+  ReviewAuthoringTarget,
   ReviewCanvasContent,
   ReviewCanvasHandle,
 } from "@dev.fast/review-protocol";
@@ -13,7 +14,10 @@ import {
   createReviewSession,
   useReviewSession,
 } from "./host/review-session";
-import { createLiveReviewDocument } from "./live-review-renderer";
+import {
+  LiveReviewAuthoringTargetContext,
+  createLiveReviewDocument,
+} from "./live-review-renderer";
 import { ReviewCanvasLoading } from "./review-canvas-loading";
 import { reviewDefinitionDiagnostics } from "./review-definition-runtime";
 import type { ReadyReviewDocumentEntry } from "./review-document";
@@ -33,7 +37,7 @@ import "./styles.css";
 export { clearPersistedReviewViewState as clearReviewViewState } from "./review-view-state";
 
 function DesktopReviewApp({
-  page,
+  reviewUuid,
   softwareMapBundle,
   softwareMapEnabled,
   range,
@@ -42,7 +46,7 @@ function DesktopReviewApp({
   tutorial,
   findHost,
 }: {
-  page: Promise<unknown>;
+  reviewUuid: string;
   softwareMapBundle: Promise<unknown | null>;
   softwareMapEnabled: boolean;
   range: Extract<ReviewCanvasContent, { kind: "session" }>["range"];
@@ -57,6 +61,8 @@ function DesktopReviewApp({
   const session = useReviewSession();
   const sessionRef = useRef(session);
   sessionRef.current = session;
+  const serverUrl = session.config.serverUrl;
+  const token = session.config.token;
   const container = useReviewContainer();
   const [document, setDocument] = useState<ReadyReviewDocumentEntry | null>(
     null,
@@ -66,6 +72,9 @@ function DesktopReviewApp({
   );
   const [softwareMapLoaded, setSoftwareMapLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pageRevision, setPageRevision] = useState(0);
+  const [authoringTarget, setAuthoringTarget] =
+    useState<ReviewAuthoringTarget | null>(null);
 
   const reportLoadError = (loadError: unknown) => {
     captureClientError(sessionRef.current, "document", loadError);
@@ -83,22 +92,69 @@ function DesktopReviewApp({
   };
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
     setError(null);
-    void page.then(
-      (pageValue) => {
-        if (cancelled) return;
-        setDocument(createLiveReviewDocument(pageValue as LiveReviewPage));
-      },
-      (loadError) => {
-        if (cancelled) return;
-        reportLoadError(loadError);
-      },
+    const url = new URL(
+      `/live-reviews/${encodeURIComponent(reviewUuid)}/page`,
+      serverUrl,
     );
-    return () => {
-      cancelled = true;
+    const headers = new Headers();
+    if (token) {
+      headers.set("x-review-token", token);
+    }
+    void fetch(url, { headers, signal: controller.signal })
+      .then(async (response) => {
+        const payload = (await response.json()) as {
+          ok?: boolean;
+          page?: unknown;
+          authoringTarget?: ReviewAuthoringTarget | null;
+          error?: string;
+        };
+        if (!response.ok || payload.ok !== true || !payload.page) {
+          throw new Error(
+            payload.error ?? `Review page returned ${response.status}.`,
+          );
+        }
+        setDocument(createLiveReviewDocument(payload.page as LiveReviewPage));
+        setAuthoringTarget(payload.authoringTarget ?? null);
+      })
+      .catch((loadError) => {
+        if (!controller.signal.aborted) reportLoadError(loadError);
+      });
+    return () => controller.abort();
+  }, [pageRevision, reviewUuid, serverUrl, token]);
+
+  useEffect(() => {
+    const url = new URL("/events", serverUrl);
+    if (token) {
+      url.searchParams.set("token", token);
+    }
+    const events = new EventSource(url);
+    events.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data) as {
+          event?: string;
+          uuid?: string;
+          target?: ReviewAuthoringTarget;
+        };
+        if (
+          payload.event === "review-data-changed" &&
+          payload.uuid === reviewUuid
+        ) {
+          setPageRevision((revision) => revision + 1);
+        } else if (
+          payload.event === "review-authoring-target-changed" &&
+          payload.uuid === reviewUuid &&
+          payload.target
+        ) {
+          setAuthoringTarget(payload.target);
+        }
+      } catch {
+        // The global stream owns other event kinds. Ignore them here.
+      }
     };
-  }, [page]);
+    return () => events.close();
+  }, [reviewUuid, serverUrl, token]);
 
   useEffect(() => {
     let cancelled = false;
@@ -148,16 +204,18 @@ function DesktopReviewApp({
   return (
     <div className="review-session-content">
       <ReviewMigrationWarning errors={reviewErrors} />
-      <TutorialProvider tutorial={tutorial}>
-        <App
-          document={document}
-          softwareMap={softwareMap}
-          softwareMapEnabled={softwareMapEnabled}
-          range={range}
-          commits={commits}
-          findHost={findHost}
-        />
-      </TutorialProvider>
+      <LiveReviewAuthoringTargetContext.Provider value={authoringTarget}>
+        <TutorialProvider tutorial={tutorial}>
+          <App
+            document={document}
+            softwareMap={softwareMap}
+            softwareMapEnabled={softwareMapEnabled}
+            range={range}
+            commits={commits}
+            findHost={findHost}
+          />
+        </TutorialProvider>
+      </LiveReviewAuthoringTargetContext.Provider>
     </div>
   );
 }
@@ -173,7 +231,7 @@ function ReviewCanvas({
     return (
       <DesktopReviewApp
         key={content.bridge.config.sessionId}
-        page={content.page}
+        reviewUuid={content.reviewUuid}
         softwareMapBundle={content.softwareMap}
         softwareMapEnabled={content.softwareMapEnabled}
         range={content.range}

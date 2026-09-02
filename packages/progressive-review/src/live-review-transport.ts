@@ -1,3 +1,4 @@
+import { AuthoringAgentSessionSchema } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
 import type {
@@ -83,6 +84,11 @@ export const liveReviewCreateRequestSchema = z.strictObject({
   cwd: z.string().min(1),
   source: z.strictObject({ kind: z.literal("current-checkout") }),
   title: z.string().trim().min(1),
+  agent: AuthoringAgentSessionSchema.optional(),
+});
+
+export const liveReviewOpenRequestSchema = z.strictObject({
+  agent: AuthoringAgentSessionSchema.optional(),
 });
 
 export const liveReviewRenderRequestSchema = z.strictObject({

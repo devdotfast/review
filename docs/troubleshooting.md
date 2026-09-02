@@ -168,4 +168,4 @@ or exploit details.
 
 Use [GitHub Issues](https://github.com/devdotfast/review/issues) for
 reproducible bugs and feature requests. For setup questions and community help,
-join the [dev.fast Discord](https://discord.gg/FmrJraNvN).
+join the [dev.fast Discord](https://discord.gg/wYvd2cpMQg).

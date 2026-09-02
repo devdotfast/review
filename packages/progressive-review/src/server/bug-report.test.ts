@@ -227,31 +227,35 @@ describe("submitReviewBugReport", () => {
     expect(meta.parts[0].sha256).toBe(sha256(payloadBytes));
   });
 
-  it("does not retry a failed schema 2 report through schema 1", async () => {
-    writeReview("disabled:review");
-    const fetchImpl = vi.fn<typeof fetch>(async () =>
-      Response.json({ ok: false, error: "Unavailable." }, { status: 503 }),
-    );
+  it.each([503, 422])(
+    "reports an upstream %s as a service failure without retrying",
+    async (status) => {
+      writeReview("disabled:review");
+      const fetchImpl = vi.fn<typeof fetch>(async () =>
+        Response.json({ ok: false, error: "Rejected." }, { status }),
+      );
 
-    await expect(
-      submitReviewBugReport({
-        report: report(),
-        reviewDocumentPath: path.join(reviewRootPath, "review.mdx"),
-        reviewRootPath,
-        clientErrorNames: [],
-        fetchImpl,
-      }),
-    ).rejects.toMatchObject({ status: 502 });
-    expect(fetchImpl).toHaveBeenCalledOnce();
-    expect(fetchImpl.mock.calls[0][0].toString()).toBe(
-      "https://bug.dev.fast/api/v2/reports",
-    );
-  });
+      await expect(
+        submitReviewBugReport({
+          report: report(),
+          reviewDocumentPath: path.join(reviewRootPath, "review.mdx"),
+          reviewRootPath,
+          clientErrorNames: [],
+          fetchImpl,
+        }),
+      ).rejects.toMatchObject({ status: 502 });
+      expect(fetchImpl).toHaveBeenCalledOnce();
+      expect(fetchImpl.mock.calls[0][0].toString()).toBe(
+        "https://bug.dev.fast/api/v2/reports",
+      );
+    },
+  );
 
   it("drops subagent trace files before a changed-file diff", async () => {
     const trace: AuthoringTraceAttachment = {
       payload: {
         harness: "claude-code",
+        session_id: "11111111-1111-4111-8111-111111111111",
         files: {
           "subagents/agent.jsonl": randomBytes(2048).toString("base64"),
         },
@@ -294,6 +298,7 @@ describe("submitReviewBugReport", () => {
 
     expect(fitted.trace).toEqual({
       harness: "claude-code",
+      session_id: "11111111-1111-4111-8111-111111111111",
       files: {},
       omitted_files: ["subagents/agent.jsonl"],
       truncated: true,
@@ -304,6 +309,58 @@ describe("submitReviewBugReport", () => {
       truncated_diff: false,
       truncated_trace: true,
     });
+    expect(trace.payload.truncated).toBe(false);
+  });
+
+  it("drops trace parts that exceed the upload cap instead of the report", async () => {
+    const trace: AuthoringTraceAttachment = {
+      payload: {
+        harness: "codex",
+        session_id: "22222222-2222-4222-8222-222222222222",
+        files: {},
+        truncated: false,
+      },
+      parts: [
+        {
+          filename: "trace-0.jsonl.gz",
+          session_id: "22222222-2222-4222-8222-222222222222",
+          path: path.join(tempDir, "missing-trace-0.jsonl.gz"),
+          bytes: 99_000_001,
+          sha256: "0".repeat(64),
+        },
+      ],
+      cleanup: async () => {},
+    };
+    const payload: BugReportPayload = {
+      schema_version: 4,
+      description: "",
+      trace: trace.payload,
+      diagnostics: {
+        ...diagnostics(),
+        attachment_errors: [{ attachment: "review", error: "unavailable" }],
+      },
+    };
+
+    const request = await buildBugReportRequest(payload, trace, {
+      appVersion: "1.2.3",
+      cliVersion: "0.0.1",
+    });
+    const formPayload = request.body.get("payload");
+    if (!(formPayload instanceof Blob)) throw new Error("Missing payload.");
+    const fitted = JSON.parse(
+      gunzipSync(Buffer.from(await formPayload.arrayBuffer())).toString("utf8"),
+    );
+    const meta = JSON.parse(String(request.body.get("meta")));
+
+    expect(request.body.getAll("trace")).toEqual([]);
+    expect(fitted).not.toHaveProperty("trace");
+    expect(fitted.diagnostics.attachment_errors).toEqual([
+      { attachment: "review", error: "unavailable" },
+      { attachment: "trace", error: "too_large" },
+    ]);
+    expect(meta).toMatchObject({ has_trace: false, truncated_trace: false });
+    expect(meta).not.toHaveProperty("trace_harness");
+    expect(meta.parts).toHaveLength(1);
   });
 
   it("does not replace a successful submit when trace cleanup fails", async () => {
@@ -312,7 +369,12 @@ describe("submitReviewBugReport", () => {
       throw new Error("busy");
     });
     const trace: AuthoringTraceAttachment = {
-      payload: { harness: "claude-code", files: {}, truncated: false },
+      payload: {
+        harness: "claude-code",
+        session_id: "cleanup-test",
+        files: {},
+        truncated: false,
+      },
       parts: [],
       cleanup,
     };

@@ -111,8 +111,10 @@ sanitized JavaScript error class names seen during that canvas session. It does
 not include error messages in that list.
 
 If a selected Review, map, or diff attachment is unavailable, Review omits it
-and sends the other available data. Review does not send a partial source or
-parent trace.
+and sends the other available data. The source session's own trace is sent
+complete or the report fails. Ancestor history is sent as far as Review can
+read it, and the report names any ancestor it omits. If the compressed report
+would exceed the upload limit, Review drops the trace and sends the rest.
 
 The report never attaches Review metadata, comment threads, or question
 threads. Review stores completed reports in a private /dev/fast Cloudflare R2

@@ -30,7 +30,6 @@ const BUG_REPORT_URL = "https://bug.dev.fast/api/v2/reports";
 const MAX_PAYLOAD_BYTES = 10 * 1024 * 1024;
 const UPSTREAM_TIMEOUT_MS = 20_000;
 const TRACE_UPSTREAM_TIMEOUT_MS = 5 * 60_000;
-const MAX_MULTIPART_PART_BYTES = 100_000_000;
 // Keep room for multipart headers and boundaries below the Worker request cap.
 const MAX_MULTIPART_CONTENT_BYTES = 99_000_000;
 // The review directory is a git repo, but its tracked set also holds
@@ -51,7 +50,7 @@ const MAX_REVIEW_SOURCE_FILE_BYTES = 2 * 1024 * 1024;
 type AttachmentName = "review" | "map" | "diff" | "trace";
 type AttachmentError = {
   attachment: AttachmentName;
-  error: "unavailable";
+  error: "unavailable" | "too_large";
 };
 
 export interface BugReportPayload {
@@ -200,9 +199,7 @@ export async function submitReviewBugReport(input: {
     payload.trace = traceAttachment.payload;
   }
   if (attachmentErrors.length > 0) {
-    payload.diagnostics.attachment_errors = attachmentErrors.sort(
-      (left, right) => left.attachment.localeCompare(right.attachment),
-    );
+    payload.diagnostics.attachment_errors = attachmentErrors.sort(byAttachment);
   }
 
   try {
@@ -226,18 +223,14 @@ export async function submitReviewBugReport(input: {
     const responseBody = await response.json().catch(() => null);
     if (!response.ok) {
       throw new BugReportUpstreamError(
-        response.status === 429 ||
-          response.status === 413 ||
-          response.status === 422
+        response.status === 429 || response.status === 413
           ? response.status
           : 502,
         response.status === 429
           ? "Too many reports. Try again later."
           : response.status === 413
             ? "Bug report is too large."
-            : response.status === 422
-              ? "The complete authoring trace is unavailable."
-              : "Bug report service failed.",
+            : "Bug report service failed.",
       );
     }
     const result = parseReviewBugReportResponse(responseBody);
@@ -261,6 +254,7 @@ export async function buildBugReportRequest(
   let truncatedDiff = false;
   let truncatedMap = false;
   let truncatedScreenshot = false;
+  let traceParts = trace?.parts ?? [];
   let payloadBytes = gzipPayload(payload);
 
   if (
@@ -268,14 +262,17 @@ export async function buildBugReportRequest(
     payload.trace &&
     Object.keys(payload.trace.files).length > 0
   ) {
-    payload.trace.omitted_files = [
-      ...new Set([
-        ...(payload.trace.omitted_files ?? []),
-        ...Object.keys(payload.trace.files),
-      ]),
-    ].sort();
-    payload.trace.files = {};
-    payload.trace.truncated = true;
+    payload.trace = {
+      ...payload.trace,
+      files: {},
+      omitted_files: [
+        ...new Set([
+          ...(payload.trace.omitted_files ?? []),
+          ...Object.keys(payload.trace.files),
+        ]),
+      ].sort(),
+      truncated: true,
+    };
     payloadBytes = gzipPayload(payload);
   }
 
@@ -302,28 +299,28 @@ export async function buildBugReportRequest(
     throw new BugReportUpstreamError(413, "Bug report is too large.");
   }
 
-  const traceParts: ReviewBugReportMetaV2["parts"] =
-    trace?.parts.map((part) => ({
-      field: "trace",
-      filename: part.filename,
-      session_id: part.session_id,
-      bytes: part.bytes,
-      sha256: part.sha256,
-    })) ?? [];
-  const parts: ReviewBugReportMetaV2["parts"] = [
-    {
-      field: "payload",
-      filename: "payload.json.gz",
-      bytes: payloadBytes.byteLength,
-      sha256: sha256Bytes(payloadBytes),
-    },
-    ...traceParts,
-  ];
-  const contentBytes = parts.reduce((total, part) => total + part.bytes, 0);
-  if (
-    parts.some((part) => part.bytes > MAX_MULTIPART_PART_BYTES) ||
-    contentBytes > MAX_MULTIPART_CONTENT_BYTES
-  ) {
+  // The trace parts are the only attachment that can outgrow the Worker's
+  // request cap on their own. The rest of the report still helps triage, so
+  // it goes without the trace instead of being refused.
+  const contentBytes = () =>
+    traceParts.reduce(
+      (total, part) => total + part.bytes,
+      payloadBytes.byteLength,
+    );
+  if (contentBytes() > MAX_MULTIPART_CONTENT_BYTES && payload.trace) {
+    traceParts = [];
+    delete payload.trace;
+    const tooLarge: AttachmentError = {
+      attachment: "trace",
+      error: "too_large",
+    };
+    payload.diagnostics.attachment_errors = [
+      ...(payload.diagnostics.attachment_errors ?? []),
+      tooLarge,
+    ].sort(byAttachment);
+    payloadBytes = gzipPayload(payload);
+  }
+  if (contentBytes() > MAX_MULTIPART_CONTENT_BYTES) {
     throw new BugReportUpstreamError(413, "Bug report is too large.");
   }
 
@@ -334,8 +331,8 @@ export async function buildBugReportRequest(
     has_map: payload.map !== undefined,
     has_diff: payload.diff !== undefined,
     has_screenshot: payload.screenshot !== undefined,
-    has_trace: trace !== undefined,
-    ...(trace ? { trace_harness: trace.payload.harness } : {}),
+    has_trace: payload.trace !== undefined,
+    ...(payload.trace ? { trace_harness: payload.trace.harness } : {}),
     payload_bytes: payloadBytes.byteLength,
     app_version: input.appVersion,
     cli_version: input.cliVersion,
@@ -343,8 +340,22 @@ export async function buildBugReportRequest(
     truncated_diff: truncatedDiff,
     truncated_map: truncatedMap,
     truncated_screenshot: truncatedScreenshot,
-    truncated_trace: trace?.payload.truncated ?? false,
-    parts,
+    truncated_trace: payload.trace?.truncated ?? false,
+    parts: [
+      {
+        field: "payload",
+        filename: "payload.json.gz",
+        bytes: payloadBytes.byteLength,
+        sha256: sha256Bytes(payloadBytes),
+      },
+      ...traceParts.map((part) => ({
+        field: "trace" as const,
+        filename: part.filename,
+        session_id: part.session_id,
+        bytes: part.bytes,
+        sha256: part.sha256,
+      })),
+    ],
   };
   const form = new FormData();
   form.append("meta", JSON.stringify(meta));
@@ -353,7 +364,7 @@ export async function buildBugReportRequest(
     new Blob([Uint8Array.from(payloadBytes)], { type: "application/gzip" }),
     "payload.json.gz",
   );
-  for (const part of trace?.parts ?? []) {
+  for (const part of traceParts) {
     form.append(
       "trace",
       await openAsBlob(part.path, { type: "application/gzip" }),
@@ -444,4 +455,8 @@ async function readChangedFileDiffs(
 
 function unavailable(attachment: AttachmentName): AttachmentError {
   return { attachment, error: "unavailable" };
+}
+
+function byAttachment(left: AttachmentError, right: AttachmentError): number {
+  return left.attachment.localeCompare(right.attachment);
 }

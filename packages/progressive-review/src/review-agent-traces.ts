@@ -954,19 +954,14 @@ function findClaudeTrace(root: string, sessionId: string): string | null {
 
 function findCodexTrace(root: string, sessionId: string): string | null {
   if (!existsSync(root)) return null;
-  return findCodexTraceInFiles(listFilesRecursive(root), sessionId);
-}
-
-export function findCodexTraceInFiles(
-  files: string[],
-  sessionId: string,
-): string | null {
   const suffix = `-${sessionId}.jsonl`;
   return (
-    [...files].sort().find((entry) => {
-      const name = path.basename(entry);
-      return name.startsWith("rollout-") && name.endsWith(suffix);
-    }) ?? null
+    listFilesRecursive(root)
+      .sort()
+      .find((entry) => {
+        const name = path.basename(entry);
+        return name.startsWith("rollout-") && name.endsWith(suffix);
+      }) ?? null
   );
 }
 
@@ -1499,8 +1494,10 @@ export function traceEnvValue(name: string): string | undefined {
   return process.env[name] ?? traceEnvFile()[name];
 }
 
+// Codex reads CODEX_HOME from its own environment only, so this does not
+// consult the trace env file for it.
 export function codexSessionsRoot(): string {
-  const codexHome = traceEnvValue("CODEX_HOME");
+  const codexHome = process.env.CODEX_HOME;
   return (
     traceEnvValue("TRACE_CODEX_SESSIONS_ROOT") ||
     path.join(
@@ -1968,7 +1965,7 @@ function isDirectory(targetPath: string): boolean {
   }
 }
 
-function listFilesRecursive(dirPath: string): string[] {
+export function listFilesRecursive(dirPath: string): string[] {
   const files: string[] = [];
   try {
     const entries = readdirSync(dirPath, { withFileTypes: true });

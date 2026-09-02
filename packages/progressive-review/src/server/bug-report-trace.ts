@@ -1,11 +1,10 @@
 import { createHash } from "node:crypto";
-import { createReadStream, createWriteStream } from "node:fs";
-import { mkdtemp, open, readdir, rm, stat } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { mkdtemp, open, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { setTimeout as delay } from "node:timers/promises";
 import { createGzip } from "node:zlib";
 
 import {
@@ -14,9 +13,9 @@ import {
 } from "../authoring-session";
 import {
   codexSessionsRoot,
-  findCodexTraceInFiles,
   findLocalTrace,
   indexCodexTraceFiles,
+  listFilesRecursive,
 } from "../review-agent-traces";
 import { readReviewStoreRecord } from "../review-worktree-target";
 import { USER_DATA_REGEXES } from "../telemetry-clean-text";
@@ -26,12 +25,11 @@ const MAX_SUBAGENT_TRACES = 10;
 const MAX_CODEX_ANCESTRY_DEPTH = 32;
 export const MAX_AUTHORING_TRACE_BYTES = 256 * 1024 * 1024;
 const MAX_CODEX_METADATA_BYTES = 1024 * 1024;
-const MAX_JSONL_RECORD_COMPLETION_BYTES = 1024 * 1024;
-const INCOMPLETE_FINAL_LINE_RETRIES = 3;
-const INCOMPLETE_FINAL_LINE_RETRY_MS = 50;
+const TRACE_READ_CHUNK_BYTES = 1024 * 1024;
 
 export interface AuthoringTracePayload {
   harness: ReviewAgentHarness;
+  session_id: string;
   files: Record<string, string>;
   omitted_files?: string[];
   truncated: boolean;
@@ -55,18 +53,6 @@ interface JsonObject {
   [key: string]: unknown;
 }
 
-interface JsonlRecord {
-  value: JsonObject;
-  raw: string;
-  terminator: string;
-  ordinal?: number;
-}
-
-interface JsonlSnapshot {
-  path: string;
-  records: JsonlRecord[];
-}
-
 interface CodexHistoryBase {
   threadId: string;
   endOrdinalExclusive: number;
@@ -75,13 +61,6 @@ interface CodexHistoryBase {
 interface CodexMetadata {
   sessionId: string;
   historyBase?: CodexHistoryBase;
-}
-
-interface ResolvedTraceFile {
-  sessionId: string;
-  path: string;
-  snapshotBytes: number;
-  endOrdinalExclusive?: number;
 }
 
 const TRACE_SECRET_LABELS = [
@@ -127,37 +106,26 @@ export async function readAuthoringTraceAttachment(input: {
 
   const tempRoot = await mkdtemp(path.join(tmpdir(), "review-bug-trace-"));
   try {
-    const lineage = await resolveTraceLineage(
-      sourceSession.harness,
-      sourceSession.sessionId,
-      localTrace.tracePath,
-    );
-    const parts: AuthoringTraceUploadPart[] = [];
-    for (const entry of lineage) {
-      const snapshot = await readJsonlSnapshot(entry.path, entry.snapshotBytes);
-      const part = await writeTracePart({
-        index: parts.length,
-        sessionId: entry.sessionId,
-        outputPath: path.join(tempRoot, `trace-${parts.length}.jsonl.gz`),
-        snapshot,
-        ...(entry.endOrdinalExclusive !== undefined
-          ? { endOrdinalExclusive: entry.endOrdinalExclusive }
-          : {}),
-      });
-      if (part) parts.push(part);
-    }
-
+    const lineage = await writeTraceLineage({
+      harness: sourceSession.harness,
+      sessionId: sourceSession.sessionId,
+      tracePath: localTrace.tracePath,
+      tempRoot,
+    });
     const subagents = await readSubagentAttachments(localTrace.subagentPaths);
+    const omittedFiles = [
+      ...lineage.omittedFiles,
+      ...subagents.omittedFiles,
+    ].sort();
     return {
       payload: {
         harness: sourceSession.harness,
+        session_id: sourceSession.sessionId,
         files: subagents.files,
-        ...(subagents.omittedFiles.length > 0
-          ? { omitted_files: subagents.omittedFiles }
-          : {}),
-        truncated: subagents.truncated,
+        ...(omittedFiles.length > 0 ? { omitted_files: omittedFiles } : {}),
+        truncated: lineage.truncated || subagents.truncated,
       },
-      parts,
+      parts: lineage.parts,
       cleanup: () => rm(tempRoot, { recursive: true, force: true }),
     };
   } catch (error) {
@@ -166,61 +134,91 @@ export async function readAuthoringTraceAttachment(input: {
   }
 }
 
-async function resolveTraceLineage(
-  harness: ReviewAgentHarness,
+// The source session's own trace is required: a report that opted into the
+// trace fails without it. Ancestors are best effort. The report keeps the
+// parts it has written and names the first ancestor it could not include.
+async function writeTraceLineage(input: {
+  harness: ReviewAgentHarness;
+  sessionId: string;
+  tracePath: string;
+  tempRoot: string;
+}): Promise<{
+  parts: AuthoringTraceUploadPart[];
+  omittedFiles: string[];
+  truncated: boolean;
+}> {
+  const parts: AuthoringTraceUploadPart[] = [];
+  const omittedFiles: string[] = [];
+  let truncated = false;
+  const resolveRollout =
+    input.harness === "codex"
+      ? codexRolloutResolver(input.sessionId, input.tracePath)
+      : undefined;
+  const seen = new Set<string>();
+  let sessionId = input.sessionId;
+  let lineageBytes = 0;
+  let endOrdinalExclusive: number | undefined;
+  while (true) {
+    let historyBase: CodexHistoryBase | undefined;
+    try {
+      if (seen.has(sessionId)) {
+        throw new Error("Codex trace ancestry contains a cycle.");
+      }
+      if (seen.size > MAX_CODEX_ANCESTRY_DEPTH) {
+        throw new Error("Codex trace ancestry exceeds the supported depth.");
+      }
+      seen.add(sessionId);
+      const sourcePath = resolveRollout
+        ? resolveRollout(sessionId)
+        : input.tracePath;
+      const snapshotBytes = await traceFileSize(sourcePath);
+      lineageBytes += snapshotBytes;
+      if (lineageBytes > MAX_AUTHORING_TRACE_BYTES) {
+        throw new Error("Trace lineage exceeds the supported size.");
+      }
+      if (resolveRollout) {
+        historyBase = (await readCodexMetadata(sourcePath, sessionId))
+          .historyBase;
+      }
+      const written = await writeTracePart({
+        index: parts.length,
+        sessionId,
+        sourcePath,
+        snapshotBytes,
+        outputPath: path.join(input.tempRoot, `trace-${parts.length}.jsonl.gz`),
+        ...(endOrdinalExclusive !== undefined ? { endOrdinalExclusive } : {}),
+      });
+      truncated ||= written.truncated;
+      if (written.part) parts.push(written.part);
+      else if (parts.length === 0) throw new Error("Trace file is empty.");
+    } catch (error) {
+      if (parts.length === 0) throw error;
+      omittedFiles.push(`ancestors/${sessionId}.jsonl`);
+      truncated = true;
+      break;
+    }
+    if (!historyBase) break;
+    endOrdinalExclusive = Math.min(
+      endOrdinalExclusive ?? Number.POSITIVE_INFINITY,
+      historyBase.endOrdinalExclusive,
+    );
+    sessionId = historyBase.threadId;
+  }
+  return { parts, omittedFiles, truncated };
+}
+
+function codexRolloutResolver(
   sessionId: string,
   tracePath: string,
-): Promise<ResolvedTraceFile[]> {
-  if (harness !== "codex") {
-    const snapshotBytes = await traceFileSize(tracePath);
-    return [{ sessionId, path: tracePath, snapshotBytes }];
-  }
-
-  const rollouts = await listFilesRecursive(codexSessionsRoot());
-  const rolloutIndex = indexCodexTraceFiles(rollouts);
-  const resolvePath = (targetSessionId: string): string => {
+): (targetSessionId: string) => string {
+  let index: Map<string, string> | undefined;
+  return (targetSessionId) => {
     if (targetSessionId === sessionId) return tracePath;
-    const resolved =
-      rolloutIndex.get(targetSessionId) ??
-      findCodexTraceInFiles(rollouts, targetSessionId);
+    index ??= indexCodexTraceFiles(listFilesRecursive(codexSessionsRoot()));
+    const resolved = index.get(targetSessionId);
     if (!resolved) throw new Error("Codex trace parent could not be resolved.");
     return resolved;
   };
-  const chain: ResolvedTraceFile[] = [];
-  const seen = new Set<string>();
-  let currentSessionId = sessionId;
-  let endOrdinalExclusive: number | undefined;
-  while (true) {
-    if (seen.has(currentSessionId)) {
-      throw new Error("Codex trace ancestry contains a cycle.");
-    }
-    if (seen.size >= MAX_CODEX_ANCESTRY_DEPTH + 1) {
-      throw new Error("Codex trace ancestry exceeds the supported depth.");
-    }
-    seen.add(currentSessionId);
-    const currentPath = resolvePath(currentSessionId);
-    const current = await readCodexMetadata(currentPath, currentSessionId);
-    chain.push({
-      sessionId: current.sessionId,
-      path: currentPath,
-      snapshotBytes: await traceFileSize(currentPath),
-      ...(endOrdinalExclusive !== undefined ? { endOrdinalExclusive } : {}),
-    });
-    if (!current.historyBase) break;
-    endOrdinalExclusive = Math.min(
-      endOrdinalExclusive ?? Number.POSITIVE_INFINITY,
-      current.historyBase.endOrdinalExclusive,
-    );
-    currentSessionId = current.historyBase.threadId;
-  }
-  const lineageBytes = chain.reduce(
-    (total, entry) => total + entry.snapshotBytes,
-    0,
-  );
-  if (lineageBytes > MAX_AUTHORING_TRACE_BYTES) {
-    throw new Error("Trace lineage exceeds the supported size.");
-  }
-  return chain;
 }
 
 async function readCodexMetadata(
@@ -258,23 +256,13 @@ async function readCodexMetadata(
 }
 
 async function readFirstJsonlRecord(filePath: string): Promise<JsonObject> {
-  const handle = await open(filePath, "r");
-  try {
-    const { size } = await handle.stat();
-    if (size <= 0) throw new Error("Trace file is empty.");
-    const length = Math.min(size, MAX_CODEX_METADATA_BYTES);
-    const bytes = await readBytes(handle, 0, length);
-    const newline = bytes.indexOf(0x0a);
-    if (newline === -1 && size > length) {
-      throw new Error("Codex session metadata is too large.");
-    }
-    const record = parseJsonl(
-      newline === -1 ? bytes : bytes.subarray(0, newline + 1),
-    );
-    return record[0].value;
-  } finally {
-    await handle.close();
+  for await (const line of readJsonlLines(filePath, MAX_CODEX_METADATA_BYTES)) {
+    if (line.trim() === "") continue;
+    const value = parseJsonObject(line);
+    if (!value) throw new Error("Codex session metadata is malformed.");
+    return value;
   }
+  throw new Error("Trace file is empty.");
 }
 
 async function traceFileSize(filePath: string): Promise<number> {
@@ -286,167 +274,103 @@ async function traceFileSize(filePath: string): Promise<number> {
   return size;
 }
 
-async function listFilesRecursive(root: string): Promise<string[]> {
-  const results: string[] = [];
-  const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
-  for (const entry of entries) {
-    const entryPath = path.join(root, entry.name);
-    if (entry.isDirectory()) {
-      results.push(...(await listFilesRecursive(entryPath)));
-    } else if (entry.isFile()) {
-      results.push(entryPath);
-    }
-  }
-  return results.sort();
-}
-
-async function readJsonlSnapshot(
+// Yields each line without its line feed. Reads at most `byteLimit` bytes, so
+// a trace that grows during the read stays at its measured snapshot. A final
+// line cut by that limit, or one the harness is still writing, is yielded
+// as-is and fails to parse.
+async function* readJsonlLines(
   filePath: string,
-  snapshotBytes: number,
-): Promise<JsonlSnapshot> {
+  byteLimit: number,
+): AsyncGenerator<string> {
   const handle = await open(filePath, "r");
   try {
-    let bytes = await readBytes(handle, 0, snapshotBytes);
-    for (let attempt = 0; attempt <= INCOMPLETE_FINAL_LINE_RETRIES; attempt++) {
-      if (attempt > 0) {
-        await delay(INCOMPLETE_FINAL_LINE_RETRY_MS);
-        const currentSize = (await handle.stat()).size;
-        if (currentSize > bytes.length) {
-          const nextSize = Math.min(
-            currentSize,
-            bytes.length + MAX_JSONL_RECORD_COMPLETION_BYTES,
-          );
-          const appended = await readBytes(
-            handle,
-            bytes.length,
-            nextSize - bytes.length,
-          );
-          const completionEnd = appended.indexOf(0x0a);
-          bytes = Buffer.concat([
-            bytes,
-            completionEnd === -1
-              ? appended
-              : appended.subarray(0, completionEnd + 1),
-          ]);
-        }
+    let carry = Buffer.alloc(0);
+    let position = 0;
+    while (position < byteLimit) {
+      const chunk = Buffer.alloc(
+        Math.min(TRACE_READ_CHUNK_BYTES, byteLimit - position),
+      );
+      const { bytesRead } = await handle.read(chunk, 0, chunk.length, position);
+      if (bytesRead === 0) break;
+      position += bytesRead;
+      const buffer = Buffer.concat([carry, chunk.subarray(0, bytesRead)]);
+      let start = 0;
+      while (true) {
+        const lineFeed = buffer.indexOf(0x0a, start);
+        if (lineFeed === -1) break;
+        yield buffer.subarray(start, lineFeed).toString("utf8");
+        start = lineFeed + 1;
       }
-      try {
-        return { path: filePath, records: parseJsonl(bytes) };
-      } catch (error) {
-        if (!(error instanceof IncompleteFinalRecordError)) throw error;
-      }
+      carry = buffer.subarray(start);
     }
-    throw new Error("Trace file ends with an incomplete JSONL record.");
+    if (carry.length > 0) yield carry.toString("utf8");
   } finally {
     await handle.close();
   }
 }
 
-async function readBytes(
-  handle: Awaited<ReturnType<typeof open>>,
-  position: number,
-  size: number,
-): Promise<Buffer> {
-  const bytes = Buffer.alloc(size);
-  let offset = 0;
-  while (offset < size) {
-    const result = await handle.read(
-      bytes,
-      offset,
-      size - offset,
-      position + offset,
-    );
-    if (result.bytesRead === 0) break;
-    offset += result.bytesRead;
-  }
-  if (offset !== size) throw new Error("Trace snapshot changed while reading.");
-  return bytes;
-}
-
-class IncompleteFinalRecordError extends Error {}
-
-function parseJsonl(bytes: Buffer): JsonlRecord[] {
-  const records: JsonlRecord[] = [];
-  let start = 0;
-  while (start < bytes.length) {
-    const lineFeed = bytes.indexOf(0x0a, start);
-    const end = lineFeed === -1 ? bytes.length : lineFeed + 1;
-    const contentEnd = lineFeed === -1 ? end : lineFeed;
-    const rawBytes = bytes.subarray(start, contentEnd);
-    let raw: string;
-    try {
-      raw = new TextDecoder("utf-8", { fatal: true }).decode(rawBytes);
-    } catch {
-      throw new Error("Trace file contains invalid UTF-8.");
-    }
-    let value: unknown;
-    try {
-      value = JSON.parse(raw);
-    } catch {
-      if (lineFeed === -1) throw new IncompleteFinalRecordError();
-      throw new Error("Trace file contains malformed JSONL.");
-    }
-    if (!isJsonObject(value)) {
-      throw new Error("Trace JSONL records must be objects.");
-    }
-    records.push({
-      value,
-      raw,
-      terminator: lineFeed === -1 ? "" : "\n",
-      ...(Number.isSafeInteger(value.ordinal)
-        ? { ordinal: value.ordinal as number }
-        : {}),
-    });
-    start = end;
-  }
-  if (records.length === 0) throw new Error("Trace file is empty.");
-  return records;
-}
-
 async function writeTracePart(input: {
   index: number;
   sessionId: string;
+  sourcePath: string;
+  snapshotBytes: number;
   outputPath: string;
-  snapshot: JsonlSnapshot;
   endOrdinalExclusive?: number;
-}): Promise<AuthoringTraceUploadPart | null> {
-  const records =
-    input.endOrdinalExclusive === undefined
-      ? input.snapshot.records
-      : input.snapshot.records.filter((record) => {
-          if (record.ordinal === undefined || record.ordinal < 0) {
-            throw new Error("Codex trace record is missing a valid ordinal.");
-          }
-          return record.ordinal < input.endOrdinalExclusive!;
-        });
-  if (records.length === 0) return null;
+}): Promise<{ part: AuthoringTraceUploadPart | null; truncated: boolean }> {
+  let records = 0;
+  let truncated = false;
   const source = Readable.from(
     (async function* () {
-      for (const record of records) {
-        const redacted = redactTraceText(record.raw) + record.terminator;
-        yield Buffer.from(redacted);
+      for await (const line of readJsonlLines(
+        input.sourcePath,
+        input.snapshotBytes,
+      )) {
+        if (line.trim() === "") continue;
+        const value = parseJsonObject(line);
+        if (!value) {
+          // A record the harness has not finished writing, or one a crash cut
+          // short. The report drops it and says so instead of failing.
+          truncated = true;
+          continue;
+        }
+        if (input.endOrdinalExclusive !== undefined) {
+          const ordinal = integerValue(value.ordinal);
+          if (ordinal === undefined) {
+            throw new Error("Codex trace record is missing a valid ordinal.");
+          }
+          // Ordinals only grow, so the first post-fork record ends the part.
+          if (ordinal >= input.endOrdinalExclusive) break;
+        }
+        records += 1;
+        yield Buffer.from(redactTraceText(line) + "\n");
       }
     })(),
   );
+  const hash = createHash("sha256");
+  let bytes = 0;
   await pipeline(
     source,
     createGzip({ level: 9 }),
+    new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        hash.update(chunk);
+        bytes += chunk.length;
+        callback(null, chunk);
+      },
+    }),
     createWriteStream(input.outputPath, { mode: 0o600 }),
   );
-  const fileStat = await stat(input.outputPath);
+  if (records === 0) return { part: null, truncated };
   return {
-    filename: `trace-${input.index}.jsonl.gz`,
-    session_id: input.sessionId,
-    path: input.outputPath,
-    bytes: fileStat.size,
-    sha256: await sha256File(input.outputPath),
+    part: {
+      filename: `trace-${input.index}.jsonl.gz`,
+      session_id: input.sessionId,
+      path: input.outputPath,
+      bytes,
+      sha256: hash.digest("hex"),
+    },
+    truncated,
   };
-}
-
-async function sha256File(filePath: string): Promise<string> {
-  const hash = createHash("sha256");
-  for await (const chunk of createReadStream(filePath)) hash.update(chunk);
-  return hash.digest("hex");
 }
 
 async function readSubagentAttachments(
@@ -558,6 +482,14 @@ function redactTraceText(contents: string): string {
     redacted = redacted.replace(regex, `<REDACTED: ${label}>`);
   }
   return redacted;
+}
+
+function parseJsonObject(line: string): JsonObject | undefined {
+  try {
+    return objectValue(JSON.parse(line));
+  } catch {
+    return undefined;
+  }
 }
 
 function isJsonObject(value: unknown): value is JsonObject {

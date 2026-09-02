@@ -1,5 +1,4 @@
 import {
-  appendFileSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -82,6 +81,7 @@ describe("readAuthoringTraceAttachment", () => {
     const attachment = await requiredAttachment();
     expect(attachment.payload).toEqual({
       harness,
+      session_id: id,
       files: {},
       truncated: false,
     });
@@ -192,29 +192,45 @@ describe("readAuthoringTraceAttachment", () => {
     await attachment.cleanup();
   });
 
-  it("rejects an unresolved or malformed declared Codex parent", async () => {
+  it("keeps the source trace and names an unresolved Codex parent", async () => {
     const childId = "44444444-4444-4444-8444-444444444444";
     const parentId = "55555555-5555-4555-8555-555555555555";
-    writeCodexTrace(
+    const child = codexTrace(
       childId,
-      codexTrace(childId, 2, [{ child: true }], historyBase(parentId, 2)),
+      2,
+      [{ child: true }],
+      historyBase(parentId, 2),
     );
+    writeCodexTrace(childId, child);
     writeReview("codex:" + childId);
-    await expect(
-      readAuthoringTraceAttachment({ reviewRootPath }),
-    ).rejects.toThrow("parent could not be resolved");
 
-    writeCodexTrace(
-      parentId,
-      jsonLine({
-        type: "session_meta",
-        payload: { id: parentId },
-        ordinal: 0,
-      }) + "not-json\n",
-    );
-    await expect(
-      readAuthoringTraceAttachment({ reviewRootPath }),
-    ).rejects.toThrow("malformed JSONL");
+    const attachment = await requiredAttachment();
+    expect(attachment.payload).toMatchObject({
+      omitted_files: ["ancestors/" + parentId + ".jsonl"],
+      truncated: true,
+    });
+    expect(readPart(attachment, 0)).toBe(child);
+    expect(attachment.parts).toHaveLength(1);
+    await attachment.cleanup();
+  });
+
+  it("drops malformed and blank lines and marks the trace truncated", async () => {
+    const id = "46464646-4646-4646-8646-464646464646";
+    const first = jsonLine({ first: true });
+    const second = jsonLine({ second: true });
+    writeReview("claude-code:" + id);
+    writeHarnessTrace("claude-code", id, first + "\n" + second);
+
+    const blankOnly = await requiredAttachment();
+    expect(readPart(blankOnly, 0)).toBe(first + second);
+    expect(blankOnly.payload.truncated).toBe(false);
+    await blankOnly.cleanup();
+
+    writeHarnessTrace("claude-code", id, first + "not-json\n" + second);
+    const malformed = await requiredAttachment();
+    expect(readPart(malformed, 0)).toBe(first + second);
+    expect(malformed.payload.truncated).toBe(true);
+    await malformed.cleanup();
   });
 
   it("rejects malformed Codex history metadata", async () => {
@@ -240,7 +256,7 @@ describe("readAuthoringTraceAttachment", () => {
     ).rejects.toThrow("history base is malformed");
   });
 
-  it("rejects Codex ancestry cycles", async () => {
+  it("stops at a Codex ancestry cycle", async () => {
     const childId = "47474747-4747-4747-8747-474747474747";
     const parentId = "58585858-5858-4858-8858-585858585858";
     writeCodexTrace(
@@ -253,12 +269,19 @@ describe("readAuthoringTraceAttachment", () => {
     );
     writeReview("codex:" + childId);
 
-    await expect(
-      readAuthoringTraceAttachment({ reviewRootPath }),
-    ).rejects.toThrow("ancestry contains a cycle");
+    const attachment = await requiredAttachment();
+    expect(attachment.parts.map((part) => part.session_id)).toEqual([
+      childId,
+      parentId,
+    ]);
+    expect(attachment.payload).toMatchObject({
+      omitted_files: ["ancestors/" + childId + ".jsonl"],
+      truncated: true,
+    });
+    await attachment.cleanup();
   });
 
-  it("rejects an ancestor record without an ordinal", async () => {
+  it("omits an ancestor whose records lack ordinals", async () => {
     const childId = "48484848-4848-4848-8848-484848484848";
     const parentId = "59595959-5959-4959-8959-595959595959";
     writeCodexTrace(
@@ -275,9 +298,13 @@ describe("readAuthoringTraceAttachment", () => {
     );
     writeReview("codex:" + childId);
 
-    await expect(
-      readAuthoringTraceAttachment({ reviewRootPath }),
-    ).rejects.toThrow("missing a valid ordinal");
+    const attachment = await requiredAttachment();
+    expect(attachment.parts).toHaveLength(1);
+    expect(attachment.payload).toMatchObject({
+      omitted_files: ["ancestors/" + parentId + ".jsonl"],
+      truncated: true,
+    });
+    await attachment.cleanup();
   });
 
   it("does not require contiguous Codex ordinals", async () => {
@@ -341,7 +368,7 @@ describe("readAuthoringTraceAttachment", () => {
     await attachment.cleanup();
   });
 
-  it("accepts 32 Codex parent levels and rejects 33", async () => {
+  it("accepts 32 Codex parent levels and omits the 33rd", async () => {
     let parentId = codexId(0);
     writeCodexTrace(parentId, codexTrace(parentId, 0, [{ depth: 0 }]));
     for (let depth = 1; depth <= 32; depth++) {
@@ -368,9 +395,13 @@ describe("readAuthoringTraceAttachment", () => {
     );
     writeReview("codex:" + sourceId);
 
-    await expect(
-      readAuthoringTraceAttachment({ reviewRootPath }),
-    ).rejects.toThrow("exceeds the supported depth");
+    const capped = await requiredAttachment();
+    expect(capped.parts).toHaveLength(33);
+    expect(capped.payload).toMatchObject({
+      omitted_files: ["ancestors/" + codexId(0) + ".jsonl"],
+      truncated: true,
+    });
+    await capped.cleanup();
   });
 
   it("keeps a complete main trace that exceeds the old byte cap", async () => {
@@ -385,52 +416,57 @@ describe("readAuthoringTraceAttachment", () => {
     await attachment.cleanup();
   });
 
-  it("rejects an oversized lineage before materializing it", async () => {
+  it("omits an ancestor that would exceed the lineage cap", async () => {
     const parentId = "67676767-6767-4767-8767-676767676767";
     const childId = "68686868-6868-4868-8868-686868686868";
     const parentPath = writeCodexTrace(
       parentId,
       codexTrace(parentId, 0, [{ parent: true }]),
     );
-    const childPath = writeCodexTrace(
+    const child = codexTrace(
       childId,
-      codexTrace(childId, 2, [{ child: true }], historyBase(parentId, 2)),
+      2,
+      [{ child: true }],
+      historyBase(parentId, 2),
     );
-    const halfBudget = Math.floor(MAX_AUTHORING_TRACE_BYTES / 2) + 1;
-    truncateSync(parentPath, halfBudget);
-    truncateSync(childPath, halfBudget);
+    const childPath = writeCodexTrace(childId, child);
+    truncateSync(parentPath, MAX_AUTHORING_TRACE_BYTES + 1);
     writeReview("codex:" + childId);
 
+    const attachment = await requiredAttachment();
+    expect(readPart(attachment, 0)).toBe(child);
+    expect(attachment.payload).toMatchObject({
+      omitted_files: ["ancestors/" + parentId + ".jsonl"],
+      truncated: true,
+    });
+    await attachment.cleanup();
+
+    truncateSync(childPath, MAX_AUTHORING_TRACE_BYTES + 1);
     await expect(
       readAuthoringTraceAttachment({ reviewRootPath }),
     ).rejects.toThrow("exceeds the supported size");
   });
 
-  it("waits for an incomplete final record and then keeps it", async () => {
+  it("drops an incomplete final record and marks the trace truncated", async () => {
     const id = "77777777-7777-4777-8777-777777777777";
     const complete = jsonLine({ complete: true });
     writeReview("claude-code:" + id);
-    const tracePath = writeHarnessTrace(
-      "claude-code",
-      id,
-      complete + '{"later":',
-    );
-    const finish = setTimeout(() => appendFileSync(tracePath, "true}\n"), 60);
+    writeHarnessTrace("claude-code", id, complete + '{"later":');
 
     const attachment = await requiredAttachment();
-    clearTimeout(finish);
-    expect(readPart(attachment, 0)).toBe(complete + jsonLine({ later: true }));
+    expect(readPart(attachment, 0)).toBe(complete);
+    expect(attachment.payload.truncated).toBe(true);
     await attachment.cleanup();
   });
 
-  it("rejects a final record that stays incomplete", async () => {
+  it("rejects a source trace without a complete record", async () => {
     const id = "88888888-8888-4888-8888-888888888888";
     writeReview("claude-code:" + id);
-    writeHarnessTrace("claude-code", id, jsonLine({ complete: true }) + "{");
+    writeHarnessTrace("claude-code", id, "{");
 
     await expect(
       readAuthoringTraceAttachment({ reviewRootPath }),
-    ).rejects.toThrow("incomplete JSONL record");
+    ).rejects.toThrow("Trace file is empty");
   });
 
   it("redacts complete secret values but keeps valid JSONL", async () => {
@@ -476,7 +512,7 @@ describe("readAuthoringTraceAttachment", () => {
     await attachment.cleanup();
   });
 
-  it("keeps the ten newest bounded subagent traces", async () => {
+  it("keeps the ten newest subagent traces and names unreadable or excess files", async () => {
     const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     writeReview("claude-code:" + id);
     const tracePath = writeHarnessTrace(
@@ -492,12 +528,16 @@ describe("readAuthoringTraceAttachment", () => {
     for (let index = 0; index < 11; index++) {
       const name = "agent-" + String(index).padStart(2, "0") + ".jsonl";
       const subagentPath = path.join(subagentsDir, name);
-      const contents =
-        index === 10
-          ? jsonLine({ old: "x".repeat(SUBAGENT_TRACE_CAP_BYTES) }) +
-            jsonLine({ recent: true })
-          : jsonLine({ index });
-      writeFileSync(subagentPath, contents);
+      if (index === 9) {
+        mkdirSync(subagentPath);
+      } else {
+        const contents =
+          index === 10
+            ? jsonLine({ old: "x".repeat(SUBAGENT_TRACE_CAP_BYTES) }) +
+              jsonLine({ recent: true })
+            : jsonLine({ index });
+        writeFileSync(subagentPath, contents);
+      }
       const modifiedAt = new Date(1_700_000_000_000 + index * 1000);
       utimesSync(subagentPath, modifiedAt, modifiedAt);
     }
@@ -510,8 +550,12 @@ describe("readAuthoringTraceAttachment", () => {
     expect(attachment.payload.files).not.toHaveProperty(
       "subagents/agent-00.jsonl",
     );
+    expect(attachment.payload.files).not.toHaveProperty(
+      "subagents/agent-09.jsonl",
+    );
     expect(attachment.payload.omitted_files).toEqual([
       "subagents/agent-00.jsonl",
+      "subagents/agent-09.jsonl",
     ]);
     await attachment.cleanup();
   });

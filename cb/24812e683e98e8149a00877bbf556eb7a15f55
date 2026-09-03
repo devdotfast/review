@@ -750,6 +750,15 @@ export default defineSoftwareMap({
                   label: "ThreadAnnotations",
                   description:
                     "Merges allCommentThreads and resolvedCommentThreads into one annotation list (resolved flag per annotation), defers a focus scroll by one measurement cycle for prose targets, and expands collapsed sections that hold the focused thread.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: "review.reviewApp.threadPanel.threadPanelInner",
+                      to: ".",
+                      semanticKind: "feeds",
+                      label: "selectListThread focus requests scroll and highlight the pinned marker",
+                    },
+                  ],
                 },
               },
             },

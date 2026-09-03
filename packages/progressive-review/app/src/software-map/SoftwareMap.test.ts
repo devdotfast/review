@@ -63,6 +63,14 @@ import {
   visibleSoftwareMapChangeCount,
 } from "./SoftwareMap";
 
+function sourceBetween(source: string, start: string, end: string): string {
+  const from = source.indexOf(start);
+  const to = source.indexOf(end);
+  if (from === -1) throw new Error(`marker not found: ${start}`);
+  if (to === -1) throw new Error(`marker not found: ${end}`);
+  return source.slice(from, to);
+}
+
 type C4LayoutBoxForTest = {
   x: number;
   y: number;
@@ -651,9 +659,10 @@ describe("SoftwareMap inline C4 helpers", () => {
       new URL("./SoftwareMap.tsx", import.meta.url),
       "utf8",
     );
-    const canvasSource = source.slice(
-      source.indexOf("function C4MapCanvas"),
-      source.indexOf("function runInlineC4Layout"),
+    const canvasSource = sourceBetween(
+      source,
+      "function C4MapCanvas",
+      "function runInlineC4Layout",
     );
 
     expect(canvasSource).toContain("C4DisplayedLayoutState");
@@ -675,9 +684,10 @@ describe("SoftwareMap inline C4 helpers", () => {
       new URL("./SoftwareMap.tsx", import.meta.url),
       "utf8",
     );
-    const measurementLayerSource = source.slice(
-      source.indexOf("function C4NodeMeasurementLayer"),
-      source.indexOf("function C4MeasureNodeFrame"),
+    const measurementLayerSource = sourceBetween(
+      source,
+      "function C4NodeMeasurementLayer",
+      "function scheduleC4NodeMeasurements",
     );
 
     expect(source).toContain("const followUpMeasurements = [120, 500]");

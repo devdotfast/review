@@ -69,6 +69,12 @@ import { runReviewWait, validateReviewWait } from "./review-wait";
 import { installReviewCommand, pathShimPath } from "./server/cli-install";
 import { reviewDesktopDiscoveryPath } from "./server/desktop-paths";
 import {
+  DEFAULT_STORE_ORIGIN,
+  runReviewLogin,
+  runReviewLogout,
+  runReviewWhoami,
+} from "./store-auth";
+import {
   runReviewThreadsGet,
   runReviewThreadsList,
   runReviewThreadsReply,
@@ -127,6 +133,9 @@ interface ProgressiveReviewCliRuntime {
   listReviews: typeof listReviews;
   sealReviewCandidate: typeof sealReviewCandidate;
   prepareReviewPinnedCheckout: typeof prepareReviewPinnedCheckout;
+  runReviewLogin: typeof runReviewLogin;
+  runReviewLogout: typeof runReviewLogout;
+  runReviewWhoami: typeof runReviewWhoami;
 }
 
 export interface ProgressiveReviewCliInput {
@@ -576,6 +585,48 @@ export async function runProgressiveReviewCli(
       input.stdout.write(`${JSON.stringify(event)}\n`);
       state.exitCode = 0;
     });
+
+  configureJsonOutput(
+    program
+      .command("login")
+      .description("Log in to the hosted trace store with GitHub"),
+    "plain",
+  )
+    .option("--origin <url>", "Store origin", DEFAULT_STORE_ORIGIN)
+    .option("--no-browser", "Print the URL instead of opening a browser")
+    .action(
+      async (options: {
+        origin?: string;
+        browser?: boolean;
+        json?: boolean;
+      }) => {
+        state.exitCode = await runtime.runReviewLogin({
+          origin: options.origin,
+          noBrowser: !options.browser,
+          json: options.json,
+          stdout: input.stdout,
+          stderr: input.stderr,
+        });
+      },
+    );
+
+  program
+    .command("logout")
+    .description("Forget the hosted trace store login")
+    .action(async () => {
+      state.exitCode = await runtime.runReviewLogout({ stdout: input.stdout });
+    });
+
+  configureJsonOutput(
+    program.command("whoami").description("Show the hosted trace store login"),
+    "plain",
+  ).action(async (options: { json?: boolean }) => {
+    state.exitCode = await runtime.runReviewWhoami({
+      json: options.json,
+      stdout: input.stdout,
+      stderr: input.stderr,
+    });
+  });
 
   const install = configureJsonOutput(
     program
@@ -1283,6 +1334,9 @@ function progressiveReviewCliRuntime(
     listReviews,
     sealReviewCandidate,
     prepareReviewPinnedCheckout,
+    runReviewLogin,
+    runReviewLogout,
+    runReviewWhoami,
     ...overrides,
   };
 }

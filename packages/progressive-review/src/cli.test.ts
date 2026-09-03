@@ -196,6 +196,38 @@ describe("Review CLI", () => {
     expect(output).toBe("1.2.3\n");
   });
 
+  it("prints login help without running it", async () => {
+    await expect(
+      runProgressiveReviewCli({
+        argv: ["login", "--help"],
+        stdout: outputStream(),
+        stderr: outputStream(),
+      }),
+    ).resolves.toBe(0);
+  });
+
+  it("requires a login before whoami", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "review-cli-whoami-"));
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+    const stderr = outputStream();
+    let output = "";
+    stderr.on("data", (chunk) => (output += String(chunk)));
+
+    try {
+      await expect(
+        runProgressiveReviewCli({
+          argv: ["whoami"],
+          stdout: outputStream(),
+          stderr,
+        }),
+      ).resolves.toBe(1);
+      expect(output).toContain("Run `review login` first.");
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   it("reports when a Codex Review wait reuses the active process", async () => {
     const stdout = outputStream();
     let output = "";

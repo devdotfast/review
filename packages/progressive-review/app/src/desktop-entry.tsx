@@ -408,7 +408,15 @@ function Home({
       }
       return parseReviewListResponse(await response.json());
     },
-    staleTime: Infinity,
+    // SSE patches are the fast path, but they are intentionally disposable.
+    // A laptop sleep, renderer suspension, or connection race can miss one;
+    // reconcile from the authoritative SQLite-backed snapshot whenever the
+    // user returns to the app instead of treating the cached catalog as fresh
+    // forever.
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: "always",
+    refetchOnReconnect: "always",
   });
   useEffect(() => {
     const url = new URL("/events", content.serverUrl);

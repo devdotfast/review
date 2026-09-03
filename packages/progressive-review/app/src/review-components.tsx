@@ -44,7 +44,14 @@ import {
   useOptionalReviewSession,
   useReviewSession,
 } from "./host/review-session";
-import { CloseIcon, CommentIcon, MapPinIcon, TerminalIcon } from "./icons";
+import {
+  CloseIcon,
+  CommentIcon,
+  MapPinIcon,
+  RefreshIcon,
+  ResolveIcon,
+  TerminalIcon,
+} from "./icons";
 import { newTabLinkProps } from "./link-props";
 import { createClientId, useReview, useReviewActions } from "./review-context";
 import { useOptionalReviewPanelStore, useReviewPanel } from "./review-panel";
@@ -1588,16 +1595,36 @@ function ThreadPanelInner({
               + New ask
             </button>
           ) : undefined
-        ) : thread?.agentSession && !review.historicalRevision ? (
-          <button
-            type="button"
-            className="thread-resume-terminal"
-            aria-label="Resume in terminal"
-            title="Resume in terminal"
-            onClick={() => void resumeInTerminal(thread)}
-          >
-            <TerminalIcon />
-          </button>
+        ) : thread && !review.historicalRevision ? (
+          <>
+            <button
+              type="button"
+              className={`thread-resolve-toggle${
+                thread.resolved ? " thread-resolve-toggle--resolved" : ""
+              }`}
+              aria-pressed={thread.resolved}
+              onClick={() =>
+                void review.setCommentResolved(
+                  thread.threadId,
+                  !thread.resolved,
+                )
+              }
+            >
+              {thread.resolved ? <RefreshIcon /> : <ResolveIcon />}
+              <span>{thread.resolved ? "Unresolve" : "Resolve"}</span>
+            </button>
+            {thread.agentSession && (
+              <button
+                type="button"
+                className="thread-resume-terminal"
+                aria-label="Resume in terminal"
+                title="Resume in terminal"
+                onClick={() => void resumeInTerminal(thread)}
+              >
+                <TerminalIcon />
+              </button>
+            )}
+          </>
         ) : undefined
       }
     >
@@ -1693,7 +1720,7 @@ function ThreadChat({
           );
         })}
       </div>
-      {!readOnly && !thread?.resolved && (
+      {!readOnly && (
         <div className="thread-chat-composer">
           <ThreadComposer
             kind="new-thread"
@@ -1704,6 +1731,13 @@ function ThreadChat({
             onAskNow={onAskNow}
             onAddToReview={onAddToReview}
           />
+          {thread?.resolved && (
+            // A reply on a resolved thread reopens it (the comment store
+            // resets the status on append); say so before the reviewer types.
+            <p className="thread-chat-reopen-hint">
+              Submitting reopens this thread.
+            </p>
+          )}
         </div>
       )}
     </div>

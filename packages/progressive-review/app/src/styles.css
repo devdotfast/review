@@ -3688,6 +3688,49 @@ button {
   padding: 0;
 }
 
+/* Resolve / Unresolve, top-right of the opened thread. The resolved state is
+   drawn hollow and dashed to match the resolved pin in the document. */
+.thread-resolve-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  margin-left: auto;
+  padding: 0 9px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 5px;
+  background: var(--control-bg);
+  color: var(--ink-soft);
+  font: 600 11px var(--font-mono);
+}
+
+.thread-resolve-toggle .ui-icon {
+  width: 11px;
+  height: 11px;
+}
+
+.thread-resolve-toggle:hover,
+.thread-resolve-toggle:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+  outline: none;
+}
+
+.thread-resolve-toggle--resolved {
+  border-style: dashed;
+  border-color: var(--marker-resolved-rule);
+  background: transparent;
+  color: var(--marker-resolved-ink);
+}
+
+.thread-resolve-toggle--resolved:hover,
+.thread-resolve-toggle--resolved:focus-visible {
+  border-style: solid;
+  border-color: var(--ink-faint);
+  background: var(--highlight-resolved-bg-active);
+  color: var(--ink);
+}
+
 .thread-chat {
   display: flex;
   flex-direction: column;
@@ -3737,6 +3780,13 @@ button {
 
 .question-panel .thread-chat-composer .thread-compose {
   gap: 8px;
+}
+
+.thread-chat-reopen-hint {
+  margin: 6px 0 0;
+  color: var(--ink-faint);
+  font: 400 11px/15px var(--font-mono);
+  text-align: right;
 }
 
 .question-panel .thread-chat-composer .thread-compose textarea {

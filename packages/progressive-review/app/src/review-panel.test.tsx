@@ -159,6 +159,80 @@ describe("Review panel host", () => {
     });
   });
 
+  it("toggles a thread between resolved and open from its header", async () => {
+    await session.bridge.comments.saveComment({
+      threadId: "thread-1",
+      messageId: "message-1",
+      target: { kind: "document" },
+      body: "is this anchor still right?",
+    });
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      renderWithSession(
+        <ReviewDebugSettingsProvider>
+          <ReviewProvider>
+            <ReviewPanelProvider>
+              <OpenCommentPanel threadId="thread-1" />
+              <ReviewPanelHost />
+            </ReviewPanelProvider>
+          </ReviewProvider>
+        </ReviewDebugSettingsProvider>,
+      );
+      await Promise.resolve();
+    });
+
+    const toggle = () =>
+      container.querySelector<HTMLButtonElement>(".thread-resolve-toggle");
+    expect(toggle()?.textContent).toBe("Resolve");
+    expect(toggle()?.getAttribute("aria-pressed")).toBe("false");
+
+    await act(async () => {
+      toggle()!.click();
+      await Promise.resolve();
+    });
+    expect(toggle()?.textContent).toBe("Unresolve");
+    expect(toggle()?.getAttribute("aria-pressed")).toBe("true");
+    expect(
+      toggle()?.classList.contains("thread-resolve-toggle--resolved"),
+    ).toBe(true);
+
+    // The composer stays available on a resolved thread and warns that a
+    // reply reopens it; submitting one flips the toggle back.
+    expect(
+      container.querySelector(".thread-chat-reopen-hint")?.textContent,
+    ).toBe("Submitting reopens this thread.");
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          ".thread-chat-composer .thread-reply-row",
+        )!
+        .click();
+    });
+    const textarea = container.querySelector<HTMLTextAreaElement>(
+      ".thread-chat-composer textarea",
+    );
+    expect(textarea).not.toBeNull();
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      )!.set!;
+      setValue.call(textarea, "one more thing");
+      textarea!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      container
+        .querySelector<HTMLFormElement>(".thread-compose")!
+        .requestSubmit();
+      await Promise.resolve();
+    });
+    expect(toggle()?.textContent).toBe("Resolve");
+    expect(container.querySelector(".thread-chat-reopen-hint")).toBeNull();
+  });
+
   it("replaces Threads when a document peek opens", async () => {
     const addEventListener = vi.spyOn(document, "addEventListener");
     const container = document.createElement("div");
@@ -425,6 +499,15 @@ function OpenReplacingPanel() {
 function OpenThreadsPanel() {
   const openThreads = useReviewPanel((state) => state.openThreads);
   useEffect(() => openThreads(), [openThreads]);
+  return null;
+}
+
+function OpenCommentPanel({ threadId }: { threadId: string }) {
+  const openThreads = useReviewPanel((state) => state.openThreads);
+  useEffect(
+    () => openThreads({ kind: "comment", threadId }),
+    [openThreads, threadId],
+  );
   return null;
 }
 

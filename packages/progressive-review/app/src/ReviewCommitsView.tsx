@@ -179,7 +179,7 @@ function CommitRow({
               key={file.path}
               onClick={() => {
                 captureUiEvent(session, "commit_diff_opened", { via: "file" });
-                openCommitDiff(commit, file);
+                openCommitDiff({ kind: "commit-diff", commit, file });
               }}
             >
               <span className="review-commit-file-path">{file.path}</span>

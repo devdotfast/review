@@ -8,7 +8,8 @@ import type {
 import { useEffect, useRef } from "react";
 
 import { useReviewDebugSettings } from "./debug-settings";
-import { type GuidedTour, GuidedTourPanel } from "./review-components";
+import { GuidedTourPanel } from "./review-components";
+import type { GuidedTour } from "./review-panel-model";
 import { useReviewContainer } from "./review-root-context";
 import { useRightPanelResize } from "./side-panel-resizer";
 

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AnchorRef } from "../../src/authoring";
 import { ReviewSessionProvider } from "./host/review-session";
-import type { GuidedTour } from "./review-components";
+import type { GuidedTour } from "./review-panel-model";
 import { createReviewPanelStore } from "./review-panel-store";
 import { testReviewSession } from "./review-session-test-utils";
 import { writeReviewUiState } from "./review-ui-state";
@@ -82,6 +82,20 @@ describe("review view state", () => {
     clearPersistedReviewViewState(session.config);
 
     expect(readPersistedReviewViewState(session.config)).toEqual({});
+  });
+
+  it("normalizes legacy layered panel state to one persisted panel", () => {
+    const session = testReviewSession();
+    storeState(session, {
+      panel: {
+        thread: { kind: "threads" },
+        tour: { tourId: "flow", activeAnchor: "second" },
+      },
+    });
+
+    expect(readPersistedReviewViewState(session.config).panel).toEqual({
+      kind: "threads",
+    });
   });
 
   it("flushes the final scroll position when cleanup cancels a pending frame", () => {
@@ -213,44 +227,37 @@ describe("review view state", () => {
 
     act(() => store.getState().openThreads());
     expect(readPersistedReviewViewState(session.config).panel).toEqual({
-      thread: { kind: "threads" },
+      kind: "threads",
     });
 
-    act(() => store.getState().openCommentThread("thread-7"));
-    expect(readPersistedReviewViewState(session.config).panel).toEqual({
-      thread: { kind: "commentThread", threadId: "thread-7" },
-    });
+    act(() =>
+      store.getState().openThreads({ kind: "comment", threadId: "thread-7" }),
+    );
+    expect(readPersistedReviewViewState(session.config).panel).toBeUndefined();
 
-    act(() => store.getState().openNewAsk());
+    act(() => store.getState().openThreads({ kind: "new-ask" }));
     expect(readPersistedReviewViewState(session.config).panel).toBeUndefined();
 
     act(() => store.getState().openTour(tour, "second"));
     expect(readPersistedReviewViewState(session.config).panel).toEqual({
-      tour: { tourId: "flow", activeAnchor: "second" },
+      kind: "tour",
+      tourId: "flow",
+      activeAnchor: "second",
     });
   });
 
-  it("restores the thread list but leaves a comment thread closed", () => {
-    const commentSession = testReviewSession({ sessionId: "comment" });
-    const commentStore = createReviewPanelStore();
-    storeState(commentSession, {
-      panel: {
-        thread: { kind: "commentThread", threadId: "thread-7" },
-      },
-    });
-    renderViewState({ session: commentSession, store: commentStore });
-
-    expect(commentStore.getState().thread).toBeNull();
-
-    unmount();
+  it("restores the thread list", () => {
     const threadsSession = testReviewSession({ sessionId: "threads" });
     const threadsStore = createReviewPanelStore();
     storeState(threadsSession, {
-      panel: { thread: { kind: "threads" } },
+      panel: { kind: "threads" },
     });
     renderViewState({ session: threadsSession, store: threadsStore });
 
-    expect(threadsStore.getState().thread).toEqual({ kind: "threads" });
+    expect(threadsStore.getState().active).toEqual({
+      kind: "threads",
+      page: { kind: "list" },
+    });
   });
 
   it("lets the matching tour owner claim a restore exactly once", () => {

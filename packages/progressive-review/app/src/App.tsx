@@ -76,7 +76,6 @@ import {
   useReviewPanelStore,
   useSuppressPanelMotionOnCanvasResume,
 } from "./review-panel";
-import { selectActiveReviewPanel } from "./review-panel-store";
 import { ReviewRootsProvider } from "./review-root-context";
 import { targetQuote } from "./review-threads";
 import { ReviewToc } from "./review-toc";
@@ -300,13 +299,15 @@ function ReviewLayoutContent({
   const review = useReview();
   const panelStore = useReviewPanelStore();
   useSuppressPanelMotionOnCanvasResume(appRef);
-  const activePanel = useReviewPanel(selectActiveReviewPanel);
+  const activePanel = useReviewPanel((state) => state.active);
   const panelMotion = useReviewPanel((state) => state.motion);
-  const closeDetail = useReviewPanel((state) => state.closeDetail);
-  const closeThread = useReviewPanel((state) => state.closeThread);
+  const closeForDocumentChange = useReviewPanel(
+    (state) => state.closeForDocumentChange,
+  );
+  const closeForAgentTerminal = useReviewPanel(
+    (state) => state.closeForAgentTerminal,
+  );
   const openThreads = useReviewPanel((state) => state.openThreads);
-  const openNewAsk = useReviewPanel((state) => state.openNewAsk);
-  const openCommentThread = useReviewPanel((state) => state.openCommentThread);
   const debugSettings = useReviewDebugSettings();
   const sidePeekResize = useRightPanelResize({
     stateKey: "side-peek-width",
@@ -377,7 +378,7 @@ function ReviewLayoutContent({
     );
     if (normalizedView !== "diff") setDiffScope(null);
     if (shouldCloseSidePeekForReviewView(normalizedView)) {
-      closeDetail();
+      closeForDocumentChange();
     }
     setActiveView(normalizedView);
     viewStateSync.persistActiveView(normalizedView);
@@ -392,13 +393,14 @@ function ReviewLayoutContent({
   }, [activeView, hasChangeRange, softwareMapEnabled]);
   useReviewTabTelemetry(activeView);
   const threadCount = review.allCommentThreads().length;
-  const askPanelOpen = activePanel?.kind === "new-ask";
+  const askPanelOpen =
+    activePanel?.kind === "threads" && activePanel.page.kind === "new-ask";
   /* An open review batch means the next thing you write most likely joins it,
      so every entry point says "Comment" rather than "Ask". */
   const askOrCommentLabel =
     review.pendingCommentCount > 0 ? "New comment" : "New ask";
   const threadsPanelOpen =
-    activePanel?.kind === "threads" || activePanel?.kind === "commentThread";
+    activePanel?.kind === "threads" && activePanel.page.kind !== "new-ask";
   useEffect(
     () =>
       session.surface.subscribe((event) => {
@@ -406,10 +408,10 @@ function ReviewLayoutContent({
           event.event === "agentTerminalOpening" &&
           event.sessionId === session.config.sessionId
         ) {
-          closeThread();
+          closeForAgentTerminal();
         }
       }),
-    [closeThread, session],
+    [closeForAgentTerminal, session],
   );
   useEffect(() => {
     if (traceSelection) {
@@ -593,7 +595,7 @@ function ReviewLayoutContent({
                           via: "topbar",
                         });
                         session.surface.showThreads();
-                        openNewAsk();
+                        openThreads({ kind: "new-ask" });
                       }}
                     >
                       <TerminalIcon />
@@ -657,7 +659,10 @@ function ReviewLayoutContent({
                     articleRef={articleRef}
                     onOpenInPanel={(thread) => {
                       session.surface.showThreads();
-                      openCommentThread(thread.threadId);
+                      openThreads({
+                        kind: "comment",
+                        threadId: thread.threadId,
+                      });
                     }}
                   />
                 </ReviewDocumentSelectionSurface>

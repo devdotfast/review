@@ -17,12 +17,12 @@ const generatorPath = path.join(
   monorepoRoot,
   "packages/review-protocol/scripts/generate-native-source.mjs",
 );
-export const generatedProtocolPath = path.join(
+const generatedProtocolPath = path.join(
   appDirectory,
   "code-oss/src/vs/review/common/reviewProtocol.ts",
 );
 
-export function syncProtocol() {
+function syncProtocol() {
   const temporaryDirectory = fs.mkdtempSync(
     path.join(os.tmpdir(), "review-desktop-protocol-"),
   );
@@ -44,9 +44,7 @@ export function syncProtocol() {
   }
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  if (process.argv.length !== 2) {
-    throw new Error("usage: node scripts/protocol-sync.mjs");
-  }
-  syncProtocol();
+if (process.argv.length !== 2) {
+  throw new Error("usage: node scripts/protocol-sync.mjs");
 }
+syncProtocol();

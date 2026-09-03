@@ -16,7 +16,14 @@ const sourceRoot =
   sourceRootFlag === -1
     ? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src")
     : args[sourceRootFlag + 1];
-if (!outputPath || outputPath.startsWith("--") || !sourceRoot) {
+const isValidArgs =
+  outputPath &&
+  !outputPath.startsWith("--") &&
+  sourceRoot &&
+  (sourceRootFlag === -1
+    ? args.length === 1
+    : args.length === 3 && sourceRootFlag === 1);
+if (!isValidArgs) {
   throw new Error(
     "Usage: generate-native-source.mjs <output-path> [--source-root <dir>]",
   );
@@ -28,31 +35,37 @@ const HEADER = [
   "",
   "z.config({ jitless: true });",
   "",
+  "",
 ].join("\n");
 
 /**
- * Drops top-level `import …;` and `export … from "…";` statements. A
- * statement starts on a line that begins with `import ` or matches
- * `export (\*|\{)` and ends at the first line that ends with `;`. Multi-line
- * named-import blocks are therefore removed whole regardless of formatting.
+ * Drops top-level `import …;` and `export … from "…";` statements,
+ * including ones wrapped across multiple lines. A statement starts on a
+ * line beginning with `import `, `export *`, `export {`, or `export type
+ * {`; every such statement is buffered up to the line that ends with `;`
+ * and then dropped only if it starts with `import ` or contains a `from
+ * "…"` clause. That keeps local re-export lists (`export { a, b };`) and
+ * all `export const/function/type/interface …` declarations, which never
+ * match the opener pattern and so are kept immediately, line by line.
  */
 function stripModuleStatements(source) {
   const kept = [];
-  let skipping = false;
+  let buffer = null;
   for (const line of source.split("\n")) {
-    if (!skipping) {
-      const startsImport = /^import\s/.test(line);
-      const startsReexport =
-        /^export\s+(\*|\{)/.test(line) &&
-        /\sfrom\s/.test(line.includes(";") ? line : `${line} from`);
-      if (startsImport || startsReexport) {
-        skipping = !line.trimEnd().endsWith(";");
-        continue;
-      }
+    if (
+      buffer === null &&
+      !/^(import\s|export\s+(\*|type\s+\{|\{))/.test(line)
+    ) {
       kept.push(line);
       continue;
     }
-    if (line.trimEnd().endsWith(";")) skipping = false;
+    buffer = buffer === null ? [line] : [...buffer, line];
+    if (!line.trimEnd().endsWith(";")) continue;
+    const statement = buffer.join("\n");
+    if (!/^import\s/.test(statement) && !/\bfrom\s*["']/.test(statement)) {
+      kept.push(...buffer);
+    }
+    buffer = null;
   }
   return kept.join("\n").replace(/^\n+/, "").trimEnd();
 }

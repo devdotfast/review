@@ -98,13 +98,20 @@ describe("native Review Protocol source generation", () => {
         path.join(sourceRoot, name),
       );
     }
-    // Reformat index.ts: one named import per line, different order, and
-    // the re-exports moved to the bottom of the file.
+    // Reformat index.ts: one named import per line, different order, the
+    // re-exports moved to the bottom of the file, and the `contracts.js`
+    // re-export rewritten from `export * from` to a wrapped multi-line
+    // named re-export.
     const indexPath = path.join(sourceRoot, "index.ts");
     const original = await readFile(indexPath, "utf8");
     const reexports = original
       .split("\n")
-      .filter((line) => line.startsWith("export * from "));
+      .filter((line) => line.startsWith("export * from "))
+      .map((line) =>
+        line === 'export * from "./contracts.js";'
+          ? 'export {\n  sessionIdSchema,\n  commitShaSchema,\n} from "./contracts.js";'
+          : line,
+      );
     const body = original
       .split("\n")
       .filter((line) => !line.startsWith("export * from "))
@@ -133,8 +140,46 @@ describe("native Review Protocol source generation", () => {
       "--source-root",
       sourceRoot,
     ]);
-    expect(await readFile(actualPath, "utf8")).toBe(
-      await readFile(expectedPath, "utf8"),
+    const actual = await readFile(actualPath, "utf8");
+    expect(actual).toBe(await readFile(expectedPath, "utf8"));
+    expect(actual).not.toContain("./contracts.js");
+  });
+
+  it("preserves a local multi-line export list without a from clause", async () => {
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "review-protocol-native-local-export-"),
     );
+    temporaryDirectories.push(directory);
+    const sourceRoot = path.join(directory, "src");
+    await mkdir(sourceRoot, { recursive: true });
+    await writeFile(
+      path.join(sourceRoot, "contracts.ts"),
+      [
+        "export const a = 1;",
+        "export const b = 2;",
+        "export {",
+        "  a,",
+        "  b,",
+        "};",
+        "",
+      ].join("\n"),
+    );
+    await writeFile(
+      path.join(sourceRoot, "index.ts"),
+      ['import { z } from "zod";', 'export * from "./contracts.js";', ""].join(
+        "\n",
+      ),
+    );
+
+    const outputPath = path.join(directory, "actual.ts");
+    await execFileAsync(process.execPath, [
+      generatorPath,
+      outputPath,
+      "--source-root",
+      sourceRoot,
+    ]);
+
+    const output = await readFile(outputPath, "utf8");
+    expect(output).toContain("export {\n  a,\n  b,\n};");
   });
 });

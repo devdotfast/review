@@ -2205,11 +2205,11 @@ export function createGlobalReviewServer(
       if (activeSessionForReview(uuid)) continue;
       try {
         await withReviewLock(uuid, async () => {
+          reviewStateService.delete(stored.dir);
           await rm(stored.dir, { recursive: true, force: true });
           await clearReopenPending(stored.review.worktreePath).catch(
             () => undefined,
           );
-          reviewStateService.forget(uuid);
           broadcastGlobal({ event: "review-deleted", uuid });
         });
         console.info(

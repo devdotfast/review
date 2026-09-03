@@ -129,6 +129,7 @@ export async function createLiveReview(input: {
     );
     return { review: active, info };
   } catch (error) {
+    reviewStateService.delete(review.dir);
     await rm(review.dir, { recursive: true, force: true });
     throw error;
   }

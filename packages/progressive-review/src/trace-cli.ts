@@ -1,3 +1,5 @@
+import type { Writable } from "node:stream";
+
 import {
   type AgentTraceEvent,
   extractTraceEventText,
@@ -36,8 +38,8 @@ export { runReviewTraceGitHook, runReviewTraceHook };
 
 export async function runReviewTraceStatus(input: {
   cwd: string;
-  stdout: NodeJS.WriteStream;
-  stderr: NodeJS.WriteStream;
+  stdout: Writable;
+  stderr: Writable;
 }): Promise<number> {
   const machine = await traceMachineStatus();
   const repository = await traceRepositoryStatus(input.cwd);
@@ -80,8 +82,8 @@ export async function runReviewTraceStatus(input: {
 
 export async function runReviewTraceEnable(input: {
   cwd: string;
-  stdout: NodeJS.WriteStream;
-  stderr: NodeJS.WriteStream;
+  stdout: Writable;
+  stderr: Writable;
 }): Promise<number> {
   if (!(await traceMachineStatus()).enabled) {
     input.stderr.write(
@@ -96,7 +98,7 @@ export async function runReviewTraceEnable(input: {
 
 export async function runReviewTraceDisable(input: {
   cwd: string;
-  stdout: NodeJS.WriteStream;
+  stdout: Writable;
 }): Promise<number> {
   const result = await disableTraceRepository({ cwd: input.cwd });
   input.stdout.write(`${result.message}\n`);
@@ -105,8 +107,8 @@ export async function runReviewTraceDisable(input: {
 
 export async function runReviewTraceRepair(input: {
   cwd: string;
-  stdout: NodeJS.WriteStream;
-  stderr: NodeJS.WriteStream;
+  stdout: Writable;
+  stderr: Writable;
 }): Promise<number> {
   if (!(await traceMachineStatus()).enabled) {
     input.stderr.write(
@@ -137,7 +139,7 @@ export async function runReviewTraceList(input: {
   reviewUuid?: string;
   commitSha?: string;
   json?: boolean;
-  stdout: NodeJS.WriteStream;
+  stdout: Writable;
 }): Promise<number> {
   let scope: { review: string } | { commit: string };
   let sessions: ReviewTraceSessionDescriptor[];
@@ -207,8 +209,8 @@ export async function runReviewTraceShow(input: {
   eventIndex?: number;
   kind?: string;
   json?: boolean;
-  stdout: NodeJS.WriteStream;
-  stderr: NodeJS.WriteStream;
+  stdout: Writable;
+  stderr: Writable;
 }): Promise<number> {
   const traceName = input.trace === "main" ? undefined : input.trace;
   const loaded = await loadReviewAgentTrace({
@@ -291,8 +293,8 @@ export async function runReviewTracePull(input: {
   session?: string;
   mainOnly?: boolean;
   json?: boolean;
-  stdout: NodeJS.WriteStream;
-  stderr: NodeJS.WriteStream;
+  stdout: Writable;
+  stderr: Writable;
 }): Promise<number> {
   try {
     let scope: Record<string, string>;
@@ -375,7 +377,7 @@ export async function runReviewTraceLookupCommit(input: {
   cwd: string;
   sha: string;
   json?: boolean;
-  stdout: NodeJS.WriteStream;
+  stdout: Writable;
 }): Promise<number> {
   const result = await lookupReviewTraceCommit({
     cwd: input.cwd,
@@ -397,8 +399,8 @@ export async function runReviewTraceBlame(input: {
   lines?: string;
   history?: boolean;
   json?: boolean;
-  stdout: NodeJS.WriteStream;
-  stderr: NodeJS.WriteStream;
+  stdout: Writable;
+  stderr: Writable;
 }): Promise<number> {
   let result: ReviewTraceBlameLookupResult;
   try {
@@ -442,7 +444,7 @@ export async function runReviewTraceLookupSession(input: {
   cwd: string;
   sessionId: string;
   json?: boolean;
-  stdout: NodeJS.WriteStream;
+  stdout: Writable;
 }): Promise<number> {
   const result = await lookupReviewTraceSession({
     sessionId: input.sessionId,
@@ -477,7 +479,7 @@ export async function runReviewTraceLookupSession(input: {
 
 function printCommitResolution(
   resolution: ReviewTraceCommitLookupResult,
-  stdout: NodeJS.WriteStream,
+  stdout: Writable,
 ): void {
   const shortCommit = resolution.commit.slice(0, 12);
   if (resolution.sessions.length === 0) {
@@ -509,7 +511,7 @@ export async function runReviewTraceSync(input: {
   sessionId: string;
   repo?: string;
   json?: boolean;
-  stdout: NodeJS.WriteStream;
+  stdout: Writable;
 }): Promise<number> {
   const result = await syncReviewTrace({
     sessionId: input.sessionId,

@@ -2,7 +2,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import type { ReviewThreadsCommit } from "@dev.fast/review-protocol";
+import type {
+  CreateReviewCommentInput,
+  ReviewThreadsCommit,
+} from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { PostHogCaptureInput } from "../posthog-capture-client";
@@ -283,7 +286,11 @@ describe("createReviewSessionHandler", () => {
       },
     });
 
-    const request = (path: string, method: "POST" | "DELETE", body?: object) =>
+    const request = (
+      path: string,
+      method: "POST" | "DELETE",
+      body?: CreateReviewCommentInput,
+    ) =>
       handler.handle(
         new Request(new URL(`/__progressive-review${path}`, sessionUrl), {
           method,

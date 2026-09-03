@@ -1,8 +1,11 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { Writable } from "node:stream";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { collectingWritable } from "./cli-output";
 
 const mapMocks = vi.hoisted(() => ({
   runSoftwareMapCli: vi.fn<typeof import("./map-cli").runSoftwareMapCli>(),
@@ -133,13 +136,8 @@ function stubPostHog() {
   return fetchMock;
 }
 
-function writableOutput(output: string[]): NodeJS.WriteStream {
-  return {
-    write: (chunk: string) => {
-      output.push(chunk);
-      return true;
-    },
-  } as NodeJS.WriteStream;
+function writableOutput(output: string[]): Writable {
+  return collectingWritable(output);
 }
 
 function lastCaptureBody(fetchMock: {

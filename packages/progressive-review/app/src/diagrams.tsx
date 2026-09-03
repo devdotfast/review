@@ -55,6 +55,19 @@ import { captureUiEvent } from "./ui-telemetry";
 
 import "@xyflow/react/dist/style.css";
 
+type SequenceParticipantNodeData = {
+  participant: ActorRef;
+  diagram: string;
+  height: number;
+  messages: SequenceMessage[];
+  messageGap: number;
+  messageTop: number;
+};
+type SequenceParticipantFlowNode = ReactFlowNode<
+  SequenceParticipantNodeData,
+  "sequenceParticipant"
+>;
+
 const sequenceNodeTypes = { sequenceParticipant: SequenceParticipantNode };
 const sequenceEdgeTypes = { sequenceMessage: SequenceMessageEdge };
 
@@ -515,7 +528,7 @@ function SequenceDiagramFigure({
   const messageGap = 76;
   const width = Math.max(320, sequence.participants.length * laneWidth);
   const height = messageTop + sequence.messages.length * messageGap + 42;
-  const reactFlowNodes: ReactFlowNode[] = useMemo(
+  const reactFlowNodes: SequenceParticipantFlowNode[] = useMemo(
     () =>
       sequence.participants.map((participant, index) => ({
         id: participant.id,
@@ -774,17 +787,12 @@ function DiagramHeader({
   );
 }
 
-function SequenceParticipantNode({ data }: ReactFlowNodeProps) {
+function SequenceParticipantNode({
+  data,
+}: ReactFlowNodeProps<SequenceParticipantFlowNode>) {
   const review = useReview();
   const { participant, diagram, height, messages, messageGap, messageTop } =
-    data as unknown as {
-      participant: ActorRef;
-      diagram: string;
-      height: number;
-      messages: SequenceMessage[];
-      messageGap: number;
-      messageTop: number;
-    };
+    data;
   const target = buildGraphTarget({
     diagram,
     type: "node",

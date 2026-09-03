@@ -12,6 +12,7 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { Writable } from "node:stream";
 import { promisify } from "node:util";
 
 import { emitJsonEvent, humanStream } from "./cli-output";
@@ -87,8 +88,8 @@ export async function runReviewMigration(input: {
   json?: boolean;
   homeDir?: string;
   packageRoot?: string;
-  stdout: NodeJS.WriteStream;
-  stderr: NodeJS.WriteStream;
+  stdout: Writable;
+  stderr: Writable;
   runtime?: Partial<RunReviewMigrationRuntime>;
 }): Promise<number> {
   const human = humanStream(input);
@@ -622,8 +623,8 @@ type RunProcess = (input: {
   command: string;
   args: string[];
   env: NodeJS.ProcessEnv;
-  stdout: NodeJS.WriteStream;
-  stderr: NodeJS.WriteStream;
+  stdout: Writable;
+  stderr: Writable;
 }) => Promise<number>;
 
 export async function removeLegacyGlobalReviewInstalls(input: {
@@ -631,8 +632,8 @@ export async function removeLegacyGlobalReviewInstalls(input: {
   homeDir: string;
   env: NodeJS.ProcessEnv;
   desktopManagedCli: boolean;
-  stdout: NodeJS.WriteStream;
-  stderr: NodeJS.WriteStream;
+  stdout: Writable;
+  stderr: Writable;
   runCommand?: RunCommand;
   runProcess?: RunProcess;
 }): Promise<CleanupResult> {
@@ -754,8 +755,8 @@ function spawnProcess(input: {
   command: string;
   args: string[];
   env: NodeJS.ProcessEnv;
-  stdout: NodeJS.WriteStream;
-  stderr: NodeJS.WriteStream;
+  stdout: Writable;
+  stderr: Writable;
 }): Promise<number> {
   return new Promise((resolve, reject) => {
     const child = spawn(input.command, input.args, {

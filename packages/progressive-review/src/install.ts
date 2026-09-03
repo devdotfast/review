@@ -9,6 +9,7 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 
 import { ensureNotesConfig, gitCommonDir } from "@dev.fast/local-vcs";
@@ -65,8 +66,8 @@ export async function runInstall(input: {
     verify?: boolean;
   };
   json?: boolean;
-  stdout: NodeJS.WriteStream;
-  stderr: NodeJS.WriteStream;
+  stdout: Writable;
+  stderr: Writable;
 }): Promise<number> {
   const homeDir = input.homeDir ?? os.homedir();
   const packageRoot = input.packageRoot ?? defaultPackageRoot();

@@ -1,11 +1,16 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import type { Writable } from "node:stream";
 
 import { devfastPrepareCommands } from "@dev.fast/local-vcs";
 import type { ReviewView } from "@dev.fast/review-protocol";
 import { Argument, Command, CommanderError, Option } from "commander";
 
-import { humanStream, jsonRequestedInArgv } from "./cli-output";
+import {
+  type CliInputStream,
+  humanStream,
+  jsonRequestedInArgv,
+} from "./cli-output";
 import {
   type CodexWaitProcessInput,
   requireCodexThreadId,
@@ -24,6 +29,7 @@ import { readProgressiveReviewPackageVersion } from "./package-paths";
 import {
   type ProgressiveReviewCommand,
   type ProgressiveReviewCommandPath,
+  type ProgressiveReviewCommandTelemetry,
   ProgressiveReviewTelemetry,
   type ProgressiveReviewTelemetryErrorCategory,
   type ProgressiveReviewTelemetryErrorName,
@@ -120,10 +126,10 @@ export interface ProgressiveReviewCliInput {
   cliVersion?: string;
   cwd?: string;
   env?: NodeJS.ProcessEnv;
-  stdin?: NodeJS.ReadableStream;
-  stdout: NodeJS.WriteStream;
-  stderr: NodeJS.WriteStream;
-  telemetry?: ProgressiveReviewTelemetry;
+  stdin?: CliInputStream;
+  stdout: Writable;
+  stderr: Writable;
+  telemetry?: ProgressiveReviewCommandTelemetry;
   runtime?: Partial<ProgressiveReviewCliRuntime>;
 }
 
@@ -1021,7 +1027,7 @@ export async function runProgressiveReviewCli(
         cwd,
         event,
         sessionId: options.session,
-        stdin: input.stdin as NodeJS.ReadStream | undefined,
+        stdin: input.stdin,
       });
     },
   );
@@ -1182,7 +1188,7 @@ async function readStopHookPayload(
   input: ProgressiveReviewCliInput,
 ): Promise<{ cwd?: string; transcriptPath?: string }> {
   const stdin = input.stdin ?? process.stdin;
-  if ((stdin as NodeJS.ReadStream).isTTY) return {};
+  if (stdin.isTTY) return {};
   try {
     const chunks: Buffer[] = [];
     for await (const chunk of stdin) {
@@ -1471,7 +1477,7 @@ function normalizeMapTelemetrySubcommand(
 }
 
 async function finishActiveTelemetry(
-  telemetry: ProgressiveReviewTelemetry,
+  telemetry: ProgressiveReviewCommandTelemetry,
   active:
     | {
         command: ProgressiveReviewCommandPath;
@@ -1511,7 +1517,7 @@ async function finishActiveTelemetry(
 }
 
 async function captureOneOffCommand(
-  telemetry: ProgressiveReviewTelemetry,
+  telemetry: ProgressiveReviewCommandTelemetry,
   command: ProgressiveReviewCommandPath,
   exitCode: number,
   error?: unknown,

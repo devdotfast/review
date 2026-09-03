@@ -284,6 +284,6 @@ The review and its threads no longer exist. Do not wait on or publish to this re
   });
 });
 
-function outputStream(): NodeJS.WriteStream {
-  return new PassThrough() as unknown as NodeJS.WriteStream;
+function outputStream(): PassThrough {
+  return new PassThrough();
 }

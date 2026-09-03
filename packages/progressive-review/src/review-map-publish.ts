@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import type { Writable } from "node:stream";
 
 import {
   authoringSessionKey,
@@ -29,8 +30,8 @@ export async function runReviewMapPublish(input: {
   cwd: string;
   reviewUuid?: string;
   json?: boolean;
-  stdout: NodeJS.WriteStream;
-  stderr: NodeJS.WriteStream;
+  stdout: Writable;
+  stderr: Writable;
   env?: NodeJS.ProcessEnv;
 }): Promise<number> {
   const report = mapPublishReporter(input);
@@ -160,8 +161,8 @@ interface MapPublishReporter {
 
 function mapPublishReporter(input: {
   json?: boolean;
-  stdout: NodeJS.WriteStream;
-  stderr: NodeJS.WriteStream;
+  stdout: Writable;
+  stderr: Writable;
 }): MapPublishReporter {
   if (input.json) {
     const emit = (event: Record<string, unknown>) =>

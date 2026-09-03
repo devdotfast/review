@@ -1,3 +1,5 @@
+import type { Writable } from "node:stream";
+
 import type { ReviewView } from "@dev.fast/review-protocol";
 
 import { resolveAuthoringSessionRef } from "./authoring-session";
@@ -22,8 +24,8 @@ export async function runReviewPublish(input: {
   view?: ReviewView;
   json?: boolean;
   toolingRoot?: string;
-  stdout: NodeJS.WriteStream;
-  stderr?: NodeJS.WriteStream;
+  stdout: Writable;
+  stderr?: Writable;
   env?: NodeJS.ProcessEnv;
   onReviewBound?: (uuid: string) => void | Promise<void>;
 }): Promise<number> {
@@ -163,8 +165,8 @@ const STAGE_LABELS: Record<string, string> = {
 
 function createPublishReporter(input: {
   json: boolean;
-  stdout: NodeJS.WriteStream;
-  stderr: NodeJS.WriteStream;
+  stdout: Writable;
+  stderr: Writable;
 }): PublishReporter {
   const emit = (event: Record<string, unknown>) => emitJsonEvent(input, event);
   if (input.json) {

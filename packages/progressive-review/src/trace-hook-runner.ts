@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 
 import { git } from "@dev.fast/local-vcs";
 
+import type { CliInputStream } from "./cli-output";
 import {
   readActiveTraceSessions,
   writeTraceSessions,
@@ -21,7 +22,7 @@ export interface RunReviewTraceHookInput {
   cwd: string;
   event: string;
   sessionId?: string;
-  stdin?: NodeJS.ReadStream;
+  stdin?: CliInputStream;
   homeDir?: string;
   env?: NodeJS.ProcessEnv;
 }

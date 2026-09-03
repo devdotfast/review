@@ -9,6 +9,7 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { Writable } from "node:stream";
 import { promisify } from "node:util";
 
 import { describe, expect, it, vi } from "vitest";
@@ -1020,8 +1021,12 @@ async function git(root: string, args: string[]): Promise<string> {
   return stdout.trim();
 }
 
-function nullStream(): NodeJS.WriteStream {
-  return { write: () => true } as unknown as NodeJS.WriteStream;
+function nullStream(): Writable {
+  return new Writable({
+    write(_chunk, _encoding, callback) {
+      callback();
+    },
+  });
 }
 
 async function jj(root: string, args: string[]): Promise<string> {

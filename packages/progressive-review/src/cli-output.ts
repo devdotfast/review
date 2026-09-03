@@ -4,14 +4,32 @@
 // carries only JSON events, one per line, and the human report moves to
 // stderr, so a caller can parse stdout without stripping prose out of it.
 
+import { type Readable, Writable } from "node:stream";
+
+/** Standard input for a command: `process.stdin`, or any Readable in tests. */
+export interface CliInputStream extends Readable {
+  readonly isTTY?: boolean;
+}
+
+/** A Writable that appends every chunk to `chunks`, for captured CLI output. */
+export function collectingWritable(chunks: string[]): Writable {
+  return new Writable({
+    decodeStrings: false,
+    write(chunk, _encoding, callback) {
+      chunks.push(String(chunk));
+      callback();
+    },
+  });
+}
+
 export interface CliJsonOutput {
   json?: boolean;
-  stdout: NodeJS.WriteStream;
-  stderr: NodeJS.WriteStream;
+  stdout: Writable;
+  stderr: Writable;
 }
 
 /** The stream a human report belongs on. */
-export function humanStream(output: CliJsonOutput): NodeJS.WriteStream {
+export function humanStream(output: CliJsonOutput): Writable {
   return output.json ? output.stderr : output.stdout;
 }
 

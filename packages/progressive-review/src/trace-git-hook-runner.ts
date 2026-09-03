@@ -1,3 +1,5 @@
+import type { Writable } from "node:stream";
+
 import { sessionIdSchema } from "@dev-fast/trace-shared";
 import { git } from "@dev.fast/local-vcs";
 
@@ -18,7 +20,7 @@ export async function runReviewTraceGitHook(input: {
   hook: string;
   args: string[];
   stdin?: NodeJS.ReadableStream;
-  stderr: NodeJS.WriteStream;
+  stderr: Writable;
 }): Promise<number> {
   if (process.env.TRACE_DISABLE === "1") return 0;
   try {
@@ -82,7 +84,7 @@ async function activeSessions(cwd: string): Promise<string[]> {
 async function runPrePush(input: {
   cwd: string;
   stdin?: NodeJS.ReadableStream;
-  stderr: NodeJS.WriteStream;
+  stderr: Writable;
 }): Promise<void> {
   const raw = await readStdin(input.stdin);
   const commits = new Map<
@@ -166,7 +168,7 @@ async function readStdin(
   return Buffer.concat(chunks).toString("utf8");
 }
 
-function warn(stderr: NodeJS.WriteStream, cause: unknown): void {
+function warn(stderr: Writable, cause: unknown): void {
   stderr.write(
     `trace-sync: warning: ${cause instanceof Error ? cause.message : String(cause)}\n`,
   );

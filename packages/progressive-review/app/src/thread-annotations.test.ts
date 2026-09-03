@@ -12,6 +12,13 @@ import {
   threadFitsExpandedCard,
 } from "./thread-annotations";
 
+/** A DOMRectList backed by the given rects, for stubbing Range.getClientRects. */
+function domRectList(...rects: DOMRect[]): DOMRectList {
+  return Object.assign(rects, {
+    item: (index: number) => rects[index] ?? null,
+  });
+}
+
 describe("annotationForThread", () => {
   it("places a cross-paragraph comment pin in the selected prose margin", () => {
     const article = document.createElement("article");
@@ -40,9 +47,9 @@ describe("annotationForThread", () => {
     Object.defineProperty(rangePrototype, "getClientRects", {
       configurable: true,
       value: vi.fn<() => DOMRectList>(function (this: Range): DOMRectList {
-        return [
+        return domRectList(
           this.startContainer === headingText ? headingLine : paragraphLine,
-        ] as unknown as DOMRectList;
+        );
       }),
     });
 
@@ -116,15 +123,15 @@ describe("textNodeClientRects", () => {
       function (this: Range): DOMRectList {
         measuredRanges.push(this);
         if (this === selection) {
-          return [enclosingParagraph] as unknown as DOMRectList;
+          return domRectList(enclosingParagraph);
         }
         if (this.startContainer === headingText) {
-          return [headingLine] as unknown as DOMRectList;
+          return domRectList(headingLine);
         }
         if (this.startContainer === firstParagraphText) {
-          return [firstParagraphLine] as unknown as DOMRectList;
+          return domRectList(firstParagraphLine);
         }
-        return [secondParagraphLine] as unknown as DOMRectList;
+        return domRectList(secondParagraphLine);
       },
     );
     Object.defineProperty(rangePrototype, "getClientRects", {

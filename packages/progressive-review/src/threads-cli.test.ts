@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { PassThrough } from "node:stream";
+import { PassThrough, type Writable } from "node:stream";
 import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -163,15 +163,15 @@ async function git(root: string, args: string[]): Promise<string> {
 }
 
 async function captureOutput(
-  run: (stdout: NodeJS.WriteStream) => Promise<number>,
+  run: (stdout: Writable) => Promise<number>,
 ): Promise<string> {
   const stream = new PassThrough();
   let output = "";
   stream.on("data", (chunk) => (output += String(chunk)));
-  await expect(run(stream as unknown as NodeJS.WriteStream)).resolves.toBe(0);
+  await expect(run(stream)).resolves.toBe(0);
   return output;
 }
 
-function outputStream(): NodeJS.WriteStream {
-  return new PassThrough() as unknown as NodeJS.WriteStream;
+function outputStream(): PassThrough {
+  return new PassThrough();
 }

@@ -45,16 +45,17 @@ beforeEach(() => {
   vi.stubGlobal("cancelAnimationFrame", (frame: number) => {
     frames.delete(frame);
   });
-  class TestResizeObserver {
+  class TestResizeObserver implements ResizeObserver {
     constructor(private readonly callback: ResizeObserverCallback) {
       resizeObservers.add(this);
     }
     observe(): void {}
+    unobserve(): void {}
     disconnect(): void {
       resizeObservers.delete(this);
     }
     trigger(): void {
-      this.callback([], this as unknown as ResizeObserver);
+      this.callback([], this);
     }
   }
   vi.stubGlobal("ResizeObserver", TestResizeObserver);

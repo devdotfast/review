@@ -3,11 +3,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { ReviewRecord } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { reviewTitleFromDocument } from "../review-home";
-import { createGlobalReviewServer, reviewAgentKind } from "./desktop-server";
+import {
+  type ReviewAgentSessionSource,
+  createGlobalReviewServer,
+  reviewAgentKind,
+} from "./desktop-server";
 
 let directory: string | undefined;
 const packageRoot = path.resolve(
@@ -47,7 +50,7 @@ describe("reviewTitleFromDocument", () => {
 
 describe("reviewAgentKind", () => {
   it("uses the latest publisher, then author, then legacy creator", () => {
-    const review = {
+    const review: ReviewAgentSessionSource = {
       sourceSession: "pi:legacy",
       agentSessions: {
         "codex:author": {
@@ -61,7 +64,7 @@ describe("reviewAgentKind", () => {
           lastSeenAt: "2026-08-12T10:00:00.000Z",
         },
       },
-    } as unknown as ReviewRecord;
+    };
     expect(reviewAgentKind(review)).toBe("claude");
     expect(
       reviewAgentKind({

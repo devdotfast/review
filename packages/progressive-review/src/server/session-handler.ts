@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
+import type { Writable } from "node:stream";
 
 import {
   type ReviewDocumentVersionWire,
@@ -61,7 +62,7 @@ export interface ReviewSessionHandlerInput {
   historicalRevision?: string;
   listDocumentVersions?: () => Promise<ReviewDocumentVersionWire[]>;
   session: ReviewSessionWire;
-  stderr?: NodeJS.WriteStream;
+  stderr?: Writable;
   getReviewStatus?: () => ReviewRecord["status"];
   onSubmission?: (event: ReviewSubmissionEvent) => void | Promise<void>;
   onReviewDismiss?: () => void | Promise<void>;

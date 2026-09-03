@@ -1,4 +1,5 @@
 import { emitKeypressEvents } from "node:readline";
+import type { Writable } from "node:stream";
 
 import { fuzzyRank } from "./fuzzy-match";
 
@@ -18,7 +19,7 @@ const MAX_VISIBLE_ROWS = 10;
  */
 export function pickReview(
   items: readonly ReviewPickerItem[],
-  io: { stdin: NodeJS.ReadStream; stdout: NodeJS.WriteStream },
+  io: { stdin: NodeJS.ReadStream; stdout: Writable },
 ): Promise<ReviewPickerItem | null> {
   const { stdin, stdout } = io;
   return new Promise((resolve, reject) => {

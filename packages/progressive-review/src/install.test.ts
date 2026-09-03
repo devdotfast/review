@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { collectingWritable } from "./cli-output";
 import { runInstall } from "./install";
 
 const REQUIRED_SKILLS = ["dev-review", "dev-review-map"] as const;
@@ -49,8 +50,8 @@ function silentStreams() {
   return {
     out,
     err,
-    stdout: { write: (s: string) => (out.push(s), true) } as NodeJS.WriteStream,
-    stderr: { write: (s: string) => (err.push(s), true) } as NodeJS.WriteStream,
+    stdout: collectingWritable(out),
+    stderr: collectingWritable(err),
   };
 }
 

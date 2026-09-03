@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
+import type { Writable } from "node:stream";
 
 import {
   currentHead,
@@ -52,8 +53,8 @@ import type {
 export interface SoftwareMapCliInput {
   args: string[];
   cwd: string;
-  stdout: NodeJS.WriteStream;
-  stderr: NodeJS.WriteStream;
+  stdout: Writable;
+  stderr: Writable;
   env?: NodeJS.ProcessEnv;
 }
 
@@ -684,7 +685,7 @@ async function pruneSoftwareMapNotes(
 async function sweepFlushedScratches(input: {
   rootPath: string;
   gitDir: string;
-  stdout: NodeJS.WriteStream;
+  stdout: Writable;
 }): Promise<{ deleted: number; kept: number }> {
   const scratchRoot = path.join(devFastGitDir(input.gitDir), "scratch");
   let commits: string[] = [];

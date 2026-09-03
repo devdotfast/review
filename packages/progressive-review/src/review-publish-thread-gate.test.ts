@@ -102,7 +102,7 @@ describe("requireClosedThreadsForRepublish", () => {
         cwd: review.review.worktreePath,
         reviewUuid: review.review.uuid,
         json: true,
-        stdout: stdout as unknown as NodeJS.WriteStream,
+        stdout,
         onReviewBound,
       }),
     ).resolves.toBe(1);

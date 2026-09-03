@@ -30,6 +30,18 @@
     "**/routeTree.gen.ts",
     "**/worker-configuration.d.ts",
     "packages/code-graph/fixtures/indexing/**/malformed.js",
-    "packages/code-graph/fixtures/indexing/**/malformed.ts"
+    "packages/code-graph/fixtures/indexing/**/malformed.ts",
+    ".agent/**",
+    ".agents/**",
+    ".claude/**",
+    ".codex/**",
+    ".continue/**",
+    ".cursor/**",
+    ".gemini/**",
+    ".opencode/**",
+    ".pi/**",
+    ".roo/**",
+    ".windsurf/**",
+    "tools/oxlint/anti-slop/**"
   ]
 }

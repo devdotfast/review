@@ -82,6 +82,15 @@ const defaultReviewWaitDependencies: ReviewWaitDependencies = {
   resolveReviewRoot,
 };
 
+/** The JSON line `review wait` prints; key order is part of the contract. */
+interface ReviewWaitJsonOutput {
+  event: string;
+  uuid: string;
+  status: ReviewStatus;
+  decision?: ReviewStatusChange["decision"];
+  openThreads: number;
+}
+
 export async function runReviewWait(
   input: {
     cwd: string;
@@ -194,15 +203,16 @@ export async function waitForReviewAction(
     };
   }
 
-  return {
+  const status: ReviewWaitResult = {
     event: "review-status",
     uuid: result.uuid,
     status: result.status,
-    ...(result.decision ? { decision: result.decision } : {}),
     openThreads: await dependencies.readOpenReviewThreadCount(review.dir),
     occurredAtMs: dependencies.now(),
     review,
   };
+  if (result.decision) status.decision = result.decision;
+  return status;
 }
 
 export function reviewRequiresAgentAction(status: ReviewStatus): boolean {
@@ -250,15 +260,16 @@ function writeWaitResult(stdout: Writable, result: ReviewWaitResult): void {
     );
     return;
   }
-  stdout.write(
-    `${JSON.stringify({
-      event: result.event,
-      uuid: result.uuid,
-      status: result.status,
-      ...(result.decision ? { decision: result.decision } : {}),
-      openThreads: result.openThreads,
-    })}\n`,
-  );
+  // JSON.stringify omits an undefined decision; the key order is the CLI's
+  // documented output shape.
+  const output: ReviewWaitJsonOutput = {
+    event: result.event,
+    uuid: result.uuid,
+    status: result.status,
+    decision: result.decision,
+    openThreads: result.openThreads,
+  };
+  stdout.write(`${JSON.stringify(output)}\n`);
 }
 
 async function requireReviewDesktop(dependencies: ReviewWaitDependencies) {

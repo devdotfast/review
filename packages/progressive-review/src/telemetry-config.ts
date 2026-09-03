@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 
+import type { JsonValue } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
 import { findProgressiveReviewPackageRoot } from "./package-paths";
@@ -76,7 +77,7 @@ const storedTelemetryInstallConfigSchema = z.looseObject({
 });
 
 export function normalizeTelemetryInstallConfig(
-  parsed: Partial<ProgressiveReviewTelemetryInstallConfig>,
+  parsed: JsonValue,
   now: () => Date,
 ): ProgressiveReviewTelemetryInstallConfig | undefined {
   const stored = storedTelemetryInstallConfigSchema.safeParse(parsed);

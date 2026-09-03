@@ -2,27 +2,23 @@
 
 import { readFileSync } from "node:fs";
 
-import type { ReviewCanvasTutorialBridge } from "@dev.fast/review-protocol";
+import {
+  type JsonObject,
+  type ReviewCanvasTutorialBridge,
+} from "@dev.fast/review-protocol";
 import { type ReactElement, act, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ReviewSessionProvider } from "./host/review-session";
+import {
+  type ReviewSession,
+  ReviewSessionProvider,
+} from "./host/review-session";
 import { ReviewSection } from "./review-components";
+import { ReviewProvider } from "./review-context";
 import { testReviewSession } from "./review-session-test-utils";
 import { TutorialProvider } from "./tutorial-context";
 import { TutorialExperienceProvider } from "./tutorial-experience";
-
-const reviewState = vi.hoisted(() => ({
-  softwareMapEnabled: false,
-  threads: [] as unknown[],
-}));
-vi.mock("./review-context", () => ({
-  useReview: () => ({
-    softwareMapEnabled: reviewState.softwareMapEnabled,
-    allCommentThreads: () => reviewState.threads,
-  }),
-}));
 
 const CHAPTER_TITLES = [
   "Welcome",
@@ -32,7 +28,7 @@ const CHAPTER_TITLES = [
   "Get help",
 ];
 
-const session = testReviewSession();
+let session: ReviewSession;
 let root: ReturnType<typeof createRoot> | null = null;
 let canvasRoot: HTMLElement;
 
@@ -42,8 +38,10 @@ beforeEach(() => {
       IS_REACT_ACT_ENVIRONMENT?: boolean;
     }
   ).IS_REACT_ACT_ENVIRONMENT = true;
-  reviewState.softwareMapEnabled = false;
-  reviewState.threads = [];
+  session = testReviewSession(
+    {},
+    { request: async () => jsonResponse({ ok: true }) },
+  );
   window.localStorage.clear();
   Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
     configurable: true,
@@ -120,9 +118,11 @@ function render(
   act(() => {
     root?.render(
       <ReviewSessionProvider session={session}>
-        <TutorialProvider tutorial={tutorial}>
-          <Shell {...props} />
-        </TutorialProvider>
+        <ReviewProvider>
+          <TutorialProvider tutorial={tutorial}>
+            <Shell {...props} />
+          </TutorialProvider>
+        </ReviewProvider>
       </ReviewSessionProvider>,
     );
   });
@@ -230,18 +230,20 @@ describe("TutorialExperience", () => {
     act(() => {
       root?.render(
         <ReviewSessionProvider session={session}>
-          <TutorialProvider
-            tutorial={tutorialBridge([
-              "chooseKeymap",
-              "showHover",
-              "gotoDefinition",
-              "openPeek",
-              "openCommits",
-              "openDiff",
-            ])}
-          >
-            <Shell />
-          </TutorialProvider>
+          <ReviewProvider>
+            <TutorialProvider
+              tutorial={tutorialBridge([
+                "chooseKeymap",
+                "showHover",
+                "gotoDefinition",
+                "openPeek",
+                "openCommits",
+                "openDiff",
+              ])}
+            >
+              <Shell />
+            </TutorialProvider>
+          </ReviewProvider>
         </ReviewSessionProvider>,
       );
     });
@@ -402,7 +404,7 @@ describe("TutorialExperience", () => {
     expect(tutorial.setStep).toHaveBeenCalledWith("openDatabase", true);
   });
 
-  it("completes the comment step once a thread exists", () => {
+  it("completes the comment step once a thread exists", async () => {
     const tutorial = tutorialBridge([
       "chooseKeymap",
       "showHover",
@@ -411,7 +413,12 @@ describe("TutorialExperience", () => {
       "openCommits",
       "openDiff",
     ]);
-    reviewState.threads = [{}];
+    await session.bridge.comments.saveComment({
+      threadId: "thread-1",
+      messageId: "message-1",
+      target: { kind: "document" },
+      body: "First thread",
+    });
     render(tutorial);
 
     expect(tutorial.setStep).toHaveBeenCalledWith("leaveComment", true);
@@ -618,4 +625,10 @@ function tutorialBridge(
     ),
     close: vi.fn<ReviewCanvasTutorialBridge["close"]>(),
   } satisfies ReviewCanvasTutorialBridge;
+}
+
+function jsonResponse(body: JsonObject): Response {
+  return new Response(JSON.stringify(body), {
+    headers: { "content-type": "application/json" },
+  });
 }

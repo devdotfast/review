@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { groupCommitsByDate, shapeCommitFiles } from "./ReviewCommitsView";
+import { groupCommitsByDate, visibleCommitFiles } from "./ReviewCommitsView";
 
-describe("shapeCommitFiles", () => {
+describe("visibleCommitFiles", () => {
   it("omits tests, sorts by total changes, and caps the result", () => {
     const files = [
       {
@@ -37,7 +37,7 @@ describe("shapeCommitFiles", () => {
       })),
     ];
 
-    const result = shapeCommitFiles(files);
+    const result = visibleCommitFiles(files);
 
     expect(result.testFilesOmitted).toBe(2);
     expect(result.overflowFilesOmitted).toBe(2);

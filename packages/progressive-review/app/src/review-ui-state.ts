@@ -77,6 +77,9 @@ export function readReviewUiState<T>(
 ): T | null {
   try {
     const raw = reviewUiStorage(scope)?.getItem(key);
+    // SAFETY: the caller owns `key` and wrote it through writeReviewUiState
+    // with this same T; readers of foreign or versioned formats ask for
+    // JsonValue and parse further.
     return raw === null || raw === undefined ? null : (JSON.parse(raw) as T);
   } catch {
     // Private mode, a quota error, or a value written by an older format.

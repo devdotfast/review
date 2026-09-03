@@ -1,19 +1,27 @@
 // @vitest-environment jsdom
 
-import type { ReviewCanvasTutorialBridge } from "@dev.fast/review-protocol";
+import {
+  type JsonObject,
+  type ReviewCanvasTutorialBridge,
+} from "@dev.fast/review-protocol";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
+import { ReviewSessionProvider } from "./host/review-session";
+import { ReviewProvider } from "./review-context";
+import { testReviewSession } from "./review-session-test-utils";
 import { TutorialProvider } from "./tutorial-context";
 import {
   TutorialFeature,
   TutorialViewButton,
 } from "./tutorial-dynamic-content";
 
-const reviewState = vi.hoisted(() => ({ softwareMapEnabled: false }));
-vi.mock("./review-context", () => ({ useReview: () => reviewState }));
+const session = testReviewSession(
+  {},
+  { request: async () => jsonResponse({ ok: true }) },
+);
 
 const tutorial: ReviewCanvasTutorialBridge = {
   content: {
@@ -33,15 +41,18 @@ const tutorial: ReviewCanvasTutorialBridge = {
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 function render(input: { softwareMapEnabled: boolean }): string {
-  reviewState.softwareMapEnabled = input.softwareMapEnabled;
   return renderToStaticMarkup(
-    <TutorialProvider tutorial={tutorial}>
-      <TutorialFeature feature="softwareMap">
-        <p>Map guidance</p>
-        <TutorialViewButton view="map">Open Map</TutorialViewButton>
-      </TutorialFeature>
-      <TutorialViewButton view="commits">Open Commits</TutorialViewButton>
-    </TutorialProvider>,
+    <ReviewSessionProvider session={session}>
+      <ReviewProvider softwareMapEnabled={input.softwareMapEnabled}>
+        <TutorialProvider tutorial={tutorial}>
+          <TutorialFeature feature="softwareMap">
+            <p>Map guidance</p>
+            <TutorialViewButton view="map">Open Map</TutorialViewButton>
+          </TutorialFeature>
+          <TutorialViewButton view="commits">Open Commits</TutorialViewButton>
+        </TutorialProvider>
+      </ReviewProvider>
+    </ReviewSessionProvider>,
   );
 }
 
@@ -62,7 +73,6 @@ describe("tutorial dynamic content", () => {
   });
 
   it("opens the requested native Review view", () => {
-    reviewState.softwareMapEnabled = false;
     const container = document.createElement("div");
     const nativeView = document.createElement("button");
     nativeView.className = "review-segment";
@@ -73,9 +83,15 @@ describe("tutorial dynamic content", () => {
     const root = createRoot(container);
     act(() => {
       root.render(
-        <TutorialProvider tutorial={tutorial}>
-          <TutorialViewButton view="commits">Open Commits</TutorialViewButton>
-        </TutorialProvider>,
+        <ReviewSessionProvider session={session}>
+          <ReviewProvider>
+            <TutorialProvider tutorial={tutorial}>
+              <TutorialViewButton view="commits">
+                Open Commits
+              </TutorialViewButton>
+            </TutorialProvider>
+          </ReviewProvider>
+        </ReviewSessionProvider>,
       );
     });
 
@@ -87,3 +103,9 @@ describe("tutorial dynamic content", () => {
     document.body.replaceChildren();
   });
 });
+
+function jsonResponse(body: JsonObject): Response {
+  return new Response(JSON.stringify(body), {
+    headers: { "content-type": "application/json" },
+  });
+}

@@ -1,9 +1,11 @@
-import type { Link, Nodes, Root } from "mdast";
+import type { Program } from "estree";
+import type { Nodes, Root } from "mdast";
 
 const ANCHOR_LINK = /^anchors\.([A-Za-z_$][A-Za-z0-9_$]*)$/;
 
 interface ParentNode {
-  children?: unknown[];
+  type: string;
+  children?: Nodes[];
 }
 
 interface VFileLike {
@@ -19,10 +21,9 @@ export function remarkReviewAnchorLinks() {
 
 function rewriteChildren(parent: ParentNode, file: VFileLike): void {
   if (!parent.children) return;
-  for (let index = 0; index < parent.children.length; index += 1) {
-    const child = parent.children[index] as ParentNode & { type?: string };
+  for (const [index, child] of parent.children.entries()) {
     if (child.type === "link") {
-      const link = child as Link;
+      const link = child;
       if (link.url.startsWith("anchors.")) {
         const match = ANCHOR_LINK.exec(link.url);
         if (!match) {
@@ -58,7 +59,7 @@ function rewriteChildren(parent: ParentNode, file: VFileLike): void {
   }
 }
 
-function anchorExpressionProgram(property: string) {
+function anchorExpressionProgram(property: string): Program {
   return {
     type: "Program",
     sourceType: "module",

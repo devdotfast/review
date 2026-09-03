@@ -140,6 +140,7 @@ function rawDocumentTextTokens(
   boundary?: { container: Node; offset: number; marker: string },
 ): DocumentTextToken[] {
   if (node.nodeType === 3) {
+    // SAFETY: nodeType 3 is Node.TEXT_NODE, so this node is a Text.
     const textNode = node as Text;
     const text = textNode.textContent ?? "";
     const tokens: DocumentTextToken[] = [];

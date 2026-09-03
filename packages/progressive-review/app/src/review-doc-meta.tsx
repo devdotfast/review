@@ -1,5 +1,9 @@
 import {
+  type JsonValue,
   type ReviewDiffStats,
+  isJsonObject,
+  jsonNumber,
+  jsonString,
   summarizeReviewDiffFiles,
 } from "@dev.fast/review-protocol";
 import { type ReactElement, useEffect, useState } from "react";
@@ -46,16 +50,15 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
         signal: controller.signal,
       })
         .then(async (response) => {
-          const json = (await response.json()) as
-            | {
-                ok: true;
-                updatedAtMs?: number;
-                pullRequestNumber?: number;
-                pullRequestUrl?: string;
-              }
-            | { ok: false };
-          if (!response.ok || !json.ok) return;
-          setMeta(documentMetaState(json));
+          const json: JsonValue = await response.json();
+          if (!response.ok || !isJsonObject(json) || json.ok !== true) return;
+          setMeta(
+            documentMetaState({
+              updatedAtMs: jsonNumber(json.updatedAtMs),
+              pullRequestNumber: jsonNumber(json.pullRequestNumber),
+              pullRequestUrl: jsonString(json.pullRequestUrl),
+            }),
+          );
         })
         .catch(() => {});
     }

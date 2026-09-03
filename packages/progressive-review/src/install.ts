@@ -54,7 +54,11 @@ export function defaultPackageRoot(): string {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 }
 
-export async function runInstall(input: {
+export function isInstallTarget(value: string): value is InstallTarget {
+  return ALL_INSTALL_TARGETS.some((target) => target === value);
+}
+
+export interface RunInstallInput {
   targets: InstallTarget[];
   cwd?: string;
   homeDir?: string;
@@ -69,7 +73,9 @@ export async function runInstall(input: {
   json?: boolean;
   stdout: Writable;
   stderr: Writable;
-}): Promise<number> {
+}
+
+export async function runInstall(input: RunInstallInput): Promise<number> {
   const homeDir = input.homeDir ?? os.homedir();
   const packageRoot = input.packageRoot ?? defaultPackageRoot();
   const env = input.env ?? process.env;
@@ -235,7 +241,7 @@ export async function removeTraceSkills(
 }
 
 function isTraceSkill(name: string): boolean {
-  return (TRACE_SKILL_NAMES as readonly string[]).includes(name);
+  return TRACE_SKILL_NAMES.some((skill) => skill === name);
 }
 
 export async function detectInstalledTargets(
@@ -307,7 +313,11 @@ async function installDirectory(src: string, dest: string): Promise<void> {
     await rename(dest, backup);
     movedExisting = true;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    if (
+      !(error instanceof Error && "code" in error && error.code === "ENOENT")
+    ) {
+      throw error;
+    }
   }
   try {
     await rename(staging, dest);

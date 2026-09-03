@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { parseJsonText } from "@dev.fast/review-protocol";
+import { jsonString, parseJsonText } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
 import { writeFileAtomicAsync } from "./atomic-write";
@@ -76,11 +76,13 @@ export async function readTraceCredentials(
     const match = /^\s*(?:export\s+)?([A-Z0-9_]+)=(.*)$/.exec(line);
     if (!match) continue;
     const raw = match[2].trim();
+    let quoted: string | undefined;
     try {
-      values[match[1]] = JSON.parse(raw) as string;
+      quoted = jsonString(parseJsonText(raw));
     } catch {
-      values[match[1]] = raw.replace(/^["']|["']$/g, "");
+      quoted = undefined;
     }
+    values[match[1]] = quoted ?? raw.replace(/^["']|["']$/g, "");
   }
   const credentials = {
     endpoint: env.TRACE_R2_ENDPOINT ?? values.TRACE_R2_ENDPOINT ?? "",
@@ -108,24 +110,23 @@ export async function traceMachineStatus(
   const settingsPath = traceSettingsPath(homeDir, env);
   const credentials = await readTraceCredentials(homeDir, env);
   const settings = await readSettings(settingsPath);
-  return {
+  const status: TraceMachineStatus = {
     enabled: settings?.enabled === true,
     configured: credentials !== null,
     autoActivateRepositories:
       settings?.enabled === true && settings.autoActivateRepositories === true,
     envPath,
     settingsPath,
-    ...(credentials
-      ? {
-          endpoint: credentials.endpoint,
-          bucket: credentials.bucket,
-          region: credentials.region,
-          accessKeyIdPrefix: credentials.key.slice(0, 6),
-        }
-      : {}),
-    ...(settings?.verifiedAt ? { verifiedAt: settings.verifiedAt } : {}),
-    ...(settings?.error ? { error: settings.error } : {}),
   };
+  if (credentials) {
+    status.endpoint = credentials.endpoint;
+    status.bucket = credentials.bucket;
+    status.region = credentials.region;
+    status.accessKeyIdPrefix = credentials.key.slice(0, 6);
+  }
+  if (settings?.verifiedAt) status.verifiedAt = settings.verifiedAt;
+  if (settings?.error) status.error = settings.error;
+  return status;
 }
 
 export async function traceMachineEnabled(
@@ -216,9 +217,9 @@ export async function configureTraceMachine(input: {
     version: 1,
     enabled: true,
     autoActivateRepositories: true,
-    ...(verifiedAt ? { verifiedAt } : {}),
-    ...(error ? { error } : {}),
   };
+  if (verifiedAt) settings.verifiedAt = verifiedAt;
+  if (error) settings.error = error;
   await writeSettings(traceSettingsPath(homeDir, env), settings);
   return traceMachineStatus({ homeDir, env });
 }

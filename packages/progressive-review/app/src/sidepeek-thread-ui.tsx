@@ -148,11 +148,12 @@ function groupPanelThreadBadges(
   for (const range of ranges) {
     const key = `${range.side ?? "file"}:${range.fromLine}`;
     const current = counts.get(key);
-    counts.set(key, {
+    const badge: PanelLineBadge = {
       line: range.fromLine,
       count: (current?.count ?? 0) + range.count,
-      ...(range.side ? { side: range.side } : {}),
-    });
+    };
+    if (range.side) badge.side = range.side;
+    counts.set(key, badge);
   }
   return [...counts.values()].sort(
     (left, right) =>
@@ -202,11 +203,12 @@ export function normalizePanelLineRange(
   const first = "start" in range ? range.start : range.fromLine;
   const last = "end" in range ? range.end : range.toLine;
   const side = range.side ?? ("endSide" in range ? range.endSide : undefined);
-  return {
+  const normalized: PanelLineRange = {
     fromLine: Math.min(first, last),
     toLine: Math.max(first, last),
-    ...(side ? { side } : {}),
   };
+  if (side) normalized.side = side;
+  return normalized;
 }
 
 export function panelLineRangeLabel(range: PanelLineRange): string {
@@ -220,22 +222,24 @@ export function panelThreadInjectionTarget(input: {
   expandedThread: { threadId: string; range: PanelLineRange } | null;
 }): PanelThreadInjectionTarget | null {
   if (input.draft) {
-    return {
+    const target: PanelThreadInjectionTarget = {
       kind: "draft",
       key: `draft:${input.draft.threadId}`,
       line: input.draft.range.toLine,
-      ...(input.draft.range.side ? { side: input.draft.range.side } : {}),
     };
+    if (input.draft.range.side) target.side = input.draft.range.side;
+    return target;
   }
   if (input.expandedThread) {
-    return {
+    const target: PanelThreadInjectionTarget = {
       kind: "thread",
       key: `thread:${input.expandedThread.threadId}`,
       line: input.expandedThread.range.toLine,
-      ...(input.expandedThread.range.side
-        ? { side: input.expandedThread.range.side }
-        : {}),
     };
+    if (input.expandedThread.range.side) {
+      target.side = input.expandedThread.range.side;
+    }
+    return target;
   }
   return null;
 }
@@ -1141,11 +1145,8 @@ export function PanelCodeSurface({
     line: PanelCodeLine,
   ) => {
     event.preventDefault();
-    const range = {
-      fromLine: line.line,
-      toLine: line.line,
-      ...(line.side ? { side: line.side } : {}),
-    };
+    const range: PanelLineRange = { fromLine: line.line, toLine: line.line };
+    if (line.side) range.side = line.side;
     dragAnchorRef.current = range;
     dragRangeRef.current = range;
     controller.beginLineSelection(range);
@@ -1157,11 +1158,12 @@ export function PanelCodeSurface({
     const anchor = dragAnchorRef.current;
     if (!anchor || event.buttons !== 1) return;
     if (anchor.side && line.side && anchor.side !== line.side) return;
-    const range = {
+    const range: PanelLineRange = {
       fromLine: Math.min(anchor.fromLine, line.line),
       toLine: Math.max(anchor.toLine, line.line),
-      ...(anchor.side || line.side ? { side: anchor.side ?? line.side } : {}),
     };
+    const side = anchor.side ?? line.side;
+    if (side) range.side = side;
     dragRangeRef.current = range;
     controller.changeLineSelection(range);
   };

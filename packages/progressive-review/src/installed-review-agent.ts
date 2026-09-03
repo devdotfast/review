@@ -1,12 +1,17 @@
-import type { ReviewCliInstallStatus } from "@dev.fast/review-protocol";
+import type {
+  ReviewCliInstallStatus,
+  ReviewCliInstallTarget,
+} from "@dev.fast/review-protocol";
 
 import type { ReviewAgentHarness } from "./authoring-session";
 
-const LAUNCHABLE_HARNESS = {
+const LAUNCHABLE_HARNESS: Partial<
+  Record<ReviewCliInstallTarget, ReviewAgentHarness>
+> = {
   claude: "claude-code",
   codex: "codex",
   pi: "pi",
-} as const satisfies Record<string, ReviewAgentHarness>;
+};
 
 /** Selects the first installed native agent, preserving onboarding order. */
 export function preferredInstalledReviewAgent(
@@ -22,8 +27,9 @@ export function preferredInstalledReviewAgent(
     ...status.agents.map((agent) => agent.target),
   ];
   for (const target of new Set(orderedTargets)) {
-    if (!installed.has(target) || !(target in LAUNCHABLE_HARNESS)) continue;
-    return LAUNCHABLE_HARNESS[target as keyof typeof LAUNCHABLE_HARNESS];
+    const harness = LAUNCHABLE_HARNESS[target];
+    if (!installed.has(target) || !harness) continue;
+    return harness;
   }
   return undefined;
 }

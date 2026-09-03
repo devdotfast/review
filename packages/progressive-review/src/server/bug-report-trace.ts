@@ -122,14 +122,15 @@ export async function readAuthoringTraceAttachment(input: {
       ...lineage.omittedFiles,
       ...subagents.omittedFiles,
     ].sort();
+    const payload: AuthoringTracePayload = {
+      harness: sourceSession.harness,
+      session_id: sourceSession.sessionId,
+      files: subagents.files,
+      truncated: lineage.truncated || subagents.truncated,
+    };
+    if (omittedFiles.length > 0) payload.omitted_files = omittedFiles;
     return {
-      payload: {
-        harness: sourceSession.harness,
-        session_id: sourceSession.sessionId,
-        files: subagents.files,
-        ...(omittedFiles.length > 0 ? { omitted_files: omittedFiles } : {}),
-        truncated: lineage.truncated || subagents.truncated,
-      },
+      payload,
       parts: lineage.parts,
       cleanup: () => rm(tempRoot, { recursive: true, force: true }),
     };
@@ -185,14 +186,17 @@ async function writeTraceLineage(input: {
         historyBase = (await readCodexMetadata(sourcePath, sessionId))
           .historyBase;
       }
-      const written = await writeTracePart({
+      const partInput: Parameters<typeof writeTracePart>[0] = {
         index: parts.length,
         sessionId,
         sourcePath,
         snapshotBytes,
         outputPath: path.join(input.tempRoot, `trace-${parts.length}.jsonl.gz`),
-        ...(endOrdinalExclusive !== undefined ? { endOrdinalExclusive } : {}),
-      });
+      };
+      if (endOrdinalExclusive !== undefined) {
+        partInput.endOrdinalExclusive = endOrdinalExclusive;
+      }
+      const written = await writeTracePart(partInput);
       truncated ||= written.truncated;
       if (written.part) parts.push(written.part);
       else if (parts.length === 0) throw new Error("Trace file is empty.");
@@ -254,10 +258,9 @@ async function readCodexMetadata(
     historyBase = { threadId, endOrdinalExclusive };
   }
 
-  return {
-    sessionId,
-    ...(historyBase ? { historyBase } : {}),
-  };
+  const metadata: CodexMetadata = { sessionId };
+  if (historyBase) metadata.historyBase = historyBase;
+  return metadata;
 }
 
 async function readFirstJsonlRecord(filePath: string): Promise<JsonObject> {

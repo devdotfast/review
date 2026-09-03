@@ -933,6 +933,7 @@ export interface ReviewCanvasInstallContent {
       | {
           endpoint?: string;
           bucket?: string;
+          region?: string;
           key?: string;
           secret?: string;
         };

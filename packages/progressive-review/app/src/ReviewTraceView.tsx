@@ -85,7 +85,12 @@ export function ReviewTraceView({
   useEffect(() => {
     if (!pickerOpen) return;
     const handleOutsideClick = (e: MouseEvent) => {
-      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+      const target = e.target;
+      if (
+        pickerRef.current &&
+        target instanceof Node &&
+        !pickerRef.current.contains(target)
+      ) {
         setPickerOpen(false);
       }
     };

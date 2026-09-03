@@ -10,6 +10,7 @@ import {
   type JsonObject,
   type JsonValue,
   REVIEW_DESKTOP_DISCOVERY_VERSION,
+  type ReviewCliInstallApplyResponse,
   type ReviewDescriptor,
   type ReviewDesktopDiscovery,
   type ReviewDesktopGlobalEvent,
@@ -307,19 +308,17 @@ export function createGlobalReviewServer(
     serverPid: process.pid,
     token,
     startedAt: Date.now(),
-    // A source-run dev server has no built CLI to advertise.
-    ...(existsSync(cliPath)
-      ? {
-          cliPath,
-          cliVersion: readProgressiveReviewPackageVersion(
-            pathToFileURL(cliPath).href,
-          ),
-          ...(input.cliRuntimePath && existsSync(input.cliRuntimePath)
-            ? { cliRuntimePath: input.cliRuntimePath }
-            : {}),
-        }
-      : {}),
   };
+  // A source-run dev server has no built CLI to advertise.
+  if (existsSync(cliPath)) {
+    discovery.cliPath = cliPath;
+    discovery.cliVersion = readProgressiveReviewPackageVersion(
+      pathToFileURL(cliPath).href,
+    );
+    if (input.cliRuntimePath && existsSync(input.cliRuntimePath)) {
+      discovery.cliRuntimePath = input.cliRuntimePath;
+    }
+  }
 
   const app = new Hono<ReviewHonoEnv>();
   app.use("*", async (context, next) => {
@@ -733,33 +732,36 @@ export function createGlobalReviewServer(
     const request = parseReviewCliInstallApplyRequest(
       await readBoundedRequestJson(context.req.raw),
     );
-    const result = await applyCliInstall({
+    const applyInput: Parameters<typeof applyCliInstall>[0] = {
       packageRoot: input.packageRoot,
       targets: request.targets,
-      ...(request.shim !== undefined ? { shim: request.shim } : {}),
-      ...(request.fff ? { fff: true } : {}),
-      ...(request.trace !== undefined ? { trace: request.trace } : {}),
-      ...(discovery.cliPath ? { cliPath: discovery.cliPath } : {}),
-      ...(discovery.cliRuntimePath
-        ? { cliRuntimePath: discovery.cliRuntimePath }
-        : {}),
-    });
-    return globalJson(result.code === 0 ? 200 : 500, {
+    };
+    if (request.shim !== undefined) applyInput.shim = request.shim;
+    if (request.fff) applyInput.fff = true;
+    if (request.trace !== undefined) applyInput.trace = request.trace;
+    if (discovery.cliPath) applyInput.cliPath = discovery.cliPath;
+    if (discovery.cliRuntimePath) {
+      applyInput.cliRuntimePath = discovery.cliRuntimePath;
+    }
+    const result = await applyCliInstall(applyInput);
+    const body: ReviewCliInstallApplyResponse = {
       ok: result.code === 0,
       output: result.output,
-      ...(result.shimPath ? { shimPath: result.shimPath } : {}),
-    });
+    };
+    if (result.shimPath) body.shimPath = result.shimPath;
+    return globalJson(result.code === 0 ? 200 : 500, body);
   });
   app.post("/install/remove", async (context) => {
     const request = parseReviewCliInstallApplyRequest(
       await readBoundedRequestJson(context.req.raw),
     );
-    const result = await removeCliInstall({
+    const removeInput: Parameters<typeof removeCliInstall>[0] = {
       targets: request.targets,
-      ...(request.shim ? { shim: true } : {}),
-      ...(request.fff ? { fff: true } : {}),
-      ...(request.trace ? { trace: true } : {}),
-    });
+    };
+    if (request.shim) removeInput.shim = true;
+    if (request.fff) removeInput.fff = true;
+    if (request.trace) removeInput.trace = true;
+    const result = await removeCliInstall(removeInput);
     return globalJson(200, { ok: true, output: result.output });
   });
   app.post("/install/decline", async () => {
@@ -871,11 +873,13 @@ export function createGlobalReviewServer(
       error instanceof ReviewOpenThreadsError
         ? error
         : undefined;
-    return globalJson(serverError?.statusCode ?? httpJsonStatus(error), {
-      ok: false,
-      ...(serverError?.code ? { code: serverError.code } : {}),
-      error: toError(error).message,
-    });
+    const message = toError(error).message;
+    return globalJson(
+      serverError?.statusCode ?? httpJsonStatus(error),
+      serverError?.code
+        ? { ok: false, code: serverError.code, error: message }
+        : { ok: false, error: message },
+    );
   });
 
   const httpServer = createServer(createNodeRequestListener(app));
@@ -1069,13 +1073,14 @@ export function createGlobalReviewServer(
         ? [successor.review.review.presentedSoftwareMapRevision]
         : []),
     ]).catch(() => undefined);
-    return {
+    const mounted: Awaited<ReturnType<typeof mountPublishedDocument>> = {
       ok: true,
       revision,
       sessionId: successor.descriptor.sessionId,
       url: successor.descriptor.sessionUrl,
-      ...(focus.ok ? {} : { focusWarning: focus.error }),
     };
+    if (!focus.ok) mounted.focusWarning = focus.error;
+    return mounted;
   }
 
   async function mountPublishedSoftwareMap(
@@ -1650,10 +1655,10 @@ export function createGlobalReviewServer(
       reviewUuid: registration.review.review.uuid,
       routePath: "/",
       startedAt: Date.now(),
-      ...(registration.historicalRevision
-        ? { historicalRevision: registration.historicalRevision }
-        : {}),
     };
+    if (registration.historicalRevision) {
+      descriptor.historicalRevision = registration.historicalRevision;
+    }
     const sourceCommit =
       registration.source?.sourceCommit ??
       registration.review.review.sourceCommit;
@@ -1750,11 +1755,12 @@ export function createGlobalReviewServer(
     sessions.set(sessionId, active);
     await startSessionTelemetry(active);
     if (registration.announce) {
-      broadcastGlobal({
+      const event: ReviewDesktopGlobalEvent = {
         event: "session-registered",
         session: descriptor,
-        ...(registration.background ? { background: true } : {}),
-      });
+      };
+      if (registration.background) event.background = true;
+      broadcastGlobal(event);
     }
     if (registration.focusCanvas) {
       void relay.dispatch(sessionId, revealVerb(registration.view));
@@ -2181,11 +2187,10 @@ function parseInfoRequest(input: JsonValue): RunReviewInfoInput {
   if (all === true && reviewUuidValue !== undefined) {
     throw new HttpJsonError("Info all and reviewUuid cannot be combined.", 400);
   }
-  return {
-    cwd,
-    ...(all ? { all: true } : {}),
-    ...(reviewUuid !== undefined ? { reviewUuid: reviewUuid.trim() } : {}),
-  };
+  const request: RunReviewInfoInput = { cwd };
+  if (all) request.all = true;
+  if (reviewUuid !== undefined) request.reviewUuid = reviewUuid.trim();
+  return request;
 }
 
 async function pruneReviewBuilds(
@@ -2197,6 +2202,7 @@ async function pruneReviewBuilds(
   try {
     entries = await readdir(buildsPath, { withFileTypes: true });
   } catch (error) {
+    // SAFETY: fs/promises rejects with a Node ErrnoException carrying `code`.
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
     throw error;
   }
@@ -2248,14 +2254,14 @@ async function dispatchToSession(
   const headers = new Headers(request.headers);
   headers.delete("host");
   const hasBody = request.method !== "GET" && request.method !== "HEAD";
-  const sessionRequest = new Request(target, {
+  const init: RequestInit & { duplex?: "half" } = {
     method: request.method,
     headers,
     body: hasBody ? request.body : undefined,
     signal: request.signal,
-    ...(hasBody ? { duplex: "half" } : {}),
-  } as RequestInit & { duplex?: "half" });
-  return handler.handle(sessionRequest, env);
+  };
+  if (hasBody) init.duplex = "half";
+  return handler.handle(new Request(target, init), env);
 }
 
 function sessionWireFor(
@@ -2279,7 +2285,7 @@ function sessionWireFor(
   const freshQuestionHarness = parseFreshSourceSessionHarness(
     review.review.sourceSession,
   );
-  return {
+  const wire: ReviewSessionWire = {
     sessionId: descriptor.sessionId,
     rootPath: review.review.worktreePath,
     baseRootPath,
@@ -2302,10 +2308,11 @@ function sessionWireFor(
         ? authoringAgent.sessionId
         : undefined,
     startedAt: descriptor.startedAt,
-    ...(descriptor.historicalRevision
-      ? { historicalRevision: descriptor.historicalRevision }
-      : {}),
   };
+  if (descriptor.historicalRevision) {
+    wire.historicalRevision = descriptor.historicalRevision;
+  }
+  return wire;
 }
 
 async function promoteReview(
@@ -2317,7 +2324,6 @@ async function promoteReview(
   const review: StoredReviewRecord = {
     ...stored.review,
     sourceCommit: source.sourceCommit,
-    ...(title ? { title } : {}),
     status: "awaiting-review",
     presentedDocumentRevision: revision,
     lastPublishedAt: new Date().toISOString(),
@@ -2327,6 +2333,7 @@ async function promoteReview(
     viewedAt: null,
     dismissedAt: null,
   };
+  if (title) review.title = title;
   await writePrivateJsonAtomic(path.join(stored.dir, "review.json"), review);
   return { ...stored, review };
 }
@@ -2409,6 +2416,8 @@ function httpJsonStatus(cause: unknown): number {
 }
 
 function globalJson<T>(status: number, body: T): Response {
+  // SAFETY: callers pass 2xx/4xx/5xx codes (literals, ReviewServerError and
+  // HttpJsonError statusCode); none is a bodyless 1xx/204/205/304 status.
   return jsonResponse(body, status as ContentfulStatusCode, {
     cacheControl: "no-store",
   });
@@ -2444,17 +2453,16 @@ async function removeMatchingDiscovery(
   discovery: ReviewDesktopDiscovery,
 ): Promise<void> {
   try {
-    const current = JSON.parse(await readFile(filePath, "utf8")) as {
-      instanceId?: unknown;
-      appPid?: unknown;
-    };
+    const current: JsonValue = JSON.parse(await readFile(filePath, "utf8"));
     if (
+      isJsonObject(current) &&
       current.instanceId === discovery.instanceId &&
       current.appPid === discovery.appPid
     ) {
       await rm(filePath, { force: true });
     }
   } catch (error) {
+    // SAFETY: fs/promises rejects with a Node ErrnoException carrying `code`.
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
 }

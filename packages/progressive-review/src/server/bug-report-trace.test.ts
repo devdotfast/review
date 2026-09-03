@@ -637,17 +637,13 @@ function codexTrace(
   records: JsonObject[],
   parent?: ReturnType<typeof historyBase>,
 ): string {
-  const metaPayload = {
-    id,
-    ...(parent
-      ? {
-          history_base: {
-            thread_id: parent.parentId,
-            end_ordinal_exclusive: parent.endOrdinalExclusive,
-          },
-        }
-      : {}),
-  };
+  const metaPayload: JsonObject = { id };
+  if (parent) {
+    metaPayload.history_base = {
+      thread_id: parent.parentId,
+      end_ordinal_exclusive: parent.endOrdinalExclusive,
+    };
+  }
   return [{ type: "session_meta", payload: metaPayload }, ...records]
     .map((value, index) =>
       jsonLine({ ...value, ordinal: startOrdinal + index }),

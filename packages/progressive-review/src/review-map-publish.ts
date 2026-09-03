@@ -2,6 +2,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { Writable } from "node:stream";
 
+import { z } from "zod";
+
 import {
   authoringSessionKey,
   resolveAuthoringSessionRef,
@@ -25,6 +27,11 @@ import {
   sameReviewSoftwareMapBundle,
   writeReviewSoftwareMapBundle,
 } from "./software-map-bundle";
+
+const MapPublishReadyResponseSchema = z.object({
+  ok: z.boolean().optional(),
+  error: z.string().optional(),
+});
 
 export async function runReviewMapPublish(input: {
   cwd: string;
@@ -124,10 +131,10 @@ export async function runReviewMapPublish(input: {
         agent,
       }),
     });
-    const result = (await response.json().catch(() => null)) as {
-      ok?: boolean;
-      error?: string;
-    } | null;
+    const result =
+      MapPublishReadyResponseSchema.safeParse(
+        await response.json().catch(() => null),
+      ).data ?? null;
     if (!response.ok || !result?.ok) {
       throw new Error(
         result?.error ??

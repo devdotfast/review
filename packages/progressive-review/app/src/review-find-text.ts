@@ -119,6 +119,7 @@ function buildFindTextIndex(article: HTMLElement): FindTextIndex {
 
   const visit = (node: Node) => {
     if (node.nodeType === Node.TEXT_NODE) {
+      // SAFETY: a TEXT_NODE nodeType means this node is a Text.
       const textNode = node as Text;
       const value = textNode.textContent ?? "";
       for (const match of value.matchAll(/\s+|\S+/gu)) {

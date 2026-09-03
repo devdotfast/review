@@ -1,6 +1,6 @@
 ---
 name: dev-review
-description: Answer product questions about Review Desktop, or author and publish a progressive Review for a branch, jj change, or pull request. Use for Review capabilities, setup, CLI, privacy, telemetry, troubleshooting, and code-change or architecture reviews.
+description: Use when the user wants to understand a complex code change in the 'Review' app (alt: dev Review app). 
 ---
 
 # dev.fast Review
@@ -91,11 +91,9 @@ If no sub-agent facility exists, publish the document. Report that the map is no
 
 Read [Document authoring](references/document-authoring.md) before you edit `review.mdx` or `data.ts`.
 
-Use the materialized files in `traces.paths` from the scaffold event. When that array is non-empty, read [Trace quoting](references/trace-quoting.md) and complete its intent pass before authoring. Use FFF for candidate discovery.
+Use the materialized files in `traces.paths` from the scaffold event. When that array is non-empty, read [Trace quoting](references/trace-quoting.md) and complete its intent pass before authoring. Use FFF for trace search candidate discovery.
 
-Use the smallest document that explains the important change. Default to `AnchorLink` for source evidence, and use this to hyperlink any text in the review that refers to a specific piece of code. Use `CodePeek` only when readers must see the code inline to understand the main claim.
-
-Read every referenced range from the correct pinned checkout before you add it. Use the `checkouts` paths from the scaffold event: the head checkout for a head range, the base checkout for a base range.
+Use the `checkouts` paths from the scaffold event: the head checkout for a head range, the base checkout for a base range.
 
 ### 4. Publish the document
 

@@ -4,32 +4,50 @@
 
 The reader sees the original user request and the Review document. The reader does not see agent reasoning or the implementation session.
 
-The H1 is the review's display title in Review Desktop tabs and Home. Write a short, specific title for the change (for example, "Publish pipeline: single mount"), not a generic one. Publishing syncs the title. Use progressive disclosure: short prose first, then details that earn their cost. Typical useful sections are interface change, lifecycle/data flow, state/storage, and testing evidence. Write in ASD-STE100 Simplified Technical English (STE).
+The H1 is the review's display title in Review Desktop tabs and Home. Write a short, specific title for the change (for example, "Publish pipeline: single mount"), not a generic one. Use progressive disclosure: short prose first, then details that earn their cost. Write in ASD-STE100 Simplified Technical English (STE).
 
-Assume raw prose will confuse the reader. Spend substantial reasoning effort deciding what to omit, rather than what to include; deep analysis followed by a small amount of clear output text is the correct tradeoff. Start brief and add resolution only where it earns the reader's attention; the reader's time and attention are incredibly expensive and thus every word you put out taxes and pains them. Your job is to not waste that time. Think about the style of RFCs from great tech leaders like Russ Cox, Dave Cheney, and the early React RFCs.
+Assume raw prose will confuse the reader. Think about the style of RFCs from great tech leaders like Russ Cox, Dave Cheney, and the early React RFCs.
 
 Remember that the reader can ONLY see the 'user' prompts _before_ coding started and the document you write to explain what changed. This means jargon in the middle - references to specific parts of code, especially any and all abstractions, changes, and code referenced _during_ the editing process - is confusing and not helpful. More words do not help. Progressive disclosure of complexity is key.
 
-Open the document with a landing section after the H1 and before the first H2. Be concise.
+You are optimizing for human readership here; humans prefer, in order:
+ 1. interactive diagrams to explain context
+ 2. code examples
+ 3. text
 
-**Summary** 
-- short bullet points that summarize the change, for example:
-- comment peeks now open in the real diff editor, not a stitched-together fake buffer
-- both diff sides are actual files on disk, so imports and go-to-definition just work
-- comments stick to real lines — deleted ones included
+Raw text should almost always be accompanied by (1) or (2).
+
+If you have context on the change already in previous chat history, there's almost no reason to do extra exploration - go straight into authoring. Just make sure to attach examples to your claims.
+
+Open the document with a landing section after the H1 and before the first H2. Be concise; this section should just be *quotes from the prompt behind the change* (either through associated agent trace sessions, or your own context window, if you have the implementation session in context.)
+
+**Summary** - *What* behavior was changed
+- if possible, show this through visuals, links, etc
+- keep max ~5 bullet points. 1 is best and indicates a clean PR.
 
 **Why**
-A couple short sentences about: What problem does this change solve? (What problem(s) is this change not trying to solve?) For a bugfix, this can be what was wrong before; for a new feature, this can be what this adds. Capture the intent behind the pr using the developer's own prompts, if those are available to you (either through associated agent trace sessions, or your own context window, if you have the implementation session in context.)
+A couple short sentences about: What problem does this change solve? (What problem(s) is this change not trying to solve?) For a bugfix, this can be what was wrong before; for a new feature, this can be what this adds. 
 
 After the landing section, use fewer than five further sections when practical. Choose the sections that fit this change. Good section choices are:
 
 - requirements
+  - best expressed via links to trace
 - design
+  - best expressed via decision log w/ diagram or code examples w/ links to trace
 - interface change
+  - best expressed through links to code w/ example usage
 - lifecycle or data flow
+  - obviously best expressed via diagram (sequence + state diagram)
 - state or storage
+  - database diagram
 - testing evidence
-- decision log
+  - do:
+    - reference what is tested via integration-style or E2E tests via pseudocode.
+      - generally, it is wise here to skip noting unit tests
+    - add links to decisions etc. that are relevant here (e.g. explicit user guidance on what to test)
+  - do not:
+    - run tests or linters.
+    - "xxx/yyy tests are passing" (overwhelming without giving information; CI being green is enough).
 
 Add implementation detail only when it helps the reader check an important claim.
 
@@ -54,12 +72,22 @@ Do not import runtime values from source repository files. Put document data in 
 
 Scaffold creates one pinned checkout per pinned commit and prints both paths in its JSON event, under `checkouts.head` and `checkouts.base`. Read the paths from that output. Do not derive them from the repository layout. When you have no scaffold output, the layout is `<git-common-dir>/dev-fast/reviews/<review-uuid>/{head,base}/<full-commit>/`; resolve the common dir with `git rev-parse --git-common-dir` in the source worktree.
 
-Read each range from the correct pinned checkout before you add it:
+1. (OPTIONAL; SKIP IF THIS IS THE SAME SESSION THAT AUTHORED THE CHANGE): **Load the change into your context window**
+   - Typically involves batched commands; utilize code mode + parallel subagents to minimize the number of tool calls.
+2. **Decide on the evidence that you want to show**
+3. **For locations where you can't remember specific line numbers, search for code locations to match your chosen examples/anchors.**
+   - Utilize batching to minimize tool calls / code-mode + parallelism (e.g. via subagents) to speed things up.
+   - *IMPORTANT*: when at all possible, use `ast-grep` (on PATH) vs. vanilla grep, reading files (e.g. via sed/cat), or counting line ranges. 'sed, grep, cat' are slow and ill-fitted to this use-case (finding starting/closing brackets of code snippets).
+      - match the declaration or the exact node you're citing and take `fromLine`/`toLine` from `range.start.line`/`range.end.line` in `--json` output
+      - ast-grep's `range.*.line` is 0-based (vs. the 1-based index of `fromLine`/`toLine`)
+      - Resolve all anchors in as few calls as possible.
+      - because ast-grep gives you the end lines inline you can effectively batch calls and reduce total number of turns
 
-- Use the head checkout (`sourceCommit`) for a head range.
-- Use the base checkout (`baseCommit`) for a base range.
+Remember that a review has two pinned checkouts (base checkout, or `baseCommit`, and head checkout, or `sourceCommit`). Depending on the anchor/code ref you may need to be specific about one side or the other.
 
-Use the smallest range that proves the claim. Default to `AnchorLink` for source evidence. Use `CodePeek` only when readers must see the code inline to understand the main claim. A path outside the pinned checkout or an invalid line range blocks document publication.
+If code context is already in your context window (e.g. file/symbols), leverage that information to avoid extraneous searches.
+
+Default to `AnchorLink` or `CodePeek` for source evidence (prefer `AnchorLink`, with `CodePeek` superior for examples which are best demonstrated via code, e.g. an API change). A path outside the pinned checkout blocks document publication.
 
 ## Authoring API (data.ts)
 

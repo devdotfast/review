@@ -838,14 +838,6 @@ export class ReviewSessionService
 	}
 
 	private acceptGlobalEvent(event: ReviewDesktopGlobalEvent): void {
-		if (event.event === "review-data-changed") {
-			// The React canvas owns live page invalidation directly.
-			return;
-		}
-		if (event.event === "review-authoring-target-changed") {
-			// The React canvas consumes ephemeral authoring state directly.
-			return;
-		}
 		if (event.event === "review-threads-committed") {
 			this.patchReview(event.uuid, { commentCount: event.commentCount });
 			this._onDidCommitReviewThreads.fire(event);

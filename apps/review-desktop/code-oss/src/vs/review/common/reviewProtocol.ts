@@ -1524,15 +1524,6 @@ export const ReviewDesktopGlobalEventSchema = z.discriminatedUnion("event", [
     session: ReviewSessionDescriptorSchema,
   }),
   z.strictObject({
-    event: z.literal("review-data-changed"),
-    uuid: z.uuid({ error: "must be a UUID" }),
-  }),
-  z.strictObject({
-    event: z.literal("review-authoring-target-changed"),
-    uuid: z.uuid({ error: "must be a UUID" }),
-    target: ReviewAuthoringTargetSchema,
-  }),
-  z.strictObject({
     event: z.literal("review-threads-committed"),
     uuid: z.uuid({ error: "must be a UUID" }),
     sessionId: requiredString,

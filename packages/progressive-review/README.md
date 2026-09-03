@@ -103,7 +103,7 @@ Pi. The MCP registration points FFF at `~/.dev/trace-search`. Review accepts
 existing FFF integrations without changes. Silent app-update synchronization
 never runs an FFF installer.
 
-The experimental setup configures R2 and enables trace capture for the machine.
+The experimental setup configures S3/R2 and enables trace capture for the machine.
 Each agent session activates its current repository. Git receives a managed
 hook dispatcher that chains the repository's prior hooks. Jujutsu receives a
 repository commit-trailer template. A target repository needs no Review files.
@@ -124,7 +124,7 @@ pi install npm:@ff-labs/pi-fff
 Trace search uses this local flow:
 
 ```text
-R2 raw trace
+S3/R2 raw trace
   → temporary download
   → normalized JSONL in ~/.dev/trace-search
   → FFF, review trace show, Review UI, and quote validation

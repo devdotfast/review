@@ -1,15 +1,27 @@
 import type { Writable } from "node:stream";
 
+import { git } from "@dev.fast/local-vcs";
+
+import {
+  installClaudeTraceHook,
+  installCodexTraceHook,
+  installPiTraceExtension,
+} from "./agent-trace-hooks";
 import {
   type AgentTraceEvent,
   extractTraceEventText,
 } from "./agent-trace-parser";
 import type { TraceQuoteProps } from "./authoring";
 import {
+  type CliJsonOutput,
+  emitJsonEvent,
+  failWithJsonError,
+  humanStream,
+} from "./cli-output";
+import {
   type ReviewTraceBlameLookupResult,
   type ReviewTraceCommitLookupResult,
   type ReviewTraceSessionDescriptor,
-  checkReviewTraceDoctor,
   describeTraceSession,
   inferRepoFromGit,
   listRepositoryTraceSessionIds,
@@ -25,85 +37,278 @@ import {
 import { reviewUuidForManagedCheckout } from "./review-head-checkout";
 import { type StoredReview, findReview, listReviews } from "./review-home";
 import { resolveReviewRepoRootFromStore } from "./review-worktree-target";
-import { runReviewTraceGitHook } from "./trace-git-hook-runner";
-import { runReviewTraceHook } from "./trace-hook-runner";
-import { traceMachineStatus } from "./trace-machine-setup";
 import {
-  disableTraceRepository,
+  DEFAULT_STORE_ORIGIN,
+  readStoreAuth,
+  requireStoreClient,
+} from "./store-auth";
+import { StoreApiError, type StoreClient } from "./store-client";
+import { readActiveTraceSessions } from "./trace-agent-sessions";
+import { runReviewTraceGitHook } from "./trace-git-hook-runner";
+import {
+  resolveAllowedTraceRepository,
+  runReviewTraceHook,
+} from "./trace-hook-runner";
+import {
   enableTraceRepository,
   repairTraceRepository,
-  traceRepositoryStatus,
 } from "./trace-repository-hooks";
+import {
+  allowTraceRepository,
+  denyTraceRepository,
+  findTraceRepository,
+  readTraceUserConfig,
+} from "./trace-user-config";
 
-export { runReviewTraceGitHook, runReviewTraceHook };
+export {
+  resolveAllowedTraceRepository,
+  runReviewTraceGitHook,
+  runReviewTraceHook,
+};
+
+/** The Git-path-tracked agent sessions still active for this repository. */
+async function pendingTraceSessions(cwd: string): Promise<string[]> {
+  const gitPathResult = await git(
+    cwd,
+    ["rev-parse", "--git-path", "agent-session"],
+    { allowFailure: true },
+  );
+  const sessionFilePath = gitPathResult.ok ? gitPathResult.stdout.trim() : "";
+  if (!sessionFilePath) return [];
+  const sessions = await readActiveTraceSessions(sessionFilePath);
+  return [...sessions.keys()];
+}
+
+export async function runReviewTraceOnboard(input: {
+  cwd: string;
+  json?: boolean;
+  stdout: Writable;
+  stderr: Writable;
+  client?: StoreClient;
+}): Promise<number> {
+  const output: CliJsonOutput = {
+    json: input.json,
+    stdout: input.stdout,
+    stderr: input.stderr,
+  };
+  let owner: string;
+  let repo: string;
+  try {
+    ({ owner, repo } = await inferRepoFromGit(input.cwd));
+  } catch (error) {
+    return failWithJsonError(output, "onboard", errorMessage(error));
+  }
+  let client: StoreClient;
+  try {
+    client = input.client ?? (await requireStoreClient());
+  } catch (error) {
+    return failWithJsonError(output, "onboard", errorMessage(error));
+  }
+  let store: Awaited<ReturnType<StoreClient["createStore"]>>;
+  try {
+    store = await client.createStore({ owner, name: repo });
+  } catch (error) {
+    if (error instanceof StoreApiError && error.code === "forbidden") {
+      return failWithJsonError(
+        output,
+        "onboard",
+        `You need write access to ${owner}/${repo} to onboard it.`,
+      );
+    }
+    return failWithJsonError(output, "onboard", errorMessage(error));
+  }
+  emitJsonEvent(output, {
+    event: "trace.onboard",
+    repositoryId: store.repositoryId,
+    displayName: store.displayName,
+    created: store.created === true,
+  });
+  const stream = humanStream(output);
+  stream.write(`Onboarded ${store.displayName} (id ${store.repositoryId}).\n`);
+  stream.write(
+    "Run `review trace allow .` to send traces from this repository.\n",
+  );
+  return 0;
+}
+
+export async function runReviewTraceAllow(input: {
+  cwd: string;
+  json?: boolean;
+  stdout: Writable;
+  stderr: Writable;
+  client?: StoreClient;
+  homeDir?: string;
+  harnessHooks?: boolean;
+}): Promise<number> {
+  const output: CliJsonOutput = {
+    json: input.json,
+    stdout: input.stdout,
+    stderr: input.stderr,
+  };
+  let owner: string;
+  let repo: string;
+  try {
+    ({ owner, repo } = await inferRepoFromGit(input.cwd));
+  } catch (error) {
+    return failWithJsonError(output, "allow", errorMessage(error));
+  }
+  const name = `${owner}/${repo}`;
+  let client: StoreClient;
+  try {
+    client = input.client ?? (await requireStoreClient());
+  } catch (error) {
+    return failWithJsonError(output, "allow", errorMessage(error));
+  }
+  let store: Awaited<ReturnType<StoreClient["findStore"]>>;
+  try {
+    store = await client.findStore({ owner, name: repo });
+  } catch (error) {
+    return failWithJsonError(output, "allow", errorMessage(error));
+  }
+  if (!store) {
+    return failWithJsonError(
+      output,
+      "allow",
+      `${name} is not onboarded. Run \`review trace onboard\` first.`,
+    );
+  }
+
+  if (input.harnessHooks !== false) {
+    await installClaudeTraceHook(input.homeDir);
+    await installCodexTraceHook(input.homeDir);
+    await installPiTraceExtension(input.homeDir);
+  }
+  await enableTraceRepository({ cwd: input.cwd, homeDir: input.homeDir });
+  const auth = await readStoreAuth();
+  const storeOrigin = auth?.origin ?? DEFAULT_STORE_ORIGIN;
+  await allowTraceRepository({
+    repositoryId: store.repositoryId,
+    name: store.displayName,
+    store: storeOrigin,
+  });
+
+  emitJsonEvent(output, {
+    event: "trace.allow",
+    repositoryId: store.repositoryId,
+    name: store.displayName,
+    store: storeOrigin,
+  });
+  humanStream(output).write(
+    `Traces from ${store.displayName} will be published to ${storeOrigin}.\n`,
+  );
+  return 0;
+}
+
+export async function runReviewTraceDeny(input: {
+  cwd: string;
+  json?: boolean;
+  stdout: Writable;
+  stderr: Writable;
+}): Promise<number> {
+  const output: CliJsonOutput = {
+    json: input.json,
+    stdout: input.stdout,
+    stderr: input.stderr,
+  };
+  let owner: string;
+  let repo: string;
+  try {
+    ({ owner, repo } = await inferRepoFromGit(input.cwd));
+  } catch (error) {
+    return failWithJsonError(output, "deny", errorMessage(error));
+  }
+  const name = `${owner}/${repo}`;
+  const removed = await denyTraceRepository(name);
+  emitJsonEvent(output, { event: "trace.deny", name, removed });
+  humanStream(output).write(
+    removed
+      ? `${name} will no longer publish traces.\n`
+      : `${name} was not allowed to publish traces.\n`,
+  );
+  return 0;
+}
 
 export async function runReviewTraceStatus(input: {
   cwd: string;
+  json?: boolean;
   stdout: Writable;
   stderr: Writable;
 }): Promise<number> {
-  const machine = await traceMachineStatus();
-  const repository = await traceRepositoryStatus(input.cwd);
-  input.stdout.write(
-    `Trace capture: ${machine.enabled ? "enabled" : "disabled"}\n`,
+  const output: CliJsonOutput = {
+    json: input.json,
+    stdout: input.stdout,
+    stderr: input.stderr,
+  };
+  const auth = await readStoreAuth();
+  const config = await readTraceUserConfig();
+  const repositories = config.repositories.map((entry) => ({
+    repositoryId: entry.repositoryId,
+    name: entry.name,
+    store: entry.store,
+  }));
+
+  let currentRepository: {
+    name: string;
+    repositoryId: number | null;
+    allowed: boolean;
+  } | null = null;
+  try {
+    const { owner, repo } = await inferRepoFromGit(input.cwd);
+    const name = `${owner}/${repo}`;
+    const entry = findTraceRepository(config, name);
+    currentRepository = entry
+      ? { name, repositoryId: entry.repositoryId, allowed: true }
+      : { name, repositoryId: null, allowed: false };
+  } catch {
+    currentRepository = null;
+  }
+
+  const pendingSessions = await pendingTraceSessions(input.cwd);
+
+  emitJsonEvent(output, {
+    event: "trace.status",
+    loggedIn: auth !== null,
+    login: auth?.login ?? null,
+    store: auth?.origin ?? null,
+    repositories,
+    currentRepository,
+    pendingSessions,
+  });
+
+  const stream = humanStream(output);
+  stream.write(
+    auth
+      ? `You are logged in to ${auth.origin} as ${auth.login}.\n`
+      : "You are not logged in. Run `review login` first.\n",
   );
-  input.stdout.write(`Repository: ${repository.message}\n`);
-  const doctor = await checkReviewTraceDoctor({ cwd: input.cwd });
-  input.stdout.write(`Checking trace configuration (${doctor.envPath})…\n`);
-
-  if (!doctor.ok && !doctor.config) {
-    input.stderr.write(
-      `trace status: ${doctor.error ?? "No trace configuration found. Use Review Agent Setup to configure trace capture."}\n`,
-    );
-    return 1;
+  if (repositories.length === 0) {
+    stream.write("No repository is allowed to publish traces.\n");
+  } else {
+    for (const repository of repositories) {
+      stream.write(
+        `Allowed repository: ${repository.name} (id ${repository.repositoryId}).\n`,
+      );
+    }
   }
-
-  if (doctor.config) {
-    input.stdout.write(`  Endpoint: ${doctor.config.endpoint}\n`);
-    input.stdout.write(`  Bucket:   ${doctor.config.bucket}\n`);
-    input.stdout.write(
-      `  Key:      ${doctor.config.accessKeyId.slice(0, 6)}…\n`,
+  if (currentRepository === null) {
+    stream.write("This directory has no GitHub remote to check.\n");
+  } else if (currentRepository.allowed) {
+    stream.write(
+      `This repository (${currentRepository.name}) is allowed to publish traces.\n`,
     );
-  }
-
-  if (doctor.reachable && doctor.config) {
-    input.stdout.write(
-      `✓ S3/R2 bucket "${doctor.config.bucket}" is reachable.\n`,
-    );
-    return 0;
-  }
-
-  if (doctor.config) {
-    input.stderr.write(
-      `✗ Cannot reach S3/R2 bucket "${doctor.config.bucket}": ${doctor.error ?? "unknown error"}\n`,
+  } else {
+    stream.write(
+      `This repository (${currentRepository.name}) is not allowed. Run \`review trace allow .\`.\n`,
     );
   }
-  return 1;
-}
-
-export async function runReviewTraceEnable(input: {
-  cwd: string;
-  stdout: Writable;
-  stderr: Writable;
-}): Promise<number> {
-  if (!(await traceMachineStatus()).enabled) {
-    input.stderr.write(
-      "trace enable: Trace capture is not enabled. Use Review Agent Setup first.\n",
-    );
-    return 1;
+  if (pendingSessions.length === 0) {
+    stream.write("No agent session is pending.\n");
+  } else {
+    for (const sessionId of pendingSessions) {
+      stream.write(`Pending agent session: ${sessionId}.\n`);
+    }
   }
-  const result = await enableTraceRepository({ cwd: input.cwd });
-  (result.enabled ? input.stdout : input.stderr).write(`${result.message}\n`);
-  return result.enabled ? 0 : 1;
-}
-
-export async function runReviewTraceDisable(input: {
-  cwd: string;
-  stdout: Writable;
-}): Promise<number> {
-  const result = await disableTraceRepository({ cwd: input.cwd });
-  input.stdout.write(`${result.message}\n`);
-  return result.repository ? 0 : 1;
+  return 0;
 }
 
 export async function runReviewTraceRepair(input: {
@@ -111,18 +316,14 @@ export async function runReviewTraceRepair(input: {
   stdout: Writable;
   stderr: Writable;
 }): Promise<number> {
-  if (!(await traceMachineStatus()).enabled) {
-    input.stderr.write(
-      "trace repair: Trace capture is not enabled. Use Review Agent Setup first.\n",
-    );
-    return 1;
-  }
   const result = await repairTraceRepository({ cwd: input.cwd });
   (result.enabled ? input.stdout : input.stderr).write(`${result.message}\n`);
   return result.enabled ? 0 : 1;
 }
 
-export const runReviewTraceDoctor = runReviewTraceStatus;
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 async function listSessionsForReview(review: StoredReview) {
   const repoRootPath = resolveReviewRepoRootFromStore(review.dir);

@@ -6,22 +6,56 @@ import { PassThrough } from "node:stream";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { collectingWritable } from "./cli-output";
 import { clearTraceEnvCache } from "./review-agent-traces";
+import type { StoreClient } from "./store-client";
 import {
-  runReviewTraceDoctor,
-  runReviewTraceEnable,
+  runReviewTraceAllow,
   runReviewTraceLookupBlame,
   runReviewTraceLookupCommit,
   runReviewTraceLookupSession,
+  runReviewTraceOnboard,
+  runReviewTraceStatus,
   runReviewTraceSync,
 } from "./trace-cli";
 import { configureTraceMachine } from "./trace-machine-setup";
+import { traceRepositoryStatus } from "./trace-repository-hooks";
+import { findTraceRepository, readTraceUserConfig } from "./trace-user-config";
+
+/** A StoreClient double built from a partial method set. */
+function fakeStoreClient(overrides: Partial<StoreClient>): StoreClient {
+  return overrides as StoreClient;
+}
+
+function outputs() {
+  const outChunks: string[] = [];
+  const errChunks: string[] = [];
+  return {
+    stdout: collectingWritable(outChunks),
+    stderr: collectingWritable(errChunks),
+    out: () => outChunks.join(""),
+    err: () => errChunks.join(""),
+  };
+}
 
 describe("trace-cli", () => {
   let tempDir: string;
   let envFile: string;
   let mockR2Dir: string;
   let localTraceRoot: string;
+  let tmpHome: string;
+  let cwd: string;
+
+  function repoWithRemote(remoteUrl: string): string {
+    const dir = path.join(
+      tempDir,
+      `repo-${Math.random().toString(36).slice(2)}`,
+    );
+    mkdirSync(dir, { recursive: true });
+    execFileSync("git", ["init", "--quiet"], { cwd: dir });
+    execFileSync("git", ["remote", "add", "origin", remoteUrl], { cwd: dir });
+    return dir;
+  }
 
   beforeEach(() => {
     tempDir = path.join(
@@ -31,15 +65,19 @@ describe("trace-cli", () => {
     envFile = path.join(tempDir, "env");
     mockR2Dir = path.join(tempDir, "mock-r2");
     localTraceRoot = path.join(tempDir, "local-traces");
+    tmpHome = path.join(tempDir, "dev-home");
     mkdirSync(tempDir, { recursive: true });
     mkdirSync(mockR2Dir, { recursive: true });
     mkdirSync(localTraceRoot, { recursive: true });
+    mkdirSync(tmpHome, { recursive: true });
     process.env.TRACE_ENV_FILE = envFile;
     process.env.TRACE_SETTINGS_FILE = path.join(tempDir, "settings.json");
     process.env.TRACE_R2_MODE = "mock";
     process.env.TRACE_R2_MOCK_DIR = mockR2Dir;
     process.env.TRACE_LOCAL_TRACE_ROOT = localTraceRoot;
+    process.env.DEV_REVIEW_HOME = tmpHome;
     clearTraceEnvCache();
+    cwd = repoWithRemote("git@github.com:acme/app.git");
   });
 
   afterEach(() => {
@@ -48,6 +86,7 @@ describe("trace-cli", () => {
     delete process.env.TRACE_R2_MODE;
     delete process.env.TRACE_R2_MOCK_DIR;
     delete process.env.TRACE_LOCAL_TRACE_ROOT;
+    delete process.env.DEV_REVIEW_HOME;
     clearTraceEnvCache();
     vi.restoreAllMocks();
     rmSync(tempDir, { recursive: true, force: true });
@@ -102,39 +141,41 @@ describe("trace-cli", () => {
   });
 
   it("handles husky git hook delegation without breaking core.hooksPath", async () => {
-    const stdout = new PassThrough();
-    const stderr = new PassThrough();
+    const { stdout, stderr } = outputs();
+    const repo = repoWithRemote("git@github.com:acme/husky-app.git");
 
-    const huskyDir = path.join(tempDir, ".husky");
+    const huskyDir = path.join(repo, ".husky");
     mkdirSync(path.join(huskyDir, "_"), { recursive: true });
     writeFileSync(
       path.join(huskyDir, "_", "prepare-commit-msg"),
       "#!/bin/sh\nexit 0\n",
     );
     writeFileSync(path.join(huskyDir, "_", "pre-push"), "#!/bin/sh\nexit 0\n");
-
-    execFileSync("git", ["init"], { cwd: tempDir });
     execFileSync("git", ["config", "core.hooksPath", ".husky/_"], {
-      cwd: tempDir,
+      cwd: repo,
     });
 
-    await configureTraceMachine({
-      credentials: {
-        endpoint: "https://test-account.r2.cloudflarestorage.com",
-        bucket: "test-bucket",
-        key: "test-key-id",
-        secret: "test-secret-key",
-      },
+    const client = fakeStoreClient({
+      findStore: vi.fn<StoreClient["findStore"]>(async () => ({
+        repositoryId: 1,
+        displayName: "acme/husky-app",
+        status: "active",
+        createdAt: "2026-09-02T00:00:00Z",
+      })),
     });
-    const exitCode = await runReviewTraceEnable({
-      cwd: tempDir,
-      stdout: stdout as any,
-      stderr: stderr as any,
+
+    const exitCode = await runReviewTraceAllow({
+      cwd: repo,
+      stdout,
+      stderr,
+      client,
+      homeDir: repo,
+      harnessHooks: false,
     });
 
     expect(exitCode).toBe(0);
     const hooksPath = execFileSync("git", ["config", "core.hooksPath"], {
-      cwd: tempDir,
+      cwd: repo,
     })
       .toString()
       .trim();
@@ -149,25 +190,81 @@ describe("trace-cli", () => {
     expect(managedHook).toContain(
       "previous=\"$root\"/'.husky/_/prepare-commit-msg'",
     );
-    expect(managedHook).not.toContain(tempDir);
+    expect(managedHook).not.toContain(repo);
   });
 
-  it("runs doctor in mock mode", async () => {
-    let out = "";
-    const stdout = new PassThrough();
-    stdout.on("data", (d) => {
-      out += d.toString();
-    });
-    const stderr = new PassThrough();
+  it("runs status and reports login and repository state", async () => {
+    const { stdout, stderr, out } = outputs();
 
-    const exitCode = await runReviewTraceDoctor({
-      cwd: tempDir,
-      stdout: stdout as any,
-      stderr: stderr as any,
-    });
+    const exitCode = await runReviewTraceStatus({ cwd, stdout, stderr });
 
     expect(exitCode).toBe(0);
-    expect(out).toContain("Checking trace configuration");
+    expect(out()).toContain("You are not logged in");
+    expect(out()).toContain("not allowed");
+  });
+
+  it("onboards the repo behind the remote", async () => {
+    const { stdout, stderr, out } = outputs();
+    const client = fakeStoreClient({
+      createStore: vi.fn<StoreClient["createStore"]>(async () => ({
+        repositoryId: 123,
+        displayName: "acme/app",
+        status: "active",
+        createdAt: "2026-09-02T00:00:00Z",
+        created: true,
+      })),
+    });
+
+    const code = await runReviewTraceOnboard({
+      cwd: repoWithRemote("git@github.com:acme/app.git"),
+      stdout,
+      stderr,
+      client,
+    });
+
+    expect(code).toBe(0);
+    expect(client.createStore).toHaveBeenCalledWith({
+      owner: "acme",
+      name: "app",
+    });
+    expect(out()).toContain("Run `review trace allow .`");
+  });
+
+  it("allow fails before onboarding", async () => {
+    const { stdout, stderr, err } = outputs();
+    const client = fakeStoreClient({
+      findStore: vi.fn<StoreClient["findStore"]>(async () => null),
+    });
+
+    expect(await runReviewTraceAllow({ cwd, stdout, stderr, client })).toBe(1);
+    expect(err()).toContain("review trace onboard");
+  });
+
+  it("allow records the entry and installs repo hooks", async () => {
+    const { stdout, stderr } = outputs();
+    const client = fakeStoreClient({
+      findStore: vi.fn<StoreClient["findStore"]>(async () => ({
+        repositoryId: 123,
+        displayName: "acme/app",
+        status: "active",
+        createdAt: "2026-09-02T00:00:00Z",
+      })),
+    });
+
+    expect(
+      await runReviewTraceAllow({
+        cwd,
+        stdout,
+        stderr,
+        client,
+        homeDir: tmpHome,
+      }),
+    ).toBe(0);
+    expect(
+      findTraceRepository(await readTraceUserConfig(), "acme/app")
+        ?.repositoryId,
+    ).toBe(123);
+    expect((await traceRepositoryStatus(cwd)).enabled).toBe(true);
   });
 
   it("runs lookup commit and formats JSON and text outputs", async () => {

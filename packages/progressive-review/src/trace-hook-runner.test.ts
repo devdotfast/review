@@ -8,10 +8,13 @@ import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { TRACE_SESSION_TTL_MS } from "./trace-agent-sessions";
+import {
+  TRACE_SESSION_TTL_MS,
+  readActiveTraceSessions,
+} from "./trace-agent-sessions";
 import { runReviewTraceGitHook } from "./trace-git-hook-runner";
 import { runReviewTraceHook } from "./trace-hook-runner";
-import { configureTraceMachine } from "./trace-machine-setup";
+import { allowTraceRepository } from "./trace-user-config";
 
 const execFilePromise = promisify(execFile);
 const tempRoots: string[] = [];
@@ -39,25 +42,36 @@ async function runJj(root: string, args: string[]): Promise<string> {
   return stdout;
 }
 
-async function makeGitRepo(): Promise<string> {
+/**
+ * A Git repository with a GitHub remote. By default the repo is also
+ * allowed to publish traces, matching most tests below; pass `allow: false`
+ * to leave it un-allowed.
+ */
+async function makeGitRepo(
+  options: { remote?: string; allow?: boolean } = {},
+): Promise<string> {
   const dir = await mkdtemp(path.join(os.tmpdir(), "trace-hook-runner-test-"));
   tempRoots.push(dir);
+  const remote = options.remote ?? "git@github.com:acme/hook-test.git";
   await runGit(dir, ["init", "-b", "main"]);
   await runGit(dir, ["config", "user.name", "Test User"]);
   await runGit(dir, ["config", "user.email", "test@example.com"]);
+  await runGit(dir, ["remote", "add", "origin", remote]);
   await writeFile(path.join(dir, "README.md"), "# Test\n");
   await runGit(dir, ["add", "README.md"]);
   await runGit(dir, ["commit", "-m", "initial"]);
-  await configureTraceMachine({
-    homeDir: dir,
-    env: { TRACE_R2_MODE: "mock" },
-    credentials: {
-      endpoint: "mock://endpoint",
-      bucket: "mock-bucket",
-      key: "mock-key",
-      secret: "mock-secret",
-    },
-  });
+  if (options.allow !== false) {
+    const match = /[:/]([^/]+)\/([^/]+?)(?:\.git)?$/.exec(remote);
+    if (!match) throw new Error(`Could not parse test remote: ${remote}`);
+    await allowTraceRepository(
+      {
+        repositoryId: 1,
+        name: `${match[1]}/${match[2]}`,
+        store: "https://app.dev.fast",
+      },
+      dir,
+    );
+  }
   return dir;
 }
 
@@ -74,7 +88,7 @@ describe("runReviewTraceHook", () => {
       event: "SessionStart",
       sessionId,
       homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      env: { TRACE_R2_MODE: "mock", DEV_REVIEW_HOME: repo },
     });
     expect(startCode).toBe(0);
 
@@ -91,7 +105,7 @@ describe("runReviewTraceHook", () => {
       event: "SessionStart",
       sessionId: secondSessionId,
       homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      env: { TRACE_R2_MODE: "mock", DEV_REVIEW_HOME: repo },
     });
     expect(await readFile(agentSessionFile, "utf8")).toBe(
       `${sessionId}\t${now}\n${secondSessionId}\t${now}\n`,
@@ -103,7 +117,7 @@ describe("runReviewTraceHook", () => {
       event: "SessionEnd",
       sessionId,
       homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      env: { TRACE_R2_MODE: "mock", DEV_REVIEW_HOME: repo },
     });
     expect(endCode).toBe(0);
     expect(await readFile(agentSessionFile, "utf8")).toBe(
@@ -116,7 +130,7 @@ describe("runReviewTraceHook", () => {
       event: "SessionEnd",
       sessionId: secondSessionId,
       homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      env: { TRACE_R2_MODE: "mock", DEV_REVIEW_HOME: repo },
     });
     expect(existsSync(agentSessionFile)).toBe(false);
   });
@@ -138,7 +152,7 @@ describe("runReviewTraceHook", () => {
       event: "unknown",
       stdin: stdinStart,
       homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      env: { TRACE_R2_MODE: "mock", DEV_REVIEW_HOME: repo },
     });
 
     const agentSessionFile = path.join(repo, ".git", "agent-session");
@@ -158,7 +172,7 @@ describe("runReviewTraceHook", () => {
       event: "unknown",
       stdin: stdinEnd,
       homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      env: { TRACE_R2_MODE: "mock", DEV_REVIEW_HOME: repo },
     });
 
     expect(existsSync(agentSessionFile)).toBe(false);
@@ -177,7 +191,7 @@ describe("runReviewTraceHook", () => {
       event: "SessionStart",
       sessionId: staleSessionId,
       homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      env: { TRACE_R2_MODE: "mock", DEV_REVIEW_HOME: repo },
     });
     now.mockReturnValue(heartbeatAt);
     await runReviewTraceHook({
@@ -185,7 +199,7 @@ describe("runReviewTraceHook", () => {
       event: "UserPromptSubmit",
       sessionId: activeSessionId,
       homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      env: { TRACE_R2_MODE: "mock", DEV_REVIEW_HOME: repo },
     });
 
     const agentSessionFile = path.join(repo, ".git", "agent-session");
@@ -199,7 +213,7 @@ describe("runReviewTraceHook", () => {
       event: "turn_start",
       sessionId: activeSessionId,
       homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      env: { TRACE_R2_MODE: "mock", DEV_REVIEW_HOME: repo },
     });
     expect(await readFile(agentSessionFile, "utf8")).toBe(
       `${activeSessionId}\t${heartbeatAt + 1_000}\n`,
@@ -217,7 +231,7 @@ describe("runReviewTraceHook", () => {
       event: "SessionStart",
       sessionId,
       homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      env: { TRACE_R2_MODE: "mock", DEV_REVIEW_HOME: repo },
     });
     now.mockReturnValue(startedAt + TRACE_SESSION_TTL_MS + 1);
     const messagePath = path.join(repo, ".git", "COMMIT_EDITMSG");
@@ -237,7 +251,7 @@ describe("runReviewTraceHook", () => {
       event: "UserPromptSubmit",
       sessionId,
       homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      env: { TRACE_R2_MODE: "mock", DEV_REVIEW_HOME: repo },
     });
     await writeFile(messagePath, "Fresh commit\n");
     await runReviewTraceGitHook({
@@ -266,7 +280,7 @@ describe("runReviewTraceHook", () => {
         event: "SessionStart",
         sessionId,
         homeDir: repo,
-        env: { TRACE_R2_MODE: "mock" },
+        env: { TRACE_R2_MODE: "mock", DEV_REVIEW_HOME: repo },
       });
     }
 
@@ -289,7 +303,7 @@ describe("runReviewTraceHook", () => {
       event: "UserPromptSubmit",
       sessionId: firstSessionId,
       homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      env: { TRACE_R2_MODE: "mock", DEV_REVIEW_HOME: repo },
     });
     await runJj(repo, ["describe", "-m", "Fresh trace work"]);
     const refreshedDescription = await runJj(repo, [
@@ -313,12 +327,31 @@ describe("runReviewTraceHook", () => {
       event: "SessionStart",
       sessionId: "invalid!@#$%",
       homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      env: { TRACE_R2_MODE: "mock", DEV_REVIEW_HOME: repo },
     });
     expect(code).toBe(0);
 
     const agentSessionFile = path.join(repo, ".git", "agent-session");
     expect(existsSync(agentSessionFile)).toBe(false);
+  });
+
+  it("ignores a repository with no allow entry", async () => {
+    const repo = await makeGitRepo({
+      remote: "git@github.com:acme/other.git",
+      allow: false,
+    });
+
+    const code = await runReviewTraceHook({
+      cwd: repo,
+      event: "SessionStart",
+      sessionId: "01a015e4-0477-7055-a0fd-21a0f72a4ec9",
+      homeDir: repo,
+      env: { TRACE_R2_MODE: "mock", DEV_REVIEW_HOME: repo },
+    });
+    expect(code).toBe(0);
+
+    const agentSessionFile = path.join(repo, ".git", "agent-session");
+    expect(await readActiveTraceSessions(agentSessionFile)).toEqual(new Map());
   });
 });
 

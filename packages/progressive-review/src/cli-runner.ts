@@ -81,12 +81,13 @@ import {
   runReviewThreadsResolve,
 } from "./threads-cli";
 import {
+  runReviewTraceAllow,
   runReviewTraceBlame,
-  runReviewTraceDisable,
-  runReviewTraceEnable,
+  runReviewTraceDeny,
   runReviewTraceGitHook,
   runReviewTraceHook,
   runReviewTraceList,
+  runReviewTraceOnboard,
   runReviewTracePull,
   runReviewTraceRepair,
   runReviewTraceShow,
@@ -120,8 +121,9 @@ interface ProgressiveReviewCliRuntime {
   runReviewMigration: typeof runReviewMigration;
   runSoftwareMapCli: typeof runSoftwareMapCli;
   runReviewTraceStatus: typeof runReviewTraceStatus;
-  runReviewTraceEnable: typeof runReviewTraceEnable;
-  runReviewTraceDisable: typeof runReviewTraceDisable;
+  runReviewTraceOnboard: typeof runReviewTraceOnboard;
+  runReviewTraceAllow: typeof runReviewTraceAllow;
+  runReviewTraceDeny: typeof runReviewTraceDeny;
   runReviewTraceRepair: typeof runReviewTraceRepair;
   runReviewTraceList: typeof runReviewTraceList;
   runReviewTraceShow: typeof runReviewTraceShow;
@@ -860,48 +862,81 @@ export async function runProgressiveReviewCli(
     state.exitCode = 0;
   });
 
-  // The trace surface: inspect storage, manage one repository, or read events.
+  // The trace surface: onboard and allow a repository, inspect storage, or
+  // read events. `traces` is an alias for scripts that prefer the plural.
   const trace = configureOutput(
-    program.command("trace").description("Manage agent traces"),
+    program.command("trace").alias("traces").description("Manage agent traces"),
     "plain",
   );
-  configureOutput(
+  configureJsonOutput(
     trace
       .command("status")
-      .description("Verify S3/R2 trace storage configuration and connectivity"),
+      .description("Show login, allowed repositories, and pending sessions"),
     "plain",
-  ).action(async () => {
+  ).action(async (options: { json?: boolean }) => {
     state.exitCode = await runtime.runReviewTraceStatus({
       cwd,
+      json: options.json,
       stdout: input.stdout,
       stderr: input.stderr,
     });
   });
 
-  configureOutput(
+  configureJsonOutput(
     trace
-      .command("enable [path]")
-      .description("Enable trace hooks for one Git repository"),
+      .command("onboard [path]")
+      .description("Create the hosted trace store for one repository"),
     "plain",
-  ).action(async (repoPath?: string) => {
-    state.exitCode = await runtime.runReviewTraceEnable({
-      cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
-      stdout: input.stdout,
-      stderr: input.stderr,
-    });
-  });
+  ).action(
+    async (repoPath: string | undefined, options: { json?: boolean }) => {
+      state.exitCode = await runtime.runReviewTraceOnboard({
+        cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
+        json: options.json,
+        stdout: input.stdout,
+        stderr: input.stderr,
+      });
+    },
+  );
 
-  configureOutput(
+  configureJsonOutput(
     trace
-      .command("disable [path]")
-      .description("Disable Review trace hooks for one Git repository"),
+      .command("allow [path]")
+      .description("Allow one repository to publish traces")
+      .option(
+        "--no-harness-hooks",
+        "skip the Claude, Codex, and pi hook installers",
+      ),
     "plain",
-  ).action(async (repoPath?: string) => {
-    state.exitCode = await runtime.runReviewTraceDisable({
-      cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
-      stdout: input.stdout,
-    });
-  });
+  ).action(
+    async (
+      repoPath: string | undefined,
+      options: { json?: boolean; harnessHooks?: boolean },
+    ) => {
+      state.exitCode = await runtime.runReviewTraceAllow({
+        cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
+        json: options.json,
+        harnessHooks: options.harnessHooks,
+        stdout: input.stdout,
+        stderr: input.stderr,
+      });
+    },
+  );
+
+  configureJsonOutput(
+    trace
+      .command("deny [path]")
+      .description("Stop publishing traces from one repository"),
+    "plain",
+  ).action(
+    async (repoPath: string | undefined, options: { json?: boolean }) => {
+      state.exitCode = await runtime.runReviewTraceDeny({
+        cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
+        json: options.json,
+        stdout: input.stdout,
+        stderr: input.stderr,
+      });
+    },
+  );
 
   configureOutput(
     trace
@@ -1321,8 +1356,9 @@ function progressiveReviewCliRuntime(
     runReviewMigration,
     runSoftwareMapCli,
     runReviewTraceStatus,
-    runReviewTraceEnable,
-    runReviewTraceDisable,
+    runReviewTraceOnboard,
+    runReviewTraceAllow,
+    runReviewTraceDeny,
     runReviewTraceRepair,
     runReviewTraceList,
     runReviewTraceShow,
@@ -1634,6 +1670,12 @@ function telemetryCommandPath(
       return `threads.${name}`;
     }
     return "invalid";
+  }
+  if (
+    parent === "trace" &&
+    (name === "onboard" || name === "allow" || name === "deny")
+  ) {
+    return `trace.${name}`;
   }
   if (
     name === "version" ||

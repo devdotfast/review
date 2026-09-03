@@ -12,16 +12,45 @@ import {
 } from "@dev.fast/review-protocol";
 
 import type { CliInputStream } from "./cli-output";
+import { inferRepoFromGit } from "./review-agent-traces";
+import { DEV_REVIEW_HOME_ENV } from "./review-storage";
 import {
   readActiveTraceSessions,
   writeTraceSessions,
 } from "./trace-agent-sessions";
-import { traceMachineEnabled } from "./trace-machine-setup";
 import { enableTraceRepository } from "./trace-repository-hooks";
+import {
+  type TraceRepositoryEntry,
+  findTraceRepository,
+  readTraceUserConfig,
+} from "./trace-user-config";
 
 const execFileAsync = promisify(execFile);
 
 const SESSION_ID_REGEX = /^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$/;
+
+/**
+ * The repository the current user allowed for trace publishing, or null
+ * when this directory is not a GitHub repository or has no allow entry.
+ * The session hook gate and `review trace status` both read this.
+ */
+export async function resolveAllowedTraceRepository(
+  cwd: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<TraceRepositoryEntry | null> {
+  let owner: string;
+  let repo: string;
+  try {
+    ({ owner, repo } = await inferRepoFromGit(cwd));
+  } catch {
+    return null;
+  }
+  const devHome = env[DEV_REVIEW_HOME_ENV]?.trim()
+    ? path.resolve(env[DEV_REVIEW_HOME_ENV])
+    : undefined;
+  const config = await readTraceUserConfig(devHome);
+  return findTraceRepository(config, `${owner}/${repo}`);
+}
 
 export interface RunReviewTraceHookInput {
   cwd: string;
@@ -38,14 +67,8 @@ export async function runReviewTraceHook(
   if (process.env.TRACE_DISABLE === "1") {
     return 0;
   }
-  if (
-    !(await traceMachineEnabled({
-      homeDir: input.homeDir,
-      env: input.env,
-    }))
-  ) {
-    return 0;
-  }
+  const entry = await resolveAllowedTraceRepository(input.cwd, input.env);
+  if (!entry) return 0;
 
   let event = input.event;
   let sessionId = input.sessionId;

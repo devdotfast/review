@@ -23,6 +23,9 @@ export interface ReviewPanelActions {
   restoreTour: (tour: GuidedTour, activeAnchor: string) => void;
   activateTourAnchor: (anchorId: string, options: { reveal: boolean }) => void;
   openThreads: (page?: ThreadsPage) => void;
+  /** Moves within Threads while it is active; a no-op once another surface
+   *  (such as the agent terminal) has closed it. */
+  setThreadsPage: (page: ThreadsPage) => void;
   restoreThreads: () => void;
   close: () => void;
   closeForAgentTerminal: () => void;
@@ -79,6 +82,12 @@ export function createReviewPanelStore() {
     },
     openThreads: (page = { kind: "list" }) =>
       set({ active: { kind: "threads", page }, motion: "live" }),
+    setThreadsPage: (page) =>
+      set((state) =>
+        state.active?.kind === "threads"
+          ? { active: { kind: "threads", page } }
+          : state,
+      ),
     restoreThreads: () =>
       set({
         active: { kind: "threads", page: { kind: "list" } },

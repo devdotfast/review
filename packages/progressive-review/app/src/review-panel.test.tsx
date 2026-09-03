@@ -13,8 +13,10 @@ import { ReviewProvider } from "./review-context";
 import {
   ReviewPanelProvider,
   useReviewPanel,
+  useReviewPanelStore,
   useSuppressPanelMotionOnCanvasResume,
 } from "./review-panel";
+import type { ReviewPanelStore } from "./review-panel-store";
 import { testReviewSession } from "./review-session-test-utils";
 
 let root: ReturnType<typeof createRoot> | undefined;
@@ -102,6 +104,58 @@ describe("Review panel host", () => {
     expect(container.textContent).toContain("Threads");
     await vi.waitFor(() => {
       expect(container.querySelector(".threads-new-ask")).toBeNull();
+    });
+  });
+
+  it("stays closed when the agent terminal takes over during Ask now", async () => {
+    let panelStore: ReviewPanelStore | undefined;
+    const askAgent = vi.spyOn(session.bridge.comments, "askAgent");
+    askAgent.mockImplementation(async () => {
+      // The desktop fires agentTerminalOpening before the ask resolves.
+      panelStore!.getState().closeForAgentTerminal();
+    });
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      renderWithSession(
+        <ReviewDebugSettingsProvider>
+          <ReviewProvider>
+            <ReviewPanelProvider>
+              <CaptureStore onStore={(store) => (panelStore = store)} />
+              <OpenNewAskPanel />
+              <ReviewPanelHost />
+            </ReviewPanelProvider>
+          </ReviewProvider>
+        </ReviewDebugSettingsProvider>,
+      );
+      await Promise.resolve();
+    });
+
+    const textarea = container.querySelector<HTMLTextAreaElement>(
+      ".thread-compose textarea",
+    );
+    expect(textarea).not.toBeNull();
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      )!.set!;
+      setValue.call(textarea, "hi");
+      textarea!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      container
+        .querySelector<HTMLFormElement>(".thread-compose")!
+        .requestSubmit();
+      await Promise.resolve();
+    });
+
+    expect(askAgent).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      expect(panelStore!.getState().active).toBeNull();
+      expect(container.querySelectorAll(".side-panel")).toHaveLength(0);
     });
   });
 
@@ -371,6 +425,21 @@ function OpenReplacingPanel() {
 function OpenThreadsPanel() {
   const openThreads = useReviewPanel((state) => state.openThreads);
   useEffect(() => openThreads(), [openThreads]);
+  return null;
+}
+
+function OpenNewAskPanel() {
+  const openThreads = useReviewPanel((state) => state.openThreads);
+  useEffect(() => openThreads({ kind: "new-ask" }), [openThreads]);
+  return null;
+}
+
+function CaptureStore({
+  onStore,
+}: {
+  onStore: (store: ReviewPanelStore) => void;
+}) {
+  onStore(useReviewPanelStore());
   return null;
 }
 

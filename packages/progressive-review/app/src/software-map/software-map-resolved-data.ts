@@ -1,10 +1,12 @@
 import type { NormalizedSoftwareModel } from "./model";
-import type {
-  SoftwareMapCoverageClaim,
-  SoftwareMapResolvedDataInput,
-} from "./SoftwareMap";
+import type { SoftwareMapCoverageClaim } from "./software-map-snapshot";
 
 const SOFTWARE_MAP_RESOLVED_DATA_VERSION = "resolved-data:v2";
+
+export interface SoftwareMapResolvedDataInput {
+  codeElements: ReturnType<typeof createSoftwareMapCodeElements>;
+  coverageClaims: SoftwareMapCoverageClaim[];
+}
 
 function createSoftwareMapSignature() {
   let hash = 0x811c9dc5;
@@ -146,7 +148,7 @@ export function shouldApplySoftwareMapModifiedOnly({
   );
 }
 
-export function createSoftwareMapCodeElements(model: NormalizedSoftwareModel) {
+function createSoftwareMapCodeElements(model: NormalizedSoftwareModel) {
   return model.elements.flatMap((element) =>
     element.type === "codeElement"
       ? [

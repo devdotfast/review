@@ -5,12 +5,9 @@ import type {
   SoftwareMapNodeSnapshot,
   SoftwareMapRelationshipSnapshot,
   SoftwareMapResolvedSnapshot,
-} from "./SoftwareMap";
+} from "./software-map-snapshot";
 
-export function relationshipEndpointsKey(relationship: {
-  from: string;
-  to: string;
-}) {
+function relationshipEndpointsKey(relationship: { from: string; to: string }) {
   return `${relationship.from}\u0000${relationship.to}`;
 }
 

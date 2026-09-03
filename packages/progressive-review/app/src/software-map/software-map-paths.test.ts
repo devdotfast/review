@@ -6,7 +6,7 @@ import {
   softwareMapNodeTargetPayload,
   softwareMapRelationshipLabelPath,
 } from "./software-map-paths";
-import type { SoftwareMapNodeSnapshot } from "./SoftwareMap";
+import type { SoftwareMapNodeSnapshot } from "./software-map-snapshot";
 
 describe("SoftwareMap thread-target paths", () => {
   it("builds stable SoftwareMap label paths", () => {

@@ -1,0 +1,412 @@
+import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
+
+export default defineSoftwareMap({
+	people: {
+		reviewer: {
+			label: "Reviewer",
+			description:
+				"Developer opening Reviews from Home and moving between the document, diff, commits, and comment surfaces.",
+		},
+	},
+  systems: {
+    reviewDesktop: {
+      label: "Review Desktop",
+      description:
+        "VS Code-based desktop client for reading Reviews, browsing diffs, and discussing changes.",
+      containers: {
+        workbench: {
+          label: "Review workbench",
+          description:
+            "Renderer-side services and embedded Review UI that bind an active session to editor, diff, commit, and comment surfaces.",
+			components: {
+				homeState: {
+					label: "Review Home state",
+					description:
+						"Keeps the Review and session directory authoritative in memory after the first server snapshot, then projects confirmed mutations and global events into that state.",
+					coverage: {
+						files: [
+							"apps/review-desktop/code-oss/src/vs/review/services/reviewSessionService.ts",
+						],
+					},
+					codeElements: {
+						authoritativeProjection: {
+							label: "In-memory Home projection",
+							description:
+								"Publishes the first Review and session snapshot, incrementally applies lifecycle and attention events, and serves Home directly from the current arrays.",
+							sourceRanges: [
+								{
+									file: "apps/review-desktop/code-oss/src/vs/review/services/reviewSessionService.ts",
+									fromLine: 128,
+									toLine: 173,
+								},
+								{
+									file: "apps/review-desktop/code-oss/src/vs/review/services/reviewSessionService.ts",
+									fromLine: 633,
+									toLine: 840,
+								},
+							],
+						},
+						confirmedMutations: {
+							label: "Confirmed mutation updates",
+							description:
+								"Updates open, close, dismiss, restore, and delete state from successful server responses instead of following each operation with another list request.",
+							sourceRanges: [
+								{
+									file: "apps/review-desktop/code-oss/src/vs/review/services/reviewSessionService.ts",
+									fromLine: 249,
+									toLine: 422,
+								},
+							],
+						},
+					},
+				},
+				sessionModel: {
+              label: "Review session model",
+              description:
+                "Owns the active session lifecycle, comment-store bridge, document modules, and direct authenticated HTTP requests to the Review runtime.",
+              coverage: {
+                files: [
+                  "apps/review-desktop/code-oss/src/vs/review/services/reviewSessionModelService.ts",
+                ],
+              },
+              codeElements: {
+                requestForwarding: {
+                  label: "Direct request forwarding",
+                  description:
+                    "Forwards each caller request to fetch without retaining or replaying HTTP responses in the session model.",
+                  sourceRanges: [
+                    {
+                      file: "apps/review-desktop/code-oss/src/vs/review/services/reviewSessionModelService.ts",
+                      fromLine: 248,
+                      toLine: 250,
+                    },
+                  ],
+                },
+                commentProjection: {
+                  label: "Comment projection bridge",
+                  description:
+                    "Creates the session-owned comment store and routes its authenticated API calls through the session request layer.",
+                  sourceRanges: [
+                    {
+                      file: "apps/review-desktop/code-oss/src/vs/review/services/reviewSessionModelService.ts",
+                      fromLine: 303,
+                      toLine: 324,
+                    },
+                  ],
+                },
+              },
+            },
+            codeResources: {
+              label: "Review code resources",
+              description:
+                "Resolves Review files and patches supplied by the diff service into VS Code text models, native diff targets, and unified diff resources.",
+              coverage: {
+                files: [
+                  "apps/review-desktop/code-oss/src/vs/review/services/reviewCodeResourceService.ts",
+                ],
+              },
+              codeElements: {
+                diffServiceDelegation: {
+                  label: "Diff service delegation",
+                  description:
+                    "Delegates diff-file metadata and patch loading to the session-scoped Review diff service.",
+                  sourceRanges: [
+                    {
+                      file: "apps/review-desktop/code-oss/src/vs/review/services/reviewCodeResourceService.ts",
+                      fromLine: 256,
+                      toLine: 312,
+                    },
+                    {
+                      file: "apps/review-desktop/code-oss/src/vs/review/services/reviewCodeResourceService.ts",
+                      fromLine: 344,
+                      toLine: 365,
+                    },
+                  ],
+                },
+                diffTargetResolution: {
+                  label: "Diff target resolution",
+                  description:
+                    "Uses diff metadata and patches to choose base/head resources and construct line mappings for editor previews.",
+                  sourceRanges: [
+                    {
+                      file: "apps/review-desktop/code-oss/src/vs/review/services/reviewCodeResourceService.ts",
+                      fromLine: 256,
+                      toLine: 387,
+                    },
+                  ],
+                },
+                unifiedResourceLifecycle: {
+                  label: "Unified diff resource lifecycle",
+                  description:
+                    "Builds and reference-counts transient unified text models for inline code previews.",
+                  sourceRanges: [
+                    {
+                      file: "apps/review-desktop/code-oss/src/vs/review/services/reviewCodeResourceService.ts",
+                      fromLine: 479,
+                      toLine: 688,
+                    },
+                  ],
+                },
+              },
+            },
+            diffService: {
+              label: "Review diff service",
+              description:
+                "Owns prefetched, parsed diff corpora for the active Review session behind a revision-aware in-memory service boundary.",
+              coverage: {
+                files: [
+                  "apps/review-desktop/code-oss/src/vs/review/services/reviewDiffService.ts",
+                ],
+              },
+              codeElements: {
+                corpusCache: {
+                  label: "Revision-keyed corpus cache",
+                  description:
+                    "Deduplicates one full-patch corpus request per session, revision, route, root, and optional commit; failed or stale loads cannot poison the bounded cache.",
+                  sourceRanges: [
+                    {
+                      file: "apps/review-desktop/code-oss/src/vs/review/services/reviewDiffService.ts",
+                      fromLine: 22,
+                      toLine: 125,
+                    },
+                  ],
+                },
+              },
+            },
+            reviewCanvas: {
+              label: "Review canvas",
+              description:
+                "Bootstraps the embedded Review document and starts expensive diff work while the rest of the canvas assets load.",
+              coverage: {
+                files: [
+                  "apps/review-desktop/code-oss/src/vs/review/browser/parts/canvas/reviewCanvasPart.ts",
+                ],
+              },
+              codeElements: {
+                eagerDiffPrefetch: {
+                  label: "Eager diff prefetch",
+                  description:
+                    "Starts loading the full diff corpus as soon as an active Review canvas begins loading, without blocking document startup on failures.",
+                  sourceRanges: [
+                    {
+                      file: "apps/review-desktop/code-oss/src/vs/review/browser/parts/canvas/reviewCanvasPart.ts",
+                      fromLine: 1182,
+                      toLine: 1186,
+                    },
+                  ],
+                },
+              },
+            },
+            diffViewBridge: {
+              label: "Native diff view bridge",
+              description:
+                "Exposes the same parsed diff files used by native diff widgets to the embedded Review application.",
+              coverage: {
+                files: [
+                  "apps/review-desktop/code-oss/src/vs/review/services/reviewDiffViewService.ts",
+                ],
+              },
+              codeElements: {
+                sharedFiles: {
+                  label: "Shared diff files",
+                  description:
+                    "Routes embedded UI requests through code resources and the central diff corpus rather than issuing separate browser fetches.",
+                  sourceRanges: [
+                    {
+                      file: "apps/review-desktop/code-oss/src/vs/review/services/reviewDiffViewService.ts",
+                      fromLine: 66,
+                      toLine: 85,
+                    },
+                  ],
+                },
+              },
+            },
+            reviewUi: {
+              label: "Embedded Review UI",
+              description:
+                "Keeps the full Review diff surface mounted off-screen and consumes the native bridge-backed corpus for diff summaries and commit expansion.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/app/src/App.tsx",
+                  "packages/progressive-review/app/src/review-diff-files-context.tsx",
+                  "packages/progressive-review/app/src/ReviewCommitsView.tsx",
+                  "packages/progressive-review/app/src/styles.css",
+                ],
+              },
+              codeElements: {
+                persistentDiffView: {
+                  label: "Persistent full diff view",
+                  description:
+                    "Pre-mounts and hides the unscoped diff view so first navigation and subsequent tab returns preserve its native widgets and loaded state.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/app/src/App.tsx",
+                      fromLine: 694,
+                      toLine: 714,
+                    },
+                  ],
+                },
+                bridgeBackedDiffState: {
+                  label: "Bridge-backed diff state",
+                  description:
+                    "Hydrates React diff state from the native diff bridge, retaining the HTTP route only as a compatibility fallback.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/app/src/review-diff-files-context.tsx",
+                      fromLine: 53,
+                      toLine: 100,
+                    },
+                  ],
+                },
+                commitsScrollRegion: {
+                  label: "Scrollable commits region",
+                  description:
+                    "Overrides the shared view region's clipped overflow so long commit ranges scroll within the Review content surface.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/app/src/styles.css",
+                      fromLine: 2245,
+                      toLine: 2254,
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    reviewRuntime: {
+      label: "Review runtime",
+      description:
+        "Session-scoped HTTP service that supplies Review metadata, file content, diff data, and comment APIs.",
+      containers: {
+        reviewApi: {
+          label: "Review HTTP API",
+          description:
+            "Serves session routes and owns reusable server-side data derived from the pinned comparison.",
+			components: {
+				homeStateApi: {
+					label: "Review Home API and event stream",
+					description:
+						"Returns enriched Review and session descriptors, includes confirmed state in mutation responses, and broadcasts lifecycle changes to keep the desktop projection current.",
+					coverage: {
+						files: [
+							"packages/progressive-review/src/server/desktop-server.ts",
+							"packages/progressive-review/src/review-home.ts",
+						],
+					},
+					codeElements: {
+						directoryAndMutations: {
+							label: "Descriptor directory and mutations",
+							description:
+								"Lists enriched Review descriptors and returns the authoritative Review or session state from open and attention operations.",
+							sourceRanges: [
+								{
+									file: "packages/progressive-review/src/server/desktop-server.ts",
+									fromLine: 326,
+									toLine: 470,
+								},
+							],
+						},
+						globalEvents: {
+							label: "Global Review events",
+							description:
+								"Streams session, status, attention, preference, comment-count, and deletion changes to Review Desktop.",
+							sourceRanges: [
+								{
+									file: "packages/progressive-review/src/server/desktop-server.ts",
+									fromLine: 767,
+									toLine: 839,
+								},
+							],
+						},
+					},
+				},
+				diffCorpus: {
+              label: "Parsed diff corpus",
+              description:
+                "Computes the complete patch-bearing comparison once per root and revision tuple, then filters that bounded in-memory corpus for diff-file and file-content requests.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/server/review-api.ts",
+                  "packages/progressive-review/src/review-diff-files.ts",
+                ],
+              },
+              codeElements: {
+                cachedCorpus: {
+                  label: "Server corpus cache",
+                  description:
+                    "Deduplicates full parsed comparisons, removes rejected promises, and evicts the oldest entry after the 32-entry bound.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/src/server/review-api.ts",
+                      fromLine: 957,
+                      toLine: 1026,
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+	relationships: [
+		{
+			kind: "semantic",
+			from: "reviewer",
+			to: "reviewDesktop",
+			label: "Reads and navigates Reviews",
+		},
+		{
+			kind: "call",
+			from: "reviewDesktop.workbench.homeState",
+			to: "reviewRuntime.reviewApi.homeStateApi",
+			label: "Loads a snapshot and follows global events",
+		},
+		{
+      kind: "call",
+      from: "reviewDesktop.workbench.codeResources",
+      to: "reviewDesktop.workbench.diffService",
+      label: "Requests diff metadata and patches",
+    },
+    {
+      kind: "call",
+      from: "reviewDesktop.workbench.diffService",
+      to: "reviewDesktop.workbench.sessionModel",
+      label: "Sends authenticated Review requests",
+    },
+    {
+      kind: "semantic",
+      from: "reviewDesktop.workbench.sessionModel",
+      to: "reviewRuntime",
+      label: "Calls session HTTP APIs",
+    },
+    {
+      kind: "semantic",
+      from: "reviewDesktop.workbench.diffService.corpusCache",
+      to: "reviewRuntime.reviewApi.diffCorpus",
+      label: "Fetches the full parsed diff corpus",
+    },
+    {
+      kind: "call",
+      from: "reviewDesktop.workbench.reviewCanvas",
+      to: "reviewDesktop.workbench.diffService",
+      label: "Prefetches diffs during canvas load",
+    },
+    {
+      kind: "call",
+      from: "reviewDesktop.workbench.reviewUi",
+      to: "reviewDesktop.workbench.diffViewBridge",
+      label: "Reads shared parsed diff files",
+    },
+    {
+      kind: "call",
+      from: "reviewDesktop.workbench.diffViewBridge",
+      to: "reviewDesktop.workbench.codeResources",
+      label: "Delegates diff-file access",
+    },
+  ],
+});

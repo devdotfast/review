@@ -46,8 +46,14 @@ describe("native Review Protocol source generation", () => {
       "// GENERATED from @dev.fast/review-protocol. Do not edit.",
     );
     expect(output).toContain("export const ReviewRuntimeConfigSchema");
-    expect(output).toContain("export const ReviewRuntimeConfigSchema");
     expect(output).not.toContain("./contracts.js");
+    expect(output).not.toContain("./bug-report.js");
+    expect(output).not.toContain("./json.js");
+    expect(output).not.toContain("./runtime-value.js");
+    // The inlined dependency modules land whole, exactly once each.
+    expect(output.match(/export function isCallableValue\(/g)).toHaveLength(1);
+    expect(output.match(/export function parseJsonText\(/g)).toHaveLength(1);
+    expect(output.match(/export type JsonValue =/g)).toHaveLength(1);
     expect(output.match(/from "zod\/v4"/g)).toHaveLength(1);
     expect(output).toContain("z.config({ jitless: true });");
     expect(output.indexOf("z.config({ jitless: true });")).toBeLessThan(
@@ -92,7 +98,13 @@ describe("native Review Protocol source generation", () => {
     const packageRoot = fileURLToPath(new URL("..", import.meta.url));
     const sourceRoot = path.join(directory, "src");
     await mkdir(sourceRoot, { recursive: true });
-    for (const name of ["contracts.ts", "index.ts", "bug-report.ts"]) {
+    for (const name of [
+      "runtime-value.ts",
+      "json.ts",
+      "contracts.ts",
+      "index.ts",
+      "bug-report.ts",
+    ]) {
       await copyFile(
         path.join(packageRoot, "src", name),
         path.join(sourceRoot, name),
@@ -152,6 +164,8 @@ describe("native Review Protocol source generation", () => {
     temporaryDirectories.push(directory);
     const sourceRoot = path.join(directory, "src");
     await mkdir(sourceRoot, { recursive: true });
+    await writeFile(path.join(sourceRoot, "runtime-value.ts"), "");
+    await writeFile(path.join(sourceRoot, "json.ts"), "");
     await writeFile(
       path.join(sourceRoot, "contracts.ts"),
       [

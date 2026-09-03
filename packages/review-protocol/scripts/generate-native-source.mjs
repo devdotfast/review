@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // Emits the single-file Review protocol overlay that the Code OSS fork
 // imports as vs/review/common/reviewProtocol.ts. The overlay is every
-// top-level statement of contracts.ts and index.ts except import and
-// re-export statements, behind one zod/v4 import configured for the
-// Trusted Types CSP before any schema is built. bug-report.ts is
-// deliberately not part of the overlay.
+// top-level statement of the protocol modules except import and re-export
+// statements, behind one zod/v4 import configured for the Trusted Types CSP
+// before any schema is built. bug-report.ts is deliberately not part of the
+// overlay.
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -70,11 +70,17 @@ function stripModuleStatements(source) {
   return kept.join("\n").replace(/^\n+/, "").trimEnd();
 }
 
-const contracts = stripModuleStatements(
-  readFileSync(path.join(sourceRoot, "contracts.ts"), "utf8"),
-);
-const index = stripModuleStatements(
-  readFileSync(path.join(sourceRoot, "index.ts"), "utf8"),
+// Dependencies first: every module may only name things declared above it,
+// because concatenation is all that replaces the dropped relative imports.
+const MODULE_FILES = [
+  "runtime-value.ts",
+  "json.ts",
+  "contracts.ts",
+  "index.ts",
+];
+
+const modules = MODULE_FILES.map((file) =>
+  stripModuleStatements(readFileSync(path.join(sourceRoot, file), "utf8")),
 );
 
-writeFileSync(outputPath, `${HEADER}${contracts}\n\n${index}\n`);
+writeFileSync(outputPath, `${HEADER}${modules.join("\n\n")}\n`);

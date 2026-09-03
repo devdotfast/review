@@ -154,20 +154,18 @@ test("switching sessions replaces the folder in one update, without restarting t
 		],
 	);
 	// The folder shim mutates in memory. Reaching for a host restart or a window
-	// reload would drop every warm language server on each session switch.
-	for (const forbidden of [
-		"stopExtensionHosts",
-		"startExtensionHosts",
-		"reloadWindow",
-		"reload",
-		"restart",
-	]) {
-		assert.equal(
-			harness.calls.some((call) => call.endsWith(`.${forbidden}`)),
-			false,
-			`${forbidden} was called`,
-		);
-	}
+	// reload would drop every warm language server on each session switch. An
+	// exact call list catches a restart routed through any injected service,
+	// not only one spelled with these five names.
+	assert.deepEqual(harness.calls, [
+		"sessionModelService.onDidChangeActiveModel",
+		"workspaceContextService.getWorkspace",
+		"workspaceEditingService.addFolders",
+		"logService.trace",
+		"workspaceContextService.getWorkspace",
+		"workspaceEditingService.updateFolders",
+		"logService.trace",
+	]);
 	harness.contribution.dispose();
 });
 

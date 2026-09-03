@@ -20,6 +20,13 @@ const reviewDesktopManifest = readFileSync(
   ),
   "utf8",
 );
+const reviewDesktopMain = readFileSync(
+  new URL(
+    "../code-oss/src/vs/review/electron-browser/review.main.ts",
+    import.meta.url,
+  ),
+  "utf8",
+);
 const mainThreadExtensionService = readFileSync(
   new URL(
     "../code-oss/src/vs/workbench/api/browser/mainThreadExtensionService.ts",
@@ -37,6 +44,20 @@ const reviewServices = readFileSync(
 const inlineEditorService = readFileSync(
   new URL(
     "../code-oss/src/vs/review/services/reviewInlineEditorService.ts",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const reviewDiffViewService = readFileSync(
+  new URL(
+    "../code-oss/src/vs/review/services/reviewDiffViewService.ts",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const reviewLspTelemetry = readFileSync(
+  new URL(
+    "../code-oss/src/vs/review/contrib/telemetry/reviewLspTelemetry.contribution.ts",
     import.meta.url,
   ),
   "utf8",
@@ -94,6 +115,26 @@ test("Review exposes a language-provider-generic extension host seam", () => {
     mainThreadExtensionService,
     /ExtHostCustomersRegistry\.getNamedCustomers\(\)/,
   );
+});
+
+test("Review's module manifest loads its own extension-host seam and default-account service", () => {
+  assert.match(reviewMain, /reviewExtensionHost\.contribution/);
+  assert.doesNotMatch(reviewMain, /api\/browser\/extensionHost\.contribution/);
+  assert.doesNotMatch(reviewMain, /quickDiff\.contribution/);
+  assert.match(reviewServices, /registerSingleton\(IQuickDiffModelService,/);
+  assert.match(reviewDesktopMain, /ReviewDefaultAccountService/);
+  assert.doesNotMatch(
+    reviewDesktopMain,
+    /services\/accounts\/browser\/defaultAccount/,
+  );
+});
+
+test("LSP telemetry attributes inline-peek usage only to editors the inline service owns", () => {
+  // The in-tab diff is a real diff editor. Adopting its inner editors into the
+  // inline-peek set would report their LSP use as inline_peek.
+  assert.doesNotMatch(reviewDiffViewService, /registerExternalEditor/);
+  assert.doesNotMatch(inlineEditorService, /registerExternalEditor/);
+  assert.match(reviewLspTelemetry, /ReviewInlineEditorService\.owns\(editor\)/);
 });
 
 test("keyless bundled language clients skip their telemetry reporters", () => {

@@ -44,6 +44,25 @@ test("diff layout toggle acts on the active editor pane", () => {
   );
 });
 
+test("Review registers its own multi-diff source resolver and keeps upstream's editors out of the manifest", () => {
+  const reviewWorkbenchServices = source(
+    "../code-oss/src/vs/review/services/reviewWorkbenchServices.ts",
+  );
+  const reviewManifest = source(
+    "../code-oss/src/vs/review/review.common.main.ts",
+  );
+  assert.match(
+    reviewWorkbenchServices,
+    /registerSingleton\(IMultiDiffSourceResolverService/,
+  );
+  assert.doesNotMatch(reviewWorkbenchServices, /ScmMultiDiffSourceResolver/);
+  assert.doesNotMatch(
+    reviewManifest,
+    /contrib\/multiDiffEditor\/browser\/multiDiffEditor\.contribution\.js/,
+  );
+  assert.doesNotMatch(reviewManifest, /reviewFilesEditor\.contribution/);
+});
+
 test("comment zone widgets recognise Review inline code editors", () => {
   const commentThreadZoneWidget = source(
     "../code-oss/src/vs/workbench/contrib/comments/browser/commentThreadZoneWidget.ts",

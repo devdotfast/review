@@ -147,6 +147,7 @@ test("peek scrolling is confined to the window's rendered range", () => {
   );
   // No hand-rolled wheel handling — Monaco owns release at both bounds.
   assert.doesNotMatch(source, /addDisposableListener\([^)]*"wheel"/);
+  assert.match(source, /setHiddenAreas/);
 });
 
 test("peek code intelligence widgets escape the canvas clip", () => {

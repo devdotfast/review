@@ -24,6 +24,9 @@ test("keeps extension-contributed commands visible in Review quick access", () =
 });
 
 test("drives curated keymap defaults from review.keymap", () => {
-  assert.match(curatedExtensions, /getValue<ReviewKeymap>/);
+  assert.match(
+    curatedExtensions,
+    /getValue<ReviewKeymap>\(REVIEW_KEYMAP_SETTING\)/,
+  );
   assert.match(curatedExtensions, /defaultsApplied\.v2/);
 });

@@ -1649,6 +1649,14 @@ function ThreadPanelInner({
             onSelect={selectListThread}
             onResumeInTerminal={resumeInTerminal}
             readOnly={Boolean(review.historicalRevision)}
+            emptyState={
+              resolvedThreads.length > 0
+                ? {
+                    title: "No open threads",
+                    description: "Resolved threads are listed below.",
+                  }
+                : undefined
+            }
           />
           {resolvedThreads.length > 0 && (
             <details className="thread-resolved-section">
@@ -1750,19 +1758,25 @@ function ThreadPanelList({
   onSelect,
   onResumeInTerminal,
   readOnly,
+  emptyState,
 }: {
   threads: ThreadView[];
   activeLocator: string | null;
   onSelect: (thread: ThreadView) => void;
   onResumeInTerminal: (thread: ThreadView) => Promise<void>;
   readOnly: boolean;
+  /** Copy for the empty list; the default assumes no threads exist at all. */
+  emptyState?: { title: string; description: string };
 }) {
   if (threads.length === 0) {
     return (
       <div className="question-sidebar-list question-sidebar-list--empty">
         <CommentIcon />
-        <strong>No threads yet</strong>
-        <p>Comment on or ask about highlighted review text.</p>
+        <strong>{emptyState?.title ?? "No threads yet"}</strong>
+        <p>
+          {emptyState?.description ??
+            "Comment on or ask about highlighted review text."}
+        </p>
       </div>
     );
   }

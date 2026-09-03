@@ -3535,6 +3535,13 @@ button {
   text-align: center;
 }
 
+/* With only resolved threads, the empty state must not fill the body, or the
+   Resolved section after it lands below the fold. */
+.review-panel-body:has(.thread-resolved-section) .question-sidebar-list--empty {
+  height: auto;
+  padding: 36px 0 22px;
+}
+
 .question-sidebar-list--empty .ui-icon {
   width: 34px;
   height: 34px;

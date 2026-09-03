@@ -15,6 +15,7 @@ import {
 	createDecorator,
 	IInstantiationService,
 } from "../../platform/instantiation/common/instantiation.js";
+import { ReviewModuleCache } from "../common/reviewModuleCache.js";
 import {
 	ReviewDocModuleResponseSchema,
 	ReviewSoftwareMapModuleResponseSchema,
@@ -86,8 +87,7 @@ export class ReviewSessionModel extends Disposable {
 	}
 
 	private documentRevision: string;
-	private documentPromise: Promise<unknown> | undefined;
-	private softwareMapPromise: Promise<unknown | null> | undefined;
+	private readonly modules = new ReviewModuleCache();
 	private refreshPromise: Promise<void> | undefined;
 	private _comments: ReviewCommentStore;
 	get comments(): ReviewCommentStoreBridge {
@@ -190,8 +190,7 @@ export class ReviewSessionModel extends Disposable {
 					return;
 				}
 				if (this.documentRevision !== previousRevision) {
-					this.documentPromise = undefined;
-					this.softwareMapPromise = undefined;
+					this.modules.clear();
 				}
 				this._onDidChange.fire();
 			})
@@ -216,33 +215,15 @@ export class ReviewSessionModel extends Disposable {
 	}
 
 	resolveDocument(loader: ReviewDocumentModuleLoader): Promise<unknown> {
-		if (this.documentPromise) {
-			return this.documentPromise;
-		}
-		let pending: Promise<unknown>;
-		pending = this.loadDocument(loader).catch((error) => {
-			if (this.documentPromise === pending) {
-				this.documentPromise = undefined;
-			}
-			throw error;
-		});
-		this.documentPromise = pending;
-		return pending;
+		return this.modules.load("document", () => this.loadDocument(loader));
 	}
 
 	resolveSoftwareMap(
 		loader: ReviewSoftwareMapModuleLoader,
 	): Promise<unknown | null> {
-		if (this.softwareMapPromise) return this.softwareMapPromise;
-		let pending: Promise<unknown | null>;
-		pending = this.loadSoftwareMap(loader).catch((error) => {
-			if (this.softwareMapPromise === pending) {
-				this.softwareMapPromise = undefined;
-			}
-			throw error;
-		});
-		this.softwareMapPromise = pending;
-		return pending;
+		return this.modules.load("software-map", () =>
+			this.loadSoftwareMap(loader),
+		);
 	}
 
 	async request(url: string, init: RequestInit = {}): Promise<Response> {

@@ -4,18 +4,18 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { createTrustedTypesPolicy } from "../../../../base/browser/trustedTypes.js";
-import { ReviewDocumentModuleCache } from "../../../common/reviewDocumentModuleCache.js";
+import { ReviewModuleCache } from "../../../common/reviewModuleCache.js";
 import { rewriteReviewDocumentRuntime } from "../../../common/reviewProtocol.js";
 import type { ReviewDesktopSession } from "../../../services/reviewSessionModelService.js";
 
 type ReviewDocumentImporter = (url: string) => Promise<unknown>;
 
-const softwareMapModules = new Map<string, Promise<unknown>>();
+const softwareMapModules = new ReviewModuleCache();
 
 const reviewDocumentPolicy = createTrustedTypesPolicy("reviewDocumentModule", {
 	createScriptURL: (value: string) => value,
 });
-const reviewDocumentModules = new ReviewDocumentModuleCache();
+const reviewDocumentModules = new ReviewModuleCache();
 
 export async function loadReviewDocumentModule(
 	session: ReviewDesktopSession,
@@ -27,8 +27,7 @@ export async function loadReviewDocumentModule(
 	const resolvedModuleUrl = url.href;
 	const resolvedRuntimeUrl = new URL(runtimeUrl).href;
 	return reviewDocumentModules.load(
-		resolvedModuleUrl,
-		resolvedRuntimeUrl,
+		JSON.stringify([resolvedModuleUrl, resolvedRuntimeUrl]),
 		async () => {
 			if (session.token) {
 				url.searchParams.set("token", session.token);
@@ -100,37 +99,26 @@ function loadSoftwareMapModule(
 ): Promise<unknown> {
 	const url = new URL(moduleUrl, session.serverUrl);
 	if (session.token) url.searchParams.set("token", session.token);
-	const cacheKey = url.href;
-	const cached = softwareMapModules.get(cacheKey);
-	if (cached) return cached;
-	const pending = fetch(url, {
-		headers: session.token
-			? { "x-review-token": session.token }
-			: undefined,
-	})
-		.then(async (response) => {
-			if (!response.ok) {
-				throw new Error(`Software map module returned ${response.status}.`);
-			}
-			const blobUrl = URL.createObjectURL(
-				new Blob([await response.text()], { type: "text/javascript" }),
-			);
-			try {
-				const trustedUrl =
-					reviewDocumentPolicy?.createScriptURL(blobUrl) ?? blobUrl;
-				return await importModule(trustedUrl as string);
-			} finally {
-				URL.revokeObjectURL(blobUrl);
-			}
-		})
-		.catch((error) => {
-			if (softwareMapModules.get(cacheKey) === pending) {
-				softwareMapModules.delete(cacheKey);
-			}
-			throw error;
+	return softwareMapModules.load(url.href, async () => {
+		const response = await fetch(url, {
+			headers: session.token
+				? { "x-review-token": session.token }
+				: undefined,
 		});
-	softwareMapModules.set(cacheKey, pending);
-	return pending;
+		if (!response.ok) {
+			throw new Error(`Software map module returned ${response.status}.`);
+		}
+		const blobUrl = URL.createObjectURL(
+			new Blob([await response.text()], { type: "text/javascript" }),
+		);
+		try {
+			const trustedUrl =
+				reviewDocumentPolicy?.createScriptURL(blobUrl) ?? blobUrl;
+			return await importModule(trustedUrl as string);
+		} finally {
+			URL.revokeObjectURL(blobUrl);
+		}
+	});
 }
 
 function unwrapDefault(module: unknown): unknown {

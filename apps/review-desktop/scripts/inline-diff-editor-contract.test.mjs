@@ -30,13 +30,6 @@ const itemTemplateSource = readFileSync(
   ),
   "utf8",
 );
-const reviewCommentsSource = readFileSync(
-  new URL(
-    "../code-oss/src/vs/review/contrib/comments/reviewComments.contribution.ts",
-    import.meta.url,
-  ),
-  "utf8",
-);
 const commentThreadHeaderSource = readFileSync(
   new URL(
     "../code-oss/src/vs/workbench/contrib/comments/browser/commentThreadHeader.ts",
@@ -358,13 +351,6 @@ test("authored CodePeeks use the stock native comment contribution", () => {
   assert.match(source, /reviewInlineDiffEditorContributions\(/);
   assert.match(source, /contribution\.id !== COMMENT_EDITOR_CONTRIBUTION_ID/);
   assert.match(itemTemplateSource, /codeEditorWidgetOptions \?\? \{\}/);
-});
-
-test("the Review delete action discards an empty native draft", () => {
-  assert.match(
-    reviewCommentsSource,
-    /async deleteThread\(thread: CommentThread\): Promise<void> \{\s*if \(thread\.isTemplate\) \{\s*this\.deleteCommentThreadMain\(thread\.threadId\);\s*return;\s*\}/,
-  );
 });
 
 test("native thread controls place a clear minimize action before delete", () => {

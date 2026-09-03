@@ -108,7 +108,6 @@ async function makeOutdatedReview(): Promise<{ reviewPath: string }> {
     baseCommit: originalCommit,
     sourceCommit: movedCommit,
     sourceIdentity: { kind: "git-branch", name: "main" },
-    sourceSession: created.review.sourceSession,
   });
 
   await writeFile(
@@ -123,7 +122,6 @@ async function makeOutdatedReview(): Promise<{ reviewPath: string }> {
     baseCommit: originalCommit,
     sourceCommit: changedCommit,
     sourceIdentity: { kind: "git-branch", name: "main" },
-    sourceSession: movedReview.review.sourceSession,
   });
 
   const outdated = readReviewComments(reviewPath)["thread-1"]!;

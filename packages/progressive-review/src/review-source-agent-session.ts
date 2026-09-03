@@ -17,7 +17,9 @@ import { forkOpencodeSession } from "./native-agent/opencode";
 import { span } from "./startup-trace";
 
 /**
- * Fork the invoking session once and bind the frozen copy to the Review.
+ * Fork the invoking session at publish and bind the frozen copy to the
+ * Review. Every new thread forks that copy, so it must hold the finished
+ * authoring context: the change, the drafted document, and the publish.
  *
  * Each harness writes a native fork without sending a user message. No model
  * is ever named here, so the fork keeps the invoking session's model.

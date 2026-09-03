@@ -27,16 +27,15 @@ import {
 import { isPositionalChangeIdentity } from "./review-change-scope";
 import { removeReviewManagedCheckouts } from "./review-head-checkout";
 import {
-  DISABLED_REVIEW_SOURCE_SESSION,
   type StoredReview,
   createReviewDir,
   createReviewUuid,
   listReviews,
+  touchReviewAgentSession,
   updateReviewPins,
 } from "./review-home";
 import type { ReviewInfoEvent } from "./review-info";
 import { evaluateReviewDocumentBundleForPublish } from "./review-publish-evaluate";
-import { createReviewSourceAgentSession } from "./review-source-agent-session";
 import {
   deleteReviewSourceHeadRef,
   pinReviewSourceHeadRef,
@@ -62,8 +61,6 @@ export interface RunReviewScaffoldInput {
   newReview?: boolean;
   background?: boolean;
   onReviewBound?: (uuid: string) => void | Promise<void>;
-  /** Forks the invoking agent session; defaults to the harness-native fork. */
-  createSourceAgentSession?: typeof createReviewSourceAgentSession;
 }
 
 // Scaffold's event carries pinned commits, managed checkouts, and normalized
@@ -173,28 +170,6 @@ async function createReview(
       background: input.background,
     }),
   );
-  const invokingAgent = resolveAuthoringSessionRef(input.env ?? process.env);
-  let sourceAgentSession: string | null = null;
-  if (invokingAgent) {
-    if (!setup.headRootPath) {
-      throw new Error(
-        "Review scaffold cannot create a source session without its managed head checkout.",
-      );
-    }
-    // Narrowing does not survive into the span callback; pin the path first.
-    const headRootPath = setup.headRootPath;
-    const frozen = await span(
-      "scaffold: fork agent session",
-      () =>
-        (input.createSourceAgentSession ?? createReviewSourceAgentSession)({
-          agent: invokingAgent,
-          reviewUuid: uuid,
-          rootPath: headRootPath,
-        }),
-      invokingAgent.harness,
-    );
-    sourceAgentSession = authoringSessionKey(frozen);
-  }
   let created: StoredReview;
   try {
     created = await span("scaffold: create review dir", () =>
@@ -208,7 +183,6 @@ async function createReview(
         pullRequestNumber: source.subject.pullRequestNumber ?? null,
         pullRequestUrl: source.subject.pullRequestUrl ?? null,
         title: source.subject.pullRequestTitle ?? "Progressive Review",
-        sourceSession: sourceAgentSession ?? undefined,
       }),
     );
   } catch (error) {
@@ -307,41 +281,25 @@ export async function repinReview(
       background: input.background,
     }),
   );
-  const invokingAgent = resolveAuthoringSessionRef(input.env ?? process.env);
-  let sourceSession = DISABLED_REVIEW_SOURCE_SESSION;
-  if (invokingAgent) {
-    if (!setup.headRootPath) {
-      throw new Error(
-        "Review update cannot create a source session without its managed head checkout.",
-      );
-    }
-    // The fork belongs to the same unit of work as the pin. A Review whose
-    // Ask Agent cannot answer is not a usable Review, so a failure here fails
-    // the update and leaves the stored pins untouched.
-    // Narrowing does not survive into the span callback; pin the path first.
-    const headRootPath = setup.headRootPath;
-    const frozen = await span(
-      "scaffold: fork agent session",
-      () =>
-        (input.createSourceAgentSession ?? createReviewSourceAgentSession)({
-          agent: invokingAgent,
-          reviewUuid: uuid,
-          rootPath: headRootPath,
-        }),
-      invokingAgent.harness,
-    );
-    sourceSession = authoringSessionKey(frozen);
-  }
   await pinReviewSourceHeadRef(root, reviewSourceHeadRef(uuid), headCommit);
-  const updated = await span("scaffold: update review pins", () =>
+  let updated = await span("scaffold: update review pins", () =>
     updateReviewPins(review, {
       baseRef,
       baseCommit,
       sourceCommit,
       sourceIdentity,
-      sourceSession,
     }),
   );
+  const pinsMoved = updated !== review;
+  // Preserve the published source session until the next publish.
+  const invokingAgent = resolveAuthoringSessionRef(input.env ?? process.env);
+  if (invokingAgent) {
+    updated = await touchReviewAgentSession(
+      updated,
+      authoringSessionKey(invokingAgent),
+      "updater",
+    );
+  }
   await span("scaffold: report range staleness", () =>
     reportRangeStaleness({
       review: updated,
@@ -352,7 +310,7 @@ export async function repinReview(
       progress: input.progress,
     }),
   ).catch(() => undefined);
-  if (updated !== review && updated.review.status === "awaiting-review") {
+  if (pinsMoved && updated.review.status === "awaiting-review") {
     setup.warnings.push(
       "Pins moved under a published revision. Publish again to present the new commits.",
     );

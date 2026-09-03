@@ -47,12 +47,9 @@ import {
   runInstall,
 } from "../install";
 import { readProgressiveReviewPackageVersion } from "../package-paths";
-import {
-  type TraceCredentialsInput,
-  disableTraceMachine,
-  traceMachineStatus,
-} from "../trace-machine-setup";
+import { devReviewHome } from "../review-storage";
 import { disableAllTraceRepositories } from "../trace-repository-hooks";
+import { denyTraceRepository, readTraceUserConfig } from "../trace-user-config";
 import { reviewDesktopStateDir, writePrivateJsonAtomic } from "./desktop-paths";
 
 const AGENT_HOME_DIR: Record<InstallTarget, string> = {
@@ -112,10 +109,10 @@ export async function resolveCliInstallStatus(input: {
 }): Promise<ReviewCliInstallStatus> {
   const homeDir = input.homeDir ?? os.homedir();
   const env = input.env ?? process.env;
-  const [agentStatus, fingerprint, trace] = await Promise.all([
+  const [agentStatus, fingerprint, allowedRepositories] = await Promise.all([
     resolveInstalledReviewAgentStatus({ homeDir, env }),
     installFingerprint(input.packageRoot),
-    traceMachineStatus({ homeDir, env }),
+    allowedTraceRepositoryCount(devReviewHome(env, homeDir)),
   ]);
   const { agents, stamp } = agentStatus;
   const shimPath = pathShimPath(homeDir);
@@ -156,7 +153,7 @@ export async function resolveCliInstallStatus(input: {
       binary: { path: fffBinary, installed: await isFile(fffBinary) },
       registrations: fffRegistrations,
     },
-    trace,
+    trace: { enabled: allowedRepositories > 0 },
     cli: (await isFile(cliPath))
       ? {
           path: cliPath,
@@ -173,7 +170,8 @@ export async function applyCliInstall(input: {
   targets: InstallTarget[];
   shim?: boolean;
   fff?: boolean;
-  trace?: true | TraceCredentialsInput;
+  /** Any value asks for the trace hooks; the store needs no credentials. */
+  trace?: true | Record<string, string | undefined>;
   cliPath?: string;
   cliRuntimePath?: string;
   homeDir?: string;
@@ -210,11 +208,7 @@ export async function applyCliInstall(input: {
       stdout: sink,
       stderr: sink,
     };
-    if (input.trace !== undefined) {
-      installInput.trace = {
-        credentials: input.trace === true ? undefined : input.trace,
-      };
-    }
+    if (input.trace !== undefined) installInput.trace = true;
     const code = await runInstall(installInput);
     if (code !== 0) return { code, output: chunks.join("") };
   }
@@ -359,7 +353,13 @@ export async function removeCliInstall(input: {
 
   if (input.trace) {
     await disableAllTraceRepositories(homeDir);
-    await disableTraceMachine({ homeDir, env });
+    // Capture reports as enabled while a repository is allowed, so disabling
+    // it denies every allowed repository as `review trace deny` does.
+    const devHome = devReviewHome(env, homeDir);
+    for (const repository of (await readTraceUserConfig(devHome))
+      .repositories) {
+      await denyTraceRepository(repository.name, devHome);
+    }
     // Disabling capture also retires the per-agent pieces that exist only
     // for it, regardless of which targets this request named.
     for (const target of await detectInstalledTargets(homeDir)) {
@@ -708,5 +708,15 @@ async function isExecutableFile(target: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+/** How many repositories the user allowed to publish traces. */
+async function allowedTraceRepositoryCount(devHome: string): Promise<number> {
+  try {
+    return (await readTraceUserConfig(devHome)).repositories.length;
+  } catch {
+    // An unreadable config means the app cannot claim capture is enabled.
+    return 0;
   }
 }

@@ -26,13 +26,7 @@ const baseStatus: ReviewCliInstallStatus = {
 		binary: { path: '/home/test/.local/bin/fff-mcp', installed: false },
 		registrations: [],
 	},
-	trace: {
-		enabled: false,
-		configured: false,
-		autoActivateRepositories: false,
-		envPath: '/home/test/.dev/trace.env',
-		settingsPath: '/home/test/.dev/trace-settings.json',
-	},
+	trace: { enabled: false },
 	cli: null,
 };
 

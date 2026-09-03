@@ -35,7 +35,7 @@ import {
   parseStoredReviewRecord,
   parseStoredReviewRecordForMigration,
 } from "./review-home";
-import { DEV_REVIEW_HOME_ENV } from "./review-storage";
+import { devReviewHome } from "./review-storage";
 import { reviewVcs } from "./review-vcs";
 import { writePrivateJsonAtomic } from "./server/desktop-paths";
 import {
@@ -104,9 +104,7 @@ export async function runReviewMigration(input: {
   const human = humanStream(input);
   const env = input.env ?? process.env;
   const homeDir = input.homeDir ?? os.homedir();
-  const reviewHome = path.resolve(
-    env[DEV_REVIEW_HOME_ENV] ?? path.join(homeDir, ".dev"),
-  );
+  const reviewHome = devReviewHome(env, homeDir);
   const packageRoot = input.packageRoot ?? defaultPackageRoot();
   const runtime: RunReviewMigrationRuntime = {
     migrateStoredReviewData,

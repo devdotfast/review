@@ -70,6 +70,7 @@ const VALUE_FLAGS = new Set([
   "--base",
   "--body",
   "--head",
+  "--origin",
   "--pr",
   "--review",
   "--target",

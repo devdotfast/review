@@ -350,25 +350,16 @@ describe("runInstall", () => {
     ).toBe(false);
   });
 
-  it("installs trace hooks and the trace skill once capture is enabled", async () => {
+  it("installs trace hooks and the trace skill when the install asks for traces", async () => {
     const packageRoot = await makePackageRoot();
     const homeDir = await makeTempDir();
     const streams = silentStreams();
-    const settingsPath = path.join(homeDir, "trace-settings.json");
-    await writeFile(
-      settingsPath,
-      JSON.stringify({
-        version: 1,
-        enabled: true,
-        autoActivateRepositories: true,
-      }),
-    );
 
     const code = await runInstall({
       targets: ["claude", "codex", "pi"],
       homeDir,
       packageRoot,
-      env: { TRACE_SETTINGS_FILE: settingsPath },
+      trace: true,
       stdout: streams.stdout,
       stderr: streams.stderr,
     });

@@ -1,16 +1,13 @@
 import { mkdir } from "node:fs/promises";
-import { homedir } from "node:os";
 import path from "node:path";
 
 import { writeFileAtomicAsync } from "../atomic-write";
+import { devReviewHome } from "../review-storage";
 
 export function reviewDesktopRoot(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  const devHome = env.DEV_REVIEW_HOME?.trim()
-    ? path.resolve(env.DEV_REVIEW_HOME)
-    : path.join(homedir(), ".dev");
-  return path.join(devHome, "review-desktop");
+  return path.join(devReviewHome(env), "review-desktop");
 }
 
 export function reviewDesktopDiscoveryPath(

@@ -189,6 +189,9 @@ importers:
       '@dev.fast/review-protocol':
         specifier: workspace:*
         version: link:../review-protocol
+      '@dev.fast/trace-shared':
+        specifier: workspace:*
+        version: link:../trace-shared
       '@types/estree':
         specifier: 1.0.8
         version: 1.0.8
@@ -244,6 +247,16 @@ importers:
       esbuild:
         specifier: 0.28.1
         version: 0.28.1
+      vitest:
+        specifier: ^4.1.5
+        version: 4.1.10(@types/node@24.12.2)(esbuild@0.28.1)(jsdom@29.1.1)(tsx@4.21.0)
+
+  packages/trace-shared:
+    dependencies:
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+    devDependencies:
       vitest:
         specifier: ^4.1.5
         version: 4.1.10(@types/node@24.12.2)(esbuild@0.28.1)(jsdom@29.1.1)(tsx@4.21.0)

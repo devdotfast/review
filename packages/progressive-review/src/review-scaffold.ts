@@ -46,7 +46,7 @@ import { ensurePinnedReviewWorktreeAtCommit } from "./review-worktree-target";
 import { resolveReviewRoot, resolveReviewSource } from "./runtime";
 import { compileReviewDocumentBundle } from "./server/doc-bundler";
 import { reviewInfoEvent } from "./server/review-info";
-import { traceMachineEnabled } from "./trace-machine-setup";
+import { resolveAllowedTraceRepository } from "./trace-hook-runner";
 
 export interface RunReviewScaffoldInput {
   cwd: string;
@@ -361,7 +361,7 @@ function reportTraceSessionsProgress(
           : s.harness === "pi"
             ? "Pi"
             : "unknown";
-    const syncLabel = s.available ? "[S3/R2 synced]" : "[not synced]";
+    const syncLabel = s.available ? "[in the store]" : "[not in the store]";
     progress(`  ${shortId} (${harness})  ${syncLabel}`);
   }
 }
@@ -372,9 +372,10 @@ async function discoverAndPullScaffoldTraces(input: {
   headCommit: string;
   progress?: (message: string) => void;
 }): Promise<{ traces: ReviewScaffoldTraces; warnings: string[] }> {
-  // Trace storage is opt-in. Without it there is nothing to discover, and
-  // probing R2 on every scaffold would only produce noise.
-  if (!(await traceMachineEnabled())) {
+  // Trace publication is opt-in per repository. Without an allow entry there
+  // is nothing to discover, and asking the store on every scaffold would only
+  // produce noise.
+  if (!(await resolveAllowedTraceRepository(input.rootPath))) {
     return { traces: emptyScaffoldTraces([]), warnings: [] };
   }
 
@@ -408,6 +409,7 @@ async function discoverAndPullScaffoldTraces(input: {
     const repo = await inferRepoFromGit(input.rootPath);
     const pulled = await pullReviewTraceCorpus({
       repo,
+      cwd: input.rootPath,
       sessions: availableSessions.map((session) => ({
         id: session.sessionId,
         traces: session.subagents,

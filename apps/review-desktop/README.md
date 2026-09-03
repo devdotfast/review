@@ -94,7 +94,7 @@ packaging script but no distribution. Signed builds auto-update from
 ### Local packaging
 
 ```sh
-SKIP_NOTARIZE=1 pnpm --filter @dev-fast/review-desktop app:package:macos
+SKIP_NOTARIZE=1 pnpm --filter @dev.fast/review-desktop app:package:macos
 ```
 
 builds an unsigned `VSCode-darwin-arm64/Review.app` and skips
@@ -310,11 +310,13 @@ Software Map defaults to off. Enable it to add the Map tab to reviews.
 Disable it to remove Map entry points. This preference persists in the
 application profile. The change does not require a reload.
 
-Trace capture defaults to off and is not part of onboarding. Enabling it
-takes S3/R2 credentials, installs the agent session hooks and the
-`trace-archaeology` skill for every installed agent, and lets reviews quote
-agent sessions. Disabling removes the hooks and skill again. The state lives
-in the review server's machine trace settings, not the application profile.
+Trace capture defaults to off and is not part of onboarding. It needs no
+credentials here: enabling it installs the agent session hooks and the
+`trace-archaeology` skill for every installed agent. Disabling removes the
+hooks and skill again. To let reviews quote agent sessions, also run `review
+login`, then `review trace allow .` in each repository that may publish
+traces. The state shows enabled while at least one repository is allowed. The
+application profile keeps no trace state.
 
 The application menu is macOS only. On Windows and Linux the same surfaces are
 available from the command palette (`review.openSettings`).
@@ -378,7 +380,7 @@ tiers also need Code OSS's own npm dependencies installed
 installs for you. To regenerate by hand:
 
 ```sh
-pnpm --filter @dev-fast/review-desktop protocol:sync
+pnpm --filter @dev.fast/review-desktop protocol:sync
 ```
 
 Run Code OSS commands with npm from `code-oss/`, never with the monorepo's

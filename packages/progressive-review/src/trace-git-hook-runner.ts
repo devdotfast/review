@@ -3,11 +3,7 @@ import type { Writable } from "node:stream";
 import { git } from "@dev.fast/local-vcs";
 import { sessionIdSchema } from "@dev.fast/review-protocol";
 
-import {
-  readTrailerSessions,
-  syncReviewTrace,
-  writeReviewTraceCommitMapping,
-} from "./review-agent-traces";
+import { readTrailerSessions, syncReviewTrace } from "./review-agent-traces";
 import {
   readActiveTraceSessions,
   writeTraceSessions,
@@ -87,10 +83,7 @@ async function runPrePush(input: {
   stderr: Writable;
 }): Promise<void> {
   const raw = await readStdin(input.stdin);
-  const commits = new Map<
-    string,
-    { branch: string | null; sessions: string[] }
-  >();
+  const commits = new Map<string, string[]>();
   for (const line of raw.split("\n")) {
     const [localRef, localSha, remoteRef, remoteSha] = line.trim().split(/\s+/);
     if (
@@ -101,9 +94,6 @@ async function runPrePush(input: {
       ZERO_OID.test(localSha)
     )
       continue;
-    const branch = remoteRef.startsWith("refs/heads/")
-      ? remoteRef.slice("refs/heads/".length)
-      : null;
     const revisionArgs = await revisionRange(input.cwd, localSha, remoteSha);
     const listed = await git(
       input.cwd,
@@ -116,20 +106,16 @@ async function runPrePush(input: {
       .map((value) => value.trim())
       .filter(Boolean)) {
       const sessions = await readTrailerSessions(input.cwd, commit);
-      if (sessions.length > 0) commits.set(commit, { branch, sessions });
+      if (sessions.length > 0) commits.set(commit, sessions);
     }
   }
   if (commits.size === 0) return;
 
+  // One sync per session records every commit of that session, so a push
+  // asks the store once per session and never once per commit.
   const sessionCommits = new Map<string, string[]>();
-  for (const [commit, value] of commits) {
-    await writeReviewTraceCommitMapping({
-      cwd: input.cwd,
-      commit,
-      sessions: value.sessions,
-      branch: value.branch,
-    }).catch((cause) => warn(input.stderr, cause));
-    for (const session of value.sessions) {
+  for (const [commit, sessions] of commits) {
+    for (const session of sessions) {
       sessionCommits.set(session, [
         ...(sessionCommits.get(session) ?? []),
         commit,

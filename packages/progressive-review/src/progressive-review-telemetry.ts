@@ -56,6 +56,12 @@ export type ProgressiveReviewCommandPath =
   | "map.prune"
   | "map.push"
   | "map.fetch"
+  | "login"
+  | "logout"
+  | "whoami"
+  | "trace.onboard"
+  | "trace.allow"
+  | "trace.deny"
   | "invalid";
 
 export type ProgressiveReviewTelemetryErrorName =

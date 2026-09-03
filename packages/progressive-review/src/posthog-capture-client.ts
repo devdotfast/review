@@ -102,7 +102,7 @@ export class PostHogCaptureClient {
       "apiKey" | "host" | "queueDir"
     > = {},
   ): PostHogCaptureClient {
-    const reviewHome = env[DEV_REVIEW_HOME_ENV] ?? devReviewHome();
+    const reviewHome = devReviewHome(env);
     return new PostHogCaptureClient({
       ...options,
       apiKey:

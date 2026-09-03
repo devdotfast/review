@@ -99,17 +99,21 @@ CLI defers to the app's bundled copy whenever Review Desktop is running.
 Agent setup installs only the Review CLI and skills. Enabling Trace capture in
 Settings ▸ Experimental Features also installs FFF: it registers the standard
 `fff` MCP server for Claude and Codex, and installs `npm:@ff-labs/pi-fff` for
-Pi. The MCP registration points FFF at `~/.dev/trace-search`. Review accepts
-existing FFF integrations without changes. Silent app-update synchronization
-never runs an FFF installer.
+Pi. The MCP registration points FFF at `$DEV_REVIEW_HOME/trace-search`
+(default `~/.dev/trace-search`). Review accepts existing FFF integrations
+without changes. Silent app-update synchronization never runs an FFF
+installer.
 
-The experimental setup configures S3/R2 and enables trace capture for the machine.
-Each agent session activates its current repository. Git receives a managed
-hook dispatcher that chains the repository's prior hooks. Jujutsu receives a
-repository commit-trailer template. A target repository needs no Review files.
+The experimental setup installs the trace hooks and skill for the machine. It
+needs no local credentials: run `review login` to sign in with GitHub, then
+`review trace allow .` in each repository that may publish traces. Each agent
+session then activates its current repository. Git receives a managed hook
+dispatcher that chains the repository's prior hooks. Jujutsu receives a
+repository commit-trailer template. A target repository needs no Review
+files.
 
-Use `review trace status` to inspect the machine and current repository. Use
-`review trace enable`, `review trace disable`, or `review trace repair` only
+Use `review trace status` to inspect the login and the allowed repositories.
+Use `review trace allow`, `review trace deny`, or `review trace repair` only
 when you need to manage the current repository manually.
 
 For a missing registration, setup runs the equivalent commands:
@@ -124,7 +128,7 @@ pi install npm:@ff-labs/pi-fff
 Trace search uses this local flow:
 
 ```text
-S3/R2 raw trace
+Hosted trace store object
   → temporary download
   → normalized JSONL in ~/.dev/trace-search
   → FFF, review trace show, Review UI, and quote validation

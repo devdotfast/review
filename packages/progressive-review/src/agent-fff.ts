@@ -17,6 +17,7 @@ import {
 } from "@dev.fast/review-protocol";
 
 import { isFile } from "./fs-utils";
+import { devReviewHome } from "./review-storage";
 
 export const FFF_SERVER_NAME = "fff";
 export const FFF_INSTALL_URL = "https://dmtrkovalenko.dev/install-fff-mcp.sh";
@@ -29,8 +30,16 @@ export function fffBinaryPath(homeDir = os.homedir()): string {
   return path.join(homeDir, ".local", "bin", "fff-mcp");
 }
 
-export function fffCorpusRoot(homeDir = os.homedir()): string {
-  return path.join(homeDir, ".dev", "trace-search");
+/**
+ * Resolves the same trace search corpus directory as
+ * `traceSearchCorpusDir()` in review-agent-traces.ts, so an FFF search index
+ * registered here reads the traces that `review trace pull` writes there.
+ */
+export function fffCorpusRoot(
+  homeDir = os.homedir(),
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return path.join(devReviewHome(env, homeDir), "trace-search");
 }
 
 export function isFffTarget(target: string): target is ReviewFffInstallTarget {
@@ -44,7 +53,7 @@ export async function installFffForTargets(input: {
   write: (text: string) => void;
 }): Promise<{ ok: boolean; created: ReviewFffManagedRegistration[] }> {
   const binaryPath = fffBinaryPath(input.homeDir);
-  const corpusRoot = fffCorpusRoot(input.homeDir);
+  const corpusRoot = fffCorpusRoot(input.homeDir, input.env);
   await mkdir(corpusRoot, { recursive: true });
 
   const missingTargets: ReviewFffInstallTarget[] = [];

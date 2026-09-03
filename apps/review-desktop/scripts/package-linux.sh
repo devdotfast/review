@@ -15,7 +15,7 @@ if [[ "$(uname -s)" != "Linux" ]]; then
   exit 1
 fi
 if [[ ! -f "$CHECKOUT/node_modules/gulp/bin/gulp.js" ]]; then
-  echo "code-oss dependencies are missing; run pnpm --filter @dev-fast/review-desktop app:build first" >&2
+  echo "code-oss dependencies are missing; run pnpm --filter @dev.fast/review-desktop app:build first" >&2
   exit 1
 fi
 

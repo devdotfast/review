@@ -15,11 +15,8 @@ import { promisify } from "node:util";
 
 import { git, resolveRepoContext } from "@dev.fast/local-vcs";
 import {
-  type ByCommitEntry,
-  type JsonValue,
   type ReviewAgentTraceSession,
   type SessionMeta,
-  byCommitSchema,
   commitShaSchema,
   isStringValue,
   jsonArray,
@@ -28,8 +25,13 @@ import {
   jsonString,
   parseJsonText,
   sessionIdSchema,
-  sessionMetaSchema,
 } from "@dev.fast/review-protocol";
+import {
+  type TraceHarness,
+  type TraceObjectName,
+  traceObjectKey,
+  traceObjectNameSchema,
+} from "@dev.fast/trace-shared";
 
 import {
   AGENT_TRACE_PARSER_VERSION,
@@ -39,17 +41,30 @@ import {
   extractTraceEventText,
   parseAgentTraceJsonl,
 } from "./agent-trace-parser";
+import { devReviewHome } from "./review-storage";
+import { readStoreAuth, requireStoreClient } from "./store-auth";
+import { StoreApiError, type StoreClient } from "./store-client";
+import { resolveAllowedTraceRepository } from "./trace-hook-runner";
+import {
+  type TraceStoreSession,
+  type TraceStoreTransport,
+  createHttpTraceStoreTransport,
+  gzipToTemp,
+} from "./trace-store-transport";
 
 /**
  * Resolves the agent sessions behind a review's change range, loads their
- * transcripts, syncs local agent traces directly to R2, and materializes a
- * local corpus for FFF search.
+ * transcripts, ships local agent traces to the hosted trace store, and
+ * materializes a local corpus for FFF search.
  */
 
 const RECORD_SEPARATOR = "\u001e";
 const FIELD_SEPARATOR = "\u001f";
-const R2_COMMIT_LOOKUP_LIMIT = 30;
+const STORE_COMMIT_LOOKUP_LIMIT = 30;
 const REMOTE_HEAD_TTL_MS = 15_000;
+/** The store accepts at most 200 commits and 64 objects for one session. */
+const SESSION_COMMIT_LIMIT = 200;
+const SESSION_OBJECT_LIMIT = 64;
 
 export interface ReviewTraceCommitRef {
   sha: string;
@@ -104,39 +119,213 @@ export interface ReviewTraceBlameLookupResult {
   resolutions: ReviewTraceCommitLookupResult[];
 }
 
-export interface ReviewTraceSyncUpload {
-  blob: string;
-  bytes_stored: number;
-  status: "uploaded" | "unchanged";
-}
-
 export interface ReviewTraceSyncResult {
   session: string;
   repo: string;
-  uploads: ReviewTraceSyncUpload[];
+  repositoryId: number;
+  stored: "written";
+  objects: string[];
+  commits: string[];
 }
 
-export interface ReviewTraceDoctorResult {
-  ok: boolean;
-  envPath: string;
-  config?: { endpoint: string; bucket: string; accessKeyId: string };
-  reachable: boolean;
-  error?: string;
+/** Reports why a store read gave nothing back. */
+export type TraceStoreWarning = (message: string) => void;
+
+/** One repository's store, reached with the saved login. */
+export interface TraceStoreAccess {
+  transport: TraceStoreTransport;
+  repositoryId: number;
+  warn?: TraceStoreWarning;
+}
+
+export interface TraceStoreAccessInput {
+  cwd?: string;
+  transport?: TraceStoreTransport;
+  repositoryId?: number;
+  /** The client that answers the store lookup. Tests inject their own. */
+  client?: StoreClient;
+  /** Where a store failure is reported. Commands pass their own stderr. */
+  onWarning?: TraceStoreWarning;
+}
+
+function defaultTraceStoreWarning(message: string): void {
+  process.stderr.write(`${message}\n`);
+}
+
+/**
+ * One line that names why a store read failed, or null when the answer means
+ * the store simply holds nothing for this repository or session.
+ */
+function storeReadWarning(error: Error): string | null {
+  if (error instanceof StoreApiError) {
+    if (error.code === "not_found") return null;
+    if (error.code === "unauthorized") {
+      return "Trace store request failed: unauthorized. Run `review login`.";
+    }
+    if (error.code === "forbidden") {
+      return `Trace store request failed: forbidden. ${error.message}`;
+    }
+    return `Trace store request failed: ${error.message}`;
+  }
+  return `Trace store request failed: ${error.message}`;
+}
+
+/** Reports one store failure on the caller's channel, or on stderr. */
+function reportStoreFailure(access: TraceStoreAccess, error: Error): void {
+  const message = storeReadWarning(error);
+  if (message) (access.warn ?? defaultTraceStoreWarning)(message);
 }
 
 const lastCheckedTimes = new Map<string, number>();
 
-export function isTraceR2Configured(): boolean {
-  if (process.env.TRACE_R2_MODE === "mock") return true;
-  const config = traceR2Config();
-  return config !== null;
+/**
+ * The store for this repository, or null when no store answers for it. Read
+ * paths then work from the local corpus alone.
+ *
+ * An allow entry names the repository the user may publish from. A reader
+ * needs no allow entry: a login plus GitHub read access to the repository is
+ * enough, so a user who only reads a repository still sees its sessions. The
+ * allow entry stays a condition of every write.
+ */
+export async function resolveTraceStoreAccess(
+  input: TraceStoreAccessInput = {},
+): Promise<TraceStoreAccess | null> {
+  const cwd = input.cwd ?? process.cwd();
+  const warn = input.onWarning;
+  const report = warn ?? defaultTraceStoreWarning;
+  let repositoryId = input.repositoryId;
+  let client = input.client;
+  if (repositoryId === undefined) {
+    const entry = await resolveAllowedTraceRepository(cwd);
+    if (entry) {
+      repositoryId = entry.repositoryId;
+    } else {
+      // No allow entry. A machine with no login wants no store at all, so it
+      // reads the local corpus without a message.
+      if (!client && !(await readStoreAuth())) return null;
+      const store = await findTraceStoreForRepository(cwd, client, report);
+      if (!store) return null;
+      repositoryId = store.repositoryId;
+      client = store.client;
+    }
+  }
+  if (input.transport) {
+    const access: TraceStoreAccess = {
+      transport: input.transport,
+      repositoryId,
+    };
+    if (warn) access.warn = warn;
+    return access;
+  }
+  try {
+    const access: TraceStoreAccess = {
+      transport: createHttpTraceStoreTransport(
+        client ?? (await requireStoreClient()),
+      ),
+      repositoryId,
+    };
+    if (warn) access.warn = warn;
+    return access;
+  } catch {
+    // The repository is allowed but the machine holds no login.
+    report("The trace store login is missing. Run `review login`.");
+    return null;
+  }
+}
+
+/** The store this repository's Git remote points at, or null. */
+async function findTraceStoreForRepository(
+  cwd: string,
+  injected: StoreClient | undefined,
+  report: TraceStoreWarning,
+): Promise<{ repositoryId: number; client: StoreClient } | null> {
+  let repo: TraceRepo;
+  try {
+    repo = await inferRepoFromGit(cwd);
+  } catch {
+    // Not a GitHub repository: no store can hold its sessions.
+    return null;
+  }
+  let client: StoreClient;
+  try {
+    client = injected ?? (await requireStoreClient());
+  } catch {
+    report("The trace store login is missing. Run `review login`.");
+    return null;
+  }
+  try {
+    const store = await client.findStore({
+      owner: repo.owner,
+      name: repo.repo,
+    });
+    if (store) return { repositoryId: store.repositoryId, client };
+  } catch (error) {
+    const message = storeReadWarning(
+      error instanceof Error ? error : new Error(String(error)),
+    );
+    if (message) report(message);
+    return null;
+  }
+  report(
+    "This repository has no hosted trace store. Run `review trace onboard` first.",
+  );
+  return null;
+}
+
+/** The store's record of one session, or null when the store has none. */
+async function readStoreSession(
+  access: TraceStoreAccess,
+  sessionId: string,
+): Promise<TraceStoreSession | null> {
+  try {
+    const response = await access.transport.listSessions(access.repositoryId, {
+      session: sessionId,
+    });
+    return response.sessions[0] ?? null;
+  } catch (error) {
+    reportStoreFailure(
+      access,
+      error instanceof Error ? error : new Error(String(error)),
+    );
+    return null;
+  }
+}
+
+/** The object name the store uses for one trace of a session. */
+function traceObjectName(traceName: string): TraceObjectName {
+  return traceName === "main"
+    ? "main.jsonl.gz"
+    : `subagents/${normalizeSubagentFileName(traceName)}.gz`;
+}
+
+/** The parser's name for one store harness. */
+function parserHarness(
+  harness: TraceHarness | undefined,
+): AgentTraceHarness | null {
+  if (harness === undefined) return null;
+  return harness === "claude" ? "claude-code" : harness;
+}
+
+/** The trace name behind one store object name. */
+function traceNameFromObject(name: string): string {
+  if (name === "main.jsonl.gz") return "main";
+  return name.slice("subagents/".length, -".jsonl.gz".length);
 }
 
 export async function listReviewTraceSessions(input: {
   rootPath: string;
   baseCommit: string;
   headCommit: string;
+  transport?: TraceStoreTransport;
+  repositoryId?: number;
+  onWarning?: TraceStoreWarning;
 }): Promise<ReviewTraceSessionDescriptor[]> {
+  const access = await resolveTraceStoreAccess({
+    cwd: input.rootPath,
+    transport: input.transport,
+    repositoryId: input.repositoryId,
+    onWarning: input.onWarning,
+  });
   const sessions = new Map<string, ReviewTraceSessionRef>();
   const commits = await commitsWithTrailers(input);
   for (const commit of commits) {
@@ -152,16 +341,20 @@ export async function listReviewTraceSessions(input: {
       }
     }
   }
-  if (sessions.size === 0 && commits.length <= R2_COMMIT_LOOKUP_LIMIT) {
-    await addSessionsFromR2Index(commits, sessions);
+  if (
+    access &&
+    sessions.size === 0 &&
+    commits.length <= STORE_COMMIT_LOOKUP_LIMIT
+  ) {
+    await addSessionsFromStoreIndex(access, commits, sessions);
   }
-  if (sessions.size === 0 && commits.length <= R2_COMMIT_LOOKUP_LIMIT) {
+  if (sessions.size === 0 && commits.length <= STORE_COMMIT_LOOKUP_LIMIT) {
     await addSessionsFromPrScan(input.rootPath, commits, sessions);
   }
 
   const descriptors: ReviewTraceSessionDescriptor[] = [];
   for (const ref of sessions.values()) {
-    const desc = await describeTraceSession(ref);
+    const desc = await describeTraceSession(ref, access);
     descriptors.push(desc);
   }
   return descriptors;
@@ -169,17 +362,19 @@ export async function listReviewTraceSessions(input: {
 
 export async function describeTraceSession(
   ref: ReviewTraceSessionRef,
+  access?: TraceStoreAccess | null,
 ): Promise<ReviewTraceSessionDescriptor> {
-  const configured = isTraceR2Configured();
-  const mainKey = `by-session/${ref.sessionId}/trace.jsonl`;
   const local = findNormalizedTraceFile(ref.sessionId, "main");
   const normalized = local ? readNormalizedTrace(local) : null;
-  const remoteSize = configured ? await r2HeadObjectSize(mainKey) : null;
-  const available =
-    normalized !== null || (remoteSize !== null && remoteSize > 0);
-  const harness = normalized?.metadata.harness ?? "unknown";
+  const stored = access ? await readStoreSession(access, ref.sessionId) : null;
+  const available = normalized !== null || stored !== null;
+  const harness =
+    normalized?.metadata.harness ?? parserHarness(stored?.harness) ?? "unknown";
 
-  const subagents = await listSessionSubagents(ref.sessionId);
+  const subagents = await listSessionSubagents(
+    ref.sessionId,
+    storedSubagentNames(stored),
+  );
 
   return {
     sessionId: ref.sessionId,
@@ -199,46 +394,47 @@ export async function loadReviewAgentTrace(input: {
   cwd?: string;
   repo?: string | { owner: string; repo: string };
   refresh?: boolean;
+  access?: TraceStoreAccess | null;
+  transport?: TraceStoreTransport;
+  repositoryId?: number;
+  onWarning?: TraceStoreWarning;
 }): Promise<LoadedReviewAgentTrace | null> {
   const { sessionId, trace } = input;
   if (!sessionIdSchema.safeParse(sessionId).success) return null;
   const traceName = trace ?? "main";
-  const traceKey =
-    traceName === "main"
-      ? `by-session/${sessionId}/trace.jsonl`
-      : `by-session/${sessionId}/subagents/${normalizeSubagentFileName(traceName)}`;
+  const objectName = traceObjectName(traceName);
 
   let normalizedPath = input.repo
     ? normalizedTracePath(normalizeRepo(input.repo), sessionId, traceName)
     : findNormalizedTraceFile(sessionId, traceName);
   let normalized = normalizedPath ? readNormalizedTrace(normalizedPath) : null;
   const now = Date.now();
-  const lastChecked = lastCheckedTimes.get(traceKey) ?? 0;
+  const checkKey = `${sessionId}/${objectName}`;
+  const lastChecked = lastCheckedTimes.get(checkKey) ?? 0;
   const canUseWithoutCheck =
     normalized && !input.refresh && now - lastChecked < REMOTE_HEAD_TTL_MS;
 
   if (!canUseWithoutCheck) {
-    const remoteSize = await r2HeadObjectSize(traceKey);
-    lastCheckedTimes.set(traceKey, now);
+    const access =
+      input.access === undefined
+        ? await resolveTraceStoreAccess({
+            cwd: input.cwd,
+            transport: input.transport,
+            repositoryId: input.repositoryId,
+            onWarning: input.onWarning,
+          })
+        : input.access;
+    const stored = access ? await readStoreSession(access, sessionId) : null;
+    const object = stored?.objects.find((entry) => entry.name === objectName);
+    lastCheckedTimes.set(checkKey, now);
     const mustMaterialize =
-      remoteSize !== null &&
-      (!normalized || remoteSize > normalized.metadata.source.bytes);
-    if (mustMaterialize) {
+      access !== null &&
+      object !== undefined &&
+      (!normalized || object.size > normalized.metadata.source.bytes);
+    if (access && stored && object && mustMaterialize) {
       let repo = input.repo ? normalizeRepo(input.repo) : null;
       if (!repo && input.cwd) {
         repo = await inferRepoFromGit(input.cwd).catch(() => null);
-      }
-      if (!repo) {
-        const meta = sessionMetaSchema.safeParse(
-          await r2GetJson(`by-session/${sessionId}/meta.json`),
-        );
-        if (meta.success && meta.data.repo) {
-          try {
-            repo = parseRepo(meta.data.repo);
-          } catch {
-            repo = null;
-          }
-        }
       }
       if (!repo) {
         return normalized
@@ -246,13 +442,18 @@ export async function loadReviewAgentTrace(input: {
           : null;
       }
       normalizedPath = normalizedTracePath(repo, sessionId, traceName);
-      normalized = await materializeNormalizedTrace({
-        sessionId,
-        traceName,
-        traceKey,
-        normalizedPath,
-        repo,
-      });
+      normalized =
+        (await materializeNormalizedTrace({
+          sessionId,
+          traceName,
+          key: traceObjectKey(access.repositoryId, sessionId, objectName),
+          url: object.url,
+          bytes: object.size,
+          subagents: storedSubagentNames(stored),
+          normalizedPath,
+          repo,
+          transport: access.transport,
+        })) ?? normalized;
     }
   }
 
@@ -308,7 +509,15 @@ interface NormalizedTraceMetadata {
   userTurns: number;
   toolCalls: number;
   subagents: string[];
-  source: { r2Key: string; bytes: number; checkedAt: string };
+  source: { key: string; bytes: number; checkedAt: string };
+}
+
+/** Corpus files written before the hosted store named the key `r2Key`. */
+interface LegacyNormalizedTraceSource {
+  r2Key?: string;
+  key?: string;
+  bytes?: number;
+  checkedAt?: string;
 }
 
 interface NormalizedTraceEventRecord {
@@ -327,20 +536,31 @@ interface NormalizedTrace {
 async function materializeNormalizedTrace(input: {
   sessionId: string;
   traceName: string;
-  traceKey: string;
+  key: string;
+  url: string;
+  bytes: number;
+  subagents: string[];
   normalizedPath: string;
   repo: { owner: string; repo: string };
+  transport: TraceStoreTransport;
 }): Promise<NormalizedTrace | null> {
   const rawTempPath = path.join(
     tmpdir(),
     `review-trace-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`,
   );
   try {
-    if (!(await r2GetObject(input.traceKey, rawTempPath))) return null;
+    try {
+      await input.transport.getObject(input.url, rawTempPath);
+    } catch {
+      return null;
+    }
     const parsed = parseAgentTraceJsonl(readFileSync(rawTempPath, "utf8"), {
       isSubagent: input.traceName !== "main",
     });
-    const subagents = await listSessionSubagents(input.sessionId);
+    const subagents = await listSessionSubagents(
+      input.sessionId,
+      input.subagents,
+    );
     const normalized: NormalizedTrace = {
       metadata: {
         type: "metadata",
@@ -358,8 +578,8 @@ async function materializeNormalizedTrace(input: {
         toolCalls: parsed.toolCalls,
         subagents,
         source: {
-          r2Key: input.traceKey,
-          bytes: statSync(rawTempPath).size,
+          key: input.key,
+          bytes: input.bytes,
           checkedAt: new Date().toISOString(),
         },
       },
@@ -416,8 +636,9 @@ function readNormalizedTrace(filePath: string): NormalizedTrace | null {
     ) {
       return null;
     }
-    // SAFETY: same file provenance as the metadata record above; each event
-    // record's type, index, kind, and text are re-checked against its event.
+    metadata.source = migrateNormalizedTraceSource(metadata.source);
+    // SAFETY: the metadata check above establishes file provenance. The event
+    // checks below validate each record before this function returns it.
     const events = records.slice(1) as NormalizedTraceEventRecord[];
     if (
       events.some(
@@ -461,7 +682,7 @@ export interface ReviewTracePullResult {
 export function traceSearchCorpusDir(): string {
   const dir =
     process.env.REVIEW_TEST_TRACE_SEARCH_DIR ??
-    path.join(homedir(), ".dev", "trace-search");
+    path.join(devReviewHome(), "trace-search");
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -470,9 +691,21 @@ export async function pullReviewTraceCorpus(input: {
   repo: { owner: string; repo: string };
   sessions: ReviewTracePullSession[];
   mainOnly?: boolean;
+  cwd?: string;
+  transport?: TraceStoreTransport;
+  repositoryId?: number;
+  client?: StoreClient;
+  onWarning?: TraceStoreWarning;
 }): Promise<ReviewTracePullResult> {
   const repository = `${input.repo.owner}/${input.repo.repo}`;
   const corpusRoot = traceSearchCorpusDir();
+  const access = await resolveTraceStoreAccess({
+    cwd: input.cwd,
+    transport: input.transport,
+    repositoryId: input.repositoryId,
+    client: input.client,
+    onWarning: input.onWarning,
+  });
 
   const sessions: ReviewTracePullSessionResult[] = [];
   const unavailableSessions: string[] = [];
@@ -482,6 +715,7 @@ export async function pullReviewTraceCorpus(input: {
       sessionId: sessionRef.id,
       repo: input.repo,
       refresh: true,
+      access,
     });
     if (!main) {
       unavailableSessions.push(sessionRef.id);
@@ -497,6 +731,7 @@ export async function pullReviewTraceCorpus(input: {
           trace: traceName,
           repo: input.repo,
           refresh: true,
+          access,
         });
         if (subagent) {
           paths.push(normalizedTracePath(input.repo, sessionRef.id, traceName));
@@ -625,6 +860,9 @@ async function runGit(
 export async function lookupReviewTraceCommit(input: {
   cwd: string;
   sha: string;
+  transport?: TraceStoreTransport;
+  repositoryId?: number;
+  onWarning?: TraceStoreWarning;
 }): Promise<ReviewTraceCommitLookupResult> {
   const commit = await resolveCommitSha(input.cwd, input.sha);
   const trailerSessions = await readTrailerSessions(input.cwd, commit);
@@ -632,60 +870,48 @@ export async function lookupReviewTraceCommit(input: {
 
   // Step 1: local trailers
   if (trailerSessions.length > 0) {
-    const sessionMeta = await enrichSessionMeta(trailerSessions);
-    const result: ReviewTraceCommitLookupResult = {
+    return {
       commit,
       sessions: trailerSessions,
       pr,
       branch: null,
       source: "trailer",
     };
-    if (sessionMeta) result.session_meta = sessionMeta;
-    return result;
   }
 
-  // Step 2: direct R2 by-commit index
-  let r2Entry: ByCommitEntry | null = null;
-  if (isTraceR2Configured() && commitShaSchema.safeParse(commit).success) {
-    try {
-      const raw = await r2GetJson(`by-commit/${commit}.json`);
-      const parsed = byCommitSchema.safeParse(raw);
-      if (parsed.success && parsed.data.sessions.length > 0) {
-        r2Entry = parsed.data;
-      }
-    } catch {
-      // R2 read error; proceed to next steps
+  // Step 2: the store's commit index
+  if (commitShaSchema.safeParse(commit).success) {
+    const access = await resolveTraceStoreAccess({
+      cwd: input.cwd,
+      transport: input.transport,
+      repositoryId: input.repositoryId,
+      onWarning: input.onWarning,
+    });
+    const sessions = access
+      ? await listStoreSessionsForCommit(access, commit)
+      : [];
+    if (sessions.length > 0) {
+      return {
+        commit,
+        sessions: sessions.map((session) => session.sessionId),
+        pr,
+        branch: null,
+        source: "index",
+      };
     }
-  }
-
-  if (r2Entry && r2Entry.sessions.length > 0) {
-    const sessions = deduplicateStrings(r2Entry.sessions);
-    const sessionMeta = await enrichSessionMeta(sessions);
-    const result: ReviewTraceCommitLookupResult = {
-      commit,
-      sessions,
-      pr: r2Entry.pr ?? pr,
-      branch: r2Entry.branch ?? null,
-      source: "index",
-    };
-    if (sessionMeta) result.session_meta = sessionMeta;
-    return result;
   }
 
   // Step 3: PR scan if commit subject ends in PR number
   if (pr !== null) {
     const prSessions = await prScanTrailerSessions(input.cwd, commit, pr);
     if (prSessions.length > 0) {
-      const sessionMeta = await enrichSessionMeta(prSessions);
-      const result: ReviewTraceCommitLookupResult = {
+      return {
         commit,
         sessions: prSessions,
         pr,
         branch: null,
         source: "pr-scan",
       };
-      if (sessionMeta) result.session_meta = sessionMeta;
-      return result;
     }
   }
 
@@ -710,49 +936,31 @@ function deduplicateStrings(items: string[]): string[] {
   return out;
 }
 
-async function enrichSessionMeta(sessions: string[]): Promise<
-  | Record<
-      string,
-      {
-        repo?: string | null;
-        branch?: string | null;
-        pr?: number | null;
-        author?: string | null;
-      }
-    >
-  | undefined
-> {
-  if (!isTraceR2Configured() || sessions.length === 0) return undefined;
-  const detail: Record<
-    string,
-    {
-      repo?: string | null;
-      branch?: string | null;
-      pr?: number | null;
-      author?: string | null;
-    }
-  > = {};
-  for (const session of sessions) {
-    try {
-      const raw = await r2GetJson(`by-session/${session}/meta.json`);
-      const parsed = sessionMetaSchema.safeParse(raw);
-      if (parsed.success) {
-        detail[session] = {
-          repo: parsed.data.repo,
-          branch: parsed.data.branch,
-          pr: parsed.data.pr,
-          author: parsed.data.author,
-        };
-      }
-    } catch {
-      // Ignore individual session metadata fetch errors
-    }
+/** The sessions the store recorded for one commit. */
+async function listStoreSessionsForCommit(
+  access: TraceStoreAccess,
+  commit: string,
+): Promise<TraceStoreSession[]> {
+  try {
+    const response = await access.transport.listSessions(access.repositoryId, {
+      commit,
+    });
+    return response.sessions;
+  } catch (error) {
+    reportStoreFailure(
+      access,
+      error instanceof Error ? error : new Error(String(error)),
+    );
+    return [];
   }
-  return Object.keys(detail).length > 0 ? detail : undefined;
 }
 
 export async function lookupReviewTraceSession(input: {
   sessionId: string;
+  cwd?: string;
+  transport?: TraceStoreTransport;
+  repositoryId?: number;
+  onWarning?: TraceStoreWarning;
 }): Promise<ReviewTraceSessionLookupResult> {
   const parseResult = sessionIdSchema.safeParse(input.sessionId);
   if (!parseResult.success) {
@@ -762,47 +970,37 @@ export async function lookupReviewTraceSession(input: {
   }
   const sessionId = parseResult.data;
 
-  let meta: SessionMeta | null = null;
-  if (isTraceR2Configured()) {
-    try {
-      const raw = await r2GetJson(`by-session/${sessionId}/meta.json`);
-      if (raw) {
-        const parsed = sessionMetaSchema.safeParse(raw);
-        if (parsed.success) {
-          meta = parsed.data;
-        }
+  const access = await resolveTraceStoreAccess({
+    cwd: input.cwd,
+    transport: input.transport,
+    repositoryId: input.repositoryId,
+    onWarning: input.onWarning,
+  });
+  const stored = access ? await readStoreSession(access, sessionId) : null;
+  const repositoryName = access
+    ? await inferRepoFromGit(input.cwd ?? process.cwd())
+        .then((repo) => `${repo.owner}/${repo.repo}`)
+        .catch(() => null)
+    : null;
+  const meta: SessionMeta | null = stored
+    ? {
+        session: sessionId,
+        repo: repositoryName,
+        branch: null,
+        pr: null,
+        commits: stored.commits,
+        author: null,
+        ts: stored.updatedAt,
       }
-    } catch {
-      // Ignore error fetching metadata
-    }
-  }
+    : null;
 
-  let hasRawTrace = false;
-  if (isTraceR2Configured()) {
-    const size = await r2HeadObjectSize(`by-session/${sessionId}/trace.jsonl`);
-    if (size !== null) {
-      hasRawTrace = true;
-    }
-  }
-  if (!hasRawTrace) {
-    const local = await findLocalTrace(sessionId);
-    if (local && existsSync(local.tracePath)) {
-      hasRawTrace = true;
-    }
-  }
-
-  const subagentSet = new Set<string>();
-  if (isTraceR2Configured()) {
-    const r2Subs = await listSessionSubagents(sessionId);
-    for (const s of r2Subs) {
-      subagentSet.add(s);
-    }
-  }
   const local = await findLocalTrace(sessionId);
-  if (local) {
-    for (const s of local.subagentPaths) {
-      subagentSet.add(s.name.replace(/\.jsonl(\.gz)?$/, ""));
-    }
+  const hasRawTrace =
+    stored !== null || (local !== null && existsSync(local.tracePath));
+
+  const subagentSet = new Set<string>(storedSubagentNames(stored));
+  for (const subagent of local?.subagentPaths ?? []) {
+    subagentSet.add(subagent.name.replace(/\.jsonl(\.gz)?$/, ""));
   }
 
   return {
@@ -897,6 +1095,7 @@ export async function lookupReviewTraceBlame(input: {
 
 export interface LocalTraceDiscovery {
   tracePath: string;
+  harness: TraceHarness;
   subagentPaths: Array<{ name: string; path: string }>;
 }
 
@@ -906,17 +1105,23 @@ export async function findLocalTrace(
   if (!sessionIdSchema.safeParse(sessionId).success) return null;
 
   const claudeRoot =
-    traceEnvValue("TRACE_LOCAL_TRACE_ROOT") ||
+    process.env.TRACE_LOCAL_TRACE_ROOT ||
     path.join(homedir(), ".claude", "projects");
   const codexRoot = codexSessionsRoot();
   const piRoot =
-    traceEnvValue("TRACE_PI_SESSIONS_ROOT") ||
+    process.env.TRACE_PI_SESSIONS_ROOT ||
     path.join(homedir(), ".pi", "agent", "sessions");
 
-  let tracePath =
-    findClaudeTrace(claudeRoot, sessionId) ||
-    findCodexTrace(codexRoot, sessionId) ||
-    findPiTrace(piRoot, sessionId);
+  let harness: TraceHarness = "claude";
+  let tracePath = findClaudeTrace(claudeRoot, sessionId);
+  if (!tracePath) {
+    tracePath = findCodexTrace(codexRoot, sessionId);
+    if (tracePath) harness = "codex";
+  }
+  if (!tracePath) {
+    tracePath = findPiTrace(piRoot, sessionId);
+    if (tracePath) harness = "pi";
+  }
 
   if (!tracePath) {
     if (
@@ -924,13 +1129,14 @@ export async function findLocalTrace(
       isFile(path.join(claudeRoot, `${sessionId}.jsonl`))
     ) {
       tracePath = path.join(claudeRoot, `${sessionId}.jsonl`);
+      harness = "claude";
     }
   }
 
   if (!tracePath) return null;
 
   const subagentPaths = findSubagentBlobs(tracePath);
-  return { tracePath, subagentPaths };
+  return { tracePath, harness, subagentPaths };
 }
 
 function findClaudeTrace(root: string, sessionId: string): string | null {
@@ -1068,6 +1274,7 @@ export async function syncReviewTrace(input: {
   cwd?: string;
   repo?: string;
   commits?: string[];
+  transport?: TraceStoreTransport;
 }): Promise<ReviewTraceSyncResult> {
   const sessionId = input.sessionId.trim();
   if (!sessionIdSchema.safeParse(sessionId).success) {
@@ -1075,212 +1282,118 @@ export async function syncReviewTrace(input: {
       "Session id must be 8-128 characters of letters, digits, dots, dashes, or underscores.",
     );
   }
-  if (!isTraceR2Configured()) {
+
+  const workDir = input.cwd ?? process.cwd();
+  const entry = await resolveAllowedTraceRepository(workDir);
+  if (!entry) {
     throw new Error(
-      "S3/R2 storage is not configured. Use Review Agent Setup to configure trace capture.",
+      "This repository is not allowed for trace publication. Run `review trace allow .`.",
     );
   }
+  const transport =
+    input.transport ??
+    createHttpTraceStoreTransport(await requireStoreClient());
 
   const local = await findLocalTrace(sessionId);
   if (!local) {
     throw new Error(`No local trace found for session ${sessionId}.`);
   }
 
-  const workDir = input.cwd ?? process.cwd();
   const repo = input.repo
     ? parseRepo(input.repo)
-    : await inferRepoFromGit(workDir);
+    : await inferRepoFromGit(workDir).catch(() => parseRepo(entry.name));
 
-  const uploads: ReviewTraceSyncUpload[] = [];
-
-  // Main trace upload
-  const mainKey = `by-session/${sessionId}/trace.jsonl`;
-  const mainGrown = await r2PutIfGrown(mainKey, local.tracePath);
-  const mainBytes = statSync(local.tracePath).size;
-  uploads.push({
-    blob: "trace.jsonl",
-    bytes_stored: mainBytes,
-    status: mainGrown ? "uploaded" : "unchanged",
-  });
-
-  // Subagent uploads
-  for (const sub of local.subagentPaths) {
-    const subKey = `by-session/${sessionId}/subagents/${sub.name}`;
-    const subGrown = await r2PutIfGrown(subKey, sub.path);
-    const subBytes = statSync(sub.path).size;
-    uploads.push({
-      blob: `subagents/${sub.name}`,
-      bytes_stored: subBytes,
-      status: subGrown ? "uploaded" : "unchanged",
-    });
+  // The store names every object and takes at most 64 of them for one
+  // session. A name it cannot accept, or a subagent past the limit, stays on
+  // the machine instead of failing the whole session.
+  const files: Array<{ name: TraceObjectName; path: string }> = [
+    { name: "main.jsonl.gz", path: local.tracePath },
+  ];
+  for (const subagent of local.subagentPaths) {
+    if (files.length >= SESSION_OBJECT_LIMIT) break;
+    const name = traceObjectName(subagent.name.replace(/\.jsonl$/, ""));
+    if (!traceObjectNameSchema.safeParse(name).success) continue;
+    files.push({ name, path: subagent.path });
   }
 
-  // Update session metadata (read-merge-write)
-  const { author, branch } = await readRepoMetaFields(workDir);
-  const metaKey = `by-session/${sessionId}/meta.json`;
-  const existingMetaParse = sessionMetaSchema.safeParse(
-    await r2GetJson(metaKey),
-  );
-  const existingMeta = existingMetaParse.success
-    ? existingMetaParse.data
-    : null;
-
-  const mergedCommits = deduplicateStrings([
-    ...(existingMeta?.commits ?? []),
-    ...(input.commits ?? []).filter(
-      (commit) => commitShaSchema.safeParse(commit).success,
-    ),
-  ]);
-  const mergedRepo = `${repo.owner}/${repo.repo}`;
-  const mergedBranch = branch ?? existingMeta?.branch ?? null;
-  const mergedAuthor = author ?? existingMeta?.author ?? null;
-  const mergedPr = existingMeta?.pr ?? null;
-
-  const newMeta: SessionMeta = {
-    session: sessionId,
-    repo: mergedRepo,
-    branch: mergedBranch,
-    pr: mergedPr,
-    commits: mergedCommits,
-    author: mergedAuthor,
-    ts: new Date().toISOString(),
-  };
-
-  const metaSaved = await r2PutBuffer(
-    metaKey,
-    Buffer.from(JSON.stringify(newMeta, null, 2), "utf8"),
-  );
-  if (!metaSaved) {
-    throw new Error(
-      `Failed to update session metadata for ${sessionId} in S3/R2 storage.`,
-    );
-  }
-
-  return {
-    session: sessionId,
-    repo: mergedRepo,
-    uploads,
-  };
-}
-
-export async function writeReviewTraceCommitMapping(input: {
-  cwd: string;
-  commit: string;
-  sessions: string[];
-  branch: string | null;
-}): Promise<boolean> {
-  const commit = commitShaSchema.parse(input.commit);
-  const existing = await r2GetJson(`by-commit/${commit}.json`);
-  if (existing !== null) return false;
-  const repo = await inferRepoFromGit(input.cwd);
-  const entry: ByCommitEntry = byCommitSchema.parse({
-    commit,
-    sessions: deduplicateStrings(input.sessions),
-    repo: `${repo.owner}/${repo.repo}`,
-    pr: await readSubjectPullNumber(input.cwd, commit),
-    branch: input.branch,
-    indexed_by: "hook",
-    ts: new Date().toISOString(),
-  });
-  const saved = await r2PutBuffer(
-    `by-commit/${commit}.json`,
-    Buffer.from(JSON.stringify(entry, null, 2), "utf8"),
-  );
-  if (!saved) {
-    throw new Error(`Failed to write by-commit/${commit}.json.`);
-  }
-  return true;
-}
-
-export async function checkReviewTraceDoctor(input?: {
-  cwd?: string;
-}): Promise<ReviewTraceDoctorResult> {
-  const envPath =
-    process.env.TRACE_ENV_FILE ??
-    path.join(homedir(), ".config", "dev-trace", "env");
-
-  if (
-    !existsSync(envPath) &&
-    !process.env.TRACE_R2_BUCKET &&
-    process.env.TRACE_R2_MODE !== "mock"
-  ) {
-    return {
-      ok: false,
-      envPath,
-      reachable: false,
-      error:
-        "No trace configuration found. Use Review Agent Setup to configure trace capture.",
-    };
-  }
-
-  if (process.env.TRACE_R2_MODE === "mock") {
-    return {
-      ok: true,
-      envPath,
-      config: {
-        endpoint: "mock://endpoint",
-        bucket: "mock-bucket",
-        accessKeyId: "mock-key",
-      },
-      reachable: true,
-    };
-  }
-
-  const config = traceR2Config();
-  if (!config) {
-    return {
-      ok: false,
-      envPath,
-      reachable: false,
-      error: "Configuration is missing one or more required S3/R2 values.",
-    };
-  }
-
+  const compressed: Array<{
+    name: TraceObjectName;
+    size: number;
+    sha256: string;
+    path: string;
+    cleanup: () => Promise<void>;
+  }> = [];
   try {
-    await execFileAsync(
-      "aws",
-      [
-        "--region",
-        config.region,
-        "--endpoint-url",
-        config.endpoint,
-        "s3api",
-        "head-bucket",
-        "--bucket",
-        config.bucket,
-      ],
-      {
-        timeout: 15_000,
-        env: {
-          ...process.env,
-          AWS_ACCESS_KEY_ID: config.accessKeyId,
-          AWS_SECRET_ACCESS_KEY: config.secretAccessKey,
-        },
-      },
+    for (const file of files) {
+      const gzipped = await gzipToTemp(file.path);
+      compressed.push({ name: file.name, ...gzipped });
+    }
+
+    const begun = await transport.beginUpload(entry.repositoryId, sessionId, {
+      harness: local.harness,
+      objects: compressed.map((object) => ({
+        name: object.name,
+        size: object.size,
+        sha256: object.sha256,
+      })),
+    });
+    for (const upload of begun.uploads) {
+      const object = compressed.find((entry) => entry.name === upload.name);
+      if (!object) {
+        throw new Error(
+          `The trace store asked for an object this session does not have: ${upload.name}.`,
+        );
+      }
+      await transport.putObject(upload, object.path);
+    }
+
+    const commits =
+      input.commits?.filter(
+        (commit) => commitShaSchema.safeParse(commit).success,
+      ) ?? (await commitsForTraceSession(workDir, sessionId));
+    const completed = await transport.completeUpload(
+      entry.repositoryId,
+      sessionId,
+      { commits: commits.slice(0, SESSION_COMMIT_LIMIT) },
     );
+
     return {
-      ok: true,
-      envPath,
-      config: {
-        endpoint: config.endpoint,
-        bucket: config.bucket,
-        accessKeyId: config.accessKeyId,
-      },
-      reachable: true,
+      session: sessionId,
+      repo: `${repo.owner}/${repo.repo}`,
+      repositoryId: entry.repositoryId,
+      stored: "written",
+      objects: completed.objects.map((object) => object.name),
+      commits: completed.commits,
     };
-  } catch (err: unknown) {
-    return {
-      ok: false,
-      envPath,
-      config: {
-        endpoint: config.endpoint,
-        bucket: config.bucket,
-        accessKeyId: config.accessKeyId,
-      },
-      reachable: false,
-      error: err instanceof Error ? err.message : String(err),
-    };
+  } finally {
+    for (const object of compressed) {
+      await object.cleanup();
+    }
   }
+}
+
+/** The commits whose Agent-Session trailers name this session. */
+async function commitsForTraceSession(
+  cwd: string,
+  sessionId: string,
+): Promise<string[]> {
+  const result = await runGit(cwd, [
+    "log",
+    "--all",
+    "--no-show-signature",
+    `--format=%H${FIELD_SEPARATOR}%(trailers:key=Agent-Session,valueonly,separator=${FIELD_SEPARATOR})`,
+  ]);
+  if (!result.ok) return [];
+  const commits: string[] = [];
+  for (const line of result.stdout.split("\n")) {
+    const [sha, ...trailers] = line.trim().split(FIELD_SEPARATOR);
+    if (!commitShaSchema.safeParse(sha).success) continue;
+    const named = trailers
+      .flatMap((value) => value.split("\n"))
+      .some((value) => value.trim() === sessionId);
+    if (named && !commits.includes(sha)) commits.push(sha);
+  }
+  return commits;
 }
 
 // --- Commit trailer resolution ---------------------------------------------
@@ -1368,26 +1481,6 @@ export function subjectPullNumber(subject: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
-export async function readRepoMetaFields(
-  cwd: string,
-): Promise<{ author: string | null; branch: string | null }> {
-  const insideResult = await git(cwd, ["rev-parse", "--is-inside-work-tree"], {
-    allowFailure: true,
-  });
-  if (!insideResult.ok || insideResult.stdout.trim() !== "true") {
-    return { author: null, branch: null };
-  }
-  const branchResult = await git(cwd, ["branch", "--show-current"], {
-    allowFailure: true,
-  });
-  const branch = branchResult.ok ? branchResult.stdout.trim() : null;
-  const authorResult = await git(cwd, ["config", "user.email"], {
-    allowFailure: true,
-  });
-  const author = authorResult.ok ? authorResult.stdout.trim() : null;
-  return { author: author || null, branch: branch || null };
-}
-
 export interface TraceRepo {
   owner: string;
   repo: string;
@@ -1402,9 +1495,6 @@ export function parseRepo(value: string): TraceRepo {
 }
 
 export async function inferRepoFromGit(cwd: string): Promise<TraceRepo> {
-  if (process.env.GITHUB_REPOSITORY) {
-    return parseRepo(process.env.GITHUB_REPOSITORY);
-  }
   const slug = (await resolveRepoContext(cwd))?.githubSlug;
   if (slug) {
     return parseRepo(slug);
@@ -1418,6 +1508,9 @@ export async function inferRepoFromGit(cwd: string): Promise<TraceRepo> {
     if (match && match[1] && match[2]) {
       return parseRepo(`${match[1]}/${match[2]}`);
     }
+  }
+  if (process.env.GITHUB_REPOSITORY) {
+    return parseRepo(process.env.GITHUB_REPOSITORY);
   }
   throw new Error("Could not infer GitHub repository from origin remote.");
 }
@@ -1460,54 +1553,15 @@ async function commitsWithTrailers(input: {
   return commits;
 }
 
-// --- R2 trace store and local materialization -------------------------------
+// --- Local trace roots -----------------------------------------------------
 
-export interface TraceR2Config {
-  bucket: string;
-  endpoint: string;
-  accessKeyId: string;
-  secretAccessKey: string;
-  // SigV4 signing region. R2 accepts "auto"; AWS S3 needs the bucket's
-  // real region.
-  region: string;
-}
+const execFileAsync = promisify(execFile);
 
-let cachedTraceEnv: Map<string, string> | null = null;
-
-export function clearTraceEnvCache(): void {
-  cachedTraceEnv = null;
-  lastCheckedTimes.clear();
-}
-
-function traceEnvFile(): Map<string, string> {
-  if (cachedTraceEnv) return cachedTraceEnv;
-  const values = new Map<string, string>();
-  const envPath =
-    process.env.TRACE_ENV_FILE ??
-    path.join(homedir(), ".config", "dev-trace", "env");
-  try {
-    for (const line of readFileSync(envPath, "utf8").split("\n")) {
-      const match = /^\s*(?:export\s+)?([A-Z0-9_]+)=(.*)$/.exec(line);
-      if (!match) continue;
-      values.set(match[1], match[2].replace(/^["']|["']$/g, "").trim());
-    }
-  } catch {
-    // No env file; exported variables may still be present.
-  }
-  cachedTraceEnv = values;
-  return values;
-}
-
-export function traceEnvValue(name: string): string | undefined {
-  return process.env[name] ?? traceEnvFile().get(name);
-}
-
-// Codex reads CODEX_HOME from its own environment only, so this does not
-// consult the trace env file for it.
+// Codex reads CODEX_HOME from its own environment.
 export function codexSessionsRoot(): string {
   const codexHome = process.env.CODEX_HOME;
   return (
-    traceEnvValue("TRACE_CODEX_SESSIONS_ROOT") ||
+    process.env.TRACE_CODEX_SESSIONS_ROOT ||
     path.join(
       codexHome ? path.resolve(codexHome) : path.join(homedir(), ".codex"),
       "sessions",
@@ -1515,260 +1569,11 @@ export function codexSessionsRoot(): string {
   );
 }
 
-export function traceR2Config(): TraceR2Config | null {
-  const bucket = traceEnvValue("TRACE_R2_BUCKET");
-  const endpoint = traceEnvValue("TRACE_R2_ENDPOINT");
-  const accessKeyId =
-    traceEnvValue("TRACE_R2_ACCESS_KEY_ID") ??
-    traceEnvValue("AWS_ACCESS_KEY_ID");
-  const secretAccessKey =
-    traceEnvValue("TRACE_R2_SECRET_ACCESS_KEY") ??
-    traceEnvValue("AWS_SECRET_ACCESS_KEY");
-  if (!bucket || !endpoint || !accessKeyId || !secretAccessKey) return null;
-  const region = traceEnvValue("TRACE_R2_REGION") ?? "auto";
-  return { bucket, endpoint, accessKeyId, secretAccessKey, region };
-}
-
-const execFileAsync = promisify(execFile);
-
-export async function r2HeadObjectSize(key: string): Promise<number | null> {
-  if (process.env.TRACE_R2_MODE === "mock") {
-    const mockRoot = process.env.TRACE_R2_MOCK_DIR;
-    if (!mockRoot) return null;
-    const target = path.join(mockRoot, key);
-    try {
-      const stats = statSync(target);
-      return stats.isFile() ? stats.size : null;
-    } catch {
-      return null;
-    }
-  }
-
-  const config = traceR2Config();
-  if (!config) return null;
-  try {
-    const proc = await execFileAsync(
-      "aws",
-      [
-        "--region",
-        config.region,
-        "--endpoint-url",
-        config.endpoint,
-        "s3api",
-        "head-object",
-        "--bucket",
-        config.bucket,
-        "--key",
-        key,
-      ],
-      {
-        timeout: 10_000,
-        env: {
-          ...process.env,
-          AWS_ACCESS_KEY_ID: config.accessKeyId,
-          AWS_SECRET_ACCESS_KEY: config.secretAccessKey,
-        },
-      },
-    );
-    return (
-      jsonNumber(jsonObject(parseJsonText(proc.stdout))?.ContentLength) ?? null
-    );
-  } catch {
-    return null;
-  }
-}
-
-export async function r2GetObject(
-  key: string,
-  destPath: string,
-): Promise<boolean> {
-  mkdirSync(path.dirname(destPath), { recursive: true });
-
-  if (process.env.TRACE_R2_MODE === "mock") {
-    const mockRoot = process.env.TRACE_R2_MOCK_DIR;
-    if (!mockRoot) return false;
-    const target = path.join(mockRoot, key);
-    try {
-      const content = readFileSync(target);
-      writeFileSync(destPath, content);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  const config = traceR2Config();
-  if (!config) return false;
-  try {
-    await execFileAsync(
-      "aws",
-      [
-        "--region",
-        config.region,
-        "--endpoint-url",
-        config.endpoint,
-        "s3api",
-        "get-object",
-        "--bucket",
-        config.bucket,
-        "--key",
-        key,
-        destPath,
-      ],
-      {
-        timeout: 60_000,
-        maxBuffer: 16 * 1024 * 1024,
-        env: {
-          ...process.env,
-          AWS_ACCESS_KEY_ID: config.accessKeyId,
-          AWS_SECRET_ACCESS_KEY: config.secretAccessKey,
-        },
-      },
-    );
-    return existsSync(destPath);
-  } catch {
-    return false;
-  }
-}
-
-export async function r2GetBuffer(key: string): Promise<Buffer | null> {
-  const tmpPath = path.join(
-    tmpdir(),
-    `r2-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`,
-  );
-  try {
-    const ok = await r2GetObject(key, tmpPath);
-    if (!ok) return null;
-    return readFileSync(tmpPath);
-  } catch {
-    return null;
-  } finally {
-    try {
-      if (existsSync(tmpPath)) {
-        const { rmSync } = await import("node:fs");
-        rmSync(tmpPath, { force: true });
-      }
-    } catch {
-      // Ignore cleanup error
-    }
-  }
-}
-
-export async function r2GetJson(key: string): Promise<JsonValue | null> {
-  const content = await r2GetBuffer(key);
-  if (!content) return null;
-  try {
-    return parseJsonText(content.toString("utf8"));
-  } catch {
-    return null;
-  }
-}
-
-export async function r2PutFile(
-  key: string,
-  filePath: string,
-): Promise<boolean> {
-  if (process.env.TRACE_R2_MODE === "mock") {
-    const mockRoot = process.env.TRACE_R2_MOCK_DIR;
-    if (!mockRoot) return false;
-    try {
-      const target = path.join(mockRoot, key);
-      mkdirSync(path.dirname(target), { recursive: true });
-      writeFileSync(target, readFileSync(filePath));
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  const config = traceR2Config();
-  if (!config) return false;
-  try {
-    await execFileAsync(
-      "aws",
-      [
-        "--region",
-        config.region,
-        "--endpoint-url",
-        config.endpoint,
-        "s3",
-        "cp",
-        "--only-show-errors",
-        filePath,
-        `s3://${config.bucket}/${key}`,
-      ],
-      {
-        timeout: 60_000,
-        env: {
-          ...process.env,
-          AWS_ACCESS_KEY_ID: config.accessKeyId,
-          AWS_SECRET_ACCESS_KEY: config.secretAccessKey,
-        },
-      },
-    );
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export async function r2PutBuffer(
-  key: string,
-  content: Buffer,
-): Promise<boolean> {
-  if (process.env.TRACE_R2_MODE === "mock") {
-    const mockRoot = process.env.TRACE_R2_MOCK_DIR;
-    if (!mockRoot) return false;
-    try {
-      const target = path.join(mockRoot, key);
-      mkdirSync(path.dirname(target), { recursive: true });
-      writeFileSync(target, content);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  const tempFile = path.join(
-    tmpdir(),
-    `put-${process.pid}-${Math.random().toString(36).slice(2)}.tmp`,
-  );
-  writeFileSync(tempFile, content);
-  try {
-    return await r2PutFile(key, tempFile);
-  } finally {
-    try {
-      if (existsSync(tempFile)) {
-        const { rmSync } = await import("node:fs");
-        rmSync(tempFile, { force: true });
-      }
-    } catch {
-      // Ignore cleanup error
-    }
-  }
-}
-
-export async function r2PutIfGrown(
-  key: string,
-  filePath: string,
-): Promise<boolean> {
-  const remoteSize = await r2HeadObjectSize(key);
-  const localSize = statSync(filePath).size;
-  if (remoteSize !== null && localSize <= remoteSize) {
-    return false;
-  }
-  const uploaded = await r2PutFile(key, filePath);
-  if (!uploaded) {
-    throw new Error(`Failed to upload ${key} to S3/R2 storage.`);
-  }
-  return true;
-}
-
 export async function listSessionSubagents(
   sessionId: string,
+  storedNames: string[] = [],
 ): Promise<string[]> {
-  const subagents = new Set<string>();
-  const prefix = `by-session/${sessionId}/subagents/`;
+  const subagents = new Set<string>(storedNames);
 
   for (const localSessionDir of findNormalizedSessionDirs(sessionId)) {
     try {
@@ -1782,64 +1587,34 @@ export async function listSessionSubagents(
     }
   }
 
-  if (process.env.TRACE_R2_MODE === "mock") {
-    const mockRoot = process.env.TRACE_R2_MOCK_DIR;
-    if (mockRoot) {
-      const dir = path.join(mockRoot, prefix);
-      if (existsSync(dir)) {
-        try {
-          for (const entry of readdirSync(dir)) {
-            if (entry.endsWith(".jsonl")) {
-              subagents.add(entry.slice(0, -6));
-            }
-          }
-        } catch {
-          // Ignore mock readdir errors
-        }
-      }
-    }
-  } else {
-    const config = traceR2Config();
-    if (config) {
-      try {
-        const proc = await execFileAsync(
-          "aws",
-          [
-            "--region",
-            config.region,
-            "--endpoint-url",
-            config.endpoint,
-            "s3api",
-            "list-objects-v2",
-            "--bucket",
-            config.bucket,
-            "--prefix",
-            prefix,
-          ],
-          {
-            timeout: 10_000,
-            env: {
-              ...process.env,
-              AWS_ACCESS_KEY_ID: config.accessKeyId,
-              AWS_SECRET_ACCESS_KEY: config.secretAccessKey,
-            },
-          },
-        );
-        const listing = jsonObject(parseJsonText(proc.stdout));
-        for (const item of jsonArray(listing?.Contents) ?? []) {
-          const key = jsonString(jsonObject(item)?.Key);
-          if (key && key.startsWith(prefix) && key.endsWith(".jsonl")) {
-            const subName = key.slice(prefix.length, -6);
-            if (subName) subagents.add(subName);
-          }
-        }
-      } catch {
-        // Ignore remote list failure
-      }
-    }
-  }
-
   return [...subagents].sort();
+}
+
+/** The subagent trace names one store session holds. */
+function storedSubagentNames(session: TraceStoreSession | null): string[] {
+  return (session?.objects ?? [])
+    .filter((object) => object.name !== "main.jsonl.gz")
+    .map((object) => traceNameFromObject(object.name));
+}
+
+/** Old corpus files named the store key `r2Key`. */
+function migrateNormalizedTraceSource(
+  source: LegacyNormalizedTraceSource,
+): NormalizedTraceMetadata["source"] {
+  if (source.key !== undefined) {
+    return {
+      key: source.key,
+      bytes: source.bytes ?? 0,
+      checkedAt: source.checkedAt ?? "",
+    };
+  }
+  // An old file counted the raw bytes, which no store object size matches.
+  // Zero bytes makes the next check materialize the trace once.
+  return {
+    key: source.r2Key ?? "",
+    bytes: 0,
+    checkedAt: source.checkedAt ?? "",
+  };
 }
 
 export async function prScanTrailerSessions(
@@ -1915,34 +1690,23 @@ async function addSessionsFromPrScan(
   }
 }
 
-async function addSessionsFromR2Index(
+async function addSessionsFromStoreIndex(
+  access: TraceStoreAccess,
   commits: CommitWithSessions[],
   sessions: Map<string, ReviewTraceSessionRef>,
 ): Promise<void> {
-  if (!isTraceR2Configured()) return;
   for (const commit of commits) {
-    const key = `by-commit/${commit.sha}.json`;
-    try {
-      const entrySessions = jsonArray(
-        jsonObject(await r2GetJson(key))?.sessions,
-      );
-      if (!entrySessions) continue;
-      for (const value of entrySessions) {
-        const parsed = sessionIdSchema.safeParse(value);
-        if (!parsed.success) continue;
-        const sessionId = parsed.data;
-        const existing = sessions.get(sessionId);
-        if (existing) {
-          existing.commits.push({ sha: commit.sha, subject: commit.subject });
-        } else {
-          sessions.set(sessionId, {
-            sessionId,
-            commits: [{ sha: commit.sha, subject: commit.subject }],
-          });
-        }
+    if (!commitShaSchema.safeParse(commit.sha).success) continue;
+    for (const stored of await listStoreSessionsForCommit(access, commit.sha)) {
+      const existing = sessions.get(stored.sessionId);
+      if (existing) {
+        existing.commits.push({ sha: commit.sha, subject: commit.subject });
+      } else {
+        sessions.set(stored.sessionId, {
+          sessionId: stored.sessionId,
+          commits: [{ sha: commit.sha, subject: commit.subject }],
+        });
       }
-    } catch {
-      // Ignore malformed index entries.
     }
   }
 }

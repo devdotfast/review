@@ -9,7 +9,10 @@ Agent-written commits record `Agent-Session: <id>` trailers. Use the `review tra
 
 ## Configuration
 
-Setup is human-owned. If a command reports missing trace configuration, ask the user to use Review Agent Setup. Then stop.
+`review trace pull` needs a login and an allowed repository. Setup is
+human-owned. If a command reports a missing login or a repository that is not
+allowed, ask the user to run `review login`, then `review trace allow .` in
+this repository. Then stop.
 
 FFF setup is human-owned. If FFF is unavailable, report the setup gap. Do not replace or reconfigure it.
 

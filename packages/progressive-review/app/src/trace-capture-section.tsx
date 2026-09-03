@@ -14,9 +14,13 @@ type TraceCredentials = Exclude<InstallApplyRequest["trace"], true | undefined>;
  * Features only: onboarding never mentions it, and nothing else in the app
  * depends on it being enabled.
  *
- * The on/off state is the machine-level trace setting the review server owns,
- * read back through the install status. Enabling installs the agent hooks and
- * trace skill for every agent already set up; disabling removes them again.
+ * The state reads the repositories the user allowed with
+ * `review trace allow .`, so it shows "enabled" only when a repository can
+ * publish traces. Enable installs the agent hooks and the trace skill for
+ * every agent already set up. The app cannot allow a repository for the
+ * user: that needs a repository path, a login, and an onboarded store.
+ * Disable removes the hooks and the skill, and denies every allowed
+ * repository.
  */
 export function TraceCaptureSection({
   install,
@@ -28,17 +32,6 @@ export function TraceCaptureSection({
   const [status, setStatus] = useState<ReviewCliInstallStatus>(install.status);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [traceEndpoint, setTraceEndpoint] = useState(
-    install.status.trace.endpoint ?? "",
-  );
-  const [traceBucket, setTraceBucket] = useState(
-    install.status.trace.bucket ?? "",
-  );
-  const [traceRegion, setTraceRegion] = useState(
-    install.status.trace.region ?? "",
-  );
-  const [traceKey, setTraceKey] = useState("");
-  const [traceSecret, setTraceSecret] = useState("");
 
   useEffect(() => setStatus(install.status), [install.status]);
 
@@ -61,6 +54,9 @@ export function TraceCaptureSection({
     }
   };
 
+  // The stamp is the only record that this machine installed the hooks; the
+  // enabled state alone cannot tell an unallowed machine from a bare one.
+  const hooksManaged = status.stamp?.traceManaged === true;
   const installedTargets = status.stamp?.targets?.length
     ? status.stamp.targets
     : status.agents
@@ -94,64 +90,19 @@ export function TraceCaptureSection({
         <span
           className="review-agent-setup-state"
           data-installed={status.trace.enabled}
-          title={status.trace.envPath}
         >
-          {status.trace.enabled
-            ? status.trace.error
-              ? "enabled, storage check failed"
-              : "enabled"
-            : status.trace.configured
-              ? "ready to enable"
-              : "off"}
+          {status.trace.enabled ? "enabled" : "off"}
         </span>
         <span className="review-agent-setup-cli">
-          Records agent sessions to your own S3/R2 bucket so reviews can quote
-          them. Session hooks activate each Git or Jujutsu repository when an
+          Records agent sessions to the hosted trace store so reviews can quote
+          them. Enable installs the session hooks and the trace skill. The state
+          shows enabled after you run <code>review login</code> and then{" "}
+          <code>review trace allow .</code> in each repository that may publish
+          traces. Session hooks activate each Git or Jujutsu repository when an
           agent session starts.
         </span>
       </div>
-      <div className="review-agent-setup-trace-fields">
-        <input
-          aria-label="S3/R2 endpoint URL"
-          placeholder="S3/R2 endpoint URL"
-          value={traceEndpoint}
-          onChange={(event) => setTraceEndpoint(event.currentTarget.value)}
-        />
-        <input
-          aria-label="S3/R2 bucket"
-          placeholder="S3/R2 bucket"
-          value={traceBucket}
-          onChange={(event) => setTraceBucket(event.currentTarget.value)}
-        />
-        <input
-          aria-label="S3/R2 region"
-          placeholder="Region (auto for R2)"
-          value={traceRegion}
-          onChange={(event) => setTraceRegion(event.currentTarget.value)}
-        />
-        <input
-          aria-label="S3/R2 access key ID"
-          placeholder={
-            status.trace.accessKeyIdPrefix
-              ? `Access key (${status.trace.accessKeyIdPrefix}…)`
-              : "S3/R2 access key ID"
-          }
-          value={traceKey}
-          onChange={(event) => setTraceKey(event.currentTarget.value)}
-        />
-        <input
-          aria-label="S3/R2 secret access key"
-          type="password"
-          placeholder={
-            status.trace.configured
-              ? "Secret key (unchanged)"
-              : "S3/R2 secret access key"
-          }
-          value={traceSecret}
-          onChange={(event) => setTraceSecret(event.currentTarget.value)}
-        />
-      </div>
-      {status.trace.enabled ? (
+      {status.trace.enabled || hooksManaged ? (
         <button
           type="button"
           className="review-agent-setup-subtle"
@@ -169,36 +120,18 @@ export function TraceCaptureSection({
         type="button"
         disabled={busy !== null}
         onClick={() =>
-          void run(
-            "trace",
-            () => {
-              const trace: TraceCredentials = {};
-              if (traceEndpoint) trace.endpoint = traceEndpoint;
-              if (traceBucket) trace.bucket = traceBucket;
-              if (traceRegion) trace.region = traceRegion;
-              if (traceKey) trace.key = traceKey;
-              if (traceSecret) trace.secret = traceSecret;
-              const request: InstallApplyRequest = {
-                targets: installedTargets,
-                trace,
-              };
-              if (fffTargets.length > 0) request.fff = true;
-              return install.apply(request);
-            },
-            () => {
-              setTraceKey("");
-              setTraceSecret("");
-            },
+          void run("trace", () =>
+            install.apply({
+              targets: installedTargets,
+              fff: fffTargets.length > 0 ? true : undefined,
+              trace: true,
+            }),
           )
         }
       >
-        {busy === "trace"
-          ? "Checking…"
-          : status.trace.enabled
-            ? "Repair"
-            : "Enable"}
+        {busy === "trace" ? "Checking…" : hooksManaged ? "Repair" : "Enable"}
       </button>
-      {status.trace.enabled && fffTargets.length > 0 ? (
+      {(status.trace.enabled || hooksManaged) && fffTargets.length > 0 ? (
         <div className="review-agent-setup-terminal review-agent-setup-trace-search">
           <div className="review-agent-setup-terminal-info">
             <span className="review-agent-setup-name">Trace search</span>

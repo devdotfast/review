@@ -9,13 +9,14 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { homedir } from "node:os";
 import path from "node:path";
 import { Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { isJsonObject, parseJsonText } from "@dev.fast/review-protocol";
+
+import { devReviewHome } from "./review-storage";
 
 export interface EnsureBundledToolInput {
   tool: string;
@@ -32,10 +33,7 @@ interface ReviewToolIdentity {
 }
 
 export function reviewToolsRoot(env: NodeJS.ProcessEnv = process.env): string {
-  const devHome = env.DEV_REVIEW_HOME?.trim()
-    ? path.resolve(env.DEV_REVIEW_HOME)
-    : path.join(homedir(), ".dev");
-  return path.join(devHome, "review-tools");
+  return path.join(devReviewHome(env), "review-tools");
 }
 
 export async function ensureBundledTool(

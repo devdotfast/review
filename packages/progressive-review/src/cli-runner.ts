@@ -69,18 +69,25 @@ import { runReviewWait, validateReviewWait } from "./review-wait";
 import { installReviewCommand, pathShimPath } from "./server/cli-install";
 import { reviewDesktopDiscoveryPath } from "./server/desktop-paths";
 import {
+  DEFAULT_STORE_ORIGIN,
+  runReviewLogin,
+  runReviewLogout,
+  runReviewWhoami,
+} from "./store-auth";
+import {
   runReviewThreadsGet,
   runReviewThreadsList,
   runReviewThreadsReply,
   runReviewThreadsResolve,
 } from "./threads-cli";
 import {
+  runReviewTraceAllow,
   runReviewTraceBlame,
-  runReviewTraceDisable,
-  runReviewTraceEnable,
+  runReviewTraceDeny,
   runReviewTraceGitHook,
   runReviewTraceHook,
   runReviewTraceList,
+  runReviewTraceOnboard,
   runReviewTracePull,
   runReviewTraceRepair,
   runReviewTraceShow,
@@ -114,8 +121,9 @@ interface ProgressiveReviewCliRuntime {
   runReviewMigration: typeof runReviewMigration;
   runSoftwareMapCli: typeof runSoftwareMapCli;
   runReviewTraceStatus: typeof runReviewTraceStatus;
-  runReviewTraceEnable: typeof runReviewTraceEnable;
-  runReviewTraceDisable: typeof runReviewTraceDisable;
+  runReviewTraceOnboard: typeof runReviewTraceOnboard;
+  runReviewTraceAllow: typeof runReviewTraceAllow;
+  runReviewTraceDeny: typeof runReviewTraceDeny;
   runReviewTraceRepair: typeof runReviewTraceRepair;
   runReviewTraceList: typeof runReviewTraceList;
   runReviewTraceShow: typeof runReviewTraceShow;
@@ -127,6 +135,9 @@ interface ProgressiveReviewCliRuntime {
   listReviews: typeof listReviews;
   sealReviewCandidate: typeof sealReviewCandidate;
   prepareReviewPinnedCheckout: typeof prepareReviewPinnedCheckout;
+  runReviewLogin: typeof runReviewLogin;
+  runReviewLogout: typeof runReviewLogout;
+  runReviewWhoami: typeof runReviewWhoami;
 }
 
 export interface ProgressiveReviewCliInput {
@@ -577,6 +588,48 @@ export async function runProgressiveReviewCli(
       state.exitCode = 0;
     });
 
+  configureJsonOutput(
+    program
+      .command("login")
+      .description("Log in to the hosted trace store with GitHub"),
+    "plain",
+  )
+    .option("--origin <url>", "Store origin", DEFAULT_STORE_ORIGIN)
+    .option("--no-browser", "Print the URL instead of opening a browser")
+    .action(
+      async (options: {
+        origin?: string;
+        browser?: boolean;
+        json?: boolean;
+      }) => {
+        state.exitCode = await runtime.runReviewLogin({
+          origin: options.origin,
+          noBrowser: !options.browser,
+          json: options.json,
+          stdout: input.stdout,
+          stderr: input.stderr,
+        });
+      },
+    );
+
+  program
+    .command("logout")
+    .description("Forget the hosted trace store login")
+    .action(async () => {
+      state.exitCode = await runtime.runReviewLogout({ stdout: input.stdout });
+    });
+
+  configureJsonOutput(
+    program.command("whoami").description("Show the hosted trace store login"),
+    "plain",
+  ).action(async (options: { json?: boolean }) => {
+    state.exitCode = await runtime.runReviewWhoami({
+      json: options.json,
+      stdout: input.stdout,
+      stderr: input.stderr,
+    });
+  });
+
   const install = configureJsonOutput(
     program
       .command("install")
@@ -592,30 +645,6 @@ export async function runProgressiveReviewCli(
         ]),
       )
       .option(
-        "--trace-endpoint <url>",
-        "S3/R2 endpoint URL (experimental trace capture)",
-      )
-      .option(
-        "--trace-bucket <name>",
-        "S3/R2 bucket name (experimental trace capture)",
-      )
-      .option(
-        "--trace-key <id>",
-        "S3/R2 access key ID (experimental trace capture)",
-      )
-      .option(
-        "--trace-secret <key>",
-        "S3/R2 secret access key (experimental trace capture)",
-      )
-      .option(
-        "--trace-region <region>",
-        "SigV4 signing region; default auto for R2, set the bucket region for S3",
-      )
-      .option(
-        "--without-traces",
-        "Deprecated: trace capture is off unless --trace-* options are given",
-      )
-      .option(
         "--no-shim",
         "Install skills without the review command or PATH changes",
       )
@@ -627,12 +656,6 @@ export async function runProgressiveReviewCli(
       targets: string[],
       options: {
         json?: boolean;
-        traces?: boolean;
-        traceEndpoint?: string;
-        traceBucket?: string;
-        traceKey?: string;
-        traceSecret?: string;
-        traceRegion?: string;
         shim?: boolean;
       },
     ) => {
@@ -650,20 +673,6 @@ export async function runProgressiveReviewCli(
         stderr: input.stderr,
       };
       if (installShim) installInput.reviewCommand = pathShimPath();
-      // Trace capture is experimental and opt-in: only a request that names
-      // R2 credentials configures it. --without-traces stays accepted so
-      // existing scripts keep working.
-      if (traceCredentialsRequested(options) && options.traces !== false) {
-        installInput.trace = {
-          credentials: {
-            endpoint: options.traceEndpoint,
-            bucket: options.traceBucket,
-            key: options.traceKey,
-            secret: options.traceSecret,
-            region: options.traceRegion,
-          },
-        };
-      }
       state.exitCode = await runtime.runInstall(installInput);
       if (state.exitCode !== 0 || !installShim) return;
 
@@ -809,48 +818,81 @@ export async function runProgressiveReviewCli(
     state.exitCode = 0;
   });
 
-  // The trace surface: inspect storage, manage one repository, or read events.
+  // The trace surface: onboard and allow a repository, inspect storage, or
+  // read events. `traces` is an alias for scripts that prefer the plural.
   const trace = configureOutput(
-    program.command("trace").description("Manage agent traces"),
+    program.command("trace").alias("traces").description("Manage agent traces"),
     "plain",
   );
-  configureOutput(
+  configureJsonOutput(
     trace
       .command("status")
-      .description("Verify S3/R2 trace storage configuration and connectivity"),
+      .description("Show login, allowed repositories, and pending sessions"),
     "plain",
-  ).action(async () => {
+  ).action(async (options: { json?: boolean }) => {
     state.exitCode = await runtime.runReviewTraceStatus({
       cwd,
+      json: options.json,
       stdout: input.stdout,
       stderr: input.stderr,
     });
   });
 
-  configureOutput(
+  configureJsonOutput(
     trace
-      .command("enable [path]")
-      .description("Enable trace hooks for one Git repository"),
+      .command("onboard [path]")
+      .description("Create the hosted trace store for one repository"),
     "plain",
-  ).action(async (repoPath?: string) => {
-    state.exitCode = await runtime.runReviewTraceEnable({
-      cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
-      stdout: input.stdout,
-      stderr: input.stderr,
-    });
-  });
+  ).action(
+    async (repoPath: string | undefined, options: { json?: boolean }) => {
+      state.exitCode = await runtime.runReviewTraceOnboard({
+        cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
+        json: options.json,
+        stdout: input.stdout,
+        stderr: input.stderr,
+      });
+    },
+  );
 
-  configureOutput(
+  configureJsonOutput(
     trace
-      .command("disable [path]")
-      .description("Disable Review trace hooks for one Git repository"),
+      .command("allow [path]")
+      .description("Allow one repository to publish traces")
+      .option(
+        "--no-harness-hooks",
+        "skip the Claude, Codex, and pi hook installers",
+      ),
     "plain",
-  ).action(async (repoPath?: string) => {
-    state.exitCode = await runtime.runReviewTraceDisable({
-      cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
-      stdout: input.stdout,
-    });
-  });
+  ).action(
+    async (
+      repoPath: string | undefined,
+      options: { json?: boolean; harnessHooks?: boolean },
+    ) => {
+      state.exitCode = await runtime.runReviewTraceAllow({
+        cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
+        json: options.json,
+        harnessHooks: options.harnessHooks,
+        stdout: input.stdout,
+        stderr: input.stderr,
+      });
+    },
+  );
+
+  configureJsonOutput(
+    trace
+      .command("deny [path]")
+      .description("Stop publishing traces from one repository"),
+    "plain",
+  ).action(
+    async (repoPath: string | undefined, options: { json?: boolean }) => {
+      state.exitCode = await runtime.runReviewTraceDeny({
+        cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
+        json: options.json,
+        stdout: input.stdout,
+        stderr: input.stderr,
+      });
+    },
+  );
 
   configureOutput(
     trace
@@ -997,7 +1039,7 @@ export async function runProgressiveReviewCli(
   configureJsonOutput(
     trace
       .command("sync <session-id>")
-      .description("Upload a local session trace and its metadata")
+      .description("Ship a local session trace to the hosted trace store")
       .option("--repo <repo>", "GitHub owner/repo"),
     "plain",
   ).action(
@@ -1014,6 +1056,7 @@ export async function runProgressiveReviewCli(
         repo: options.repo,
         json: options.json,
         stdout: input.stdout,
+        stderr: input.stderr,
       });
     },
   );
@@ -1270,8 +1313,9 @@ function progressiveReviewCliRuntime(
     runReviewMigration,
     runSoftwareMapCli,
     runReviewTraceStatus,
-    runReviewTraceEnable,
-    runReviewTraceDisable,
+    runReviewTraceOnboard,
+    runReviewTraceAllow,
+    runReviewTraceDeny,
     runReviewTraceRepair,
     runReviewTraceList,
     runReviewTraceShow,
@@ -1283,6 +1327,9 @@ function progressiveReviewCliRuntime(
     listReviews,
     sealReviewCandidate,
     prepareReviewPinnedCheckout,
+    runReviewLogin,
+    runReviewLogout,
+    runReviewWhoami,
     ...overrides,
   };
 }
@@ -1353,20 +1400,6 @@ function progressiveReviewTopLevelHelp(): string {
   ].join("\n");
 }
 
-function traceCredentialsRequested(options: {
-  traceEndpoint?: string;
-  traceBucket?: string;
-  traceKey?: string;
-  traceSecret?: string;
-}): boolean {
-  return Boolean(
-    options.traceEndpoint ||
-    options.traceBucket ||
-    options.traceKey ||
-    options.traceSecret,
-  );
-}
-
 function progressiveReviewInstallHelp(): string {
   return [
     "",
@@ -1388,8 +1421,8 @@ function progressiveReviewInstallHelp(): string {
     "  review install claude cursor",
     "  review install all",
     "",
-    "Trace capture (experimental) is off unless S3/R2 credentials are given:",
-    "  review install codex --trace-endpoint <url> --trace-bucket <name> --trace-key <id> --trace-secret <key>",
+    "Trace capture needs no options here: run review login, then",
+    "review trace allow . in each repository that may publish traces.",
   ].join("\n");
 }
 
@@ -1582,13 +1615,22 @@ function telemetryCommandPath(
     return "invalid";
   }
   if (
+    parent === "trace" &&
+    (name === "onboard" || name === "allow" || name === "deny")
+  ) {
+    return `trace.${name}`;
+  }
+  if (
     name === "version" ||
     name === "rebind" ||
     name === "publish" ||
     name === "wait" ||
     name === "info" ||
     name === "scaffold" ||
-    name === "install"
+    name === "install" ||
+    name === "login" ||
+    name === "logout" ||
+    name === "whoami"
   ) {
     return name;
   }

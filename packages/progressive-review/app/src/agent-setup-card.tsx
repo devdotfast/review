@@ -53,6 +53,11 @@ export function AgentSetupCard({
     }
   };
 
+  // FFF belongs to trace capture: manage it when this machine installed the
+  // trace hooks, or when a repository may publish traces.
+  const traceCapture =
+    status.trace.enabled || status.stamp?.traceManaged === true;
+
   return (
     <section className="review-agent-setup" aria-label="Agent setup">
       <ul className="review-agent-setup-agents">
@@ -90,7 +95,13 @@ export function AgentSetupCard({
                   disabled={busy !== null}
                   onClick={() =>
                     void run(`remove-${agent.target}`, () =>
-                      install.remove(request),
+                      install.remove({
+                        targets: [agent.target],
+                        fff:
+                          traceCapture && supportsFff(agent.target)
+                            ? true
+                            : undefined,
+                      }),
                     )
                   }
                 >
@@ -103,7 +114,15 @@ export function AgentSetupCard({
                 type="button"
                 disabled={busy !== null}
                 onClick={() =>
-                  void run(agent.target, () => install.apply(request))
+                  void run(agent.target, () =>
+                    install.apply({
+                      targets: [agent.target],
+                      fff:
+                        traceCapture && supportsFff(agent.target)
+                          ? true
+                          : undefined,
+                    }),
+                  )
                 }
               >
                 {busy === agent.target

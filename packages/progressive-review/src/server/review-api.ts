@@ -14,6 +14,7 @@ import {
   type JsonValue,
   type ReviewCommentThreadRecord,
   type ReviewSessionWire,
+  type ReviewStackResponse,
   type ReviewThreadsCommit,
   type ReviewVerbRequest,
   isJsonObject,
@@ -53,10 +54,12 @@ import {
   resolveReviewDiffFiles,
   resolveReviewFileContent,
 } from "../review-diff-files";
+import { listReviews } from "../review-home";
 import {
   normalizeReviewRoutePath,
   resolveReviewDocumentFilePath,
 } from "../review-paths";
+import { resolveReviewStackLayers } from "../review-stack";
 import { saveReviewSubmissionAudit } from "../review-state-store";
 import { ReviewThreadsService } from "../review-threads-service";
 import {
@@ -379,6 +382,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     route(softwareMapArtifactsRefresh),
   );
   app.get("/document-meta", route(documentMeta));
+  app.get("/stack", route(reviewStack));
   app.post("/diff-files", route(diffFiles));
   app.get("/file-content", route(fileContent));
   app.get("/agent-traces", route(agentTraces));
@@ -896,6 +900,24 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     });
   }
 
+  async function reviewStack(): Promise<Response> {
+    const current = readReviewStoreRecord(reviewRootPath);
+    if (!current.pullRequestNumber) {
+      return reviewApiJsonResponse(200, { layers: [] });
+    }
+    const listed = await listReviews();
+    const reviews = listed.reviews.map((stored) => stored.review);
+    reviews.sort(
+      (left, right) =>
+        (right.lastPublishedAt ?? "").localeCompare(
+          left.lastPublishedAt ?? "",
+        ) || left.uuid.localeCompare(right.uuid),
+    );
+    return reviewApiJsonResponse(200, {
+      layers: await resolveReviewStackLayers(current, reviews),
+    });
+  }
+
   async function diffFiles(context: Context<ReviewHonoEnv>): Promise<Response> {
     const url = new URL(context.req.url);
     const body = parseReviewDiffFilesInput(await readJson(context.req.raw));
@@ -1051,7 +1073,10 @@ interface ReviewApiThreadBody {
   comment: ReviewCommentThreadRecord;
 }
 
-type ReviewApiResponseBody = ReviewApiStatusBody | ReviewApiThreadBody;
+type ReviewApiResponseBody =
+  | ReviewApiStatusBody
+  | ReviewApiThreadBody
+  | ReviewStackResponse;
 
 function reviewApiJsonResponse<T extends ReviewApiResponseBody>(
   status: number,

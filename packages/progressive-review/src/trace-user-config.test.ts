@@ -67,5 +67,8 @@ describe("trace user config", () => {
       "utf8",
     );
     await expect(readTraceUserConfig()).rejects.toThrow(configPath);
+
+    await writeFile(configPath, "null", "utf8");
+    await expect(readTraceUserConfig()).rejects.toThrow(configPath);
   });
 });

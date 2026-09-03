@@ -7,6 +7,13 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import {
+  type JsonValue,
+  isJsonArray,
+  isJsonObject,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
+
 import { devReviewHome } from "./review-storage";
 import { writePrivateJsonAtomic } from "./server/desktop-paths";
 
@@ -41,13 +48,41 @@ export async function readTraceUserConfig(
     }
     throw error;
   }
-  const parsed = JSON.parse(raw) as TraceUserConfig;
-  if (parsed.version !== 1) {
+  let parsed: JsonValue;
+  try {
+    parsed = parseJsonText(raw);
+  } catch {
+    throw new Error(`Trace config at ${filePath} is not valid JSON.`);
+  }
+  if (!isJsonObject(parsed) || parsed.version !== 1) {
+    const version = isJsonObject(parsed) ? parsed.version : undefined;
     throw new Error(
-      `Unsupported trace config version ${parsed.version} at ${filePath}.`,
+      `Unsupported trace config version ${version} at ${filePath}.`,
     );
   }
-  return parsed;
+  const repositories = isJsonArray(parsed.repositories)
+    ? parsed.repositories.flatMap((entry) => {
+        const repository = parseTraceRepositoryEntry(entry);
+        return repository ? [repository] : [];
+      })
+    : [];
+  return { version: 1, repositories };
+}
+
+function parseTraceRepositoryEntry(
+  value: JsonValue,
+): TraceRepositoryEntry | null {
+  if (!isJsonObject(value)) return null;
+  const { repositoryId, name, store, allowedAt } = value;
+  if (
+    typeof repositoryId !== "number" ||
+    typeof name !== "string" ||
+    typeof store !== "string" ||
+    typeof allowedAt !== "string"
+  ) {
+    return null;
+  }
+  return { repositoryId, name, store, allowedAt };
 }
 
 export async function allowTraceRepository(

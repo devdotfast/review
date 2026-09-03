@@ -62,6 +62,45 @@ describe("bug report protocol", () => {
     expect(ReviewBugReportMetaV2Schema.parse(baseMeta)).toEqual(baseMeta);
   });
 
+  it("accepts a verbatim Unicode and multiline description", () => {
+    const description = "First line\nSnowman: ☃️\nLast line";
+    const meta = {
+      ...baseMeta,
+      description,
+      description_length: new TextEncoder().encode(description).byteLength,
+    };
+
+    expect(ReviewBugReportMetaV2Schema.parse(meta)).toEqual(meta);
+  });
+
+  it("accepts the 64 KiB description boundary", () => {
+    const description = "😀".repeat(16_384);
+    const meta = {
+      ...baseMeta,
+      description,
+      description_length: 65_536,
+    };
+
+    expect(ReviewBugReportMetaV2Schema.parse(meta)).toEqual(meta);
+  });
+
+  it("rejects an oversized description or a byte-length mismatch", () => {
+    expect(() =>
+      ReviewBugReportMetaV2Schema.parse({
+        ...baseMeta,
+        description: "😀".repeat(16_384) + "a",
+        description_length: 65_536,
+      }),
+    ).toThrow(/65,536 UTF-8 bytes/);
+    expect(() =>
+      ReviewBugReportMetaV2Schema.parse({
+        ...baseMeta,
+        description: "Snow: 雪",
+        description_length: 7,
+      }),
+    ).toThrow(/must match the description UTF-8 byte length/);
+  });
+
   it("rejects skipped or reordered trace filenames", () => {
     expect(() =>
       ReviewBugReportMetaV2Schema.parse({

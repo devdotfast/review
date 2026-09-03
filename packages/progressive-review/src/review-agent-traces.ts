@@ -36,6 +36,8 @@ import {
   parseAgentTraceJsonl,
   sniffAgentTraceHarness,
 } from "./agent-trace-parser";
+import { r2GetBytes, r2HeadSize, r2ListKeys, r2PutBytes, r2Request } from "./r2-client";
+import { traceCommand } from "./startup-trace";
 
 /**
  * Resolves the agent sessions behind a review's change range, loads their
@@ -470,6 +472,25 @@ export function traceSearchCorpusDir(): string {
 }
 
 export async function pullReviewTraceCorpus(input: {
+const TRACE_PULL_CONCURRENCY = 6;
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  work: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await work(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
   repo: { owner: string; repo: string };
   sessions: ReviewTracePullSession[];
   mainOnly?: boolean;
@@ -480,12 +501,36 @@ export async function pullReviewTraceCorpus(input: {
   const sessions: ReviewTracePullSessionResult[] = [];
   const unavailableSessions: string[] = [];
   const paths: string[] = [];
-  for (const sessionRef of input.sessions) {
-    const main = await loadReviewAgentTrace({
-      sessionId: sessionRef.id,
-      repo: input.repo,
-      refresh: true,
-    });
+  // Sessions and their subagent traces download concurrently; the pull used to
+  // walk them one object at a time, each a serial round-trip.
+  const pulled = await mapWithConcurrency(
+    input.sessions,
+    TRACE_PULL_CONCURRENCY,
+    async (sessionRef) => {
+      const main = await loadReviewAgentTrace({
+        sessionId: sessionRef.id,
+        repo: input.repo,
+        refresh: true,
+      });
+      if (!main) return { sessionRef, main: null, subagents: [] };
+      const subagentNames = input.mainOnly ? [] : (sessionRef.traces ?? main.subagents);
+      const subagents = await mapWithConcurrency(
+        subagentNames,
+        TRACE_PULL_CONCURRENCY,
+        async (traceName) => ({
+          traceName,
+          loaded: await loadReviewAgentTrace({
+            sessionId: sessionRef.id,
+            trace: traceName,
+            repo: input.repo,
+            refresh: true,
+          }),
+        }),
+      );
+      return { sessionRef, main, subagents };
+    },
+  );
+  for (const { sessionRef, main, subagents } of pulled) {
     if (!main) {
       unavailableSessions.push(sessionRef.id);
       continue;
@@ -493,22 +538,13 @@ export async function pullReviewTraceCorpus(input: {
     paths.push(normalizedTracePath(input.repo, sessionRef.id, "main"));
     let traceCount = 1;
     let eventCount = main.trace.events.length;
-    if (!input.mainOnly) {
-      for (const traceName of sessionRef.traces ?? main.subagents) {
-        const subagent = await loadReviewAgentTrace({
-          sessionId: sessionRef.id,
-          trace: traceName,
-          repo: input.repo,
-          refresh: true,
-        });
-        if (subagent) {
-          paths.push(normalizedTracePath(input.repo, sessionRef.id, traceName));
-          traceCount += 1;
-          eventCount += subagent.trace.events.length;
-        }
+    for (const { traceName, loaded } of subagents) {
+      if (loaded) {
+        paths.push(normalizedTracePath(input.repo, sessionRef.id, traceName));
+        traceCount += 1;
+        eventCount += loaded.trace.events.length;
       }
     }
-
     sessions.push({
       session: sessionRef.id,
       traces: traceCount,
@@ -1255,27 +1291,15 @@ export async function checkReviewTraceDoctor(input?: {
   }
 
   try {
-    await execFileAsync(
-      "aws",
-      [
-        "--region",
-        "auto",
-        "--endpoint-url",
-        config.endpoint,
-        "s3api",
-        "head-bucket",
-        "--bucket",
-        config.bucket,
-      ],
-      {
-        timeout: 15_000,
-        env: {
-          ...process.env,
-          AWS_ACCESS_KEY_ID: config.accessKeyId,
-          AWS_SECRET_ACCESS_KEY: config.secretAccessKey,
-        },
-      },
-    );
+    const probe = await r2Request(config, {
+      method: "GET",
+      key: "",
+      query: { "list-type": "2", "max-keys": "1" },
+      timeoutMs: 15_000,
+    });
+    if (probe.status < 200 || probe.status >= 300) {
+      throw new Error(`R2 bucket ${config.bucket} returned ${probe.status}.`);
+    }
     return {
       ok: true,
       envPath,
@@ -1523,7 +1547,24 @@ export function traceR2Config(): TraceR2Config | null {
   return { bucket, endpoint, accessKeyId, secretAccessKey };
 }
 
-const execFileAsync = promisify(execFile);
+const execFilePromise = promisify(execFile);
+
+// Every spawn here (aws s3api, git) is a `$ …` span when tracing is enabled.
+function execFileAsync(
+  file: string,
+  args: string[],
+  options: Parameters<typeof execFilePromise>[2] = {},
+): Promise<{ stdout: string; stderr: string }> {
+  return traceCommand(
+    file,
+    args,
+    async () => {
+      const result = await execFilePromise(file, args, options);
+      return { stdout: String(result.stdout), stderr: String(result.stderr) };
+    },
+    { cwd: options?.cwd === undefined ? undefined : String(options.cwd) },
+  );
+}
 
 export async function r2HeadObjectSize(key: string): Promise<number | null> {
   if (process.env.TRACE_R2_MODE === "mock") {
@@ -1541,33 +1582,7 @@ export async function r2HeadObjectSize(key: string): Promise<number | null> {
   const config = traceR2Config();
   if (!config) return null;
   try {
-    const proc = await execFileAsync(
-      "aws",
-      [
-        "--region",
-        "auto",
-        "--endpoint-url",
-        config.endpoint,
-        "s3api",
-        "head-object",
-        "--bucket",
-        config.bucket,
-        "--key",
-        key,
-      ],
-      {
-        timeout: 10_000,
-        env: {
-          ...process.env,
-          AWS_ACCESS_KEY_ID: config.accessKeyId,
-          AWS_SECRET_ACCESS_KEY: config.secretAccessKey,
-        },
-      },
-    );
-    const parsed = JSON.parse(proc.stdout) as { ContentLength?: number };
-    return typeof parsed.ContentLength === "number"
-      ? parsed.ContentLength
-      : null;
+    return await r2HeadSize(config, key);
   } catch {
     return null;
   }
@@ -1595,32 +1610,10 @@ export async function r2GetObject(
   const config = traceR2Config();
   if (!config) return false;
   try {
-    await execFileAsync(
-      "aws",
-      [
-        "--region",
-        "auto",
-        "--endpoint-url",
-        config.endpoint,
-        "s3api",
-        "get-object",
-        "--bucket",
-        config.bucket,
-        "--key",
-        key,
-        destPath,
-      ],
-      {
-        timeout: 60_000,
-        maxBuffer: 16 * 1024 * 1024,
-        env: {
-          ...process.env,
-          AWS_ACCESS_KEY_ID: config.accessKeyId,
-          AWS_SECRET_ACCESS_KEY: config.secretAccessKey,
-        },
-      },
-    );
-    return existsSync(destPath);
+    const bytes = await r2GetBytes(config, key);
+    if (bytes === null) return false;
+    writeFileSync(destPath, bytes);
+    return true;
   } catch {
     return false;
   }
@@ -1679,28 +1672,7 @@ export async function r2PutFile(
   const config = traceR2Config();
   if (!config) return false;
   try {
-    await execFileAsync(
-      "aws",
-      [
-        "--region",
-        "auto",
-        "--endpoint-url",
-        config.endpoint,
-        "s3",
-        "cp",
-        "--only-show-errors",
-        filePath,
-        `s3://${config.bucket}/${key}`,
-      ],
-      {
-        timeout: 60_000,
-        env: {
-          ...process.env,
-          AWS_ACCESS_KEY_ID: config.accessKeyId,
-          AWS_SECRET_ACCESS_KEY: config.secretAccessKey,
-        },
-      },
-    );
+    await r2PutBytes(config, key, readFileSync(filePath));
     return true;
   } catch {
     return false;
@@ -1797,39 +1769,10 @@ export async function listSessionSubagents(
     const config = traceR2Config();
     if (config) {
       try {
-        const proc = await execFileAsync(
-          "aws",
-          [
-            "--region",
-            "auto",
-            "--endpoint-url",
-            config.endpoint,
-            "s3api",
-            "list-objects-v2",
-            "--bucket",
-            config.bucket,
-            "--prefix",
-            prefix,
-          ],
-          {
-            timeout: 10_000,
-            env: {
-              ...process.env,
-              AWS_ACCESS_KEY_ID: config.accessKeyId,
-              AWS_SECRET_ACCESS_KEY: config.secretAccessKey,
-            },
-          },
-        );
-        const parsed = JSON.parse(proc.stdout) as {
-          Contents?: Array<{ Key?: string }>;
-        };
-        for (const item of parsed.Contents ?? []) {
-          if (
-            item.Key &&
-            item.Key.startsWith(prefix) &&
-            item.Key.endsWith(".jsonl")
-          ) {
-            const subName = item.Key.slice(prefix.length, -6);
+        const listed = await r2ListKeys(config, prefix);
+        for (const key of listed.keys) {
+          if (key.startsWith(prefix) && key.endsWith(".jsonl")) {
+            const subName = key.slice(prefix.length, -6);
             if (subName) subagents.add(subName);
           }
         }

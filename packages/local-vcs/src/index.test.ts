@@ -60,44 +60,47 @@ describe("local vcs", () => {
     });
   });
 
-  it("lists a Jujutsu commit range from exact commit ids", async () => {
-    const rootPath = await mkdtemp(path.join(tmpdir(), "local-vcs-jj-log-"));
-    execFileSync("jj", ["git", "init", rootPath]);
-    execFileSync("jj", ["config", "set", "--repo", "user.name", "JJ User"], {
-      cwd: rootPath,
-    });
-    execFileSync(
-      "jj",
-      ["config", "set", "--repo", "user.email", "jj@example.com"],
-      { cwd: rootPath },
-    );
-    writeFileSync(path.join(rootPath, "app.ts"), "base\n");
-    execFileSync("jj", ["commit", "-m", "base"], { cwd: rootPath });
-    const baseRef = execFileSync(
-      "jj",
-      ["log", "-r", "@-", "--no-graph", "-T", "commit_id"],
-      { cwd: rootPath, encoding: "utf8" },
-    ).trim();
-    writeFileSync(path.join(rootPath, "app.ts"), "base\nchange\n");
-    execFileSync("jj", ["commit", "-m", "jj change"], { cwd: rootPath });
-    const headRef = execFileSync(
-      "jj",
-      ["log", "-r", "@-", "--no-graph", "-T", "commit_id"],
-      { cwd: rootPath, encoding: "utf8" },
-    ).trim();
+  it.skipIf(!commandExists("jj"))(
+    "lists a Jujutsu commit range from exact commit ids",
+    async () => {
+      const rootPath = await mkdtemp(path.join(tmpdir(), "local-vcs-jj-log-"));
+      execFileSync("jj", ["git", "init", rootPath]);
+      execFileSync("jj", ["config", "set", "--repo", "user.name", "JJ User"], {
+        cwd: rootPath,
+      });
+      execFileSync(
+        "jj",
+        ["config", "set", "--repo", "user.email", "jj@example.com"],
+        { cwd: rootPath },
+      );
+      writeFileSync(path.join(rootPath, "app.ts"), "base\n");
+      execFileSync("jj", ["commit", "-m", "base"], { cwd: rootPath });
+      const baseRef = execFileSync(
+        "jj",
+        ["log", "-r", "@-", "--no-graph", "-T", "commit_id"],
+        { cwd: rootPath, encoding: "utf8" },
+      ).trim();
+      writeFileSync(path.join(rootPath, "app.ts"), "base\nchange\n");
+      execFileSync("jj", ["commit", "-m", "jj change"], { cwd: rootPath });
+      const headRef = execFileSync(
+        "jj",
+        ["log", "-r", "@-", "--no-graph", "-T", "commit_id"],
+        { cwd: rootPath, encoding: "utf8" },
+      ).trim();
 
-    await expect(
-      listCommitRange({ rootPath, baseRef, headRef }),
-    ).resolves.toMatchObject([
-      {
-        commit: headRef,
-        parentCommit: baseRef,
-        subject: "jj change",
-        fileCount: 1,
-        additions: 1,
-      },
-    ]);
-  });
+      await expect(
+        listCommitRange({ rootPath, baseRef, headRef }),
+      ).resolves.toMatchObject([
+        {
+          commit: headRef,
+          parentCommit: baseRef,
+          subject: "jj change",
+          fileCount: 1,
+          additions: 1,
+        },
+      ]);
+    },
+  );
 
   it("detects a git repository and lists tracked files", async () => {
     const rootPath = await mkdtemp(path.join(tmpdir(), "local-vcs-git-"));

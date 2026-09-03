@@ -40,16 +40,6 @@ export class NotesLockTimeoutError extends Error {
   }
 }
 
-export interface NotesRef {
-  /** Fully-qualified notes ref, e.g. "refs/notes/dev-fast/software-map". */
-  ref: string;
-}
-
-export interface GitNotesTarget {
-  /** Repository root (working-copy path); the git dir is resolved from it. */
-  rootPath: string;
-}
-
 // ---------------------------------------------------------------------------
 // Reads
 // ---------------------------------------------------------------------------

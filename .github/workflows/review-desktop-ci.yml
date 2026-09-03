@@ -124,9 +124,5 @@ jobs:
       - name: Check the tutorial assets
         run: pnpm --filter @dev.fast/review check:tutorial
 
-      - name: Run Review Desktop unit tests
-        run: pnpm --filter @dev-fast/review-desktop test
-
-      - name: Run Review-only Code OSS harness tests
-        working-directory: apps/review-desktop/code-oss
-        run: npm run test-review-harness
+      - name: Check repository quality
+        run: pnpm lint && pnpm format:check && pnpm typecheck && pnpm test

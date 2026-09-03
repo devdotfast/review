@@ -23,7 +23,7 @@ import {
 } from "./review-root-context";
 import { SettingsPage } from "./settings-page";
 import { TutorialProvider } from "./tutorial-context";
-import { captureClientError, captureUiEvent } from "./ui-telemetry";
+import { captureClientError } from "./ui-telemetry";
 import { WelcomePage } from "./welcome-page";
 
 import "./styles.css";

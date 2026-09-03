@@ -23,10 +23,7 @@ import {
 } from "../../../../workbench/common/contributions.js";
 import { IEditorGroupsService } from "../../../../workbench/services/editor/common/editorGroupsService.js";
 import { IEditorService } from "../../../../workbench/services/editor/common/editorService.js";
-import {
-  LifecyclePhase,
-  ILifecycleService,
-} from "../../../../workbench/services/lifecycle/common/lifecycle.js";
+import { ILifecycleService } from "../../../../workbench/services/lifecycle/common/lifecycle.js";
 import { IReviewSessionService } from "../../../services/reviewSessionService.js";
 import { IReviewCanvasEditorTabsService } from "../../../services/reviewCanvasEditorTabsService.js";
 import { ReviewCanvasEditorInput } from "./reviewCanvasEditorInput.js";
@@ -38,6 +35,15 @@ interface StoredReviewTabs {
   readonly open: readonly string[];
   readonly active?: string;
 }
+
+Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
+  EditorPaneDescriptor.create(
+    ReviewCanvasEditorPane,
+    ReviewCanvasEditorPane.ID,
+    "Review",
+  ),
+  [new SyncDescriptor(ReviewCanvasEditorInput)],
+);
 
 class ReviewCanvasEditorContribution
   extends Disposable
@@ -59,18 +65,6 @@ class ReviewCanvasEditorContribution
     private readonly tabsService: IReviewCanvasEditorTabsService,
   ) {
     super();
-    this._register(
-      Registry.as<IEditorPaneRegistry>(
-        EditorExtensions.EditorPane,
-      ).registerEditorPane(
-        EditorPaneDescriptor.create(
-          ReviewCanvasEditorPane,
-          ReviewCanvasEditorPane.ID,
-          "Review",
-        ),
-        [new SyncDescriptor(ReviewCanvasEditorInput)],
-      ),
-    );
     this._register(
       this.editorService.onDidCloseEditor(({ editor }) => {
         if (!(editor instanceof ReviewCanvasEditorInput)) return;
@@ -105,9 +99,7 @@ class ReviewCanvasEditorContribution
         );
       }),
     );
-    void this.lifecycleService
-      .when(LifecyclePhase.Restored)
-      .then(() => this.initialize());
+    void this.initialize();
   }
 
   private async initialize(): Promise<void> {
@@ -219,5 +211,5 @@ class ReviewCanvasEditorContribution
 registerWorkbenchContribution2(
   ReviewCanvasEditorContribution.ID,
   ReviewCanvasEditorContribution,
-  WorkbenchPhase.BlockStartup,
+  WorkbenchPhase.AfterRestored,
 );

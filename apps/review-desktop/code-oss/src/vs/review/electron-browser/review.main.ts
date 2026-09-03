@@ -65,7 +65,6 @@ import { IDefaultAccountService } from '../../platform/defaultAccount/common/def
 import { AccountPolicyService, IAccountPolicyGateService } from '../../workbench/services/policies/common/accountPolicyService.js';
 import { MultiplexPolicyService } from '../../platform/policy/common/multiplexPolicyService.js';
 import { ReviewWorkbench } from '../browser/workbench.js';
-import { createReviewWorkbench } from '../browser/workbenchFactory.js';
 import { IWorkspaceEditingService } from '../../workbench/services/workspaces/common/workspaceEditing.js';
 import { ReviewConfigurationService } from '../services/configuration/browser/configurationService.js';
 import { ConfigurationCache } from '../../workbench/services/configuration/common/configurationCache.js';
@@ -128,7 +127,7 @@ export class ReviewMain extends Disposable {
 		this.applyWindowZoomLevel(services.configurationService);
 
 		// Create Agentic Workbench
-		const workbench = createReviewWorkbench(mainWindow.document.body, {
+		const workbench = new ReviewWorkbench(mainWindow.document.body, {
 			extraClasses: this.getExtraClasses(),
 		}, services.serviceCollection, services.logService);
 

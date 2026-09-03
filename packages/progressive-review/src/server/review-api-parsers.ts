@@ -1,22 +1,21 @@
-import type { IncomingMessage } from "node:http";
-
 import {
+  CreateReviewCommentInputSchema,
   ReviewBugReportRequestSchema,
   ReviewDiffFilesRequestSchema,
   ReviewThreadsCommandSchema,
+  ThreadTargetSchema,
+  parseZod,
 } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
-import { CreateReviewCommentInputSchema } from "../review-comment-schema";
 import type { ReviewTabTelemetryEvent } from "../telemetry";
-import { ThreadTargetSchema } from "../thread-target-schema";
 import type {
   CreateReviewCommentInput,
   CreateReviewSubmissionInput,
   ThreadTarget,
   UpdateReviewCommentInput,
 } from "../types";
-import { HttpJsonError, readBoundedJson } from "./http-json";
+import { HttpJsonError } from "./http-json";
 const MIN_REVIEW_TAB_DWELL_MS = 250;
 const MAX_REVIEW_TAB_DWELL_MS = 4 * 60 * 60 * 1_000;
 const APP_SESSION_ID_PATTERN = /^[A-Za-z0-9_-][A-Za-z0-9_.-]{15,127}$/;
@@ -169,10 +168,6 @@ export const UpdateReviewCommentInputSchema = z.strictObject({
   messageId: nonEmptyStringSchema.optional(),
 });
 
-export function readJson(req: IncomingMessage): Promise<unknown> {
-  return readBoundedJson(req, undefined, {});
-}
-
 export function requestJsonErrorStatus(error: unknown): number {
   return error instanceof HttpJsonError ? error.statusCode : 400;
 }
@@ -260,56 +255,4 @@ export function parseReviewCommentMessagePath(
 
 export function parseThreadTarget(value: unknown, label: string): ThreadTarget {
   return parseZod(ThreadTargetSchema, value, label, true);
-}
-
-export function requiredString(value: unknown, label: string): string {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new Error(`${label} must be a non-empty string`);
-  }
-  return value;
-}
-
-export function optionalPositiveInteger(
-  value: unknown,
-  label: string,
-): number | undefined {
-  if (value === undefined) return undefined;
-  const number = Number(value);
-  if (!Number.isInteger(number) || number < 1) {
-    throw new Error(`${label} must be a positive integer`);
-  }
-  return number;
-}
-
-function parseZod<T>(
-  schema: z.ZodType<T>,
-  value: unknown,
-  label?: string,
-  prefixPath = false,
-): T {
-  const result = schema.safeParse(value);
-  if (result.success) return result.data;
-  const issue = result.error.issues[0];
-  const issuePath = formatIssuePath(issue?.path ?? []);
-  const path =
-    prefixPath && label
-      ? issuePath
-        ? `${label}.${issuePath}`
-        : label
-      : issuePath || label;
-  throw new Error(
-    `${path ? `${path} ` : ""}${issue?.message ?? "Invalid input"}`,
-  );
-}
-
-function formatIssuePath(path: PropertyKey[]): string {
-  let output = "";
-  for (const segment of path) {
-    if (typeof segment === "number") {
-      output += `[${segment}]`;
-    } else {
-      output += `${output ? "." : ""}${String(segment)}`;
-    }
-  }
-  return output;
 }

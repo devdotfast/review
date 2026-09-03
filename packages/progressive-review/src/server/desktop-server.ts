@@ -12,7 +12,6 @@ import {
   type ReviewDesktopGlobalEvent,
   type ReviewRecord,
   type ReviewSessionDescriptor,
-  type ReviewSessionLifecycleEvent,
   type ReviewSessionWire,
   type ReviewTutorialOpenResponse,
   type ReviewVerbRequest,
@@ -106,7 +105,6 @@ import {
   readBoundedRequestJson,
 } from "./hono-http";
 import { HttpJsonError } from "./http-json";
-import { ReviewLifecycleRegistry } from "./lifecycle-registry";
 import { materializePublishRevision } from "./publish-stage";
 import { captureSanitizedUiTelemetry } from "./review-api";
 import { resolveReviewInfo } from "./review-info";
@@ -140,6 +138,7 @@ interface ActiveReviewSession {
   };
   handler: ReviewSessionHandler;
   promoted: boolean;
+  terminal: boolean;
   closing: boolean;
   telemetryStarted: boolean;
   telemetryEnded: boolean;
@@ -221,7 +220,6 @@ export interface GlobalReviewServerInput {
   token?: string;
   instanceId?: string;
   discoveryPath?: string;
-  lifecycle?: ReviewLifecycleRegistry;
   capacity?: number;
   sessionHandlerFactory?: typeof createReviewSessionHandler;
   tutorialAuthoringSessionFactory?: typeof createTutorialAuthoringSession;
@@ -231,13 +229,6 @@ export interface GlobalReviewServerInput {
     materializePublishRevision: typeof materializePublishRevision;
   };
   telemetry?: ProgressiveReviewTelemetry;
-  developmentModule?: ReviewDesktopDevelopmentModule;
-}
-
-export interface ReviewDesktopDevelopmentModule {
-  routePath: string;
-  fetch(request: Request): Promise<Response>;
-  close(): Promise<void>;
 }
 
 export interface GlobalReviewServer {
@@ -257,7 +248,6 @@ export function createGlobalReviewServer(
   let boundPort = input.port;
   const urlForBoundPort = () => `http://127.0.0.1:${boundPort}`;
   const discoveryPath = input.discoveryPath ?? reviewDesktopDiscoveryPath();
-  const lifecycle = input.lifecycle ?? new ReviewLifecycleRegistry();
   const capacity = input.capacity ?? DEFAULT_CAPACITY;
   const sessionHandlerFactory =
     input.sessionHandlerFactory ?? createReviewSessionHandler;
@@ -349,17 +339,9 @@ export function createGlobalReviewServer(
     });
     return globalJson(result.ok ? 200 : 409, result);
   });
-  if (input.developmentModule) {
-    app.all(input.developmentModule.routePath, (context) =>
-      input.developmentModule!.fetch(context.req.raw),
-    );
-    app.all(`${input.developmentModule.routePath}/*`, (context) =>
-      input.developmentModule!.fetch(context.req.raw),
-    );
-  }
   app.post("/telemetry/event", async (context) => {
     try {
-      const body = await context.req.json().catch(() => ({}));
+      const body = await readBoundedRequestJson(context.req.raw, undefined, {});
       const payload =
         body && typeof body === "object"
           ? (body as Record<string, unknown>)
@@ -448,7 +430,11 @@ export function createGlobalReviewServer(
     /* A background open keeps the canvas where it is: the Source tab opens
        sessions purely to root its file tree. Body-less requests (the CLI)
        stay foreground. */
-    const openBody = (await context.req.json().catch(() => null)) as {
+    const openBody = (await readBoundedRequestJson(
+      context.req.raw,
+      undefined,
+      null,
+    )) as {
       background?: unknown;
       revision?: unknown;
       view?: unknown;
@@ -847,13 +833,6 @@ export function createGlobalReviewServer(
     );
     return globalJson(accepted ? 200 : 404, { ok: accepted });
   });
-  app.get("/sessions/:sessionId/lifecycle", (context) =>
-    openLifecycleEvents(
-      context,
-      context.req.param("sessionId"),
-      new URL(context.req.url),
-    ),
-  );
   app.post("/sessions/:sessionId/verb", async (context) => {
     const active = sessions.get(context.req.param("sessionId"));
     if (!active) throw new ReviewServerError("Session not found.", 404);
@@ -1686,75 +1665,65 @@ export function createGlobalReviewServer(
       headRootPath,
     );
     let active!: ActiveReviewSession;
-    let handler: ReviewSessionHandler;
-    try {
-      handler = await sessionHandlerFactory({
-        rootPath: registration.review.review.worktreePath,
-        reviewRootPath: registration.review.dir,
-        toolingRoot: input.toolingRoot,
-        reviewPath: registration.documentPath,
-        softwareMapRootPath: registration.softwareMapRootPath,
-        stateReviewPath: path.join(registration.review.dir, "review.mdx"),
-        routePath: "/",
-        token,
-        sessionId,
-        reviewUuid: registration.review.review.uuid,
-        historicalRevision: registration.historicalRevision,
-        listDocumentVersions: async () => {
-          const latest = await findReview(registration.review.review.uuid);
-          return latest ? listReviewDocumentVersions(latest) : [];
-        },
-        session: sessionWire,
-        getReviewStatus: () => active.review.review.status,
-        onSubmission: (submission) => onSubmission(active, submission),
-        onReviewDismiss: () => onReviewDismiss(active),
-        onReviewDataChange: () => {
-          broadcastGlobal({
-            event: "review-data-changed",
-            uuid: registration.review.review.uuid,
-            sessionId,
-          });
-        },
-        onReviewThreadsCommit: (commit) => {
-          broadcastGlobal({
-            event: "review-threads-committed",
-            uuid: registration.review.review.uuid,
-            sessionId,
-            commit,
-            commentCount: countReviewComments(
-              path.join(registration.review.dir, "review.mdx"),
-            ),
-          });
-        },
-        runReviewThreadMutation: (operation) =>
-          withReviewLock(registration.review.review.uuid, async () =>
-            operation(),
+    const handler = await sessionHandlerFactory({
+      rootPath: registration.review.review.worktreePath,
+      reviewRootPath: registration.review.dir,
+      toolingRoot: input.toolingRoot,
+      reviewPath: registration.documentPath,
+      softwareMapRootPath: registration.softwareMapRootPath,
+      stateReviewPath: path.join(registration.review.dir, "review.mdx"),
+      routePath: "/",
+      token,
+      sessionId,
+      reviewUuid: registration.review.review.uuid,
+      historicalRevision: registration.historicalRevision,
+      listDocumentVersions: async () => {
+        const latest = await findReview(registration.review.review.uuid);
+        return latest ? listReviewDocumentVersions(latest) : [];
+      },
+      session: sessionWire,
+      getReviewStatus: () => active.review.review.status,
+      onSubmission: (submission) => onSubmission(active, submission),
+      onReviewDismiss: () => onReviewDismiss(active),
+      onReviewDataChange: () => {
+        broadcastGlobal({
+          event: "review-data-changed",
+          uuid: registration.review.review.uuid,
+          sessionId,
+        });
+      },
+      onReviewThreadsCommit: (commit) => {
+        broadcastGlobal({
+          event: "review-threads-committed",
+          uuid: registration.review.review.uuid,
+          sessionId,
+          commit,
+          commentCount: countReviewComments(
+            path.join(registration.review.dir, "review.mdx"),
           ),
-        reviewCliPath: discovery.cliPath,
-        reviewCliRuntimePath: discovery.cliRuntimePath,
-        openNativeAgentTerminal: (terminal) =>
-          openNativeAgentTerminal(sessionId, terminal),
-        resolveQuestionSourceSession: registration.resolveQuestionSourceSession,
-        onQuestionAgentSession: (agent) =>
-          withReviewLock(registration.review.review.uuid, async () => {
-            const latest = await findReview(registration.review.review.uuid);
-            if (!latest) throw new Error("Review not found.");
-            active.review = await touchReviewAgentSession(
-              latest,
-              authoringSessionKey(agent),
-              "question",
-            );
-          }),
-        telemetry,
-      });
-    } catch (error) {
-      lifecycle.append({
-        event: "error",
-        sessionId,
-        error: toError(error).message,
-      });
-      throw error;
-    }
+        });
+      },
+      runReviewThreadMutation: (operation) =>
+        withReviewLock(registration.review.review.uuid, async () =>
+          operation(),
+        ),
+      reviewCliPath: discovery.cliPath,
+      reviewCliRuntimePath: discovery.cliRuntimePath,
+      openNativeAgentTerminal: (terminal) =>
+        openNativeAgentTerminal(sessionId, terminal),
+      resolveQuestionSourceSession: registration.resolveQuestionSourceSession,
+      onQuestionAgentSession: (agent) =>
+        withReviewLock(registration.review.review.uuid, async () => {
+          const latest = await findReview(registration.review.review.uuid);
+          if (!latest) throw new Error("Review not found.");
+          active.review = await touchReviewAgentSession(
+            latest,
+            authoringSessionKey(agent),
+            "question",
+          );
+        }),
+      telemetry,
+    });
     active = {
       descriptor,
       review: registration.review,
@@ -1765,6 +1734,7 @@ export function createGlobalReviewServer(
       source: registration.source,
       handler,
       promoted: registration.promoted,
+      terminal: false,
       closing: false,
       telemetryStarted: false,
       telemetryEnded: false,
@@ -1773,7 +1743,6 @@ export function createGlobalReviewServer(
       resolveQuestionSourceSession: registration.resolveQuestionSourceSession,
     };
     sessions.set(sessionId, active);
-    lifecycle.append({ event: "ready", sessionId });
     await startSessionTelemetry(active);
     if (registration.announce) {
       broadcastGlobal({
@@ -1808,11 +1777,7 @@ export function createGlobalReviewServer(
         );
       }
       active.review = latest;
-      lifecycle.append({
-        event: "submitted",
-        sessionId: active.descriptor.sessionId,
-        submission,
-      });
+      active.terminal = true;
       const status =
         submission.decision === "approve"
           ? "accepted"
@@ -2007,10 +1972,7 @@ export function createGlobalReviewServer(
 
   async function closeSession(
     active: ActiveReviewSession,
-    reason: Extract<
-      ReviewSessionLifecycleEvent,
-      { event: "dismissed" }
-    >["reason"],
+    reason: "closed" | "replaced" | "app-exit",
     terminal: boolean,
   ): Promise<void> {
     if (active.closing) return;
@@ -2020,16 +1982,8 @@ export function createGlobalReviewServer(
        only reader action that ends a review, and it has its own endpoint. This
        branch used to reject the review, which made closing a tab and finishing
        a review indistinguishable. */
-    if (
-      terminal &&
-      active.promoted &&
-      !lifecycle.terminal(active.descriptor.sessionId)
-    ) {
-      lifecycle.append({
-        event: "dismissed",
-        sessionId: active.descriptor.sessionId,
-        reason,
-      });
+    if (terminal && active.promoted && !active.terminal) {
+      active.terminal = true;
     }
     broadcastGlobal({
       event: "session-closed",
@@ -2066,54 +2020,6 @@ export function createGlobalReviewServer(
       release();
       if (reviewLocks.get(reviewUuid) === chain) reviewLocks.delete(reviewUuid);
     }
-  }
-
-  function openLifecycleEvents(
-    context: Context<ReviewHonoEnv>,
-    sessionId: string,
-    requestUrl: URL,
-  ): Response {
-    const headerId = Number(context.req.header("last-event-id") ?? 0);
-    const queryId = Number(requestUrl.searchParams.get("after") ?? 0);
-    const afterId =
-      Number.isSafeInteger(headerId) && headerId > 0
-        ? headerId
-        : Number.isSafeInteger(queryId) && queryId > 0
-          ? queryId
-          : 0;
-    const response = streamSSE(context, async (output) => {
-      let finish!: () => void;
-      const disconnected = new Promise<void>((resolve) => {
-        finish = resolve;
-      });
-      let pending: Promise<void> = output
-        .write(": connected\n\n")
-        .then(() => undefined);
-      const write = (frame: string) => {
-        pending = pending.then(async () => {
-          await output.write(frame);
-        });
-      };
-      for (const record of lifecycle.history(sessionId, afterId)) {
-        write(lifecycleFrame(record));
-      }
-      const stop = lifecycle.subscribe(sessionId, (record) => {
-        write(lifecycleFrame(record));
-      });
-      const heartbeat = setInterval(() => write(": heartbeat\n\n"), 15_000);
-      heartbeat.unref?.();
-      output.onAbort(finish);
-      try {
-        await disconnected;
-        await pending;
-      } finally {
-        clearInterval(heartbeat);
-        stop();
-      }
-    });
-    response.headers.set("cache-control", "no-cache, no-transform");
-    response.headers.set("content-type", "text/event-stream; charset=utf-8");
-    return response;
   }
 
   function openGlobalEvents(context: Context<ReviewHonoEnv>): Response {
@@ -2195,7 +2101,6 @@ export function createGlobalReviewServer(
       for (const client of globalClients) client.close();
       globalClients.clear();
       await closeHttpServer(httpServer);
-      await input.developmentModule?.close();
       await telemetry.shutdown(1_500);
     },
   };
@@ -2491,13 +2396,6 @@ async function setReviewStatus(
   const review: StoredReviewRecord = { ...stored.review, status };
   await writePrivateJsonAtomic(path.join(stored.dir, "review.json"), review);
   return { ...stored, review };
-}
-
-function lifecycleFrame(record: {
-  id: number;
-  value: ReviewSessionLifecycleEvent;
-}): string {
-  return `id: ${record.id}\ndata: ${JSON.stringify(record.value)}\n\n`;
 }
 
 function httpJsonStatus(error: unknown): number {

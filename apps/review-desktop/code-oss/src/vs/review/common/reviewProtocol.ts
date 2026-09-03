@@ -3,6 +3,34 @@ import { z } from "zod/v4";
 
 z.config({ jitless: true });
 
+export const sessionIdSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$/);
+
+export const commitShaSchema = z.string().regex(/^[0-9a-f]{40,64}$/);
+
+export const byCommitSchema = z.object({
+  commit: commitShaSchema,
+  sessions: z.array(sessionIdSchema),
+  repo: z.string(),
+  pr: z.number().int().nullable(),
+  branch: z.string().nullable(),
+  indexed_by: z.enum(["hook", "ci"]),
+  ts: z.string(),
+});
+export type ByCommitEntry = z.infer<typeof byCommitSchema>;
+
+export const sessionMetaSchema = z.object({
+  session: sessionIdSchema,
+  repo: z.string().nullable(),
+  branch: z.string().nullable(),
+  pr: z.number().int().nullable(),
+  commits: z.array(commitShaSchema),
+  author: z.string().nullable(),
+  ts: z.string(),
+});
+export type SessionMeta = z.infer<typeof sessionMetaSchema>;
+
 // Version 3: `review publish` owns validation, bundling, and sealing; the
 // desktop serves prebuilt revisions and exposes /publish-ready instead of the
 // removed /publish route. (Version 2 added the bundled-CLI discovery fields.)
@@ -1155,16 +1183,6 @@ export const ReviewCommitSummarySchema = z.strictObject({
 });
 export type ReviewCommitSummary = z.infer<typeof ReviewCommitSummarySchema>;
 
-export type ReviewAttention = "new" | "viewed" | "dismissed";
-
-export function reviewAttention(record: {
-  viewedAt?: string | null;
-  dismissedAt?: string | null;
-}): ReviewAttention {
-  if (record.dismissedAt) return "dismissed";
-  return record.viewedAt ? "viewed" : "new";
-}
-
 export const ReviewDescriptorSchema = z.strictObject({
   uuid: z.uuid({ error: "must be a UUID" }),
   title: stringAllowEmpty,
@@ -1239,24 +1257,6 @@ export type AuthoringAgentSessionWire = z.infer<
   typeof AuthoringAgentSessionSchema
 >;
 
-export const ReviewRegistrationRequestSchema = z.strictObject({
-  repository: ReviewRepositoryIdentitySchema,
-  rootPath: requiredString,
-  headRootPath: requiredString.optional(),
-  reviewPath: requiredString,
-  baseRef: requiredString,
-  headRef: requiredString.optional(),
-  pullRequestNumber: positiveInteger.optional(),
-  routePath: routePathSchema,
-  startedAt: positiveInteger,
-  agent: AuthoringAgentSessionSchema.optional(),
-  codexThreadId: requiredString.optional(),
-  submitHook: requiredString.optional(),
-  focusCanvas: z.boolean().optional(),
-});
-export type ReviewRegistrationRequest = z.infer<
-  typeof ReviewRegistrationRequestSchema
->;
 export const ReviewErrorResponseSchema = z.strictObject({
   ok: z.literal(false),
   error: requiredString,
@@ -1305,17 +1305,6 @@ export const ReviewTutorialOpenResponseSchema = z.strictObject({
 });
 export type ReviewTutorialOpenResponse = z.infer<
   typeof ReviewTutorialOpenResponseSchema
->;
-
-export const ReviewSessionMutationResponseSchema = z.discriminatedUnion("ok", [
-  z.strictObject({
-    ok: z.literal(true),
-    session: ReviewSessionDescriptorSchema,
-  }),
-  ReviewErrorResponseSchema,
-]);
-export type ReviewSessionMutationResponse = z.infer<
-  typeof ReviewSessionMutationResponseSchema
 >;
 
 export const ReviewListResponseSchema = z.strictObject({
@@ -1735,46 +1724,6 @@ export type ReviewSoftwareMapModuleResponse = z.infer<
   typeof ReviewSoftwareMapModuleResponseSchema
 >;
 
-export const ReviewCommentTargetSchema = z.strictObject({
-  kind: requiredString,
-  label: requiredString,
-  hash: requiredString,
-  source: z.string().optional(),
-  length: positiveInteger.optional(),
-});
-export type ReviewCommentTargetWire = z.infer<typeof ReviewCommentTargetSchema>;
-
-export const ReviewCommentSchema = z.strictObject({
-  locator: requiredString,
-  target: ReviewCommentTargetSchema,
-  via: requiredString.optional(),
-  body: requiredString,
-  file: requiredString.optional(),
-  line: positiveInteger.optional(),
-  endLine: positiveInteger.optional(),
-  side: reviewDiffSideSchema.optional(),
-  rootIndex: nonNegativeInteger.optional(),
-  path: z.array(z.string()).optional(),
-});
-export type ReviewCommentWire = z.infer<typeof ReviewCommentSchema>;
-
-export const ReviewSubmissionRequestSchema = z.strictObject({
-  submissionId: requiredString,
-  decision: z.enum(["approve", "request-changes"]),
-  comments: z.array(ReviewCommentSchema),
-});
-export type ReviewSubmissionRequest = z.infer<
-  typeof ReviewSubmissionRequestSchema
->;
-
-export const ReviewSubmissionResponseSchema = z.discriminatedUnion("ok", [
-  z.strictObject({ ok: z.literal(true), submissionId: requiredString }),
-  ReviewErrorResponseSchema,
-]);
-export type ReviewSubmissionResponse = z.infer<
-  typeof ReviewSubmissionResponseSchema
->;
-
 export const ReviewServerEventSchema = z.discriminatedUnion("event", [
   z.strictObject({
     event: z.literal("session-updated"),
@@ -1858,22 +1807,6 @@ export const ReviewThreadAnchorSchema = z
     }
   });
 export type ReviewThreadAnchorWire = z.infer<typeof ReviewThreadAnchorSchema>;
-
-export const ReviewThreadAnchorsResponseSchema = z.discriminatedUnion("ok", [
-  z.strictObject({
-    ok: z.literal(true),
-    files: z.array(
-      z.strictObject({
-        path: requiredString,
-        anchors: z.array(ReviewThreadAnchorSchema),
-      }),
-    ),
-  }),
-  ReviewErrorResponseSchema,
-]);
-export type ReviewThreadAnchorsResponse = z.infer<
-  typeof ReviewThreadAnchorsResponseSchema
->;
 
 const openFileArgsSchema = z
   .strictObject({
@@ -2135,192 +2068,141 @@ export type ReviewAgentTraceResponse = z.infer<
   typeof ReviewAgentTraceResponseSchema
 >;
 
-export function parseReviewRuntimeConfig(value: unknown): ReviewRuntimeConfig {
-  return parseContract(ReviewRuntimeConfigSchema, value);
-}
-
 export function parseReviewDesktopDiscovery(
   value: unknown,
 ): ReviewDesktopDiscovery {
-  return parseContract(ReviewDesktopDiscoverySchema, value);
-}
-
-export function parseReviewRepositoryIdentity(
-  value: unknown,
-): ReviewRepositoryIdentity {
-  return parseContract(ReviewRepositoryIdentitySchema, value);
-}
-
-export function parseReviewSessionDescriptor(
-  value: unknown,
-): ReviewSessionDescriptor {
-  return parseContract(ReviewSessionDescriptorSchema, value);
-}
-
-export function parseReviewDescriptor(value: unknown): ReviewDescriptor {
-  return parseContract(ReviewDescriptorSchema, value);
+  return parseZod(ReviewDesktopDiscoverySchema, value);
 }
 
 export function parseReviewListResponse(value: unknown): ReviewListResponse {
-  return parseContract(ReviewListResponseSchema, value);
+  return parseZod(ReviewListResponseSchema, value);
 }
 
 export function parseReviewCliInstallStatus(
   value: unknown,
 ): ReviewCliInstallStatus {
-  return parseContract(ReviewCliInstallStatusSchema, value);
+  return parseZod(ReviewCliInstallStatusSchema, value);
 }
 
 export function parseReviewCliInstallApplyRequest(
   value: unknown,
 ): ReviewCliInstallApplyRequest {
-  return parseContract(ReviewCliInstallApplyRequestSchema, value);
+  return parseZod(ReviewCliInstallApplyRequestSchema, value);
 }
 
 export function parseReviewCliInstallApplyResponse(
   value: unknown,
 ): ReviewCliInstallApplyResponse {
-  return parseContract(ReviewCliInstallApplyResponseSchema, value);
+  return parseZod(ReviewCliInstallApplyResponseSchema, value);
 }
 
 export function parseReviewPublishReadyRequest(
   value: unknown,
 ): ReviewPublishReadyRequest {
-  return parseContract(ReviewPublishReadyRequestSchema, value);
-}
-
-export function parseReviewRecord(value: unknown): ReviewRecord {
-  return parseContract(ReviewRecordSchema, value);
+  return parseZod(ReviewPublishReadyRequestSchema, value);
 }
 
 export function parseReviewOpenResponse(value: unknown): ReviewOpenResponse {
-  return parseContract(ReviewOpenResponseSchema, value);
+  return parseZod(ReviewOpenResponseSchema, value);
 }
 
 export function parseReviewTutorialOpenResponse(
   value: unknown,
 ): ReviewTutorialOpenResponse {
-  return parseContract(ReviewTutorialOpenResponseSchema, value);
-}
-
-export function parseReviewSessionMutationResponse(
-  value: unknown,
-): ReviewSessionMutationResponse {
-  return parseContract(ReviewSessionMutationResponseSchema, value);
-}
-
-export function parseReviewSessionLifecycleEvent(
-  value: unknown,
-): ReviewSessionLifecycleEvent {
-  return parseContract(ReviewSessionLifecycleEventSchema, value);
+  return parseZod(ReviewTutorialOpenResponseSchema, value);
 }
 
 export function parseReviewDesktopGlobalEvent(
   value: unknown,
 ): ReviewDesktopGlobalEvent {
-  return parseContract(ReviewDesktopGlobalEventSchema, value);
+  return parseZod(ReviewDesktopGlobalEventSchema, value);
 }
 
 export function parseReviewDesktopVerbFrame(
   value: unknown,
 ): ReviewDesktopVerbFrame {
-  return parseContract(ReviewDesktopVerbFrameSchema, value);
+  return parseZod(ReviewDesktopVerbFrameSchema, value);
 }
 
 export function parseReviewDesktopVerbResult(
   value: unknown,
 ): ReviewDesktopVerbResult {
-  return parseContract(ReviewDesktopVerbResultSchema, value);
-}
-
-export function parseReviewSession(value: unknown): ReviewSessionWire {
-  return parseContract(ReviewSessionSchema, value);
+  return parseZod(ReviewDesktopVerbResultSchema, value);
 }
 
 export function parseReviewSessionResponse(
   value: unknown,
 ): ReviewSessionResponse {
-  return parseContract(ReviewSessionResponseSchema, value);
+  return parseZod(ReviewSessionResponseSchema, value);
 }
 
 export function parseReviewDiffFilesResponse(
   value: unknown,
 ): ReviewDiffFilesResponse {
-  return parseContract(ReviewDiffFilesResponseSchema, value);
+  return parseZod(ReviewDiffFilesResponseSchema, value);
 }
 
 export function parseReviewFileContentResponse(
   value: unknown,
 ): ReviewFileContentResponse {
-  return parseContract(ReviewFileContentResponseSchema, value);
+  return parseZod(ReviewFileContentResponseSchema, value);
 }
 
 export function parseReviewFileContentRequest(
   value: unknown,
 ): ReviewFileContentRequest {
-  return parseContract(ReviewFileContentRequestSchema, value);
-}
-
-export function parseReviewThreadAnchorsResponse(
-  value: unknown,
-): ReviewThreadAnchorsResponse {
-  return parseContract(ReviewThreadAnchorsResponseSchema, value);
-}
-
-export function parseReviewServerEvent(value: unknown): ReviewServerEvent {
-  return parseContract(ReviewServerEventSchema, value);
+  return parseZod(ReviewFileContentRequestSchema, value);
 }
 
 export function parseReviewVerbRequest(value: unknown): ReviewVerbRequest {
-  return parseContract(ReviewVerbRequestSchema, value);
+  return parseZod(ReviewVerbRequestSchema, value);
 }
 
 export function parseReviewVerbResponse(value: unknown): ReviewVerbResponse {
-  return parseContract(ReviewVerbResponseSchema, value);
-}
-
-export function parseReviewSurfaceEvent(value: unknown): ReviewSurfaceEvent {
-  return parseContract(ReviewSurfaceEventSchema, value);
-}
-
-export function parseReviewDesktopState(value: unknown): ReviewDesktopState {
-  return parseContract(ReviewDesktopStateSchema, value);
-}
-
-export function parseReviewRange(value: unknown): ReviewRangeWire {
-  return parseContract(ReviewRangeSchema, value);
-}
-
-export function parseReviewAgentTraceEvent(
-  value: unknown,
-): ReviewAgentTraceEvent {
-  return parseContract(ReviewAgentTraceEventSchema, value);
-}
-
-export function parseReviewAgentTraceSession(
-  value: unknown,
-): ReviewAgentTraceSession {
-  return parseContract(ReviewAgentTraceSessionSchema, value);
+  return parseZod(ReviewVerbResponseSchema, value);
 }
 
 export function parseReviewAgentTraceListResponse(
   value: unknown,
 ): ReviewAgentTraceListResponse {
-  return parseContract(ReviewAgentTraceListResponseSchema, value);
+  return parseZod(ReviewAgentTraceListResponseSchema, value);
 }
 
 export function parseReviewAgentTraceResponse(
   value: unknown,
 ): ReviewAgentTraceResponse {
-  return parseContract(ReviewAgentTraceResponseSchema, value);
+  return parseZod(ReviewAgentTraceResponseSchema, value);
 }
 
-function parseContract<T>(schema: z.ZodType<T>, value: unknown): T {
+export function parseZod<T>(
+  schema: z.ZodType<T>,
+  value: unknown,
+  label?: string,
+  prefixPath = false,
+): T {
   const result = schema.safeParse(value);
   if (result.success) return result.data;
   const issue = result.error.issues[0];
-  const label = issue?.path.map(String).join(".");
+  const issuePath = formatIssuePath(issue?.path ?? []);
+  const path =
+    prefixPath && label
+      ? issuePath
+        ? `${label}.${issuePath}`
+        : label
+      : issuePath || label;
   throw new Error(
-    `${label ? `${label} ` : ""}${issue?.message ?? "Invalid input"}`,
+    `${path ? `${path} ` : ""}${issue?.message ?? "Invalid input"}`,
   );
+}
+
+function formatIssuePath(path: PropertyKey[]): string {
+  let output = "";
+  for (const segment of path) {
+    if (typeof segment === "number") {
+      output += `[${segment}]`;
+    } else {
+      output += `${output ? "." : ""}${String(segment)}`;
+    }
+  }
+  return output;
 }

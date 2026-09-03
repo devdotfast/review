@@ -21,6 +21,7 @@ import {
   installPiTraceExtension,
 } from "./agent-trace-hooks";
 import { emitJsonEvent, failWithJsonError, humanStream } from "./cli-output";
+import { isDirectory } from "./fs-utils";
 import {
   type TraceCredentialsInput,
   configureTraceMachine,
@@ -320,14 +321,6 @@ async function installDirectory(src: string, dest: string): Promise<void> {
 async function removeStaleSkills(destRoot: string): Promise<void> {
   for (const skillName of STALE_SKILL_NAMES) {
     await rm(path.join(destRoot, skillName), { recursive: true, force: true });
-  }
-}
-
-async function isDirectory(target: string): Promise<boolean> {
-  try {
-    return (await stat(target)).isDirectory();
-  } catch {
-    return false;
   }
 }
 

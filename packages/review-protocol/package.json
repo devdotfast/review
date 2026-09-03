@@ -20,17 +20,15 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "pnpm -w exec tsc -p packages/review-protocol/tsconfig.build.json",
     "test": "vitest run --config vitest.config.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "pnpm -w exec tsc -p packages/review-protocol/tsconfig.json --noEmit"
   },
   "dependencies": {
     "zod": "4.4.3"
   },
   "devDependencies": {
     "esbuild": "0.28.1",
-    "typescript": "6.0.3",
-    "typescript-7": "npm:typescript@7.0.1-rc",
     "vitest": "^4.1.5"
   },
   "engines": {

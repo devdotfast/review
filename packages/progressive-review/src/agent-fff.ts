@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, readFile, stat } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -8,6 +8,8 @@ import type {
   ReviewFffInstallTarget,
   ReviewFffManagedRegistration,
 } from "@dev.fast/review-protocol";
+
+import { isFile } from "./fs-utils";
 
 export const FFF_SERVER_NAME = "fff";
 export const FFF_INSTALL_URL = "https://dmtrkovalenko.dev/install-fff-mcp.sh";
@@ -271,13 +273,5 @@ async function runCommand(
       ok: false,
       output: `${failure.stdout ?? ""}${failure.stderr ?? failure.message ?? ""}`,
     };
-  }
-}
-
-async function isFile(target: string): Promise<boolean> {
-  try {
-    return (await stat(target)).isFile();
-  } catch {
-    return false;
   }
 }

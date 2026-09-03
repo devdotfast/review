@@ -6,21 +6,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { CancellationToken } from "../../base/common/cancellation.js";
-import { Emitter, Event } from "../../base/common/event.js";
-import { URI } from "../../base/common/uri.js";
-import { Range } from "../../editor/common/core/range.js";
+import { CancellationToken } from "../../../base/common/cancellation.js";
+import { Emitter, Event } from "../../../base/common/event.js";
+import { URI } from "../../../base/common/uri.js";
+import { Range } from "../../../editor/common/core/range.js";
 import {
   REVIEW_BASE_SCHEME,
   REVIEW_HEAD_SCHEME,
   REVIEW_UNIFIED_SCHEME,
   reviewVirtualUri,
-} from "../common/reviewCodeResources.js";
+} from "../../common/reviewCodeResources.js";
 import {
   createGitLabTextDiffPosition,
   type ReviewCommentStoreSnapshot,
   type ReviewDiffFileWire,
-} from "../common/reviewProtocol.js";
+} from "../../common/reviewProtocol.js";
 
 const baseSha = "0000000000000000000000000000000000000000";
 const headSha = "1111111111111111111111111111111111111111";
@@ -70,7 +70,7 @@ const snapshot: ReviewCommentStoreSnapshot = {
 test("keeps one stable comment projection per diff resource", async () => {
   Object.assign(globalThis, { window: globalThis });
   const { ReviewCommentController } = await import(
-    "../contrib/comments/reviewComments.contribution.js"
+    "./reviewComments.contribution.js"
   );
   const commentEvents: unknown[] = [];
   let workspaceComments: Array<{

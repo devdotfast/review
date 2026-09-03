@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { writeFileAtomicAsync } from "./atomic-write";
 import { clearTraceEnvCache } from "./review-agent-traces";
 
 const execFileAsync = promisify(execFile);
@@ -258,14 +259,12 @@ async function writeSettings(
   filePath: string,
   settings: TraceMachineSettings,
 ): Promise<void> {
-  await mkdir(path.dirname(filePath), { recursive: true });
-  const temporary = `${filePath}.${process.pid}.tmp`;
-  await writeFile(temporary, `${JSON.stringify(settings, null, 2)}\n`, {
-    mode: 0o600,
-  });
-  await rm(filePath, { force: true });
-  await import("node:fs/promises").then(({ rename }) =>
-    rename(temporary, filePath),
+  await writeFileAtomicAsync(
+    filePath,
+    `${JSON.stringify(settings, null, 2)}\n`,
+    {
+      encoding: "utf8",
+      mode: 0o600,
+    },
   );
-  await chmod(filePath, 0o600);
 }

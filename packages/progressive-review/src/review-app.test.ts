@@ -67,7 +67,11 @@ describe("review app", () => {
       `${discovery.url}/reviews/${selected.review.uuid}/open`,
       {
         method: "POST",
-        headers: { "x-review-token": discovery.token },
+        headers: {
+          "content-type": "application/json",
+          "x-review-token": discovery.token,
+        },
+        body: "{}",
       },
     );
   });

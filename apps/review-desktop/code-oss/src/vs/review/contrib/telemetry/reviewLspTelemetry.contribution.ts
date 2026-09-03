@@ -53,7 +53,7 @@ const LANGUAGE_MAP: Record<string, string> = {
 	sql: 'sql',
 };
 
-export function toLspLanguage(languageId: string): string {
+function toLspLanguage(languageId: string): string {
 	return Object.prototype.hasOwnProperty.call(LANGUAGE_MAP, languageId)
 		? LANGUAGE_MAP[languageId]
 		: 'other';

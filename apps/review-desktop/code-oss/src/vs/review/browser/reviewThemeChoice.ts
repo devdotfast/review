@@ -13,8 +13,8 @@ import { IThemeService } from '../../platform/theme/common/themeService.js';
  * import it without pulling in a contribution.
  */
 
-export const REVIEW_DARK_THEME = 'Review Dark';
-export const REVIEW_LIGHT_THEME = 'Review Light';
+const REVIEW_DARK_THEME = 'Review Dark';
+const REVIEW_LIGHT_THEME = 'Review Light';
 
 export type ReviewThemeChoice = 'dark' | 'light' | 'system';
 

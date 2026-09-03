@@ -1,11 +1,11 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
 import { createReviewDir, sealReviewCandidate } from "../review-home";
-import { findPublishReview, materializePublishRevision } from "./publish-stage";
+import { materializePublishRevision } from "./publish-stage";
 
 describe("publish revision stage", () => {
   it("materializes a review Git revision into its build staging directory", async () => {
@@ -26,8 +26,6 @@ describe("publish revision stage", () => {
       );
       const revision = await sealReviewCandidate(review.dir, "test revision");
 
-      const found = await findPublishReview(review.review.uuid);
-      expect(found?.dir).toBe(review.dir);
       const destination = await materializePublishRevision({
         review,
         revision,
@@ -44,22 +42,11 @@ describe("publish revision stage", () => {
         readFile(path.join(destination, "data.ts"), "utf8"),
       ).resolves.toBe("live\n");
       await expect(
-        findPublishReview("00000000-0000-0000-0000-000000000000"),
-      ).resolves.toBeNull();
-      await expect(
         materializePublishRevision({ review, revision: ".." }),
       ).rejects.toThrow("Review revision is invalid");
       await expect(
         materializePublishRevision({ review, revision: "." }),
       ).rejects.toThrow("Review revision is invalid");
-      const corruptDir = path.join(home, "reviews", "corrupt");
-      await mkdir(corruptDir, { recursive: true });
-      await writeFile(path.join(corruptDir, "review.json"), "{");
-      await expect(
-        findPublishReview(review.review.uuid),
-      ).resolves.toMatchObject({
-        dir: review.dir,
-      });
     } finally {
       vi.unstubAllEnvs();
       await rm(home, { recursive: true, force: true });

@@ -276,43 +276,6 @@ export function objectLiteralProperties(
   return properties;
 }
 
-// "anchors.runtime" for a member expression on the `anchors` object.
-export function anchorMemberName(
-  node: Expression | undefined | null,
-): string | null {
-  if (
-    node &&
-    node.type === "MemberExpression" &&
-    !node.computed &&
-    node.object.type === "Identifier" &&
-    node.object.name === "anchors" &&
-    node.property.type === "Identifier"
-  ) {
-    return node.property.name;
-  }
-  return null;
-}
-
-export function literalString(
-  node: Expression | undefined | null,
-): string | null {
-  return node && node.type === "Literal" && typeof node.value === "string"
-    ? node.value
-    : null;
-}
-
-export function literalNumber(
-  node: Expression | undefined | null,
-): number | null {
-  return node && node.type === "Literal" && typeof node.value === "number"
-    ? node.value
-    : null;
-}
-
-export function expressionLine(node: Expression | Property): number {
-  return estreeLine(node);
-}
-
 // Document-relative character offsets of an estree node — acorn (as run by
 // the MDX extension) records them on every node, positioned against the full
 // document. Lets a caller slice the original source for a node and hand it to

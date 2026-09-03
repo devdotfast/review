@@ -111,15 +111,6 @@ export function useReviewDiffFiles(): ReviewDiffFilesState {
   return useContext(ReviewDiffFilesContext);
 }
 
-export function reviewDiffFileForPath(
-  files: readonly ReviewDiffFileWire[],
-  filePath: string,
-): ReviewDiffFileWire | undefined {
-  return files.find(
-    (file) => file.path === filePath || file.previousPath === filePath,
-  );
-}
-
 function recordDiffSummaryRequest(container: HTMLElement | null): void {
   if (!container) return;
   const current = Number(container.dataset.reviewDiffSummaryRequestCount ?? 0);

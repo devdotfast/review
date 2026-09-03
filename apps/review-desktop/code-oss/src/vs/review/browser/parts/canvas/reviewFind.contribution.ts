@@ -17,7 +17,7 @@ import { IEditorService } from "../../../../workbench/services/editor/common/edi
 import { ReviewCanvasEditorInput } from "./reviewCanvasEditorInput.js";
 import { ReviewCanvasEditorPane } from "./reviewCanvasPart.js";
 
-export const REVIEW_FIND_COMMAND_ID = "review.action.find";
+const REVIEW_FIND_COMMAND_ID = "review.action.find";
 
 class ReviewFindAction extends Action2 {
   constructor() {

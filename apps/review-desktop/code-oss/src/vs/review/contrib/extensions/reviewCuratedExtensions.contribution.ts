@@ -40,7 +40,7 @@ import { REVIEW_KEYMAP_SETTING, type ReviewKeymap } from '../../common/reviewCon
 import { REVIEW_DESKTOP_CHANNEL } from '../../common/reviewDesktopBootstrap.js';
 import type { ReviewUserConfigImportResult } from '../../node/reviewUserConfigImport.js';
 import { IReviewTelemetryService } from '../../services/reviewTelemetryService.js';
-import { reviewOptionalExtensionCatalog } from './reviewOptionalExtensionCatalog.js';
+import { reviewOptionalExtensionCatalog } from '../../node/reviewOptionalExtensionCatalog.js';
 import {
 	installMissingOptionalExtensions,
 	OptionalExtensionInstallError,

@@ -29,7 +29,6 @@ describe("annotationForThread", () => {
     const heading = article.querySelector("h2")!;
     const paragraph = article.querySelector("p")!;
     const headingText = heading.firstChild!;
-    const paragraphText = paragraph.firstChild!;
     const articleRect = new DOMRect(100, 40, 860, 600);
     const headingRect = new DOMRect(164, 80, 170, 26);
     const paragraphRect = new DOMRect(164, 118, 720, 52);

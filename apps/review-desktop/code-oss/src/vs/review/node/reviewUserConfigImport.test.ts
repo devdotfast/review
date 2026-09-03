@@ -7,12 +7,13 @@ import assert from 'assert';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { importReviewUserConfig } from '../node/reviewUserConfigImport.js';
+import { afterEach, describe, test } from 'node:test';
+import { importReviewUserConfig } from './reviewUserConfigImport.js';
 
-suite('ReviewUserConfigImport', () => {
+describe('ReviewUserConfigImport', () => {
 	const fixtures: string[] = [];
 
-	teardown(() => {
+	afterEach(() => {
 		for (const fixture of fixtures.splice(0)) {
 			rmSync(fixture, { recursive: true, force: true });
 		}

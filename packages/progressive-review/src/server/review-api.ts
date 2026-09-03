@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readFileSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -55,7 +55,6 @@ import {
 import { saveReviewSubmissionAudit } from "../review-state-store";
 import { ReviewThreadsService } from "../review-threads-service";
 import {
-  type ReviewSourceTarget,
   readReviewStoreRecord,
   resolveReviewRepoRootFromStore,
   resolveReviewSessionBaseCommit,
@@ -363,10 +362,6 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   app.post("/thread-commands", threadMutation(threadCommand));
   app.post("/agent-runs", writable(agentRunCreate));
   app.post("/native-agent-events/:launchId", route(nativeAgentEvent));
-  app.get(
-    "/native-agent-events/:launchId/thread/:threadId",
-    writable(nativeAgentThreadGet),
-  );
   app.post("/comments/:threadId/agent-terminal", writable(agentTerminalOpen));
   app.post("/submissions", writable(submissionCreate));
   app.post("/dismiss", route(reviewDismiss));
@@ -378,7 +373,6 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   app.patch("/comments/:threadId", threadMutation(commentUpdate));
   app.delete("/comments/:threadId", threadMutation(commentDelete));
   app.post("/code-peek/resolve", route(codePeekResolve));
-  app.post("/software-map/diff-counts", route(softwareMapDiffCounts));
   app.post("/software-map/resolved-data", route(softwareMapResolvedData));
   app.post(
     "/software-map/artifacts/refresh",
@@ -395,7 +389,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
 
   async function resolveTraceSessionDescriptors() {
     const review = readReviewStoreRecord(reviewRootPath);
-    const repoRootPath = resolveReviewRepoRootFromStore(reviewRootPath);
+    const repoRootPath = resolveReviewRepoRootFromStore(reviewRootPath, review);
     const headCommit = review.sourceCommit ?? review.baseCommit;
     return listReviewTraceSessions({
       rootPath: repoRootPath,
@@ -640,33 +634,6 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     return reviewApiJsonResponse(200, { ok: true });
   }
 
-  function nativeAgentThreadGet(
-    context: Context<ReviewHonoEnv>,
-    writableReviewPath: string,
-  ): Response {
-    const threadId = context.req.param("threadId");
-    if (!threadId) {
-      return reviewApiJsonResponse(404, {
-        ok: false,
-        error: "Comment thread not found.",
-      });
-    }
-    const snapshot = threadsFor(writableReviewPath).snapshot();
-    const draft = snapshot.drafts[threadId];
-    const comment = snapshot.comments[threadId];
-    if (!draft && !comment) {
-      return reviewApiJsonResponse(404, {
-        ok: false,
-        error: `Comment thread not found: ${threadId}`,
-      });
-    }
-    return reviewApiJsonResponse(200, {
-      review: path.basename(path.dirname(writableReviewPath)),
-      state: draft ? "draft" : "submitted",
-      comment: draft?.thread ?? comment,
-    });
-  }
-
   async function agentTerminalOpen(
     context: Context<ReviewHonoEnv>,
     writableReviewPath: string,
@@ -846,11 +813,8 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   async function codePeekResolve(
     context: Context<ReviewHonoEnv>,
   ): Promise<Response> {
-    const url = new URL(context.req.url);
     const body = (await readJson(context.req.raw)) as Record<string, unknown>;
-    const sourceTarget = await resolveRequestSourceTarget(url, {
-      reviewPath,
-      reviewDocumentsDir,
+    const sourceTarget = await resolveRequestSourceTarget({
       reviewRootPath,
     });
     const baseSourceTarget = sourceTarget.preparedBase;
@@ -883,40 +847,13 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     });
   }
 
-  async function softwareMapDiffCounts(
-    context: Context<ReviewHonoEnv>,
-  ): Promise<Response> {
-    const url = new URL(context.req.url);
-    const body = (await readJson(context.req.raw)) as Record<string, unknown>;
-    const sourceTarget = await resolveRequestSourceTarget(url, {
-      reviewPath,
-      reviewDocumentsDir,
-      reviewRootPath,
-    });
-    const diffRootPath =
-      sourceTarget.baseRef || sourceTarget.headRef
-        ? sourceTarget.diffRootPath
-        : sourceTarget.sourceRootPath;
-    const counts = await resolveSoftwareMapDiffCounts({
-      sourceRootPath: diffRootPath,
-      baseRef: sourceTarget.baseRef,
-      headRef: sourceTarget.headRef,
-      codeElements: parseSoftwareMapCodeElements(body.codeElements),
-      coverageClaims: parseSoftwareMapCoverageClaims(body.coverageClaims),
-    });
-    return reviewApiJsonResponse(200, { ok: true, ...counts });
-  }
-
   async function softwareMapResolvedData(
     context: Context<ReviewHonoEnv>,
   ): Promise<Response> {
-    const url = new URL(context.req.url);
     const body = (await readJson(context.req.raw)) as Record<string, unknown>;
     const codeElements = parseSoftwareMapCodeElements(body.codeElements);
     const coverageClaims = parseSoftwareMapCoverageClaims(body.coverageClaims);
-    const sourceTarget = await resolveRequestSourceTarget(url, {
-      reviewPath,
-      reviewDocumentsDir,
+    const sourceTarget = await resolveRequestSourceTarget({
       reviewRootPath,
     });
     const result = await buildSoftwareMapResolvedData({
@@ -1096,20 +1033,7 @@ function parseCodePeekIncludeDiffSummary(value: unknown): boolean {
 }
 
 function readReviewStatus(stateReviewPath: string): string {
-  const record: unknown = JSON.parse(
-    readFileSync(
-      path.join(path.dirname(stateReviewPath), "review.json"),
-      "utf8",
-    ),
-  );
-  if (!record || typeof record !== "object" || Array.isArray(record)) {
-    throw new Error("Invalid review.json.");
-  }
-  const status = (record as { status?: unknown }).status;
-  if (typeof status !== "string") {
-    throw new Error("review.json has no status.");
-  }
-  return status;
+  return readReviewStoreRecord(path.dirname(stateReviewPath)).status;
 }
 
 function readJson(request: Request): Promise<unknown> {
@@ -1397,7 +1321,10 @@ async function rematerializeReviewSoftwareMapArtifacts(input: {
   artifactPath?: string | null;
 }> {
   const review = readReviewStoreRecord(input.reviewRootPath);
-  const repoRootPath = resolveReviewRepoRootFromStore(input.reviewRootPath);
+  const repoRootPath = resolveReviewRepoRootFromStore(
+    input.reviewRootPath,
+    review,
+  );
   const headCommit = review.sourceCommit
     ? (
         await resolveRevision(repoRootPath, review.sourceCommit).catch(
@@ -1430,18 +1357,7 @@ async function rematerializeReviewSoftwareMapArtifacts(input: {
   return { status: "rematerialized", headCommit, artifactPath };
 }
 
-async function resolveRequestSourceTarget(
-  url: URL,
-  input: {
-    reviewPath: string;
-    reviewDocumentsDir: string;
-    reviewRootPath: string;
-  },
-) {
-  const reviewDocumentPath = resolveReviewDocumentPath(url, input);
-  if (!reviewDocumentPath) {
-    throw new Error("Review document not found.");
-  }
+async function resolveRequestSourceTarget(input: { reviewRootPath: string }) {
   return resolveReviewSourceTarget({
     reviewRootPath: input.reviewRootPath,
   });
@@ -1599,7 +1515,7 @@ export function resolveRequestDiffTarget(
   }
   const review = readReviewStoreRecord(input.rootPath);
   return {
-    rootPath: resolveReviewRepoRootFromStore(input.rootPath),
+    rootPath: resolveReviewRepoRootFromStore(input.rootPath, review),
     baseRef: review.baseCommit,
     headRef: review.sourceCommit ?? undefined,
   };

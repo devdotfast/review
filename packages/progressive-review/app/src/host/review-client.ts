@@ -61,16 +61,6 @@ export async function reviewFetchUrl(
   return fetch(url, { ...init, headers });
 }
 
-export function reviewEventSource(
-  config: ReviewClientConfig,
-  endpoint: `/${string}`,
-  options: Omit<ReviewRequestOptions, "tokenInQuery"> = {},
-): EventSource {
-  return new EventSource(
-    reviewApiUrl(config, endpoint, { ...options, tokenInQuery: true }),
-  );
-}
-
 export function importReviewModule<T>(
   config: ReviewClientConfig,
   moduleUrl: string,
@@ -180,12 +170,6 @@ export function reviewPreferenceKey(
     namespace,
     ...parts.map((part) => String(part ?? "")),
   ].join(":");
-}
-
-export function reviewAuthHeaders(
-  config: ReviewClientConfig | null,
-): HeadersInit {
-  return config?.token ? { "x-review-token": config.token } : {};
 }
 
 function browserOrigin(): string {

@@ -11,7 +11,6 @@ import {
 } from "@dev.fast/local-vcs";
 
 import { reviewMdxPath } from "./review-file";
-import { span } from "./startup-trace";
 
 const DEFAULT_REVIEW_ROUTE = "/";
 
@@ -678,11 +677,7 @@ function execFilePromise(
   args: string[],
   options: { cwd?: string } = {},
 ): Promise<{ stdout: string }> {
-  return span(
-    `$ ${[file, ...args].join(" ").slice(0, 100)}`,
-    () => execFileUntraced(file, args, options),
-    [file, ...args].join(" "),
-  );
+  return execFileUntraced(file, args, options);
 }
 
 function execFileUntraced(

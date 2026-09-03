@@ -38,6 +38,7 @@ import { readReviewComments } from "./review-state-store";
 import { devReviewHome } from "./review-storage";
 import {
   ReviewThreadDbVersionError,
+  checkReviewThreadDbVersion,
   createReviewThreadDb,
   reviewThreadStoreBackend,
 } from "./review-thread-store-backend";
@@ -524,7 +525,7 @@ function reviewThreadMigrationError(
   stored: StoredReview,
 ): ReviewHomeError | null {
   try {
-    readReviewComments(path.join(stored.dir, "review.mdx"));
+    checkReviewThreadDbVersion(path.join(stored.dir, "review.mdx"));
     return null;
   } catch (error) {
     if (!(error instanceof ReviewThreadDbVersionError)) return null;

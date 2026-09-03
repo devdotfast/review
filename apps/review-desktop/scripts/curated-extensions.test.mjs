@@ -85,14 +85,6 @@ const mainOptionalCatalog = (
     ),
   )
 ).reviewOptionalExtensionCatalog;
-const rendererOptionalCatalog = (
-  await loadImportFreeTypeScriptModule(
-    new URL(
-      "../code-oss/src/vs/review/contrib/extensions/reviewOptionalExtensionCatalog.ts",
-      import.meta.url,
-    ),
-  )
-).reviewOptionalExtensionCatalog;
 
 test("pins every curated extension to a checksum for every supported target", () => {
   assert.ok(curatedExtensions.length > 0);
@@ -210,7 +202,6 @@ test("keeps every optional pin identical in build, main, and renderer catalogs",
 
   const buildPins = normalize(optionalExtensions);
   assert.deepEqual(normalize(mainOptionalCatalog), buildPins);
-  assert.deepEqual(normalize(rendererOptionalCatalog), buildPins);
 });
 
 test("keeps the curated identifiers unique", () => {

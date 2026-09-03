@@ -15,6 +15,10 @@ import {
   useState,
 } from "react";
 
+import {
+  type SoftwareMapTopologyDiff,
+  diffSoftwareMaps,
+} from "../../src/software-map-topology-diff";
 import { BugReportControl } from "./bug-report-dialog";
 import {
   ReviewDebugSettingsProvider,
@@ -29,7 +33,6 @@ import {
 } from "./document-selection";
 import { useReviewSession } from "./host/review-session";
 import {
-  CloseIcon,
   CommentIcon,
   SettingsSlidersIcon,
   TerminalIcon,
@@ -94,8 +97,6 @@ import type {
 } from "./software-map/model";
 import { SoftwareMapTopologyUnavailable } from "./software-map/software-map-absence";
 import { SoftwareMap } from "./software-map/SoftwareMap";
-import type { SoftwareMapTopologyDiff } from "./software-map/topology-diff";
-import { diffSoftwareMaps } from "./software-map/topology-diff";
 import { ThreadAnnotations } from "./thread-annotations";
 import { ThreadDraftCard } from "./thread-card";
 import { ThreadTargetModelProvider } from "./thread-target-model";

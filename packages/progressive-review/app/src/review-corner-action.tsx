@@ -163,7 +163,7 @@ function SendIcon(): ReactElement {
   );
 }
 
-function ArchiveIcon(): ReactElement {
+export function ArchiveIcon(): ReactElement {
   return (
     <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
       <rect x="1.6" y="2.6" width="12.8" height="3.4" rx="1" />

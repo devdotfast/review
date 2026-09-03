@@ -30,6 +30,7 @@ import {
 import { fuzzyMatches, fuzzySegments } from "../../src/fuzzy-match";
 import { TARGET_LABELS } from "./agent-setup-card";
 import { CopyPromptButton } from "./copy-prompt-button";
+import { ArchiveIcon } from "./review-corner-action";
 import { WelcomePage } from "./welcome-page";
 
 export type ReviewHomeView = "cards" | "list";
@@ -95,13 +96,6 @@ function MatchedText({ text }: { text: string }) {
       )}
     </>
   );
-}
-
-export function reviewAttentionOf(
-  review: ReviewDescriptor,
-): "new" | "viewed" | "dismissed" {
-  if (review.dismissedAt) return "dismissed";
-  return review.viewedAt ? "viewed" : "new";
 }
 
 /** Days left before the reaper deletes a dismissed review. */
@@ -1195,16 +1189,6 @@ function TrashIcon() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true">
       <path d="M3 4.5h10M6.5 4.5v-1a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1M4.5 4.5l.6 8a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-8M6.7 7v4M9.3 7v4" />
-    </svg>
-  );
-}
-
-function ArchiveIcon() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <rect x="1.6" y="2.6" width="12.8" height="3.4" rx="1" />
-      <path d="M3 6v6.2a1.2 1.2 0 0 0 1.2 1.2h7.6A1.2 1.2 0 0 0 13 12.2V6" />
-      <path d="M6.4 9h3.2" />
     </svg>
   );
 }

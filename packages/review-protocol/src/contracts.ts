@@ -1,5 +1,33 @@
 import { z } from "zod";
 
+export const sessionIdSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$/);
+
+export const commitShaSchema = z.string().regex(/^[0-9a-f]{40,64}$/);
+
+export const byCommitSchema = z.object({
+  commit: commitShaSchema,
+  sessions: z.array(sessionIdSchema),
+  repo: z.string(),
+  pr: z.number().int().nullable(),
+  branch: z.string().nullable(),
+  indexed_by: z.enum(["hook", "ci"]),
+  ts: z.string(),
+});
+export type ByCommitEntry = z.infer<typeof byCommitSchema>;
+
+export const sessionMetaSchema = z.object({
+  session: sessionIdSchema,
+  repo: z.string().nullable(),
+  branch: z.string().nullable(),
+  pr: z.number().int().nullable(),
+  commits: z.array(commitShaSchema),
+  author: z.string().nullable(),
+  ts: z.string(),
+});
+export type SessionMeta = z.infer<typeof sessionMetaSchema>;
+
 // Version 3: `review publish` owns validation, bundling, and sealing; the
 // desktop serves prebuilt revisions and exposes /publish-ready instead of the
 // removed /publish route. (Version 2 added the bundled-CLI discovery fields.)
@@ -1152,16 +1180,6 @@ export const ReviewCommitSummarySchema = z.strictObject({
 });
 export type ReviewCommitSummary = z.infer<typeof ReviewCommitSummarySchema>;
 
-export type ReviewAttention = "new" | "viewed" | "dismissed";
-
-export function reviewAttention(record: {
-  viewedAt?: string | null;
-  dismissedAt?: string | null;
-}): ReviewAttention {
-  if (record.dismissedAt) return "dismissed";
-  return record.viewedAt ? "viewed" : "new";
-}
-
 export const ReviewDescriptorSchema = z.strictObject({
   uuid: z.uuid({ error: "must be a UUID" }),
   title: stringAllowEmpty,
@@ -1236,24 +1254,6 @@ export type AuthoringAgentSessionWire = z.infer<
   typeof AuthoringAgentSessionSchema
 >;
 
-export const ReviewRegistrationRequestSchema = z.strictObject({
-  repository: ReviewRepositoryIdentitySchema,
-  rootPath: requiredString,
-  headRootPath: requiredString.optional(),
-  reviewPath: requiredString,
-  baseRef: requiredString,
-  headRef: requiredString.optional(),
-  pullRequestNumber: positiveInteger.optional(),
-  routePath: routePathSchema,
-  startedAt: positiveInteger,
-  agent: AuthoringAgentSessionSchema.optional(),
-  codexThreadId: requiredString.optional(),
-  submitHook: requiredString.optional(),
-  focusCanvas: z.boolean().optional(),
-});
-export type ReviewRegistrationRequest = z.infer<
-  typeof ReviewRegistrationRequestSchema
->;
 export const ReviewErrorResponseSchema = z.strictObject({
   ok: z.literal(false),
   error: requiredString,
@@ -1302,17 +1302,6 @@ export const ReviewTutorialOpenResponseSchema = z.strictObject({
 });
 export type ReviewTutorialOpenResponse = z.infer<
   typeof ReviewTutorialOpenResponseSchema
->;
-
-export const ReviewSessionMutationResponseSchema = z.discriminatedUnion("ok", [
-  z.strictObject({
-    ok: z.literal(true),
-    session: ReviewSessionDescriptorSchema,
-  }),
-  ReviewErrorResponseSchema,
-]);
-export type ReviewSessionMutationResponse = z.infer<
-  typeof ReviewSessionMutationResponseSchema
 >;
 
 export const ReviewListResponseSchema = z.strictObject({
@@ -1732,46 +1721,6 @@ export type ReviewSoftwareMapModuleResponse = z.infer<
   typeof ReviewSoftwareMapModuleResponseSchema
 >;
 
-export const ReviewCommentTargetSchema = z.strictObject({
-  kind: requiredString,
-  label: requiredString,
-  hash: requiredString,
-  source: z.string().optional(),
-  length: positiveInteger.optional(),
-});
-export type ReviewCommentTargetWire = z.infer<typeof ReviewCommentTargetSchema>;
-
-export const ReviewCommentSchema = z.strictObject({
-  locator: requiredString,
-  target: ReviewCommentTargetSchema,
-  via: requiredString.optional(),
-  body: requiredString,
-  file: requiredString.optional(),
-  line: positiveInteger.optional(),
-  endLine: positiveInteger.optional(),
-  side: reviewDiffSideSchema.optional(),
-  rootIndex: nonNegativeInteger.optional(),
-  path: z.array(z.string()).optional(),
-});
-export type ReviewCommentWire = z.infer<typeof ReviewCommentSchema>;
-
-export const ReviewSubmissionRequestSchema = z.strictObject({
-  submissionId: requiredString,
-  decision: z.enum(["approve", "request-changes"]),
-  comments: z.array(ReviewCommentSchema),
-});
-export type ReviewSubmissionRequest = z.infer<
-  typeof ReviewSubmissionRequestSchema
->;
-
-export const ReviewSubmissionResponseSchema = z.discriminatedUnion("ok", [
-  z.strictObject({ ok: z.literal(true), submissionId: requiredString }),
-  ReviewErrorResponseSchema,
-]);
-export type ReviewSubmissionResponse = z.infer<
-  typeof ReviewSubmissionResponseSchema
->;
-
 export const ReviewServerEventSchema = z.discriminatedUnion("event", [
   z.strictObject({
     event: z.literal("session-updated"),
@@ -1855,22 +1804,6 @@ export const ReviewThreadAnchorSchema = z
     }
   });
 export type ReviewThreadAnchorWire = z.infer<typeof ReviewThreadAnchorSchema>;
-
-export const ReviewThreadAnchorsResponseSchema = z.discriminatedUnion("ok", [
-  z.strictObject({
-    ok: z.literal(true),
-    files: z.array(
-      z.strictObject({
-        path: requiredString,
-        anchors: z.array(ReviewThreadAnchorSchema),
-      }),
-    ),
-  }),
-  ReviewErrorResponseSchema,
-]);
-export type ReviewThreadAnchorsResponse = z.infer<
-  typeof ReviewThreadAnchorsResponseSchema
->;
 
 const openFileArgsSchema = z
   .strictObject({

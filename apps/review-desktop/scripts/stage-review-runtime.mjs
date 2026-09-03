@@ -50,7 +50,7 @@ function esbuildPlatformEntry() {
   return `node_modules/@esbuild/${platform}/bin/esbuild`;
 }
 
-const REQUIRED_ENTRIES = [
+export const REQUIRED_RUNTIME_ENTRIES = [
   "package.json",
   "LICENSE",
   "THIRD_PARTY_NOTICES.md",
@@ -76,6 +76,34 @@ export function runtimeRootForPackagedRoot(packagedRoot) {
     ? path.join(resolved, "Contents/Resources/app")
     : path.join(resolved, "resources/app");
   return path.join(packagedAppRoot, RUNTIME_DIRECTORY_NAME);
+}
+
+export function requiredPackagedArtifacts(packagedRoot) {
+  const runtimeRoot = runtimeRootForPackagedRoot(packagedRoot);
+  const packagedAppRoot = path.dirname(runtimeRoot);
+  const entries = [
+    "out/vs/review/review.desktop.main.js",
+    "out/vs/review/review.desktop.main.css",
+    "out/vs/review/electron-utility/reviewDesktopHostMain.js",
+    "out/vs/review/canvas/canvas-loader.js",
+    ...REQUIRED_RUNTIME_ENTRIES.map((entry) =>
+      path.join(RUNTIME_DIRECTORY_NAME, entry),
+    ),
+  ];
+  if (!path.resolve(packagedRoot).endsWith(".app")) {
+    entries.push("extensions/vscodevim.vim/package.json");
+  }
+  return entries.map((entry) => path.join(packagedAppRoot, entry));
+}
+
+export async function assertPackagedArtifacts(packagedRoot) {
+  for (const artifact of requiredPackagedArtifacts(packagedRoot)) {
+    try {
+      await access(artifact);
+    } catch {
+      throw new Error(`Review Desktop package is missing ${artifact}.`);
+    }
+  }
 }
 
 export async function stageReviewRuntime(packagedRoot) {
@@ -200,7 +228,7 @@ async function makeTreeOwnerWritable(directory) {
 }
 
 export async function assertRuntimeClosure(runtimeRoot) {
-  for (const entry of REQUIRED_ENTRIES) {
+  for (const entry of REQUIRED_RUNTIME_ENTRIES) {
     const target = path.join(runtimeRoot, entry);
     try {
       await access(target);
@@ -335,11 +363,22 @@ if (
   import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
 ) {
   const args = process.argv.slice(2);
-  if (args.length !== 2 || args[0] !== "--packaged-root") {
+  const verifyOnly = args[0] === "--verify";
+  const packagedRootIndex = verifyOnly ? 1 : 0;
+  if (
+    args.length !== packagedRootIndex + 2 ||
+    args[packagedRootIndex] !== "--packaged-root"
+  ) {
     throw new Error(
-      "usage: stage-review-runtime.mjs --packaged-root <packaged-app-root>",
+      "usage: stage-review-runtime.mjs [--verify] --packaged-root <packaged-app-root>",
     );
   }
-  const runtimeRoot = await stageReviewRuntime(args[1]);
-  process.stdout.write(`Staged the Review runtime at ${runtimeRoot}\n`);
+  const packagedRoot = args[packagedRootIndex + 1];
+  if (verifyOnly) {
+    await assertPackagedArtifacts(packagedRoot);
+    process.stdout.write(`Verified the Review package at ${packagedRoot}\n`);
+  } else {
+    const runtimeRoot = await stageReviewRuntime(packagedRoot);
+    process.stdout.write(`Staged the Review runtime at ${runtimeRoot}\n`);
+  }
 }

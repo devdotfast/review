@@ -551,41 +551,6 @@ export async function jjRevisionIsConflicted(
   }
 }
 
-/**
- * Recover the change identity a commit belongs to. jj keeps the association
- * for hidden (rewritten) commits, so a stale pin still names its change. Git
- * has no commit-to-branch identity, so this is jj-only; null means the commit
- * is unknown to the repository or the repository is not jj.
- */
-export async function changeIdentityForCommit(
-  rootPath: string,
-  commit: string,
-): Promise<LocalChangeIdentity | null> {
-  const vcs = await detectLocalVcs(rootPath);
-  if (vcs?.kind !== "jj") return null;
-  let stdout: string;
-  try {
-    ({ stdout } = await execFileAsync(
-      "jj",
-      [
-        "log",
-        "-r",
-        commit,
-        "--no-graph",
-        "-T",
-        "change_id",
-        "--ignore-working-copy",
-      ],
-      { cwd: rootPath },
-    ));
-  } catch (error) {
-    if ((error as { code?: number }).code === 1) return null;
-    throw error;
-  }
-  const changeId = stdout.trim();
-  return changeId ? { kind: "jj-change", name: changeId } : null;
-}
-
 export function currentHeadSync(rootPath: string): ResolvedRevision | null {
   const vcs = detectLocalVcsSync(rootPath);
   if (!vcs) return null;
@@ -618,12 +583,6 @@ export async function defaultBranch(
   return vcs.defaultBranch();
 }
 
-export function defaultBranchSync(rootPath: string): ResolvedRevision | null {
-  const vcs = detectLocalVcsSync(rootPath);
-  if (!vcs) return null;
-  return defaultBranchForKindSync(rootPath, vcs.kind);
-}
-
 export async function mergeBase(input: {
   rootPath: string;
   baseRef: string;
@@ -634,21 +593,6 @@ export async function mergeBase(input: {
   return vcs.mergeBase(input.baseRef, input.headRef);
 }
 
-export function mergeBaseSync(input: {
-  rootPath: string;
-  baseRef: string;
-  headRef: string;
-}): ResolvedRevision | null {
-  const vcs = detectLocalVcsSync(input.rootPath);
-  if (!vcs) return null;
-  return mergeBaseForKindSync({
-    rootPath: input.rootPath,
-    baseRef: input.baseRef,
-    headRef: input.headRef,
-    kind: vcs.kind,
-  });
-}
-
 export async function defaultBase(input: {
   rootPath: string;
   headRef: string;
@@ -656,19 +600,6 @@ export async function defaultBase(input: {
   const base = await defaultBranch(input.rootPath);
   if (!base) return null;
   return mergeBase({
-    rootPath: input.rootPath,
-    baseRef: base.commit,
-    headRef: input.headRef,
-  });
-}
-
-export function defaultBaseSync(input: {
-  rootPath: string;
-  headRef: string;
-}): ResolvedRevision | null {
-  const base = defaultBranchSync(input.rootPath);
-  if (!base) return null;
-  return mergeBaseSync({
     rootPath: input.rootPath,
     baseRef: base.commit,
     headRef: input.headRef,
@@ -781,22 +712,6 @@ async function defaultBranchForKind(
   return null;
 }
 
-function defaultBranchForKindSync(
-  rootPath: string,
-  kind: LocalVcsKind,
-): ResolvedRevision | null {
-  const candidates = defaultBranchCandidatesSync(rootPath);
-  for (const candidate of candidates) {
-    const commit = resolveRevisionCommitByPreferenceSync(
-      rootPath,
-      candidate,
-      kind,
-    );
-    if (commit) return { commit };
-  }
-  return null;
-}
-
 async function mergeBaseForKind(input: {
   rootPath: string;
   baseRef: string;
@@ -811,21 +726,6 @@ async function mergeBaseForKind(input: {
   );
   // No guessing: disjoint histories have no merge base, and callers must see
   // that as null rather than a silently substituted default branch.
-  return commit ? { commit } : null;
-}
-
-function mergeBaseForKindSync(input: {
-  rootPath: string;
-  baseRef: string;
-  headRef: string;
-  kind: LocalVcsKind;
-}): ResolvedRevision | null {
-  const commit = mergeBaseByPreferenceSync(
-    input.rootPath,
-    input.baseRef,
-    input.headRef,
-    input.kind,
-  );
   return commit ? { commit } : null;
 }
 
@@ -1439,28 +1339,6 @@ async function defaultBranchCandidates(rootPath: string): Promise<string[]> {
   ]);
 }
 
-function defaultBranchCandidatesSync(rootPath: string): string[] {
-  const remoteHead = commandOutputSync(
-    "git",
-    [
-      "-C",
-      rootPath,
-      "symbolic-ref",
-      "--quiet",
-      "--short",
-      "refs/remotes/origin/HEAD",
-    ],
-    { cwd: rootPath },
-  );
-  return uniqueStrings([
-    remoteHead,
-    "origin/main",
-    "origin/master",
-    "main",
-    "master",
-  ]);
-}
-
 async function resolveRevisionCommitByPreference(
   rootPath: string,
   revision: string,
@@ -1512,24 +1390,6 @@ async function mergeBaseByPreference(
     (await primary(rootPath, baseRef, headRef).catch(() => null)) ??
     (canUseGitFallbackSync(rootPath, preferred)
       ? await secondary(rootPath, baseRef, headRef).catch(() => null)
-      : null)
-  );
-}
-
-function mergeBaseByPreferenceSync(
-  rootPath: string,
-  baseRef: string,
-  headRef: string,
-  preferred: LocalVcsKind,
-): string | null {
-  const primary =
-    preferred === "jj" ? resolveJjMergeBaseSync : resolveGitMergeBaseSync;
-  const secondary =
-    preferred === "jj" ? resolveGitMergeBaseSync : resolveJjMergeBaseSync;
-  return (
-    primary(rootPath, baseRef, headRef) ??
-    (canUseGitFallbackSync(rootPath, preferred)
-      ? secondary(rootPath, baseRef, headRef)
       : null)
   );
 }
@@ -1620,20 +1480,6 @@ async function resolveGitMergeBase(
   return commandOutput("git", ["-C", rootPath, "merge-base", baseRef, headRef]);
 }
 
-function resolveGitMergeBaseSync(
-  rootPath: string,
-  baseRef: string,
-  headRef: string,
-): string | null {
-  return commandOutputSync("git", [
-    "-C",
-    rootPath,
-    "merge-base",
-    baseRef,
-    headRef,
-  ]);
-}
-
 async function resolveJjMergeBase(
   rootPath: string,
   baseRef: string,
@@ -1655,29 +1501,6 @@ async function resolveJjMergeBase(
     { cwd: rootPath },
   );
   return splitLines(output)[0] ?? null;
-}
-
-function resolveJjMergeBaseSync(
-  rootPath: string,
-  baseRef: string,
-  headRef: string,
-): string | null {
-  const output = commandOutputSync(
-    "jj",
-    [
-      "-R",
-      rootPath,
-      "log",
-      "--no-graph",
-      "-r",
-      `heads(::${baseRef} & ::${headRef})`,
-      "-T",
-      'commit_id ++ "\n"',
-      "--ignore-working-copy",
-    ],
-    { cwd: rootPath },
-  );
-  return output ? (splitLines(output)[0] ?? null) : null;
 }
 
 function readGitFileAtRevisionSync(input: {

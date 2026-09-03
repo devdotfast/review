@@ -136,22 +136,6 @@ export class CodexAppServerClient {
   }
 }
 
-export async function readCodexThread(threadId: string): Promise<unknown> {
-  const client = await CodexAppServerClient.connect();
-  try {
-    await client.request("thread/resume", {
-      threadId,
-      excludeTurns: true,
-    });
-    return await client.request("thread/read", {
-      threadId,
-      includeTurns: true,
-    });
-  } finally {
-    await client.close();
-  }
-}
-
 export async function forkCodexThread(input: {
   sourceThreadId: string;
   cwd: string;

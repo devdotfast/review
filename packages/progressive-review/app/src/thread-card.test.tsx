@@ -15,7 +15,7 @@ class StubResizeObserver implements ResizeObserver {
 globalThis.ResizeObserver ??= StubResizeObserver;
 
 import type { ThreadView } from "./review-threads";
-import { readReviewUiState, writeReviewUiState } from "./review-ui-state";
+import { writeReviewUiState } from "./review-ui-state";
 import {
   ThreadCard,
   ThreadComposer,

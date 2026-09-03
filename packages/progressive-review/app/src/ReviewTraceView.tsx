@@ -1,18 +1,11 @@
 import {
-  type ReviewAgentTraceEvent,
   type ReviewAgentTraceSession,
   parseReviewAgentTraceListResponse,
 } from "@dev.fast/review-protocol";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useReviewSession } from "./host/review-session";
-import {
-  ChevronIcon,
-  type IndexedTraceTurnGroup,
-  TraceDocument,
-  type TraceTurnEvent,
-  formatDuration,
-} from "./trace-document";
+import { ChevronIcon, TraceDocument, formatDuration } from "./trace-document";
 import { TraceRuler } from "./trace-ruler";
 import {
   type LoadedAgentTrace,
@@ -53,8 +46,6 @@ export {
   type TraceDocumentProps,
   type TraceDocumentOptions,
 } from "./trace-document";
-export { HighlightedText } from "./highlighted-text";
-
 /**
  * The Trace tab shows the raw agent traces behind a review, resolved from
  * `Agent-Session:` commit trailers and fetched from the shared R2 trace store.

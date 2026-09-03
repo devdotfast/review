@@ -11,7 +11,7 @@ import type {
 
 export const REVIEW_PEEK_MAX_VISIBLE_LINES = 18;
 export const REVIEW_PEEK_LINE_HEIGHT = 20;
-export const REVIEW_PEEK_CONTEXT_LINES = 3;
+const REVIEW_PEEK_CONTEXT_LINES = 3;
 
 export type ReviewPeekHeightMode = "capped" | "content";
 
@@ -147,7 +147,7 @@ export function reviewPeekCappedHeight(
 }
 
 /** The subset of ICodeEditor that window measurement needs. */
-export interface ReviewPeekRenderedEditor {
+interface ReviewPeekRenderedEditor {
   getModel(): unknown;
   getTopForLineNumber(lineNumber: number, includeViewZones?: boolean): number;
   getBottomForLineNumber(lineNumber: number, includeViewZones?: boolean): number;
@@ -248,7 +248,7 @@ export function reviewPeekLineMappings(
   return mappings;
 }
 
-export function flipReviewPeekLineMappings(
+function flipReviewPeekLineMappings(
   mappings: readonly ReviewPeekLineMapping[],
 ): ReviewPeekLineMapping[] {
   return mappings.map((mapping) => ({
@@ -259,7 +259,7 @@ export function flipReviewPeekLineMappings(
   }));
 }
 
-export function mappedReviewPeekWindow(
+function mappedReviewPeekWindow(
   destinationLineCount: number,
   sourceWindow: ReviewPeekWindow,
   mappings: readonly ReviewPeekLineMapping[],
@@ -284,7 +284,7 @@ export function mappedReviewPeekWindow(
   );
 }
 
-export function mappedReviewPeekWindows(
+function mappedReviewPeekWindows(
   destinationLineCount: number,
   sourceWindows: readonly ReviewPeekWindow[],
   mappings: readonly ReviewPeekLineMapping[],

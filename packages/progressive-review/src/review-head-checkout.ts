@@ -9,6 +9,7 @@ import {
   resolveRevision,
 } from "@dev.fast/local-vcs";
 
+import { isInsideDirectory } from "./review-paths";
 import { removeReviewPrepareArtifacts } from "./review-prepare";
 import {
   type ReviewCheckoutRole,
@@ -293,18 +294,6 @@ async function listRegisteredWorktrees(
     allowFailure: true,
   }).catch(() => null);
   return listed?.ok ? parseWorktreeList(listed.stdout) : [];
-}
-
-function isInsideDirectory(filePath: string, directory: string): boolean {
-  const relative = path.relative(
-    path.resolve(directory),
-    path.resolve(filePath),
-  );
-  return (
-    Boolean(relative) &&
-    !relative.startsWith("..") &&
-    !path.isAbsolute(relative)
-  );
 }
 
 function isManagedLegacyReviewWorktree(

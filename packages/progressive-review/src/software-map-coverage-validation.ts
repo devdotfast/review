@@ -197,6 +197,26 @@ function collectNonNestedCoverageOverlaps(input: {
       expandCoverageForComparison(element.coverage, input.trackedFiles),
     ]),
   );
+  const elementsByFile = new Map<string, number[]>();
+  for (let index = 0; index < coveredElements.length; index += 1) {
+    const element = coveredElements[index];
+    if (!element) continue;
+    const coverage = expandedByPath.get(element.path);
+    if (!coverage) continue;
+    for (const file of coverage.spansByFile.keys()) {
+      const indexes = elementsByFile.get(file) ?? [];
+      indexes.push(index);
+      elementsByFile.set(file, indexes);
+    }
+  }
+  const candidatePairs = new Set<string>();
+  for (const indexes of elementsByFile.values()) {
+    for (let left = 0; left < indexes.length; left += 1) {
+      for (let right = left + 1; right < indexes.length; right += 1) {
+        candidatePairs.add(`${indexes[left]}:${indexes[right]}`);
+      }
+    }
+  }
   const overlaps: NonNestedCoverageOverlap[] = [];
 
   for (let leftIndex = 0; leftIndex < coveredElements.length; leftIndex += 1) {
@@ -209,6 +229,7 @@ function collectNonNestedCoverageOverlaps(input: {
     ) {
       const right = coveredElements[rightIndex];
       if (!right) continue;
+      if (!candidatePairs.has(`${leftIndex}:${rightIndex}`)) continue;
       if (
         isAncestor(left, right, input.model) ||
         isAncestor(right, left, input.model)
@@ -295,32 +316,6 @@ function coverageRangesOverlap(
 }
 
 type CanonicalCoverageRange = SoftwareLineRange[] | "entire-file";
-
-function canonicalCoverageIsIdentical(
-  left: ReadonlyMap<string, CanonicalCoverageRange>,
-  right: ReadonlyMap<string, CanonicalCoverageRange>,
-) {
-  if (left.size !== right.size) return false;
-  for (const [file, leftRanges] of left) {
-    const rightRanges = right.get(file);
-    if (!rightRanges) return false;
-    if (leftRanges === "entire-file" || rightRanges === "entire-file") {
-      if (leftRanges !== rightRanges) return false;
-      continue;
-    }
-    if (leftRanges.length !== rightRanges.length) return false;
-    if (
-      leftRanges.some(
-        (range, index) =>
-          range.fromLine !== rightRanges[index]?.fromLine ||
-          range.toLine !== rightRanges[index]?.toLine,
-      )
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
 
 function canonicalizeCoverageSpans(spans: readonly CoverageSpan[]) {
   const result = new Map<string, CanonicalCoverageRange>();

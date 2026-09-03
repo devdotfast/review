@@ -67,8 +67,6 @@ export interface ResolvedCommentCodeSource {
   fromLine: number;
 }
 
-export type { ReviewSessionCommits } from "./thread-target-index";
-
 export interface CommentDraftTarget extends CreateReviewCommentInput {
   draftSurface: CommentDraftSurface;
   title?: string;
@@ -301,11 +299,11 @@ function ReviewCoordinator({
 
   // Resolved threads are hidden from the document and the default lists;
   // they live in the Threads sidebar's Resolved section.
-  const allCommentThreads = useCallback(
-    (): CommentThreadView[] =>
-      [...commentThreads.entries()]
-        .filter(([, thread]) => thread.status !== "resolved")
-        .map(([, thread]) =>
+  const activeCommentThreads = useMemo(
+    () =>
+      [...commentThreads.values()]
+        .filter((thread) => thread.status !== "resolved")
+        .map((thread) =>
           commentThreadViewState(thread, localComments, agentActivities),
         )
         .sort(
@@ -313,18 +311,26 @@ function ReviewCoordinator({
         ),
     [agentActivities, commentThreads, localComments],
   );
+  const allCommentThreads = useCallback(
+    () => activeCommentThreads,
+    [activeCommentThreads],
+  );
 
-  const resolvedCommentThreads = useCallback(
-    (): CommentThreadView[] =>
-      [...commentThreads.entries()]
-        .filter(([, thread]) => thread.status === "resolved")
-        .map(([, thread]) =>
+  const resolvedThreads = useMemo(
+    () =>
+      [...commentThreads.values()]
+        .filter((thread) => thread.status === "resolved")
+        .map((thread) =>
           commentThreadViewState(thread, localComments, agentActivities),
         )
         .sort(
           (left, right) => firstMessageTime(left) - firstMessageTime(right),
         ),
     [agentActivities, commentThreads, localComments],
+  );
+  const resolvedCommentThreads = useCallback(
+    () => resolvedThreads,
+    [resolvedThreads],
   );
 
   const commentsForAnchor = useCallback(

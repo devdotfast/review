@@ -5,19 +5,6 @@ const FLAT_REVIEW_SLUG_RE = /^[A-Za-z0-9._-]+$/;
 const PR_REVIEW_FILE_RE = /^pr-(\d+)$/;
 const PR_REVIEW_ROUTE_RE = /^\/pr\/(\d+)$/;
 
-export function resolveReviewPath(
-  reviewRootPath: string,
-  value: string,
-): string {
-  return path.isAbsolute(value)
-    ? path.resolve(value)
-    : path.resolve(reviewRootPath, value);
-}
-
-export function toViteFsImport(filePath: string): string {
-  return `/@fs/${path.resolve(filePath).split(path.sep).join("/")}`;
-}
-
 export function isInsideDirectory(
   filePath: string,
   directory: string,
@@ -57,15 +44,6 @@ export function normalizeViteModuleFilePath(id: string): string {
       return resolved;
     }
   }
-}
-
-export function findRepoRoot(start: string): string {
-  let dir = start;
-  while (dir !== path.dirname(dir)) {
-    if (existsSync(path.join(dir, "pnpm-workspace.yaml"))) return dir;
-    dir = path.dirname(dir);
-  }
-  return start;
 }
 
 export function normalizeReviewRoutePath(value: string | null | undefined) {

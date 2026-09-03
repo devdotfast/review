@@ -1,5 +1,4 @@
 import {
-  type CSSProperties,
   type ChangeEvent,
   Children,
   type MouseEvent,
@@ -41,10 +40,11 @@ import {
 } from "./CodePeek";
 import { DiagramTourOverlay, useDiagramTourShell } from "./diagram-tour";
 import { useReviewSession } from "./host/review-session";
-import { CommentIcon } from "./icons";
+import { HoverCommentButton } from "./hover-comment-button";
 import type { GuidedTour } from "./review-components";
 import { useReview } from "./review-context";
 import { useTourPersist, useTourRestore } from "./review-view-state";
+import { formatSchemaExample } from "./software-map/c4-projection";
 import type {
   SoftwareDataStoreFieldLeaf,
   SoftwareDataStoreFieldSchema,
@@ -950,7 +950,7 @@ function softwareMapSchemaRowsForCollection({
       label: row.label,
       depth: row.depth,
       type: schemaValue(row),
-      example: formatExample(row.example),
+      example: formatSchemaExample(row.example),
       primaryKey: row.pk,
       foreignKey: Boolean(row.fk),
       state: highlights.activeTargetKeys.has(rowTargetKey)
@@ -978,29 +978,6 @@ function storeCollectionNodeIdForStore(
   return store.softwareMapPath
     ? `${store.softwareMapPath}.${collectionKind}.${collectionId}`
     : `store:${store.id}.${collectionKind}.${collectionId}`;
-}
-
-function HoverCommentButton({
-  onClick,
-  className = "",
-  style,
-}: {
-  onClick: (event: MouseEvent<HTMLButtonElement>) => void;
-  className?: string;
-  style?: CSSProperties;
-}) {
-  return (
-    <button
-      type="button"
-      className={["comment-hover-button", className].filter(Boolean).join(" ")}
-      style={style}
-      onClick={onClick}
-      aria-label="Comment"
-      title="Comment"
-    >
-      <CommentIcon />
-    </button>
-  );
 }
 
 function slugPart(value: string): string {
@@ -1207,15 +1184,6 @@ function exampleForSchema(schema: FieldSchema): Record<string, unknown> {
       isFieldLeaf(value) ? exampleForField(value) : exampleForSchema(value),
     ]),
   );
-}
-
-function formatExample(value: unknown): string | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-  return JSON.stringify(value);
 }
 
 function tourIdFor(lensId: string, useCaseId: string): string {

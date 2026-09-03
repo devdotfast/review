@@ -75,16 +75,6 @@ export interface ResolveSoftwareMapDiffCountsInput {
   headRef?: string;
   codeElements: SoftwareMapCodeElementInput[];
   coverageClaims?: SoftwareMapCoverageClaimInput[];
-  runGitDiff?: (input: {
-    rootPath: string;
-    baseRef: string;
-    headRef?: string;
-  }) => Promise<string>;
-  runJjDiff?: (input: {
-    rootPath: string;
-    baseRef: string;
-    headRef?: string;
-  }) => Promise<string>;
 }
 
 interface FileLineChange extends SoftwareMapDiffLineCount {
@@ -96,8 +86,6 @@ type FileLineCounts = Map<string, Map<number, FileLineChange>>;
 export async function resolveSoftwareMapDiffCounts(
   input: ResolveSoftwareMapDiffCountsInput,
 ): Promise<SoftwareMapDiffCountsResult> {
-  const runGitDiff = input.runGitDiff ?? runLocalGitDiff;
-  const runJjDiff = input.runJjDiff ?? runLocalJjDiff;
   const baseRef = input.baseRef?.trim();
   if (!baseRef) {
     return { countsByElementPath: {}, unmappedByElementPath: {} };
@@ -105,25 +93,12 @@ export async function resolveSoftwareMapDiffCounts(
   const headRef = input.headRef?.trim() || undefined;
   const sourceRootPath = input.sourceRootPath;
 
-  const diff =
-    input.runGitDiff || input.runJjDiff
-      ? await runGitDiff({
-          rootPath: sourceRootPath,
-          baseRef,
-          headRef,
-        }).catch(() =>
-          runJjDiff({
-            rootPath: sourceRootPath,
-            baseRef,
-            headRef,
-          }).catch(() => ""),
-        )
-      : await readLocalVcsDiff({
-          rootPath: sourceRootPath,
-          baseRef,
-          headRef,
-          contextLines: 0,
-        }).catch(() => "");
+  const diff = await readLocalVcsDiff({
+    rootPath: sourceRootPath,
+    baseRef,
+    headRef,
+    contextLines: 0,
+  }).catch(() => "");
   if (!diff.trim()) {
     return {
       baseRef,
@@ -192,38 +167,37 @@ export function parseGitUnifiedDiffLineCounts(diff: string): FileLineCounts {
   return countsByFile;
 }
 
-export async function mapDiffLineCountsToSoftwareMapElements(input: {
+export function mapDiffLineCountsToSoftwareMapElements(input: {
   codeElements: SoftwareMapCodeElementInput[];
   countsByFile: FileLineCounts;
-}): Promise<{
+}): {
   countsByElementPath: SoftwareMapDiffCountsByElementPath;
-}> {
+} {
   const countsByElementPath: SoftwareMapDiffCountsByElementPath = {};
 
-  await Promise.all(
-    input.codeElements.map(async (element) => {
-      const total: SoftwareMapDiffLineCount = { additions: 0, deletions: 0 };
-      const countedLines = new Set<string>();
-      for (const range of element.sourceRanges ?? []) {
-        const fileCounts = input.countsByFile.get(range.file);
-        if (!fileCounts) continue;
-        for (const [line, counts] of fileCounts) {
-          if (line < range.fromLine || line > range.toLine) continue;
-          const lineKey = `${range.file}:${line}`;
-          if (countedLines.has(lineKey)) continue;
-          countedLines.add(lineKey);
-          total.additions +=
-            element.changeStatus === "removed" ? 0 : counts.additions;
-          total.deletions +=
-            element.changeStatus === "added" ? 0 : counts.deletions;
-        }
+  for (const element of input.codeElements) {
+    const total: SoftwareMapDiffLineCount = { additions: 0, deletions: 0 };
+    const countedLines = new Set<string>();
+    for (const range of element.sourceRanges ?? []) {
+      const fileCounts = input.countsByFile.get(range.file);
+      if (!fileCounts) continue;
+      for (let line = range.fromLine; line <= range.toLine; line += 1) {
+        const counts = fileCounts.get(line);
+        if (!counts) continue;
+        const lineKey = `${range.file}:${line}`;
+        if (countedLines.has(lineKey)) continue;
+        countedLines.add(lineKey);
+        total.additions +=
+          element.changeStatus === "removed" ? 0 : counts.additions;
+        total.deletions +=
+          element.changeStatus === "added" ? 0 : counts.deletions;
       }
+    }
 
-      if (total.additions > 0 || total.deletions > 0) {
-        countsByElementPath[element.path] = total;
-      }
-    }),
-  );
+    if (total.additions > 0 || total.deletions > 0) {
+      countsByElementPath[element.path] = total;
+    }
+  }
 
   return { countsByElementPath };
 }
@@ -257,32 +231,6 @@ export function mapDiffLineCountsToCoverageClaims(input: {
   }
 
   return result;
-}
-
-async function runLocalGitDiff(input: {
-  rootPath: string;
-  baseRef: string;
-  headRef?: string;
-}): Promise<string> {
-  return readLocalVcsDiff({
-    rootPath: input.rootPath,
-    baseRef: input.baseRef,
-    headRef: input.headRef,
-    contextLines: 0,
-  });
-}
-
-async function runLocalJjDiff(input: {
-  rootPath: string;
-  baseRef: string;
-  headRef?: string;
-}): Promise<string> {
-  return readLocalVcsDiff({
-    rootPath: input.rootPath,
-    baseRef: input.baseRef,
-    headRef: input.headRef,
-    contextLines: 0,
-  });
 }
 
 function addLineCount(
@@ -371,8 +319,14 @@ export function softwareMapLineInRanges(
   return ranges.some((range) => line >= range.fromLine && line <= range.toLine);
 }
 
+const softwareMapGlobRegexes = new Map<string, RegExp>();
+
 export function softwareMapGlobMatches(pattern: string, value: string) {
-  const regex = new RegExp(`^${globToRegex(pattern)}$`);
+  let regex = softwareMapGlobRegexes.get(pattern);
+  if (!regex) {
+    regex = new RegExp(`^${globToRegex(pattern)}$`);
+    softwareMapGlobRegexes.set(pattern, regex);
+  }
   return regex.test(value);
 }
 

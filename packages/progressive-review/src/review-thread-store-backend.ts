@@ -6,7 +6,8 @@ import {
   ReviewCommentDraftThreadMapSchema,
   parseReviewCommentThreadMap,
   parseStoredReviewCommentThreadMap,
-} from "./review-comment-schema";
+} from "@dev.fast/review-protocol";
+
 import type {
   ReviewCommentDraftThreadMap,
   ReviewCommentThreadMap,
@@ -136,6 +137,20 @@ function readThreadDbSchemaVersion(db: DatabaseSync): string | null {
         .get() as { value: string } | undefined
     )?.value ?? null
   );
+}
+
+export function checkReviewThreadDbVersion(reviewMdxPath: string): void {
+  const dbPath = reviewThreadDbPath(reviewMdxPath);
+  if (!existsSync(dbPath)) return;
+  const db = new DatabaseSync(dbPath, { readOnly: true });
+  try {
+    const version = readThreadDbSchemaVersion(db);
+    if (version !== String(REVIEW_THREAD_DB_SCHEMA_VERSION)) {
+      throw new ReviewThreadDbVersionError(dbPath, version);
+    }
+  } finally {
+    db.close();
+  }
 }
 
 export type ReviewThreadDbMigrationResult = "missing" | "current" | "upgraded";

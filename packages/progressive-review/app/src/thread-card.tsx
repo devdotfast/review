@@ -31,7 +31,6 @@ import {
   type ThreadView,
   threadRelativeTimeLabel,
 } from "./review-threads";
-import { readReviewUiState, writeReviewUiState } from "./review-ui-state";
 import { useThreadTargetState } from "./thread-target-model";
 
 /**

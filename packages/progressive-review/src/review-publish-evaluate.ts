@@ -21,6 +21,7 @@ import {
   callStackEvidenceErrors,
   diffCallStacks,
 } from "./call-stack-diff";
+import { errorMessage } from "./error-message";
 import { loadReviewAgentTrace } from "./review-agent-traces";
 import {
   type PublishAuditTraceQuote,
@@ -433,8 +434,4 @@ function validationRuntimeExports(input: {
       return document;
     },
   };
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

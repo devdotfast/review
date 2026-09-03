@@ -7,7 +7,7 @@ import { createTrustedTypesPolicy } from "../../../../base/browser/trustedTypes.
 import { ReviewDocumentModuleCache } from "../../../common/reviewDocumentModuleCache.js";
 import type { ReviewDesktopSession } from "../../../services/reviewSessionModelService.js";
 
-export type ReviewDocumentImporter = (url: string) => Promise<unknown>;
+type ReviewDocumentImporter = (url: string) => Promise<unknown>;
 
 const softwareMapModules = new Map<string, Promise<unknown>>();
 

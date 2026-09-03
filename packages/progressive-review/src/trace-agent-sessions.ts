@@ -1,6 +1,6 @@
 import { readFile, rm, stat, writeFile } from "node:fs/promises";
 
-import { sessionIdSchema } from "@dev-fast/trace-shared";
+import { sessionIdSchema } from "@dev.fast/review-protocol";
 
 export const TRACE_SESSION_TTL_MS = 2 * 60 * 60 * 1000;
 

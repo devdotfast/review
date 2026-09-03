@@ -16,6 +16,7 @@ import type { Writable } from "node:stream";
 import { promisify } from "node:util";
 
 import { emitJsonEvent, humanStream } from "./cli-output";
+import { errorMessage } from "./error-message";
 import { defaultPackageRoot } from "./install";
 import {
   ensureReviewPinnedCheckout,
@@ -813,8 +814,4 @@ function samePath(left: string, right: string): boolean {
 
 function count(value: number, noun: string, plural = `${noun}s`): string {
   return `${value} ${value === 1 ? noun : plural}`;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

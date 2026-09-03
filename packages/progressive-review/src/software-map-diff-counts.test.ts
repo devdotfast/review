@@ -36,10 +36,10 @@ describe("software map diff counts", () => {
     });
   });
 
-  it("maps changes through authored source ranges", async () => {
+  it("maps changes through authored source ranges", () => {
     const countsByFile = parseGitUnifiedDiffLineCounts(patch);
 
-    await expect(
+    expect(
       mapDiffLineCountsToSoftwareMapElements({
         countsByFile,
         codeElements: [
@@ -52,7 +52,7 @@ describe("software map diff counts", () => {
           { path: "product.api.unmapped" },
         ],
       }),
-    ).resolves.toEqual({
+    ).toEqual({
       countsByElementPath: {
         "product.api.example": { additions: 2, deletions: 2 },
       },

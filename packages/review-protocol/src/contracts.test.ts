@@ -6,8 +6,6 @@ import {
   REVIEW_DESKTOP_DISCOVERY_VERSION,
   REVIEW_SCHEMA_VERSION,
   ReviewCliInstallStampSchema,
-  ReviewCommentSchema,
-  ReviewCommentTargetSchema,
   ReviewCommentThreadMapSchema,
   ReviewDescriptorSchema,
   ReviewDesktopDiscoverySchema,
@@ -34,15 +32,11 @@ import {
   ReviewServerEventSchema,
   ReviewSessionDescriptorSchema,
   ReviewSessionLifecycleEventSchema,
-  ReviewSessionMutationResponseSchema,
   ReviewSessionResponseSchema,
   ReviewSessionSchema,
-  ReviewSubmissionRequestSchema,
-  ReviewSubmissionResponseSchema,
   ReviewSubmissionWireSchema,
   ReviewSurfaceEventSchema,
   ReviewThreadAnchorSchema,
-  ReviewThreadAnchorsResponseSchema,
   ReviewVerbRequestSchema,
   ReviewVerbResponseSchema,
   ThreadTargetSchema,
@@ -130,17 +124,6 @@ const anchor = {
   threadId: "thread-1",
   kind: "comment",
 };
-const commentTarget = {
-  kind: "prose",
-  label: "paragraph",
-  hash: "12345678",
-};
-const comment = {
-  locator: "prose:p:0:0:12345678",
-  target: commentTarget,
-  body: "Review this.",
-};
-
 const contracts: Array<[string, ZodType, Record<string, unknown>]> = [
   ["review record", ReviewRecordSchema, reviewRecord],
   ["review descriptor", ReviewDescriptorSchema, reviewDescriptor],
@@ -193,11 +176,6 @@ const contracts: Array<[string, ZodType, Record<string, unknown>]> = [
     },
   ],
   ["session descriptor", ReviewSessionDescriptorSchema, descriptor],
-  [
-    "session mutation response",
-    ReviewSessionMutationResponseSchema,
-    { ok: true, session: descriptor },
-  ],
   [
     "open response",
     ReviewOpenResponseSchema,
@@ -305,22 +283,6 @@ const contracts: Array<[string, ZodType, Record<string, unknown>]> = [
     },
   ],
   ["error response", ReviewErrorResponseSchema, { ok: false, error: "bad" }],
-  ["comment target", ReviewCommentTargetSchema, commentTarget],
-  ["comment", ReviewCommentSchema, comment],
-  [
-    "submission request",
-    ReviewSubmissionRequestSchema,
-    {
-      submissionId: "submission-1",
-      decision: "request-changes",
-      comments: [comment],
-    },
-  ],
-  [
-    "submission response",
-    ReviewSubmissionResponseSchema,
-    { ok: true, submissionId: "submission-1" },
-  ],
   [
     "server event",
     ReviewServerEventSchema,
@@ -353,14 +315,6 @@ const contracts: Array<[string, ZodType, Record<string, unknown>]> = [
     },
   ],
   ["thread anchor", ReviewThreadAnchorSchema, anchor],
-  [
-    "thread anchors response",
-    ReviewThreadAnchorsResponseSchema,
-    {
-      ok: true,
-      files: [{ path: "src/index.ts", anchors: [anchor] }],
-    },
-  ],
   [
     "verb request",
     ReviewVerbRequestSchema,

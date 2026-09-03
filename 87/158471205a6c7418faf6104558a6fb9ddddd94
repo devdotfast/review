@@ -1,12 +1,14 @@
 import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
 
 /**
- * Software map for 53a3ae3c (head) — the native agent integration subsystem of
+ * Software map for 87158471 (head) — the native agent integration subsystem of
  * Review: harness detection, skill/trace-hook install, native turn launching
  * and observation, and authoring-session attribution, plus the SPA side-panel
  * state that the terminal handoff drives. At this commit the Review source
- * session is forked at scaffold time and re-forked on every repin (the fork
- * is part of the pin's unit of work), the install surface bundles the review
+ * session is forked at publish time inside the desktop server (the publishing
+ * agent's transcript then holds the finished authoring context), so scaffold
+ * leaves a draft without a source session and repin only records the invoking
+ * agent as an updater; a failed fork fails the publish. The install surface bundles the review
  * command shim with skill installs by default, bug reports can attach an
  * opt-in authoring session trace, the trace store speaks to any
  * S3-compatible backend, the Code OSS protocol overlay is generated at build
@@ -72,6 +74,7 @@ export default defineSoftwareMap({
               { path: "packages/progressive-review/src/server/bug-report-trace.ts" },
               { path: "packages/progressive-review/src/review-scaffold.ts" },
               { path: "packages/progressive-review/src/review-home.ts" },
+              { path: "packages/progressive-review/src/review-rebind.ts" },
               { path: "packages/progressive-review/src/review-stack.ts" },
             ],
           },
@@ -255,7 +258,7 @@ export default defineSoftwareMap({
             authoring: {
               label: "Authoring sessions",
               description:
-                "Detects the invoking agent session from environment, freezes or forks it as the Review source session at scaffold and on every repin, records it on the stored Review, and resolves fresh-harness fallbacks.",
+                "Detects the invoking agent session from environment, freezes or forks it as the Review source session when the desktop server publishes, binds the frozen key to the stored Review, records scaffold/repin agents as updaters, and resolves fresh-harness fallbacks.",
               coverage: {
                 files: [
                   { path: "packages/progressive-review/src/authoring-session.ts" },
@@ -263,29 +266,24 @@ export default defineSoftwareMap({
                   { path: "packages/progressive-review/src/tutorial-authoring-session.ts" },
                   { path: "packages/progressive-review/src/review-scaffold.ts" },
                   { path: "packages/progressive-review/src/review-home.ts" },
+                  { path: "packages/progressive-review/src/review-rebind.ts" },
                 ],
               },
               codeElements: {
                 reviewScaffold: {
                   label: "review-scaffold createReview / repinReview",
                   description:
-                    "Scaffold forks the invoking session (createSourceAgentSession, default createReviewSourceAgentSession) against the managed head checkout and stores its key as the Review's sourceSession; repinReview forks again as part of every pin update, so a fork failure fails the update and leaves stored pins untouched.",
+                    "Scaffold no longer forks the invoking agent: a draft has no source session until publish. repinReview moves the pins (updateReviewPins without a session) and, when an agent invoked it, records that agent with the updater role via touchReviewAgentSession; the source session stays as it is until the next publish forks a fresh one. runReviewRebind (review-rebind.ts) delegates to repinReview and no longer threads a createSourceAgentSession override.",
                   sourceRanges: [
-                    { file: "packages/progressive-review/src/review-scaffold.ts", fromLine: 114, toLine: 224 },
-                    { file: "packages/progressive-review/src/review-scaffold.ts", fromLine: 231, toLine: 341 },
+                    { file: "packages/progressive-review/src/review-scaffold.ts", fromLine: 111, toLine: 206 },
+                    { file: "packages/progressive-review/src/review-scaffold.ts", fromLine: 213, toLine: 313 },
                   ],
                   relationships: [
                     {
                       kind: "call",
                       from: ".",
-                      to: "reviewSourceAgentSession",
-                      label: "fork invoking session at scaffold and repin",
-                    },
-                    {
-                      kind: "call",
-                      from: ".",
                       to: "reviewHomeSessionRecord",
-                      label: "createReviewDir(sourceSession) / updateReviewPins(sourceSession)",
+                      label: "updateReviewPins / touchReviewAgentSession(updater)",
                     },
                     {
                       kind: "semantic",
@@ -299,9 +297,9 @@ export default defineSoftwareMap({
                 reviewHomeSessionRecord: {
                   label: "review-home session record",
                   description:
-                    "Stored Review record helpers: updateReviewPins takes the freshly forked sourceSession with the new pins and records that session with the updater role; DISABLED_REVIEW_SOURCE_SESSION marks a repin with no invoking agent; touchReviewAgentSession and bindReviewAuthorSession maintain agentSessions roles.",
+                    "Stored Review record helpers: bindPublishedSourceSession binds a freshly frozen source session key to the record with the author role (validated by parseAuthoringSessionKey); updateReviewPins moves only the pinned range and leaves the source session alone; touchReviewAgentSession and bindReviewAuthorSession maintain agentSessions roles.",
                   sourceRanges: [
-                    { file: "packages/progressive-review/src/review-home.ts", fromLine: 311, toLine: 360 },
+                    { file: "packages/progressive-review/src/review-home.ts", fromLine: 311, toLine: 392 },
                   ],
                   relationships: [
                     {
@@ -324,7 +322,7 @@ export default defineSoftwareMap({
                 reviewSourceAgentSession: {
                   label: "createReviewSourceAgentSession",
                   description:
-                    "Forks or freezes the invoking session per harness: native Codex fork, Claude transcript copy, Pi --fork.",
+                    "Forks or freezes the publishing session per harness at publish time (native Codex fork, Claude transcript copy, Pi --fork) so every new thread forks a copy that holds the finished authoring context: the change, the drafted document, and the publish.",
                   relationships: [
                     {
                       kind: "call",
@@ -519,13 +517,29 @@ export default defineSoftwareMap({
                 desktopServer: {
                   label: "desktop-server",
                   description:
-                    "Global server: session registry, terminal-open relay to the desktop app, install status resolution.",
+                    "Global server: session registry, terminal-open relay to the desktop app, install status resolution, and the publish path. mountPublishedDocument now forks the publishing agent's session through sourceAgentSessionFactory (default createReviewSourceAgentSession) against the ensured head checkout, registers the session under the frozen key so Ask Agent routes to it, and promoteReview persists that key with bindPublishedSourceSession alongside the promoted revision; a failed fork fails the publish with source_session_failed.",
+                  sourceRanges: [
+                    { file: "packages/progressive-review/src/server/desktop-server.ts", fromLine: 969, toLine: 1085 },
+                    { file: "packages/progressive-review/src/server/desktop-server.ts", fromLine: 2361, toLine: 2400 },
+                  ],
                   relationships: [
                     {
                       kind: "call",
                       from: ".",
                       to: "review.cliPackage.harnessRegistry.preferredInstalledReviewAgent",
                       label: "resolveInstalledReviewAgentStatus -> preferred agent",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.authoring.reviewSourceAgentSession",
+                      label: "fork publishing session at publish (sourceAgentSessionFactory)",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.authoring.reviewHomeSessionRecord",
+                      label: "bindPublishedSourceSession on register and promote",
                     },
                   ],
                 },

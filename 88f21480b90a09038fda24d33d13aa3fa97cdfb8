@@ -1,0 +1,146 @@
+import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
+
+export default defineSoftwareMap({
+  people: {},
+  systems: {
+    reviewDesktop: {
+      label: "Review Desktop",
+      description:
+        "VS Code-based desktop client for reading Reviews, browsing diffs, and discussing changes.",
+      containers: {
+        workbench: {
+          label: "Review workbench",
+          description:
+            "Renderer-side services that bind an active Review session to editor, diff, and comment surfaces.",
+          components: {
+            sessionModel: {
+              label: "Review session model",
+              description:
+                "Owns the active session lifecycle, comment-store bridge, document modules, and authenticated HTTP requests to the Review runtime.",
+              coverage: {
+                files: [
+                  "apps/review-desktop/code-oss/src/vs/review/services/reviewSessionModelService.ts",
+                ],
+              },
+              codeElements: {
+                responseMemoization: {
+                  label: "Session response memoization",
+                  description:
+                    "Caches successful GETs and selected POST responses by method, URL, and request body, then invalidates cached responses on Review mutations and lifecycle events.",
+                  sourceRanges: [
+                    {
+                      file: "apps/review-desktop/code-oss/src/vs/review/services/reviewSessionModelService.ts",
+                      fromLine: 92,
+                      toLine: 96,
+                    },
+                    {
+                      file: "apps/review-desktop/code-oss/src/vs/review/services/reviewSessionModelService.ts",
+                      fromLine: 258,
+                      toLine: 324,
+                    },
+                    {
+                      file: "apps/review-desktop/code-oss/src/vs/review/services/reviewSessionModelService.ts",
+                      fromLine: 408,
+                      toLine: 480,
+                    },
+                  ],
+                },
+                commentProjection: {
+                  label: "Comment projection bridge",
+                  description:
+                    "Creates the session-owned comment store and routes its authenticated API calls through the session request layer.",
+                  sourceRanges: [
+                    {
+                      file: "apps/review-desktop/code-oss/src/vs/review/services/reviewSessionModelService.ts",
+                      fromLine: 377,
+                      toLine: 398,
+                    },
+                  ],
+                },
+              },
+            },
+            codeResources: {
+              label: "Review code resources",
+              description:
+                "Resolves Review files and patches into VS Code text models, native diff targets, and unified diff resources.",
+              coverage: {
+                files: [
+                  "apps/review-desktop/code-oss/src/vs/review/services/reviewCodeResourceService.ts",
+                ],
+              },
+              codeElements: {
+                diffResponseCaching: {
+                  label: "Diff response caching",
+                  description:
+                    "Keeps a short-lived diff-file list, persistent per-file patches, and matching in-flight requests for the active Review session.",
+                  sourceRanges: [
+                    {
+                      file: "apps/review-desktop/code-oss/src/vs/review/services/reviewCodeResourceService.ts",
+                      fromLine: 204,
+                      toLine: 222,
+                    },
+                    {
+                      file: "apps/review-desktop/code-oss/src/vs/review/services/reviewCodeResourceService.ts",
+                      fromLine: 726,
+                      toLine: 851,
+                    },
+                  ],
+                },
+                diffTargetResolution: {
+                  label: "Diff target resolution",
+                  description:
+                    "Uses diff metadata and patches to choose base/head resources and construct line mappings for editor previews.",
+                  sourceRanges: [
+                    {
+                      file: "apps/review-desktop/code-oss/src/vs/review/services/reviewCodeResourceService.ts",
+                      fromLine: 274,
+                      toLine: 405,
+                    },
+                  ],
+                },
+                unifiedResourceLifecycle: {
+                  label: "Unified diff resource lifecycle",
+                  description:
+                    "Builds and reference-counts transient unified text models for inline code previews.",
+                  sourceRanges: [
+                    {
+                      file: "apps/review-desktop/code-oss/src/vs/review/services/reviewCodeResourceService.ts",
+                      fromLine: 497,
+                      toLine: 710,
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    reviewRuntime: {
+      label: "Review runtime",
+      description:
+        "Session-scoped HTTP service that supplies Review metadata, file content, diff data, and comment APIs.",
+      external: true,
+    },
+  },
+  relationships: [
+    {
+      kind: "call",
+      from: "reviewDesktop.workbench.codeResources",
+      to: "reviewDesktop.workbench.sessionModel",
+      label: "Sends authenticated Review requests",
+    },
+    {
+      kind: "semantic",
+      from: "reviewDesktop.workbench.sessionModel",
+      to: "reviewRuntime",
+      label: "Calls session HTTP APIs",
+    },
+    {
+      kind: "semantic",
+      from: "reviewDesktop.workbench.codeResources.diffResponseCaching",
+      to: "reviewDesktop.workbench.codeResources.diffTargetResolution",
+      label: "Supplies cached diff metadata and patches",
+    },
+  ],
+});

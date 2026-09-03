@@ -48,6 +48,7 @@ import {
   type ProgressiveReviewSourceKind,
   ProgressiveReviewTelemetry,
 } from "../progressive-review-telemetry";
+import { errorMessage } from "../error-message";
 import {
   dismissReview,
   markReviewViewed,
@@ -63,6 +64,7 @@ import {
 import {
   type StoredReview,
   type StoredReviewRecord,
+  bindPublishedSourceSession,
   bindReviewAuthorSession,
   countReviewComments,
   findReview,
@@ -83,6 +85,7 @@ import {
   requireClosedThreadsForRepublish,
 } from "../review-publish-thread-gate";
 import { clearReopenPending, markReopenPending } from "../review-reopen-marker";
+import { createReviewSourceAgentSession } from "../review-source-agent-session";
 import { devReviewHome } from "../review-storage";
 import { readReviewSoftwareMapBundle } from "../software-map-bundle";
 import { createTutorialAuthoringSession } from "../tutorial-authoring-session";
@@ -235,6 +238,8 @@ export interface GlobalReviewServerInput {
   tutorialAuthoringSessionFactory?: typeof createTutorialAuthoringSession;
   tutorialAuthorSessionBinder?: typeof bindReviewAuthorSession;
   tutorialAgentResolver?: () => Promise<ReviewAgentHarness | undefined>;
+  /** Forks the publishing agent session; defaults to the harness-native fork. */
+  sourceAgentSessionFactory?: typeof createReviewSourceAgentSession;
   publishRuntime?: {
     materializePublishRevision: typeof materializePublishRevision;
   };
@@ -265,6 +270,8 @@ export function createGlobalReviewServer(
     input.tutorialAuthoringSessionFactory ?? createTutorialAuthoringSession;
   const tutorialAuthorSessionBinder =
     input.tutorialAuthorSessionBinder ?? bindReviewAuthorSession;
+  const sourceAgentSessionFactory =
+    input.sourceAgentSessionFactory ?? createReviewSourceAgentSession;
   const tutorialAgentResolver =
     input.tutorialAgentResolver ??
     (async () =>
@@ -796,7 +803,12 @@ export function createGlobalReviewServer(
       }
       return globalJson(
         201,
-        await mountPublishedDocument(review, request.revision, request.view),
+        await mountPublishedDocument(
+          review,
+          request.revision,
+          request.view,
+          agent,
+        ),
       );
     } catch (error) {
       await telemetry.capturePublishGateRejected({ gate: "publish_ready" });
@@ -958,6 +970,7 @@ export function createGlobalReviewServer(
     review: StoredReview,
     revision: string,
     view?: ReviewView,
+    publisher?: SessionRef,
   ): Promise<{
     ok: true;
     revision: string;
@@ -986,12 +999,41 @@ export function createGlobalReviewServer(
         })
       : undefined;
     const documentPath = path.join(buildDir, "review.mdx");
+    // The publishing agent's transcript now holds the whole authoring
+    // context, so this is where the Review freezes its source session. The
+    // session registers with the frozen key so Ask Agent routes to it, and
+    // promotion persists it. A Review whose questions cannot be answered is
+    // not a usable Review, so a failed fork fails the publish.
+    const checkoutRoots = await ensureReviewCheckouts(review, sourceCommit);
+    let sourceSession: string | undefined;
+    if (publisher) {
+      try {
+        const frozen = await sourceAgentSessionFactory({
+          agent: publisher,
+          reviewUuid: review.review.uuid,
+          rootPath: checkoutRoots.headRootPath,
+        });
+        sourceSession = authoringSessionKey(frozen);
+      } catch (error) {
+        throw new ReviewServerError(
+          `Review source session could not be created: ${errorMessage(error)}`,
+          500,
+          "source_session_failed",
+        );
+      }
+    }
     const successor = await registerSerialized({
-      review,
+      review: sourceSession
+        ? {
+            ...review,
+            review: bindPublishedSourceSession(review.review, sourceSession),
+          }
+        : review,
       documentPath,
       softwareMapRootPath,
       revision,
       source,
+      checkoutRoots,
       promoted: false,
     });
     try {
@@ -1028,6 +1070,7 @@ export function createGlobalReviewServer(
           successor.revision,
           successor.source,
           await reviewTitleFromDocument(documentPath),
+          sourceSession,
         );
         successor.promoted = true;
         await startSessionTelemetry(successor);
@@ -2320,13 +2363,17 @@ async function promoteReview(
   revision: string,
   source: { sourceCommit: string; sourceBranch: string },
   title: string | undefined,
+  sourceSession?: string,
 ): Promise<StoredReview> {
+  const now = new Date().toISOString();
   const review: StoredReviewRecord = {
-    ...stored.review,
+    ...(sourceSession
+      ? bindPublishedSourceSession(stored.review, sourceSession, now)
+      : stored.review),
     sourceCommit: source.sourceCommit,
     status: "awaiting-review",
     presentedDocumentRevision: revision,
-    lastPublishedAt: new Date().toISOString(),
+    lastPublishedAt: now,
     /* A publish is new work, so the review earns attention again and returns
        to Home as new. This also rescues a review that was dismissed and then
        updated rather than dropped. */

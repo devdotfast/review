@@ -15,12 +15,8 @@ import { promisify } from "node:util";
 import { describe, expect, it, vi } from "vitest";
 
 import { createReviewDir } from "./review-home";
-import { runReviewRebind as rebindReview } from "./review-rebind";
-import {
-  type RunReviewScaffoldInput,
-  runReviewScaffold as scaffoldReview,
-} from "./review-scaffold";
-import type { createReviewSourceAgentSession } from "./review-source-agent-session";
+import { runReviewRebind } from "./review-rebind";
+import { runReviewScaffold } from "./review-scaffold";
 import { reviewSourceHeadRef } from "./review-source-ref";
 import { appendReviewComment, updateReviewComment } from "./review-state-store";
 import { closeAllReviewThreadStores } from "./review-thread-store-backend";
@@ -28,23 +24,6 @@ import { prepareReviewPublish } from "./server/publish-preparation";
 import { resolveReviewInfo } from "./server/review-info";
 
 const execFilePromise = promisify(execFile);
-
-// The native fork needs a live harness transcript; stand in a deterministic
-// fork so scaffold and rebind can bind a source session from env alone.
-const createSourceAgentSession = vi.fn<typeof createReviewSourceAgentSession>(
-  async ({ agent }) => ({
-    harness: agent.harness,
-    sessionId: `${agent.sessionId}-fork`,
-  }),
-);
-
-function runReviewScaffold(input: RunReviewScaffoldInput) {
-  return scaffoldReview({ ...input, createSourceAgentSession });
-}
-
-function runReviewRebind(input: Parameters<typeof rebindReview>[0]) {
-  return rebindReview({ ...input, createSourceAgentSession });
-}
 
 describe("review info", () => {
   it("returns an empty list without creating a review", async () => {
@@ -105,7 +84,9 @@ describe("review info", () => {
           "utf8",
         ),
       );
-      expect(reviewJson.sourceSession).toBe("codex:thread-1-fork");
+      // Publish forks the source session; a draft has none yet.
+      expect(reviewJson.sourceSession).toBe("disabled:review");
+      expect(reviewJson.agentSessions).toBeUndefined();
       expect(reviewJson.baseRef).toEqual(expect.any(String));
       expect(created.reviews[0]?.change).toBe(reviewJson.sourceIdentity?.name);
       await expect(
@@ -481,7 +462,10 @@ describe("review info", () => {
       expect(reviewJson.sourceCommit).toBe(movedHead);
       expect(reviewJson.baseCommit).toBe(forkPoint);
       expect(reviewJson.baseRef).toBe("main");
-      expect(reviewJson.sourceSession).toBe("claude-code:update-1-fork");
+      expect(reviewJson.sourceSession).toBe("disabled:review");
+      expect(reviewJson.agentSessions["claude-code:update-1"].roles).toEqual([
+        "updater",
+      ]);
 
       const rebased = await runReviewScaffold({
         cwd: root,
@@ -815,7 +799,10 @@ describe("review info", () => {
         name: "other",
       });
       expect(reviewJson.sourceCommit).toBe(otherTip);
-      expect(reviewJson.sourceSession).toBe("codex:rebind-1-fork");
+      expect(reviewJson.sourceSession).toBe("disabled:review");
+      expect(reviewJson.agentSessions["codex:rebind-1"].roles).toEqual([
+        "updater",
+      ]);
     } finally {
       vi.unstubAllEnvs();
       await rm(home, { recursive: true, force: true });
@@ -877,67 +864,6 @@ describe("review info", () => {
       expect(prepared.sourceCommit).toBe(featureTip);
       expect(prepared.sourceBranch).toBe("feature");
       expect(prepared).not.toHaveProperty("warnings");
-    } finally {
-      vi.unstubAllEnvs();
-      closeAllReviewThreadStores();
-      await rm(home, { recursive: true, force: true });
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it("rebind failure leaves review.json untouched when agent session creation fails", async () => {
-    const root = await makeGitRepository();
-    const home = await mkdtemp(path.join(os.tmpdir(), "review-info-home-"));
-    vi.stubEnv("DEV_REVIEW_HOME", home);
-
-    try {
-      await git(root, ["checkout", "-b", "feature"]);
-      await writeFile(path.join(root, "README.md"), "# Feature\n", "utf8");
-      await git(root, ["commit", "-am", "feature"]);
-      const featureTip = await git(root, ["rev-parse", "feature"]);
-      const mainTip = await git(root, ["rev-parse", "main"]);
-      const created = await runReviewScaffold({
-        cwd: root,
-        baseRef: "main",
-        headRef: "feature",
-      });
-      const uuid = created.reviews[0]!.uuid;
-      const reviewDir = created.reviews[0]!.dir;
-      const before = JSON.parse(
-        await readFile(path.join(reviewDir, "review.json"), "utf8"),
-      );
-
-      await git(root, ["checkout", "main"]);
-      await git(root, ["checkout", "-b", "other"]);
-      await writeFile(path.join(root, "other.txt"), "other\n", "utf8");
-      await git(root, ["add", "."]);
-      await git(root, ["commit", "-m", "other"]);
-
-      createSourceAgentSession.mockRejectedValueOnce(
-        new Error("agent session creation failed"),
-      );
-
-      await expect(
-        runReviewRebind({
-          cwd: root,
-          change: "other",
-          reviewUuid: uuid,
-          env: { CODEX_THREAD_ID: "rebind-fail-session" },
-          stdout: nullStream(),
-        }),
-      ).rejects.toThrow(/agent session creation failed/);
-
-      const after = JSON.parse(
-        await readFile(path.join(reviewDir, "review.json"), "utf8"),
-      );
-      expect(after.sourceIdentity).toEqual({
-        kind: "git-branch",
-        name: "feature",
-      });
-      expect(after.sourceCommit).toBe(before.sourceCommit);
-      expect(after.baseCommit).toBe(before.baseCommit);
-      expect(after.sourceCommit).toBe(featureTip);
-      expect(after.baseCommit).toBe(mainTip);
     } finally {
       vi.unstubAllEnvs();
       closeAllReviewThreadStores();

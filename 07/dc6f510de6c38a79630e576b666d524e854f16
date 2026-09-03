@@ -1,20 +1,21 @@
 import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
 
 /**
- * Software map for 07dc6f51 (head) — the native agent integration subsystem of
+ * Software map for 07dc6f51 (base) — the native agent integration subsystem of
  * Review: harness detection, skill/trace-hook install, native turn launching
  * and observation, and authoring-session attribution, plus the SPA side-panel
- * state that the terminal handoff drives. At this commit the install surface
- * bundles the review command shim (and shell-profile PATH management) with
- * skill installs by default, bug reports can attach an opt-in authoring
- * session trace resolved from the harness-local trace store, the trace store
- * speaks to any S3-compatible backend (R2 or AWS S3, via a configurable
- * signing region), the Code OSS protocol overlay is generated at build time
- * rather than checked in, and the SPA side panel is a single active-panel
- * store (peek, tour, commit diff, or Threads) that closes Threads when the
- * desktop opens a native agent terminal. This head adds setThreadsPage, a
- * within-Threads page move that is a no-op once the panel is closed, so an
- * ask that hands off to the terminal no longer reopens Threads afterward.
+ * state that the terminal handoff drives and the in-document thread
+ * annotation surface. At this commit the install surface bundles the review
+ * command shim (and shell-profile PATH management) with skill installs by
+ * default, bug reports can attach an opt-in authoring session trace resolved
+ * from the harness-local trace store, the trace store speaks to any
+ * S3-compatible backend, the Code OSS protocol overlay is generated at build
+ * time, and the SPA side panel is a single active-panel store whose
+ * setThreadsPage is a no-op once the panel is closed. In the review document,
+ * ThreadAnnotations draws highlights, line-edge markers, and margin cards only
+ * for open comment threads: ReviewCoordinator filters resolved threads out of
+ * allCommentThreads, so a resolved thread disappears from the document and
+ * lives only in the Threads sidebar's Resolved section.
  */
 export default defineSoftwareMap({
   people: {
@@ -556,9 +557,104 @@ export default defineSoftwareMap({
               { path: "packages/progressive-review/app/src/review-panel.tsx" },
               { path: "packages/progressive-review/app/src/review-components.tsx" },
               { path: "packages/progressive-review/app/src/App.tsx" },
+              { path: "packages/progressive-review/app/src/thread-annotations.tsx" },
+              { path: "packages/progressive-review/app/src/comment-pins.ts" },
+              { path: "packages/progressive-review/app/src/review-context.tsx" },
+              { path: "packages/progressive-review/app/src/icons.tsx" },
             ],
           },
           components: {
+            documentAnnotations: {
+              label: "Document thread annotations",
+              description:
+                "Overlay drawn over the review document for comment threads: range highlights, compact line-edge markers, margin cards when the gutter is wide enough, and the comment draft popover. Only open threads are annotated; resolved threads are absent from the document.",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/app/src/thread-annotations.tsx" },
+                  { path: "packages/progressive-review/app/src/comment-pins.ts" },
+                  { path: "packages/progressive-review/app/src/icons.tsx" },
+                ],
+              },
+              codeElements: {
+                threadAnnotations: {
+                  label: "ThreadAnnotations",
+                  description:
+                    "Reads allCommentThreads from review state, measures each thread's target into CommentAnnotationPosition entries, and renders highlights, markers (CommentIcon plus message-count badge), and margin cards; clicking a highlight or marker activates the thread.",
+                  sourceRanges: [
+                    { file: "packages/progressive-review/app/src/thread-annotations.tsx", fromLine: 156, toLine: 200 },
+                    { file: "packages/progressive-review/app/src/thread-annotations.tsx", fromLine: 665, toLine: 730 },
+                  ],
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.reviewApp.reviewState.threadLists",
+                      label: "allCommentThreads (open threads only)",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "annotationForThread",
+                      label: "measure each thread target",
+                    },
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "commentPins",
+                      semanticKind: "types",
+                      label: "CommentAnnotationPosition",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "threadIcons",
+                      label: "CommentIcon in the marker button",
+                    },
+                  ],
+                },
+                annotationForThread: {
+                  label: "annotationForThread",
+                  description:
+                    "Resolves a thread target to its document element and range, and returns the highlight rects, marker position, and anchorY for one annotation.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "commentPins",
+                      semanticKind: "types",
+                      label: "builds CommentAnnotationPosition",
+                    },
+                  ],
+                },
+                commentPins: {
+                  label: "comment-pins",
+                  description:
+                    "CommentAnnotationPosition contract (key, threadId, status, rects, marker, anchorY) and commentAnnotationPositionsEqual, the structural equality used to skip redundant re-renders.",
+                },
+                threadIcons: {
+                  label: "Thread icons",
+                  description: "CommentIcon and the other SVG glyphs the annotation markers and thread UI draw.",
+                },
+              },
+            },
+            reviewState: {
+              label: "Review state coordinator",
+              description:
+                "ReviewProvider / ReviewCoordinator: React context that derives comment thread views, drafts, and focus from the session store and exposes them through useReviewState and useReviewActions.",
+              coverage: {
+                files: [{ path: "packages/progressive-review/app/src/review-context.tsx" }],
+              },
+              codeElements: {
+                threadLists: {
+                  label: "allCommentThreads / resolvedCommentThreads",
+                  description:
+                    "Two sorted thread-view lists split on thread status: allCommentThreads holds open threads, resolvedCommentThreads the resolved ones. Resolved threads are hidden from the document and default lists and shown only in the Threads sidebar's Resolved section.",
+                  sourceRanges: [
+                    { file: "packages/progressive-review/app/src/review-context.tsx", fromLine: 318, toLine: 353 },
+                  ],
+                },
+              },
+            },
             panelState: {
               label: "Side panel state",
               description:
@@ -840,6 +936,18 @@ export default defineSoftwareMap({
       from: "reviewer",
       to: "review.reviewApp.threadPanel.threadPanelInner",
       label: "asks questions and adds comments from the Threads panel",
+    },
+    {
+      kind: "semantic",
+      from: "reviewer",
+      to: "review.reviewApp.documentAnnotations.threadAnnotations",
+      label: "sees open threads pinned in the document and opens them from highlights and markers",
+    },
+    {
+      kind: "call",
+      from: "review.reviewApp.threadPanel.threadPanelInner",
+      to: "review.reviewApp.reviewState.threadLists",
+      label: "lists open and resolved threads",
     },
   ],
 });

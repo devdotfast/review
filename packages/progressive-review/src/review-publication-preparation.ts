@@ -13,7 +13,10 @@ import {
   type ReviewSourceTarget,
   resolveReviewSourceTarget,
 } from "./review-worktree-target";
-import { compileReviewDocumentBundle } from "./server/doc-bundler";
+import {
+  compileReviewDocumentBundle,
+  embedCodePeeks,
+} from "./server/doc-bundler";
 import {
   type ReviewSoftwareMapBundle,
   bundleReviewSoftwareMap,
@@ -102,6 +105,11 @@ export async function prepareReviewDocumentBundle(input: {
           base: source.preparedBase
             ? { sourceRootPath: source.preparedBase.sourceRootPath }
             : undefined,
+          diff: {
+            baseRef: source.baseRef,
+            headRef: source.headRef,
+            files: async () => (await diffFiles()).files,
+          },
         };
       },
       // A "-" frame must anchor lines the change deletes and a "+" frame
@@ -123,8 +131,11 @@ export async function prepareReviewDocumentBundle(input: {
       ...new Set([...warnings, ...evaluation.warnings]),
     ]);
   }
+  // The desktop mounts the bundle without a request per peek: every
+  // resolution evaluate just produced ships inside the bundle.
+  const published = embedCodePeeks(bundle, evaluation.codePeeks);
   await span("publish: write document bundle", () =>
-    writeReviewDocumentBundle(input.review.dir, bundle),
+    writeReviewDocumentBundle(input.review.dir, published),
   );
   return { warnings: [...new Set([...warnings, ...evaluation.warnings])] };
 }

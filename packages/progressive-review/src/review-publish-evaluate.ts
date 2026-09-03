@@ -21,8 +21,10 @@ import {
   callStackEvidenceErrors,
   diffCallStacks,
 } from "./call-stack-diff";
+import { codePeekDiffFromFiles, codePeekResolutionKey } from "./code-peek-diff";
 import { errorMessage } from "./error-message";
 import { loadReviewAgentTrace } from "./review-agent-traces";
+import type { ReviewDiffFile } from "./review-diff-files";
 import {
   type PublishAuditTraceQuote,
   auditReviewDocumentComponent,
@@ -70,9 +72,18 @@ export interface ReviewPublishSourceTarget {
   sourceRootPath: string;
 }
 
+export interface ReviewPublishDiffSource {
+  baseRef?: string;
+  headRef?: string;
+  // The review's full diff between the pinned commits, resolved once by the
+  // caller; each peek carries its own slice of it.
+  files: () => Promise<readonly ReviewDiffFile[]>;
+}
+
 export interface ReviewPublishEvidenceTargets {
   head: ReviewPublishSourceTarget;
   base?: ReviewPublishSourceTarget;
+  diff?: ReviewPublishDiffSource;
 }
 
 export interface ReviewPublishRangePeek extends CodePeekProps {
@@ -84,6 +95,10 @@ export interface ReviewPublishEvaluationResult {
   // never ran.
   peekCount: number;
   rangePeeks: ReviewPublishRangePeek[];
+  // Every peek's resolution (snapshot + diff slice), keyed by
+  // codePeekResolutionKey, ready to embed into the published bundle so the
+  // desktop mounts the document without a request per peek.
+  codePeeks: Record<string, CodePeekResolution>;
   errors: string[];
   warnings: string[];
 }
@@ -102,6 +117,7 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
 }): Promise<ReviewPublishEvaluationResult> {
   const failures: string[] = [];
   const rangePeeks: ReviewPublishRangePeek[] = [];
+  const codePeeks: Record<string, CodePeekResolution> = {};
   const callStackProps: CallStackDiffProps[] = [];
   const traceQuotes: PublishAuditTraceQuote[] = [];
   let peekCount = 0;
@@ -162,8 +178,23 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
           toLine: props.toLine,
         },
       });
+      const graph = props.graph ?? "head";
+      const diff = targets.diff
+        ? codePeekDiffFromFiles({
+            snapshot,
+            files: await targets.diff.files(),
+            baseRef: targets.diff.baseRef,
+            headRef: targets.diff.headRef,
+            graph,
+            includePatch: false,
+          })
+        : undefined;
+      const resolution: CodePeekResolution = diff
+        ? { snapshot, diff }
+        : { snapshot };
+      codePeeks[codePeekResolutionKey(props)] = resolution;
       peekSpan.end();
-      return { snapshot };
+      return resolution;
     } catch (error) {
       peekSpan.fail();
       const message = `Code peek range ${props.file}:${props.fromLine}-${props.toLine}: ${errorMessage(error)}`;
@@ -361,6 +392,7 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
   return {
     peekCount,
     rangePeeks,
+    codePeeks,
     errors,
     warnings: [...new Set(warnings)],
   };

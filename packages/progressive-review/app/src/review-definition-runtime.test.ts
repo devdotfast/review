@@ -151,3 +151,63 @@ it("creates a browser definition session without materialized software maps", as
 
   await expect(session.ready()).resolves.toBeUndefined();
 });
+
+it("resolves peeks from the bundle's embedded resolutions without a request", async () => {
+  const sourceId = "source-range:src/example.ts:3-4";
+  const resolution = {
+    snapshot: {
+      roots: [{ kind: "source", sourceId }],
+      resolved: {
+        [sourceId]: {
+          source: {
+            id: sourceId,
+            name: "example.ts L3-L4",
+            kind: "source-range",
+            file: "src/example.ts",
+            line: 3,
+            endLine: 4,
+          },
+          lines: [[{ t: "const a = 1;", k: "t" }], [{ t: "const b = 2;", k: "t" }]],
+        },
+      },
+    },
+  };
+  vi.stubGlobal("__reviewEmbeddedCodePeeks", {
+    "/": { "head|src/example.ts|3|4": resolution },
+  });
+  const fetchMock = vi.fn<typeof fetch>();
+  vi.stubGlobal("fetch", fetchMock);
+
+  const session = createBrowserReviewDefinitionSession({
+    routePath: "/",
+    softwareMap: null,
+    baseSoftwareMap: null,
+  });
+  session.begin();
+  const anchors = session.defineAnchors({
+    example: {
+      title: "Example",
+      peek: { file: "src/example.ts", fromLine: 3, toLine: 4 },
+    },
+  });
+  await expect(session.ready()).resolves.toBeUndefined();
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(anchors.example.peek?.resolution).toEqual(resolution);
+});
+
+it("fails a peek the published bundle does not carry", async () => {
+  vi.stubGlobal("__reviewEmbeddedCodePeeks", { "/": {} });
+  const session = createBrowserReviewDefinitionSession({
+    routePath: "/",
+    softwareMap: null,
+    baseSoftwareMap: null,
+  });
+  session.begin();
+  session.defineAnchors({
+    example: {
+      title: "Example",
+      peek: { file: "src/example.ts", fromLine: 3, toLine: 4 },
+    },
+  });
+  await expect(session.ready()).rejects.toThrow(/not in the published bundle/);
+});

@@ -114,6 +114,7 @@ export function projectInlineC4({
         model,
         baseVisibleNodeIds,
         changedNodeIds,
+        expandedNodeIds,
       )
     : baseVisibleNodeIds;
   const effectiveExpandedNodeIds = new Set<string>();
@@ -201,7 +202,8 @@ function visibleNodeIdsForProjection(
 function changedVisibleNodeIdsForProjection(
   model: NormalizedSoftwareModel,
   baseVisibleNodeIds: ReadonlySet<string>,
-  changedNodeIds?: ReadonlySet<string>,
+  changedNodeIds: ReadonlySet<string> | undefined,
+  expandedNodeIds: ReadonlySet<string>,
 ) {
   const visibleNodeIds = new Set<string>();
   if (changedNodeIds) {
@@ -211,15 +213,48 @@ function changedVisibleNodeIdsForProjection(
         changedNodeId,
         baseVisibleNodeIds,
       );
-      if (endpoint) visibleNodeIds.add(endpoint);
+      if (!endpoint) continue;
+      visibleNodeIds.add(endpoint);
+      addExpandedDataStoreCollectionPaths(
+        model,
+        endpoint,
+        expandedNodeIds,
+        baseVisibleNodeIds,
+        visibleNodeIds,
+      );
     }
   }
   for (const element of model.elements) {
     if (!isChangedElement(element)) continue;
     const endpoint = projectedEndpoint(model, element.path, baseVisibleNodeIds);
-    if (endpoint) visibleNodeIds.add(endpoint);
+    if (!endpoint) continue;
+    visibleNodeIds.add(endpoint);
+    addExpandedDataStoreCollectionPaths(
+      model,
+      endpoint,
+      expandedNodeIds,
+      baseVisibleNodeIds,
+      visibleNodeIds,
+    );
   }
   return visibleNodeIds;
+}
+
+function addExpandedDataStoreCollectionPaths(
+  model: NormalizedSoftwareModel,
+  endpoint: string,
+  expandedNodeIds: ReadonlySet<string>,
+  baseVisibleNodeIds: ReadonlySet<string>,
+  visibleNodeIds: Set<string>,
+) {
+  if (!expandedNodeIds.has(endpoint)) return;
+  const element = model.elementsByPath.get(endpoint);
+  if (!element || element.type !== "dataStore") return;
+  for (const collectionPath of dataStoreCollectionPaths(element)) {
+    if (baseVisibleNodeIds.has(collectionPath)) {
+      visibleNodeIds.add(collectionPath);
+    }
+  }
 }
 
 function addVisibleSubtree(

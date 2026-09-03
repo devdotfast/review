@@ -2,12 +2,15 @@
 
 import { describe, expect, it, vi } from "vitest";
 
+import type { ThreadTarget } from "../../src/types";
+import { targetKey } from "./target-fingerprint";
 import {
   CARD_MAX_WIDTH,
   CARD_MIN_WIDTH,
   MARGIN_CARDS_MIN_GUTTER,
   annotationForThread,
   gutterForAvailable,
+  scrollTargetForThread,
   textNodeClientRects,
   threadFitsExpandedCard,
 } from "./thread-annotations";
@@ -18,6 +21,53 @@ function domRectList(...rects: DOMRect[]): DOMRectList {
     item: (index: number) => rects[index] ?? null,
   });
 }
+
+describe("scrollTargetForThread", () => {
+  const proseTarget: ThreadTarget = {
+    kind: "text",
+    surface: { type: "document", documentHash: "document-hash" },
+    selection: {
+      start: 0,
+      length: 5,
+      hash: "selection-hash",
+      quote: "hello",
+    },
+  };
+
+  function articleWith(html: string): HTMLElement {
+    document.body.innerHTML = `<article class="review-document">${html}</article>`;
+    return document.querySelector<HTMLElement>(".review-document")!;
+  }
+
+  it("prefers a real locator outside the annotation layer", () => {
+    const key = targetKey(proseTarget);
+    const article = articleWith(
+      `<p data-review-locator="${key}">real</p>` +
+        `<div class="review-annotations"><div class="review-highlight" data-review-locator="${key}"></div></div>`,
+    );
+
+    expect(scrollTargetForThread(article, proseTarget)?.tagName).toBe("P");
+  });
+
+  it("falls back to the thread's highlight for prose targets", () => {
+    const key = targetKey(proseTarget);
+    const article = articleWith(
+      `<p>prose</p>` +
+        `<div class="review-annotations"><div class="review-highlight" data-review-locator="${key}"></div></div>`,
+    );
+
+    const element = scrollTargetForThread(article, proseTarget);
+    expect(element?.classList.contains("review-highlight")).toBe(true);
+  });
+
+  it("returns null when neither a locator nor a highlight exists", () => {
+    const article = articleWith(
+      `<p>prose</p><div class="review-annotations"></div>`,
+    );
+
+    expect(scrollTargetForThread(article, proseTarget)).toBeNull();
+  });
+});
 
 describe("annotationForThread", () => {
   it("places a cross-paragraph comment pin in the selected prose margin", () => {

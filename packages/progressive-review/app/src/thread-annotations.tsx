@@ -1006,6 +1006,24 @@ function elementForThread(
   return null;
 }
 
+/**
+ * Element to scroll into view for a focus request. Unlike elementForThread,
+ * which must ignore the annotation overlays because it anchors measurement,
+ * scrolling may land on the thread's own highlight: for a prose selection
+ * that overlay is the only element marking where the thread lives.
+ */
+export function scrollTargetForThread(
+  article: HTMLElement,
+  target: ThreadTarget,
+): Element | null {
+  const anchored = elementForThread(article, target);
+  if (anchored && anchored !== article) return anchored;
+  const highlight = article.querySelector(
+    `.review-annotations .review-highlight[data-review-locator="${cssString(targetKey(target))}"]`,
+  );
+  return highlight ?? null;
+}
+
 function textRange(
   target: Extract<ThreadTarget, { kind: "text" }>,
   element: HTMLElement,

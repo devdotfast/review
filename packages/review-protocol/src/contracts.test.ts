@@ -225,23 +225,6 @@ const contracts: Array<[string, ZodType, Record<string, unknown>]> = [
     { event: "session-updated", session: descriptor },
   ],
   [
-    "desktop review data event",
-    ReviewDesktopGlobalEventSchema,
-    {
-      event: "review-data-changed",
-      uuid: reviewRecord.uuid,
-    },
-  ],
-  [
-    "desktop review authoring target event",
-    ReviewDesktopGlobalEventSchema,
-    {
-      event: "review-authoring-target-changed",
-      uuid: reviewRecord.uuid,
-      target: { targetNodeId: "nested", sectionNodeId: "section" },
-    },
-  ],
-  [
     "desktop review deleted event",
     ReviewDesktopGlobalEventSchema,
     {

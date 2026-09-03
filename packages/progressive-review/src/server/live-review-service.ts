@@ -7,11 +7,6 @@ import type { ReviewAuthoringTarget } from "@dev.fast/review-protocol";
 
 import { type SessionRef, authoringSessionKey } from "../authoring-session";
 import { parentIdForNode, projectLiveReviewPage } from "../live-review-mdx";
-import {
-  commitLiveReviewPage,
-  initializeLiveReviewPage,
-  readLiveReviewPage,
-} from "../live-review-store";
 import type {
   BasicInfo,
   LiveReviewPage,
@@ -28,6 +23,7 @@ import {
 } from "../review-home";
 import { resolveReviewRoot } from "../runtime";
 import { writePrivateJsonAtomic } from "./desktop-paths";
+import { reviewStateService } from "./review-state-service";
 
 export class LiveReviewTerminalError extends Error {
   override readonly name = "LiveReviewTerminalError";
@@ -39,7 +35,7 @@ export interface LiveReviewCreateOutcome {
 }
 
 export function requireLiveReviewPage(review: StoredReview): LiveReviewPage {
-  const page = readLiveReviewPage(review.dir);
+  const page = reviewStateService.readPage(review.dir);
   if (!page || page.id !== review.review.uuid) {
     throw new Error(`Live Review page is missing: ${review.review.uuid}`);
   }
@@ -75,7 +71,7 @@ export async function listLiveReviews(input: {
   }
   const summaries: ReviewSummary[] = [];
   for (const review of listed.reviews) {
-    const page = readLiveReviewPage(review.dir);
+    const page = reviewStateService.readPage(review.dir);
     if (!page) continue;
     summaries.push({
       id: page.id,
@@ -132,7 +128,7 @@ export async function createLiveReview(input: {
     });
     const page: LiveReviewPage = { ...pageWithoutProjection, projection };
     const info = liveReviewInfo(review, page);
-    initializeLiveReviewPage(review.dir, page);
+    reviewStateService.initialize(review.dir, page);
     const active = await setLiveReviewStatus(review, "awaiting-agent-updates");
     return { review: active, info };
   } catch (error) {
@@ -236,7 +232,12 @@ export async function renderLiveReviewMdx(input: {
     nodeId,
     version: next.version,
   };
-  commitLiveReviewPage(input.review.dir, next, page.version);
+  reviewStateService.commitDocument(
+    input.review.review.uuid,
+    input.review.dir,
+    page,
+    next,
+  );
   return result;
 }
 

@@ -198,7 +198,6 @@ interface ReviewApiOptions {
   telemetry?: ReviewTelemetryCapture;
   onSubmission?: (event: ReviewSubmissionEvent) => void | Promise<void>;
   onReviewDismiss?: () => void | Promise<void>;
-  onReviewDataChange?: () => void;
   onReviewThreadsCommit?: (commit: ReviewThreadsCommit) => void;
   runReviewThreadMutation?: <T>(operation: () => T | Promise<T>) => Promise<T>;
   reviewToken: string;

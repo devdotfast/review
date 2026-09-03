@@ -61,7 +61,6 @@ export interface ReviewSessionHandlerInput {
   getReviewStatus?: () => ReviewRecord["status"];
   onSubmission?: (event: ReviewSubmissionEvent) => void | Promise<void>;
   onReviewDismiss?: () => void | Promise<void>;
-  onReviewDataChange?: () => void;
   onReviewThreadsCommit?: (commit: ReviewThreadsCommit) => void;
   runReviewThreadMutation?: <T>(operation: () => T | Promise<T>) => Promise<T>;
   agentServer: (harness: ReviewAgentHarness) => AgentServer;
@@ -339,7 +338,6 @@ export async function createReviewSessionHandler(
       await input.onSubmission?.(event);
     },
     onReviewDismiss: input.onReviewDismiss,
-    onReviewDataChange: input.onReviewDataChange,
     onReviewThreadsCommit: (commit) => {
       broadcast({ event: "review-threads-committed", commit });
       input.onReviewThreadsCommit?.(commit);

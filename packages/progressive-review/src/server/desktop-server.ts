@@ -7,7 +7,6 @@ import { pathToFileURL } from "node:url";
 
 import {
   REVIEW_DESKTOP_DISCOVERY_VERSION,
-  type ReviewAuthoringTarget,
   type ReviewDescriptor,
   type ReviewDesktopDiscovery,
   type ReviewDesktopGlobalEvent,
@@ -140,6 +139,10 @@ import {
 import { materializePublishRevision } from "./publish-stage";
 import { captureSanitizedUiTelemetry } from "./review-api";
 import { resolveReviewInfo } from "./review-info";
+import {
+  type ReviewStateEvent,
+  reviewStateService,
+} from "./review-state-service";
 import {
   type ReviewSessionHandler,
   createReviewSessionHandler,
@@ -298,7 +301,6 @@ export function createGlobalReviewServer(
   const telemetry = input.telemetry ?? ProgressiveReviewTelemetry.fromEnv();
   const relay = new GlobalReviewDesktopVerbRelay();
   const sessions = new Map<string, ActiveReviewSession>();
-  const liveReviewAuthoringTargets = new Map<string, ReviewAuthoringTarget>();
   const reviewLocks = new Map<string, Promise<void>>();
   const globalClients = new Set<ReviewDesktopEventClient>();
   const tutorial = createTutorialService({
@@ -506,14 +508,51 @@ export function createGlobalReviewServer(
       info: liveReviewInfo(opened.review),
     });
   });
-  app.get("/live-reviews/:uuid/page", async (context) => {
+  app.get("/live-reviews/:uuid/state", async (context) => {
     const review = await requireStoredLiveReview(context.req.param("uuid"));
     return globalJson(200, {
       ok: true,
-      page: requireLiveReviewPage(review),
-      authoringTarget:
-        liveReviewAuthoringTargets.get(review.review.uuid) ?? null,
+      state: reviewStateService.snapshot(review.review.uuid, review.dir),
     });
+  });
+  app.get("/live-reviews/:uuid/state/events", async (context) => {
+    const review = await requireStoredLiveReview(context.req.param("uuid"));
+    const response = streamSSE(context, async (output) => {
+      let finish!: () => void;
+      const disconnected = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      let pending: Promise<void> = output
+        .write(": connected\n\n")
+        .then(() => undefined);
+      const write = (event: ReviewStateEvent) => {
+        pending = pending.then(async () => {
+          await output.write(`data: ${JSON.stringify(event)}\n\n`);
+        });
+      };
+      const stop = reviewStateService.subscribe(review.review.uuid, write);
+      write({
+        type: "state.snapshot",
+        state: reviewStateService.snapshot(review.review.uuid, review.dir),
+      });
+      const heartbeat = setInterval(() => {
+        pending = pending.then(async () => {
+          await output.write(": heartbeat\n\n");
+        });
+      }, 15_000);
+      heartbeat.unref?.();
+      output.onAbort(finish);
+      try {
+        await disconnected;
+        await pending;
+      } finally {
+        clearInterval(heartbeat);
+        stop();
+      }
+    });
+    response.headers.set("cache-control", "no-cache, no-transform");
+    response.headers.set("content-type", "text/event-stream; charset=utf-8");
+    return response;
   });
   app.get("/live-reviews/:uuid", async (context) => {
     const review = await requireStoredLiveReview(context.req.param("uuid"));
@@ -521,7 +560,10 @@ export function createGlobalReviewServer(
   });
   app.get("/live-reviews/:uuid/selection", async (context) => {
     const review = await requireStoredLiveReview(context.req.param("uuid"));
-    const target = liveReviewAuthoringTargets.get(review.review.uuid);
+    const target = reviewStateService.snapshot(
+      review.review.uuid,
+      review.dir,
+    ).authoringTarget;
     return globalJson(200, {
       reviewId: review.review.uuid,
       nodeIds: target ? [target.targetNodeId] : [],
@@ -576,7 +618,6 @@ export function createGlobalReviewServer(
       setLiveReviewAuthoringTarget(uuid, page, request.targetNodeId);
       const result = await renderLiveReviewMdx({ review, ...request });
       if (!result.ok) return globalJson(422, result);
-      broadcastLiveReviewChange(uuid);
       return globalJson(200, result);
     });
   });
@@ -595,7 +636,6 @@ export function createGlobalReviewServer(
         uuid,
         status: updated.review.status,
       });
-      broadcastLiveReviewChange(uuid);
       return globalJson(200, liveReviewInfo(updated));
     });
   });
@@ -986,25 +1026,13 @@ export function createGlobalReviewServer(
     return review;
   }
 
-  function broadcastLiveReviewChange(uuid: string): void {
-    broadcastGlobal({
-      event: "review-data-changed",
-      uuid,
-    });
-  }
-
   function setLiveReviewAuthoringTarget(
     uuid: string,
     page: ReturnType<typeof requireLiveReviewPage>,
     targetNodeId: string,
   ): void {
     const target = liveReviewAuthoringTarget(page, targetNodeId);
-    liveReviewAuthoringTargets.set(uuid, target);
-    broadcastGlobal({
-      event: "review-authoring-target-changed",
-      uuid,
-      target,
-    });
+    reviewStateService.selectAuthoringTarget(uuid, target);
   }
 
   async function openStoredLiveReview(input: {
@@ -1776,7 +1804,7 @@ export function createGlobalReviewServer(
       if (worktreePath) {
         await clearReopenPending(worktreePath).catch(() => undefined);
       }
-      liveReviewAuthoringTargets.delete(uuid);
+      reviewStateService.forget(uuid);
       broadcastGlobal({ event: "review-deleted", uuid });
     });
   }
@@ -1802,7 +1830,7 @@ export function createGlobalReviewServer(
     });
     await rm(review.dir, { recursive: true, force: true });
     await clearReopenPending(review.review.worktreePath).catch(() => undefined);
-    liveReviewAuthoringTargets.delete(review.review.uuid);
+    reviewStateService.forget(review.review.uuid);
     broadcastGlobal({ event: "review-deleted", uuid: review.review.uuid });
   }
 
@@ -1933,9 +1961,11 @@ export function createGlobalReviewServer(
         getReviewStatus: () => active.review.review.status,
         onSubmission: (submission) => onSubmission(active, submission),
         onReviewDismiss: () => onReviewDismiss(active),
-        onReviewDataChange: () =>
-          broadcastLiveReviewChange(registration.review.review.uuid),
         onReviewThreadsCommit: (commit) => {
+          reviewStateService.publishThreads(
+            registration.review.review.uuid,
+            commit,
+          );
           broadcastGlobal({
             event: "review-threads-committed",
             uuid: registration.review.review.uuid,
@@ -2180,7 +2210,7 @@ export function createGlobalReviewServer(
           await clearReopenPending(stored.review.worktreePath).catch(
             () => undefined,
           );
-          liveReviewAuthoringTargets.delete(uuid);
+          reviewStateService.forget(uuid);
           broadcastGlobal({ event: "review-deleted", uuid });
         });
         console.info(
@@ -2362,15 +2392,6 @@ export function createGlobalReviewServer(
       };
       output.onAbort(finish);
       globalClients.add(client);
-      for (const [uuid, target] of liveReviewAuthoringTargets) {
-        client.write(
-          `data: ${JSON.stringify({
-            event: "review-authoring-target-changed",
-            uuid,
-            target,
-          } satisfies ReviewDesktopGlobalEvent)}\n\n`,
-        );
-      }
       const heartbeat = setInterval(
         () => client.write(": heartbeat\n\n"),
         15_000,

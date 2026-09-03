@@ -3,7 +3,6 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { ReviewDesktopGlobalEvent } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { readLiveReviewPage } from "../live-review-store";
@@ -11,6 +10,7 @@ import { ProgressiveReviewTelemetry } from "../progressive-review-telemetry";
 import { findReview } from "../review-home";
 import type { ReviewSubmissionEvent } from "../types";
 import { createGlobalReviewServer } from "./desktop-server";
+import type { ReviewStateEvent } from "./review-state-service";
 import type {
   ReviewSessionHandler,
   ReviewSessionHandlerInput,
@@ -65,16 +65,18 @@ describe("Review Desktop live Review transport", () => {
       const uuid = String(
         (created.body as { info: { reviewId: string } }).info.reviewId,
       );
-      const initialPageResponse = await liveRequest(
+      const initialStateResponse = await liveRequest(
         server.url,
-        `/live-reviews/${uuid}/page`,
+        `/live-reviews/${uuid}/state`,
       );
-      const initialPage = await initialPageResponse.json();
-      expect(initialPageResponse.status).toBe(200);
-      expect(initialPage).toMatchObject({
+      const initialState = await initialStateResponse.json();
+      expect(initialStateResponse.status).toBe(200);
+      expect(initialState).toMatchObject({
         ok: true,
-        page: { id: uuid, rootNodeId: "root", version: 0 },
-        authoringTarget: null,
+        state: {
+          page: { id: uuid, rootNodeId: "root", version: 0 },
+          authoringTarget: null,
+        },
       });
       const rendered = await liveJson(
         server.url,
@@ -101,14 +103,16 @@ describe("Review Desktop live Review transport", () => {
         },
       );
       expect(rendered.response.status).toBe(200);
-      const updatedPageResponse = await liveRequest(
+      const updatedStateResponse = await liveRequest(
         server.url,
-        `/live-reviews/${uuid}/page`,
+        `/live-reviews/${uuid}/state`,
       );
-      expect(await updatedPageResponse.json()).toMatchObject({
+      expect(await updatedStateResponse.json()).toMatchObject({
         ok: true,
-        page: { id: uuid, version: 1 },
-        authoringTarget: { targetNodeId: "root", sectionNodeId: null },
+        state: {
+          page: { id: uuid, version: 1 },
+          authoringTarget: { targetNodeId: "root", sectionNodeId: null },
+        },
       });
       const stored = await findReview(uuid);
       const page = readLiveReviewPage(stored!.dir)!;
@@ -281,11 +285,12 @@ Open <AnchorLink anchor={{ id: "shared-source", title: "Shared source", peek: { 
       expect(rejected.response.status).toBe(422);
       expect(rejected.body).toMatchObject({ ok: false });
       expect(readLiveReviewPage(stored!.dir)).toMatchObject({ version: 0 });
-      events = await openReviewEvents(server.url);
+      events = await openReviewEvents(server.url, createResult.info.reviewId);
       await expect(events.next()).resolves.toEqual({
-        event: "review-authoring-target-changed",
-        uuid: createResult.info.reviewId,
-        target: { targetNodeId: "root", sectionNodeId: null },
+        type: "state.snapshot",
+        state: expect.objectContaining({
+          authoringTarget: { targetNodeId: "root", sectionNodeId: null },
+        }),
       });
       const rejectedWhileConnected = await liveJson(
         server.url,
@@ -299,8 +304,7 @@ Open <AnchorLink anchor={{ id: "shared-source", title: "Shared source", peek: { 
       expect(rejectedWhileConnected.response.status).toBe(422);
       expect(readLiveReviewPage(stored!.dir)).toMatchObject({ version: 0 });
       await expect(events.next()).resolves.toMatchObject({
-        event: "review-authoring-target-changed",
-        uuid: createResult.info.reviewId,
+        type: "authoring-target.changed",
         target: { targetNodeId: "root", sectionNodeId: null },
       });
       const rootSelection = await liveRequest(
@@ -337,12 +341,11 @@ Open <AnchorLink anchor={{ id: "shared-source", title: "Shared source", peek: { 
       ).toEqual([1, 2]);
       for (let index = 0; index < 2; index += 1) {
         await expect(events.next()).resolves.toMatchObject({
-          event: "review-authoring-target-changed",
+          type: "authoring-target.changed",
           target: { targetNodeId: "root", sectionNodeId: null },
         });
         await expect(events.next()).resolves.toMatchObject({
-          event: "review-data-changed",
-          uuid: createResult.info.reviewId,
+          type: "document.committed",
         });
       }
       const children = await liveRequest(
@@ -361,7 +364,7 @@ Open <AnchorLink anchor={{ id: "shared-source", title: "Shared source", peek: { 
         { parentId: "root", title: "Second" },
       ]);
       await expect(events.next()).resolves.toMatchObject({
-        event: "review-authoring-target-changed",
+        type: "authoring-target.changed",
         target: { targetNodeId: "root", sectionNodeId: null },
       });
 
@@ -383,14 +386,14 @@ Open <AnchorLink anchor={{ id: "shared-source", title: "Shared source", peek: { 
       expect(nested.response.status).toBe(200);
       const nestedNodeId = String((nested.body as { nodeId: string }).nodeId);
       await expect(events.next()).resolves.toMatchObject({
-        event: "review-authoring-target-changed",
+        type: "authoring-target.changed",
         target: {
           targetNodeId: firstSection.id,
           sectionNodeId: firstSection.id,
         },
       });
       await expect(events.next()).resolves.toMatchObject({
-        event: "review-data-changed",
+        type: "document.committed",
       });
 
       const nestedInfo = await liveRequest(
@@ -399,7 +402,7 @@ Open <AnchorLink anchor={{ id: "shared-source", title: "Shared source", peek: { 
       );
       expect(nestedInfo.status).toBe(200);
       await expect(events.next()).resolves.toMatchObject({
-        event: "review-authoring-target-changed",
+        type: "authoring-target.changed",
         target: {
           targetNodeId: nestedNodeId,
           sectionNodeId: firstSection.id,
@@ -664,22 +667,28 @@ function liveReviewServer(home: string, handlers: ReviewSessionHandlerInput[]) {
   });
 }
 
-async function openReviewEvents(serverUrl: string): Promise<{
-  next(): Promise<ReviewDesktopGlobalEvent>;
+async function openReviewEvents(
+  serverUrl: string,
+  reviewId: string,
+): Promise<{
+  next(): Promise<ReviewStateEvent>;
   close(): Promise<void>;
 }> {
   const controller = new AbortController();
-  const response = await fetch(`${serverUrl}/events`, {
-    headers: { "x-review-token": token },
-    signal: controller.signal,
-  });
+  const response = await fetch(
+    `${serverUrl}/live-reviews/${reviewId}/state/events`,
+    {
+      headers: { "x-review-token": token },
+      signal: controller.signal,
+    },
+  );
   if (!response.ok || !response.body) {
     throw new Error(`Could not open Review events: ${response.status}`);
   }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  const next = async (): Promise<ReviewDesktopGlobalEvent> => {
+  const next = async (): Promise<ReviewStateEvent> => {
     while (true) {
       const boundary = buffer.indexOf("\n\n");
       if (boundary >= 0) {
@@ -689,7 +698,7 @@ async function openReviewEvents(serverUrl: string): Promise<{
           .split("\n")
           .find((line) => line.startsWith("data: "))
           ?.slice(6);
-        if (data) return JSON.parse(data) as ReviewDesktopGlobalEvent;
+        if (data) return JSON.parse(data) as ReviewStateEvent;
         continue;
       }
       const chunk = await reader.read();

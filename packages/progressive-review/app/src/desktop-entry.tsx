@@ -3,11 +3,22 @@ import type {
   ReviewCanvasContent,
   ReviewCanvasHandle,
 } from "@dev.fast/review-protocol";
-import { useEffect, useRef, useState } from "react";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import type { LiveReviewPage } from "../../src/live-review-types";
+import type {
+  ReviewStateEvent,
+  ReviewStateSnapshot,
+} from "../../src/server/review-state-service";
 import { App, type PublishedSoftwareMap } from "./App";
+import { LiveCommentThreadsProvider } from "./comments-context";
 import {
   type ReviewSession,
   ReviewSessionProvider,
@@ -20,7 +31,6 @@ import {
 } from "./live-review-renderer";
 import { ReviewCanvasLoading } from "./review-canvas-loading";
 import { reviewDefinitionDiagnostics } from "./review-definition-runtime";
-import type { ReadyReviewDocumentEntry } from "./review-document";
 import { type ReviewFindHost, createReviewFindHost } from "./review-find";
 import { ReviewHome, ReviewMigrationWarning } from "./review-home-view";
 import {
@@ -61,20 +71,51 @@ function DesktopReviewApp({
   const session = useReviewSession();
   const sessionRef = useRef(session);
   sessionRef.current = session;
-  const serverUrl = session.config.serverUrl;
-  const token = session.config.token;
   const container = useReviewContainer();
-  const [document, setDocument] = useState<ReadyReviewDocumentEntry | null>(
-    null,
+  const queryClient = useQueryClient();
+  const stateKey = useMemo(
+    () => ["review-state", reviewUuid] as const,
+    [reviewUuid],
+  );
+  const stateQuery = useQuery({
+    queryKey: stateKey,
+    queryFn: async ({ signal }) => {
+      const response = await session.fetchUrl(
+        new URL(
+          `/live-reviews/${encodeURIComponent(reviewUuid)}/state`,
+          session.config.serverUrl,
+        ),
+        { signal },
+      );
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        state?: ReviewStateSnapshot;
+        error?: string;
+      };
+      if (!response.ok || payload.ok !== true || !payload.state) {
+        throw new Error(
+          payload.error ?? `Review state returned ${response.status}.`,
+        );
+      }
+      return payload.state;
+    },
+    staleTime: Infinity,
+  });
+  const state = stateQuery.data;
+  const document = useMemo(
+    () => (state ? createLiveReviewDocument(state.page) : null),
+    [state],
+  );
+  const reviewThreads = useMemo(
+    () => new Map(Object.entries(state?.threads ?? {})),
+    [state?.threads],
   );
   const [softwareMap, setSoftwareMap] = useState<PublishedSoftwareMap | null>(
     null,
   );
   const [softwareMapLoaded, setSoftwareMapLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pageRevision, setPageRevision] = useState(0);
-  const [authoringTarget, setAuthoringTarget] =
-    useState<ReviewAuthoringTarget | null>(null);
+  const authoringTarget = state?.authoringTarget ?? null;
 
   const reportLoadError = (loadError: unknown) => {
     captureClientError(sessionRef.current, "document", loadError);
@@ -92,69 +133,30 @@ function DesktopReviewApp({
   };
 
   useEffect(() => {
-    const controller = new AbortController();
-    setError(null);
     const url = new URL(
-      `/live-reviews/${encodeURIComponent(reviewUuid)}/page`,
-      serverUrl,
+      `/live-reviews/${encodeURIComponent(reviewUuid)}/state/events`,
+      session.config.serverUrl,
     );
-    const headers = new Headers();
-    if (token) {
-      headers.set("x-review-token", token);
-    }
-    void fetch(url, { headers, signal: controller.signal })
-      .then(async (response) => {
-        const payload = (await response.json()) as {
-          ok?: boolean;
-          page?: unknown;
-          authoringTarget?: ReviewAuthoringTarget | null;
-          error?: string;
-        };
-        if (!response.ok || payload.ok !== true || !payload.page) {
-          throw new Error(
-            payload.error ?? `Review page returned ${response.status}.`,
-          );
-        }
-        setDocument(createLiveReviewDocument(payload.page as LiveReviewPage));
-        setAuthoringTarget(payload.authoringTarget ?? null);
-      })
-      .catch((loadError) => {
-        if (!controller.signal.aborted) reportLoadError(loadError);
-      });
-    return () => controller.abort();
-  }, [pageRevision, reviewUuid, serverUrl, token]);
-
-  useEffect(() => {
-    const url = new URL("/events", serverUrl);
-    if (token) {
-      url.searchParams.set("token", token);
+    if (session.config.token) {
+      url.searchParams.set("token", session.config.token);
     }
     const events = new EventSource(url);
     events.onmessage = (event) => {
       try {
-        const payload = JSON.parse(event.data) as {
-          event?: string;
-          uuid?: string;
-          target?: ReviewAuthoringTarget;
-        };
-        if (
-          payload.event === "review-data-changed" &&
-          payload.uuid === reviewUuid
-        ) {
-          setPageRevision((revision) => revision + 1);
-        } else if (
-          payload.event === "review-authoring-target-changed" &&
-          payload.uuid === reviewUuid &&
-          payload.target
-        ) {
-          setAuthoringTarget(payload.target);
-        }
+        const update = JSON.parse(event.data) as ReviewStateEvent;
+        queryClient.setQueryData<ReviewStateSnapshot>(stateKey, (current) =>
+          current ? applyReviewStateEvent(current, update) : current,
+        );
       } catch {
-        // The global stream owns other event kinds. Ignore them here.
+        // A reconnect reads a fresh authoritative snapshot.
       }
     };
     return () => events.close();
-  }, [reviewUuid, serverUrl, token]);
+  }, [queryClient, reviewUuid, session, stateKey]);
+
+  useEffect(() => {
+    if (stateQuery.error) reportLoadError(stateQuery.error);
+  }, [stateQuery.error]);
 
   useEffect(() => {
     let cancelled = false;
@@ -206,14 +208,16 @@ function DesktopReviewApp({
       <ReviewMigrationWarning errors={reviewErrors} />
       <LiveReviewAuthoringTargetContext.Provider value={authoringTarget}>
         <TutorialProvider tutorial={tutorial}>
-          <App
-            document={document}
-            softwareMap={softwareMap}
-            softwareMapEnabled={softwareMapEnabled}
-            range={range}
-            commits={commits}
-            findHost={findHost}
-          />
+          <LiveCommentThreadsProvider threads={reviewThreads}>
+            <App
+              document={document}
+              softwareMap={softwareMap}
+              softwareMapEnabled={softwareMapEnabled}
+              range={range}
+              commits={commits}
+              findHost={findHost}
+            />
+          </LiveCommentThreadsProvider>
         </TutorialProvider>
       </LiveReviewAuthoringTargetContext.Provider>
     </div>
@@ -228,19 +232,7 @@ function ReviewCanvas({
   findHost: ReviewFindHost;
 }) {
   if (content.kind === "session") {
-    return (
-      <DesktopReviewApp
-        key={content.bridge.config.sessionId}
-        reviewUuid={content.reviewUuid}
-        softwareMapBundle={content.softwareMap}
-        softwareMapEnabled={content.softwareMapEnabled}
-        range={content.range}
-        commits={content.commits}
-        reviewErrors={content.reviewErrors}
-        tutorial={content.tutorial}
-        findHost={findHost}
-      />
-    );
+    return <QuerySessionCanvas content={content} findHost={findHost} />;
   }
   if (content.kind === "home") return <Home content={content} />;
   if (content.kind === "source") {
@@ -297,6 +289,73 @@ function ReviewCanvas({
     );
   }
   return <ReviewCanvasLoading page note="Preparing the selected review…" />;
+}
+
+function QuerySessionCanvas({
+  content,
+  findHost,
+}: {
+  content: Extract<ReviewCanvasContent, { kind: "session" }>;
+  findHost: ReviewFindHost;
+}) {
+  const client = useMemo(() => new QueryClient(), []);
+  return (
+    <QueryClientProvider client={client}>
+      <DesktopReviewApp
+        key={content.bridge.config.sessionId}
+        reviewUuid={content.reviewUuid}
+        softwareMapBundle={content.softwareMap}
+        softwareMapEnabled={content.softwareMapEnabled}
+        range={content.range}
+        commits={content.commits}
+        reviewErrors={content.reviewErrors}
+        tutorial={content.tutorial}
+        findHost={findHost}
+      />
+    </QueryClientProvider>
+  );
+}
+
+function applyReviewStateEvent(
+  current: ReviewStateSnapshot,
+  event: ReviewStateEvent,
+): ReviewStateSnapshot {
+  if (event.type === "state.snapshot") return event.state;
+  if (event.type === "authoring-target.changed") {
+    return { ...current, authoringTarget: event.target };
+  }
+  if (event.type === "threads.committed") {
+    const threads = { ...current.threads };
+    for (const thread of event.commit.upsertedThreads) {
+      threads[thread.threadId] = thread;
+    }
+    for (const threadId of event.commit.deletedThreadIds) {
+      delete threads[threadId];
+    }
+    return { ...current, threads };
+  }
+  const nodes = { ...current.page.nodes };
+  for (const node of event.upsertedNodes) nodes[node.id] = node;
+  for (const nodeId of event.deletedNodeIds) delete nodes[nodeId];
+  const elements = { ...current.page.projection.elements };
+  for (const [elementId, element] of Object.entries(
+    event.projection.upsertedElements,
+  )) {
+    elements[elementId] = element;
+  }
+  for (const elementId of event.projection.deletedElementIds) {
+    delete elements[elementId];
+  }
+  return {
+    ...current,
+    page: {
+      ...current.page,
+      nodes,
+      version: event.version,
+      updatedAt: event.updatedAt,
+      projection: { root: event.projection.root, elements },
+    },
+  };
 }
 
 function Home({

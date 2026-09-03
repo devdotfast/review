@@ -22,6 +22,7 @@ import {
 } from "./agent-trace-hooks";
 import { emitJsonEvent, failWithJsonError, humanStream } from "./cli-output";
 import { isDirectory } from "./fs-utils";
+import { DEV_REVIEW_HOME_ENV } from "./review-storage";
 import { readTraceUserConfig } from "./trace-user-config";
 
 export type InstallTarget = "claude" | "codex" | "cursor" | "pi";
@@ -92,7 +93,8 @@ export async function runInstall(input: RunInstallInput): Promise<number> {
   // Agent hooks only make sense when this machine publishes traces. The
   // machine publishes traces once `review trace allow` records one
   // repository, so a later install must keep the hooks in place.
-  const traceEnabled = input.trace === true || (await anyTraceRepository());
+  const traceEnabled =
+    input.trace === true || (await anyTraceRepository(homeDir, env));
   const installTraceHooks = traceEnabled;
 
   const installed: InstalledItem[] = [];
@@ -184,9 +186,16 @@ export async function runInstall(input: RunInstallInput): Promise<number> {
 }
 
 /** True when the user allowed at least one repository to publish traces. */
-async function anyTraceRepository(): Promise<boolean> {
+async function anyTraceRepository(
+  homeDir: string,
+  env: NodeJS.ProcessEnv,
+): Promise<boolean> {
+  const override = env[DEV_REVIEW_HOME_ENV]?.trim();
+  const devHome = override
+    ? path.resolve(override)
+    : path.join(homeDir, ".dev");
   try {
-    return (await readTraceUserConfig()).repositories.length > 0;
+    return (await readTraceUserConfig(devHome)).repositories.length > 0;
   } catch {
     return false;
   }

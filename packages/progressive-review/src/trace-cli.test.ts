@@ -7,13 +7,14 @@ import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { collectingWritable } from "./cli-output";
-import type { StoreClient } from "./store-client";
+import { StoreApiError, type StoreClient } from "./store-client";
 import {
   runReviewTraceAllow,
   runReviewTraceLookupBlame,
   runReviewTraceLookupCommit,
   runReviewTraceLookupSession,
   runReviewTraceOnboard,
+  runReviewTracePull,
   runReviewTraceStatus,
   runReviewTraceSync,
 } from "./trace-cli";
@@ -400,6 +401,34 @@ describe("trace-cli", () => {
 
     expect(exitCode).toBe(1);
     expect(err()).toContain("not allowed for trace publication");
+  });
+
+  it("pull reports why a store read failed", async () => {
+    await allowTraceRepository({
+      repositoryId: 123,
+      name: "acme/app",
+      store: "https://app.dev.fast",
+    });
+    const failing = {
+      ...transport,
+      listSessions: async () => {
+        throw new StoreApiError("unauthorized", 401, "The token expired.");
+      },
+    };
+    const { stdout, stderr, err } = outputs();
+
+    const exitCode = await runReviewTracePull({
+      cwd,
+      session: "11111111-aaaa-bbbb-cccc-000000000001",
+      stdout,
+      stderr,
+      transport: failing,
+    });
+
+    expect(exitCode).toBe(1);
+    expect(err()).toContain(
+      "Trace store request failed: unauthorized. Run `review login`.",
+    );
   });
 
   it("runs blame lookup and formats JSON and text outputs", async () => {

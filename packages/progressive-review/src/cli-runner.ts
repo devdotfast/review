@@ -1436,8 +1436,8 @@ function progressiveReviewInstallHelp(): string {
     "  review install claude cursor",
     "  review install all",
     "",
-    "Trace capture (experimental) is off unless S3/R2 credentials are given:",
-    "  review install codex --trace-endpoint <url> --trace-bucket <name> --trace-key <id> --trace-secret <key>",
+    "Trace capture needs no options here: run review login, then",
+    "review trace allow . in each repository that may publish traces.",
   ].join("\n");
 }
 

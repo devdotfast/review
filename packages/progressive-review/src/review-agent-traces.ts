@@ -42,6 +42,7 @@ import {
   parseAgentTraceJsonl,
 } from "./agent-trace-parser";
 import { requireStoreClient } from "./store-auth";
+import { StoreApiError } from "./store-client";
 import { resolveAllowedTraceRepository } from "./trace-hook-runner";
 import {
   type TraceStoreSession,
@@ -126,16 +127,52 @@ export interface ReviewTraceSyncResult {
   commits: string[];
 }
 
+/** Reports why a store read gave nothing back. */
+export type TraceStoreWarning = (message: string) => void;
+
 /** One repository's store, reached with the saved login. */
 export interface TraceStoreAccess {
   transport: TraceStoreTransport;
   repositoryId: number;
+  warn?: TraceStoreWarning;
 }
 
 export interface TraceStoreAccessInput {
   cwd?: string;
   transport?: TraceStoreTransport;
   repositoryId?: number;
+  /** Where a store failure is reported. Commands pass their own stderr. */
+  onWarning?: TraceStoreWarning;
+}
+
+function defaultTraceStoreWarning(message: string): void {
+  process.stderr.write(`${message}\n`);
+}
+
+/**
+ * One line that names why a store read failed, or null when the answer means
+ * the store simply holds nothing for this repository or session.
+ */
+function storeReadWarning(error: unknown): string | null {
+  if (error instanceof StoreApiError) {
+    if (error.code === "not_found") return null;
+    if (error.code === "unauthorized") {
+      return "Trace store request failed: unauthorized. Run `review login`.";
+    }
+    if (error.code === "forbidden") {
+      return `Trace store request failed: forbidden. ${error.message}`;
+    }
+    return `Trace store request failed: ${error.message}`;
+  }
+  return `Trace store request failed: ${
+    error instanceof Error ? error.message : String(error)
+  }`;
+}
+
+/** Reports one store failure on the caller's channel, or on stderr. */
+function reportStoreFailure(access: TraceStoreAccess, error: unknown): void {
+  const message = storeReadWarning(error);
+  if (message) (access.warn ?? defaultTraceStoreWarning)(message);
 }
 
 const lastCheckedTimes = new Map<string, number>();
@@ -156,15 +193,25 @@ export async function resolveTraceStoreAccess(
     if (!entry) return null;
     repositoryId = entry.repositoryId;
   }
+  const warn = input.onWarning;
   if (input.transport) {
-    return { transport: input.transport, repositoryId };
+    return {
+      transport: input.transport,
+      repositoryId,
+      ...(warn ? { warn } : {}),
+    };
   }
   try {
     return {
       transport: createHttpTraceStoreTransport(await requireStoreClient()),
       repositoryId,
+      ...(warn ? { warn } : {}),
     };
   } catch {
+    // The repository is allowed but the machine holds no login.
+    (warn ?? defaultTraceStoreWarning)(
+      "The trace store login is missing. Run `review login`.",
+    );
     return null;
   }
 }
@@ -179,7 +226,8 @@ async function readStoreSession(
       session: sessionId,
     });
     return response.sessions[0] ?? null;
-  } catch {
+  } catch (error) {
+    reportStoreFailure(access, error);
     return null;
   }
 }
@@ -211,11 +259,13 @@ export async function listReviewTraceSessions(input: {
   headCommit: string;
   transport?: TraceStoreTransport;
   repositoryId?: number;
+  onWarning?: TraceStoreWarning;
 }): Promise<ReviewTraceSessionDescriptor[]> {
   const access = await resolveTraceStoreAccess({
     cwd: input.rootPath,
     transport: input.transport,
     repositoryId: input.repositoryId,
+    onWarning: input.onWarning,
   });
   const sessions = new Map<string, ReviewTraceSessionRef>();
   const commits = await commitsWithTrailers(input);
@@ -288,6 +338,7 @@ export async function loadReviewAgentTrace(input: {
   access?: TraceStoreAccess | null;
   transport?: TraceStoreTransport;
   repositoryId?: number;
+  onWarning?: TraceStoreWarning;
 }): Promise<LoadedReviewAgentTrace | null> {
   const { sessionId, trace } = input;
   if (!sessionIdSchema.safeParse(sessionId).success) return null;
@@ -311,6 +362,7 @@ export async function loadReviewAgentTrace(input: {
             cwd: input.cwd,
             transport: input.transport,
             repositoryId: input.repositoryId,
+            onWarning: input.onWarning,
           })
         : input.access;
     const stored = access ? await readStoreSession(access, sessionId) : null;
@@ -581,6 +633,7 @@ export async function pullReviewTraceCorpus(input: {
   cwd?: string;
   transport?: TraceStoreTransport;
   repositoryId?: number;
+  onWarning?: TraceStoreWarning;
 }): Promise<ReviewTracePullResult> {
   const repository = `${input.repo.owner}/${input.repo.repo}`;
   const corpusRoot = traceSearchCorpusDir();
@@ -588,6 +641,7 @@ export async function pullReviewTraceCorpus(input: {
     cwd: input.cwd,
     transport: input.transport,
     repositoryId: input.repositoryId,
+    onWarning: input.onWarning,
   });
 
   const sessions: ReviewTracePullSessionResult[] = [];
@@ -745,6 +799,7 @@ export async function lookupReviewTraceCommit(input: {
   sha: string;
   transport?: TraceStoreTransport;
   repositoryId?: number;
+  onWarning?: TraceStoreWarning;
 }): Promise<ReviewTraceCommitLookupResult> {
   const commit = await resolveCommitSha(input.cwd, input.sha);
   const trailerSessions = await readTrailerSessions(input.cwd, commit);
@@ -769,6 +824,7 @@ export async function lookupReviewTraceCommit(input: {
       cwd: input.cwd,
       transport: input.transport,
       repositoryId: input.repositoryId,
+      onWarning: input.onWarning,
     });
     const sessions = access
       ? await listStoreSessionsForCommit(access, commit)
@@ -831,7 +887,8 @@ async function listStoreSessionsForCommit(
       commit,
     });
     return response.sessions;
-  } catch {
+  } catch (error) {
+    reportStoreFailure(access, error);
     return [];
   }
 }
@@ -841,6 +898,7 @@ export async function lookupReviewTraceSession(input: {
   cwd?: string;
   transport?: TraceStoreTransport;
   repositoryId?: number;
+  onWarning?: TraceStoreWarning;
 }): Promise<ReviewTraceSessionLookupResult> {
   const parseResult = sessionIdSchema.safeParse(input.sessionId);
   if (!parseResult.success) {
@@ -854,6 +912,7 @@ export async function lookupReviewTraceSession(input: {
     cwd: input.cwd,
     transport: input.transport,
     repositoryId: input.repositoryId,
+    onWarning: input.onWarning,
   });
   const stored = access ? await readStoreSession(access, sessionId) : null;
   const repositoryName = access

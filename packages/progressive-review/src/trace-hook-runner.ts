@@ -186,7 +186,7 @@ export async function runReviewTraceHook(
     }
   }
 
-  // 3. On SessionEnd: detached background trace sync to R2
+  // 3. On SessionEnd: detached background sync to the hosted trace store
   if (isEnd) {
     try {
       const installedCommand = path.join(

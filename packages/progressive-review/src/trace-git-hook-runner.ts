@@ -3,11 +3,7 @@ import type { Writable } from "node:stream";
 import { git } from "@dev.fast/local-vcs";
 import { sessionIdSchema } from "@dev.fast/review-protocol";
 
-import {
-  readTrailerSessions,
-  syncReviewTrace,
-  writeReviewTraceCommitMapping,
-} from "./review-agent-traces";
+import { readTrailerSessions, syncReviewTrace } from "./review-agent-traces";
 import {
   readActiveTraceSessions,
   writeTraceSessions,
@@ -121,14 +117,10 @@ async function runPrePush(input: {
   }
   if (commits.size === 0) return;
 
+  // One sync per session records every commit of that session, so a push
+  // asks the store once per session and never once per commit.
   const sessionCommits = new Map<string, string[]>();
   for (const [commit, value] of commits) {
-    await writeReviewTraceCommitMapping({
-      cwd: input.cwd,
-      commit,
-      sessions: value.sessions,
-      branch: value.branch,
-    }).catch((cause) => warn(input.stderr, cause));
     for (const session of value.sessions) {
       sessionCommits.set(session, [
         ...(sessionCommits.get(session) ?? []),

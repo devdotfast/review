@@ -423,6 +423,7 @@ export async function runReviewTraceShow(input: {
     sessionId: input.sessionId,
     trace: traceName,
     cwd: input.cwd,
+    onWarning: storeWarningSink(input.stderr),
   });
   if (!loaded) {
     throw new Error(
@@ -551,6 +552,7 @@ export async function runReviewTracePull(input: {
       mainOnly: input.mainOnly,
       cwd: repoRoot,
       transport: traceStoreTransport(input),
+      onWarning: storeWarningSink(input.stderr),
     });
     const output = {
       scope,
@@ -595,6 +597,7 @@ export async function runReviewTraceLookupCommit(input: {
   sha: string;
   json?: boolean;
   stdout: Writable;
+  stderr?: Writable;
   client?: StoreClient;
   transport?: TraceStoreTransport;
   repositoryId?: number;
@@ -604,6 +607,7 @@ export async function runReviewTraceLookupCommit(input: {
     sha: input.sha,
     transport: traceStoreTransport(input),
     repositoryId: input.repositoryId,
+    ...(input.stderr ? { onWarning: storeWarningSink(input.stderr) } : {}),
   });
 
   if (input.json) {
@@ -667,6 +671,7 @@ export async function runReviewTraceLookupSession(input: {
   sessionId: string;
   json?: boolean;
   stdout: Writable;
+  stderr?: Writable;
   client?: StoreClient;
   transport?: TraceStoreTransport;
   repositoryId?: number;
@@ -676,6 +681,7 @@ export async function runReviewTraceLookupSession(input: {
     cwd: input.cwd,
     transport: traceStoreTransport(input),
     repositoryId: input.repositoryId,
+    ...(input.stderr ? { onWarning: storeWarningSink(input.stderr) } : {}),
   });
 
   if (input.json) {
@@ -770,6 +776,13 @@ export async function runReviewTraceSync(input: {
     `Shipped session ${result.session} of ${result.repo} to the trace store.\n`,
   );
   return 0;
+}
+
+/** Sends one store failure line to the command's error channel. */
+function storeWarningSink(stderr: Writable): (message: string) => void {
+  return (message: string) => {
+    stderr.write(`${message}\n`);
+  };
 }
 
 /**

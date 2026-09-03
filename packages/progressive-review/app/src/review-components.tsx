@@ -32,11 +32,7 @@ import {
   AgentChatUserMessage,
 } from "./agent-chat";
 import { AgentMarkdown } from "./agent-markdown";
-import {
-  CodePeekCard,
-  type ValidatedCodePeekInput,
-  validatedCodePeekInputFromRef,
-} from "./CodePeek";
+import { CodePeekCard, validatedCodePeekInputFromRef } from "./CodePeek";
 import { chipPositionClearOf } from "./document-selection";
 import { findWhitespaceNormalizedSpan } from "./highlighted-text";
 import {
@@ -47,10 +43,12 @@ import { CloseIcon, CommentIcon, MapPinIcon, TerminalIcon } from "./icons";
 import { newTabLinkProps } from "./link-props";
 import { createClientId, useReview } from "./review-context";
 import { useOptionalReviewPanelStore, useReviewPanel } from "./review-panel";
-import {
-  type ThreadPanel,
-  selectActiveReviewPanel,
-} from "./review-panel-store";
+import type {
+  GuidedTour,
+  GuidedTourStop,
+  ReviewPeekContent,
+  ThreadsPanel,
+} from "./review-panel-model";
 import { useReviewRoots } from "./review-root-context";
 import {
   type ThreadView,
@@ -410,10 +408,10 @@ export function AnchorLink(props: AnchorLinkProps) {
   const { anchor, children } = anchorLinkPropsSchema.parse(props);
   const input = validatedCodePeekInputFromRef(anchor.peek);
   const openPeek = useReviewPanel((state) => state.openPeek);
-  const peekOpen = useReviewPanel((state) => {
-    const active = selectActiveReviewPanel(state);
-    return active?.kind === "peek" && active.anchor?.id === anchor.id;
-  });
+  const peekOpen = useReviewPanel(
+    (state) =>
+      state.active?.kind === "peek" && state.active.anchor?.id === anchor.id,
+  );
   const target = buildAnchorTextTarget({
     anchorId: anchor.id,
     field: "title",
@@ -426,7 +424,11 @@ export function AnchorLink(props: AnchorLinkProps) {
       isOpen={peekOpen}
       locator={targetKey(target)}
       onOpen={() => {
-        openPeek(anchor, { kind: "resolved-code", input });
+        openPeek({
+          kind: "peek",
+          anchor,
+          content: { kind: "resolved-code", input },
+        });
       }}
     >
       {children}
@@ -641,35 +643,10 @@ function PanelSelectionCommentButton({
   );
 }
 
-export type ReviewPeekContent =
-  | { kind: "resolved-code"; input: ValidatedCodePeekInput }
-  | { kind: "inline-code"; language?: string; text: string }
-  | {
-      kind: "trace-quote";
-      sessionId: string;
-      trace?: string;
-      event?: number;
-      quote: string;
-    };
-
-export interface GuidedTourStop {
-  anchor: AnchorRef;
-  label: string;
-  detail?: string;
-  content: ReviewPeekContent;
-}
-
-export interface GuidedTour {
-  id: string;
-  title?: string;
-  stops: GuidedTourStop[];
-  telemetryKind?: "sequence";
-}
-
 /** The only top-level renderer for Review's detail and thread panel modes. */
 export function ReviewPanelHost() {
-  const activePanel = useReviewPanel(selectActiveReviewPanel);
-  const closeActive = useReviewPanel((state) => state.closeActive);
+  const activePanel = useReviewPanel((state) => state.active);
+  const close = useReviewPanel((state) => state.close);
   const activateTourAnchor = useReviewPanel(
     (state) => state.activateTourAnchor,
   );
@@ -681,13 +658,13 @@ export function ReviewPanelHost() {
         <ReviewPeekPanel
           anchor={activePanel.anchor}
           content={activePanel.content}
-          onClose={closeActive}
+          onClose={close}
         />
       ) : activePanel.kind === "commit-diff" ? (
         <CommitFileDiffPanel
           commit={activePanel.commit}
           file={activePanel.file}
-          onClose={closeActive}
+          onClose={close}
         />
       ) : activePanel.kind === "tour" ? (
         <GuidedTourPanel
@@ -695,10 +672,10 @@ export function ReviewPanelHost() {
           activeAnchor={activePanel.activeAnchor}
           revealRequest={activePanel.revealRequest}
           onActiveAnchorChange={activateTourAnchor}
-          onClose={closeActive}
+          onClose={close}
         />
       ) : (
-        <ThreadPanelInner panel={activePanel} onClose={closeActive} />
+        <ThreadPanelInner panel={activePanel} onClose={close} />
       )}
     </>
   );
@@ -1464,14 +1441,12 @@ function ThreadPanelInner({
   panel,
   onClose,
 }: {
-  panel: ThreadPanel;
+  panel: ThreadsPanel;
   onClose: () => void;
 }) {
   const review = useReview();
   const session = useReviewSession();
-  const openCommentThread = useReviewPanel((state) => state.openCommentThread);
-  const showThreads = useReviewPanel((state) => state.showThreads);
-  const openNewAsk = useReviewPanel((state) => state.openNewAsk);
+  const openThreads = useReviewPanel((state) => state.openThreads);
   const newAskTargetRef = useRef<{
     threadId: string;
     target: ThreadTarget;
@@ -1482,8 +1457,8 @@ function ThreadPanelInner({
     title: "Entire document",
   });
   const commentThreadId =
-    panel.kind === "commentThread" ? panel.threadId : null;
-  const target = panel.kind === "new-ask" ? newAskTargetRef.current : null;
+    panel.page.kind === "comment" ? panel.page.threadId : null;
+  const target = panel.page.kind === "new-ask" ? newAskTargetRef.current : null;
   const commentThread = commentThreadId
     ? ([...review.allCommentThreads(), ...review.resolvedCommentThreads()].find(
         (candidate) => candidate.threadId === commentThreadId,
@@ -1514,7 +1489,9 @@ function ThreadPanelInner({
       target: destination.target,
       body,
     });
-    if (panel.kind === "new-ask") openCommentThread(destination.threadId);
+    if (panel.page.kind === "new-ask") {
+      openThreads({ kind: "comment", threadId: destination.threadId });
+    }
   };
   const resumeInTerminal = async (item: ThreadView) => {
     const response = await session.fetch(
@@ -1537,33 +1514,33 @@ function ThreadPanelInner({
       target: destination.target,
       body,
     });
-    if (panel.kind === "new-ask") {
-      showThreads();
+    if (panel.page.kind === "new-ask") {
+      openThreads();
     } else {
-      openCommentThread(destination.threadId);
+      openThreads({ kind: "comment", threadId: destination.threadId });
     }
   };
   const selectListThread = (item: ThreadView) => {
     // Scroll to and highlight the anchor, but keep the detail here in the
     // sidebar (highlight-only focus, no inline surface).
     review.focusThread(item.threadId, { scroll: true, inline: false });
-    openCommentThread(item.threadId);
+    openThreads({ kind: "comment", threadId: item.threadId });
   };
 
   return (
     <ReviewPanelFrame
       className="question-panel"
-      label={panel.kind === "threads" ? "Threads" : ""}
-      count={panel.kind === "threads" ? listThreads.length : undefined}
+      label={panel.page.kind === "list" ? "Threads" : ""}
+      count={panel.page.kind === "list" ? listThreads.length : undefined}
       onClose={onClose}
       closeLabel="Close threads"
       headerStart={
-        panel.kind !== "threads" ? (
+        panel.page.kind !== "list" ? (
           <button
             type="button"
             className="thread-chat-back"
             aria-label="Show all threads"
-            onClick={showThreads}
+            onClick={() => openThreads()}
           >
             <svg viewBox="0 0 12 10" width="12" height="10" aria-hidden="true">
               <path d="M5 1 1 5l4 4M1 5h10" />
@@ -1574,7 +1551,7 @@ function ThreadPanelInner({
         ) : undefined
       }
       titleAccessory={
-        panel.kind === "threads" ? (
+        panel.page.kind === "list" ? (
           !review.historicalRevision ? (
             <button
               type="button"
@@ -1583,7 +1560,7 @@ function ThreadPanelInner({
                 captureUiEvent(session, "new_ask_opened", {
                   via: "threads_panel",
                 });
-                openNewAsk();
+                openThreads({ kind: "new-ask" });
               }}
             >
               + New ask
@@ -1602,7 +1579,7 @@ function ThreadPanelInner({
         ) : undefined
       }
     >
-      {panel.kind !== "threads" ? (
+      {panel.page.kind !== "list" ? (
         <ThreadChat
           thread={thread}
           quote={
@@ -1610,7 +1587,7 @@ function ThreadPanelInner({
             target?.title ??
             (target ? targetQuote(target.target) : "Entire document")
           }
-          newAsk={panel.kind === "new-ask"}
+          newAsk={panel.page.kind === "new-ask"}
           readOnly={Boolean(review.historicalRevision)}
           onAskNow={askNow}
           onAddToReview={addToReview}

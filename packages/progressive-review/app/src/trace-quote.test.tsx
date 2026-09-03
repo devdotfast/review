@@ -6,7 +6,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ReviewPanelProvider, useReviewPanelStore } from "./review-panel";
+import type { ReviewPanelStore } from "./review-panel-store";
 import { TraceQuote } from "./trace-quote";
+
+interface PanelStoreRef {
+  current: ReviewPanelStore | null;
+}
 
 describe("TraceQuote", () => {
   let root: Root | null = null;
@@ -57,6 +62,38 @@ describe("TraceQuote", () => {
     expect(html).not.toContain("review-trace-quote--inert");
   });
 
+  it("replaces the Threads panel when opened", async () => {
+    const storeRef: PanelStoreRef = { current: null };
+    function TestConsumer() {
+      storeRef.current = useReviewPanelStore();
+      return <TraceQuote sessionId="session-1">Inspect this trace</TraceQuote>;
+    }
+
+    await act(async () => {
+      root?.render(
+        <ReviewPanelProvider>
+          <TestConsumer />
+        </ReviewPanelProvider>,
+      );
+    });
+    act(() => storeRef.current?.getState().openThreads());
+
+    await act(async () => {
+      container
+        .querySelector<HTMLElement>(".review-trace-quote")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(storeRef.current?.getState().active).toMatchObject({
+      kind: "peek",
+      content: {
+        kind: "trace-quote",
+        sessionId: "session-1",
+        quote: "Inspect this trace",
+      },
+    });
+  });
+
   it("scrolls to the target quote mark when already open", async () => {
     const scrollCalls: Element[] = [];
     Element.prototype.scrollIntoView = vi
@@ -91,9 +128,12 @@ describe("TraceQuote", () => {
     // Manually open the quote so isOpen becomes true
     act(() => {
       storeRef?.getState().openPeek({
-        kind: "trace-quote",
-        sessionId: "session-1",
-        quote: "Optimize database queries",
+        kind: "peek",
+        content: {
+          kind: "trace-quote",
+          sessionId: "session-1",
+          quote: "Optimize database queries",
+        },
       });
     });
 

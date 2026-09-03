@@ -13,7 +13,7 @@ import {
 
 import type { ReviewClientConfig } from "./host/review-client";
 import { useReviewSession } from "./host/review-session";
-import type { GuidedTour } from "./review-components";
+import type { GuidedTour } from "./review-panel-model";
 import type { ReviewPanelState, ReviewPanelStore } from "./review-panel-store";
 import {
   readReviewUiState,
@@ -29,13 +29,22 @@ const SCROLL_RESTORE_DEADLINE_MS = 30_000;
 export interface PersistedReviewViewState {
   scrollTop?: number;
   activeView?: ReviewView;
-  panel?: {
-    thread?: { kind: "threads" } | { kind: "commentThread"; threadId: string };
-    tour?: { tourId: string; activeAnchor: string };
-  };
+  panel?: PersistedReviewPanel;
   /** A fullscreen diagram tour (sequence or database lens) that was open. */
   overlayTour?: { tourId: string; activeAnchor: string };
 }
+
+export interface PersistedThreadsPanel {
+  kind: "threads";
+}
+
+export interface PersistedTourPanel {
+  kind: "tour";
+  tourId: string;
+  activeAnchor: string;
+}
+
+export type PersistedReviewPanel = PersistedThreadsPanel | PersistedTourPanel;
 
 export interface ReviewTourRestore {
   tour: GuidedTour;
@@ -100,12 +109,18 @@ export function useReviewViewStateSync({
     [session],
   );
   const persistedRef = useRef(initialState);
-  // Overlay tours claim first; the legacy panel.tour slot keeps sessions
-  // persisted before tours moved fullscreen restorable.
+  // Overlay tours claim first; the panel slot keeps older in-panel tours
+  // restorable.
   const tourRestore = useMemo(
     () =>
       createReviewTourRestoreClaim(
-        initialState.overlayTour ?? initialState.panel?.tour,
+        initialState.overlayTour ??
+          (initialState.panel?.kind === "tour"
+            ? {
+                tourId: initialState.panel.tourId,
+                activeAnchor: initialState.panel.activeAnchor,
+              }
+            : undefined),
       ),
     [initialState],
   );
@@ -137,8 +152,7 @@ export function useReviewViewStateSync({
   );
 
   useLayoutEffect(() => {
-    const persistedThread = initialState.panel?.thread;
-    if (persistedThread?.kind === "threads") {
+    if (initialState.panel?.kind === "threads") {
       panelStore.getState().restoreThreads();
     }
   }, [initialState, panelStore]);
@@ -374,23 +388,17 @@ function useScrollCapture(
 function persistedPanelState(
   state: ReviewPanelState,
 ): PersistedReviewViewState["panel"] {
-  const thread =
-    state.thread?.kind === "threads"
-      ? ({ kind: "threads" } as const)
-      : state.thread?.kind === "commentThread"
-        ? ({
-            kind: "commentThread",
-            threadId: state.thread.threadId,
-          } as const)
-        : undefined;
-  const tour =
-    state.detail?.kind === "tour"
-      ? {
-          tourId: state.detail.tour.id,
-          activeAnchor: state.detail.activeAnchor,
-        }
-      : undefined;
-  return thread || tour ? { thread, tour } : undefined;
+  if (state.active?.kind === "threads" && state.active.page.kind === "list") {
+    return { kind: "threads" };
+  }
+  if (state.active?.kind === "tour") {
+    return {
+      kind: "tour",
+      tourId: state.active.tour.id,
+      activeAnchor: state.active.activeAnchor,
+    };
+  }
+  return undefined;
 }
 
 function parsePersistedReviewViewState(
@@ -401,6 +409,10 @@ function parsePersistedReviewViewState(
     scrollTop?: unknown;
     activeView?: unknown;
     panel?: {
+      kind?: unknown;
+      tourId?: unknown;
+      activeAnchor?: unknown;
+      // Legacy layered panel state.
       thread?: { kind?: unknown; threadId?: unknown };
       tour?: { tourId?: unknown; activeAnchor?: unknown };
     };
@@ -422,25 +434,31 @@ function parsePersistedReviewViewState(
   ) {
     state.activeView = candidate.activeView;
   }
-  const thread =
+  if (
+    candidate.panel?.kind === "tour" &&
+    typeof candidate.panel.tourId === "string" &&
+    typeof candidate.panel.activeAnchor === "string"
+  ) {
+    state.panel = {
+      kind: "tour",
+      tourId: candidate.panel.tourId,
+      activeAnchor: candidate.panel.activeAnchor,
+    };
+  } else if (
+    candidate.panel?.kind === "threads" ||
     candidate.panel?.thread?.kind === "threads"
-      ? ({ kind: "threads" } as const)
-      : candidate.panel?.thread?.kind === "commentThread" &&
-          typeof candidate.panel.thread.threadId === "string"
-        ? ({
-            kind: "commentThread",
-            threadId: candidate.panel.thread.threadId,
-          } as const)
-        : undefined;
-  const tour =
+  ) {
+    state.panel = { kind: "threads" };
+  } else if (
     typeof candidate.panel?.tour?.tourId === "string" &&
     typeof candidate.panel.tour.activeAnchor === "string"
-      ? {
-          tourId: candidate.panel.tour.tourId,
-          activeAnchor: candidate.panel.tour.activeAnchor,
-        }
-      : undefined;
-  if (thread || tour) state.panel = { thread, tour };
+  ) {
+    state.panel = {
+      kind: "tour",
+      tourId: candidate.panel.tour.tourId,
+      activeAnchor: candidate.panel.tour.activeAnchor,
+    };
+  }
   if (
     typeof candidate.overlayTour?.tourId === "string" &&
     typeof candidate.overlayTour.activeAnchor === "string"

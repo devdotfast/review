@@ -60,9 +60,13 @@ export function CallStackDiff(props: CallStackDiffProps) {
                 captureUiEvent(session, "peek_opened", {
                   via: "call_stack_frame",
                 });
-                openPeek(anchor, {
-                  kind: "resolved-code",
-                  input: validatedCodePeekInputFromRef(anchor.peek),
+                openPeek({
+                  kind: "peek",
+                  anchor,
+                  content: {
+                    kind: "resolved-code",
+                    input: validatedCodePeekInputFromRef(anchor.peek),
+                  },
                 });
               }}
             >

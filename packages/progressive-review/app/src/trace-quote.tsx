@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 import type { TraceQuoteProps } from "../../src/authoring";
 import { ProsePeekAnchor } from "./review-components";
 import { useOptionalReviewPanel } from "./review-panel";
-import { selectActiveReviewPanel } from "./review-panel-store";
 
 function extractText(node: ReactNode): string {
   if (node === null || node === undefined || typeof node === "boolean") {
@@ -37,7 +36,7 @@ export function TraceQuote({
   const openPeek = useOptionalReviewPanel((state) => state.openPeek);
   const isOpen =
     useOptionalReviewPanel((state) => {
-      const active = selectActiveReviewPanel(state);
+      const active = state.active;
       return (
         active?.kind === "peek" &&
         active.content.kind === "trace-quote" &&
@@ -61,11 +60,14 @@ export function TraceQuote({
       }
       onOpen={() => {
         openPeek?.({
-          kind: "trace-quote",
-          sessionId,
-          trace,
-          event,
-          quote,
+          kind: "peek",
+          content: {
+            kind: "trace-quote",
+            sessionId,
+            trace,
+            event,
+            quote,
+          },
         });
       }}
       onAlreadyOpen={() => {

@@ -31,7 +31,7 @@ export function ReviewPanelProvider({
   useEffect(() => {
     if (previousDetailRevision.current === detailRevision) return;
     previousDetailRevision.current = detailRevision;
-    store.getState().closeDetail();
+    store.getState().closeForDocumentChange();
   }, [detailRevision, store]);
   return (
     <ReviewPanelContext.Provider value={store}>

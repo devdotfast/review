@@ -1,118 +1,59 @@
-import type {
-  ReviewCommitSummary,
-  ReviewDiffFileWire,
-} from "@dev.fast/review-protocol";
 import { createStore } from "zustand/vanilla";
 
-import type { AnchorRef } from "../../src/authoring";
-import type { GuidedTour, ReviewPeekContent } from "./review-components";
-
-export type DetailPanel =
-  | {
-      kind: "peek";
-      anchor?: AnchorRef;
-      content: ReviewPeekContent;
-    }
-  | {
-      kind: "tour";
-      tour: GuidedTour;
-      activeAnchor: string;
-      revealRequest: number;
-    }
-  | {
-      kind: "commit-diff";
-      commit: ReviewCommitSummary;
-      file: ReviewDiffFileWire;
-    };
-
-export type ThreadPanel =
-  | { kind: "threads" }
-  | { kind: "new-ask" }
-  | { kind: "commentThread"; threadId: string };
+import type {
+  CommitDiffPanel,
+  GuidedTour,
+  PeekPanel,
+  ReviewPanel,
+  ReviewPanelMotion,
+  ThreadsPage,
+} from "./review-panel-model";
+import { isDetailPanel } from "./review-panel-model";
 
 export interface ReviewPanelState {
-  detail: DetailPanel | null;
-  thread: ThreadPanel | null;
-  motion: "live" | "restored";
+  active: ReviewPanel | null;
+  motion: ReviewPanelMotion;
 }
 
 export interface ReviewPanelActions {
   suppressMotion: () => void;
-  openPeek: (
-    anchorOrContent: AnchorRef | ReviewPeekContent,
-    content?: ReviewPeekContent,
-  ) => void;
+  openPeek: (panel: PeekPanel) => void;
   openTour: (tour: GuidedTour, activeAnchor: string) => void;
-  openCommitDiff: (
-    commit: ReviewCommitSummary,
-    file: ReviewDiffFileWire,
-  ) => void;
+  openCommitDiff: (panel: CommitDiffPanel) => void;
   restoreTour: (tour: GuidedTour, activeAnchor: string) => void;
   activateTourAnchor: (anchorId: string, options: { reveal: boolean }) => void;
-  openThreads: () => void;
+  openThreads: (page?: ThreadsPage) => void;
   restoreThreads: () => void;
-  openNewAsk: () => void;
-  openCommentThread: (threadId: string) => void;
-  showThreads: () => void;
-  closeActive: () => void;
-  closeThread: () => void;
-  closeDetail: () => void;
-  reset: () => void;
+  close: () => void;
+  closeForAgentTerminal: () => void;
+  closeForDocumentChange: () => void;
 }
 
 export type ReviewPanelStoreState = ReviewPanelState & ReviewPanelActions;
 export type ReviewPanelStore = ReturnType<typeof createReviewPanelStore>;
-export type ActiveReviewPanel = DetailPanel | ThreadPanel | null;
-
-export function selectActiveReviewPanel(
-  state: ReviewPanelState,
-): ActiveReviewPanel {
-  return state.thread ?? state.detail;
-}
 
 export function createReviewPanelStore() {
   return createStore<ReviewPanelStoreState>()((set) => ({
-    detail: null,
-    thread: null,
+    active: null,
     motion: "live",
     suppressMotion: () => set({ motion: "restored" }),
-    openPeek: (anchorOrContent, content) => {
-      if (content !== undefined) {
-        set({
-          detail: {
-            kind: "peek",
-            anchor: anchorOrContent as AnchorRef,
-            content,
-          },
-          motion: "live",
-        });
-      } else {
-        set({
-          detail: {
-            kind: "peek",
-            content: anchorOrContent as ReviewPeekContent,
-          },
-          motion: "live",
-        });
-      }
-    },
+    openPeek: (panel) => set({ active: panel, motion: "live" }),
     openTour: (tour, activeAnchor) => {
       set((state) => ({
-        detail: {
+        active: {
           kind: "tour",
           tour,
           activeAnchor,
           revealRequest:
-            state.detail?.kind === "tour" ? state.detail.revealRequest + 1 : 1,
+            state.active?.kind === "tour" ? state.active.revealRequest + 1 : 1,
         },
         motion: "live",
       }));
     },
-    openCommitDiff: (commit, file) =>
-      set({ detail: { kind: "commit-diff", commit, file }, motion: "live" }),
+    openCommitDiff: (panel) => set({ active: panel, motion: "live" }),
     restoreTour: (tour, activeAnchor) => {
       set({
-        detail: {
+        active: {
           kind: "tour",
           tour,
           activeAnchor,
@@ -123,42 +64,36 @@ export function createReviewPanelStore() {
     },
     activateTourAnchor: (anchorId, options) => {
       set((state) => {
-        if (state.detail?.kind !== "tour") return state;
+        if (state.active?.kind !== "tour") return state;
         return {
-          detail: {
-            ...state.detail,
+          active: {
+            ...state.active,
             activeAnchor: anchorId,
             revealRequest: options.reveal
-              ? state.detail.revealRequest + 1
-              : state.detail.revealRequest,
+              ? state.active.revealRequest + 1
+              : state.active.revealRequest,
           },
           motion: options.reveal ? "live" : state.motion,
         };
       });
     },
-    openThreads: () => set({ thread: { kind: "threads" }, motion: "live" }),
+    openThreads: (page = { kind: "list" }) =>
+      set({ active: { kind: "threads", page }, motion: "live" }),
     restoreThreads: () =>
-      set({ thread: { kind: "threads" }, motion: "restored" }),
-    openNewAsk: () => set({ thread: { kind: "new-ask" }, motion: "live" }),
-    openCommentThread: (threadId) =>
       set({
-        thread: { kind: "commentThread", threadId },
-        motion: "live",
+        active: { kind: "threads", page: { kind: "list" } },
+        motion: "restored",
       }),
-    showThreads: () =>
+    close: () => set({ active: null, motion: "live" }),
+    closeForAgentTerminal: () =>
       set((state) =>
-        state.thread ? { thread: { kind: "threads" }, motion: "live" } : state,
+        state.active?.kind === "threads"
+          ? { active: null, motion: "live" }
+          : state,
       ),
-    closeActive: () => {
+    closeForDocumentChange: () =>
       set((state) =>
-        state.thread
-          ? { thread: null, motion: "live" }
-          : { detail: null, motion: "live" },
-      );
-    },
-    closeThread: () =>
-      set((state) => (state.thread ? { thread: null, motion: "live" } : state)),
-    closeDetail: () => set({ detail: null, motion: "live" }),
-    reset: () => set({ detail: null, thread: null, motion: "live" }),
+        isDetailPanel(state.active) ? { active: null, motion: "live" } : state,
+      ),
   }));
 }

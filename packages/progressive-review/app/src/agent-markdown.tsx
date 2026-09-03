@@ -1,3 +1,4 @@
+import { isNumberValue, isStringValue } from "@dev.fast/review-protocol";
 // Deliberately separate from the MDX document pipeline: this renderer walks the
 // mdast of untrusted runtime strings (agent/thread message bodies) and never
 // evaluates them, whereas MDX compilation produces executable code and must
@@ -31,6 +32,17 @@ interface MarkdownNode {
   alt?: string | null;
 }
 
+function parseMarkdown(source: string): MarkdownNode {
+  // SAFETY: fromMarkdown returns an mdast Root whose nodes carry the same
+  // `type`/`children`/`value` fields MarkdownNode reads; the optional fields
+  // only differ by mdast also allowing null (e.g. List.ordered), which the
+  // renderer treats like undefined.
+  return fromMarkdown(source, {
+    extensions: [gfm()],
+    mdastExtensions: [gfmFromMarkdown()],
+  }) as MarkdownNode;
+}
+
 export function AgentMarkdown({
   source,
   className,
@@ -40,10 +52,7 @@ export function AgentMarkdown({
   className?: string;
   highlightQuote?: string;
 }): ReactElement {
-  const tree = fromMarkdown(source, {
-    extensions: [gfm()],
-    mdastExtensions: [gfmFromMarkdown()],
-  }) as MarkdownNode;
+  const tree = parseMarkdown(source);
   return (
     <div className={["agent-markdown", className].filter(Boolean).join(" ")}>
       {renderMarkdownChildren(tree.children ?? [], "root", highlightQuote)}
@@ -57,10 +66,7 @@ export function AgentMarkdown({
  * raw `**` syntax nor fights a line clamp with block layout and code chips.
  */
 export function markdownExcerpt(source: string): string {
-  const tree = fromMarkdown(source, {
-    extensions: [gfm()],
-    mdastExtensions: [gfmFromMarkdown()],
-  }) as MarkdownNode;
+  const tree = parseMarkdown(source);
   const parts: string[] = [];
   const walk = (node: MarkdownNode) => {
     if (
@@ -309,10 +315,13 @@ function isLocalFilesystemHref(value: string | undefined): boolean {
   );
 }
 
+/** A React child that renders as its own text: a string or a number. */
+export function isReactTextNode(node: ReactNode): node is string | number {
+  return isStringValue(node) || isNumberValue(node);
+}
+
 function textFromChildren(children: ReactNode): string | null {
-  if (typeof children === "string" || typeof children === "number") {
-    return String(children);
-  }
+  if (isReactTextNode(children)) return String(children);
   if (Array.isArray(children)) {
     const text = children
       .map((child) => textFromChildren(child) ?? "")

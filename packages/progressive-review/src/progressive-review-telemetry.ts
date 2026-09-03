@@ -2,6 +2,11 @@ import { createHmac, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import {
+  jsonObject,
+  jsonString,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
 import { valid as validSemver } from "semver";
 
 import { writeFileAtomic } from "./atomic-write";
@@ -328,11 +333,13 @@ export class ProgressiveReviewTelemetry {
   ): Promise<void> {
     await this.captureEvent(
       "review_session_started",
-      {
-        source_kind: sourceKind(input),
-        agent_kind: input.agentKind ?? this.sessionAgent(),
-        ...(input.appSessionId ? { app_session_id: input.appSessionId } : {}),
-      },
+      withAppSession(
+        {
+          source_kind: sourceKind(input),
+          agent_kind: input.agentKind ?? this.sessionAgent(),
+        },
+        input.appSessionId,
+      ),
       sessionTelemetryContext(input),
     );
   }
@@ -342,13 +349,15 @@ export class ProgressiveReviewTelemetry {
   ): Promise<void> {
     await this.captureEvent(
       "review_session_ended",
-      {
-        source_kind: sourceKind(input),
-        agent_kind: input.agentKind ?? this.sessionAgent(),
-        outcome: input.outcome === "accepted" ? "approve" : input.outcome,
-        duration_ms: input.durationMs,
-        ...(input.appSessionId ? { app_session_id: input.appSessionId } : {}),
-      },
+      withAppSession(
+        {
+          source_kind: sourceKind(input),
+          agent_kind: input.agentKind ?? this.sessionAgent(),
+          outcome: input.outcome === "accepted" ? "approve" : input.outcome,
+          duration_ms: input.durationMs,
+        },
+        input.appSessionId,
+      ),
       sessionTelemetryContext(input),
     );
   }
@@ -359,10 +368,7 @@ export class ProgressiveReviewTelemetry {
   ): Promise<void> {
     await this.captureEvent(
       "review_review_presented",
-      {
-        source: "review_app",
-        ...(input.appSessionId ? { app_session_id: input.appSessionId } : {}),
-      },
+      withAppSession({ source: "review_app" }, input.appSessionId),
       context,
     );
   }
@@ -453,21 +459,19 @@ export class ProgressiveReviewTelemetry {
     event: "review_command_succeeded" | "review_command_failed",
     input: ProgressiveReviewCommandTelemetryInput,
   ): Promise<void> {
-    await this.captureEvent(
-      event,
-      {
-        command_path: input.command,
-        exit_code: input.exitCode,
-        ...(input.durationMs === undefined
-          ? {}
-          : { duration_ms: input.durationMs }),
-        ...(input.properties ?? {}),
-        command_run_id: input.commandRunId,
-        ...(input.errorName ? { error_name: input.errorName } : {}),
-        ...(input.errorCategory ? { error_category: input.errorCategory } : {}),
-      },
-      { reviewUuid: input.reviewUuid },
-    );
+    const properties: PostHogCaptureProperties = {
+      command_path: input.command,
+      exit_code: input.exitCode,
+    };
+    if (input.durationMs !== undefined)
+      properties.duration_ms = input.durationMs;
+    Object.assign(properties, input.properties);
+    properties.command_run_id = input.commandRunId;
+    if (input.errorName) properties.error_name = input.errorName;
+    if (input.errorCategory) properties.error_category = input.errorCategory;
+    await this.captureEvent(event, properties, {
+      reviewUuid: input.reviewUuid,
+    });
   }
 
   private async withTelemetry(
@@ -510,10 +514,10 @@ export class ProgressiveReviewTelemetry {
       return false;
     }
     try {
-      const parsed = JSON.parse(
-        await readFile(this.installConfigPath, "utf8"),
-      ) as Partial<ProgressiveReviewTelemetryInstallConfig>;
-      const config = normalizeTelemetryInstallConfig(parsed, this.now);
+      const config = normalizeTelemetryInstallConfig(
+        parseJsonText(await readFile(this.installConfigPath, "utf8")),
+        this.now,
+      );
       if (!config) return true;
       this.installConfig = config;
       sharedInstallConfigs.set(this.installConfigPath, config);
@@ -525,12 +529,12 @@ export class ProgressiveReviewTelemetry {
 
   private async readOrCreateInstallConfig(): Promise<ProgressiveReviewTelemetryInstallConfig> {
     try {
-      const parsed = JSON.parse(
+      const parsed = parseJsonText(
         await readFile(this.installConfigPath, "utf8"),
-      ) as Partial<ProgressiveReviewTelemetryInstallConfig>;
+      );
       const config = normalizeTelemetryInstallConfig(parsed, this.now);
       if (config) {
-        if (parsed.internal !== config.internal) {
+        if (jsonObject(parsed)?.internal !== config.internal) {
           try {
             this.writeInstallConfig(config);
           } catch {
@@ -553,12 +557,12 @@ export class ProgressiveReviewTelemetry {
 
   private async readLegacyInstallId(): Promise<string | undefined> {
     try {
-      const parsed = JSON.parse(
-        await readFile(this.legacyInstallConfigPath, "utf8"),
-      ) as { installId?: unknown };
-      return typeof parsed.installId === "string" && parsed.installId.length > 0
-        ? parsed.installId
-        : undefined;
+      const installId = jsonString(
+        jsonObject(
+          parseJsonText(await readFile(this.legacyInstallConfigPath, "utf8")),
+        )?.installId,
+      );
+      return installId ? installId : undefined;
     } catch {
       return undefined;
     }
@@ -598,17 +602,18 @@ export class ProgressiveReviewTelemetry {
     config: Pick<ProgressiveReviewTelemetryInstallConfig, "internal">,
   ): Promise<PostHogCaptureProperties> {
     const appVersion = reviewAppVersion(this.env);
-    return {
+    const properties: PostHogCaptureProperties = {
       product: "review-cli",
       package: "@dev.fast/review",
       version: await this.readPackageVersion(),
-      ...(appVersion ? { app_version: appVersion } : {}),
       node_major: Number(process.versions.node.split(".", 1)[0]),
       platform: process.platform,
       arch: process.arch,
       ci: Boolean(this.env.CI),
       internal: isInternalTelemetry(this.env, config),
     };
+    if (appVersion) properties.app_version = appVersion;
+    return properties;
   }
 
   private readPackageVersion(): Promise<string> {
@@ -648,29 +653,34 @@ function correlationProperties(
   installationId: string,
   context: ProgressiveReviewTelemetryContext | undefined,
 ): PostHogCaptureProperties {
-  if (!context) return {};
-  return {
-    ...(context.reviewUuid
-      ? {
-          review_id: opaqueCorrelationId(
-            "rv_",
-            installationId,
-            "review",
-            context.reviewUuid,
-          ),
-        }
-      : {}),
-    ...(context.presentationSessionId
-      ? {
-          presentation_id: opaqueCorrelationId(
-            "pr_",
-            installationId,
-            "presentation",
-            context.presentationSessionId,
-          ),
-        }
-      : {}),
-  };
+  const properties: PostHogCaptureProperties = {};
+  if (!context) return properties;
+  if (context.reviewUuid) {
+    properties.review_id = opaqueCorrelationId(
+      "rv_",
+      installationId,
+      "review",
+      context.reviewUuid,
+    );
+  }
+  if (context.presentationSessionId) {
+    properties.presentation_id = opaqueCorrelationId(
+      "pr_",
+      installationId,
+      "presentation",
+      context.presentationSessionId,
+    );
+  }
+  return properties;
+}
+
+/** Adds the app session that presented the review, when one did. */
+function withAppSession(
+  properties: PostHogCaptureProperties,
+  appSessionId: string | undefined,
+): PostHogCaptureProperties {
+  if (appSessionId) properties.app_session_id = appSessionId;
+  return properties;
 }
 
 function opaqueCorrelationId(
@@ -720,12 +730,12 @@ function reviewAppVersion(env: NodeJS.ProcessEnv): string | undefined {
 async function readProgressiveReviewPackageVersion(): Promise<string> {
   try {
     const packageRoot = findProgressiveReviewPackageRoot(import.meta.url);
-    const packageJson = JSON.parse(
-      await readFile(path.join(packageRoot, "package.json"), "utf8"),
-    ) as { version?: unknown };
-    return typeof packageJson.version === "string"
-      ? packageJson.version
-      : "unknown";
+    const packageJson = jsonObject(
+      parseJsonText(
+        await readFile(path.join(packageRoot, "package.json"), "utf8"),
+      ),
+    );
+    return jsonString(packageJson?.version) ?? "unknown";
   } catch {
     return "unknown";
   }

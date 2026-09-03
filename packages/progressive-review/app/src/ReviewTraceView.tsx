@@ -85,7 +85,12 @@ export function ReviewTraceView({
   useEffect(() => {
     if (!pickerOpen) return;
     const handleOutsideClick = (e: MouseEvent) => {
-      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+      const target = e.target;
+      if (
+        pickerRef.current &&
+        target instanceof Node &&
+        !pickerRef.current.contains(target)
+      ) {
         setPickerOpen(false);
       }
     };
@@ -118,11 +123,11 @@ export function ReviewTraceView({
           sessions: result.sessions,
         });
       })
-      .catch((error: unknown) => {
+      .catch((cause: unknown) => {
         if (controller.signal.aborted) return;
         setList({
           status: "error",
-          error: error instanceof Error ? error.message : String(error),
+          error: cause instanceof Error ? cause.message : String(cause),
         });
       });
     return () => controller.abort();

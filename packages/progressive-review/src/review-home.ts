@@ -14,6 +14,7 @@ import { currentHead, listCommitRange } from "@dev.fast/local-vcs";
 import {
   DEFAULT_DISMISSED_RETENTION_DAYS,
   type JsonObject,
+  type JsonValue,
   REVIEW_SCHEMA_VERSION,
   type ReviewAgentSessionRole,
   type ReviewDescriptor,
@@ -21,6 +22,9 @@ import {
   ReviewRecordSchema,
   type ReviewSourceIdentity,
   isJsonObject,
+  jsonObject,
+  jsonString,
+  parseJsonText,
   summarizeReviewDiffFiles,
 } from "@dev.fast/review-protocol";
 
@@ -30,6 +34,7 @@ import {
   parseAuthoringSessionKey,
   parseFreshSourceSessionHarness,
 } from "./authoring-session";
+import { isMissingFileError } from "./native-agent/transcript-json";
 import { type DismissedRetentionDays, reviewReapsAt } from "./review-attention";
 import {
   remapReviewCodeDrafts,
@@ -131,7 +136,6 @@ export async function createReviewDir(
   const review: StoredReviewRecord = {
     schemaVersion: REVIEW_SCHEMA_VERSION,
     uuid,
-    ...(binding.visibility ? { visibility: binding.visibility } : {}),
     repoKey: repository.repositoryId,
     worktreePath,
     baseRef: binding.baseRef,
@@ -142,23 +146,22 @@ export async function createReviewDir(
     pullRequestUrl: binding.pullRequestUrl ?? null,
     title: binding.title ?? "Progressive Review",
     sourceSession,
-    ...(attributedAgentSession
-      ? {
-          agentSessions: {
-            [attributedAgentSession]: {
-              roles: ["author"],
-              firstSeenAt: createdAt,
-              lastSeenAt: createdAt,
-            },
-          },
-        }
-      : {}),
     status: "draft",
     presentedDocumentRevision: null,
     presentedSoftwareMapRevision: null,
     createdAt,
     lastPublishedAt: null,
   };
+  if (binding.visibility) review.visibility = binding.visibility;
+  if (attributedAgentSession) {
+    review.agentSessions = {
+      [attributedAgentSession]: {
+        roles: ["author"],
+        firstSeenAt: createdAt,
+        lastSeenAt: createdAt,
+      },
+    };
+  }
 
   await mkdirReviewDir(dir);
   try {
@@ -496,7 +499,7 @@ export async function listReviews(
         ),
     );
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+    if (isMissingFileError(error)) {
       return { reviews: [], errors: [] };
     }
     throw error;
@@ -557,7 +560,7 @@ async function mkdirReviewDir(dir: string): Promise<void> {
   try {
     await mkdir(dir, { recursive: false, mode: 0o700 });
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+    if (error instanceof Error && "code" in error && error.code === "EEXIST") {
       throw new Error(`Review directory already exists: ${dir}`);
     }
     throw error;
@@ -578,11 +581,11 @@ export async function readStoredReview(
 ): Promise<StoredReview | { error: ReviewHomeError }> {
   const reviewPath = path.join(dir, "review.json");
   try {
-    const value: unknown = JSON.parse(await readFile(reviewPath, "utf8"));
+    const value = parseJsonText(await readFile(reviewPath, "utf8"));
     const parsed = safeParseStoredReviewRecord(value);
     if (!parsed.success) {
       return {
-        error: reviewHomeError(dir, value, {
+        error: reviewHomeError(dir, jsonObject(value), {
           message: `Invalid review.json; run \`review migrate apply\`: ${parsed.error.issues.map((issue) => issue.message).join("; ")}`,
           code: "MIGRATION_REQUIRED",
         }),
@@ -590,52 +593,54 @@ export async function readStoredReview(
     }
     return { dir, review: parsed.data };
   } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    return {
-      error: reviewHomeError(dir, undefined, {
-        message: `Could not read review.json: ${error instanceof Error ? error.message : String(error)}`,
-        ...(code ? { code } : {}),
-      }),
+    const detail: ReviewHomeErrorDetail = {
+      message: `Could not read review.json: ${error instanceof Error ? error.message : String(error)}`,
     };
+    // SAFETY: the try block only throws fs ErrnoExceptions and JSON
+    // SyntaxErrors; `code` is the errno name on the former and absent on the
+    // latter.
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code) detail.code = code;
+    return { error: reviewHomeError(dir, undefined, detail) };
   }
+}
+
+/** `record` is the parsed review, or the raw review.json object when it failed to parse. */
+interface ReviewHomeErrorDetail {
+  message: string;
+  code?: string;
 }
 
 function reviewHomeError(
   reviewDir: string,
-  value: unknown,
-  error: { message: string; code?: string },
+  record: StoredReviewRecord | JsonObject | undefined,
+  error: ReviewHomeErrorDetail,
 ): ReviewHomeError {
-  const record = isJsonObject(value) ? value : undefined;
   const directoryUuid = path.basename(reviewDir);
-  const storedUuid = typeof record?.uuid === "string" ? record.uuid : null;
+  const storedUuid = jsonString(record?.uuid) ?? null;
   const reviewUuid = UUID_PATTERN.test(storedUuid ?? "")
     ? storedUuid
     : UUID_PATTERN.test(directoryUuid)
       ? directoryUuid
       : null;
-  return {
+  const result: ReviewHomeError = {
     reviewDir,
     reviewUuid,
-    title: typeof record?.title === "string" ? record.title : "",
-    worktreePath:
-      typeof record?.worktreePath === "string" && record.worktreePath
-        ? record.worktreePath
-        : reviewDir,
-    lastPublishedAt:
-      typeof record?.lastPublishedAt === "string"
-        ? record.lastPublishedAt
-        : null,
+    title: jsonString(record?.title) ?? "",
+    worktreePath: jsonString(record?.worktreePath) || reviewDir,
+    lastPublishedAt: jsonString(record?.lastPublishedAt) ?? null,
     message: error.message,
-    ...(error.code ? { code: error.code } : {}),
   };
+  if (error.code) result.code = error.code;
+  return result;
 }
 
-export function parseStoredReviewRecord(value: unknown): StoredReviewRecord {
+export function parseStoredReviewRecord(value: JsonValue): StoredReviewRecord {
   return StoredReviewRecordSchema.parse(stripLegacySoftwareMap(value));
 }
 
 export function parseStoredReviewRecordForMigration(
-  value: unknown,
+  value: JsonValue,
 ): StoredReviewRecord {
   if (!isJsonObject(value)) return parseStoredReviewRecord(value);
   const record = stripLegacySoftwareMap(value);
@@ -663,13 +668,13 @@ export function parseStoredReviewRecordForMigration(
   });
 }
 
-export function safeParseStoredReviewRecord(value: unknown) {
+export function safeParseStoredReviewRecord(value: JsonValue) {
   return StoredReviewRecordSchema.safeParse(stripLegacySoftwareMap(value));
 }
 
 function stripLegacySoftwareMap(value: JsonObject): JsonObject;
-function stripLegacySoftwareMap(value: unknown): unknown;
-function stripLegacySoftwareMap(value: unknown): unknown {
+function stripLegacySoftwareMap(value: JsonValue): JsonValue;
+function stripLegacySoftwareMap(value: JsonValue): JsonValue {
   if (!isJsonObject(value)) return value;
   const { softwareMap: _legacySoftwareMap, ...record } = value;
   return record;
@@ -680,7 +685,7 @@ async function pathExists(targetPath: string): Promise<boolean> {
     await access(targetPath);
     return true;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    if (isMissingFileError(error)) return false;
     throw error;
   }
 }
@@ -689,7 +694,7 @@ async function statIfExists(targetPath: string) {
   try {
     return await stat(targetPath);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    if (isMissingFileError(error)) return null;
     throw error;
   }
 }

@@ -5,14 +5,18 @@ import {
   type JsonObject,
   REVIEW_SCHEMA_VERSION,
   isJsonObject,
+  jsonObject,
+  jsonString,
+  parseJsonText,
 } from "@dev.fast/review-protocol";
-import type { Expression, Program } from "estree";
+import type { Node as EstreeNode, Program } from "estree";
 
 import {
   authoringSessionKey,
   parseAuthoringSessionKey,
 } from "./authoring-session";
 import { errorMessage } from "./error-message";
+import { isMissingFileError } from "./native-agent/transcript-json";
 import { writeReviewDocumentBundle } from "./review-bundle";
 import { createLegacyCodeRecordMigrator } from "./review-code-target-migration";
 import { maskReviewFrontmatter } from "./review-frontmatter";
@@ -33,7 +37,10 @@ import {
 } from "./review-mdx-ast";
 import { reviewTypescriptEstreeParser } from "./review-mdx-typescript-parser";
 import { createReviewSourceAgentSession } from "./review-source-agent-session";
-import { migrateReviewThreadDb } from "./review-thread-store-backend";
+import {
+  type ReviewThreadDbMigrationOptions,
+  migrateReviewThreadDb,
+} from "./review-thread-store-backend";
 import { writePrivateJsonAtomic } from "./server/desktop-paths";
 import { compileReviewDocumentBundle } from "./server/doc-bundler";
 import {
@@ -62,20 +69,17 @@ async function legacyJsonRecordCount(filePath: string): Promise<number> {
   try {
     source = await readFile(filePath, "utf8");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return 0;
+    if (isMissingFileError(error)) return 0;
     throw error;
   }
   if (!source.trim()) return 0;
-  let parsed: unknown;
+  let records: JsonObject | undefined;
   try {
-    parsed = JSON.parse(source) as unknown;
+    records = jsonObject(parseJsonText(source));
   } catch {
     return 0;
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return 0;
-  }
-  return Object.keys(parsed).length;
+  return records ? Object.keys(records).length : 0;
 }
 
 async function dropLegacyReviewState(
@@ -261,7 +265,7 @@ function mdxCodeLines(source: string): { line: number; source: string }[] {
   for (const [index, lineSource] of source.split("\n").entries()) {
     const fenceMatch = /^\s*(`{3,}|~{3,})/.exec(lineSource);
     if (fenceMatch) {
-      const marker = fenceMatch[1][0] as "`" | "~";
+      const marker = fenceMatch[1].startsWith("`") ? "`" : "~";
       if (!fence) fence = marker;
       else if (fence === marker) fence = undefined;
       continue;
@@ -325,11 +329,8 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function estreeLine(value: unknown): number {
-  if (!value || typeof value !== "object") return 1;
-  const line = (value as { loc?: { start?: { line?: unknown } } | null }).loc
-    ?.start?.line;
-  return typeof line === "number" ? line : 1;
+function estreeLine(node: EstreeNode | undefined): number {
+  return node?.loc?.start.line ?? 1;
 }
 
 export async function migrateStoredReviewData(input: {
@@ -357,7 +358,7 @@ export async function migrateStoredReviewData(input: {
   try {
     entries = await readdir(reviewsRoot, { withFileTypes: true });
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return total;
+    if (isMissingFileError(error)) return total;
     throw error;
   }
   for (const entry of entries) {
@@ -365,20 +366,13 @@ export async function migrateStoredReviewData(input: {
     const reviewDir = path.join(reviewsRoot, entry.name);
     const reviewPath = path.join(reviewDir, "review.mdx");
     try {
-      const value: unknown = JSON.parse(
-        await readFile(path.join(reviewDir, "review.json"), "utf8"),
+      const value = jsonObject(
+        parseJsonText(
+          await readFile(path.join(reviewDir, "review.json"), "utf8"),
+        ),
       );
-      const schemaVersion =
-        value && typeof value === "object" && !Array.isArray(value)
-          ? (value as { schemaVersion?: unknown }).schemaVersion
-          : undefined;
-      const worktreePath =
-        value &&
-        typeof value === "object" &&
-        !Array.isArray(value) &&
-        typeof (value as { worktreePath?: unknown }).worktreePath === "string"
-          ? (value as { worktreePath: string }).worktreePath
-          : null;
+      const schemaVersion = value?.schemaVersion;
+      const worktreePath = jsonString(value?.worktreePath);
       if (worktreePath && !cleanedLegacyRoots.has(worktreePath)) {
         cleanedLegacyRoots.add(worktreePath);
         total.legacyCheckoutsRemoved += await removeLegacyReviewCheckouts({
@@ -387,7 +381,7 @@ export async function migrateStoredReviewData(input: {
         });
       }
       if (
-        !isJsonObject(value) ||
+        !value ||
         (schemaVersion !== REVIEW_SCHEMA_VERSION &&
           schemaVersion !== 3 &&
           schemaVersion !== 2)
@@ -408,9 +402,9 @@ export async function migrateStoredReviewData(input: {
       const migratedRecord =
         parseStoredReviewRecordForMigration(migrationValue);
       if (schemaVersion === 2) {
-        const legacyRevision = value.presentedRevision;
+        const legacyRevision = jsonString(value.presentedRevision);
         try {
-          if (typeof legacyRevision === "string") {
+          if (legacyRevision !== undefined) {
             await migrateLegacyPresentedArtifacts({
               reviewDir,
               review: migratedRecord,
@@ -450,25 +444,28 @@ export async function migrateStoredReviewData(input: {
         );
         continue;
       }
+      const threadDbMigration: ReviewThreadDbMigrationOptions = {
+        force: input.force,
+        onDropLegacyCodeRecord: ({ threadId, kind, error }) => {
+          total.droppedComments += 1;
+          input.log?.(
+            `Dropped unrecoverable ${kind} ${threadId} from Review ${entry.name}: ${errorMessage(error)}`,
+          );
+        },
+      };
+      if (migratedRecord.sourceCommit) {
+        threadDbMigration.migrateLegacyCodeRecord =
+          createLegacyCodeRecordMigrator({
+            rootPath: migratedRecord.worktreePath,
+            baseCommit: migratedRecord.baseCommit,
+            headCommit: migratedRecord.sourceCommit,
+          });
+      }
       try {
-        const databaseMigration = await migrateReviewThreadDb(reviewPath, {
-          force: input.force,
-          ...(migratedRecord.sourceCommit
-            ? {
-                migrateLegacyCodeRecord: createLegacyCodeRecordMigrator({
-                  rootPath: migratedRecord.worktreePath,
-                  baseCommit: migratedRecord.baseCommit,
-                  headCommit: migratedRecord.sourceCommit,
-                }),
-              }
-            : {}),
-          onDropLegacyCodeRecord: ({ threadId, kind, error }) => {
-            total.droppedComments += 1;
-            input.log?.(
-              `Dropped unrecoverable ${kind} ${threadId} from Review ${entry.name}: ${errorMessage(error)}`,
-            );
-          },
-        });
+        const databaseMigration = await migrateReviewThreadDb(
+          reviewPath,
+          threadDbMigration,
+        );
         if (databaseMigration === "upgraded") {
           total.upgradedThreadDatabases += 1;
           input.log?.(
@@ -499,20 +496,10 @@ async function migrateReviewSourceSession(input: {
   onWarning?: (message: string) => void;
   value: JsonObject;
 }): Promise<JsonObject> {
-  const source = parseAuthoringSessionKey(
-    typeof input.value.agentSession === "string"
-      ? input.value.agentSession
-      : undefined,
-  );
-  const uuid = typeof input.value.uuid === "string" ? input.value.uuid : null;
-  const worktreePath =
-    typeof input.value.worktreePath === "string"
-      ? input.value.worktreePath
-      : null;
-  const sourceCommit =
-    typeof input.value.sourceCommit === "string"
-      ? input.value.sourceCommit
-      : null;
+  const source = parseAuthoringSessionKey(jsonString(input.value.agentSession));
+  const uuid = jsonString(input.value.uuid) ?? null;
+  const worktreePath = jsonString(input.value.worktreePath) ?? null;
+  const sourceCommit = jsonString(input.value.sourceCommit) ?? null;
   const { agentSession: _agentSession, ...record } = input.value;
   if (!source || !uuid || !worktreePath || !sourceCommit) {
     input.onWarning?.(
@@ -537,12 +524,7 @@ async function migrateReviewSourceSession(input: {
     });
     const sourceSession = authoringSessionKey(frozen);
     const now = new Date().toISOString();
-    const priorAgentSessions =
-      record.agentSessions &&
-      typeof record.agentSessions === "object" &&
-      !Array.isArray(record.agentSessions)
-        ? record.agentSessions
-        : {};
+    const priorAgentSessions = jsonObject(record.agentSessions) ?? {};
     return {
       ...record,
       agentSessions: {
@@ -622,7 +604,7 @@ async function migrateLegacyPresentedArtifacts(input: {
       recursive: true,
       force: true,
     }).catch((error) => {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      if (!isMissingFileError(error)) throw error;
     });
   }
   let completed = false;
@@ -708,7 +690,7 @@ async function removedCodePeekKeys(reviewDir: string): Promise<string[]> {
   try {
     source = await readFile(path.join(reviewDir, "data.ts"), "utf8");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    if (isMissingFileError(error)) return [];
     throw error;
   }
 
@@ -723,7 +705,7 @@ async function removedCodePeekKeys(reviewDir: string): Promise<string[]> {
   for (const call of findCallExpressions(program, "defineAnchors")) {
     const anchorMap = call.arguments[0];
     if (!anchorMap || anchorMap.type === "SpreadElement") continue;
-    for (const anchor of objectLiteralProperties(anchorMap as Expression)) {
+    for (const anchor of objectLiteralProperties(anchorMap)) {
       const peek = objectLiteralProperties(anchor.value).find(
         (property) => property.name === "peek",
       );
@@ -779,7 +761,7 @@ async function readDirectory(directory: string) {
   try {
     return await readdir(directory, { withFileTypes: true });
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    if (isMissingFileError(error)) return [];
     throw error;
   }
 }

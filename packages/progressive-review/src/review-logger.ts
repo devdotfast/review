@@ -1,3 +1,9 @@
+import {
+  type JsonValue,
+  isJsonObject,
+  jsonString,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
 import pino from "pino";
 import pretty from "pino-pretty";
 
@@ -25,7 +31,7 @@ export function createReviewLogger(input: {
           sync: true,
           colorize:
             input.colorize ??
-            Boolean((input.output as NodeJS.WriteStream).isTTY),
+            ("isTTY" in input.output && Boolean(input.output.isTTY)),
           translateTime: false,
           singleLine: true,
           messageFormat: "{event}",
@@ -75,54 +81,39 @@ export function emitReviewEvent(
   logger.event(event);
 }
 
-/** The fields a thrown non-Error value may carry that the log record keeps. */
-interface ThrownValueFields {
-  name?: unknown;
-  message?: unknown;
-  stack?: unknown;
-  component?: unknown;
-  propertyPath?: unknown;
-  expected?: unknown;
-  received?: unknown;
-}
-
-export function serializeReviewError(error: unknown): ReviewLifecycleError {
-  // SAFETY: every field is optional and re-checked with typeof/in below, so
-  // any non-null object satisfies the shape.
-  const value =
-    error && typeof error === "object" ? (error as ThrownValueFields) : null;
-  return {
+export function serializeReviewError(cause: unknown): ReviewLifecycleError {
+  // A thrown object is read as the JSON record it is about to be logged as;
+  // each field the record keeps is decoded on its own below.
+  const fields = isJsonObject(cause) ? cause : undefined;
+  const stack = jsonString(fields?.stack);
+  const component = jsonString(fields?.component);
+  const propertyPath = jsonString(fields?.propertyPath);
+  const error: ReviewLifecycleError = {
     name:
-      error instanceof Error
-        ? error.name
-        : typeof value?.name === "string"
-          ? value.name
-          : "Error",
+      cause instanceof Error
+        ? cause.name
+        : (jsonString(fields?.name) ?? "Error"),
     message:
-      error instanceof Error
-        ? error.message
-        : typeof value?.message === "string"
-          ? value.message
-          : String(error),
-    ...(typeof value?.stack === "string" ? { stack: value.stack } : {}),
-    ...(typeof value?.component === "string"
-      ? { component: value.component }
-      : {}),
-    ...(typeof value?.propertyPath === "string"
-      ? { propertyPath: value.propertyPath }
-      : {}),
-    ...(value && "expected" in value
-      ? { expected: jsonSafeValue(value.expected) }
-      : {}),
-    ...(value && "received" in value
-      ? { received: jsonSafeValue(value.received) }
-      : {}),
+      cause instanceof Error
+        ? cause.message
+        : (jsonString(fields?.message) ?? String(cause)),
   };
+  if (stack !== undefined) error.stack = stack;
+  if (component !== undefined) error.component = component;
+  if (propertyPath !== undefined) error.propertyPath = propertyPath;
+  if (fields && "expected" in fields) {
+    error.expected = jsonSafeValue(fields.expected);
+  }
+  if (fields && "received" in fields) {
+    error.received = jsonSafeValue(fields.received);
+  }
+  return error;
 }
 
-function jsonSafeValue(value: unknown): unknown {
+/** Round-trip through JSON so a value that cannot serialize still logs. */
+function jsonSafeValue(value: JsonValue): JsonValue {
   try {
-    return JSON.parse(JSON.stringify(value)) as unknown;
+    return parseJsonText(JSON.stringify(value));
   } catch {
     return String(value);
   }

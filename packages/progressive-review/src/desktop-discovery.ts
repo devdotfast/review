@@ -1,8 +1,13 @@
 import { readFile } from "node:fs/promises";
 
 import {
+  type JsonValue,
   REVIEW_DESKTOP_DISCOVERY_VERSION,
   type ReviewDesktopDiscovery,
+  isJsonObject,
+  jsonNumber,
+  jsonProperty,
+  parseJsonText,
   parseReviewDesktopDiscovery,
 } from "@dev.fast/review-protocol";
 
@@ -38,25 +43,28 @@ export async function readReviewDesktopDiscovery(
   try {
     source = await readFile(filePath, "utf8");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return null;
+    }
     throw new ReviewDesktopDiscoveryUnreadableError(filePath, String(error));
   }
-  let value: unknown;
+  let value: JsonValue;
   try {
-    value = JSON.parse(source);
+    value = parseJsonText(source);
   } catch (error) {
     throw new ReviewDesktopDiscoveryUnreadableError(filePath, String(error));
   }
   try {
     return parseReviewDesktopDiscovery(value);
   } catch (error) {
-    const version =
-      typeof value === "object" &&
-      value !== null &&
-      Number.isInteger((value as { version?: unknown }).version)
-        ? (value as { version: number }).version
-        : undefined;
-    if (version !== undefined && version !== REVIEW_DESKTOP_DISCOVERY_VERSION) {
+    const version = isJsonObject(value)
+      ? jsonNumber(jsonProperty(value, "version"))
+      : undefined;
+    if (
+      version !== undefined &&
+      Number.isInteger(version) &&
+      version !== REVIEW_DESKTOP_DISCOVERY_VERSION
+    ) {
       throw new ReviewDesktopProtocolMismatchError(version);
     }
     throw new ReviewDesktopDiscoveryUnreadableError(filePath, String(error));
@@ -82,16 +90,11 @@ export async function readHealthyReviewDesktopDiscovery(
       signal: AbortSignal.timeout(1_500),
     });
     if (!response.ok) return null;
-    const health: unknown = await response.json();
+    const health = await response.json();
     if (
-      !health ||
-      typeof health !== "object" ||
-      Array.isArray(health) ||
-      !("ok" in health) ||
+      !isJsonObject(health) ||
       health.ok !== true ||
-      !("instanceId" in health) ||
       health.instanceId !== discovery.instanceId ||
-      !("desktopAttached" in health) ||
       health.desktopAttached !== true
     ) {
       return null;

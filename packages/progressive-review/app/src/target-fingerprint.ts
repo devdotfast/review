@@ -2,6 +2,7 @@ import {
   type GitLabTextDiffRow,
   createGitLabTextDiffPosition,
   gitLabDiffPositionRows,
+  isObjectValue,
 } from "@dev.fast/review-protocol";
 
 import type { CodePeekResolution } from "../../src/authoring";
@@ -186,11 +187,27 @@ export function projectCodeTarget(
   return span ? { ...resource, span } : null;
 }
 
+/**
+ * The data that identifies a graph element. It is serialised canonically, so
+ * key order and undefined fields do not change the hash.
+ */
+export type GraphTargetPayload = {
+  readonly [key: string]: GraphTargetPayloadValue;
+};
+type GraphTargetPayloadValue =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | readonly GraphTargetPayloadValue[]
+  | GraphTargetPayload;
+
 export function buildGraphTarget(input: {
   diagram: string;
   type: "node" | "edge";
   path: string[];
-  payload: unknown;
+  payload: GraphTargetPayload;
   quote: string;
 }): Extract<ThreadTarget, { kind: "graph" }> {
   return {
@@ -199,7 +216,7 @@ export function buildGraphTarget(input: {
     element: {
       type: input.type,
       path: input.path,
-      hash: stableHash(fingerprintPayload(input.payload)),
+      hash: stableHash(stableSerialize(input.payload)),
       quote: input.quote,
     },
   };
@@ -275,10 +292,6 @@ export function stableHash(value: string): string {
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
-function fingerprintPayload(value: unknown): string {
-  return typeof value === "string" ? value : stableSerialize(value);
-}
-
 function positionUsesSide(
   start: GitLabTextDiffRow,
   end: GitLabTextDiffRow,
@@ -331,21 +344,27 @@ function diffLineMatchesPosition(
   return line.oldLine === row.old_line && line.newLine === row.new_line;
 }
 
-function stableSerialize(value: unknown): string {
-  if (value === null || typeof value !== "object") {
+function stableSerialize(value: GraphTargetPayloadValue): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableSerialize).join(",")}]`;
+  }
+  if (!isGraphTargetPayloadRecord(value)) {
     const serialized = JSON.stringify(value);
     if (serialized === undefined) {
       throw new Error("Target fingerprint payload is not serializable.");
     }
     return serialized;
   }
-  if (Array.isArray(value)) {
-    return `[${value.map(stableSerialize).join(",")}]`;
-  }
-  const fields: [string, unknown][] = Object.entries(value);
+  const fields = Object.entries(value);
   return `{${fields
     .filter(([, field]) => field !== undefined)
     .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
     .map(([key, field]) => `${JSON.stringify(key)}:${stableSerialize(field)}`)
     .join(",")}}`;
+}
+
+function isGraphTargetPayloadRecord(
+  value: GraphTargetPayloadValue,
+): value is GraphTargetPayload {
+  return isObjectValue(value) && !Array.isArray(value);
 }

@@ -2,6 +2,9 @@ import crypto from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { type JsonValue, parseJsonText } from "@dev.fast/review-protocol";
+import { z } from "zod";
+
 import type { ReviewDocumentBundle } from "./server/doc-bundler";
 
 // `review publish` writes the built document bundle into the review dir and
@@ -16,11 +19,12 @@ const BUNDLE_CODE_FILE = "review-document.js";
 const BUNDLE_MANIFEST_FILE = "manifest.json";
 const BUNDLE_MANIFEST_VERSION = 1;
 
-interface ReviewBundleManifest {
-  version: number;
-  routePath: string;
-  sourcePath: string;
-}
+const reviewBundleManifestSchema = z.object({
+  version: z.literal(BUNDLE_MANIFEST_VERSION),
+  routePath: z.string(),
+  sourcePath: z.string(),
+});
+type ReviewBundleManifest = z.infer<typeof reviewBundleManifestSchema>;
 
 export async function writeReviewDocumentBundle(
   reviewDir: string,
@@ -62,7 +66,9 @@ export async function readReviewDocumentBundle(
       readFile(path.join(bundleDir, BUNDLE_CODE_FILE), "utf8"),
     ]);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return null;
+    }
     throw error;
   }
   const manifest = parseManifest(manifestRaw);
@@ -80,20 +86,12 @@ export async function readReviewDocumentBundle(
 }
 
 function parseManifest(raw: string): ReviewBundleManifest | null {
-  let value: unknown;
+  let value: JsonValue;
   try {
-    value = JSON.parse(raw);
+    value = parseJsonText(raw);
   } catch {
     return null;
   }
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const manifest = value as Partial<ReviewBundleManifest>;
-  if (
-    manifest.version !== BUNDLE_MANIFEST_VERSION ||
-    typeof manifest.routePath !== "string" ||
-    typeof manifest.sourcePath !== "string"
-  ) {
-    return null;
-  }
-  return manifest as ReviewBundleManifest;
+  const manifest = reviewBundleManifestSchema.safeParse(value);
+  return manifest.success ? manifest.data : null;
 }

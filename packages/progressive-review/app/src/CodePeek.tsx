@@ -538,8 +538,8 @@ function codePeekRootFromProps(input: {
 }): CodePeekRootSpec | null {
   if (
     input.file &&
-    typeof input.fromLine === "number" &&
-    typeof input.toLine === "number"
+    input.fromLine !== undefined &&
+    input.toLine !== undefined
   ) {
     return {
       kind: "range",
@@ -680,6 +680,9 @@ async function fetchCodePeekResult(
     headers: { "content-type": "application/json" },
     body: JSON.stringify(input),
   });
+  // SAFETY: the review server's /code-peek/resolve route
+  // (src/server/review-api.ts) answers `{ ok: true, snapshot, diff? }` on
+  // success and `{ ok: false, error }` on failure.
   const json = (await response.json()) as
     | { ok: true; snapshot: SourceSnapshot; diff?: CodePeekDiffPayload }
     | { ok: false; error?: string };
@@ -717,9 +720,9 @@ async function fetchCodePeekResultWithRetry(
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
-function isRetryableCodePeekError(error: unknown) {
-  if (!(error instanceof Error)) return false;
-  return error.message.includes("fetch");
+function isRetryableCodePeekError(cause: unknown) {
+  if (!(cause instanceof Error)) return false;
+  return cause.message.includes("fetch");
 }
 
 function delay(ms: number) {

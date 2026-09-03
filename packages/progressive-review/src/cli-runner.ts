@@ -3,7 +3,12 @@ import path from "node:path";
 import type { Writable } from "node:stream";
 
 import { devfastPrepareCommands } from "@dev.fast/local-vcs";
-import type { ReviewView } from "@dev.fast/review-protocol";
+import {
+  type ReviewView,
+  jsonObject,
+  jsonString,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
 import { Argument, Command, CommanderError, Option } from "commander";
 
 import {
@@ -21,7 +26,9 @@ import { isFile } from "./fs-utils";
 import {
   ALL_INSTALL_TARGETS,
   type InstallTarget,
+  type RunInstallInput,
   defaultPackageRoot,
+  isInstallTarget,
   runInstall,
 } from "./install";
 import { parseSoftwareMapCliArgs, runSoftwareMapCli } from "./map-cli";
@@ -302,6 +309,8 @@ export async function runProgressiveReviewCli(
     view?: ReviewView;
     json?: boolean;
   }) => {
+    // SAFETY: the picker reads keypresses only after checking isTTY, and only
+    // a tty.ReadStream reports isTTY; any other stream fails that check first.
     const event = await runtime.runReviewAppPick({
       cwd,
       reviewUuid: options.review,
@@ -494,7 +503,7 @@ export async function runProgressiveReviewCli(
       .action(async (checkoutPath: string, options: { commit: string }) => {
         const resolvedPath = path.resolve(checkoutPath);
         const commands = await devfastPrepareCommands(resolvedPath).catch(
-          () => [] as string[],
+          (): string[] => [],
         );
         const result = await runtime.prepareReviewPinnedCheckout({
           checkoutPath: resolvedPath,
@@ -632,31 +641,30 @@ export async function runProgressiveReviewCli(
       const cliSource = installShim
         ? await resolveInstallCliSource(env)
         : undefined;
-      state.exitCode = await runtime.runInstall({
+      const installInput: RunInstallInput = {
         targets: selectedTargets,
         env,
         fff: true,
-        ...(installShim ? { reviewCommand: pathShimPath() } : {}),
-        // Trace capture is experimental and opt-in: only a request that names
-        // R2 credentials configures it. --without-traces stays accepted so
-        // existing scripts keep working.
-        ...(traceCredentialsRequested(options) && options.traces !== false
-          ? {
-              trace: {
-                credentials: {
-                  endpoint: options.traceEndpoint,
-                  bucket: options.traceBucket,
-                  key: options.traceKey,
-                  secret: options.traceSecret,
-                  region: options.traceRegion,
-                },
-              },
-            }
-          : {}),
         json: options.json,
         stdout: input.stdout,
         stderr: input.stderr,
-      });
+      };
+      if (installShim) installInput.reviewCommand = pathShimPath();
+      // Trace capture is experimental and opt-in: only a request that names
+      // R2 credentials configures it. --without-traces stays accepted so
+      // existing scripts keep working.
+      if (traceCredentialsRequested(options) && options.traces !== false) {
+        installInput.trace = {
+          credentials: {
+            endpoint: options.traceEndpoint,
+            bucket: options.traceBucket,
+            key: options.traceKey,
+            secret: options.traceSecret,
+            region: options.traceRegion,
+          },
+        };
+      }
+      state.exitCode = await runtime.runInstall(installInput);
       if (state.exitCode !== 0 || !installShim) return;
 
       const human = humanStream({
@@ -671,10 +679,7 @@ export async function runProgressiveReviewCli(
         return;
       }
       const installed = await runtime.installReviewCommand({
-        cliPath: cliSource.cliPath,
-        ...(cliSource.cliRuntimePath
-          ? { cliRuntimePath: cliSource.cliRuntimePath }
-          : {}),
+        ...cliSource,
         env,
       });
       human.write(installed.output);
@@ -1180,16 +1185,21 @@ function installTargets(targets: readonly string[]): InstallTarget[] {
   }
   return [
     ...new Set(
-      targets.map((target) =>
-        target === "claude-code" ? "claude" : (target as InstallTarget),
-      ),
+      targets
+        .map((target) => (target === "claude-code" ? "claude" : target))
+        .filter(isInstallTarget),
     ),
   ];
 }
 
+interface StopHookPayload {
+  cwd?: string;
+  transcriptPath?: string;
+}
+
 async function readStopHookPayload(
   input: ProgressiveReviewCliInput,
-): Promise<{ cwd?: string; transcriptPath?: string }> {
+): Promise<StopHookPayload> {
   const stdin = input.stdin ?? process.stdin;
   if (stdin.isTTY) return {};
   try {
@@ -1199,16 +1209,13 @@ async function readStopHookPayload(
     }
     const raw = Buffer.concat(chunks).toString("utf8").trim();
     if (!raw) return {};
-    const parsed = JSON.parse(raw) as {
-      cwd?: unknown;
-      transcript_path?: unknown;
-    };
-    return {
-      ...(typeof parsed.cwd === "string" ? { cwd: parsed.cwd } : {}),
-      ...(typeof parsed.transcript_path === "string"
-        ? { transcriptPath: parsed.transcript_path }
-        : {}),
-    };
+    const parsed = jsonObject(parseJsonText(raw));
+    const payload: StopHookPayload = {};
+    const cwd = jsonString(parsed?.cwd);
+    if (cwd !== undefined) payload.cwd = cwd;
+    const transcriptPath = jsonString(parsed?.transcript_path);
+    if (transcriptPath !== undefined) payload.transcriptPath = transcriptPath;
+    return payload;
   } catch {
     return {};
   }
@@ -1280,20 +1287,24 @@ function progressiveReviewCliRuntime(
   };
 }
 
+interface InstallCliSource {
+  cliPath: string;
+  cliRuntimePath?: string;
+}
+
 async function resolveInstallCliSource(
   env: NodeJS.ProcessEnv,
-): Promise<{ cliPath: string; cliRuntimePath?: string } | undefined> {
+): Promise<InstallCliSource | undefined> {
   try {
     const discovery = await readReviewDesktopDiscovery(
       reviewDesktopDiscoveryPath(env),
     );
     if (discovery?.cliPath && (await isFile(discovery.cliPath))) {
-      return {
-        cliPath: discovery.cliPath,
-        ...(discovery.cliRuntimePath
-          ? { cliRuntimePath: discovery.cliRuntimePath }
-          : {}),
-      };
+      const source: InstallCliSource = { cliPath: discovery.cliPath };
+      if (discovery.cliRuntimePath) {
+        source.cliRuntimePath = discovery.cliRuntimePath;
+      }
+      return source;
     }
   } catch {
     // A packaged CLI remains a valid fallback when discovery is stale.
@@ -1483,12 +1494,12 @@ async function finishActiveTelemetry(
       }
     | undefined,
   exitCode: number,
-  error?: unknown,
+  cause?: unknown,
   properties: Record<string, boolean | number | string | null | undefined> = {},
 ): Promise<void> {
   if (!active || active.finished) return;
   active.finished = true;
-  const classification = errorClassification(active.command, error);
+  const classification = errorClassification(active.command, cause);
   await attemptTelemetry(() =>
     exitCode === 0
       ? telemetry.captureCommandSucceeded({
@@ -1515,14 +1526,14 @@ async function captureOneOffCommand(
   telemetry: ProgressiveReviewCommandTelemetry,
   command: ProgressiveReviewCommandPath,
   exitCode: number,
-  error?: unknown,
+  cause?: unknown,
 ): Promise<void> {
   const commandRunId = telemetry.createCommandRunId();
   await attemptTelemetry(() => telemetry.captureInstallationCreated());
   await attemptTelemetry(() =>
     telemetry.captureCommandStarted({ command, commandRunId }),
   );
-  const classification = errorClassification(command, error);
+  const classification = errorClassification(command, cause);
   await attemptTelemetry(() =>
     exitCode === 0
       ? telemetry.captureCommandSucceeded({
@@ -1598,12 +1609,12 @@ interface ErrorClassification {
 
 function errorClassification(
   command: ProgressiveReviewCommandPath,
-  error: unknown,
+  cause: unknown,
 ): ErrorClassification {
-  if (error instanceof CommanderError || command === "invalid") {
+  if (cause instanceof CommanderError || command === "invalid") {
     return { errorName: "usage_error", errorCategory: "user_input" };
   }
-  const name = error instanceof Error ? error.name.toLowerCase() : "";
+  const name = cause instanceof Error ? cause.name.toLowerCase() : "";
   if (name.includes("notfound")) {
     return { errorName: "review_not_found", errorCategory: "local_state" };
   }
@@ -1628,7 +1639,7 @@ function errorClassification(
   if (command.startsWith("map.") || command.startsWith("cache.")) {
     return { errorName: "repository_error", errorCategory: "local_state" };
   }
-  if (error) {
+  if (cause) {
     return { errorName: "unexpected_error", errorCategory: "internal" };
   }
   return { errorName: "process_error", errorCategory: "dependency" };
@@ -1646,11 +1657,11 @@ function commanderErrorMessage(error: CommanderError): string {
   return error.message.replace(/^error:\s*/i, "");
 }
 
-function formatCliError(error: unknown): string {
-  if (error instanceof Error) {
-    return error.stack || `${error.name}: ${error.message}`;
+function formatCliError(cause: unknown): string {
+  if (cause instanceof Error) {
+    return cause.stack || `${cause.name}: ${cause.message}`;
   }
-  return String(error);
+  return String(cause);
 }
 
 function ensureTrailingNewline(value: string): string {

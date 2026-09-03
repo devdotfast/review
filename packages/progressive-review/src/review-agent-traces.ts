@@ -16,10 +16,17 @@ import { promisify } from "node:util";
 import { git, resolveRepoContext } from "@dev.fast/local-vcs";
 import {
   type ByCommitEntry,
+  type JsonValue,
   type ReviewAgentTraceSession,
   type SessionMeta,
   byCommitSchema,
   commitShaSchema,
+  isStringValue,
+  jsonArray,
+  jsonNumber,
+  jsonObject,
+  jsonString,
+  parseJsonText,
   sessionIdSchema,
   sessionMetaSchema,
 } from "@dev.fast/review-protocol";
@@ -222,12 +229,12 @@ export async function loadReviewAgentTrace(input: {
         repo = await inferRepoFromGit(input.cwd).catch(() => null);
       }
       if (!repo) {
-        const meta = await r2GetJson<SessionMeta>(
-          `by-session/${sessionId}/meta.json`,
+        const meta = sessionMetaSchema.safeParse(
+          await r2GetJson(`by-session/${sessionId}/meta.json`),
         );
-        if (meta?.repo) {
+        if (meta.success && meta.data.repo) {
           try {
-            repo = parseRepo(meta.repo);
+            repo = parseRepo(meta.data.repo);
           } catch {
             repo = null;
           }
@@ -392,20 +399,25 @@ function writeNormalizedTraceAtomic(
 
 function readNormalizedTrace(filePath: string): NormalizedTrace | null {
   try {
-    const records = readFileSync(filePath, "utf8")
+    const records: unknown[] = readFileSync(filePath, "utf8")
       .split("\n")
       .filter(Boolean)
-      .map((line) => JSON.parse(line) as unknown);
+      .map((line) => parseJsonText(line));
+    // SAFETY: normalized traces are written only by writeNormalizedTraceAtomic
+    // from a NormalizedTrace; the type, version, parserVersion, and source
+    // checks below reject any file that is not one of ours.
     const metadata = records[0] as NormalizedTraceMetadata | undefined;
     if (
       !metadata ||
       metadata.type !== "metadata" ||
       metadata.version !== 1 ||
       metadata.parserVersion !== AGENT_TRACE_PARSER_VERSION ||
-      typeof metadata.source?.bytes !== "number"
+      !Number.isFinite(metadata.source?.bytes)
     ) {
       return null;
     }
+    // SAFETY: same file provenance as the metadata record above; each event
+    // record's type, index, kind, and text are re-checked against its event.
     const events = records.slice(1) as NormalizedTraceEventRecord[];
     if (
       events.some(
@@ -513,11 +525,15 @@ export async function pullReviewTraceCorpus(input: {
   };
 }
 
-function normalizeRepo(repo: string | { owner: string; repo: string }): {
-  owner: string;
-  repo: string;
-} {
-  return typeof repo === "string" ? parseRepo(repo) : repo;
+type RepoInput = string | { owner: string; repo: string };
+
+function normalizeRepo(repo: RepoInput): { owner: string; repo: string } {
+  return isRepoSlug(repo) ? parseRepo(repo) : repo;
+}
+
+/** Whether a repo input is the "owner/repo" slug form. */
+function isRepoSlug(repo: RepoInput): repo is string {
+  return isStringValue(repo);
 }
 
 function normalizedTracePath(
@@ -592,6 +608,9 @@ async function runGit(
     );
     return { ok: true, stdout, stderr };
   } catch (error) {
+    // SAFETY: execFile rejects with an Error whose stdout and stderr fields
+    // hold the child's output as strings; both are read as optional so any
+    // other rejection still reports String(error).
     const err = error as { stdout?: string; stderr?: string };
     return {
       ok: false,
@@ -614,21 +633,22 @@ export async function lookupReviewTraceCommit(input: {
   // Step 1: local trailers
   if (trailerSessions.length > 0) {
     const sessionMeta = await enrichSessionMeta(trailerSessions);
-    return {
+    const result: ReviewTraceCommitLookupResult = {
       commit,
       sessions: trailerSessions,
       pr,
       branch: null,
       source: "trailer",
-      ...(sessionMeta ? { session_meta: sessionMeta } : {}),
     };
+    if (sessionMeta) result.session_meta = sessionMeta;
+    return result;
   }
 
   // Step 2: direct R2 by-commit index
   let r2Entry: ByCommitEntry | null = null;
   if (isTraceR2Configured() && commitShaSchema.safeParse(commit).success) {
     try {
-      const raw = await r2GetJson<unknown>(`by-commit/${commit}.json`);
+      const raw = await r2GetJson(`by-commit/${commit}.json`);
       const parsed = byCommitSchema.safeParse(raw);
       if (parsed.success && parsed.data.sessions.length > 0) {
         r2Entry = parsed.data;
@@ -641,14 +661,15 @@ export async function lookupReviewTraceCommit(input: {
   if (r2Entry && r2Entry.sessions.length > 0) {
     const sessions = deduplicateStrings(r2Entry.sessions);
     const sessionMeta = await enrichSessionMeta(sessions);
-    return {
+    const result: ReviewTraceCommitLookupResult = {
       commit,
       sessions,
       pr: r2Entry.pr ?? pr,
       branch: r2Entry.branch ?? null,
       source: "index",
-      ...(sessionMeta ? { session_meta: sessionMeta } : {}),
     };
+    if (sessionMeta) result.session_meta = sessionMeta;
+    return result;
   }
 
   // Step 3: PR scan if commit subject ends in PR number
@@ -656,14 +677,15 @@ export async function lookupReviewTraceCommit(input: {
     const prSessions = await prScanTrailerSessions(input.cwd, commit, pr);
     if (prSessions.length > 0) {
       const sessionMeta = await enrichSessionMeta(prSessions);
-      return {
+      const result: ReviewTraceCommitLookupResult = {
         commit,
         sessions: prSessions,
         pr,
         branch: null,
         source: "pr-scan",
-        ...(sessionMeta ? { session_meta: sessionMeta } : {}),
       };
+      if (sessionMeta) result.session_meta = sessionMeta;
+      return result;
     }
   }
 
@@ -712,7 +734,7 @@ async function enrichSessionMeta(sessions: string[]): Promise<
   > = {};
   for (const session of sessions) {
     try {
-      const raw = await r2GetJson<unknown>(`by-session/${session}/meta.json`);
+      const raw = await r2GetJson(`by-session/${session}/meta.json`);
       const parsed = sessionMetaSchema.safeParse(raw);
       if (parsed.success) {
         detail[session] = {
@@ -743,7 +765,7 @@ export async function lookupReviewTraceSession(input: {
   let meta: SessionMeta | null = null;
   if (isTraceR2Configured()) {
     try {
-      const raw = await r2GetJson<unknown>(`by-session/${sessionId}/meta.json`);
+      const raw = await r2GetJson(`by-session/${sessionId}/meta.json`);
       if (raw) {
         const parsed = sessionMetaSchema.safeParse(raw);
         if (parsed.success) {
@@ -1096,7 +1118,12 @@ export async function syncReviewTrace(input: {
   // Update session metadata (read-merge-write)
   const { author, branch } = await readRepoMetaFields(workDir);
   const metaKey = `by-session/${sessionId}/meta.json`;
-  const existingMeta = await r2GetJson<SessionMeta>(metaKey);
+  const existingMetaParse = sessionMetaSchema.safeParse(
+    await r2GetJson(metaKey),
+  );
+  const existingMeta = existingMetaParse.success
+    ? existingMetaParse.data
+    : null;
 
   const mergedCommits = deduplicateStrings([
     ...(existingMeta?.commits ?? []),
@@ -1143,7 +1170,7 @@ export async function writeReviewTraceCommitMapping(input: {
   branch: string | null;
 }): Promise<boolean> {
   const commit = commitShaSchema.parse(input.commit);
-  const existing = await r2GetJson<unknown>(`by-commit/${commit}.json`);
+  const existing = await r2GetJson(`by-commit/${commit}.json`);
   if (existing !== null) return false;
   const repo = await inferRepoFromGit(input.cwd);
   const entry: ByCommitEntry = byCommitSchema.parse({
@@ -1543,10 +1570,9 @@ export async function r2HeadObjectSize(key: string): Promise<number | null> {
         },
       },
     );
-    const parsed = JSON.parse(proc.stdout) as { ContentLength?: number };
-    return typeof parsed.ContentLength === "number"
-      ? parsed.ContentLength
-      : null;
+    return (
+      jsonNumber(jsonObject(parseJsonText(proc.stdout))?.ContentLength) ?? null
+    );
   } catch {
     return null;
   }
@@ -1628,11 +1654,11 @@ export async function r2GetBuffer(key: string): Promise<Buffer | null> {
   }
 }
 
-export async function r2GetJson<T>(key: string): Promise<T | null> {
+export async function r2GetJson(key: string): Promise<JsonValue | null> {
   const content = await r2GetBuffer(key);
   if (!content) return null;
   try {
-    return JSON.parse(content.toString("utf8")) as T;
+    return parseJsonText(content.toString("utf8"));
   } catch {
     return null;
   }
@@ -1799,16 +1825,11 @@ export async function listSessionSubagents(
             },
           },
         );
-        const parsed = JSON.parse(proc.stdout) as {
-          Contents?: Array<{ Key?: string }>;
-        };
-        for (const item of parsed.Contents ?? []) {
-          if (
-            item.Key &&
-            item.Key.startsWith(prefix) &&
-            item.Key.endsWith(".jsonl")
-          ) {
-            const subName = item.Key.slice(prefix.length, -6);
+        const listing = jsonObject(parseJsonText(proc.stdout));
+        for (const item of jsonArray(listing?.Contents) ?? []) {
+          const key = jsonString(jsonObject(item)?.Key);
+          if (key && key.startsWith(prefix) && key.endsWith(".jsonl")) {
+            const subName = key.slice(prefix.length, -6);
             if (subName) subagents.add(subName);
           }
         }
@@ -1902,24 +1923,20 @@ async function addSessionsFromR2Index(
   for (const commit of commits) {
     const key = `by-commit/${commit.sha}.json`;
     try {
-      const entry = await r2GetJson<{
-        sessions?: unknown;
-      }>(key);
-      if (!entry) continue;
-      if (!Array.isArray(entry.sessions)) continue;
-      for (const value of entry.sessions) {
-        if (
-          typeof value !== "string" ||
-          !sessionIdSchema.safeParse(value).success
-        ) {
-          continue;
-        }
-        const existing = sessions.get(value);
+      const entrySessions = jsonArray(
+        jsonObject(await r2GetJson(key))?.sessions,
+      );
+      if (!entrySessions) continue;
+      for (const value of entrySessions) {
+        const parsed = sessionIdSchema.safeParse(value);
+        if (!parsed.success) continue;
+        const sessionId = parsed.data;
+        const existing = sessions.get(sessionId);
         if (existing) {
           existing.commits.push({ sha: commit.sha, subject: commit.subject });
         } else {
-          sessions.set(value, {
-            sessionId: value,
+          sessions.set(sessionId, {
+            sessionId,
             commits: [{ sha: commit.sha, subject: commit.subject }],
           });
         }

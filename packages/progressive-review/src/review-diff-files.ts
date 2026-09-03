@@ -6,6 +6,7 @@ import {
   diff as readLocalVcsDiff,
   diffFileSummaries as readLocalVcsDiffFileSummaries,
 } from "@dev.fast/local-vcs";
+import { jsonString, parseJsonText } from "@dev.fast/review-protocol";
 
 const REVIEW_FILE_CONTENT_LIMIT_BYTES = 5 * 1024 * 1024;
 
@@ -172,12 +173,8 @@ function fileContentFromBytes(
   };
 }
 
-function isMissingFileError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    "code" in error &&
-    (error as NodeJS.ErrnoException).code === "ENOENT"
-  );
+function isMissingFileError(cause: unknown): boolean {
+  return cause instanceof Error && "code" in cause && cause.code === "ENOENT";
 }
 
 async function readDiffOutput(
@@ -306,9 +303,10 @@ function stripDiffPathPrefix(value: string): string {
 
 function unquoteGitPath(value: string): string {
   if (!value.startsWith(`"`)) return value;
+  const unquoted = value.slice(1, value.endsWith(`"`) ? -1 : undefined);
   try {
-    return JSON.parse(value) as string;
+    return jsonString(parseJsonText(value)) ?? unquoted;
   } catch {
-    return value.slice(1, value.endsWith(`"`) ? -1 : undefined);
+    return unquoted;
   }
 }

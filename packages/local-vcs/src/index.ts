@@ -291,6 +291,8 @@ export async function git(
     return { ok: true, stdout, stderr };
   } catch (error) {
     if (options.allowFailure) {
+      // SAFETY: execFile rejects with an ExecFileException that carries the
+      // child's captured stdout and stderr as utf8 strings.
       const err = error as { stdout?: string; stderr?: string };
       return {
         ok: false,
@@ -409,7 +411,9 @@ export async function currentChangeIdentity(
       {},
     ));
   } catch (error) {
-    if ((error as { code?: number }).code === 1) return null;
+    if (error instanceof Error && "code" in error && error.code === 1) {
+      return null;
+    }
     throw error;
   }
   const branch = stdout.trim();
@@ -498,7 +502,9 @@ async function jjChangeSummary(
       { cwd: rootPath },
     ));
   } catch (error) {
-    if ((error as { code?: number }).code === 1) return [];
+    if (error instanceof Error && "code" in error && error.code === 1) {
+      return [];
+    }
     throw error;
   }
   return stdout
@@ -1050,8 +1056,8 @@ async function diffForKind(input: {
   kind: LocalVcsKind;
 }): Promise<string> {
   if (input.kind === "jj") {
-    return readJjDiff(input).catch((error: unknown) => {
-      if (!canUseGitFallbackSync(input.rootPath, input.kind)) throw error;
+    return readJjDiff(input).catch((cause: unknown) => {
+      if (!canUseGitFallbackSync(input.rootPath, input.kind)) throw cause;
       return readGitDiff(input);
     });
   }
@@ -1120,8 +1126,8 @@ async function diffNameStatusForKind(input: {
   kind: LocalVcsKind;
 }): Promise<DiffNameStatus> {
   if (input.kind === "jj") {
-    return readJjDiffNameStatus(input).catch((error: unknown) => {
-      if (!canUseGitFallbackSync(input.rootPath, input.kind)) throw error;
+    return readJjDiffNameStatus(input).catch((cause: unknown) => {
+      if (!canUseGitFallbackSync(input.rootPath, input.kind)) throw cause;
       return readGitDiffNameStatus(input);
     });
   }
@@ -1882,6 +1888,8 @@ function stripDiffPathPrefix(value: string): string {
 function unquoteGitPath(value: string): string {
   if (!value.startsWith(`"`)) return value;
   try {
+    // SAFETY: the text starts with a double quote, so the only JSON value it
+    // can parse to is a string.
     return JSON.parse(value) as string;
   } catch {
     return value.slice(1, value.endsWith(`"`) ? -1 : undefined);
@@ -1965,9 +1973,7 @@ function runCommandOutput(
     cwd: options.cwd,
     env: commandEnvironment(command, args),
     maxBuffer: options.maxBuffer,
-  }).then(({ stdout }) =>
-    options.trim === false ? stdout : (stdout as string).trim(),
-  );
+  }).then(({ stdout }) => (options.trim === false ? stdout : stdout.trim()));
 }
 
 function runCommandOutputSync(

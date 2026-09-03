@@ -1,3 +1,4 @@
+import { isObjectValue } from "@dev.fast/review-protocol";
 import type { ComponentType, ReactNode } from "react";
 import { z } from "zod";
 
@@ -93,7 +94,7 @@ export type SequenceMessageCodeInput = z.infer<
   typeof sequenceMessageCodeInputSchema
 >;
 
-const codePeekCommonShape = {
+const codePeekCommonSchema = {
   theme: z.enum(["system", "light", "dark"]).optional(),
   graph: z.enum(["head", "base"]).optional(),
   children: noChildrenSchema,
@@ -104,7 +105,7 @@ export const codePeekRangeInputSchema = z
     file: nonEmptyStringSchema,
     fromLine: z.int().positive(),
     toLine: z.int().positive(),
-    ...codePeekCommonShape,
+    ...codePeekCommonSchema,
   })
   .refine((value) => value.toLine >= value.fromLine, {
     path: ["toLine"],
@@ -158,6 +159,16 @@ export const anchorInputMapSchema = z.record(
 );
 export type AnchorInputMap = z.infer<typeof anchorInputMapSchema>;
 
+// The `key: "Title"` shorthand becomes `{ title }` at the parse boundary, so
+// definition code branches on one shape.
+const anchorDefinitionMapSchema = z.record(
+  nonEmptyStringSchema,
+  z.union([
+    nonEmptyStringSchema.transform((title): AnchorInput => ({ title })),
+    anchorInputSchema,
+  ]),
+);
+
 export const anchorRefSchema = z.strictObject({
   __kind: z.literal("db-anchor-ref"),
   id: nonEmptyStringSchema,
@@ -173,19 +184,19 @@ export const peekableAnchorRefSchema = anchorRefSchema.extend({
 });
 export type PeekableAnchorRef = z.infer<typeof peekableAnchorRefSchema>;
 
-const sequenceMessageBaseShape = {
+const sequenceMessageBaseSchema = {
   from: sequenceActorInputSchema,
   to: sequenceActorInputSchema,
   label: nonEmptyStringSchema,
 };
 export const sequenceMessageInputSchema = z.union([
   z.strictObject({
-    ...sequenceMessageBaseShape,
+    ...sequenceMessageBaseSchema,
     anchor: peekableAnchorRefSchema,
     code: sequenceMessageCodeInputSchema.optional(),
   }),
   z.strictObject({
-    ...sequenceMessageBaseShape,
+    ...sequenceMessageBaseSchema,
     anchor: anchorRefSchema.optional(),
     code: sequenceMessageCodeInputSchema,
   }),
@@ -246,7 +257,7 @@ export type StoreKind = z.infer<typeof storeKindSchema>;
 export const collectionKindSchema = z.enum(["tables", "documents"]);
 export type CollectionKind = z.infer<typeof collectionKindSchema>;
 
-const targetRefShape = {
+const resolvedTargetRefSchema = z.strictObject({
   __kind: z.literal("db-target-ref"),
   storeId: nonEmptyStringSchema,
   storeKind: storeKindSchema,
@@ -258,7 +269,7 @@ const targetRefShape = {
   collectionLabel: nonEmptyStringSchema,
   collectionKey: optionalNonEmptyStringSchema,
   path: z.array(nonEmptyStringSchema),
-};
+});
 export interface TargetRef {
   __kind: "db-target-ref";
   storeId: string;
@@ -280,23 +291,28 @@ export interface AuthoredTargetRef {
   readonly [authoredTargetRefKey]: TargetRef;
 }
 
-const resolvedTargetRefSchema = z.strictObject(targetRefShape);
-
 export const targetRefSchema = z.preprocess(
-  (value) => resolveTargetRef(value) ?? value,
+  (value) => (isAuthoredTargetRef(value) ? value[authoredTargetRefKey] : value),
   resolvedTargetRefSchema,
 );
 
-export function resolveTargetRef(value: unknown): TargetRef | null {
-  if (!value || typeof value !== "object") return null;
-  const authored = (value as Partial<AuthoredTargetRef>)[authoredTargetRefKey];
-  if (authored) return authored;
-  return (value as { __kind?: unknown }).__kind === "db-target-ref"
-    ? (value as TargetRef)
-    : null;
+// The handles defineStores returns carry their target under a private symbol;
+// an authored `from`/`to` prop is decoded here before the schema sees it.
+export function isAuthoredTargetRef(
+  value: unknown,
+): value is AuthoredTargetRef {
+  return isObjectValue(value) && authoredTargetRefKey in value;
 }
 
-const dbOperationCommonShape = {
+export function resolveTargetRef(
+  value: AuthoredTargetRef | TargetRef | ActorRef | undefined,
+): TargetRef | null {
+  if (value === undefined) return null;
+  if (authoredTargetRefKey in value) return value[authoredTargetRefKey];
+  return value.__kind === "db-target-ref" ? value : null;
+}
+
+const dbOperationCommonSchema = {
   label: nonEmptyStringSchema,
   anchor: peekableAnchorRefSchema,
   children: noChildrenSchema,
@@ -308,7 +324,7 @@ const dbOperationCommonShape = {
 export const dbReadPropsSchema = z.strictObject({
   from: targetRefSchema,
   to: actorRefSchema,
-  ...dbOperationCommonShape,
+  ...dbOperationCommonSchema,
 });
 export type DbReadProps = Omit<z.input<typeof dbReadPropsSchema>, "from"> & {
   from: AuthoredTargetRef;
@@ -317,7 +333,7 @@ export type DbReadProps = Omit<z.input<typeof dbReadPropsSchema>, "from"> & {
 export const dbWritePropsSchema = z.strictObject({
   from: actorRefSchema,
   to: targetRefSchema,
-  ...dbOperationCommonShape,
+  ...dbOperationCommonSchema,
 });
 export type DbWriteProps = Omit<z.input<typeof dbWritePropsSchema>, "to"> & {
   to: AuthoredTargetRef;
@@ -329,17 +345,20 @@ export const dbOperationPropsSchema = z.union([
 ]);
 export type DbOperationProps = z.infer<typeof dbOperationPropsSchema>;
 
+// Only the identifying fields are parsed: `z.custom` keeps the store handle's
+// identity, and with it the collection refs hanging off it.
+const storeRefIdentitySchema = z.object({
+  __kind: z.literal("db-store-ref"),
+  id: z.string(),
+  label: z.string(),
+});
+
 export const databaseLensPropsSchema = z.strictObject({
   title: optionalNonEmptyStringSchema,
   stores: z.record(
     nonEmptyStringSchema,
     z.custom<StoreRef>(
-      (value) =>
-        Boolean(value) &&
-        typeof value === "object" &&
-        (value as { __kind?: unknown }).__kind === "db-store-ref" &&
-        typeof (value as { id?: unknown }).id === "string" &&
-        typeof (value as { label?: unknown }).label === "string",
+      (value) => storeRefIdentitySchema.safeParse(value).success,
       "Must be a store reference returned by defineStores",
     ),
   ),
@@ -348,15 +367,18 @@ export const databaseLensPropsSchema = z.strictObject({
 });
 export type DatabaseLensProps = z.infer<typeof databaseLensPropsSchema>;
 
+// The model is the normalized structure defineSoftwareMap returns; `z.custom`
+// keeps it by identity and only its shape is parsed.
+const normalizedSoftwareModelSchema = z.object({
+  elements: z.array(z.unknown()),
+  elementsByPath: z.instanceof(Map),
+  relationships: z.array(z.unknown()),
+});
+
 export const softwareMapPropsSchema = z.strictObject({
   model: z
     .custom<NormalizedSoftwareModel>(
-      (value) =>
-        Boolean(value) &&
-        typeof value === "object" &&
-        Array.isArray((value as { elements?: unknown }).elements) &&
-        (value as { elementsByPath?: unknown }).elementsByPath instanceof Map &&
-        Array.isArray((value as { relationships?: unknown }).relationships),
+      (value) => normalizedSoftwareModelSchema.safeParse(value).success,
       "Must be a normalized software model",
     )
     .optional(),
@@ -445,12 +467,9 @@ export function calls(
   peekableAnchorRefSchema.parse(parent);
   peekableAnchorRefSchema.parse(child);
   if (reason !== undefined) nonEmptyStringSchema.parse(reason);
-  return Object.freeze({
-    __kind: "call-assertion",
-    parent,
-    child,
-    ...(reason === undefined ? {} : { reason }),
-  } satisfies CallsAssertion);
+  const assertion: CallsAssertion = { __kind: "call-assertion", parent, child };
+  if (reason !== undefined) assertion.reason = reason;
+  return Object.freeze(assertion);
 }
 
 export const callStackEntrySchema = z.union([
@@ -688,14 +707,30 @@ type SoftwareStoreRefFor<T extends SoftwareStoreInput> = Omit<
     ? { documents: CollectionRefs<T["documents"]> }
     : Pick<StoreRef, "documents">);
 
+const softwareActorObjectInputSchema = z.strictObject({
+  path: nonEmptyStringSchema,
+  label: optionalNonEmptyStringSchema,
+});
+type SoftwareActorDefinition = z.infer<typeof softwareActorObjectInputSchema>;
+
 export const softwareActorInputSchema = z.union([
   nonEmptyStringSchema,
-  z.strictObject({
-    path: nonEmptyStringSchema,
-    label: optionalNonEmptyStringSchema,
-  }),
+  softwareActorObjectInputSchema,
 ]);
 export type SoftwareActorInput = z.infer<typeof softwareActorInputSchema>;
+
+// The `id: "path"` shorthand becomes `{ path }` at the parse boundary.
+const softwareActorDefinitionMapSchema = z.record(
+  nonEmptyStringSchema,
+  z.union([
+    nonEmptyStringSchema.transform(
+      (path): SoftwareActorDefinition => ({
+        path,
+      }),
+    ),
+    softwareActorObjectInputSchema,
+  ]),
+);
 
 export const softwareStoreInputSchema = z.strictObject({
   path: nonEmptyStringSchema,
@@ -793,6 +828,8 @@ function defineActors<T extends ActorInputMap>(
   reportMissingSoftwareMap: (context: { path: readonly PropertyKey[] }) => void,
 ): { [K in keyof T]: ActorRef } {
   actorInputMapSchema.parse(input);
+  // SAFETY: the entries are built from every key of `input`, so the result
+  // has exactly the keys of T.
   return Object.fromEntries(
     Object.entries(input).map(([id, actor]) => {
       requireDefinedSoftwareMapPath(
@@ -820,13 +857,11 @@ function defineAnchors<T extends AnchorInputMap>(
   pending: Promise<void>[],
   reportMissingSoftwareMap: (context: { path: readonly PropertyKey[] }) => void,
 ): { [K in keyof T]: AnchorRefFor<T[K]> } {
-  anchorInputMapSchema.parse(input);
+  const anchors = anchorDefinitionMapSchema.parse(input);
+  // SAFETY: the entries are built from every key of `input`, so the result
+  // has exactly the keys of T.
   return Object.fromEntries(
-    Object.entries(input).map(([id, rawAnchor]) => {
-      const anchor =
-        typeof rawAnchor === "string"
-          ? { title: rawAnchor }
-          : (rawAnchor as AnchorInput);
+    Object.entries(anchors).map(([id, anchor]) => {
       requireDefinedSoftwareMapPath(
         environment,
         anchor.softwareMapPath,
@@ -854,10 +889,10 @@ function defineAnchors<T extends AnchorInputMap>(
               peek!.resolution = resolved;
               Object.freeze(peek);
             },
-            (error: unknown) => {
+            (cause: unknown) => {
               throwAuthoringIssue(
                 [id, "peek"],
-                `Code range could not be resolved in the pinned worktree: ${errorMessage(error)}`,
+                `Code range could not be resolved in the pinned worktree: ${errorMessage(cause)}`,
               );
             },
           );
@@ -897,6 +932,8 @@ function defineStores<T extends StoreInputMap>(
   reportMissingSoftwareMap: (context: { path: readonly PropertyKey[] }) => void,
 ): { [K in keyof T]: StoreRefFor<T[K]> } {
   storeInputMapSchema.parse(input);
+  // SAFETY: the entries are built from every key of `input`, so the result
+  // has exactly the keys of T.
   return Object.fromEntries(
     Object.entries(input).map(([id, store]) => {
       requireDefinedSoftwareMapPath(
@@ -929,7 +966,7 @@ function defineStores<T extends StoreInputMap>(
   ) as { [K in keyof T]: StoreRefFor<T[K]> };
 }
 
-export function validateCodePeekProps(input: unknown): CodePeekProps {
+export function validateCodePeekProps(input: CodePeekProps): CodePeekProps {
   return codePeekPropsSchema.parse(input);
 }
 
@@ -937,20 +974,18 @@ function defineSoftwareActors<T extends Record<string, SoftwareActorInput>>(
   model: NormalizedSoftwareModel,
   input: T,
 ): { [K in keyof T]: ActorRef } {
-  z.record(nonEmptyStringSchema, softwareActorInputSchema).parse(input);
+  const actors = softwareActorDefinitionMapSchema.parse(input);
+  // SAFETY: the entries are built from every key of `input`, so the result
+  // has exactly the keys of T.
   return Object.fromEntries(
-    Object.entries(input).map(([id, actor]) => {
-      const path = softwarePathFromInput(actor, [id, "path"]);
-      const element = softwareElementForPath(model, path, [id, "path"]);
+    Object.entries(actors).map(([id, actor]) => {
+      const element = softwareElementForPath(model, actor.path, [id, "path"]);
       return [
         id,
         Object.freeze({
           __kind: "db-actor-ref",
           id,
-          label:
-            typeof actor === "string"
-              ? element.label
-              : (actor.label ?? element.label),
+          label: actor.label ?? element.label,
           softwareMapPath: element.path,
         } satisfies ActorRef),
       ];
@@ -963,14 +998,15 @@ function defineSoftwareStores<T extends SoftwareStoreInputMap>(
   input: T,
 ): { [K in keyof T]: SoftwareStoreRefFor<T[K]> } {
   softwareStoreInputMapSchema.parse(input);
+  // SAFETY: every entry pairs a key of `input` with a store input derived
+  // from its validated SoftwareStoreInput and a dataStore element.
   const stores = Object.fromEntries(
     Object.entries(input).map(([id, store]) => {
-      const path = softwarePathFromInput(store, [id, "path"]);
-      const element = softwareElementForPath(model, path, [id, "path"]);
+      const element = softwareElementForPath(model, store.path, [id, "path"]);
       if (element.type !== "dataStore") {
         throwAuthoringIssue(
           [id, "path"],
-          `Software map element "${path}" must be a dataStore to back a DatabaseLens store`,
+          `Software map element "${store.path}" must be a dataStore to back a DatabaseLens store`,
         );
       }
       return [
@@ -990,6 +1026,8 @@ function defineSoftwareStores<T extends SoftwareStoreInputMap>(
       ];
     }),
   ) as StoreInputMap;
+  // SAFETY: `stores` has exactly the keys of T and defineStores keeps them, so
+  // each key's ref is SoftwareStoreRefFor<T[K]>.
   return defineStores(
     stores,
     {
@@ -1091,7 +1129,9 @@ function defineFieldTargets(
 function isNestedSchema(
   value: SoftwareDataStoreFieldSchema[string],
 ): value is SoftwareDataStoreFieldSchema {
-  return typeof (value as { type?: unknown }).type !== "string";
+  // A leaf's `type` is its column type; on a nested schema `type` can only be
+  // a field named "type".
+  return !z.string().safeParse(value.type).success;
 }
 
 function softwareElementForPath(
@@ -1123,22 +1163,6 @@ function requireDefinedSoftwareMapPath(
   softwareElementForPath(environment.softwareMap, path, propertyPath);
 }
 
-function softwarePathFromInput(
-  input: unknown,
-  propertyPath: PropertyKey[],
-): string {
-  const path =
-    typeof input === "string"
-      ? input
-      : input && typeof input === "object" && "path" in input
-        ? input.path
-        : undefined;
-  if (typeof path !== "string") {
-    throwAuthoringIssue(propertyPath, "Must be a software-map path string");
-  }
-  return path;
-}
-
 const DATA_STORE_KIND_MAP: Record<SoftwareDataStoreKind, StoreKind> = {
   artifactStore: "document",
   bucket: "document",
@@ -1160,8 +1184,7 @@ export function throwAuthoringIssue(
   throw new z.ZodError([{ code: "custom", path, message, input: undefined }]);
 }
 
-function errorMessage(error: unknown): string {
-  if (error instanceof Error && error.message.trim()) return error.message;
-  if (typeof error === "string" && error.trim()) return error;
-  return String(error);
+function errorMessage(cause: unknown): string {
+  if (cause instanceof Error && cause.message.trim()) return cause.message;
+  return String(cause);
 }

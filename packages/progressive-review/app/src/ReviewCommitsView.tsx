@@ -116,18 +116,20 @@ function CommitRow({
           });
     request
       .then((files) => setFilesState({ status: "loaded", files }))
-      .catch((error: unknown) => {
+      .catch((cause: unknown) => {
         setFilesState({
           status: "error",
-          error: error instanceof Error ? error.message : String(error),
+          error: cause instanceof Error ? cause.message : String(cause),
         });
       });
   };
 
-  const shaped =
-    filesState?.status === "loaded" ? shapeCommitFiles(filesState.files) : null;
-  const omittedFileCount = shaped
-    ? shaped.testFilesOmitted + shaped.overflowFilesOmitted
+  const visibleFiles =
+    filesState?.status === "loaded"
+      ? visibleCommitFiles(filesState.files)
+      : null;
+  const omittedFileCount = visibleFiles
+    ? visibleFiles.testFilesOmitted + visibleFiles.overflowFilesOmitted
     : 0;
   return (
     <article
@@ -172,14 +174,14 @@ function CommitRow({
         <div className="review-commit-files">
           {filesState?.status === "loading" ? <p>Loading files…</p> : null}
           {filesState?.status === "error" ? <p>{filesState.error}</p> : null}
-          {shaped?.files.map((file) => (
+          {visibleFiles?.files.map((file) => (
             <button
               type="button"
               className="review-commit-file"
               key={file.path}
               onClick={() => {
                 captureUiEvent(session, "commit_diff_opened", { via: "file" });
-                openCommitDiff(commit, file);
+                openCommitDiff({ kind: "commit-diff", commit, file });
               }}
             >
               <span className="review-commit-file-path">{file.path}</span>
@@ -207,7 +209,7 @@ export interface VisibleCommitFiles {
   overflowFilesOmitted: number;
 }
 
-export function shapeCommitFiles(
+export function visibleCommitFiles(
   files: readonly ReviewDiffFileWire[],
 ): VisibleCommitFiles {
   const visible = files.filter((file) => !isTestFile(file.path));

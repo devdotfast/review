@@ -7,13 +7,21 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import {
+  jsonObject,
+  jsonString,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
 import ts from "typescript";
 
 import {
   reviewAuthoringPropsSchemas,
   tutorialAuthoringConversationSchema,
 } from "../src/authoring";
-import { buildTutorialAssets } from "./build-tutorial-assets";
+import {
+  buildTutorialAssets,
+  readTutorialRuntimeManifest,
+} from "./build-tutorial-assets";
 
 const execFilePromise = promisify(execFile);
 const packageRoot = path.resolve(import.meta.dirname, "..");
@@ -64,13 +72,15 @@ async function main(): Promise<void> {
       : await buildTutorialAssets({ outDir });
     await checkRuntimeManifest(outDir);
 
-    const documentManifest = JSON.parse(
-      await readFile(
-        path.join(outDir, ".bundle", "document", "manifest.json"),
-        "utf8",
+    const documentManifest = jsonObject(
+      parseJsonText(
+        await readFile(
+          path.join(outDir, ".bundle", "document", "manifest.json"),
+          "utf8",
+        ),
       ),
-    ) as { version?: unknown; routePath?: unknown };
-    if (documentManifest.version !== 1 || documentManifest.routePath !== "/") {
+    );
+    if (documentManifest?.version !== 1 || documentManifest.routePath !== "/") {
       throw new Error("Tutorial document manifest is invalid.");
     }
     const bundle = await readFile(
@@ -80,14 +90,16 @@ async function main(): Promise<void> {
     if (bundle.length === 0) {
       throw new Error("Tutorial document bundle is empty.");
     }
-    const mapManifest = JSON.parse(
-      await readFile(
-        path.join(outDir, ".bundle", "software-map", "manifest.json"),
-        "utf8",
+    const mapManifest = jsonObject(
+      parseJsonText(
+        await readFile(
+          path.join(outDir, ".bundle", "software-map", "manifest.json"),
+          "utf8",
+        ),
       ),
-    ) as { headCommit?: unknown; baseCommit?: unknown };
+    );
     if (
-      mapManifest.headCommit !== built.commit ||
+      mapManifest?.headCommit !== built.commit ||
       mapManifest.baseCommit !== built.baseCommit ||
       !/^[0-9a-f]{40}$/i.test(built.baseCommit) ||
       !/^[0-9a-f]{40}$/i.test(built.commit)
@@ -130,50 +142,25 @@ async function readBuiltTutorialIdentity(outDir: string): Promise<{
   commit: string;
   peekCount: number;
 }> {
-  const manifest = JSON.parse(
-    await readFile(
-      path.join(outDir, ".bundle", "software-map", "manifest.json"),
-      "utf8",
+  const manifest = jsonObject(
+    parseJsonText(
+      await readFile(
+        path.join(outDir, ".bundle", "software-map", "manifest.json"),
+        "utf8",
+      ),
     ),
-  ) as { baseCommit?: unknown; headCommit?: unknown };
-  if (
-    typeof manifest.baseCommit !== "string" ||
-    typeof manifest.headCommit !== "string"
-  ) {
+  );
+  const baseCommit = jsonString(manifest?.baseCommit);
+  const headCommit = jsonString(manifest?.headCommit);
+  if (baseCommit === undefined || headCommit === undefined) {
     throw new Error("Tutorial software-map manifest commits are invalid.");
   }
-  return {
-    baseCommit: manifest.baseCommit,
-    commit: manifest.headCommit,
-    peekCount: 0,
-  };
+  return { baseCommit, commit: headCommit, peekCount: 0 };
 }
 
 async function checkRuntimeManifest(outDir: string): Promise<void> {
-  const manifest = JSON.parse(
-    await readFile(path.join(tutorialRoot, "runtime-manifest.json"), "utf8"),
-  ) as {
-    version?: unknown;
-    reviewFiles?: unknown;
-    requiredPaths?: unknown;
-  };
-  if (
-    manifest.version !== 1 ||
-    !Array.isArray(manifest.reviewFiles) ||
-    !Array.isArray(manifest.requiredPaths) ||
-    manifest.reviewFiles.length === 0 ||
-    manifest.requiredPaths.length === 0 ||
-    !manifest.reviewFiles.every((entry) =>
-      isSafeManifestPath(entry, manifest.requiredPaths as unknown[]),
-    ) ||
-    !manifest.requiredPaths.every((entry) => isSafeManifestPath(entry))
-  ) {
-    throw new Error("Tutorial runtime manifest is invalid.");
-  }
+  const manifest = await readTutorialRuntimeManifest(tutorialRoot);
   for (const entry of manifest.requiredPaths) {
-    if (typeof entry !== "string") {
-      throw new Error("Tutorial runtime manifest contains an invalid path.");
-    }
     const generated = path.join(outDir, entry);
     const source = path.join(tutorialRoot, entry);
     const exists = await stat(generated)
@@ -187,19 +174,6 @@ async function checkRuntimeManifest(outDir: string): Promise<void> {
       throw new Error(`Tutorial runtime manifest references missing ${entry}.`);
     }
   }
-}
-
-function isSafeManifestPath(
-  entry: unknown,
-  requiredPaths?: unknown[],
-): entry is string {
-  return (
-    typeof entry === "string" &&
-    entry.length > 0 &&
-    !path.isAbsolute(entry) &&
-    !entry.split(/[\\/]/u).includes("..") &&
-    (!requiredPaths || requiredPaths.includes(entry))
-  );
 }
 
 function checkSampleTypeScript(repositoryRoot: string): void {

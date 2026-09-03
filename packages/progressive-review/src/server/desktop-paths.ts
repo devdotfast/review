@@ -25,9 +25,9 @@ export function reviewDesktopStateDir(
   return path.join(reviewDesktopRoot(env), "state");
 }
 
-export async function writePrivateJsonAtomic(
+export async function writePrivateJsonAtomic<T>(
   filePath: string,
-  value: unknown,
+  value: T,
 ): Promise<void> {
   await mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
   await writeFileAtomicAsync(filePath, `${JSON.stringify(value, null, 2)}\n`, {

@@ -7,6 +7,8 @@ import { join } from "node:path";
 import {
   type JsonObject,
   isJsonObject,
+  jsonObject,
+  jsonString,
   parseJsonText,
 } from "@dev.fast/review-protocol";
 
@@ -261,8 +263,7 @@ function framedMessages(socket: Socket): FramedMessages {
   };
 
   const dispatch = (message: JsonObject): void => {
-    const requestId =
-      typeof message.requestId === "string" ? message.requestId : undefined;
+    const requestId = jsonString(message.requestId);
     if (requestId === undefined) {
       queued.push(message);
       return;
@@ -364,13 +365,13 @@ function initializedClientId(message: JsonObject): string {
   if (message.resultType !== "success" || message.method !== "initialize") {
     throw responseError("initialize", message);
   }
-  const result = message.result;
-  if (!isJsonObject(result) || typeof result.clientId !== "string") {
+  const clientId = jsonString(jsonObject(message.result)?.clientId);
+  if (clientId === undefined) {
     throw new CodexIpcProtocolError(
       "Codex IPC returned a malformed initialize response.",
     );
   }
-  return result.clientId;
+  return clientId;
 }
 
 function assertSuccessfulWake(message: JsonObject): void {
@@ -383,7 +384,8 @@ function assertSuccessfulWake(message: JsonObject): void {
 }
 
 function responseError(method: string, message: JsonObject): Error {
-  const detail = typeof message.error === "string" ? `: ${message.error}` : "";
+  const error = jsonString(message.error);
+  const detail = error === undefined ? "" : `: ${error}`;
   return new CodexIpcProtocolError(
     `Codex IPC request "${method}" failed${detail}.`,
   );

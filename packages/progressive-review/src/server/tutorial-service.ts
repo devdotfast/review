@@ -13,6 +13,13 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { resolveRevision } from "@dev.fast/local-vcs";
+import {
+  type JsonValue,
+  isJsonObject,
+  jsonProperty,
+  jsonString,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
 
 import {
   type ReviewAgentHarness,
@@ -288,17 +295,16 @@ async function readShippedMapManifest(
     "software-map",
     "manifest.json",
   );
-  const value = JSON.parse(await readFile(manifestPath, "utf8")) as {
-    headCommit?: unknown;
-    baseCommit?: unknown;
-  };
-  if (
-    typeof value.headCommit !== "string" ||
-    typeof value.baseCommit !== "string"
-  ) {
+  const value = parseJsonText(await readFile(manifestPath, "utf8"));
+  const manifest = isJsonObject(value) ? value : undefined;
+  const headCommit =
+    manifest && jsonString(jsonProperty(manifest, "headCommit"));
+  const baseCommit =
+    manifest && jsonString(jsonProperty(manifest, "baseCommit"));
+  if (headCommit === undefined || baseCommit === undefined) {
     throw new Error("Tutorial software-map manifest is invalid.");
   }
-  return { headCommit: value.headCommit, baseCommit: value.baseCommit };
+  return { headCommit, baseCommit };
 }
 
 async function isValidTutorialReview(
@@ -342,13 +348,12 @@ async function readTutorialStamp(
   stampPath: string,
 ): Promise<TutorialStamp | null> {
   try {
-    const value = JSON.parse(await readFile(stampPath, "utf8")) as {
-      version?: unknown;
-      reviewUuid?: unknown;
-    };
-    return value.version === TUTORIAL_STAMP_VERSION &&
-      typeof value.reviewUuid === "string"
-      ? { version: TUTORIAL_STAMP_VERSION, reviewUuid: value.reviewUuid }
+    const value = parseJsonText(await readFile(stampPath, "utf8"));
+    if (!isJsonObject(value)) return null;
+    const reviewUuid = jsonString(jsonProperty(value, "reviewUuid"));
+    return jsonProperty(value, "version") === TUTORIAL_STAMP_VERSION &&
+      reviewUuid !== undefined
+      ? { version: TUTORIAL_STAMP_VERSION, reviewUuid }
       : null;
   } catch {
     return null;
@@ -382,32 +387,44 @@ interface TutorialRuntimeManifest {
 async function readTutorialRuntimeManifest(
   assetsRoot: string,
 ): Promise<TutorialRuntimeManifest> {
-  const value = JSON.parse(
+  const value = parseJsonText(
     await readFile(path.join(assetsRoot, "runtime-manifest.json"), "utf8"),
-  ) as Partial<TutorialRuntimeManifest>;
-  const validEntries = (entries: unknown): entries is string[] =>
-    Array.isArray(entries) &&
-    entries.length > 0 &&
-    entries.every(
-      (entry) =>
-        typeof entry === "string" &&
-        entry.length > 0 &&
-        !path.isAbsolute(entry) &&
-        !entry.split(/[\\/]/u).includes(".."),
-    );
+  );
+  const manifest = isJsonObject(value) ? value : undefined;
+  const reviewFiles = manifest && jsonProperty(manifest, "reviewFiles");
+  const requiredPaths = manifest && jsonProperty(manifest, "requiredPaths");
   if (
-    value.version !== 1 ||
-    !validEntries(value.reviewFiles) ||
-    !validEntries(value.requiredPaths) ||
-    value.reviewFiles.some((entry) => !value.requiredPaths!.includes(entry))
+    !manifest ||
+    jsonProperty(manifest, "version") !== 1 ||
+    !isRelativePathList(reviewFiles) ||
+    !isRelativePathList(requiredPaths) ||
+    reviewFiles.some((entry) => !requiredPaths.includes(entry))
   ) {
     throw new Error("Tutorial runtime manifest is invalid.");
   }
   return {
     version: 1,
-    reviewFiles: [...new Set(value.reviewFiles)],
-    requiredPaths: [...new Set(value.requiredPaths)],
+    reviewFiles: [...new Set(reviewFiles)],
+    requiredPaths: [...new Set(requiredPaths)],
   };
+}
+
+function isRelativePathList(
+  entries: JsonValue | undefined,
+): entries is string[] {
+  return (
+    Array.isArray(entries) &&
+    entries.length > 0 &&
+    entries.every((entry) => {
+      const relativePath = jsonString(entry);
+      return (
+        relativePath !== undefined &&
+        relativePath.length > 0 &&
+        !path.isAbsolute(relativePath) &&
+        !relativePath.split(/[\\/]/u).includes("..")
+      );
+    })
+  );
 }
 
 async function isManagedTutorialPath(

@@ -76,20 +76,20 @@
     "jsx-a11y/role-has-required-aria-props": "off",
     "no-unmodified-loop-condition": "off",
     "anti-slop/no-chained-type-assertions": "error",
-    "anti-slop/no-conditional-empty-object-spread": "warn",
+    "anti-slop/no-conditional-empty-object-spread": "error",
     "anti-slop/no-known-value-widening": "error",
-    "anti-slop/no-module-mocking": "warn",
+    "anti-slop/no-module-mocking": "error",
     "anti-slop/no-object-parameters": "error",
     "anti-slop/no-reflect-apply": "error",
     "anti-slop/no-reflect-get": "error",
-    "anti-slop/no-runtime-typeof": "warn",
-    "anti-slop/no-shape-in-symbol-names": "warn",
-    "anti-slop/no-unknown-parameters": "warn",
-    "anti-slop/no-unknown-returns": "warn",
+    "anti-slop/no-runtime-typeof": "error",
+    "anti-slop/no-shape-in-symbol-names": "error",
+    "anti-slop/no-unknown-parameters": "error",
+    "anti-slop/no-unknown-returns": "error",
     "anti-slop/no-unknown-type-aliases": "error",
     "anti-slop/no-unsafe-dictionary-type": "error",
     "anti-slop/no-widen-then-assert": "error",
-    "anti-slop/require-safety-comment-for-type-assertion": "warn"
+    "anti-slop/require-safety-comment-for-type-assertion": "error"
   },
   "jsPlugins": [
     {
@@ -102,6 +102,12 @@
       "files": ["**/*.test.ts", "**/*.test.tsx"],
       "rules": {
         "anti-slop/require-safety-comment-for-type-assertion": "off"
+      }
+    },
+    {
+      "files": ["packages/review-protocol/src/runtime-value.ts"],
+      "rules": {
+        "anti-slop/no-runtime-typeof": "off"
       }
     }
   ]

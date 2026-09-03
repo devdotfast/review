@@ -2,6 +2,9 @@ import { randomUUID } from "node:crypto";
 import { readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 
+import { parseJsonText } from "@dev.fast/review-protocol";
+import { z } from "zod";
+
 import { writeFileAtomic } from "./atomic-write";
 import { EMBEDDED_PROGRESSIVE_REVIEW_POSTHOG_KEY } from "./embedded-posthog-key";
 import { DEV_REVIEW_HOME_ENV, devReviewHome } from "./review-storage";
@@ -43,12 +46,17 @@ const FLUSH_DELAY_MS = 5_000;
 const MAX_BACKOFF_MS = 60 * 60 * 1_000;
 const DROPPED_FILE = "dropped.json";
 
-type DropReason =
-  | "queue_full"
-  | "expired"
-  | "corrupt"
-  | "permanent_rejection"
-  | "storage_failure";
+const DROP_REASONS = [
+  "queue_full",
+  "expired",
+  "corrupt",
+  "permanent_rejection",
+  "storage_failure",
+] as const;
+type DropReason = (typeof DROP_REASONS)[number];
+
+/** The dropped-event tally as this module wrote it to disk. */
+const droppedCountsSchema = z.partialRecord(z.enum(DROP_REASONS), z.number());
 
 interface QueuedPostHogEvent extends PostHogCaptureInput {
   createdAt: number;
@@ -71,7 +79,7 @@ export class PostHogCaptureClient {
   private readonly queueDir: string | undefined;
   private readonly now: () => number;
   private readonly idFactory: () => string;
-  private readonly memoryDrops: Partial<Record<DropReason, number>> = {};
+  private memoryDrops: Partial<Record<DropReason, number>> = {};
   private flushTimer: ReturnType<typeof setTimeout> | undefined;
   private queuedSinceFlush = 0;
 
@@ -169,9 +177,7 @@ export class PostHogCaptureClient {
             ),
         );
         this.queuedSinceFlush = 0;
-        for (const reason of Object.keys(this.memoryDrops) as DropReason[]) {
-          delete this.memoryDrops[reason];
-        }
+        this.memoryDrops = {};
       },
     );
   }
@@ -224,9 +230,7 @@ export class PostHogCaptureClient {
       await this.readDroppedCounts(),
       this.memoryDrops,
     );
-    for (const reason of Object.keys(this.memoryDrops) as DropReason[]) {
-      delete this.memoryDrops[reason];
-    }
+    this.memoryDrops = {};
 
     const overflow = Math.max(0, fileNames.length - QUEUE_LIMIT);
     const retainedNames = fileNames.slice(overflow);
@@ -265,7 +269,7 @@ export class PostHogCaptureClient {
     await this.writeDroppedCounts(drops);
     if (eligible.length === 0) {
       this.queuedSinceFlush = 0;
-      return { state: "done", ...(nextRetryAt ? { nextRetryAt } : {}) };
+      return doneResult(nextRetryAt);
     }
 
     const diagnosticEvents = droppedEvents(
@@ -293,9 +297,7 @@ export class PostHogCaptureClient {
         await rm(path.join(queueDir, DROPPED_FILE), { force: true });
       }
       this.queuedSinceFlush = 0;
-      return hasMoreEligible
-        ? { state: "more" }
-        : { state: "done", ...(nextRetryAt ? { nextRetryAt } : {}) };
+      return hasMoreEligible ? { state: "more" } : doneResult(nextRetryAt);
     }
     if (result === "permanent") {
       await Promise.all(
@@ -306,9 +308,7 @@ export class PostHogCaptureClient {
       addDrop(drops, "permanent_rejection", sentEligible.length);
       await this.writeDroppedCounts(drops);
       this.queuedSinceFlush = 0;
-      return hasMoreEligible
-        ? { state: "more" }
-        : { state: "done", ...(nextRetryAt ? { nextRetryAt } : {}) };
+      return hasMoreEligible ? { state: "more" } : doneResult(nextRetryAt);
     }
 
     let retryAt = Infinity;
@@ -390,7 +390,10 @@ export class PostHogCaptureClient {
   > {
     if (!this.queueDir) return {};
     return readFile(path.join(this.queueDir, DROPPED_FILE), "utf8")
-      .then((value) => JSON.parse(value) as Partial<Record<DropReason, number>>)
+      .then((value) => {
+        const parsed = droppedCountsSchema.safeParse(parseJsonText(value));
+        return parsed.success ? parsed.data : {};
+      })
       .catch(() => ({}));
   }
 
@@ -414,35 +417,51 @@ function droppedEvents(
   drops: Partial<Record<DropReason, number>>,
   distinctId: string,
 ): QueuedPostHogEvent[] {
-  return (Object.entries(drops) as Array<[DropReason, number]>)
-    .filter(([, count]) => count > 0)
-    .map(([reason, count]) => ({
-      event: "review_telemetry_dropped",
-      distinctId,
-      properties: { reason, count },
-      createdAt: Date.now(),
-      attempts: 0,
-      nextAttemptAt: 0,
-    }));
+  return DROP_REASONS.flatMap((reason) => {
+    const count = drops[reason];
+    if (count === undefined || count <= 0) return [];
+    return [
+      {
+        event: "review_telemetry_dropped",
+        distinctId,
+        properties: { reason, count },
+        createdAt: Date.now(),
+        attempts: 0,
+        nextAttemptAt: 0,
+      },
+    ];
+  });
 }
+
+function doneResult(nextRetryAt: number | undefined): FlushBatchResult {
+  const result: FlushBatchResult = { state: "done" };
+  if (nextRetryAt) result.nextRetryAt = nextRetryAt;
+  return result;
+}
+
+/** A queued event as this module wrote it to disk. */
+const QueuedPostHogEventSchema = z.object({
+  event: z.string(),
+  distinctId: z.string(),
+  properties: z
+    .record(
+      z.string(),
+      z.union([z.boolean(), z.number(), z.string(), z.null()]),
+    )
+    .optional(),
+  createdAt: z.number(),
+  attempts: z.number(),
+  nextAttemptAt: z.number(),
+});
 
 async function readQueuedEvent(
   filePath: string,
 ): Promise<QueuedPostHogEvent | undefined> {
   try {
-    const parsed = JSON.parse(
-      await readFile(filePath, "utf8"),
-    ) as QueuedPostHogEvent;
-    if (
-      typeof parsed.event !== "string" ||
-      typeof parsed.distinctId !== "string" ||
-      typeof parsed.createdAt !== "number" ||
-      typeof parsed.attempts !== "number" ||
-      typeof parsed.nextAttemptAt !== "number"
-    ) {
-      return undefined;
-    }
-    return parsed;
+    const parsed = QueuedPostHogEventSchema.safeParse(
+      parseJsonText(await readFile(filePath, "utf8")),
+    );
+    return parsed.success ? parsed.data : undefined;
   } catch {
     return undefined;
   }
@@ -453,10 +472,9 @@ function mergeDropCounts(
   right: Partial<Record<DropReason, number>>,
 ): Partial<Record<DropReason, number>> {
   const merged = { ...left };
-  for (const [reason, count] of Object.entries(right) as Array<
-    [DropReason, number]
-  >) {
-    addDrop(merged, reason, count);
+  for (const reason of DROP_REASONS) {
+    const count = right[reason];
+    if (count !== undefined) addDrop(merged, reason, count);
   }
   return merged;
 }

@@ -2,9 +2,17 @@ import path from "node:path";
 
 import {
   type JsonObject,
+  type JsonValue,
   type ReviewAgentTraceEvent,
   type ReviewAgentTraceSession,
+  isJsonArray,
   isJsonObject,
+  jsonArray,
+  jsonBoolean,
+  jsonNumber,
+  jsonObject,
+  jsonString,
+  parseJsonText,
 } from "@dev.fast/review-protocol";
 
 export const AGENT_TRACE_PARSER_VERSION = "1";
@@ -78,9 +86,9 @@ export function sniffAgentTraceHarness(
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
-      const record = JSON.parse(trimmed) as { type?: unknown };
-      if (record.type === "session_meta") return "codex";
-      if (record.type === "session") return "pi";
+      const type = jsonObject(parseJsonText(trimmed))?.type;
+      if (type === "session_meta") return "codex";
+      if (type === "session") return "pi";
       return "claude-code";
     } catch {
       continue;
@@ -93,21 +101,21 @@ export function parseAgentTraceJsonl(
   jsonl: string,
   options?: { isSubagent?: boolean },
 ): AgentTraceParseResult {
-  const records: unknown[] = [];
+  const records: JsonValue[] = [];
   for (const line of jsonl.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
-      records.push(JSON.parse(trimmed));
+      records.push(parseJsonText(trimmed));
     } catch {
       // Partial trailing writes are expected in live transcripts.
     }
   }
-  const first = records[0] as { type?: unknown } | undefined;
+  const firstType = jsonObject(records[0])?.type;
   const parsed =
-    first?.type === "session_meta"
+    firstType === "session_meta"
       ? parseCodexRecords(records)
-      : first?.type === "session"
+      : firstType === "session"
         ? parsePiRecords(records)
         : parseClaudeRecords(records, options);
   parsed.activeMs = computeActiveMs(parsed.events);
@@ -154,9 +162,9 @@ interface ClaudeContentBlock {
   thinking?: string;
   id?: string;
   name?: string;
-  input?: unknown;
+  input?: JsonValue;
   tool_use_id?: string;
-  content?: unknown;
+  content?: JsonValue;
   is_error?: boolean;
 }
 
@@ -168,17 +176,56 @@ interface ClaudeRecord {
   cwd?: string;
   aiTitle?: string;
   customTitle?: string;
-  message?: { role?: string; content?: unknown };
-  toolUseResult?: {
-    filePath?: string;
-    structuredPatch?: Array<{ lines?: string[] }>;
+  message?: { role?: string; content?: JsonValue };
+  toolUseResult?: { filePath?: string; structuredPatch?: JsonValue };
+}
+
+function claudeRecord(value: JsonObject): ClaudeRecord {
+  const message = jsonObject(value.message);
+  const toolUseResult = jsonObject(value.toolUseResult);
+  return {
+    type: jsonString(value.type),
+    isSidechain: jsonBoolean(value.isSidechain),
+    isMeta: jsonBoolean(value.isMeta),
+    timestamp: jsonString(value.timestamp),
+    cwd: jsonString(value.cwd),
+    aiTitle: jsonString(value.aiTitle),
+    customTitle: jsonString(value.customTitle),
+    message: message && {
+      role: jsonString(message.role),
+      content: message.content,
+    },
+    toolUseResult: toolUseResult && {
+      filePath: jsonString(toolUseResult.filePath),
+      structuredPatch: toolUseResult.structuredPatch,
+    },
   };
 }
 
-function claudeContentBlocks(content: unknown): ClaudeContentBlock[] {
-  if (typeof content === "string") return [{ type: "text", text: content }];
-  if (Array.isArray(content)) return content as ClaudeContentBlock[];
-  return [];
+function claudeContentBlock(value: JsonValue): ClaudeContentBlock | undefined {
+  if (!isJsonObject(value)) return undefined;
+  return {
+    type: jsonString(value.type),
+    text: jsonString(value.text),
+    thinking: jsonString(value.thinking),
+    id: jsonString(value.id),
+    name: jsonString(value.name),
+    input: value.input,
+    tool_use_id: jsonString(value.tool_use_id),
+    content: value.content,
+    is_error: jsonBoolean(value.is_error),
+  };
+}
+
+function claudeContentBlocks(
+  content: JsonValue | undefined,
+): ClaudeContentBlock[] {
+  const text = jsonString(content);
+  if (text !== undefined) return [{ type: "text", text }];
+  return (
+    jsonArray(content)?.flatMap((block) => claudeContentBlock(block) ?? []) ??
+    []
+  );
 }
 
 const CLAUDE_NOISE_PATTERNS = [
@@ -216,14 +263,14 @@ function cleanClaudeUserText(text: string): string | null {
   return cleaned;
 }
 
-function claudeResultText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
+function claudeResultText(content: JsonValue | undefined): string {
+  const text = jsonString(content);
+  if (text !== undefined) return text;
   const parts: string[] = [];
-  for (const block of content as ClaudeContentBlock[]) {
-    if (block?.type === "text" && typeof block.text === "string") {
+  for (const block of claudeContentBlocks(content)) {
+    if (block.type === "text" && block.text !== undefined) {
       parts.push(block.text);
-    } else if (block?.type === "image") {
+    } else if (block.type === "image") {
       parts.push("[image]");
     }
   }
@@ -231,15 +278,18 @@ function claudeResultText(content: unknown): string {
 }
 
 function patchCounts(
-  patch: Array<{ lines?: string[] }> | undefined,
+  patch: JsonValue | undefined,
 ): { additions: number; deletions: number } | null {
-  if (!patch) return null;
+  const hunks = jsonArray(patch);
+  if (!hunks) return null;
   let additions = 0;
   let deletions = 0;
-  for (const hunk of patch) {
-    for (const line of hunk.lines ?? []) {
-      if (line.startsWith("+")) additions += 1;
-      else if (line.startsWith("-")) deletions += 1;
+  for (const hunk of hunks) {
+    for (const line of jsonArray(jsonObject(hunk)?.lines) ?? []) {
+      const text = jsonString(line);
+      if (text === undefined) continue;
+      if (text.startsWith("+")) additions += 1;
+      else if (text.startsWith("-")) deletions += 1;
     }
   }
   return { additions, deletions };
@@ -259,10 +309,8 @@ function claudeToolEvent(
     title: name,
     at,
   };
-  const inputText = (key: string): string | null => {
-    const value = input[key];
-    return typeof value === "string" ? value : null;
-  };
+  const inputText = (key: string): string | null =>
+    jsonString(input[key]) ?? null;
   const filePath =
     inputText("file_path") ?? inputText("path") ?? inputText("notebook_path");
   switch (name) {
@@ -341,7 +389,7 @@ function claudeToolEvent(
 }
 
 function parseClaudeRecords(
-  records: unknown[],
+  records: readonly JsonValue[],
   options?: { isSubagent?: boolean },
 ): AgentTraceParseResult {
   const events: AgentTraceEvent[] = [];
@@ -354,15 +402,13 @@ function parseClaudeRecords(
   let toolCalls = 0;
 
   for (const raw of records) {
-    const record = raw as ClaudeRecord;
-    if (record.type === "ai-title" && typeof record.aiTitle === "string") {
+    if (!isJsonObject(raw)) continue;
+    const record = claudeRecord(raw);
+    if (record.type === "ai-title" && record.aiTitle !== undefined) {
       title ??= record.aiTitle;
       continue;
     }
-    if (
-      record.type === "custom-title" &&
-      typeof record.customTitle === "string"
-    ) {
+    if (record.type === "custom-title" && record.customTitle !== undefined) {
       title = record.customTitle;
       continue;
     }
@@ -378,7 +424,7 @@ function parseClaudeRecords(
     if (record.type === "user") {
       let sawToolResult = false;
       for (const block of blocks) {
-        if (block?.type !== "tool_result") continue;
+        if (block.type !== "tool_result") continue;
         sawToolResult = true;
         const pending = block.tool_use_id
           ? pendingTools.get(block.tool_use_id)
@@ -399,10 +445,9 @@ function parseClaudeRecords(
       }
       if (sawToolResult || record.isMeta) continue;
       const text = blocks
-        .filter(
-          (block) => block?.type === "text" && typeof block.text === "string",
+        .flatMap((block) =>
+          block.type === "text" && block.text !== undefined ? [block.text] : [],
         )
-        .map((block) => block.text as string)
         .join("\n");
       const cleaned = cleanClaudeUserText(text);
       if (!cleaned) continue;
@@ -411,7 +456,7 @@ function parseClaudeRecords(
       continue;
     }
     for (const block of blocks) {
-      if (block?.type === "thinking" && typeof block.thinking === "string") {
+      if (block.type === "thinking" && block.thinking !== undefined) {
         const trimmed = block.thinking.trim();
         if (trimmed) {
           events.push({
@@ -421,10 +466,10 @@ function parseClaudeRecords(
             at,
           });
         }
-      } else if (block?.type === "text" && typeof block.text === "string") {
+      } else if (block.type === "text" && block.text !== undefined) {
         const trimmed = block.text.trim();
         if (trimmed) events.push({ kind: "assistant", markdown: trimmed, at });
-      } else if (block?.type === "tool_use") {
+      } else if (block.type === "tool_use") {
         const event = claudeToolEvent(block, at, cwd);
         toolCalls += 1;
         events.push(event);
@@ -447,33 +492,31 @@ function parseClaudeRecords(
 
 // --- Codex rollouts --------------------------------------------------------
 
+interface CodexTextBlock {
+  type?: string;
+  text?: string;
+}
+
 interface CodexPayload {
   type?: string;
   role?: string;
-  content?: Array<{ type?: string; text?: string }>;
+  content?: CodexTextBlock[];
   name?: string;
-  arguments?: unknown;
-  input?: unknown;
+  arguments?: JsonValue;
+  input?: JsonValue;
   call_id?: string;
-  output?: unknown;
-  action?: { query?: string };
+  output?: JsonValue;
   cwd?: string;
   timestamp?: string;
   message?: string;
   query?: string;
   stdout?: string;
   success?: boolean;
-  changes?: Record<
-    string,
-    { type?: string; unified_diff?: string; content?: string }
-  >;
-  invocation?: {
-    server?: string;
-    tool?: string;
-    arguments?: unknown;
-  };
-  result?: unknown;
-  command?: unknown;
+  /** File path → change record (`type`, `unified_diff`, `content`). */
+  changes?: JsonObject;
+  invocation?: JsonObject;
+  result?: JsonValue;
+  command?: JsonValue;
   aggregated_output?: string;
   exit_code?: number;
 }
@@ -482,6 +525,51 @@ interface CodexRecord {
   type?: string;
   timestamp?: string;
   payload?: CodexPayload;
+}
+
+function codexTextBlocks(value: JsonValue | undefined): CodexTextBlock[] {
+  return (
+    jsonArray(value)?.flatMap((block) => {
+      const record = jsonObject(block);
+      return record
+        ? [{ type: jsonString(record.type), text: jsonString(record.text) }]
+        : [];
+    }) ?? []
+  );
+}
+
+function codexPayload(value: JsonObject): CodexPayload {
+  return {
+    type: jsonString(value.type),
+    role: jsonString(value.role),
+    content: codexTextBlocks(value.content),
+    name: jsonString(value.name),
+    arguments: value.arguments,
+    input: value.input,
+    call_id: jsonString(value.call_id),
+    output: value.output,
+    cwd: jsonString(value.cwd),
+    timestamp: jsonString(value.timestamp),
+    message: jsonString(value.message),
+    query: jsonString(value.query),
+    stdout: jsonString(value.stdout),
+    success: jsonBoolean(value.success),
+    changes: jsonObject(value.changes),
+    invocation: jsonObject(value.invocation),
+    result: value.result,
+    command: value.command,
+    aggregated_output: jsonString(value.aggregated_output),
+    exit_code: jsonNumber(value.exit_code),
+  };
+}
+
+function codexRecord(value: JsonObject): CodexRecord {
+  const payload = jsonObject(value.payload);
+  return {
+    type: jsonString(value.type),
+    timestamp: jsonString(value.timestamp),
+    payload: payload && codexPayload(payload),
+  };
 }
 
 const CODEX_USER_NOISE_PREFIXES = [
@@ -519,12 +607,12 @@ const CODEX_USER_NOISE_PREFIXES = [
 
 function codexText(payload: CodexPayload): string {
   return (payload.content ?? [])
-    .filter(
-      (block) =>
-        (block?.type === "input_text" || block?.type === "output_text") &&
-        typeof block.text === "string",
+    .flatMap((block) =>
+      (block.type === "input_text" || block.type === "output_text") &&
+      block.text !== undefined
+        ? [block.text]
+        : [],
     )
-    .map((block) => block.text as string)
     .join("\n")
     .trim();
 }
@@ -559,14 +647,11 @@ function unifiedDiffCounts(diff: string) {
   return { additions, deletions };
 }
 
-function codexValueText(value: unknown): string {
-  if (typeof value === "string") return value;
+function codexValueText(value: JsonValue | undefined): string {
+  const text = jsonString(value);
+  if (text !== undefined) return text;
   if (value === null || value === undefined) return "";
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
+  return JSON.stringify(value);
 }
 
 function codexPatchEvent(
@@ -581,18 +666,20 @@ function codexPatchEvent(
   let deletions = 0;
   const relativePaths = paths.map((filePath) => relativizePath(filePath, cwd));
   for (const filePath of paths) {
-    const change = changes[filePath] ?? {};
-    if (change.type === "add" && typeof change.content === "string") {
-      additions += change.content.split("\n").length;
-    } else if (change.type === "delete" && typeof change.content === "string") {
-      deletions += change.content.split("\n").length;
-    } else if (typeof change.unified_diff === "string") {
-      const counts = unifiedDiffCounts(change.unified_diff);
+    const change = jsonObject(changes[filePath]) ?? {};
+    const content = jsonString(change.content);
+    const unifiedDiff = jsonString(change.unified_diff);
+    if (change.type === "add" && content !== undefined) {
+      additions += content.split("\n").length;
+    } else if (change.type === "delete" && content !== undefined) {
+      deletions += content.split("\n").length;
+    } else if (unifiedDiff !== undefined) {
+      const counts = unifiedDiffCounts(unifiedDiff);
       additions += counts.additions;
       deletions += counts.deletions;
     }
   }
-  const single = paths.length === 1 ? changes[paths[0]] : null;
+  const single = paths.length === 1 ? jsonObject(changes[paths[0]]) : null;
   const verb =
     single?.type === "add"
       ? "Added"
@@ -609,9 +696,9 @@ function codexPatchEvent(
     deletions,
     at,
   };
-  const diffs = paths
-    .map((filePath) => changes[filePath]?.unified_diff)
-    .filter((diff): diff is string => typeof diff === "string");
+  const diffs = paths.flatMap(
+    (filePath) => jsonString(jsonObject(changes[filePath])?.unified_diff) ?? [],
+  );
   if (diffs.length > 0) event.input = truncate(diffs.join("\n"), INPUT_LIMIT);
   if (payload.stdout) event.output = truncate(payload.stdout, OUTPUT_LIMIT);
   if (payload.success === false) event.error = true;
@@ -623,16 +710,13 @@ function codexMcpEvent(
   at: string | undefined,
 ): AgentTraceToolEvent {
   const invocation = payload.invocation ?? {};
-  const server =
-    typeof invocation.server === "string" ? invocation.server : "mcp";
-  const tool = typeof invocation.tool === "string" ? invocation.tool : "tool";
-  const argumentsValue = invocation.arguments as
-    | { title?: unknown }
-    | undefined;
+  const server = jsonString(invocation.server) ?? "mcp";
+  const tool = jsonString(invocation.tool) ?? "tool";
+  const argumentsTitle = jsonString(jsonObject(invocation.arguments)?.title);
   const title =
-    argumentsValue && typeof argumentsValue.title === "string"
-      ? `${server} · ${tool} — ${argumentsValue.title}`
-      : `${server} · ${tool}`;
+    argumentsTitle === undefined
+      ? `${server} · ${tool}`
+      : `${server} · ${tool} — ${argumentsTitle}`;
   const event: AgentTraceToolEvent = {
     kind: "tool",
     tool: `${server}.${tool}`,
@@ -642,25 +726,17 @@ function codexMcpEvent(
   };
   const input = codexValueText(invocation.arguments);
   if (input && input !== "{}") event.input = truncate(input, INPUT_LIMIT);
-  const result = payload.result as
-    | {
-        Ok?: {
-          content?: Array<{ type?: string; text?: string }>;
-          isError?: boolean;
-        };
-        Err?: unknown;
-      }
-    | undefined;
-  if (result?.Ok?.content) {
-    const text = result.Ok.content
-      .filter(
-        (block) => block?.type === "text" && typeof block.text === "string",
+  const result = jsonObject(payload.result);
+  const ok = jsonObject(result?.Ok);
+  if (ok?.content) {
+    const text = codexTextBlocks(ok.content)
+      .flatMap((block) =>
+        block.type === "text" && block.text !== undefined ? [block.text] : [],
       )
-      .map((block) => block.text as string)
       .join("\n")
       .trim();
     if (text) event.output = truncate(text, OUTPUT_LIMIT);
-    if (result.Ok.isError) event.error = true;
+    if (ok.isError) event.error = true;
   } else if (result && "Err" in result) {
     event.error = true;
     event.output = truncate(codexValueText(result.Err), OUTPUT_LIMIT);
@@ -678,7 +754,7 @@ function codexCodeModeEvent(
   if (cmdMatch) {
     let command = cmdMatch[1];
     try {
-      command = JSON.parse(`"${cmdMatch[1]}"`) as string;
+      command = jsonString(parseJsonText(`"${cmdMatch[1]}"`)) ?? command;
     } catch {
       // Keep the escaped form.
     }
@@ -739,18 +815,12 @@ function codexToolEvent(
     }
     let command = source;
     try {
-      const parsed = JSON.parse(source || "{}") as {
-        cmd?: string;
-        command?: string[] | string;
-      };
+      const parsed = jsonObject(parseJsonText(source || "{}"));
       command =
-        typeof parsed.cmd === "string"
-          ? parsed.cmd
-          : Array.isArray(parsed.command)
-            ? parsed.command.join(" ")
-            : typeof parsed.command === "string"
-              ? parsed.command
-              : command;
+        jsonString(parsed?.cmd) ??
+        jsonArray(parsed?.command)?.join(" ") ??
+        jsonString(parsed?.command) ??
+        command;
     } catch {
       // Keep the raw arguments string.
     }
@@ -776,25 +846,27 @@ function codexToolEvent(
   return event;
 }
 
-function codexOutputText(output: unknown): string {
-  if (typeof output === "string") {
+function codexOutputText(output: JsonValue | undefined): string {
+  const text = jsonString(output);
+  if (text !== undefined) {
     try {
-      const parsed = JSON.parse(output) as { output?: unknown };
-      if (typeof parsed.output === "string") return parsed.output;
+      const inner = jsonString(jsonObject(parseJsonText(text))?.output);
+      if (inner !== undefined) return inner;
     } catch {
       // Raw output string.
     }
-    return output;
+    return text;
   }
-  if (output && typeof output === "object") {
-    const inner = (output as { output?: unknown }).output;
-    if (typeof inner === "string") return inner;
-    return codexValueText(output);
-  }
-  return "";
+  const inner = jsonString(jsonObject(output)?.output);
+  if (inner !== undefined) return inner;
+  return isJsonObject(output) || isJsonArray(output)
+    ? codexValueText(output)
+    : "";
 }
 
-function parseCodexRecords(records: unknown[]): AgentTraceParseResult {
+function parseCodexRecords(
+  records: readonly JsonValue[],
+): AgentTraceParseResult {
   const events: AgentTraceEvent[] = [];
   const pendingTools = new Map<string, AgentTraceToolEvent>();
   let startedAt: string | null = null;
@@ -807,8 +879,10 @@ function parseCodexRecords(records: unknown[]): AgentTraceParseResult {
   let hasMessageEvents = false;
   let hasPatchEvents = false;
   let hasMcpEvents = false;
-  for (const raw of records) {
-    const record = raw as CodexRecord;
+  const codexRecords = records.flatMap((raw) =>
+    isJsonObject(raw) ? [codexRecord(raw)] : [],
+  );
+  for (const record of codexRecords) {
     if (record.type !== "event_msg") continue;
     const eventType = record.payload?.type;
     if (eventType === "user_message" || eventType === "agent_message") {
@@ -821,8 +895,7 @@ function parseCodexRecords(records: unknown[]): AgentTraceParseResult {
   }
   const flags = { hasPatchEvents, hasMcpEvents };
 
-  for (const raw of records) {
-    const record = raw as CodexRecord;
+  for (const record of codexRecords) {
     const payload = record.payload;
     if (record.type === "session_meta") {
       cwd = payload?.cwd ?? null;
@@ -882,9 +955,9 @@ function parseCodexRecords(records: unknown[]): AgentTraceParseResult {
           break;
         }
         case "exec_command_end": {
-          const command = Array.isArray(payload.command)
-            ? (payload.command as string[]).join(" ")
-            : codexValueText(payload.command);
+          const command =
+            jsonArray(payload.command)?.join(" ") ??
+            codexValueText(payload.command);
           if (!command) break;
           toolCalls += 1;
           const event: AgentTraceToolEvent = {
@@ -898,10 +971,7 @@ function parseCodexRecords(records: unknown[]): AgentTraceParseResult {
           if (payload.aggregated_output) {
             event.output = truncate(payload.aggregated_output, OUTPUT_LIMIT);
           }
-          if (
-            typeof payload.exit_code === "number" &&
-            payload.exit_code !== 0
-          ) {
+          if (payload.exit_code !== undefined && payload.exit_code !== 0) {
             event.error = true;
           }
           events.push(event);
@@ -998,15 +1068,52 @@ interface PiRecord {
   message?: {
     role?: string;
     toolCallId?: string;
-    content?: PiContentBlock[] | string;
+    /** Either plain text or an array of content blocks. */
+    content?: JsonValue;
   };
 }
 
-function piText(content: PiContentBlock[] | string | undefined): string {
-  if (typeof content === "string") return content;
-  return (content ?? [])
-    .filter((block) => block?.type === "text" && typeof block.text === "string")
-    .map((block) => block.text as string)
+function piRecord(value: JsonObject): PiRecord {
+  const message = jsonObject(value.message);
+  return {
+    type: jsonString(value.type),
+    timestamp: jsonString(value.timestamp),
+    cwd: jsonString(value.cwd),
+    message: message && {
+      role: jsonString(message.role),
+      toolCallId: jsonString(message.toolCallId),
+      content: message.content,
+    },
+  };
+}
+
+function piContentBlocks(content: JsonValue | undefined): PiContentBlock[] {
+  return (
+    jsonArray(content)?.flatMap((block) => {
+      const record = jsonObject(block);
+      return record
+        ? [
+            {
+              type: jsonString(record.type),
+              text: jsonString(record.text),
+              thinking: jsonString(record.thinking),
+              id: jsonString(record.id),
+              name: jsonString(record.name),
+              arguments: jsonObject(record.arguments),
+            },
+          ]
+        : [];
+    }) ?? []
+  );
+}
+
+function piText(content: JsonValue | undefined): string {
+  const text = jsonString(content);
+  if (text !== undefined) return text;
+  return piContentBlocks(content)
+    .flatMap((block) =>
+      block.type === "text" && block.text !== undefined ? [block.text] : [],
+    )
     .join("\n")
     .trim();
 }
@@ -1018,10 +1125,7 @@ function piToolEvent(
 ): AgentTraceToolEvent {
   const name = block.name ?? "tool";
   const args: JsonObject = block.arguments ?? {};
-  const argText = (key: string): string | null => {
-    const value = args[key];
-    return typeof value === "string" ? value : null;
-  };
+  const argText = (key: string): string | null => jsonString(args[key]) ?? null;
   const event: AgentTraceToolEvent = {
     kind: "tool",
     tool: name,
@@ -1058,9 +1162,8 @@ function piToolEvent(
         ? compactFileLine(relativizePath(pathValue, cwd))
         : name;
       if (pathValue) event.filePath = relativizePath(pathValue, cwd);
-      if (typeof args.content === "string") {
-        event.additions = (args.content as string).split("\n").length;
-      }
+      const content = argText("content");
+      if (content !== null) event.additions = content.split("\n").length;
       break;
     case "subagent":
       event.verb = "Ran agent";
@@ -1080,7 +1183,7 @@ function piToolEvent(
   return event;
 }
 
-function parsePiRecords(records: unknown[]): AgentTraceParseResult {
+function parsePiRecords(records: readonly JsonValue[]): AgentTraceParseResult {
   const events: AgentTraceEvent[] = [];
   const pendingTools = new Map<string, AgentTraceToolEvent>();
   let startedAt: string | null = null;
@@ -1091,7 +1194,8 @@ function parsePiRecords(records: unknown[]): AgentTraceParseResult {
   let firstUserText: string | null = null;
 
   for (const raw of records) {
-    const record = raw as PiRecord;
+    if (!isJsonObject(raw)) continue;
+    const record = piRecord(raw);
     if (record.type === "session") {
       cwd = record.cwd ?? null;
       startedAt ??= record.timestamp ?? null;
@@ -1121,15 +1225,14 @@ function parsePiRecords(records: unknown[]): AgentTraceParseResult {
       continue;
     }
     if (message.role === "assistant") {
-      if (typeof message.content === "string") {
-        const trimmed = message.content.trim();
+      const contentText = jsonString(message.content);
+      if (contentText !== undefined) {
+        const trimmed = contentText.trim();
         if (trimmed) events.push({ kind: "assistant", markdown: trimmed, at });
         continue;
       }
-      for (const block of Array.isArray(message.content)
-        ? message.content
-        : []) {
-        if (block?.type === "thinking" && typeof block.thinking === "string") {
+      for (const block of piContentBlocks(message.content)) {
+        if (block.type === "thinking" && block.thinking !== undefined) {
           const trimmed = block.thinking.trim();
           if (trimmed) {
             events.push({
@@ -1139,11 +1242,11 @@ function parsePiRecords(records: unknown[]): AgentTraceParseResult {
               at,
             });
           }
-        } else if (block?.type === "text" && typeof block.text === "string") {
+        } else if (block.type === "text" && block.text !== undefined) {
           const trimmed = block.text.trim();
           if (trimmed)
             events.push({ kind: "assistant", markdown: trimmed, at });
-        } else if (block?.type === "toolCall") {
+        } else if (block.type === "toolCall") {
           if (block.name === "subagent_wait") continue;
           const event = piToolEvent(block, at, cwd);
           toolCalls += 1;

@@ -16,7 +16,10 @@ import {
   writeFileIfChangedSync,
 } from "./software-map-artifact";
 import { collectSoftwareMapCoverageErrors } from "./software-map-coverage-validation";
-import type { NormalizedSoftwareModel } from "./software-map-model";
+import {
+  type NormalizedSoftwareModel,
+  isNormalizedSoftwareModel,
+} from "./software-map-model";
 
 export interface SoftwareMapSourceCheck {
   canonicalSource: string;
@@ -135,7 +138,13 @@ export async function loadPublishSoftwareMaps(input: {
     });
     if (scratchPath) {
       const scratch = await readFile(scratchPath, "utf8").catch((error) => {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+        if (
+          error instanceof Error &&
+          "code" in error &&
+          error.code === "ENOENT"
+        ) {
+          return null;
+        }
         throw error;
       });
       if (
@@ -173,16 +182,12 @@ export async function loadSoftwareMap(
   source: string,
   mapPath: string,
 ): Promise<NormalizedSoftwareModel> {
-  const module = (await importWithLocalizedModelImport({
+  const model = await importWithLocalizedModelImport({
     rootPath,
     source,
     basename: path.basename(mapPath),
-  })) as {
-    default?: unknown;
-    softwareMap?: unknown;
-  };
-  const model = module.default ?? module.softwareMap;
-  if (!isNormalizedSoftwareModel(model)) {
+  });
+  if (!model) {
     throw new Error(`${mapPath} must default-export defineSoftwareMap({...}).`);
   }
   return model;
@@ -197,7 +202,7 @@ async function importWithLocalizedModelImport(input: {
   rootPath: string;
   source: string;
   basename: string;
-}): Promise<unknown> {
+}): Promise<NormalizedSoftwareModel | null> {
   const gitDir = gitCommonDirSync(input.rootPath);
   if (!gitDir) throw new Error(`No git repository found at ${input.rootPath}`);
   // The check copy lives in a per-invocation directory (pid + random): a
@@ -221,7 +226,11 @@ async function importWithLocalizedModelImport(input: {
     );
     const url = pathToFileURL(checkPath);
     url.searchParams.set("t", String(Date.now()));
-    return await import(url.href);
+    const module: { default?: unknown; softwareMap?: unknown } = await import(
+      url.href
+    );
+    const model = module.default ?? module.softwareMap;
+    return isNormalizedSoftwareModel(model) ? model : null;
   } finally {
     rmSync(checkDir, { recursive: true, force: true });
   }
@@ -273,16 +282,4 @@ function readCommitTreeFilesSync(
     offset = end + 1;
   }
   return contents;
-}
-
-function isNormalizedSoftwareModel(
-  value: unknown,
-): value is NormalizedSoftwareModel {
-  return (
-    !!value &&
-    typeof value === "object" &&
-    Array.isArray((value as NormalizedSoftwareModel).elements) &&
-    (value as NormalizedSoftwareModel).elementsByPath instanceof Map &&
-    Array.isArray((value as NormalizedSoftwareModel).relationships)
-  );
 }

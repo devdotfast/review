@@ -3,10 +3,13 @@ import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
+import { jsonNumber, jsonObject, jsonString } from "@dev.fast/review-protocol";
+
 import type { NativeReviewMessage } from "./native-session";
 import {
   type JsonRecord,
   isJsonRecord,
+  isMissingFileError,
   readJsonLines,
   textBlocks,
 } from "./transcript-json";
@@ -57,33 +60,31 @@ export function projectPiReviewMessages(
 }
 
 function activeBranch(entries: readonly JsonRecord[]): JsonRecord[] {
-  const byId = new Map(
-    entries.flatMap((entry) =>
-      typeof entry.id === "string" && entry.id
-        ? [[entry.id, entry] as const]
-        : [],
-    ),
-  );
+  const byId = new Map<string, JsonRecord>();
+  for (const entry of entries) {
+    const id = entryId(entry);
+    if (id !== undefined) byId.set(id, entry);
+  }
   const leaf = [...entries]
     .reverse()
-    .find((entry) => typeof entry.id === "string" && entry.id);
-  if (!leaf || typeof leaf.id !== "string") return [];
+    .find((entry) => entryId(entry) !== undefined);
   const branch: JsonRecord[] = [];
   const visited = new Set<string>();
   let current: JsonRecord | undefined = leaf;
-  while (
-    current &&
-    typeof current.id === "string" &&
-    !visited.has(current.id)
-  ) {
+  while (current) {
+    const id = entryId(current);
+    if (id === undefined || visited.has(id)) break;
     branch.push(current);
-    visited.add(current.id);
-    current =
-      typeof current.parentId === "string"
-        ? byId.get(current.parentId)
-        : undefined;
+    visited.add(id);
+    const parentId = jsonString(current.parentId);
+    current = parentId === undefined ? undefined : byId.get(parentId);
   }
   return branch.reverse();
+}
+
+/** The entry's non-empty id, or undefined when it has none. */
+function entryId(entry: JsonRecord): string | undefined {
+  return jsonString(entry.id) || undefined;
 }
 
 function projectMessage(
@@ -91,13 +92,10 @@ function projectMessage(
   role: NativeReviewMessage["role"],
   body: string,
 ): NativeReviewMessage {
-  const message = isJsonRecord(entry.message) ? entry.message : {};
+  const messageTimestamp = jsonNumber(jsonObject(entry.message)?.timestamp);
   const timestamp =
-    typeof entry.timestamp === "string"
-      ? entry.timestamp
-      : typeof message.timestamp === "number"
-        ? new Date(message.timestamp).toISOString()
-        : new Date(0).toISOString();
+    jsonString(entry.timestamp) ??
+    new Date(messageTimestamp ?? 0).toISOString();
   return {
     role,
     body,
@@ -160,13 +158,4 @@ async function findFile(
     }
   }
   return undefined;
-}
-
-function isMissingFileError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "ENOENT"
-  );
 }

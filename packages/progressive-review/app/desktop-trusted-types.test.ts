@@ -42,7 +42,7 @@ describe("libavoid Trusted Types hardening", () => {
         ...args: Array<{ trustedScript: string }>
       ) => (...values: unknown[]) => number
     >((...args: Array<{ trustedScript: string }>) => {
-      if (args.some((argument) => typeof argument === "string")) {
+      if (!args.every((argument) => argument instanceof Object)) {
         throw new TypeError(
           "Function constructor arguments must be TrustedScript values",
         );

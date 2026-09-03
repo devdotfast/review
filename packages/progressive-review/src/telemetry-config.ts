@@ -1,6 +1,9 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 
+import type { JsonValue } from "@dev.fast/review-protocol";
+import { z } from "zod";
+
 import { findProgressiveReviewPackageRoot } from "./package-paths";
 import { DEV_REVIEW_HOME_ENV, devReviewHome } from "./review-storage";
 
@@ -60,25 +63,31 @@ export function isTelemetryOptedOut(
   ].some(isEnabledEnvValue);
 }
 
+/**
+ * The on-disk install config as a hand-edited or older file may hold it: only
+ * the installation id is required, and a malformed optional field reads as
+ * absent.
+ */
+const storedTelemetryInstallConfigSchema = z.looseObject({
+  installationId: z.string().min(1),
+  createdAt: z.string().optional().catch(undefined),
+  installationCreatedSent: z.boolean().optional().catch(undefined),
+  enabled: z.boolean().optional().catch(undefined),
+  internal: z.boolean().optional().catch(undefined),
+});
+
 export function normalizeTelemetryInstallConfig(
-  parsed: Partial<ProgressiveReviewTelemetryInstallConfig>,
+  parsed: JsonValue,
   now: () => Date,
 ): ProgressiveReviewTelemetryInstallConfig | undefined {
-  if (
-    typeof parsed.installationId !== "string" ||
-    parsed.installationId.length === 0
-  ) {
-    return undefined;
-  }
+  const stored = storedTelemetryInstallConfigSchema.safeParse(parsed);
+  if (!stored.success) return undefined;
   return {
-    installationId: parsed.installationId,
-    createdAt:
-      typeof parsed.createdAt === "string"
-        ? parsed.createdAt
-        : now().toISOString(),
-    installationCreatedSent: Boolean(parsed.installationCreatedSent),
-    enabled: parsed.enabled !== false,
-    internal: parsed.internal === true,
+    installationId: stored.data.installationId,
+    createdAt: stored.data.createdAt ?? now().toISOString(),
+    installationCreatedSent: stored.data.installationCreatedSent === true,
+    enabled: stored.data.enabled !== false,
+    internal: stored.data.internal === true,
   };
 }
 

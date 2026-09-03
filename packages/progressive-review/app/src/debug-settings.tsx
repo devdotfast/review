@@ -1,3 +1,4 @@
+import type { JsonValue } from "@dev.fast/review-protocol";
 import {
   type ReactNode,
   createContext,
@@ -116,7 +117,7 @@ function readStoredSettings(session: ReviewSession): StoredReviewDebugSettings {
   };
 }
 
-function normalizeNodeTint(value: unknown): ReviewNodeTint {
+function normalizeNodeTint(value: JsonValue | undefined): ReviewNodeTint {
   return value === "none" || value === "mineral" || value === "slate"
     ? value
     : "slate";

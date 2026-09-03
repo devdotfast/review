@@ -1,3 +1,5 @@
+import { jsonBoolean, jsonNumber, jsonString } from "@dev.fast/review-protocol";
+
 import {
   REVIEW_APP_SESSION_ID_HEADER,
   UI_TELEMETRY_EVENTS,
@@ -24,21 +26,22 @@ export function captureUiEvent(
   session: ReviewSession,
   name: UiTelemetryEventName,
   properties?: UiTelemetryProperties,
-  error?: unknown,
+  error?: PackedClientError,
 ): void {
   const sanitizedProperties = sanitizeEventProperties(name, properties);
   if (!sanitizedProperties) return;
   sanitizedProperties.app_session_id = session.appSessionId;
+  const payload: UiTelemetryEventPayload = {
+    name,
+    properties: sanitizedProperties,
+  };
+  if (error !== undefined) payload.error = error;
   const reviewFetch = session.fetch;
   try {
     void reviewFetch("/telemetry/event", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        name,
-        properties: sanitizedProperties,
-        ...(error === undefined ? {} : { error: packClientError(error) }),
-      }),
+      body: JSON.stringify(payload),
       keepalive: true,
     }).catch(() => undefined);
   } catch {
@@ -55,7 +58,7 @@ export function captureUiEvent(
 export function captureClientError(
   session: ReviewSession,
   errorSource: string,
-  error: unknown,
+  cause: unknown,
   properties?: UiTelemetryProperties,
 ): void {
   captureUiEvent(
@@ -64,10 +67,10 @@ export function captureClientError(
     {
       error_source: errorSource,
       error_process: "canvas",
-      error_name: clientErrorName(error),
+      error_name: clientErrorName(cause),
       ...properties,
     },
-    error,
+    cause === undefined ? undefined : packClientError(cause),
   );
 }
 
@@ -78,19 +81,26 @@ interface PackedClientError {
   stack?: string;
 }
 
-function packClientError(error: unknown): PackedClientError {
-  if (!(error instanceof Error)) return { message: String(error) };
-  return {
-    name: error.name,
-    message: error.message,
-    ...(typeof error.stack === "string" ? { stack: error.stack } : {}),
-  };
+/** The POST /telemetry/event body: the event plus its optional error envelope. */
+interface UiTelemetryEventPayload {
+  name: UiTelemetryEventName;
+  properties: UiTelemetryProperties;
+  error?: PackedClientError;
 }
 
-export function clientErrorName(error: unknown): string {
-  const name =
-    error && typeof error === "object" ? error.constructor?.name : undefined;
-  return validFreeString(name) ? name : "Error";
+function packClientError(cause: unknown): PackedClientError {
+  if (!(cause instanceof Error)) return { message: String(cause) };
+  const packed: PackedClientError = {
+    name: cause.name,
+    message: cause.message,
+  };
+  if (cause.stack !== undefined) packed.stack = cause.stack;
+  return packed;
+}
+
+export function clientErrorName(cause: unknown): string {
+  const name = cause instanceof Object ? cause.constructor?.name : undefined;
+  return name !== undefined && validFreeString(name) ? name : "Error";
 }
 
 function sanitizeEventProperties(
@@ -103,38 +113,34 @@ function sanitizeEventProperties(
   for (const [key, propSpec] of Object.entries(spec.properties)) {
     const value = properties?.[key];
     if (value === undefined || value === null) continue;
+    const text = jsonString(value);
     if (propSpec === "number") {
-      if (typeof value === "number" && Number.isFinite(value)) {
-        sanitized[key] = value;
-      }
+      const number = jsonNumber(value);
+      if (number !== undefined) sanitized[key] = number;
       continue;
     }
     if (propSpec === "boolean") {
-      if (typeof value === "boolean") sanitized[key] = value;
+      const boolean = jsonBoolean(value);
+      if (boolean !== undefined) sanitized[key] = boolean;
       continue;
     }
     if (propSpec === "enum_free_short") {
-      if (typeof value === "string" && validFreeString(value)) {
-        sanitized[key] = value;
-      }
+      if (text !== undefined && validFreeString(text)) sanitized[key] = text;
       continue;
     }
     if (
       Array.isArray(propSpec) &&
-      typeof value === "string" &&
-      (propSpec as readonly string[]).includes(value)
+      text !== undefined &&
+      propSpec.some((option) => option === text)
     ) {
-      sanitized[key] = value;
+      sanitized[key] = text;
     }
   }
   return sanitized;
 }
 
-function validFreeString(value: unknown): value is string {
+function validFreeString(value: string): boolean {
   return (
-    typeof value === "string" &&
-    value.length > 0 &&
-    value.length <= 40 &&
-    /^[A-Za-z0-9_$-]+$/.test(value)
+    value.length > 0 && value.length <= 40 && /^[A-Za-z0-9_$-]+$/.test(value)
   );
 }

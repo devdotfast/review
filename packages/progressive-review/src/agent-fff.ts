@@ -10,6 +10,9 @@ import {
   type ReviewFffManagedRegistration,
   isJsonArray,
   isJsonObject,
+  jsonArray,
+  jsonObject,
+  jsonString,
   parseJsonText,
 } from "@dev.fast/review-protocol";
 
@@ -206,13 +209,13 @@ async function isPiFffInstalled(
     ? path.resolve(homeDir, configured)
     : path.join(homeDir, ".pi", "agent");
   try {
-    const settings = JSON.parse(
-      await readFile(path.join(agentDir, "settings.json"), "utf8"),
-    ) as { packages?: unknown };
-    return (
-      Array.isArray(settings.packages) &&
-      settings.packages.includes(PI_FFF_PACKAGE)
+    const settings = jsonObject(
+      parseJsonText(
+        await readFile(path.join(agentDir, "settings.json"), "utf8"),
+      ),
     );
+    const packages = jsonArray(settings?.packages);
+    return packages !== undefined && packages.includes(PI_FFF_PACKAGE);
   } catch {
     return false;
   }
@@ -228,13 +231,13 @@ function findStdioConfig(
   value: JsonValue,
 ): { command: string; args: string[] } | null {
   if (!isJsonObject(value)) return null;
-  const { command, args } = value;
-  if (
-    typeof command === "string" &&
-    isJsonArray(args) &&
-    args.every((arg): arg is string => typeof arg === "string")
-  ) {
-    return { command, args };
+  const command = jsonString(value.command);
+  const args = isJsonArray(value.args) ? value.args : undefined;
+  if (command !== undefined && args !== undefined) {
+    const argStrings = args.flatMap((arg) => jsonString(arg) ?? []);
+    if (argStrings.length === args.length) {
+      return { command, args: argStrings };
+    }
   }
   for (const child of Object.values(value)) {
     const found = findStdioConfig(child);
@@ -268,6 +271,9 @@ async function runCommand(
     });
     return { ok: true, output: `${result.stdout}${result.stderr}` };
   } catch (error) {
+    // SAFETY: execFile rejects with an Error whose stdout and stderr fields
+    // hold the child's output as strings; every field is read as optional so
+    // any other rejection still yields a message.
     const failure = error as {
       stdout?: string;
       stderr?: string;

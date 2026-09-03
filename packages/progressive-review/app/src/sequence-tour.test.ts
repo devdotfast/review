@@ -515,7 +515,7 @@ describe("sequence diagram guided tour", () => {
 });
 
 function expectZodIssue(
-  run: () => unknown,
+  run: () => void,
   path: PropertyKey[],
   message?: string,
 ): void {

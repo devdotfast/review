@@ -17,7 +17,12 @@
 
 import { createHash } from "node:crypto";
 
-import type { JsonObject } from "@dev.fast/review-protocol";
+import {
+  type JsonObject,
+  type JsonValue,
+  isJsonObject,
+  jsonString,
+} from "@dev.fast/review-protocol";
 
 import { cleanTelemetryText } from "./telemetry-clean-text";
 import {
@@ -25,13 +30,6 @@ import {
   BUNDLE_FRAME_SEPARATOR,
   isReportableCleanedMessage,
 } from "./ui-telemetry-events";
-
-/** The raw error envelope a client may attach beside its event properties. */
-export interface RawErrorReport {
-  readonly name?: unknown;
-  readonly message?: unknown;
-  readonly stack?: unknown;
-}
 
 export interface DerivedErrorTelemetryProperties {
   error_name?: string;
@@ -66,17 +64,21 @@ const BUNDLE_ANCHORS = ["/out/", "/assets/", "/review-runtime/"];
 /** `at fn (url:line:col)`, `at url:line:col`, and the bare `url:line:col`. */
 const STACK_FRAME_PATTERN = /(?:\(|\bat\s+|^\s*)([^()\s]+?):(\d+):(\d+)\)?\s*$/;
 
+/**
+ * `cause` is the raw error envelope a client attached beside its event
+ * properties: `{ name, message, stack }` as JSON, or anything else a hostile
+ * client sent, which derives nothing.
+ */
 export function deriveErrorTelemetryProperties(
-  raw: unknown,
+  cause: unknown,
 ): DerivedErrorTelemetryProperties {
   const derived: DerivedErrorTelemetryProperties = {};
   try {
-    if (!raw || typeof raw !== "object") return derived;
-    const report = raw as RawErrorReport;
+    if (!isJsonObject(cause)) return derived;
 
-    const name = report.name;
+    const name = jsonString(cause.name);
     if (
-      typeof name === "string" &&
+      name !== undefined &&
       name.length > 0 &&
       name.length <= MAX_ERROR_NAME_LENGTH &&
       ERROR_NAME_PATTERN.test(name)
@@ -84,8 +86,8 @@ export function deriveErrorTelemetryProperties(
       derived.error_name = name;
     }
 
-    const message = report.message;
-    if (typeof message === "string" && message.length > 0) {
+    const message = jsonString(cause.message);
+    if (message !== undefined && message.length > 0) {
       // The digest goes on every report, cleaned message or not. It is what
       // groups the reports whose message does not survive the checks below.
       derived.message_hash = hashErrorMessage(message);
@@ -98,7 +100,7 @@ export function deriveErrorTelemetryProperties(
       }
     }
 
-    const frames = packBundleFrames(report.stack);
+    const frames = packBundleFrames(cause.stack);
     if (frames) derived.frames = frames;
   } catch {
     // Telemetry must never break the request that carried it.
@@ -131,11 +133,11 @@ const SERVER_DERIVED_PROPERTIES = [
  */
 export function mergeErrorTelemetryProperties(
   clientProperties: JsonObject,
-  rawError: unknown,
+  cause: unknown,
 ): JsonObject {
   const merged = { ...clientProperties };
   for (const key of SERVER_DERIVED_PROPERTIES) delete merged[key];
-  if (rawError) Object.assign(merged, deriveErrorTelemetryProperties(rawError));
+  if (cause) Object.assign(merged, deriveErrorTelemetryProperties(cause));
   return merged;
 }
 
@@ -174,12 +176,10 @@ export function hashErrorMessage(message: string): string {
  * Rewrite a stack into bundle-relative `file:line:col` frames joined by "|".
  * Returns undefined when no frame resolves inside the bundle.
  */
-export function packBundleFrames(stack: unknown): string | undefined {
-  const text = Array.isArray(stack)
-    ? stack.join("\n")
-    : typeof stack === "string"
-      ? stack
-      : undefined;
+export function packBundleFrames(
+  stack: JsonValue | undefined,
+): string | undefined {
+  const text = Array.isArray(stack) ? stack.join("\n") : jsonString(stack);
   if (!text) return undefined;
 
   const frames: string[] = [];

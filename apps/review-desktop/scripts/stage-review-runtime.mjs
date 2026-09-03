@@ -255,13 +255,7 @@ export async function readTutorialRuntimeManifest(tutorialRoot) {
   const validEntries = (entries) =>
     Array.isArray(entries) &&
     entries.length > 0 &&
-    entries.every(
-      (entry) =>
-        typeof entry === "string" &&
-        entry.length > 0 &&
-        !path.isAbsolute(entry) &&
-        !entry.split(/[\\/]/u).includes(".."),
-    );
+    entries.every(isSafeManifestPath);
   if (
     value?.version !== 1 ||
     !validEntries(value.reviewFiles) ||
@@ -275,6 +269,17 @@ export async function readTutorialRuntimeManifest(tutorialRoot) {
     reviewFiles: [...new Set(value.reviewFiles)],
     requiredPaths: [...new Set(value.requiredPaths)],
   };
+}
+
+/** A manifest entry that names a file inside the tutorial tree. */
+function isSafeManifestPath(entry) {
+  // Only a JSON string equals its own String() rendering by identity.
+  return (
+    String(entry) === entry &&
+    entry.length > 0 &&
+    !path.isAbsolute(entry) &&
+    !entry.split(/[\\/]/u).includes("..")
+  );
 }
 
 /**

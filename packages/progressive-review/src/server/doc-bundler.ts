@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { type Message, type Plugin, build } from "esbuild";
+import { type BuildFailure, type Plugin, build } from "esbuild";
 
 import {
   type ReviewDocumentDiagnostic,
@@ -250,34 +250,40 @@ function entryModuleSource(input: {
   ].join("\n");
 }
 
+function isBuildFailure(cause: unknown): cause is BuildFailure {
+  return (
+    cause instanceof Error && "errors" in cause && Array.isArray(cause.errors)
+  );
+}
+
 function esbuildDiagnostics(
-  error: unknown,
+  cause: unknown,
   fallbackFilePath: string,
 ): ReviewDocumentDiagnostic[] {
-  const messages =
-    error && typeof error === "object" && "errors" in error
-      ? (error.errors as Message[])
-      : [];
+  const messages = isBuildFailure(cause) ? cause.errors : [];
   if (messages.length === 0) {
     return [
       {
         source: "review",
         severity: "error",
         code: "bundle",
-        message: error instanceof Error ? error.message : String(error),
+        message: cause instanceof Error ? cause.message : String(cause),
         filePath: fallbackFilePath,
       },
     ];
   }
-  return messages.map((message) => ({
-    source: "review",
-    severity: "error",
-    code: "bundle",
-    message: message.text,
-    filePath: message.location?.file ?? fallbackFilePath,
-    ...(message.location?.line ? { line: message.location.line } : {}),
-    ...(message.location?.column
-      ? { column: message.location.column + 1 }
-      : {}),
-  }));
+  return messages.map((message) => {
+    const diagnostic: ReviewDocumentDiagnostic = {
+      source: "review",
+      severity: "error",
+      code: "bundle",
+      message: message.text,
+      filePath: message.location?.file ?? fallbackFilePath,
+    };
+    if (message.location?.line) diagnostic.line = message.location.line;
+    if (message.location?.column) {
+      diagnostic.column = message.location.column + 1;
+    }
+    return diagnostic;
+  });
 }

@@ -50,6 +50,19 @@ import type {
   NormalizedSoftwareModel,
 } from "./software-map-model";
 
+/** The --json line `review map open` writes for a hydrated scratch. */
+interface MapOpenEvent {
+  event: "map-open";
+  scratch: string;
+  commit: string;
+  dirty: boolean;
+  hydratedFrom: HydrateScratchResult["hydratedFrom"];
+  seedCommit?: string;
+  distance?: number;
+  /** The diff the map agent must apply before it checks (ancestor-note only). */
+  diffRange?: string;
+}
+
 export interface SoftwareMapCliInput {
   args: string[];
   cwd: string;
@@ -289,9 +302,7 @@ export function parseSoftwareMapCliArgs(
   return {
     ok: true,
     command,
-    positionals: commandModel.processedArgs.filter(
-      (arg): arg is string => typeof arg === "string",
-    ),
+    positionals: commandModel.args,
     force: options.force ?? false,
     diffRefs: {},
     review: options.review,
@@ -421,21 +432,20 @@ async function openSoftwareMapScratch(
     human.write(`scratch: ${hydrated.path}\n`);
     human.write(`commit: ${hydrated.commit}\n`);
     human.write(`${openProvenanceLine(hydrated, input.rev)}\n`);
-    emitJsonEvent(input, {
+    const opened: MapOpenEvent = {
       event: "map-open",
       scratch: hydrated.path,
       commit: hydrated.commit,
       dirty: false,
       hydratedFrom: hydrated.hydratedFrom,
-      ...(hydrated.seedCommit ? { seedCommit: hydrated.seedCommit } : {}),
-      ...(hydrated.hydratedFrom === "ancestor-note"
-        ? {
-            distance: hydrated.distance,
-            // The diff the map agent must apply before it checks.
-            diffRange: `${hydrated.seedCommit}..${input.rev}`,
-          }
-        : {}),
-    });
+    };
+    if (hydrated.seedCommit) opened.seedCommit = hydrated.seedCommit;
+    if (hydrated.hydratedFrom === "ancestor-note") {
+      opened.distance = hydrated.distance;
+      // The diff the map agent must apply before it checks.
+      opened.diffRange = `${hydrated.seedCommit}..${input.rev}`;
+    }
+    emitJsonEvent(input, opened);
     return 0;
   } catch (error) {
     return failWithJsonError(

@@ -125,7 +125,11 @@ async function withInstallLock<T>(
       await mkdir(lockPath, { mode: 0o700 });
       break;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if (
+        !(error instanceof Error && "code" in error && error.code === "EEXIST")
+      ) {
+        throw error;
+      }
       const lockAge = await stat(lockPath)
         .then((value) => Date.now() - value.mtimeMs)
         .catch(() => 0);

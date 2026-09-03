@@ -1,6 +1,13 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
+import {
+  type JsonObject,
+  jsonObject,
+  jsonString,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
+
 import { type ReviewAgentHarness, type SessionRef } from "./authoring-session";
 
 const TUTORIAL_AUTHORING_TIMEOUT_MS = 120_000;
@@ -107,23 +114,15 @@ export async function createTutorialAuthoringSession(input: {
 function codexThreadId(output: string): string {
   for (const line of output.split("\n")) {
     if (!line.trim()) continue;
-    let value: unknown;
+    let record: JsonObject | undefined;
     try {
-      value = JSON.parse(line);
+      record = jsonObject(parseJsonText(line));
     } catch {
       continue;
     }
-    if (
-      typeof value === "object" &&
-      value !== null &&
-      "type" in value &&
-      value.type === "thread.started" &&
-      "thread_id" in value &&
-      typeof value.thread_id === "string" &&
-      value.thread_id
-    ) {
-      return value.thread_id;
-    }
+    if (record?.type !== "thread.started") continue;
+    const threadId = jsonString(record.thread_id);
+    if (threadId) return threadId;
   }
   throw new Error("Codex did not report the tutorial source thread ID.");
 }

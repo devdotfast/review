@@ -23,7 +23,8 @@ import {
   type CommentDraftTarget,
   commentDraftTargetForSurface,
   isGlobalCommentDraft,
-  useReview,
+  useReviewActions,
+  useReviewState,
 } from "./review-context";
 import { reviewDocumentRange } from "./review-document-text";
 import { useReviewRoots } from "./review-root-context";
@@ -69,14 +70,6 @@ export const MARGIN_CARDS_MIN_GUTTER =
 /** Gutter needed before compact markers render at the line's edge. */
 const MARKER_MIN_GUTTER = 30;
 const CARD_GAP = 10;
-
-type DraftCardWithStateProps = Parameters<typeof ThreadDraftCard>[0] & {
-  onDraftStateChange?: (hasText: boolean) => void;
-};
-
-const ThreadDraftCardWithState = ThreadDraftCard as (
-  props: DraftCardWithStateProps,
-) => ReactElement;
 
 /** Rough mono advance at the card body's 12.5px size. */
 const CARD_CHAR_WIDTH = 7.5;
@@ -170,12 +163,25 @@ export function ThreadAnnotations({
   onOpenInPanel?: (thread: ThreadView) => void;
 }): ReactElement | null {
   const session = useReviewSession();
-  const review = useReview();
+  const {
+    focusThread,
+    blurThread,
+    closeCommentDraft,
+    clearThreadFocusRequest,
+    askAgent: askAgentAction,
+    saveComment,
+  } = useReviewActions();
+  const {
+    allCommentThreads,
+    draftTarget: contextDraftTarget,
+    focusedThreadId,
+    threadFocusRequest,
+  } = useReviewState();
   const reviewRoots = useReviewRoots();
-  const commentThreads = review.allCommentThreads();
-  const draftTarget = isGlobalCommentDraft(review.draftTarget)
+  const commentThreads = allCommentThreads();
+  const draftTarget = isGlobalCommentDraft(contextDraftTarget)
     ? null
-    : commentDraftTargetForSurface(review.draftTarget, "document");
+    : commentDraftTargetForSurface(contextDraftTarget, "document");
   const liveAnchors = useLiveAnchors();
   const liveDiagrams = useLiveDiagrams();
   const threads = useMemo(() => {
@@ -217,7 +223,6 @@ export function ThreadAnnotations({
   // Recompute annotations when a draft opens/closes too, so the selected
   // text is highlighted while the comment is being written (not only after
   // it is submitted).
-  const focusedThreadId = review.focusedThreadId;
   // "inline" focus opens the thread's inline surface (expanded margin card /
   // popover); "highlight" focus (Threads-sidebar clicks) only scrolls to and
   // extra-highlights the anchor — the detail lives in the sidebar.
@@ -236,7 +241,7 @@ export function ThreadAnnotations({
     setFocusPresentation("inline");
     setPreferredFocusedKey(annotation.key);
     onThreadActivated?.(annotation.threadId);
-    review.focusThread(annotation.threadId, { scroll: false });
+    focusThread(annotation.threadId, { scroll: false });
     // Thread detail always opens in the side panel; the inline surfaces only
     // highlight the target and show the compact preview.
     const thread = displayThreads.get(annotation.key);
@@ -244,7 +249,7 @@ export function ThreadAnnotations({
   };
 
   const collapse = () => {
-    review.blurThread();
+    blurThread();
     setPreferredFocusedKey(null);
     onThreadActivated?.(null);
   };
@@ -266,7 +271,7 @@ export function ThreadAnnotations({
     const hasText =
       draftHasTextRef.current ||
       draftTextareaHasText(rootRef, reviewRoots?.appRef.current);
-    if (!hasText) review.closeCommentDraft();
+    if (!hasText) closeCommentDraft();
   };
 
   useEffect(() => {
@@ -487,7 +492,7 @@ export function ThreadAnnotations({
   }, [annotations, activeKey, cardHeightsNonce, displayThreads, gutter]);
 
   useEffect(() => {
-    const request = review.threadFocusRequest;
+    const request = threadFocusRequest;
     if (!request) return;
     let cancelled = false;
     const run = async () => {
@@ -495,7 +500,7 @@ export function ThreadAnnotations({
         articleRef.current ??
         document.querySelector<HTMLElement>(".review-document");
       if (!article) {
-        review.clearThreadFocusRequest();
+        clearThreadFocusRequest();
         return;
       }
       const thread = displayThreads.get(request.threadId) ?? null;
@@ -529,7 +534,7 @@ export function ThreadAnnotations({
       }
       // Thread detail lives in the side panel; a focus request only
       // highlights (and optionally scrolls to) the inline target.
-      review.clearThreadFocusRequest();
+      clearThreadFocusRequest();
     };
     void run();
     return () => {
@@ -537,12 +542,10 @@ export function ThreadAnnotations({
     };
   }, [
     articleRef,
-    annotations,
-    gutter?.mode,
     onThreadActivated,
     preferredFocusedKey,
-    review,
-    review.threadFocusRequest,
+    clearThreadFocusRequest,
+    threadFocusRequest,
     displayThreads,
   ]);
 
@@ -556,7 +559,7 @@ export function ThreadAnnotations({
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [draftTarget, focusedThreadId, review]);
+  }, [draftTarget, focusedThreadId]);
 
   // Highlights are visual-only (pointer-events: none) so text under them
   // stays selectable; a click on highlighted text with no selection opens
@@ -613,7 +616,7 @@ export function ThreadAnnotations({
     };
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [draftTarget, focusedThreadId, review]);
+  }, [draftTarget, focusedThreadId]);
 
   const submitDraft = (askAgent: boolean, body: string) => {
     if (!draftTarget) return;
@@ -625,24 +628,24 @@ export function ThreadAnnotations({
       ...input
     } = draftTarget;
     if (askAgent) {
-      void review.askAgent({
+      void askAgentAction({
         threadId: draftTarget.threadId,
         target: draftTarget.target,
         messageId: draftTarget.messageId,
         body,
       });
-      review.closeCommentDraft();
+      closeCommentDraft();
       draftHasTextRef.current = false;
       setPreferredFocusedKey(draftTarget.threadId);
-      review.focusThread(draftTarget.threadId);
+      focusThread(draftTarget.threadId);
       onThreadActivated?.(draftTarget.threadId);
       return;
     }
-    void review.saveComment({ ...input, body }).then(() => {
-      review.closeCommentDraft();
+    void saveComment({ ...input, body }).then(() => {
+      closeCommentDraft();
       draftHasTextRef.current = false;
       setPreferredFocusedKey(draftTarget.threadId);
-      review.focusThread(draftTarget.threadId);
+      focusThread(draftTarget.threadId);
       onThreadActivated?.(draftTarget.threadId);
     });
   };
@@ -728,7 +731,7 @@ export function ThreadAnnotations({
                 draftPopoverPlacement(popoverHost, draftTarget),
               )}
             >
-              <ThreadDraftCardWithState
+              <ThreadDraftCard
                 quote={draftQuote}
                 variant="popover"
                 intent={draftTarget.intent}
@@ -737,7 +740,7 @@ export function ThreadAnnotations({
                 onDraftTextChange={updateDraftText}
                 onSubmitComment={(body) => submitDraft(false, body)}
                 onAskAgent={(body) => submitDraft(true, body)}
-                onCancel={() => review.closeCommentDraft()}
+                onCancel={() => closeCommentDraft()}
               />
             </div>,
             popoverHost,
@@ -777,7 +780,7 @@ export function ThreadAnnotations({
           })}
           {draftTarget && (
             <div style={{ top: Math.max(0, draftAnchorY ?? 0) }}>
-              <ThreadDraftCardWithState
+              <ThreadDraftCard
                 quote={draftQuote}
                 variant="margin"
                 intent={draftTarget.intent}
@@ -786,7 +789,7 @@ export function ThreadAnnotations({
                 onDraftTextChange={updateDraftText}
                 onSubmitComment={(body) => submitDraft(false, body)}
                 onAskAgent={(body) => submitDraft(true, body)}
-                onCancel={() => review.closeCommentDraft()}
+                onCancel={() => closeCommentDraft()}
               />
             </div>
           )}
@@ -1054,6 +1057,8 @@ function selectedTextGeometry(range: Range, root: HTMLElement) {
   let node = walker.nextNode();
   while (node) {
     if (range.intersectsNode(node)) {
+      // SAFETY: the walker was created with NodeFilter.SHOW_TEXT, so every
+      // node it yields is a Text.
       const textNode = node as Text;
       const start = node === range.startContainer ? range.startOffset : 0;
       const end =
@@ -1092,6 +1097,8 @@ function mapTextRange(
   let mappedEnd: { node: Text; offset: number } | null = null;
 
   while (walker.nextNode()) {
+    // SAFETY: the walker was created with NodeFilter.SHOW_TEXT, so every node
+    // it yields is a Text.
     const node = walker.currentNode as Text;
     const text = node.textContent ?? "";
     const nodeEnd = textIndex + text.length;

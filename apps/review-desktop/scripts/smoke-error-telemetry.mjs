@@ -61,7 +61,7 @@ function cases(home) {
   return [
     {
       name: "engine error keeps its message",
-      throws: () => {
+      runs: () => {
         const missing = undefined;
         return missing.uri;
       },
@@ -234,14 +234,14 @@ export async function smokeErrorTelemetry({
         await page.evaluate((message) => {
           setTimeout(() => void Promise.reject(new Error(message)), 0);
         }, probe.rejects);
-      } else if (typeof probe.throws === "string") {
+      } else if (probe.throws) {
         await page.evaluate((message) => {
           setTimeout(() => {
             throw new Error(message);
           }, 0);
         }, probe.throws);
       } else {
-        await page.evaluate(`setTimeout(() => { (${probe.throws})(); }, 0)`);
+        await page.evaluate(`setTimeout(() => { (${probe.runs})(); }, 0)`);
       }
       // The window drops a repeat of the same message inside one second.
       await sleep(1200);

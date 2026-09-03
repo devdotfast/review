@@ -41,10 +41,17 @@ import {
 import { DiagramTourOverlay, useDiagramTourShell } from "./diagram-tour";
 import { useReviewSession } from "./host/review-session";
 import { HoverCommentButton } from "./hover-comment-button";
-import type { GuidedTour } from "./review-components";
-import { useReview } from "./review-context";
+import { useReviewActions } from "./review-context";
+import type { GuidedTour } from "./review-panel-model";
 import { useTourPersist, useTourRestore } from "./review-view-state";
-import { formatSchemaExample } from "./software-map/c4-projection";
+import {
+  type DataStoreFieldExample,
+  exampleForDataStoreField,
+  exampleForDataStoreSchema,
+  foreignKeyTarget,
+  formatSchemaExample,
+  isDataStoreFieldLeaf,
+} from "./software-map/c4-projection";
 import type {
   SoftwareDataStoreFieldLeaf,
   SoftwareDataStoreFieldSchema,
@@ -54,6 +61,7 @@ import {
   type SoftwareMapDataStoreSchemaRowSnapshot,
   SoftwareMapFrame,
   type SoftwareMapNodeSnapshot,
+  type SoftwareMapRelationshipSnapshot,
   type SoftwareMapResolvedSnapshot,
 } from "./software-map/SoftwareMap";
 import {
@@ -107,7 +115,7 @@ interface FieldRow {
   type?: string;
   pk?: boolean;
   fk?: ForeignKeyRef;
-  example?: unknown;
+  example?: DataStoreFieldExample;
 }
 
 export type DatabaseOperationHighlightState = "active" | "inactive";
@@ -186,7 +194,7 @@ export function DatabaseLens(props: DatabaseLensProps) {
     height = 560,
     children,
   } = databaseLensPropsSchema.parse(props);
-  const review = useReview();
+  const { openCommentDraft } = useReviewActions();
   const locatorScope = `db:${slugPart(title ?? "database")}`;
   const lensId = locatorScope;
   const validatedInput = useMemo(
@@ -296,7 +304,7 @@ export function DatabaseLens(props: DatabaseLensProps) {
     if (!activeUseCase || !activeUseCaseTarget) return;
     event.preventDefault();
     event.stopPropagation();
-    review.openCommentDraft({
+    openCommentDraft({
       target: activeUseCaseTarget,
       title: activeUseCase.label,
       body: "",
@@ -729,26 +737,23 @@ export function databaseC4Snapshot({
         expandedStoresWithSchemaEdges.add(operationStore.id);
       }
     }
-    relationships.push({
+    const relationship: SoftwareMapRelationshipSnapshot = {
       id: resolved.operation.anchor.id,
       from: resolved.operation.kind === "write" ? actorId : targetNodeId,
       to: resolved.operation.kind === "write" ? targetNodeId : actorId,
       kind: "semantic",
       semanticKind: resolved.operation.kind,
       label: resolved.operation.label,
-      ...(storeExpanded && resolved.operation.kind === "write"
-        ? {
-            toSchemaFieldPath: target.path,
-            toSchemaEndpointKind: "field" as const,
-          }
-        : {}),
-      ...(storeExpanded && resolved.operation.kind === "read"
-        ? {
-            fromSchemaFieldPath: target.path,
-            fromSchemaEndpointKind: "field" as const,
-          }
-        : {}),
-    });
+    };
+    if (storeExpanded && resolved.operation.kind === "write") {
+      relationship.toSchemaFieldPath = target.path;
+      relationship.toSchemaEndpointKind = "field";
+    }
+    if (storeExpanded && resolved.operation.kind === "read") {
+      relationship.fromSchemaFieldPath = target.path;
+      relationship.fromSchemaEndpointKind = "field";
+    }
+    relationships.push(relationship);
   }
   const activeTarget = resolvedOperations
     .map((resolved) => resolveTargetRef(resolved.target))
@@ -1118,19 +1123,6 @@ function targetKey(target: TargetRef, path = target.path): string {
   return `${collectionKey(target)}.${path.join(".")}`;
 }
 
-function foreignKeyTarget(
-  fk: ForeignKeyRef,
-): { table: string; fieldPath: string[] } | null {
-  if (typeof fk === "string") {
-    const [table, ...fieldPath] = fk.split(".").filter(Boolean);
-    return table && fieldPath.length > 0 ? { table, fieldPath } : null;
-  }
-  const fieldPath = fk.field.split(".").filter(Boolean);
-  return fk.table && fieldPath.length > 0
-    ? { table: fk.table, fieldPath }
-    : null;
-}
-
 function schemaValue(row: FieldRow): string {
   return row.type ?? "object";
 }
@@ -1140,7 +1132,7 @@ function flattenSchemaRows(schema: FieldSchema): FieldRow[] {
   const visit = (node: FieldSchema, prefix: string[], depth: number) => {
     for (const [field, value] of Object.entries(node)) {
       const nextPath = [...prefix, field];
-      if (isFieldLeaf(value)) {
+      if (isDataStoreFieldLeaf(value)) {
         rows.push({
           path: nextPath,
           label: field,
@@ -1148,7 +1140,7 @@ function flattenSchemaRows(schema: FieldSchema): FieldRow[] {
           type: value.type,
           pk: value.pk,
           fk: value.fk,
-          example: exampleForField(value),
+          example: exampleForDataStoreField(value),
         });
         if (value.schema) visit(value.schema, nextPath, depth + 1);
       } else {
@@ -1156,7 +1148,7 @@ function flattenSchemaRows(schema: FieldSchema): FieldRow[] {
           path: nextPath,
           label: field,
           depth,
-          example: exampleForSchema(value),
+          example: exampleForDataStoreSchema(value),
         });
         visit(value, nextPath, depth + 1);
       }
@@ -1164,35 +1156,6 @@ function flattenSchemaRows(schema: FieldSchema): FieldRow[] {
   };
   visit(schema, [], 0);
   return rows;
-}
-
-function isFieldLeaf(value: unknown): value is FieldLeaf {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    "type" in value &&
-    typeof (value as { type?: unknown }).type === "string"
-  );
-}
-
-function exampleForField(field: FieldLeaf): unknown {
-  if ("example" in field) return field.example;
-  if (field.schema) return exampleForSchema(field.schema);
-  return undefined;
-}
-
-/** Example values keyed by field, nested like the schema they illustrate. */
-interface FieldSchemaExample {
-  [field: string]: FieldLeaf["example"] | FieldSchemaExample;
-}
-
-function exampleForSchema(schema: FieldSchema): FieldSchemaExample {
-  return Object.fromEntries(
-    Object.entries(schema).map(([key, value]) => [
-      key,
-      isFieldLeaf(value) ? exampleForField(value) : exampleForSchema(value),
-    ]),
-  );
 }
 
 function tourIdFor(lensId: string, useCaseId: string): string {

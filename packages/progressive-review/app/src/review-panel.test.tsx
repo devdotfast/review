@@ -90,7 +90,7 @@ describe("Review panel host", () => {
         <ReviewDebugSettingsProvider>
           <ReviewProvider>
             <ReviewPanelProvider>
-              <OpenLayeredPanel />
+              <OpenThreadsPanel />
               <ReviewPanelHost />
             </ReviewPanelProvider>
           </ReviewProvider>
@@ -105,7 +105,7 @@ describe("Review panel host", () => {
     });
   });
 
-  it("renders one frame, scroller, backdrop, and Escape owner for layered state", async () => {
+  it("replaces Threads when a document peek opens", async () => {
     const addEventListener = vi.spyOn(document, "addEventListener");
     const container = document.createElement("div");
     document.body.append(container);
@@ -116,7 +116,7 @@ describe("Review panel host", () => {
         <ReviewDebugSettingsProvider>
           <ReviewProvider>
             <ReviewPanelProvider>
-              <OpenLayeredPanel />
+              <OpenReplacingPanel />
               <ReviewPanelHost />
             </ReviewPanelProvider>
           </ReviewProvider>
@@ -130,8 +130,8 @@ describe("Review panel host", () => {
     expect(
       container.querySelectorAll(".side-panel-sheet-resizer"),
     ).toHaveLength(1);
-    expect(container.textContent).toContain("Threads");
-    expect(container.textContent).not.toContain("Startup detail");
+    expect(container.textContent).not.toContain("Threads");
+    expect(container.textContent).toContain("Startup detail");
     expect(
       addEventListener.mock.calls.filter(([type]) => type === "keydown"),
     ).toHaveLength(1);
@@ -140,12 +140,11 @@ describe("Review panel host", () => {
       container.querySelector<HTMLButtonElement>(".side-panel-close")!.click();
     });
 
-    expect(container.querySelectorAll(".side-panel")).toHaveLength(1);
-    expect(container.querySelectorAll(".review-panel-body")).toHaveLength(1);
-    expect(container.textContent).toContain("Startup detail");
+    expect(container.querySelectorAll(".side-panel")).toHaveLength(0);
+    expect(container.querySelectorAll(".review-panel-body")).toHaveLength(0);
   });
 
-  it("drops stale detail while preserving the thread layer across a document reload", async () => {
+  it("preserves Threads across a document reload", async () => {
     const container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -155,7 +154,7 @@ describe("Review panel host", () => {
         <ReviewDebugSettingsProvider>
           <ReviewProvider>
             <ReviewPanelProvider detailRevision="document-1">
-              <OpenLayeredPanel />
+              <OpenThreadsPanel />
               <ReviewPanelHost />
             </ReviewPanelProvider>
           </ReviewProvider>
@@ -171,7 +170,7 @@ describe("Review panel host", () => {
         <ReviewDebugSettingsProvider>
           <ReviewProvider>
             <ReviewPanelProvider detailRevision="document-2">
-              <OpenLayeredPanel />
+              <OpenThreadsPanel />
               <ReviewPanelHost />
             </ReviewPanelProvider>
           </ReviewProvider>
@@ -187,7 +186,6 @@ describe("Review panel host", () => {
     });
 
     expect(container.querySelectorAll(".side-panel")).toHaveLength(0);
-    expect(container.textContent).not.toContain("Startup detail");
   });
 
   it("marks a restored panel so its entrance motion can be suppressed", async () => {
@@ -225,7 +223,7 @@ describe("Review panel host", () => {
         <ReviewDebugSettingsProvider>
           <ReviewProvider>
             <ReviewPanelProvider>
-              <OpenLayeredPanel />
+              <OpenThreadsPanel />
               <ResumeMotionListener />
               <ReviewPanelHost />
             </ReviewPanelProvider>
@@ -356,16 +354,23 @@ describe("Review panel host", () => {
   });
 });
 
-function OpenLayeredPanel() {
+function OpenReplacingPanel() {
   const openPeek = useReviewPanel((state) => state.openPeek);
   const openThreads = useReviewPanel((state) => state.openThreads);
   useEffect(() => {
-    openPeek({ id: "startup", title: "Startup detail" } as AnchorRef, {
-      kind: "inline-code",
-      text: "start();",
-    });
     openThreads();
+    openPeek({
+      kind: "peek",
+      anchor: { id: "startup", title: "Startup detail" } as AnchorRef,
+      content: { kind: "inline-code", text: "start();" },
+    });
   }, [openPeek, openThreads]);
+  return null;
+}
+
+function OpenThreadsPanel() {
+  const openThreads = useReviewPanel((state) => state.openThreads);
+  useEffect(() => openThreads(), [openThreads]);
   return null;
 }
 
@@ -410,7 +415,7 @@ function ResumeMotionListener() {
 
 function ActiveTourAnchor() {
   const activeAnchor = useReviewPanel((state) =>
-    state.detail?.kind === "tour" ? state.detail.activeAnchor : "",
+    state.active?.kind === "tour" ? state.active.activeAnchor : "",
   );
   return <output data-active-tour-anchor>{activeAnchor}</output>;
 }

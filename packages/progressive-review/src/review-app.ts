@@ -1,6 +1,11 @@
 import type { Writable } from "node:stream";
 
-import type { ReviewView } from "@dev.fast/review-protocol";
+import {
+  type JsonValue,
+  type ReviewView,
+  jsonObject,
+  jsonString,
+} from "@dev.fast/review-protocol";
 
 import { readReviewDesktopDiscovery } from "./desktop-discovery";
 import { runReviewAppLaunch } from "./review-app-launcher";
@@ -80,7 +85,7 @@ export async function runReviewAppPick(
       body: JSON.stringify(input.view ? { view: input.view } : {}),
     },
   );
-  const payload: unknown = await response.json();
+  const payload: JsonValue = await response.json();
   if (!response.ok) {
     throw new Error(reviewAppResponseError(payload, response.status));
   }
@@ -144,15 +149,9 @@ async function pickAppReview(
   return resolveAppReview(reviews, picked.uuid);
 }
 
-function reviewAppResponseError(payload: unknown, status: number): string {
-  if (
-    payload &&
-    typeof payload === "object" &&
-    !Array.isArray(payload) &&
-    "error" in payload &&
-    typeof payload.error === "string"
-  ) {
-    return payload.error;
-  }
-  return `Review Desktop returned ${status} for app open.`;
+function reviewAppResponseError(payload: JsonValue, status: number): string {
+  return (
+    jsonString(jsonObject(payload)?.error) ??
+    `Review Desktop returned ${status} for app open.`
+  );
 }

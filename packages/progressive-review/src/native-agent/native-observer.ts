@@ -1,5 +1,11 @@
-import type { JsonObject } from "@dev.fast/review-protocol";
+import {
+  type JsonObject,
+  type JsonValue,
+  isJsonObject,
+  jsonString,
+} from "@dev.fast/review-protocol";
 
+import { errorMessage } from "../error-message";
 import { AsyncQueue } from "./async-queue";
 import { readClaudeReviewMessages } from "./claude-transcript";
 import { readCodexReviewMessages } from "./codex-transcript";
@@ -16,7 +22,7 @@ import type {
   UpdatePipe,
 } from "./native-session";
 import { readPiReviewMessages } from "./pi-transcript";
-import { isJsonRecord } from "./transcript-json";
+import { isMissingFileError } from "./transcript-json";
 
 interface SessionState {
   binding: ReviewThreadAgentBinding;
@@ -73,9 +79,9 @@ export class NativeSessionObserverRegistry {
     };
   }
 
-  acceptEvent(launchId: string, payload: unknown): void {
+  acceptEvent(launchId: string, payload: JsonValue): void {
     const launch = this.#launches.get(launchId);
-    if (!launch || launch.detached || !isJsonRecord(payload)) return;
+    if (!launch || launch.detached || !isJsonObject(payload)) return;
     const event = nativeHookEvent(payload);
     const actualSessionId =
       event.sessionId ?? launch.acceptedSessionId ?? launch.expectedSessionId;
@@ -127,10 +133,10 @@ export class NativeSessionObserverRegistry {
     }
   }
 
-  observerFailed(launchId: string, error: unknown): void {
+  observerFailed(launchId: string, cause: unknown): void {
     const launch = this.#launches.get(launchId);
     if (!launch || launch.detached) return;
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(cause);
     launch.events.push({ type: "observer.failed", error: message });
     if (!launch.acceptedSessionId) launch.rejectAccepted(new Error(message));
     launch.detached = true;
@@ -265,15 +271,12 @@ function sessionKey(ref: NativeSessionRef): string {
   return `${ref.harness}:${ref.sessionId}`;
 }
 
-function isMissingTranscript(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  if (
-    "code" in error &&
-    (error as Error & { code?: unknown }).code === "ENOENT"
-  ) {
-    return true;
-  }
-  return / has no (?:rollout|transcript) file\.$/u.test(error.message);
+function isMissingTranscript(cause: unknown): boolean {
+  if (!(cause instanceof Error)) return false;
+  return (
+    isMissingFileError(cause) ||
+    / has no (?:rollout|transcript) file\.$/u.test(cause.message)
+  );
 }
 
 interface NativeHookEvent {
@@ -298,22 +301,25 @@ function nativeHookEvent(payload: JsonObject): NativeHookEvent {
     payload.hookEventName,
     payload.event,
   )?.toLowerCase();
-  return {
-    ...(sessionId ? { sessionId } : {}),
-    ...(transcriptPath ? { transcriptPath } : {}),
+  const event: NativeHookEvent = {
     completesTurn:
       eventName === "stop" ||
       eventName === "sessionend" ||
       eventName === "agent_settled",
   };
+  if (sessionId) event.sessionId = sessionId;
+  if (transcriptPath) event.transcriptPath = transcriptPath;
+  return event;
 }
 
 function wakeSession(state: SessionState): void {
   for (const listener of state.listeners) listener();
 }
 
-function firstString(...values: unknown[]): string | undefined {
-  return values.find(
-    (value): value is string => typeof value === "string" && value.length > 0,
-  );
+function firstString(...values: (JsonValue | undefined)[]): string | undefined {
+  for (const value of values) {
+    const text = jsonString(value);
+    if (text) return text;
+  }
+  return undefined;
 }

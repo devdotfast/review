@@ -3,9 +3,14 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { type JsonValue, parseJsonText } from "@dev.fast/review-protocol";
 import { init as initModuleLexer, parse as parseModule } from "es-module-lexer";
+import { z } from "zod";
 
-import type { NormalizedSoftwareModel } from "./software-map-model";
+import {
+  type NormalizedSoftwareModel,
+  isNormalizedSoftwareModel,
+} from "./software-map-model";
 
 export const REVIEW_SOFTWARE_MAP_BUNDLE_DIR = path.join(
   ".bundle",
@@ -16,11 +21,23 @@ const BASE_MAP_FILE = "base-map.js";
 const MANIFEST_FILE = "manifest.json";
 const MANIFEST_VERSION = 1;
 
-interface SoftwareMapBundleManifest {
-  version: number;
-  headCommit: string;
-  baseCommit: string;
-}
+const COMMIT_SHA_PATTERN = /^[0-9a-f]{40}$/i;
+
+const DocumentModuleSchema = z.object({ activeReviewDocument: z.unknown() });
+const EvaluatedDocumentSchema = z.object({
+  repoSoftwareMap: z.unknown(),
+  baseSoftwareMap: z.unknown(),
+});
+
+const SoftwareMapBundleManifestSchema = z.object({
+  version: z.literal(MANIFEST_VERSION),
+  headCommit: z.string().regex(COMMIT_SHA_PATTERN),
+  baseCommit: z.string().regex(COMMIT_SHA_PATTERN),
+});
+
+type SoftwareMapBundleManifest = z.infer<
+  typeof SoftwareMapBundleManifestSchema
+>;
 
 export interface ReviewSoftwareMapBundle {
   headCode: string;
@@ -83,7 +100,9 @@ export async function readReviewSoftwareMapBundle(
       readFile(path.join(bundleDir, BASE_MAP_FILE), "utf8"),
     ]);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return null;
+    }
     throw error;
   }
   const manifest = parseManifest(manifestRaw);
@@ -154,8 +173,8 @@ export async function extractLegacyReviewSoftwareMapBundle(input: {
     defineActors: identity,
     defineAnchors: identity,
     defineStores: identity,
-    defineSoftwareActors: (_model: unknown, value: unknown) => value,
-    defineSoftwareStores: (_model: unknown, value: unknown) => value,
+    defineSoftwareActors: <M, T>(_model: M, value: T): T => value,
+    defineSoftwareStores: <M, T>(_model: M, value: T): T => value,
   };
   const runtime = {
     createActiveReviewDocument(value: typeof captured) {
@@ -199,15 +218,14 @@ export async function extractLegacyReviewSoftwareMapBundle(input: {
     ]);
     const url = pathToFileURL(path.join(input.evaluationDir, documentFile));
     url.searchParams.set("t", String(Date.now()));
-    const module = (await import(url.href)) as {
-      activeReviewDocument?: typeof captured;
-    };
-    const document = (module.activeReviewDocument ?? captured) as {
-      repoSoftwareMap?: unknown;
-      baseSoftwareMap?: unknown;
-    } | null;
+    const module: unknown = await import(url.href);
+    const document = EvaluatedDocumentSchema.safeParse(
+      DocumentModuleSchema.safeParse(module).data?.activeReviewDocument ??
+        captured,
+    ).data;
     if (
-      !isNormalizedSoftwareModel(document?.repoSoftwareMap) ||
+      !document ||
+      !isNormalizedSoftwareModel(document.repoSoftwareMap) ||
       !isNormalizedSoftwareModel(document.baseSoftwareMap)
     ) {
       return null;
@@ -245,34 +263,12 @@ function bundleHash(headCode: string, baseCode: string): string {
 }
 
 function parseManifest(raw: string): SoftwareMapBundleManifest | null {
-  let value: unknown;
+  let value: JsonValue;
   try {
-    value = JSON.parse(raw);
+    value = parseJsonText(raw);
   } catch {
     return null;
   }
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const manifest = value as Partial<SoftwareMapBundleManifest>;
-  if (
-    manifest.version !== MANIFEST_VERSION ||
-    typeof manifest.headCommit !== "string" ||
-    !/^[0-9a-f]{40}$/i.test(manifest.headCommit) ||
-    typeof manifest.baseCommit !== "string" ||
-    !/^[0-9a-f]{40}$/i.test(manifest.baseCommit)
-  ) {
-    return null;
-  }
-  return manifest as SoftwareMapBundleManifest;
-}
-
-function isNormalizedSoftwareModel(
-  value: unknown,
-): value is NormalizedSoftwareModel {
-  return Boolean(
-    value &&
-    typeof value === "object" &&
-    Array.isArray((value as NormalizedSoftwareModel).elements) &&
-    (value as NormalizedSoftwareModel).elementsByPath instanceof Map &&
-    Array.isArray((value as NormalizedSoftwareModel).relationships),
-  );
+  const manifest = SoftwareMapBundleManifestSchema.safeParse(value);
+  return manifest.success ? manifest.data : null;
 }

@@ -10,6 +10,7 @@ import {
   type ReviewSessionWire,
   type ReviewThreadsCommit,
   type ReviewVerbRequest,
+  jsonString,
 } from "@dev.fast/review-protocol";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -142,10 +143,7 @@ export async function createReviewSessionHandler(
                 presentationSessionId: input.sessionId,
               },
               {
-                appSessionId:
-                  typeof properties.app_session_id === "string"
-                    ? properties.app_session_id
-                    : undefined,
+                appSessionId: jsonString(properties.app_session_id),
               },
             );
             return;
@@ -242,20 +240,14 @@ export async function createReviewSessionHandler(
     )({
       reviewRootPath,
     });
-    return jsonResponse(
-      {
-        ok: true,
-        session: {
-          ...reviewSessionPayload(),
-          resolvedBaseRef,
-          ...(input.getReviewStatus
-            ? { reviewStatus: input.getReviewStatus() }
-            : {}),
-        },
-        token,
-      },
-      200,
-    );
+    const sessionPayload: ReturnType<typeof reviewSessionPayload> & {
+      resolvedBaseRef: typeof resolvedBaseRef;
+      reviewStatus?: ReviewRecord["status"];
+    } = { ...reviewSessionPayload(), resolvedBaseRef };
+    if (input.getReviewStatus) {
+      sessionPayload.reviewStatus = input.getReviewStatus();
+    }
+    return jsonResponse({ ok: true, session: sessionPayload, token }, 200);
   });
   app.get(`${API_PREFIX}/revisions`, async () => {
     if (!input.listDocumentVersions) {

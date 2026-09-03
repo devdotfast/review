@@ -14,6 +14,7 @@ import type { PostHogCaptureInput } from "./posthog-capture-client";
 import {
   ProgressiveReviewTelemetry,
   type ProgressiveReviewTelemetryCaptureClient,
+  type ProgressiveReviewTelemetryOptions,
   REVIEW_APP_VERSION_ENV,
 } from "./progressive-review-telemetry";
 import {
@@ -90,10 +91,7 @@ describe("ProgressiveReviewTelemetry", () => {
     ["invalid", { internal: "true" }, false],
   ])("normalizes the %s stored internal marker", (_name, marker, expected) => {
     const config = normalizeTelemetryInstallConfig(
-      {
-        installationId: "existing-install",
-        ...marker,
-      } as Partial<ProgressiveReviewTelemetryInstallConfig>,
+      { installationId: "existing-install", ...marker },
       () => new Date("2026-01-02T03:04:05.000Z"),
     );
 
@@ -479,15 +477,17 @@ function createTelemetry(input?: {
       events.push(event);
     },
   };
-  const telemetry = new ProgressiveReviewTelemetry({
+  const options: ProgressiveReviewTelemetryOptions = {
     captureClient,
     env: input?.env ?? {},
     installConfigPath: configPath,
     legacyInstallConfigPath: legacyConfigPath,
     idFactory: () => input?.installationId ?? "install-123",
-    ...(input?.commandRunId ? { randomUUID: () => input.commandRunId! } : {}),
     now: () => new Date("2026-01-02T03:04:05.000Z"),
-  });
+  };
+  const commandRunId = input?.commandRunId;
+  if (commandRunId) options.randomUUID = () => commandRunId;
+  const telemetry = new ProgressiveReviewTelemetry(options);
   return { configPath, events, legacyConfigPath, rootPath, telemetry };
 }
 
@@ -506,7 +506,9 @@ function storedConfig(
 
 async function writeStoredConfig(
   configPath: string,
-  config: unknown,
+  config:
+    | Partial<ProgressiveReviewTelemetryInstallConfig>
+    | { installId: string },
 ): Promise<void> {
   await mkdir(path.dirname(configPath), { recursive: true });
   await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");

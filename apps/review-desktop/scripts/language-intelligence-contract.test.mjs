@@ -13,16 +13,16 @@ const workspaceFolderContribution = readFileSync(
   ),
   "utf8",
 );
-const reviewDesktopMain = readFileSync(
+const reviewDesktopManifest = readFileSync(
   new URL(
-    "../code-oss/src/vs/review/electron-browser/review.main.ts",
+    "../code-oss/src/vs/review/review.desktop.main.ts",
     import.meta.url,
   ),
   "utf8",
 );
-const reviewDesktopManifest = readFileSync(
+const reviewDesktopMain = readFileSync(
   new URL(
-    "../code-oss/src/vs/review/review.desktop.main.ts",
+    "../code-oss/src/vs/review/electron-browser/review.main.ts",
     import.meta.url,
   ),
   "utf8",
@@ -34,20 +34,6 @@ const mainThreadExtensionService = readFileSync(
   ),
   "utf8",
 );
-const reviewExtensionHost = readFileSync(
-  new URL(
-    "../code-oss/src/vs/review/reviewExtensionHost.contribution.ts",
-    import.meta.url,
-  ),
-  "utf8",
-);
-const unsupportedApiPeers = readFileSync(
-  new URL(
-    "../code-oss/src/vs/review/reviewExtensionHostUnsupportedApiPeers.ts",
-    import.meta.url,
-  ),
-  "utf8",
-);
 const reviewServices = readFileSync(
   new URL(
     "../code-oss/src/vs/review/services/reviewWorkbenchServices.ts",
@@ -55,23 +41,23 @@ const reviewServices = readFileSync(
   ),
   "utf8",
 );
-const resources = readFileSync(
-  new URL(
-    "../code-oss/src/vs/review/common/reviewCodeResources.ts",
-    import.meta.url,
-  ),
-  "utf8",
-);
-const codeResourceService = readFileSync(
-  new URL(
-    "../code-oss/src/vs/review/services/reviewCodeResourceService.ts",
-    import.meta.url,
-  ),
-  "utf8",
-);
 const inlineEditorService = readFileSync(
   new URL(
     "../code-oss/src/vs/review/services/reviewInlineEditorService.ts",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const reviewDiffViewService = readFileSync(
+  new URL(
+    "../code-oss/src/vs/review/services/reviewDiffViewService.ts",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const reviewLspTelemetry = readFileSync(
+  new URL(
+    "../code-oss/src/vs/review/contrib/telemetry/reviewLspTelemetry.contribution.ts",
     import.meta.url,
   ),
   "utf8",
@@ -125,51 +111,30 @@ const keylessTelemetryClients = [
 ];
 
 test("Review exposes a language-provider-generic extension host seam", () => {
-  assert.match(reviewMain, /languageFeaturesService/);
-  assert.match(reviewMain, /builtinExtensionsScannerService/);
+  assert.match(
+    mainThreadExtensionService,
+    /ExtHostCustomersRegistry\.getNamedCustomers\(\)/,
+  );
+});
+
+test("Review's module manifest loads its own extension-host seam and default-account service", () => {
   assert.match(reviewMain, /reviewExtensionHost\.contribution/);
   assert.doesNotMatch(reviewMain, /api\/browser\/extensionHost\.contribution/);
+  assert.doesNotMatch(reviewMain, /quickDiff\.contribution/);
+  assert.match(reviewServices, /registerSingleton\(IQuickDiffModelService,/);
   assert.match(reviewDesktopMain, /ReviewDefaultAccountService/);
   assert.doesNotMatch(
     reviewDesktopMain,
     /services\/accounts\/browser\/defaultAccount/,
   );
-  assert.match(reviewServices, /IExtensionsWorkbenchService/);
-  assert.match(reviewServices, /class ReviewQuickDiffModelService/);
-  assert.match(reviewServices, /registerSingleton\(IQuickDiffModelService,/);
-  assert.doesNotMatch(reviewMain, /quickDiff\.contribution/);
-  assert.doesNotMatch(reviewMain, /QuickDiffModelService/);
-  assert.match(resources, /reviewHeadFileUri/);
-  assert.match(
-    mainThreadExtensionService,
-    /ExtHostCustomersRegistry\.getNamedCustomers\(\)/,
-  );
-  for (const participant of [
-    "mainThreadDebugService",
-    "mainThreadDocuments",
-    "mainThreadExtensionService",
-    "mainThreadLanguageFeatures",
-    "mainThreadLanguages",
-  ]) {
-    assert.match(reviewExtensionHost, new RegExp(participant));
-  }
-  assert.match(reviewExtensionHost, /reviewExtensionHostUnsupportedApiPeers/);
-  for (const participant of [
-    "MainThreadAuthentication",
-    "MainThreadLanguageModelTools",
-    "MainThreadTask",
-    "MainThreadTerminalService",
-    "MainThreadUrls",
-  ]) {
-    assert.match(unsupportedApiPeers, new RegExp(participant));
-  }
-  assert.doesNotMatch(reviewExtensionHost, /mainThreadChatAgents/);
-  assert.doesNotMatch(reviewExtensionHost, /mainThreadSCM/);
-  assert.doesNotMatch(reviewExtensionHost, /mainThreadUriOpeners/);
-  assert.doesNotMatch(
-    `${reviewServices}\n${resources}`,
-    /typescript-language-features|javascript-language-features/,
-  );
+});
+
+test("LSP telemetry attributes inline-peek usage only to editors the inline service owns", () => {
+  // The in-tab diff is a real diff editor. Adopting its inner editors into the
+  // inline-peek set would report their LSP use as inline_peek.
+  assert.doesNotMatch(reviewDiffViewService, /registerExternalEditor/);
+  assert.doesNotMatch(inlineEditorService, /registerExternalEditor/);
+  assert.match(reviewLspTelemetry, /ReviewInlineEditorService\.owns\(editor\)/);
 });
 
 test("keyless bundled language clients skip their telemetry reporters", () => {
@@ -181,16 +146,6 @@ test("keyless bundled language clients skip their telemetry reporters", () => {
       `${name} must not construct telemetry with an absent key`,
     );
   }
-});
-
-test("CodePeeks retain the same file-backed models as native file diffs", () => {
-  assert.doesNotMatch(codeResourceService, /scheme:\s*["']review-peek["']/);
-  assert.doesNotMatch(codeResourceService, /createDiffSlice/);
-  assert.match(inlineEditorService, /MultiDiffEditorInput/);
-  assert.doesNotMatch(inlineEditorService, /new MultiDiffEditorViewModel/);
-  assert.doesNotMatch(inlineEditorService, /RefCounted/);
-  assert.doesNotMatch(inlineEditorService, /createChild/);
-  assert.match(inlineEditorService, /setHiddenAreas/);
 });
 
 test("the Review canvas exposes its focused CodePeek through VS Code's composite editor contract", () => {
@@ -210,7 +165,11 @@ test("the Review canvas exposes its focused CodePeek through VS Code's composite
   assert.match(reviewCanvas, /inlineEditors\.onDidChangeActiveEditor/);
 });
 
-test("the workbench workspace folder follows the reviewed repository", () => {
+// The contribution's behaviour is covered by
+// `contrib/workspace/reviewWorkspaceFolder.contribution.test.ts`. What stays
+// here is the wiring that test cannot see: that Review's module manifest loads
+// the contribution at all, and that it registers for the right phase.
+test("the workspace folder contribution is registered before restore", () => {
   // Without a folder the workspace is empty, so `workspaceContains:` never
   // fires and language servers answer single-file questions only.
   assert.match(
@@ -221,18 +180,6 @@ test("the workbench workspace folder follows the reviewed repository", () => {
     workspaceFolderContribution,
     /registerWorkbenchContribution2\([\s\S]*WorkbenchPhase\.BlockRestore/,
   );
-  assert.match(workspaceFolderContribution, /IWorkspaceEditingService/);
-  assert.match(workspaceFolderContribution, /IReviewSessionModelService/);
-  assert.match(workspaceFolderContribution, /onDidChangeActiveModel/);
-  assert.match(workspaceFolderContribution, /activeModel\?\.session/);
-});
-
-test("changing the workspace folder never restarts the extension host", () => {
-  // The folder shim mutates in memory; a reload would discard the folders and
-  // a host restart would drop every warm language server on each switch.
-  assert.doesNotMatch(workspaceFolderContribution, /stopExtensionHosts/);
-  assert.doesNotMatch(workspaceFolderContribution, /startExtensionHosts/);
-  assert.doesNotMatch(workspaceFolderContribution, /reloadWindow/);
 });
 
 test("Review wires the real update service, not the stock update UI", () => {

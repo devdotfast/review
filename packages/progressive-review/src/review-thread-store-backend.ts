@@ -4,14 +4,17 @@ import { DatabaseSync } from "node:sqlite";
 
 import {
   type JsonObject,
+  type JsonValue,
   isJsonObject,
   parseJsonText,
 } from "@dev.fast/review-protocol";
 import {
+  ReviewCommentAgentSessionSchema,
   ReviewCommentDraftThreadMapSchema,
   parseReviewCommentThreadMap,
   parseStoredReviewCommentThreadMap,
 } from "@dev.fast/review-protocol";
+import { z } from "zod";
 
 import type {
   ReviewCommentDraftThreadMap,
@@ -129,12 +132,14 @@ function openThreadDb(
 }
 
 function readThreadDbSchemaVersion(db: DatabaseSync): string | null {
+  // SAFETY: the query projects the single integer column `present`.
   const hasMeta = db
     .prepare(
       "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'meta'",
     )
     .get() as { present: number } | undefined;
   if (!hasMeta) return null;
+  // SAFETY: meta.value is a TEXT NOT NULL column (see REVIEW_THREAD_DB_DDL).
   return (
     (
       db
@@ -163,9 +168,9 @@ export type ReviewThreadDbMigrationResult = "missing" | "current" | "upgraded";
 export interface ReviewThreadDbMigrationOptions {
   force?: boolean;
   migrateLegacyCodeRecord?: (
-    record: unknown,
+    record: JsonValue,
     kind: "comment" | "comment-draft",
-  ) => Promise<unknown>;
+  ) => Promise<JsonValue>;
   onDropLegacyCodeRecord?: (input: {
     threadId: string;
     kind: "comment" | "comment-draft";
@@ -249,6 +254,8 @@ export async function migrateReviewThreadDb(
 /** Normalize message markers and remove provider provenance before validation. */
 function migrateNativeAgentSessionRecords(db: DatabaseSync): void {
   for (const table of ["comments", "comment_drafts"] as const) {
+    // SAFETY: both tables declare thread_id TEXT PRIMARY KEY and record_json
+    // TEXT NOT NULL, and every insert binds strings for them.
     const rows = db
       .prepare(`SELECT thread_id, record_json FROM ${table}`)
       .all() as Array<{ thread_id: string; record_json: string }>;
@@ -256,7 +263,7 @@ function migrateNativeAgentSessionRecords(db: DatabaseSync): void {
       `UPDATE ${table} SET record_json = ? WHERE thread_id = ?`,
     );
     for (const row of rows) {
-      const value: unknown = JSON.parse(row.record_json);
+      const value = parseJsonText(row.record_json);
       const migrated = migrateNativeAgentSessionRecord(value, table);
       if (migrated !== value) {
         update.run(JSON.stringify(migrated), row.thread_id);
@@ -266,9 +273,9 @@ function migrateNativeAgentSessionRecords(db: DatabaseSync): void {
 }
 
 function migrateNativeAgentSessionRecord(
-  value: unknown,
+  value: JsonValue,
   table: "comments" | "comment_drafts",
-): unknown {
+): JsonValue {
   if (!isJsonObject(value)) return value;
   if (table === "comment_drafts") {
     if (!isJsonObject(value.thread)) return value;
@@ -277,6 +284,11 @@ function migrateNativeAgentSessionRecord(
   }
   return migrateNativeAgentSessionThread(value);
 }
+
+/** Pre-v6 records may carry extra agent-session keys; keep only the current ones. */
+const LegacyCommentAgentSessionSchema = z.object(
+  ReviewCommentAgentSessionSchema.shape,
+);
 
 function migrateNativeAgentSessionThread(thread: JsonObject): JsonObject {
   const originalMessages = Array.isArray(thread.messages)
@@ -303,24 +315,10 @@ function migrateNativeAgentSessionThread(thread: JsonObject): JsonObject {
     ? { ...thread, messages: migratedMessages }
     : thread;
   if (!("agentSession" in migratedThread)) return migratedThread;
-  const { agentSession: session, ...preserved } = migratedThread;
-  if (
-    !isJsonObject(session) ||
-    (session.harness !== "claude-code" &&
-      session.harness !== "codex" &&
-      session.harness !== "pi") ||
-    typeof session.sessionId !== "string" ||
-    !session.sessionId
-  ) {
-    return preserved;
-  }
-  return {
-    ...preserved,
-    agentSession: {
-      harness: session.harness,
-      sessionId: session.sessionId,
-    },
-  };
+  const { agentSession, ...preserved } = migratedThread;
+  const session = LegacyCommentAgentSessionSchema.safeParse(agentSession);
+  if (!session.success) return preserved;
+  return { ...preserved, agentSession: session.data };
 }
 
 async function migrateLegacyCodeRecords(
@@ -338,12 +336,14 @@ async function migrateLegacyCodeRecords(
     { name: "comment_drafts", kind: "comment-draft" },
   ] as const;
   for (const table of tables) {
+    // SAFETY: both tables declare thread_id TEXT PRIMARY KEY and record_json
+    // TEXT NOT NULL, and every insert binds strings for them.
     const rows = db
       .prepare(`SELECT thread_id, record_json FROM ${table.name}`)
       .all() as Array<{ thread_id: string; record_json: string }>;
     for (const row of rows) {
-      const current = JSON.parse(row.record_json) as unknown;
-      let migrated: unknown;
+      const current = parseJsonText(row.record_json);
+      let migrated: JsonValue;
       try {
         migrated = await migrate(current, table.kind);
       } catch (error) {
@@ -393,6 +393,8 @@ function readThreadTable(
 ): JsonObject {
   const db = openThreadDb(dbPath, { create: false });
   if (!db) return {};
+  // SAFETY: the key column is the TEXT PRIMARY KEY and record_json is TEXT NOT
+  // NULL in both tables, and every insert binds strings for them.
   const rows = db
     .prepare(`SELECT ${keyColumn} AS key, record_json FROM ${table}`)
     .all() as Array<{ key: string; record_json: string }>;

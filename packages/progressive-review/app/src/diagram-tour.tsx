@@ -8,7 +8,8 @@ import type {
 import { useEffect, useRef } from "react";
 
 import { useReviewDebugSettings } from "./debug-settings";
-import { type GuidedTour, GuidedTourPanel } from "./review-components";
+import { GuidedTourPanel } from "./review-components";
+import type { GuidedTour } from "./review-panel-model";
 import { useReviewContainer } from "./review-root-context";
 import { useRightPanelResize } from "./side-panel-resizer";
 
@@ -45,6 +46,12 @@ export function DiagramTourOverlay({
   // element the theme modifier lives on. Carrying the modifier here keeps the
   // light theme's token overrides in scope for the stage and the panel.
   const { theme } = useReviewDebugSettings();
+  // SAFETY: `--diagram-tour-pane-width` is a CSS custom property, which React
+  // forwards to style.setProperty; the CSSProperties typings only omit custom
+  // names.
+  const overlayStyle = {
+    "--diagram-tour-pane-width": `${paneWidth}px`,
+  } as CSSProperties;
   return (
     <div
       ref={overlayRef}
@@ -52,7 +59,7 @@ export function DiagramTourOverlay({
       role="dialog"
       aria-modal="true"
       aria-label={`${tour.title ?? "Guided"} tour`}
-      style={{ "--diagram-tour-pane-width": `${paneWidth}px` } as CSSProperties}
+      style={overlayStyle}
     >
       <div className="diagram-tour-stage">{children}</div>
       <div

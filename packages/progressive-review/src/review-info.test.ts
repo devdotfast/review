@@ -15,28 +15,32 @@ import { promisify } from "node:util";
 import { describe, expect, it, vi } from "vitest";
 
 import { createReviewDir } from "./review-home";
-import { runReviewRebind } from "./review-rebind";
-import { runReviewScaffold } from "./review-scaffold";
+import { runReviewRebind as rebindReview } from "./review-rebind";
+import {
+  type RunReviewScaffoldInput,
+  runReviewScaffold as scaffoldReview,
+} from "./review-scaffold";
+import type { createReviewSourceAgentSession } from "./review-source-agent-session";
 import { reviewSourceHeadRef } from "./review-source-ref";
 import { appendReviewComment, updateReviewComment } from "./review-state-store";
 import { closeAllReviewThreadStores } from "./review-thread-store-backend";
 import { resolveReviewInfo } from "./server/review-info";
 
 const execFilePromise = promisify(execFile);
-const createReviewSourceAgentSession = vi.hoisted(() =>
-  vi.fn<
-    (input: {
-      agent: { harness: string; sessionId: string };
-    }) => Promise<{ harness: string; sessionId: string }>
-  >(async ({ agent }: { agent: { harness: string; sessionId: string } }) => ({
-    harness: agent.harness,
-    sessionId: `${agent.sessionId}-fork`,
-  })),
-);
 
-vi.mock("./review-source-agent-session", () => ({
-  createReviewSourceAgentSession,
-}));
+// The native fork needs a live harness transcript; stand in a deterministic
+// fork so scaffold and rebind can bind a source session from env alone.
+const createSourceAgentSession: typeof createReviewSourceAgentSession = async ({
+  agent,
+}) => ({ harness: agent.harness, sessionId: `${agent.sessionId}-fork` });
+
+function runReviewScaffold(input: RunReviewScaffoldInput) {
+  return scaffoldReview({ ...input, createSourceAgentSession });
+}
+
+function runReviewRebind(input: Parameters<typeof rebindReview>[0]) {
+  return rebindReview({ ...input, createSourceAgentSession });
+}
 
 describe("review info", () => {
   it("returns an empty list without creating a review", async () => {
@@ -341,7 +345,7 @@ describe("review info", () => {
       expect(next.reviews[0]?.uuid).not.toBe(initial.reviews[0]?.uuid);
       const duplicateError = await runReviewScaffold({ cwd: root }).then(
         () => "",
-        (error: unknown) => String(error),
+        (cause: unknown) => String(cause),
       );
       expect(duplicateError).toContain(initial.reviews[0]!.uuid);
       expect(duplicateError).toContain(next.reviews[0]!.uuid);

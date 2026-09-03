@@ -475,10 +475,15 @@ function diagnostics(): BugReportPayload["diagnostics"] {
   };
 }
 
-interface CapturedPart {
-  name: string;
-  value: string | { filename: string; type: string; bytes: Buffer };
+interface CapturedFile {
+  filename: string;
+  type: string;
+  bytes: Buffer;
 }
+
+type CapturedPart =
+  | { name: string; text: string }
+  | { name: string; file: CapturedFile };
 
 interface CapturedFetch {
   fetchImpl: typeof fetch;
@@ -500,24 +505,25 @@ function captureFetch(): CapturedFetch {
     const form = init?.body;
     if (!(form instanceof FormData)) throw new Error("Expected FormData.");
     for (const [name, value] of form.entries()) {
-      capturedParts.push({
-        name,
-        value:
-          typeof value === "string"
-            ? value
-            : {
+      capturedParts.push(
+        value instanceof File
+          ? {
+              name,
+              file: {
                 filename: value.name,
                 type: value.type,
                 bytes: Buffer.from(await value.arrayBuffer()),
               },
-      });
+            }
+          : { name, text: value },
+      );
     }
     return successResponse();
   };
   const part = (name: string) => {
     const result = capturedParts.find((candidate) => candidate.name === name);
     if (!result) throw new Error(`Missing captured ${name} part.`);
-    return result.value;
+    return result;
   };
   return {
     fetchImpl,
@@ -525,23 +531,23 @@ function captureFetch(): CapturedFetch {
     headers: () => headers ?? new Headers(),
     parts: () => capturedParts,
     textPart: (name) => {
-      const value = part(name);
-      if (typeof value !== "string") throw new Error(`${name} is not text.`);
-      return value;
+      const captured = part(name);
+      if (!("text" in captured)) throw new Error(`${name} is not text.`);
+      return captured.text;
     },
     filePart: (name) => {
-      const value = part(name);
-      if (typeof value === "string") throw new Error(`${name} is not a file.`);
-      return value.bytes;
+      const captured = part(name);
+      if (!("file" in captured)) throw new Error(`${name} is not a file.`);
+      return captured.file.bytes;
     },
     fileParts: (name) =>
       capturedParts
         .filter((candidate) => candidate.name === name)
         .map((candidate) => {
-          if (typeof candidate.value === "string") {
+          if (!("file" in candidate)) {
             throw new Error(`${name} is not a file.`);
           }
-          return candidate.value.bytes;
+          return candidate.file.bytes;
         }),
   };
 }
@@ -566,17 +572,13 @@ function codexTrace(
     endOrdinalExclusive: number;
   },
 ): string {
-  const payload = {
-    id,
-    ...(parent
-      ? {
-          history_base: {
-            thread_id: parent.parentId,
-            end_ordinal_exclusive: parent.endOrdinalExclusive,
-          },
-        }
-      : {}),
-  };
+  const payload: JsonObject = { id };
+  if (parent) {
+    payload.history_base = {
+      thread_id: parent.parentId,
+      end_ordinal_exclusive: parent.endOrdinalExclusive,
+    };
+  }
   return [{ type: "session_meta", payload }, ...records]
     .map(
       (value, index) =>

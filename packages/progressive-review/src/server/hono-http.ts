@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
+import { type JsonValue, parseJsonText } from "@dev.fast/review-protocol";
 import { type HttpBindings, getRequestListener } from "@hono/node-server";
 import type { Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -18,8 +19,8 @@ export function createNodeRequestListener(
   return getRequestListener(app.fetch);
 }
 
-export function jsonResponse(
-  body: unknown,
+export function jsonResponse<T>(
+  body: T,
   status: ContentfulStatusCode,
   options: {
     cacheControl?: string;
@@ -93,9 +94,9 @@ export function isAuthorizedRequest(
 export async function readBoundedRequestJson(
   request: Request,
   maxBytes = DEFAULT_MAX_REQUEST_BYTES,
-  emptyValue?: unknown,
+  emptyValue?: JsonValue,
   options: { allowTextPlain?: boolean } = {},
-): Promise<unknown> {
+): Promise<JsonValue> {
   assertJsonContentType(request, options);
   const contentLength = Number(request.headers.get("content-length"));
   if (Number.isFinite(contentLength) && contentLength > maxBytes) {
@@ -125,7 +126,7 @@ export async function readBoundedRequestJson(
   const body = Buffer.concat(chunks).toString("utf8");
   if (!body && emptyValue !== undefined) return emptyValue;
   try {
-    return JSON.parse(body) as unknown;
+    return parseJsonText(body);
   } catch {
     throw new HttpJsonError("Invalid JSON body.", 400);
   }

@@ -3,13 +3,21 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 
+import { type JsonValue, parseJsonText } from "@dev.fast/review-protocol";
+import { z } from "zod";
+
+import { isMissingFileError } from "./native-agent/transcript-json";
 import { writePrivateJsonAtomic } from "./server/desktop-paths";
 import { processIsAlive, withFileLock } from "./with-file-lock";
 
-type WaitState = {
-  delivered: string[];
-  waiter: { ownerToken: string; pid: number } | null;
-};
+const waitStateSchema = z.object({
+  delivered: z.array(z.string()),
+  waiter: z
+    .object({ ownerToken: z.string(), pid: z.int().positive() })
+    .nullable(),
+});
+
+type WaitState = z.infer<typeof waitStateSchema>;
 
 export type ReviewCodexWaitOwner = {
   env: NodeJS.ProcessEnv;
@@ -137,37 +145,22 @@ async function updateWaitState<T>(
 }
 
 async function readWaitState(statePath: string): Promise<WaitState> {
-  let value: unknown;
+  let value: JsonValue;
   try {
-    value = JSON.parse(await readFile(statePath, "utf8"));
+    value = parseJsonText(await readFile(statePath, "utf8"));
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+    if (isMissingFileError(error)) {
       return { waiter: null, delivered: [] };
     }
     throw new Error(`Could not read Codex waiter state at ${statePath}.`, {
       cause: error,
     });
   }
-  if (!isWaitState(value)) {
+  const state = waitStateSchema.safeParse(value);
+  if (!state.success) {
     throw new Error(`Codex waiter state is invalid at ${statePath}.`);
   }
-  return value;
-}
-
-function isWaitState(value: unknown): value is WaitState {
-  if (typeof value !== "object" || value === null) return false;
-  const state = value as Partial<WaitState>;
-  const waiter = state.waiter;
-  return (
-    Array.isArray(state.delivered) &&
-    state.delivered.every((id) => typeof id === "string") &&
-    (waiter === null ||
-      (typeof waiter === "object" &&
-        typeof waiter.ownerToken === "string" &&
-        typeof waiter.pid === "number" &&
-        Number.isInteger(waiter.pid) &&
-        waiter.pid > 0))
-  );
+  return state.data;
 }
 
 function reviewCodexWaitStatePath(input: {

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import type { JsonValue } from "./json.js";
+
 const requiredString = z
   .string({ error: "must be a string" })
   .refine((value) => value.trim().length > 0, "must be a string");
@@ -147,13 +149,13 @@ export type ReviewBugReportResponse = z.infer<
 >;
 
 export function parseReviewBugReportRequest(
-  value: unknown,
+  value: JsonValue,
 ): ReviewBugReportRequest {
   return ReviewBugReportRequestSchema.parse(value);
 }
 
 export function parseReviewBugReportResponse(
-  value: unknown,
+  value: JsonValue,
 ): ReviewBugReportResponse {
   return ReviewBugReportResponseSchema.parse(value);
 }

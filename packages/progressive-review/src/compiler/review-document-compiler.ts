@@ -4,13 +4,16 @@ import { createRequire } from "node:module";
 import path from "node:path";
 
 import { compile } from "@mdx-js/mdx";
+import type { Nodes as MdastNode, Root } from "mdast";
 import remarkMdx from "remark-mdx";
 import {
+  type Mapping,
   type RawSourceMap,
   SourceMapConsumer,
   SourceMapGenerator,
 } from "source-map";
 import ts from "typescript";
+import { z } from "zod";
 
 import {
   progressiveReviewAppSourcePath,
@@ -19,6 +22,7 @@ import {
 import { maskReviewFrontmatter } from "../review-frontmatter";
 import {
   type ReviewMdxDocument,
+  isMdxAttributeValueExpression,
   parseReviewMdxDocument,
 } from "../review-mdx-ast";
 import { reviewTypescriptEstreeParser } from "../review-mdx-typescript-parser";
@@ -29,6 +33,31 @@ import { reviewMdxOptions } from "./review-mdx-options";
 import { reviewHelperImports } from "./review-mdx-transform";
 
 const require = createRequire(import.meta.url);
+
+const RawSourceMapSchema = z.object({
+  version: z.number(),
+  sources: z.array(z.string()),
+  names: z.array(z.string()),
+  sourceRoot: z.string().optional(),
+  sourcesContent: z.array(z.string()).optional(),
+  mappings: z.string(),
+  file: z.string(),
+});
+
+// The fields an MDX parse error (a VFileMessage) carries its position in.
+const MdxPointSchema = z.object({
+  line: z.number().optional().catch(undefined),
+  column: z.number().optional().catch(undefined),
+});
+const MdxErrorSchema = z.object({
+  message: z.string().optional().catch(undefined),
+  line: z.number().optional().catch(undefined),
+  column: z.number().optional().catch(undefined),
+  place: z
+    .object({ start: MdxPointSchema.optional().catch(undefined) })
+    .optional()
+    .catch(undefined),
+});
 
 export interface ReviewDocumentInput {
   filePath: string;
@@ -269,7 +298,7 @@ export async function compileReviewDocument(
     };
   }
   const mdxCode = String(file);
-  const runtimeMap = file.map as RawSourceMap | undefined;
+  const runtimeMap = file.map ?? undefined;
   const syntaxDiagnostics = unsupportedTypescriptDiagnostics(
     input,
     authoredTypescript,
@@ -332,7 +361,7 @@ async function emitReviewRuntime(
     map: await composeRuntimeSourceMap({
       filePath,
       prefixLineOffset: countLines(prefix) - 1,
-      transpileMap: JSON.parse(emitted.sourceMapText) as RawSourceMap,
+      transpileMap: RawSourceMapSchema.parse(JSON.parse(emitted.sourceMapText)),
       mdxMap,
     }),
   };
@@ -390,15 +419,16 @@ async function composeRuntimeSourceMap(input: {
       ) {
         return;
       }
-      generator.addMapping({
+      const composed: Mapping = {
         generated: {
           line: mapping.generatedLine + input.prefixLineOffset,
           column: mapping.generatedColumn,
         },
         original: { line: authored.line, column: authored.column },
         source: input.filePath,
-        ...(authored.name ? { name: authored.name } : {}),
-      });
+      };
+      if (authored.name) composed.name = authored.name;
+      generator.addMapping(composed);
     });
     if (input.mdxMap.sourcesContent?.[0] !== undefined) {
       generator.setSourceContent(
@@ -413,28 +443,46 @@ async function composeRuntimeSourceMap(input: {
   }
 }
 
+// The mdast nodes that carry authored JavaScript: ESM blocks, expressions in
+// flow or text position, and JSX attribute value expressions.
+type AuthoredMdxNode = { value: string } & Pick<MdastNode, "position">;
+
 function collectAuthoredTypescript(regions: AuthoredTypescriptRegion[]) {
-  return () => (tree: unknown) => {
-    walkUnknownTree(tree, (node) => {
-      const kind =
-        node.type === "mdxjsEsm"
-          ? "esm"
-          : node.type === "mdxFlowExpression" ||
-              node.type === "mdxTextExpression" ||
-              node.type === "mdxJsxAttributeValueExpression"
-            ? "expression"
-            : null;
-      if (!kind || typeof node.value !== "string" || !node.value.trim()) return;
-      const position = node.position as
-        | { start?: { line?: number; column?: number } }
-        | undefined;
-      regions.push({
-        kind,
-        value: node.value,
-        sourceStartLine: position?.start?.line ?? 1,
-        sourceStartColumn:
-          (position?.start?.column ?? 1) + (kind === "expression" ? 1 : 0),
-      });
+  const collect = (
+    kind: AuthoredTypescriptRegion["kind"],
+    node: AuthoredMdxNode,
+  ): void => {
+    if (!node.value.trim()) return;
+    regions.push({
+      kind,
+      value: node.value,
+      sourceStartLine: node.position?.start.line ?? 1,
+      sourceStartColumn:
+        (node.position?.start.column ?? 1) + (kind === "expression" ? 1 : 0),
+    });
+  };
+  return () => (tree: Root) => {
+    walkMdast(tree, (node) => {
+      if (node.type === "mdxjsEsm") {
+        collect("esm", node);
+      } else if (
+        node.type === "mdxFlowExpression" ||
+        node.type === "mdxTextExpression"
+      ) {
+        collect("expression", node);
+      } else if (
+        node.type === "mdxJsxFlowElement" ||
+        node.type === "mdxJsxTextElement"
+      ) {
+        for (const attribute of node.attributes) {
+          if (
+            attribute.type === "mdxJsxAttribute" &&
+            isMdxAttributeValueExpression(attribute.value)
+          ) {
+            collect("expression", attribute.value);
+          }
+        }
+      }
     });
   };
 }
@@ -779,20 +827,17 @@ function typescriptDiagnostic(
         : original.column + 1;
   }
   if (sourceLine === undefined && !isGeneratedMdxDiagnostic) return [];
-  return [
-    {
-      source: "typescript",
-      severity:
-        diagnostic.category === ts.DiagnosticCategory.Error
-          ? "error"
-          : "warning",
-      code: `TS${diagnostic.code}`,
-      message,
-      filePath: input.authoredFilePath,
-      ...(sourceLine === undefined ? {} : { line: sourceLine }),
-      ...(sourceColumn === undefined ? {} : { column: sourceColumn }),
-    },
-  ];
+  const mapped: ReviewDocumentDiagnostic = {
+    source: "typescript",
+    severity:
+      diagnostic.category === ts.DiagnosticCategory.Error ? "error" : "warning",
+    code: `TS${diagnostic.code}`,
+    message,
+    filePath: input.authoredFilePath,
+  };
+  if (sourceLine !== undefined) mapped.line = sourceLine;
+  if (sourceColumn !== undefined) mapped.column = sourceColumn;
+  return [mapped];
 }
 
 function createSourceMapConsumer(map: RawSourceMap) {
@@ -839,21 +884,19 @@ function countLines(value: string): number {
   return value.split(/\r\n|\n|\r/).length;
 }
 
-function walkUnknownTree(
-  value: unknown,
-  visit: (node: EstreeNode) => void,
-): void {
-  if (!value || typeof value !== "object") return;
-  if (Array.isArray(value)) {
-    for (const entry of value) walkUnknownTree(entry, visit);
-    return;
-  }
-  const node = value as EstreeNode;
+function walkMdast(node: MdastNode, visit: (node: MdastNode) => void): void {
   visit(node);
-  for (const [property, child] of Object.entries(node)) {
-    if (property === "position" || property === "data") continue;
-    walkUnknownTree(child, visit);
+  if ("children" in node) {
+    for (const child of node.children) walkMdast(child, visit);
   }
+}
+
+// Every estree node carries a string `type`; the other objects hanging off a
+// node (`loc`, a literal's `regex`, ...) do not.
+const estreeNodeSchema = z.object({ type: z.string() });
+
+function isEstreeNode(value: EstreeValue): value is EstreeNode {
+  return estreeNodeSchema.safeParse(value).success;
 }
 
 function eraseTypescriptRecma() {
@@ -864,12 +907,12 @@ function eraseTypescriptRecma() {
 }
 
 function eraseTypescriptNode(value: EstreeValue): EstreeValue {
-  if (!value || typeof value !== "object") return value;
   if (Array.isArray(value)) {
     return value
       .map((entry) => eraseTypescriptNode(entry))
       .filter((entry) => entry !== null);
   }
+  if (!isEstreeNode(value)) return value;
 
   const node = value;
   if (
@@ -888,9 +931,7 @@ function eraseTypescriptNode(value: EstreeValue): EstreeValue {
     if (Array.isArray(node.specifiers)) {
       node.specifiers = node.specifiers.filter(
         (specifier) =>
-          !specifier ||
-          typeof specifier !== "object" ||
-          (specifier as EstreeNode).importKind !== "type",
+          !isEstreeNode(specifier) || specifier.importKind !== "type",
       );
     }
   }
@@ -925,19 +966,14 @@ function eraseTypescriptNode(value: EstreeValue): EstreeValue {
 
 function mdxDiagnostic(
   filePath: string,
-  error: unknown,
+  cause: unknown,
 ): ReviewDocumentDiagnostic {
-  const candidate = error as {
-    message?: string;
-    line?: number;
-    column?: number;
-    place?: { start?: { line?: number; column?: number } };
-  };
+  const candidate = MdxErrorSchema.safeParse(cause).data;
   return {
     source: "mdx",
     severity: "error",
     code: "MDX_PARSE_ERROR",
-    message: candidate?.message ?? String(error),
+    message: candidate?.message ?? String(cause),
     filePath,
     line: candidate?.line ?? candidate?.place?.start?.line,
     column: candidate?.column ?? candidate?.place?.start?.column,

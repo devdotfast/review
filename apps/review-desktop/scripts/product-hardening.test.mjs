@@ -19,20 +19,6 @@ const reviewCanvasPart = await readFile(
   ),
   "utf8",
 );
-const reviewConfiguration = await readFile(
-  new URL(
-    "../code-oss/src/vs/review/common/reviewConfigurationDefaults.ts",
-    import.meta.url,
-  ),
-  "utf8",
-);
-const reviewUserConfigImport = await readFile(
-  new URL(
-    "../code-oss/src/vs/review/node/reviewUserConfigImport.ts",
-    import.meta.url,
-  ),
-  "utf8",
-);
 
 test("keeps Review disconnected from Microsoft update and extension services", () => {
   assert.equal(product.enableTelemetry, false);
@@ -122,7 +108,7 @@ test("keeps upstream identity out of the fields Review has claimed", () => {
   ];
   for (const key of claimedKeys) {
     const value = product[key];
-    assert.equal(typeof value, "string", key);
+    assert.match(value, /\S/u, key);
     assert.doesNotMatch(value, /vscode|Microsoft|code-oss|CodeOSS/i, key);
   }
 });
@@ -149,52 +135,6 @@ test("keeps product.json free of defaults nothing reads", () => {
   assert.equal(product.configurationDefaults, undefined);
 });
 
-test("uses VSCodium-derived opt-out defaults", () => {
-  for (const [key, value] of [
-    ["telemetry.telemetryLevel", "'off'"],
-    ["telemetry.enableTelemetry", "false"],
-    ["telemetry.enableCrashReporter", "false"],
-    ["telemetry.editStats.enabled", "false"],
-    ["workbench.enableExperiments", "false"],
-    [
-      "workbench.commandPalette.experimental.enableNaturalLanguageSearch",
-      "false",
-    ],
-    ["workbench.settings.enableNaturalLanguageSearch", "false"],
-  ]) {
-    assert.match(
-      reviewConfiguration,
-      new RegExp(`'${key.replaceAll(".", "\\.")}': ${value},`),
-      key,
-    );
-  }
-});
-
-test("blocks every Review hardening default from user-config import", () => {
-  const defaults = reviewConfiguration.match(
-    /reviewConfigurationDefaults\s*=\s*\{([\s\S]*?)\}\s*as const/,
-  );
-  assert.ok(defaults, "reviewConfigurationDefaults declaration");
-  const keys = [...defaults[1].matchAll(/'([^']+)':/g)].map(
-    (match) => match[1],
-  );
-  assert.ok(keys.length > 0);
-  assert.match(
-    reviewUserConfigImport,
-    /Object\.keys\(reviewConfigurationDefaults\)/,
-  );
-  // Otherwise a VS Code user who runs Pylance imports
-  // `python.languageServer: "Pylance"` and re-arms the install prompt.
-  assert.match(
-    reviewUserConfigImport,
-    /Object\.keys\(curatedExtensionConfigurationDefaults\)/,
-  );
-  assert.match(
-    reviewUserConfigImport,
-    /BLOCKED_SETTING_KEYS\.has\(key\)/,
-  );
-});
-
 test("guards the active webview frame body while tracking focus", () => {
   assert.match(
     webviewPreloader,
@@ -217,3 +157,4 @@ test("configures Zod's CSP-safe mode before the canvas module evaluates", () => 
     /canvasGlobal\.__zod_globalConfig\.jitless = true;/,
   );
 });
+

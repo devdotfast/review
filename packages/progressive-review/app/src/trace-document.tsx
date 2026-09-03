@@ -40,8 +40,13 @@ export interface IndexedTraceTurnEvent {
   index: number;
 }
 
+export interface IndexedTraceUserItem {
+  event: Extract<TraceTurnEvent, { kind: "user" }>;
+  index: number;
+}
+
 export interface IndexedTraceTurnGroup {
-  user: IndexedTraceTurnEvent | null;
+  user: IndexedTraceUserItem | null;
   work: IndexedTraceTurnEvent[];
   final: IndexedTraceTurnEvent[];
   workedMs: number | null;
@@ -52,23 +57,16 @@ export function buildIndexedTraceTurns(
 ): IndexedTraceTurnGroup[] {
   const turns: IndexedTraceTurnGroup[] = [];
   let current: {
-    user: IndexedTraceTurnEvent | null;
+    user: IndexedTraceUserItem | null;
     items: IndexedTraceTurnEvent[];
   } | null = null;
 
   const finish = () => {
     if (!current) return;
     let splitIndex = current.items.length;
-    while (
-      splitIndex > 0 &&
-      current.items[splitIndex - 1].event.kind === "assistant" &&
-      !(
-        current.items[splitIndex - 1].event as Extract<
-          TraceTurnEvent,
-          { kind: "assistant" }
-        >
-      ).thinking
-    ) {
+    while (splitIndex > 0) {
+      const event = current.items[splitIndex - 1].event;
+      if (event.kind !== "assistant" || event.thinking) break;
       splitIndex -= 1;
     }
     const allItems = current.user
@@ -102,9 +100,7 @@ export function buildTraceTurns(
   events: ReviewAgentTraceEvent[],
 ): TraceTurnGroup[] {
   return buildIndexedTraceTurns(events).map((t) => ({
-    user: t.user
-      ? (t.user.event as Extract<TraceTurnEvent, { kind: "user" }>)
-      : null,
+    user: t.user ? t.user.event : null,
     work: t.work.map((w) => w.event),
     final: t.final.map((f) => f.event),
     workedMs: t.workedMs,
@@ -146,7 +142,7 @@ export function groupIndexedWorkEvents(
   };
   for (const item of work) {
     if (item.event.kind === "tool") {
-      run.push(item as IndexedTraceToolItem);
+      run.push({ event: item.event, index: item.index });
       continue;
     }
     flush();
@@ -787,12 +783,18 @@ export function TraceTurn({
     const isTarget = item.index === targetEventIndex;
     const quote = isTarget || isTargetTurn ? highlightQuote : undefined;
     const keep = effectiveIncluded?.get(item.index);
-    const shouldElide =
+    const elidable =
+      item.event.kind === "user" || item.event.kind === "assistant"
+        ? item.event
+        : null;
+    const elided =
       keep !== undefined &&
       keep !== null &&
       keep.length > 0 &&
-      (item.event.kind === "user" || item.event.kind === "assistant") &&
-      !expandedEvents.has(item.index);
+      elidable !== null &&
+      !expandedEvents.has(item.index)
+        ? { event: elidable, keep }
+        : null;
 
     return (
       <div
@@ -801,15 +803,10 @@ export function TraceTurn({
         className={isTarget ? "review-trace-target-turn" : undefined}
         data-trace-event={item.index}
       >
-        {shouldElide ? (
+        {elided ? (
           <ElidedMessage
-            event={
-              item.event as Extract<
-                TraceTurnEvent,
-                { kind: "user" | "assistant" }
-              >
-            }
-            keep={keep}
+            event={elided.event}
+            keep={elided.keep}
             quote={quote}
             onExpand={() => onExpandEvent(item.index)}
           />
@@ -911,7 +908,7 @@ export function TraceTurn({
         elements.push(topRow);
       }
       if (turnCoalesce && item.event.kind === "tool") {
-        toolRun.push(item as IndexedTraceToolItem);
+        toolRun.push({ event: item.event, index: item.index });
       } else {
         flushToolRun();
         elements.push(renderTurnEvent(item));
@@ -1068,9 +1065,8 @@ export function TraceDocument({
     const targetTurn = document.getElementById("review-trace-target-event");
     const quoteMark = targetTurn?.querySelector(".review-trace-quote-mark");
     const el = quoteMark ?? targetTurn;
-    if (el && typeof el.scrollIntoView === "function") {
-      el.scrollIntoView({ block: "center", behavior: "auto" });
-    }
+    // jsdom has no scrollIntoView, so the call stays optional.
+    el?.scrollIntoView?.({ block: "center", behavior: "auto" });
   }, [targetEventIndex, events, highlightQuote]);
 
   const [expandedGaps, setExpandedGaps] = useState<ReadonlySet<number>>(

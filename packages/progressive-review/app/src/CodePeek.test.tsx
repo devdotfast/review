@@ -262,7 +262,7 @@ describe("CodePeek native editor", () => {
     ).toBe(true);
 
     expect(container.querySelector(".code-peek-card")).toBeNull();
-    expect(typeof created[0]?.onDidOpen).toBe("function");
+    expect(created[0]?.onDidOpen).toBeTypeOf("function");
 
     await act(async () => {
       created[0]?.onDidOpen?.();
@@ -474,7 +474,7 @@ describe("CodePeek native editor", () => {
 
     expect(container.querySelector(".code-peek-card")).toBeNull();
     expect(created[0]?.diffStats).toBeUndefined();
-    expect(typeof created[0]?.onDidOpen).toBe("function");
+    expect(created[0]?.onDidOpen).toBeTypeOf("function");
     expect(
       container.querySelector("[data-review-inline-editor]"),
     ).not.toBeNull();

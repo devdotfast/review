@@ -1,3 +1,10 @@
+import {
+  isJsonObject,
+  jsonBoolean,
+  jsonProperty,
+  jsonString,
+} from "@dev.fast/review-protocol";
+
 import type { ReviewSession } from "../host/review-session";
 
 export async function refreshSoftwareMapArtifacts(
@@ -7,14 +14,15 @@ export async function refreshSoftwareMapArtifacts(
   const response = await reviewFetch("/software-map/artifacts/refresh", {
     method: "POST",
   });
-  const json = (await response.json()) as
-    | { ok: true; refresh: { status: "rematerialized" | "skipped" } }
-    | { ok: false; error?: string };
-  if (!response.ok || !json.ok) {
+  const json: unknown = await response.json();
+  const body = isJsonObject(json) ? json : null;
+  const ok = body ? jsonBoolean(jsonProperty(body, "ok")) === true : false;
+  if (!response.ok || !ok) {
+    const error = body ? jsonString(jsonProperty(body, "error")) : undefined;
     throw new Error(
-      json.ok
+      ok
         ? "SoftwareMap artifact refresh failed"
-        : (json.error ?? "SoftwareMap artifact refresh failed"),
+        : (error ?? "SoftwareMap artifact refresh failed"),
     );
   }
 }

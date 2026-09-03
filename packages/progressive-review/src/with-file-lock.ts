@@ -2,6 +2,12 @@ import { mkdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
+import {
+  jsonNumber,
+  jsonObject,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
+
 const LOCK_OWNER_FILE = "owner.json";
 const DEFAULT_HEARTBEAT_MS = 30_000;
 
@@ -55,7 +61,11 @@ export async function withFileLock<T>(
       }
       break;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if (
+        !(error instanceof Error && "code" in error && error.code === "EEXIST")
+      ) {
+        throw error;
+      }
       const lockAge = await stat(lockPath)
         .then((metadata) => Date.now() - metadata.mtimeMs)
         .catch(() => 0);
@@ -88,7 +98,7 @@ export function processIsAlive(pid: number): boolean {
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
+    return error instanceof Error && "code" in error && error.code === "EPERM";
   }
 }
 
@@ -105,9 +115,9 @@ function startHeartbeat(lockPath: string, intervalMs: number): NodeJS.Timeout {
 
 async function readLockOwner(lockPath: string): Promise<number | null> {
   return readFile(path.join(lockPath, LOCK_OWNER_FILE), "utf8")
-    .then((contents) => {
-      const value = JSON.parse(contents) as { pid?: unknown };
-      return typeof value.pid === "number" ? value.pid : null;
-    })
+    .then(
+      (contents) =>
+        jsonNumber(jsonObject(parseJsonText(contents))?.pid) ?? null,
+    )
     .catch(() => null);
 }

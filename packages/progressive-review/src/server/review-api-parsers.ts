@@ -1,5 +1,6 @@
 import {
   CreateReviewCommentInputSchema,
+  type JsonValue,
   ReviewBugReportRequestSchema,
   ReviewDiffFilesRequestSchema,
   ReviewThreadsCommandSchema,
@@ -30,7 +31,7 @@ const positiveIntegerSchema = z.coerce
   .int("must be a positive integer")
   .positive("must be a positive integer");
 
-const softwareMapLineRangeShape = {
+const softwareMapLineRangeFields = {
   fromLine: positiveIntegerSchema,
   toLine: positiveIntegerSchema,
 };
@@ -49,10 +50,10 @@ function validateSoftwareMapLineRange(
 }
 
 export const SoftwareMapLineRangeInputSchema = z
-  .strictObject(softwareMapLineRangeShape)
+  .strictObject(softwareMapLineRangeFields)
   .superRefine(validateSoftwareMapLineRange);
 
-export function parseReviewBugReportInput(value: unknown) {
+export function parseReviewBugReportInput(value: JsonValue) {
   const parsed = ReviewBugReportRequestSchema.parse(value);
   if (
     Buffer.byteLength(parsed.description, "utf8") >
@@ -80,7 +81,7 @@ export function parseReviewBugReportInput(value: unknown) {
 export const SoftwareMapSourceRangeInputSchema = z
   .strictObject({
     file: nonEmptyStringSchema,
-    ...softwareMapLineRangeShape,
+    ...softwareMapLineRangeFields,
   })
   .superRefine(validateSoftwareMapLineRange);
 
@@ -168,15 +169,15 @@ export const UpdateReviewCommentInputSchema = z.strictObject({
   messageId: nonEmptyStringSchema.optional(),
 });
 
-export function requestJsonErrorStatus(error: unknown): number {
-  return error instanceof HttpJsonError ? error.statusCode : 400;
+export function requestJsonErrorStatus(cause: unknown): number {
+  return cause instanceof HttpJsonError ? cause.statusCode : 400;
 }
 
-export function parseCodePeekRoot(value: unknown) {
+export function parseCodePeekRoot(value: JsonValue) {
   return parseZod(CodePeekRootInputSchema, value, "CodePeek root");
 }
 
-export function parseSoftwareMapCodeElements(value: unknown) {
+export function parseSoftwareMapCodeElements(value: JsonValue) {
   if (!Array.isArray(value)) {
     throw new Error("SoftwareMap codeElements must be an array");
   }
@@ -187,7 +188,7 @@ export function parseSoftwareMapCodeElements(value: unknown) {
   );
 }
 
-export function parseSoftwareMapCoverageClaims(value: unknown) {
+export function parseSoftwareMapCoverageClaims(value: JsonValue | undefined) {
   if (value === undefined) return [];
   if (!Array.isArray(value)) {
     throw new Error("SoftwareMap coverageClaims must be an array");
@@ -200,13 +201,13 @@ export function parseSoftwareMapCoverageClaims(value: unknown) {
 }
 
 export function parseReviewSubmissionInput(
-  value: unknown,
+  value: JsonValue,
 ): CreateReviewSubmissionInput {
   return parseZod(ReviewSubmissionInputSchema, value, "Review submission");
 }
 
 export function parseReviewTabTelemetryInput(
-  value: unknown,
+  value: JsonValue,
 ): ReviewTabTelemetryEvent {
   return parseZod(
     ReviewTabTelemetryInputSchema,
@@ -215,7 +216,7 @@ export function parseReviewTabTelemetryInput(
   );
 }
 
-export function parseReviewDiffFilesInput(value: unknown) {
+export function parseReviewDiffFilesInput(value: JsonValue) {
   const input = parseZod(ReviewDiffFilesRequestSchema, value);
   return {
     includePatch: input.includePatch !== false,
@@ -225,17 +226,17 @@ export function parseReviewDiffFilesInput(value: unknown) {
 }
 
 export function parseReviewCommentInput(
-  value: unknown,
+  value: JsonValue,
 ): CreateReviewCommentInput {
   return parseZod(CreateReviewCommentInputSchema, value, "Review comment");
 }
 
-export function parseReviewThreadsCommand(value: unknown) {
+export function parseReviewThreadsCommand(value: JsonValue) {
   return parseZod(ReviewThreadsCommandSchema, value, "Review thread command");
 }
 
 export function parseUpdateReviewCommentInput(
-  value: unknown,
+  value: JsonValue,
 ): UpdateReviewCommentInput {
   return parseZod(UpdateReviewCommentInputSchema, value, "Comment update");
 }
@@ -253,6 +254,9 @@ export function parseReviewCommentMessagePath(
   };
 }
 
-export function parseThreadTarget(value: unknown, label: string): ThreadTarget {
+export function parseThreadTarget(
+  value: JsonValue,
+  label: string,
+): ThreadTarget {
   return parseZod(ThreadTargetSchema, value, label, true);
 }

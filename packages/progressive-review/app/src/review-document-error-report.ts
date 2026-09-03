@@ -1,3 +1,9 @@
+import {
+  type ReviewCanvasDiagnostic,
+  isJsonObject,
+  jsonString,
+} from "@dev.fast/review-protocol";
+
 import type { ReviewSession } from "./host/review-session";
 
 // Wire contract for shipping a review-document render failure from the browser
@@ -16,38 +22,38 @@ export interface ReviewDocumentErrorReport {
 }
 
 export function reviewDocumentErrorReport(
-  error: unknown,
+  cause: unknown,
 ): ReviewDocumentErrorReport {
-  if (error instanceof Error) {
-    return {
-      name: error.name,
-      message: error.message,
-      ...(error.stack ? { stack: error.stack } : {}),
+  if (cause instanceof Error) {
+    const report: ReviewDocumentErrorReport = {
+      name: cause.name,
+      message: cause.message,
     };
+    if (cause.stack) report.stack = cause.stack;
+    return report;
   }
-  const value = error as {
-    name?: unknown;
-    message?: unknown;
-    stack?: unknown;
-  } | null;
-  return {
-    name: typeof value?.name === "string" ? value.name : "Error",
-    message: typeof value?.message === "string" ? value.message : String(error),
-    ...(typeof value?.stack === "string" ? { stack: value.stack } : {}),
+  const fields = isJsonObject(cause) ? cause : undefined;
+  const stack = jsonString(fields?.stack);
+  const report: ReviewDocumentErrorReport = {
+    name: jsonString(fields?.name) ?? "Error",
+    message: jsonString(fields?.message) ?? String(cause),
   };
+  if (stack !== undefined) report.stack = stack;
+  return report;
 }
 
 export function reportReviewDocumentRenderError(
   session: ReviewSession,
-  error: unknown,
+  cause: unknown,
 ): void {
-  const report = reviewDocumentErrorReport(error);
-  session.reportDiagnostic({
+  const report = reviewDocumentErrorReport(cause);
+  const diagnostic: ReviewCanvasDiagnostic = {
     level: "error",
     source: "render",
     message: `${report.name}: ${report.message}`,
-    ...(report.stack ? { stack: report.stack } : {}),
-  });
+  };
+  if (report.stack) diagnostic.stack = report.stack;
+  session.reportDiagnostic(diagnostic);
   // `import.meta.hot` exists only in the Vite dev client, which is the only
   // place a componentDidCatch runs for this app; it is undefined under SSR.
   import.meta.hot?.send(REVIEW_DOCUMENT_ERROR_EVENT, report);

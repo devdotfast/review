@@ -270,7 +270,8 @@ export function TraceRuler({
         .sort((left, right) => left.index - right.index);
       const target =
         wrappers.find((entry) => entry.index >= start) ?? wrappers.at(-1);
-      if (target && typeof target.wrapper.scrollIntoView === "function") {
+      // jsdom has no scrollIntoView, so the call stays optional.
+      if (target?.wrapper.scrollIntoView) {
         target.wrapper.scrollIntoView({ block: "start", behavior: "auto" });
         return;
       }

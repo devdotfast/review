@@ -8,6 +8,7 @@ import {
   type JsonValue,
   isJsonArray,
   isJsonObject,
+  jsonString,
   parseJsonText,
 } from "@dev.fast/review-protocol";
 
@@ -316,12 +317,11 @@ function shellCommand(command: string): string {
     : `'${command.replaceAll("'", `'"'"'`)}'`;
 }
 
-function isReviewTraceHookCommand(command: unknown): boolean {
-  if (typeof command !== "string") return false;
+function isReviewTraceHookCommand(command: JsonValue | undefined): boolean {
+  const text = jsonString(command);
+  if (text === undefined) return false;
   const match =
-    /^(.*) trace hook (SessionStart|UserPromptSubmit|SessionEnd)$/.exec(
-      command,
-    );
+    /^(.*) trace hook (SessionStart|UserPromptSubmit|SessionEnd)$/.exec(text);
   if (!match) return false;
   return match[1] === "review" || match[1].endsWith("/review'");
 }

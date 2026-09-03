@@ -7,7 +7,7 @@ import { captureClientError } from "./ui-telemetry";
 interface ReviewDocumentBoundaryProps {
   session: ReviewSession;
   revision: string;
-  onError: (revision: string, error: unknown) => void;
+  onError: (revision: string, error: Error) => void;
   children: ReactNode;
 }
 
@@ -26,7 +26,7 @@ export class ReviewDocumentBoundary extends Component<
     return { hasError: true };
   }
 
-  componentDidCatch(error: unknown, _info: ErrorInfo): void {
+  componentDidCatch(error: Error, _info: ErrorInfo): void {
     if (this.reported) return;
     this.reported = true;
     captureClientError(this.props.session, "render", error);

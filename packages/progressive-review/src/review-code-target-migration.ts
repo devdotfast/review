@@ -7,33 +7,45 @@ import {
   type GitLabDiffPosition,
   type GitLabTextDiffRow,
   type JsonObject,
+  type JsonValue,
   createGitLabTextDiffPosition,
   isJsonObject,
+  jsonObject,
+  parseJsonText,
 } from "@dev.fast/review-protocol";
+import { z } from "zod";
 
 import { type DiffHunk, parseUnifiedPatch } from "./unified-diff";
 
-interface LegacyCodeSpan {
-  startLine: number;
-  endLine: number;
-}
+const LegacyCodeSpanSchema = z
+  .object({
+    startLine: z.number().int().positive(),
+    endLine: z.number().int().positive(),
+  })
+  .refine((span) => span.endLine >= span.startLine);
 
-interface LegacyCodeTarget {
-  kind: "code";
-  path: string;
-  side: "base" | "head";
-  commit: string;
-  span: LegacyCodeSpan;
-}
+type LegacyCodeSpan = z.infer<typeof LegacyCodeSpanSchema>;
 
-interface LegacyCodeChangePosition {
-  fromCommit: string;
-  toCommit: string;
-  oldPath: string;
-  newPath: string | null;
-  oldSpan: LegacyCodeSpan;
-  newSpan: LegacyCodeSpan | null;
-}
+const LegacyCodeTargetSchema = z.object({
+  kind: z.literal("code"),
+  path: z.string(),
+  side: z.enum(["base", "head"]),
+  commit: z.string(),
+  span: LegacyCodeSpanSchema,
+});
+
+type LegacyCodeTarget = z.infer<typeof LegacyCodeTargetSchema>;
+
+const LegacyCodeChangePositionSchema = z.object({
+  fromCommit: z.string(),
+  toCommit: z.string(),
+  oldPath: z.string(),
+  newPath: z.string().nullable(),
+  oldSpan: LegacyCodeSpanSchema,
+  newSpan: LegacyCodeSpanSchema.nullable(),
+});
+
+type LegacyCodeChangePosition = z.infer<typeof LegacyCodeChangePositionSchema>;
 
 interface ReviewCodeMigrationContext {
   rootPath: string;
@@ -56,10 +68,10 @@ export type LegacyCodeRecordKind = "comment" | "comment-draft";
 
 export function createLegacyCodeRecordMigrator(
   context: ReviewCodeMigrationContext,
-): (record: unknown, kind: LegacyCodeRecordKind) => Promise<unknown> {
+): (record: JsonValue, kind: LegacyCodeRecordKind) => Promise<JsonValue> {
   const fileDiffs = new Map<string, Promise<FileDiff>>();
 
-  const migrateThread = async (value: unknown): Promise<unknown> => {
+  const migrateThread = async (value: JsonValue): Promise<JsonValue> => {
     const thread = objectRecord(value, "legacy code comment thread");
     if (!isLegacyCodeTarget(thread.target)) return value;
     const target = parseLegacyCodeTarget(thread.target);
@@ -69,21 +81,19 @@ export function createLegacyCodeRecordMigrator(
     const change = parseLegacyChangePosition(thread.changePosition);
     const originalPosition = await positionForTarget(original);
     const position = await positionForTarget(target);
-    const nextTarget = {
+    const nextTarget: JsonObject = {
       kind: "code",
-      original_position: originalPosition,
-      position,
-      ...(change?.newSpan === null
-        ? {
-            change_position: {
-              ...position,
-              base_sha: context.baseCommit,
-              start_sha: context.baseCommit,
-              head_sha: context.headCommit,
-            },
-          }
-        : {}),
+      original_position: storedDiffPosition(originalPosition),
+      position: storedDiffPosition(position),
     };
+    if (change?.newSpan === null) {
+      nextTarget.change_position = storedDiffPosition({
+        ...position,
+        base_sha: context.baseCommit,
+        start_sha: context.baseCommit,
+        head_sha: context.headCommit,
+      });
+    }
     const {
       originalTarget: _originalTarget,
       changePosition: _changePosition,
@@ -236,79 +246,37 @@ function diffRowForLine(
     : { old_line: oldCursor + line - newCursor, new_line: line };
 }
 
-function parseLegacyCodeTarget(value: unknown): LegacyCodeTarget {
-  if (!isLegacyCodeTarget(value)) {
-    throw new Error("Legacy code target is malformed.");
-  }
-  const span = objectRecord(value.span, "legacy code target span");
-  if (
-    typeof value.path !== "string" ||
-    (value.side !== "base" && value.side !== "head") ||
-    typeof value.commit !== "string" ||
-    !positiveInteger(span.startLine) ||
-    !positiveInteger(span.endLine) ||
-    span.endLine < span.startLine
-  ) {
-    throw new Error("Legacy code target is malformed.");
-  }
-  return {
-    kind: "code",
-    path: value.path,
-    side: value.side,
-    commit: value.commit,
-    span: { startLine: span.startLine, endLine: span.endLine },
-  };
+function parseLegacyCodeTarget(value: JsonValue): LegacyCodeTarget {
+  const parsed = LegacyCodeTargetSchema.safeParse(value);
+  if (!parsed.success) throw new Error("Legacy code target is malformed.");
+  return parsed.data;
 }
 
 function parseLegacyChangePosition(
-  value: unknown,
+  value: JsonValue | undefined,
 ): LegacyCodeChangePosition | null {
   if (value === undefined) return null;
-  const change = objectRecord(value, "legacy code change position");
-  const oldSpan = parseLegacySpan(change.oldSpan);
-  const newSpan =
-    change.newSpan === null ? null : parseLegacySpan(change.newSpan);
-  if (
-    typeof change.fromCommit !== "string" ||
-    typeof change.toCommit !== "string" ||
-    typeof change.oldPath !== "string" ||
-    (change.newPath !== null && typeof change.newPath !== "string")
-  ) {
+  const parsed = LegacyCodeChangePositionSchema.safeParse(value);
+  if (!parsed.success) {
     throw new Error("Legacy code change position is malformed.");
   }
-  return {
-    fromCommit: change.fromCommit,
-    toCommit: change.toCommit,
-    oldPath: change.oldPath,
-    newPath: change.newPath,
-    oldSpan,
-    newSpan,
-  };
+  return parsed.data;
 }
 
-function parseLegacySpan(value: unknown): LegacyCodeSpan {
-  const span = objectRecord(value, "legacy code span");
-  if (
-    !positiveInteger(span.startLine) ||
-    !positiveInteger(span.endLine) ||
-    span.endLine < span.startLine
-  ) {
-    throw new Error("Legacy code span is malformed.");
-  }
-  return { startLine: span.startLine, endLine: span.endLine };
+/** A diff position as review.db stores it: serialized, undefined optionals dropped. */
+function storedDiffPosition(position: GitLabDiffPosition): JsonObject {
+  const stored = jsonObject(parseJsonText(JSON.stringify(position)));
+  if (!stored) throw new Error("Diff position did not serialize to an object.");
+  return stored;
 }
 
-function isLegacyCodeTarget(value: unknown): value is JsonObject {
+function isLegacyCodeTarget(value: JsonValue | undefined): value is JsonObject {
   return isJsonObject(value) && value.kind === "code" && "path" in value;
 }
 
-function objectRecord(value: unknown, name: string): JsonObject {
+function objectRecord(value: JsonValue | undefined, name: string): JsonObject {
   if (!isJsonObject(value)) throw new Error(`${name} is malformed.`);
   return value;
-}
-
-function positiveInteger(value: unknown): value is number {
-  return Number.isInteger(value) && Number(value) > 0;
 }
 
 function isString(value: string | null): value is string {

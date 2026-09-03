@@ -227,7 +227,7 @@ export function useRightPanelResize({
   const setWidth = useCallback(
     (nextWidth: number | ((width: number) => number)) => {
       setRequestedWidth((currentWidth) =>
-        typeof nextWidth === "function"
+        nextWidth instanceof Function
           ? nextWidth(constrainWidth(currentWidth))
           : nextWidth,
       );

@@ -1,6 +1,13 @@
 import { mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import {
+  jsonObject,
+  jsonString,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
+
+import { isMissingFileError } from "./native-agent/transcript-json";
 import { reviewDir } from "./review-file";
 
 // A "pending reopen" marker records that the reviewer requested changes that
@@ -58,9 +65,10 @@ export async function readReopenMarker(
     return null;
   }
   try {
-    const parsed = JSON.parse(raw) as Partial<ReopenMarker> | null;
-    if (!parsed || typeof parsed.submittedAt !== "string") return null;
-    return { submittedAt: parsed.submittedAt, nudged: parsed.nudged === true };
+    const parsed = jsonObject(parseJsonText(raw));
+    const submittedAt = jsonString(parsed?.submittedAt);
+    if (parsed === undefined || submittedAt === undefined) return null;
+    return { submittedAt, nudged: parsed.nudged === true };
   } catch {
     return null;
   }
@@ -80,7 +88,7 @@ export async function markReopenNudged(
   try {
     handle = await open(reopenMarkerPath(cwd), "r+");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    if (isMissingFileError(error)) return;
     throw error;
   }
   try {

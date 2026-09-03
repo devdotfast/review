@@ -19,11 +19,7 @@ import {
 } from "vitest";
 
 import { BugReportControl } from "./bug-report-dialog";
-import {
-  captureWindowScreenshot,
-  imageFileFromDataTransfer,
-  normalizeScreenshot,
-} from "./bug-report-screenshot";
+import type { captureWindowScreenshot } from "./bug-report-screenshot";
 import {
   type ReviewSession,
   ReviewSessionProvider,
@@ -31,20 +27,11 @@ import {
 import { testReviewSession } from "./review-session-test-utils";
 import { TutorialProvider } from "./tutorial-context";
 
-vi.mock("./bug-report-screenshot", () => ({
-  ScreenshotTooLargeError: class ScreenshotTooLargeError extends Error {},
-  captureWindowScreenshot: vi.fn<typeof captureWindowScreenshot>(),
-  imageFileFromDataTransfer: vi.fn<typeof imageFileFromDataTransfer>(),
-  normalizeScreenshot: vi.fn<typeof normalizeScreenshot>(),
-}));
-
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-const captureScreenshotMock = vi.mocked(captureWindowScreenshot);
-const imageFileMock = vi.mocked(imageFileFromDataTransfer);
-const normalizeScreenshotMock = vi.mocked(normalizeScreenshot);
+const captureScreenshotMock = vi.fn<typeof captureWindowScreenshot>();
 const screenshotDataUrl = "data:image/jpeg;base64,c2NyZWVuc2hvdA==";
 
 describe("BugReportControl", () => {
@@ -71,8 +58,6 @@ describe("BugReportControl", () => {
     );
     session = testReviewSession({}, { request });
     captureScreenshotMock.mockResolvedValue(null);
-    imageFileMock.mockReturnValue(null);
-    normalizeScreenshotMock.mockResolvedValue(screenshotDataUrl);
   });
 
   afterEach(async () => {
@@ -209,7 +194,7 @@ describe("BugReportControl", () => {
       root.render(
         <ReviewSessionProvider session={session}>
           <TutorialProvider tutorial={tutorial}>
-            <BugReportControl />
+            <BugReportControl captureScreenshot={captureScreenshotMock} />
           </TutorialProvider>
         </ReviewSessionProvider>,
       );
@@ -285,7 +270,7 @@ function tutorialBridge(): ReviewCanvasTutorialBridge {
   };
 }
 
-function jsonResponse(body: unknown, status = 200): Response {
+function jsonResponse(body: JsonObject, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "content-type": "application/json" },

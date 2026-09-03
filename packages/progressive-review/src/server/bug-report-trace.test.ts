@@ -239,19 +239,15 @@ describe("readAuthoringTraceAttachment", () => {
   it("rejects malformed Codex history metadata", async () => {
     const childId = "45454545-4545-4545-8545-454545454545";
     const parentId = "56565656-5656-4656-8656-565656565656";
-    writeCodexTrace(
-      childId,
-      [
-        {
-          type: "session_meta",
-          payload: { id: childId, history_base: { thread_id: parentId } },
-          ordinal: 2,
-        },
-        { child: true, ordinal: 3 },
-      ]
-        .map(jsonLine)
-        .join(""),
-    );
+    const records: JsonObject[] = [
+      {
+        type: "session_meta",
+        payload: { id: childId, history_base: { thread_id: parentId } },
+        ordinal: 2,
+      },
+      { child: true, ordinal: 3 },
+    ];
+    writeCodexTrace(childId, records.map(jsonLine).join(""));
     writeReview("codex:" + childId);
 
     await expect(
@@ -641,17 +637,13 @@ function codexTrace(
   records: JsonObject[],
   parent?: ReturnType<typeof historyBase>,
 ): string {
-  const metaPayload = {
-    id,
-    ...(parent
-      ? {
-          history_base: {
-            thread_id: parent.parentId,
-            end_ordinal_exclusive: parent.endOrdinalExclusive,
-          },
-        }
-      : {}),
-  };
+  const metaPayload: JsonObject = { id };
+  if (parent) {
+    metaPayload.history_base = {
+      thread_id: parent.parentId,
+      end_ordinal_exclusive: parent.endOrdinalExclusive,
+    };
+  }
   return [{ type: "session_meta", payload: metaPayload }, ...records]
     .map((value, index) =>
       jsonLine({ ...value, ordinal: startOrdinal + index }),
@@ -665,6 +657,6 @@ function readPart(attachment: AuthoringTraceAttachment, index: number): string {
   return gunzipSync(readFileSync(part.path)).toString("utf8");
 }
 
-function jsonLine(value: unknown): string {
+function jsonLine(value: JsonObject): string {
   return JSON.stringify(value) + "\n";
 }

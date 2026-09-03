@@ -370,12 +370,15 @@ Reload Window**:
 pnpm desktop:watch
 ```
 
-If `packages/review-protocol/src/index.ts` changes, regenerate the committed
-fork copy and verify it has not drifted:
+The fork's copy of the protocol, `code-oss/src/vs/review/common/reviewProtocol.ts`,
+is generated from `packages/review-protocol/src` and is not committed. `app:build`,
+`test`, `typecheck`, and `app:watch` regenerate it. The `test` and `typecheck`
+tiers also need Code OSS's own npm dependencies installed
+(`bash apps/review-desktop/scripts/code-oss-dependencies.sh`), which `app:build`
+installs for you. To regenerate by hand:
 
 ```sh
 pnpm --filter @dev-fast/review-desktop protocol:sync
-pnpm --filter @dev-fast/review-desktop test
 ```
 
 Run Code OSS commands with npm from `code-oss/`, never with the monorepo's

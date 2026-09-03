@@ -1,4 +1,10 @@
 import {
+  type JsonValue,
+  isJsonObject,
+  jsonObject,
+  jsonString,
+} from "@dev.fast/review-protocol";
+import {
   type ReactElement,
   type ReactNode,
   createContext,
@@ -82,10 +88,10 @@ function useReviewSessionRefs(documentRoute?: string): {
   const session = useReviewSession();
   const reviewFetch = session.fetch;
   const initialResolvedBaseRef = useReviewInitialData()?.sessionResolvedBaseRef;
-  const [resolvedRefs, setResolvedRefs] = useState(() => ({
-    base: initialResolvedBaseRef ?? null,
-    head: null as string | null,
-  }));
+  const [resolvedRefs, setResolvedRefs] = useState<{
+    base: string | null;
+    head: string | null;
+  }>(() => ({ base: initialResolvedBaseRef ?? null, head: null }));
   useEffect(() => {
     if (typeof fetch === "undefined") return;
     let disposed = false;
@@ -96,21 +102,22 @@ function useReviewSessionRefs(documentRoute?: string): {
             `Review session request failed (${response.status}).`,
           );
         }
-        const body = (await response.json()) as {
-          session?: { resolvedBaseRef?: string | null; headRef?: string };
-        };
+        const body: JsonValue = await response.json();
+        const reviewSession = isJsonObject(body)
+          ? jsonObject(body.session)
+          : undefined;
         if (!disposed) {
           setResolvedRefs({
-            base: body.session?.resolvedBaseRef ?? null,
-            head: body.session?.headRef ?? null,
+            base: jsonString(reviewSession?.resolvedBaseRef) ?? null,
+            head: jsonString(reviewSession?.headRef) ?? null,
           });
         }
       })
-      .catch((error: unknown) => {
+      .catch((cause: unknown) => {
         // Base-side comment creation guards on the missing value with its own
         // explicit error; log the fetch failure rather than swallowing it.
         console.error(
-          error instanceof Error ? error : new Error(String(error)),
+          cause instanceof Error ? cause : new Error(String(cause)),
         );
       });
     return () => {
@@ -249,17 +256,13 @@ function buildLiveAnchors(
   return new Map(
     [...anchors.values()].map((anchor) => {
       const contentText = anchorContents.get(anchor.id);
-      return [
-        anchor.id,
-        {
-          anchorId: anchor.id,
-          title: anchor.title,
-          detail: anchor.detail,
-          ...(contentText !== undefined
-            ? { content: { text: contentText } }
-            : {}),
-        },
-      ];
+      const target: LiveAnchorTarget = {
+        anchorId: anchor.id,
+        title: anchor.title,
+        detail: anchor.detail,
+      };
+      if (contentText !== undefined) target.content = { text: contentText };
+      return [anchor.id, target];
     }),
   );
 }

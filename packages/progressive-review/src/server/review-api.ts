@@ -14,6 +14,7 @@ import {
   type JsonValue,
   type ReviewCommentThreadRecord,
   type ReviewSessionWire,
+  type ReviewStackResponse,
   type ReviewThreadsCommit,
   type ReviewVerbRequest,
   isJsonObject,
@@ -53,10 +54,12 @@ import {
   resolveReviewDiffFiles,
   resolveReviewFileContent,
 } from "../review-diff-files";
+import { listReviews } from "../review-home";
 import {
   normalizeReviewRoutePath,
   resolveReviewDocumentFilePath,
 } from "../review-paths";
+import { resolveReviewStackLayers } from "../review-stack";
 import { saveReviewSubmissionAudit } from "../review-state-store";
 import { ReviewThreadsService } from "../review-threads-service";
 import {
@@ -71,11 +74,7 @@ import type { SourceSnapshot } from "../source-code-types";
 import { resolveReviewSourceRange } from "../source-range-resolver";
 import { ProgressiveReviewTelemetry } from "../telemetry";
 import type { ReviewTabTelemetryEvent } from "../telemetry";
-import type {
-  CreateReviewCommentInput,
-  ReviewSession,
-  ReviewSubmissionEvent,
-} from "../types";
+import type { CreateReviewCommentInput, ReviewSubmissionEvent } from "../types";
 import {
   REVIEW_APP_SESSION_ID_HEADER,
   sanitizeUiTelemetryEvent,
@@ -173,15 +172,17 @@ export async function captureSanitizedUiTelemetry(
   const appSessionId =
     request.headers.get(REVIEW_APP_SESSION_ID_HEADER) ?? undefined;
   const rawProperties: JsonObject = isJsonObject(properties) ? properties : {};
+  // The error fields come from the raw envelope and nowhere else; this
+  // helper drops any a client tried to assert. It matters because the
+  // allowlist cannot tell a cleaned message from a raw one.
+  const mergedProperties = mergeErrorTelemetryProperties(
+    rawProperties,
+    rawError,
+  );
+  if (appSessionId) mergedProperties.app_session_id = appSessionId;
   const sanitized = sanitizeUiTelemetryEvent({
     name,
-    properties: {
-      // The error fields come from the raw envelope and nowhere else; this
-      // helper drops any a client tried to assert. It matters because the
-      // allowlist cannot tell a cleaned message from a raw one.
-      ...mergeErrorTelemetryProperties(rawProperties, rawError),
-      ...(appSessionId ? { app_session_id: appSessionId } : {}),
-    },
+    properties: mergedProperties,
   });
   if (!sanitized) return;
   onSanitized?.(sanitized);
@@ -385,6 +386,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     route(softwareMapArtifactsRefresh),
   );
   app.get("/document-meta", route(documentMeta));
+  app.get("/stack", route(reviewStack));
   app.post("/diff-files", route(diffFiles));
   app.get("/file-content", route(fileContent));
   app.get("/agent-traces", route(agentTraces));
@@ -552,15 +554,9 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     });
     return reviewApiJsonResponse(200, {
       ok: true,
-      session: {
-        resolvedBaseRef,
-        ...(stateReviewPath
-          ? {
-              reviewStatus: readReviewStoreRecord(path.dirname(stateReviewPath))
-                .status,
-            }
-          : {}),
-      },
+      session: stateReviewPath
+        ? { resolvedBaseRef, reviewStatus: readReviewStatus(stateReviewPath) }
+        : { resolvedBaseRef },
     });
   }
 
@@ -691,7 +687,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     await nativeTurns.openSession({
       launchId: randomUUID(),
       cwd: agentRootPath,
-      binding: agentSession as ReviewThreadAgentBinding,
+      binding: agentSession,
     });
     return reviewApiJsonResponse(200, { ok: true });
   }
@@ -871,11 +867,10 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
             includePatch: includeDiff,
           })
         : undefined;
-    return reviewApiJsonResponse(200, {
-      ok: true,
-      snapshot,
-      ...(diff ? { diff } : {}),
-    });
+    return reviewApiJsonResponse(
+      200,
+      diff ? { ok: true, snapshot, diff } : { ok: true, snapshot },
+    );
   }
 
   async function softwareMapResolvedData(
@@ -933,6 +928,24 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       updatedAtMs: stats.mtimeMs,
       pullRequestNumber: session?.pullRequestNumber ?? null,
       pullRequestUrl: session?.pullRequestUrl ?? null,
+    });
+  }
+
+  async function reviewStack(): Promise<Response> {
+    const current = readReviewStoreRecord(reviewRootPath);
+    if (!current.pullRequestNumber) {
+      return reviewApiJsonResponse(200, { layers: [] });
+    }
+    const listed = await listReviews();
+    const reviews = listed.reviews.map((stored) => stored.review);
+    reviews.sort(
+      (left, right) =>
+        (right.lastPublishedAt ?? "").localeCompare(
+          left.lastPublishedAt ?? "",
+        ) || left.uuid.localeCompare(right.uuid),
+    );
+    return reviewApiJsonResponse(200, {
+      layers: await resolveReviewStackLayers(current, reviews),
     });
   }
 
@@ -1091,12 +1104,17 @@ interface ReviewApiThreadBody {
   comment: ReviewCommentThreadRecord;
 }
 
-type ReviewApiResponseBody = ReviewApiStatusBody | ReviewApiThreadBody;
+type ReviewApiResponseBody =
+  | ReviewApiStatusBody
+  | ReviewApiThreadBody
+  | ReviewStackResponse;
 
 function reviewApiJsonResponse<T extends ReviewApiResponseBody>(
   status: number,
   body: T,
 ): Response {
+  // SAFETY: callers pass 2xx/4xx/5xx codes (literals, HttpJsonError.statusCode,
+  // BugReportUpstreamError.status); none is a bodyless 1xx/204/205/304 status.
   return jsonResponse(body, status as ContentfulStatusCode, {
     contentType: "application/json",
     newline: false,
@@ -1139,9 +1157,7 @@ async function answerReviewComment(input: {
   });
   try {
     const accepted = await acceptedNativeSession(handle.accepted);
-    const binding = storedSession
-      ? (storedSession as ReviewThreadAgentBinding)
-      : accepted;
+    const binding = storedSession ?? accepted;
     if (
       accepted.harness !== binding.harness ||
       accepted.sessionId !== binding.sessionId
@@ -1247,9 +1263,7 @@ function buildReviewSubmissionEvent(input: {
   session?: ReviewSessionWire;
 }): ReviewSubmissionEvent {
   const session = input.session;
-  const agent =
-    (session?.agent as ReviewSession["agent"]) ??
-    resolveAuthoringSessionRef(process.env);
+  const agent = session?.agent ?? resolveAuthoringSessionRef(process.env);
   return {
     id: input.submission.submissionId,
     decision: input.submission.decision,
@@ -1347,13 +1361,14 @@ async function runReviewSubmissionHook(
       finish({ configured: true, error: error.message });
     });
     child.once("close", (code) => {
-      finish({
+      const result: Parameters<typeof finish>[0] = {
         configured: true,
         exitCode: code ?? 1,
-        ...(code === 0
-          ? {}
-          : { error: stderr.trim() || `${REVIEW_SUBMIT_HOOK_ENV} failed` }),
-      });
+      };
+      if (code !== 0) {
+        result.error = stderr.trim() || `${REVIEW_SUBMIT_HOOK_ENV} failed`;
+      }
+      finish(result);
     });
     child.stdin?.end(`${JSON.stringify(event)}\n`);
   });
@@ -1496,14 +1511,15 @@ export function serializeCodePeekDiffFile(
   file: ReviewDiffFile,
   includePatch: boolean,
 ): CodePeekDiffFile {
-  return {
+  const serialized: CodePeekDiffFile = {
     path: file.path,
     previousPath: file.previousPath,
     status: file.status,
     additions: file.additions,
     deletions: file.deletions,
-    ...(includePatch ? { patch: file.patch ?? "" } : {}),
   };
+  if (includePatch) serialized.patch = file.patch ?? "";
+  return serialized;
 }
 
 function codePeekDiffRangeFiles(

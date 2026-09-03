@@ -1,5 +1,6 @@
 import type {
   ReviewCanvasContent,
+  ReviewCanvasDiagnostic,
   ReviewCanvasHandle,
 } from "@dev.fast/review-protocol";
 import { useEffect, useRef, useState } from "react";
@@ -78,8 +79,13 @@ function DesktopReviewApp({
     void Promise.all([documentBundle, softwareMapBundle]).then(
       ([documentValue, softwareMapValue]) => {
         if (cancelled) return;
+        // SAFETY: the desktop host resolves the session content's `document`
+        // promise with the loaded review-document module, whose exports are
+        // the ReviewDocumentBundle (`activeReviewDocument`).
         const bundle = documentValue as ReviewDocumentBundle;
         setDocument(bundle.activeReviewDocument);
+        // SAFETY: the host resolves `softwareMap` with the published software
+        // map module, or null when no map was published for the review.
         setSoftwareMap(softwareMapValue as PublishedSoftwareMap | null);
         setSoftwareMapLoaded(true);
       },
@@ -88,14 +94,15 @@ function DesktopReviewApp({
         captureClientError(sessionRef.current, "document", loadError);
         const message =
           loadError instanceof Error ? loadError.message : String(loadError);
-        sessionRef.current.reportDiagnostic({
+        const diagnostic: ReviewCanvasDiagnostic = {
           level: "error",
           source: "loader",
           message,
-          ...(loadError instanceof Error && loadError.stack
-            ? { stack: loadError.stack }
-            : {}),
-        });
+        };
+        if (loadError instanceof Error && loadError.stack) {
+          diagnostic.stack = loadError.stack;
+        }
+        sessionRef.current.reportDiagnostic(diagnostic);
         setError(message);
       },
     );

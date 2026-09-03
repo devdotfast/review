@@ -169,13 +169,13 @@ export class NativeReviewTurnLauncher {
     const hookUrl = `${this.#hookBaseUrl}/${encodeURIComponent(input.launchId)}`;
     const pathValue = await this.#nativeAgentPath();
     const reviewHome = devReviewHome();
-    const env = {
+    const env: NativeTerminalInput["env"] = {
       [REVIEW_AGENT_HOOK_URL_ENV]: hookUrl,
       [REVIEW_AGENT_HOOK_TOKEN_ENV]: this.#hookToken,
       [REVIEW_AGENT_THREAD_URL_ENV]: `${hookUrl}/thread`,
       [DEV_REVIEW_HOME_ENV]: reviewHome,
-      ...(pathValue ? { PATH: pathValue } : {}),
     };
+    if (pathValue) env.PATH = pathValue;
     switch (harness) {
       case "claude-code": {
         const settingsPath = await this.#writeClaudeSettings(input.launchId);

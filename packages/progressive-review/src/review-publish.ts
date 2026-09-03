@@ -1,6 +1,10 @@
 import type { Writable } from "node:stream";
 
-import type { ReviewView } from "@dev.fast/review-protocol";
+import type {
+  ReviewPublishReadyRequest,
+  ReviewView,
+} from "@dev.fast/review-protocol";
+import { z } from "zod";
 
 import { resolveAuthoringSessionRef } from "./authoring-session";
 import { type CliJsonEvent, emitJsonEvent } from "./cli-output";
@@ -14,6 +18,22 @@ import {
 } from "./review-publication-preparation";
 import { resolveReviewRoot } from "./runtime";
 import { prepareReviewPublish } from "./server/publish-preparation";
+
+const PublishReadyResponseSchema = z.object({
+  ok: z.boolean().optional(),
+  sessionId: z.string().optional(),
+  url: z.string().optional(),
+  focusWarning: z.string().optional(),
+  error: z.string().optional(),
+});
+
+interface PublishDiagnosticEvent extends CliJsonEvent {
+  event: "error";
+  file: string;
+  line?: number;
+  column?: number;
+  message: string;
+}
 
 // The CLI owns the whole publish flow: it validates, bundles, resolves every
 // code reference, and seals the revision. The desktop is only notified via
@@ -101,26 +121,24 @@ async function publish(
 
   const discovery = await requireHealthyReviewDesktop("review publish");
   reporter.stage("mount", "running");
+  const publishReady: ReviewPublishReadyRequest = {
+    reviewUuid: prepared.uuid,
+    revision,
+    agent: resolveAuthoringSessionRef(input.env ?? process.env),
+  };
+  if (input.view) publishReady.view = input.view;
   const response = await fetch(`${discovery.url}/publish-ready`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       "x-review-token": discovery.token,
     },
-    body: JSON.stringify({
-      reviewUuid: prepared.uuid,
-      revision,
-      agent: resolveAuthoringSessionRef(input.env ?? process.env),
-      ...(input.view ? { view: input.view } : {}),
-    }),
+    body: JSON.stringify(publishReady),
   });
-  const result = (await response.json().catch(() => null)) as {
-    ok?: boolean;
-    sessionId?: string;
-    url?: string;
-    focusWarning?: string;
-    error?: string;
-  } | null;
+  const result =
+    PublishReadyResponseSchema.safeParse(
+      await response.json().catch(() => null),
+    ).data ?? null;
   if (!response.ok || !result?.ok || !result.sessionId) {
     throw new Error(
       result?.error ??
@@ -191,13 +209,14 @@ function createPublishReporter(input: {
       },
       validationErrors(diagnostics) {
         for (const diagnostic of diagnostics) {
-          emit({
+          const event: PublishDiagnosticEvent = {
             event: "error",
             file: diagnostic.filePath,
-            ...(diagnostic.line ? { line: diagnostic.line } : {}),
-            ...(diagnostic.column ? { column: diagnostic.column } : {}),
             message: diagnostic.message,
-          });
+          };
+          if (diagnostic.line) event.line = diagnostic.line;
+          if (diagnostic.column) event.column = diagnostic.column;
+          emit(event);
         }
       },
       published(revision, sessionId, softwareMapRevision) {

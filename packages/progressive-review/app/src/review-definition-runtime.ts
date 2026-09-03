@@ -102,6 +102,9 @@ async function resolveCodePeekRequest(
       }),
     },
   );
+  // SAFETY: the review server's /code-peek/resolve route
+  // (src/server/review-api.ts) answers `{ ok: true, snapshot, diff? }` on
+  // success and `{ ok: false, error }` on failure.
   const json = (await response.json()) as
     | ({ ok: true } & CodePeekResolution)
     | { ok: false; error?: string };

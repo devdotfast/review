@@ -51,8 +51,8 @@ export function diffSoftwareMaps(
   const elementStatusByPath = Object.fromEntries(
     elementChanges
       .filter((change) => change.status !== "removed")
-      .map((change) => [change.path, change.status]),
-  ) as Record<string, Exclude<SoftwareChangeStatus, "unchanged">>;
+      .map((change) => [change.path, change.status] as const),
+  );
 
   return {
     elementChanges,

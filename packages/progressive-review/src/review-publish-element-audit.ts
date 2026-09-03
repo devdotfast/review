@@ -184,18 +184,17 @@ function publishValidationReactMembers() {
       element: PublishAuditElement,
       props?: PublishValidationProps,
       ...children: PublishAuditNode[]
-    ) =>
-      makeElement(
+    ) => {
+      const nextProps: PublishValidationProps = { ...element.props, ...props };
+      if (children.length > 0) {
+        nextProps.children = children.length === 1 ? children[0] : children;
+      }
+      return makeElement(
         element.type,
-        {
-          ...element.props,
-          ...props,
-          ...(children.length > 0
-            ? { children: children.length === 1 ? children[0] : children }
-            : {}),
-        },
+        nextProps,
         props && "key" in props ? props.key : element.key,
-      ),
+      );
+    },
     createContext: () => ({ Provider: noop, Consumer: noop }),
     createElement,
     createRef: () => ({ current: null }),
@@ -264,6 +263,8 @@ export function auditReviewDocumentComponent(input: {
     PublishAuditElementType,
     AuthoringComponentName
   >();
+  // SAFETY: `reviewAuthoringPropsSchemas` is an object literal whose own keys
+  // are exactly the AuthoringComponentName members.
   for (const name of Object.keys(
     reviewAuthoringPropsSchemas,
   ) as AuthoringComponentName[]) {

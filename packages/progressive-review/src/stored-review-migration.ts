@@ -9,13 +9,14 @@ import {
   jsonString,
   parseJsonText,
 } from "@dev.fast/review-protocol";
-import type { Node as EstreeNode, Expression, Program } from "estree";
+import type { Node as EstreeNode, Program } from "estree";
 
 import {
   authoringSessionKey,
   parseAuthoringSessionKey,
 } from "./authoring-session";
 import { errorMessage } from "./error-message";
+import { isMissingFileError } from "./native-agent/transcript-json";
 import { writeReviewDocumentBundle } from "./review-bundle";
 import { createLegacyCodeRecordMigrator } from "./review-code-target-migration";
 import { maskReviewFrontmatter } from "./review-frontmatter";
@@ -36,7 +37,10 @@ import {
 } from "./review-mdx-ast";
 import { reviewTypescriptEstreeParser } from "./review-mdx-typescript-parser";
 import { createReviewSourceAgentSession } from "./review-source-agent-session";
-import { migrateReviewThreadDb } from "./review-thread-store-backend";
+import {
+  type ReviewThreadDbMigrationOptions,
+  migrateReviewThreadDb,
+} from "./review-thread-store-backend";
 import { writePrivateJsonAtomic } from "./server/desktop-paths";
 import { compileReviewDocumentBundle } from "./server/doc-bundler";
 import {
@@ -65,7 +69,7 @@ async function legacyJsonRecordCount(filePath: string): Promise<number> {
   try {
     source = await readFile(filePath, "utf8");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return 0;
+    if (isMissingFileError(error)) return 0;
     throw error;
   }
   if (!source.trim()) return 0;
@@ -261,7 +265,7 @@ function mdxCodeLines(source: string): { line: number; source: string }[] {
   for (const [index, lineSource] of source.split("\n").entries()) {
     const fenceMatch = /^\s*(`{3,}|~{3,})/.exec(lineSource);
     if (fenceMatch) {
-      const marker = fenceMatch[1][0] as "`" | "~";
+      const marker = fenceMatch[1].startsWith("`") ? "`" : "~";
       if (!fence) fence = marker;
       else if (fence === marker) fence = undefined;
       continue;
@@ -354,7 +358,7 @@ export async function migrateStoredReviewData(input: {
   try {
     entries = await readdir(reviewsRoot, { withFileTypes: true });
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return total;
+    if (isMissingFileError(error)) return total;
     throw error;
   }
   for (const entry of entries) {
@@ -440,25 +444,28 @@ export async function migrateStoredReviewData(input: {
         );
         continue;
       }
+      const threadDbMigration: ReviewThreadDbMigrationOptions = {
+        force: input.force,
+        onDropLegacyCodeRecord: ({ threadId, kind, error }) => {
+          total.droppedComments += 1;
+          input.log?.(
+            `Dropped unrecoverable ${kind} ${threadId} from Review ${entry.name}: ${errorMessage(error)}`,
+          );
+        },
+      };
+      if (migratedRecord.sourceCommit) {
+        threadDbMigration.migrateLegacyCodeRecord =
+          createLegacyCodeRecordMigrator({
+            rootPath: migratedRecord.worktreePath,
+            baseCommit: migratedRecord.baseCommit,
+            headCommit: migratedRecord.sourceCommit,
+          });
+      }
       try {
-        const databaseMigration = await migrateReviewThreadDb(reviewPath, {
-          force: input.force,
-          ...(migratedRecord.sourceCommit
-            ? {
-                migrateLegacyCodeRecord: createLegacyCodeRecordMigrator({
-                  rootPath: migratedRecord.worktreePath,
-                  baseCommit: migratedRecord.baseCommit,
-                  headCommit: migratedRecord.sourceCommit,
-                }),
-              }
-            : {}),
-          onDropLegacyCodeRecord: ({ threadId, kind, error }) => {
-            total.droppedComments += 1;
-            input.log?.(
-              `Dropped unrecoverable ${kind} ${threadId} from Review ${entry.name}: ${errorMessage(error)}`,
-            );
-          },
-        });
+        const databaseMigration = await migrateReviewThreadDb(
+          reviewPath,
+          threadDbMigration,
+        );
         if (databaseMigration === "upgraded") {
           total.upgradedThreadDatabases += 1;
           input.log?.(
@@ -597,7 +604,7 @@ async function migrateLegacyPresentedArtifacts(input: {
       recursive: true,
       force: true,
     }).catch((error) => {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      if (!isMissingFileError(error)) throw error;
     });
   }
   let completed = false;
@@ -683,7 +690,7 @@ async function removedCodePeekKeys(reviewDir: string): Promise<string[]> {
   try {
     source = await readFile(path.join(reviewDir, "data.ts"), "utf8");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    if (isMissingFileError(error)) return [];
     throw error;
   }
 
@@ -698,7 +705,7 @@ async function removedCodePeekKeys(reviewDir: string): Promise<string[]> {
   for (const call of findCallExpressions(program, "defineAnchors")) {
     const anchorMap = call.arguments[0];
     if (!anchorMap || anchorMap.type === "SpreadElement") continue;
-    for (const anchor of objectLiteralProperties(anchorMap as Expression)) {
+    for (const anchor of objectLiteralProperties(anchorMap)) {
       const peek = objectLiteralProperties(anchor.value).find(
         (property) => property.name === "peek",
       );
@@ -754,7 +761,7 @@ async function readDirectory(directory: string) {
   try {
     return await readdir(directory, { withFileTypes: true });
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    if (isMissingFileError(error)) return [];
     throw error;
   }
 }

@@ -336,7 +336,7 @@ function flattenElements({
       continue;
     }
 
-    validateElementShape(type, path, input, errors);
+    validateElementFields(type, path, input, errors);
 
     const draft: ElementDraft = {
       type,
@@ -354,14 +354,17 @@ function flattenElements({
       elementsByPath.get(parentPath)?.children.push(path);
     }
     if (type === "softwareSystem") {
+      // SAFETY: `type` names the collection `input` came from.
       draft.external = (input as SoftwareSystemInput).external;
     }
     if (type === "dataStore") {
+      // SAFETY: `type` names the collection `input` came from.
       const dataStore = input as DataStoreInput;
       draft.dataStoreKind = dataStore.kind ?? "database";
       draft.dataStoreSchema = normalizeDataStoreSchema(path, dataStore, errors);
     }
     if (type === "codeElement") {
+      // SAFETY: `type` names the collection `input` came from.
       const codeElement = input as CodeElementInput;
       draft.sourceRanges = codeElement.sourceRanges;
       validateSourceRanges(
@@ -383,8 +386,10 @@ function flattenElements({
     }
 
     if (type === "softwareSystem") {
+      // SAFETY: `type` names the collection `input` came from.
+      const system = input as SoftwareSystemInput;
       flattenElements({
-        collection: (input as SoftwareSystemInput).containers,
+        collection: system.containers,
         type: "container",
         parentPath: path,
         elements,
@@ -393,7 +398,7 @@ function flattenElements({
         errors,
       });
       flattenElements({
-        collection: (input as SoftwareSystemInput).dataStores,
+        collection: system.dataStores,
         type: "dataStore",
         parentPath: path,
         elements,
@@ -403,6 +408,7 @@ function flattenElements({
       });
     }
     if (type === "container" || type === "dataStore") {
+      // SAFETY: `type` names the collection `input` came from.
       flattenElements({
         collection: (input as ContainerInput | DataStoreInput).components,
         type: "component",
@@ -414,6 +420,7 @@ function flattenElements({
       });
     }
     if (type === "component") {
+      // SAFETY: `type` names the collection `input` came from.
       flattenElements({
         collection: (input as ComponentInput).codeElements,
         type: "codeElement",
@@ -436,7 +443,7 @@ function entriesForCollection<T extends SoftwareElementBaseInput>(
   return Object.entries(collection);
 }
 
-function validateElementShape(
+function validateElementFields(
   type: SoftwareElementType,
   path: string,
   input: SoftwareElementBaseInput,
@@ -709,7 +716,7 @@ function normalizeRelationships(
         `Invalid ${relationshipLabel}: endpoint "${pending.input.to}" does not match an element path or data store schema path.`,
       );
     }
-    validateRelationshipShape(pending, errors);
+    validateRelationshipFields(pending, errors);
     if (!from || !to) continue;
 
     const base = {
@@ -743,7 +750,7 @@ function normalizeRelationships(
   return relationships;
 }
 
-function validateRelationshipShape(
+function validateRelationshipFields(
   pending: PendingRelationship,
   errors: string[],
 ) {

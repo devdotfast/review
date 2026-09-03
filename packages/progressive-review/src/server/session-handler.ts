@@ -240,20 +240,14 @@ export async function createReviewSessionHandler(
     )({
       reviewRootPath,
     });
-    return jsonResponse(
-      {
-        ok: true,
-        session: {
-          ...reviewSessionPayload(),
-          resolvedBaseRef,
-          ...(input.getReviewStatus
-            ? { reviewStatus: input.getReviewStatus() }
-            : {}),
-        },
-        token,
-      },
-      200,
-    );
+    const sessionPayload: ReturnType<typeof reviewSessionPayload> & {
+      resolvedBaseRef: typeof resolvedBaseRef;
+      reviewStatus?: ReviewRecord["status"];
+    } = { ...reviewSessionPayload(), resolvedBaseRef };
+    if (input.getReviewStatus) {
+      sessionPayload.reviewStatus = input.getReviewStatus();
+    }
+    return jsonResponse({ ok: true, session: sessionPayload, token }, 200);
   });
   app.get(`${API_PREFIX}/revisions`, async () => {
     if (!input.listDocumentVersions) {

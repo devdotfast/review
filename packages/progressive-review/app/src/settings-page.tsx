@@ -34,10 +34,14 @@ const RETENTION_LABELS = {
 
 type RetentionChoice = keyof typeof RETENTION_LABELS;
 
+function isRetentionChoice(choice: string): choice is RetentionChoice {
+  return choice in RETENTION_LABELS;
+}
+
 function retentionChoice(days: number | null): RetentionChoice {
   if (days === null) return "never";
   const choice = String(days);
-  return choice in RETENTION_LABELS ? (choice as RetentionChoice) : "30";
+  return isRetentionChoice(choice) ? choice : "30";
 }
 
 function retentionDays(choice: RetentionChoice): number | null {
@@ -296,15 +300,21 @@ function Choice<T extends string>({
   disabled: boolean;
   onChange: (choice: T) => void;
 }) {
+  // SAFETY: `labels` is declared as Record<T, string>, so its own keys are
+  // exactly the T choices this select offers.
+  const choices = Object.keys(labels) as T[];
   return (
     <select
       className="review-settings-select"
       aria-label={label}
       value={value}
       disabled={disabled}
-      onChange={(event) => onChange(event.target.value as T)}
+      onChange={(event) => {
+        const choice = choices.find((option) => option === event.target.value);
+        if (choice !== undefined) onChange(choice);
+      }}
     >
-      {(Object.keys(labels) as T[]).map((choice) => (
+      {choices.map((choice) => (
         <option key={choice} value={choice}>
           {labels[choice]}
         </option>

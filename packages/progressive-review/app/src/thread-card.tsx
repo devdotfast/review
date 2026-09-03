@@ -309,11 +309,12 @@ function ThreadStatusPill({
 }: {
   status?: ThreadView["clientStatus"];
 }): ReactElement | null {
-  if (!hasStatusPill(status)) return null;
+  const label = status === undefined ? undefined : STATUS_PILL_LABEL[status];
+  if (label === undefined) return null;
   return (
     <span className={`thread-status-pill thread-status-pill--${status}`}>
       <span className="thread-status-pill-dot" aria-hidden="true" />
-      {STATUS_PILL_LABEL[status as keyof typeof STATUS_PILL_LABEL]}
+      {label}
     </span>
   );
 }
@@ -461,7 +462,8 @@ function ThreadMessageActions({
     if (!menuOpen) return;
     const closeOnOutsidePointer = (event: PointerEvent) => {
       const menu = menuRef.current;
-      if (!menu || menu.contains(event.target as Node)) return;
+      const target = event.target;
+      if (!menu || (target instanceof Node && menu.contains(target))) return;
       setMenuOpen(false);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -740,7 +742,10 @@ export function ThreadComposer(props: ThreadComposerProps): ReactElement {
     if (!verbMenuOpen) return;
     const closeOnOutsidePointer = (event: PointerEvent) => {
       const control = verbControlRef.current;
-      if (!control || control.contains(event.target as Node)) return;
+      const target = event.target;
+      if (!control || (target instanceof Node && control.contains(target))) {
+        return;
+      }
       setVerbMenuOpen(false);
     };
     const closeOnEscape = (event: KeyboardEvent) => {

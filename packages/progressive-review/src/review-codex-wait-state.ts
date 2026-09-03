@@ -6,6 +6,7 @@ import path from "node:path";
 import { type JsonValue, parseJsonText } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
+import { isMissingFileError } from "./native-agent/transcript-json";
 import { writePrivateJsonAtomic } from "./server/desktop-paths";
 import { processIsAlive, withFileLock } from "./with-file-lock";
 
@@ -148,7 +149,7 @@ async function readWaitState(statePath: string): Promise<WaitState> {
   try {
     value = parseJsonText(await readFile(statePath, "utf8"));
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+    if (isMissingFileError(error)) {
       return { waiter: null, delivered: [] };
     }
     throw new Error(`Could not read Codex waiter state at ${statePath}.`, {

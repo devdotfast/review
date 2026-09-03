@@ -32,6 +32,15 @@ test("cleans generated Desktop artifacts but preserves authored Reviews", async 
   assert.equal(await exists(authoredReview), true);
 });
 
+test("cleanTargets removes the generated protocol overlay", () => {
+  const targets = cleanTargets({ root: "/repo", reviewHome: "/home/x/.dev" });
+  assert.ok(
+    targets.includes(
+      "/repo/apps/review-desktop/code-oss/src/vs/review/common/reviewProtocol.ts",
+    ),
+  );
+});
+
 async function exists(target) {
   try {
     await import("node:fs/promises").then(({ access }) => access(target));

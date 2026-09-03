@@ -85,17 +85,15 @@ export function createLegacyCodeRecordMigrator(
       kind: "code",
       original_position: storedDiffPosition(originalPosition),
       position: storedDiffPosition(position),
-      ...(change?.newSpan === null
-        ? {
-            change_position: storedDiffPosition({
-              ...position,
-              base_sha: context.baseCommit,
-              start_sha: context.baseCommit,
-              head_sha: context.headCommit,
-            }),
-          }
-        : {}),
     };
+    if (change?.newSpan === null) {
+      nextTarget.change_position = storedDiffPosition({
+        ...position,
+        base_sha: context.baseCommit,
+        start_sha: context.baseCommit,
+        head_sha: context.headCommit,
+      });
+    }
     const {
       originalTarget: _originalTarget,
       changePosition: _changePosition,

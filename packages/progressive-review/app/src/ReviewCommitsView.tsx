@@ -124,10 +124,12 @@ function CommitRow({
       });
   };
 
-  const shaped =
-    filesState?.status === "loaded" ? shapeCommitFiles(filesState.files) : null;
-  const omittedFileCount = shaped
-    ? shaped.testFilesOmitted + shaped.overflowFilesOmitted
+  const visibleFiles =
+    filesState?.status === "loaded"
+      ? visibleCommitFiles(filesState.files)
+      : null;
+  const omittedFileCount = visibleFiles
+    ? visibleFiles.testFilesOmitted + visibleFiles.overflowFilesOmitted
     : 0;
   return (
     <article
@@ -172,7 +174,7 @@ function CommitRow({
         <div className="review-commit-files">
           {filesState?.status === "loading" ? <p>Loading files…</p> : null}
           {filesState?.status === "error" ? <p>{filesState.error}</p> : null}
-          {shaped?.files.map((file) => (
+          {visibleFiles?.files.map((file) => (
             <button
               type="button"
               className="review-commit-file"
@@ -207,7 +209,7 @@ export interface VisibleCommitFiles {
   overflowFilesOmitted: number;
 }
 
-export function shapeCommitFiles(
+export function visibleCommitFiles(
   files: readonly ReviewDiffFileWire[],
 ): VisibleCommitFiles {
   const visible = files.filter((file) => !isTestFile(file.path));

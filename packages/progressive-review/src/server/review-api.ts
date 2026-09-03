@@ -40,7 +40,6 @@ import type {
 } from "../native-agent/native-session";
 import { NativeReviewTurnLauncher } from "../native-agent/native-turn-launcher";
 import {
-  isTraceR2Configured,
   listReviewTraceSessions,
   loadReviewAgentTrace,
 } from "../review-agent-traces";
@@ -72,6 +71,7 @@ import { materializeSoftwareMapAtRef } from "../software-map-artifact";
 import { resolveSoftwareMapDiffCounts } from "../software-map-diff-counts";
 import type { SourceSnapshot } from "../source-code-types";
 import { resolveReviewSourceRange } from "../source-range-resolver";
+import { readStoreAuth } from "../store-auth";
 import { ProgressiveReviewTelemetry } from "../telemetry";
 import type { ReviewTabTelemetryEvent } from "../telemetry";
 import type { CreateReviewCommentInput, ReviewSubmissionEvent } from "../types";
@@ -410,7 +410,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     const sessions = await resolveTraceSessionDescriptors();
     return reviewApiJsonResponse(200, {
       ok: true,
-      configured: isTraceR2Configured(),
+      configured: (await readStoreAuth()) !== null,
       sessions,
     });
   }

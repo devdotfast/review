@@ -11,9 +11,11 @@ import os from "node:os";
 import path from "node:path";
 import { Writable } from "node:stream";
 import { promisify } from "node:util";
+import zlib from "node:zlib";
 
 import { describe, expect, it, vi } from "vitest";
 
+import { pullReviewTraceCorpus } from "./review-agent-traces";
 import { createReviewDir } from "./review-home";
 import { runReviewRebind as rebindReview } from "./review-rebind";
 import {
@@ -26,6 +28,8 @@ import { appendReviewComment, updateReviewComment } from "./review-state-store";
 import { closeAllReviewThreadStores } from "./review-thread-store-backend";
 import { prepareReviewPublish } from "./server/publish-preparation";
 import { resolveReviewInfo } from "./server/review-info";
+import { createMemoryTraceStoreTransport } from "./trace-store-transport";
+import { allowTraceRepository } from "./trace-user-config";
 
 const execFilePromise = promisify(execFile);
 
@@ -141,26 +145,19 @@ describe("review info", () => {
   it("materializes available agent traces and reports their paths", async () => {
     const root = await makeGitRepository();
     const home = await mkdtemp(path.join(os.tmpdir(), "review-info-home-"));
-    const mockR2Dir = path.join(home, "mock-r2");
     const traceSearchDir = path.join(home, "trace-search");
-    const traceSettingsPath = path.join(home, "trace-settings.json");
     const sessionId = "11111111-1111-4111-8111-111111111111";
+    const repositoryId = 11;
     vi.stubEnv("DEV_REVIEW_HOME", home);
-    vi.stubEnv("TRACE_R2_MODE", "mock");
-    vi.stubEnv("TRACE_R2_MOCK_DIR", mockR2Dir);
-    vi.stubEnv("TRACE_SETTINGS_FILE", traceSettingsPath);
     vi.stubEnv("REVIEW_TEST_TRACE_SEARCH_DIR", traceSearchDir);
     vi.stubEnv("GITHUB_REPOSITORY", "acme/widgets");
 
     try {
-      await writeFile(
-        traceSettingsPath,
-        JSON.stringify({
-          version: 1,
-          enabled: true,
-          autoActivateRepositories: true,
-        }),
-      );
+      await allowTraceRepository({
+        repositoryId,
+        name: "acme/widgets",
+        store: "https://app.dev.fast",
+      });
       await git(root, ["config", "devfast.prepare", "echo ok"]);
       await git(root, ["checkout", "-b", "feature"]);
       await writeFile(path.join(root, "README.md"), "# Feature\n", "utf8");
@@ -170,21 +167,48 @@ describe("review info", () => {
         `feature\n\nAgent-Session: ${sessionId}`,
       ]);
 
-      const remoteTraceDir = path.join(mockR2Dir, "by-session", sessionId);
-      await mkdir(remoteTraceDir, { recursive: true });
-      await writeFile(
-        path.join(remoteTraceDir, "trace.jsonl"),
-        [
-          JSON.stringify({
-            type: "session_meta",
-            payload: { id: sessionId, cwd: root },
-          }),
-          JSON.stringify({
-            type: "event_msg",
-            payload: { type: "user_message", message: "Build the feature" },
-          }),
-        ].join("\n") + "\n",
+      // The store holds the session; `trace pull` puts it in the corpus.
+      const transport = createMemoryTraceStoreTransport();
+      const compressed = zlib.gzipSync(
+        Buffer.from(
+          [
+            JSON.stringify({
+              type: "session_meta",
+              payload: { id: sessionId, cwd: root },
+            }),
+            JSON.stringify({
+              type: "event_msg",
+              payload: { type: "user_message", message: "Build the feature" },
+            }),
+          ].join("\n") + "\n",
+          "utf8",
+        ),
       );
+      transport.objects.set(
+        `r${repositoryId}/sessions/${sessionId}/main.jsonl.gz`,
+        compressed,
+      );
+      transport.sessions.set(`r${repositoryId}/sessions/${sessionId}`, {
+        repositoryId,
+        sessionId,
+        harness: "codex",
+        updatedAt: "2026-09-02T12:00:00.000Z",
+        commits: [],
+        objects: [
+          {
+            name: "main.jsonl.gz",
+            size: compressed.byteLength,
+            sha256: "0".repeat(64),
+          },
+        ],
+        complete: true,
+      });
+      await pullReviewTraceCorpus({
+        repo: { owner: "acme", repo: "widgets" },
+        sessions: [{ id: sessionId }],
+        transport,
+        repositoryId,
+      });
 
       const progress: string[] = [];
       const created = await runReviewScaffold({

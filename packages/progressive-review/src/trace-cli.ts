@@ -54,6 +54,10 @@ import {
   repairTraceRepository,
 } from "./trace-repository-hooks";
 import {
+  type TraceStoreTransport,
+  createHttpTraceStoreTransport,
+} from "./trace-store-transport";
+import {
   allowTraceRepository,
   denyTraceRepository,
   findTraceRepository,
@@ -504,6 +508,8 @@ export async function runReviewTracePull(input: {
   json?: boolean;
   stdout: Writable;
   stderr: Writable;
+  client?: StoreClient;
+  transport?: TraceStoreTransport;
 }): Promise<number> {
   try {
     let scope: TracePullScope;
@@ -543,6 +549,8 @@ export async function runReviewTracePull(input: {
       repo,
       sessions,
       mainOnly: input.mainOnly,
+      cwd: repoRoot,
+      transport: traceStoreTransport(input),
     });
     const output = {
       scope,
@@ -587,10 +595,15 @@ export async function runReviewTraceLookupCommit(input: {
   sha: string;
   json?: boolean;
   stdout: Writable;
+  client?: StoreClient;
+  transport?: TraceStoreTransport;
+  repositoryId?: number;
 }): Promise<number> {
   const result = await lookupReviewTraceCommit({
     cwd: input.cwd,
     sha: input.sha,
+    transport: traceStoreTransport(input),
+    repositoryId: input.repositoryId,
   });
 
   if (input.json) {
@@ -654,9 +667,15 @@ export async function runReviewTraceLookupSession(input: {
   sessionId: string;
   json?: boolean;
   stdout: Writable;
+  client?: StoreClient;
+  transport?: TraceStoreTransport;
+  repositoryId?: number;
 }): Promise<number> {
   const result = await lookupReviewTraceSession({
     sessionId: input.sessionId,
+    cwd: input.cwd,
+    transport: traceStoreTransport(input),
+    repositoryId: input.repositoryId,
   });
 
   if (input.json) {
@@ -676,9 +695,7 @@ export async function runReviewTraceLookupSession(input: {
   }
 
   if (result.has_raw_trace) {
-    input.stdout.write(
-      `  raw trace: by-session/${result.session}/trace.jsonl\n`,
-    );
+    input.stdout.write("  raw trace: stored\n");
   }
   if (result.subagents.length > 0) {
     input.stdout.write(`  subagents: ${result.subagents.join(", ")}\n`);
@@ -703,12 +720,7 @@ function printCommitResolution(
     `${shortCommit}  → ${resolution.sessions.length} session(s) via ${resolution.source}${prSuffix}\n`,
   );
   for (const session of resolution.sessions) {
-    const meta = resolution.session_meta?.[session];
-    const metaSuffix = meta
-      ? `  (${meta.branch || "?"}, ${meta.author || "?"})`
-      : "";
-    stdout.write(`    ${session}${metaSuffix}\n`);
-    stdout.write(`      trace: by-session/${session}/trace.jsonl\n`);
+    stdout.write(`    ${session}\n`);
     stdout.write(
       `      pull for FFF: review trace pull --session ${session}\n`,
     );
@@ -721,27 +733,55 @@ export async function runReviewTraceSync(input: {
   repo?: string;
   json?: boolean;
   stdout: Writable;
+  stderr: Writable;
+  client?: StoreClient;
+  transport?: TraceStoreTransport;
 }): Promise<number> {
-  const result = await syncReviewTrace({
-    sessionId: input.sessionId,
-    cwd: input.cwd,
-    repo: input.repo,
+  const output: CliJsonOutput = {
+    json: input.json,
+    stdout: input.stdout,
+    stderr: input.stderr,
+  };
+  let result: Awaited<ReturnType<typeof syncReviewTrace>>;
+  try {
+    result = await syncReviewTrace({
+      sessionId: input.sessionId,
+      cwd: input.cwd,
+      repo: input.repo,
+      transport: traceStoreTransport(input),
+    });
+  } catch (error) {
+    return failWithJsonError(output, "trace.sync", errorMessage(error));
+  }
+
+  emitJsonEvent(output, {
+    event: "trace.sync",
+    sessionId: result.session,
+    repositoryId: result.repositoryId,
+    stored: result.stored,
+    objects: result.objects,
+    commits: result.commits,
   });
-
-  if (input.json) {
-    input.stdout.write(`${JSON.stringify(result)}\n`);
-    return 0;
+  const stream = humanStream(output);
+  for (const object of result.objects) {
+    stream.write(`${object}  stored\n`);
   }
-
-  for (const upload of result.uploads) {
-    input.stdout.write(
-      `${upload.blob}  ${upload.bytes_stored} bytes  ${upload.status}\n`,
-    );
-  }
-  input.stdout.write(
-    `Updated meta for session ${result.session} in ${result.repo}.\n`,
+  stream.write(
+    `Shipped session ${result.session} of ${result.repo} to the trace store.\n`,
   );
   return 0;
+}
+
+/**
+ * The transport a trace command was given, if any. A read command that gets
+ * none still works from the local corpus, so no command demands a login here.
+ */
+function traceStoreTransport(input: {
+  client?: StoreClient;
+  transport?: TraceStoreTransport;
+}): TraceStoreTransport | undefined {
+  if (input.transport) return input.transport;
+  return input.client ? createHttpTraceStoreTransport(input.client) : undefined;
 }
 
 function compactEventLine(event: AgentTraceEvent): string {

@@ -8,7 +8,6 @@ import { jsonString, parseJsonText } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
 import { writeFileAtomicAsync } from "./atomic-write";
-import { clearTraceEnvCache } from "./review-agent-traces";
 
 const execFileAsync = promisify(execFile);
 
@@ -176,7 +175,6 @@ export async function configureTraceMachine(input: {
     { mode: 0o600 },
   );
   await chmod(envPath, 0o600);
-  clearTraceEnvCache();
 
   let error: string | undefined;
   let verifiedAt: string | undefined;

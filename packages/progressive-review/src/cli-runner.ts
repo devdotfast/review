@@ -1083,7 +1083,7 @@ export async function runProgressiveReviewCli(
   configureJsonOutput(
     trace
       .command("sync <session-id>")
-      .description("Upload a local session trace and its metadata")
+      .description("Ship a local session trace to the hosted trace store")
       .option("--repo <repo>", "GitHub owner/repo"),
     "plain",
   ).action(
@@ -1100,6 +1100,7 @@ export async function runProgressiveReviewCli(
         repo: options.repo,
         json: options.json,
         stdout: input.stdout,
+        stderr: input.stderr,
       });
     },
   );

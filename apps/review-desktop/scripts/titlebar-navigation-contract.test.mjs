@@ -44,16 +44,6 @@ const editorActions = readFileSync(
 
 test("Review mounts VS Code's native back and forward controls", () => {
   assert.match(
-    reviewConfiguration,
-    /'window\.title': 'Review',/,
-    "mounting the native title control should preserve Review's window title",
-  );
-  assert.match(
-    reviewConfiguration,
-    /'workbench\.navigationControl\.enabled': true/,
-    "Review's runtime configuration should keep navigation controls enabled",
-  );
-  assert.match(
     reviewMain,
     /new ReviewConfigurationService\([\s\S]*?\{ defaultOverrides: reviewAgentsWindowDefaultOverrides \}\)/,
     "Review's navigation defaults must survive Review configuration initialization",

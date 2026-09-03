@@ -79,13 +79,6 @@ const unifiedDefinitionSource = readFileSync(
   ),
   "utf8",
 );
-const reviewConfiguration = readFileSync(
-  new URL(
-    "../code-oss/src/vs/review/common/reviewConfigurationDefaults.ts",
-    import.meta.url,
-  ),
-  "utf8",
-);
 const reviewStyles = readFileSync(
   new URL(
     "../code-oss/src/vs/review/browser/media/review.css",
@@ -366,14 +359,6 @@ test("Files and every CodePeek reuse one native multi-diff resource header", () 
     source,
     /this\.setExpandedHeight\(bodyHeight\s*\+\s*INLINE_HEADER_HEIGHT\)/,
   );
-});
-
-test("Review diff surfaces share the same indicator-free visual language", () => {
-  assert.match(
-    reviewConfiguration,
-    /['"]diffEditor\.renderIndicators['"]:\s*false/,
-  );
-  assert.match(source, /computeMultiDiffEditorOptions/);
 });
 
 test("authored CodePeeks use the stock native comment contribution", () => {

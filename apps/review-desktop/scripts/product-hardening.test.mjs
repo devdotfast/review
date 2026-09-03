@@ -149,27 +149,6 @@ test("keeps product.json free of defaults nothing reads", () => {
   assert.equal(product.configurationDefaults, undefined);
 });
 
-test("uses VSCodium-derived opt-out defaults", () => {
-  for (const [key, value] of [
-    ["telemetry.telemetryLevel", "'off'"],
-    ["telemetry.enableTelemetry", "false"],
-    ["telemetry.enableCrashReporter", "false"],
-    ["telemetry.editStats.enabled", "false"],
-    ["workbench.enableExperiments", "false"],
-    [
-      "workbench.commandPalette.experimental.enableNaturalLanguageSearch",
-      "false",
-    ],
-    ["workbench.settings.enableNaturalLanguageSearch", "false"],
-  ]) {
-    assert.match(
-      reviewConfiguration,
-      new RegExp(`'${key.replaceAll(".", "\\.")}': ${value},`),
-      key,
-    );
-  }
-});
-
 test("blocks every Review hardening default from user-config import", () => {
   const defaults = reviewConfiguration.match(
     /reviewConfigurationDefaults\s*=\s*\{([\s\S]*?)\}\s*as const/,

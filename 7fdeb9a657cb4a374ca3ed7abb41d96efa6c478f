@@ -1,0 +1,260 @@
+import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
+
+export default defineSoftwareMap({
+  people: {
+    reviewer: {
+      label: "Code reviewer",
+      description:
+        "Explores an agent-authored Review, inspects its evidence, and records a decision.",
+    },
+    authoringAgent: {
+      label: "Authoring agent",
+      description:
+        "Studies a pinned change and authors the guided Review and its software map.",
+    },
+  },
+  systems: {
+    reviewProduct: {
+      label: "Review",
+      description:
+        "Desktop code-review product that turns a pinned change into a guided, interactive Review.",
+      containers: {
+        desktopShell: {
+          label: "Review Desktop",
+          description:
+            "The Code OSS-based desktop shell that hosts Review, source navigation, diffs, and feedback.",
+          components: {
+            workbench: {
+              label: "Review workbench",
+              description:
+                "Presents the Review canvas, changed-files explorer, title bar, and editor navigation.",
+              coverage: {
+                globs: [
+                  "apps/review-desktop/code-oss/src/vs/review/browser/**",
+                ],
+              },
+            },
+            sessionBridge: {
+              label: "Desktop session bridge",
+              description:
+                "Maintains Review session state and translates canvas actions into desktop services.",
+              coverage: {
+                globs: [
+                  "apps/review-desktop/code-oss/src/vs/review/common/**",
+                  "apps/review-desktop/code-oss/src/vs/review/services/**",
+                  "apps/review-desktop/code-oss/src/vs/review/contrib/**",
+                  "apps/review-desktop/code-oss/src/vs/review/*.ts",
+                ],
+              },
+            },
+            desktopHost: {
+              label: "Desktop process host",
+              description:
+                "Bootstraps Electron processes, supervises the local Review server, and handles native integration.",
+              coverage: {
+                globs: [
+                  "apps/review-desktop/code-oss/src/vs/review/electron-*/**",
+                  "apps/review-desktop/code-oss/src/vs/review/node/**",
+                ],
+              },
+            },
+            distribution: {
+              label: "Desktop distribution",
+              description:
+                "Builds, stages, packages, signs, and validates the desktop application and bundled runtime.",
+              coverage: { globs: ["apps/review-desktop/scripts/**"] },
+            },
+          },
+        },
+        canvas: {
+          label: "Review canvas",
+          description:
+            "React application that renders the guided document and its interactive review tools.",
+          components: {
+            interactiveDocument: {
+              label: "Interactive Review document",
+              description:
+                "Renders authored MDX, software maps, diagrams, code peeks, annotations, and review controls.",
+              coverage: { globs: ["packages/progressive-review/app/**"] },
+            },
+          },
+        },
+        reviewRuntime: {
+          label: "Review CLI and runtime",
+          description:
+            "Scaffolds, validates, bundles, stores, serves, and publishes commit-pinned Reviews.",
+          components: {
+            lifecycle: {
+              label: "Review lifecycle engine",
+              description:
+                "Owns CLI commands, publication gates, the desktop server, source resolution, and software-map notes.",
+              coverage: { globs: ["packages/progressive-review/src/**"] },
+            },
+            authoringSkills: {
+              label: "Agent authoring skills",
+              description:
+                "Defines the workflows agents use to author Review documents and commit-addressed software maps.",
+              coverage: { globs: ["packages/progressive-review/skills/**"] },
+            },
+          },
+        },
+        localVcs: {
+          label: "Local VCS adapter",
+          description:
+            "Provides repository identity, commit resolution, locking, cache, and Git-note persistence primitives.",
+          components: {
+            repositoryAccess: {
+              label: "Repository access",
+              description:
+                "Reads Git and Jujutsu state and safely persists Review-owned metadata in Git notes.",
+              coverage: { globs: ["packages/local-vcs/src/**"] },
+            },
+          },
+        },
+        protocol: {
+          label: "Desktop protocol",
+          description:
+            "Shares validated message contracts between the bundled Review runtime and the desktop shell.",
+          components: {
+            contracts: {
+              label: "Review protocol contracts",
+              description:
+                "Defines and validates the requests, responses, events, and error reports crossing the desktop boundary.",
+              coverage: { globs: ["packages/review-protocol/src/**"] },
+            },
+          },
+        },
+      },
+      dataStores: {
+        reviewStore: {
+          label: "Local Review store",
+          kind: "fileStore",
+          description:
+            "Holds UUID Review directories, pinned state, authored documents, threads, bundles, and sealed revisions.",
+        },
+        softwareMapNotes: {
+          label: "Software-map notes",
+          kind: "artifactStore",
+          description:
+            "Stores one validated software-map source artifact per commit under Review-owned Git notes.",
+        },
+      },
+    },
+    sourceRepository: {
+      label: "Source repository",
+      description:
+        "The local Git or Jujutsu repository and pinned base/head worktrees being reviewed.",
+      external: true,
+    },
+    codingAgents: {
+      label: "Coding-agent runtimes",
+      description:
+        "Claude Code, Codex, Cursor, Pi, and other agents that invoke the installed Review skills and CLI.",
+      external: true,
+    },
+    telemetryService: {
+      label: "Telemetry service",
+      description:
+        "Receives privacy-filtered product and error telemetry when the user enables it.",
+      external: true,
+    },
+  },
+  relationships: [
+    {
+      kind: "semantic",
+      from: "reviewer",
+      to: "reviewProduct.desktopShell.workbench",
+      label: "Reviews the change",
+    },
+    {
+      kind: "semantic",
+      from: "authoringAgent",
+      to: "codingAgents",
+      label: "Runs in",
+    },
+    {
+      kind: "semantic",
+      from: "codingAgents",
+      to: "reviewProduct.reviewRuntime.authoringSkills",
+      label: "Loads authoring workflow",
+    },
+    {
+      kind: "semantic",
+      from: "codingAgents",
+      to: "reviewProduct.reviewRuntime.lifecycle",
+      label: "Invokes Review CLI",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.desktopShell.workbench",
+      to: "reviewProduct.canvas.interactiveDocument",
+      label: "Hosts the Review canvas",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.canvas.interactiveDocument",
+      to: "reviewProduct.desktopShell.sessionBridge",
+      label: "Requests code navigation and feedback actions",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.desktopShell.sessionBridge",
+      to: "reviewProduct.protocol.contracts",
+      label: "Exchanges validated messages",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.desktopShell.sessionBridge",
+      to: "reviewProduct.reviewRuntime.lifecycle",
+      label: "Reads and mutates Review sessions",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.desktopShell.desktopHost",
+      to: "reviewProduct.reviewRuntime.lifecycle",
+      label: "Supervises bundled server",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.desktopShell.distribution",
+      to: "reviewProduct.desktopShell.desktopHost",
+      label: "Stages and packages",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.reviewRuntime.lifecycle",
+      to: "reviewProduct.protocol.contracts",
+      label: "Serves protocol responses",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.reviewRuntime.lifecycle",
+      to: "reviewProduct.localVcs.repositoryAccess",
+      label: "Resolves commits and persists notes",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.localVcs.repositoryAccess",
+      to: "sourceRepository",
+      label: "Reads repository state",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.reviewRuntime.lifecycle",
+      to: "reviewProduct.reviewStore",
+      label: "Stores Review state and revisions",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.reviewRuntime.lifecycle",
+      to: "reviewProduct.softwareMapNotes",
+      label: "Validates and saves commit maps",
+    },
+    {
+      kind: "semantic",
+      from: "reviewProduct.desktopShell.desktopHost",
+      to: "telemetryService",
+      label: "Sends privacy-filtered telemetry",
+    },
+  ],
+});

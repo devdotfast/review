@@ -39,11 +39,16 @@ export function rulerTickCount(height: number, eventCount: number): number {
 }
 
 /** Half-open event range [start, end) represented by one tick. */
+export interface RulerBucketRange {
+  start: number;
+  end: number;
+}
+
 export function rulerBucketRange(
   tick: number,
   tickCount: number,
   eventCount: number,
-): { start: number; end: number } {
+): RulerBucketRange {
   const start = Math.floor((tick * eventCount) / tickCount);
   const end = Math.max(
     start + 1,

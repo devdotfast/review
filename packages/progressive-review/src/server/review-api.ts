@@ -10,9 +10,12 @@ import {
   resolveRevision,
 } from "@dev.fast/local-vcs";
 import {
+  type JsonObject,
+  type ReviewCommentThreadRecord,
   type ReviewSessionWire,
   type ReviewThreadsCommit,
   type ReviewVerbRequest,
+  isJsonObject,
   parseReviewFileContentRequest,
 } from "@dev.fast/review-protocol";
 import { type Context, Hono } from "hono";
@@ -167,10 +170,7 @@ export async function captureSanitizedUiTelemetry(
 ): Promise<void> {
   const appSessionId =
     request.headers.get(REVIEW_APP_SESSION_ID_HEADER) ?? undefined;
-  const rawProperties =
-    properties && typeof properties === "object"
-      ? (properties as Record<string, unknown>)
-      : {};
+  const rawProperties: JsonObject = isJsonObject(properties) ? properties : {};
   const sanitized = sanitizeUiTelemetryEvent({
     name,
     properties: {
@@ -476,10 +476,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   ): Promise<Response> {
     try {
       const body = await readJson(context.req.raw);
-      const payload =
-        body && typeof body === "object"
-          ? (body as Record<string, unknown>)
-          : {};
+      const payload: JsonObject = isJsonObject(body) ? body : {};
       await captureSanitizedUiTelemetry(
         telemetry,
         context.req.raw,
@@ -813,7 +810,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   async function codePeekResolve(
     context: Context<ReviewHonoEnv>,
   ): Promise<Response> {
-    const body = (await readJson(context.req.raw)) as Record<string, unknown>;
+    const body = await readJsonObject(context.req.raw);
     const sourceTarget = await resolveRequestSourceTarget({
       reviewRootPath,
     });
@@ -850,7 +847,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   async function softwareMapResolvedData(
     context: Context<ReviewHonoEnv>,
   ): Promise<Response> {
-    const body = (await readJson(context.req.raw)) as Record<string, unknown>;
+    const body = await readJsonObject(context.req.raw);
     const codeElements = parseSoftwareMapCodeElements(body.codeElements);
     const coverageClaims = parseSoftwareMapCoverageClaims(body.coverageClaims);
     const sourceTarget = await resolveRequestSourceTarget({
@@ -1040,9 +1037,30 @@ function readJson(request: Request): Promise<unknown> {
   return readBoundedRequestJson(request, undefined, {});
 }
 
-function reviewApiJsonResponse(
+async function readJsonObject(request: Request): Promise<JsonObject> {
+  const body = await readJson(request);
+  if (!isJsonObject(body)) {
+    throw new Error("Request body must be a JSON object.");
+  }
+  return body;
+}
+
+interface ReviewApiStatusBody {
+  ok: boolean;
+}
+
+/** The native-agent thread lookup answers with the thread record itself. */
+interface ReviewApiThreadBody {
+  review: string;
+  state: "draft" | "submitted";
+  comment: ReviewCommentThreadRecord;
+}
+
+type ReviewApiResponseBody = ReviewApiStatusBody | ReviewApiThreadBody;
+
+function reviewApiJsonResponse<T extends ReviewApiResponseBody>(
   status: number,
-  body: Record<string, unknown>,
+  body: T,
 ): Response {
   return jsonResponse(body, status as ContentfulStatusCode, {
     contentType: "application/json",
@@ -1500,6 +1518,12 @@ function resolveReviewDocumentPath(
   });
 }
 
+export interface ReviewRequestDiffTarget {
+  rootPath: string;
+  baseRef?: string;
+  headRef?: string;
+}
+
 export function resolveRequestDiffTarget(
   url: URL,
   input: {
@@ -1508,7 +1532,7 @@ export function resolveRequestDiffTarget(
     rootPath: string;
     session?: ReviewSessionWire;
   },
-): { rootPath: string; baseRef?: string; headRef?: string } {
+): ReviewRequestDiffTarget {
   const reviewDocumentPath = resolveReviewDocumentPath(url, input);
   if (!reviewDocumentPath) {
     throw new Error("Review document not found.");

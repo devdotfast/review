@@ -1,7 +1,12 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { DEFAULT_DISMISSED_RETENTION_DAYS } from "@dev.fast/review-protocol";
+import {
+  DEFAULT_DISMISSED_RETENTION_DAYS,
+  type JsonValue,
+  isJsonObject,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
 
 import type { DismissedRetentionDays } from "./review-attention";
 import { devReviewHome } from "./review-storage";
@@ -30,7 +35,7 @@ export async function readReviewPreferences(
   devHome?: string,
 ): Promise<ReviewPreferences> {
   try {
-    const raw: unknown = JSON.parse(
+    const raw = parseJsonText(
       await readFile(reviewPreferencesPath(devHome), "utf8"),
     );
     return { dismissedRetentionDays: parseRetentionDays(raw) };
@@ -52,11 +57,11 @@ export async function writeReviewPreferences(
   return next;
 }
 
-function parseRetentionDays(raw: unknown): DismissedRetentionDays {
-  if (typeof raw !== "object" || raw === null) {
+function parseRetentionDays(raw: JsonValue): DismissedRetentionDays {
+  if (!isJsonObject(raw)) {
     return DEFAULT_DISMISSED_RETENTION_DAYS;
   }
-  const value = (raw as Record<string, unknown>).dismissedRetentionDays;
+  const value = raw.dismissedRetentionDays;
   if (value === null) return null;
   return normalizeRetentionDays(typeof value === "number" ? value : undefined);
 }

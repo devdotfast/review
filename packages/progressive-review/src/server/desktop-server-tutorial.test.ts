@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { type JsonObject, isJsonObject } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { SessionRef } from "../authoring-session";
@@ -534,22 +535,22 @@ function tutorialRequest(
   });
 }
 
-async function tutorialJson(
+function tutorialJson(
   serverUrl: string,
   route: string,
   method: "POST",
-): Promise<Record<string, unknown>> {
-  const response = await tutorialRequest(serverUrl, route, method);
-  expect(response.status).toBe(200);
-  return (await response.json()) as Record<string, unknown>;
+): Promise<JsonObject> {
+  return responseJson(tutorialRequest(serverUrl, route, method));
 }
 
-async function responseJson(
-  response: Promise<Response>,
-): Promise<Record<string, unknown>> {
+async function responseJson(response: Promise<Response>): Promise<JsonObject> {
   const resolved = await response;
   expect(resolved.status).toBe(200);
-  return (await resolved.json()) as Record<string, unknown>;
+  const body = await resolved.json();
+  if (!isJsonObject(body)) {
+    throw new Error("Expected a JSON object response body.");
+  }
+  return body;
 }
 
 function submissionEvent(): ReviewSubmissionEvent {

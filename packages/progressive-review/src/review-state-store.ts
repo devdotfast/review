@@ -8,6 +8,7 @@ import {
   type GitLabDiffPosition,
   ReviewRecordSchema,
   gitLabDiffPositionRows,
+  isJsonObject,
 } from "@dev.fast/review-protocol";
 
 import { writeFileAtomic } from "./atomic-write";
@@ -40,10 +41,6 @@ import type {
 
 export { reviewStateDir } from "./review-thread-store-backend";
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
 interface ReviewCodeTargetContext {
   rootPath: string;
   baseCommit: string;
@@ -51,12 +48,12 @@ interface ReviewCodeTargetContext {
 }
 
 function isLegacyCodeTarget(target: unknown): boolean {
-  if (!isObject(target) || target.kind !== "text") return false;
-  if (!isObject(target.surface)) return false;
+  if (!isJsonObject(target) || target.kind !== "text") return false;
+  if (!isJsonObject(target.surface)) return false;
   if (target.surface.type === "native") return true;
   return (
     target.surface.type === "anchor" &&
-    isObject(target.surface.part) &&
+    isJsonObject(target.surface.part) &&
     target.surface.part.type === "code"
   );
 }
@@ -186,10 +183,15 @@ function writeReviewComments(
   reviewThreadStoreBackend(reviewMdxPath).writeComments(comments);
 }
 
+export interface AppendReviewCommentResult {
+  threadId: string;
+  thread: ReviewCommentThreadRecord;
+}
+
 export function appendReviewComment(
   reviewMdxPath: string,
   input: CreateReviewCommentInput & { author: string },
-): { threadId: string; thread: ReviewCommentThreadRecord } {
+): AppendReviewCommentResult {
   if (!input.threadId.trim()) {
     throw new Error("Comment threadId is required.");
   }
@@ -257,10 +259,15 @@ function writeReviewCommentDrafts(
   reviewThreadStoreBackend(reviewMdxPath).writeCommentDrafts(drafts);
 }
 
+export interface AppendReviewCommentDraftResult {
+  threadId: string;
+  draft: ReviewCommentDraftThread;
+}
+
 export function appendReviewCommentDraft(
   reviewMdxPath: string,
   input: CreateReviewCommentInput & { author: string },
-): { threadId: string; draft: ReviewCommentDraftThread } {
+): AppendReviewCommentDraftResult {
   const { author, ...draftInput } = input;
   requireValidCodeTarget(reviewMdxPath, input.target);
   const drafts = readReviewCommentDrafts(reviewMdxPath);
@@ -399,13 +406,15 @@ export function deleteReviewCommentDraftMessage(
   return next;
 }
 
+export interface SubmitReviewCommentDraftsResult {
+  threads: ReviewCommentThreadRecord[];
+  deletedDraftThreadIds: string[];
+}
+
 export function submitReviewCommentDrafts(
   reviewMdxPath: string,
   expectedInputs: CreateReviewCommentInput[],
-): {
-  threads: ReviewCommentThreadRecord[];
-  deletedDraftThreadIds: string[];
-} {
+): SubmitReviewCommentDraftsResult {
   const backend = reviewThreadStoreBackend(reviewMdxPath);
   const comments = backend.readComments();
   const drafts = backend.readCommentDrafts();
@@ -531,7 +540,7 @@ function normalizeReviewCommentMessage(
 function upsertThreadMessage(
   thread: ReviewCommentThreadRecord,
   message: ReviewCommentMessage,
-): { thread: ReviewCommentThreadRecord; changed: boolean } {
+) {
   const index = thread.messages.findIndex(
     (candidate) => candidate.id === message.id,
   );
@@ -702,10 +711,16 @@ function nextDocHistoryVersion(dir: string): number {
  * the latest snapshot is byte-identical (so re-running a review with no doc
  * change doesn't accumulate duplicate versions).
  */
+export interface SaveReviewDocHistoryResult {
+  version: number;
+  path: string;
+  isNew: boolean;
+}
+
 export function saveReviewDocHistory(
   reviewMdxPath: string,
   content: string,
-): { version: number; path: string; isNew: boolean } {
+): SaveReviewDocHistoryResult {
   const dir = reviewHistoryDocDir(reviewMdxPath);
   const nextVersion = nextDocHistoryVersion(dir);
   if (nextVersion > 1) {

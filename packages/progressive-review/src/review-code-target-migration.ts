@@ -6,7 +6,9 @@ import {
 import {
   type GitLabDiffPosition,
   type GitLabTextDiffRow,
+  type JsonObject,
   createGitLabTextDiffPosition,
+  isJsonObject,
 } from "@dev.fast/review-protocol";
 
 import { type DiffHunk, parseUnifiedPatch } from "./unified-diff";
@@ -120,7 +122,7 @@ export function createLegacyCodeRecordMigrator(
     const migratedThread = objectRecord(thread, "migrated code comment thread");
     const inputs = Array.isArray(draft.inputs)
       ? draft.inputs.map((input) => {
-          if (!isObject(input) || !isLegacyCodeTarget(input.target))
+          if (!isJsonObject(input) || !isLegacyCodeTarget(input.target))
             return input;
           return { ...input, target: migratedThread.target };
         })
@@ -296,17 +298,13 @@ function parseLegacySpan(value: unknown): LegacyCodeSpan {
   return { startLine: span.startLine, endLine: span.endLine };
 }
 
-function isLegacyCodeTarget(value: unknown): value is Record<string, unknown> {
-  return isObject(value) && value.kind === "code" && "path" in value;
+function isLegacyCodeTarget(value: unknown): value is JsonObject {
+  return isJsonObject(value) && value.kind === "code" && "path" in value;
 }
 
-function objectRecord(value: unknown, name: string): Record<string, unknown> {
-  if (!isObject(value)) throw new Error(`${name} is malformed.`);
+function objectRecord(value: unknown, name: string): JsonObject {
+  if (!isJsonObject(value)) throw new Error(`${name} is malformed.`);
   return value;
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function positiveInteger(value: unknown): value is number {

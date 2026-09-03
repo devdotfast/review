@@ -459,12 +459,10 @@ export const callStackEntrySchema = z.union([
 ]);
 export type CallStackEntry = z.infer<typeof callStackEntrySchema>;
 
-export function isCallsAssertion(value: unknown): value is CallsAssertion {
-  return (
-    Boolean(value) &&
-    typeof value === "object" &&
-    (value as { __kind?: unknown }).__kind === "call-assertion"
-  );
+export function isCallsAssertion(
+  value: CallStackEntry,
+): value is CallsAssertion {
+  return value.__kind === "call-assertion";
 }
 
 // The frame a call-stack entry renders: the anchor itself, or the child of
@@ -650,19 +648,19 @@ export type CollectionRefs<T> =
     : never;
 
 type FieldRefs<T> = T extends SoftwareDataStoreFieldLeaf
-  ? T extends { schema: infer Schema extends Record<string, unknown> }
+  ? T extends { schema: infer Schema extends SoftwareDataStoreFieldSchema }
     ? AuthoredTargetRef & FieldRefs<Schema>
     : AuthoredTargetRef
-  : T extends Record<string, unknown>
+  : T extends SoftwareDataStoreFieldSchema
     ? {
         [K in keyof T]: AuthoredTargetRef &
           (T[K] extends SoftwareDataStoreFieldLeaf
             ? T[K] extends {
-                schema: infer Schema extends Record<string, unknown>;
+                schema: infer Schema extends SoftwareDataStoreFieldSchema;
               }
               ? FieldRefs<Schema>
               : unknown
-            : T[K] extends Record<string, unknown>
+            : T[K] extends SoftwareDataStoreFieldSchema
               ? FieldRefs<T[K]>
               : unknown);
       }
@@ -1042,8 +1040,9 @@ function defineCollections(
         path: [],
       };
       const fields = defineFieldTargets(target, collection.schema, []);
-      const authored = Object.assign({}, fields) as CollectionRef &
-        Record<PropertyKey, unknown>;
+      // SAFETY: the handle's symbol-keyed target and schema are defined on
+      // the next statement, before the collection ref escapes.
+      const authored = Object.assign({}, fields) as CollectionRef;
       Object.defineProperties(authored, {
         [authoredTargetRefKey]: { value: Object.freeze(target) },
         [collectionSchemaKey]: { value: collection.schema },
@@ -1075,10 +1074,12 @@ function defineFieldTargets(
         path,
       };
       const nestedSchema = isNestedSchema(value) ? value : value.schema;
+      // SAFETY: the symbol-keyed target is defined on the next statement,
+      // before the field ref escapes.
       const authored = Object.assign(
         {},
         nestedSchema ? defineFieldTargets(collection, nestedSchema, path) : {},
-      ) as AuthoredTargetRef & Record<PropertyKey, unknown>;
+      ) as AuthoredTargetRef & Record<string, AuthoredTargetRef>;
       Object.defineProperty(authored, authoredTargetRefKey, {
         value: Object.freeze(target),
       });

@@ -33,10 +33,15 @@ export function humanStream(output: CliJsonOutput): Writable {
   return output.json ? output.stderr : output.stdout;
 }
 
+/** Every JSON event names itself; commands add their own fields. */
+export interface CliJsonEvent {
+  event: string;
+}
+
 /** Writes one event line, and only under --json. */
-export function emitJsonEvent(
+export function emitJsonEvent<T extends CliJsonEvent>(
   output: CliJsonOutput,
-  event: Record<string, unknown>,
+  event: T,
 ): void {
   if (output.json) output.stdout.write(`${JSON.stringify(event)}\n`);
 }

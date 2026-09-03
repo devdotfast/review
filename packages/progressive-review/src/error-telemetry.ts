@@ -17,6 +17,8 @@
 
 import { createHash } from "node:crypto";
 
+import type { JsonObject } from "@dev.fast/review-protocol";
+
 import { cleanTelemetryText } from "./telemetry-clean-text";
 import {
   BUNDLE_FRAME_PATTERN,
@@ -128,14 +130,13 @@ const SERVER_DERIVED_PROPERTIES = [
  * adding the real ones.
  */
 export function mergeErrorTelemetryProperties(
-  clientProperties: Record<string, unknown>,
+  clientProperties: JsonObject,
   rawError: unknown,
-): Record<string, unknown> {
-  const merged: Record<string, unknown> = { ...clientProperties };
+): JsonObject {
+  const merged = { ...clientProperties };
   for (const key of SERVER_DERIVED_PROPERTIES) delete merged[key];
-  return rawError
-    ? { ...merged, ...deriveErrorTelemetryProperties(rawError) }
-    : merged;
+  if (rawError) Object.assign(merged, deriveErrorTelemetryProperties(rawError));
+  return merged;
 }
 
 /**

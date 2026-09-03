@@ -10,9 +10,7 @@ type UiTelemetryProperties = Record<string, UiTelemetryPropertyValue>;
 
 let appOpenedSent = false;
 
-export function reviewAppTelemetryHeaders(
-  session: ReviewSession,
-): Record<string, string> {
+export function reviewAppTelemetryHeaders(session: ReviewSession) {
   return { [REVIEW_APP_SESSION_ID_HEADER]: session.appSessionId };
 }
 
@@ -73,11 +71,14 @@ export function captureClientError(
   );
 }
 
-function packClientError(error: unknown): {
+/** The raw error envelope sent beside the event, as the server reads it. */
+interface PackedClientError {
   name?: string;
   message?: string;
   stack?: string;
-} {
+}
+
+function packClientError(error: unknown): PackedClientError {
   if (!(error instanceof Error)) return { message: String(error) };
   return {
     name: error.name,

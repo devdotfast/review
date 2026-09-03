@@ -5,6 +5,7 @@ import path from "node:path";
 import { gunzipSync } from "node:zlib";
 
 import {
+  type JsonObject,
   REVIEW_SCHEMA_VERSION,
   type ReviewBugReportRequest,
 } from "@dev.fast/review-protocol";
@@ -479,7 +480,7 @@ interface CapturedPart {
   value: string | { filename: string; type: string; bytes: Buffer };
 }
 
-function captureFetch(): {
+interface CapturedFetch {
   fetchImpl: typeof fetch;
   url: () => string;
   headers: () => Headers;
@@ -487,7 +488,9 @@ function captureFetch(): {
   textPart: (name: string) => string;
   filePart: (name: string) => Buffer;
   fileParts: (name: string) => Buffer[];
-} {
+}
+
+function captureFetch(): CapturedFetch {
   let url: string | undefined;
   let headers: Headers | undefined;
   const capturedParts: CapturedPart[] = [];
@@ -557,7 +560,7 @@ function successResponse(): Response {
 function codexTrace(
   id: string,
   startOrdinal: number,
-  records: Array<Record<string, unknown>>,
+  records: JsonObject[],
   parent?: {
     parentId: string;
     endOrdinalExclusive: number;

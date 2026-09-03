@@ -305,10 +305,7 @@ export function ReviewSection(props: ReviewSectionProps) {
   );
 }
 
-function reviewSectionContent(
-  title: string,
-  children: ReactNode,
-): { heading: ReactElement; body: ReactNode[] } {
+function reviewSectionContent(title: string, children: ReactNode) {
   const childNodes = Children.toArray(children);
   const [firstChild, ...remainingChildren] = childNodes;
   if (isReviewSectionHeading(firstChild)) {
@@ -317,12 +314,15 @@ function reviewSectionContent(
   return { heading: <h2>{title}</h2>, body: childNodes };
 }
 
+/** Props of an authoring block that stands in for a heading element. */
+interface ReviewBlockTagProps {
+  "data-review-block-tag"?: string;
+}
+
 function isReviewSectionHeading(child: ReactNode): child is ReactElement {
-  if (!isValidElement(child)) return false;
+  if (!isValidElement<ReviewBlockTagProps>(child)) return false;
   if (child.type === "h2") return true;
-  return (
-    (child.props as Record<string, unknown>)["data-review-block-tag"] === "h2"
-  );
+  return child.props["data-review-block-tag"] === "h2";
 }
 
 function reviewSectionSummaryLabel(summary: ReviewSectionSummary): string {

@@ -99,16 +99,7 @@ describe("global Review Desktop verb relay", () => {
   });
 });
 
-function createWriter(): {
-  abort: AbortController;
-  close: ReturnType<typeof vi.fn>;
-  frames: string[];
-  writer: {
-    signal: AbortSignal;
-    write(frame: string): void;
-    close(): void;
-  };
-} {
+function createWriter() {
   const abort = new AbortController();
   const close = vi.fn<() => void>();
   const frames: string[] = [];
@@ -118,7 +109,7 @@ function createWriter(): {
     frames,
     writer: {
       signal: abort.signal,
-      write(frame) {
+      write(frame: string) {
         frames.push(frame);
       },
       close,

@@ -41,10 +41,20 @@ interface ReviewDocumentScanFingerprint {
   reviewDocuments: ReviewDocumentScanFingerprintEntry[];
 }
 
-interface ReviewDocumentScanAsyncResult {
+interface ReviewDocumentScanResult {
   manifests: ReviewDocumentModuleManifest[];
   softwareMapPaths: string[];
   sourceRoots: string[];
+}
+
+interface ReviewDocumentSoftwareMapPaths {
+  headSoftwareMapPath: string | null;
+  baseSoftwareMapPath: string | null;
+}
+
+interface ReviewDocumentSourceMetadata {
+  title: string;
+  modelNames: string[];
 }
 
 interface ReviewDocumentScanInput {
@@ -64,7 +74,7 @@ export function collectReviewDocumentScanForRuntime(input: {
   reviewPath: string;
   reviewDocumentsDir: string;
   reviewRootPath: string;
-}): Promise<ReviewDocumentScanAsyncResult> {
+}): Promise<ReviewDocumentScanResult> {
   return collectReviewDocumentScanForRuntimeInner(input);
 }
 
@@ -72,7 +82,7 @@ async function collectReviewDocumentScanForRuntimeInner(input: {
   reviewPath: string;
   reviewDocumentsDir: string;
   reviewRootPath: string;
-}): Promise<ReviewDocumentScanAsyncResult> {
+}): Promise<ReviewDocumentScanResult> {
   const normalized = normalizeReviewDocumentScanInput(input);
   const fingerprint = collectReviewDocumentScanFingerprint(normalized);
   const discoveredDocuments = collectReviewDocumentDirectoryDocuments(
@@ -216,10 +226,7 @@ async function resolveReviewDocumentRefs(
 
 function reviewDocumentModuleManifestFromMetadata(
   document: ReviewDocumentInputWithMeta,
-  metadata: {
-    title: string;
-    modelNames: string[];
-  },
+  metadata: ReviewDocumentSourceMetadata,
 ): ReviewDocumentModuleManifest {
   return {
     slug: document.slug,
@@ -244,10 +251,7 @@ async function reviewDocumentSoftwareMapPathsAsyncInner(input: {
   repoRoot: string;
   headRef: string | null;
   baseRef: string | null;
-}): Promise<{
-  headSoftwareMapPath: string | null;
-  baseSoftwareMapPath: string | null;
-}> {
+}): Promise<ReviewDocumentSoftwareMapPaths> {
   const repoRootPath = input.repoRoot;
   // Both roles are strict note reads: an unpinned head resolves to the
   // working copy's commit (the caller passed it as headRef) and reads that
@@ -392,10 +396,7 @@ function reviewDocumentTitleFromSource(
 function reviewDocumentSourceMetadata(
   filePath: string,
   fallback: string,
-): {
-  title: string;
-  modelNames: string[];
-} {
+): ReviewDocumentSourceMetadata {
   try {
     const source = readFileSync(filePath, "utf8");
     return {

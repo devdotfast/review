@@ -1,9 +1,16 @@
 import { readFile } from "node:fs/promises";
 
-export type JsonRecord = Record<string, unknown>;
+import {
+  type JsonObject,
+  isJsonObject,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
+
+/** One parsed transcript line; the harness parsers narrow its fields. */
+export type JsonRecord = JsonObject;
 
 export function isJsonRecord(value: unknown): value is JsonRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return isJsonObject(value);
 }
 
 export async function readJsonLines(path: string): Promise<JsonRecord[]> {
@@ -11,7 +18,7 @@ export async function readJsonLines(path: string): Promise<JsonRecord[]> {
   return source.split("\n").flatMap((line) => {
     if (!line.trim()) return [];
     try {
-      const value: unknown = JSON.parse(line);
+      const value = parseJsonText(line);
       return isJsonRecord(value) ? [value] : [];
     } catch {
       // A native writer can leave the last line incomplete during a read.

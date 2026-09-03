@@ -235,7 +235,7 @@ export async function writeNote(input: {
         tmp,
       ]);
       const blob = hashed.stdout.trim();
-      let lastError: unknown = null;
+      let lastError: Error | null = null;
       for (let attempt = 0; attempt < NOTES_WRITE_RETRIES; attempt += 1) {
         const added = await git(
           input.rootPath,
@@ -279,7 +279,7 @@ export function writeNoteSync(input: {
         gitArgsSync(input.rootPath, ["hash-object", "-w", "--no-filters", tmp]),
         { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
       ).trim();
-      let lastError: unknown = null;
+      let lastError: Error | null = null;
       for (let attempt = 0; attempt < NOTES_WRITE_RETRIES; attempt += 1) {
         try {
           execFileSync(
@@ -297,7 +297,7 @@ export function writeNoteSync(input: {
           );
           return;
         } catch (error) {
-          lastError = error;
+          lastError = error instanceof Error ? error : new Error(String(error));
         }
       }
       throw lastError;

@@ -44,6 +44,7 @@ import {
   reviewViewSchema,
   summarizeReviewDiffFiles,
 } from "./contracts.js";
+import type { JsonObject } from "./json.js";
 
 const repository = {
   kind: "jj",
@@ -124,7 +125,7 @@ const anchor = {
   threadId: "thread-1",
   kind: "comment",
 };
-const contracts: Array<[string, ZodType, Record<string, unknown>]> = [
+const contracts: Array<[string, ZodType, JsonObject]> = [
   ["review record", ReviewRecordSchema, reviewRecord],
   ["review descriptor", ReviewDescriptorSchema, reviewDescriptor],
   [

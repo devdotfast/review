@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { Writable } from "node:stream";
 
-import { ReviewCommentThreadRecordSchema } from "@dev.fast/review-protocol";
+import {
+  ReviewCommentThreadRecordSchema,
+  isJsonObject,
+} from "@dev.fast/review-protocol";
 
 import { reviewUuidForManagedCheckout } from "./review-head-checkout";
 import { type StoredReview, findReview, listReviews } from "./review-home";
@@ -90,11 +93,10 @@ async function readAttachedReviewThread(input: {
       `Review Desktop could not read the thread (${response.status}).`,
     );
   }
-  const value: unknown = await response.json();
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
+  const record: unknown = await response.json();
+  if (!isJsonObject(record)) {
     throw new Error("Review Desktop returned an invalid thread response.");
   }
-  const record = value as Record<string, unknown>;
   const review = record.review;
   const state = record.state;
   if (

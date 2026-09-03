@@ -1361,7 +1361,12 @@ export async function readRepoMetaFields(
   return { author: author || null, branch: branch || null };
 }
 
-export function parseRepo(value: string): { owner: string; repo: string } {
+export interface TraceRepo {
+  owner: string;
+  repo: string;
+}
+
+export function parseRepo(value: string): TraceRepo {
   const parts = value.split("/");
   if (parts.length !== 2 || !parts[0] || !parts[1]) {
     throw new Error("Repository must be OWNER/REPO.");
@@ -1369,9 +1374,7 @@ export function parseRepo(value: string): { owner: string; repo: string } {
   return { owner: parts[0], repo: parts[1] };
 }
 
-export async function inferRepoFromGit(
-  cwd: string,
-): Promise<{ owner: string; repo: string }> {
+export async function inferRepoFromGit(cwd: string): Promise<TraceRepo> {
   if (process.env.GITHUB_REPOSITORY) {
     return parseRepo(process.env.GITHUB_REPOSITORY);
   }
@@ -1442,16 +1445,16 @@ export interface TraceR2Config {
   region: string;
 }
 
-let cachedTraceEnv: Record<string, string> | null = null;
+let cachedTraceEnv: Map<string, string> | null = null;
 
 export function clearTraceEnvCache(): void {
   cachedTraceEnv = null;
   lastCheckedTimes.clear();
 }
 
-function traceEnvFile(): Record<string, string> {
+function traceEnvFile(): Map<string, string> {
   if (cachedTraceEnv) return cachedTraceEnv;
-  const values: Record<string, string> = {};
+  const values = new Map<string, string>();
   const envPath =
     process.env.TRACE_ENV_FILE ??
     path.join(homedir(), ".config", "dev-trace", "env");
@@ -1459,7 +1462,7 @@ function traceEnvFile(): Record<string, string> {
     for (const line of readFileSync(envPath, "utf8").split("\n")) {
       const match = /^\s*(?:export\s+)?([A-Z0-9_]+)=(.*)$/.exec(line);
       if (!match) continue;
-      values[match[1]] = match[2].replace(/^["']|["']$/g, "").trim();
+      values.set(match[1], match[2].replace(/^["']|["']$/g, "").trim());
     }
   } catch {
     // No env file; exported variables may still be present.
@@ -1469,7 +1472,7 @@ function traceEnvFile(): Record<string, string> {
 }
 
 export function traceEnvValue(name: string): string | undefined {
-  return process.env[name] ?? traceEnvFile()[name];
+  return process.env[name] ?? traceEnvFile().get(name);
 }
 
 // Codex reads CODEX_HOME from its own environment only, so this does not

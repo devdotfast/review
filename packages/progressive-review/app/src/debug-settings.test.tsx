@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 
-import type {
-  ReviewSurfaceEvent,
-  ReviewTheme,
+import {
+  type ReviewSurfaceEvent,
+  type ReviewTheme,
+  isJsonObject,
+  parseJsonText,
 } from "@dev.fast/review-protocol";
 import { type ReactNode, act } from "react";
 import { createRoot } from "react-dom/client";
@@ -114,11 +116,12 @@ describe("ReviewDebugSettingsProvider theme", () => {
         container.querySelector("[data-node-tint='mineral']"),
       ).not.toBeNull();
 
-      const persisted = JSON.parse(
+      const persisted = parseJsonText(
         window.localStorage.getItem(
           "progressive-review:debug-settings:theme-test:/review.mdx",
         ) ?? "{}",
-      ) as Record<string, unknown>;
+      );
+      if (!isJsonObject(persisted)) throw new Error("expected settings object");
       expect(persisted.settingsVersion).toBe(3);
       expect(persisted).not.toHaveProperty("theme");
     },

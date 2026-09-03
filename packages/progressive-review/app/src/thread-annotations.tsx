@@ -851,7 +851,7 @@ function targetStateMapsEqual(
 function draftPopoverPlacement(
   popoverHost: HTMLElement,
   draftTarget: CommentDraftTarget,
-): { x: number; y: number } {
+) {
   const hostRect = popoverHost.getBoundingClientRect();
   const viewportX = clamp(
     draftTarget.placement?.x ?? hostRect.left + hostRect.width / 2,
@@ -1044,10 +1044,7 @@ export function textNodeClientRects(
   return selectedTextGeometry(range, root).rects;
 }
 
-function selectedTextGeometry(
-  range: Range,
-  root: HTMLElement,
-): { blocks: Set<HTMLElement>; rects: DOMRect[] } {
+function selectedTextGeometry(range: Range, root: HTMLElement) {
   const blocks = new Set<HTMLElement>();
   const rects: DOMRect[] = [];
   const walker = root.ownerDocument.createTreeWalker(

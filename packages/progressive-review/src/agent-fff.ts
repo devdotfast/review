@@ -4,9 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import type {
-  ReviewFffInstallTarget,
-  ReviewFffManagedRegistration,
+import {
+  type JsonValue,
+  type ReviewFffInstallTarget,
+  type ReviewFffManagedRegistration,
+  isJsonArray,
+  isJsonObject,
+  parseJsonText,
 } from "@dev.fast/review-protocol";
 
 import { isFile } from "./fs-utils";
@@ -155,7 +159,7 @@ export function fffRegistrationMatches(
 
   if (registration.target === "codex") {
     try {
-      const config = findStdioConfig(JSON.parse(output));
+      const config = findStdioConfig(parseJsonText(output));
       return (
         config?.command === binaryPath &&
         config.args.length === 1 &&
@@ -221,18 +225,18 @@ function fffTargetLabel(target: ReviewFffInstallTarget): string {
 }
 
 function findStdioConfig(
-  value: unknown,
+  value: JsonValue,
 ): { command: string; args: string[] } | null {
-  if (!value || typeof value !== "object") return null;
-  const record = value as Record<string, unknown>;
+  if (!isJsonObject(value)) return null;
+  const { command, args } = value;
   if (
-    typeof record.command === "string" &&
-    Array.isArray(record.args) &&
-    record.args.every((arg) => typeof arg === "string")
+    typeof command === "string" &&
+    isJsonArray(args) &&
+    args.every((arg): arg is string => typeof arg === "string")
   ) {
-    return { command: record.command, args: record.args as string[] };
+    return { command, args };
   }
-  for (const child of Object.values(record)) {
+  for (const child of Object.values(value)) {
     const found = findStdioConfig(child);
     if (found) return found;
   }

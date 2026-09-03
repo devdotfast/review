@@ -56,12 +56,17 @@ interface CodePeekResolveInput {
   includeDiffSummary: true;
 }
 
+export interface CodePeekLoadState {
+  isInitialLoad: boolean;
+  isRefreshing: boolean;
+}
+
 export function codePeekLoadState(input: {
   requestKey: string;
   pendingKey: string | null;
   displayedKey: string | null;
   error: string | null;
-}): { isInitialLoad: boolean; isRefreshing: boolean } {
+}): CodePeekLoadState {
   const hasDisplayedResult = input.displayedKey !== null;
   // Effects do not run until after the first paint. Treat a resolvable request
   // as pending immediately so a newly opened peek never flashes an empty body.

@@ -77,7 +77,7 @@
     "no-unmodified-loop-condition": "off",
     "anti-slop/no-chained-type-assertions": "error",
     "anti-slop/no-conditional-empty-object-spread": "warn",
-    "anti-slop/no-known-value-widening": "warn",
+    "anti-slop/no-known-value-widening": "error",
     "anti-slop/no-module-mocking": "warn",
     "anti-slop/no-object-parameters": "error",
     "anti-slop/no-reflect-apply": "error",
@@ -87,7 +87,7 @@
     "anti-slop/no-unknown-parameters": "warn",
     "anti-slop/no-unknown-returns": "warn",
     "anti-slop/no-unknown-type-aliases": "error",
-    "anti-slop/no-unsafe-dictionary-type": "warn",
+    "anti-slop/no-unsafe-dictionary-type": "error",
     "anti-slop/no-widen-then-assert": "error",
     "anti-slop/require-safety-comment-for-type-assertion": "warn"
   },
@@ -95,6 +95,14 @@
     {
       "name": "anti-slop",
       "specifier": "./tools/oxlint/anti-slop/index.ts"
+    }
+  ],
+  "overrides": [
+    {
+      "files": ["**/*.test.ts", "**/*.test.tsx"],
+      "rules": {
+        "anti-slop/require-safety-comment-for-type-assertion": "off"
+      }
     }
   ]
 }

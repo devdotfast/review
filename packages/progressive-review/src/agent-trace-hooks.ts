@@ -3,6 +3,14 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import {
+  type JsonObject,
+  type JsonValue,
+  isJsonArray,
+  isJsonObject,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
+
 export interface AgentTraceHookInstallResult {
   agent: "claude" | "codex" | "pi";
   path: string;
@@ -82,17 +90,17 @@ export async function installClaudeTraceHook(
   const settingsDir = path.join(homeDir, ".claude");
   const settingsPath = path.join(settingsDir, "settings.json");
 
-  let parsed: Record<string, unknown> = {};
+  let parsed: JsonObject = {};
   if (existsSync(settingsPath)) {
     try {
-      const content = await readFile(settingsPath, "utf8");
-      parsed = JSON.parse(content);
+      const content = parseJsonText(await readFile(settingsPath, "utf8"));
+      if (isJsonObject(content)) parsed = content;
     } catch {
       parsed = {};
     }
   }
 
-  const hooks = (parsed.hooks as Record<string, unknown>) ?? {};
+  const hooks: JsonObject = isJsonObject(parsed.hooks) ? parsed.hooks : {};
   let modified = false;
 
   const hookCommand = (
@@ -107,12 +115,15 @@ export async function installClaudeTraceHook(
     "UserPromptSubmit",
     "SessionEnd",
   ] as const) {
-    const existingGroup = (hooks[eventName] as unknown[]) ?? [];
+    const existing = hooks[eventName];
+    const existingGroup: JsonValue[] = isJsonArray(existing) ? existing : [];
     const hasHook = existingGroup.some((entry) => {
-      if (typeof entry !== "object" || !entry) return false;
-      const subHooks = (entry as { hooks?: Array<{ command?: string }> }).hooks;
-      if (Array.isArray(subHooks)) {
-        return subHooks.some((h) => isReviewTraceHookCommand(h.command));
+      if (!isJsonObject(entry)) return false;
+      const subHooks = entry.hooks;
+      if (isJsonArray(subHooks)) {
+        return subHooks.some(
+          (h) => isJsonObject(h) && isReviewTraceHookCommand(h.command),
+        );
       }
       return false;
     });
@@ -219,38 +230,33 @@ export async function removeAgentTraceHook(
   if (agent === "claude") {
     const settingsPath = path.join(homeDir, ".claude", "settings.json");
     if (!existsSync(settingsPath)) return false;
-    let parsed: Record<string, unknown>;
+    let parsed: JsonValue;
     try {
-      parsed = JSON.parse(await readFile(settingsPath, "utf8")) as Record<
-        string,
-        unknown
-      >;
+      parsed = parseJsonText(await readFile(settingsPath, "utf8"));
     } catch {
       return false;
     }
-    const hooks = parsed.hooks as Record<string, unknown> | undefined;
-    if (!hooks) return false;
+    if (!isJsonObject(parsed)) return false;
+    const hooks = parsed.hooks;
+    if (!isJsonObject(hooks)) return false;
     let changed = false;
     for (const eventName of [
       "SessionStart",
       "UserPromptSubmit",
       "SessionEnd",
     ] as const) {
-      const groups = Array.isArray(hooks[eventName]) ? hooks[eventName] : [];
-      const keptGroups = groups.flatMap((group) => {
-        if (!group || typeof group !== "object") return [group];
-        const record = group as Record<string, unknown>;
-        if (!Array.isArray(record.hooks)) return [group];
-        const keptHooks = record.hooks.filter((hook) => {
-          const command =
-            hook && typeof hook === "object"
-              ? (hook as { command?: unknown }).command
-              : undefined;
+      const existing = hooks[eventName];
+      const groups: JsonValue[] = isJsonArray(existing) ? existing : [];
+      const keptGroups = groups.flatMap((group): JsonValue[] => {
+        if (!isJsonObject(group)) return [group];
+        if (!isJsonArray(group.hooks)) return [group];
+        const keptHooks = group.hooks.filter((hook) => {
+          const command = isJsonObject(hook) ? hook.command : undefined;
           const owned = isReviewTraceHookCommand(command);
           if (owned) changed = true;
           return !owned;
         });
-        return keptHooks.length > 0 ? [{ ...record, hooks: keptHooks }] : [];
+        return keptHooks.length > 0 ? [{ ...group, hooks: keptHooks }] : [];
       });
       if (keptGroups.length > 0) hooks[eventName] = keptGroups;
       else delete hooks[eventName];

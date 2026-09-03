@@ -15,7 +15,10 @@ import { describe, expect, it, vi } from "vitest";
 import { runProgressiveReviewCli } from "./cli-runner";
 import { runInstall as runInstallActual } from "./install";
 import { runReviewMigration as runReviewMigrationActual } from "./migrate";
-import { PostHogCaptureClient } from "./posthog-capture-client";
+import {
+  PostHogCaptureClient,
+  type PostHogCaptureProperties,
+} from "./posthog-capture-client";
 import {
   type ProgressiveReviewCommandTelemetry,
   ProgressiveReviewTelemetry,
@@ -451,7 +454,7 @@ describe("Review CLI", () => {
         ([, init]) =>
           JSON.parse(String(init?.body)).batch as Array<{
             event: string;
-            properties: Record<string, unknown>;
+            properties: PostHogCaptureProperties;
           }>,
       );
       const lifecycle = sent.filter((event) =>

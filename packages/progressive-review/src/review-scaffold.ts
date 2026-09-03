@@ -462,7 +462,7 @@ function traceSetupFailure(
   sessions: ReviewScaffoldTraceSession[],
   warning: string,
   progress?: (message: string) => void,
-): { traces: ReviewScaffoldTraces; warnings: string[] } {
+) {
   progress?.(`Warning: ${warning}`);
   return {
     traces: emptyScaffoldTraces(

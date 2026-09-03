@@ -62,10 +62,7 @@ describe("Review structured logger", () => {
   });
 });
 
-function writableOutput(): {
-  stream: NodeJS.WritableStream;
-  text: () => string;
-} {
+function writableOutput() {
   const chunks: string[] = [];
   return {
     stream: new Writable({

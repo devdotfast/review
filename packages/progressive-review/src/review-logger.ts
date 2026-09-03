@@ -75,11 +75,22 @@ export function emitReviewEvent(
   logger.event(event);
 }
 
+/** The fields a thrown non-Error value may carry that the log record keeps. */
+interface ThrownValueFields {
+  name?: unknown;
+  message?: unknown;
+  stack?: unknown;
+  component?: unknown;
+  propertyPath?: unknown;
+  expected?: unknown;
+  received?: unknown;
+}
+
 export function serializeReviewError(error: unknown): ReviewLifecycleError {
+  // SAFETY: every field is optional and re-checked with typeof/in below, so
+  // any non-null object satisfies the shape.
   const value =
-    error && typeof error === "object"
-      ? (error as Record<string, unknown>)
-      : null;
+    error && typeof error === "object" ? (error as ThrownValueFields) : null;
   return {
     name:
       error instanceof Error

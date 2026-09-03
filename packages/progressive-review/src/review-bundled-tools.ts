@@ -15,6 +15,8 @@ import { Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { setTimeout as delay } from "node:timers/promises";
 
+import { isJsonObject, parseJsonText } from "@dev.fast/review-protocol";
+
 export interface EnsureBundledToolInput {
   tool: string;
   sourcePath?: string;
@@ -153,10 +155,11 @@ function installedToolMatches(
 ): boolean {
   if (!isExecutable(executable)) return false;
   try {
-    const stamp = JSON.parse(
+    const stamp = parseJsonText(
       fs.readFileSync(path.join(destination, "review-tool.json"), "utf8"),
-    ) as Record<string, unknown>;
+    );
     return (
+      isJsonObject(stamp) &&
       stamp.tool === identity.tool &&
       stamp.platform === identity.platform &&
       stamp.sha256 === identity.sha256

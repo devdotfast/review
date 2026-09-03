@@ -8,6 +8,12 @@ import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
 
 import {
+  type JsonObject,
+  isJsonObject,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
+
+import {
   type ReviewAgentHarness,
   parseAuthoringSessionKey,
 } from "../authoring-session";
@@ -47,10 +53,6 @@ export interface AuthoringTraceAttachment {
   payload: AuthoringTracePayload;
   parts: AuthoringTraceUploadPart[];
   cleanup: () => Promise<void>;
-}
-
-interface JsonObject {
-  [key: string]: unknown;
 }
 
 interface CodexHistoryBase {
@@ -486,14 +488,10 @@ function redactTraceText(contents: string): string {
 
 function parseJsonObject(line: string): JsonObject | undefined {
   try {
-    return objectValue(JSON.parse(line));
+    return objectValue(parseJsonText(line));
   } catch {
     return undefined;
   }
-}
-
-function isJsonObject(value: unknown): value is JsonObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function objectValue(value: unknown): JsonObject | undefined {

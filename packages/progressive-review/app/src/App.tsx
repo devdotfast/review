@@ -59,7 +59,10 @@ import {
 } from "./review-document-context";
 import { reportReviewDocumentRenderError } from "./review-document-error-report";
 import { ReviewDocumentContent } from "./review-document-surface";
-import type { ReadyReviewDocumentEntry } from "./review-documents-runtime";
+import type {
+  ReadyReviewDocumentEntry,
+  ReviewDocumentComponent,
+} from "./review-documents-runtime";
 import {
   type ReviewFindHost,
   ReviewFindProvider,
@@ -282,9 +285,7 @@ function ReviewLayoutContent({
   shellRef: RefObject<HTMLElement | null>;
   scrollRegionRef: RefObject<HTMLElement | null>;
   articleRef: RefObject<HTMLElement | null>;
-  ReviewDocument: ComponentType<{
-    components?: Record<string, unknown>;
-  }>;
+  ReviewDocument: ReviewDocumentComponent;
   documentRevision: string;
   softwareModels: NormalizedSoftwareModel[];
   repoSoftwareMap: NormalizedSoftwareModel | null;

@@ -3,6 +3,11 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import {
+  type JsonObject,
+  isJsonObject,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
+import {
   ReviewCommentDraftThreadMapSchema,
   parseReviewCommentThreadMap,
   parseStoredReviewCommentThreadMap,
@@ -264,47 +269,43 @@ function migrateNativeAgentSessionRecord(
   value: unknown,
   table: "comments" | "comment_drafts",
 ): unknown {
-  if (!isRecord(value)) return value;
+  if (!isJsonObject(value)) return value;
   if (table === "comment_drafts") {
-    if (!isRecord(value.thread)) return value;
+    if (!isJsonObject(value.thread)) return value;
     const thread = migrateNativeAgentSessionThread(value.thread);
     return thread === value.thread ? value : { ...value, thread };
   }
   return migrateNativeAgentSessionThread(value);
 }
 
-function migrateNativeAgentSessionThread(
-  thread: Record<string, unknown>,
-): Record<string, unknown> {
+function migrateNativeAgentSessionThread(thread: JsonObject): JsonObject {
   const originalMessages = Array.isArray(thread.messages)
     ? thread.messages
     : undefined;
   const migratedMessages = originalMessages
     ? originalMessages.map((message) => {
-        if (!isRecord(message)) return message;
+        if (!isJsonObject(message)) return message;
         const agentInput = message.agentInput === true;
         if (!("native" in message) && message.agentInput === agentInput) {
           return message;
         }
-        const preserved: Record<string, unknown> = { ...message, agentInput };
-        delete preserved.native;
-        return preserved;
+        const { native: _native, ...preserved } = message;
+        return { ...preserved, agentInput };
       })
     : undefined;
   const messagesChanged =
     originalMessages !== undefined &&
-    migratedMessages!.some(
+    migratedMessages !== undefined &&
+    migratedMessages.some(
       (message, index) => message !== originalMessages[index],
     );
   const migratedThread = messagesChanged
     ? { ...thread, messages: migratedMessages }
     : thread;
   if (!("agentSession" in migratedThread)) return migratedThread;
-  const session = migratedThread.agentSession;
-  const preserved = { ...migratedThread };
-  delete preserved.agentSession;
+  const { agentSession: session, ...preserved } = migratedThread;
   if (
-    !isRecord(session) ||
+    !isJsonObject(session) ||
     (session.harness !== "claude-code" &&
       session.harness !== "codex" &&
       session.harness !== "pi") ||
@@ -320,10 +321,6 @@ function migrateNativeAgentSessionThread(
       sessionId: session.sessionId,
     },
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 async function migrateLegacyCodeRecords(
@@ -389,19 +386,19 @@ function hasLegacyCodeTargets(db: DatabaseSync): boolean {
   return Boolean(draft);
 }
 
-function readThreadTable<T>(
+function readThreadTable(
   dbPath: string,
   table: "comments" | "comment_drafts",
   keyColumn: "thread_id",
-): Record<string, T> {
+): JsonObject {
   const db = openThreadDb(dbPath, { create: false });
   if (!db) return {};
   const rows = db
     .prepare(`SELECT ${keyColumn} AS key, record_json FROM ${table}`)
     .all() as Array<{ key: string; record_json: string }>;
-  const result: Record<string, T> = {};
+  const result: JsonObject = {};
   for (const row of rows) {
-    result[row.key] = JSON.parse(row.record_json) as T;
+    result[row.key] = parseJsonText(row.record_json);
   }
   return result;
 }
@@ -410,7 +407,7 @@ function writeThreadTable(
   dbPath: string,
   table: "comments" | "comment_drafts",
   keyColumn: "thread_id",
-  value: Record<string, unknown>,
+  value: ReviewCommentThreadMap | ReviewCommentDraftThreadMap,
 ): void {
   const db = openThreadDb(dbPath, { create: true });
   if (!db) throw new Error(`Could not open ${dbPath}.`);
@@ -478,7 +475,7 @@ function sqliteThreadStoreBackend(
       ),
     readCommentDrafts: () =>
       ReviewCommentDraftThreadMapSchema.parse(
-        readThreadTable<unknown>(dbPath, "comment_drafts", "thread_id"),
+        readThreadTable(dbPath, "comment_drafts", "thread_id"),
       ),
     writeCommentDrafts: (drafts) =>
       writeThreadTable(
@@ -493,7 +490,7 @@ function sqliteThreadStoreBackend(
 }
 
 function readValidComments(dbPath: string): ReviewCommentThreadMap {
-  const stored = readThreadTable<unknown>(dbPath, "comments", "thread_id");
+  const stored = readThreadTable(dbPath, "comments", "thread_id");
   const comments = parseReviewCommentThreadMap(stored);
   const dropped = Object.keys(stored).filter((key) => !(key in comments));
   if (dropped.length === 0) return comments;

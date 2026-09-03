@@ -201,11 +201,15 @@ function CommitRow({
   );
 }
 
-export function shapeCommitFiles(files: readonly ReviewDiffFileWire[]): {
+export interface VisibleCommitFiles {
   files: ReviewDiffFileWire[];
   testFilesOmitted: number;
   overflowFilesOmitted: number;
-} {
+}
+
+export function shapeCommitFiles(
+  files: readonly ReviewDiffFileWire[],
+): VisibleCommitFiles {
   const visible = files.filter((file) => !isTestFile(file.path));
   visible.sort(
     (left, right) =>

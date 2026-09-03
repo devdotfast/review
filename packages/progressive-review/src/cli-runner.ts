@@ -163,6 +163,13 @@ interface ReviewCodexWaitOptions {
 
 type OutputSurface = ProgressiveReviewCommand | "plain";
 
+interface CliRunState {
+  exitCode: number;
+  parseSurface: OutputSurface;
+  parserErrorOutput: string;
+  json: boolean;
+}
+
 export async function runProgressiveReviewCli(
   input: ProgressiveReviewCliInput,
 ): Promise<number> {
@@ -172,12 +179,7 @@ export async function runProgressiveReviewCli(
     input.cliVersion ?? readProgressiveReviewPackageVersion(import.meta.url);
   const runtime = progressiveReviewCliRuntime(input.runtime);
   const telemetry = input.telemetry ?? ProgressiveReviewTelemetry.fromEnv(env);
-  const state: {
-    exitCode: number;
-    parseSurface: OutputSurface;
-    parserErrorOutput: string;
-    json: boolean;
-  } = {
+  const state: CliRunState = {
     exitCode: 0,
     parseSurface: "review",
     parserErrorOutput: "",
@@ -1393,7 +1395,7 @@ function progressiveReviewMapHelp(): string {
 function mapCommandProperties(
   mapArgs: readonly string[],
   parsed: ReturnType<typeof parseSoftwareMapCliArgs>,
-): Record<string, boolean | string> {
+) {
   const metadata = parsed.ok
     ? mapTelemetryMetadata(parsed.command, parsed.force, parsed.diffRefs)
     : mapTelemetryMetadata("check", false, {});
@@ -1589,13 +1591,15 @@ function telemetryCommandPath(
   return undefined;
 }
 
+interface ErrorClassification {
+  errorName: ProgressiveReviewTelemetryErrorName;
+  errorCategory: ProgressiveReviewTelemetryErrorCategory;
+}
+
 function errorClassification(
   command: ProgressiveReviewCommandPath,
   error: unknown,
-): {
-  errorName: ProgressiveReviewTelemetryErrorName;
-  errorCategory: ProgressiveReviewTelemetryErrorCategory;
-} {
+): ErrorClassification {
   if (error instanceof CommanderError || command === "invalid") {
     return { errorName: "usage_error", errorCategory: "user_input" };
   }

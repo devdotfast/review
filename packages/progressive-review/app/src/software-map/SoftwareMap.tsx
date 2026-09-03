@@ -20,7 +20,10 @@ import {
   type NodeProps as ReactFlowNodeProps,
   type Viewport,
 } from "@xyflow/react";
-import ELK, { type ElkNode } from "elkjs/lib/elk.bundled.js";
+import ELK, {
+  type ElkNode,
+  type LayoutOptions,
+} from "elkjs/lib/elk.bundled.js";
 import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -1220,9 +1223,14 @@ export function toggledSoftwareMapExpandedNodeIds(input: {
   return expandedNodeIds;
 }
 
+export interface SoftwareMapViewportFocusRequest {
+  nodeId: string;
+  requireExpanded: boolean;
+}
+
 export function toggledSoftwareMapViewportFocusRequest(
   node: Pick<SoftwareMapNodeSnapshot, "id" | "expanded">,
-): { nodeId: string; requireExpanded: boolean } {
+): SoftwareMapViewportFocusRequest {
   return {
     nodeId: node.id,
     requireExpanded: !node.expanded,
@@ -1427,10 +1435,8 @@ function SoftwareMapWithModel({
         : "",
     [softwareMapResolvedDataInput],
   );
-  const [viewportFocusRequest, setViewportFocusRequest] = useState<{
-    nodeId: string;
-    requireExpanded: boolean;
-  } | null>(null);
+  const [viewportFocusRequest, setViewportFocusRequest] =
+    useState<SoftwareMapViewportFocusRequest | null>(null);
   // Resolved diff data is applied only once the map is visible after
   // hydration.
   const [resolvedDataState, setResolvedDataState] =
@@ -3192,6 +3198,11 @@ export async function createC4MapFlow(
   return createC4MapFlowFromLayout(snapshot, layout, options);
 }
 
+export interface C4MapFlow {
+  nodes: C4MapAnyFlowNode[];
+  edges: ReactFlowEdge[];
+}
+
 export function createC4MapFlowFromLayout(
   snapshot: SoftwareMapResolvedSnapshot,
   layout: C4LayoutResult,
@@ -3206,7 +3217,7 @@ export function createC4MapFlowFromLayout(
     relationshipStateById?: ReadonlyMap<string, "active" | "inactive">;
     onOpenRelationship?: (relationshipId: string) => void;
   } = {},
-): { nodes: C4MapAnyFlowNode[]; edges: ReactFlowEdge[] } {
+): C4MapFlow {
   const viewName = options.viewName ?? snapshot.view ?? "unresolved";
   const diagram = options.diagram ?? viewName;
   const latestNodesById = new Map(
@@ -5029,7 +5040,7 @@ interface C4ElkPort {
   y?: number;
   width?: number;
   height?: number;
-  properties?: Record<string, unknown>;
+  properties?: LayoutOptions;
 }
 
 interface C4ElkLayoutEdge {
@@ -5918,12 +5929,7 @@ function c4RoutingEndpointRefs(
   edgeId: string,
   layoutNodes: readonly C4LayoutEntry[],
   axis: C4LayoutAxis,
-): {
-  sourcePortId?: string;
-  sourceSide: C4RoutingSide;
-  targetPortId?: string;
-  targetSide: C4RoutingSide;
-} {
+) {
   const entriesById = new Map(
     layoutNodes.map((entry) => [entry.node.id, entry]),
   );
@@ -6041,12 +6047,7 @@ function c4SchemaEndpointRefs(
   relationship: SoftwareMapRelationshipSnapshot,
   edgeId: string,
   layoutNodes: readonly C4LayoutEntry[],
-): {
-  sourcePortId?: string;
-  sourceSide: C4SchemaSide;
-  targetPortId?: string;
-  targetSide: C4SchemaSide;
-} {
+) {
   const entriesById = new Map(
     layoutNodes.map((entry) => [entry.node.id, entry]),
   );
@@ -6456,9 +6457,7 @@ export function softwareMapLiveDiagram(
   return { label, elements };
 }
 
-export function softwareMapNodeTargetPayload(
-  node: SoftwareMapNodeSnapshot,
-): unknown {
+export function softwareMapNodeTargetPayload(node: SoftwareMapNodeSnapshot) {
   return {
     label: node.label,
     type: node.type,
@@ -6479,7 +6478,7 @@ export function softwareMapNodeTargetPayload(
 
 export function softwareMapRelationshipTargetPayload(
   relationship: SoftwareMapRelationshipSnapshot,
-): unknown {
+) {
   return {
     label: relationship.label,
     kind: relationship.kind,
@@ -7204,14 +7203,7 @@ export function SoftwareMapDataStoreOutline({
   );
 }
 
-function softwareMapDataStoreOutlineGeometry(
-  shape: SoftwareMapDataStoreShape,
-): {
-  fillPath: string;
-  fillDetailPath?: string;
-  outlinePath: string;
-  detailPaths: string[];
-} {
+function softwareMapDataStoreOutlineGeometry(shape: SoftwareMapDataStoreShape) {
   if (shape === "bucket") {
     return {
       fillPath: "M18 24 C18 12 262 12 262 24 L238 118 C236 130 44 130 42 118 Z",

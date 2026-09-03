@@ -32,10 +32,15 @@ export const CHIP_GAP = 8;
  * sets `contain: layout`, so raw viewport coords from `getBoundingClientRect`
  * drop the chip on top of the text it belongs to.
  */
+export interface ChipPosition {
+  x: number;
+  y: number;
+}
+
 export function chipPositionClearOf(
   selectionRect: DOMRect,
   containerRect: { left: number; top: number; width: number },
-): { x: number; y: number } {
+): ChipPosition {
   const centerX = selectionRect.left + selectionRect.width / 2;
   const above = selectionRect.top - containerRect.top - CHIP_HEIGHT - CHIP_GAP;
   return {

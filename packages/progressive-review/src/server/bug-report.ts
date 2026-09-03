@@ -389,9 +389,7 @@ async function readReviewSourceFiles(
   documentPath: string,
 ): Promise<{ files: Record<string, string>; omitted: string[] }> {
   const documentName = path.basename(documentPath);
-  const files: Record<string, string> = {
-    [documentName]: await readFile(documentPath, "utf8"),
-  };
+  const files = { [documentName]: await readFile(documentPath, "utf8") };
   const omitted: string[] = [];
 
   const directory = path.dirname(documentPath);

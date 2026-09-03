@@ -426,7 +426,7 @@ export async function createReviewSessionHandler(
     ),
   );
 
-  function reviewSessionPayload(): Record<string, unknown> {
+  function reviewSessionPayload() {
     return {
       ...session,
       sessionId: reviewSessionId(),

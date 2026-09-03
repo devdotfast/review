@@ -365,6 +365,10 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   app.post("/thread-commands", threadMutation(threadCommand));
   app.post("/agent-runs", writable(agentRunCreate));
   app.post("/native-agent-events/:launchId", route(nativeAgentEvent));
+  app.get(
+    "/native-agent-events/:launchId/thread/:threadId",
+    writable(nativeAgentThreadGet),
+  );
   app.post("/comments/:threadId/agent-terminal", writable(agentTerminalOpen));
   app.post("/submissions", writable(submissionCreate));
   app.post("/dismiss", route(reviewDismiss));
@@ -630,6 +634,33 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       nativeTurns.observer.observerFailed(launchId, error);
     }
     return reviewApiJsonResponse(200, { ok: true });
+  }
+
+  function nativeAgentThreadGet(
+    context: Context<ReviewHonoEnv>,
+    writableReviewPath: string,
+  ): Response {
+    const threadId = context.req.param("threadId");
+    if (!threadId) {
+      return reviewApiJsonResponse(404, {
+        ok: false,
+        error: "Comment thread not found.",
+      });
+    }
+    const snapshot = threadsFor(writableReviewPath).snapshot();
+    const draft = snapshot.drafts[threadId];
+    const comment = snapshot.comments[threadId];
+    if (!draft && !comment) {
+      return reviewApiJsonResponse(404, {
+        ok: false,
+        error: `Comment thread not found: ${threadId}`,
+      });
+    }
+    return reviewApiJsonResponse(200, {
+      review: path.basename(path.dirname(writableReviewPath)),
+      state: draft ? "draft" : "submitted",
+      comment: draft?.thread ?? comment,
+    });
   }
 
   async function agentTerminalOpen(

@@ -15,6 +15,7 @@ export function cleanTargets({
     resolve(checkout, "out"),
     resolve(checkout, "node_modules"),
     resolve(checkout, "extensions/node_modules"),
+    resolve(checkout, "src/vs/review/common/reviewProtocol.ts"),
     resolve(reviewHome, "review-desktop/state"),
   ];
 }

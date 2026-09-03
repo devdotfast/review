@@ -103,7 +103,7 @@ else
 fi
 
 # ---------------------------------------------------------------- row 4
-if rv trace onboard --json >"$WORK_DIR/onboard2.jsonl" 2>&1; then
+if rv trace onboard --json >"$WORK_DIR/onboard2.jsonl" 2>"$WORK_DIR/onboard2.err"; then
   CREATED="$(jq -r 'select(.event=="trace.onboard").created' "$WORK_DIR/onboard2.jsonl")"
   if [ "$CREATED" = "false" ]; then
     pass 4 "second onboard is idempotent (created=false)"
@@ -115,7 +115,7 @@ else
 fi
 
 # ---------------------------------------------------------------- row 5
-if rv trace allow . --no-harness-hooks --json >"$WORK_DIR/allow.jsonl" 2>&1; then
+if rv trace allow . --no-harness-hooks --json >"$WORK_DIR/allow.jsonl" 2>"$WORK_DIR/allow.err"; then
   CONFIG="$HOME_DIR/trace/config.json"
   ALLOWED_ID="$(jq -r --arg n "$NAME" '.repositories[]? | select(.name==$n) | .repositoryId' "$CONFIG" 2>/dev/null || true)"
   HOOKS="$(git rev-parse --git-common-dir)/dev-fast/trace-hooks"

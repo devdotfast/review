@@ -210,7 +210,11 @@ test("the Review canvas exposes its focused CodePeek through VS Code's composite
   assert.match(reviewCanvas, /inlineEditors\.onDidChangeActiveEditor/);
 });
 
-test("the workbench workspace folder follows the reviewed repository", () => {
+// The contribution's behaviour is covered by
+// `contrib/workspace/reviewWorkspaceFolder.contribution.test.ts`. What stays
+// here is the wiring that test cannot see: that Review's module manifest loads
+// the contribution at all, and that it registers for the right phase.
+test("the workspace folder contribution is registered before restore", () => {
   // Without a folder the workspace is empty, so `workspaceContains:` never
   // fires and language servers answer single-file questions only.
   assert.match(
@@ -221,18 +225,6 @@ test("the workbench workspace folder follows the reviewed repository", () => {
     workspaceFolderContribution,
     /registerWorkbenchContribution2\([\s\S]*WorkbenchPhase\.BlockRestore/,
   );
-  assert.match(workspaceFolderContribution, /IWorkspaceEditingService/);
-  assert.match(workspaceFolderContribution, /IReviewSessionModelService/);
-  assert.match(workspaceFolderContribution, /onDidChangeActiveModel/);
-  assert.match(workspaceFolderContribution, /activeModel\?\.session/);
-});
-
-test("changing the workspace folder never restarts the extension host", () => {
-  // The folder shim mutates in memory; a reload would discard the folders and
-  // a host restart would drop every warm language server on each switch.
-  assert.doesNotMatch(workspaceFolderContribution, /stopExtensionHosts/);
-  assert.doesNotMatch(workspaceFolderContribution, /startExtensionHosts/);
-  assert.doesNotMatch(workspaceFolderContribution, /reloadWindow/);
 });
 
 test("Review wires the real update service, not the stock update UI", () => {

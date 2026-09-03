@@ -7,7 +7,10 @@ import { createDecorator } from "../../platform/instantiation/common/instantiati
 import { IInstantiationService } from "../../platform/instantiation/common/instantiation.js";
 import { Disposable } from "../../base/common/lifecycle.js";
 import type { EditorInput } from "../../workbench/common/editor/editorInput.js";
-import { IEditorGroupsService } from "../../workbench/services/editor/common/editorGroupsService.js";
+import {
+	GroupsOrder,
+	IEditorGroupsService,
+} from "../../workbench/services/editor/common/editorGroupsService.js";
 import { IEditorService } from "../../workbench/services/editor/common/editorService.js";
 import { ReviewCanvasEditorInput } from "../browser/parts/canvas/reviewCanvasEditorInput.js";
 import { IReviewSessionService } from "./reviewSessionService.js";
@@ -119,11 +122,7 @@ export class ReviewCanvasEditorTabsService
 			this.inputs.set(target.kind, input);
 		}
 		configure?.(input);
-		await this.editorService.openEditor(
-			input,
-			{ pinned: true, inactive: !active, revealIfVisible: true },
-			this.editorGroupsService.mainPart.activeGroup,
-		);
+		await this.openInput(input, active);
 		return input;
 	}
 
@@ -132,7 +131,7 @@ export class ReviewCanvasEditorTabsService
 		active: boolean,
 	): Promise<ReviewCanvasEditorInput> {
 		const input = this.reviewInput(reviewUuid);
-		await this.openReviewInput(input, active);
+		await this.openInput(input, active);
 		return input;
 	}
 
@@ -162,7 +161,7 @@ export class ReviewCanvasEditorTabsService
 			);
 			this.inputs.set(key, input);
 		}
-		await this.openReviewInput(input, active);
+		await this.openInput(input, active);
 		return input;
 	}
 
@@ -202,14 +201,24 @@ export class ReviewCanvasEditorTabsService
 		return input;
 	}
 
-	private async openReviewInput(
+	/* Reveal the tab where it already lives; only a first open lands in the
+	   active group. VS Code applies its own reveal-if-open logic only when
+	   the caller names no group, but a group-less open can also be routed
+	   into a modal overlay, so the group is chosen here and always named. */
+	private async openInput(
 		input: ReviewCanvasEditorInput,
 		active: boolean,
 	): Promise<void> {
+		const mainPart = this.editorGroupsService.mainPart;
+		const group =
+			mainPart
+				.getGroups(GroupsOrder.MOST_RECENTLY_ACTIVE)
+				.find((candidate) => candidate.contains(input)) ??
+			mainPart.activeGroup;
 		await this.editorService.openEditor(
 			input,
-			{ pinned: true, inactive: !active, revealIfVisible: true },
-			this.editorGroupsService.mainPart.activeGroup,
+			{ pinned: true, inactive: !active },
+			group,
 		);
 	}
 
@@ -301,7 +310,7 @@ export class ReviewCanvasEditorTabsService
 			)
 			: this.reviewInput(session.reviewUuid);
 		input.preferSession(sessionId);
-		await this.openReviewInput(input, active);
+		await this.openInput(input, active);
 		return input;
 	}
 }

@@ -146,6 +146,19 @@ export class ReviewSessionModel extends Disposable {
 				if (event.session.sessionId !== this._session.session.sessionId) {
 					return;
 				}
+				// A replaced session is a republish: its promoted successor for
+				// this review is already registered. Move to it directly. Going
+				// unavailable in between would make the canvas reset the
+				// workbench as if a different review had opened.
+				if (event.reason === "replaced") {
+					void this.refresh().catch((error) => {
+						console.error(
+							`[Review Desktop] failed to follow replaced session ${reviewUuid}`,
+							error,
+						);
+					});
+					return;
+				}
 				this._comments.dispose();
 				if (event.review) {
 					this._session = { ...this._session, review: event.review };

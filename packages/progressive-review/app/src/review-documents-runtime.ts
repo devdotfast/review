@@ -1,7 +1,32 @@
+import type { JsonPrimitive } from "@dev.fast/review-protocol";
+import type { MDXComponents } from "mdx/types";
 import type { ComponentType } from "react";
 
 import type { AnchorRef } from "../../src/authoring";
+import type { SequenceRef } from "./diagrams";
 import type { NormalizedSoftwareModel } from "./software-map/model";
+
+/** The compiled MDX body of a review document. */
+export type ReviewDocumentComponent = ComponentType<{
+  components?: MDXComponents;
+}>;
+
+/**
+ * One export of a compiled review document module. Authors export software
+ * models, sequences and anchors, possibly nested in their own containers, so
+ * exports are walked structurally.
+ */
+export type ReviewDocumentExport =
+  | NormalizedSoftwareModel
+  | SequenceRef
+  | AnchorRef
+  | ReviewDocumentComponent
+  | JsonPrimitive
+  | undefined
+  | readonly ReviewDocumentExport[]
+  | { readonly [name: string]: ReviewDocumentExport };
+
+export type ReviewDocumentModuleExports = Record<string, ReviewDocumentExport>;
 
 export interface ReviewDocumentModuleInput {
   slug: string;
@@ -9,8 +34,8 @@ export interface ReviewDocumentModuleInput {
   filePath: string;
   title: string;
   modelNames: string[];
-  models: Record<string, unknown>;
-  Component: ComponentType<{ components?: Record<string, unknown> }> | null;
+  models: ReviewDocumentModuleExports;
+  Component: ReviewDocumentComponent | null;
   isDefault: boolean;
 }
 
@@ -22,7 +47,7 @@ export interface ReviewDocumentEntry {
   documentSoftwareModels: NormalizedSoftwareModel[];
   anchors: ReadonlyMap<string, AnchorRef>;
   anchorContents: ReadonlyMap<string, string>;
-  Component: ComponentType<{ components?: Record<string, unknown> }>;
+  Component: ReviewDocumentComponent;
   isDefault: boolean;
 }
 
@@ -54,10 +79,7 @@ export function createActiveReviewDocument(
   };
 }
 
-function collectReviewAnchors(models: Record<string, unknown>): {
-  anchors: ReadonlyMap<string, AnchorRef>;
-  anchorContents: ReadonlyMap<string, string>;
-} {
+function collectReviewAnchors(models: ReviewDocumentModuleExports) {
   const anchors = new Map<string, AnchorRef>();
   const anchorContents = new Map<string, string>();
   const visited = new Set<object>();
@@ -100,9 +122,7 @@ function collectReviewAnchors(models: Record<string, unknown>): {
       for (const entry of value) visit(entry);
       return;
     }
-    for (const entry of Object.values(value as Record<string, unknown>)) {
-      visit(entry);
-    }
+    for (const entry of Object.values(value)) visit(entry);
   };
   for (const value of Object.values(models)) visit(value);
   return { anchors, anchorContents };

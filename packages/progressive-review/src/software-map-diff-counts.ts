@@ -167,12 +167,14 @@ export function parseGitUnifiedDiffLineCounts(diff: string): FileLineCounts {
   return countsByFile;
 }
 
+export interface SoftwareMapElementDiffCounts {
+  countsByElementPath: SoftwareMapDiffCountsByElementPath;
+}
+
 export function mapDiffLineCountsToSoftwareMapElements(input: {
   codeElements: SoftwareMapCodeElementInput[];
   countsByFile: FileLineCounts;
-}): {
-  countsByElementPath: SoftwareMapDiffCountsByElementPath;
-} {
+}): SoftwareMapElementDiffCounts {
   const countsByElementPath: SoftwareMapDiffCountsByElementPath = {};
 
   for (const element of input.codeElements) {
@@ -205,7 +207,7 @@ export function mapDiffLineCountsToSoftwareMapElements(input: {
 export function mapDiffLineCountsToCoverageClaims(input: {
   coverageClaims: SoftwareMapCoverageClaimInput[];
   countsByFile: FileLineCounts;
-}): SoftwareMapUnmappedDiffByElementPath {
+}) {
   const result: SoftwareMapUnmappedDiffByElementPath = {};
   const claims = input.coverageClaims
     .filter(

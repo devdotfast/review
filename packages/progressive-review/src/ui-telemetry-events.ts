@@ -16,6 +16,8 @@
 // accepting the property. Either the cleaner finished the job or only the
 // digest goes; a wrong producer cannot put raw text on the wire through here.
 
+import { type JsonObject, isJsonObject } from "@dev.fast/review-protocol";
+
 import {
   containsFilePathShape,
   hasPossibleUserInfo,
@@ -437,6 +439,10 @@ const COMMON_PROPERTIES = {
   app_session_id: "opaque_id",
 } as const satisfies Record<string, UiTelemetryPropertySpec>;
 
+function isUiTelemetryEventName(name: string): name is UiTelemetryEventName {
+  return Object.hasOwn(UI_TELEMETRY_EVENTS, name);
+}
+
 /**
  * Validate a raw UI event payload against the allowlist. Returns the PostHog
  * event name plus only the sanctioned properties, or null when the event
@@ -450,18 +456,16 @@ export function sanitizeUiTelemetryEvent(input: {
   event: string;
   properties: Record<string, string | number | boolean>;
 } | null {
-  if (typeof input.name !== "string") return null;
-  const spec = (
-    UI_TELEMETRY_EVENTS as Record<string, UiTelemetryEventSpec | undefined>
-  )[input.name];
-  if (!spec) return null;
+  if (typeof input.name !== "string" || !isUiTelemetryEventName(input.name)) {
+    return null;
+  }
+  const spec: UiTelemetryEventSpec = UI_TELEMETRY_EVENTS[input.name];
 
-  const raw =
-    input.properties && typeof input.properties === "object"
-      ? (input.properties as Record<string, unknown>)
-      : {};
+  const raw: JsonObject = isJsonObject(input.properties)
+    ? input.properties
+    : {};
   const properties: Record<string, string | number | boolean> = {};
-  const propertySpecs: Record<string, UiTelemetryPropertySpec> = {
+  const propertySpecs: UiTelemetryEventSpec["properties"] = {
     ...COMMON_PROPERTIES,
     ...spec.properties,
   };

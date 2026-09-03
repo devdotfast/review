@@ -432,9 +432,16 @@ function exampleForDataStoreField(field: SoftwareDataStoreFieldLeaf): unknown {
   return undefined;
 }
 
+/** Example values keyed by field, nested like the schema they illustrate. */
+interface DataStoreSchemaExample {
+  [field: string]:
+    | SoftwareDataStoreFieldLeaf["example"]
+    | DataStoreSchemaExample;
+}
+
 function exampleForDataStoreSchema(
   schema: SoftwareDataStoreFieldSchema,
-): Record<string, unknown> {
+): DataStoreSchemaExample {
   return Object.fromEntries(
     Object.entries(schema).map(([key, value]) => [
       key,

@@ -1,6 +1,11 @@
 // @vitest-environment jsdom
 
-import type { ReviewCanvasTutorialBridge } from "@dev.fast/review-protocol";
+import {
+  type JsonObject,
+  type ReviewCanvasTutorialBridge,
+  isJsonObject,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
 import { act } from "react";
 import { type Root, createRoot } from "react-dom/client";
 import {
@@ -253,12 +258,15 @@ describe("BugReportControl", () => {
     return input;
   }
 
-  function reportBody(): Record<string, unknown> {
+  function reportBody(): JsonObject {
     const call = request.mock.calls.find(([url]) =>
       String(url).includes("/telemetry/bug-report"),
     );
     if (!call) throw new Error("Bug-report request not found");
-    return JSON.parse(String(call[1]?.body)) as Record<string, unknown>;
+    const body = parseJsonText(String(call[1]?.body));
+    if (!isJsonObject(body))
+      throw new Error("Bug-report body is not an object");
+    return body;
   }
 });
 

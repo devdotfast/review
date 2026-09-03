@@ -3,6 +3,11 @@ import { type Socket, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import {
+  type JsonObject,
+  isJsonObject,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, test } from "vitest";
 
 import {
@@ -23,7 +28,7 @@ afterEach(async () => {
 describe("Codex thread wake-up", () => {
   test("routes a text follow-up to the desktop task owner", async () => {
     const fixture = await ipcFixture();
-    const received: JsonRecord[] = [];
+    const received: JsonObject[] = [];
     fixture.server.on("connection", (socket) => {
       readFrames(socket, (message) => {
         received.push(message);
@@ -148,8 +153,6 @@ describe("Codex thread wake-up", () => {
   });
 });
 
-type JsonRecord = Record<string, unknown>;
-
 async function ipcFixture() {
   const root = await mkdtemp(join(tmpdir(), "dev-fast-codex-ipc-test-"));
   roots.push(root);
@@ -173,7 +176,7 @@ async function ipcFixture() {
 
 function readFrames(
   socket: Socket,
-  onMessage: (message: JsonRecord) => void,
+  onMessage: (message: JsonObject) => void,
 ): void {
   let buffered = Buffer.alloc(0);
   socket.on("data", (chunk: Buffer) => {
@@ -183,12 +186,14 @@ function readFrames(
       if (buffered.length < bodyBytes + 4) return;
       const body = buffered.subarray(4, bodyBytes + 4);
       buffered = buffered.subarray(bodyBytes + 4);
-      onMessage(JSON.parse(body.toString("utf8")) as JsonRecord);
+      const message = parseJsonText(body.toString("utf8"));
+      if (!isJsonObject(message)) throw new Error("frame is not an object");
+      onMessage(message);
     }
   });
 }
 
-function writeFrame(socket: Socket, message: JsonRecord): void {
+function writeFrame(socket: Socket, message: JsonObject): void {
   const json = JSON.stringify(message);
   const frame = Buffer.alloc(4 + Buffer.byteLength(json));
   frame.writeUInt32LE(Buffer.byteLength(json), 0);

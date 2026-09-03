@@ -23,6 +23,7 @@ const index = readFileSync(path.join(packageRoot, "src/index.ts"), "utf8")
   .replace(/^import \{ z \} from "zod";\n\n/, "")
   .replace(/import \{[\s\S]*?\} from "\.\/contracts\.js";\n\n/, "")
   .replace('export * from "./bug-report.js";\n', "")
+  .replace('export * from "./json.js";\n', "")
   .replace('export * from "./contracts.js";\n\n', "");
 
 writeFileSync(

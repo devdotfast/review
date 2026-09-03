@@ -5,6 +5,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import {
+  type JsonObject,
+  isJsonObject,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
+
+import {
   type ReviewCodexWaitRegistration,
   registerReviewCodexWait,
 } from "./review-codex-wait-state";
@@ -16,8 +22,6 @@ const WAKE_RETRY_INTERVAL_MS = 2_000;
 const WAKE_RETRY_TIMEOUT_MS = 60_000;
 const CODEX_START_TURN_METHOD = "thread-follower-start-turn";
 const CODEX_START_TURN_VERSION = 1;
-
-type JsonRecord = Record<string, unknown>;
 
 // Deliberately duplicated from packages/cli/src/commands/codex-thread-wakeup.ts.
 export type CodexWaitProcessInput = {
@@ -228,18 +232,20 @@ function connectSocket(socketPath: string): Promise<Socket> {
   });
 }
 
-function framedMessages(socket: Socket): {
+interface FramedMessages {
   dispose(): void;
-  waitForResponse(requestId: string): Promise<JsonRecord>;
-} {
+  waitForResponse(requestId: string): Promise<JsonObject>;
+}
+
+function framedMessages(socket: Socket): FramedMessages {
   let buffered = Buffer.alloc(0);
   let failed: Error | undefined;
-  const queued: JsonRecord[] = [];
+  const queued: JsonObject[] = [];
   const waiters = new Map<
     string,
     {
       reject(error: Error): void;
-      resolve(message: JsonRecord): void;
+      resolve(message: JsonObject): void;
       timer: NodeJS.Timeout;
     }
   >();
@@ -254,7 +260,7 @@ function framedMessages(socket: Socket): {
     waiters.clear();
   };
 
-  const dispatch = (message: JsonRecord): void => {
+  const dispatch = (message: JsonObject): void => {
     const requestId =
       typeof message.requestId === "string" ? message.requestId : undefined;
     if (requestId === undefined) {
@@ -288,8 +294,8 @@ function framedMessages(socket: Socket): {
       const frame = buffered.subarray(IPC_FRAME_HEADER_BYTES, totalBytes);
       buffered = buffered.subarray(totalBytes);
       try {
-        const parsed = JSON.parse(frame.toString("utf8")) as unknown;
-        if (!isRecord(parsed)) {
+        const parsed = parseJsonText(frame.toString("utf8"));
+        if (!isJsonObject(parsed)) {
           throw new TypeError("frame is not an object");
         }
         dispatch(parsed);
@@ -329,7 +335,7 @@ function framedMessages(socket: Socket): {
       if (queuedIndex >= 0) {
         return queued.splice(queuedIndex, 1)[0]!;
       }
-      return await new Promise<JsonRecord>((resolve, reject) => {
+      return await new Promise<JsonObject>((resolve, reject) => {
         const timer = setTimeout(() => {
           waiters.delete(requestId);
           reject(
@@ -345,7 +351,7 @@ function framedMessages(socket: Socket): {
   };
 }
 
-function writeFrame(socket: Socket, message: JsonRecord): void {
+function writeFrame(socket: Socket, message: JsonObject): void {
   const json = JSON.stringify(message);
   const bodyBytes = Buffer.byteLength(json, "utf8");
   const frame = Buffer.allocUnsafe(IPC_FRAME_HEADER_BYTES + bodyBytes);
@@ -354,12 +360,12 @@ function writeFrame(socket: Socket, message: JsonRecord): void {
   socket.write(frame);
 }
 
-function initializedClientId(message: JsonRecord): string {
+function initializedClientId(message: JsonObject): string {
   if (message.resultType !== "success" || message.method !== "initialize") {
     throw responseError("initialize", message);
   }
   const result = message.result;
-  if (!isRecord(result) || typeof result.clientId !== "string") {
+  if (!isJsonObject(result) || typeof result.clientId !== "string") {
     throw new CodexIpcProtocolError(
       "Codex IPC returned a malformed initialize response.",
     );
@@ -367,7 +373,7 @@ function initializedClientId(message: JsonRecord): string {
   return result.clientId;
 }
 
-function assertSuccessfulWake(message: JsonRecord): void {
+function assertSuccessfulWake(message: JsonObject): void {
   if (
     message.resultType !== "success" ||
     message.method !== CODEX_START_TURN_METHOD
@@ -376,13 +382,9 @@ function assertSuccessfulWake(message: JsonRecord): void {
   }
 }
 
-function responseError(method: string, message: JsonRecord): Error {
+function responseError(method: string, message: JsonObject): Error {
   const detail = typeof message.error === "string" ? `: ${message.error}` : "";
   return new CodexIpcProtocolError(
     `Codex IPC request "${method}" failed${detail}.`,
   );
-}
-
-function isRecord(value: unknown): value is JsonRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -23,25 +23,53 @@ const FRAGMENT = Symbol.for("react.fragment");
 export interface PublishAuditElement {
   [ELEMENT_MARKER]: true;
   type: unknown;
-  props: Record<string, unknown>;
+  props: PublishValidationProps;
   key: unknown;
+}
+
+// The tree the audit walks: element records, text, and the values
+// React.Children drops (booleans, null, undefined), nested in arrays.
+export type PublishAuditNode =
+  | PublishAuditElement
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | PublishAuditNode[];
+
+export type PublishAuditComponent = (
+  props: PublishValidationProps,
+) => PublishAuditNode;
+
+// Prop values as the audit reads and writes them: `children` is a node tree,
+// `label` is a string, and `components` is the stub map handed to the
+// document. Every other authored prop is opaque here; the component's zod
+// schema parses it.
+export type PublishValidationPropValue =
+  | PublishAuditNode
+  | Record<string, PublishAuditComponent>;
+
+export interface PublishValidationProps {
+  children?: PublishAuditNode;
+  [prop: string]: PublishValidationPropValue;
 }
 
 type AuthoringComponentName = keyof typeof reviewAuthoringPropsSchemas;
 
-function isAuditElement(value: unknown): value is PublishAuditElement {
+function isAuditElement(value: PublishAuditNode): value is PublishAuditElement {
   if (typeof value !== "object" || value === null) return false;
-  const obj = value as Record<string, unknown>;
   return (
-    obj[ELEMENT_MARKER] === true ||
-    obj.$$typeof === Symbol.for("react.element") ||
-    obj.$$typeof === Symbol.for("react.transitional.element")
+    (ELEMENT_MARKER in value && value[ELEMENT_MARKER] === true) ||
+    ("$$typeof" in value &&
+      (value.$$typeof === Symbol.for("react.element") ||
+        value.$$typeof === Symbol.for("react.transitional.element")))
   );
 }
 
 function makeElement(
   type: unknown,
-  props: Record<string, unknown> | null | undefined,
+  props: PublishValidationProps | null | undefined,
   key: unknown,
 ): PublishAuditElement {
   return { [ELEMENT_MARKER]: true, type, props: props ?? {}, key };
@@ -51,25 +79,41 @@ function makeElement(
 // arrays flatten recursively; null, undefined, and booleans disappear.
 // Fragments do NOT flatten — React.Children treats a fragment as one child,
 // and the lens parsers in the app rely on that.
-function flattenChildren(children: unknown): unknown[] {
+function flattenChildren(children: PublishAuditNode): PublishAuditNode[] {
   if (children === null || children === undefined) return [];
   if (typeof children === "boolean") return [];
   if (Array.isArray(children)) return children.flatMap(flattenChildren);
   return [children];
 }
 
-export function createPublishValidationReact(): Record<string, unknown> {
+// The React surface the validation runtime exposes. `React` points back at
+// the object itself so `import React from "react"` sees the same members.
+export interface PublishValidationReact extends PublishValidationReactMembers {
+  React?: PublishValidationReact;
+}
+
+type PublishValidationReactMembers = ReturnType<
+  typeof publishValidationReactMembers
+>;
+
+export function createPublishValidationReact(): PublishValidationReact {
+  const react: PublishValidationReact = { ...publishValidationReactMembers() };
+  react.React = react;
+  return react;
+}
+
+function publishValidationReactMembers() {
   const noop = () => undefined;
   const identity = (value: unknown) => value;
   // A plain function keeps `class X extends Component` working: unlike an
   // arrow function it has a prototype, and the stub is never instantiated.
   function StubComponent(): void {}
-  const jsx = (type: unknown, props?: Record<string, unknown>, key?: unknown) =>
+  const jsx = (type: unknown, props?: PublishValidationProps, key?: unknown) =>
     makeElement(type, props, key);
   const createElement = (
     type: unknown,
-    props?: Record<string, unknown> | null,
-    ...children: unknown[]
+    props?: PublishValidationProps | null,
+    ...children: PublishAuditNode[]
   ) =>
     makeElement(
       type,
@@ -78,27 +122,27 @@ export function createPublishValidationReact(): Record<string, unknown> {
         : (props ?? {}),
       props?.key,
     );
-  const react: Record<string, unknown> = {
+  return {
     Children: {
       map: (
-        children: unknown,
-        fn: (child: unknown, index: number) => unknown,
+        children: PublishAuditNode,
+        fn: (child: PublishAuditNode, index: number) => PublishAuditNode,
       ) => flattenChildren(children).map(fn),
       forEach: (
-        children: unknown,
-        fn: (child: unknown, index: number) => void,
+        children: PublishAuditNode,
+        fn: (child: PublishAuditNode, index: number) => void,
       ) => {
         flattenChildren(children).forEach(fn);
       },
-      count: (children: unknown) => flattenChildren(children).length,
-      only: (children: unknown) => {
+      count: (children: PublishAuditNode) => flattenChildren(children).length,
+      only: (children: PublishAuditNode) => {
         const flat = flattenChildren(children);
         if (flat.length !== 1 || !isAuditElement(flat[0])) {
           throw new Error("React.Children.only expected a single child.");
         }
         return flat[0];
       },
-      toArray: (children: unknown) => flattenChildren(children),
+      toArray: (children: PublishAuditNode) => flattenChildren(children),
     },
     Component: StubComponent,
     Fragment: FRAGMENT,
@@ -111,8 +155,8 @@ export function createPublishValidationReact(): Record<string, unknown> {
     captureOwnerStack: () => null,
     cloneElement: (
       element: PublishAuditElement,
-      props?: Record<string, unknown>,
-      ...children: unknown[]
+      props?: PublishValidationProps,
+      ...children: PublishAuditNode[]
     ) =>
       makeElement(
         element.type,
@@ -157,8 +201,6 @@ export function createPublishValidationReact(): Record<string, unknown> {
     jsxs: jsx,
     jsxDEV: jsx,
   };
-  react.React = react;
-  return react;
 }
 
 export interface PublishAuditTraceQuote {
@@ -168,7 +210,7 @@ export interface PublishAuditTraceQuote {
   text: string;
 }
 
-export function extractAuditText(node: unknown): string {
+export function extractAuditText(node: PublishAuditNode): string {
   if (node === null || node === undefined || typeof node === "boolean") {
     return "";
   }
@@ -194,7 +236,7 @@ export function auditReviewDocumentComponent(input: {
   collectTraceQuote?: (quote: PublishAuditTraceQuote) => void;
 }): void {
   if (typeof input.Component !== "function") return;
-  const components = new Map<AuthoringComponentName, unknown>();
+  const components = new Map<AuthoringComponentName, PublishAuditComponent>();
   const componentNames = new Map<unknown, AuthoringComponentName>();
   for (const name of Object.keys(
     reviewAuthoringPropsSchemas,
@@ -205,9 +247,12 @@ export function auditReviewDocumentComponent(input: {
     componentNames.set(stub, name);
   }
 
-  let tree: unknown;
+  let tree: PublishAuditNode;
   try {
-    tree = (input.Component as (props: unknown) => unknown)({
+    // SAFETY: the document component is the bundle's default export, compiled
+    // from MDX against this runtime's `jsx`; it takes a props record and
+    // returns the element tree those calls built.
+    tree = (input.Component as PublishAuditComponent)({
       components: Object.fromEntries(components),
     });
   } catch (error) {
@@ -217,7 +262,10 @@ export function auditReviewDocumentComponent(input: {
     return;
   }
 
-  const walk = (node: unknown, parentName: AuthoringComponentName | null) => {
+  const walk = (
+    node: PublishAuditNode,
+    parentName: AuthoringComponentName | null,
+  ) => {
     for (const child of flattenChildren(node)) {
       if (!isAuditElement(child)) continue;
       const name = componentNames.get(child.type) ?? null;
@@ -252,9 +300,11 @@ export function auditReviewDocumentComponent(input: {
         // Best-effort expansion of document-local components: MDX-generated
         // helpers are hook-free and expand; anything that throws under the
         // stub hooks is skipped, exactly as inert as it was before the audit.
-        let rendered: unknown = null;
+        let rendered: PublishAuditNode = null;
         try {
-          rendered = (child.type as (props: unknown) => unknown)(child.props);
+          // SAFETY: a function-typed element is a document-local component
+          // compiled against this runtime; it renders to the same node tree.
+          rendered = (child.type as PublishAuditComponent)(child.props);
         } catch {
           rendered = null;
         }

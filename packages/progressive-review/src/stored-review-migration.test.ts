@@ -3,9 +3,10 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import { parseJsonText } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createReviewDir } from "./review-home";
+import { createReviewDir, parseStoredReviewRecord } from "./review-home";
 import { migrateStoredReviewData } from "./stored-review-migration";
 
 const tempRoots: string[] = [];
@@ -53,9 +54,11 @@ describe("migrateStoredReviewData", () => {
       sourceCommit,
       sourceIdentity: { kind: "git-branch", name: "main" },
     });
-    const current = JSON.parse(
-      await readFile(path.join(created.dir, "review.json"), "utf8"),
-    ) as Record<string, unknown>;
+    const current = parseStoredReviewRecord(
+      parseJsonText(
+        await readFile(path.join(created.dir, "review.json"), "utf8"),
+      ),
+    );
     const {
       presentedDocumentRevision: _documentRevision,
       presentedSoftwareMapRevision: _softwareMapRevision,

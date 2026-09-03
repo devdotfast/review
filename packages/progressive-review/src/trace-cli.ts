@@ -285,6 +285,13 @@ export async function runReviewTraceShow(input: {
   return 0;
 }
 
+/** Which sessions a `trace pull` selected, echoed back in its JSON report. */
+type TracePullScope =
+  | { review: string }
+  | { commit: string }
+  | { session: string }
+  | { repository: string };
+
 export async function runReviewTracePull(input: {
   cwd: string;
   repo?: string;
@@ -297,7 +304,7 @@ export async function runReviewTracePull(input: {
   stderr: Writable;
 }): Promise<number> {
   try {
-    let scope: Record<string, string>;
+    let scope: TracePullScope;
     let sessions: Array<{ id: string; traces?: string[] }>;
     let repoRoot = input.cwd;
 

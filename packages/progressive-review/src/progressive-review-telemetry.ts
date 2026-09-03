@@ -168,12 +168,16 @@ export interface ProgressiveReviewTelemetryOptions {
   timeoutMs?: number;
 }
 
+/** A single structured value a log line may carry beside its message. */
+export type LoggerAttributeValue = string | number | boolean | null | undefined;
+export type LoggerAttributes = Record<string, LoggerAttributeValue>;
+
 export interface Logger {
-  trace(message: string, attributes?: Record<string, unknown>): void;
-  debug(message: string, attributes?: Record<string, unknown>): void;
-  info(message: string, attributes?: Record<string, unknown>): void;
-  warn(message: string, attributes?: Record<string, unknown>): void;
-  error(message: string, attributes?: Record<string, unknown>): void;
+  trace(message: string, attributes?: LoggerAttributes): void;
+  debug(message: string, attributes?: LoggerAttributes): void;
+  info(message: string, attributes?: LoggerAttributes): void;
+  warn(message: string, attributes?: LoggerAttributes): void;
+  error(message: string, attributes?: LoggerAttributes): void;
 }
 
 const noop = () => undefined;

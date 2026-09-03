@@ -1,3 +1,5 @@
+import type { JsonObject } from "@dev.fast/review-protocol";
+
 import { AsyncQueue } from "./async-queue";
 import { readClaudeReviewMessages } from "./claude-transcript";
 import { readCodexReviewMessages } from "./codex-transcript";
@@ -274,11 +276,13 @@ function isMissingTranscript(error: unknown): boolean {
   return / has no (?:rollout|transcript) file\.$/u.test(error.message);
 }
 
-function nativeHookEvent(payload: Record<string, unknown>): {
+interface NativeHookEvent {
   sessionId?: string;
   transcriptPath?: string;
   completesTurn: boolean;
-} {
+}
+
+function nativeHookEvent(payload: JsonObject): NativeHookEvent {
   const sessionId = firstString(
     payload.session_id,
     payload.sessionId,

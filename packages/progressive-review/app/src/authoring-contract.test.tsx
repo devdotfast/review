@@ -350,13 +350,13 @@ describe("review authoring contract", () => {
   ] as const)(
     "rejects an invalid SequenceDiagram messages[0].%s before actor access",
     (property, invalidValue) => {
-      const message: Record<string, unknown> = {
+      const message = {
         from: actors.browser,
         to: actors.api,
         label: "Request",
         code: "GET /reviews",
+        [property]: invalidValue,
       };
-      message[property] = invalidValue;
 
       let caught: unknown;
       try {

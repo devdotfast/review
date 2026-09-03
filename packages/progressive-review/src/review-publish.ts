@@ -3,7 +3,7 @@ import type { Writable } from "node:stream";
 import type { ReviewView } from "@dev.fast/review-protocol";
 
 import { resolveAuthoringSessionRef } from "./authoring-session";
-import { emitJsonEvent } from "./cli-output";
+import { type CliJsonEvent, emitJsonEvent } from "./cli-output";
 import type { ReviewDocumentDiagnostic } from "./compiler/review-document-compiler";
 import { requireHealthyReviewDesktop } from "./desktop-discovery";
 import { REVIEW_PUBLISH_CANDIDATE_MESSAGE } from "./review-document-versions";
@@ -141,11 +141,19 @@ async function publish(
   return 0;
 }
 
+type PublishStage = "validate" | "revision" | "mount";
+
+interface PublishStageDetails {
+  revision?: string;
+  sessionId?: string;
+  skipped?: boolean;
+}
+
 interface PublishReporter {
   stage(
-    name: string,
+    name: PublishStage,
     status: "running" | "complete",
-    details?: Record<string, unknown>,
+    details?: PublishStageDetails,
   ): void;
   warning(stage: string, diagnostics: string[]): void;
   error(stage: string, diagnostics: string[]): void;
@@ -157,18 +165,19 @@ interface PublishReporter {
   ): void;
 }
 
-const STAGE_LABELS: Record<string, string> = {
+const STAGE_LABELS = {
   validate: "Validate document",
   revision: "Seal revision",
   mount: "Mount",
-};
+} satisfies Record<PublishStage, string>;
 
 function createPublishReporter(input: {
   json: boolean;
   stdout: Writable;
   stderr: Writable;
 }): PublishReporter {
-  const emit = (event: Record<string, unknown>) => emitJsonEvent(input, event);
+  const emit = <T extends CliJsonEvent>(event: T) =>
+    emitJsonEvent(input, event);
   if (input.json) {
     return {
       stage(name, status, details = {}) {
@@ -205,7 +214,7 @@ function createPublishReporter(input: {
   return {
     stage(name, status, details = {}) {
       if (status !== "complete") return;
-      const label = STAGE_LABELS[name] ?? name;
+      const label = STAGE_LABELS[name];
       const suffix =
         "revision" in details
           ? ` ${String(details.revision).slice(0, 12)}`

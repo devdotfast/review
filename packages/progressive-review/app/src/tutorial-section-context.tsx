@@ -16,9 +16,11 @@ export const TutorialSectionProvider = TutorialSectionContext.Provider;
  * The tutorial chapter state of a document section. Outside the tutorial (no
  * provider) every section gets null.
  */
-export function useTutorialSection(title: string): {
+export interface TutorialSection {
   state: TutorialChapterState | null;
-} {
+}
+
+export function useTutorialSection(title: string): TutorialSection {
   const value = useContext(TutorialSectionContext);
   return { state: value?.chapterStates.get(title) ?? null };
 }

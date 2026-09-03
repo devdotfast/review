@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import { isJsonObject, parseJsonText } from "@dev.fast/review-protocol";
+
 import type { SessionRef } from "./authoring-session";
 import { findClaudeTranscript } from "./native-agent/claude-transcript";
 import { forkCodexThread } from "./native-agent/codex-app-server";
@@ -50,7 +52,15 @@ async function createClaudeReviewSourceSession(input: {
   const records = source
     .split("\n")
     .filter((line) => line.trim())
-    .map((line) => JSON.parse(line) as Record<string, unknown>);
+    .map((line) => {
+      const record = parseJsonText(line);
+      if (!isJsonObject(record)) {
+        throw new Error(
+          `Claude transcript ${sourcePath} has a non-object line.`,
+        );
+      }
+      return record;
+    });
   const fork = records.map((record) => ({
     ...record,
     ...(record.sessionId === undefined ? {} : { sessionId }),
@@ -87,9 +97,11 @@ function runPiProcess(
     });
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
-      const error = new Error(`Command timed out: pi ${args.join(" ")}`);
-      (error as { stderr?: string }).stderr = stderr;
-      reject(error);
+      reject(
+        Object.assign(new Error(`Command timed out: pi ${args.join(" ")}`), {
+          stderr,
+        }),
+      );
     }, options.timeout);
     child.on("error", (error) => {
       clearTimeout(timer);
@@ -101,9 +113,11 @@ function runPiProcess(
         resolve();
         return;
       }
-      const error = new Error(`Command failed: pi ${args.join(" ")}`);
-      (error as { stderr?: string }).stderr = stderr;
-      reject(error);
+      reject(
+        Object.assign(new Error(`Command failed: pi ${args.join(" ")}`), {
+          stderr,
+        }),
+      );
     });
   });
 }

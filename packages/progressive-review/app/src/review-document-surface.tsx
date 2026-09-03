@@ -1,13 +1,10 @@
-import {
-  type ComponentProps,
-  type ComponentType,
-  type ReactElement,
-} from "react";
+import { type ComponentProps, type ReactElement } from "react";
 
 import { MarkdownCodeBlock } from "./code-block";
 import { reviewAuthoringComponents } from "./review-authoring-components";
 import { a } from "./review-components";
 import { ReviewDocumentMetaLine } from "./review-doc-meta";
+import type { ReviewDocumentComponent } from "./review-documents-runtime";
 
 export const reviewDocumentComponents = {
   ...reviewAuthoringComponents,
@@ -31,7 +28,7 @@ function ReviewDocumentTitle({
 export function ReviewDocumentContent({
   ReviewDocument,
 }: {
-  ReviewDocument: ComponentType<{ components?: Record<string, unknown> }>;
+  ReviewDocument: ReviewDocumentComponent;
 }): ReactElement {
   return <ReviewDocument components={reviewDocumentComponents} />;
 }

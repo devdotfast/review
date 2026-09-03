@@ -186,10 +186,7 @@ async function runWorker(workerPath: string, args: string[]): Promise<void> {
   return await spawnWorker(workerPath, args).completion;
 }
 
-function spawnWorker(
-  workerPath: string,
-  args: string[],
-): { child: ReturnType<typeof spawn>; completion: Promise<void> } {
+function spawnWorker(workerPath: string, args: string[]) {
   const child = spawn(
     process.execPath,
     ["--import", "tsx", workerPath, ...args],

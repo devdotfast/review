@@ -6,7 +6,7 @@ import {
   authoringSessionKey,
   resolveAuthoringSessionRef,
 } from "./authoring-session";
-import { emitJsonEvent } from "./cli-output";
+import { type CliJsonEvent, emitJsonEvent } from "./cli-output";
 import { readReviewDesktopDiscovery } from "./desktop-discovery";
 import {
   parseStoredReviewRecord,
@@ -145,11 +145,15 @@ export async function runReviewMapPublish(input: {
   }
 }
 
+interface MapPublishStageDetails {
+  revision?: string;
+}
+
 interface MapPublishReporter {
   stage(
     name: string,
     status: "running" | "complete",
-    details?: Record<string, unknown>,
+    details?: MapPublishStageDetails,
   ): void;
   error(stage: string, diagnostics: string[]): void;
   published(
@@ -165,7 +169,7 @@ function mapPublishReporter(input: {
   stderr: Writable;
 }): MapPublishReporter {
   if (input.json) {
-    const emit = (event: Record<string, unknown>) =>
+    const emit = <T extends CliJsonEvent>(event: T) =>
       emitJsonEvent(input, event);
     return {
       stage: (name, status, details = {}) =>
@@ -192,9 +196,9 @@ function mapPublishReporter(input: {
     stage(name, status, details = {}) {
       if (status !== "complete") return;
       const suffix =
-        typeof details.revision === "string"
-          ? ` ${details.revision.slice(0, 12)}`
-          : "";
+        details.revision === undefined
+          ? ""
+          : ` ${details.revision.slice(0, 12)}`;
       input.stdout.write(
         `${name === "load" ? "Load map" : name}: ok${suffix}\n`,
       );

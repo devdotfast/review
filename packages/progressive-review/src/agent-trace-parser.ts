@@ -1,8 +1,10 @@
 import path from "node:path";
 
-import type {
-  ReviewAgentTraceEvent,
-  ReviewAgentTraceSession,
+import {
+  type JsonObject,
+  type ReviewAgentTraceEvent,
+  type ReviewAgentTraceSession,
+  isJsonObject,
 } from "@dev.fast/review-protocol";
 
 export const AGENT_TRACE_PARSER_VERSION = "1";
@@ -249,7 +251,7 @@ function claudeToolEvent(
   cwd: string | null,
 ): AgentTraceToolEvent {
   const name = block.name ?? "tool";
-  const input = (block.input ?? {}) as Record<string, unknown>;
+  const input: JsonObject = isJsonObject(block.input) ? block.input : {};
   const event: AgentTraceToolEvent = {
     kind: "tool",
     tool: name,
@@ -257,8 +259,10 @@ function claudeToolEvent(
     title: name,
     at,
   };
-  const inputText = (key: string): string | null =>
-    typeof input[key] === "string" ? (input[key] as string) : null;
+  const inputText = (key: string): string | null => {
+    const value = input[key];
+    return typeof value === "string" ? value : null;
+  };
   const filePath =
     inputText("file_path") ?? inputText("path") ?? inputText("notebook_path");
   switch (name) {
@@ -525,15 +529,7 @@ function codexText(payload: CodexPayload): string {
     .trim();
 }
 
-function codexPatchSummary(
-  patch: string,
-  cwd: string | null,
-): {
-  filePath?: string;
-  additions: number;
-  deletions: number;
-  files: string[];
-} {
+function codexPatchSummary(patch: string, cwd: string | null) {
   const files: string[] = [];
   let additions = 0;
   let deletions = 0;
@@ -553,10 +549,7 @@ function codexPatchSummary(
 const CODE_MODE_FILE_PATTERN =
   /\*\*\* (?:Add|Update|Delete) File: ([^\n\\"`]+)/g;
 
-function unifiedDiffCounts(diff: string): {
-  additions: number;
-  deletions: number;
-} {
+function unifiedDiffCounts(diff: string) {
   let additions = 0;
   let deletions = 0;
   for (const line of diff.split("\n")) {
@@ -995,7 +988,7 @@ interface PiContentBlock {
   thinking?: string;
   id?: string;
   name?: string;
-  arguments?: Record<string, unknown>;
+  arguments?: JsonObject;
 }
 
 interface PiRecord {
@@ -1024,9 +1017,11 @@ function piToolEvent(
   cwd: string | null,
 ): AgentTraceToolEvent {
   const name = block.name ?? "tool";
-  const args = block.arguments ?? {};
-  const argText = (key: string): string | null =>
-    typeof args[key] === "string" ? (args[key] as string) : null;
+  const args: JsonObject = block.arguments ?? {};
+  const argText = (key: string): string | null => {
+    const value = args[key];
+    return typeof value === "string" ? value : null;
+  };
   const event: AgentTraceToolEvent = {
     kind: "tool",
     tool: name,

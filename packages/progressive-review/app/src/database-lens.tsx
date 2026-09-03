@@ -117,14 +117,16 @@ export interface DatabaseOperationHighlightInput {
   targetKey: string;
 }
 
-export function selectDatabaseOperationHighlights(
-  operations: DatabaseOperationHighlightInput[],
-  requestedAnchor: string | null | undefined,
-): {
+export interface DatabaseOperationHighlights {
   activeAnchor: string | null;
   operationStates: Map<string, DatabaseOperationHighlightState>;
   activeTargetKeys: Set<string>;
-} {
+}
+
+export function selectDatabaseOperationHighlights(
+  operations: DatabaseOperationHighlightInput[],
+  requestedAnchor: string | null | undefined,
+): DatabaseOperationHighlights {
   const activeAnchor =
     requestedAnchor &&
     operations.some((operation) => operation.anchorId === requestedAnchor)
@@ -640,6 +642,11 @@ export function initialDatabaseC4ExpandedNodeIds(
   );
 }
 
+export interface DatabaseC4ExpandedNodeIds {
+  expandedNodeIds: Set<string>;
+  seededDefaultNodeIds: Set<string>;
+}
+
 export function seedDatabaseC4DefaultExpandedNodeIds({
   expandedNodeIds,
   seededDefaultNodeIds,
@@ -648,7 +655,7 @@ export function seedDatabaseC4DefaultExpandedNodeIds({
   expandedNodeIds: ReadonlySet<string>;
   seededDefaultNodeIds: ReadonlySet<string>;
   defaultExpandedNodeIds: ReadonlySet<string>;
-}): { expandedNodeIds: Set<string>; seededDefaultNodeIds: Set<string> } {
+}): DatabaseC4ExpandedNodeIds {
   const nextExpandedNodeIds = new Set(expandedNodeIds);
   const nextSeededDefaultNodeIds = new Set(seededDefaultNodeIds);
   for (const nodeId of defaultExpandedNodeIds) {
@@ -988,10 +995,7 @@ function slugPart(value: string): string {
   return slug || "database";
 }
 
-function validateDatabaseLensProps(props: DatabaseLensProps): {
-  peekInputs: Map<string, ValidatedCodePeekInput>;
-  useCases: ParsedUseCase[];
-} {
+function validateDatabaseLensProps(props: DatabaseLensProps) {
   databaseLensPropsSchema.parse(props);
   const useCases = parseUseCases(props.children);
   if (useCases.length === 0) {
@@ -1177,7 +1181,12 @@ function exampleForField(field: FieldLeaf): unknown {
   return undefined;
 }
 
-function exampleForSchema(schema: FieldSchema): Record<string, unknown> {
+/** Example values keyed by field, nested like the schema they illustrate. */
+interface FieldSchemaExample {
+  [field: string]: FieldLeaf["example"] | FieldSchemaExample;
+}
+
+function exampleForSchema(schema: FieldSchema): FieldSchemaExample {
   return Object.fromEntries(
     Object.entries(schema).map(([key, value]) => [
       key,

@@ -4,7 +4,11 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { delimiter, dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { ReviewVerbRequest } from "@dev.fast/review-protocol";
+import {
+  type JsonValue,
+  type ReviewVerbRequest,
+  isJsonObject,
+} from "@dev.fast/review-protocol";
 
 import { DEV_REVIEW_HOME_ENV, devReviewHome } from "../review-storage";
 import { writePathShim } from "../server/cli-install";
@@ -373,7 +377,7 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
-function tomlInline(value: unknown): string {
+function tomlInline(value: JsonValue): string {
   if (typeof value === "boolean" || typeof value === "number") {
     return String(value);
   }
@@ -381,7 +385,7 @@ function tomlInline(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map(tomlInline).join(", ")}]`;
   }
-  if (isRecord(value)) {
+  if (isJsonObject(value)) {
     return `{ ${Object.entries(value)
       .map(([key, entry]) => {
         const name = /^[A-Za-z0-9_-]+$/u.test(key) ? key : JSON.stringify(key);
@@ -390,8 +394,4 @@ function tomlInline(value: unknown): string {
       .join(", ")} }`;
   }
   throw new TypeError("Codex hook configuration contains an invalid value.");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

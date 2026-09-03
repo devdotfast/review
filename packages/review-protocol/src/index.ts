@@ -42,6 +42,7 @@ import {
 } from "./contracts.js";
 
 export * from "./bug-report.js";
+export * from "./json.js";
 export * from "./contracts.js";
 
 export function parseReviewDesktopDiscovery(

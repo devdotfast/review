@@ -578,7 +578,7 @@ export function materializeSoftwareMapAtRefSync(input: {
 function writeMaterializedArtifact(input: {
   gitDir: string;
   read: SoftwareMapSourceReadResult;
-}): { outputPath: string; status: "written" | "unchanged" } {
+}) {
   const outputPath = path.join(
     materializedSoftwareMapDir(input.gitDir, input.read.commit),
     SOFTWARE_MAP_FILE_NAME,

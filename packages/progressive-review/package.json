@@ -106,6 +106,7 @@
     "@types/estree": "1.0.8",
     "@types/hast": "3.0.4",
     "@types/mdast": "4.0.4",
+    "@types/mdx": "2.0.14",
     "@types/node": "24.12.2",
     "@types/react-dom": "19.2.3",
     "@types/semver": "7.7.1",

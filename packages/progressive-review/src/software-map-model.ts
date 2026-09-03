@@ -239,12 +239,11 @@ export function defineSoftwareMap(
   input: SoftwareModelInput,
 ): NormalizedSoftwareModel {
   const errors: string[] = [];
-  const rawInput = input as Record<string, unknown>;
   const elements: ElementDraft[] = [];
   const elementsByPath = new Map<string, ElementDraft>();
   const pendingRelationships: PendingRelationship[] = [];
 
-  if ("views" in rawInput) {
+  if ("views" in input) {
     errors.push(
       "Software model must not author views; SoftwareMap derives inline C4 projection from elements, relationships, and expansion state.",
     );
@@ -440,19 +439,18 @@ function validateElementShape(
   input: SoftwareElementBaseInput,
   errors: string[],
 ) {
-  const rawInput = input as Record<string, unknown>;
-  if ("additions" in rawInput || "deletions" in rawInput) {
+  if ("additions" in input || "deletions" in input) {
     errors.push(
       `Element "${path}" must not author additions or deletions; diff counts are computed automatically.`,
     );
   }
   if (
-    "changeStatus" in rawInput &&
-    rawInput.changeStatus !== undefined &&
-    rawInput.changeStatus !== "added" &&
-    rawInput.changeStatus !== "removed" &&
-    rawInput.changeStatus !== "modified" &&
-    rawInput.changeStatus !== "unchanged"
+    "changeStatus" in input &&
+    input.changeStatus !== undefined &&
+    input.changeStatus !== "added" &&
+    input.changeStatus !== "removed" &&
+    input.changeStatus !== "modified" &&
+    input.changeStatus !== "unchanged"
   ) {
     errors.push(
       `Element "${path}" changeStatus must be one of "added", "removed", "modified", or "unchanged".`,
@@ -460,35 +458,32 @@ function validateElementShape(
   }
   if (
     type === "dataStore" &&
-    "kind" in rawInput &&
-    rawInput.kind !== undefined &&
-    rawInput.kind !== "database" &&
-    rawInput.kind !== "objectStore" &&
-    rawInput.kind !== "bucket" &&
-    rawInput.kind !== "artifactStore" &&
-    rawInput.kind !== "fileStore"
+    "kind" in input &&
+    input.kind !== undefined &&
+    input.kind !== "database" &&
+    input.kind !== "objectStore" &&
+    input.kind !== "bucket" &&
+    input.kind !== "artifactStore" &&
+    input.kind !== "fileStore"
   ) {
     errors.push(
       `Data store "${path}" kind must be one of "database", "objectStore", "bucket", "artifactStore", or "fileStore".`,
     );
   }
-  if (type !== "dataStore" && "kind" in rawInput) {
+  if (type !== "dataStore" && "kind" in input) {
     errors.push(`Only data stores may define kind: "${path}".`);
   }
-  if (
-    type !== "dataStore" &&
-    ("tables" in rawInput || "documents" in rawInput)
-  ) {
+  if (type !== "dataStore" && ("tables" in input || "documents" in input)) {
     errors.push(`Only data stores may define tables or documents: "${path}".`);
   }
   if (type === "codeElement") {
-    if ("codeElements" in rawInput) {
+    if ("codeElements" in input) {
       errors.push(`Code element "${path}" cannot contain code elements.`);
     }
   }
   if (
-    "coverage" in rawInput &&
-    rawInput.coverage !== undefined &&
+    "coverage" in input &&
+    input.coverage !== undefined &&
     type !== "softwareSystem" &&
     type !== "container" &&
     type !== "dataStore" &&
@@ -614,13 +609,13 @@ function validateDataStoreFieldSchema(
 }
 
 function isDataStoreFieldLeaf(
-  value: unknown,
+  value: SoftwareDataStoreFieldSchema[string],
 ): value is SoftwareDataStoreFieldLeaf {
   return (
     value !== null &&
     typeof value === "object" &&
     "type" in value &&
-    typeof (value as { type?: unknown }).type === "string"
+    typeof value.type === "string"
   );
 }
 
@@ -640,11 +635,10 @@ function normalizeCoverage(
     return undefined;
   }
 
-  const rawCoverage = coverage as Record<string, unknown>;
   const files: NormalizedSoftwareCoverageFile[] = [];
   const globs: string[] = [];
 
-  if (rawCoverage.files !== undefined && !Array.isArray(rawCoverage.files)) {
+  if (coverage.files !== undefined && !Array.isArray(coverage.files)) {
     errors.push(`Element "${path}" coverage.files must be an array.`);
   }
   for (const [index, file] of (coverage.files ?? []).entries()) {
@@ -673,7 +667,7 @@ function normalizeCoverage(
     );
   }
 
-  if (rawCoverage.globs !== undefined && !Array.isArray(rawCoverage.globs)) {
+  if (coverage.globs !== undefined && !Array.isArray(coverage.globs)) {
     errors.push(`Element "${path}" coverage.globs must be an array.`);
   }
   for (const [index, glob] of (coverage.globs ?? []).entries()) {

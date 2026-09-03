@@ -6,6 +6,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import {
+  type JsonObject,
   REVIEW_DESKTOP_DISCOVERY_VERSION,
   type ReviewDescriptor,
   type ReviewDesktopDiscovery,
@@ -16,6 +17,7 @@ import {
   type ReviewTutorialOpenResponse,
   type ReviewVerbRequest,
   type ReviewView,
+  isJsonObject,
   parseReviewCliInstallApplyRequest,
   parseReviewPublishReadyRequest,
   reviewViewSchema,
@@ -342,10 +344,7 @@ export function createGlobalReviewServer(
   app.post("/telemetry/event", async (context) => {
     try {
       const body = await readBoundedRequestJson(context.req.raw, undefined, {});
-      const payload =
-        body && typeof body === "object"
-          ? (body as Record<string, unknown>)
-          : {};
+      const payload: JsonObject = isJsonObject(body) ? body : {};
       let flushBeforeOptOut = false;
       await captureSanitizedUiTelemetry(
         telemetry,
@@ -2149,11 +2148,10 @@ function latestAgentSessionWithRole(
     )[0]?.[0];
 }
 
-function parseInfoRequest(value: unknown): RunReviewInfoInput {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
+function parseInfoRequest(input: unknown): RunReviewInfoInput {
+  if (!isJsonObject(input)) {
     throw new HttpJsonError("Info request must be an object.", 400);
   }
-  const input = value as Record<string, unknown>;
   const allowed = new Set(["cwd", "all", "reviewUuid"]);
   if (Object.keys(input).some((key) => !allowed.has(key))) {
     throw new HttpJsonError("Info request has unexpected fields.", 400);

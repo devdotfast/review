@@ -43,6 +43,15 @@ const RUNTIME_SPECIFIER = "review-doc-runtime";
 const RUNTIME_MODULE_FILE = "review-doc-runtime.mjs";
 const DOCUMENT_MODULE_FILE = "review-document.mjs";
 
+type PublishValidationRuntime = ReturnType<typeof validationRuntimeExports>;
+
+// The generated runtime module reads its exports from this global slot: the
+// evaluation installs the runtime before importing the document and restores
+// whatever the slot held afterwards.
+interface PublishValidationRuntimeGlobal {
+  [RUNTIME_GLOBAL]?: PublishValidationRuntime;
+}
+
 // The stub module must declare every name the bundle imports from the runtime
 // (ESM checks named imports at link time), so the export list is derived from
 // the bundle's own import statements instead of mirroring doc-runtime.ts by
@@ -177,9 +186,11 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
     ".build",
     `publish-validate-${process.pid}-${Math.random().toString(36).slice(2)}`,
   );
-  const globalHolder = globalThis as Record<string, unknown>;
+  // SAFETY: the slot is a private key on globalThis that only this evaluation
+  // writes; it holds a runtime from `validationRuntimeExports` or nothing.
+  const globalHolder = globalThis as PublishValidationRuntimeGlobal;
   const previousRuntime = globalHolder[RUNTIME_GLOBAL];
-  let importError: unknown = null;
+  let importErrorMessage: string | null = null;
   try {
     const runtimeImportNames = await collectRuntimeImportNames(
       input.bundleCode,
@@ -205,7 +216,7 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
     try {
       await import(moduleUrl.href);
     } catch (error) {
-      importError = error;
+      importErrorMessage = errorMessage(error);
     }
   } finally {
     globalHolder[RUNTIME_GLOBAL] = previousRuntime;
@@ -314,8 +325,8 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
   const errors =
     failures.length > 0
       ? failures
-      : importError !== null
-        ? [errorMessage(importError)]
+      : importErrorMessage !== null
+        ? [importErrorMessage]
         : [];
   const warnings = [
     ...sessions.flatMap((session) =>
@@ -393,7 +404,7 @@ function validationRuntimeExports(input: {
   reportAuditError: (message: string) => void;
   collectCallStackDiff: (props: CallStackDiffProps) => void;
   collectTraceQuote: (quote: PublishAuditTraceQuote) => void;
-}): Record<string, unknown> {
+}) {
   const noop = () => undefined;
   // The React substitute is not inert: `jsx` builds element records so the
   // audit below can parse every authored element's props at publish time.

@@ -4,6 +4,7 @@ import path from "node:path";
 
 import type {
   CreateReviewCommentInput,
+  JsonObject,
   ReviewThreadsCommit,
 } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -74,7 +75,7 @@ describe("createReviewSessionHandler", () => {
         startedAt: Date.now(),
       },
     });
-    const capture = (name: string, properties?: Record<string, unknown>) =>
+    const capture = (name: string, properties?: JsonObject) =>
       handler.handle(
         new Request(
           new URL("/__progressive-review/telemetry/event", sessionUrl),

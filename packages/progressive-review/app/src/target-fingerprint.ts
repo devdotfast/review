@@ -223,11 +223,15 @@ export function buildSelection(
   return { start, length, hash: stableHash(quote), quote };
 }
 
-export function resolvedCodeSurface(resolution: CodePeekResolution): {
+export interface ResolvedCodeSurface {
   text: string;
   file: string;
   fromLine: number;
-} {
+}
+
+export function resolvedCodeSurface(
+  resolution: CodePeekResolution,
+): ResolvedCodeSurface {
   const root = resolution.snapshot.roots[0];
   const resolved = root
     ? resolution.snapshot.resolved[root.sourceId]
@@ -338,10 +342,10 @@ function stableSerialize(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map(stableSerialize).join(",")}]`;
   }
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record)
-    .filter((key) => record[key] !== undefined)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableSerialize(record[key])}`)
+  const fields: [string, unknown][] = Object.entries(value);
+  return `{${fields
+    .filter(([, field]) => field !== undefined)
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    .map(([key, field]) => `${JSON.stringify(key)}:${stableSerialize(field)}`)
     .join(",")}}`;
 }

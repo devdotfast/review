@@ -109,6 +109,12 @@ export function sameReviewSoftwareMapBundle(
   );
 }
 
+// The review-doc-runtime substitute a legacy bundle evaluates against lives
+// in a pid-keyed global slot so concurrent migrations never share one.
+interface LegacyMapMigrationGlobal<Runtime> {
+  [slot: `__reviewLegacyMapMigration${number}`]: Runtime | undefined;
+}
+
 export async function extractLegacyReviewSoftwareMapBundle(input: {
   bundleCode: string;
   evaluationDir: string;
@@ -136,9 +142,6 @@ export async function extractLegacyReviewSoftwareMapBundle(input: {
       if (/^[A-Za-z_$][\w$]*$/.test(name)) names.add(name);
     }
   }
-  const holder = globalThis as Record<string, unknown>;
-  const key = `__reviewLegacyMapMigration${process.pid}`;
-  const prior = holder[key];
   let captured: {
     repoSoftwareMap?: unknown;
     baseSoftwareMap?: unknown;
@@ -154,7 +157,7 @@ export async function extractLegacyReviewSoftwareMapBundle(input: {
     defineSoftwareActors: (_model: unknown, value: unknown) => value,
     defineSoftwareStores: (_model: unknown, value: unknown) => value,
   };
-  holder[key] = {
+  const runtime = {
     createActiveReviewDocument(value: typeof captured) {
       captured = value;
       return value;
@@ -168,6 +171,12 @@ export async function extractLegacyReviewSoftwareMapBundle(input: {
     jsxDEV: () => ({}),
     React: {},
   };
+  const key: `__reviewLegacyMapMigration${number}` = `__reviewLegacyMapMigration${process.pid}`;
+  // SAFETY: the slot is private to this module and namespaced by pid; it only
+  // ever holds `runtime`, and the prior value is restored in `finally`.
+  const holder = globalThis as LegacyMapMigrationGlobal<typeof runtime>;
+  const prior = holder[key];
+  holder[key] = runtime;
   try {
     await mkdir(input.evaluationDir, { recursive: true, mode: 0o700 });
     const runtimeSource = [

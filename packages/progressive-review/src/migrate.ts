@@ -15,6 +15,12 @@ import path from "node:path";
 import type { Writable } from "node:stream";
 import { promisify } from "node:util";
 
+import {
+  type JsonObject,
+  isJsonObject,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
+
 import { emitJsonEvent, humanStream } from "./cli-output";
 import { errorMessage } from "./error-message";
 import { defaultPackageRoot } from "./install";
@@ -470,13 +476,13 @@ export async function removeLegacyDesktopCatalog(input: {
       result.blockers.push(`${filePath} has an unknown catalog file name.`);
       continue;
     }
-    let record: Record<string, unknown>;
+    let record: JsonObject;
     try {
-      const value: unknown = JSON.parse(await readFile(filePath, "utf8"));
-      if (!value || typeof value !== "object" || Array.isArray(value)) {
+      const value = parseJsonText(await readFile(filePath, "utf8"));
+      if (!isJsonObject(value)) {
         throw new Error("catalog entry must contain an object");
       }
-      record = value as Record<string, unknown>;
+      record = value;
     } catch (error) {
       result.blockers.push(
         `${filePath} is not valid JSON: ${errorMessage(error)}`,
@@ -496,33 +502,26 @@ export async function removeLegacyDesktopCatalog(input: {
 }
 
 function isLegacyDesktopCatalogRecord(
-  record: Record<string, unknown>,
+  record: JsonObject,
   reviewKey: string,
 ): boolean {
   const repository = record.repository;
-  if (
-    !repository ||
-    typeof repository !== "object" ||
-    Array.isArray(repository)
-  ) {
-    return false;
-  }
-  const repositoryRecord = repository as Record<string, unknown>;
+  if (!isJsonObject(repository)) return false;
   const requiredStrings = [
     record.rootPath,
     record.reviewPath,
     record.baseRef,
     record.routePath,
-    repositoryRecord.repositoryId,
-    repositoryRecord.repositoryPath,
-    repositoryRecord.worktreeRoot,
+    repository.repositoryId,
+    repository.repositoryPath,
+    repository.worktreeRoot,
   ];
   return (
     record.reviewKey === reviewKey &&
     requiredStrings.every(
       (value) => typeof value === "string" && value.length > 0,
     ) &&
-    ["git", "jj", "none"].includes(String(repositoryRecord.kind)) &&
+    ["git", "jj", "none"].includes(String(repository.kind)) &&
     Number.isSafeInteger(record.startedAt) &&
     Number(record.startedAt) > 0 &&
     Number.isSafeInteger(record.updatedAt) &&
@@ -667,10 +666,8 @@ export async function removeLegacyGlobalReviewInstalls(input: {
       seen.add(canonicalRoot);
       result.checked += 1;
       try {
-        const metadata = JSON.parse(
-          await readFile(packagePath, "utf8"),
-        ) as Record<string, unknown>;
-        if (metadata.name !== PACKAGE_NAME) {
+        const metadata = parseJsonText(await readFile(packagePath, "utf8"));
+        if (!isJsonObject(metadata) || metadata.name !== PACKAGE_NAME) {
           result.blockers.push(
             `${packageRoot} is not a positively identified ${PACKAGE_NAME} installation.`,
           );

@@ -2,6 +2,11 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import {
+  type JsonObject,
+  isJsonObject,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { findProgressiveReviewPackageRoot } from "./package-paths";
@@ -458,13 +463,7 @@ function createTelemetry(input?: {
   env?: NodeJS.ProcessEnv;
   installationId?: string;
   commandRunId?: string;
-}): {
-  configPath: string;
-  events: PostHogCaptureInput[];
-  legacyConfigPath: string;
-  rootPath: string;
-  telemetry: ProgressiveReviewTelemetry;
-} {
+}) {
   const rootPath = path.join(
     os.tmpdir(),
     `progressive-review-telemetry-${Date.now()}-${Math.random()
@@ -513,13 +512,12 @@ async function writeStoredConfig(
   await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
 }
 
-async function readStoredConfig(
-  configPath: string,
-): Promise<Record<string, unknown>> {
-  return JSON.parse(await readFile(configPath, "utf8")) as Record<
-    string,
-    unknown
-  >;
+async function readStoredConfig(configPath: string): Promise<JsonObject> {
+  const value = parseJsonText(await readFile(configPath, "utf8"));
+  if (!isJsonObject(value)) {
+    throw new Error(`Stored config at ${configPath} is not an object.`);
+  }
+  return value;
 }
 
 async function progressiveReviewPackageVersion(): Promise<string> {

@@ -13,12 +13,14 @@ import path from "node:path";
 import { currentHead, listCommitRange } from "@dev.fast/local-vcs";
 import {
   DEFAULT_DISMISSED_RETENTION_DAYS,
+  type JsonObject,
   REVIEW_SCHEMA_VERSION,
   type ReviewAgentSessionRole,
   type ReviewDescriptor,
   type ReviewRecord,
   ReviewRecordSchema,
   type ReviewSourceIdentity,
+  isJsonObject,
   summarizeReviewDiffFiles,
 } from "@dev.fast/review-protocol";
 
@@ -603,10 +605,7 @@ function reviewHomeError(
   value: unknown,
   error: { message: string; code?: string },
 ): ReviewHomeError {
-  const record =
-    value && typeof value === "object" && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : undefined;
+  const record = isJsonObject(value) ? value : undefined;
   const directoryUuid = path.basename(reviewDir);
   const storedUuid = typeof record?.uuid === "string" ? record.uuid : null;
   const reviewUuid = UUID_PATTERN.test(storedUuid ?? "")
@@ -638,10 +637,8 @@ export function parseStoredReviewRecord(value: unknown): StoredReviewRecord {
 export function parseStoredReviewRecordForMigration(
   value: unknown,
 ): StoredReviewRecord {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return parseStoredReviewRecord(value);
-  }
-  const record = stripLegacySoftwareMap(value) as Record<string, unknown>;
+  if (!isJsonObject(value)) return parseStoredReviewRecord(value);
+  const record = stripLegacySoftwareMap(value);
   if (record.schemaVersion === 3) {
     const { agentSession, schemaVersion: _schemaVersion, ...current } = record;
     return StoredReviewRecordSchema.parse({
@@ -670,14 +667,11 @@ export function safeParseStoredReviewRecord(value: unknown) {
   return StoredReviewRecordSchema.safeParse(stripLegacySoftwareMap(value));
 }
 
+function stripLegacySoftwareMap(value: JsonObject): JsonObject;
+function stripLegacySoftwareMap(value: unknown): unknown;
 function stripLegacySoftwareMap(value: unknown): unknown {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return value;
-  }
-  const { softwareMap: _legacySoftwareMap, ...record } = value as Record<
-    string,
-    unknown
-  >;
+  if (!isJsonObject(value)) return value;
+  const { softwareMap: _legacySoftwareMap, ...record } = value;
   return record;
 }
 
@@ -704,7 +698,7 @@ function defaultReviewMdx(review: ReviewRecord): string {
   return `# ${review.title}\n\nThis review document is ready for repo-specific notes.\n\n{/* Review source: ${review.sourceCommit ?? "unbound"} */}\n`;
 }
 
-function reviewPackageJson(uuid: string): Record<string, unknown> {
+function reviewPackageJson(uuid: string) {
   return {
     name: `review-${uuid}`,
     private: true,

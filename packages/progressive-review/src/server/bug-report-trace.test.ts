@@ -11,7 +11,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
 
-import { REVIEW_SCHEMA_VERSION } from "@dev.fast/review-protocol";
+import {
+  type JsonObject,
+  REVIEW_SCHEMA_VERSION,
+} from "@dev.fast/review-protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { ReviewAgentHarness } from "../authoring-session";
@@ -624,10 +627,7 @@ describe("readAuthoringTraceAttachment", () => {
   }
 });
 
-function historyBase(
-  parentId: string,
-  endOrdinalExclusive: number,
-): { parentId: string; endOrdinalExclusive: number } {
+function historyBase(parentId: string, endOrdinalExclusive: number) {
   return { parentId, endOrdinalExclusive };
 }
 
@@ -638,7 +638,7 @@ function codexId(index: number): string {
 function codexTrace(
   id: string,
   startOrdinal: number,
-  records: Array<Record<string, unknown>>,
+  records: JsonObject[],
   parent?: ReturnType<typeof historyBase>,
 ): string {
   const metaPayload = {

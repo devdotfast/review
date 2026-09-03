@@ -1,7 +1,11 @@
 import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { REVIEW_SCHEMA_VERSION } from "@dev.fast/review-protocol";
+import {
+  type JsonObject,
+  REVIEW_SCHEMA_VERSION,
+  isJsonObject,
+} from "@dev.fast/review-protocol";
 import type { Expression, Program } from "estree";
 
 import {
@@ -383,9 +387,7 @@ export async function migrateStoredReviewData(input: {
         });
       }
       if (
-        !value ||
-        typeof value !== "object" ||
-        Array.isArray(value) ||
+        !isJsonObject(value) ||
         (schemaVersion !== REVIEW_SCHEMA_VERSION &&
           schemaVersion !== 3 &&
           schemaVersion !== 2)
@@ -399,15 +401,14 @@ export async function migrateStoredReviewData(input: {
       if (schemaVersion === 3 || schemaVersion === 2) {
         const migratedSource = await migrateReviewSourceSession({
           onWarning: (message) => input.log?.(message),
-          value: value as Record<string, unknown>,
+          value,
         });
         migrationValue = migratedSource;
       }
       const migratedRecord =
         parseStoredReviewRecordForMigration(migrationValue);
       if (schemaVersion === 2) {
-        const legacyRevision = (value as { presentedRevision?: unknown })
-          .presentedRevision;
+        const legacyRevision = value.presentedRevision;
         try {
           if (typeof legacyRevision === "string") {
             await migrateLegacyPresentedArtifacts({
@@ -496,8 +497,8 @@ export async function migrateStoredReviewData(input: {
 
 async function migrateReviewSourceSession(input: {
   onWarning?: (message: string) => void;
-  value: Record<string, unknown>;
-}): Promise<Record<string, unknown>> {
+  value: JsonObject;
+}): Promise<JsonObject> {
   const source = parseAuthoringSessionKey(
     typeof input.value.agentSession === "string"
       ? input.value.agentSession

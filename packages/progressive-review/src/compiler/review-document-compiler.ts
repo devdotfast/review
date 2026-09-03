@@ -119,8 +119,20 @@ function sanitizeDiagnosticSource(source: string): string {
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "�");
 }
 
-interface EstreeNode extends Record<string, unknown> {
+// ESTree property values: child nodes, lists of children, or literal scalars.
+type EstreeValue =
+  | EstreeNode
+  | EstreeValue[]
+  | string
+  | number
+  | boolean
+  | bigint
+  | null
+  | undefined;
+
+interface EstreeNode {
   type?: string;
+  [property: string]: EstreeValue;
 }
 
 interface GeneratedMdxRegion {
@@ -564,7 +576,7 @@ function checkAuthoredTypescript(
   });
 }
 
-function reviewReactTypePaths(): Record<string, string[]> {
+function reviewReactTypePaths() {
   const reactTypesRoot = path.dirname(
     require.resolve("@types/react/package.json"),
   );
@@ -851,7 +863,7 @@ function eraseTypescriptRecma() {
   };
 }
 
-function eraseTypescriptNode(value: unknown): unknown {
+function eraseTypescriptNode(value: EstreeValue): EstreeValue {
   if (!value || typeof value !== "object") return value;
   if (Array.isArray(value)) {
     return value
@@ -859,7 +871,7 @@ function eraseTypescriptNode(value: unknown): unknown {
       .filter((entry) => entry !== null);
   }
 
-  const node = value as EstreeNode;
+  const node = value;
   if (
     node.type === "TSSatisfiesExpression" ||
     node.type === "TSAsExpression" ||

@@ -310,11 +310,13 @@ Software Map defaults to off. Enable it to add the Map tab to reviews.
 Disable it to remove Map entry points. This preference persists in the
 application profile. The change does not require a reload.
 
-Trace capture defaults to off and is not part of onboarding. Enabling it
-takes S3/R2 credentials, installs the agent session hooks and the
-`trace-archaeology` skill for every installed agent, and lets reviews quote
-agent sessions. Disabling removes the hooks and skill again. The state lives
-in the review server's machine trace settings, not the application profile.
+Trace capture defaults to off and is not part of onboarding. It needs no
+credentials here: enabling it installs the agent session hooks and the
+`trace-archaeology` skill for every installed agent. Disabling removes the
+hooks and skill again. To let reviews quote agent sessions, also run `review
+login`, then `review trace allow .` in each repository that may publish
+traces. The state lives in the review server's machine trace settings, not
+the application profile.
 
 The application menu is macOS only. On Windows and Linux the same surfaces are
 available from the command palette (`review.openSettings`).

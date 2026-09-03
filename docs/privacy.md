@@ -2,7 +2,8 @@
 
 <!--
 Outline: Local data -> Anonymous telemetry -> Errors -> Agent providers
--> Explicit bug reports -> Opt-out -> Developer inspection.
+-> Explicit bug reports -> Hosted trace store -> Opt-out -> Developer
+inspection.
 -->
 
 Review reads source code and agent-authored documents from your machine. This
@@ -123,6 +124,27 @@ bucket and deletes them after 90 days.
 An explicit bug report is separate from passive telemetry and is sent even when
 anonymous telemetry is disabled. Review shows the attachment choices before
 submission.
+
+## Hosted trace store
+
+Review can send full agent session traces to a hosted trace store so reviews
+can quote them. This is separate from telemetry and from bug reports, and it
+is off until you turn it on.
+
+A trace leaves your machine only when all of these are true:
+
+- You are logged in. Run `review login` to sign in with GitHub.
+- The repository is allowed. Run `review trace allow .` in that repository.
+- The trace goes only to the store origin your login points at
+  (`https://app.dev.fast` by default).
+
+The store checks your GitHub access on every call. `review trace onboard` and
+`review trace sync` need push access on the repository. `review trace pull`
+needs pull access.
+
+Each repository's traces sit in a private bucket under a prefix unique to
+that repository. Dev.fast encrypts the bucket with a key it controls. Run
+`review trace deny .` to stop publishing from a repository.
 
 ## Turn telemetry off
 

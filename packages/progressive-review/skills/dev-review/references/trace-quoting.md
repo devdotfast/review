@@ -41,7 +41,7 @@ The scaffold event returns each absolute file path in `traces.paths`; `review tr
 
 The first line contains trace metadata. Each later line contains one event with its index, kind, exact projected text, and structured event.
 
-If scaffold warnings or the compatibility pull report missing trace configuration, ask the user to use Review Agent Setup. Do not change setup autonomously.
+If scaffold warnings or the compatibility pull report a missing login or a repository that is not allowed, ask the user to run `review login`, then `review trace allow .` in this repository. Do not change setup autonomously.
 
 ## Find supporting events
 

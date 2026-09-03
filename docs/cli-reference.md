@@ -2,7 +2,8 @@
 
 <!--
 Outline: Common flow -> JSON contract -> Command index -> Lifecycle commands
--> Threads -> Maps -> Agent installation and migration.
+-> Threads -> Maps -> Login and hosted traces -> Agent installation and
+migration.
 -->
 
 The `review` command is the control surface shared by Review Desktop and coding
@@ -22,10 +23,10 @@ different CLI and Desktop versions.
 The `review map` command group is experimental. Its verbs, Git-notes storage
 model, and JSON events may change without a migration period before 1.0.
 
-The `review trace` command group and trace capture are experimental and off
-by default. `review install` configures capture only when `--trace-*`
-credentials are given; Review Desktop exposes it under Settings ▸
-Experimental Features.
+The `review trace` command group is experimental and off by default. It needs
+no local credentials. Run `review login`, then `review trace allow .` in each
+repository that may publish traces. Review Desktop exposes the hook installer
+under Settings ▸ Experimental Features.
 
 ## Common workflow
 
@@ -77,6 +78,10 @@ $ review version --json
 | `review threads` | Read, reply to, and resolve Review threads. |
 | `review map` | Author, validate, publish, and share experimental software maps. |
 | `review install` | Install Review skills for supported coding agents. |
+| `review login` | Log in to the hosted trace store with GitHub. |
+| `review logout` | Forget the hosted trace store login. |
+| `review whoami` | Show the hosted trace store login. |
+| `review trace` | Manage agent traces in the hosted trace store. |
 | `review migrate apply` | Migrate supported legacy Review data. |
 | `review version` | Print the Review package version. |
 
@@ -176,6 +181,52 @@ Maps are stored per commit in Git notes under `refs/notes/dev-fast/*`.
 
 Every map verb accepts `--json`. Run `review map --help` for the storage model
 and exact verb syntax.
+
+## Login and hosted traces
+
+```sh
+review login
+review login --no-browser
+review whoami
+review logout
+```
+
+`review login` opens a browser to sign in with GitHub and stores a session
+token at `$DEV_REVIEW_HOME/auth.json`. Use `--no-browser` on a headless
+machine; the command prints a URL to open elsewhere. `review whoami` shows
+the stored login. `review logout` deletes it.
+
+```sh
+review trace onboard [path]
+review trace allow [path]
+review trace allow [path] --no-harness-hooks
+review trace deny [path]
+review trace status
+review trace sync <session-id>
+review trace pull
+```
+
+`review trace onboard` creates the hosted trace store for the repository
+behind the current Git remote. It needs push access on GitHub. Run it once
+per repository, before the first `allow`.
+
+`review trace allow` records the repository in
+`$DEV_REVIEW_HOME/trace/config.json` and installs the agent harness hooks and
+repository Git hooks that capture and sync sessions. Use `--no-harness-hooks`
+to skip the agent hook installers. `review trace deny` stops publishing from
+the repository and removes the config entry.
+
+`review trace status` shows the login, the allowed repositories, and pending
+sessions. `review trace sync <session-id>` uploads a local session's gzipped
+trace files through presigned URLs. `review trace pull` downloads the same
+way into the local search corpus.
+
+Traces leave the machine only for repositories the user allowed, only to the
+store origin, and only while logged in. `trace onboard` and `trace sync`
+need `push` access on the repository; `trace pull` needs `pull` access. The
+store checks GitHub for the correct access on every call.
+
+`traces` is an alias for `trace`.
 
 ## Agent integration and migration
 

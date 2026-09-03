@@ -8797,22 +8797,6 @@ button.review-stack-row:disabled .review-stack-relation {
   flex-wrap: wrap;
 }
 
-.review-agent-setup-trace-fields {
-  display: grid;
-  flex: 1;
-  grid-template-columns: repeat(2, minmax(160px, 1fr));
-  gap: 6px;
-}
-
-.review-agent-setup-trace-fields input {
-  min-width: 0;
-  padding: 5px 8px;
-  border: 1px solid var(--review-home-rule-soft);
-  border-radius: 5px;
-  color: inherit;
-  background: var(--control-bg);
-}
-
 .review-agent-setup-trace-search {
   flex-basis: 100%;
   width: 100%;

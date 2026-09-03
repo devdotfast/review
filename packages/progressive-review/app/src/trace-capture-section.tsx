@@ -17,6 +17,9 @@ type TraceCredentials = Exclude<InstallApplyRequest["trace"], true | undefined>;
  * The on/off state is the machine-level trace setting the review server owns,
  * read back through the install status. Enabling installs the agent hooks and
  * trace skill for every agent already set up; disabling removes them again.
+ * The hosted trace store needs no machine credentials: a user runs
+ * `review login` once, then `review trace allow .` in each repository that
+ * may publish traces.
  */
 export function TraceCaptureSection({
   install,
@@ -28,17 +31,6 @@ export function TraceCaptureSection({
   const [status, setStatus] = useState<ReviewCliInstallStatus>(install.status);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [traceEndpoint, setTraceEndpoint] = useState(
-    install.status.trace.endpoint ?? "",
-  );
-  const [traceBucket, setTraceBucket] = useState(
-    install.status.trace.bucket ?? "",
-  );
-  const [traceRegion, setTraceRegion] = useState(
-    install.status.trace.region ?? "",
-  );
-  const [traceKey, setTraceKey] = useState("");
-  const [traceSecret, setTraceSecret] = useState("");
 
   useEffect(() => setStatus(install.status), [install.status]);
 
@@ -105,51 +97,12 @@ export function TraceCaptureSection({
               : "off"}
         </span>
         <span className="review-agent-setup-cli">
-          Records agent sessions to your own S3/R2 bucket so reviews can quote
-          them. Session hooks activate each Git or Jujutsu repository when an
+          Records agent sessions to the hosted trace store so reviews can quote
+          them. Run <code>review login</code>, then{" "}
+          <code>review trace allow .</code> in each repository that may publish
+          traces. Session hooks activate each Git or Jujutsu repository when an
           agent session starts.
         </span>
-      </div>
-      <div className="review-agent-setup-trace-fields">
-        <input
-          aria-label="S3/R2 endpoint URL"
-          placeholder="S3/R2 endpoint URL"
-          value={traceEndpoint}
-          onChange={(event) => setTraceEndpoint(event.currentTarget.value)}
-        />
-        <input
-          aria-label="S3/R2 bucket"
-          placeholder="S3/R2 bucket"
-          value={traceBucket}
-          onChange={(event) => setTraceBucket(event.currentTarget.value)}
-        />
-        <input
-          aria-label="S3/R2 region"
-          placeholder="Region (auto for R2)"
-          value={traceRegion}
-          onChange={(event) => setTraceRegion(event.currentTarget.value)}
-        />
-        <input
-          aria-label="S3/R2 access key ID"
-          placeholder={
-            status.trace.accessKeyIdPrefix
-              ? `Access key (${status.trace.accessKeyIdPrefix}…)`
-              : "S3/R2 access key ID"
-          }
-          value={traceKey}
-          onChange={(event) => setTraceKey(event.currentTarget.value)}
-        />
-        <input
-          aria-label="S3/R2 secret access key"
-          type="password"
-          placeholder={
-            status.trace.configured
-              ? "Secret key (unchanged)"
-              : "S3/R2 secret access key"
-          }
-          value={traceSecret}
-          onChange={(event) => setTraceSecret(event.currentTarget.value)}
-        />
       </div>
       {status.trace.enabled ? (
         <button
@@ -169,26 +122,12 @@ export function TraceCaptureSection({
         type="button"
         disabled={busy !== null}
         onClick={() =>
-          void run(
-            "trace",
-            () => {
-              const trace: TraceCredentials = {};
-              if (traceEndpoint) trace.endpoint = traceEndpoint;
-              if (traceBucket) trace.bucket = traceBucket;
-              if (traceRegion) trace.region = traceRegion;
-              if (traceKey) trace.key = traceKey;
-              if (traceSecret) trace.secret = traceSecret;
-              const request: InstallApplyRequest = {
-                targets: installedTargets,
-                trace,
-              };
-              if (fffTargets.length > 0) request.fff = true;
-              return install.apply(request);
-            },
-            () => {
-              setTraceKey("");
-              setTraceSecret("");
-            },
+          void run("trace", () =>
+            install.apply({
+              targets: installedTargets,
+              ...(fffTargets.length > 0 ? { fff: true } : {}),
+              trace: true,
+            }),
           )
         }
       >

@@ -55,10 +55,7 @@ describe("TraceCaptureSection", () => {
     expect(apply).toHaveBeenCalledExactlyOnceWith({
       targets: ["codex"],
       fff: true,
-      trace: {
-        endpoint: "https://account.r2.cloudflarestorage.com",
-        bucket: "review-traces",
-      },
+      trace: true,
     });
   });
 

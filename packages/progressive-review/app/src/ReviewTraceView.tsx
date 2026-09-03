@@ -48,7 +48,7 @@ export {
 } from "./trace-document";
 /**
  * The Trace tab shows the raw agent traces behind a review, resolved from
- * `Agent-Session:` commit trailers and fetched from the shared R2 trace store.
+ * `Agent-Session:` commit trailers and fetched from the hosted trace store.
  */
 
 type TraceListState =
@@ -214,7 +214,8 @@ export function ReviewTraceView({
             <span className="review-trace-kicker">Agent trace</span>
             <p>Agent traces are not configured.</p>
             <p className="review-trace-note">
-              Open Agent Setup in Review Desktop to enable trace capture.
+              Run <code>review login</code>, then{" "}
+              <code>review trace allow .</code> in this repository.
             </p>
           </div>
         )}

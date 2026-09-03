@@ -169,7 +169,7 @@ class UninstallReviewDesktopAction extends Action2 {
 				? localize('review.uninstall.fff', "Removes unchanged fff registrations that Review created. The shared FFF binary stays installed.")
 				: localize('review.uninstall.noFff', "No fff registrations are managed by Review."),
 			status.stamp?.traceManaged
-				? localize('review.uninstall.trace', "Disables trace capture and restores hook paths for known repositories. R2 credentials stay on disk.")
+				? localize('review.uninstall.trace', "Disables trace capture and restores hook paths for known repositories. Your review login stays on disk.")
 				: localize('review.uninstall.noTrace', "Trace capture is not managed by Review."),
 			localize('review.uninstall.tutorial', "Removes the bundled tutorial repository and Review."),
 			localize('review.uninstall.keepsData', "Your reviews and their history stay on disk."),

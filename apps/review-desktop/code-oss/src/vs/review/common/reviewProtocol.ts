@@ -1603,6 +1603,7 @@ export const ReviewDiffFileSchema = z.strictObject({
   status: z.enum(["added", "modified", "deleted", "renamed"]),
   additions: nonNegativeInteger,
   deletions: nonNegativeInteger,
+  generated: z.boolean().optional(),
   patch: requiredString.optional(),
 });
 export type ReviewDiffFileWire = z.infer<typeof ReviewDiffFileSchema>;

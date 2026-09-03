@@ -24,6 +24,7 @@ export interface ReviewMultiDiffHeaderEntry {
   readonly modified: URI | undefined;
   readonly additions?: number;
   readonly deletions?: number;
+  readonly generated?: boolean;
   readonly onDidOpen?: () => void;
 }
 
@@ -100,6 +101,12 @@ export class ReviewMultiDiffUIElementFactory
     counts.append(additions, deletions);
     element.append(counts);
 
+    const generated = ownerDocument.createElement("span");
+    generated.className = "review-multidiff-generated";
+    generated.textContent = "Generated";
+    generated.hidden = true;
+    element.append(generated);
+
     const openContainer = ownerDocument.createElement("span");
     openContainer.className = "review-multidiff-open-container";
     element.append(openContainer);
@@ -135,6 +142,7 @@ export class ReviewMultiDiffUIElementFactory
             `${current.additions} lines added, ${current.deletions} lines removed`,
           );
         }
+        generated.hidden = !current.generated;
         openContainer.hidden = !current.onDidOpen;
       },
       dispose() {

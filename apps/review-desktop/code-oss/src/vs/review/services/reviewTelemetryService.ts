@@ -14,6 +14,7 @@ import {
 } from "../common/reviewDesktopBootstrap.js";
 import { REVIEW_TELEMETRY_SETTING } from "../common/reviewConfigurationDefaults.js";
 import type { ReviewErrorReport } from "../common/reviewErrorReport.js";
+import { reviewTelemetryEventRequest } from "../common/reviewTelemetryRequest.js";
 
 type ReviewTelemetryProperties = Record<string, string | number | boolean>;
 
@@ -110,16 +111,14 @@ export class ReviewTelemetryService implements IReviewTelemetryService {
 		const connection = this.connection;
 		if (!connection) return;
 		let request: Promise<void>;
-		request = fetch(`${connection.url}/telemetry/event`, {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				"x-review-token": connection.token,
-				"x-review-app-session-id": this.appSessionId,
-			},
-			body: JSON.stringify(event),
-			keepalive: true,
-		})
+		request = fetch(
+			`${connection.url}/telemetry/event`,
+			reviewTelemetryEventRequest(
+				{ token: connection.token, appSessionId: this.appSessionId },
+				event,
+				{ keepalive: true },
+			),
+		)
 			.then(() => undefined)
 			.catch(() => undefined)
 			.finally(() => this.inFlight.delete(request));

@@ -111,6 +111,7 @@ import {
 	REVIEW_BASE_SCHEME,
 	reviewResourceIdentity,
 } from "../../../common/reviewCodeResources.js";
+import { reviewTelemetryEventRequest } from "../../../common/reviewTelemetryRequest.js";
 import { IReviewTelemetryService } from "../../../services/reviewTelemetryService.js";
 import { IReviewSessionService } from "../../../services/reviewSessionService.js";
 import { ReviewCommentStore } from "../../../services/reviewCommentStore.js";
@@ -1453,19 +1454,16 @@ export class ReviewCanvasEditorPane extends EditorPane {
 
 	private async captureReviewPresented(model: ReviewSessionModel): Promise<void> {
 		const session = model.session;
-		const headers = new Headers({
-			"content-type": "application/json",
-			"x-review-token": session.token,
-			"x-review-app-session-id": this.reviewTelemetryService.appSessionId,
-		});
 		await model.request(
 			`${session.sessionUrl}/__progressive-review/telemetry/event`,
-			{
-				method: "POST",
-				headers,
-				body: JSON.stringify({ name: "review_presented" }),
-				keepalive: true,
-			},
+			reviewTelemetryEventRequest(
+				{
+					token: session.token,
+					appSessionId: this.reviewTelemetryService.appSessionId,
+				},
+				{ name: "review_presented" },
+				{ keepalive: true },
+			),
 		).catch(() => undefined);
 	}
 

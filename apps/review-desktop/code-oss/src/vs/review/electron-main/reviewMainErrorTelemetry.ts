@@ -10,6 +10,7 @@ import {
   ReviewErrorReportLimiter,
   type ReviewErrorReport,
 } from "../common/reviewErrorReport.js";
+import { reviewTelemetryEventRequest } from "../common/reviewTelemetryRequest.js";
 import { drainReviewBootstrapBreadcrumbs } from "../node/reviewBootstrapBreadcrumb.js";
 
 export interface ReviewMainErrorTelemetryOptions {
@@ -149,19 +150,17 @@ export class ReviewMainErrorTelemetry {
     if (!this.options.isTelemetryEnabled()) return;
     const send = this.options.fetchImpl ?? fetch;
     try {
-      void send(`${connection.url}/telemetry/event`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-review-token": connection.token,
-          "x-review-app-session-id": this.appSessionId,
-        },
-        body: JSON.stringify({
-          name: pending.name,
-          properties: pending.properties,
-          error: pending.error,
-        }),
-      }).catch(() => undefined);
+      void send(
+        `${connection.url}/telemetry/event`,
+        reviewTelemetryEventRequest(
+          { token: connection.token, appSessionId: this.appSessionId },
+          {
+            name: pending.name,
+            properties: pending.properties,
+            error: pending.error,
+          },
+        ),
+      ).catch(() => undefined);
     } catch (error) {
       this.options.logError?.(
         `[Review Desktop] could not report a main-process telemetry event: ${error}`,

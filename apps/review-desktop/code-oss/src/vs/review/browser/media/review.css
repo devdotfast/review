@@ -745,6 +745,19 @@ body
   color: var(--vscode-gitDecoration-deletedResourceForeground);
 }
 
+.review-multidiff-generated {
+  padding: 2px 6px;
+  border: 1px solid color-mix(in srgb, var(--vscode-descriptionForeground) 32%, transparent);
+  border-radius: 999px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  line-height: 14px;
+}
+
+.review-multidiff-generated[hidden] {
+  display: none;
+}
+
 .review-multidiff-open-container {
   display: inline-flex;
   align-items: center;

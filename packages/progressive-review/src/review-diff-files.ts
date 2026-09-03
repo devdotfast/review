@@ -5,6 +5,7 @@ import {
   detectLocalVcs,
   diff as readLocalVcsDiff,
   diffFileSummaries as readLocalVcsDiffFileSummaries,
+  pathAttributesAtRevision,
 } from "@dev.fast/local-vcs";
 
 const REVIEW_FILE_CONTENT_LIMIT_BYTES = 5 * 1024 * 1024;
@@ -15,6 +16,7 @@ export interface ReviewDiffFile {
   status: "added" | "modified" | "deleted" | "renamed";
   additions: number;
   deletions: number;
+  generated?: boolean;
   patch?: string;
 }
 
@@ -42,34 +44,95 @@ export async function resolveReviewDiffFiles(input: {
 
   const headRef = input.headRef?.trim() || undefined;
   const paths = normalizeDiffPaths(input.paths);
+  let files: ReviewDiffFile[];
   if (input.includePatch === false) {
-    return {
+    files = await readLocalVcsDiffFileSummaries({
+      rootPath: input.rootPath,
       baseRef,
       headRef,
-      files: await readLocalVcsDiffFileSummaries({
-        rootPath: input.rootPath,
-        baseRef,
-        headRef,
-        paths,
-      }),
-    };
+      paths,
+    });
+  } else {
+    const stdout = await readDiffOutput(
+      input.rootPath,
+      baseRef,
+      headRef,
+      paths,
+      input.contextLines,
+    );
+    files = splitGitDiffSections(stdout)
+      .map(parseReviewDiffFile)
+      .filter((file): file is ReviewDiffFile => file !== null)
+      .filter((file) => matchesDiffPath(file, paths));
   }
-  const stdout = await readDiffOutput(
-    input.rootPath,
-    baseRef,
-    headRef,
-    paths,
-    input.contextLines,
-  );
 
   return {
     baseRef,
     headRef,
-    files: splitGitDiffSections(stdout)
-      .map(parseReviewDiffFile)
-      .filter((file): file is ReviewDiffFile => file !== null)
-      .filter((file) => matchesDiffPath(file, paths)),
+    files: await classifyReviewDiffFiles({
+      rootPath: input.rootPath,
+      baseRef,
+      headRef,
+      files,
+    }),
   };
+}
+
+const REVIEW_FILE_ATTRIBUTES = ["linguist-generated"] as const;
+
+async function classifyReviewDiffFiles(input: {
+  rootPath: string;
+  baseRef: string;
+  headRef: string | undefined;
+  files: ReviewDiffFile[];
+}): Promise<ReviewDiffFile[]> {
+  // A live-working-tree comparison has no immutable attribute source. Review
+  // sessions always pin a head, so leave the legacy working-tree route
+  // unclassified instead of consulting mutable checkout metadata.
+  if (!input.headRef || input.files.length === 0) return input.files;
+
+  const headPaths = input.files
+    .filter((file) => file.status !== "deleted")
+    .map((file) => file.path);
+  const deletedFiles = input.files.filter((file) => file.status === "deleted");
+  const vcs = await detectLocalVcs(input.rootPath);
+  const baseRef =
+    (await vcs?.mergeBase(input.baseRef, input.headRef).catch(() => null))
+      ?.commit ?? input.baseRef;
+  const [headAttributes, baseAttributes] = await Promise.all([
+    pathAttributesAtRevision({
+      rootPath: input.rootPath,
+      ref: input.headRef,
+      paths: headPaths,
+      attributes: [...REVIEW_FILE_ATTRIBUTES],
+    }),
+    pathAttributesAtRevision({
+      rootPath: input.rootPath,
+      ref: baseRef,
+      paths: deletedFiles.map((file) => file.previousPath ?? file.path),
+      attributes: [...REVIEW_FILE_ATTRIBUTES],
+    }),
+  ]);
+  const byPath = new Map(
+    [...headAttributes, ...baseAttributes].map((entry) => [
+      entry.path,
+      entry.attributes,
+    ]),
+  );
+  return input.files.map((file) => {
+    const attributes = byPath.get(
+      file.status === "deleted" ? (file.previousPath ?? file.path) : file.path,
+    );
+    const generated = gitAttributeEnabled(attributes?.["linguist-generated"]);
+    return {
+      ...file,
+      ...(generated ? { generated: true } : {}),
+    };
+  });
+}
+
+function gitAttributeEnabled(value: string | undefined): boolean {
+  return value === "set" || value?.toLowerCase() === "true";
 }
 
 export async function resolveReviewFileContent(input: {

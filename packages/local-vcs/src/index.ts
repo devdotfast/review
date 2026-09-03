@@ -85,6 +85,11 @@ export interface LocalVcsDiffFileSummary {
   deletions: number;
 }
 
+export interface LocalVcsPathAttributes {
+  path: string;
+  attributes: Record<string, string>;
+}
+
 export interface LocalVcsCommitSummary {
   commit: string;
   parentCommit: string;
@@ -988,6 +993,68 @@ export async function diffFileSummaries(input: {
     rootPath: vcs.rootPath,
     kind: vcs.kind,
   });
+}
+
+/**
+ * Read Git attributes for repository-relative paths from an exact revision.
+ *
+ * Attribute lookup is best-effort because a pure jj repository has no Git
+ * attribute engine. Callers still receive one entry per requested path so a
+ * missing Git checkout degrades to "unclassified" rather than dropping files.
+ */
+export async function pathAttributesAtRevision(input: {
+  rootPath: string;
+  ref: string;
+  paths: string[];
+  attributes: string[];
+}): Promise<LocalVcsPathAttributes[]> {
+  const paths = uniqueStrings(input.paths.map((filePath) => filePath.trim()));
+  const attributes = uniqueStrings(
+    input.attributes.map((attribute) => attribute.trim()),
+  );
+  const values = new Map<string, Record<string, string>>(
+    paths.map((filePath) => [filePath, {}]),
+  );
+  if (paths.length === 0 || attributes.length === 0) {
+    return paths.map((filePath) => ({
+      path: filePath,
+      attributes: values.get(filePath)!,
+    }));
+  }
+
+  // Keep argv comfortably below platform command-line limits for very large
+  // monorepo diffs. `check-attr -z` returns path/attribute/value triplets.
+  const chunkSize = 256;
+  for (let offset = 0; offset < paths.length; offset += chunkSize) {
+    const chunk = paths.slice(offset, offset + chunkSize);
+    const output = await commandOutput(
+      "git",
+      [
+        "-C",
+        input.rootPath,
+        "check-attr",
+        `--source=${input.ref}`,
+        "-z",
+        ...attributes,
+        "--",
+        ...chunk,
+      ],
+      { cwd: input.rootPath, maxBuffer: 10 * 1024 * 1024, trim: false },
+    ).catch(() => "");
+    const fields = output.split("\0");
+    for (let index = 0; index + 2 < fields.length; index += 3) {
+      const filePath = fields[index];
+      const attribute = fields[index + 1];
+      const value = fields[index + 2];
+      if (!filePath || !attribute || value === undefined) continue;
+      const target = values.get(filePath);
+      if (target) target[attribute] = value;
+    }
+  }
+  return paths.map((filePath) => ({
+    path: filePath,
+    attributes: values.get(filePath)!,
+  }));
 }
 
 /** List commits in base..head order, newest first, with first-parent stats. */

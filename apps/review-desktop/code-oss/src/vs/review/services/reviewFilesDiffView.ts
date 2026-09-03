@@ -212,6 +212,7 @@ export class ReviewFilesDiffView extends Disposable {
                   modified: entry.modified,
                   additions: entry.file.additions,
                   deletions: entry.file.deletions,
+                  generated: entry.file.generated,
                   onDidOpen: () => {
                     void this.editorService.openEditor(
                       {
@@ -330,9 +331,25 @@ export class ReviewFilesDiffView extends Disposable {
     const viewModel = await input.getViewModel();
     if (this._store.isDisposed) return;
     this.viewModel = viewModel;
+    const hasGeneratedFiles = input.entries.some((entry) => entry.file.generated);
+    if (!viewState && hasGeneratedFiles) {
+      for (const item of viewModel.items.get()) {
+        const entry = input.entries.find(
+          (candidate) =>
+            isEqual(candidate.original, item.originalUri) &&
+            isEqual(candidate.modified, item.modifiedUri),
+        );
+        if (entry?.file.generated) viewModel.collapse(item);
+      }
+    }
     // The canvas mounts this view without a user gesture, so the widget's
     // first-change navigation must never take keyboard focus.
-    this.widget.setViewModel(viewModel, { preserveFocus: true, viewState });
+    this.widget.setViewModel(viewModel, {
+      preserveFocus: true,
+      initialScrollPosition:
+        !viewState && hasGeneratedFiles ? "top" : "firstChange",
+      viewState,
+    });
     this.changedFilesTree.setFiles(input.entries.map((entry) => entry.file));
     this.syncFileSelectionFromWidget();
   }

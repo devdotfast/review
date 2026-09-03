@@ -7603,7 +7603,8 @@ button {
 }
 
 /* Paper-style agent activity belongs to exactly one backing JSON node. The
-   sparkle cluster sits at that node's top-left corner and handoff clears it. */
+   sparkle cluster sits at that node's top-left corner; a successful render or
+   lifecycle handoff clears it. */
 .review-live-node__authoring-sparkles {
   position: absolute;
   z-index: 2;

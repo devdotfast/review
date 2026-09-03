@@ -236,6 +236,7 @@ export async function renderLiveReviewMdx(input: {
     page,
     next,
   );
+  reviewStateService.clearAuthoringTarget(input.review.review.uuid);
   return result;
 }
 

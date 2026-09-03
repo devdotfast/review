@@ -360,6 +360,10 @@ Open <AnchorLink anchor={{ id: "shared-source", title: "Shared source", peek: { 
         await expect(events.next()).resolves.toMatchObject({
           type: "document.committed",
         });
+        await expect(events.next()).resolves.toEqual({
+          type: "authoring-target.changed",
+          target: null,
+        });
       }
       const children = await liveRequest(
         server.url,
@@ -407,6 +411,10 @@ Open <AnchorLink anchor={{ id: "shared-source", title: "Shared source", peek: { 
       });
       await expect(events.next()).resolves.toMatchObject({
         type: "document.committed",
+      });
+      await expect(events.next()).resolves.toEqual({
+        type: "authoring-target.changed",
+        target: null,
       });
 
       const nestedInfo = await liveRequest(

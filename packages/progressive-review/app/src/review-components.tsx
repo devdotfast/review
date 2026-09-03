@@ -46,7 +46,7 @@ import {
 } from "./host/review-session";
 import { CloseIcon, CommentIcon, MapPinIcon, TerminalIcon } from "./icons";
 import { newTabLinkProps } from "./link-props";
-import { createClientId, useReview } from "./review-context";
+import { createClientId, useReview, useReviewActions } from "./review-context";
 import { useOptionalReviewPanelStore, useReviewPanel } from "./review-panel";
 import type {
   GuidedTour,
@@ -735,7 +735,7 @@ function TraceQuotePeekPanel({
   quote: string;
   onClose: () => void;
 }) {
-  const review = useReview();
+  const { openTraceSession } = useReviewActions();
   const data = useAgentTrace(sessionId, trace);
 
   const traceEvents = data.status === "loaded" ? data.trace.events : undefined;
@@ -828,7 +828,7 @@ function TraceQuotePeekPanel({
       type="button"
       className="review-trace-peek-open-full"
       onClick={() => {
-        review.openTraceSession?.({
+        openTraceSession?.({
           sessionId,
           trace,
           eventIndex: targetEventIndex >= 0 ? targetEventIndex : undefined,
@@ -910,7 +910,12 @@ function CodeReviewPeekPanel({
   >;
   onClose: () => void;
 }) {
-  const review = useReview();
+  const {
+    softwareMapEnabled,
+    openSoftwareMapElement,
+    openCommentDraft,
+    createAnchorCommentTarget,
+  } = useReviewActions();
   const titleThreadController = usePanelThreadController({
     anchor,
     threadHost: "title",
@@ -950,11 +955,11 @@ function CodeReviewPeekPanel({
     >
       <div className="side-peek-body">
         <div className="peek-actions">
-          {review.softwareMapEnabled && anchor.softwareMapPath ? (
+          {softwareMapEnabled && anchor.softwareMapPath ? (
             <button
               type="button"
               onClick={() => {
-                review.openSoftwareMapElement(anchor.softwareMapPath!);
+                openSoftwareMapElement(anchor.softwareMapPath!);
                 onClose();
               }}
               className="icon-button icon-button--map"
@@ -966,8 +971,8 @@ function CodeReviewPeekPanel({
           <button
             type="button"
             onClick={() =>
-              review.openCommentDraft({
-                ...review.createAnchorCommentTarget(anchor),
+              openCommentDraft({
+                ...createAnchorCommentTarget(anchor),
                 draftSurface: "panel",
               })
             }
@@ -1322,7 +1327,12 @@ function GuidedTourStopMain({
   onNativeFocus: () => void;
   onClose: () => void;
 }): ReactElement {
-  const review = useReview();
+  const {
+    openCommentDraft,
+    createAnchorCommentTarget,
+    softwareMapEnabled,
+    openSoftwareMapElement,
+  } = useReviewActions();
   const titleThreadController = usePanelThreadController({
     anchor: stop.anchor,
     threadHost: "title",
@@ -1368,21 +1378,21 @@ function GuidedTourStopMain({
             className="icon-button icon-button--comment"
             aria-label={`Comment on ${stop.label}`}
             onClick={() =>
-              review.openCommentDraft({
-                ...review.createAnchorCommentTarget(stop.anchor),
+              openCommentDraft({
+                ...createAnchorCommentTarget(stop.anchor),
                 draftSurface: "panel",
               })
             }
           >
             <CommentIcon />
           </button>
-          {review.softwareMapEnabled && stop.anchor.softwareMapPath ? (
+          {softwareMapEnabled && stop.anchor.softwareMapPath ? (
             <button
               type="button"
               className="icon-button icon-button--map"
               aria-label={`Show ${stop.anchor.title} in software map`}
               onClick={() => {
-                review.openSoftwareMapElement(stop.anchor.softwareMapPath!);
+                openSoftwareMapElement(stop.anchor.softwareMapPath!);
                 onClose();
               }}
             >

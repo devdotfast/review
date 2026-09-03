@@ -41,7 +41,7 @@ import {
 import { DiagramTourOverlay, useDiagramTourShell } from "./diagram-tour";
 import { useReviewSession } from "./host/review-session";
 import { HoverCommentButton } from "./hover-comment-button";
-import { useReview } from "./review-context";
+import { useReviewActions } from "./review-context";
 import type { GuidedTour } from "./review-panel-model";
 import { useTourPersist, useTourRestore } from "./review-view-state";
 import {
@@ -194,7 +194,7 @@ export function DatabaseLens(props: DatabaseLensProps) {
     height = 560,
     children,
   } = databaseLensPropsSchema.parse(props);
-  const review = useReview();
+  const { openCommentDraft } = useReviewActions();
   const locatorScope = `db:${slugPart(title ?? "database")}`;
   const lensId = locatorScope;
   const validatedInput = useMemo(
@@ -304,7 +304,7 @@ export function DatabaseLens(props: DatabaseLensProps) {
     if (!activeUseCase || !activeUseCaseTarget) return;
     event.preventDefault();
     event.stopPropagation();
-    review.openCommentDraft({
+    openCommentDraft({
       target: activeUseCaseTarget,
       title: activeUseCase.label,
       body: "",

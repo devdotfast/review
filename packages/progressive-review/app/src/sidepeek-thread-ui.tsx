@@ -16,7 +16,8 @@ import {
   type ResolvedCommentCodeSource,
   commentDraftTargetForSurface,
   createClientId,
-  useReview,
+  useReviewActions,
+  useReviewState,
 } from "./review-context";
 import { useReviewRoots } from "./review-root-context";
 import { commentThreadView, targetQuote } from "./review-threads";
@@ -381,14 +382,25 @@ export function usePanelThreadController({
   threadHost?: PanelThreadHost;
 }): PanelThreadController {
   const appRef = useReviewRoots()?.appRef;
-  const review = useReview();
-  const comments = review
-    .commentsForAnchor(anchor)
-    .filter(
-      (thread) =>
-        threadHost === "all" ||
-        panelThreadHostForTarget(thread.target, anchor.id) === threadHost,
-    );
+  const {
+    focusThread,
+    blurThread,
+    openCommentDraft,
+    closeCommentDraft,
+    askAgent: askAgentAction,
+    saveComment,
+    setCommentResolved,
+    updateComment,
+    deleteCommentMessage,
+    deleteComment,
+  } = useReviewActions();
+  const { commentsForAnchor, draftTarget: draftTargetFromContext } =
+    useReviewState();
+  const comments = commentsForAnchor(anchor).filter(
+    (thread) =>
+      threadHost === "all" ||
+      panelThreadHostForTarget(thread.target, anchor.id) === threadHost,
+  );
   const openComments = comments.filter(
     (thread) => thread.status !== "resolved",
   );
@@ -396,7 +408,7 @@ export function usePanelThreadController({
     (thread) => thread.status === "resolved",
   );
   const panelDraftTarget = commentDraftTargetForSurface(
-    review.draftTarget,
+    draftTargetFromContext,
     "panel",
   );
   const defaultCodeSide =
@@ -562,7 +574,7 @@ export function usePanelThreadController({
   const activateThread = (threadId: string) => {
     setCollapsed(false);
     setActiveThreadId(threadId);
-    review.focusThread(threadId, { scroll: false });
+    focusThread(threadId, { scroll: false });
   };
 
   const activateLine = (line: number, side?: PanelSelectionSide) => {
@@ -577,7 +589,7 @@ export function usePanelThreadController({
 
   const minimize = () => {
     setActiveThreadId(null);
-    review.blurThread();
+    blurThread();
   };
 
   const endLineSelection = (range: PanelLineRange | null) => {
@@ -586,7 +598,7 @@ export function usePanelThreadController({
     if (!normalized || !createLineTarget) return;
     setCollapsed(false);
     setActiveThreadId(null);
-    review.openCommentDraft({
+    openCommentDraft({
       ...createLineTarget(normalized),
       draftSurface: "panel",
     });
@@ -642,7 +654,7 @@ export function usePanelThreadController({
           draftHasTextRef.current,
         ) === "close"
       ) {
-        review.closeCommentDraft();
+        closeCommentDraft();
       }
     };
     const handleDraftEscape = (event: KeyboardEvent) => {
@@ -656,7 +668,7 @@ export function usePanelThreadController({
       event.preventDefault();
       event.stopImmediatePropagation();
       if (action === "close-draft") {
-        review.closeCommentDraft();
+        closeCommentDraft();
         return;
       }
       draftCardRef.current?.querySelector("textarea")?.blur();
@@ -675,7 +687,7 @@ export function usePanelThreadController({
       );
       document.removeEventListener("keydown", handleDraftEscape, true);
     };
-  }, [appRef, draftTarget?.threadId, review]);
+  }, [appRef, draftTarget?.threadId, closeCommentDraft]);
 
   useEffect(() => {
     if (!activeThreadId) return;
@@ -706,22 +718,22 @@ export function usePanelThreadController({
     try {
       const target = resolveTarget ? await resolveTarget() : draftTarget.target;
       if (askAgent) {
-        await review.askAgent({
+        await askAgentAction({
           threadId: draftTarget.threadId,
           target,
           messageId: draftTarget.messageId,
           body,
         });
-        review.closeCommentDraft();
+        closeCommentDraft();
         return true;
       }
-      await review.saveComment({
+      await saveComment({
         threadId: draftTarget.threadId,
         target,
         messageId: draftTarget.messageId,
         body,
       });
-      review.closeCommentDraft();
+      closeCommentDraft();
       return true;
     } catch (error) {
       setDraftSubmitError(
@@ -746,11 +758,11 @@ export function usePanelThreadController({
           quoteKind={activeRange ? "line" : "text"}
           onMinimize={minimize}
           onResolve={(resolved) => {
-            void review.setCommentResolved(activeThread.threadId, resolved);
+            void setCommentResolved(activeThread.threadId, resolved);
             if (resolved) minimize();
           }}
           onAskNow={(body) =>
-            review.askAgent({
+            askAgentAction({
               threadId: activeThread.threadId,
               messageId: createClientId(),
               target: activeThread.target,
@@ -758,7 +770,7 @@ export function usePanelThreadController({
             })
           }
           onAddToReview={(body) =>
-            review.saveComment({
+            saveComment({
               threadId: activeThread.threadId,
               messageId: createClientId(),
               target: activeThread.target,
@@ -766,14 +778,14 @@ export function usePanelThreadController({
             })
           }
           onEditMessage={(messageId, body) =>
-            review.updateComment(activeThread.threadId, body, messageId)
+            updateComment(activeThread.threadId, body, messageId)
           }
           onDeleteMessage={(messageId) =>
-            review.deleteCommentMessage(activeThread.threadId, messageId)
+            deleteCommentMessage(activeThread.threadId, messageId)
           }
           onDelete={() => {
             minimize();
-            return review.deleteComment(activeThread.threadId);
+            return deleteComment(activeThread.threadId);
           }}
         />
       </div>
@@ -795,7 +807,7 @@ export function usePanelThreadController({
         onSubmitComment={(body) => submitDraft(false, body)}
         onAskAgent={(body) => submitDraft(true, body)}
         error={draftSubmitError}
-        onCancel={review.closeCommentDraft}
+        onCancel={closeCommentDraft}
         onDraftStateChange={(hasText) => {
           draftHasTextRef.current = hasText;
         }}
@@ -890,7 +902,7 @@ export function usePanelThreadController({
                   <button
                     type="button"
                     onClick={() =>
-                      void review.setCommentResolved(thread.threadId, false)
+                      void setCommentResolved(thread.threadId, false)
                     }
                   >
                     Reopen

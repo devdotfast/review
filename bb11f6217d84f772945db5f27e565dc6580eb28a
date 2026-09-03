@@ -1,0 +1,1041 @@
+import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
+
+export default defineSoftwareMap({
+  people: {
+    changeAuthor: {
+      label: "Change author",
+      description:
+        "Engineer who runs the Review CLI on a branch or pull request and drives the authoring agent that writes the Review document.",
+    },
+    reviewer: {
+      label: "Reviewer",
+      description:
+        "Reader who opens the published Review in Review Desktop, follows its anchors and diagrams, and leaves comment threads.",
+    },
+  },
+  systems: {
+    progressiveReview: {
+      label: "Progressive Review",
+      description:
+        "Authors, validates, publishes, and renders executable Review documents, their software maps, and the agent traces behind a change.",
+      dataStores: {
+        reviewHome: {
+          label: "Review home",
+          kind: "fileStore",
+          description:
+            "Per-UUID directory under the user's Review home holding review.json pins, review.mdx, data.ts, the compiled document revisions, and the thread database.",
+          documents: {
+            review: {
+              label: "review.json",
+              key: "uuid",
+              schema: {
+                schemaVersion: { type: "number", example: 4 },
+                uuid: {
+                  type: "string",
+                  pk: true,
+                  example: "e920098f-3181-45e0-b426-71651651f7f7",
+                },
+                worktreePath: { type: "string", example: "/src/review" },
+                baseRef: { type: "string", example: "main" },
+                baseCommit: { type: "string", example: "97c224bc" },
+                sourceCommit: { type: "string", example: "bb11f621" },
+                sourceIdentity: {
+                  kind: { type: "string", example: "git-branch" },
+                  name: { type: "string", example: "scaffold-traces" },
+                },
+                pullRequestNumber: { type: "number | null", example: null },
+                sourceSession: {
+                  type: "string | null",
+                  example: "claude-code:2215a373",
+                },
+                status: { type: "string", example: "awaiting-review" },
+                presentedDocumentRevision: {
+                  type: "string | null",
+                  example: null,
+                },
+                presentedSoftwareMapRevision: {
+                  type: "string | null",
+                  example: null,
+                },
+              },
+            },
+          },
+          components: {
+            homeLayout: {
+              label: "Review home layout",
+              description:
+                "Resolves the Review home root, creates UUID directories, lists stored reviews, and updates their pins atomically.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/review-home.ts",
+                  "packages/progressive-review/src/review-paths.ts",
+                  "packages/progressive-review/src/review-storage.ts",
+                ],
+              },
+            },
+            stateStore: {
+              label: "Document revision store",
+              description:
+                "Persists review state transitions and the immutable published document revisions a reader can page back through.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/review-state-store.ts",
+                  "packages/progressive-review/src/review-document-versions.ts",
+                ],
+              },
+            },
+            threadStore: {
+              label: "Comment thread store",
+              description:
+                "SQLite-backed storage and service layer for review comment threads and their resolution state.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/review-thread-store-backend.ts",
+                  "packages/progressive-review/src/review-threads-service.ts",
+                ],
+              },
+            },
+          },
+        },
+      },
+      containers: {
+        reviewCli: {
+          label: "Review CLI",
+          description:
+            "The `review` command surface an engineer or authoring agent drives: scaffolding, publication, info, traces, maps, and installation.",
+          components: {
+            commandRouter: {
+              label: "Command router",
+              description:
+                "Parses argv into the review verbs and routes each to its handler, formatting human and JSON output.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/cli.ts",
+                  "packages/progressive-review/src/cli-runner.ts",
+                  "packages/progressive-review/src/cli-output.ts",
+                ],
+              },
+            },
+            scaffold: {
+              label: "Review scaffold",
+              changeStatus: "modified",
+              description:
+                "Creates or re-pins a Review against its bound branch or pull request, resolves the fork point, materializes the pinned base and head worktrees, and now also materializes the agent trace corpus and reports its paths on the scaffold event.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/review-scaffold.ts",
+                  "packages/progressive-review/src/review-worktree-target.ts",
+                  "packages/progressive-review/src/review-source-ref.ts",
+                  "packages/progressive-review/src/review-head-checkout.ts",
+                ],
+              },
+              codeElements: {
+                runReviewScaffold: {
+                  label: "runReviewScaffold",
+                  description:
+                    "Entry point: upserts by re-pinning an existing review under `--update`, otherwise creates a new one.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/src/review-scaffold.ts",
+                      fromLine: 97,
+                      toLine: 108,
+                    },
+                  ],
+                },
+                createReview: {
+                  label: "createReview",
+                  changeStatus: "modified",
+                  description:
+                    "Resolves the source identity, rejects duplicate active reviews, pins the head ref, and writes the new review directory.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/src/review-scaffold.ts",
+                      fromLine: 110,
+                      toLine: 218,
+                    },
+                  ],
+                },
+                repinReview: {
+                  label: "repinReview",
+                  changeStatus: "modified",
+                  description:
+                    "Re-resolves the bound branch or pull request tip, moves the pins only after every fallible step succeeds, and reports ranges that went stale.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/src/review-scaffold.ts",
+                      fromLine: 225,
+                      toLine: 333,
+                    },
+                  ],
+                },
+                discoverAndPullScaffoldTraces: {
+                  label: "discoverAndPullScaffoldTraces",
+                  changeStatus: "added",
+                  description:
+                    "Lists the sessions behind the pins, pulls their transcripts into the local corpus, and returns the normalized trace paths the scaffold event carries. Discovery or materialization failure degrades to a scaffold warning.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/src/review-scaffold.ts",
+                      fromLine: 361,
+                      toLine: 423,
+                    },
+                  ],
+                },
+                materializeReviewSetup: {
+                  label: "materializeReviewSetup",
+                  description:
+                    "Eagerly prepares one worktree per pin, degrading each failure to a warning the event carries back.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/src/review-scaffold.ts",
+                      fromLine: 567,
+                      toLine: 625,
+                    },
+                  ],
+                },
+              },
+            },
+            infoClient: {
+              label: "Info and wait client",
+              description:
+                "Asks the desktop server for the current review event and blocks until a review reaches a requested state.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/review-info.ts",
+                  "packages/progressive-review/src/review-wait.ts",
+                ],
+              },
+            },
+            publication: {
+              label: "Publication pipeline",
+              description:
+                "Compiles, evaluates, and audits an authored document before promoting it to a presented revision, and publishes the pinned software maps alongside it.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/review-publish.ts",
+                  "packages/progressive-review/src/review-publish-evaluate.ts",
+                  "packages/progressive-review/src/review-publication-preparation.ts",
+                  "packages/progressive-review/src/review-publish-element-audit.ts",
+                  "packages/progressive-review/src/review-map-publish.ts",
+                ],
+              },
+            },
+            traceCommands: {
+              label: "Trace commands",
+              description:
+                "`review trace` verbs: hook status and repair, session listing, transcript show, corpus pull, blame, and R2 sync.",
+              coverage: {
+                files: ["packages/progressive-review/src/trace-cli.ts"],
+              },
+            },
+            mapCommands: {
+              label: "Map commands",
+              description:
+                "`review map` verbs that hydrate a commit-addressed scratch map, validate it, and save it to the commit's git note.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/map-cli.ts",
+                  "packages/progressive-review/src/map-cli-entry.ts",
+                ],
+              },
+            },
+            installer: {
+              label: "Installer",
+              description:
+                "Installs the CLI shim, the dev-review skills, and the agent trace hooks into the user's harness configuration.",
+              coverage: {
+                files: ["packages/progressive-review/src/install.ts"],
+              },
+            },
+          },
+        },
+        authoringSkills: {
+          label: "Agent skills",
+          description:
+            "The instruction packs an agent loads to author a Review: what to read, which verbs to run, and what the resulting document may claim.",
+          components: {
+            reviewSkill: {
+              label: "dev-review skill",
+              changeStatus: "modified",
+              description:
+                "Authoring contract for the Review document: which scaffold event fields to read, when to consult traces, and the publication gate. Now points the agent at the scaffold event's `traces.paths` and demotes the `review trace list`/`pull` pair to a compatibility fallback.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/skills/dev-review/SKILL.md",
+                ],
+                globs: [
+                  "packages/progressive-review/skills/dev-review/references/**",
+                ],
+              },
+            },
+            mapSkill: {
+              label: "dev-review-map skill",
+              description:
+                "Worker contract for authoring and saving the pinned base and head software maps.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/skills/dev-review-map/SKILL.md",
+                ],
+              },
+            },
+            traceArchaeologySkill: {
+              label: "trace-archaeology skill",
+              description:
+                "Contract for mining the materialized trace corpus for the intent behind a change.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/skills/trace-archaeology/SKILL.md",
+                ],
+              },
+            },
+          },
+        },
+        authoringRuntime: {
+          label: "Review authoring runtime",
+          description:
+            "Defines the public document-authoring contract, compiles MDX Review documents, and validates the software map model.",
+          components: {
+            authoringContract: {
+              label: "Authoring contract",
+              description:
+                "Builds typed actors, stores, collections, and field targets used by Review documents.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/authoring.ts",
+                  "packages/progressive-review/src/authoring-session.ts",
+                ],
+              },
+            },
+            documentCompiler: {
+              label: "Document compiler",
+              description:
+                "Compiles review.mdx and data.ts into an evaluable bundle, rewriting sections, anchor links, and code targets along the way.",
+              coverage: {
+                globs: ["packages/progressive-review/src/compiler/**"],
+              },
+            },
+            softwareMap: {
+              label: "Software map model",
+              description:
+                "Normalizes the software map input, validates coverage and connectivity, diffs base against head topology, and packages the artifact.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/software-map-model.ts",
+                  "packages/progressive-review/src/tolerant-software-map-model.ts",
+                  "packages/progressive-review/src/software-map-coverage-validation.ts",
+                  "packages/progressive-review/src/software-map-connectivity-validation.ts",
+                  "packages/progressive-review/src/software-map-topology-diff.ts",
+                  "packages/progressive-review/src/software-map-diff-counts.ts",
+                  "packages/progressive-review/src/software-map-health.ts",
+                  "packages/progressive-review/src/software-map-artifact.ts",
+                  "packages/progressive-review/src/software-map-bundle.ts",
+                ],
+              },
+            },
+          },
+        },
+        agentTraces: {
+          label: "Agent trace pipeline",
+          description:
+            "Captures coding-agent transcripts, maps them to commits, syncs them to the remote trace store, and materializes a searchable local corpus.",
+          components: {
+            traceCorpusService: {
+              label: "Trace corpus service",
+              description:
+                "Resolves the agent sessions behind a change range, loads their transcripts, and normalizes them into the local trace-search corpus.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/review-agent-traces.ts",
+                ],
+              },
+              codeElements: {
+                listReviewTraceSessions: {
+                  label: "listReviewTraceSessions",
+                  description:
+                    "Finds the sessions attributable to the commits between the pins and marks which are synced to the remote store.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/src/review-agent-traces.ts",
+                      fromLine: 132,
+                      toLine: 163,
+                    },
+                  ],
+                },
+                pullReviewTraceCorpus: {
+                  label: "pullReviewTraceCorpus",
+                  description:
+                    "Materializes each session's main and sub-agent transcripts into the corpus directory and returns their normalized paths.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/src/review-agent-traces.ts",
+                      fromLine: 474,
+                      toLine: 532,
+                    },
+                  ],
+                },
+              },
+            },
+            traceParser: {
+              label: "Trace parser",
+              description:
+                "Sniffs the harness that produced a JSONL transcript and parses it into a versioned, harness-neutral event stream.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/agent-trace-parser.ts",
+                ],
+              },
+            },
+            traceHooks: {
+              label: "Trace hooks",
+              description:
+                "Harness and git hooks that record session activity, attach session trailers to commits, and repair a repository's hook installation.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/agent-trace-hooks.ts",
+                  "packages/progressive-review/src/trace-hook-runner.ts",
+                  "packages/progressive-review/src/trace-git-hook-runner.ts",
+                  "packages/progressive-review/src/trace-repository-hooks.ts",
+                  "packages/progressive-review/src/trace-machine-setup.ts",
+                ],
+              },
+            },
+            nativeAgentBridge: {
+              label: "Native agent bridge",
+              description:
+                "Observes and launches live Claude Code, Codex, and Pi sessions so Review can mirror their transcripts in-app.",
+              coverage: {
+                globs: ["packages/progressive-review/src/native-agent/**"],
+              },
+            },
+          },
+        },
+        desktopServer: {
+          label: "Review desktop server",
+          description:
+            "Local HTTP host that serves review data to the app, bundles documents on demand, stages publications, and brokers Ask Agent sessions.",
+          components: {
+            httpApi: {
+              label: "Review HTTP API",
+              description:
+                "Routes and parses the review, thread, and info endpoints the app and the CLI both call.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/server/review-api.ts",
+                  "packages/progressive-review/src/server/review-api-parsers.ts",
+                  "packages/progressive-review/src/server/review-info.ts",
+                  "packages/progressive-review/src/server/hono-http.ts",
+                  "packages/progressive-review/src/server/http-json.ts",
+                ],
+              },
+            },
+            docBundler: {
+              label: "Document bundler",
+              description:
+                "Builds the executable document bundle for a review directory and caches it across requests.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/server/doc-bundler.ts",
+                ],
+              },
+            },
+            desktopHost: {
+              label: "Desktop host",
+              description:
+                "Starts, discovers, and shuts down the local server process that backs the Review Desktop shell.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/server/desktop-server.ts",
+                  "packages/progressive-review/src/server/desktop-host.ts",
+                  "packages/progressive-review/src/server/desktop-paths.ts",
+                  "packages/progressive-review/src/server/desktop-host-shutdown.ts",
+                  "packages/progressive-review/src/server/cli-install.ts",
+                ],
+              },
+            },
+            publishStage: {
+              label: "Publish stage",
+              description:
+                "Server-side staging of a prepared publication so the app can present the new revision atomically.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/server/publish-stage.ts",
+                  "packages/progressive-review/src/server/publish-preparation.ts",
+                ],
+              },
+            },
+            sessionHandler: {
+              label: "Agent session handler",
+              description:
+                "Runs Ask Agent turns against the review's frozen source session and streams their output to the app.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/server/session-handler.ts",
+                ],
+              },
+            },
+          },
+        },
+        reviewApp: {
+          label: "Review application",
+          description:
+            "Renders authored documents, their diagrams, code peeks, and comment threads inside the desktop shell.",
+          components: {
+            documentRuntime: {
+              label: "Document runtime",
+              description:
+                "Evaluates a compiled document bundle and exposes its definitions, revisions, and data to the React tree.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/app/src/review-definition-runtime.ts",
+                  "packages/progressive-review/app/src/review-documents-runtime.ts",
+                  "packages/progressive-review/app/src/doc-runtime.ts",
+                ],
+              },
+            },
+            reviewSurface: {
+              label: "Review surface",
+              description:
+                "The reading surface: document shell, panel layout, and table of contents navigation.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/app/src/App.tsx",
+                  "packages/progressive-review/app/src/review-panel.tsx",
+                  "packages/progressive-review/app/src/review-document-surface.tsx",
+                  "packages/progressive-review/app/src/review-toc.tsx",
+                ],
+              },
+            },
+            codePeek: {
+              label: "Code peek and diff",
+              description:
+                "Shows anchored source ranges, diffs between the pinned commits, and the inline editor over them.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/app/src/CodePeek.tsx",
+                  "packages/progressive-review/app/src/DiffView.tsx",
+                  "packages/progressive-review/app/src/InlineCodeEditor.tsx",
+                ],
+              },
+            },
+            databaseLens: {
+              label: "Database lens",
+              description:
+                "Validates datastore operations and projects their actors, collections, fields, and relationships into an interactive diagram.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/app/src/database-lens.tsx",
+                ],
+              },
+            },
+            diagrams: {
+              label: "Diagram surfaces",
+              description:
+                "Renders the software map, sequence, and call-stack diagrams a document declares.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/app/src/diagrams.tsx",
+                  "packages/progressive-review/app/src/call-stack-diff.tsx",
+                ],
+              },
+            },
+            threadsUi: {
+              label: "Comment threads UI",
+              description:
+                "Binds comment pins to document targets and keeps thread state in sync with the server.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/app/src/review-threads.ts",
+                  "packages/progressive-review/app/src/comments-context.tsx",
+                ],
+              },
+            },
+            hostBridge: {
+              label: "Host bridge",
+              description:
+                "Transport boundary between the React app and the desktop shell that embeds it.",
+              coverage: {
+                globs: ["packages/progressive-review/app/src/host/**"],
+              },
+            },
+          },
+        },
+        desktopShell: {
+          label: "Review Desktop shell",
+          description:
+            "Code-OSS fork that hosts the Review app, its editors, comments, settings, and update flow as a desktop application.",
+          components: {
+            reviewWorkbench: {
+              label: "Review workbench",
+              description:
+                "Browser-layer parts and media that place the Review surface inside the workbench.",
+              coverage: {
+                globs: [
+                  "apps/review-desktop/code-oss/src/vs/review/browser/**",
+                ],
+              },
+            },
+            reviewServices: {
+              label: "Review shell services",
+              description:
+                "Shell services that resolve the Review workspace and configuration for the embedded app.",
+              coverage: {
+                globs: [
+                  "apps/review-desktop/code-oss/src/vs/review/services/**",
+                ],
+              },
+            },
+            reviewContrib: {
+              label: "Review contributions",
+              description:
+                "Shell contributions for comments, explorer, verbs, settings, telemetry, install, and update.",
+              coverage: {
+                globs: ["apps/review-desktop/code-oss/src/vs/review/contrib/**"],
+              },
+            },
+          },
+        },
+        versionControl: {
+          label: "Local VCS adapter",
+          description:
+            "Uniform git and jj access for revision resolution, merge bases, worktrees, notes, and file locking.",
+          components: {
+            vcsCommands: {
+              label: "Revision and worktree commands",
+              description:
+                "Resolves revisions and change identities, computes merge bases, diffs trees, and prepares worktrees across git and jj.",
+              coverage: {
+                files: ["packages/local-vcs/src/index.ts"],
+              },
+            },
+            notes: {
+              label: "Git notes",
+              description:
+                "Reads, writes, fetches, and pushes the `refs/notes/dev-fast/*` notes that carry commit-addressed Review state.",
+              coverage: {
+                files: ["packages/local-vcs/src/notes.ts"],
+              },
+            },
+            fileLock: {
+              label: "File lock",
+              description:
+                "Cross-process advisory locking so concurrent Review writers cannot corrupt shared state.",
+              coverage: {
+                files: ["packages/local-vcs/src/file-lock.ts"],
+              },
+            },
+          },
+        },
+        protocolContracts: {
+          label: "Shared contracts",
+          description:
+            "Zod-validated types shared by the CLI, server, app, and trace pipeline.",
+          components: {
+            reviewProtocol: {
+              label: "Review protocol",
+              description:
+                "Review, source identity, trace session, and bug report contracts exchanged over the local API.",
+              coverage: {
+                files: [
+                  "packages/review-protocol/src/contracts.ts",
+                  "packages/review-protocol/src/index.ts",
+                  "packages/review-protocol/src/bug-report.ts",
+                ],
+              },
+            },
+            traceShared: {
+              label: "Trace contracts",
+              description:
+                "Session metadata, commit index, and identifier schemas shared with the remote trace store.",
+              coverage: {
+                files: [
+                  "packages/trace-shared/src/contracts.ts",
+                  "packages/trace-shared/src/index.ts",
+                ],
+              },
+            },
+          },
+        },
+      },
+    },
+    agentHarness: {
+      label: "Coding agent harness",
+      external: true,
+      description:
+        "Claude Code, Codex, or Pi: writes the change, runs the dev-review skill to author the Review, and emits the transcripts Review captures.",
+    },
+    traceObjectStore: {
+      label: "Remote trace store",
+      external: true,
+      description:
+        "R2 bucket holding synced agent transcripts and their commit index so a Review can pull traces recorded on another machine.",
+    },
+    codeForge: {
+      label: "GitHub",
+      external: true,
+      description:
+        "Source of pull request refs, metadata, and the remote the Review's notes are pushed to.",
+    },
+  },
+  relationships: [
+    {
+      kind: "semantic",
+      from: "changeAuthor",
+      to: "progressiveReview.reviewCli.commandRouter",
+      label: "Runs review verbs",
+    },
+    {
+      kind: "semantic",
+      from: "changeAuthor",
+      to: "agentHarness",
+      label: "Drives the authoring agent",
+    },
+    {
+      kind: "semantic",
+      from: "reviewer",
+      to: "progressiveReview.reviewApp.reviewSurface",
+      label: "Reads the published Review",
+    },
+    {
+      kind: "semantic",
+      from: "agentHarness",
+      to: "progressiveReview.reviewCli.commandRouter",
+      label: "Invokes review scaffold, publish, and map verbs",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.reviewCli.commandRouter",
+      to: "progressiveReview.reviewCli.scaffold",
+      label: "Dispatches scaffold",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.reviewCli.commandRouter",
+      to: "progressiveReview.reviewCli.publication",
+      label: "Dispatches publish",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.reviewCli.commandRouter",
+      to: "progressiveReview.reviewCli.infoClient",
+      label: "Dispatches info and wait",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.reviewCli.commandRouter",
+      to: "progressiveReview.reviewCli.traceCommands",
+      label: "Dispatches trace verbs",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.reviewCli.commandRouter",
+      to: "progressiveReview.reviewCli.mapCommands",
+      label: "Dispatches map verbs",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.reviewCli.commandRouter",
+      to: "progressiveReview.reviewCli.installer",
+      label: "Dispatches install",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.reviewCli.scaffold.runReviewScaffold",
+      to: "progressiveReview.reviewCli.scaffold.createReview",
+      label: "Creates when no update target matches",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.reviewCli.scaffold.runReviewScaffold",
+      to: "progressiveReview.reviewCli.scaffold.repinReview",
+      label: "Re-pins the bound review under --update",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.reviewCli.scaffold.createReview",
+      to: "progressiveReview.reviewCli.scaffold.materializeReviewSetup",
+      label: "Prepares the pinned worktrees",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.reviewCli.scaffold.repinReview",
+      to: "progressiveReview.reviewCli.scaffold.materializeReviewSetup",
+      label: "Prepares the pinned worktrees",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.reviewCli.scaffold.createReview",
+      to: "progressiveReview.reviewHome.homeLayout",
+      label: "Writes the new review directory",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.reviewCli.scaffold.repinReview",
+      to: "progressiveReview.reviewHome.homeLayout",
+      label: "Updates the stored pins",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.reviewCli.scaffold.materializeReviewSetup",
+      to: "progressiveReview.versionControl.vcsCommands",
+      label: "Prepares a worktree per pin",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.reviewCli.scaffold.discoverAndPullScaffoldTraces",
+      to: "progressiveReview.agentTraces.traceCorpusService.listReviewTraceSessions",
+      label: "Lists the sessions behind the change range",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.reviewCli.scaffold.discoverAndPullScaffoldTraces",
+      to: "progressiveReview.agentTraces.traceCorpusService.pullReviewTraceCorpus",
+      label: "Materializes every available session into the local corpus",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.reviewCli.scaffold.createReview",
+      to: "progressiveReview.reviewCli.scaffold.discoverAndPullScaffoldTraces",
+      label: "Attaches traces to the scaffold event",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.reviewCli.scaffold.repinReview",
+      to: "progressiveReview.reviewCli.scaffold.discoverAndPullScaffoldTraces",
+      label: "Refreshes the corpus on update",
+    },
+    {
+      kind: "semantic",
+      from: "progressiveReview.reviewCli.scaffold",
+      to: "progressiveReview.protocolContracts.reviewProtocol",
+      label: "Emits the scaffold event contract",
+    },
+    {
+      kind: "semantic",
+      from: "progressiveReview.reviewCli.scaffold",
+      to: "codeForge",
+      label: "Resolves pull request refs",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.reviewCli.infoClient",
+      to: "progressiveReview.desktopServer.httpApi",
+      label: "Requests the review info event",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.reviewCli.publication",
+      to: "progressiveReview.authoringRuntime.documentCompiler",
+      label: "Compiles the authored document",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.reviewCli.publication",
+      to: "progressiveReview.desktopServer.publishStage",
+      label: "Stages the presented revision",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.reviewCli.mapCommands",
+      to: "progressiveReview.authoringRuntime.softwareMap",
+      label: "Validates the scratch map",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.reviewCli.traceCommands",
+      to: "progressiveReview.agentTraces.traceCorpusService",
+      label: "Lists, pulls, and syncs traces",
+    },
+    {
+      kind: "semantic",
+      from: "progressiveReview.reviewCli.installer",
+      to: "agentHarness",
+      label: "Installs skills and trace hooks",
+    },
+    {
+      kind: "semantic",
+      from: "agentHarness",
+      to: "progressiveReview.authoringSkills.reviewSkill",
+      label: "Loads the authoring contract",
+    },
+    {
+      kind: "semantic",
+      from: "progressiveReview.authoringSkills.reviewSkill",
+      to: "progressiveReview.reviewCli.scaffold",
+      label: "Directs the agent to read traces.paths off the scaffold event",
+    },
+    {
+      kind: "semantic",
+      from: "progressiveReview.authoringSkills.mapSkill",
+      to: "progressiveReview.reviewCli.mapCommands",
+      label: "Directs the map worker to open, check, and push",
+    },
+    {
+      kind: "semantic",
+      from: "progressiveReview.authoringSkills.traceArchaeologySkill",
+      to: "progressiveReview.agentTraces.traceCorpusService",
+      label: "Directs the agent to mine the trace corpus",
+    },
+    {
+      kind: "semantic",
+      from: "progressiveReview.authoringRuntime.documentCompiler",
+      to: "progressiveReview.authoringRuntime.authoringContract",
+      label: "Compiles documents against the contract",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.authoringRuntime.softwareMap",
+      to: "progressiveReview.versionControl.notes",
+      label: "Reads and writes commit-addressed map notes",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.agentTraces.traceCorpusService.listReviewTraceSessions",
+      to: "progressiveReview.versionControl.vcsCommands",
+      label: "Reads session trailers from the change range",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.agentTraces.traceCorpusService.pullReviewTraceCorpus",
+      to: "traceObjectStore",
+      label: "Fetches transcripts missing locally",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.agentTraces.traceCorpusService",
+      to: "progressiveReview.agentTraces.traceParser",
+      label: "Normalizes transcripts into events",
+    },
+    {
+      kind: "semantic",
+      from: "progressiveReview.agentTraces.traceCorpusService",
+      to: "progressiveReview.protocolContracts.traceShared",
+      label: "Validates session metadata and the commit index",
+    },
+    {
+      kind: "semantic",
+      from: "progressiveReview.agentTraces.traceHooks",
+      to: "agentHarness",
+      label: "Records sessions from harness and git hooks",
+    },
+    {
+      kind: "semantic",
+      from: "progressiveReview.agentTraces.nativeAgentBridge",
+      to: "agentHarness",
+      label: "Observes and launches live sessions",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.desktopServer.httpApi",
+      to: "progressiveReview.desktopServer.docBundler",
+      label: "Bundles the requested document",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.desktopServer.httpApi",
+      to: "progressiveReview.reviewHome.stateStore",
+      label: "Reads presented revisions",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.desktopServer.httpApi",
+      to: "progressiveReview.reviewHome.threadStore",
+      label: "Reads and writes comment threads",
+    },
+    {
+      kind: "semantic",
+      from: "progressiveReview.desktopServer.httpApi",
+      to: "progressiveReview.protocolContracts.reviewProtocol",
+      label: "Parses requests against the shared contracts",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.desktopServer.docBundler",
+      to: "progressiveReview.authoringRuntime.documentCompiler",
+      label: "Compiles review.mdx and data.ts",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.desktopServer.publishStage",
+      to: "progressiveReview.reviewHome.stateStore",
+      label: "Promotes the new revision",
+    },
+    {
+      kind: "semantic",
+      from: "progressiveReview.desktopServer.sessionHandler",
+      to: "agentHarness",
+      label: "Runs Ask Agent turns in the frozen session",
+    },
+    {
+      kind: "semantic",
+      from: "progressiveReview.desktopServer.desktopHost",
+      to: "progressiveReview.desktopShell.reviewWorkbench",
+      label: "Serves the shell that embeds the app",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.reviewApp.reviewSurface",
+      to: "progressiveReview.reviewApp.documentRuntime",
+      label: "Renders the evaluated document",
+    },
+    {
+      kind: "semantic",
+      from: "progressiveReview.reviewApp.documentRuntime",
+      to: "progressiveReview.authoringRuntime.authoringContract",
+      label: "Evaluates bundles authored against the contract",
+    },
+    {
+      kind: "semantic",
+      from: "progressiveReview.reviewApp.databaseLens",
+      to: "progressiveReview.authoringRuntime.authoringContract",
+      label: "Consumes validated datastore references",
+    },
+    {
+      kind: "semantic",
+      from: "progressiveReview.reviewApp.diagrams",
+      to: "progressiveReview.authoringRuntime.softwareMap",
+      label: "Renders the published map topology",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.reviewApp.codePeek",
+      to: "progressiveReview.reviewApp.hostBridge",
+      label: "Requests source and diffs from the shell",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.reviewApp.threadsUi",
+      to: "progressiveReview.desktopServer.httpApi",
+      label: "Syncs comment threads",
+    },
+    {
+      kind: "semantic",
+      from: "progressiveReview.reviewApp.hostBridge",
+      to: "progressiveReview.desktopShell.reviewWorkbench",
+      label: "Bridges the app to the workbench",
+    },
+    {
+      kind: "semantic",
+      from: "progressiveReview.desktopShell.reviewServices",
+      to: "progressiveReview.desktopServer.httpApi",
+      label: "Resolves the workspace from the local server",
+    },
+    {
+      kind: "semantic",
+      from: "progressiveReview.desktopShell.reviewContrib",
+      to: "progressiveReview.reviewCli.commandRouter",
+      label: "Installs and invokes the CLI",
+    },
+    {
+      kind: "call",
+      from: "progressiveReview.reviewHome.homeLayout",
+      to: "progressiveReview.versionControl.fileLock",
+      label: "Serializes concurrent writers",
+    },
+    {
+      kind: "semantic",
+      from: "progressiveReview.versionControl.notes",
+      to: "codeForge",
+      label: "Pushes and fetches note refs",
+    },
+  ],
+});

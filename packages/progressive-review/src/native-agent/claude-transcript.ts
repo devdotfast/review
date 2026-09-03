@@ -3,10 +3,13 @@ import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
+import { jsonString } from "@dev.fast/review-protocol";
+
 import type { NativeReviewMessage } from "./native-session";
 import {
   type JsonRecord,
   isJsonRecord,
+  isMissingFileError,
   readJsonLines,
   textBlocks,
 } from "./transcript-json";
@@ -49,14 +52,7 @@ async function findTranscript(
       withFileTypes: true,
     });
   } catch (error) {
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      error.code === "ENOENT"
-    ) {
-      return undefined;
-    }
+    if (isMissingFileError(error)) return undefined;
     throw error;
   }
   for (const entry of entries) {
@@ -128,7 +124,6 @@ function assistantText(entry: JsonRecord): string {
 }
 
 function entryTimestamp(entry: JsonRecord): string[] {
-  return typeof entry.timestamp === "string" && entry.timestamp
-    ? [entry.timestamp]
-    : [];
+  const timestamp = jsonString(entry.timestamp);
+  return timestamp ? [timestamp] : [];
 }

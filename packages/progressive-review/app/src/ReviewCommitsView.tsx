@@ -116,10 +116,10 @@ function CommitRow({
           });
     request
       .then((files) => setFilesState({ status: "loaded", files }))
-      .catch((error: unknown) => {
+      .catch((cause: unknown) => {
         setFilesState({
           status: "error",
-          error: error instanceof Error ? error.message : String(error),
+          error: cause instanceof Error ? cause.message : String(cause),
         });
       });
   };

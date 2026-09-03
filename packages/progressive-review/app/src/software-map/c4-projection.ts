@@ -1,3 +1,6 @@
+import { isStringValue } from "@dev.fast/review-protocol";
+import { z } from "zod";
+
 import { parseDataStoreSchemaEndpoint } from "./model";
 import type {
   NormalizedSoftwareDataStoreCollection,
@@ -375,7 +378,7 @@ interface DataStoreSchemaRow {
   type?: string;
   pk?: boolean;
   fk?: SoftwareDataStoreForeignKeyRef;
-  example?: unknown;
+  example?: DataStoreFieldExample;
 }
 
 function flattenDataStoreSchemaRows(
@@ -415,18 +418,24 @@ function flattenDataStoreSchemaRows(
   return rows;
 }
 
-function isDataStoreFieldLeaf(
-  value: unknown,
+/** A schema entry is a leaf when its `type` names the field's type. */
+export function isDataStoreFieldLeaf(
+  value: SoftwareDataStoreFieldLeaf | SoftwareDataStoreFieldSchema,
 ): value is SoftwareDataStoreFieldLeaf {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    "type" in value &&
-    typeof (value as { type?: unknown }).type === "string"
-  );
+  return "type" in value && isStringValue(value.type);
 }
 
-function exampleForDataStoreField(field: SoftwareDataStoreFieldLeaf): unknown {
+/**
+ * The authored example of a field: the leaf's own example, or the examples of
+ * its nested schema keyed by field.
+ */
+export type DataStoreFieldExample =
+  | SoftwareDataStoreFieldLeaf["example"]
+  | DataStoreSchemaExample;
+
+export function exampleForDataStoreField(
+  field: SoftwareDataStoreFieldLeaf,
+): DataStoreFieldExample {
   if ("example" in field) return field.example;
   if (field.schema) return exampleForDataStoreSchema(field.schema);
   return undefined;
@@ -434,12 +443,10 @@ function exampleForDataStoreField(field: SoftwareDataStoreFieldLeaf): unknown {
 
 /** Example values keyed by field, nested like the schema they illustrate. */
 interface DataStoreSchemaExample {
-  [field: string]:
-    | SoftwareDataStoreFieldLeaf["example"]
-    | DataStoreSchemaExample;
+  [field: string]: DataStoreFieldExample;
 }
 
-function exampleForDataStoreSchema(
+export function exampleForDataStoreSchema(
   schema: SoftwareDataStoreFieldSchema,
 ): DataStoreSchemaExample {
   return Object.fromEntries(
@@ -452,13 +459,14 @@ function exampleForDataStoreSchema(
   );
 }
 
-export function formatSchemaExample(value: unknown): string | undefined {
+const scalarExampleSchema = z.union([z.string(), z.number(), z.boolean()]);
+
+export function formatSchemaExample(
+  value: DataStoreFieldExample,
+): string | undefined {
   if (value === undefined) return undefined;
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-  return JSON.stringify(value);
+  const scalar = scalarExampleSchema.safeParse(value);
+  return scalar.success ? String(scalar.data) : JSON.stringify(value);
 }
 
 function dataStoreCollectionPaths(
@@ -691,14 +699,30 @@ function foreignKeyTargetEndpoint(
   dataStorePath: string,
   fk: SoftwareDataStoreForeignKeyRef,
 ): string | undefined {
-  if (typeof fk === "string") {
+  const target = foreignKeyTarget(fk);
+  if (!target) return undefined;
+  return `${dataStorePath}.tables.${target.table}.${target.fieldPath.join(".")}`;
+}
+
+/** The table and field a foreign key points at, or undefined when malformed. */
+export function foreignKeyTarget(
+  fk: SoftwareDataStoreForeignKeyRef,
+): { table: string; fieldPath: string[] } | undefined {
+  if (isForeignKeyShorthand(fk)) {
     const [table, ...fieldPath] = fk.split(".").filter(Boolean);
-    if (!table || fieldPath.length === 0) return undefined;
-    return `${dataStorePath}.tables.${table}.${fieldPath.join(".")}`;
+    return table && fieldPath.length > 0 ? { table, fieldPath } : undefined;
   }
   const fieldPath = fk.field.split(".").filter(Boolean);
-  if (!fk.table || fieldPath.length === 0) return undefined;
-  return `${dataStorePath}.tables.${fk.table}.${fieldPath.join(".")}`;
+  return fk.table && fieldPath.length > 0
+    ? { table: fk.table, fieldPath }
+    : undefined;
+}
+
+/** Foreign keys may be authored as a dotted `table.field` path. */
+function isForeignKeyShorthand(
+  fk: SoftwareDataStoreForeignKeyRef,
+): fk is string {
+  return isStringValue(fk);
 }
 
 function projectModifiedOnlyRelationships(

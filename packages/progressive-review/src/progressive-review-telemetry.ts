@@ -2,6 +2,11 @@ import { createHmac, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import {
+  jsonObject,
+  jsonString,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
 import { valid as validSemver } from "semver";
 
 import { writeFileAtomic } from "./atomic-write";
@@ -553,12 +558,12 @@ export class ProgressiveReviewTelemetry {
 
   private async readLegacyInstallId(): Promise<string | undefined> {
     try {
-      const parsed = JSON.parse(
-        await readFile(this.legacyInstallConfigPath, "utf8"),
-      ) as { installId?: unknown };
-      return typeof parsed.installId === "string" && parsed.installId.length > 0
-        ? parsed.installId
-        : undefined;
+      const installId = jsonString(
+        jsonObject(
+          parseJsonText(await readFile(this.legacyInstallConfigPath, "utf8")),
+        )?.installId,
+      );
+      return installId ? installId : undefined;
     } catch {
       return undefined;
     }
@@ -720,12 +725,12 @@ function reviewAppVersion(env: NodeJS.ProcessEnv): string | undefined {
 async function readProgressiveReviewPackageVersion(): Promise<string> {
   try {
     const packageRoot = findProgressiveReviewPackageRoot(import.meta.url);
-    const packageJson = JSON.parse(
-      await readFile(path.join(packageRoot, "package.json"), "utf8"),
-    ) as { version?: unknown };
-    return typeof packageJson.version === "string"
-      ? packageJson.version
-      : "unknown";
+    const packageJson = jsonObject(
+      parseJsonText(
+        await readFile(path.join(packageRoot, "package.json"), "utf8"),
+      ),
+    );
+    return jsonString(packageJson?.version) ?? "unknown";
   } catch {
     return "unknown";
   }

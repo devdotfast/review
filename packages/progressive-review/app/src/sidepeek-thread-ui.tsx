@@ -451,10 +451,10 @@ export function usePanelThreadController({
       (source) => {
         if (!cancelled) setBaseSource(source);
       },
-      (error: unknown) => {
+      (cause: unknown) => {
         if (!cancelled) {
           setBaseSourceError(
-            error instanceof Error ? error.message : String(error),
+            cause instanceof Error ? cause.message : String(cause),
           );
         }
       },

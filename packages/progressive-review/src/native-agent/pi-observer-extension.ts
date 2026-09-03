@@ -6,10 +6,11 @@ interface PiObserverContext {
 }
 
 interface PiObserverApi {
-  on(
+  /** The event payload passes through untouched; only the context is read. */
+  on<Event>(
     event: "agent_settled" | "message_end" | "session_start",
     listener: (
-      event: unknown,
+      event: Event,
       context: PiObserverContext,
     ) => void | Promise<void>,
   ): void;

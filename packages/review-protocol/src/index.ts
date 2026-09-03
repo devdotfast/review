@@ -40,113 +40,115 @@ import {
   type ReviewVerbResponse,
   ReviewVerbResponseSchema,
 } from "./contracts.js";
+import type { JsonValue } from "./json.js";
 
 export * from "./bug-report.js";
 export * from "./json.js";
+export * from "./runtime-value.js";
 export * from "./contracts.js";
 
 export function parseReviewDesktopDiscovery(
-  value: unknown,
+  value: JsonValue,
 ): ReviewDesktopDiscovery {
   return parseZod(ReviewDesktopDiscoverySchema, value);
 }
 
-export function parseReviewListResponse(value: unknown): ReviewListResponse {
+export function parseReviewListResponse(value: JsonValue): ReviewListResponse {
   return parseZod(ReviewListResponseSchema, value);
 }
 
 export function parseReviewCliInstallStatus(
-  value: unknown,
+  value: JsonValue,
 ): ReviewCliInstallStatus {
   return parseZod(ReviewCliInstallStatusSchema, value);
 }
 
 export function parseReviewCliInstallApplyRequest(
-  value: unknown,
+  value: JsonValue,
 ): ReviewCliInstallApplyRequest {
   return parseZod(ReviewCliInstallApplyRequestSchema, value);
 }
 
 export function parseReviewCliInstallApplyResponse(
-  value: unknown,
+  value: JsonValue,
 ): ReviewCliInstallApplyResponse {
   return parseZod(ReviewCliInstallApplyResponseSchema, value);
 }
 
 export function parseReviewPublishReadyRequest(
-  value: unknown,
+  value: JsonValue,
 ): ReviewPublishReadyRequest {
   return parseZod(ReviewPublishReadyRequestSchema, value);
 }
 
-export function parseReviewOpenResponse(value: unknown): ReviewOpenResponse {
+export function parseReviewOpenResponse(value: JsonValue): ReviewOpenResponse {
   return parseZod(ReviewOpenResponseSchema, value);
 }
 
 export function parseReviewTutorialOpenResponse(
-  value: unknown,
+  value: JsonValue,
 ): ReviewTutorialOpenResponse {
   return parseZod(ReviewTutorialOpenResponseSchema, value);
 }
 
 export function parseReviewDesktopGlobalEvent(
-  value: unknown,
+  value: JsonValue,
 ): ReviewDesktopGlobalEvent {
   return parseZod(ReviewDesktopGlobalEventSchema, value);
 }
 
 export function parseReviewDesktopVerbFrame(
-  value: unknown,
+  value: JsonValue,
 ): ReviewDesktopVerbFrame {
   return parseZod(ReviewDesktopVerbFrameSchema, value);
 }
 
 export function parseReviewDesktopVerbResult(
-  value: unknown,
+  value: JsonValue,
 ): ReviewDesktopVerbResult {
   return parseZod(ReviewDesktopVerbResultSchema, value);
 }
 
 export function parseReviewSessionResponse(
-  value: unknown,
+  value: JsonValue,
 ): ReviewSessionResponse {
   return parseZod(ReviewSessionResponseSchema, value);
 }
 
 export function parseReviewDiffFilesResponse(
-  value: unknown,
+  value: JsonValue,
 ): ReviewDiffFilesResponse {
   return parseZod(ReviewDiffFilesResponseSchema, value);
 }
 
 export function parseReviewFileContentResponse(
-  value: unknown,
+  value: JsonValue,
 ): ReviewFileContentResponse {
   return parseZod(ReviewFileContentResponseSchema, value);
 }
 
 export function parseReviewFileContentRequest(
-  value: unknown,
+  value: JsonValue,
 ): ReviewFileContentRequest {
   return parseZod(ReviewFileContentRequestSchema, value);
 }
 
-export function parseReviewVerbRequest(value: unknown): ReviewVerbRequest {
+export function parseReviewVerbRequest(value: JsonValue): ReviewVerbRequest {
   return parseZod(ReviewVerbRequestSchema, value);
 }
 
-export function parseReviewVerbResponse(value: unknown): ReviewVerbResponse {
+export function parseReviewVerbResponse(value: JsonValue): ReviewVerbResponse {
   return parseZod(ReviewVerbResponseSchema, value);
 }
 
 export function parseReviewAgentTraceListResponse(
-  value: unknown,
+  value: JsonValue,
 ): ReviewAgentTraceListResponse {
   return parseZod(ReviewAgentTraceListResponseSchema, value);
 }
 
 export function parseReviewAgentTraceResponse(
-  value: unknown,
+  value: JsonValue,
 ): ReviewAgentTraceResponse {
   return parseZod(ReviewAgentTraceResponseSchema, value);
 }
@@ -166,7 +168,7 @@ export function rewriteReviewDocumentRuntime(
 
 export function parseZod<T>(
   schema: z.ZodType<T>,
-  value: unknown,
+  value: JsonValue,
   label?: string,
   prefixPath = false,
 ): T {
@@ -188,8 +190,8 @@ export function parseZod<T>(
 function formatIssuePath(path: PropertyKey[]): string {
   let output = "";
   for (const segment of path) {
-    if (typeof segment === "number") {
-      output += `[${segment}]`;
+    if (Number.isInteger(segment)) {
+      output += `[${String(segment)}]`;
     } else {
       output += `${output ? "." : ""}${String(segment)}`;
     }

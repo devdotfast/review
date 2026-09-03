@@ -1,3 +1,6 @@
+import { isObjectValue } from "@dev.fast/review-protocol";
+import { z } from "zod";
+
 export type SoftwareElementType =
   | "person"
   | "softwareSystem"
@@ -525,11 +528,7 @@ function validateDataStoreCollectionRecord(
   errors: string[],
 ) {
   if (collections === undefined) return;
-  if (
-    !collections ||
-    typeof collections !== "object" ||
-    Array.isArray(collections)
-  ) {
+  if (!isAuthoredObject(collections)) {
     errors.push(`Data store "${path}" ${property} must be an object.`);
     return;
   }
@@ -538,11 +537,7 @@ function validateDataStoreCollectionRecord(
       errors.push(`Data store "${path}" ${property} contains an empty id.`);
       continue;
     }
-    if (
-      !collection ||
-      typeof collection !== "object" ||
-      Array.isArray(collection)
-    ) {
+    if (!isAuthoredObject(collection)) {
       errors.push(
         `Data store "${path}" ${property}.${collectionId} must be an object.`,
       );
@@ -577,7 +572,7 @@ function validateDataStoreFieldSchema(
   path: string,
   errors: string[],
 ) {
-  if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+  if (!isAuthoredObject(schema)) {
     errors.push(`${path} must be an object.`);
     return;
   }
@@ -587,7 +582,7 @@ function validateDataStoreFieldSchema(
       continue;
     }
     const fieldPath = `${path}.${field}`;
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
+    if (!isAuthoredObject(value)) {
       errors.push(`${fieldPath} must be a field object or nested schema.`);
       continue;
     }
@@ -608,15 +603,12 @@ function validateDataStoreFieldSchema(
   }
 }
 
+const DataStoreFieldLeafSchema = z.object({ type: z.string() });
+
 function isDataStoreFieldLeaf(
   value: SoftwareDataStoreFieldSchema[string],
 ): value is SoftwareDataStoreFieldLeaf {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    "type" in value &&
-    typeof value.type === "string"
-  );
+  return DataStoreFieldLeafSchema.safeParse(value).success;
 }
 
 function normalizeCoverage(
@@ -642,7 +634,7 @@ function normalizeCoverage(
     errors.push(`Element "${path}" coverage.files must be an array.`);
   }
   for (const [index, file] of (coverage.files ?? []).entries()) {
-    if (typeof file === "string") {
+    if (isAuthoredString(file)) {
       if (!file.trim()) {
         errors.push(`Element "${path}" coverage.files[${index}] is empty.`);
         continue;
@@ -650,7 +642,7 @@ function normalizeCoverage(
       files.push({ path: file, ranges: [] });
       continue;
     }
-    if (!file || typeof file !== "object" || !file.path) {
+    if (!isAuthoredObject(file) || !file.path) {
       errors.push(
         `Element "${path}" coverage.files[${index}] must be a file path or object with path.`,
       );
@@ -671,7 +663,7 @@ function normalizeCoverage(
     errors.push(`Element "${path}" coverage.globs must be an array.`);
   }
   for (const [index, glob] of (coverage.globs ?? []).entries()) {
-    if (typeof glob !== "string" || !glob.trim()) {
+    if (!isAuthoredString(glob) || !glob.trim()) {
       errors.push(`Element "${path}" coverage.globs[${index}] is empty.`);
       continue;
     }
@@ -890,7 +882,7 @@ function validateSourceRanges(
   errors: string[],
 ) {
   for (const [index, range] of (sourceRanges ?? []).entries()) {
-    if (typeof range.file !== "string" || range.file.trim().length === 0) {
+    if (!isAuthoredString(range.file) || range.file.trim().length === 0) {
       errors.push(`${label}[${index}].file must be a non-empty string.`);
     }
     if (
@@ -933,4 +925,35 @@ function parentPathFor(path: string) {
   const lastDot = path.lastIndexOf(".");
   if (lastDot === -1) return undefined;
   return path.slice(0, lastDot);
+}
+
+// software-map.ts is imported as a plain module, so authored values reach the
+// normalizer without type checking. These decode a value's representation once
+// before the normalizer reads its fields.
+const AuthoredObjectSchema = z.object({});
+const AuthoredStringSchema = z.string();
+
+function isAuthoredObject<T>(value: T | undefined): value is T {
+  return AuthoredObjectSchema.safeParse(value).success;
+}
+
+function isAuthoredString(
+  value: string | SoftwareCoverageFileInput,
+): value is string {
+  return AuthoredStringSchema.safeParse(value).success;
+}
+
+/** A normalized model as a software-map module exports it (holds a Map, so not JSON). */
+export function isNormalizedSoftwareModel(
+  value: unknown,
+): value is NormalizedSoftwareModel {
+  return (
+    isObjectValue(value) &&
+    "elements" in value &&
+    Array.isArray(value.elements) &&
+    "elementsByPath" in value &&
+    value.elementsByPath instanceof Map &&
+    "relationships" in value &&
+    Array.isArray(value.relationships)
+  );
 }

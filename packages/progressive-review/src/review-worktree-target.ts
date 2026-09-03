@@ -6,6 +6,7 @@ import {
   devfastPrepareCommands,
   resolveRevision,
 } from "@dev.fast/local-vcs";
+import { parseJsonText } from "@dev.fast/review-protocol";
 
 import { ensureReviewPinnedCheckout } from "./review-head-checkout";
 import {
@@ -194,7 +195,7 @@ export function readReviewStoreRecord(
 ): StoredReviewRecord {
   const storePath = path.resolve(reviewRootPath);
   try {
-    const value: unknown = JSON.parse(
+    const value = parseJsonText(
       fs.readFileSync(path.join(storePath, "review.json"), "utf8"),
     );
     const parsed = safeParseStoredReviewRecord(value);

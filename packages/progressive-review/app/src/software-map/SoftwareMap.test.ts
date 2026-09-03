@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 
+import type { Edge as ReactFlowEdge } from "@xyflow/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { testReviewSession } from "../review-session-test-utils";
@@ -4286,7 +4287,9 @@ function c4SiblingGaps(
   };
 }
 
-function c4EdgePointsForTest(data: unknown): Array<{ x: number; y: number }> {
+function c4EdgePointsForTest(
+  data: ReactFlowEdge["data"],
+): Array<{ x: number; y: number }> {
   const sections = (
     data as
       | {

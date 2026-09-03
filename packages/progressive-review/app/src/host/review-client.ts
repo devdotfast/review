@@ -17,7 +17,15 @@ export type ReviewClientConfig = Partial<
   >
 >;
 
-export type ReviewModuleImporter = (url: string) => Promise<unknown>;
+/** Loads a module namespace; the caller names the exports it expects. */
+export type ReviewModuleImporter = <T>(url: string) => Promise<T>;
+
+interface ReviewDocRuntimeModule {
+  setReviewRequestContext?: (context: {
+    origin?: string;
+    token?: string;
+  }) => void;
+}
 
 export interface ReviewRequestOptions {
   origin?: string;
@@ -76,21 +84,15 @@ export function importReviewModule<T>(
       new Error("Review document runtime URL is unavailable."),
     );
   }
-  const docRuntimeUrl = config.docRuntimeUrl;
-  return loadReviewModule(
-    config,
-    url,
-    docRuntimeUrl,
-    importModule,
-  ) as Promise<T>;
+  return loadReviewModule<T>(config, url, config.docRuntimeUrl, importModule);
 }
 
-async function loadReviewModule(
+async function loadReviewModule<T>(
   config: ReviewClientConfig,
   url: URL,
   docRuntimeUrl: string,
   importModule: ReviewModuleImporter,
-): Promise<unknown> {
+): Promise<T> {
   const response = await reviewFetchUrl(config, url);
   if (!response.ok) {
     throw new Error(`Review document module returned ${response.status}.`);
@@ -99,12 +101,9 @@ async function loadReviewModule(
   const rewritten = rewriteReviewDocumentRuntime(source, docRuntimeUrl);
   // Published bundles carry no origin or token; hand the runtime this
   // session's request context before the document module evaluates.
-  const runtime = (await importModule(new URL(docRuntimeUrl).href)) as {
-    setReviewRequestContext?: (context: {
-      origin?: string;
-      token?: string;
-    }) => void;
-  };
+  const runtime = await importModule<ReviewDocRuntimeModule>(
+    new URL(docRuntimeUrl).href,
+  );
   runtime.setReviewRequestContext?.({
     origin: config.sessionUrl,
     token: config.token,
@@ -113,13 +112,13 @@ async function loadReviewModule(
     new Blob([rewritten], { type: "text/javascript" }),
   );
   try {
-    return await importModule(blobUrl);
+    return await importModule<T>(blobUrl);
   } finally {
     URL.revokeObjectURL(blobUrl);
   }
 }
 
-function importBlobReviewModule(url: string): Promise<unknown> {
+function importBlobReviewModule<T>(url: string): Promise<T> {
   return import(/* @vite-ignore */ url);
 }
 

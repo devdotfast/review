@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { type JsonValue, isJsonObject } from "./json.js";
+
 export const sessionIdSchema = z
   .string()
   .regex(/^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$/);
@@ -567,15 +569,15 @@ export type ReviewCommentDraftThreadMap = z.infer<
 >;
 
 export function parseStoredReviewCommentThreadMap(
-  value: unknown,
+  value: JsonValue,
 ): ReviewCommentThreadMap {
   return ReviewCommentThreadMapSchema.parse(value);
 }
 
 export function parseReviewCommentThreadMap(
-  value: unknown,
+  value: JsonValue,
 ): ReviewCommentThreadMap {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  if (!isJsonObject(value)) return {};
   const comments: ReviewCommentThreadMap = {};
   for (const [threadId, candidate] of Object.entries(value)) {
     const parsed = ReviewCommentThreadRecordSchema.safeParse(candidate);

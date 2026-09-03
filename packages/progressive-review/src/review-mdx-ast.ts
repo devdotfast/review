@@ -2,13 +2,21 @@ import type {
   CallExpression,
   Node as EstreeNode,
   Expression,
-  ObjectExpression,
+  Literal,
   Program,
-  Property,
 } from "estree";
+import type { Nodes as MdastNode } from "mdast";
 import { fromMarkdown } from "mdast-util-from-markdown";
-import { mdxFromMarkdown } from "mdast-util-mdx";
+import {
+  type MdxJsxAttribute,
+  type MdxJsxAttributeValueExpression,
+  type MdxJsxExpressionAttribute,
+  type MdxJsxFlowElement,
+  type MdxJsxTextElement,
+  mdxFromMarkdown,
+} from "mdast-util-mdx";
 import { mdxjs } from "micromark-extension-mdxjs";
+import { z } from "zod";
 
 // One real MDX parse for every validator. The checks used to regex-scan raw
 // text — which cannot tell markup from a tag quoted in a string, an anchor
@@ -46,8 +54,13 @@ export interface ReviewMdxLink {
   line: number;
 }
 
+export interface ReviewMdxParseError {
+  message: string;
+  line: number;
+}
+
 export interface ReviewMdxDocument {
-  parseError: { message: string; line: number } | null;
+  parseError: ReviewMdxParseError | null;
   // Capitalized (component) JSX elements, in document order.
   components: MdxJsxElementHit[];
   // Every named JSX element with its attributes.
@@ -58,69 +71,73 @@ export interface ReviewMdxDocument {
   esmPrograms: Program[];
 }
 
-interface MdxParseErrorLike {
-  reason?: unknown;
-  message?: unknown;
-  line?: unknown;
-  place?: { line?: unknown } | null;
+// What micromark throws on a syntax error: a VFileMessage, whose `line` is the
+// failing line, `place` a point or position, and `reason` the message without
+// the file location.
+const mdxParseErrorSchema = z.object({
+  reason: z.string().optional(),
+  message: z.string().optional(),
+  line: z.number().optional(),
+  place: z.object({ line: z.number().optional() }).nullable().optional(),
+});
+
+function mdxParseError(cause: unknown): ReviewMdxParseError {
+  const parsed = mdxParseErrorSchema.safeParse(cause);
+  if (!parsed.success) return { message: String(cause), line: 1 };
+  const { reason, message, line, place } = parsed.data;
+  return {
+    message: reason ?? message ?? String(cause),
+    line: line ?? place?.line ?? 1,
+  };
 }
 
-interface MdastNodeLike {
-  type?: unknown;
-  name?: unknown;
-  url?: unknown;
-  children?: unknown;
-  attributes?: unknown;
-  value?: unknown;
-  data?: { estree?: unknown } | null;
-  position?: {
-    start?: { line?: unknown; offset?: unknown };
-    end?: { offset?: unknown };
-  } | null;
+function nodeLine(node: Pick<MdastNode, "position">): number {
+  return node.position?.start.line ?? 1;
 }
 
-function nodeLine(node: MdastNodeLike): number {
-  const line = node.position?.start?.line;
-  return typeof line === "number" ? line : 1;
+function estreeLine(node: EstreeNode): number {
+  return node.loc?.start.line ?? 1;
 }
 
-function estreeLine(node: EstreeNode | Property): number {
-  const line = (node as { loc?: { start?: { line?: number } } | null }).loc
-    ?.start?.line;
-  return typeof line === "number" ? line : 1;
-}
-
-function isSelfClosing(source: string, node: MdastNodeLike): boolean {
-  const start = node.position?.start?.offset;
-  const end = node.position?.end?.offset;
-  if (typeof start !== "number" || typeof end !== "number") return false;
+function isSelfClosing(
+  source: string,
+  node: MdxJsxFlowElement | MdxJsxTextElement,
+): boolean {
+  const start = node.position?.start.offset;
+  const end = node.position?.end.offset;
+  if (start === undefined || end === undefined) return false;
   return /\/\s*>$/.test(source.slice(start, end).trimEnd());
 }
 
+// A JSX attribute value is the quoted string or an expression node. TypeScript
+// cannot narrow that union with `in`, so the node shape is parsed once here.
+const attributeValueExpressionSchema = z.object({
+  type: z.literal("mdxJsxAttributeValueExpression"),
+});
+
+export function isMdxAttributeValueExpression(
+  value: MdxJsxAttribute["value"],
+): value is MdxJsxAttributeValueExpression {
+  return attributeValueExpressionSchema.safeParse(value).success;
+}
+
 function attributeFromNode(
-  attribute: MdastNodeLike,
+  attribute: MdxJsxAttribute | MdxJsxExpressionAttribute,
 ): ReviewMdxAttribute | null {
-  if (
-    attribute.type !== "mdxJsxAttribute" ||
-    typeof attribute.name !== "string"
-  ) {
-    // Spread attributes ({...props}) carry no static name to validate.
-    return null;
-  }
+  // Spread attributes ({...props}) carry no static name to validate.
+  if (attribute.type !== "mdxJsxAttribute") return null;
   const base: ReviewMdxAttribute = {
     name: attribute.name,
     line: nodeLine(attribute),
   };
-  if (typeof attribute.value === "string") {
-    return { ...base, stringValue: attribute.value };
+  const { value } = attribute;
+  if (value === null || value === undefined) return base;
+  if (!isMdxAttributeValueExpression(value)) {
+    return { ...base, stringValue: value };
   }
-  const value = attribute.value as MdastNodeLike | null;
-  if (value && value.type === "mdxJsxAttributeValueExpression") {
-    const program = value.data?.estree as Program | undefined;
-    const statement = program?.body?.[0];
-    if (statement && statement.type === "ExpressionStatement") {
-      return { ...base, expression: statement.expression };
-    }
+  const statement = value.data?.estree?.body[0];
+  if (statement?.type === "ExpressionStatement") {
+    return { ...base, expression: statement.expression };
   }
   return base;
 }
@@ -137,63 +154,44 @@ export function parseReviewMdxDocument(source: string): ReviewMdxDocument {
     esmPrograms: [],
   };
 
-  let tree: MdastNodeLike;
+  let tree: MdastNode;
   try {
     tree = fromMarkdown(source, {
       extensions: [mdxjs()],
       mdastExtensions: [mdxFromMarkdown()],
-    }) as MdastNodeLike;
-  } catch (error) {
-    const parseError = error as MdxParseErrorLike;
-    const line =
-      typeof parseError.line === "number"
-        ? parseError.line
-        : typeof parseError.place?.line === "number"
-          ? parseError.place.line
-          : 1;
-    const message =
-      typeof parseError.reason === "string"
-        ? parseError.reason
-        : typeof parseError.message === "string"
-          ? parseError.message
-          : String(error);
-    document.parseError = { message, line };
+    });
+  } catch (cause) {
+    document.parseError = mdxParseError(cause);
     return document;
   }
 
-  const visit = (node: MdastNodeLike): void => {
+  const visit = (node: MdastNode): void => {
     if (
       (node.type === "mdxJsxFlowElement" ||
         node.type === "mdxJsxTextElement") &&
-      typeof node.name === "string"
+      node.name !== null
     ) {
       const line = nodeLine(node);
       if (/^[A-Z]/.test(node.name)) {
         document.components.push({ name: node.name, line });
       }
-      const attributes = Array.isArray(node.attributes)
-        ? (node.attributes as MdastNodeLike[])
-            .map(attributeFromNode)
-            .filter((attribute): attribute is ReviewMdxAttribute =>
-              Boolean(attribute),
-            )
-        : [];
       document.elements.push({
         name: node.name,
         line,
         selfClosing: isSelfClosing(source, node),
-        attributes,
+        attributes: node.attributes
+          .map(attributeFromNode)
+          .filter((attribute) => attribute !== null),
       });
     }
-    if (node.type === "link" && typeof node.url === "string") {
+    if (node.type === "link") {
       document.links.push({ url: node.url, line: nodeLine(node) });
     }
-    if (node.type === "mdxjsEsm") {
-      const program = node.data?.estree as Program | undefined;
-      if (program) document.esmPrograms.push(program);
+    if (node.type === "mdxjsEsm" && node.data?.estree) {
+      document.esmPrograms.push(node.data.estree);
     }
-    if (Array.isArray(node.children)) {
-      for (const child of node.children) visit(child as MdastNodeLike);
+    if ("children" in node) {
+      for (const child of node.children) visit(child);
     }
   };
   visit(tree);
@@ -219,12 +217,12 @@ export function walkEstree(
   }
 }
 
+// Every estree node carries a string `type`; the other objects hanging off a
+// node (`loc`, a literal's `regex`, ...) do not.
+const estreeNodeSchema = z.object({ type: z.string() });
+
 function isEstreeNode(value: unknown): value is EstreeNode {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as { type?: unknown }).type === "string"
-  );
+  return estreeNodeSchema.safeParse(value).success;
 }
 
 export function findCallExpressions(
@@ -256,14 +254,13 @@ export function objectLiteralProperties(
 ): EstreeObjectProperty[] {
   if (!node || node.type !== "ObjectExpression") return [];
   const properties: EstreeObjectProperty[] = [];
-  for (const property of (node as ObjectExpression).properties) {
+  for (const property of node.properties) {
     if (property.type !== "Property") continue;
     const name =
       property.key.type === "Identifier"
         ? property.key.name
-        : property.key.type === "Literal" &&
-            typeof property.key.value === "string"
-          ? property.key.value
+        : property.key.type === "Literal"
+          ? literalStringValue(property.key)
           : null;
     if (name === null) continue;
     if (property.value.type === "ObjectPattern") continue;
@@ -276,26 +273,33 @@ export function objectLiteralProperties(
   return properties;
 }
 
+// Only a string literal ({ "a": 1 }) names a property; numeric, boolean, and
+// regex literals do not.
+function literalStringValue(literal: Literal): string | null {
+  const value = z.string().safeParse(literal.value);
+  return value.success ? value.data : null;
+}
+
+// Absolute character offsets acorn and Babel record on every node beside the
+// optional estree `range`.
+export interface EstreeOffsets {
+  start: number;
+  end: number;
+}
+
+const estreeOffsetsSchema = z.object({ start: z.number(), end: z.number() });
+
+export function hasEstreeOffsets(
+  node: EstreeNode,
+): node is EstreeNode & EstreeOffsets {
+  return estreeOffsetsSchema.safeParse(node).success;
+}
+
 // Document-relative character offsets of an estree node — acorn (as run by
 // the MDX extension) records them on every node, positioned against the full
 // document. Lets a caller slice the original source for a node and hand it to
 // a different parser.
-export function estreeNodeRange(
-  node: EstreeNode,
-): { start: number; end: number } | null {
-  const withOffsets = node as {
-    range?: [number, number];
-    start?: number;
-    end?: number;
-  };
-  if (Array.isArray(withOffsets.range)) {
-    return { start: withOffsets.range[0], end: withOffsets.range[1] };
-  }
-  if (
-    typeof withOffsets.start === "number" &&
-    typeof withOffsets.end === "number"
-  ) {
-    return { start: withOffsets.start, end: withOffsets.end };
-  }
-  return null;
+export function estreeNodeRange(node: EstreeNode): EstreeOffsets | null {
+  if (node.range) return { start: node.range[0], end: node.range[1] };
+  return hasEstreeOffsets(node) ? { start: node.start, end: node.end } : null;
 }

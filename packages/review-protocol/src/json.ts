@@ -1,3 +1,10 @@
+import {
+  isBooleanValue,
+  isNumberValue,
+  isObjectValue,
+  isStringValue,
+} from "./runtime-value.js";
+
 /**
  * JSON values as they come off the wire or out of a file. Parse into one of
  * these at the I/O boundary, then narrow into a domain type; never carry an
@@ -9,7 +16,7 @@ export type JsonArray = JsonValue[];
 export type JsonObject = { [key: string]: JsonValue };
 
 export function isJsonObject(value: unknown): value is JsonObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return isObjectValue(value) && !Array.isArray(value);
 }
 
 export function isJsonArray(value: unknown): value is JsonArray {
@@ -29,4 +36,31 @@ export function jsonProperty(
   key: string,
 ): JsonValue | undefined {
   return Object.hasOwn(value, key) ? value[key] : undefined;
+}
+
+/** The string a JSON value holds, or undefined when it is not a string. */
+export function jsonString(value: JsonValue | undefined): string | undefined {
+  return isStringValue(value) ? value : undefined;
+}
+
+/** The finite number a JSON value holds, or undefined otherwise. */
+export function jsonNumber(value: JsonValue | undefined): number | undefined {
+  return isNumberValue(value) && Number.isFinite(value) ? value : undefined;
+}
+
+/** The boolean a JSON value holds, or undefined otherwise. */
+export function jsonBoolean(value: JsonValue | undefined): boolean | undefined {
+  return isBooleanValue(value) ? value : undefined;
+}
+
+/** The object a JSON value holds, or undefined otherwise. */
+export function jsonObject(
+  value: JsonValue | undefined,
+): JsonObject | undefined {
+  return isObjectValue(value) && !Array.isArray(value) ? value : undefined;
+}
+
+/** The array a JSON value holds, or undefined otherwise. */
+export function jsonArray(value: JsonValue | undefined): JsonArray | undefined {
+  return Array.isArray(value) ? value : undefined;
 }

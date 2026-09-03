@@ -172,11 +172,11 @@ function fileContentFromBytes(
   };
 }
 
-function isMissingFileError(error: unknown): boolean {
+function isMissingFileError(cause: unknown): boolean {
   return (
-    error instanceof Error &&
-    "code" in error &&
-    (error as NodeJS.ErrnoException).code === "ENOENT"
+    cause instanceof Error &&
+    "code" in cause &&
+    (cause as NodeJS.ErrnoException).code === "ENOENT"
   );
 }
 

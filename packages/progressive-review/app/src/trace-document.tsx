@@ -1068,9 +1068,8 @@ export function TraceDocument({
     const targetTurn = document.getElementById("review-trace-target-event");
     const quoteMark = targetTurn?.querySelector(".review-trace-quote-mark");
     const el = quoteMark ?? targetTurn;
-    if (el && typeof el.scrollIntoView === "function") {
-      el.scrollIntoView({ block: "center", behavior: "auto" });
-    }
+    // jsdom has no scrollIntoView, so the call stays optional.
+    el?.scrollIntoView?.({ block: "center", behavior: "auto" });
   }, [targetEventIndex, events, highlightQuote]);
 
   const [expandedGaps, setExpandedGaps] = useState<ReadonlySet<number>>(

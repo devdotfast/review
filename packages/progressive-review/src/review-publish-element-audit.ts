@@ -1,8 +1,10 @@
+import { isCallableValue, isObjectValue } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
 import {
   type CallStackDiffProps,
   callStackDiffPropsSchema,
+  dbUseCasePropsSchema,
   reviewAuthoringPropsSchemas,
   traceQuotePropsSchema,
 } from "./authoring";
@@ -20,11 +22,17 @@ import { errorMessage } from "./error-message";
 const ELEMENT_MARKER = "__reviewPublishElement";
 const FRAGMENT = Symbol.for("react.fragment");
 
+// What `jsx` receives as an element type: an intrinsic tag name, a React
+// marker symbol (Fragment, Suspense, ...), or a component function.
+export type PublishAuditElementType = string | symbol | PublishAuditComponent;
+
+export type PublishAuditKey = string | number | null | undefined;
+
 export interface PublishAuditElement {
   [ELEMENT_MARKER]: true;
-  type: unknown;
+  type: PublishAuditElementType;
   props: PublishValidationProps;
-  key: unknown;
+  key: PublishAuditKey;
 }
 
 // The tree the audit walks: element records, text, and the values
@@ -52,13 +60,14 @@ export type PublishValidationPropValue =
 
 export interface PublishValidationProps {
   children?: PublishAuditNode;
+  key?: PublishAuditKey;
   [prop: string]: PublishValidationPropValue;
 }
 
 type AuthoringComponentName = keyof typeof reviewAuthoringPropsSchemas;
 
 function isAuditElement(value: PublishAuditNode): value is PublishAuditElement {
-  if (typeof value !== "object" || value === null) return false;
+  if (!isObjectValue(value)) return false;
   return (
     (ELEMENT_MARKER in value && value[ELEMENT_MARKER] === true) ||
     ("$$typeof" in value &&
@@ -67,10 +76,19 @@ function isAuditElement(value: PublishAuditNode): value is PublishAuditElement {
   );
 }
 
+// The document module's default export and every function-typed element are
+// components compiled against this runtime: they take a props record and
+// return the element tree their `jsx` calls built.
+export function isPublishAuditComponent(
+  value: unknown,
+): value is PublishAuditComponent {
+  return isCallableValue(value);
+}
+
 function makeElement(
-  type: unknown,
+  type: PublishAuditElementType,
   props: PublishValidationProps | null | undefined,
-  key: unknown,
+  key: PublishAuditKey,
 ): PublishAuditElement {
   return { [ELEMENT_MARKER]: true, type, props: props ?? {}, key };
 }
@@ -80,8 +98,14 @@ function makeElement(
 // Fragments do NOT flatten — React.Children treats a fragment as one child,
 // and the lens parsers in the app rely on that.
 function flattenChildren(children: PublishAuditNode): PublishAuditNode[] {
-  if (children === null || children === undefined) return [];
-  if (typeof children === "boolean") return [];
+  if (
+    children === null ||
+    children === undefined ||
+    children === true ||
+    children === false
+  ) {
+    return [];
+  }
   if (Array.isArray(children)) return children.flatMap(flattenChildren);
   return [children];
 }
@@ -104,14 +128,17 @@ export function createPublishValidationReact(): PublishValidationReact {
 
 function publishValidationReactMembers() {
   const noop = () => undefined;
-  const identity = (value: unknown) => value;
+  const identity = <T>(value: T) => value;
   // A plain function keeps `class X extends Component` working: unlike an
   // arrow function it has a prototype, and the stub is never instantiated.
   function StubComponent(): void {}
-  const jsx = (type: unknown, props?: PublishValidationProps, key?: unknown) =>
-    makeElement(type, props, key);
+  const jsx = (
+    type: PublishAuditElementType,
+    props?: PublishValidationProps,
+    key?: PublishAuditKey,
+  ) => makeElement(type, props, key);
   const createElement = (
-    type: unknown,
+    type: PublishAuditElementType,
     props?: PublishValidationProps | null,
     ...children: PublishAuditNode[]
   ) =>
@@ -211,11 +238,8 @@ export interface PublishAuditTraceQuote {
 }
 
 export function extractAuditText(node: PublishAuditNode): string {
-  if (node === null || node === undefined || typeof node === "boolean") {
+  if (node === null || node === undefined || node === true || node === false) {
     return "";
-  }
-  if (typeof node === "string" || typeof node === "number") {
-    return String(node);
   }
   if (Array.isArray(node)) {
     return node.map(extractAuditText).join("");
@@ -223,11 +247,11 @@ export function extractAuditText(node: PublishAuditNode): string {
   if (isAuditElement(node)) {
     return extractAuditText(node.props.children);
   }
-  return "";
+  return String(node);
 }
 
 export function auditReviewDocumentComponent(input: {
-  Component: unknown;
+  Component: PublishAuditComponent;
   reportError: (message: string) => void;
   // Publish checks every CallStackDiff's -/+ rows against the change's
   // deleted and added lines; the audit is the one walk that sees each
@@ -235,9 +259,11 @@ export function auditReviewDocumentComponent(input: {
   collectCallStackDiff?: (props: CallStackDiffProps) => void;
   collectTraceQuote?: (quote: PublishAuditTraceQuote) => void;
 }): void {
-  if (typeof input.Component !== "function") return;
   const components = new Map<AuthoringComponentName, PublishAuditComponent>();
-  const componentNames = new Map<unknown, AuthoringComponentName>();
+  const componentNames = new Map<
+    PublishAuditElementType,
+    AuthoringComponentName
+  >();
   for (const name of Object.keys(
     reviewAuthoringPropsSchemas,
   ) as AuthoringComponentName[]) {
@@ -249,12 +275,7 @@ export function auditReviewDocumentComponent(input: {
 
   let tree: PublishAuditNode;
   try {
-    // SAFETY: the document component is the bundle's default export, compiled
-    // from MDX against this runtime's `jsx`; it takes a props record and
-    // returns the element tree those calls built.
-    tree = (input.Component as PublishAuditComponent)({
-      components: Object.fromEntries(components),
-    });
+    tree = input.Component({ components: Object.fromEntries(components) });
   } catch (error) {
     input.reportError(
       `Review document did not evaluate for validation: ${errorMessage(error)}`,
@@ -296,15 +317,13 @@ export function auditReviewDocumentComponent(input: {
         walk(child.props.children, name);
         continue;
       }
-      if (typeof child.type === "function") {
+      if (isPublishAuditComponent(child.type)) {
         // Best-effort expansion of document-local components: MDX-generated
         // helpers are hook-free and expand; anything that throws under the
         // stub hooks is skipped, exactly as inert as it was before the audit.
         let rendered: PublishAuditNode = null;
         try {
-          // SAFETY: a function-typed element is a document-local component
-          // compiled against this runtime; it renders to the same node tree.
-          rendered = (child.type as PublishAuditComponent)(child.props);
+          rendered = child.type(child.props);
         } catch {
           rendered = null;
         }
@@ -320,7 +339,7 @@ function auditElement(
   element: PublishAuditElement,
   name: AuthoringComponentName,
   parentName: AuthoringComponentName | null,
-  componentNames: ReadonlyMap<unknown, AuthoringComponentName>,
+  componentNames: ReadonlyMap<PublishAuditElementType, AuthoringComponentName>,
   reportError: (message: string) => void,
 ): void {
   const schema: z.ZodType = reviewAuthoringPropsSchemas[name];
@@ -357,14 +376,16 @@ function auditElement(
     for (const child of flattenChildren(element.props.children)) {
       if (!isAuditElement(child)) continue;
       if (componentNames.get(child.type) !== "DbUseCase") continue;
-      const label = child.props.label;
-      if (typeof label !== "string") continue;
-      if (labels.has(label)) {
+      const label = dbUseCasePropsSchema.shape.label.safeParse(
+        child.props.label,
+      );
+      if (!label.success) continue;
+      if (labels.has(label.data)) {
         reportError(
-          `<DbUseCase> label "${label}" must be unique within its <DatabaseLens>.`,
+          `<DbUseCase> label "${label.data}" must be unique within its <DatabaseLens>.`,
         );
       }
-      labels.add(label);
+      labels.add(label.data);
     }
   }
   if (

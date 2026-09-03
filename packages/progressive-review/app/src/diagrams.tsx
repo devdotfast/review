@@ -1,3 +1,4 @@
+import { isStringValue } from "@dev.fast/review-protocol";
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -93,10 +94,11 @@ interface UncheckedSequenceInput {
   messages: UncheckedSequenceMessageInput[];
 }
 
-export interface SequenceMessageCodeBlock {
+// A type alias so message code can travel inside a graph target payload.
+export type SequenceMessageCodeBlock = {
   language?: string;
   text: string;
-}
+};
 
 export interface SequenceMessage {
   id: string;
@@ -266,10 +268,17 @@ function actorSoftwareMapPath(actor: SequenceActorInput): string | undefined {
   return "__kind" in actor ? actor.softwareMapPath : undefined;
 }
 
+/** Message code written as bare text rather than a `{ text, language }` block. */
+function isSequenceMessageCodeText(
+  code: SequenceMessageCodeInput,
+): code is string {
+  return isStringValue(code);
+}
+
 function normalizeSequenceMessageCode(
   code: SequenceMessageCodeInput | undefined,
 ): SequenceMessageCodeBlock | undefined {
-  if (typeof code === "string") {
+  if (code !== undefined && isSequenceMessageCodeText(code)) {
     const text = code.trim();
     return text ? { text } : undefined;
   }

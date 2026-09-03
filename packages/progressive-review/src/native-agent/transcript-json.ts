@@ -2,7 +2,10 @@ import { readFile } from "node:fs/promises";
 
 import {
   type JsonObject,
+  type JsonValue,
   isJsonObject,
+  jsonArray,
+  jsonString,
   parseJsonText,
 } from "@dev.fast/review-protocol";
 
@@ -27,15 +30,19 @@ export async function readJsonLines(path: string): Promise<JsonRecord[]> {
   });
 }
 
-export function textBlocks(value: unknown): string[] {
-  if (typeof value === "string") return value.trim() ? [value] : [];
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((block) =>
-    isJsonRecord(block) &&
-    block.type === "text" &&
-    typeof block.text === "string" &&
-    block.text.trim()
-      ? [block.text]
-      : [],
-  );
+export function textBlocks(value: JsonValue | undefined): string[] {
+  const text = jsonString(value);
+  if (text !== undefined) return text.trim() ? [text] : [];
+  const blocks = jsonArray(value);
+  if (!blocks) return [];
+  return blocks.flatMap((block) => {
+    if (!isJsonRecord(block) || block.type !== "text") return [];
+    const blockText = jsonString(block.text);
+    return blockText?.trim() ? [blockText] : [];
+  });
+}
+
+/** Whether a thrown filesystem error reports a missing file (ENOENT). */
+export function isMissingFileError(cause: unknown): boolean {
+  return cause instanceof Error && "code" in cause && cause.code === "ENOENT";
 }

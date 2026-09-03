@@ -8,6 +8,7 @@ import {
   type JsonValue,
   type ReviewVerbRequest,
   isJsonObject,
+  jsonString,
 } from "@dev.fast/review-protocol";
 
 import { DEV_REVIEW_HOME_ENV, devReviewHome } from "../review-storage";
@@ -378,10 +379,6 @@ function shellQuote(value: string): string {
 }
 
 function tomlInline(value: JsonValue): string {
-  if (typeof value === "boolean" || typeof value === "number") {
-    return String(value);
-  }
-  if (typeof value === "string") return JSON.stringify(value);
   if (Array.isArray(value)) {
     return `[${value.map(tomlInline).join(", ")}]`;
   }
@@ -393,5 +390,9 @@ function tomlInline(value: JsonValue): string {
       })
       .join(", ")} }`;
   }
-  throw new TypeError("Codex hook configuration contains an invalid value.");
+  if (value === null) {
+    throw new TypeError("Codex hook configuration contains an invalid value.");
+  }
+  const text = jsonString(value);
+  return text === undefined ? String(value) : JSON.stringify(text);
 }

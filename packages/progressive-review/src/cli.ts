@@ -6,6 +6,12 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  jsonObject,
+  jsonString,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
+
 // A standalone build (npx/global install) defers to the CLI bundled with a
 // running Review Desktop so the CLI can never skew from the server it talks
 // to. Checkout runs execute src/cli.ts via tsx and therefore never delegate.
@@ -62,18 +68,20 @@ function maybeDelegateToDesktopCli(argv: string[]): number | null {
   let cliPath: string;
   let runtimePath: string | undefined;
   try {
-    const discovery = JSON.parse(
-      readFileSync(path.join(devHome, "review-desktop", "server.json"), "utf8"),
-    ) as { cliPath?: unknown; cliRuntimePath?: unknown };
-    if (typeof discovery.cliPath !== "string" || !discovery.cliPath)
-      return null;
-    cliPath = discovery.cliPath;
-    if (
-      typeof discovery.cliRuntimePath === "string" &&
-      discovery.cliRuntimePath &&
-      existsSync(discovery.cliRuntimePath)
-    ) {
-      runtimePath = discovery.cliRuntimePath;
+    const discovery = jsonObject(
+      parseJsonText(
+        readFileSync(
+          path.join(devHome, "review-desktop", "server.json"),
+          "utf8",
+        ),
+      ),
+    );
+    const discoveredCliPath = jsonString(discovery?.cliPath);
+    if (!discoveredCliPath) return null;
+    cliPath = discoveredCliPath;
+    const discoveredRuntimePath = jsonString(discovery?.cliRuntimePath);
+    if (discoveredRuntimePath && existsSync(discoveredRuntimePath)) {
+      runtimePath = discoveredRuntimePath;
     }
   } catch {
     return null;

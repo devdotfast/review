@@ -19,6 +19,8 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { writeNote } from "@dev.fast/local-vcs";
+import { parseJsonText } from "@dev.fast/review-protocol";
+import { z } from "zod";
 
 import { writeReviewDocumentBundle } from "../src/review-bundle";
 import { createReviewDir } from "../src/review-home";
@@ -35,6 +37,40 @@ import { loadPublishSoftwareMaps } from "../src/software-map-health";
 const execFilePromise = promisify(execFile);
 const packageRoot = path.resolve(import.meta.dirname, "..");
 const tutorialDir = path.join(packageRoot, "tutorial");
+
+/** A manifest entry that names a file inside the tutorial tree. */
+const safeManifestPathSchema = z
+  .string()
+  .min(1)
+  .refine(
+    (entry) => !path.isAbsolute(entry) && !entry.split(/[\\/]/u).includes(".."),
+  );
+
+export const tutorialRuntimeManifestSchema = z
+  .object({
+    version: z.literal(1),
+    reviewFiles: z.array(safeManifestPathSchema).min(1),
+    requiredPaths: z.array(safeManifestPathSchema).min(1),
+  })
+  .refine((manifest) =>
+    manifest.reviewFiles.every((entry) =>
+      manifest.requiredPaths.includes(entry),
+    ),
+  );
+
+export async function readTutorialRuntimeManifest(
+  tutorialRoot: string,
+): Promise<z.infer<typeof tutorialRuntimeManifestSchema>> {
+  const parsed = tutorialRuntimeManifestSchema.safeParse(
+    parseJsonText(
+      await readFile(path.join(tutorialRoot, "runtime-manifest.json"), "utf8"),
+    ),
+  );
+  if (!parsed.success) {
+    throw new Error("Tutorial runtime manifest is invalid.");
+  }
+  return parsed.data;
+}
 
 /* The commit hash must be identical on every build machine: the map-bundle
    manifest bakes it in, and the runtime checks the shipped repo's HEAD
@@ -76,22 +112,7 @@ export async function buildTutorialAssets(
   input: { outDir?: string } = {},
 ): Promise<BuiltTutorialAssets> {
   const outDir = input.outDir ?? tutorialDir;
-  const runtimeManifest = JSON.parse(
-    await readFile(path.join(tutorialDir, "runtime-manifest.json"), "utf8"),
-  ) as { reviewFiles?: unknown };
-  if (
-    !Array.isArray(runtimeManifest.reviewFiles) ||
-    runtimeManifest.reviewFiles.length === 0 ||
-    !runtimeManifest.reviewFiles.every(
-      (entry) =>
-        typeof entry === "string" &&
-        entry.length > 0 &&
-        !path.isAbsolute(entry) &&
-        !entry.split(/[\\/]/u).includes(".."),
-    )
-  ) {
-    throw new Error("Tutorial runtime manifest is invalid.");
-  }
+  const runtimeManifest = await readTutorialRuntimeManifest(tutorialDir);
   const temporaryRoot = await mkdtemp(
     path.join(os.tmpdir(), "review-tutorial-build-"),
   );

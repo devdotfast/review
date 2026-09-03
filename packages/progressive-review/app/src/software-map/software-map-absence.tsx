@@ -2,6 +2,11 @@ import type { CSSProperties, ReactElement } from "react";
 
 import type { NormalizedSoftwareModel } from "./model";
 
+/** The CSS length for a size prop: bare numbers are pixel counts. */
+export function softwareMapCssLength(value: number | string): string {
+  return Number.isFinite(value) ? `${value}px` : `${value}`;
+}
+
 export function SoftwareMapUnavailable({
   title,
   height,
@@ -15,8 +20,7 @@ export function SoftwareMapUnavailable({
     height === undefined
       ? undefined
       : ({
-          "--software-map-empty-height":
-            typeof height === "number" ? `${height}px` : height,
+          "--software-map-empty-height": softwareMapCssLength(height),
         } as CSSProperties);
   return (
     <section

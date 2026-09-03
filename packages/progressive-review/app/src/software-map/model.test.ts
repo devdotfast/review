@@ -528,7 +528,7 @@ describe("defineSoftwareModel", () => {
   });
 });
 
-function expectValidationErrors(action: () => unknown) {
+function expectValidationErrors(action: () => void) {
   try {
     action();
   } catch (error) {

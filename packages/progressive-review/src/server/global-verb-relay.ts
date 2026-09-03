@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 
 import {
+  type JsonValue,
   type ReviewVerbRequest,
   type ReviewVerbResponse,
   parseReviewDesktopVerbResult,
@@ -41,7 +42,7 @@ export class GlobalReviewDesktopVerbRelay {
     return true;
   }
 
-  dispatch(sessionId: string, value: unknown): Promise<ReviewVerbResponse> {
+  dispatch(sessionId: string, value: JsonValue): Promise<ReviewVerbResponse> {
     const request: ReviewVerbRequest = parseReviewVerbRequest(value);
     const control = this.controlWriter;
     if (!control) {
@@ -69,7 +70,7 @@ export class GlobalReviewDesktopVerbRelay {
     });
   }
 
-  acceptResult(value: unknown): boolean {
+  acceptResult(value: JsonValue): boolean {
     const result = parseReviewDesktopVerbResult(value);
     const pending = this.pending.get(result.id);
     if (!pending || pending.sessionId !== result.sessionId) return false;

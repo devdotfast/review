@@ -1,3 +1,5 @@
+import { isJsonObject, jsonString } from "@dev.fast/review-protocol";
+
 import type { ReviewSession } from "./host/review-session";
 
 // Wire contract for shipping a review-document render failure from the browser
@@ -16,32 +18,29 @@ export interface ReviewDocumentErrorReport {
 }
 
 export function reviewDocumentErrorReport(
-  error: unknown,
+  cause: unknown,
 ): ReviewDocumentErrorReport {
-  if (error instanceof Error) {
+  if (cause instanceof Error) {
     return {
-      name: error.name,
-      message: error.message,
-      ...(error.stack ? { stack: error.stack } : {}),
+      name: cause.name,
+      message: cause.message,
+      ...(cause.stack ? { stack: cause.stack } : {}),
     };
   }
-  const value = error as {
-    name?: unknown;
-    message?: unknown;
-    stack?: unknown;
-  } | null;
+  const fields = isJsonObject(cause) ? cause : undefined;
+  const stack = jsonString(fields?.stack);
   return {
-    name: typeof value?.name === "string" ? value.name : "Error",
-    message: typeof value?.message === "string" ? value.message : String(error),
-    ...(typeof value?.stack === "string" ? { stack: value.stack } : {}),
+    name: jsonString(fields?.name) ?? "Error",
+    message: jsonString(fields?.message) ?? String(cause),
+    ...(stack === undefined ? {} : { stack }),
   };
 }
 
 export function reportReviewDocumentRenderError(
   session: ReviewSession,
-  error: unknown,
+  cause: unknown,
 ): void {
-  const report = reviewDocumentErrorReport(error);
+  const report = reviewDocumentErrorReport(cause);
   session.reportDiagnostic({
     level: "error",
     source: "render",

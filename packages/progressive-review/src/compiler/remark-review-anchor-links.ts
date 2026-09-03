@@ -1,4 +1,4 @@
-import type { Link, Root } from "mdast";
+import type { Link, Nodes, Root } from "mdast";
 
 const ANCHOR_LINK = /^anchors\.([A-Za-z_$][A-Za-z0-9_$]*)$/;
 
@@ -7,7 +7,7 @@ interface ParentNode {
 }
 
 interface VFileLike {
-  fail(message: string, node?: unknown): never;
+  fail(message: string, node?: Nodes): never;
 }
 
 /** Compile Markdown `[label](anchors.key)` into a typed AnchorLink. */

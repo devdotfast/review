@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { type Message, type Plugin, build } from "esbuild";
+import { type BuildFailure, type Plugin, build } from "esbuild";
 
 import {
   type ReviewDocumentDiagnostic,
@@ -250,21 +250,24 @@ function entryModuleSource(input: {
   ].join("\n");
 }
 
+function isBuildFailure(cause: unknown): cause is BuildFailure {
+  return (
+    cause instanceof Error && "errors" in cause && Array.isArray(cause.errors)
+  );
+}
+
 function esbuildDiagnostics(
-  error: unknown,
+  cause: unknown,
   fallbackFilePath: string,
 ): ReviewDocumentDiagnostic[] {
-  const messages =
-    error && typeof error === "object" && "errors" in error
-      ? (error.errors as Message[])
-      : [];
+  const messages = isBuildFailure(cause) ? cause.errors : [];
   if (messages.length === 0) {
     return [
       {
         source: "review",
         severity: "error",
         code: "bundle",
-        message: error instanceof Error ? error.message : String(error),
+        message: cause instanceof Error ? cause.message : String(cause),
         filePath: fallbackFilePath,
       },
     ];

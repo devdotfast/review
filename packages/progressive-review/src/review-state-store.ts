@@ -6,6 +6,7 @@ import { readFileAtRevisionSync } from "@dev.fast/local-vcs";
 import {
   CodeThreadTargetSchema,
   type GitLabDiffPosition,
+  type JsonObject,
   ReviewRecordSchema,
   gitLabDiffPositionRows,
   isJsonObject,
@@ -47,7 +48,12 @@ interface ReviewCodeTargetContext {
   headCommit: string | null;
 }
 
-function isLegacyCodeTarget(target: unknown): boolean {
+/**
+ * Code targets from before the `code` kind existed were text targets on a
+ * native or code-part surface; such a shape can still arrive as raw JSON from
+ * an older store.
+ */
+function isLegacyCodeTarget(target: ThreadTarget | JsonObject): boolean {
   if (!isJsonObject(target) || target.kind !== "text") return false;
   if (!isJsonObject(target.surface)) return false;
   if (target.surface.type === "native") return true;

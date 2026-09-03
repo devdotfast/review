@@ -5,6 +5,7 @@ import type { Writable } from "node:stream";
 import {
   ReviewCommentThreadRecordSchema,
   isJsonObject,
+  jsonString,
 } from "@dev.fast/review-protocol";
 
 import { reviewUuidForManagedCheckout } from "./review-head-checkout";
@@ -97,12 +98,9 @@ async function readAttachedReviewThread(input: {
   if (!isJsonObject(record)) {
     throw new Error("Review Desktop returned an invalid thread response.");
   }
-  const review = record.review;
+  const review = jsonString(record.review);
   const state = record.state;
-  if (
-    typeof review !== "string" ||
-    (state !== "draft" && state !== "submitted")
-  ) {
+  if (review === undefined || (state !== "draft" && state !== "submitted")) {
     throw new Error("Review Desktop returned an invalid thread response.");
   }
   if (input.reviewUuid && input.reviewUuid !== review) {

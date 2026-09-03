@@ -9,7 +9,10 @@ import { createGzip } from "node:zlib";
 
 import {
   type JsonObject,
-  isJsonObject,
+  type JsonValue,
+  jsonNumber,
+  jsonObject,
+  jsonString,
   parseJsonText,
 } from "@dev.fast/review-protocol";
 
@@ -231,17 +234,17 @@ async function readCodexMetadata(
   if (first.type !== "session_meta") {
     throw new Error("Codex trace does not start with session metadata.");
   }
-  const payload = objectValue(first.payload);
+  const payload = jsonObject(first.payload);
   if (payload?.id !== sessionId) {
     throw new Error("Codex trace metadata does not match its session id.");
   }
-  const historyBaseValue = objectValue(payload.history_base);
+  const historyBaseValue = jsonObject(payload.history_base);
   let historyBase: CodexHistoryBase | undefined;
   if (payload.history_base !== undefined) {
     if (!historyBaseValue) {
       throw new Error("Codex history base is malformed.");
     }
-    const threadId = stringValue(historyBaseValue.thread_id);
+    const threadId = jsonString(historyBaseValue.thread_id);
     const endOrdinalExclusive = integerValue(
       historyBaseValue.end_ordinal_exclusive,
     );
@@ -488,22 +491,15 @@ function redactTraceText(contents: string): string {
 
 function parseJsonObject(line: string): JsonObject | undefined {
   try {
-    return objectValue(parseJsonText(line));
+    return jsonObject(parseJsonText(line));
   } catch {
     return undefined;
   }
 }
 
-function objectValue(value: unknown): JsonObject | undefined {
-  return isJsonObject(value) ? value : undefined;
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-function integerValue(value: unknown): number | undefined {
-  return Number.isSafeInteger(value) && (value as number) >= 0
-    ? (value as number)
+function integerValue(value: JsonValue | undefined): number | undefined {
+  const number = jsonNumber(value);
+  return number !== undefined && Number.isSafeInteger(number) && number >= 0
+    ? number
     : undefined;
 }

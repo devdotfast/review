@@ -163,7 +163,7 @@ async function readStdin(
   if (!stdin) return "";
   const chunks: Buffer[] = [];
   for await (const chunk of stdin) {
-    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
   return Buffer.concat(chunks).toString("utf8");
 }

@@ -225,8 +225,8 @@ function lstatSyncOrNull(lockPath: string): fs.Stats | null {
   }
 }
 
-function isLockContentionError(error: unknown): boolean {
-  const code = (error as NodeJS.ErrnoException)?.code;
+function isLockContentionError(cause: unknown): boolean {
+  const code = (cause as NodeJS.ErrnoException)?.code;
   return (
     code === "EEXIST" ||
     code === "ELOCKED" ||

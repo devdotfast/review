@@ -1,4 +1,5 @@
 import type { JsonPrimitive } from "@dev.fast/review-protocol";
+import { isObjectValue } from "@dev.fast/review-protocol";
 import type { MDXComponents } from "mdx/types";
 import type { ComponentType } from "react";
 
@@ -28,6 +29,12 @@ export type ReviewDocumentExport =
 
 export type ReviewDocumentModuleExports = Record<string, ReviewDocumentExport>;
 
+/** Exports whose fields can hold anchors: models, refs and author containers. */
+type ReviewDocumentExportContainer = Exclude<
+  ReviewDocumentExport,
+  JsonPrimitive | undefined | ReviewDocumentComponent
+>;
+
 export interface ReviewDocumentModuleInput {
   slug: string;
   routePath: string;
@@ -56,7 +63,7 @@ export type ReadyReviewDocumentEntry = ReviewDocumentEntry;
 export function createActiveReviewDocument(
   input: ReviewDocumentModuleInput,
 ): ReadyReviewDocumentEntry {
-  if (typeof input.Component !== "function") {
+  if (!input.Component) {
     throw new Error(
       `Review document ${input.filePath} did not export a React component.`,
     );
@@ -83,39 +90,30 @@ function collectReviewAnchors(models: ReviewDocumentModuleExports) {
   const anchors = new Map<string, AnchorRef>();
   const anchorContents = new Map<string, string>();
   const visited = new Set<object>();
-  const visit = (value: unknown): void => {
-    if (!value || typeof value !== "object") return;
+  const visit = (value: ReviewDocumentExport): void => {
+    if (!isReviewDocumentExportContainer(value)) return;
     if (visited.has(value)) return;
     visited.add(value);
-    if ((value as { __kind?: unknown }).__kind === "review-sequence-ref") {
-      const messages = (
-        value as {
-          messages?: Array<{ anchor?: AnchorRef; code?: { text?: unknown } }>;
+    if (isSequenceRefExport(value)) {
+      for (const message of value.messages) {
+        if (!message.code) continue;
+        const existing = anchorContents.get(message.anchor.id);
+        if (existing !== undefined && existing !== message.code.text) {
+          throw new Error(
+            `Review anchor id "${message.anchor.id}" has more than one authored content body.`,
+          );
         }
-      ).messages;
-      if (Array.isArray(messages)) {
-        for (const message of messages) {
-          if (!message.anchor || typeof message.code?.text !== "string")
-            continue;
-          const existing = anchorContents.get(message.anchor.id);
-          if (existing !== undefined && existing !== message.code.text) {
-            throw new Error(
-              `Review anchor id "${message.anchor.id}" has more than one authored content body.`,
-            );
-          }
-          anchorContents.set(message.anchor.id, message.code.text);
-        }
+        anchorContents.set(message.anchor.id, message.code.text);
       }
     }
-    if ((value as { __kind?: unknown }).__kind === "db-anchor-ref") {
-      const anchor = value as AnchorRef;
-      const existing = anchors.get(anchor.id);
-      if (existing && existing !== anchor) {
+    if (isAnchorRefExport(value)) {
+      const existing = anchors.get(value.id);
+      if (existing && existing !== value) {
         throw new Error(
-          `Review anchor id "${anchor.id}" is defined more than once.`,
+          `Review anchor id "${value.id}" is defined more than once.`,
         );
       }
-      anchors.set(anchor.id, anchor);
+      anchors.set(value.id, value);
       return;
     }
     if (Array.isArray(value)) {
@@ -128,11 +126,32 @@ function collectReviewAnchors(models: ReviewDocumentModuleExports) {
   return { anchors, anchorContents };
 }
 
-function isSoftwareModel(value: unknown): value is NormalizedSoftwareModel {
+function isReviewDocumentExportContainer(
+  value: ReviewDocumentExport,
+): value is ReviewDocumentExportContainer {
+  return isObjectValue(value);
+}
+
+function isSequenceRefExport(
+  value: ReviewDocumentExportContainer,
+): value is SequenceRef {
+  return "__kind" in value && value.__kind === "review-sequence-ref";
+}
+
+function isAnchorRefExport(
+  value: ReviewDocumentExportContainer,
+): value is AnchorRef {
+  return "__kind" in value && value.__kind === "db-anchor-ref";
+}
+
+function isSoftwareModel(
+  value: ReviewDocumentExport,
+): value is NormalizedSoftwareModel {
   return (
-    Boolean(value) &&
-    typeof value === "object" &&
-    Array.isArray((value as { elements?: unknown }).elements) &&
-    Array.isArray((value as { relationships?: unknown }).relationships)
+    isReviewDocumentExportContainer(value) &&
+    "elements" in value &&
+    Array.isArray(value.elements) &&
+    "relationships" in value &&
+    Array.isArray(value.relationships)
   );
 }

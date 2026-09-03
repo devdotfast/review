@@ -381,7 +381,7 @@ function ThreadScroll({
 function useClampedOverflow(
   ref: RefObject<HTMLElement | null>,
   active: boolean,
-  content: unknown,
+  content: string,
 ): boolean {
   const [clamped, setClamped] = useState(false);
 

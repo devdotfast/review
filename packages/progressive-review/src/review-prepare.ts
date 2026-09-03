@@ -96,9 +96,9 @@ export async function prepareReviewPinnedCheckout(
       const runCommand = input.runCommand ?? runPrepareShellCommand;
       for (const command of input.commands) {
         const result = await runCommand(command, input.checkoutPath).catch(
-          (error: unknown) => ({
+          (cause: unknown) => ({
             exitCode: null,
-            output: error instanceof Error ? error.message : String(error),
+            output: cause instanceof Error ? cause.message : String(cause),
           }),
         );
         if (result.exitCode !== 0) {

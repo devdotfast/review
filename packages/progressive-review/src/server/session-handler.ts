@@ -10,6 +10,7 @@ import {
   type ReviewSessionWire,
   type ReviewThreadsCommit,
   type ReviewVerbRequest,
+  jsonString,
 } from "@dev.fast/review-protocol";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -142,10 +143,7 @@ export async function createReviewSessionHandler(
                 presentationSessionId: input.sessionId,
               },
               {
-                appSessionId:
-                  typeof properties.app_session_id === "string"
-                    ? properties.app_session_id
-                    : undefined,
+                appSessionId: jsonString(properties.app_session_id),
               },
             );
             return;

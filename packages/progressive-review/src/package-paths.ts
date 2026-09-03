@@ -2,6 +2,12 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import {
+  jsonObject,
+  jsonString,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
+
 const MODEL_SOURCE_FILES = new Set([
   "software-map-model.ts",
   "tolerant-software-map-model.ts",
@@ -49,15 +55,18 @@ export function readProgressiveReviewPackageVersion(
   moduleUrl: string = import.meta.url,
 ): string {
   try {
-    const packageJson = JSON.parse(
-      readFileSync(
-        path.join(findProgressiveReviewPackageRoot(moduleUrl), "package.json"),
-        "utf8",
+    const packageJson = jsonObject(
+      parseJsonText(
+        readFileSync(
+          path.join(
+            findProgressiveReviewPackageRoot(moduleUrl),
+            "package.json",
+          ),
+          "utf8",
+        ),
       ),
-    ) as { version?: unknown };
-    return typeof packageJson.version === "string"
-      ? packageJson.version
-      : "unknown";
+    );
+    return jsonString(packageJson?.version) ?? "unknown";
   } catch {
     return "unknown";
   }

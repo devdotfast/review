@@ -16,7 +16,14 @@
 // accepting the property. Either the cleaner finished the job or only the
 // digest goes; a wrong producer cannot put raw text on the wire through here.
 
-import { type JsonObject, isJsonObject } from "@dev.fast/review-protocol";
+import {
+  type JsonObject,
+  isJsonObject,
+  jsonBoolean,
+  jsonNumber,
+  jsonString,
+} from "@dev.fast/review-protocol";
+import { z } from "zod";
 
 import {
   containsFilePathShape,
@@ -456,10 +463,9 @@ export function sanitizeUiTelemetryEvent(input: {
   event: string;
   properties: Record<string, string | number | boolean>;
 } | null {
-  if (typeof input.name !== "string" || !isUiTelemetryEventName(input.name)) {
-    return null;
-  }
-  const spec: UiTelemetryEventSpec = UI_TELEMETRY_EVENTS[input.name];
+  const name = z.string().safeParse(input.name);
+  if (!name.success || !isUiTelemetryEventName(name.data)) return null;
+  const spec: UiTelemetryEventSpec = UI_TELEMETRY_EVENTS[name.data];
 
   const raw: JsonObject = isJsonObject(input.properties)
     ? input.properties
@@ -472,58 +478,57 @@ export function sanitizeUiTelemetryEvent(input: {
   for (const [key, propSpec] of Object.entries(propertySpecs)) {
     const value = raw[key];
     if (value === undefined || value === null) continue;
+    const text = jsonString(value);
     if (propSpec === "number") {
-      if (typeof value === "number" && Number.isFinite(value)) {
-        properties[key] = value;
-      }
+      const number = jsonNumber(value);
+      if (number !== undefined) properties[key] = number;
       continue;
     }
     if (propSpec === "boolean") {
-      if (typeof value === "boolean") properties[key] = value;
+      const boolean = jsonBoolean(value);
+      if (boolean !== undefined) properties[key] = boolean;
       continue;
     }
     if (propSpec === "opaque_id") {
-      if (isValidReviewAppSessionId(value)) {
-        properties[key] = value;
-      }
+      if (isValidReviewAppSessionId(text)) properties[key] = text;
       continue;
     }
     if (propSpec === "release_version") {
-      if (typeof value === "string" && RELEASE_VERSION_PATTERN.test(value)) {
-        properties[key] = value;
+      if (text !== undefined && RELEASE_VERSION_PATTERN.test(text)) {
+        properties[key] = text;
       }
       continue;
     }
     if (propSpec === "enum_free_short") {
       if (
-        typeof value === "string" &&
-        value.length <= MAX_FREE_STRING_LENGTH &&
-        FREE_STRING_PATTERN.test(value)
+        text !== undefined &&
+        text.length <= MAX_FREE_STRING_LENGTH &&
+        FREE_STRING_PATTERN.test(text)
       ) {
-        properties[key] = value;
+        properties[key] = text;
       }
       continue;
     }
     if (propSpec === "hash_hex") {
-      if (typeof value === "string" && HASH_HEX_PATTERN.test(value)) {
-        properties[key] = value;
+      if (text !== undefined && HASH_HEX_PATTERN.test(text)) {
+        properties[key] = text;
       }
       continue;
     }
     if (propSpec === "bundle_frames") {
-      const frames = sanitizeBundleFrames(value);
+      const frames = sanitizeBundleFrames(text);
       if (frames) properties[key] = frames;
       continue;
     }
     if (propSpec === "cleaned_message") {
-      if (typeof value === "string" && isReportableCleanedMessage(value)) {
-        properties[key] = value;
+      if (text !== undefined && isReportableCleanedMessage(text)) {
+        properties[key] = text;
       }
       continue;
     }
-    if (Array.isArray(propSpec) && typeof value === "string") {
-      if ((propSpec as readonly string[]).includes(value)) {
-        properties[key] = value;
+    if (Array.isArray(propSpec) && text !== undefined) {
+      if ((propSpec as readonly string[]).includes(text)) {
+        properties[key] = text;
       }
     }
   }
@@ -558,8 +563,8 @@ export function isReportableCleanedMessage(value: string): boolean {
  * normalized; this is the independent second check, so it never repairs a frame
  * — it drops it. Returns undefined when nothing survives.
  */
-function sanitizeBundleFrames(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
+function sanitizeBundleFrames(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
   const kept: string[] = [];
   let length = 0;
   for (const frame of value.split(BUNDLE_FRAME_SEPARATOR)) {
@@ -573,6 +578,8 @@ function sanitizeBundleFrames(value: unknown): string | undefined {
   return kept.length > 0 ? kept.join(BUNDLE_FRAME_SEPARATOR) : undefined;
 }
 
-export function isValidReviewAppSessionId(value: unknown): value is string {
-  return typeof value === "string" && OPAQUE_ID_PATTERN.test(value);
+export function isValidReviewAppSessionId(
+  value: string | undefined,
+): value is string {
+  return value !== undefined && OPAQUE_ID_PATTERN.test(value);
 }

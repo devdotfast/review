@@ -2,11 +2,13 @@ import crypto from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile, readdir, rm, stat } from "node:fs/promises";
 import { type Server, createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import {
   type JsonObject,
+  type JsonValue,
   REVIEW_DESKTOP_DISCOVERY_VERSION,
   type ReviewDescriptor,
   type ReviewDesktopDiscovery,
@@ -18,6 +20,11 @@ import {
   type ReviewVerbRequest,
   type ReviewView,
   isJsonObject,
+  isObjectValue,
+  jsonBoolean,
+  jsonNumber,
+  jsonProperty,
+  jsonString,
   parseReviewCliInstallApplyRequest,
   parseReviewPublishReadyRequest,
   reviewViewSchema,
@@ -429,15 +436,12 @@ export function createGlobalReviewServer(
     /* A background open keeps the canvas where it is: the Source tab opens
        sessions purely to root its file tree. Body-less requests (the CLI)
        stay foreground. */
-    const openBody = (await readBoundedRequestJson(
+    const openBodyValue = await readBoundedRequestJson(
       context.req.raw,
       undefined,
       null,
-    )) as {
-      background?: unknown;
-      revision?: unknown;
-      view?: unknown;
-    } | null;
+    );
+    const openBody = isJsonObject(openBodyValue) ? openBodyValue : null;
     const background = openBody?.background === true;
     const parsedView = reviewViewSchema.safeParse(openBody?.view);
     if (openBody?.view !== undefined && !parsedView.success) {
@@ -471,10 +475,13 @@ export function createGlobalReviewServer(
         "review_unpublished",
       );
     }
+    const revisionValue = openBody
+      ? jsonProperty(openBody, "revision")
+      : undefined;
+    const revision = jsonString(revisionValue);
     if (
-      openBody?.revision !== undefined &&
-      (typeof openBody.revision !== "string" ||
-        !/^[0-9a-f]{40}$/.test(openBody.revision))
+      revisionValue !== undefined &&
+      (revision === undefined || !/^[0-9a-f]{40}$/.test(revision))
     ) {
       throw new ReviewServerError(
         "Review revision must be a 40-character hexadecimal commit ID.",
@@ -483,9 +490,9 @@ export function createGlobalReviewServer(
       );
     }
     const requestedRevision =
-      typeof openBody?.revision === "string" &&
-      openBody.revision !== review.review.presentedDocumentRevision
-        ? openBody.revision
+      revision !== undefined &&
+      revision !== review.review.presentedDocumentRevision
+        ? revision
         : undefined;
     if (requestedRevision) {
       return openHistoricalReviewSession(
@@ -663,19 +670,18 @@ export function createGlobalReviewServer(
     globalJson(200, await readReviewPreferences()),
   );
   app.put("/preferences", async (context) => {
-    const body = (await readBoundedRequestJson(context.req.raw)) as {
-      dismissedRetentionDays?: unknown;
-    };
-    const value = body.dismissedRetentionDays;
-    if (value !== null && typeof value !== "number") {
+    const body = await readBoundedRequestJson(context.req.raw);
+    const value = isJsonObject(body)
+      ? jsonProperty(body, "dismissedRetentionDays")
+      : undefined;
+    const dismissedRetentionDays = value === null ? null : jsonNumber(value);
+    if (dismissedRetentionDays === undefined) {
       throw new ReviewServerError(
         "dismissedRetentionDays must be a number or null.",
         400,
       );
     }
-    const saved = await writeReviewPreferences({
-      dismissedRetentionDays: value,
-    });
+    const saved = await writeReviewPreferences({ dismissedRetentionDays });
     broadcastGlobal({ event: "preferences-changed", preferences: saved });
     return globalJson(200, saved);
   });
@@ -2148,7 +2154,7 @@ function latestAgentSessionWithRole(
     )[0]?.[0];
 }
 
-function parseInfoRequest(input: unknown): RunReviewInfoInput {
+function parseInfoRequest(input: JsonValue): RunReviewInfoInput {
   if (!isJsonObject(input)) {
     throw new HttpJsonError("Info request must be an object.", 400);
   }
@@ -2156,27 +2162,29 @@ function parseInfoRequest(input: unknown): RunReviewInfoInput {
   if (Object.keys(input).some((key) => !allowed.has(key))) {
     throw new HttpJsonError("Info request has unexpected fields.", 400);
   }
-  if (typeof input.cwd !== "string" || !input.cwd.trim()) {
+  const cwd = jsonString(jsonProperty(input, "cwd"));
+  if (cwd === undefined || !cwd.trim()) {
     throw new HttpJsonError("Info request requires cwd.", 400);
   }
-  if (input.all !== undefined && typeof input.all !== "boolean") {
+  const all = jsonProperty(input, "all");
+  if (all !== undefined && jsonBoolean(all) === undefined) {
     throw new HttpJsonError("Info all must be boolean.", 400);
   }
+  const reviewUuidValue = jsonProperty(input, "reviewUuid");
+  const reviewUuid = jsonString(reviewUuidValue);
   if (
-    input.reviewUuid !== undefined &&
-    (typeof input.reviewUuid !== "string" || !input.reviewUuid.trim())
+    reviewUuidValue !== undefined &&
+    (reviewUuid === undefined || !reviewUuid.trim())
   ) {
     throw new HttpJsonError("Info reviewUuid must be a non-empty string.", 400);
   }
-  if (input.all === true && input.reviewUuid !== undefined) {
+  if (all === true && reviewUuidValue !== undefined) {
     throw new HttpJsonError("Info all and reviewUuid cannot be combined.", 400);
   }
   return {
-    cwd: input.cwd,
-    ...(input.all ? { all: true } : {}),
-    ...(typeof input.reviewUuid === "string"
-      ? { reviewUuid: input.reviewUuid.trim() }
-      : {}),
+    cwd,
+    ...(all ? { all: true } : {}),
+    ...(reviewUuid !== undefined ? { reviewUuid: reviewUuid.trim() } : {}),
   };
 }
 
@@ -2396,11 +2404,11 @@ async function setReviewStatus(
   return { ...stored, review };
 }
 
-function httpJsonStatus(error: unknown): number {
-  return error instanceof HttpJsonError ? error.statusCode : 400;
+function httpJsonStatus(cause: unknown): number {
+  return cause instanceof HttpJsonError ? cause.statusCode : 400;
 }
 
-function globalJson(status: number, body: unknown): Response {
+function globalJson<T>(status: number, body: T): Response {
   return jsonResponse(body, status as ContentfulStatusCode, {
     cacheControl: "no-store",
   });
@@ -2412,7 +2420,7 @@ function listen(server: Server, port: number): Promise<number> {
     server.listen(port, "127.0.0.1", () => {
       server.off("error", reject);
       const address = server.address();
-      if (typeof address !== "object" || address === null) {
+      if (!isTcpAddress(address)) {
         reject(new Error("The Review server did not bind a TCP port."));
         return;
       }
@@ -2451,6 +2459,13 @@ async function removeMatchingDiscovery(
   }
 }
 
-function toError(value: unknown): Error {
-  return value instanceof Error ? value : new Error(String(value));
+/** `server.address()` is a string for pipe and socket listeners. */
+function isTcpAddress(
+  address: string | AddressInfo | null,
+): address is AddressInfo {
+  return isObjectValue(address);
+}
+
+function toError(cause: unknown): Error {
+  return cause instanceof Error ? cause : new Error(String(cause));
 }

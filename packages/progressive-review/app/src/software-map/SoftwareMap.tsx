@@ -1,4 +1,11 @@
 import {
+  type JsonValue,
+  isJsonObject,
+  jsonArray,
+  jsonProperty,
+  jsonString,
+} from "@dev.fast/review-protocol";
+import {
   type ElkGraph as LibavoidElkGraph,
   init as initLibavoidEdgeRouter,
   routeEdges as routeLibavoidEdges,
@@ -39,6 +46,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { z } from "zod";
 
 import { throwAuthoringIssue } from "../../../src/authoring";
 import { CodePeekGroup } from "../CodePeek";
@@ -79,7 +87,10 @@ import type {
   SoftwareChangeStatus,
   SoftwareDataStoreKind,
 } from "./model";
-import { SoftwareMapUnavailable } from "./software-map-absence";
+import {
+  SoftwareMapUnavailable,
+  softwareMapCssLength,
+} from "./software-map-absence";
 import { refreshSoftwareMapArtifacts } from "./software-map-patch-client";
 
 import "./styles.css";
@@ -255,15 +266,17 @@ function softwareMapDiffFileRanges(file: SoftwareMapUnmappedDiffFile): Array<{
   });
 }
 
-export interface SoftwareMapDataStoreSchemaSectionSnapshot {
+// Type aliases, not interfaces: snapshots travel inside graph target
+// payloads, which need the implicit index signature.
+export type SoftwareMapDataStoreSchemaSectionSnapshot = {
   id: string;
   label: string;
   kind: "table" | "document";
   key?: string;
   rows: SoftwareMapDataStoreSchemaRowSnapshot[];
-}
+};
 
-export interface SoftwareMapDataStoreSchemaRowSnapshot {
+export type SoftwareMapDataStoreSchemaRowSnapshot = {
   id: string;
   label: string;
   depth?: number;
@@ -272,7 +285,7 @@ export interface SoftwareMapDataStoreSchemaRowSnapshot {
   primaryKey?: boolean;
   foreignKey?: boolean;
   state?: "active" | "inactive";
-}
+};
 
 export interface SoftwareMapRelationshipSnapshot {
   id?: string;
@@ -662,8 +675,8 @@ function createSoftwareMapSignature() {
     hash = Math.imul(hash, 0x01000193);
   };
   return {
-    add(value: unknown) {
-      const text = value === null || value === undefined ? "" : String(value);
+    add(value: string | number) {
+      const text = String(value);
       addText(`${text.length}:${text}`);
     },
     value(prefix: string, size: number) {
@@ -703,7 +716,7 @@ function softwareMapModelKey({
     signature.add(relationship.to);
     signature.add(relationship.kind);
     signature.add(
-      relationship.kind === "semantic" ? relationship.semanticKind : "",
+      relationship.kind === "semantic" ? (relationship.semanticKind ?? "") : "",
     );
   }
   return signature.value(
@@ -918,21 +931,18 @@ function readStoredSoftwareMapNavigationState(
   session: ReviewSession,
   key: string,
 ): SoftwareMapNavigationState | null {
-  const parsed = readReviewUiState<Partial<SoftwareMapNavigationState>>(
+  const parsed = readReviewUiState<JsonValue>(
     "window",
     softwareMapNavigationStorageKey(session, key),
   );
-  if (!parsed) return null;
+  if (!isJsonObject(parsed)) return null;
   return {
-    modelKey: parsed.modelKey,
-    expandedNodeIds: Array.isArray(parsed.expandedNodeIds)
-      ? parsed.expandedNodeIds.filter(
-          (entry): entry is string => typeof entry === "string",
-        )
-      : [],
-    selectedNodeId:
-      typeof parsed.selectedNodeId === "string" ? parsed.selectedNodeId : null,
-    expanded: parsed.expanded === true,
+    modelKey: jsonString(jsonProperty(parsed, "modelKey")),
+    expandedNodeIds: (jsonArray(jsonProperty(parsed, "expandedNodeIds")) ?? [])
+      .map(jsonString)
+      .filter((entry): entry is string => entry !== undefined),
+    selectedNodeId: jsonString(jsonProperty(parsed, "selectedNodeId")) ?? null,
+    expanded: jsonProperty(parsed, "expanded") === true,
   };
 }
 
@@ -1551,7 +1561,9 @@ function SoftwareMapWithModel({
     if (initialEntry && refreshEpoch === 0) {
       applyResolvedDataState({
         key: initialEntry.key,
-        ...parseSoftwareMapResolvedDataResponse(initialEntry.response),
+        ...parseSoftwareMapResolvedDataResponse(
+          isJsonObject(initialEntry.response) ? initialEntry.response : null,
+        ),
       });
       return;
     }
@@ -1574,11 +1586,11 @@ function SoftwareMapWithModel({
           });
         }
       })
-      .catch((caught: unknown) => {
+      .catch((cause: unknown) => {
         if (!cancelled) {
           setPendingResolvedDataKey(null);
           setResolvedDataError(
-            caught instanceof Error ? caught.message : String(caught),
+            cause instanceof Error ? cause.message : String(cause),
           );
         }
       });
@@ -1772,9 +1784,9 @@ function SoftwareMapWithModel({
       .then(() => {
         setRefreshEpoch((current) => current + 1);
       })
-      .catch((caught: unknown) => {
+      .catch((cause: unknown) => {
         setResolvedDataError(
-          caught instanceof Error ? caught.message : String(caught),
+          cause instanceof Error ? cause.message : String(cause),
         );
       })
       .finally(() => {
@@ -2152,33 +2164,66 @@ async function fetchSoftwareMapResolvedDataUncached(
     headers: { "content-type": "application/json" },
     body: JSON.stringify(input),
   });
-  const json = await response.json();
-  if (!response.ok) {
-    return parseSoftwareMapResolvedDataResponse({ ok: false });
+  const json: unknown = await response.json();
+  if (!response.ok || !isJsonObject(json)) {
+    return parseSoftwareMapResolvedDataResponse(null);
   }
   return parseSoftwareMapResolvedDataResponse(json);
 }
 
+const softwareMapDiffCountsSchema = z.object({
+  additions: z.number(),
+  deletions: z.number(),
+});
+
+const softwareMapUnmappedDiffSummarySchema = softwareMapDiffCountsSchema.extend(
+  {
+    files: z.array(
+      softwareMapDiffCountsSchema.extend({
+        file: z.string(),
+        hunks: z.array(
+          z.object({
+            startLine: z.number(),
+            lines: z.array(
+              z.object({
+                kind: z.enum(["add", "remove"]),
+                oldLine: z.number().nullable(),
+                newLine: z.number().nullable(),
+                text: z.string(),
+              }),
+            ),
+          }),
+        ),
+      }),
+    ),
+  },
+);
+
+/** The `ok` body of the resolved-data route; any other body yields no data. */
+const softwareMapResolvedDataResponseSchema = z.object({
+  ok: z.literal(true),
+  countsByElementPath: z
+    .record(z.string(), softwareMapDiffCountsSchema)
+    .optional(),
+  unmappedByElementPath: z
+    .record(z.string(), softwareMapUnmappedDiffSummarySchema)
+    .optional(),
+});
+
 export function parseSoftwareMapResolvedDataResponse(
-  json: unknown,
+  json: JsonValue,
 ): SoftwareMapResolvedDataPayload {
-  const body = json as
-    | {
-        ok: true;
-        countsByElementPath?: Record<string, SoftwareMapDiffCounts>;
-        unmappedByElementPath?: Record<string, SoftwareMapUnmappedDiffSummary>;
-      }
-    | { ok: false; error?: string };
-  if (!body || typeof body !== "object" || !body.ok) {
+  const body = softwareMapResolvedDataResponseSchema.safeParse(json);
+  if (!body.success) {
     return {
       counts: new Map(),
       unmappedByElementPath: new Map(),
     };
   }
   return {
-    counts: new Map(Object.entries(body.countsByElementPath ?? {})),
+    counts: new Map(Object.entries(body.data.countsByElementPath ?? {})),
     unmappedByElementPath: new Map(
-      Object.entries(body.unmappedByElementPath ?? {}),
+      Object.entries(body.data.unmappedByElementPath ?? {}),
     ),
   };
 }
@@ -2310,8 +2355,7 @@ export function SoftwareMapFrame({
   const style =
     height && !expanded
       ? ({
-          "--software-map-height":
-            typeof height === "number" ? `${height}px` : height,
+          "--software-map-height": softwareMapCssLength(height),
         } as CSSProperties)
       : undefined;
   const bodyStyle = inspectedNode
@@ -2755,11 +2799,9 @@ function C4MapCanvas({
           layout: nextLayout.layout,
         });
       })
-      .catch((caught: unknown) => {
+      .catch((cause: unknown) => {
         if (cancelled) return;
-        setLayoutError(
-          caught instanceof Error ? caught.message : String(caught),
-        );
+        setLayoutError(cause instanceof Error ? cause.message : String(cause));
       });
     return () => {
       cancelled = true;
@@ -2830,7 +2872,7 @@ function C4MapCanvas({
       });
     };
     scheduleFit();
-    if (!canvas || typeof ResizeObserver !== "function") {
+    if (!canvas || !hasResizeObserver()) {
       return () => {
         if (frame !== 0) cancelAnimationFrame(frame);
       };
@@ -3560,35 +3602,36 @@ function c4FinitePositive(value: number) {
   return Number.isFinite(value) && value > 0;
 }
 
+/** ResizeObserver is missing in jsdom; the canvas then fits once on mount. */
+function hasResizeObserver(): boolean {
+  return typeof ResizeObserver !== "undefined";
+}
+
 function c4FlowNodeWidth(node: C4MapAnyFlowNode): number {
   return (
     numericStyleDimension(node.style?.width) ??
-    (typeof node.width === "number"
-      ? node.width
-      : typeof node.measured?.width === "number"
-        ? node.measured.width
-        : C4_NODE_WIDTH)
+    node.width ??
+    node.measured?.width ??
+    C4_NODE_WIDTH
   );
 }
 
 function c4FlowNodeHeight(node: C4MapAnyFlowNode): number {
   return (
     numericStyleDimension(node.style?.height) ??
-    (typeof node.height === "number"
-      ? node.height
-      : typeof node.measured?.height === "number"
-        ? node.measured.height
-        : C4_MIN_NODE_HEIGHT)
+    node.height ??
+    node.measured?.height ??
+    C4_MIN_NODE_HEIGHT
   );
 }
 
-function numericStyleDimension(value: unknown): number | undefined {
-  if (typeof value === "number") return value;
-  if (typeof value === "string") {
-    const parsed = Number.parseFloat(value);
-    return Number.isFinite(parsed) ? parsed : undefined;
-  }
-  return undefined;
+/** The leading number of a CSS dimension (`240` or `"240px"`), if any. */
+function numericStyleDimension(
+  value: CSSProperties["width"] | CSSProperties["height"],
+): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number.parseFloat(String(value));
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function c4PreviousLayoutCenters(
@@ -4353,9 +4396,7 @@ function c4MeasuredNodeDimensions(
 }
 
 function c4PositiveDimension(value: number | undefined, fallback: number) {
-  return typeof value === "number" && Number.isFinite(value) && value > 0
-    ? value
-    : fallback;
+  return value !== undefined && c4FinitePositive(value) ? value : fallback;
 }
 
 function c4LocalFallbackPoint(index: number): C4ElkPoint {
@@ -5236,19 +5277,13 @@ function c4EdgeLabelNodeObstacles(
 function c4ElkLabelFromLayout(
   label: Partial<C4ElkLabel> | undefined,
 ): C4ElkLabel | null {
-  const x = label?.x;
-  const y = label?.y;
-  const width = label?.width;
-  const height = label?.height;
+  const { x, y, width, height } = label ?? {};
   if (
-    typeof x !== "number" ||
-    typeof y !== "number" ||
-    typeof width !== "number" ||
-    typeof height !== "number" ||
-    !Number.isFinite(x) ||
-    !Number.isFinite(y) ||
-    !Number.isFinite(width) ||
-    !Number.isFinite(height)
+    x === undefined ||
+    y === undefined ||
+    width === undefined ||
+    height === undefined ||
+    ![x, y, width, height].every(Number.isFinite)
   ) {
     return null;
   }
@@ -5857,7 +5892,7 @@ function c4SpreadRoutingPorts(
     for (const port of ports) {
       if (!laneByPortId.has(port.id)) continue;
       const side = port.properties?.["port.side"];
-      if (typeof side !== "string") continue;
+      if (side === undefined) continue;
       const sidePorts = portsBySide.get(side) ?? [];
       sidePorts.push(port);
       portsBySide.set(side, sidePorts);
@@ -6027,7 +6062,7 @@ function c4AddSchemaPort({
     kind === "header"
       ? c4SchemaHeaderCenterY(entry.node, entry.height, laneKey)
       : c4SchemaFieldCenterY(entry.node, entry.height, fieldPath);
-  if (typeof y !== "number") return;
+  if (y === undefined) return;
   seenPortIds.add(portId);
   const ports = portsByNodeId.get(entry.node.id) ?? [];
   ports.push({
@@ -6104,8 +6139,7 @@ function c4SchemaPortPlaceable(
   if (!entry) return false;
   if (kind === "header") return true;
   return (
-    typeof c4SchemaFieldCenterY(entry.node, entry.height, fieldPath) ===
-    "number"
+    c4SchemaFieldCenterY(entry.node, entry.height, fieldPath) !== undefined
   );
 }
 
@@ -6227,9 +6261,7 @@ function SoftwareMapC4Edge(props: ReactFlowEdgeProps) {
   const data = props.data as C4MapEdgeData | undefined;
   const label = data?.relationship.hideLabel
     ? undefined
-    : typeof props.label === "string"
-      ? props.label
-      : (data?.label ?? data?.semanticKind);
+    : (data?.label ?? data?.semanticKind);
   const points = c4EdgePointsFromSections(data?.sections);
   if (points.length < 2) return null;
   const path = c4PolylinePath(points);
@@ -7344,10 +7376,10 @@ export function SoftwareMapNodeFrame({
           {node.file && (
             <span>
               {node.file}
-              {typeof node.line === "number" ? `:L${node.line}` : ""}
+              {node.line === undefined ? "" : `:L${node.line}`}
             </span>
           )}
-          {typeof node.childCount === "number" && node.childCount > 0 && (
+          {node.childCount !== undefined && node.childCount > 0 && (
             <span>{node.childCount} children</span>
           )}
           {node.boundary && <span>boundary</span>}
@@ -7484,9 +7516,7 @@ function SoftwareMapChangeBadge({
 }
 
 export function visibleSoftwareMapChangeCount(count?: number) {
-  return typeof count === "number" && Number.isFinite(count) && count > 0
-    ? count
-    : 0;
+  return count !== undefined && c4FinitePositive(count) ? count : 0;
 }
 
 function createPlaceholderSnapshot(

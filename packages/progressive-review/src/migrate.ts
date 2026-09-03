@@ -18,6 +18,8 @@ import { promisify } from "node:util";
 import {
   type JsonObject,
   isJsonObject,
+  jsonBoolean,
+  jsonString,
   parseJsonText,
 } from "@dev.fast/review-protocol";
 
@@ -518,9 +520,9 @@ function isLegacyDesktopCatalogRecord(
   ];
   return (
     record.reviewKey === reviewKey &&
-    requiredStrings.every(
-      (value) => typeof value === "string" && value.length > 0,
-    ) &&
+    requiredStrings
+      .map(jsonString)
+      .every((value) => value !== undefined && value.length > 0) &&
     ["git", "jj", "none"].includes(String(repository.kind)) &&
     Number.isSafeInteger(record.startedAt) &&
     Number(record.startedAt) > 0 &&
@@ -529,8 +531,9 @@ function isLegacyDesktopCatalogRecord(
     ["active", "completed", "dismissed", "unavailable"].includes(
       String(record.state),
     ) &&
-    typeof record.available === "boolean" &&
-    (record.headRef === undefined || typeof record.headRef === "string") &&
+    jsonBoolean(record.available) !== undefined &&
+    (record.headRef === undefined ||
+      jsonString(record.headRef) !== undefined) &&
     (record.pullRequestNumber === undefined ||
       (Number.isSafeInteger(record.pullRequestNumber) &&
         Number(record.pullRequestNumber) > 0)) &&

@@ -209,7 +209,7 @@ const MIN_CODE_INSPECTOR_WIDTH = 340;
 const MAX_CODE_INSPECTOR_WIDTH = 760;
 const MIN_SOFTWARE_MAP_CANVAS_WIDTH = 420;
 
-export interface SoftwareMapProps {
+interface SoftwareMapProps {
   model?: NormalizedSoftwareModel;
   title?: string;
   view?: string;
@@ -226,7 +226,7 @@ export interface SoftwareMapProps {
   registerTargets?: boolean;
 }
 
-export interface SoftwareMapFrameProps {
+interface SoftwareMapFrameProps {
   snapshot: SoftwareMapResolvedSnapshot;
   hasResolvedSnapshot: boolean;
   title: string;
@@ -289,7 +289,7 @@ const VIEW_TYPE_LABELS: Record<SoftwareMapViewType, string> = {
   inlineC4: "Inline map",
 };
 
-export function softwareMapNodeTypeLabel(
+function softwareMapNodeTypeLabel(
   node: Pick<
     SoftwareMapNodeSnapshot,
     "type" | "dataStoreKind" | "dataStoreSchemaSections"
@@ -305,11 +305,11 @@ export function softwareMapNodeTypeLabel(
   return ELEMENT_TYPE_LABELS[node.type];
 }
 
-export const softwareMapC4NodeTypes = {
+const softwareMapC4NodeTypes = {
   softwareMapC4: SoftwareMapC4Node,
   softwareMapC4Group: SoftwareMapC4GroupNode,
 };
-export const softwareMapC4EdgeTypes = {
+const softwareMapC4EdgeTypes = {
   softwareMapC4Edge: SoftwareMapC4Edge,
 };
 const c4NodeTypes = softwareMapC4NodeTypes;
@@ -2340,7 +2340,7 @@ function SoftwareMapC4Node({ data }: ReactFlowNodeProps<C4MapFlowNode>) {
   );
 }
 
-export function SoftwareMapDataStoreOutline({
+function SoftwareMapDataStoreOutline({
   outline,
 }: {
   outline: SoftwareMapDataStoreOutlineKind;
@@ -2438,7 +2438,7 @@ function softwareMapDataStoreOutlineGeometry(
   };
 }
 
-export function SoftwareMapNodeFrame({
+function SoftwareMapNodeFrame({
   node,
   selected,
   as: Element = "div",

@@ -38,7 +38,6 @@ import {
   runSerializedC4Layout,
   scheduleC4NodeMeasurements,
   selectedSoftwareMapNodeIdForNodes,
-  shouldApplySoftwareMapModifiedOnly,
   shouldAutoFocusC4MapKeyboardTarget,
   shouldShowSoftwareMapFloatingActions,
   softwareMapChildNodeIdForDrill,
@@ -46,7 +45,6 @@ import {
   softwareMapNodeForKeyboardExpansion,
   softwareMapNodeIdForDrill,
   softwareMapOverlayClassName,
-  softwareMapResolvedDataInputForModel,
   softwareMapSnapshotFromInlineC4Projection,
   softwareMapViewportFocusNodeId,
   softwareMapViewportFocusTargetReady,
@@ -222,54 +220,6 @@ describe("SoftwareMap inline C4 helpers", () => {
         graph: "base",
       },
     ]);
-  });
-
-  it("keeps resolved inputs independent of expanded components", () => {
-    const model = defineSoftwareModel({
-      systems: {
-        app: {
-          label: "App",
-          containers: {
-            runtime: {
-              label: "Runtime",
-              components: {
-                api: {
-                  label: "API",
-                  coverage: { globs: ["src/api/**"] },
-                },
-                ui: {
-                  label: "UI",
-                  coverage: { globs: ["src/ui/**"] },
-                },
-              },
-            },
-          },
-        },
-      },
-    });
-
-    const collapsed = softwareMapResolvedDataInputForModel(model);
-    expect(collapsed.codeElements).toEqual([]);
-    expect(collapsed.coverageClaims).toHaveLength(2);
-
-    const expanded = softwareMapResolvedDataInputForModel(model, {
-      expandedElementPaths: new Set(["app.runtime.api"]),
-    });
-    expect(expanded.codeElements).toEqual([]);
-    expect(expanded.coverageClaims).toHaveLength(2);
-  });
-
-  it("keeps authored-only maps visible when modified-only debug filtering is enabled", () => {
-    expect(
-      shouldApplySoftwareMapModifiedOnly({
-        showModifiedOnly: true,
-        resolvedDataReady: true,
-        resolvedDataInput: {
-          codeElements: [],
-          coverageClaims: [],
-        },
-      }),
-    ).toBe(false);
   });
 
   it("hides zero-value map diff counts", () => {

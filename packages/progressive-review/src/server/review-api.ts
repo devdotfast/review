@@ -11,7 +11,6 @@ import {
 } from "@dev.fast/local-vcs";
 import {
   type ReviewSessionWire,
-  type ReviewThreadsCommit,
   type ReviewVerbRequest,
   parseReviewFileContentRequest,
 } from "@dev.fast/review-protocol";
@@ -198,8 +197,9 @@ interface ReviewApiOptions {
   telemetry?: ReviewTelemetryCapture;
   onSubmission?: (event: ReviewSubmissionEvent) => void | Promise<void>;
   onReviewDismiss?: () => void | Promise<void>;
-  onReviewThreadsCommit?: (commit: ReviewThreadsCommit) => void;
-  runReviewThreadMutation?: <T>(operation: () => T | Promise<T>) => Promise<T>;
+  resolveReviewThreadsService?: (
+    writableReviewPath: string,
+  ) => ReviewThreadsService;
   reviewToken: string;
   agentServer: (harness: ReviewAgentHarness) => AgentServer;
   openNativeAgentTerminal: (
@@ -249,8 +249,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     telemetry = defaultTelemetry,
     onSubmission,
     onReviewDismiss,
-    onReviewThreadsCommit,
-    runReviewThreadMutation = async (operation) => operation(),
+    resolveReviewThreadsService,
     agentServer,
     openNativeAgentTerminal,
     resolveQuestionSourceSession,
@@ -280,11 +279,12 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   const threadsFor = (writableReviewPath: string): ReviewThreadsService => {
     let service = threadServices.get(writableReviewPath);
     if (!service) {
-      service = new ReviewThreadsService({
-        reviewPath: writableReviewPath,
-        author: process.env.USER ?? "Reviewer",
-        onCommit: onReviewThreadsCommit,
-      });
+      service =
+        resolveReviewThreadsService?.(writableReviewPath) ??
+        new ReviewThreadsService({
+          reviewPath: writableReviewPath,
+          author: process.env.USER ?? "Reviewer",
+        });
       threadServices.set(writableReviewPath, service);
       const snapshot = service.snapshot();
       const hasAgentSession =
@@ -345,15 +345,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       return handler(context, writableReviewPath);
     });
 
-  const threadMutation = (
-    handler: (
-      context: Context<ReviewHonoEnv>,
-      writableReviewPath: string,
-    ) => Promise<Response> | Response,
-  ): ReviewApiHandler =>
-    writable((context, writableReviewPath) =>
-      runReviewThreadMutation(() => handler(context, writableReviewPath)),
-    );
+  const threadMutation = writable;
 
   app.post("/telemetry/tab", route(telemetryTab));
   app.post("/telemetry/event", route(telemetryEvent));
@@ -677,11 +669,9 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   ): Promise<Response> {
     const url = new URL(context.req.url);
     const body = parseReviewSubmissionInput(await readJson(context.req.raw));
-    await runReviewThreadMutation(() =>
-      threadsFor(writableReviewPath).submitDrafts(
-        body.submissionId,
-        body.comments,
-      ),
+    threadsFor(writableReviewPath).submitDrafts(
+      body.submissionId,
+      body.comments,
     );
     const event = buildReviewSubmissionEvent({
       submission: body,

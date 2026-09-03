@@ -110,6 +110,7 @@ function DesktopReviewApp({
     () => new Map(Object.entries(state?.threads ?? {})),
     [state?.threads],
   );
+  const reviewDrafts = state?.drafts ?? {};
   const [softwareMap, setSoftwareMap] = useState<PublishedSoftwareMap | null>(
     null,
   );
@@ -208,7 +209,10 @@ function DesktopReviewApp({
       <ReviewMigrationWarning errors={reviewErrors} />
       <LiveReviewAuthoringTargetContext.Provider value={authoringTarget}>
         <TutorialProvider tutorial={tutorial}>
-          <LiveCommentThreadsProvider threads={reviewThreads}>
+          <LiveCommentThreadsProvider
+            threads={reviewThreads}
+            drafts={reviewDrafts}
+          >
             <App
               document={document}
               softwareMap={softwareMap}
@@ -326,13 +330,20 @@ function applyReviewStateEvent(
   }
   if (event.type === "threads.committed") {
     const threads = { ...current.threads };
+    const drafts = { ...current.drafts };
     for (const thread of event.commit.upsertedThreads) {
       threads[thread.threadId] = thread;
     }
     for (const threadId of event.commit.deletedThreadIds) {
       delete threads[threadId];
     }
-    return { ...current, threads };
+    for (const { threadId, draft } of event.commit.upsertedDrafts) {
+      drafts[threadId] = draft;
+    }
+    for (const threadId of event.commit.deletedDraftThreadIds) {
+      delete drafts[threadId];
+    }
+    return { ...current, threads, drafts };
   }
   const nodes = { ...current.page.nodes };
   for (const node of event.upsertedNodes) nodes[node.id] = node;

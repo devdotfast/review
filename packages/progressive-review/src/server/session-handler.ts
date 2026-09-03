@@ -15,6 +15,7 @@ import { streamSSE } from "hono/streaming";
 
 import type { ReviewAgentHarness, SessionRef } from "../authoring-session";
 import type { AgentServer } from "../native-agent/native-session";
+import { ReviewThreadsService } from "../review-threads-service";
 import { resolveReviewSessionBaseCommit } from "../review-worktree-target";
 import {
   type ReviewSoftwareMapBundle,
@@ -62,7 +63,7 @@ export interface ReviewSessionHandlerInput {
   onSubmission?: (event: ReviewSubmissionEvent) => void | Promise<void>;
   onReviewDismiss?: () => void | Promise<void>;
   onReviewThreadsCommit?: (commit: ReviewThreadsCommit) => void;
-  runReviewThreadMutation?: <T>(operation: () => T | Promise<T>) => Promise<T>;
+  reviewThreadsService?: ReviewThreadsService;
   agentServer: (harness: ReviewAgentHarness) => AgentServer;
   openNativeAgentTerminal: (
     input: Extract<
@@ -321,6 +322,35 @@ export async function createReviewSessionHandler(
     response.headers.set("content-type", "text/event-stream; charset=utf-8");
     return response;
   });
+  const primaryReviewPath = input.stateReviewPath ?? input.reviewPath;
+  const primaryThreads =
+    input.reviewThreadsService ??
+    new ReviewThreadsService({
+      reviewPath: primaryReviewPath,
+      author: process.env.USER ?? "Reviewer",
+    });
+  const threadSubscriptions = new Map<ReviewThreadsService, () => void>();
+  const resolveReviewThreadsService = (
+    writableReviewPath: string,
+  ): ReviewThreadsService => {
+    const service =
+      writableReviewPath === primaryReviewPath
+        ? primaryThreads
+        : new ReviewThreadsService({
+            reviewPath: writableReviewPath,
+            author: process.env.USER ?? "Reviewer",
+          });
+    if (!threadSubscriptions.has(service)) {
+      threadSubscriptions.set(
+        service,
+        service.subscribe((commit) => {
+          broadcast({ event: "review-threads-committed", commit });
+          input.onReviewThreadsCommit?.(commit);
+        }),
+      );
+    }
+    return service;
+  };
   const reviewApi = createReviewApi({
     reviewPath: input.reviewPath,
     reviewDocumentsDir: documentsDir,
@@ -338,11 +368,7 @@ export async function createReviewSessionHandler(
       await input.onSubmission?.(event);
     },
     onReviewDismiss: input.onReviewDismiss,
-    onReviewThreadsCommit: (commit) => {
-      broadcast({ event: "review-threads-committed", commit });
-      input.onReviewThreadsCommit?.(commit);
-    },
-    runReviewThreadMutation: input.runReviewThreadMutation,
+    resolveReviewThreadsService,
     reviewToken: token,
     agentServer: input.agentServer,
     openNativeAgentTerminal: input.openNativeAgentTerminal,
@@ -402,6 +428,8 @@ export async function createReviewSessionHandler(
     },
     close: async () => {
       await reviewApi.close();
+      for (const unsubscribe of threadSubscriptions.values()) unsubscribe();
+      threadSubscriptions.clear();
       for (const client of eventClients) client.close();
       eventClients.clear();
     },

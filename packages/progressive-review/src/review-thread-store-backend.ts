@@ -103,16 +103,23 @@ function openThreadDb(
     db.exec(
       "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;",
     );
-    if (!existed) {
+    const version = existed ? readThreadDbSchemaVersion(db) : null;
+    const hasThreadTables =
+      existed &&
+      Boolean(
+        db
+          .prepare(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name IN ('comments', 'comment_drafts') LIMIT 1",
+          )
+          .get(),
+      );
+    if (!existed || (version === null && !hasThreadTables)) {
       db.exec(REVIEW_THREAD_DB_DDL);
       db.prepare(
         "INSERT INTO meta (key, value) VALUES ('schema_version', ?)",
       ).run(String(REVIEW_THREAD_DB_SCHEMA_VERSION));
-    } else {
-      const version = readThreadDbSchemaVersion(db);
-      if (version !== String(REVIEW_THREAD_DB_SCHEMA_VERSION)) {
-        throw new ReviewThreadDbVersionError(dbPath, version);
-      }
+    } else if (version !== String(REVIEW_THREAD_DB_SCHEMA_VERSION)) {
+      throw new ReviewThreadDbVersionError(dbPath, version);
     }
   } catch (error) {
     db.close();

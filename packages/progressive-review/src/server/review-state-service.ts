@@ -2,6 +2,7 @@ import path from "node:path";
 
 import type {
   ReviewAuthoringTarget,
+  ReviewCommentDraftThreadMap,
   ReviewCommentThreadMap,
   ReviewThreadsCommit,
 } from "@dev.fast/review-protocol";
@@ -16,12 +17,17 @@ import type {
   LiveReviewPage,
   StoredLiveReviewNode,
 } from "../live-review-types";
-import { readReviewComments } from "../review-state-store";
+import {
+  readReviewCommentDrafts,
+  readReviewComments,
+} from "../review-state-store";
+import { ReviewThreadsService } from "../review-threads-service";
 
 export interface ReviewStateSnapshot {
   page: LiveReviewPage;
   authoringTarget: ReviewAuthoringTarget | null;
   threads: ReviewCommentThreadMap;
+  drafts: ReviewCommentDraftThreadMap;
 }
 
 export type ReviewStateEvent =
@@ -58,6 +64,7 @@ type ReviewStateListener = (event: ReviewStateEvent) => void;
 export class ReviewStateService {
   readonly #authoringTargets = new Map<string, ReviewAuthoringTarget>();
   readonly #listeners = new Map<string, Set<ReviewStateListener>>();
+  readonly #threadServices = new Map<string, ReviewThreadsService>();
 
   readPage(reviewDir: string): LiveReviewPage | null {
     return readLiveReviewPage(reviewDir);
@@ -72,6 +79,7 @@ export class ReviewStateService {
       page,
       authoringTarget: this.#authoringTargets.get(reviewId) ?? null,
       threads: readReviewComments(path.join(reviewDir, "review.mdx")),
+      drafts: readReviewCommentDrafts(path.join(reviewDir, "review.mdx")),
     };
   }
 
@@ -94,8 +102,19 @@ export class ReviewStateService {
     this.#emit(reviewId, { type: "authoring-target.changed", target });
   }
 
-  publishThreads(reviewId: string, commit: ReviewThreadsCommit): void {
-    this.#emit(reviewId, { type: "threads.committed", commit });
+  threads(
+    reviewId: string,
+    reviewPath: string,
+    author: string,
+  ): ReviewThreadsService {
+    const existing = this.#threadServices.get(reviewId);
+    if (existing) return existing;
+    const service = new ReviewThreadsService({ reviewPath, author });
+    service.subscribe((commit) =>
+      this.#emit(reviewId, { type: "threads.committed", commit }),
+    );
+    this.#threadServices.set(reviewId, service);
+    return service;
   }
 
   subscribe(reviewId: string, listener: ReviewStateListener): () => void {
@@ -110,6 +129,7 @@ export class ReviewStateService {
 
   forget(reviewId: string): void {
     this.#authoringTargets.delete(reviewId);
+    this.#threadServices.delete(reviewId);
   }
 
   #emit(reviewId: string, event: ReviewStateEvent): void {

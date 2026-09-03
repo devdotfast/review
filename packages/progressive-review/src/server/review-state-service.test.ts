@@ -93,6 +93,50 @@ describe("ReviewStateService", () => {
     expect(first).toHaveBeenCalledOnce();
     expect(second).not.toHaveBeenCalled();
   });
+
+  it("owns comment mutations and publishes their committed patch", async () => {
+    reviewDir = await mkdtemp(path.join(tmpdir(), "review-state-service-"));
+    const service = new ReviewStateService();
+    const reviewPath = path.join(reviewDir, "review.mdx");
+    service.initialize(reviewDir, fixturePage());
+    const listener = vi.fn();
+    service.subscribe("review-1", listener);
+
+    const threads = service.threads("review-1", reviewPath, "Reviewer");
+    const commit = threads.dispatch({
+      command: "comment.create",
+      mutationId: "mutation-1",
+      input: {
+        threadId: "thread-1",
+        messageId: "message-1",
+        target: {
+          kind: "text",
+          surface: {
+            type: "block",
+            tag: "p",
+            index: 0,
+            blockHash: "12345678",
+          },
+          selection: {
+            start: 0,
+            length: 6,
+            hash: "12345678",
+            quote: "Review",
+          },
+        },
+        body: "One comment",
+      },
+    });
+
+    expect(service.threads("review-1", reviewPath, "Other")).toBe(threads);
+    expect(service.snapshot("review-1", reviewDir).threads).toHaveProperty(
+      "thread-1",
+    );
+    expect(listener).toHaveBeenCalledWith({
+      type: "threads.committed",
+      commit,
+    });
+  });
 });
 
 function fixturePage(): LiveReviewPage {

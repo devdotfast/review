@@ -1961,11 +1961,12 @@ export function createGlobalReviewServer(
         getReviewStatus: () => active.review.review.status,
         onSubmission: (submission) => onSubmission(active, submission),
         onReviewDismiss: () => onReviewDismiss(active),
+        reviewThreadsService: reviewStateService.threads(
+          registration.review.review.uuid,
+          path.join(registration.review.dir, "review.mdx"),
+          process.env.USER ?? "Reviewer",
+        ),
         onReviewThreadsCommit: (commit) => {
-          reviewStateService.publishThreads(
-            registration.review.review.uuid,
-            commit,
-          );
           broadcastGlobal({
             event: "review-threads-committed",
             uuid: registration.review.review.uuid,
@@ -1976,10 +1977,6 @@ export function createGlobalReviewServer(
             ),
           });
         },
-        runReviewThreadMutation: (operation) =>
-          withReviewLock(registration.review.review.uuid, async () =>
-            operation(),
-          ),
         agentServer: agentServerFor,
         openNativeAgentTerminal: (terminal) =>
           openNativeAgentTerminal(sessionId, terminal),

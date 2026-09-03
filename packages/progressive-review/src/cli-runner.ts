@@ -1642,7 +1642,10 @@ function telemetryCommandPath(
     name === "wait" ||
     name === "info" ||
     name === "scaffold" ||
-    name === "install"
+    name === "install" ||
+    name === "login" ||
+    name === "logout" ||
+    name === "whoami"
   ) {
     return name;
   }

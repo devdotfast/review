@@ -367,6 +367,9 @@ describe("Review CLI", () => {
     ["app pick", ["app", "pick", "--review", "review-uuid"], "app.pick"],
     ["app pick alias", ["app", "--review", "review-uuid"], "app.pick"],
     ["app pick equals alias", ["app", "--review=review-uuid"], "app.pick"],
+    ["login", ["login"], "login"],
+    ["logout", ["logout"], "logout"],
+    ["whoami", ["whoami"], "whoami"],
   ])("tracks %s as %s", async (_label, argv, command) => {
     const captureCommandSucceeded = vi.fn<() => Promise<undefined>>(
       async () => undefined,
@@ -410,6 +413,9 @@ describe("Review CLI", () => {
             reviewUuid: "review-uuid",
             title: "Review",
           }),
+          runReviewLogin: async () => 0,
+          runReviewLogout: async () => 0,
+          runReviewWhoami: async () => 0,
         },
       }),
     ).resolves.toBe(0);

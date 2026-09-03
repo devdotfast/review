@@ -31,9 +31,12 @@ const execFilePromise = promisify(execFile);
 
 // The native fork needs a live harness transcript; stand in a deterministic
 // fork so scaffold and rebind can bind a source session from env alone.
-const createSourceAgentSession: typeof createReviewSourceAgentSession = async ({
-  agent,
-}) => ({ harness: agent.harness, sessionId: `${agent.sessionId}-fork` });
+const createSourceAgentSession = vi.fn<typeof createReviewSourceAgentSession>(
+  async ({ agent }) => ({
+    harness: agent.harness,
+    sessionId: `${agent.sessionId}-fork`,
+  }),
+);
 
 function runReviewScaffold(input: RunReviewScaffoldInput) {
   return scaffoldReview({ ...input, createSourceAgentSession });
@@ -868,7 +871,7 @@ describe("review info", () => {
       expect(after.baseCommit).toBe(mainTip);
 
       const prepared = await prepareReviewPublish({
-        cwd: root,
+        cwd: after.worktreePath,
         reviewUuid: uuid,
       });
       expect(prepared.sourceCommit).toBe(featureTip);
@@ -910,7 +913,7 @@ describe("review info", () => {
       await git(root, ["add", "."]);
       await git(root, ["commit", "-m", "other"]);
 
-      createReviewSourceAgentSession.mockRejectedValueOnce(
+      createSourceAgentSession.mockRejectedValueOnce(
         new Error("agent session creation failed"),
       );
 

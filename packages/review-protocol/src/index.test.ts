@@ -13,6 +13,7 @@ import {
   parseReviewOpenResponse,
   parseReviewSessionResponse,
   parseReviewVerbRequest,
+  rewriteReviewDocumentRuntime,
 } from "./index.js";
 
 describe("review protocol parsers", () => {
@@ -315,5 +316,28 @@ describe("review protocol parsers", () => {
 
     expect(normalizeReviewRoutePath(pathname)).toBe(pathname);
     expect(performance.now() - startedAt).toBeLessThan(100);
+  });
+
+  it("rewrites each document rebuild to the current bundled runtime URL", () => {
+    const source =
+      'import { createActiveReviewDocument } from "review-doc-runtime";\nexport const version = 1;';
+    expect(
+      rewriteReviewDocumentRuntime(
+        source,
+        "vscode-file://review/assets/doc-runtime-first.js",
+      ),
+    ).toContain("vscode-file://review/assets/doc-runtime-first.js");
+    expect(
+      rewriteReviewDocumentRuntime(
+        source.replace("version = 1", "version = 2"),
+        "vscode-file://review/assets/doc-runtime-second.js",
+      ),
+    ).toContain("vscode-file://review/assets/doc-runtime-second.js");
+    expect(() =>
+      rewriteReviewDocumentRuntime(
+        "export const version = 3;",
+        "vscode-file://review/assets/doc-runtime.js",
+      ),
+    ).toThrow("no runtime import");
   });
 });

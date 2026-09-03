@@ -1,4 +1,7 @@
-import type { ReviewRuntimeConfig } from "@dev.fast/review-protocol";
+import {
+  type ReviewRuntimeConfig,
+  rewriteReviewDocumentRuntime,
+} from "@dev.fast/review-protocol";
 
 const REVIEW_API_PREFIX = "/__progressive-review";
 export type ReviewClientConfig = Partial<
@@ -118,19 +121,6 @@ async function loadReviewModule(
 
 function importBlobReviewModule(url: string): Promise<unknown> {
   return import(/* @vite-ignore */ url);
-}
-
-export function rewriteReviewDocumentRuntime(
-  source: string,
-  runtimeUrl: string,
-): string {
-  const runtimeSpecifier = JSON.stringify("review-doc-runtime");
-  if (!source.includes(runtimeSpecifier)) {
-    throw new Error("Review document module has no runtime import.");
-  }
-  return source
-    .split(runtimeSpecifier)
-    .join(JSON.stringify(new URL(runtimeUrl).href));
 }
 
 export function reviewBeaconUrl(

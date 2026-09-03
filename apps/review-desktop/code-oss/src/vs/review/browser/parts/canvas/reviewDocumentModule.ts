@@ -5,6 +5,7 @@
 
 import { createTrustedTypesPolicy } from "../../../../base/browser/trustedTypes.js";
 import { ReviewDocumentModuleCache } from "../../../common/reviewDocumentModuleCache.js";
+import { rewriteReviewDocumentRuntime } from "../../../common/reviewProtocol.js";
 import type { ReviewDesktopSession } from "../../../services/reviewSessionModelService.js";
 
 type ReviewDocumentImporter = (url: string) => Promise<unknown>;
@@ -135,19 +136,6 @@ function loadSoftwareMapModule(
 function unwrapDefault(module: unknown): unknown {
 	if (!module || typeof module !== "object") return module;
 	return (module as { default?: unknown }).default ?? module;
-}
-
-export function rewriteReviewDocumentRuntime(
-	source: string,
-	runtimeUrl: string,
-): string {
-	const runtimeSpecifier = JSON.stringify("review-doc-runtime");
-	if (!source.includes(runtimeSpecifier)) {
-		throw new Error("Review document module has no runtime import.");
-	}
-	return source
-		.split(runtimeSpecifier)
-		.join(JSON.stringify(new URL(runtimeUrl).href));
 }
 
 function importBlobReviewModule(url: string): Promise<unknown> {

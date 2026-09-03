@@ -361,6 +361,10 @@ test("Files and every CodePeek reuse one native multi-diff resource header", () 
   );
 });
 
+test("review diff surfaces compute their multi-diff editor options via a shared helper", () => {
+  assert.match(source, /computeMultiDiffEditorOptions/);
+});
+
 test("authored CodePeeks use the stock native comment contribution", () => {
   assert.match(source, /commentsController\.js/);
   assert.match(source, /reviewInlineEditorContributions\(/);

@@ -386,8 +386,8 @@ pnpm.
 
 Keep fork divergence enumerable as direct commits above the
 `code-oss-upstream-8a7abeba` tag. Every upstream exclusion or intentional edit
-must be recorded in `UPSTREAM`, and `src/vs/review/` tests must pass both the
-fast monorepo tier and the Code OSS test harness.
+must be recorded in `UPSTREAM`, and `src/vs/review/` tests must pass the
+fast monorepo tier.
 
 ### The main-process pre-bootstrap window
 

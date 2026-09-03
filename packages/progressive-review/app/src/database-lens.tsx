@@ -41,7 +41,7 @@ import {
 import { DiagramTourOverlay, useDiagramTourShell } from "./diagram-tour";
 import { useReviewSession } from "./host/review-session";
 import { HoverCommentButton } from "./hover-comment-button";
-import { useReview } from "./review-context";
+import { useReviewActions } from "./review-context";
 import type { GuidedTour } from "./review-panel-model";
 import { useTourPersist, useTourRestore } from "./review-view-state";
 import {
@@ -61,6 +61,7 @@ import {
   type SoftwareMapDataStoreSchemaRowSnapshot,
   SoftwareMapFrame,
   type SoftwareMapNodeSnapshot,
+  type SoftwareMapRelationshipSnapshot,
   type SoftwareMapResolvedSnapshot,
 } from "./software-map/SoftwareMap";
 import {
@@ -193,7 +194,7 @@ export function DatabaseLens(props: DatabaseLensProps) {
     height = 560,
     children,
   } = databaseLensPropsSchema.parse(props);
-  const review = useReview();
+  const { openCommentDraft } = useReviewActions();
   const locatorScope = `db:${slugPart(title ?? "database")}`;
   const lensId = locatorScope;
   const validatedInput = useMemo(
@@ -303,7 +304,7 @@ export function DatabaseLens(props: DatabaseLensProps) {
     if (!activeUseCase || !activeUseCaseTarget) return;
     event.preventDefault();
     event.stopPropagation();
-    review.openCommentDraft({
+    openCommentDraft({
       target: activeUseCaseTarget,
       title: activeUseCase.label,
       body: "",
@@ -736,26 +737,23 @@ export function databaseC4Snapshot({
         expandedStoresWithSchemaEdges.add(operationStore.id);
       }
     }
-    relationships.push({
+    const relationship: SoftwareMapRelationshipSnapshot = {
       id: resolved.operation.anchor.id,
       from: resolved.operation.kind === "write" ? actorId : targetNodeId,
       to: resolved.operation.kind === "write" ? targetNodeId : actorId,
       kind: "semantic",
       semanticKind: resolved.operation.kind,
       label: resolved.operation.label,
-      ...(storeExpanded && resolved.operation.kind === "write"
-        ? {
-            toSchemaFieldPath: target.path,
-            toSchemaEndpointKind: "field" as const,
-          }
-        : {}),
-      ...(storeExpanded && resolved.operation.kind === "read"
-        ? {
-            fromSchemaFieldPath: target.path,
-            fromSchemaEndpointKind: "field" as const,
-          }
-        : {}),
-    });
+    };
+    if (storeExpanded && resolved.operation.kind === "write") {
+      relationship.toSchemaFieldPath = target.path;
+      relationship.toSchemaEndpointKind = "field";
+    }
+    if (storeExpanded && resolved.operation.kind === "read") {
+      relationship.fromSchemaFieldPath = target.path;
+      relationship.fromSchemaEndpointKind = "field";
+    }
+    relationships.push(relationship);
   }
   const activeTarget = resolvedOperations
     .map((resolved) => resolveTargetRef(resolved.target))

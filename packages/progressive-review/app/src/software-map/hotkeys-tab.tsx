@@ -90,6 +90,8 @@ export function SoftwareMapHotkeysTab({
     return () => observer.disconnect();
   }, [measureWidth]);
 
+  // SAFETY: React passes "--*" keys through to style.setProperty; CSSProperties
+  // only lacks an index signature for custom properties.
   const style =
     measuredWidth === null
       ? undefined

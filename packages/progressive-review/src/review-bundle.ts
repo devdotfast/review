@@ -66,7 +66,9 @@ export async function readReviewDocumentBundle(
       readFile(path.join(bundleDir, BUNDLE_CODE_FILE), "utf8"),
     ]);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return null;
+    }
     throw error;
   }
   const manifest = parseManifest(manifestRaw);

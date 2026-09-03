@@ -301,14 +301,15 @@ function nativeHookEvent(payload: JsonObject): NativeHookEvent {
     payload.hookEventName,
     payload.event,
   )?.toLowerCase();
-  return {
-    ...(sessionId ? { sessionId } : {}),
-    ...(transcriptPath ? { transcriptPath } : {}),
+  const event: NativeHookEvent = {
     completesTurn:
       eventName === "stop" ||
       eventName === "sessionend" ||
       eventName === "agent_settled",
   };
+  if (sessionId) event.sessionId = sessionId;
+  if (transcriptPath) event.transcriptPath = transcriptPath;
+  return event;
 }
 
 function wakeSession(state: SessionState): void {

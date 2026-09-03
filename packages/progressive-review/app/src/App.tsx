@@ -1,6 +1,9 @@
-import type {
-  ReviewCanvasRange,
-  ReviewCommitSummary,
+import {
+  type JsonValue,
+  type ReviewCanvasRange,
+  type ReviewCommitSummary,
+  isJsonObject,
+  jsonArray,
 } from "@dev.fast/review-protocol";
 import {
   type CSSProperties,
@@ -229,7 +232,7 @@ function ReviewLayout({
               key={document.routePath}
               documentRoute={document.routePath}
               softwareMapEnabled={softwareMapEnabled}
-              openTraceSession={(sel) => setTraceSelection(sel)}
+              openTraceSession={setTraceSelection}
             >
               <ReviewPanelProvider detailRevision={document.Component}>
                 <ReviewLayoutContent
@@ -341,15 +344,12 @@ function ReviewLayoutContent({
       .fetch("/agent-traces", { signal: controller.signal })
       .then(async (res) => {
         if (!res.ok) return;
-        const data = (await res.json()) as {
-          ok?: boolean;
-          sessions?: unknown[];
-        };
-        if (
-          data.ok &&
-          Array.isArray(data.sessions) &&
-          data.sessions.length > 0
-        ) {
+        const data: JsonValue = await res.json();
+        const sessions =
+          isJsonObject(data) && data.ok === true
+            ? jsonArray(data.sessions)
+            : undefined;
+        if (sessions !== undefined && sessions.length > 0) {
           setHasTraceSessions(true);
         }
       })
@@ -455,6 +455,8 @@ function ReviewLayoutContent({
   );
   const rightPanelOpen = activePanel !== null;
   const mapOverlayOpen = useMapOverlayOpen(appRef);
+  // SAFETY: `--side-peek-width` is a CSS custom property, which React forwards
+  // to style.setProperty; the CSSProperties typings only omit custom names.
   const appStyle = rightPanelOpen
     ? ({
         "--side-peek-width": `${sidePeekResize.width}px`,
@@ -1014,12 +1016,12 @@ export function applySoftwareMapTopologyStatuses(
   diff: SoftwareMapTopologyDiff | null,
 ): NormalizedSoftwareModel | undefined {
   if (!model || !diff) return model;
-  const elements = model.elements.map((element) => {
+  const elements = model.elements.map((element): NormalizedSoftwareElement => {
     const topologyStatus = diff.elementStatusByPath[element.path];
     return topologyStatus
       ? { ...element, changeStatus: topologyStatus }
       : element;
-  }) as NormalizedSoftwareElement[];
+  });
   return {
     ...model,
     elements,

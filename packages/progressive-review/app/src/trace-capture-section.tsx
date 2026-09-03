@@ -6,6 +6,9 @@ import { useEffect, useState } from "react";
 
 import { TARGET_LABELS, supportsFff } from "./agent-setup-card";
 
+type InstallApplyRequest = Parameters<ReviewCanvasInstallContent["apply"]>[0];
+type TraceCredentials = Exclude<InstallApplyRequest["trace"], true | undefined>;
+
 /**
  * Experimental trace capture controls. Lives under Settings ▸ Experimental
  * Features only: onboarding never mentions it, and nothing else in the app
@@ -168,18 +171,20 @@ export function TraceCaptureSection({
         onClick={() =>
           void run(
             "trace",
-            () =>
-              install.apply({
+            () => {
+              const trace: TraceCredentials = {};
+              if (traceEndpoint) trace.endpoint = traceEndpoint;
+              if (traceBucket) trace.bucket = traceBucket;
+              if (traceRegion) trace.region = traceRegion;
+              if (traceKey) trace.key = traceKey;
+              if (traceSecret) trace.secret = traceSecret;
+              const request: InstallApplyRequest = {
                 targets: installedTargets,
-                ...(fffTargets.length > 0 ? { fff: true } : {}),
-                trace: {
-                  ...(traceEndpoint ? { endpoint: traceEndpoint } : {}),
-                  ...(traceBucket ? { bucket: traceBucket } : {}),
-                  ...(traceRegion ? { region: traceRegion } : {}),
-                  ...(traceKey ? { key: traceKey } : {}),
-                  ...(traceSecret ? { secret: traceSecret } : {}),
-                },
-              }),
+                trace,
+              };
+              if (fffTargets.length > 0) request.fff = true;
+              return install.apply(request);
+            },
             () => {
               setTraceKey("");
               setTraceSecret("");

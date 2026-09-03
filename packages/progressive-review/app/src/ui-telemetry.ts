@@ -31,16 +31,17 @@ export function captureUiEvent(
   const sanitizedProperties = sanitizeEventProperties(name, properties);
   if (!sanitizedProperties) return;
   sanitizedProperties.app_session_id = session.appSessionId;
+  const payload: UiTelemetryEventPayload = {
+    name,
+    properties: sanitizedProperties,
+  };
+  if (error !== undefined) payload.error = error;
   const reviewFetch = session.fetch;
   try {
     void reviewFetch("/telemetry/event", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        name,
-        properties: sanitizedProperties,
-        ...(error === undefined ? {} : { error }),
-      }),
+      body: JSON.stringify(payload),
       keepalive: true,
     }).catch(() => undefined);
   } catch {
@@ -80,13 +81,21 @@ interface PackedClientError {
   stack?: string;
 }
 
+/** The POST /telemetry/event body: the event plus its optional error envelope. */
+interface UiTelemetryEventPayload {
+  name: UiTelemetryEventName;
+  properties: UiTelemetryProperties;
+  error?: PackedClientError;
+}
+
 function packClientError(cause: unknown): PackedClientError {
   if (!(cause instanceof Error)) return { message: String(cause) };
-  return {
+  const packed: PackedClientError = {
     name: cause.name,
     message: cause.message,
-    ...(cause.stack === undefined ? {} : { stack: cause.stack }),
   };
+  if (cause.stack !== undefined) packed.stack = cause.stack;
+  return packed;
 }
 
 export function clientErrorName(cause: unknown): string {
@@ -122,7 +131,7 @@ function sanitizeEventProperties(
     if (
       Array.isArray(propSpec) &&
       text !== undefined &&
-      (propSpec as readonly string[]).includes(text)
+      propSpec.some((option) => option === text)
     ) {
       sanitized[key] = text;
     }

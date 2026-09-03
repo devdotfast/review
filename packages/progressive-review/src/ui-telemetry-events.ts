@@ -25,10 +25,7 @@ import {
 } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
-import {
-  containsFilePathShape,
-  hasPossibleUserInfo,
-} from "./telemetry-clean-text";
+import { containsFilePath, hasPossibleUserInfo } from "./telemetry-clean-text";
 
 /** Property value validators: an enum of allowed strings, or a scalar type. */
 export type UiTelemetryPropertySpec =
@@ -526,10 +523,8 @@ export function sanitizeUiTelemetryEvent(input: {
       }
       continue;
     }
-    if (Array.isArray(propSpec) && text !== undefined) {
-      if ((propSpec as readonly string[]).includes(text)) {
-        properties[key] = text;
-      }
+    if (text !== undefined && propSpec.includes(text)) {
+      properties[key] = text;
     }
   }
   return { event: spec.event, properties };
@@ -555,7 +550,7 @@ export function isReportableCleanedMessage(value: string): boolean {
   // once the markers are removed. The marker shape is deliberately narrow, so a
   // producer cannot hide content inside a marker of its own.
   const remainder = value.replaceAll(REDACTION_MARKER_PATTERN, " ");
-  return !containsFilePathShape(remainder) && !hasPossibleUserInfo(remainder);
+  return !containsFilePath(remainder) && !hasPossibleUserInfo(remainder);
 }
 
 /**

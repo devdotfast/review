@@ -67,7 +67,7 @@ const REDACTED_PATH_MARKER = "<REDACTED: user-file-path>";
  * `anonymizeFilePaths`; it is named here so the allowlist can assert that no
  * path shape survived cleaning.
  */
-const FILE_PATH_SHAPE =
+const FILE_PATH_PATTERN =
   /(file:\/\/)?([a-zA-Z]:(\\\\|\\|\/)|(\\\\|\\|\/))?([\w\-\._@]+(\\\\|\\|\/))+[\w\-\._@]*/;
 
 /**
@@ -76,8 +76,8 @@ const FILE_PATH_SHAPE =
  * on what a path looks like, it is to catch the cleaner failing to apply its own
  * rule — wrong patterns, wrong order, or an exception swallowed on the way.
  */
-export function containsFilePathShape(value: string): boolean {
-  return FILE_PATH_SHAPE.test(value);
+export function containsFilePath(value: string): boolean {
+  return FILE_PATH_PATTERN.test(value);
 }
 
 /**

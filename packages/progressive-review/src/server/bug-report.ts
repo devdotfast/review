@@ -99,7 +99,6 @@ export async function submitReviewBugReport(input: {
   const payload: BugReportPayload = {
     schema_version: 4,
     description: input.report.description,
-    ...(input.report.screenshot ? { screenshot: input.report.screenshot } : {}),
     diagnostics: {
       app_version: input.report.app_version,
       cli_version: cliVersion,
@@ -108,6 +107,7 @@ export async function submitReviewBugReport(input: {
       client_error_names: input.clientErrorNames.slice(-20),
     },
   };
+  if (input.report.screenshot) payload.screenshot = input.report.screenshot;
 
   let reviewSource: Record<string, string> | undefined;
   let omittedReviewFiles: string[] | undefined;
@@ -332,7 +332,6 @@ export async function buildBugReportRequest(
     has_diff: payload.diff !== undefined,
     has_screenshot: payload.screenshot !== undefined,
     has_trace: payload.trace !== undefined,
-    ...(payload.trace ? { trace_harness: payload.trace.harness } : {}),
     payload_bytes: payloadBytes.byteLength,
     app_version: input.appVersion,
     cli_version: input.cliVersion,
@@ -357,6 +356,7 @@ export async function buildBugReportRequest(
       })),
     ],
   };
+  if (payload.trace) meta.trace_harness = payload.trace.harness;
   const form = new FormData();
   form.append("meta", JSON.stringify(meta));
   form.append(

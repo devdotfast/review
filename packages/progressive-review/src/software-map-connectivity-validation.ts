@@ -223,13 +223,14 @@ function softwareMapModelObjectFromTsSource(
     true,
     ts.ScriptKind.TSX,
   );
-  const parseDiagnostics =
-    (
-      sourceFile as ts.SourceFile & {
-        parseDiagnostics?: readonly ts.Diagnostic[];
-      }
-    ).parseDiagnostics ?? [];
-  if (parseDiagnostics.length > 0) return null;
+  // `parseDiagnostics` is an internal SourceFile field the public typings omit.
+  if (
+    "parseDiagnostics" in sourceFile &&
+    Array.isArray(sourceFile.parseDiagnostics) &&
+    sourceFile.parseDiagnostics.length > 0
+  ) {
+    return null;
+  }
 
   const calls: ts.CallExpression[] = [];
   const visit = (node: ts.Node): void => {

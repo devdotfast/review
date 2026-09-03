@@ -1,6 +1,6 @@
 import { type ReactElement, useEffect, useRef, useState } from "react";
 
-import { useReview } from "./review-context";
+import { useReviewActions, useReviewState } from "./review-context";
 import { useTutorial } from "./tutorial-context";
 
 /**
@@ -11,14 +11,15 @@ import { useTutorial } from "./tutorial-context";
  * so the confirmation is the only place that names the difference.
  */
 export function ReviewCornerAction(): ReactElement | null {
-  const review = useReview();
+  const { submitPendingComments, dismissReview } = useReviewActions();
+  const { pendingCommentCount, submissionOutcome } = useReviewState();
   const tutorial = useTutorial();
   const controlRef = useRef<HTMLDivElement | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
 
-  const pending = review.pendingCommentCount;
+  const pending = pendingCommentCount;
 
   useEffect(() => {
     if (!confirming) return;
@@ -43,7 +44,7 @@ export function ReviewCornerAction(): ReactElement | null {
   }, [confirming]);
 
   // A finished review has nothing left to submit or dismiss.
-  if (review.submissionOutcome === "dismissed") return null;
+  if (submissionOutcome === "dismissed") return null;
 
   /* The tutorial is not in the review store, so there is no list to leave and
      nothing to reap. Closing the tab is the whole action, and it needs no
@@ -86,7 +87,7 @@ export function ReviewCornerAction(): ReactElement | null {
           className="review-corner-submit"
           disabled={busy}
           onClick={() =>
-            void run(() => review.submitPendingComments("request-changes"))
+            void run(() => submitPendingComments("request-changes"))
           }
         >
           <SendIcon />
@@ -136,7 +137,7 @@ export function ReviewCornerAction(): ReactElement | null {
               type="button"
               className="review-corner-confirm-yes"
               disabled={busy}
-              onClick={() => void run(() => review.dismissReview())}
+              onClick={() => void run(() => dismissReview())}
             >
               Dismiss
             </button>

@@ -94,7 +94,7 @@ export type SequenceMessageCodeInput = z.infer<
   typeof sequenceMessageCodeInputSchema
 >;
 
-const codePeekCommonShape = {
+const codePeekCommonSchema = {
   theme: z.enum(["system", "light", "dark"]).optional(),
   graph: z.enum(["head", "base"]).optional(),
   children: noChildrenSchema,
@@ -105,7 +105,7 @@ export const codePeekRangeInputSchema = z
     file: nonEmptyStringSchema,
     fromLine: z.int().positive(),
     toLine: z.int().positive(),
-    ...codePeekCommonShape,
+    ...codePeekCommonSchema,
   })
   .refine((value) => value.toLine >= value.fromLine, {
     path: ["toLine"],
@@ -184,19 +184,19 @@ export const peekableAnchorRefSchema = anchorRefSchema.extend({
 });
 export type PeekableAnchorRef = z.infer<typeof peekableAnchorRefSchema>;
 
-const sequenceMessageBaseShape = {
+const sequenceMessageBaseSchema = {
   from: sequenceActorInputSchema,
   to: sequenceActorInputSchema,
   label: nonEmptyStringSchema,
 };
 export const sequenceMessageInputSchema = z.union([
   z.strictObject({
-    ...sequenceMessageBaseShape,
+    ...sequenceMessageBaseSchema,
     anchor: peekableAnchorRefSchema,
     code: sequenceMessageCodeInputSchema.optional(),
   }),
   z.strictObject({
-    ...sequenceMessageBaseShape,
+    ...sequenceMessageBaseSchema,
     anchor: anchorRefSchema.optional(),
     code: sequenceMessageCodeInputSchema,
   }),
@@ -257,7 +257,7 @@ export type StoreKind = z.infer<typeof storeKindSchema>;
 export const collectionKindSchema = z.enum(["tables", "documents"]);
 export type CollectionKind = z.infer<typeof collectionKindSchema>;
 
-const targetRefShape = {
+const resolvedTargetRefSchema = z.strictObject({
   __kind: z.literal("db-target-ref"),
   storeId: nonEmptyStringSchema,
   storeKind: storeKindSchema,
@@ -269,7 +269,7 @@ const targetRefShape = {
   collectionLabel: nonEmptyStringSchema,
   collectionKey: optionalNonEmptyStringSchema,
   path: z.array(nonEmptyStringSchema),
-};
+});
 export interface TargetRef {
   __kind: "db-target-ref";
   storeId: string;
@@ -290,8 +290,6 @@ const collectionSchemaKey: unique symbol = Symbol("collection-schema");
 export interface AuthoredTargetRef {
   readonly [authoredTargetRefKey]: TargetRef;
 }
-
-const resolvedTargetRefSchema = z.strictObject(targetRefShape);
 
 export const targetRefSchema = z.preprocess(
   (value) => (isAuthoredTargetRef(value) ? value[authoredTargetRefKey] : value),
@@ -314,7 +312,7 @@ export function resolveTargetRef(
   return value.__kind === "db-target-ref" ? value : null;
 }
 
-const dbOperationCommonShape = {
+const dbOperationCommonSchema = {
   label: nonEmptyStringSchema,
   anchor: peekableAnchorRefSchema,
   children: noChildrenSchema,
@@ -326,7 +324,7 @@ const dbOperationCommonShape = {
 export const dbReadPropsSchema = z.strictObject({
   from: targetRefSchema,
   to: actorRefSchema,
-  ...dbOperationCommonShape,
+  ...dbOperationCommonSchema,
 });
 export type DbReadProps = Omit<z.input<typeof dbReadPropsSchema>, "from"> & {
   from: AuthoredTargetRef;
@@ -335,7 +333,7 @@ export type DbReadProps = Omit<z.input<typeof dbReadPropsSchema>, "from"> & {
 export const dbWritePropsSchema = z.strictObject({
   from: actorRefSchema,
   to: targetRefSchema,
-  ...dbOperationCommonShape,
+  ...dbOperationCommonSchema,
 });
 export type DbWriteProps = Omit<z.input<typeof dbWritePropsSchema>, "to"> & {
   to: AuthoredTargetRef;
@@ -469,12 +467,9 @@ export function calls(
   peekableAnchorRefSchema.parse(parent);
   peekableAnchorRefSchema.parse(child);
   if (reason !== undefined) nonEmptyStringSchema.parse(reason);
-  return Object.freeze({
-    __kind: "call-assertion",
-    parent,
-    child,
-    ...(reason === undefined ? {} : { reason }),
-  } satisfies CallsAssertion);
+  const assertion: CallsAssertion = { __kind: "call-assertion", parent, child };
+  if (reason !== undefined) assertion.reason = reason;
+  return Object.freeze(assertion);
 }
 
 export const callStackEntrySchema = z.union([
@@ -833,6 +828,8 @@ function defineActors<T extends ActorInputMap>(
   reportMissingSoftwareMap: (context: { path: readonly PropertyKey[] }) => void,
 ): { [K in keyof T]: ActorRef } {
   actorInputMapSchema.parse(input);
+  // SAFETY: the entries are built from every key of `input`, so the result
+  // has exactly the keys of T.
   return Object.fromEntries(
     Object.entries(input).map(([id, actor]) => {
       requireDefinedSoftwareMapPath(
@@ -861,6 +858,8 @@ function defineAnchors<T extends AnchorInputMap>(
   reportMissingSoftwareMap: (context: { path: readonly PropertyKey[] }) => void,
 ): { [K in keyof T]: AnchorRefFor<T[K]> } {
   const anchors = anchorDefinitionMapSchema.parse(input);
+  // SAFETY: the entries are built from every key of `input`, so the result
+  // has exactly the keys of T.
   return Object.fromEntries(
     Object.entries(anchors).map(([id, anchor]) => {
       requireDefinedSoftwareMapPath(
@@ -933,6 +932,8 @@ function defineStores<T extends StoreInputMap>(
   reportMissingSoftwareMap: (context: { path: readonly PropertyKey[] }) => void,
 ): { [K in keyof T]: StoreRefFor<T[K]> } {
   storeInputMapSchema.parse(input);
+  // SAFETY: the entries are built from every key of `input`, so the result
+  // has exactly the keys of T.
   return Object.fromEntries(
     Object.entries(input).map(([id, store]) => {
       requireDefinedSoftwareMapPath(
@@ -974,6 +975,8 @@ function defineSoftwareActors<T extends Record<string, SoftwareActorInput>>(
   input: T,
 ): { [K in keyof T]: ActorRef } {
   const actors = softwareActorDefinitionMapSchema.parse(input);
+  // SAFETY: the entries are built from every key of `input`, so the result
+  // has exactly the keys of T.
   return Object.fromEntries(
     Object.entries(actors).map(([id, actor]) => {
       const element = softwareElementForPath(model, actor.path, [id, "path"]);
@@ -995,6 +998,8 @@ function defineSoftwareStores<T extends SoftwareStoreInputMap>(
   input: T,
 ): { [K in keyof T]: SoftwareStoreRefFor<T[K]> } {
   softwareStoreInputMapSchema.parse(input);
+  // SAFETY: every entry pairs a key of `input` with a store input derived
+  // from its validated SoftwareStoreInput and a dataStore element.
   const stores = Object.fromEntries(
     Object.entries(input).map(([id, store]) => {
       const element = softwareElementForPath(model, store.path, [id, "path"]);
@@ -1021,6 +1026,8 @@ function defineSoftwareStores<T extends SoftwareStoreInputMap>(
       ];
     }),
   ) as StoreInputMap;
+  // SAFETY: `stores` has exactly the keys of T and defineStores keeps them, so
+  // each key's ref is SoftwareStoreRefFor<T[K]>.
   return defineStores(
     stores,
     {

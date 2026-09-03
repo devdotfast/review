@@ -5,7 +5,7 @@ import {
   resolveRevision,
 } from "@dev.fast/local-vcs";
 
-import { repinReview } from "./review-scaffold";
+import { type RunReviewScaffoldInput, repinReview } from "./review-scaffold";
 import { resolveReviewRoot } from "./runtime";
 import { resolvePublishReview } from "./server/publish-preparation";
 
@@ -15,6 +15,13 @@ import { resolvePublishReview } from "./server/publish-preparation";
  * worktree and graph re-materialize. Publish never moves pins, so rebind
  * must finish the job itself.
  */
+interface ReviewRebindJsonOutput {
+  event: "rebound";
+  uuid: string;
+  change: string;
+  warnings?: string[];
+}
+
 export async function runReviewRebind(input: {
   cwd: string;
   change: string;
@@ -23,6 +30,7 @@ export async function runReviewRebind(input: {
   progress?: (message: string) => void;
   env?: NodeJS.ProcessEnv;
   stdout: Writable;
+  createSourceAgentSession?: RunReviewScaffoldInput["createSourceAgentSession"];
 }): Promise<number> {
   const reviewRoot = await resolveReviewRoot(input.cwd);
   const review = await resolvePublishReview(reviewRoot, input.reviewUuid);
@@ -50,15 +58,15 @@ export async function runReviewRebind(input: {
       toolingRoot: input.toolingRoot,
       progress: input.progress,
       env: input.env,
+      createSourceAgentSession: input.createSourceAgentSession,
     },
   );
-  input.stdout.write(
-    `${JSON.stringify({
-      event: "rebound",
-      uuid: record.uuid,
-      change: input.change,
-      ...(repinned.warnings ? { warnings: repinned.warnings } : {}),
-    })}\n`,
-  );
+  const output: ReviewRebindJsonOutput = {
+    event: "rebound",
+    uuid: record.uuid,
+    change: input.change,
+  };
+  if (repinned.warnings) output.warnings = repinned.warnings;
+  input.stdout.write(`${JSON.stringify(output)}\n`);
   return 0;
 }

@@ -61,6 +61,8 @@ export interface RunReviewScaffoldInput {
   newReview?: boolean;
   background?: boolean;
   onReviewBound?: (uuid: string) => void | Promise<void>;
+  /** Forks the invoking agent session; defaults to the harness-native fork. */
+  createSourceAgentSession?: typeof createReviewSourceAgentSession;
 }
 
 // Scaffold's event carries pinned commits, managed checkouts, and normalized
@@ -168,7 +170,9 @@ async function createReview(
         "Review scaffold cannot create a source session without its managed head checkout.",
       );
     }
-    const frozen = await createReviewSourceAgentSession({
+    const frozen = await (
+      input.createSourceAgentSession ?? createReviewSourceAgentSession
+    )({
       agent: invokingAgent,
       reviewUuid: uuid,
       rootPath: setup.headRootPath,
@@ -285,7 +289,9 @@ export async function repinReview(
     // The fork belongs to the same unit of work as the pin. A Review whose
     // Ask Agent cannot answer is not a usable Review, so a failure here fails
     // the update and leaves the stored pins untouched.
-    const frozen = await createReviewSourceAgentSession({
+    const frozen = await (
+      input.createSourceAgentSession ?? createReviewSourceAgentSession
+    )({
       agent: invokingAgent,
       reviewUuid: uuid,
       rootPath: setup.headRootPath,
@@ -586,7 +592,7 @@ async function materializeReviewSetup(input: {
 }> {
   const warnings: string[] = [];
   const prepareCommands = await devfastPrepareCommands(input.reviewRoot).catch(
-    () => [] as string[],
+    (): string[] => [],
   );
   if (prepareCommands.length === 0) {
     warnings.push(

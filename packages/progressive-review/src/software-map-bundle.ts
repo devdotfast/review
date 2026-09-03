@@ -23,6 +23,12 @@ const MANIFEST_VERSION = 1;
 
 const COMMIT_SHA_PATTERN = /^[0-9a-f]{40}$/i;
 
+const DocumentModuleSchema = z.object({ activeReviewDocument: z.unknown() });
+const EvaluatedDocumentSchema = z.object({
+  repoSoftwareMap: z.unknown(),
+  baseSoftwareMap: z.unknown(),
+});
+
 const SoftwareMapBundleManifestSchema = z.object({
   version: z.literal(MANIFEST_VERSION),
   headCommit: z.string().regex(COMMIT_SHA_PATTERN),
@@ -94,7 +100,9 @@ export async function readReviewSoftwareMapBundle(
       readFile(path.join(bundleDir, BASE_MAP_FILE), "utf8"),
     ]);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return null;
+    }
     throw error;
   }
   const manifest = parseManifest(manifestRaw);
@@ -210,15 +218,14 @@ export async function extractLegacyReviewSoftwareMapBundle(input: {
     ]);
     const url = pathToFileURL(path.join(input.evaluationDir, documentFile));
     url.searchParams.set("t", String(Date.now()));
-    const module = (await import(url.href)) as {
-      activeReviewDocument?: typeof captured;
-    };
-    const document = (module.activeReviewDocument ?? captured) as {
-      repoSoftwareMap?: unknown;
-      baseSoftwareMap?: unknown;
-    } | null;
+    const module: unknown = await import(url.href);
+    const document = EvaluatedDocumentSchema.safeParse(
+      DocumentModuleSchema.safeParse(module).data?.activeReviewDocument ??
+        captured,
+    ).data;
     if (
-      !isNormalizedSoftwareModel(document?.repoSoftwareMap) ||
+      !document ||
+      !isNormalizedSoftwareModel(document.repoSoftwareMap) ||
       !isNormalizedSoftwareModel(document.baseSoftwareMap)
     ) {
       return null;

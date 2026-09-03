@@ -47,17 +47,20 @@ export function threadListStatus(thread: ThreadView): ThreadListStatus {
 }
 
 export function commentThreadView(thread: CommentThreadView): ThreadView {
-  const messages: ThreadMessage[] = thread.messages.map((message) => ({
-    id: message.id,
-    by: message.by,
-    at: message.at,
-    body: message.body,
-    userAuthored: message.role !== "agent",
-    ...(message.format === "markdown" ? { agentMarkdown: true } : {}),
-  }));
+  const messages: ThreadMessage[] = thread.messages.map((message) => {
+    const view: ThreadMessage = {
+      id: message.id,
+      by: message.by,
+      at: message.at,
+      body: message.body,
+      userAuthored: message.role !== "agent",
+    };
+    if (message.format === "markdown") view.agentMarkdown = true;
+    return view;
+  });
   if (thread.agentActivity) {
     const activity = thread.agentActivity;
-    messages.push({
+    const activityMessage: ThreadMessage = {
       id: `review-agent-activity:${activity.messageId}`,
       by: "Agent",
       at: activity.startedAt,
@@ -68,9 +71,10 @@ export function commentThreadView(thread: CommentThreadView): ThreadView {
             ? "Running\u2026"
             : "Failed",
       userAuthored: false,
-      ...(activity.status === "failed" ? { error: activity.error } : {}),
-      ...(activity.status !== "failed" ? { running: true } : {}),
-    });
+    };
+    if (activity.status === "failed") activityMessage.error = activity.error;
+    else activityMessage.running = true;
+    messages.push(activityMessage);
   }
   return {
     key: thread.threadId,

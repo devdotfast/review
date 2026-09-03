@@ -1,4 +1,5 @@
 import { diff as readLocalVcsDiff } from "@dev.fast/local-vcs";
+import { jsonString, parseJsonText } from "@dev.fast/review-protocol";
 
 import { type DiffHunkLine, parseUnifiedPatch } from "./unified-diff";
 
@@ -424,9 +425,10 @@ function parseGitFileLine(
 
 function unquoteGitPath(value: string): string {
   if (!value.startsWith(`"`)) return value;
+  const unquoted = value.slice(1, value.endsWith(`"`) ? -1 : undefined);
   try {
-    return JSON.parse(value) as string;
+    return jsonString(parseJsonText(value)) ?? unquoted;
   } catch {
-    return value.slice(1, value.endsWith(`"`) ? -1 : undefined);
+    return unquoted;
   }
 }

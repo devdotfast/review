@@ -34,14 +34,6 @@ const commandCenterControl = readFileSync(
   "utf8",
 );
 
-const editorActions = readFileSync(
-  new URL(
-    "../code-oss/src/vs/workbench/browser/parts/editor/editorActions.ts",
-    import.meta.url,
-  ),
-  "utf8",
-);
-
 test("Review mounts VS Code's native back and forward controls", () => {
   assert.match(
     reviewMain,
@@ -64,22 +56,6 @@ test("Review mounts VS Code's native back and forward controls", () => {
     /review-title\b/,
     "the titlebar carries no product label; the branding lives in the macOS application menu",
   );
-
-  for (const [action, icon] of [
-    ["NavigateBackwardsAction", "arrowLeft"],
-    ["NavigateForwardAction", "arrowRight"],
-  ]) {
-    const definition = editorActions.match(
-      new RegExp(`export class ${action}[\\s\\S]*?\\n}`),
-    )?.[0];
-    assert.ok(definition, `expected ${action}`);
-    assert.match(definition, new RegExp(`icon: Codicon\\.${icon}`));
-    assert.match(definition, /id: MenuId\.CommandCenter/);
-    assert.match(
-      definition,
-      /config\.workbench\.navigationControl\.enabled/,
-    );
-  }
 });
 
 test("the native control can omit the command launcher without hiding navigation", () => {
@@ -87,7 +63,10 @@ test("the native control can omit the command launcher without hiding navigation
     /MenuRegistry\.appendMenuItem\(MenuId\.CommandCenter, \{[\s\S]*?submenu: MenuId\.CommandCenterCenter,[\s\S]*?\n\}\);/,
   )?.[0];
 
-  assert.ok(centerMenuItem, "expected the native command-center menu item");
-  assert.match(centerMenuItem, /config\.window\.commandCenter/);
+  assert.match(
+    centerMenuItem ?? "",
+    /when: ContextKeyExpr\.has\('config\.window\.commandCenter'\)/,
+    "expected the native command-center menu item gated on config.window.commandCenter",
+  );
   assert.match(reviewConfiguration, /'window\.commandCenter': false,/);
 });

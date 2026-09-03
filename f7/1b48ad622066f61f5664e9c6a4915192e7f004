@@ -941,9 +941,9 @@ export default defineSoftwareMap({
                 canvasEditorTabs: {
                   label: "ReviewCanvasEditorTabsService",
                   description:
-                    "Caches Singleton canvas inputs and opens every one of them through a single openInput path that passes no target editor group, so VS Code reveals the tab in the group that already holds it and only falls back to the active group on a first open.",
+                    "Caches Singleton canvas inputs and opens every one of them through a single openInput path that always names a main-part editor group explicitly: the most-recently-active group that already contains the input, falling back to the active group on a first open, so a group-less open can never be routed into a modal overlay.",
                   sourceRanges: [
-                    { file: "apps/review-desktop/code-oss/src/vs/review/services/reviewCanvasEditorTabsService.ts", fromLine: 53, toLine: 214 },
+                    { file: "apps/review-desktop/code-oss/src/vs/review/services/reviewCanvasEditorTabsService.ts", fromLine: 56, toLine: 222 },
                   ],
                   relationships: [
                     {

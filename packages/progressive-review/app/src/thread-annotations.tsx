@@ -219,6 +219,7 @@ export function ThreadAnnotations({
   const cardRefs = useRef(new Map<string, HTMLDivElement>());
   const rootRef = useRef<HTMLDivElement | null>(null);
   const draftHasTextRef = useRef(false);
+  const deferredFocusNonceRef = useRef<number | null>(null);
 
   // Recompute annotations when a draft opens/closes too, so the selected
   // text is highlighted while the comment is being written (not only after
@@ -510,7 +511,8 @@ export function ThreadAnnotations({
       const hiddenContainer = targetElement?.closest("[hidden]");
       const section =
         hiddenContainer?.closest(".review-section") ??
-        targetElement?.closest(".review-section--collapsed");
+        targetElement?.closest(".review-section--collapsed") ??
+        (target ? collapsedSectionForThread(article, target) : null);
       if (section) {
         section.dispatchEvent(new CustomEvent("review-section-expand"));
         await nextAnimationFrame();
@@ -521,6 +523,23 @@ export function ThreadAnnotations({
       }
 
       if (cancelled) return;
+      const scrollElement = target
+        ? scrollTargetForThread(article, target)
+        : null;
+      const isProseTarget =
+        target?.kind === "text" && target.surface.type === "document";
+      // A prose highlight is rendered one measurement cycle after the thread
+      // (or its section) appears. Wait exactly once for that cycle: keep the
+      // request pending and let the annotations dependency re-run this effect.
+      if (
+        request.scroll &&
+        !scrollElement &&
+        isProseTarget &&
+        deferredFocusNonceRef.current !== request.nonce
+      ) {
+        deferredFocusNonceRef.current = request.nonce;
+        return;
+      }
       setFocusPresentation(request.inline ? "inline" : "highlight");
       const preferred = preferredFocusedKey
         ? displayThreads.get(preferredFocusedKey)
@@ -529,8 +548,11 @@ export function ThreadAnnotations({
         setPreferredFocusedKey(request.inline ? (thread?.key ?? null) : null);
       }
       onThreadActivated?.(request.threadId);
-      if (request.scroll && targetElement) {
-        targetElement.scrollIntoView({ block: "center", behavior: "smooth" });
+      if (request.scroll) {
+        (scrollElement ?? targetElement ?? article).scrollIntoView({
+          block: "center",
+          behavior: "smooth",
+        });
       }
       // Thread detail lives in the side panel; a focus request only
       // highlights (and optionally scrolls to) the inline target.
@@ -541,6 +563,7 @@ export function ThreadAnnotations({
       cancelled = true;
     };
   }, [
+    annotations,
     articleRef,
     onThreadActivated,
     preferredFocusedKey,
@@ -1022,6 +1045,22 @@ export function scrollTargetForThread(
     `.review-annotations .review-highlight[data-review-locator="${cssString(targetKey(target))}"]`,
   );
   return highlight ?? null;
+}
+
+/** Find a collapsed section containing a document-text target. */
+export function collapsedSectionForThread(
+  article: HTMLElement,
+  target: ThreadTarget,
+): Element | null {
+  if (target.kind !== "text" || target.surface.type !== "document") {
+    return null;
+  }
+  const range = textRange(target, article);
+  return (
+    range?.startContainer.parentElement?.closest(
+      ".review-section--collapsed",
+    ) ?? null
+  );
 }
 
 function textRange(

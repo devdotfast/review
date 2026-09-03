@@ -9,6 +9,7 @@ import {
   CARD_MIN_WIDTH,
   MARGIN_CARDS_MIN_GUTTER,
   annotationForThread,
+  collapsedSectionForThread,
   gutterForAvailable,
   scrollTargetForThread,
   textNodeClientRects,
@@ -66,6 +67,18 @@ describe("scrollTargetForThread", () => {
     );
 
     expect(scrollTargetForThread(article, proseTarget)).toBeNull();
+  });
+
+  it("finds the collapsed section containing a prose target", () => {
+    const article = articleWith(
+      `<section class="review-section review-section--collapsed">` +
+        `<div class="review-section-body" hidden><p>hello</p></div>` +
+        `</section>`,
+    );
+
+    expect(collapsedSectionForThread(article, proseTarget)).toBe(
+      article.querySelector(".review-section"),
+    );
   });
 });
 

@@ -134,6 +134,7 @@ export async function listReviewTraceSessions(input: {
   baseCommit: string;
   headCommit: string;
 }): Promise<ReviewTraceSessionDescriptor[]> {
+  if (reviewTracesDisabled()) return [];
   const sessions = new Map<string, ReviewTraceSessionRef>();
   const commits = await commitsWithTrailers(input);
   for (const commit of commits) {
@@ -471,7 +472,6 @@ export function traceSearchCorpusDir(): string {
   return dir;
 }
 
-export async function pullReviewTraceCorpus(input: {
 const TRACE_PULL_CONCURRENCY = 6;
 
 async function mapWithConcurrency<T, R>(
@@ -491,6 +491,7 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
+export async function pullReviewTraceCorpus(input: {
   repo: { owner: string; repo: string };
   sessions: ReviewTracePullSession[];
   mainOnly?: boolean;
@@ -598,6 +599,7 @@ function findNormalizedTraceFile(
 }
 
 function findNormalizedSessionDirs(sessionId: string): string[] {
+  if (reviewTracesDisabled()) return [];
   const root = traceSearchCorpusDir();
   const session = corpusPathSegment(sessionId, "session");
   const results: string[] = [];
@@ -973,6 +975,7 @@ export interface LocalTraceDiscovery {
 export async function findLocalTrace(
   sessionId: string,
 ): Promise<LocalTraceDiscovery | null> {
+  if (reviewTracesDisabled()) return null;
   if (!sessionIdSchema.safeParse(sessionId).success) return null;
 
   const claudeRoot =
@@ -1534,7 +1537,15 @@ export function traceEnvValue(name: string): string | undefined {
   return process.env[name] ?? traceEnvFile()[name];
 }
 
+// DEV_FAST_REVIEW_TRACES=off makes trace storage absent end to end (no R2,
+// no local corpus, no local transcripts, no sessions listed), so a review can
+// be authored exactly as it would be on a machine without trace capture.
+export function reviewTracesDisabled(): boolean {
+  return process.env.DEV_FAST_REVIEW_TRACES === "off";
+}
+
 export function traceR2Config(): TraceR2Config | null {
+  if (reviewTracesDisabled()) return null;
   const bucket = traceEnvValue("TRACE_R2_BUCKET");
   const endpoint = traceEnvValue("TRACE_R2_ENDPOINT");
   const accessKeyId =

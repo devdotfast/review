@@ -23,8 +23,9 @@
 #
 # Environment:
 #   DEV_REVIEW_HOME               isolated Review home that holds auth.json
-#   REVIEW_TEST_TRACE_SEARCH_DIR  corpus root for `trace pull`; the CLI reads
-#                                 the real $HOME/.dev/trace-search without it
+#   REVIEW_TEST_TRACE_SEARCH_DIR  corpus root for `trace pull`; without it the
+#                                 CLI reads $DEV_REVIEW_HOME/trace-search
+#                                 (default $HOME/.dev/trace-search)
 #   AWS_PROFILE                   profile for the two head-object checks
 
 set -euo pipefail
@@ -66,12 +67,14 @@ fi
 
 HOME_DIR="${DEV_REVIEW_HOME:-$HOME/.dev}"
 AUTH_FILE="$HOME_DIR/auth.json"
-CORPUS_DIR="${REVIEW_TEST_TRACE_SEARCH_DIR:-$HOME/.dev/trace-search}"
+CORPUS_DIR="${REVIEW_TEST_TRACE_SEARCH_DIR:-${DEV_REVIEW_HOME:-$HOME/.dev}/trace-search}"
 WORK_DIR="$(mktemp -d)"
+# curl reads the bearer token from this file, so no token reaches `ps`.
+AUTH_HEADER="$HOME_DIR/trace-smoke-auth.header"
 FAILURES=0
 
 rv() { node "$CLI" "$@"; }
-cleanup() { rm -rf "$WORK_DIR"; }
+cleanup() { rm -rf "$WORK_DIR"; rm -f "$AUTH_HEADER"; }
 trap cleanup EXIT
 
 pass() { printf 'PASS row %-2s %s\n' "$1" "$2"; }
@@ -214,10 +217,11 @@ else
 fi
 
 # ---------------------------------------------------------------- row 11
-TOKEN="$(jq -r .token "$AUTH_FILE")"
+(umask 177; jq -r '"authorization: Bearer " + .token' "$AUTH_FILE" >"$AUTH_HEADER")
+chmod 600 "$AUTH_HEADER"
 upload_url() { printf '%s/api/trace/v1/stores/%s/sessions/x/uploads' "$ORIGIN" "$1"; }
 NO_TOKEN="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$(upload_url "$ID")")"
-BAD_STORE="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "authorization: Bearer $TOKEN" -H "Origin: $ORIGIN" "$(upload_url 999999999)")"
+BAD_STORE="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "@$AUTH_HEADER" -H "Origin: $ORIGIN" "$(upload_url 999999999)")"
 BAD_TOKEN="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "authorization: Bearer not-a-real-token" -H "Origin: $ORIGIN" "$(upload_url "$ID")")"
 if { [ "$NO_TOKEN" = "401" ] || [ "$NO_TOKEN" = "403" ]; } && [ "$BAD_STORE" = "403" ] && [ "$BAD_TOKEN" = "401" ]; then
   pass 11 "no token=$NO_TOKEN, foreign store=$BAD_STORE, bad token=$BAD_TOKEN"
@@ -229,7 +233,7 @@ fi
 if [ "$KEEP_STORE" = "1" ]; then
   echo "SKIP row 12 (--keep-store)"
 else
-  DELETED="$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "authorization: Bearer $TOKEN" -H "Origin: $ORIGIN" "$ORIGIN/api/trace/v1/stores/$ID")"
+  DELETED="$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "@$AUTH_HEADER" -H "Origin: $ORIGIN" "$ORIGIN/api/trace/v1/stores/$ID")"
   if [ "$DELETED" = "204" ]; then
     COUNT="$(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "r$ID/" --query 'KeyCount' --output text)"
     check "$([ "$COUNT" = "0" ] && echo 0 || echo 1)" 12 "DELETE=204, keys left=$COUNT"
@@ -239,7 +243,7 @@ else
     fail 12 "DELETE=$DELETED"
   fi
 fi
-unset TOKEN
+rm -f "$AUTH_HEADER"
 
 # ---------------------------------------------------------------- row 13
 if [ "$KEEP_LOGIN" = "1" ]; then

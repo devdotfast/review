@@ -99,9 +99,10 @@ CLI defers to the app's bundled copy whenever Review Desktop is running.
 Agent setup installs only the Review CLI and skills. Enabling Trace capture in
 Settings ▸ Experimental Features also installs FFF: it registers the standard
 `fff` MCP server for Claude and Codex, and installs `npm:@ff-labs/pi-fff` for
-Pi. The MCP registration points FFF at `~/.dev/trace-search`. Review accepts
-existing FFF integrations without changes. Silent app-update synchronization
-never runs an FFF installer.
+Pi. The MCP registration points FFF at `$DEV_REVIEW_HOME/trace-search`
+(default `~/.dev/trace-search`). Review accepts existing FFF integrations
+without changes. Silent app-update synchronization never runs an FFF
+installer.
 
 The experimental setup installs the trace hooks and skill for the machine. It
 needs no local credentials: run `review login` to sign in with GitHub, then

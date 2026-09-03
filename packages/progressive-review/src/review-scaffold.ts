@@ -361,7 +361,7 @@ function reportTraceSessionsProgress(
           : s.harness === "pi"
             ? "Pi"
             : "unknown";
-    const syncLabel = s.available ? "[S3/R2 synced]" : "[not synced]";
+    const syncLabel = s.available ? "[in the store]" : "[not in the store]";
     progress(`  ${shortId} (${harness})  ${syncLabel}`);
   }
 }

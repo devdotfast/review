@@ -393,7 +393,7 @@ export async function runReviewTraceList(input: {
   for (const session of publicSessions) {
     input.stdout.write(
       `${session.id}  (${session.harness}, ${
-        session.available ? "S3/R2 synced" : "not synced"
+        session.available ? "in the store" : "not in the store"
       })\n`,
     );
     for (const commit of session.commits) {

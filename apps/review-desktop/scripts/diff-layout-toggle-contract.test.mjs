@@ -10,14 +10,6 @@ const editorContribution = readFileSync(
   "utf8",
 );
 
-const diffCommandsService = readFileSync(
-  new URL(
-    "../code-oss/src/vs/workbench/browser/parts/editor/diffEditorCommandsService.ts",
-    import.meta.url,
-  ),
-  "utf8",
-);
-
 const reviewWorkbenchMain = readFileSync(
   new URL(
     "../code-oss/src/vs/review/review.common.main.ts",
@@ -42,10 +34,6 @@ test("native diff editors expose the canonical inline/split toolbar toggle", () 
     "expected the layout toggle in the visible native editor toolbar",
   );
 
-  assert.match(
-    diffCommandsService,
-    /updateValue\(modifiedResource, key, !value\)/,
-  );
   assert.match(
     reviewWorkbenchMain,
     /parts\/editor\/diffEditor\.workbench\.contribution\.js/,

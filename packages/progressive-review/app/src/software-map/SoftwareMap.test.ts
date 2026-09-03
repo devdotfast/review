@@ -33,7 +33,6 @@ import {
   positionC4EdgeLabels,
   runInlineC4Layout,
   runSerializedC4Layout,
-  scheduleC4NodeMeasurements,
 } from "./SoftwareMap";
 
 function sourceBetween(source: string, start: string, end: string): string {
@@ -395,26 +394,10 @@ describe("SoftwareMap inline C4 helpers", () => {
     const measurementLayerSource = sourceBetween(
       source,
       "function C4NodeMeasurementLayer",
-      "function scheduleC4NodeMeasurements",
+      "type C4RoutingSide",
     );
 
-    expect(source).toContain("const followUpMeasurements = [120, 500]");
     expect(measurementLayerSource).not.toContain("new ResizeObserver");
-  });
-
-  it("measures C4 nodes even when animation frames are paused for a hidden editor tab", () => {
-    const measure = vi.fn<() => void>();
-    const cancel = scheduleC4NodeMeasurements(measure, {
-      requestFrame: vi.fn<(callback: FrameRequestCallback) => number>(() => 17),
-      cancelFrame: vi.fn<(frame: number) => void>(),
-      setTimer: vi.fn<(callback: () => void, delay: number) => number>(
-        () => 23,
-      ),
-      clearTimer: vi.fn<(timer: number) => void>(),
-    });
-
-    expect(measure).toHaveBeenCalledTimes(1);
-    cancel();
   });
 
   it("serializes C4 layouts while follow-up measurements settle", async () => {

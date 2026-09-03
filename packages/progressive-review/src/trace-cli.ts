@@ -203,7 +203,11 @@ export async function runReviewTraceShow(input: {
   sessionId: string;
   trace?: string;
   eventIndex?: number;
+  // Several events in one process: the agent otherwise launches the CLI
+  // once per event it wants to read.
+  eventIndexes?: number[];
   kind?: string;
+  refresh?: boolean;
   json?: boolean;
   stdout: NodeJS.WriteStream;
   stderr: NodeJS.WriteStream;
@@ -213,6 +217,7 @@ export async function runReviewTraceShow(input: {
     sessionId: input.sessionId,
     trace: traceName,
     cwd: input.cwd,
+    refresh: input.refresh,
   });
   if (!loaded) {
     throw new Error(
@@ -220,6 +225,46 @@ export async function runReviewTraceShow(input: {
     );
   }
   const { trace } = loaded;
+  const requested =
+    input.eventIndexes ??
+    (input.eventIndex !== undefined ? [input.eventIndex] : undefined);
+  if (requested && requested.length > 1) {
+    const events = requested.map((index) => {
+      const event = trace.events[index];
+      if (!event) {
+        throw new Error(
+          `Event ${index} is out of range. Session ${input.sessionId} has ${trace.events.length} events.`,
+        );
+      }
+      return { index, event, text: extractTraceEventText(event) };
+    });
+    if (input.json) {
+      input.stdout.write(
+        `${JSON.stringify({
+          session: input.sessionId,
+          trace: traceName ?? "main",
+          events: events.map(({ index, event, text }) => ({
+            event: index,
+            kind: event.kind,
+            text,
+            trace_quote_props: {
+              sessionId: input.sessionId,
+              event: index,
+              ...(traceName ? { trace: traceName } : {}),
+            },
+          })),
+        })}\n`,
+      );
+      return 0;
+    }
+    for (const { index, event, text } of events) {
+      input.stdout.write(`=== event ${index} (${event.kind}) ===\n${text}\n\n`);
+    }
+    return 0;
+  }
+  if (requested && requested.length === 1) {
+    input.eventIndex = requested[0];
+  }
   if (input.eventIndex !== undefined) {
     const event = trace.events[input.eventIndex];
     if (!event) {

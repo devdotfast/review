@@ -812,19 +812,31 @@ export async function runProgressiveReviewCli(
       .description("Survey a trace or show an exact event")
       .option("--trace <name>", "trace name; omit for the main trace")
       .option(
-        "--event <index>",
-        "print the complete text of one event",
-        (value: string) => Number.parseInt(value, 10),
+        "--event <indexes>",
+        "print the complete text of one event, or several: --event 43,62,70",
+        (value: string) =>
+          value.split(",").map((part) => {
+            const index = Number.parseInt(part.trim(), 10);
+            if (!Number.isInteger(index) || index < 0) {
+              throw new Error(`--event expects non-negative integers, got ${JSON.stringify(part)}.`);
+            }
+            return index;
+          }),
       )
-      .option("--kind <kind>", "only list user|assistant|tool|separator rows"),
+      .option("--kind <kind>", "only list user|assistant|tool|separator rows")
+      .option(
+        "--refresh",
+        "check R2 for a newer copy of the trace before reading the local one",
+      ),
     "plain",
   ).action(
     async (
       sessionId: string,
       options: {
         trace?: string;
-        event?: number;
+        event?: number[];
         kind?: string;
+        refresh?: boolean;
         json?: boolean;
       },
     ) => {
@@ -832,8 +844,9 @@ export async function runProgressiveReviewCli(
         cwd,
         sessionId,
         trace: options.trace,
-        eventIndex: options.event,
+        eventIndexes: options.event,
         kind: options.kind,
+        refresh: options.refresh,
         json: options.json,
         stdout: input.stdout,
         stderr: input.stderr,

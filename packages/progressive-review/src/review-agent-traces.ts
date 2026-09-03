@@ -46,7 +46,6 @@ import {
 const RECORD_SEPARATOR = "\u001e";
 const FIELD_SEPARATOR = "\u001f";
 const R2_COMMIT_LOOKUP_LIMIT = 30;
-const REMOTE_HEAD_TTL_MS = 15_000;
 
 export interface ReviewTraceCommitRef {
   sha: string;
@@ -121,7 +120,6 @@ export interface ReviewTraceDoctorResult {
   error?: string;
 }
 
-const lastCheckedTimes = new Map<string, number>();
 
 export function isTraceR2Configured(): boolean {
   if (process.env.TRACE_R2_MODE === "mock") return true;
@@ -222,14 +220,14 @@ export async function loadReviewAgentTrace(input: {
     ? normalizedTracePath(normalizeRepo(input.repo), sessionId, traceName)
     : findNormalizedTraceFile(sessionId, traceName);
   let normalized = normalizedPath ? readNormalizedTrace(normalizedPath) : null;
-  const now = Date.now();
-  const lastChecked = lastCheckedTimes.get(traceKey) ?? 0;
-  const canUseWithoutCheck =
-    normalized && !input.refresh && now - lastChecked < REMOTE_HEAD_TTL_MS;
+  // A materialized trace is served as-is: every `review trace show` used to
+  // pay an R2 HEAD (an `aws` spawn) per process to look for growth, on traces
+  // that scaffold already pinned. Callers that need the latest copy
+  // (`review trace pull`, scaffold) pass `refresh`.
+  const canUseWithoutCheck = normalized && !input.refresh;
 
   if (!canUseWithoutCheck) {
     const remoteSize = await r2HeadObjectSize(traceKey);
-    lastCheckedTimes.set(traceKey, now);
     const mustMaterialize =
       remoteSize !== null &&
       (!normalized || remoteSize > normalized.metadata.source.bytes);
@@ -1487,7 +1485,6 @@ let cachedTraceEnv: Record<string, string> | null = null;
 
 export function clearTraceEnvCache(): void {
   cachedTraceEnv = null;
-  lastCheckedTimes.clear();
 }
 
 function traceEnvFile(): Record<string, string> {

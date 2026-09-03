@@ -155,7 +155,7 @@ export class StoreClient {
     body: BeginUploadRequest,
   ): Promise<BeginUploadResponse> {
     return this.requestJson(
-      `${TRACE_STORE_API_PREFIX}/stores/${repositoryId}/sessions/${sessionId}/begin-upload`,
+      `${TRACE_STORE_API_PREFIX}/stores/${repositoryId}/sessions/${sessionId}/uploads`,
       body,
       beginUploadResponseSchema,
     );
@@ -167,7 +167,7 @@ export class StoreClient {
     body: CompleteUploadRequest,
   ): Promise<CompleteUploadResponse> {
     return this.requestJson(
-      `${TRACE_STORE_API_PREFIX}/stores/${repositoryId}/sessions/${sessionId}/complete-upload`,
+      `${TRACE_STORE_API_PREFIX}/stores/${repositoryId}/sessions/${sessionId}/uploads/complete`,
       body,
       completeUploadResponseSchema,
     );

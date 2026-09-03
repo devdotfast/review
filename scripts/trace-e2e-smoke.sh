@@ -219,7 +219,7 @@ fi
 # ---------------------------------------------------------------- row 11
 (umask 177; jq -r '"authorization: Bearer " + .token' "$AUTH_FILE" >"$AUTH_HEADER")
 chmod 600 "$AUTH_HEADER"
-upload_url() { printf '%s/api/trace/v1/stores/%s/sessions/x/uploads' "$ORIGIN" "$1"; }
+upload_url() { printf '%s/api/trace/v1/stores/%s/sessions/session-00000001/uploads' "$ORIGIN" "$1"; }
 NO_TOKEN="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$(upload_url "$ID")")"
 BAD_STORE="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "@$AUTH_HEADER" -H "Origin: $ORIGIN" "$(upload_url 999999999)")"
 BAD_TOKEN="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "authorization: Bearer not-a-real-token" -H "Origin: $ORIGIN" "$(upload_url "$ID")")"

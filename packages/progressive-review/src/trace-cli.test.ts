@@ -17,7 +17,6 @@ import {
   runReviewTraceStatus,
   runReviewTraceSync,
 } from "./trace-cli";
-import { configureTraceMachine } from "./trace-machine-setup";
 import { traceRepositoryStatus } from "./trace-repository-hooks";
 import {
   type MemoryTraceStoreTransport,
@@ -48,7 +47,6 @@ function outputs() {
 
 describe("trace-cli", () => {
   let tempDir: string;
-  let envFile: string;
   let localTraceRoot: string;
   let corpusRoot: string;
   let tmpHome: string;
@@ -71,7 +69,6 @@ describe("trace-cli", () => {
       tmpdir(),
       `trace-cli-test-${process.pid}-${Math.random().toString(36).slice(2)}`,
     );
-    envFile = path.join(tempDir, "env");
     localTraceRoot = path.join(tempDir, "local-traces");
     corpusRoot = path.join(tempDir, "trace-search");
     tmpHome = path.join(tempDir, "dev-home");
@@ -79,8 +76,6 @@ describe("trace-cli", () => {
     mkdirSync(localTraceRoot, { recursive: true });
     mkdirSync(corpusRoot, { recursive: true });
     mkdirSync(tmpHome, { recursive: true });
-    process.env.TRACE_ENV_FILE = envFile;
-    process.env.TRACE_SETTINGS_FILE = path.join(tempDir, "settings.json");
     process.env.TRACE_LOCAL_TRACE_ROOT = localTraceRoot;
     process.env.REVIEW_TEST_TRACE_SEARCH_DIR = corpusRoot;
     process.env.DEV_REVIEW_HOME = tmpHome;
@@ -89,61 +84,11 @@ describe("trace-cli", () => {
   });
 
   afterEach(() => {
-    delete process.env.TRACE_ENV_FILE;
-    delete process.env.TRACE_SETTINGS_FILE;
     delete process.env.TRACE_LOCAL_TRACE_ROOT;
     delete process.env.REVIEW_TEST_TRACE_SEARCH_DIR;
     delete process.env.DEV_REVIEW_HOME;
     vi.restoreAllMocks();
     rmSync(tempDir, { recursive: true, force: true });
-  });
-
-  it("writes configuration to env file and verifies options", async () => {
-    const status = await configureTraceMachine({
-      credentials: {
-        endpoint: "https://test-account.r2.cloudflarestorage.com",
-        bucket: "test-bucket",
-        key: "test-key-id",
-        secret: "test-secret-key",
-      },
-    });
-
-    expect(status.enabled).toBe(true);
-    const content = readFileSync(envFile, "utf8");
-    expect(content).toContain(
-      'export TRACE_R2_ENDPOINT="https://test-account.r2.cloudflarestorage.com"',
-    );
-    expect(content).toContain('export TRACE_R2_BUCKET="test-bucket"');
-    expect(content).toContain('export TRACE_R2_ACCESS_KEY_ID="test-key-id"');
-    expect(content).toContain(
-      'export TRACE_R2_SECRET_ACCESS_KEY="test-secret-key"',
-    );
-    // Without an explicit region the machine keeps R2's "auto" signing region.
-    expect(content).toContain('export TRACE_R2_REGION="auto"');
-    expect(status.region).toBe("auto");
-  });
-
-  it("stores an explicit S3 signing region", async () => {
-    const status = await configureTraceMachine({
-      credentials: {
-        endpoint: "https://s3.us-east-1.amazonaws.com",
-        bucket: "test-bucket",
-        key: "test-key-id",
-        secret: "test-secret-key",
-        region: "us-east-1",
-      },
-    });
-
-    expect(readFileSync(envFile, "utf8")).toContain(
-      'export TRACE_R2_REGION="us-east-1"',
-    );
-    expect(status.region).toBe("us-east-1");
-  });
-
-  it("fails setup when required options are missing in nonInteractive mode", async () => {
-    await expect(
-      configureTraceMachine({ credentials: { bucket: "test-bucket" } }),
-    ).rejects.toThrow("Trace setup needs");
   });
 
   it("handles husky git hook delegation without breaking core.hooksPath", async () => {

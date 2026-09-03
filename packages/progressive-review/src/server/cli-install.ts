@@ -48,7 +48,6 @@ import {
 } from "../install";
 import { readProgressiveReviewPackageVersion } from "../package-paths";
 import {
-  type TraceCredentialsInput,
   disableTraceMachine,
   traceMachineStatus,
 } from "../trace-machine-setup";
@@ -173,7 +172,8 @@ export async function applyCliInstall(input: {
   targets: InstallTarget[];
   shim?: boolean;
   fff?: boolean;
-  trace?: true | TraceCredentialsInput;
+  /** Any value asks for the trace hooks; the store needs no credentials. */
+  trace?: true | Record<string, string | undefined>;
   cliPath?: string;
   cliRuntimePath?: string;
   homeDir?: string;
@@ -207,6 +207,7 @@ export async function applyCliInstall(input: {
         wantShim || (await isFile(pathShimPath(homeDir)))
           ? pathShimPath(homeDir)
           : "review",
+      ...(input.trace !== undefined ? { trace: true } : {}),
       stdout: sink,
       stderr: sink,
     };

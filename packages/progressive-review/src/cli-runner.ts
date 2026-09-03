@@ -645,30 +645,6 @@ export async function runProgressiveReviewCli(
         ]),
       )
       .option(
-        "--trace-endpoint <url>",
-        "S3/R2 endpoint URL (experimental trace capture)",
-      )
-      .option(
-        "--trace-bucket <name>",
-        "S3/R2 bucket name (experimental trace capture)",
-      )
-      .option(
-        "--trace-key <id>",
-        "S3/R2 access key ID (experimental trace capture)",
-      )
-      .option(
-        "--trace-secret <key>",
-        "S3/R2 secret access key (experimental trace capture)",
-      )
-      .option(
-        "--trace-region <region>",
-        "SigV4 signing region; default auto for R2, set the bucket region for S3",
-      )
-      .option(
-        "--without-traces",
-        "Deprecated: trace capture is off unless --trace-* options are given",
-      )
-      .option(
         "--no-shim",
         "Install skills without the review command or PATH changes",
       )
@@ -680,12 +656,6 @@ export async function runProgressiveReviewCli(
       targets: string[],
       options: {
         json?: boolean;
-        traces?: boolean;
-        traceEndpoint?: string;
-        traceBucket?: string;
-        traceKey?: string;
-        traceSecret?: string;
-        traceRegion?: string;
         shim?: boolean;
       },
     ) => {
@@ -698,6 +668,7 @@ export async function runProgressiveReviewCli(
         targets: selectedTargets,
         env,
         fff: true,
+        ...(installShim ? { reviewCommand: pathShimPath() } : {}),
         json: options.json,
         stdout: input.stdout,
         stderr: input.stderr,
@@ -1442,20 +1413,6 @@ function progressiveReviewTopLevelHelp(): string {
     "",
     "  Start concise and let me dig deeper through the canvas.",
   ].join("\n");
-}
-
-function traceCredentialsRequested(options: {
-  traceEndpoint?: string;
-  traceBucket?: string;
-  traceKey?: string;
-  traceSecret?: string;
-}): boolean {
-  return Boolean(
-    options.traceEndpoint ||
-    options.traceBucket ||
-    options.traceKey ||
-    options.traceSecret,
-  );
 }
 
 function progressiveReviewInstallHelp(): string {

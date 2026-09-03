@@ -22,17 +22,13 @@ import {
 } from "./agent-trace-hooks";
 import { emitJsonEvent, failWithJsonError, humanStream } from "./cli-output";
 import { isDirectory } from "./fs-utils";
-import {
-  type TraceCredentialsInput,
-  configureTraceMachine,
-  traceMachineEnabled,
-} from "./trace-machine-setup";
+import { readTraceUserConfig } from "./trace-user-config";
 
 export type InstallTarget = "claude" | "codex" | "cursor" | "pi";
 
 const REQUIRED_SKILL_NAMES = ["dev-review", "dev-review-map"] as const;
-// Installed only on machines that capture traces; removed when capture is
-// disabled so agents are not steered toward an unconfigured feature.
+// Installed only on machines that publish traces; removed when no repository
+// is allowed, so agents are not steered toward an unavailable feature.
 const TRACE_SKILL_NAMES = ["trace-archaeology"] as const;
 const STALE_SKILL_NAMES = [
   "review",
@@ -66,10 +62,8 @@ export interface RunInstallInput {
   env?: NodeJS.ProcessEnv;
   fff?: boolean;
   reviewCommand?: string;
-  trace?: {
-    credentials?: TraceCredentialsInput;
-    verify?: boolean;
-  };
+  /** Install the trace hooks and the trace skill for these agents. */
+  trace?: boolean;
   json?: boolean;
   stdout: Writable;
   stderr: Writable;
@@ -80,7 +74,6 @@ export async function runInstall(input: RunInstallInput): Promise<number> {
   const packageRoot = input.packageRoot ?? defaultPackageRoot();
   const env = input.env ?? process.env;
   const human = humanStream(input);
-  let traceEnabled = false;
 
   const skillsDir = path.join(packageRoot, "skills");
   const skillDirs = await listSkillDirs(skillsDir);
@@ -96,36 +89,11 @@ export async function runInstall(input: RunInstallInput): Promise<number> {
     );
   }
 
-  // Check machine trace configuration before any per-agent mutation. A
-  // headless install with missing credentials must fail without a partial
-  // skills or FFF install.
-  if (input.trace) {
-    try {
-      const status = await configureTraceMachine({
-        homeDir,
-        env,
-        credentials: input.trace.credentials,
-        verify: input.trace.verify,
-      });
-      traceEnabled = status.enabled;
-      human.write(`[ok] trace capture -> ${status.envPath}\n`);
-      if (status.error) {
-        human.write(`Trace storage check failed: ${status.error}\n`);
-      }
-    } catch (cause) {
-      return failWithJsonError(
-        input,
-        "install",
-        cause instanceof Error ? cause.message : String(cause),
-      );
-    }
-  }
-
-  // Agent hooks only make sense when this machine captures traces. A
-  // previous install may already have enabled it without credentials in
-  // this request.
-  const installTraceHooks =
-    traceEnabled || (await traceMachineEnabled({ homeDir, env }));
+  // Agent hooks only make sense when this machine publishes traces. The
+  // machine publishes traces once `review trace allow` records one
+  // repository, so a later install must keep the hooks in place.
+  const traceEnabled = input.trace === true || (await anyTraceRepository());
+  const installTraceHooks = traceEnabled;
 
   const installed: InstalledItem[] = [];
   for (const target of input.targets) {
@@ -213,6 +181,15 @@ export async function runInstall(input: RunInstallInput): Promise<number> {
     traceEnabled,
   });
   return 0;
+}
+
+/** True when the user allowed at least one repository to publish traces. */
+async function anyTraceRepository(): Promise<boolean> {
+  try {
+    return (await readTraceUserConfig()).repositories.length > 0;
+  } catch {
+    return false;
+  }
 }
 
 /** Removes the app-managed Review skills (current and stale names) for one agent. */

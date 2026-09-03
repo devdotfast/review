@@ -126,43 +126,19 @@ describe("Review CLI", () => {
     expect(installReviewCommand).not.toHaveBeenCalled();
   });
 
-  it("routes trace configuration through the shared installer", async () => {
-    const runInstall = vi.fn<typeof runInstallActual>(async () => 0);
+  it("does not accept the removed R2 credential options", async () => {
+    const stderr = outputStream();
+    let output = "";
+    stderr.on("data", (chunk) => (output += String(chunk)));
 
     await expect(
       runProgressiveReviewCli({
-        argv: [
-          "install",
-          "codex",
-          "--trace-endpoint",
-          "mock://endpoint",
-          "--trace-bucket",
-          "mock-bucket",
-          "--trace-key",
-          "mock-key",
-          "--trace-secret",
-          "mock-value",
-        ],
+        argv: ["install", "codex", "--trace-endpoint", "mock://endpoint"],
         stdout: outputStream(),
-        stderr: outputStream(),
-        runtime: { runInstall },
+        stderr,
       }),
-    ).resolves.toBe(0);
-
-    expect(runInstall).toHaveBeenCalledWith(
-      expect.objectContaining({
-        targets: ["codex"],
-        fff: true,
-        trace: {
-          credentials: {
-            endpoint: "mock://endpoint",
-            bucket: "mock-bucket",
-            key: "mock-key",
-            secret: "mock-value",
-          },
-        },
-      }),
-    );
+    ).resolves.toBe(1);
+    expect(output).toContain("unknown option '--trace-endpoint'");
   });
 
   it("does not expose the removed trace setup command", async () => {

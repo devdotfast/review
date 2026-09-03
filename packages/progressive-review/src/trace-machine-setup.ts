@@ -1,15 +1,19 @@
-import { execFile } from "node:child_process";
-import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+// Legacy machine trace settings.
+//
+// A past release kept S3/R2 credentials in ~/.config/dev-trace/env and a
+// machine flag beside them. The hosted trace store replaced both: a user logs
+// in with `review login` and allows one repository with `review trace allow`.
+// This module only reports and clears what those releases left behind, so the
+// install status stays truthful on an upgraded machine.
+
+import { readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
 
 import { jsonString, parseJsonText } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
 import { writeFileAtomicAsync } from "./atomic-write";
-
-const execFileAsync = promisify(execFile);
 
 export interface TraceCredentialsInput {
   endpoint?: string;
@@ -126,100 +130,6 @@ export async function traceMachineStatus(
   if (settings?.verifiedAt) status.verifiedAt = settings.verifiedAt;
   if (settings?.error) status.error = settings.error;
   return status;
-}
-
-export async function traceMachineEnabled(
-  input: {
-    homeDir?: string;
-    env?: NodeJS.ProcessEnv;
-  } = {},
-): Promise<boolean> {
-  return (await traceMachineStatus(input)).enabled;
-}
-
-export async function configureTraceMachine(input: {
-  credentials?: TraceCredentialsInput;
-  homeDir?: string;
-  env?: NodeJS.ProcessEnv;
-  verify?: boolean;
-}): Promise<TraceMachineStatus> {
-  const homeDir = input.homeDir ?? os.homedir();
-  const env = input.env ?? process.env;
-  const existing = await readTraceCredentials(homeDir, env);
-  const credentials = {
-    endpoint: input.credentials?.endpoint ?? existing?.endpoint ?? "",
-    bucket: input.credentials?.bucket ?? existing?.bucket ?? "",
-    key: input.credentials?.key ?? existing?.key ?? "",
-    secret: input.credentials?.secret ?? existing?.secret ?? "",
-  };
-  if (!Object.values(credentials).every(Boolean)) {
-    throw new Error(
-      "Trace setup needs an S3/R2 endpoint, bucket, access key ID, and secret access key.",
-    );
-  }
-  const region =
-    input.credentials?.region?.trim() || existing?.region || "auto";
-
-  const envPath = traceEnvPath(homeDir, env);
-  await mkdir(path.dirname(envPath), { recursive: true });
-  await writeFile(
-    envPath,
-    [
-      `export TRACE_R2_ENDPOINT=${JSON.stringify(credentials.endpoint)}`,
-      `export TRACE_R2_BUCKET=${JSON.stringify(credentials.bucket)}`,
-      `export TRACE_R2_ACCESS_KEY_ID=${JSON.stringify(credentials.key)}`,
-      `export TRACE_R2_SECRET_ACCESS_KEY=${JSON.stringify(credentials.secret)}`,
-      `export TRACE_R2_REGION=${JSON.stringify(region)}`,
-      "",
-    ].join("\n"),
-    { mode: 0o600 },
-  );
-  await chmod(envPath, 0o600);
-
-  let error: string | undefined;
-  let verifiedAt: string | undefined;
-  if (input.verify !== false) {
-    if (env.TRACE_R2_MODE === "mock") {
-      verifiedAt = new Date().toISOString();
-    } else {
-      try {
-        await execFileAsync(
-          "aws",
-          [
-            "--region",
-            region,
-            "--endpoint-url",
-            credentials.endpoint,
-            "s3api",
-            "head-bucket",
-            "--bucket",
-            credentials.bucket,
-          ],
-          {
-            timeout: 15_000,
-            env: {
-              ...env,
-              AWS_ACCESS_KEY_ID: credentials.key,
-              AWS_SECRET_ACCESS_KEY: credentials.secret,
-            },
-          },
-        );
-        verifiedAt = new Date().toISOString();
-      } catch (cause) {
-        error = cause instanceof Error ? cause.message : String(cause);
-      }
-    }
-  }
-
-  const settings: TraceMachineSettings = {
-    version: 1,
-    enabled: true,
-    autoActivateRepositories: true,
-  };
-  if (verifiedAt) settings.verifiedAt = verifiedAt;
-  if (error) settings.error = error;
-  await writeSettings(traceSettingsPath(homeDir, env), settings);
-  return traceMachineStatus({ homeDir, env });
 }
 
 export async function disableTraceMachine(

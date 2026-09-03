@@ -1324,6 +1324,21 @@ export const ReviewListResponseSchema = z.strictObject({
 export type ReviewListResponse = z.infer<typeof ReviewListResponseSchema>;
 export type ReviewListError = ReviewListResponse["errors"][number];
 
+export const ReviewStackLayerSchema = z.strictObject({
+  branch: requiredString,
+  pullRequestNumber: positiveInteger,
+  pullRequestUrl: absoluteUrlSchema.nullable(),
+  reviewUuid: z.uuid({ error: "must be a UUID" }).nullable(),
+  reviewTitle: stringAllowEmpty.nullable(),
+  relation: z.enum(["earlier", "current", "later"]),
+});
+export type ReviewStackLayer = z.infer<typeof ReviewStackLayerSchema>;
+
+export const ReviewStackResponseSchema = z.strictObject({
+  layers: z.array(ReviewStackLayerSchema),
+});
+export type ReviewStackResponse = z.infer<typeof ReviewStackResponseSchema>;
+
 export const ReviewCliInstallTargetSchema = z.enum(
   ["claude", "codex", "cursor", "pi"],
   { error: "must be claude, codex, cursor, or pi" },
@@ -1901,6 +1916,13 @@ export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
         .regex(/^[0-9a-f]{40}$/)
         .optional(),
       sealedAt: positiveInteger.optional(),
+    }),
+  }),
+  z.strictObject({
+    name: z.literal("openReview"),
+    args: z.strictObject({
+      reviewUuid: z.uuid({ error: "must be a UUID" }),
+      active: z.boolean(),
     }),
   }),
   z.strictObject({ name: z.literal("showThreads"), args: z.strictObject({}) }),

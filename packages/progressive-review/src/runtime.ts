@@ -10,6 +10,7 @@ import {
   resolveRevision,
 } from "@dev.fast/local-vcs";
 
+import { errorMessage } from "./error-message";
 import { reviewMdxPath } from "./review-file";
 
 const DEFAULT_REVIEW_ROUTE = "/";
@@ -217,9 +218,9 @@ export async function resolvePullRequestReviewSubject(input: {
         throw new Error(
           [
             `Unable to read pull request metadata with gh pr view for ${input.value}.`,
-            `The unauthenticated public GitHub API fallback also failed: ${formatCommandError(fallbackError)}`,
+            `The unauthenticated public GitHub API fallback also failed: ${errorMessage(fallbackError)}`,
             "For private repositories or exhausted public API rate limits, run `gh auth status` and authenticate the GitHub CLI.",
-            `Original gh error: ${formatCommandError(error)}`,
+            `Original gh error: ${errorMessage(error)}`,
           ].join("\n"),
         );
       }
@@ -228,7 +229,7 @@ export async function resolvePullRequestReviewSubject(input: {
         [
           `Unable to read pull request metadata with gh pr view for ${input.value}.`,
           "Progressive review could not determine a public GitHub repository and numeric PR for an unauthenticated API fallback; run `gh auth status` for this host and ensure the CLI can access the repository.",
-          `Original error: ${formatCommandError(error)}`,
+          `Original error: ${errorMessage(error)}`,
         ].join("\n"),
       );
     }
@@ -239,7 +240,7 @@ export async function resolvePullRequestReviewSubject(input: {
       parsed = JSON.parse(stdout ?? "") as PullRequestMetadata;
     } catch (error) {
       throw new Error(
-        `Unable to parse gh pr view output for ${input.value}: ${formatCommandError(
+        `Unable to parse gh pr view output for ${input.value}: ${errorMessage(
           error,
         )}`,
       );
@@ -470,7 +471,7 @@ async function preparePullRequestRefs(input: {
         pullRequestNumber: input.pullRequestNumber,
         baseRefName: input.baseRefName,
         error: new Error(
-          `${formatCommandError(error)}\nFrozen base ${input.baseRefOid} fallback failed: ${formatCommandError(fallbackError)}`,
+          `${errorMessage(error)}\nFrozen base ${input.baseRefOid} fallback failed: ${errorMessage(fallbackError)}`,
         ),
       });
     }
@@ -614,7 +615,7 @@ function formatPullRequestFetchError(input: {
       `Unable to fetch refs for PR ${input.pullRequestNumber} with git fetch origin.`,
       `Progressive review uses your existing git remote credentials; verify \`git fetch origin ${input.baseRefName}\` and your SSH/HTTPS credential setup, then retry.`,
       "If you are in a jj-only workspace, ensure it is backed by a Git remote that jj can import.",
-      `Original error: ${formatCommandError(input.error)}`,
+      `Original error: ${errorMessage(input.error)}`,
     ].join("\n"),
   );
 }
@@ -662,10 +663,6 @@ async function gitRefExists(
   } catch {
     return false;
   }
-}
-
-function formatCommandError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 export function activeReviewMdxPath(rootPath: string): string {

@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { isJsonObject, parseJsonText } from "@dev.fast/review-protocol";
 
 import type { SessionRef } from "./authoring-session";
+import { errorMessage } from "./error-message";
 import { findClaudeTranscript } from "./native-agent/claude-transcript";
 import { forkCodexThread } from "./native-agent/codex-app-server";
 
@@ -167,5 +168,5 @@ function commandError(error: unknown): string {
     const stderr = String(error.stderr).trim();
     if (stderr) return stderr;
   }
-  return error instanceof Error ? error.message : String(error);
+  return errorMessage(error);
 }

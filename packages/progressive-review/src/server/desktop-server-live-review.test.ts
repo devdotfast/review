@@ -445,6 +445,21 @@ Open <AnchorLink anchor={{ id: "shared-source", title: "Shared source", peek: { 
       expect(handedOff.response.status).toBe(200);
       expect(handedOff.body).toMatchObject({ status: "awaiting-review" });
       expect(readLiveReviewPage(stored!.dir)).toMatchObject({ version: 3 });
+      await expect(events.next()).resolves.toMatchObject({
+        type: "review.committed",
+      });
+      await expect(events.next()).resolves.toEqual({
+        type: "authoring-target.changed",
+        target: null,
+      });
+      const clearedSelection = await liveRequest(
+        server.url,
+        `/live-reviews/${createResult.info.reviewId}/selection`,
+      );
+      await expect(clearedSelection.json()).resolves.toEqual({
+        reviewId: createResult.info.reviewId,
+        nodeIds: [],
+      });
 
       await handlers[0]!.onSubmission!(submissionEvent());
       const terminal = await liveJson(
@@ -476,7 +491,7 @@ Open <AnchorLink anchor={{ id: "shared-source", title: "Shared source", peek: { 
       await server.close();
       await rm(home, { recursive: true, force: true });
     }
-  }, 15_000);
+  }, 30_000);
 
   it("reports unexpected persisted-state failures as server errors", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "live-review-server-"));

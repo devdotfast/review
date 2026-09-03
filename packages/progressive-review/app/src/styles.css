@@ -7305,23 +7305,9 @@ button {
 }
 
 .review-view-region--review {
-  /*
-   * Space held to the right of the document so margin thread cards have a home.
-   * The prose measure is centred in the region, so the gutter
-   * thread-annotations.tsx measures is (R - 720)/2, and reserving G px here
-   * shifts the document left by G/2: available = (R - 720)/2 + G/2.
-   *   1392px - 100cqi  reserves just enough to clear MARGIN_CARDS_MIN_GUTTER,
-   *                    tapering to 0 once the window is wide enough alone
-   *                    (= 2 * 336 + 720).
-   *   100cqi - 964px   keeps the document at its full 860px (+ 2 * 52px padding).
-   * App.test.ts re-derives all three numbers from the stylesheet and the
-   * thread constants, so they cannot drift.
-   */
-  --review-thread-gutter: clamp(
-    0px,
-    min(1392px - 100cqi, 100cqi - 964px),
-    336px
-  );
+  /* Margin cards use naturally available space and collapse to markers when
+     the viewport is narrow. Do not permanently squeeze the canvas for them. */
+  --review-thread-gutter: 0px;
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -7550,9 +7536,9 @@ button {
   --review-document-padding-block-start: 28px;
   --review-document-padding-block-end: 72px;
   --review-prose-max-width: 720px;
-  flex: 1 1 860px;
+  flex: 1 1 1248px;
   width: 100%;
-  max-width: 860px;
+  max-width: 1248px;
   min-width: 0;
   margin: 0 auto 96px;
   padding: var(--review-document-padding-block-start)
@@ -7571,7 +7557,7 @@ button {
 .review-app--peek-open .review-document {
   --review-inline-diagram-max-width: 1000px;
   width: 100%;
-  max-width: 860px;
+  max-width: 1128px;
 }
 
 .review-document h1,
@@ -7606,10 +7592,86 @@ button {
 }
 
 .review-live-node--authoring-active {
+  position: relative;
+  isolation: isolate;
   border-radius: 8px;
-  outline: 2px solid var(--accent);
+  outline: 1px solid color-mix(in srgb, var(--accent) 86%, transparent);
   outline-offset: 6px;
-  box-shadow: 0 0 0 6px var(--accent-wash);
+  box-shadow:
+    0 0 0 6px color-mix(in srgb, var(--accent-wash) 72%, transparent),
+    0 8px 28px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* Paper-style agent activity belongs to exactly one backing JSON node. The
+   sparkle cluster sits at that node's top-left corner and handoff clears it. */
+.review-live-node__authoring-sparkles {
+  position: absolute;
+  z-index: 2;
+  top: -29px;
+  left: 10px;
+  display: grid;
+  grid-template-columns: repeat(14, 7px);
+  grid-template-rows: repeat(2, 7px);
+  gap: 4px 5px;
+  width: 163px;
+  height: 18px;
+  pointer-events: none;
+  mask-image: linear-gradient(
+    90deg,
+    transparent,
+    #000 9%,
+    #000 91%,
+    transparent
+  );
+}
+
+.review-live-node__authoring-sparkles i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--accent) 22%, transparent);
+  animation: review-authoring-sparkle 1.55s ease-in-out infinite;
+  animation-delay: calc(var(--review-sparkle-index) * -113ms);
+}
+
+.review-live-node__authoring-sparkles i:nth-child(3n) {
+  animation-duration: 1.9s;
+}
+
+.review-live-node__authoring-sparkles i:nth-child(4n + 1) {
+  animation-duration: 1.2s;
+}
+
+.review-live-node__authoring-sparkles i:nth-child(6n + 2),
+.review-live-node__authoring-sparkles i:nth-child(11n + 5) {
+  visibility: hidden;
+}
+
+@keyframes review-authoring-sparkle {
+  0%,
+  100% {
+    opacity: 0.18;
+    transform: scale(0.72);
+  }
+
+  38% {
+    opacity: 0.96;
+    transform: scale(1);
+  }
+
+  64% {
+    opacity: 0.42;
+    transform: scale(0.86);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review-live-node__authoring-sparkles i {
+    animation: none;
+    opacity: 0.62;
+    transform: none;
+  }
 }
 
 .review-document h1 {
@@ -7932,13 +7994,11 @@ a.review-doc-meta-pr:hover {
   );
 }
 
-/* Sequence diagrams read as part of the prose: same measure as the text
-   column, with lanes spreading to fill it (see laneWidth in diagrams.tsx).
-   The fullscreen overlay is the escape hatch for more room. */
+/* Sequence diagrams use the wide visual lane; prose remains capped above. */
 .review-document .sequence-diagram {
   width: 100%;
   max-width: min(
-    var(--review-prose-max-width),
+    var(--review-inline-diagram-max-width),
     calc(
       100cqi - var(--review-document-padding-inline) -
         var(--review-document-padding-inline)
@@ -7995,7 +8055,7 @@ a.review-doc-meta-pr:hover {
   .review-document {
     flex: 0 1 auto;
     width: 100%;
-    max-width: 860px;
+    max-width: 100%;
     min-width: 0;
     margin: 0 auto;
     padding: 28px var(--review-document-padding-inline);

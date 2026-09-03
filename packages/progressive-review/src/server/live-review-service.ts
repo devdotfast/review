@@ -250,7 +250,9 @@ export async function handoffLiveReview(
       "A terminal Review cannot change lifecycle status.",
     );
   }
-  return reviewStateService.setStatus(review, "awaiting-review");
+  const updated = await reviewStateService.setStatus(review, "awaiting-review");
+  reviewStateService.clearAuthoringTarget(review.review.uuid);
+  return updated;
 }
 
 function bindingFor(review: StoredReview): ReviewBinding {

@@ -74,7 +74,7 @@ export type ReviewStateEvent =
     }
   | {
       type: "authoring-target.changed";
-      target: ReviewAuthoringTarget;
+      target: ReviewAuthoringTarget | null;
     }
   | {
       type: "threads.committed";
@@ -245,6 +245,11 @@ export class ReviewStateService {
   selectAuthoringTarget(reviewId: string, target: ReviewAuthoringTarget): void {
     this.#authoringTargets.set(reviewId, target);
     this.#emit(reviewId, { type: "authoring-target.changed", target });
+  }
+
+  clearAuthoringTarget(reviewId: string): void {
+    if (!this.#authoringTargets.delete(reviewId)) return;
+    this.#emit(reviewId, { type: "authoring-target.changed", target: null });
   }
 
   threads(

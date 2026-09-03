@@ -46,7 +46,7 @@ describe("live Review renderer", () => {
     expect(() => createLiveReviewDocument(page)).not.toThrow();
   });
 
-  it("stamps the exact target and outlines only its top-level section", () => {
+  it("stamps and outlines only the exact JSON node being authored", () => {
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
@@ -65,9 +65,13 @@ describe("live Review renderer", () => {
 
     const section = container.querySelector('[data-review-node-id="section"]');
     const nested = container.querySelector('[data-review-node-id="nested"]');
-    expect(section?.classList.contains(activeClass)).toBe(true);
+    expect(section?.classList.contains(activeClass)).toBe(false);
+    expect(
+      nested?.querySelectorAll(".review-live-node__authoring-sparkles i"),
+    ).toHaveLength(28);
     expect(section?.getAttribute("data-review-authoring-target")).toBeNull();
     expect(nested?.getAttribute("data-review-authoring-target")).toBe("true");
+    expect(nested?.classList.contains(activeClass)).toBe(true);
 
     act(() => root.unmount());
     container.remove();

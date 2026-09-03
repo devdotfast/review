@@ -152,6 +152,25 @@ function liveDatabaseTarget(
 export const LiveReviewAuthoringTargetContext =
   createContext<ReviewAuthoringTarget | null>(null);
 
+const AUTHORING_SPARKLE_COUNT = 28;
+
+function AuthoringSparkles() {
+  return (
+    <span className="review-live-node__authoring-sparkles" aria-hidden="true">
+      {Array.from({ length: AUTHORING_SPARKLE_COUNT }, (_, index) => (
+        <i
+          key={index}
+          style={
+            {
+              "--review-sparkle-index": index,
+            } as React.CSSProperties
+          }
+        />
+      ))}
+    </span>
+  );
+}
+
 export function ReviewNode({
   nodeId,
   depth,
@@ -165,13 +184,10 @@ export function ReviewNode({
 }) {
   const authoringTarget = useContext(LiveReviewAuthoringTargetContext);
   const isExactTarget = authoringTarget?.targetNodeId === nodeId;
-  const isTargetSection =
-    depth === 1 && authoringTarget?.sectionNodeId === nodeId;
-  const isActiveContainer = isTargetSection || (depth === 0 && isExactTarget);
   const className = [
     "review-live-node",
     depth === 0 ? "review-live-node--root" : undefined,
-    isActiveContainer ? "review-live-node--authoring-active" : undefined,
+    isExactTarget ? "review-live-node--authoring-active" : undefined,
   ]
     .filter(Boolean)
     .join(" ");
@@ -182,6 +198,7 @@ export function ReviewNode({
   if (depth === 0) {
     return (
       <div className={className} {...authoringAttributes}>
+        {isExactTarget && <AuthoringSparkles />}
         {title && <h1>{title}</h1>}
         {title && <ReviewDocumentMetaLine />}
         {children}
@@ -191,6 +208,7 @@ export function ReviewNode({
   if (depth === 1 && title) {
     return (
       <div className={className} {...authoringAttributes}>
+        {isExactTarget && <AuthoringSparkles />}
         <ReviewSection title={title}>
           <h2>{title}</h2>
           {children}
@@ -200,6 +218,7 @@ export function ReviewNode({
   }
   return (
     <div className={className} {...authoringAttributes}>
+      {isExactTarget && <AuthoringSparkles />}
       {title && createElement(`h${Math.min(depth + 1, 6)}`, {}, title)}
       {children}
     </div>

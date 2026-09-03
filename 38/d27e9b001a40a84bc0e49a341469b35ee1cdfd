@@ -1,0 +1,126 @@
+import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
+
+export default defineSoftwareMap({
+  people: {
+    codingAgent: {
+      label: "Coding agent",
+      description: "Studies a pinned change and authors a guided Review.",
+    },
+    reviewer: {
+      label: "Reviewer",
+      description: "Explores the Review, asks questions, and decides.",
+    },
+  },
+  systems: {
+    review: {
+      label: "Review",
+      description:
+        "Turns branches and pull requests into guided, interactive code reviews.",
+      containers: {
+        desktop: {
+          label: "Review Desktop",
+          description:
+            "Hosts the Review canvas, live code navigation, diffs, maps, and feedback UI.",
+          components: {
+            application: {
+              label: "Desktop application",
+              description:
+                "Runs the native shell and the Review-owned Code OSS workbench.",
+              coverage: { globs: ["apps/review-desktop/**"] },
+            },
+          },
+        },
+        engine: {
+          label: "Review engine",
+          description:
+            "Pins source revisions, validates authored documents, and serves Review sessions.",
+          components: {
+            runtime: {
+              label: "CLI and runtime",
+              description:
+                "Owns Review authoring, publication, lifecycle, threads, maps, and the desktop server.",
+              coverage: { globs: ["packages/progressive-review/**"] },
+            },
+          },
+        },
+        protocol: {
+          label: "Desktop protocol",
+          description:
+            "Defines the typed contract shared by the engine and the native desktop.",
+          components: {
+            contracts: {
+              label: "Protocol contracts",
+              description:
+                "Validates lifecycle, transport, publication, and telemetry messages.",
+              coverage: { globs: ["packages/review-protocol/**"] },
+            },
+          },
+        },
+        vcs: {
+          label: "Local VCS adapter",
+          description:
+            "Reads Git and Jujutsu repositories without changing the reviewed source.",
+          components: {
+            repository: {
+              label: "Repository access",
+              description:
+                "Resolves identities, revisions, worktrees, diffs, and repository locks.",
+              coverage: { globs: ["packages/local-vcs/**"] },
+            },
+          },
+        },
+        documentation: {
+          label: "Product documentation",
+          description:
+            "Explains installation, agent workflows, lifecycle, privacy, and troubleshooting.",
+          components: {
+            guides: {
+              label: "Public guides",
+              description:
+                "Provides the public quickstart and reference documentation.",
+              coverage: { globs: ["docs/**"] },
+            },
+          },
+        },
+      },
+    },
+  },
+  relationships: [
+    {
+      kind: "semantic",
+      from: "codingAgent",
+      to: "review.engine.runtime",
+      label: "Authors and publishes",
+    },
+    {
+      kind: "semantic",
+      from: "review.engine.runtime",
+      to: "review.vcs.repository",
+      label: "Pins and reads revisions",
+    },
+    {
+      kind: "semantic",
+      from: "review.engine.runtime",
+      to: "review.desktop.application",
+      label: "Publishes sealed Reviews",
+    },
+    {
+      kind: "semantic",
+      from: "review.desktop.application",
+      to: "review.protocol.contracts",
+      label: "Uses typed messages",
+    },
+    {
+      kind: "semantic",
+      from: "review.documentation.guides",
+      to: "review.engine.runtime",
+      label: "Documents the workflow",
+    },
+    {
+      kind: "semantic",
+      from: "reviewer",
+      to: "review.desktop.application",
+      label: "Explores and decides",
+    },
+  ],
+});

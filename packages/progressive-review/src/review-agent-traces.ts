@@ -1390,33 +1390,6 @@ async function commitsForTraceSession(
   return commits;
 }
 
-/**
- * Adds the commits a Git hook resolved to a session the store already holds.
- * A session that never shipped carries its commits on the next sync instead.
- */
-export async function writeReviewTraceCommitMapping(input: {
-  cwd: string;
-  commit: string;
-  sessions: string[];
-  branch: string | null;
-}): Promise<boolean> {
-  const commit = commitShaSchema.parse(input.commit);
-  const access = await resolveTraceStoreAccess({ cwd: input.cwd });
-  if (!access) return false;
-  let written = false;
-  for (const sessionId of deduplicateStrings(input.sessions)) {
-    try {
-      await access.transport.completeUpload(access.repositoryId, sessionId, {
-        commits: [commit],
-      });
-      written = true;
-    } catch {
-      // The store holds no complete upload for this session yet.
-    }
-  }
-  return written;
-}
-
 // --- Commit trailer resolution ---------------------------------------------
 
 interface CommitWithSessions extends ReviewTraceCommitRef {

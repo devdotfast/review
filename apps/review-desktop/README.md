@@ -94,7 +94,7 @@ packaging script but no distribution. Signed builds auto-update from
 ### Local packaging
 
 ```sh
-SKIP_NOTARIZE=1 pnpm --filter @dev-fast/review-desktop app:package:macos
+SKIP_NOTARIZE=1 pnpm --filter @dev.fast/review-desktop app:package:macos
 ```
 
 builds an unsigned `VSCode-darwin-arm64/Review.app` and skips
@@ -380,7 +380,7 @@ tiers also need Code OSS's own npm dependencies installed
 installs for you. To regenerate by hand:
 
 ```sh
-pnpm --filter @dev-fast/review-desktop protocol:sync
+pnpm --filter @dev.fast/review-desktop protocol:sync
 ```
 
 Run Code OSS commands with npm from `code-oss/`, never with the monorepo's

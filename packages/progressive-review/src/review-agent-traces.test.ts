@@ -4,13 +4,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
 
-import { traceObjectKey } from "@dev-fast/trace-shared";
+import { traceObjectKey } from "@dev.fast/trace-shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   type TraceStoreAccess,
   describeTraceSession,
   findLocalTrace,
+  inferRepoFromGit,
   listReviewTraceSessions,
   loadReviewAgentTrace,
   lookupReviewTraceBlame,
@@ -127,6 +128,15 @@ describe("review-agent-traces", () => {
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
     rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("prefers the requested Git repository over the CI repository", async () => {
+    vi.stubEnv("GITHUB_REPOSITORY", "devdotfast/review");
+
+    await expect(inferRepoFromGit(repoDir)).resolves.toEqual({
+      owner: "acme",
+      repo: "widgets",
+    });
   });
 
   it("describes a session as available when the store holds it", async () => {

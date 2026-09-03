@@ -352,7 +352,7 @@ jobs:
           # The build can run well over an hour before the first codesign call.
           security unlock-keychain -p "${{ secrets.APPLE_KEYCHAIN_PASSWORD }}" \
             "$RUNNER_TEMP/buildagent.keychain"
-          pnpm --filter @dev-fast/review-desktop app:package:macos
+          pnpm --filter @dev.fast/review-desktop app:package:macos
 
       - name: Check for existing Code OSS dependency cache
         if: steps.code-oss-deps.outputs.cache-hit != 'true'

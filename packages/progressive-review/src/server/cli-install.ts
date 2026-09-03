@@ -205,15 +205,10 @@ export async function applyCliInstall(input: {
         wantShim || (await isFile(pathShimPath(homeDir)))
           ? pathShimPath(homeDir)
           : "review",
-      ...(input.trace !== undefined ? { trace: true } : {}),
       stdout: sink,
       stderr: sink,
     };
-    if (input.trace !== undefined) {
-      installInput.trace = {
-        credentials: input.trace === true ? undefined : input.trace,
-      };
-    }
+    if (input.trace !== undefined) installInput.trace = true;
     const code = await runInstall(installInput);
     if (code !== 0) return { code, output: chunks.join("") };
   }

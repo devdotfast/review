@@ -1,8 +1,13 @@
 {
-  "name": "@dev-fast/trace-shared",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@dev.fast/trace-shared",
+  "version": "0.1.0",
+  "description": "Contract between the Review CLI and the hosted trace store.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/devdotfast/review.git",
+    "directory": "packages/trace-shared"
+  },
   "files": [
     "dist"
   ],
@@ -14,10 +19,15 @@
       "default": "./dist/index.js"
     }
   },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
   "scripts": {
     "build": "pnpm -w exec tsc -p packages/trace-shared/tsconfig.build.json",
     "test": "vitest run --config vitest.config.ts",
-    "typecheck": "pnpm -w exec tsc -p packages/trace-shared/tsconfig.json --noEmit"
+    "typecheck": "pnpm -w exec tsc -p packages/trace-shared/tsconfig.json --noEmit",
+    "prepublishOnly": "pnpm run build && pnpm run test"
   },
   "dependencies": {
     "zod": "4.4.3"

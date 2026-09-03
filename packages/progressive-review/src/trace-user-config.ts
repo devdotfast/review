@@ -11,6 +11,8 @@ import {
   type JsonValue,
   isJsonArray,
   isJsonObject,
+  jsonNumber,
+  jsonString,
   parseJsonText,
 } from "@dev.fast/review-protocol";
 
@@ -43,6 +45,7 @@ export async function readTraceUserConfig(
   try {
     raw = await readFile(filePath, "utf8");
   } catch (error) {
+    // SAFETY: readFile rejects with a Node.js error that can carry an errno.
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return { ...DEFAULT_CONFIG };
     }
@@ -73,13 +76,11 @@ function parseTraceRepositoryEntry(
   value: JsonValue,
 ): TraceRepositoryEntry | null {
   if (!isJsonObject(value)) return null;
-  const { repositoryId, name, store, allowedAt } = value;
-  if (
-    typeof repositoryId !== "number" ||
-    typeof name !== "string" ||
-    typeof store !== "string" ||
-    typeof allowedAt !== "string"
-  ) {
+  const repositoryId = jsonNumber(value.repositoryId);
+  const name = jsonString(value.name);
+  const store = jsonString(value.store);
+  const allowedAt = jsonString(value.allowedAt);
+  if (repositoryId === undefined || !name || !store || !allowedAt) {
     return null;
   }
   return { repositoryId, name, store, allowedAt };

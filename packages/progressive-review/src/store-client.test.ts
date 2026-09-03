@@ -1,3 +1,4 @@
+import { storeRoutes } from "@dev.fast/trace-shared";
 import { describe, expect, it, vi } from "vitest";
 
 import { StoreApiError, StoreClient } from "./store-client";
@@ -23,7 +24,7 @@ describe("StoreClient", () => {
       authorization: "Bearer tok",
     });
     expect(fetch.mock.calls[0]?.[0]).toBe(
-      "https://app.dev.fast/api/trace/v1/stores",
+      new URL(storeRoutes.stores(), "https://app.dev.fast").toString(),
     );
   });
 

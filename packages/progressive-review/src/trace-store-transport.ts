@@ -24,7 +24,7 @@ import {
   type TraceHarness,
   type TraceObjectName,
   traceObjectKey,
-} from "@dev-fast/trace-shared";
+} from "@dev.fast/trace-shared";
 
 import type { StoreClient } from "./store-client";
 

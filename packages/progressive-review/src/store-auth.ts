@@ -83,10 +83,6 @@ export async function requireStoreClient(
   return new StoreClient({ origin: auth.origin, token: auth.token });
 }
 
-function storeErrorMessage(error: unknown, fallback: string): string {
-  return error instanceof StoreApiError ? error.message : fallback;
-}
-
 async function defaultSleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -125,7 +121,9 @@ export async function runReviewLogin(input: {
     return failWithJsonError(
       output,
       "login",
-      storeErrorMessage(error, "Could not start the login."),
+      error instanceof StoreApiError
+        ? error.message
+        : "Could not start the login.",
     );
   }
 
@@ -153,7 +151,7 @@ export async function runReviewLogin(input: {
       return failWithJsonError(
         output,
         "login",
-        storeErrorMessage(error, "The login failed."),
+        error instanceof StoreApiError ? error.message : "The login failed.",
       );
     }
     if ("pending" in result) {
@@ -180,7 +178,9 @@ export async function runReviewLogin(input: {
     return failWithJsonError(
       output,
       "login",
-      storeErrorMessage(error, "Could not read the login."),
+      error instanceof StoreApiError
+        ? error.message
+        : "Could not read the login.",
     );
   }
 
@@ -233,7 +233,9 @@ export async function runReviewWhoami(input: {
     return failWithJsonError(
       output,
       "whoami",
-      storeErrorMessage(error, "Could not reach the hosted trace store."),
+      error instanceof StoreApiError
+        ? error.message
+        : "Could not reach the hosted trace store.",
     );
   }
   emitJsonEvent(output, { event: "whoami", login, origin: auth.origin });

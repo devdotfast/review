@@ -24,7 +24,7 @@
  * Silence must never read as success: the run fails if no report arrives at
  * all, which is what a broken loopback route or a dead reporter looks like.
  *
- * Requires a built app (`pnpm --filter @dev-fast/review-desktop app:build`).
+ * Requires a built app (`pnpm --filter @dev.fast/review-desktop app:build`).
  * Not part of `pnpm test` — it launches the application.
  */
 import { spawn } from "node:child_process";

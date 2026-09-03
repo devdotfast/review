@@ -97,9 +97,10 @@ export function AgentSetupCard({
                     void run(`remove-${agent.target}`, () =>
                       install.remove({
                         targets: [agent.target],
-                        ...(traceCapture && supportsFff(agent.target)
-                          ? { fff: true }
-                          : {}),
+                        fff:
+                          traceCapture && supportsFff(agent.target)
+                            ? true
+                            : undefined,
                       }),
                     )
                   }
@@ -116,9 +117,10 @@ export function AgentSetupCard({
                   void run(agent.target, () =>
                     install.apply({
                       targets: [agent.target],
-                      ...(traceCapture && supportsFff(agent.target)
-                        ? { fff: true }
-                        : {}),
+                      fff:
+                        traceCapture && supportsFff(agent.target)
+                          ? true
+                          : undefined,
                     }),
                   )
                 }

@@ -123,7 +123,7 @@ export function TraceCaptureSection({
           void run("trace", () =>
             install.apply({
               targets: installedTargets,
-              ...(fffTargets.length > 0 ? { fff: true } : {}),
+              fff: fffTargets.length > 0 ? true : undefined,
               trace: true,
             }),
           )

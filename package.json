@@ -1,5 +1,5 @@
 {
-  "name": "review-desktop",
+  "name": "@dev.fast/review-workspace",
   "version": "0.0.0",
   "private": true,
   "description": "Review Desktop monorepo",
@@ -7,15 +7,15 @@
   "scripts": {
     "dev": "REVIEW_DESKTOP_DEV_FAST=1 pnpm desktop:build && pnpm desktop:run",
     "clean": "node scripts/clean-review-desktop.mjs",
-    "desktop:build": "pnpm --filter @dev-fast/review-desktop app:build",
-    "desktop:run": "pnpm --filter @dev-fast/review-desktop app:run",
-    "desktop:watch": "pnpm --filter @dev-fast/review-desktop app:watch",
-    "desktop:package:linux": "pnpm --filter @dev-fast/review-desktop app:package:linux",
+    "desktop:build": "pnpm --filter @dev.fast/review-desktop app:build",
+    "desktop:run": "pnpm --filter @dev.fast/review-desktop app:run",
+    "desktop:watch": "pnpm --filter @dev.fast/review-desktop app:watch",
+    "desktop:package:linux": "pnpm --filter @dev.fast/review-desktop app:package:linux",
     "review": "pnpm --filter @dev.fast/review review",
     "format": "oxfmt --write \"apps/**/*.{ts,tsx,js,jsx,json,css}\" \"!apps/review-desktop/code-oss/**\" \"packages/**/*.{ts,tsx,js,jsx,json,css}\" \"!packages/progressive-review/app/icons/dev-fast.icon/**\" \"*.json\" \".*.json\"",
     "format:check": "oxfmt --check \"apps/**/*.{ts,tsx,js,jsx,json,css}\" \"!apps/review-desktop/code-oss/**\" \"packages/**/*.{ts,tsx,js,jsx,json,css}\" \"!packages/progressive-review/app/icons/dev-fast.icon/**\" \"*.json\" \".*.json\"",
     "lint": "oxlint --disable-nested-config .",
-    "ci": "pnpm --filter @dev-fast/review-desktop app:build && pnpm --filter @dev.fast/review check:tutorial && pnpm lint && pnpm format:check && pnpm typecheck && pnpm test",
+    "ci": "pnpm --filter @dev.fast/review-desktop app:build && pnpm --filter @dev.fast/review check:tutorial && pnpm lint && pnpm format:check && pnpm typecheck && pnpm test",
     "test": "node --test scripts/*.test.mjs && pnpm -r --if-present test",
     "typecheck": "pnpm -r --workspace-concurrency=1 --if-present typecheck",
     "build": "pnpm -r --if-present build"

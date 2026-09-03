@@ -97,7 +97,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           REVIEW_DESKTOP_CI_FAST: "1"
-        run: pnpm --filter @dev-fast/review-desktop app:build
+        run: pnpm --filter @dev.fast/review-desktop app:build
 
       - name: Validate Review Desktop build
         run: |

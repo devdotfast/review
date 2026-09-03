@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
 
-import { traceObjectKey } from "@dev-fast/trace-shared";
+import { traceObjectKey } from "@dev.fast/trace-shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { pullReviewTraceCorpus, syncReviewTrace } from "./review-agent-traces";

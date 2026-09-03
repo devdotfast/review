@@ -100,13 +100,21 @@ export async function runReviewTraceOnboard(input: {
   try {
     ({ owner, repo } = await inferRepoFromGit(input.cwd));
   } catch (error) {
-    return failWithJsonError(output, "onboard", errorMessage(error));
+    return failWithJsonError(
+      output,
+      "onboard",
+      error instanceof Error ? error.message : String(error),
+    );
   }
   let client: StoreClient;
   try {
     client = input.client ?? (await requireStoreClient());
   } catch (error) {
-    return failWithJsonError(output, "onboard", errorMessage(error));
+    return failWithJsonError(
+      output,
+      "onboard",
+      error instanceof Error ? error.message : String(error),
+    );
   }
   let store: Awaited<ReturnType<StoreClient["createStore"]>>;
   try {
@@ -119,7 +127,11 @@ export async function runReviewTraceOnboard(input: {
         `You need write access to ${owner}/${repo} to onboard it.`,
       );
     }
-    return failWithJsonError(output, "onboard", errorMessage(error));
+    return failWithJsonError(
+      output,
+      "onboard",
+      error instanceof Error ? error.message : String(error),
+    );
   }
   emitJsonEvent(output, {
     event: "trace.onboard",
@@ -154,20 +166,32 @@ export async function runReviewTraceAllow(input: {
   try {
     ({ owner, repo } = await inferRepoFromGit(input.cwd));
   } catch (error) {
-    return failWithJsonError(output, "allow", errorMessage(error));
+    return failWithJsonError(
+      output,
+      "allow",
+      error instanceof Error ? error.message : String(error),
+    );
   }
   const name = `${owner}/${repo}`;
   let client: StoreClient;
   try {
     client = input.client ?? (await requireStoreClient());
   } catch (error) {
-    return failWithJsonError(output, "allow", errorMessage(error));
+    return failWithJsonError(
+      output,
+      "allow",
+      error instanceof Error ? error.message : String(error),
+    );
   }
   let store: Awaited<ReturnType<StoreClient["findStore"]>>;
   try {
     store = await client.findStore({ owner, name: repo });
   } catch (error) {
-    return failWithJsonError(output, "allow", errorMessage(error));
+    return failWithJsonError(
+      output,
+      "allow",
+      error instanceof Error ? error.message : String(error),
+    );
   }
   if (!store) {
     return failWithJsonError(
@@ -219,7 +243,11 @@ export async function runReviewTraceDeny(input: {
   try {
     ({ owner, repo } = await inferRepoFromGit(input.cwd));
   } catch (error) {
-    return failWithJsonError(output, "deny", errorMessage(error));
+    return failWithJsonError(
+      output,
+      "deny",
+      error instanceof Error ? error.message : String(error),
+    );
   }
   const name = `${owner}/${repo}`;
   const removed = await denyTraceRepository(name);
@@ -323,10 +351,6 @@ export async function runReviewTraceRepair(input: {
   const result = await repairTraceRepository({ cwd: input.cwd });
   (result.enabled ? input.stdout : input.stderr).write(`${result.message}\n`);
   return result.enabled ? 0 : 1;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 async function listSessionsForReview(review: StoredReview) {
@@ -546,15 +570,16 @@ export async function runReviewTracePull(input: {
     const repo = input.repo
       ? parseRepo(input.repo)
       : await inferRepoFromGit(repoRoot);
-    const result = await pullReviewTraceCorpus({
+    const pullInput: Parameters<typeof pullReviewTraceCorpus>[0] = {
       repo,
       sessions,
       mainOnly: input.mainOnly,
       cwd: repoRoot,
       transport: traceStoreTransport(input),
-      ...(input.client ? { client: input.client } : {}),
       onWarning: storeWarningSink(input.stderr),
-    });
+    };
+    if (input.client) pullInput.client = input.client;
+    const result = await pullReviewTraceCorpus(pullInput);
     const output = {
       scope,
       corpus_root: result.corpusRoot,
@@ -603,13 +628,14 @@ export async function runReviewTraceLookupCommit(input: {
   transport?: TraceStoreTransport;
   repositoryId?: number;
 }): Promise<number> {
-  const result = await lookupReviewTraceCommit({
+  const lookupInput: Parameters<typeof lookupReviewTraceCommit>[0] = {
     cwd: input.cwd,
     sha: input.sha,
     transport: traceStoreTransport(input),
     repositoryId: input.repositoryId,
-    ...(input.stderr ? { onWarning: storeWarningSink(input.stderr) } : {}),
-  });
+  };
+  if (input.stderr) lookupInput.onWarning = storeWarningSink(input.stderr);
+  const result = await lookupReviewTraceCommit(lookupInput);
 
   if (input.json) {
     input.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -677,13 +703,14 @@ export async function runReviewTraceLookupSession(input: {
   transport?: TraceStoreTransport;
   repositoryId?: number;
 }): Promise<number> {
-  const result = await lookupReviewTraceSession({
+  const lookupInput: Parameters<typeof lookupReviewTraceSession>[0] = {
     sessionId: input.sessionId,
     cwd: input.cwd,
     transport: traceStoreTransport(input),
     repositoryId: input.repositoryId,
-    ...(input.stderr ? { onWarning: storeWarningSink(input.stderr) } : {}),
-  });
+  };
+  if (input.stderr) lookupInput.onWarning = storeWarningSink(input.stderr);
+  const result = await lookupReviewTraceSession(lookupInput);
 
   if (input.json) {
     input.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -758,7 +785,11 @@ export async function runReviewTraceSync(input: {
       transport: traceStoreTransport(input),
     });
   } catch (error) {
-    return failWithJsonError(output, "trace.sync", errorMessage(error));
+    return failWithJsonError(
+      output,
+      "trace.sync",
+      error instanceof Error ? error.message : String(error),
+    );
   }
 
   emitJsonEvent(output, {

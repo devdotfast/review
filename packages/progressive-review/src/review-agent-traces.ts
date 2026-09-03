@@ -13,12 +13,6 @@ import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import {
-  type TraceHarness,
-  type TraceObjectName,
-  traceObjectKey,
-  traceObjectNameSchema,
-} from "@dev-fast/trace-shared";
 import { git, resolveRepoContext } from "@dev.fast/local-vcs";
 import {
   type ReviewAgentTraceSession,
@@ -32,6 +26,12 @@ import {
   parseJsonText,
   sessionIdSchema,
 } from "@dev.fast/review-protocol";
+import {
+  type TraceHarness,
+  type TraceObjectName,
+  traceObjectKey,
+  traceObjectNameSchema,
+} from "@dev.fast/trace-shared";
 
 import {
   AGENT_TRACE_PARSER_VERSION,
@@ -156,7 +156,7 @@ function defaultTraceStoreWarning(message: string): void {
  * One line that names why a store read failed, or null when the answer means
  * the store simply holds nothing for this repository or session.
  */
-function storeReadWarning(error: unknown): string | null {
+function storeReadWarning(error: Error): string | null {
   if (error instanceof StoreApiError) {
     if (error.code === "not_found") return null;
     if (error.code === "unauthorized") {
@@ -167,13 +167,11 @@ function storeReadWarning(error: unknown): string | null {
     }
     return `Trace store request failed: ${error.message}`;
   }
-  return `Trace store request failed: ${
-    error instanceof Error ? error.message : String(error)
-  }`;
+  return `Trace store request failed: ${error.message}`;
 }
 
 /** Reports one store failure on the caller's channel, or on stderr. */
-function reportStoreFailure(access: TraceStoreAccess, error: unknown): void {
+function reportStoreFailure(access: TraceStoreAccess, error: Error): void {
   const message = storeReadWarning(error);
   if (message) (access.warn ?? defaultTraceStoreWarning)(message);
 }
@@ -212,20 +210,22 @@ export async function resolveTraceStoreAccess(
     }
   }
   if (input.transport) {
-    return {
+    const access: TraceStoreAccess = {
       transport: input.transport,
       repositoryId,
-      ...(warn ? { warn } : {}),
     };
+    if (warn) access.warn = warn;
+    return access;
   }
   try {
-    return {
+    const access: TraceStoreAccess = {
       transport: createHttpTraceStoreTransport(
         client ?? (await requireStoreClient()),
       ),
       repositoryId,
-      ...(warn ? { warn } : {}),
     };
+    if (warn) access.warn = warn;
+    return access;
   } catch {
     // The repository is allowed but the machine holds no login.
     report("The trace store login is missing. Run `review login`.");
@@ -260,7 +260,9 @@ async function findTraceStoreForRepository(
     });
     if (store) return { repositoryId: store.repositoryId, client };
   } catch (error) {
-    const message = storeReadWarning(error);
+    const message = storeReadWarning(
+      error instanceof Error ? error : new Error(String(error)),
+    );
     if (message) report(message);
     return null;
   }
@@ -281,7 +283,10 @@ async function readStoreSession(
     });
     return response.sessions[0] ?? null;
   } catch (error) {
-    reportStoreFailure(access, error);
+    reportStoreFailure(
+      access,
+      error instanceof Error ? error : new Error(String(error)),
+    );
     return null;
   }
 }
@@ -632,6 +637,8 @@ function readNormalizedTrace(filePath: string): NormalizedTrace | null {
       return null;
     }
     metadata.source = migrateNormalizedTraceSource(metadata.source);
+    // SAFETY: the metadata check above establishes file provenance. The event
+    // checks below validate each record before this function returns it.
     const events = records.slice(1) as NormalizedTraceEventRecord[];
     if (
       events.some(
@@ -870,8 +877,6 @@ export async function lookupReviewTraceCommit(input: {
       branch: null,
       source: "trailer",
     };
-    if (sessionMeta) result.session_meta = sessionMeta;
-    return result;
   }
 
   // Step 2: the store's commit index
@@ -907,8 +912,6 @@ export async function lookupReviewTraceCommit(input: {
         branch: null,
         source: "pr-scan",
       };
-      if (sessionMeta) result.session_meta = sessionMeta;
-      return result;
     }
   }
 
@@ -944,7 +947,10 @@ async function listStoreSessionsForCommit(
     });
     return response.sessions;
   } catch (error) {
-    reportStoreFailure(access, error);
+    reportStoreFailure(
+      access,
+      error instanceof Error ? error : new Error(String(error)),
+    );
     return [];
   }
 }
@@ -1489,9 +1495,6 @@ export function parseRepo(value: string): TraceRepo {
 }
 
 export async function inferRepoFromGit(cwd: string): Promise<TraceRepo> {
-  if (process.env.GITHUB_REPOSITORY) {
-    return parseRepo(process.env.GITHUB_REPOSITORY);
-  }
   const slug = (await resolveRepoContext(cwd))?.githubSlug;
   if (slug) {
     return parseRepo(slug);
@@ -1505,6 +1508,9 @@ export async function inferRepoFromGit(cwd: string): Promise<TraceRepo> {
     if (match && match[1] && match[2]) {
       return parseRepo(`${match[1]}/${match[2]}`);
     }
+  }
+  if (process.env.GITHUB_REPOSITORY) {
+    return parseRepo(process.env.GITHUB_REPOSITORY);
   }
   throw new Error("Could not infer GitHub repository from origin remote.");
 }

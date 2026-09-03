@@ -3,11 +3,12 @@ import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 
+import type { JsonValue } from "@dev.fast/review-protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { readStoreAuth, runReviewLogin, writeStoreAuth } from "./store-auth";
 
-function json(body: unknown, status = 200): Response {
+function json(body: JsonValue, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "content-type": "application/json" },

@@ -1,14 +1,17 @@
+import { type JsonValue, parseJsonText } from "@dev.fast/review-protocol";
 import {
   type BeginUploadRequest,
   type BeginUploadResponse,
   type CompleteUploadRequest,
   type CompleteUploadResponse,
   type CreateStoreRequest,
+  DEVICE_CODE_PATH,
+  DEVICE_TOKEN_PATH,
   type ListSessionsQuery,
   type ListSessionsResponse,
+  SESSION_PATH,
   type StoreErrorCode,
   type StoreResponse,
-  TRACE_STORE_API_PREFIX,
   TRACE_STORE_CLIENT_ID,
   beginUploadResponseSchema,
   completeUploadResponseSchema,
@@ -16,7 +19,8 @@ import {
   storeErrorCodeSchema,
   storeErrorEnvelopeSchema,
   storeResponseSchema,
-} from "@dev-fast/trace-shared";
+  storeRoutes,
+} from "@dev.fast/trace-shared";
 import { z } from "zod";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -80,14 +84,14 @@ export class StoreClient {
 
   async deviceCode(): Promise<DeviceCodeResponse> {
     return this.requestJson(
-      "/api/auth/device/code",
+      DEVICE_CODE_PATH,
       { client_id: TRACE_STORE_CLIENT_ID },
       undefined,
     );
   }
 
   async deviceToken(deviceCode: string): Promise<DeviceTokenResult> {
-    const url = new URL("/api/auth/device/token", this.origin);
+    const url = new URL(DEVICE_TOKEN_PATH, this.origin);
     const response = await this.fetchImpl(url.toString(), {
       method: "POST",
       headers: this.jsonHeaders(),
@@ -123,21 +127,17 @@ export class StoreClient {
   }
 
   async session(): Promise<SessionResponse> {
-    return this.get<SessionResponse>("/api/auth/get-session", undefined);
+    return this.get<SessionResponse>(SESSION_PATH, undefined);
   }
 
   async createStore(body: CreateStoreRequest): Promise<StoreResponse> {
-    return this.requestJson(
-      `${TRACE_STORE_API_PREFIX}/stores`,
-      body,
-      storeResponseSchema,
-    );
+    return this.requestJson(storeRoutes.stores(), body, storeResponseSchema);
   }
 
   async findStore(query: CreateStoreRequest): Promise<StoreResponse | null> {
     try {
       return await this.get(
-        `${TRACE_STORE_API_PREFIX}/stores`,
+        storeRoutes.stores(),
         storeResponseSchema,
         new URLSearchParams({ owner: query.owner, name: query.name }),
       );
@@ -155,7 +155,7 @@ export class StoreClient {
     body: BeginUploadRequest,
   ): Promise<BeginUploadResponse> {
     return this.requestJson(
-      `${TRACE_STORE_API_PREFIX}/stores/${repositoryId}/sessions/${sessionId}/uploads`,
+      storeRoutes.uploads(repositoryId, sessionId),
       body,
       beginUploadResponseSchema,
     );
@@ -167,7 +167,7 @@ export class StoreClient {
     body: CompleteUploadRequest,
   ): Promise<CompleteUploadResponse> {
     return this.requestJson(
-      `${TRACE_STORE_API_PREFIX}/stores/${repositoryId}/sessions/${sessionId}/uploads/complete`,
+      storeRoutes.uploadsComplete(repositoryId, sessionId),
       body,
       completeUploadResponseSchema,
     );
@@ -181,7 +181,7 @@ export class StoreClient {
     if (query.commit) params.set("commit", query.commit);
     if (query.session) params.set("session", query.session);
     return this.get(
-      `${TRACE_STORE_API_PREFIX}/stores/${repositoryId}/sessions`,
+      storeRoutes.sessions(repositoryId),
       listSessionsResponseSchema,
       params,
     );
@@ -245,10 +245,11 @@ export class StoreClient {
     schema: z.ZodType<T> | undefined,
   ): Promise<T> {
     const raw = await response.json();
-    // SAFETY: only session() omits a schema, and its response is not part of
-    // the trace-shared contract; the caller's declared return type is the
-    // sole source of truth for its shape.
-    if (!schema) return raw as T;
+    if (!schema) {
+      // SAFETY: only session() omits a schema. The caller defines that private
+      // response because it is not part of the trace-shared contract.
+      return raw as T;
+    }
     const result = schema.safeParse(raw);
     if (!result.success) {
       throw new Error(
@@ -267,7 +268,9 @@ export class StoreClient {
    * Reads a response body once, as text, and parses it as JSON. Returns
    * `undefined` if the body cannot be read or is not valid JSON.
    */
-  private async readJsonBody(response: Response): Promise<unknown> {
+  private async readJsonBody(
+    response: Response,
+  ): Promise<JsonValue | undefined> {
     let text: string;
     try {
       text = await response.text();
@@ -275,7 +278,7 @@ export class StoreClient {
       return undefined;
     }
     try {
-      return JSON.parse(text);
+      return parseJsonText(text);
     } catch {
       return undefined;
     }
@@ -287,7 +290,10 @@ export class StoreClient {
    * device-flow error shape `{ error, error_description }` used by the
    * Better Auth device endpoints.
    */
-  private oauthOrEnvelopeError(raw: unknown, status: number): StoreApiError {
+  private oauthOrEnvelopeError(
+    raw: JsonValue | undefined,
+    status: number,
+  ): StoreApiError {
     if (raw === undefined) {
       return new StoreApiError(
         "internal",

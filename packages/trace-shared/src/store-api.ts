@@ -1,5 +1,3 @@
-// Store API contract. Keep byte-identical with
-// <review repo>/packages/trace-shared/src/store-api.ts.
 import { z } from "zod";
 
 import { commitShaSchema, sessionIdSchema } from "./contracts.js";

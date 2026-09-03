@@ -668,26 +668,11 @@ export async function runProgressiveReviewCli(
         targets: selectedTargets,
         env,
         fff: true,
-        ...(installShim ? { reviewCommand: pathShimPath() } : {}),
         json: options.json,
         stdout: input.stdout,
         stderr: input.stderr,
       };
       if (installShim) installInput.reviewCommand = pathShimPath();
-      // Trace capture is experimental and opt-in: only a request that names
-      // R2 credentials configures it. --without-traces stays accepted so
-      // existing scripts keep working.
-      if (traceCredentialsRequested(options) && options.traces !== false) {
-        installInput.trace = {
-          credentials: {
-            endpoint: options.traceEndpoint,
-            bucket: options.traceBucket,
-            key: options.traceKey,
-            secret: options.traceSecret,
-            region: options.traceRegion,
-          },
-        };
-      }
       state.exitCode = await runtime.runInstall(installInput);
       if (state.exitCode !== 0 || !installShim) return;
 

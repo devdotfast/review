@@ -27,7 +27,7 @@ export default defineConfig({
       "@dev.fast/local-vcs": fileURLToPath(
         new URL("../local-vcs/src/index.ts", import.meta.url),
       ),
-      "@dev-fast/trace-shared": fileURLToPath(
+      "@dev.fast/trace-shared": fileURLToPath(
         new URL("../trace-shared/src/index.ts", import.meta.url),
       ),
       "decode-named-character-reference": decodeNamedCharacterReferenceIndex,

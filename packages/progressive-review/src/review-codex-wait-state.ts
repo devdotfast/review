@@ -2,6 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { type JsonValue, parseJsonText } from "@dev.fast/review-protocol";
+import { z } from "zod";
+
+import { isMissingFileError } from "./native-agent/transcript-json";
 import { devReviewHome } from "./review-storage";
 import { writePrivateJsonAtomic } from "./server/desktop-paths";
 import { processIsAlive, withFileLock } from "./with-file-lock";

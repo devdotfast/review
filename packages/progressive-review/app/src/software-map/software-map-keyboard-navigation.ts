@@ -1,12 +1,12 @@
 import type { ReviewNodeTint, ReviewTheme } from "../debug-settings";
-import { collapseInlineC4Node } from "./c4-projection";
-import type { SoftwareMapHotkeyGroup } from "./hotkeys-tab";
-import type { SoftwareMapNodeSnapshot } from "./software-map-snapshot";
 import type {
   C4LayoutResult,
   C4MapAnyFlowNode,
   C4MapInteractionMode,
-} from "./SoftwareMap";
+} from "./c4-map-flow-types";
+import { collapseInlineC4Node } from "./c4-projection";
+import type { SoftwareMapHotkeyGroup } from "./hotkeys-tab";
+import type { SoftwareMapNodeSnapshot } from "./software-map-snapshot";
 
 export function c4MapReactFlowInteractionProps(
   interactionMode: C4MapInteractionMode,

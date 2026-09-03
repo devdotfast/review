@@ -58,6 +58,25 @@ import { buildGraphTarget, targetKey } from "../target-fingerprint";
 import { useRegisterLiveDiagram } from "../thread-target-model";
 import type { LiveDiagramTarget } from "../thread-target-state";
 import { captureUiEvent } from "../ui-telemetry";
+import type {
+  C4EdgeEndpointBubble,
+  C4ElkEdgeSection,
+  C4ElkLabel,
+  C4ElkPoint,
+  C4LabelDimensions,
+  C4LabelObstacle,
+  C4LayoutBox,
+  C4LayoutEntry,
+  C4LayoutResult,
+  C4MapAnyFlowNode,
+  C4MapEdgeData,
+  C4MapFlowGroupNode,
+  C4MapFlowNode,
+  C4MapInteractionMode,
+  C4MapNodeData,
+  C4NodeDimensions,
+  InlineC4LayoutResult,
+} from "./c4-map-flow-types";
 import {
   type C4Projection,
   type ProjectedC4Relationship,
@@ -216,105 +235,10 @@ export interface SoftwareMapFrameProps {
   onViewportFocusComplete?: (nodeId: string) => void;
 }
 
-interface C4MapNodeData extends Record<string, unknown> {
-  node: SoftwareMapNodeSnapshot;
-  selected: boolean;
-  diagram: string;
-  targetPath: string[];
-  onSelect?: (node: SoftwareMapNodeSnapshot) => void;
-  onExpandNode?: (node: SoftwareMapNodeSnapshot) => void;
-  onCollapseNode?: (node: SoftwareMapNodeSnapshot) => void;
-  onDrillNode?: (node: SoftwareMapNodeSnapshot) => void;
-}
-
-type C4MapFlowNode = ReactFlowNode<C4MapNodeData, "softwareMapC4">;
-type C4MapFlowGroupNode = ReactFlowNode<C4MapNodeData, "softwareMapC4Group">;
-export type C4MapAnyFlowNode = C4MapFlowNode | C4MapFlowGroupNode;
-export type C4MapInteractionMode = "inline" | "standalone";
-
 interface C4DisplayedLayoutState {
   signature: string;
   snapshot: SoftwareMapResolvedSnapshot;
   layout: C4LayoutResult;
-}
-
-interface C4MapEdgeData extends Record<string, unknown> {
-  label?: string;
-  semanticKind?: string;
-  relationship: SoftwareMapRelationshipSnapshot;
-  relationshipId: string;
-  selectedNodeAttached?: boolean;
-  diagram: string;
-  targetPath: string[];
-  sections?: C4ElkEdgeSection[];
-  labelPosition?: C4ElkLabel;
-  labelDimensions?: C4LabelDimensions;
-  labelPoint?: C4ElkPoint;
-  operationState?: "active" | "inactive";
-  onOpenRelationship?: (relationshipId: string) => void;
-}
-
-interface C4LayoutEntry {
-  node: SoftwareMapNodeSnapshot;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  expandedGroup?: boolean;
-}
-
-export interface C4LayoutResult {
-  nodes: C4LayoutEntry[];
-  edgeSections: Map<string, C4ElkEdgeSection[]>;
-  edgeLabels: Map<string, C4ElkLabel>;
-}
-
-export interface C4LayoutBox {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export interface InlineC4LayoutResult {
-  nodeBboxes: Map<string, C4LayoutBox>;
-  groupBboxes: Map<string, C4LayoutBox>;
-  childLayoutKeys: Map<string, string>;
-}
-
-interface C4ElkPoint {
-  x: number;
-  y: number;
-}
-
-export interface C4EdgeEndpointBubble extends C4ElkPoint {
-  endpoint: "source";
-  hovered: boolean;
-}
-
-interface C4ElkEdgeSection {
-  startPoint: C4ElkPoint;
-  bendPoints?: C4ElkPoint[];
-  endPoint: C4ElkPoint;
-}
-
-interface C4ElkLabel {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-type C4LabelObstacle = C4ElkLabel;
-
-interface C4NodeDimensions {
-  width: number;
-  height: number;
-}
-
-interface C4LabelDimensions {
-  width: number;
-  height: number;
 }
 
 const ELEMENT_TYPE_LABELS: Record<SoftwareMapElementType, string> = {

@@ -1,13 +1,13 @@
 import type { JsonValue } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
+import type { C4LayoutBox } from "./c4-map-flow-types";
 import type { C4Projection, ProjectedC4Relationship } from "./c4-projection";
 import type {
   NormalizedSoftwareModel,
   SoftwareChangeStatus,
   SoftwareDataStoreKind,
 } from "./model";
-import type { C4LayoutBox } from "./SoftwareMap";
 
 export type SoftwareMapViewType = "inlineC4";
 

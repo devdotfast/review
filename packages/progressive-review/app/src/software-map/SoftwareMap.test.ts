@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import type { Edge as ReactFlowEdge } from "@xyflow/react";
 import { describe, expect, it, vi } from "vitest";
 
+import type { InlineC4LayoutResult } from "./c4-map-flow-types";
 import { collapseInlineC4Node, projectInlineC4 } from "./c4-projection";
 import { defineSoftwareModel } from "./model";
 import {
@@ -16,7 +17,6 @@ import {
 import { softwareMapSnapshotFromInlineC4Projection } from "./software-map-snapshot";
 import {
   C4LayoutQueue,
-  type InlineC4LayoutResult,
   type SoftwareMapNodeSnapshot,
   type SoftwareMapRelationshipSnapshot,
   type SoftwareMapResolvedSnapshot,

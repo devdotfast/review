@@ -193,6 +193,17 @@ test("unified CodePeek navigation opens the mapped review resource", () => {
   assert.match(source, /resource: target\.resource/);
 });
 
+test("unified definitions and hovers register exclusive providers for the review scheme", () => {
+  assert.match(
+    source,
+    /definitionProvider\.register\(\s*\{ scheme: REVIEW_UNIFIED_SCHEME, exclusive: true \}/,
+  );
+  assert.match(
+    source,
+    /hoverProvider\.register\(\s*\{ scheme: REVIEW_UNIFIED_SCHEME, exclusive: true \}/,
+  );
+});
+
 test("native multi-diff headers host Review stats and the open action", () => {
   assert.match(widgetSource, /onDidChangeContentHeight/);
   assert.match(widgetSource, /getContentHeight\(\)/);

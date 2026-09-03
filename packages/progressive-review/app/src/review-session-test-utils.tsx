@@ -107,8 +107,13 @@ function createTestCommentStore(): ReviewCommentStoreBridge {
       };
       local.set(input.threadId, {
         clientStatus: "draft",
+        // Like the desktop store, a reply reopens a resolved thread.
         thread: existing
-          ? { ...existing, messages: [...existing.messages, message] }
+          ? {
+              ...existing,
+              status: "open",
+              messages: [...existing.messages, message],
+            }
           : {
               threadId: input.threadId,
               target: input.target,

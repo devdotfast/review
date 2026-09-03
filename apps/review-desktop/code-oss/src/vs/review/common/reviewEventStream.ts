@@ -5,6 +5,8 @@
 
 import { createParser } from "eventsource-parser";
 
+import { type JsonValue, parseJsonText } from "./reviewProtocol.js";
+
 const DEFAULT_MAX_EVENT_CHARACTERS = 1024 * 1024;
 const EVENT_BOUNDARY = /(?:\r\n|\r|\n)(?:\r\n|\r|\n)/g;
 
@@ -14,7 +16,7 @@ export interface ConsumeReviewEventStreamOptions {
 
 export async function consumeReviewEventStream(
   stream: ReadableStream<Uint8Array>,
-  onValue: (value: unknown) => void | Promise<void>,
+  onValue: (value: JsonValue) => void | Promise<void>,
   signal: AbortSignal,
   options: ConsumeReviewEventStreamOptions = {},
 ): Promise<void> {
@@ -42,7 +44,7 @@ export async function consumeReviewEventStream(
       const payload = pendingPayloads.shift();
       if (payload === undefined) continue;
       try {
-        await onValue(JSON.parse(payload));
+        await onValue(parseJsonText(payload));
       } catch (error) {
         console.error(error);
       }

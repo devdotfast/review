@@ -27,6 +27,7 @@ import {
 	type ReviewSessionDescriptor,
 	type ReviewTutorialOpenResponse,
 	type ReviewVerbResponse,
+	type JsonValue,
 	parseReviewCliInstallApplyResponse,
 	parseReviewCliInstallStatus,
 	parseReviewDesktopGlobalEvent,
@@ -128,7 +129,7 @@ export interface IReviewSessionService {
 	attachControl(
 		dispatch: (
 			sessionId: string,
-			value: unknown,
+			value: JsonValue,
 		) => Promise<ReviewVerbResponse>,
 	): void;
 }
@@ -192,7 +193,7 @@ export class ReviewSessionService
 	private readonly controller = new AbortController();
 	private controlAttached = false;
 	private controlDispatch:
-		| ((sessionId: string, value: unknown) => Promise<ReviewVerbResponse>)
+		| ((sessionId: string, value: JsonValue) => Promise<ReviewVerbResponse>)
 		| undefined;
 	/**
 	 * The main process owns the embedded server's endpoint and credentials and
@@ -594,7 +595,7 @@ export class ReviewSessionService
 			}),
 			signal: AbortSignal.timeout(120_000),
 		});
-		const payload: unknown = await response.json().catch(() => ({}));
+		const payload: JsonValue = await response.json().catch(() => ({}));
 		if (!response.ok) {
 			const detail = payload as { output?: unknown; error?: unknown };
 			throw new Error(
@@ -666,7 +667,7 @@ export class ReviewSessionService
 	attachControl(
 		dispatch: (
 			sessionId: string,
-			value: unknown,
+			value: JsonValue,
 		) => Promise<ReviewVerbResponse>,
 	): void {
 		this.controlDispatch = dispatch;
@@ -718,7 +719,7 @@ export class ReviewSessionService
 	private async initializeAndMaintainControl(
 		dispatch: (
 			sessionId: string,
-			value: unknown,
+			value: JsonValue,
 		) => Promise<ReviewVerbResponse>,
 	): Promise<void> {
 		await reconnectUntilAborted(
@@ -785,7 +786,7 @@ export class ReviewSessionService
 	 * The server lists every review, drafts included. A review stays a draft
 	 * until its first publish, so it belongs to no picker or list event yet.
 	 */
-	private applyReviewList(payload: unknown): void {
+	private applyReviewList(payload: JsonValue): void {
 		const parsed = parseReviewListResponse(payload);
 		this._reviews = parsed.reviews.filter(
 			(review) => review.status !== "draft",
@@ -909,7 +910,7 @@ export class ReviewSessionService
 	private async maintainControl(
 		dispatch: (
 			sessionId: string,
-			value: unknown,
+			value: JsonValue,
 		) => Promise<ReviewVerbResponse>,
 	): Promise<void> {
 		await reconnectUntilAborted(
@@ -930,7 +931,7 @@ export class ReviewSessionService
 	private async consumeControl(
 		dispatch: (
 			sessionId: string,
-			value: unknown,
+			value: JsonValue,
 		) => Promise<ReviewVerbResponse>,
 		onConnected: () => void,
 	): Promise<void> {

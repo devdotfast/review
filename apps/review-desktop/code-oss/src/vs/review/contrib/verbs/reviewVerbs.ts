@@ -43,6 +43,7 @@ import { IHostService } from "../../../workbench/services/host/browser/host.js";
 import {
   type ReviewDesktopState,
   type ReviewDiffSide,
+  type JsonValue,
   type ReviewOpenEditorWire,
   type ReviewSurfaceEvent,
   type ReviewVerbRequest,
@@ -88,7 +89,7 @@ export interface IReviewVerbsService {
   readonly _serviceBrand: undefined;
   readonly onDidEmitSurfaceEvent: Event<ReviewSurfaceEvent>;
   readonly onDidRequestCanvasFocus: Event<void>;
-  dispatch(sessionId: string, value: unknown): Promise<ReviewVerbResponse>;
+  dispatch(sessionId: string, value: JsonValue): Promise<ReviewVerbResponse>;
   state(): ReviewDesktopState;
   resetSession(): Promise<void>;
 }
@@ -158,7 +159,7 @@ export class ReviewVerbsService
 
   async dispatch(
     sessionId: string,
-    value: unknown,
+    value: JsonValue,
   ): Promise<ReviewVerbResponse> {
     try {
       const request = parseReviewVerbRequest(value);

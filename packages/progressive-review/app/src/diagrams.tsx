@@ -43,7 +43,7 @@ import { hasTextSelectionWithin } from "./diagram-text-selection";
 import { DiagramTourOverlay, useDiagramTourShell } from "./diagram-tour";
 import { useReviewSession } from "./host/review-session";
 import { HoverCommentButton } from "./hover-comment-button";
-import { useReview } from "./review-context";
+import { useReviewActions } from "./review-context";
 import { useReviewPanel } from "./review-panel";
 import type { GuidedTour } from "./review-panel-model";
 import { useTourPersist, useTourRestore } from "./review-view-state";
@@ -802,7 +802,7 @@ function DiagramHeader({
 function SequenceParticipantNode({
   data,
 }: ReactFlowNodeProps<SequenceParticipantFlowNode>) {
-  const review = useReview();
+  const { openCommentDraft } = useReviewActions();
   const { participant, diagram, height, messages, messageGap, messageTop } =
     data;
   const target = buildGraphTarget({
@@ -819,7 +819,7 @@ function SequenceParticipantNode({
   const openParticipantComment = (event: MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    review.openCommentDraft({
+    openCommentDraft({
       target,
       title: participant.label,
       body: "",
@@ -914,7 +914,7 @@ export function sequenceSelfMessagePath(input: {
 function SequenceMessageEdge(
   props: ReactFlowEdgeProps<SequenceMessageFlowEdge>,
 ) {
-  const review = useReview();
+  const { openCommentDraft } = useReviewActions();
   const [isHoveringEdge, setIsHoveringEdge] = useState(false);
   const data = props.data;
   if (!data) return null;
@@ -957,7 +957,7 @@ function SequenceMessageEdge(
   const openMessageComment = (event: MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    review.openCommentDraft({
+    openCommentDraft({
       target,
       title: data.message.label,
       body: "",

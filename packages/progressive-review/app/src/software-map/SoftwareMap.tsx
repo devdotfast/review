@@ -59,7 +59,10 @@ import { hasTextSelectionWithin } from "../diagram-text-selection";
 import { type ReviewSession, useReviewSession } from "../host/review-session";
 import { HoverCommentButton } from "../hover-comment-button";
 import { CloseIcon, RefreshIcon } from "../icons";
-import { type CommentDraftPlacement, useReview } from "../review-context";
+import {
+  type CommentDraftPlacement,
+  useReviewActions,
+} from "../review-context";
 import { useReviewInitialData } from "../review-initial-data-context";
 import {
   forgetReviewUiState,
@@ -2327,7 +2330,7 @@ export function SoftwareMapFrame({
   onViewportFocusComplete,
 }: SoftwareMapFrameProps) {
   const session = useReviewSession();
-  const review = useReview();
+  const { openCommentDraft } = useReviewActions();
   const frameRef = useRef<HTMLElement | null>(null);
   const codeInspectorResize = useRightPanelResize({
     // The expanded overlay is far wider than the inline frame, so it keeps its
@@ -2418,7 +2421,7 @@ export function SoftwareMapFrame({
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                review.openCommentDraft({
+                openCommentDraft({
                   target: viewTarget,
                   title,
                   body: "",
@@ -6261,7 +6264,7 @@ export function c4EdgeEndpointBubbles(
 function SoftwareMapC4Edge(
   props: ReactFlowEdgeProps<ReactFlowEdge<C4MapEdgeData>>,
 ) {
-  const review = useReview();
+  const { openCommentDraft } = useReviewActions();
   const hoveredNodeId = useContext(C4HoveredNodeContext);
   const [isHoveringEdge, setIsHoveringEdge] = useState(false);
   const data = props.data;
@@ -6306,7 +6309,7 @@ function SoftwareMapC4Edge(
     if (!target) return;
     event.preventDefault();
     event.stopPropagation();
-    review.openCommentDraft({
+    openCommentDraft({
       target,
       title: commentLabel,
       body: "",
@@ -6960,7 +6963,7 @@ function c4LabelBoxesOverlap(
 function SoftwareMapC4GroupNode({
   data,
 }: ReactFlowNodeProps<C4MapFlowGroupNode>) {
-  const review = useReview();
+  const { openCommentDraft } = useReviewActions();
   const target = buildGraphTarget({
     diagram: data.diagram,
     type: "node",
@@ -6971,7 +6974,7 @@ function SoftwareMapC4GroupNode({
   const openNodeComment = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    review.openCommentDraft({
+    openCommentDraft({
       target,
       title: data.node.label,
       body: "",
@@ -7070,7 +7073,7 @@ function SoftwareMapC4GroupNode({
 }
 
 function SoftwareMapC4Node({ data }: ReactFlowNodeProps<C4MapFlowNode>) {
-  const review = useReview();
+  const { openCommentDraft } = useReviewActions();
   const target = buildGraphTarget({
     diagram: data.diagram,
     type: "node",
@@ -7081,7 +7084,7 @@ function SoftwareMapC4Node({ data }: ReactFlowNodeProps<C4MapFlowNode>) {
   const openNodeComment = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    review.openCommentDraft({
+    openCommentDraft({
       target,
       title: data.node.label,
       body: "",

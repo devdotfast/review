@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { type Root, createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ReviewSessionProvider } from "./host/review-session";
 import { ReviewProvider, useReview, useReviewActions } from "./review-context";
@@ -25,6 +25,32 @@ function StateReader() {
   return null;
 }
 
+function stubReviewFetch() {
+  const fetchMock = vi.fn<typeof fetch>(
+    async (input: RequestInfo | URL): Promise<Response> => {
+      const url = String(input);
+      if (url.includes("/__progressive-review/comments")) {
+        return new Response(JSON.stringify({ comments: {} }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({}), {
+        headers: { "content-type": "application/json" },
+      });
+    },
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+beforeEach(() => {
+  (
+    globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    }
+  ).IS_REACT_ACT_ENVIRONMENT = true;
+});
+
 afterEach(() => {
   act(() => root?.unmount());
   root = null;
@@ -32,10 +58,13 @@ afterEach(() => {
   stateRenders = 0;
   latestActions = null;
   latestReview = null;
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("ReviewProvider render isolation", () => {
   it("does not re-render actions-only consumers on draft, focus, or thread changes", async () => {
+    stubReviewFetch();
     const session = testReviewSession();
     const container = document.createElement("div");
     root = createRoot(container);

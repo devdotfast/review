@@ -132,11 +132,16 @@ export interface ThreadFocusRequest {
 export interface ReviewActionsValue {
   softwareMapEnabled: boolean;
   listVersions: () => Promise<ReviewDocumentVersionWire[] | null>;
+  /** Focus a thread: sets focusedThreadId and enqueues a focus request.
+   *  scroll and inline default to true. Always bumps nonce so repeated
+   *  clicks re-trigger. */
   focusThread: (
     threadId: string,
     options?: { scroll?: boolean; inline?: boolean },
   ) => void;
+  /** Clear focus (click-away / Escape). */
   blurThread: () => void;
+  /** Consumer (the annotations layer) acknowledges the request after handling it. */
   clearThreadFocusRequest: () => void;
   submitPendingComments: (
     decision: "approve" | "request-changes",
@@ -173,6 +178,7 @@ export interface ReviewStateValue {
   threadFocusRequest: ThreadFocusRequest | null;
   commentThreads: ReadonlyMap<string, ReviewCommentThreadRecord>;
   allCommentThreads: () => CommentThreadView[];
+  /** Resolved comment threads, for the Threads sidebar's Resolved section. */
   resolvedCommentThreads: () => CommentThreadView[];
   pendingCommentCount: number;
   draftTarget: CommentDraftTarget | null;

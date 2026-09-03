@@ -36,7 +36,7 @@ import {
 	parseReviewTutorialOpenResponse,
 } from "../common/reviewProtocol.js";
 import { consumeReviewEventStream } from "../common/reviewEventStream.js";
-import { REVIEW_CLIENT_RECONNECT_DELAYS } from "../common/reviewReconnect.js";
+import { reconnectUntilAborted } from "../common/reviewReconnect.js";
 import { IReviewTelemetryService } from "./reviewTelemetryService.js";
 
 const REVIEW_LIST_TIMEOUT_MS = 30_000;
@@ -721,22 +721,17 @@ export class ReviewSessionService
 			value: unknown,
 		) => Promise<ReviewVerbResponse>,
 	): Promise<void> {
-		let attempt = 0;
-		while (!this.controller.signal.aborted) {
-			try {
+		await reconnectUntilAborted(
+			this.controller.signal,
+			async () => {
 				await this.initialize();
 				await this.maintainControl(dispatch);
-				return;
-			} catch (error) {
-				if (this.controller.signal.aborted) return;
-				console.error("[Review Desktop] control channel stopped", error);
-				const delay =
-					REVIEW_CLIENT_RECONNECT_DELAYS[
-						Math.min(attempt++, REVIEW_CLIENT_RECONNECT_DELAYS.length - 1)
-					] ?? 1_000;
-				await new Promise((resolve) => setTimeout(resolve, delay));
-			}
-		}
+			},
+			{
+				onRetry: (error) =>
+					console.error("[Review Desktop] control channel stopped", error),
+			},
+		);
 	}
 
 	private async waitForHealth(): Promise<void> {
@@ -802,27 +797,25 @@ export class ReviewSessionService
 	}
 
 	private async maintainGlobalEvents(onConnected: () => void): Promise<void> {
-		let attempt = 0;
-		while (!this.controller.signal.aborted) {
-			try {
+		await reconnectUntilAborted(
+			this.controller.signal,
+			async (onStreamConnected) => {
 				await this.watchGlobalEvents(() => {
-					attempt = 0;
+					onStreamConnected();
 					onConnected();
 				});
 				if (this.controller.signal.aborted) return;
 				throw new Error("The embedded Review server event stream ended.");
-			} catch (error) {
-				if (this.controller.signal.aborted) return;
-				const delay = REVIEW_CLIENT_RECONNECT_DELAYS[attempt++];
-				if (delay === undefined) {
+			},
+			{
+				onExhausted: (error) => {
 					throw new Error(
 						"The embedded Review server exhausted its restart attempts.",
 						{ cause: error },
 					);
-				}
-				await new Promise((resolve) => setTimeout(resolve, delay));
-			}
-		}
+				},
+			},
+		);
 	}
 
 	private async watchGlobalEvents(onConnected: () => void): Promise<void> {
@@ -919,21 +912,19 @@ export class ReviewSessionService
 			value: unknown,
 		) => Promise<ReviewVerbResponse>,
 	): Promise<void> {
-		let attempt = 0;
-		while (!this.controller.signal.aborted) {
-			try {
-				await this.consumeControl(dispatch, () => {
-					attempt = 0;
-				});
+		await reconnectUntilAborted(
+			this.controller.signal,
+			async (onConnected) => {
+				await this.consumeControl(dispatch, onConnected);
 				if (this.controller.signal.aborted) return;
 				throw new Error("The Review Desktop control stream ended.");
-			} catch (error) {
-				if (this.controller.signal.aborted) return;
-				const delay = REVIEW_CLIENT_RECONNECT_DELAYS[attempt++];
-				if (delay === undefined) throw error;
-				await new Promise((resolve) => setTimeout(resolve, delay));
-			}
-		}
+			},
+			{
+				onExhausted: (error) => {
+					throw error;
+				},
+			},
+		);
 	}
 
 	private async consumeControl(

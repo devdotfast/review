@@ -20,15 +20,29 @@ export class OptionalExtensionInstallError extends Error {
 	}
 }
 
-export interface OptionalExtensionInstallTransaction<T> {
+export interface OptionalExtensionInstallCallbacks {
+	readonly onInstalled?: (extensionId: string, trigger: OptionalExtensionInstallTrigger, durationMs: number) => void;
+	readonly onInstallFailed?: (extensionId: string, trigger: OptionalExtensionInstallTrigger, phase: OptionalExtensionInstallPhase) => void;
+}
+
+export interface OptionalExtensionInstallTransaction<T> extends OptionalExtensionInstallCallbacks {
 	readonly groups: readonly string[];
 	readonly installedIds: ReadonlySet<string>;
 	readonly download: (extensionId: string) => Promise<string>;
 	readonly install: (extensionId: string, vsixPath: string) => Promise<T>;
 	readonly rollback: (installed: T) => Promise<void>;
-	readonly onInstalled?: (extensionId: string, trigger: OptionalExtensionInstallTrigger, durationMs: number) => void;
-	readonly onInstallFailed?: (extensionId: string, trigger: OptionalExtensionInstallTrigger, phase: OptionalExtensionInstallPhase) => void;
 	readonly onRolledBack?: (extensionId: string) => void;
+}
+
+/** Support extensions install before the primary extension that activates them. */
+function compareOptionalExtensionInstallOrder(
+	left: { readonly role: string },
+	right: { readonly role: string }
+): number {
+	if (left.role === right.role) {
+		return 0;
+	}
+	return left.role === 'support' ? -1 : 1;
 }
 
 export async function installMissingOptionalExtensions<T>(
@@ -56,12 +70,7 @@ export async function installMissingOptionalExtensions<T>(
 	}));
 
 	const installed: { readonly extensionId: string; readonly local: T }[] = [];
-	const installOrder = [...missing].sort((left, right) => {
-		if (left.role === right.role) {
-			return 0;
-		}
-		return left.role === 'support' ? -1 : 1;
-	});
+	const installOrder = [...missing].sort(compareOptionalExtensionInstallOrder);
 	try {
 		for (const extension of installOrder) {
 			const vsixPath = downloads.get(extension.id);
@@ -106,14 +115,12 @@ export interface InstalledOptionalExtensionPin {
 	readonly version: string;
 }
 
-export interface OptionalExtensionPinUpgradeTransaction {
+export interface OptionalExtensionPinUpgradeTransaction extends OptionalExtensionInstallCallbacks {
 	readonly installed: readonly InstalledOptionalExtensionPin[];
 	readonly download: (extensionId: string) => Promise<string>;
 	readonly install: (extensionId: string, vsixPath: string) => Promise<void>;
 	readonly stageRustAnalyzer: () => Promise<void>;
 	readonly logError: (message: string, error: unknown) => void;
-	readonly onInstalled?: (extensionId: string, trigger: OptionalExtensionInstallTrigger, durationMs: number) => void;
-	readonly onInstallFailed?: (extensionId: string, trigger: OptionalExtensionInstallTrigger, phase: OptionalExtensionInstallPhase) => void;
 }
 
 export async function upgradeOptionalExtensionPins(
@@ -130,7 +137,7 @@ export async function upgradeOptionalExtensionPins(
 
 		const members = reviewOptionalExtensionCatalog
 			.filter(extension => extension.group === group)
-			.sort((left, right) => left.role === right.role ? 0 : left.role === 'support' ? -1 : 1);
+			.sort(compareOptionalExtensionInstallOrder);
 		for (const extension of members) {
 			const currentVersion = installed.get(extension.id);
 			if (currentVersion && !semver.lt(currentVersion, extension.version)) {

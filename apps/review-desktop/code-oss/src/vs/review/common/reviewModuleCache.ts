@@ -3,15 +3,15 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-export class ReviewDocumentModuleCache {
+/**
+ * Caches in-flight and settled module loads by key. Concurrent callers share
+ * one promise, a fulfilled load stays cached until `clear()`, and a rejected
+ * load is evicted so the next caller retries.
+ */
+export class ReviewModuleCache {
 	private readonly entries = new Map<string, Promise<unknown>>();
 
-	load<T>(
-		moduleUrl: string,
-		runtimeUrl: string,
-		loader: () => Promise<T>,
-	): Promise<T> {
-		const key = JSON.stringify([moduleUrl, runtimeUrl]);
+	load<T>(key: string, loader: () => Promise<T>): Promise<T> {
 		const cached = this.entries.get(key) as Promise<T> | undefined;
 		if (cached) {
 			return cached;
@@ -28,5 +28,9 @@ export class ReviewDocumentModuleCache {
 			});
 		this.entries.set(key, pending);
 		return pending;
+	}
+
+	clear(): void {
+		this.entries.clear();
 	}
 }

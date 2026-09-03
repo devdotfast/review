@@ -549,7 +549,10 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       session: {
         resolvedBaseRef,
         ...(stateReviewPath
-          ? { reviewStatus: readReviewStatus(stateReviewPath) }
+          ? {
+              reviewStatus: readReviewStoreRecord(path.dirname(stateReviewPath))
+                .status,
+            }
           : {}),
       },
     });
@@ -816,10 +819,8 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     });
     const baseSourceTarget = sourceTarget.preparedBase;
     const graph = parseCodePeekGraph(body.graph);
-    const includeDiff = parseCodePeekIncludeDiff(body.includeDiff);
-    const includeDiffSummary = parseCodePeekIncludeDiffSummary(
-      body.includeDiffSummary,
-    );
+    const includeDiff = body.includeDiff === true;
+    const includeDiffSummary = body.includeDiffSummary === true;
     const primaryTarget = graph === "base" ? baseSourceTarget : sourceTarget;
     if (!primaryTarget) {
       throw new Error("The pinned base worktree is unavailable.");
@@ -1019,18 +1020,6 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
 
 function parseCodePeekGraph(value: unknown): "head" | "base" {
   return value === "base" ? "base" : "head";
-}
-
-function parseCodePeekIncludeDiff(value: unknown): boolean {
-  return value === true;
-}
-
-function parseCodePeekIncludeDiffSummary(value: unknown): boolean {
-  return value === true;
-}
-
-function readReviewStatus(stateReviewPath: string): string {
-  return readReviewStoreRecord(path.dirname(stateReviewPath)).status;
 }
 
 function readJson(request: Request): Promise<unknown> {

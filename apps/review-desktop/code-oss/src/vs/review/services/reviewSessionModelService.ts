@@ -15,6 +15,7 @@ import {
 	createDecorator,
 	IInstantiationService,
 } from "../../platform/instantiation/common/instantiation.js";
+import { ReviewModuleCache } from "../common/reviewModuleCache.js";
 import {
 	ReviewDocModuleResponseSchema,
 	ReviewSoftwareMapModuleResponseSchema,
@@ -86,8 +87,7 @@ export class ReviewSessionModel extends Disposable {
 	}
 
 	private documentRevision: string;
-	private documentPromise: Promise<unknown> | undefined;
-	private softwareMapPromise: Promise<unknown | null> | undefined;
+	private readonly modules = new ReviewModuleCache();
 	private refreshPromise: Promise<void> | undefined;
 	private _comments: ReviewCommentStore;
 	get comments(): ReviewCommentStoreBridge {
@@ -190,8 +190,7 @@ export class ReviewSessionModel extends Disposable {
 					return;
 				}
 				if (this.documentRevision !== previousRevision) {
-					this.documentPromise = undefined;
-					this.softwareMapPromise = undefined;
+					this.modules.clear();
 				}
 				this._onDidChange.fire();
 			})
@@ -216,117 +215,114 @@ export class ReviewSessionModel extends Disposable {
 	}
 
 	resolveDocument(loader: ReviewDocumentModuleLoader): Promise<unknown> {
-		if (this.documentPromise) {
-			return this.documentPromise;
-		}
-		let pending: Promise<unknown>;
-		pending = this.loadDocument(loader).catch((error) => {
-			if (this.documentPromise === pending) {
-				this.documentPromise = undefined;
-			}
-			throw error;
-		});
-		this.documentPromise = pending;
-		return pending;
+		return this.modules.load("document", () => this.loadDocument(loader));
 	}
 
 	resolveSoftwareMap(
 		loader: ReviewSoftwareMapModuleLoader,
 	): Promise<unknown | null> {
-		if (this.softwareMapPromise) return this.softwareMapPromise;
-		let pending: Promise<unknown | null>;
-		pending = this.loadSoftwareMap(loader).catch((error) => {
-			if (this.softwareMapPromise === pending) {
-				this.softwareMapPromise = undefined;
-			}
-			throw error;
-		});
-		this.softwareMapPromise = pending;
-		return pending;
+		return this.modules.load("software-map", () =>
+			this.loadSoftwareMap(loader),
+		);
 	}
 
 	async request(url: string, init: RequestInit = {}): Promise<Response> {
 		return fetch(url, init);
 	}
 
-	private async loadDocument(
-		loader: ReviewDocumentModuleLoader,
-	): Promise<unknown> {
-		const session = this._session;
-		const url = new URL(
-			`${session.sessionUrl}/__progressive-review/doc-module`,
-		);
-		const routePath = session.session.routePath ?? session.descriptor.routePath;
-		if (routePath && routePath !== "/") {
-			url.searchParams.set("document", routePath);
-		}
-		const response = await fetch(url, {
-			headers: { "x-review-token": session.token },
-			signal: AbortSignal.timeout(30_000),
-		});
-		const payload = ReviewDocModuleResponseSchema.parse(await response.json());
-		if (!response.ok || !payload.ok) {
-			throw new Error(
-				payload.ok
-					? `Review document module returned ${response.status}.`
-					: payload.error,
-			);
-		}
-		return loader(session, payload.moduleUrl);
+	private loadDocument(loader: ReviewDocumentModuleLoader): Promise<unknown> {
+		return loadReviewSessionDocument(this._session, loader);
 	}
 
-	private async loadSoftwareMap(
+	private loadSoftwareMap(
 		loader: ReviewSoftwareMapModuleLoader,
 	): Promise<unknown | null> {
-		const session = this._session;
-		const url = new URL(
-			`${session.sessionUrl}/__progressive-review/software-map-module`,
-		);
-		const response = await fetch(url, {
-			headers: { "x-review-token": session.token },
-			signal: AbortSignal.timeout(30_000),
-		});
-		if (response.status === 404) return null;
-		const payload = ReviewSoftwareMapModuleResponseSchema.parse(
-			await response.json(),
-		);
-		if (!response.ok || !payload.ok) {
-			throw new Error(
-				payload.ok
-					? `Software map module returned ${response.status}.`
-					: payload.error,
-			);
-		}
-		return loader(session, payload.headModuleUrl, payload.baseModuleUrl);
+		return loadReviewSessionSoftwareMap(this._session, loader);
 	}
 
 	private createCommentStore(): ReviewCommentStore {
 		return new ReviewCommentStore({
-			request: (endpoint, init = {}) => this.reviewApiRequest(endpoint, init),
+			request: (endpoint, init = {}) =>
+				reviewSessionApiRequest(this._session, endpoint, init, (url, request) =>
+					this.request(url, request),
+				),
 		});
-	}
-
-	private reviewApiRequest(
-		endpoint: string,
-		init: RequestInit = {},
-	): Promise<Response> {
-		const session = this._session;
-		const url = new URL(
-			`${session.sessionUrl}/__progressive-review${endpoint}`,
-		);
-		const routePath = session.session.routePath ?? session.descriptor.routePath;
-		if (routePath && routePath !== "/") {
-			url.searchParams.set("document", routePath);
-		}
-		const headers = new Headers(init.headers);
-		headers.set("x-review-token", session.token);
-		return this.request(url.href, { ...init, headers });
 	}
 
 	override dispose(): void {
 		this._comments.dispose();
 		super.dispose();
 	}
+}
+
+/**
+ * Sends a Review API request scoped to `session`, adding the document route
+ * and the session token. Callers that must not touch a model's request path
+ * (the publish-gate validation mount) pass the session explicitly.
+ */
+export function reviewSessionApiRequest(
+	session: ReviewDesktopSession,
+	endpoint: string,
+	init: RequestInit = {},
+	fetchImpl: (url: string, init: RequestInit) => Promise<Response> = fetch,
+): Promise<Response> {
+	const url = new URL(`${session.sessionUrl}/__progressive-review${endpoint}`);
+	const routePath = session.session.routePath ?? session.descriptor.routePath;
+	if (routePath && routePath !== "/") {
+		url.searchParams.set("document", routePath);
+	}
+	const headers = new Headers(init.headers);
+	headers.set("x-review-token", session.token);
+	return fetchImpl(url.href, { ...init, headers });
+}
+
+export async function loadReviewSessionDocument(
+	session: ReviewDesktopSession,
+	loader: ReviewDocumentModuleLoader,
+): Promise<unknown> {
+	const url = new URL(`${session.sessionUrl}/__progressive-review/doc-module`);
+	const routePath = session.session.routePath ?? session.descriptor.routePath;
+	if (routePath && routePath !== "/") {
+		url.searchParams.set("document", routePath);
+	}
+	const response = await fetch(url, {
+		headers: { "x-review-token": session.token },
+		signal: AbortSignal.timeout(30_000),
+	});
+	const payload = ReviewDocModuleResponseSchema.parse(await response.json());
+	if (!response.ok || !payload.ok) {
+		throw new Error(
+			payload.ok
+				? `Review document module returned ${response.status}.`
+				: payload.error,
+		);
+	}
+	return loader(session, payload.moduleUrl);
+}
+
+export async function loadReviewSessionSoftwareMap(
+	session: ReviewDesktopSession,
+	loader: ReviewSoftwareMapModuleLoader,
+): Promise<unknown | null> {
+	const url = new URL(
+		`${session.sessionUrl}/__progressive-review/software-map-module`,
+	);
+	const response = await fetch(url, {
+		headers: { "x-review-token": session.token },
+		signal: AbortSignal.timeout(30_000),
+	});
+	if (response.status === 404) return null;
+	const payload = ReviewSoftwareMapModuleResponseSchema.parse(
+		await response.json(),
+	);
+	if (!response.ok || !payload.ok) {
+		throw new Error(
+			payload.ok
+				? `Software map module returned ${response.status}.`
+				: payload.error,
+		);
+	}
+	return loader(session, payload.headModuleUrl, payload.baseModuleUrl);
 }
 
 function reviewDocumentRevision(session: ReviewDesktopSession): string {

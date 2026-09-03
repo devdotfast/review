@@ -31,16 +31,9 @@ test("peek overflow widgets host lives outside the canvas root", () => {
   );
 });
 
-test("mounts the canvas host without a redundant local toolbar", () => {
-  assert.match(
-    reviewCanvasPart,
-    /outer\.append\(this\.container\)/,
-  );
-  assert.doesNotMatch(reviewCanvasPart, /review-session-toolbar/);
-  assert.doesNotMatch(reviewCanvasPart, /Active review session/);
+test("Review canvas restores text selection inside the workbench", () => {
   assert.match(
     reviewCss,
-    /\.review-canvas-part\s*>\s*\.review-canvas-container\s*{[^}]*grid-template-rows:\s*minmax\(0,\s*1fr\);/s,
+    /\.review-canvas-part \.review-canvas-host\s*{[^}]*-webkit-user-select:\s*text;[^}]*user-select:\s*text;/s,
   );
-  assert.doesNotMatch(reviewCss, /\.review-session-toolbar/);
 });

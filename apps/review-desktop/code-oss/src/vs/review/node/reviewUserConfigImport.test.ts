@@ -8,6 +8,10 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, test } from 'node:test';
+import {
+	curatedExtensionConfigurationDefaults,
+	reviewConfigurationDefaults,
+} from '../common/reviewConfigurationDefaults.js';
 import { importReviewUserConfig } from './reviewUserConfigImport.js';
 
 describe('ReviewUserConfigImport', () => {
@@ -211,6 +215,42 @@ describe('ReviewUserConfigImport', () => {
 			readFileSync(path.join(fixture.target, 'User', 'keybindings.json'), 'utf8'),
 			'[{ "key": "cursor" }]\n',
 		);
+	});
+
+	test('no Review hardening default survives an import', () => {
+		// An imported setting beats a default, so any key Review pins here that
+		// arrives from the user's old profile silently un-hardens the app.
+		const fixture = createFixture();
+		const hardened = [
+			...Object.keys(reviewConfigurationDefaults),
+			...Object.keys(curatedExtensionConfigurationDefaults),
+		];
+		assert.ok(hardened.length > 0);
+		const imported: Record<string, unknown> = { 'editor.fontSize': 15 };
+		for (const key of hardened) {
+			imported[key] = `imported:${key}`;
+		}
+		writeFileSync(
+			path.join(fixture.sourceUser, 'settings.json'),
+			JSON.stringify(imported, undefined, '\t'),
+		);
+
+		const result = importReviewUserConfig({
+			userDataPath: fixture.target,
+			env: { DEV_REVIEW_IMPORT_FROM: fixture.sourceRoot },
+			homeDir: fixture.root,
+		});
+
+		assert.strictEqual(result.status, 'imported');
+		const settings = JSON.parse(
+			readFileSync(path.join(fixture.target, 'User', 'settings.json'), 'utf8'),
+		) as Record<string, unknown>;
+		assert.deepStrictEqual(
+			hardened.filter(key => key in settings),
+			[],
+		);
+		// The filter has to be the hardened key set, not a blanket refusal.
+		assert.strictEqual(settings['editor.fontSize'], 15);
 	});
 
 	test('honours the import opt-out', () => {

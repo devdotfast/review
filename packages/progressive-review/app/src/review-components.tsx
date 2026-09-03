@@ -1,3 +1,8 @@
+import {
+  type JsonValue,
+  isJsonObject,
+  jsonString,
+} from "@dev.fast/review-protocol";
 import type {
   CSSProperties,
   ComponentPropsWithoutRef,
@@ -147,6 +152,12 @@ function ReviewPanelFrame({
     return () => document.removeEventListener("keydown", closeOnEscape);
   }, [appRef, onClose]);
 
+  // SAFETY: `--side-panel-bottom-fraction` is a CSS custom property, which
+  // React forwards to style.setProperty; the CSSProperties typings only omit
+  // custom names.
+  const panelStyle = {
+    "--side-panel-bottom-fraction": sheet.fraction,
+  } as CSSProperties;
   return (
     <aside
       className={[
@@ -159,9 +170,7 @@ function ReviewPanelFrame({
       role="complementary"
       aria-label={title ?? label}
       onMouseUp={onMouseUp}
-      style={
-        { "--side-panel-bottom-fraction": sheet.fraction } as CSSProperties
-      }
+      style={panelStyle}
     >
       <div className="side-panel-sheet-resizer" {...sheet.separatorProps} />
       <header className="side-panel-header">
@@ -472,6 +481,12 @@ export function keepAnchorLinkVisible(link: HTMLElement) {
 
 type PanelSelectionField = "title" | "detail" | "code";
 
+function isPanelSelectionField(
+  value: string | undefined,
+): value is PanelSelectionField {
+  return value === "title" || value === "detail" || value === "code";
+}
+
 interface PanelSelectionStamp {
   anchorId: string;
   field: PanelSelectionField;
@@ -533,10 +548,8 @@ function handlePanelSelectionMouseUp(
     return;
   }
   const anchorId = startSurface.dataset.panelSelectionAnchor;
-  const field = startSurface.dataset.panelSelectionField as
-    | PanelSelectionField
-    | undefined;
-  if (!anchorId || !field) {
+  const field = startSurface.dataset.panelSelectionField;
+  if (!anchorId || !isPanelSelectionField(field)) {
     setTarget(null);
     return;
   }
@@ -767,11 +780,8 @@ function TraceQuotePeekPanel({
     }
     const turnEnd =
       nextUserIndex === -1 ? traceEvents.length - 1 : nextUserIndex - 1;
-    return [
-      {
-        events: [turnStart, turnEnd] as [number, number],
-      },
-    ];
+    const events: [number, number] = [turnStart, turnEnd];
+    return [{ events }];
   }, [traceEvents, targetEventIndex]);
 
   if (data.status === "loading" || data.status === "idle") {
@@ -1499,10 +1509,9 @@ function ThreadPanelInner({
       { method: "POST" },
     );
     if (!response.ok) {
-      const result = (await response.json().catch(() => null)) as {
-        error?: string;
-      } | null;
-      throw new Error(result?.error ?? "Unable to resume the agent terminal.");
+      const result: JsonValue | null = await response.json().catch(() => null);
+      const error = isJsonObject(result) ? jsonString(result.error) : undefined;
+      throw new Error(error ?? "Unable to resume the agent terminal.");
     }
   };
   const addToReview = async (body: string) => {

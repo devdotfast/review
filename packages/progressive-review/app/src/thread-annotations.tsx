@@ -70,14 +70,6 @@ export const MARGIN_CARDS_MIN_GUTTER =
 const MARKER_MIN_GUTTER = 30;
 const CARD_GAP = 10;
 
-type DraftCardWithStateProps = Parameters<typeof ThreadDraftCard>[0] & {
-  onDraftStateChange?: (hasText: boolean) => void;
-};
-
-const ThreadDraftCardWithState = ThreadDraftCard as (
-  props: DraftCardWithStateProps,
-) => ReactElement;
-
 /** Rough mono advance at the card body's 12.5px size. */
 const CARD_CHAR_WIDTH = 7.5;
 export const CARD_BODY_LINE_HEIGHT = 19;
@@ -728,7 +720,7 @@ export function ThreadAnnotations({
                 draftPopoverPlacement(popoverHost, draftTarget),
               )}
             >
-              <ThreadDraftCardWithState
+              <ThreadDraftCard
                 quote={draftQuote}
                 variant="popover"
                 intent={draftTarget.intent}
@@ -777,7 +769,7 @@ export function ThreadAnnotations({
           })}
           {draftTarget && (
             <div style={{ top: Math.max(0, draftAnchorY ?? 0) }}>
-              <ThreadDraftCardWithState
+              <ThreadDraftCard
                 quote={draftQuote}
                 variant="margin"
                 intent={draftTarget.intent}
@@ -1054,6 +1046,8 @@ function selectedTextGeometry(range: Range, root: HTMLElement) {
   let node = walker.nextNode();
   while (node) {
     if (range.intersectsNode(node)) {
+      // SAFETY: the walker was created with NodeFilter.SHOW_TEXT, so every
+      // node it yields is a Text.
       const textNode = node as Text;
       const start = node === range.startContainer ? range.startOffset : 0;
       const end =
@@ -1092,6 +1086,8 @@ function mapTextRange(
   let mappedEnd: { node: Text; offset: number } | null = null;
 
   while (walker.nextNode()) {
+    // SAFETY: the walker was created with NodeFilter.SHOW_TEXT, so every node
+    // it yields is a Text.
     const node = walker.currentNode as Text;
     const text = node.textContent ?? "";
     const nodeEnd = textIndex + text.length;

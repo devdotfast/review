@@ -1,4 +1,7 @@
-import { parseReviewBugReportResponse } from "@dev.fast/review-protocol";
+import {
+  type ReviewBugReportRequest,
+  parseReviewBugReportResponse,
+} from "@dev.fast/review-protocol";
 import {
   type ClipboardEvent,
   type DragEvent,
@@ -26,7 +29,12 @@ const TRACE_PRIVACY_COPY =
 
 type Toast = { kind: "success" | "error"; text: string };
 
-export function BugReportControl() {
+export function BugReportControl({
+  captureScreenshot = captureWindowScreenshot,
+}: {
+  /** Captures the window when the dialog opens; tests inject a fake. */
+  captureScreenshot?: typeof captureWindowScreenshot;
+} = {}) {
   const session = useReviewSession();
   const tutorial = useTutorial();
   const [open, setOpen] = useState(false);
@@ -69,26 +77,25 @@ export function BugReportControl() {
     if (!canSend) return;
     setSending(true);
     try {
+      const report: ReviewBugReportRequest = {
+        description,
+        include_review: includeContext,
+        include_map: includeContext,
+        include_diff: includeDiff,
+        include_trace: includeTrace,
+        app_session_id: session.appSessionId,
+        app_version: session.config.appVersion,
+      };
+      if (screenshot) {
+        report.screenshot = {
+          mime: "image/jpeg",
+          base64: screenshot.slice("data:image/jpeg;base64,".length),
+        };
+      }
       const response = await session.fetch("/telemetry/bug-report", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          description,
-          include_review: includeContext,
-          include_map: includeContext,
-          include_diff: includeDiff,
-          include_trace: includeTrace,
-          ...(screenshot
-            ? {
-                screenshot: {
-                  mime: "image/jpeg",
-                  base64: screenshot.slice("data:image/jpeg;base64,".length),
-                },
-              }
-            : {}),
-          app_session_id: session.appSessionId,
-          app_version: session.config.appVersion,
-        }),
+        body: JSON.stringify(report),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
@@ -173,7 +180,7 @@ export function BugReportControl() {
     captureUiEvent(session, "bug_report_dialog_opened");
     let captured: string | null = null;
     try {
-      captured = await captureWindowScreenshot(session.bridge);
+      captured = await captureScreenshot(session.bridge);
     } finally {
       setScreenshot(captured);
       setOpen(true);

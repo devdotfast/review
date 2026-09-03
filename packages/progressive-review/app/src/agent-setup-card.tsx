@@ -14,6 +14,11 @@ export const TARGET_LABELS: Record<ReviewCliInstallTarget, string> = {
   pi: "Pi",
 };
 
+type InstallRequest = Pick<
+  Parameters<ReviewCanvasInstallContent["apply"]>[0],
+  "targets" | "fff"
+>;
+
 /**
  * Lets the reviewer install or reinstall skills per agent. The card keeps the
  * latest action result so its parent can advance without a host re-render.
@@ -53,6 +58,10 @@ export function AgentSetupCard({
       <ul className="review-agent-setup-agents">
         {status.agents.map((agent) => {
           const Logo = AGENT_LOGOS[agent.target];
+          const request: InstallRequest = { targets: [agent.target] };
+          if (status.trace.enabled && supportsFff(agent.target)) {
+            request.fff = true;
+          }
           return (
             <li key={agent.target}>
               <span
@@ -81,12 +90,7 @@ export function AgentSetupCard({
                   disabled={busy !== null}
                   onClick={() =>
                     void run(`remove-${agent.target}`, () =>
-                      install.remove({
-                        targets: [agent.target],
-                        ...(status.trace.enabled && supportsFff(agent.target)
-                          ? { fff: true }
-                          : {}),
-                      }),
+                      install.remove(request),
                     )
                   }
                 >
@@ -99,14 +103,7 @@ export function AgentSetupCard({
                 type="button"
                 disabled={busy !== null}
                 onClick={() =>
-                  void run(agent.target, () =>
-                    install.apply({
-                      targets: [agent.target],
-                      ...(status.trace.enabled && supportsFff(agent.target)
-                        ? { fff: true }
-                        : {}),
-                    }),
-                  )
+                  void run(agent.target, () => install.apply(request))
                 }
               >
                 {busy === agent.target

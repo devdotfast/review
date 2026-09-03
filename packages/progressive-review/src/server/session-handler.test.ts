@@ -291,17 +291,17 @@ describe("createReviewSessionHandler", () => {
       path: string,
       method: "POST" | "DELETE",
       body?: CreateReviewCommentInput,
-    ) =>
-      handler.handle(
-        new Request(new URL(`/__progressive-review${path}`, sessionUrl), {
-          method,
-          headers: {
-            "x-review-token": token,
-            ...(body ? { "content-type": "application/json" } : {}),
-          },
-          ...(body ? { body: JSON.stringify(body) } : {}),
-        }),
+    ) => {
+      const headers = new Headers({ "x-review-token": token });
+      const init: RequestInit = { method, headers };
+      if (body) {
+        headers.set("content-type", "application/json");
+        init.body = JSON.stringify(body);
+      }
+      return handler.handle(
+        new Request(new URL(`/__progressive-review${path}`, sessionUrl), init),
       );
+    };
 
     try {
       const comment = await request("/comments/thread-1", "POST", {

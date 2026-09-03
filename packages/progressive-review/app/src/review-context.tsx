@@ -1,8 +1,14 @@
-import type {
-  ReviewCommentAgentActivity,
-  ReviewCommentThreadRecord,
-  ReviewDocumentVersionWire,
-  ReviewLocalCommentThread,
+import {
+  type JsonValue,
+  type ReviewCommentAgentActivity,
+  type ReviewCommentThreadRecord,
+  ReviewDocumentVersionSchema,
+  type ReviewDocumentVersionWire,
+  type ReviewLocalCommentThread,
+  isJsonObject,
+  jsonObject,
+  jsonString,
+  parseZod,
 } from "@dev.fast/review-protocol";
 import {
   type ReactNode,
@@ -184,6 +190,12 @@ interface ReviewContextValue {
   ) => OpenCommentDraftTarget;
 }
 
+interface PendingSubmission {
+  key: string;
+  submissionId: string;
+  summaryComment?: CreateReviewCommentInput;
+}
+
 const ReviewContext = createContext<ReviewContextValue | null>(null);
 export function ReviewProvider({
   documentRoute,
@@ -250,11 +262,7 @@ function ReviewCoordinator({
   const [historicalRevision, setHistoricalRevision] = useState<string | null>(
     null,
   );
-  const pendingSubmissionRef = useRef<{
-    key: string;
-    submissionId: string;
-    summaryComment?: CreateReviewCommentInput;
-  } | null>(null);
+  const pendingSubmissionRef = useRef<PendingSubmission | null>(null);
   const threadFocusNonceRef = useRef(0);
 
   const commentThreads = commentSnapshot.commentThreads;
@@ -429,20 +437,19 @@ function ReviewCoordinator({
       const summaryBody = summary?.trim();
       const key = `${decision}\u0000${summaryBody ?? ""}`;
       if (pendingSubmissionRef.current?.key !== key) {
-        pendingSubmissionRef.current = {
+        const pendingSubmission: PendingSubmission = {
           key,
           submissionId: createSubmissionId(),
-          ...(summaryBody
-            ? {
-                summaryComment: {
-                  threadId: createClientId(),
-                  messageId: createClientId(),
-                  target: { kind: "document" } as const,
-                  body: summaryBody,
-                },
-              }
-            : {}),
         };
+        if (summaryBody) {
+          pendingSubmission.summaryComment = {
+            threadId: createClientId(),
+            messageId: createClientId(),
+            target: { kind: "document" },
+            body: summaryBody,
+          };
+        }
+        pendingSubmissionRef.current = pendingSubmission;
       }
       const pendingSubmission = pendingSubmissionRef.current;
       try {
@@ -525,11 +532,13 @@ function ReviewCoordinator({
       { routePath: documentRoute },
     );
     if (!response.ok) return null;
-    const body = (await response.json()) as {
-      ok: boolean;
-      versions?: ReviewDocumentVersionWire[];
-    };
-    return body.ok ? (body.versions ?? []) : null;
+    const body: JsonValue = await response.json();
+    if (!isJsonObject(body) || body.ok !== true) return null;
+    return parseZod(
+      ReviewDocumentVersionSchema.array(),
+      body.versions ?? [],
+      "versions",
+    );
   }, [documentRoute, reviewFetch]);
 
   // A review opened after a terminal decision must show its outcome banner
@@ -540,14 +549,18 @@ function ReviewCoordinator({
     void reviewFetch("/session", {}, { routePath: documentRoute })
       .then(async (response) => {
         if (!response.ok) return;
-        const body = (await response.json()) as {
-          session?: { reviewStatus?: string; historicalRevision?: string };
-        };
+        const body: JsonValue = await response.json();
+        const reviewSession = isJsonObject(body)
+          ? jsonObject(body.session)
+          : undefined;
         if (disposed) return;
-        setHistoricalRevision(body.session?.historicalRevision ?? null);
-        if (body.session?.reviewStatus === "accepted") {
+        setHistoricalRevision(
+          jsonString(reviewSession?.historicalRevision) ?? null,
+        );
+        const reviewStatus = jsonString(reviewSession?.reviewStatus);
+        if (reviewStatus === "accepted") {
           setSubmissionOutcome("approved");
-        } else if (body.session?.reviewStatus === "awaiting-agent-updates") {
+        } else if (reviewStatus === "awaiting-agent-updates") {
           setSubmissionOutcome("changes-requested");
         }
       })
@@ -832,12 +845,13 @@ function commentThreadViewState(
   localComments: ReadonlyMap<string, LocalCommentThread>,
   agentActivities: ReadonlyMap<string, ReviewCommentAgentActivity>,
 ): CommentThreadView {
-  const agentActivity = agentActivities.get(thread.threadId);
-  return {
+  const view: CommentThreadView = {
     ...thread,
     clientStatus: commentClientStatus(thread.threadId, localComments),
-    ...(agentActivity ? { agentActivity } : {}),
   };
+  const agentActivity = agentActivities.get(thread.threadId);
+  if (agentActivity) view.agentActivity = agentActivity;
+  return view;
 }
 
 function commentClientStatus(

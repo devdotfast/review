@@ -3,7 +3,11 @@ import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import { isJsonObject, parseJsonText } from "@dev.fast/review-protocol";
+import {
+  type JsonObject,
+  isJsonObject,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
 
 import type { SessionRef } from "./authoring-session";
 import { errorMessage } from "./error-message";
@@ -62,13 +66,14 @@ async function createClaudeReviewSourceSession(input: {
       }
       return record;
     });
-  const fork = records.map((record) => ({
-    ...record,
-    ...(record.sessionId === undefined ? {} : { sessionId }),
-    ...(record.session_id === undefined ? {} : { session_id: sessionId }),
-    ...(record.cwd === undefined ? {} : { cwd: input.rootPath }),
-    ...(record.promptId === undefined ? {} : { promptId }),
-  }));
+  const fork = records.map((record) => {
+    const forked: JsonObject = { ...record };
+    if (record.sessionId !== undefined) forked.sessionId = sessionId;
+    if (record.session_id !== undefined) forked.session_id = sessionId;
+    if (record.cwd !== undefined) forked.cwd = input.rootPath;
+    if (record.promptId !== undefined) forked.promptId = promptId;
+    return forked;
+  });
   await writeFile(
     join(dirname(sourcePath), `${sessionId}.jsonl`),
     `${fork.map((record) => JSON.stringify(record)).join("\n")}\n`,

@@ -32,6 +32,17 @@ interface MarkdownNode {
   alt?: string | null;
 }
 
+function parseMarkdown(source: string): MarkdownNode {
+  // SAFETY: fromMarkdown returns an mdast Root whose nodes carry the same
+  // `type`/`children`/`value` fields MarkdownNode reads; the optional fields
+  // only differ by mdast also allowing null (e.g. List.ordered), which the
+  // renderer treats like undefined.
+  return fromMarkdown(source, {
+    extensions: [gfm()],
+    mdastExtensions: [gfmFromMarkdown()],
+  }) as MarkdownNode;
+}
+
 export function AgentMarkdown({
   source,
   className,
@@ -41,10 +52,7 @@ export function AgentMarkdown({
   className?: string;
   highlightQuote?: string;
 }): ReactElement {
-  const tree = fromMarkdown(source, {
-    extensions: [gfm()],
-    mdastExtensions: [gfmFromMarkdown()],
-  }) as MarkdownNode;
+  const tree = parseMarkdown(source);
   return (
     <div className={["agent-markdown", className].filter(Boolean).join(" ")}>
       {renderMarkdownChildren(tree.children ?? [], "root", highlightQuote)}
@@ -58,10 +66,7 @@ export function AgentMarkdown({
  * raw `**` syntax nor fights a line clamp with block layout and code chips.
  */
 export function markdownExcerpt(source: string): string {
-  const tree = fromMarkdown(source, {
-    extensions: [gfm()],
-    mdastExtensions: [gfmFromMarkdown()],
-  }) as MarkdownNode;
+  const tree = parseMarkdown(source);
   const parts: string[] = [];
   const walk = (node: MarkdownNode) => {
     if (

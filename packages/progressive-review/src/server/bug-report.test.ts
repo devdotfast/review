@@ -572,17 +572,13 @@ function codexTrace(
     endOrdinalExclusive: number;
   },
 ): string {
-  const payload = {
-    id,
-    ...(parent
-      ? {
-          history_base: {
-            thread_id: parent.parentId,
-            end_ordinal_exclusive: parent.endOrdinalExclusive,
-          },
-        }
-      : {}),
-  };
+  const payload: JsonObject = { id };
+  if (parent) {
+    payload.history_base = {
+      thread_id: parent.parentId,
+      end_ordinal_exclusive: parent.endOrdinalExclusive,
+    };
+  }
   return [{ type: "session_meta", payload }, ...records]
     .map(
       (value, index) =>

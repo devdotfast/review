@@ -13,6 +13,7 @@ import {
 } from "@dev.fast/review-protocol";
 
 import { writeFileAtomic } from "./atomic-write";
+import { isMissingFileError } from "./native-agent/transcript-json";
 import {
   reviewStateDir,
   reviewThreadStoreBackend,
@@ -118,7 +119,7 @@ function readReviewCodeTargetContext(
       headCommit: parsed.data.sourceCommit,
     };
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    if (isMissingFileError(error)) return null;
     throw error;
   }
 }
@@ -341,18 +342,15 @@ export function updateReviewCommentDraft(
   }
   const body = input.body?.trim();
   const messageId = draft.thread.messages[messageIndex]?.id;
+  const thread = { ...draft.thread };
+  if (input.status) thread.status = input.status;
+  if (body) {
+    thread.messages = draft.thread.messages.map((message, index) =>
+      index === messageIndex ? { ...message, body } : message,
+    );
+  }
   const next = {
-    thread: {
-      ...draft.thread,
-      ...(input.status ? { status: input.status } : {}),
-      ...(body
-        ? {
-            messages: draft.thread.messages.map((message, index) =>
-              index === messageIndex ? { ...message, body } : message,
-            ),
-          }
-        : {}),
-    },
+    thread,
     inputs:
       body && messageId
         ? draft.inputs.map((candidate) =>
@@ -621,17 +619,14 @@ export function updateReviewComment(
     );
   }
   const body = input.body?.trim();
-  comments[threadId] = {
-    ...thread,
-    ...(input.status ? { status: input.status } : {}),
-    ...(body
-      ? {
-          messages: thread.messages.map((message, index) =>
-            index === messageIndex ? { ...message, body } : message,
-          ),
-        }
-      : {}),
-  };
+  const updated = { ...thread };
+  if (input.status) updated.status = input.status;
+  if (body) {
+    updated.messages = thread.messages.map((message, index) =>
+      index === messageIndex ? { ...message, body } : message,
+    );
+  }
+  comments[threadId] = updated;
   writeReviewComments(reviewMdxPath, comments);
   return true;
 }

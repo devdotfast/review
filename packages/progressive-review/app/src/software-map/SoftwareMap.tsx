@@ -114,7 +114,7 @@ export type SoftwareMapElementType =
 
 export type SoftwareMapRelationshipKind = "call" | "semantic" | "implied";
 
-export type SoftwareMapDataStoreShape = "cylinder" | "bucket" | "folder";
+export type SoftwareMapDataStoreOutlineKind = "cylinder" | "bucket" | "folder";
 
 export interface SoftwareMapDiffCounts {
   additions: number;
@@ -584,9 +584,9 @@ export function softwareMapNodeTypeLabel(
   return ELEMENT_TYPE_LABELS[node.type];
 }
 
-export function softwareMapDataStoreShape(
+export function softwareMapDataStoreOutlineKind(
   kind: SoftwareDataStoreKind | undefined,
-): SoftwareMapDataStoreShape {
+): SoftwareMapDataStoreOutlineKind {
   if (kind === "bucket" || kind === "objectStore") return "bucket";
   if (kind === "artifactStore" || kind === "fileStore") return "folder";
   return "cylinder";
@@ -2352,12 +2352,16 @@ export function SoftwareMapFrame({
     payload: { title, viewName, viewType },
     quote: title,
   });
+  // SAFETY: React passes "--*" keys through to style.setProperty; CSSProperties
+  // only lacks an index signature for custom properties.
   const style =
     height && !expanded
       ? ({
           "--software-map-height": softwareMapCssLength(height),
         } as CSSProperties)
       : undefined;
+  // SAFETY: React passes "--*" keys through to style.setProperty; CSSProperties
+  // only lacks an index signature for custom properties.
   const bodyStyle = inspectedNode
     ? ({
         "--software-map-inspector-width": `${codeInspectorResize.width}px`,
@@ -3982,27 +3986,22 @@ function c4LocalProjectedRelationships(
     if (!from || !to || from === to) return [];
     // A proxied endpoint is an ancestor of the original node, so schema
     // endpoints (which name field rows on the original node) no longer apply.
-    return [
-      {
-        ...relationship,
-        id: `layout:${parentId ?? "root"}:${relationship.id ?? index}`,
-        from,
-        to,
-        hideLabel: true,
-        ...(from !== relationship.from
-          ? {
-              fromSchemaEndpointKind: undefined,
-              fromSchemaFieldPath: undefined,
-            }
-          : {}),
-        ...(to !== relationship.to
-          ? {
-              toSchemaEndpointKind: undefined,
-              toSchemaFieldPath: undefined,
-            }
-          : {}),
-      },
-    ];
+    const proxied: SoftwareMapRelationshipSnapshot = {
+      ...relationship,
+      id: `layout:${parentId ?? "root"}:${relationship.id ?? index}`,
+      from,
+      to,
+      hideLabel: true,
+    };
+    if (from !== relationship.from) {
+      proxied.fromSchemaEndpointKind = undefined;
+      proxied.fromSchemaFieldPath = undefined;
+    }
+    if (to !== relationship.to) {
+      proxied.toSchemaEndpointKind = undefined;
+      proxied.toSchemaFieldPath = undefined;
+    }
+    return [proxied];
   });
 }
 
@@ -4489,13 +4488,19 @@ async function routeC4FixedLayoutEdges(
   };
 }
 
+// libavoid names two of its router options after "shapes" (its term for
+// routing obstacles); the keys are spelled once here so the option object
+// reads in this map's vocabulary.
+const LIBAVOID_OBSTACLE_BUFFER_OPTION = "shapeBufferDistance";
+const LIBAVOID_NUDGE_OBSTACLE_SEGMENTS_OPTION =
+  "nudgeOrthogonalSegmentsConnectedToShapes";
 const C4_LIBAVOID_ROUTING_OPTIONS = {
   routingType: "orthogonal",
   segmentPenalty: 10,
-  shapeBufferDistance: 14,
+  [LIBAVOID_OBSTACLE_BUFFER_OPTION]: 14,
   idealNudgingDistance: 8,
   portDirectionPenalty: 100,
-  nudgeOrthogonalSegmentsConnectedToShapes: true,
+  [LIBAVOID_NUDGE_OBSTACLE_SEGMENTS_OPTION]: true,
   nudgeSharedPathsWithCommonEndPoint: true,
   performUnifyingNudgingPreprocessingStep: true,
   selfLoopHandling: "fallback",
@@ -4954,36 +4959,36 @@ async function runC4ElkLayout(
         : undefined,
     };
   });
+  const layoutOptions: LayoutOptions = {
+    "elk.algorithm": "layered",
+    "elk.direction": c4ElkDirectionForAxis(layoutAxis),
+    "elk.hierarchyHandling": "INCLUDE_CHILDREN",
+    "elk.spacing.nodeNode": "72",
+    "elk.layered.spacing.nodeNodeBetweenLayers": "64",
+    "elk.edgeRouting": "ORTHOGONAL",
+    "elk.padding": "[top=40,left=40,bottom=40,right=40]",
+    "org.eclipse.elk.layered.edgeLabels.centerLabelPlacementStrategy":
+      "SPACE_EFFICIENT_LAYER",
+    "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
+    "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
+  };
+  if (previousCenters.size > 0) {
+    // With a previous/desired layout, model order and interactive positions
+    // encode the on-screen arrangement so expansion can preserve the mental
+    // map while ELK still owns layered orthogonal routing.
+    Object.assign(layoutOptions, {
+      "org.eclipse.elk.interactiveLayout": "true",
+      "org.eclipse.elk.layered.cycleBreaking.strategy": "INTERACTIVE",
+      "org.eclipse.elk.layered.layering.strategy": "INTERACTIVE",
+      "org.eclipse.elk.layered.crossingMinimization.semiInteractive": "true",
+      "org.eclipse.elk.layered.crossingMinimization.forceNodeModelOrder":
+        "true",
+      "org.eclipse.elk.separateConnectedComponents": "false",
+    } satisfies LayoutOptions);
+  }
   const result: C4ElkLayoutGraph = await c4Elk.layout({
     id: "software-map-c4",
-    layoutOptions: {
-      "elk.algorithm": "layered",
-      "elk.direction": c4ElkDirectionForAxis(layoutAxis),
-      "elk.hierarchyHandling": "INCLUDE_CHILDREN",
-      "elk.spacing.nodeNode": "72",
-      "elk.layered.spacing.nodeNodeBetweenLayers": "64",
-      "elk.edgeRouting": "ORTHOGONAL",
-      "elk.padding": "[top=40,left=40,bottom=40,right=40]",
-      "org.eclipse.elk.layered.edgeLabels.centerLabelPlacementStrategy":
-        "SPACE_EFFICIENT_LAYER",
-      "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
-      "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
-      // With a previous/desired layout, model order and interactive positions
-      // encode the on-screen arrangement so expansion can preserve the mental
-      // map while ELK still owns layered orthogonal routing.
-      ...(previousCenters.size > 0
-        ? {
-            "org.eclipse.elk.interactiveLayout": "true",
-            "org.eclipse.elk.layered.cycleBreaking.strategy": "INTERACTIVE",
-            "org.eclipse.elk.layered.layering.strategy": "INTERACTIVE",
-            "org.eclipse.elk.layered.crossingMinimization.semiInteractive":
-              "true",
-            "org.eclipse.elk.layered.crossingMinimization.forceNodeModelOrder":
-              "true",
-            "org.eclipse.elk.separateConnectedComponents": "false",
-          }
-        : {}),
-    },
+    layoutOptions,
     children: rootNodes.map((node) =>
       c4ElkNodeForSnapshot(node, {
         childIdsByParentId,
@@ -5117,14 +5122,8 @@ function c4ElkNodeForSnapshot(
         .filter((child): child is SoftwareMapNodeSnapshot => Boolean(child))
         .map((child) => c4ElkNodeForSnapshot(child, context, nodeOffset))
     : [];
-  return {
+  const elkNode: ElkNode = {
     id: node.id,
-    ...(hint
-      ? {
-          x: hint.x - parentOffset.x,
-          y: hint.y - parentOffset.y,
-        }
-      : {}),
     width: hint?.width ?? dimensions.width,
     height: hint?.height ?? dimensions.height,
     ports: context.portsByNodeId?.get(node.id),
@@ -5137,6 +5136,11 @@ function c4ElkNodeForSnapshot(
           }
         : undefined,
   };
+  if (hint) {
+    elkNode.x = hint.x - parentOffset.x;
+    elkNode.y = hint.y - parentOffset.y;
+  }
+  return elkNode;
 }
 
 function collectC4ElkLayoutEntries({
@@ -5626,20 +5630,20 @@ function c4RoutingSideForBorderPoint(
 }
 
 function estimateC4NodeHeight(node: SoftwareMapNodeSnapshot): number {
-  const dataStoreShape =
+  const dataStoreOutline =
     node.type === "dataStore"
-      ? softwareMapDataStoreShape(node.dataStoreKind)
+      ? softwareMapDataStoreOutlineKind(node.dataStoreKind)
       : undefined;
-  const storageShapeExtraHeight =
-    dataStoreShape === "cylinder" || dataStoreShape === "bucket"
+  const storageOutlineExtraHeight =
+    dataStoreOutline === "cylinder" || dataStoreOutline === "bucket"
       ? 70
-      : dataStoreShape === "folder"
+      : dataStoreOutline === "folder"
         ? 40
         : 0;
   const minHeight =
-    dataStoreShape === "cylinder" || dataStoreShape === "bucket"
+    dataStoreOutline === "cylinder" || dataStoreOutline === "bucket"
       ? 168
-      : dataStoreShape === "folder"
+      : dataStoreOutline === "folder"
         ? 168
         : C4_MIN_NODE_HEIGHT;
   const titleLines = Math.max(
@@ -5671,7 +5675,7 @@ function estimateC4NodeHeight(node: SoftwareMapNodeSnapshot): number {
   return Math.max(
     schemaHeight > 0 ? Math.max(minHeight, 320) : minHeight,
     24 +
-      storageShapeExtraHeight +
+      storageOutlineExtraHeight +
       14 +
       titleLines * 19 +
       descriptionLines * 17 +
@@ -6254,11 +6258,13 @@ export function c4EdgeEndpointBubbles(
   ];
 }
 
-function SoftwareMapC4Edge(props: ReactFlowEdgeProps) {
+function SoftwareMapC4Edge(
+  props: ReactFlowEdgeProps<ReactFlowEdge<C4MapEdgeData>>,
+) {
   const review = useReview();
   const hoveredNodeId = useContext(C4HoveredNodeContext);
   const [isHoveringEdge, setIsHoveringEdge] = useState(false);
-  const data = props.data as C4MapEdgeData | undefined;
+  const data = props.data;
   const label = data?.relationship.hideLabel
     ? undefined
     : (data?.label ?? data?.semanticKind);
@@ -7163,11 +7169,11 @@ function SoftwareMapC4Node({ data }: ReactFlowNodeProps<C4MapFlowNode>) {
 }
 
 export function SoftwareMapDataStoreOutline({
-  shape,
+  outline,
 }: {
-  shape: SoftwareMapDataStoreShape;
+  outline: SoftwareMapDataStoreOutlineKind;
 }) {
-  if (shape === "folder") {
+  if (outline === "folder") {
     return (
       <span aria-hidden="true" className="software-map-node-storage-folder">
         <span className="software-map-node-storage-folder-body" />
@@ -7192,7 +7198,7 @@ export function SoftwareMapDataStoreOutline({
     );
   }
 
-  const geometry = softwareMapDataStoreOutlineGeometry(shape);
+  const geometry = softwareMapDataStoreOutlineGeometry(outline);
   return (
     <svg
       aria-hidden="true"
@@ -7235,8 +7241,10 @@ export function SoftwareMapDataStoreOutline({
   );
 }
 
-function softwareMapDataStoreOutlineGeometry(shape: SoftwareMapDataStoreShape) {
-  if (shape === "bucket") {
+function softwareMapDataStoreOutlineGeometry(
+  outline: SoftwareMapDataStoreOutlineKind,
+) {
+  if (outline === "bucket") {
     return {
       fillPath: "M18 24 C18 12 262 12 262 24 L238 118 C236 130 44 130 42 118 Z",
       fillDetailPath: "M18 24 C18 12 262 12 262 24 C262 36 18 36 18 24 Z",
@@ -7276,9 +7284,9 @@ export function SoftwareMapNodeFrame({
   onExpandNode?: (node: SoftwareMapNodeSnapshot) => void;
 }) {
   const isCodeElement = node.type === "codeElement";
-  const dataStoreShape =
+  const dataStoreOutline =
     node.type === "dataStore"
-      ? softwareMapDataStoreShape(node.dataStoreKind)
+      ? softwareMapDataStoreOutlineKind(node.dataStoreKind)
       : undefined;
   const hasExpandedDataStoreSchema =
     (node.type === "dataStore" || node.type === "dataStoreCollection") &&
@@ -7292,8 +7300,8 @@ export function SoftwareMapNodeFrame({
       node.type === "dataStore" && node.dataStoreKind
         ? `software-map-node--dataStoreKind-${node.dataStoreKind}`
         : "",
-      dataStoreShape
-        ? `software-map-node--dataStoreShape-${dataStoreShape}`
+      dataStoreOutline
+        ? `software-map-node--dataStoreShape-${dataStoreOutline}`
         : "",
       node.changeStatus && node.changeStatus !== "unchanged"
         ? `software-map-node--${node.changeStatus}`
@@ -7339,8 +7347,8 @@ export function SoftwareMapNodeFrame({
             "aria-label": `${softwareMapNodeTypeLabel(node)}: ${node.label}`,
           })}
     >
-      {dataStoreShape ? (
-        <SoftwareMapDataStoreOutline shape={dataStoreShape} />
+      {dataStoreOutline ? (
+        <SoftwareMapDataStoreOutline outline={dataStoreOutline} />
       ) : null}
       {isCodeElement ? (
         <div className="software-map-code-element-head">
@@ -7432,6 +7440,9 @@ function SoftwareMapDataStoreSchema({
                   .filter(Boolean)
                   .join(" ")}
                 style={
+                  // SAFETY: React passes "--*" keys through to
+                  // style.setProperty; CSSProperties only lacks an index
+                  // signature for custom properties.
                   {
                     "--software-map-schema-row-depth": row.depth ?? 0,
                   } as CSSProperties

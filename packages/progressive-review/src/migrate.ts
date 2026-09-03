@@ -413,7 +413,11 @@ async function resetJjReviewRepository(input: {
     await rename(gitDir, backupDir);
     movedGit = true;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    if (
+      !(error instanceof Error && "code" in error && error.code === "ENOENT")
+    ) {
+      throw error;
+    }
     if (!input.force) {
       throw new Error("the colocated .git directory is missing");
     }
@@ -779,7 +783,9 @@ async function readDirectory(directory: string) {
   try {
     return await readdir(directory, { withFileTypes: true });
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return [];
+    }
     throw error;
   }
 }
@@ -789,7 +795,9 @@ async function pathExists(targetPath: string): Promise<boolean> {
     await access(targetPath);
     return true;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return false;
+    }
     throw error;
   }
 }

@@ -26,7 +26,9 @@ import { isFile } from "./fs-utils";
 import {
   ALL_INSTALL_TARGETS,
   type InstallTarget,
+  type RunInstallInput,
   defaultPackageRoot,
+  isInstallTarget,
   runInstall,
 } from "./install";
 import { parseSoftwareMapCliArgs, runSoftwareMapCli } from "./map-cli";
@@ -307,6 +309,8 @@ export async function runProgressiveReviewCli(
     view?: ReviewView;
     json?: boolean;
   }) => {
+    // SAFETY: the picker reads keypresses only after checking isTTY, and only
+    // a tty.ReadStream reports isTTY; any other stream fails that check first.
     const event = await runtime.runReviewAppPick({
       cwd,
       reviewUuid: options.review,
@@ -499,7 +503,7 @@ export async function runProgressiveReviewCli(
       .action(async (checkoutPath: string, options: { commit: string }) => {
         const resolvedPath = path.resolve(checkoutPath);
         const commands = await devfastPrepareCommands(resolvedPath).catch(
-          () => [] as string[],
+          (): string[] => [],
         );
         const result = await runtime.prepareReviewPinnedCheckout({
           checkoutPath: resolvedPath,
@@ -637,31 +641,30 @@ export async function runProgressiveReviewCli(
       const cliSource = installShim
         ? await resolveInstallCliSource(env)
         : undefined;
-      state.exitCode = await runtime.runInstall({
+      const installInput: RunInstallInput = {
         targets: selectedTargets,
         env,
         fff: true,
-        ...(installShim ? { reviewCommand: pathShimPath() } : {}),
-        // Trace capture is experimental and opt-in: only a request that names
-        // R2 credentials configures it. --without-traces stays accepted so
-        // existing scripts keep working.
-        ...(traceCredentialsRequested(options) && options.traces !== false
-          ? {
-              trace: {
-                credentials: {
-                  endpoint: options.traceEndpoint,
-                  bucket: options.traceBucket,
-                  key: options.traceKey,
-                  secret: options.traceSecret,
-                  region: options.traceRegion,
-                },
-              },
-            }
-          : {}),
         json: options.json,
         stdout: input.stdout,
         stderr: input.stderr,
-      });
+      };
+      if (installShim) installInput.reviewCommand = pathShimPath();
+      // Trace capture is experimental and opt-in: only a request that names
+      // R2 credentials configures it. --without-traces stays accepted so
+      // existing scripts keep working.
+      if (traceCredentialsRequested(options) && options.traces !== false) {
+        installInput.trace = {
+          credentials: {
+            endpoint: options.traceEndpoint,
+            bucket: options.traceBucket,
+            key: options.traceKey,
+            secret: options.traceSecret,
+            region: options.traceRegion,
+          },
+        };
+      }
+      state.exitCode = await runtime.runInstall(installInput);
       if (state.exitCode !== 0 || !installShim) return;
 
       const human = humanStream({
@@ -676,10 +679,7 @@ export async function runProgressiveReviewCli(
         return;
       }
       const installed = await runtime.installReviewCommand({
-        cliPath: cliSource.cliPath,
-        ...(cliSource.cliRuntimePath
-          ? { cliRuntimePath: cliSource.cliRuntimePath }
-          : {}),
+        ...cliSource,
         env,
       });
       human.write(installed.output);
@@ -1185,9 +1185,9 @@ function installTargets(targets: readonly string[]): InstallTarget[] {
   }
   return [
     ...new Set(
-      targets.map((target) =>
-        target === "claude-code" ? "claude" : (target as InstallTarget),
-      ),
+      targets
+        .map((target) => (target === "claude-code" ? "claude" : target))
+        .filter(isInstallTarget),
     ),
   ];
 }
@@ -1287,20 +1287,24 @@ function progressiveReviewCliRuntime(
   };
 }
 
+interface InstallCliSource {
+  cliPath: string;
+  cliRuntimePath?: string;
+}
+
 async function resolveInstallCliSource(
   env: NodeJS.ProcessEnv,
-): Promise<{ cliPath: string; cliRuntimePath?: string } | undefined> {
+): Promise<InstallCliSource | undefined> {
   try {
     const discovery = await readReviewDesktopDiscovery(
       reviewDesktopDiscoveryPath(env),
     );
     if (discovery?.cliPath && (await isFile(discovery.cliPath))) {
-      return {
-        cliPath: discovery.cliPath,
-        ...(discovery.cliRuntimePath
-          ? { cliRuntimePath: discovery.cliRuntimePath }
-          : {}),
-      };
+      const source: InstallCliSource = { cliPath: discovery.cliPath };
+      if (discovery.cliRuntimePath) {
+        source.cliRuntimePath = discovery.cliRuntimePath;
+      }
+      return source;
     }
   } catch {
     // A packaged CLI remains a valid fallback when discovery is stale.

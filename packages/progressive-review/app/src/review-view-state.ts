@@ -257,9 +257,9 @@ export function createReviewTourRestoreClaim(
   return {
     claim(tours) {
       if (claimed || !pending) return null;
-      const candidates = (
-        Array.isArray(tours) ? tours : [tours]
-      ) as readonly GuidedTour[];
+      const candidates: readonly GuidedTour[] = Array.isArray(tours)
+        ? tours
+        : [tours];
       const tour = candidates.find(
         (candidate) => candidate.id === pending.tourId,
       );

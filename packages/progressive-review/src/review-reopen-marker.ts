@@ -7,6 +7,7 @@ import {
   parseJsonText,
 } from "@dev.fast/review-protocol";
 
+import { isMissingFileError } from "./native-agent/transcript-json";
 import { reviewDir } from "./review-file";
 
 // A "pending reopen" marker records that the reviewer requested changes that
@@ -87,7 +88,7 @@ export async function markReopenNudged(
   try {
     handle = await open(reopenMarkerPath(cwd), "r+");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    if (isMissingFileError(error)) return;
     throw error;
   }
   try {

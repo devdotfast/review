@@ -506,7 +506,9 @@ function storedConfig(
 
 async function writeStoredConfig(
   configPath: string,
-  config: unknown,
+  config:
+    | Partial<ProgressiveReviewTelemetryInstallConfig>
+    | { installId: string },
 ): Promise<void> {
   await mkdir(path.dirname(configPath), { recursive: true });
   await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");

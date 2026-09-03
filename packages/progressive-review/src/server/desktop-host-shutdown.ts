@@ -1,12 +1,20 @@
+import {
+  type JsonValue,
+  isJsonObject,
+  jsonBoolean,
+  jsonProperty,
+  jsonString,
+} from "@dev.fast/review-protocol";
+
 interface DesktopHostMessagePort {
-  on(event: "message", listener: (event: { data: unknown }) => void): void;
-  off(event: "message", listener: (event: { data: unknown }) => void): void;
+  on(event: "message", listener: (event: { data: JsonValue }) => void): void;
+  off(event: "message", listener: (event: { data: JsonValue }) => void): void;
 }
 
 interface DesktopHostProcess {
   parentPort?: DesktopHostMessagePort;
-  on(event: "message", listener: (message: unknown) => void): void;
-  off(event: "message", listener: (message: unknown) => void): void;
+  on(event: "message", listener: (message: JsonValue) => void): void;
+  off(event: "message", listener: (message: JsonValue) => void): void;
 }
 
 export function listenForDesktopHostShutdown(
@@ -15,37 +23,26 @@ export function listenForDesktopHostShutdown(
   onTelemetrySetting?: (enabled: boolean) => void,
   onStageRustAnalyzer?: (path: string) => void,
 ): () => void {
-  const handleMessage = (message: unknown) => {
-    if (
-      message &&
-      typeof message === "object" &&
-      (message as { type?: unknown }).type === "shutdown"
-    ) {
+  const handleMessage = (message: JsonValue) => {
+    if (!isJsonObject(message)) return;
+    const type = jsonProperty(message, "type");
+    if (type === "shutdown") {
       onShutdown();
       return;
     }
-    if (
-      message &&
-      typeof message === "object" &&
-      (message as { type?: unknown }).type === "telemetry-setting" &&
-      typeof (message as { enabled?: unknown }).enabled === "boolean"
-    ) {
-      onTelemetrySetting?.((message as { enabled: boolean }).enabled);
+    if (type === "telemetry-setting") {
+      const enabled = jsonBoolean(jsonProperty(message, "enabled"));
+      if (enabled !== undefined) onTelemetrySetting?.(enabled);
       return;
     }
-    if (
-      message &&
-      typeof message === "object" &&
-      (message as { type?: unknown }).type === "stage-rust-analyzer" &&
-      typeof (message as { path?: unknown }).path === "string" &&
-      (message as { path: string }).path.length > 0
-    ) {
-      onStageRustAnalyzer?.((message as { path: string }).path);
+    if (type === "stage-rust-analyzer") {
+      const path = jsonString(jsonProperty(message, "path"));
+      if (path) onStageRustAnalyzer?.(path);
     }
   };
 
   if (hostProcess.parentPort) {
-    const handleParentMessage = (event: { data: unknown }) => {
+    const handleParentMessage = (event: { data: JsonValue }) => {
       handleMessage(event.data);
     };
     hostProcess.parentPort.on("message", handleParentMessage);

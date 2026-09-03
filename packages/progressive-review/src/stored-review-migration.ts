@@ -5,8 +5,11 @@ import {
   type JsonObject,
   REVIEW_SCHEMA_VERSION,
   isJsonObject,
+  jsonObject,
+  jsonString,
+  parseJsonText,
 } from "@dev.fast/review-protocol";
-import type { Expression, Program } from "estree";
+import type { Node as EstreeNode, Expression, Program } from "estree";
 
 import {
   authoringSessionKey,
@@ -66,16 +69,13 @@ async function legacyJsonRecordCount(filePath: string): Promise<number> {
     throw error;
   }
   if (!source.trim()) return 0;
-  let parsed: unknown;
+  let records: JsonObject | undefined;
   try {
-    parsed = JSON.parse(source) as unknown;
+    records = jsonObject(parseJsonText(source));
   } catch {
     return 0;
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return 0;
-  }
-  return Object.keys(parsed).length;
+  return records ? Object.keys(records).length : 0;
 }
 
 async function dropLegacyReviewState(
@@ -325,11 +325,8 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function estreeLine(value: unknown): number {
-  if (!value || typeof value !== "object") return 1;
-  const line = (value as { loc?: { start?: { line?: unknown } } | null }).loc
-    ?.start?.line;
-  return typeof line === "number" ? line : 1;
+function estreeLine(node: EstreeNode | undefined): number {
+  return node?.loc?.start.line ?? 1;
 }
 
 export async function migrateStoredReviewData(input: {
@@ -365,20 +362,13 @@ export async function migrateStoredReviewData(input: {
     const reviewDir = path.join(reviewsRoot, entry.name);
     const reviewPath = path.join(reviewDir, "review.mdx");
     try {
-      const value: unknown = JSON.parse(
-        await readFile(path.join(reviewDir, "review.json"), "utf8"),
+      const value = jsonObject(
+        parseJsonText(
+          await readFile(path.join(reviewDir, "review.json"), "utf8"),
+        ),
       );
-      const schemaVersion =
-        value && typeof value === "object" && !Array.isArray(value)
-          ? (value as { schemaVersion?: unknown }).schemaVersion
-          : undefined;
-      const worktreePath =
-        value &&
-        typeof value === "object" &&
-        !Array.isArray(value) &&
-        typeof (value as { worktreePath?: unknown }).worktreePath === "string"
-          ? (value as { worktreePath: string }).worktreePath
-          : null;
+      const schemaVersion = value?.schemaVersion;
+      const worktreePath = jsonString(value?.worktreePath);
       if (worktreePath && !cleanedLegacyRoots.has(worktreePath)) {
         cleanedLegacyRoots.add(worktreePath);
         total.legacyCheckoutsRemoved += await removeLegacyReviewCheckouts({
@@ -387,7 +377,7 @@ export async function migrateStoredReviewData(input: {
         });
       }
       if (
-        !isJsonObject(value) ||
+        !value ||
         (schemaVersion !== REVIEW_SCHEMA_VERSION &&
           schemaVersion !== 3 &&
           schemaVersion !== 2)
@@ -408,9 +398,9 @@ export async function migrateStoredReviewData(input: {
       const migratedRecord =
         parseStoredReviewRecordForMigration(migrationValue);
       if (schemaVersion === 2) {
-        const legacyRevision = value.presentedRevision;
+        const legacyRevision = jsonString(value.presentedRevision);
         try {
-          if (typeof legacyRevision === "string") {
+          if (legacyRevision !== undefined) {
             await migrateLegacyPresentedArtifacts({
               reviewDir,
               review: migratedRecord,
@@ -499,20 +489,10 @@ async function migrateReviewSourceSession(input: {
   onWarning?: (message: string) => void;
   value: JsonObject;
 }): Promise<JsonObject> {
-  const source = parseAuthoringSessionKey(
-    typeof input.value.agentSession === "string"
-      ? input.value.agentSession
-      : undefined,
-  );
-  const uuid = typeof input.value.uuid === "string" ? input.value.uuid : null;
-  const worktreePath =
-    typeof input.value.worktreePath === "string"
-      ? input.value.worktreePath
-      : null;
-  const sourceCommit =
-    typeof input.value.sourceCommit === "string"
-      ? input.value.sourceCommit
-      : null;
+  const source = parseAuthoringSessionKey(jsonString(input.value.agentSession));
+  const uuid = jsonString(input.value.uuid) ?? null;
+  const worktreePath = jsonString(input.value.worktreePath) ?? null;
+  const sourceCommit = jsonString(input.value.sourceCommit) ?? null;
   const { agentSession: _agentSession, ...record } = input.value;
   if (!source || !uuid || !worktreePath || !sourceCommit) {
     input.onWarning?.(
@@ -537,12 +517,7 @@ async function migrateReviewSourceSession(input: {
     });
     const sourceSession = authoringSessionKey(frozen);
     const now = new Date().toISOString();
-    const priorAgentSessions =
-      record.agentSessions &&
-      typeof record.agentSessions === "object" &&
-      !Array.isArray(record.agentSessions)
-        ? record.agentSessions
-        : {};
+    const priorAgentSessions = jsonObject(record.agentSessions) ?? {};
     return {
       ...record,
       agentSessions: {

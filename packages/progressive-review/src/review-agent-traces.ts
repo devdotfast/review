@@ -20,6 +20,10 @@ import {
   type SessionMeta,
   byCommitSchema,
   commitShaSchema,
+  isStringValue,
+  jsonNumber,
+  jsonObject,
+  parseJsonText,
   sessionIdSchema,
   sessionMetaSchema,
 } from "@dev.fast/review-protocol";
@@ -402,7 +406,7 @@ function readNormalizedTrace(filePath: string): NormalizedTrace | null {
       metadata.type !== "metadata" ||
       metadata.version !== 1 ||
       metadata.parserVersion !== AGENT_TRACE_PARSER_VERSION ||
-      typeof metadata.source?.bytes !== "number"
+      !Number.isFinite(metadata.source?.bytes)
     ) {
       return null;
     }
@@ -513,11 +517,15 @@ export async function pullReviewTraceCorpus(input: {
   };
 }
 
-function normalizeRepo(repo: string | { owner: string; repo: string }): {
-  owner: string;
-  repo: string;
-} {
-  return typeof repo === "string" ? parseRepo(repo) : repo;
+type RepoInput = string | { owner: string; repo: string };
+
+function normalizeRepo(repo: RepoInput): { owner: string; repo: string } {
+  return isRepoSlug(repo) ? parseRepo(repo) : repo;
+}
+
+/** Whether a repo input is the "owner/repo" slug form. */
+function isRepoSlug(repo: RepoInput): repo is string {
+  return isStringValue(repo);
 }
 
 function normalizedTracePath(
@@ -1543,10 +1551,9 @@ export async function r2HeadObjectSize(key: string): Promise<number | null> {
         },
       },
     );
-    const parsed = JSON.parse(proc.stdout) as { ContentLength?: number };
-    return typeof parsed.ContentLength === "number"
-      ? parsed.ContentLength
-      : null;
+    return (
+      jsonNumber(jsonObject(parseJsonText(proc.stdout))?.ContentLength) ?? null
+    );
   } catch {
     return null;
   }
@@ -1908,18 +1915,15 @@ async function addSessionsFromR2Index(
       if (!entry) continue;
       if (!Array.isArray(entry.sessions)) continue;
       for (const value of entry.sessions) {
-        if (
-          typeof value !== "string" ||
-          !sessionIdSchema.safeParse(value).success
-        ) {
-          continue;
-        }
-        const existing = sessions.get(value);
+        const parsed = sessionIdSchema.safeParse(value);
+        if (!parsed.success) continue;
+        const sessionId = parsed.data;
+        const existing = sessions.get(sessionId);
         if (existing) {
           existing.commits.push({ sha: commit.sha, subject: commit.subject });
         } else {
-          sessions.set(value, {
-            sessionId: value,
+          sessions.set(sessionId, {
+            sessionId,
             commits: [{ sha: commit.sha, subject: commit.subject }],
           });
         }

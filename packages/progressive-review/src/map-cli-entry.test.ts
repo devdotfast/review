@@ -4,6 +4,7 @@ import path from "node:path";
 import type { Writable } from "node:stream";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import { collectingWritable } from "./cli-output";
 
@@ -143,9 +144,9 @@ function writableOutput(output: string[]): Writable {
 function lastCaptureBody(fetchMock: {
   mock: { calls: Array<Parameters<typeof fetch>> };
 }) {
-  const body = fetchMock.mock.calls.at(-1)?.[1]?.body;
-  if (typeof body !== "string") throw new Error("Expected JSON string body");
-  const parsed = JSON.parse(body) as {
+  const body = z.string().safeParse(fetchMock.mock.calls.at(-1)?.[1]?.body);
+  if (!body.success) throw new Error("Expected JSON string body");
+  const parsed = JSON.parse(body.data) as {
     batch: Array<{
       event: string;
       properties: Record<string, string | number | boolean | undefined>;

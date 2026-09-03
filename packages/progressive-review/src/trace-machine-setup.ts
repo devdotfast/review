@@ -4,6 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { parseJsonText } from "@dev.fast/review-protocol";
+import { z } from "zod";
+
 import { writeFileAtomicAsync } from "./atomic-write";
 import { clearTraceEnvCache } from "./review-agent-traces";
 
@@ -33,13 +36,14 @@ export interface TraceMachineStatus {
   error?: string;
 }
 
-interface TraceMachineSettings {
-  version: 1;
-  enabled: boolean;
-  autoActivateRepositories: true;
-  verifiedAt?: string;
-  error?: string;
-}
+const traceMachineSettingsSchema = z.object({
+  version: z.literal(1),
+  enabled: z.boolean(),
+  autoActivateRepositories: z.literal(true),
+  verifiedAt: z.string().optional(),
+  error: z.string().optional(),
+});
+type TraceMachineSettings = z.infer<typeof traceMachineSettingsSchema>;
 
 export function traceEnvPath(
   homeDir = os.homedir(),
@@ -244,12 +248,10 @@ async function readSettings(
   filePath: string,
 ): Promise<TraceMachineSettings | null> {
   try {
-    const value = JSON.parse(
-      await readFile(filePath, "utf8"),
-    ) as Partial<TraceMachineSettings>;
-    return value.version === 1 && typeof value.enabled === "boolean"
-      ? (value as TraceMachineSettings)
-      : null;
+    const parsed = traceMachineSettingsSchema.safeParse(
+      parseJsonText(await readFile(filePath, "utf8")),
+    );
+    return parsed.success ? parsed.data : null;
   } catch {
     return null;
   }

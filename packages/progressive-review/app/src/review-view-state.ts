@@ -1,3 +1,13 @@
+import {
+  type JsonObject,
+  type JsonValue,
+  isJsonObject,
+  jsonNumber,
+  jsonObject,
+  jsonProperty,
+  jsonString,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
 import type { ReactNode, RefObject } from "react";
 import {
   createContext,
@@ -127,7 +137,10 @@ export function useReviewViewStateSync({
 
   const persist = useCallback(
     (next: PersistedReviewViewState) => {
-      const normalized = parsePersistedReviewViewState(next);
+      // Normalise exactly as a stored value reads back.
+      const normalized = parsePersistedReviewViewState(
+        parseJsonText(JSON.stringify(next)),
+      );
       if (JSON.stringify(normalized) === JSON.stringify(persistedRef.current)) {
         return;
       }
@@ -224,7 +237,7 @@ export function reviewViewStateKey(config: ReviewClientConfig): string {
 export function readPersistedReviewViewState(
   config: ReviewClientConfig,
 ): PersistedReviewViewState {
-  const value = readReviewUiState<unknown>(
+  const value = readReviewUiState<JsonValue>(
     "session",
     reviewViewStateKey(config),
   );
@@ -402,71 +415,57 @@ function persistedPanelState(
 }
 
 function parsePersistedReviewViewState(
-  value: unknown,
+  value: JsonValue | null,
 ): PersistedReviewViewState {
-  if (!value || typeof value !== "object") return {};
-  const candidate = value as {
-    scrollTop?: unknown;
-    activeView?: unknown;
-    panel?: {
-      kind?: unknown;
-      tourId?: unknown;
-      activeAnchor?: unknown;
-      // Legacy layered panel state.
-      thread?: { kind?: unknown; threadId?: unknown };
-      tour?: { tourId?: unknown; activeAnchor?: unknown };
-    };
-    overlayTour?: { tourId?: unknown; activeAnchor?: unknown };
-  };
+  if (!isJsonObject(value)) return {};
   const state: PersistedReviewViewState = {};
+  const scrollTop = jsonNumber(jsonProperty(value, "scrollTop"));
+  if (scrollTop !== undefined && scrollTop >= 0) state.scrollTop = scrollTop;
+  const activeView = jsonString(jsonProperty(value, "activeView"));
   if (
-    typeof candidate.scrollTop === "number" &&
-    Number.isFinite(candidate.scrollTop) &&
-    candidate.scrollTop >= 0
+    activeView === "review" ||
+    activeView === "commits" ||
+    activeView === "map" ||
+    activeView === "diff"
   ) {
-    state.scrollTop = candidate.scrollTop;
+    state.activeView = activeView;
   }
-  if (
-    candidate.activeView === "review" ||
-    candidate.activeView === "commits" ||
-    candidate.activeView === "map" ||
-    candidate.activeView === "diff"
-  ) {
-    state.activeView = candidate.activeView;
-  }
-  if (
-    candidate.panel?.kind === "tour" &&
-    typeof candidate.panel.tourId === "string" &&
-    typeof candidate.panel.activeAnchor === "string"
-  ) {
-    state.panel = {
-      kind: "tour",
-      tourId: candidate.panel.tourId,
-      activeAnchor: candidate.panel.activeAnchor,
-    };
-  } else if (
-    candidate.panel?.kind === "threads" ||
-    candidate.panel?.thread?.kind === "threads"
-  ) {
-    state.panel = { kind: "threads" };
-  } else if (
-    typeof candidate.panel?.tour?.tourId === "string" &&
-    typeof candidate.panel.tour.activeAnchor === "string"
-  ) {
-    state.panel = {
-      kind: "tour",
-      tourId: candidate.panel.tour.tourId,
-      activeAnchor: candidate.panel.tour.activeAnchor,
-    };
-  }
-  if (
-    typeof candidate.overlayTour?.tourId === "string" &&
-    typeof candidate.overlayTour.activeAnchor === "string"
-  ) {
-    state.overlayTour = {
-      tourId: candidate.overlayTour.tourId,
-      activeAnchor: candidate.overlayTour.activeAnchor,
-    };
-  }
+  const panel = parsePersistedPanel(jsonObject(jsonProperty(value, "panel")));
+  if (panel) state.panel = panel;
+  const overlayTour = parsePersistedTourState(
+    jsonObject(jsonProperty(value, "overlayTour")),
+  );
+  if (overlayTour) state.overlayTour = overlayTour;
   return state;
+}
+
+/** The persisted panel, also accepting the legacy layered `{ thread, tour }` form. */
+function parsePersistedPanel(
+  panel: JsonObject | undefined,
+): PersistedReviewPanel | undefined {
+  if (!panel) return undefined;
+  const kind = jsonString(jsonProperty(panel, "kind"));
+  const tour = parsePersistedTourState(panel);
+  if (kind === "tour" && tour) return { kind: "tour", ...tour };
+  const legacyThread = jsonObject(jsonProperty(panel, "thread"));
+  if (
+    kind === "threads" ||
+    jsonString(legacyThread && jsonProperty(legacyThread, "kind")) === "threads"
+  ) {
+    return { kind: "threads" };
+  }
+  const legacyTour = parsePersistedTourState(
+    jsonObject(jsonProperty(panel, "tour")),
+  );
+  return legacyTour ? { kind: "tour", ...legacyTour } : undefined;
+}
+
+function parsePersistedTourState(
+  tour: JsonObject | undefined,
+): PersistedReviewViewState["overlayTour"] {
+  const tourId = jsonString(tour && jsonProperty(tour, "tourId"));
+  const activeAnchor = jsonString(tour && jsonProperty(tour, "activeAnchor"));
+  return tourId !== undefined && activeAnchor !== undefined
+    ? { tourId, activeAnchor }
+    : undefined;
 }

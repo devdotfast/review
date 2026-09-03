@@ -4,14 +4,17 @@ import { DatabaseSync } from "node:sqlite";
 
 import {
   type JsonObject,
+  type JsonValue,
   isJsonObject,
   parseJsonText,
 } from "@dev.fast/review-protocol";
 import {
+  ReviewCommentAgentSessionSchema,
   ReviewCommentDraftThreadMapSchema,
   parseReviewCommentThreadMap,
   parseStoredReviewCommentThreadMap,
 } from "@dev.fast/review-protocol";
+import { z } from "zod";
 
 import type {
   ReviewCommentDraftThreadMap,
@@ -163,9 +166,9 @@ export type ReviewThreadDbMigrationResult = "missing" | "current" | "upgraded";
 export interface ReviewThreadDbMigrationOptions {
   force?: boolean;
   migrateLegacyCodeRecord?: (
-    record: unknown,
+    record: JsonValue,
     kind: "comment" | "comment-draft",
-  ) => Promise<unknown>;
+  ) => Promise<JsonValue>;
   onDropLegacyCodeRecord?: (input: {
     threadId: string;
     kind: "comment" | "comment-draft";
@@ -256,7 +259,7 @@ function migrateNativeAgentSessionRecords(db: DatabaseSync): void {
       `UPDATE ${table} SET record_json = ? WHERE thread_id = ?`,
     );
     for (const row of rows) {
-      const value: unknown = JSON.parse(row.record_json);
+      const value = parseJsonText(row.record_json);
       const migrated = migrateNativeAgentSessionRecord(value, table);
       if (migrated !== value) {
         update.run(JSON.stringify(migrated), row.thread_id);
@@ -266,9 +269,9 @@ function migrateNativeAgentSessionRecords(db: DatabaseSync): void {
 }
 
 function migrateNativeAgentSessionRecord(
-  value: unknown,
+  value: JsonValue,
   table: "comments" | "comment_drafts",
-): unknown {
+): JsonValue {
   if (!isJsonObject(value)) return value;
   if (table === "comment_drafts") {
     if (!isJsonObject(value.thread)) return value;
@@ -277,6 +280,11 @@ function migrateNativeAgentSessionRecord(
   }
   return migrateNativeAgentSessionThread(value);
 }
+
+/** Pre-v6 records may carry extra agent-session keys; keep only the current ones. */
+const LegacyCommentAgentSessionSchema = z.object(
+  ReviewCommentAgentSessionSchema.shape,
+);
 
 function migrateNativeAgentSessionThread(thread: JsonObject): JsonObject {
   const originalMessages = Array.isArray(thread.messages)
@@ -303,24 +311,10 @@ function migrateNativeAgentSessionThread(thread: JsonObject): JsonObject {
     ? { ...thread, messages: migratedMessages }
     : thread;
   if (!("agentSession" in migratedThread)) return migratedThread;
-  const { agentSession: session, ...preserved } = migratedThread;
-  if (
-    !isJsonObject(session) ||
-    (session.harness !== "claude-code" &&
-      session.harness !== "codex" &&
-      session.harness !== "pi") ||
-    typeof session.sessionId !== "string" ||
-    !session.sessionId
-  ) {
-    return preserved;
-  }
-  return {
-    ...preserved,
-    agentSession: {
-      harness: session.harness,
-      sessionId: session.sessionId,
-    },
-  };
+  const { agentSession, ...preserved } = migratedThread;
+  const session = LegacyCommentAgentSessionSchema.safeParse(agentSession);
+  if (!session.success) return preserved;
+  return { ...preserved, agentSession: session.data };
 }
 
 async function migrateLegacyCodeRecords(
@@ -342,8 +336,8 @@ async function migrateLegacyCodeRecords(
       .prepare(`SELECT thread_id, record_json FROM ${table.name}`)
       .all() as Array<{ thread_id: string; record_json: string }>;
     for (const row of rows) {
-      const current = JSON.parse(row.record_json) as unknown;
-      let migrated: unknown;
+      const current = parseJsonText(row.record_json);
+      let migrated: JsonValue;
       try {
         migrated = await migrate(current, table.kind);
       } catch (error) {

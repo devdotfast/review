@@ -289,9 +289,7 @@ export function parseSoftwareMapCliArgs(
   return {
     ok: true,
     command,
-    positionals: commandModel.processedArgs.filter(
-      (arg): arg is string => typeof arg === "string",
-    ),
+    positionals: commandModel.args,
     force: options.force ?? false,
     diffRefs: {},
     review: options.review,

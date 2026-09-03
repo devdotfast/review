@@ -106,11 +106,11 @@ function useReviewSessionRefs(documentRoute?: string): {
           });
         }
       })
-      .catch((error: unknown) => {
+      .catch((cause: unknown) => {
         // Base-side comment creation guards on the missing value with its own
         // explicit error; log the fetch failure rather than swallowing it.
         console.error(
-          error instanceof Error ? error : new Error(String(error)),
+          cause instanceof Error ? cause : new Error(String(cause)),
         );
       });
     return () => {

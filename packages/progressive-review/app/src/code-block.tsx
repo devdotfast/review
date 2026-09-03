@@ -1,3 +1,4 @@
+import { isNumberValue, isStringValue } from "@dev.fast/review-protocol";
 import {
   type ShjLanguage,
   type ShjToken,
@@ -105,10 +106,7 @@ export function MarkdownCodeBlock({
   const codeElement = isValidElement<ComponentProps<"code">>(children)
     ? children
     : null;
-  const codeClassName =
-    typeof codeElement?.props.className === "string"
-      ? codeElement.props.className
-      : "";
+  const codeClassName = codeElement?.props.className ?? "";
   const language = codeClassName
     .split(/\s+/)
     .find((name) => name.startsWith("language-"))
@@ -193,11 +191,14 @@ function normalizeMarkdownCodeLanguage(language: string): ShjLanguage | null {
 }
 
 function reactTextContent(node: ReactNode): string {
-  if (node == null || typeof node === "boolean") return "";
-  if (typeof node === "string" || typeof node === "number") return String(node);
   if (Array.isArray(node)) return node.map(reactTextContent).join("");
   if (isValidElement<{ children?: ReactNode }>(node)) {
     return reactTextContent(node.props.children);
   }
-  return "";
+  return isReactText(node) ? String(node) : "";
+}
+
+/** Text React renders verbatim; booleans, null and undefined render nothing. */
+function isReactText(node: ReactNode): node is string | number {
+  return isStringValue(node) || isNumberValue(node);
 }

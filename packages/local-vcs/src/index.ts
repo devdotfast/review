@@ -1050,8 +1050,8 @@ async function diffForKind(input: {
   kind: LocalVcsKind;
 }): Promise<string> {
   if (input.kind === "jj") {
-    return readJjDiff(input).catch((error: unknown) => {
-      if (!canUseGitFallbackSync(input.rootPath, input.kind)) throw error;
+    return readJjDiff(input).catch((cause: unknown) => {
+      if (!canUseGitFallbackSync(input.rootPath, input.kind)) throw cause;
       return readGitDiff(input);
     });
   }
@@ -1120,8 +1120,8 @@ async function diffNameStatusForKind(input: {
   kind: LocalVcsKind;
 }): Promise<DiffNameStatus> {
   if (input.kind === "jj") {
-    return readJjDiffNameStatus(input).catch((error: unknown) => {
-      if (!canUseGitFallbackSync(input.rootPath, input.kind)) throw error;
+    return readJjDiffNameStatus(input).catch((cause: unknown) => {
+      if (!canUseGitFallbackSync(input.rootPath, input.kind)) throw cause;
       return readGitDiffNameStatus(input);
     });
   }

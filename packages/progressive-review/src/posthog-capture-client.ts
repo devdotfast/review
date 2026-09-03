@@ -2,6 +2,9 @@ import { randomUUID } from "node:crypto";
 import { readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 
+import { parseJsonText } from "@dev.fast/review-protocol";
+import { z } from "zod";
+
 import { writeFileAtomic } from "./atomic-write";
 import { EMBEDDED_PROGRESSIVE_REVIEW_POSTHOG_KEY } from "./embedded-posthog-key";
 import { DEV_REVIEW_HOME_ENV, devReviewHome } from "./review-storage";
@@ -426,23 +429,29 @@ function droppedEvents(
     }));
 }
 
+/** A queued event as this module wrote it to disk. */
+const QueuedPostHogEventSchema = z.object({
+  event: z.string(),
+  distinctId: z.string(),
+  properties: z
+    .record(
+      z.string(),
+      z.union([z.boolean(), z.number(), z.string(), z.null()]),
+    )
+    .optional(),
+  createdAt: z.number(),
+  attempts: z.number(),
+  nextAttemptAt: z.number(),
+});
+
 async function readQueuedEvent(
   filePath: string,
 ): Promise<QueuedPostHogEvent | undefined> {
   try {
-    const parsed = JSON.parse(
-      await readFile(filePath, "utf8"),
-    ) as QueuedPostHogEvent;
-    if (
-      typeof parsed.event !== "string" ||
-      typeof parsed.distinctId !== "string" ||
-      typeof parsed.createdAt !== "number" ||
-      typeof parsed.attempts !== "number" ||
-      typeof parsed.nextAttemptAt !== "number"
-    ) {
-      return undefined;
-    }
-    return parsed;
+    const parsed = QueuedPostHogEventSchema.safeParse(
+      parseJsonText(await readFile(filePath, "utf8")),
+    );
+    return parsed.success ? parsed.data : undefined;
   } catch {
     return undefined;
   }

@@ -39,9 +39,9 @@ export default defineConfig({
             continue;
           }
           const source =
-            typeof output.source === "string"
-              ? output.source
-              : new TextDecoder().decode(output.source);
+            output.source instanceof Uint8Array
+              ? new TextDecoder().decode(output.source)
+              : output.source;
           output.source = scopeReviewCanvasCss(source);
         }
       },

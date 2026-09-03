@@ -1,4 +1,93 @@
 // GENERATED from @dev.fast/review-protocol. Do not edit.
+/**
+ * Realm-safe primitive checks. This module is the one sanctioned home for
+ * `typeof`; every other decoder in the repo narrows through these predicates.
+ * `instanceof Object` is not a substitute: values created in another realm
+ * (a worker, a vm context, an iframe) fail it while `typeof` still answers.
+ */
+export function isStringValue(value: unknown): value is string {
+  return typeof value === "string";
+}
+
+export function isNumberValue(value: unknown): value is number {
+  return typeof value === "number";
+}
+
+export function isBooleanValue(value: unknown): value is boolean {
+  return typeof value === "boolean";
+}
+
+/** A non-null object, arrays and functions excluded. */
+export function isObjectValue(value: unknown): value is object {
+  return typeof value === "object" && value !== null;
+}
+
+export function isCallableValue(
+  value: unknown,
+): value is (...args: never[]) => void {
+  return typeof value === "function";
+}
+
+/**
+ * JSON values as they come off the wire or out of a file. Parse into one of
+ * these at the I/O boundary, then narrow into a domain type; never carry an
+ * `unknown`-valued dictionary past the boundary.
+ */
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonArray | JsonObject;
+export type JsonArray = JsonValue[];
+export type JsonObject = { [key: string]: JsonValue };
+
+export function isJsonObject(value: unknown): value is JsonObject {
+  return isObjectValue(value) && !Array.isArray(value);
+}
+
+export function isJsonArray(value: unknown): value is JsonArray {
+  return Array.isArray(value);
+}
+
+/** Parses JSON text into a JsonValue; throws SyntaxError on malformed input. */
+export function parseJsonText(text: string): JsonValue {
+  // SAFETY: JSON.parse only ever produces JSON primitives, arrays, and plain
+  // objects, which is exactly the JsonValue union.
+  return JSON.parse(text) as JsonValue;
+}
+
+/** Reads one property of a JSON object; missing keys read as undefined. */
+export function jsonProperty(
+  value: JsonObject,
+  key: string,
+): JsonValue | undefined {
+  return Object.hasOwn(value, key) ? value[key] : undefined;
+}
+
+/** The string a JSON value holds, or undefined when it is not a string. */
+export function jsonString(value: JsonValue | undefined): string | undefined {
+  return isStringValue(value) ? value : undefined;
+}
+
+/** The finite number a JSON value holds, or undefined otherwise. */
+export function jsonNumber(value: JsonValue | undefined): number | undefined {
+  return isNumberValue(value) && Number.isFinite(value) ? value : undefined;
+}
+
+/** The boolean a JSON value holds, or undefined otherwise. */
+export function jsonBoolean(value: JsonValue | undefined): boolean | undefined {
+  return isBooleanValue(value) ? value : undefined;
+}
+
+/** The object a JSON value holds, or undefined otherwise. */
+export function jsonObject(
+  value: JsonValue | undefined,
+): JsonObject | undefined {
+  return isObjectValue(value) && !Array.isArray(value) ? value : undefined;
+}
+
+/** The array a JSON value holds, or undefined otherwise. */
+export function jsonArray(value: JsonValue | undefined): JsonArray | undefined {
+  return Array.isArray(value) ? value : undefined;
+}
+
 import { z } from "zod/v4";
 
 z.config({ jitless: true });
@@ -570,15 +659,15 @@ export type ReviewCommentDraftThreadMap = z.infer<
 >;
 
 export function parseStoredReviewCommentThreadMap(
-  value: unknown,
+  value: JsonValue,
 ): ReviewCommentThreadMap {
   return ReviewCommentThreadMapSchema.parse(value);
 }
 
 export function parseReviewCommentThreadMap(
-  value: unknown,
+  value: JsonValue,
 ): ReviewCommentThreadMap {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  if (!isJsonObject(value)) return {};
   const comments: ReviewCommentThreadMap = {};
   for (const [threadId, candidate] of Object.entries(value)) {
     const parsed = ReviewCommentThreadRecordSchema.safeParse(candidate);
@@ -2069,107 +2158,107 @@ export type ReviewAgentTraceResponse = z.infer<
 >;
 
 export function parseReviewDesktopDiscovery(
-  value: unknown,
+  value: JsonValue,
 ): ReviewDesktopDiscovery {
   return parseZod(ReviewDesktopDiscoverySchema, value);
 }
 
-export function parseReviewListResponse(value: unknown): ReviewListResponse {
+export function parseReviewListResponse(value: JsonValue): ReviewListResponse {
   return parseZod(ReviewListResponseSchema, value);
 }
 
 export function parseReviewCliInstallStatus(
-  value: unknown,
+  value: JsonValue,
 ): ReviewCliInstallStatus {
   return parseZod(ReviewCliInstallStatusSchema, value);
 }
 
 export function parseReviewCliInstallApplyRequest(
-  value: unknown,
+  value: JsonValue,
 ): ReviewCliInstallApplyRequest {
   return parseZod(ReviewCliInstallApplyRequestSchema, value);
 }
 
 export function parseReviewCliInstallApplyResponse(
-  value: unknown,
+  value: JsonValue,
 ): ReviewCliInstallApplyResponse {
   return parseZod(ReviewCliInstallApplyResponseSchema, value);
 }
 
 export function parseReviewPublishReadyRequest(
-  value: unknown,
+  value: JsonValue,
 ): ReviewPublishReadyRequest {
   return parseZod(ReviewPublishReadyRequestSchema, value);
 }
 
-export function parseReviewOpenResponse(value: unknown): ReviewOpenResponse {
+export function parseReviewOpenResponse(value: JsonValue): ReviewOpenResponse {
   return parseZod(ReviewOpenResponseSchema, value);
 }
 
 export function parseReviewTutorialOpenResponse(
-  value: unknown,
+  value: JsonValue,
 ): ReviewTutorialOpenResponse {
   return parseZod(ReviewTutorialOpenResponseSchema, value);
 }
 
 export function parseReviewDesktopGlobalEvent(
-  value: unknown,
+  value: JsonValue,
 ): ReviewDesktopGlobalEvent {
   return parseZod(ReviewDesktopGlobalEventSchema, value);
 }
 
 export function parseReviewDesktopVerbFrame(
-  value: unknown,
+  value: JsonValue,
 ): ReviewDesktopVerbFrame {
   return parseZod(ReviewDesktopVerbFrameSchema, value);
 }
 
 export function parseReviewDesktopVerbResult(
-  value: unknown,
+  value: JsonValue,
 ): ReviewDesktopVerbResult {
   return parseZod(ReviewDesktopVerbResultSchema, value);
 }
 
 export function parseReviewSessionResponse(
-  value: unknown,
+  value: JsonValue,
 ): ReviewSessionResponse {
   return parseZod(ReviewSessionResponseSchema, value);
 }
 
 export function parseReviewDiffFilesResponse(
-  value: unknown,
+  value: JsonValue,
 ): ReviewDiffFilesResponse {
   return parseZod(ReviewDiffFilesResponseSchema, value);
 }
 
 export function parseReviewFileContentResponse(
-  value: unknown,
+  value: JsonValue,
 ): ReviewFileContentResponse {
   return parseZod(ReviewFileContentResponseSchema, value);
 }
 
 export function parseReviewFileContentRequest(
-  value: unknown,
+  value: JsonValue,
 ): ReviewFileContentRequest {
   return parseZod(ReviewFileContentRequestSchema, value);
 }
 
-export function parseReviewVerbRequest(value: unknown): ReviewVerbRequest {
+export function parseReviewVerbRequest(value: JsonValue): ReviewVerbRequest {
   return parseZod(ReviewVerbRequestSchema, value);
 }
 
-export function parseReviewVerbResponse(value: unknown): ReviewVerbResponse {
+export function parseReviewVerbResponse(value: JsonValue): ReviewVerbResponse {
   return parseZod(ReviewVerbResponseSchema, value);
 }
 
 export function parseReviewAgentTraceListResponse(
-  value: unknown,
+  value: JsonValue,
 ): ReviewAgentTraceListResponse {
   return parseZod(ReviewAgentTraceListResponseSchema, value);
 }
 
 export function parseReviewAgentTraceResponse(
-  value: unknown,
+  value: JsonValue,
 ): ReviewAgentTraceResponse {
   return parseZod(ReviewAgentTraceResponseSchema, value);
 }
@@ -2189,7 +2278,7 @@ export function rewriteReviewDocumentRuntime(
 
 export function parseZod<T>(
   schema: z.ZodType<T>,
-  value: unknown,
+  value: JsonValue,
   label?: string,
   prefixPath = false,
 ): T {
@@ -2211,8 +2300,8 @@ export function parseZod<T>(
 function formatIssuePath(path: PropertyKey[]): string {
   let output = "";
   for (const segment of path) {
-    if (typeof segment === "number") {
-      output += `[${segment}]`;
+    if (Number.isInteger(segment)) {
+      output += `[${String(segment)}]`;
     } else {
       output += `${output ? "." : ""}${String(segment)}`;
     }

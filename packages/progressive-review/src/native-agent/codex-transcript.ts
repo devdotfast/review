@@ -3,10 +3,13 @@ import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 
+import { type JsonValue, jsonString } from "@dev.fast/review-protocol";
+
 import type { NativeReviewMessage } from "./native-session";
 import {
   type JsonRecord,
   isJsonRecord,
+  isMissingFileError,
   readJsonLines,
 } from "./transcript-json";
 
@@ -72,8 +75,7 @@ export function projectCodexReviewMessages(
     if (entry.type !== "event_msg" || payload.type !== "task_complete") {
       continue;
     }
-    const turnId =
-      typeof payload.turn_id === "string" ? payload.turn_id : undefined;
+    const turnId = jsonString(payload.turn_id);
     const candidates = turnId
       ? (assistantEntriesByTurn.get(turnId) ?? unscopedAssistantEntries)
       : unscopedAssistantEntries;
@@ -120,26 +122,27 @@ function codexMessageEntry(
   return {
     body,
     timestamp: timestamp(entry) ?? new Date(0).toISOString(),
-    ...(typeof payload.phase === "string" ? { phase: payload.phase } : {}),
-    ...(typeof metadata?.turn_id === "string"
-      ? { turnId: metadata.turn_id }
-      : {}),
+    phase: jsonString(payload.phase),
+    turnId: jsonString(metadata?.turn_id),
   };
 }
 
-function codexContentText(value: unknown): string[] {
-  if (typeof value === "string") return value.trim() ? [value] : [];
+function codexContentText(value: JsonValue | undefined): string[] {
+  const text = jsonString(value);
+  if (text !== undefined) return text.trim() ? [text] : [];
   if (!Array.isArray(value)) return [];
-  return value.flatMap((block) =>
-    isJsonRecord(block) &&
-    (block.type === "input_text" ||
-      block.type === "output_text" ||
-      block.type === "text") &&
-    typeof block.text === "string" &&
-    block.text.trim()
-      ? [block.text]
-      : [],
-  );
+  return value.flatMap((block) => {
+    if (
+      !isJsonRecord(block) ||
+      (block.type !== "input_text" &&
+        block.type !== "output_text" &&
+        block.type !== "text")
+    ) {
+      return [];
+    }
+    const blockText = jsonString(block.text);
+    return blockText?.trim() ? [blockText] : [];
+  });
 }
 
 function finalAssistantEntry(
@@ -152,9 +155,7 @@ function finalAssistantEntry(
 }
 
 function timestamp(entry: JsonRecord): string | undefined {
-  return typeof entry.timestamp === "string" && entry.timestamp
-    ? entry.timestamp
-    : undefined;
+  return jsonString(entry.timestamp) || undefined;
 }
 
 async function findFile(
@@ -181,13 +182,4 @@ async function findFile(
     }
   }
   return undefined;
-}
-
-function isMissingFileError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "ENOENT"
-  );
 }

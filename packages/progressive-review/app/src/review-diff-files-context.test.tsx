@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import type { ReviewDiffFileWire } from "@dev.fast/review-protocol";
+import type { JsonValue, ReviewDiffFileWire } from "@dev.fast/review-protocol";
 import { act, useLayoutEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -144,8 +144,8 @@ describe("ReviewDiffFilesProvider", () => {
   });
 
   it("never exposes or restores files from a previous document key", async () => {
-    let resolveSecondDocument!: (value: unknown) => void;
-    const secondDocument = new Promise<unknown>((resolve) => {
+    let resolveSecondDocument!: (value: JsonValue) => void;
+    const secondDocument = new Promise<JsonValue>((resolve) => {
       resolveSecondDocument = resolve;
     });
     const responses = [
@@ -248,7 +248,7 @@ describe("ReviewDiffFilesProvider", () => {
   });
 });
 
-function responseWithJson(json: unknown | Promise<unknown>): Response {
+function responseWithJson(json: JsonValue | Promise<JsonValue>): Response {
   return {
     ok: true,
     json: async () => json,

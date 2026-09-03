@@ -118,11 +118,11 @@ export function ReviewTraceView({
           sessions: result.sessions,
         });
       })
-      .catch((error: unknown) => {
+      .catch((cause: unknown) => {
         if (controller.signal.aborted) return;
         setList({
           status: "error",
-          error: error instanceof Error ? error.message : String(error),
+          error: cause instanceof Error ? cause.message : String(cause),
         });
       });
     return () => controller.abort();

@@ -496,19 +496,17 @@ function compareDocumentOrder(left: Node, right: Node): number {
   return position & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
 }
 
-interface HighlightRegistry {
-  set(name: string, value: unknown): void;
-  delete(name: string): void;
-}
-
 function highlightApi(document: Document | null | undefined): {
   registry: HighlightRegistry;
-  Highlight: new (...ranges: Range[]) => unknown;
+  Highlight: typeof Highlight;
 } | null {
+  // SAFETY: lib.dom only declares the CSS Custom Highlight API on globalThis;
+  // it is read off the document's own window, and both members stay optional
+  // because jsdom does not implement it.
   const view = document?.defaultView as
     | (Window & {
         CSS?: { highlights?: HighlightRegistry };
-        Highlight?: new (...ranges: Range[]) => unknown;
+        Highlight?: typeof Highlight;
       })
     | null;
   const registry = view?.CSS?.highlights;

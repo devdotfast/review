@@ -5,6 +5,7 @@ import {
   DEFAULT_DISMISSED_RETENTION_DAYS,
   type JsonValue,
   isJsonObject,
+  jsonNumber,
   parseJsonText,
 } from "@dev.fast/review-protocol";
 
@@ -63,16 +64,18 @@ function parseRetentionDays(raw: JsonValue): DismissedRetentionDays {
   }
   const value = raw.dismissedRetentionDays;
   if (value === null) return null;
-  return normalizeRetentionDays(typeof value === "number" ? value : undefined);
+  return normalizeRetentionDays(jsonNumber(value));
 }
 
 /**
  * Guards the reaper against a hand-edited file: a zero or negative window would
  * delete every dismissed review on the next scan.
  */
-function normalizeRetentionDays(value: unknown): DismissedRetentionDays {
+function normalizeRetentionDays(
+  value: number | null | undefined,
+): DismissedRetentionDays {
   if (value === null) return null;
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 1) {
+  if (value === undefined || !Number.isFinite(value) || value < 1) {
     return DEFAULT_DISMISSED_RETENTION_DAYS;
   }
   return Math.floor(value);

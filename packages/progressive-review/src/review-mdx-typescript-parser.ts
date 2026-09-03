@@ -2,9 +2,7 @@ import type { ParserOptions } from "@babel/parser";
 import { parse, parseExpression } from "@babel/parser";
 import type { Comment, Expression, Program } from "estree";
 
-interface EstreeNode extends Record<string, unknown> {
-  type?: string;
-}
+import { hasEstreeOffsets, walkEstree } from "./review-mdx-ast";
 
 /**
  * What `@babel/parser` returns under the "estree" plugin. Its typings describe
@@ -13,6 +11,15 @@ interface EstreeNode extends Record<string, unknown> {
 interface EstreeParseResult {
   program: Program;
   comments: Comment[] | null;
+}
+
+/**
+ * The fields micromark reads off a failed parse, matching acorn's SyntaxError:
+ * Babel records the offset as `pos`; acorn callers expect `raisedAt`.
+ */
+interface AcornCompatibleError extends Error {
+  pos?: number;
+  raisedAt?: number;
 }
 
 const parserOptions = {
@@ -57,33 +64,23 @@ export const reviewTypescriptEstreeParser = {
 function withAcornCompatibleError<T>(run: () => T): T {
   try {
     return run();
-  } catch (error) {
-    if (error && typeof error === "object") {
-      const syntaxError = error as { pos?: number; raisedAt?: number };
+  } catch (cause) {
+    if (cause instanceof Error) {
+      const syntaxError: AcornCompatibleError = cause;
       syntaxError.raisedAt = (syntaxError.pos ?? 0) + 1;
     }
-    throw error;
+    throw cause;
   }
 }
 
-function offsetEstreeNode(value: unknown, offset: number): void {
-  if (!value || typeof value !== "object") return;
-  if (Array.isArray(value)) {
-    for (const entry of value) offsetEstreeNode(entry, offset);
-    return;
-  }
-  const node = value as EstreeNode;
-  if (typeof node.start === "number") node.start += offset;
-  if (typeof node.end === "number") node.end += offset;
-  if (
-    Array.isArray(node.range) &&
-    typeof node.range[0] === "number" &&
-    typeof node.range[1] === "number"
-  ) {
-    node.range = [node.range[0] + offset, node.range[1] + offset];
-  }
-  for (const [property, child] of Object.entries(node)) {
-    if (property === "loc" || property === "range") continue;
-    offsetEstreeNode(child, offset);
-  }
+function offsetEstreeNode(root: Expression, offset: number): void {
+  walkEstree(root, (node) => {
+    if (hasEstreeOffsets(node)) {
+      node.start += offset;
+      node.end += offset;
+    }
+    if (node.range) {
+      node.range = [node.range[0] + offset, node.range[1] + offset];
+    }
+  });
 }

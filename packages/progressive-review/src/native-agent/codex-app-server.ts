@@ -2,10 +2,18 @@ import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { once } from "node:events";
 import { createInterface } from "node:readline";
 
+import {
+  type JsonValue,
+  jsonObject,
+  jsonProperty,
+  jsonString,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
+
 import { isJsonRecord } from "./transcript-json";
 
 interface PendingRequest {
-  resolve(value: unknown): void;
+  resolve(value: JsonValue | undefined): void;
   reject(error: Error): void;
   timeout: ReturnType<typeof setTimeout>;
 }
@@ -64,10 +72,13 @@ export class CodexAppServerClient {
     }
   }
 
-  async request(method: string, params: unknown): Promise<unknown> {
+  async request(
+    method: string,
+    params: JsonValue,
+  ): Promise<JsonValue | undefined> {
     if (this.#closed) throw new Error("The Codex app-server is closed.");
     const id = String(this.#nextId++);
-    const response = new Promise<unknown>((resolve, reject) => {
+    const response = new Promise<JsonValue | undefined>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.#pending.delete(id);
         reject(new Error(`Codex request "${method}" timed out.`));
@@ -81,7 +92,7 @@ export class CodexAppServerClient {
     return response;
   }
 
-  notify(method: string, params: unknown): void {
+  notify(method: string, params: JsonValue): void {
     if (this.#closed) return;
     this.#child.stdin.write(`${JSON.stringify({ method, params })}\n`);
   }
@@ -100,9 +111,9 @@ export class CodexAppServerClient {
   }
 
   #receive(line: string): void {
-    let value: unknown;
+    let value: JsonValue;
     try {
-      value = JSON.parse(line);
+      value = parseJsonText(line);
     } catch {
       this.#fail(new Error("Codex app-server wrote malformed JSON."));
       return;
@@ -112,17 +123,16 @@ export class CodexAppServerClient {
     if (!pending) return;
     this.#pending.delete(String(value.id));
     clearTimeout(pending.timeout);
-    if (isJsonRecord(value.error)) {
+    const error = jsonObject(value.error);
+    if (error) {
       pending.reject(
         new Error(
-          typeof value.error.message === "string"
-            ? value.error.message
-            : "Codex app-server request failed.",
+          jsonString(error.message) ?? "Codex app-server request failed.",
         ),
       );
       return;
     }
-    pending.resolve(value.result);
+    pending.resolve(jsonProperty(value, "result"));
   }
 
   #fail(error: Error): void {
@@ -148,15 +158,9 @@ export async function forkCodexThread(input: {
       ephemeral: false,
       excludeTurns: true,
     });
-    if (
-      !isJsonRecord(result) ||
-      !isJsonRecord(result.thread) ||
-      typeof result.thread.id !== "string" ||
-      result.thread.id.length === 0
-    ) {
-      throw new Error("Codex returned an invalid forked thread.");
-    }
-    return result.thread.id;
+    const threadId = codexThreadId(result);
+    if (!threadId) throw new Error("Codex returned an invalid forked thread.");
+    return threadId;
   } finally {
     await client.close();
   }
@@ -171,16 +175,15 @@ export async function startCodexThread(input: {
       cwd: input.cwd,
       ephemeral: false,
     });
-    if (
-      !isJsonRecord(result) ||
-      !isJsonRecord(result.thread) ||
-      typeof result.thread.id !== "string" ||
-      result.thread.id.length === 0
-    ) {
-      throw new Error("Codex returned an invalid new thread.");
-    }
-    return result.thread.id;
+    const threadId = codexThreadId(result);
+    if (!threadId) throw new Error("Codex returned an invalid new thread.");
+    return threadId;
   } finally {
     await client.close();
   }
+}
+
+/** The non-empty thread id in a thread/start or thread/fork result. */
+function codexThreadId(result: JsonValue | undefined): string | undefined {
+  return jsonString(jsonObject(jsonObject(result)?.thread)?.id) || undefined;
 }

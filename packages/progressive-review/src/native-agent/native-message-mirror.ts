@@ -16,7 +16,7 @@ import type {
 interface NativeMessageMirrorOptions {
   observe(binding: ReviewThreadAgentBinding): ObservedNativeSession;
   service: ReviewThreadsService;
-  onError?: (error: unknown) => void;
+  onError?: (cause: unknown) => void;
 }
 
 interface SessionWatcher {
@@ -31,14 +31,14 @@ interface SessionWatcher {
 export class NativeMessageMirror {
   readonly #observe: NativeMessageMirrorOptions["observe"];
   readonly #service: ReviewThreadsService;
-  readonly #onError: (error: unknown) => void;
+  readonly #onError: (cause: unknown) => void;
   readonly #watchers = new Map<string, SessionWatcher>();
   #closed = false;
 
   constructor(options: NativeMessageMirrorOptions) {
     this.#observe = options.observe;
     this.#service = options.service;
-    this.#onError = options.onError ?? ((error) => console.error(error));
+    this.#onError = options.onError ?? ((cause) => console.error(cause));
   }
 
   start(): void {

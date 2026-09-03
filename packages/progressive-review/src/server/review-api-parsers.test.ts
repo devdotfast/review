@@ -1,3 +1,4 @@
+import type { JsonValue } from "@dev.fast/review-protocol";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -82,7 +83,7 @@ describe("parseReviewBugReportInput", () => {
   });
 });
 
-function expectBugReportStatus(value: unknown, statusCode: number) {
+function expectBugReportStatus(value: JsonValue, statusCode: number) {
   let thrown: unknown;
   try {
     parseReviewBugReportInput(value);

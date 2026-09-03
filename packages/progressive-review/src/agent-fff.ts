@@ -10,6 +10,7 @@ import {
   type ReviewFffManagedRegistration,
   isJsonArray,
   isJsonObject,
+  jsonString,
   parseJsonText,
 } from "@dev.fast/review-protocol";
 
@@ -228,13 +229,13 @@ function findStdioConfig(
   value: JsonValue,
 ): { command: string; args: string[] } | null {
   if (!isJsonObject(value)) return null;
-  const { command, args } = value;
-  if (
-    typeof command === "string" &&
-    isJsonArray(args) &&
-    args.every((arg): arg is string => typeof arg === "string")
-  ) {
-    return { command, args };
+  const command = jsonString(value.command);
+  const args = isJsonArray(value.args) ? value.args : undefined;
+  if (command !== undefined && args !== undefined) {
+    const argStrings = args.flatMap((arg) => jsonString(arg) ?? []);
+    if (argStrings.length === args.length) {
+      return { command, args: argStrings };
+    }
   }
   for (const child of Object.values(value)) {
     const found = findStdioConfig(child);

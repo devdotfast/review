@@ -5,6 +5,12 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import {
+  jsonArray,
+  jsonString,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
+
 const execFileAsync = promisify(execFile);
 
 interface RepositoryHookState {
@@ -300,7 +306,7 @@ async function readState(
 
 async function writePrivateJson(
   filePath: string,
-  value: unknown,
+  value: RepositoryHookState | string[],
 ): Promise<void> {
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, {
@@ -315,12 +321,10 @@ function registryPath(homeDir: string): string {
 
 async function readRegistry(homeDir: string): Promise<string[]> {
   try {
-    const value = JSON.parse(
-      await readFile(registryPath(homeDir), "utf8"),
-    ) as unknown;
-    return Array.isArray(value)
-      ? value.filter((item): item is string => typeof item === "string")
-      : [];
+    const value = parseJsonText(await readFile(registryPath(homeDir), "utf8"));
+    return (jsonArray(value) ?? [])
+      .map(jsonString)
+      .filter((item) => item !== undefined);
   } catch {
     return [];
   }

@@ -538,8 +538,8 @@ function codePeekRootFromProps(input: {
 }): CodePeekRootSpec | null {
   if (
     input.file &&
-    typeof input.fromLine === "number" &&
-    typeof input.toLine === "number"
+    input.fromLine !== undefined &&
+    input.toLine !== undefined
   ) {
     return {
       kind: "range",
@@ -717,9 +717,9 @@ async function fetchCodePeekResultWithRetry(
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
-function isRetryableCodePeekError(error: unknown) {
-  if (!(error instanceof Error)) return false;
-  return error.message.includes("fetch");
+function isRetryableCodePeekError(cause: unknown) {
+  if (!(cause instanceof Error)) return false;
+  return cause.message.includes("fetch");
 }
 
 function delay(ms: number) {

@@ -25,7 +25,7 @@ export function writeFileAtomic(
   mkdirSync(path.dirname(filePath), { recursive: true });
   writeFileAtomicPackage.sync(
     filePath,
-    typeof contents === "string" ? contents : Buffer.from(contents),
+    contents instanceof Uint8Array ? Buffer.from(contents) : contents,
     {
       encoding,
       mode: options.mode,
@@ -42,7 +42,7 @@ export async function writeFileAtomicAsync(
   mkdirSync(path.dirname(filePath), { recursive: true });
   await writeFileAtomicPackage(
     filePath,
-    typeof contents === "string" ? contents : Buffer.from(contents),
+    contents instanceof Uint8Array ? Buffer.from(contents) : contents,
     options,
   );
 }

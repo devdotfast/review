@@ -1,4 +1,8 @@
-import type { ReviewCanvasBridge } from "@dev.fast/review-protocol";
+import {
+  type ReviewCanvasBridge,
+  isJsonObject,
+  jsonString,
+} from "@dev.fast/review-protocol";
 
 const MAX_SCREENSHOT_BYTES = 3 * 1024 * 1024;
 const MAX_SCREENSHOT_DIMENSION = 1600;
@@ -19,7 +23,7 @@ export class ScreenshotTooLargeError extends Error {
 export async function normalizeScreenshot(
   source: Blob | string,
 ): Promise<string | null> {
-  const blob = typeof source === "string" ? dataUrlBlob(source) : source;
+  const blob = source instanceof Blob ? source : dataUrlBlob(source);
   if (!SUPPORTED_IMAGE_MIMES.has(blob.type.toLowerCase())) {
     throw new Error("Screenshot must be a PNG, JPEG, or WebP image.");
   }
@@ -63,14 +67,11 @@ export async function captureWindowScreenshot(
     ]);
     if (!response?.ok) return null;
     const result = response.result;
-    if (
-      !result ||
-      typeof result !== "object" ||
-      typeof (result as { dataUrl?: unknown }).dataUrl !== "string"
-    ) {
-      return null;
-    }
-    return await normalizeScreenshot((result as { dataUrl: string }).dataUrl);
+    const dataUrl = isJsonObject(result)
+      ? jsonString(result.dataUrl)
+      : undefined;
+    if (dataUrl === undefined) return null;
+    return await normalizeScreenshot(dataUrl);
   } catch {
     return null;
   } finally {

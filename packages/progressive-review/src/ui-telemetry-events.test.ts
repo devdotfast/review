@@ -43,7 +43,7 @@ describe("sanitizeUiTelemetryEvent", () => {
   });
 
   it("accepts a message only when the cleaner finished the job", () => {
-    const message = (value: string): unknown =>
+    const message = (value: string) =>
       sanitizeUiTelemetryEvent({
         name: "client_error",
         properties: { error_source: "window", message: value },
@@ -105,7 +105,7 @@ describe("sanitizeUiTelemetryEvent", () => {
   });
 
   it("requires a message hash to be a truncated hex digest", () => {
-    const hashed = (message_hash: string): unknown =>
+    const hashed = (message_hash: string) =>
       sanitizeUiTelemetryEvent({
         name: "client_error",
         properties: { error_source: "window", message_hash },

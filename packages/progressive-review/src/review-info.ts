@@ -1,3 +1,11 @@
+import {
+  type JsonValue,
+  ReviewStatusSchema,
+  jsonObject,
+  jsonString,
+} from "@dev.fast/review-protocol";
+import { z } from "zod";
+
 import { requireHealthyReviewDesktop } from "./desktop-discovery";
 import type { StoredReview } from "./review-home";
 
@@ -22,6 +30,23 @@ export interface ReviewInfoEvent {
   }>;
 }
 
+const ReviewInfoEventSchema: z.ZodType<ReviewInfoEvent> = z.object({
+  event: z.literal("info"),
+  warnings: z.array(z.string()).optional(),
+  reviews: z.array(
+    z.object({
+      uuid: z.string(),
+      dir: z.string(),
+      change: z.string().nullable(),
+      inSync: z.boolean(),
+      matchesCheckout: z.boolean(),
+      unresolvedComments: z.number(),
+      status: ReviewStatusSchema,
+      title: z.string(),
+    }),
+  ),
+});
+
 export async function runReviewInfo(
   input: RunReviewInfoInput,
 ): Promise<ReviewInfoEvent> {
@@ -34,37 +59,24 @@ export async function runReviewInfo(
     },
     body: JSON.stringify(input),
   });
-  const payload: unknown = await response.json();
+  const payload: JsonValue = await response.json();
   if (!response.ok) {
     throw new Error(reviewInfoResponseError(payload, response.status));
   }
   return parseReviewInfoEvent(payload);
 }
 
-function parseReviewInfoEvent(value: unknown): ReviewInfoEvent {
-  if (
-    !value ||
-    typeof value !== "object" ||
-    Array.isArray(value) ||
-    !("event" in value) ||
-    value.event !== "info" ||
-    !("reviews" in value) ||
-    !Array.isArray(value.reviews)
-  ) {
+function parseReviewInfoEvent(value: JsonValue): ReviewInfoEvent {
+  const parsed = ReviewInfoEventSchema.safeParse(value);
+  if (!parsed.success) {
     throw new Error("Review Desktop returned an invalid info response.");
   }
-  return value as ReviewInfoEvent;
+  return parsed.data;
 }
 
-function reviewInfoResponseError(payload: unknown, status: number): string {
-  if (
-    payload &&
-    typeof payload === "object" &&
-    !Array.isArray(payload) &&
-    "error" in payload &&
-    typeof payload.error === "string"
-  ) {
-    return payload.error;
-  }
-  return `Review Desktop returned ${status} for info.`;
+function reviewInfoResponseError(payload: JsonValue, status: number): string {
+  return (
+    jsonString(jsonObject(payload)?.error) ??
+    `Review Desktop returned ${status} for info.`
+  );
 }

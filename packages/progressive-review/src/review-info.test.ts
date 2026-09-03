@@ -341,7 +341,7 @@ describe("review info", () => {
       expect(next.reviews[0]?.uuid).not.toBe(initial.reviews[0]?.uuid);
       const duplicateError = await runReviewScaffold({ cwd: root }).then(
         () => "",
-        (error: unknown) => String(error),
+        (cause: unknown) => String(cause),
       );
       expect(duplicateError).toContain(initial.reviews[0]!.uuid);
       expect(duplicateError).toContain(next.reviews[0]!.uuid);

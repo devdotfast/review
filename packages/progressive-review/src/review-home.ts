@@ -14,6 +14,7 @@ import { currentHead, listCommitRange } from "@dev.fast/local-vcs";
 import {
   DEFAULT_DISMISSED_RETENTION_DAYS,
   type JsonObject,
+  type JsonValue,
   REVIEW_SCHEMA_VERSION,
   type ReviewAgentSessionRole,
   type ReviewDescriptor,
@@ -21,6 +22,9 @@ import {
   ReviewRecordSchema,
   type ReviewSourceIdentity,
   isJsonObject,
+  jsonObject,
+  jsonString,
+  parseJsonText,
   summarizeReviewDiffFiles,
 } from "@dev.fast/review-protocol";
 
@@ -578,11 +582,11 @@ export async function readStoredReview(
 ): Promise<StoredReview | { error: ReviewHomeError }> {
   const reviewPath = path.join(dir, "review.json");
   try {
-    const value: unknown = JSON.parse(await readFile(reviewPath, "utf8"));
+    const value = parseJsonText(await readFile(reviewPath, "utf8"));
     const parsed = safeParseStoredReviewRecord(value);
     if (!parsed.success) {
       return {
-        error: reviewHomeError(dir, value, {
+        error: reviewHomeError(dir, jsonObject(value), {
           message: `Invalid review.json; run \`review migrate apply\`: ${parsed.error.issues.map((issue) => issue.message).join("; ")}`,
           code: "MIGRATION_REQUIRED",
         }),
@@ -600,14 +604,14 @@ export async function readStoredReview(
   }
 }
 
+/** `record` is the parsed review, or the raw review.json object when it failed to parse. */
 function reviewHomeError(
   reviewDir: string,
-  value: unknown,
+  record: StoredReviewRecord | JsonObject | undefined,
   error: { message: string; code?: string },
 ): ReviewHomeError {
-  const record = isJsonObject(value) ? value : undefined;
   const directoryUuid = path.basename(reviewDir);
-  const storedUuid = typeof record?.uuid === "string" ? record.uuid : null;
+  const storedUuid = jsonString(record?.uuid) ?? null;
   const reviewUuid = UUID_PATTERN.test(storedUuid ?? "")
     ? storedUuid
     : UUID_PATTERN.test(directoryUuid)
@@ -616,26 +620,20 @@ function reviewHomeError(
   return {
     reviewDir,
     reviewUuid,
-    title: typeof record?.title === "string" ? record.title : "",
-    worktreePath:
-      typeof record?.worktreePath === "string" && record.worktreePath
-        ? record.worktreePath
-        : reviewDir,
-    lastPublishedAt:
-      typeof record?.lastPublishedAt === "string"
-        ? record.lastPublishedAt
-        : null,
+    title: jsonString(record?.title) ?? "",
+    worktreePath: jsonString(record?.worktreePath) || reviewDir,
+    lastPublishedAt: jsonString(record?.lastPublishedAt) ?? null,
     message: error.message,
     ...(error.code ? { code: error.code } : {}),
   };
 }
 
-export function parseStoredReviewRecord(value: unknown): StoredReviewRecord {
+export function parseStoredReviewRecord(value: JsonValue): StoredReviewRecord {
   return StoredReviewRecordSchema.parse(stripLegacySoftwareMap(value));
 }
 
 export function parseStoredReviewRecordForMigration(
-  value: unknown,
+  value: JsonValue,
 ): StoredReviewRecord {
   if (!isJsonObject(value)) return parseStoredReviewRecord(value);
   const record = stripLegacySoftwareMap(value);
@@ -663,13 +661,13 @@ export function parseStoredReviewRecordForMigration(
   });
 }
 
-export function safeParseStoredReviewRecord(value: unknown) {
+export function safeParseStoredReviewRecord(value: JsonValue) {
   return StoredReviewRecordSchema.safeParse(stripLegacySoftwareMap(value));
 }
 
 function stripLegacySoftwareMap(value: JsonObject): JsonObject;
-function stripLegacySoftwareMap(value: unknown): unknown;
-function stripLegacySoftwareMap(value: unknown): unknown {
+function stripLegacySoftwareMap(value: JsonValue): JsonValue;
+function stripLegacySoftwareMap(value: JsonValue): JsonValue {
   if (!isJsonObject(value)) return value;
   const { softwareMap: _legacySoftwareMap, ...record } = value;
   return record;

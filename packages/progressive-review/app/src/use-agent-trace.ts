@@ -75,13 +75,13 @@ export function useAgentTrace(
           setState({ key, traceState: { status: "loaded", trace: result } });
         }
       })
-      .catch((error: unknown) => {
+      .catch((cause: unknown) => {
         if (controller.signal.aborted) return;
         setState({
           key,
           traceState: {
             status: "error",
-            error: error instanceof Error ? error.message : String(error),
+            error: cause instanceof Error ? cause.message : String(cause),
           },
         });
       });

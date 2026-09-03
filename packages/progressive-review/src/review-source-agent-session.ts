@@ -156,17 +156,18 @@ async function createPiReviewSourceSession(input: {
     );
   } catch (error) {
     throw new Error(
-      `Pi could not create the Review source session: ${commandError(error)}`,
+      `Pi could not create the Review source session: ${commandFailure(error)}`,
       { cause: error },
     );
   }
   return { harness: "pi", sessionId };
 }
 
-function commandError(error: unknown): string {
-  if (typeof error === "object" && error !== null && "stderr" in error) {
-    const stderr = String(error.stderr).trim();
+/** The stderr a failed pi command reported, else its error message. */
+function commandFailure(cause: unknown): string {
+  if (cause instanceof Error && "stderr" in cause) {
+    const stderr = String(cause.stderr).trim();
     if (stderr) return stderr;
   }
-  return errorMessage(error);
+  return errorMessage(cause);
 }

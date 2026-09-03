@@ -551,8 +551,8 @@ function ReviewCoordinator({
           setSubmissionOutcome("changes-requested");
         }
       })
-      .catch((error: unknown) => {
-        console.error("Review status fetch failed", error);
+      .catch((cause: unknown) => {
+        console.error("Review status fetch failed", cause);
       });
     return () => {
       disposed = true;
@@ -677,12 +677,11 @@ function createSubmissionId(): string {
 
 export function createClientId(): string {
   const crypto = globalThis.crypto;
-  if (typeof crypto?.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  if (typeof crypto?.getRandomValues !== "function") {
+  if (!crypto) {
     throw new Error("Review thread creation requires browser cryptography.");
   }
+  // randomUUID is only exposed in secure contexts.
+  if (crypto.randomUUID !== undefined) return crypto.randomUUID();
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   bytes[6] = (bytes[6]! & 0x0f) | 0x40;
   bytes[8] = (bytes[8]! & 0x3f) | 0x80;
@@ -898,8 +897,8 @@ function sourceEndLine(source: ResolvedCommentCodeSource): number {
   return source.fromLine + source.text.split("\n").length - 1;
 }
 
-function reportBackgroundReviewError(error: unknown): void {
-  console.error(error instanceof Error ? error : new Error(String(error)));
+function reportBackgroundReviewError(cause: unknown): void {
+  console.error(cause instanceof Error ? cause : new Error(String(cause)));
 }
 
 export function useReview(): ReviewContextValue {

@@ -50,7 +50,7 @@ export async function runReviewTraceHook(
     try {
       const chunks: Buffer[] = [];
       for await (const chunk of input.stdin) {
-        chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
       }
       const raw = Buffer.concat(chunks).toString("utf8").trim();
       if (raw) {

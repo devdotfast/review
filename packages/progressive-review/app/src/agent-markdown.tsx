@@ -1,3 +1,4 @@
+import { isNumberValue, isStringValue } from "@dev.fast/review-protocol";
 // Deliberately separate from the MDX document pipeline: this renderer walks the
 // mdast of untrusted runtime strings (agent/thread message bodies) and never
 // evaluates them, whereas MDX compilation produces executable code and must
@@ -309,10 +310,13 @@ function isLocalFilesystemHref(value: string | undefined): boolean {
   );
 }
 
+/** A React child that renders as its own text: a string or a number. */
+export function isReactTextNode(node: ReactNode): node is string | number {
+  return isStringValue(node) || isNumberValue(node);
+}
+
 function textFromChildren(children: ReactNode): string | null {
-  if (typeof children === "string" || typeof children === "number") {
-    return String(children);
-  }
+  if (isReactTextNode(children)) return String(children);
   if (Array.isArray(children)) {
     const text = children
       .map((child) => textFromChildren(child) ?? "")

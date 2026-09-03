@@ -1,27 +1,15 @@
-import type { ReactNode } from "react";
+import { type ReactNode, isValidElement } from "react";
 
 import type { TraceQuoteProps } from "../../src/authoring";
+import { isReactTextNode } from "./agent-markdown";
 import { ProsePeekAnchor } from "./review-components";
 import { useOptionalReviewPanel } from "./review-panel";
 
 function extractText(node: ReactNode): string {
-  if (node === null || node === undefined || typeof node === "boolean") {
-    return "";
-  }
-  if (typeof node === "string" || typeof node === "number") {
-    return String(node);
-  }
-  if (Array.isArray(node)) {
-    return node.map(extractText).join("");
-  }
-  if (
-    typeof node === "object" &&
-    "props" in node &&
-    (node as { props?: { children?: ReactNode } }).props
-  ) {
-    return extractText(
-      (node as { props: { children?: ReactNode } }).props.children,
-    );
+  if (isReactTextNode(node)) return String(node);
+  if (Array.isArray(node)) return node.map(extractText).join("");
+  if (isValidElement<{ children?: ReactNode }>(node)) {
+    return extractText(node.props.children);
   }
   return "";
 }
@@ -74,9 +62,8 @@ export function TraceQuote({
         const targetTurn = document.getElementById("review-trace-target-event");
         const quoteMark = targetTurn?.querySelector(".review-trace-quote-mark");
         const el = quoteMark ?? targetTurn;
-        if (el && typeof el.scrollIntoView === "function") {
-          el.scrollIntoView({ block: "center", behavior: "auto" });
-        }
+        // jsdom has no scrollIntoView, so the call stays optional.
+        el?.scrollIntoView?.({ block: "center", behavior: "auto" });
       }}
     >
       {children}

@@ -171,7 +171,7 @@ function ReviewPanelFrame({
           {title && (
             <h2 {...panelSelectionStamp(titleSelectionStamp)}>{title}</h2>
           )}
-          {typeof count === "number" && count > 0 && <em>{count}</em>}
+          {count !== undefined && count > 0 && <em>{count}</em>}
           {titleAccessory}
         </div>
         <button

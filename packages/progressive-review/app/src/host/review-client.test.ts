@@ -115,12 +115,14 @@ describe("review host client", () => {
 // The loader imports the runtime module for the request context, then the
 // rewritten document blob. Route blob imports to the document namespace and
 // everything else to a runtime stub.
-function documentImporter(importDocument: () => Promise<unknown>) {
+function documentImporter<TDocument>(importDocument: () => Promise<TDocument>) {
   const setReviewRequestContext =
     vi.fn<(context: { origin?: string; token?: string }) => void>();
-  const importer = vi.fn<ReviewModuleImporter>(async (url) =>
-    url.startsWith("blob:") ? importDocument() : { setReviewRequestContext },
-  );
+  // The stub is not generic; the loader names each module's exports itself.
+  const importer = (async (url: string) =>
+    url.startsWith("blob:")
+      ? importDocument()
+      : { setReviewRequestContext }) as ReviewModuleImporter;
   return { importer, setReviewRequestContext };
 }
 

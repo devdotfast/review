@@ -27,6 +27,7 @@ import {
   type PublishAuditTraceQuote,
   auditReviewDocumentComponent,
   createPublishValidationReact,
+  isPublishAuditComponent,
 } from "./review-publish-element-audit";
 import { defineSoftwareMap } from "./software-map-model";
 import { resolveReviewSourceRange } from "./source-range-resolver";
@@ -433,7 +434,7 @@ function validationRuntimeExports(input: {
       return session;
     },
     createActiveReviewDocument: (document: { Component?: unknown }) => {
-      if (typeof document.Component !== "function") {
+      if (!isPublishAuditComponent(document.Component)) {
         throw new Error("Review document has no component export.");
       }
       auditReviewDocumentComponent({

@@ -481,8 +481,8 @@ describe("Review Desktop tutorial preparation", () => {
         expect(stored?.review.status).toBe(
           action === "submit" ? "accepted" : "awaiting-review",
         );
-        expect(typeof stored?.review.dismissedAt).toBe(
-          action === "dismiss" ? "string" : "undefined",
+        expect(stored?.review.dismissedAt !== undefined).toBe(
+          action === "dismiss",
         );
       } finally {
         release();

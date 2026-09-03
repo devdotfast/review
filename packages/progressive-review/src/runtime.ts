@@ -9,6 +9,14 @@ import {
   resolveRepoContext,
   resolveRevision,
 } from "@dev.fast/local-vcs";
+import {
+  type JsonValue,
+  isJsonObject,
+  jsonNumber,
+  jsonObject,
+  jsonString,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
 
 import { errorMessage } from "./error-message";
 import { reviewMdxPath } from "./review-file";
@@ -237,7 +245,8 @@ export async function resolvePullRequestReviewSubject(input: {
 
   if (!parsed) {
     try {
-      parsed = JSON.parse(stdout ?? "") as PullRequestMetadata;
+      const value = parseJsonText(stdout ?? "");
+      parsed = isJsonObject(value) ? value : {};
     } catch (error) {
       throw new Error(
         `Unable to parse gh pr view output for ${input.value}: ${errorMessage(
@@ -246,35 +255,32 @@ export async function resolvePullRequestReviewSubject(input: {
       );
     }
   }
-  if (typeof parsed.number !== "number") {
+  const number = jsonNumber(parsed.number);
+  if (number === undefined) {
     throw new Error(
       `Could not resolve pull request number for ${input.value}.`,
     );
   }
-  if (typeof parsed.baseRefName !== "string" || !parsed.baseRefName.trim()) {
-    throw new Error(`Could not resolve base branch for PR ${parsed.number}.`);
+  const baseRefName = jsonString(parsed.baseRefName);
+  if (!baseRefName?.trim()) {
+    throw new Error(`Could not resolve base branch for PR ${number}.`);
   }
 
-  const headRef = `refs/dev-fast/reviews/pr-${parsed.number}/head`;
+  const headRef = `refs/dev-fast/reviews/pr-${number}/head`;
   const preparedRefs = await preparePullRequestRefs({
     cwd: input.cwd,
-    baseRefName: parsed.baseRefName,
+    baseRefName,
     headRef,
-    pullRequestNumber: parsed.number,
-    baseRefOid:
-      typeof parsed.baseRefOid === "string" && parsed.baseRefOid
-        ? parsed.baseRefOid
-        : undefined,
+    pullRequestNumber: number,
+    baseRefOid: jsonString(parsed.baseRefOid) || undefined,
     repoContext,
     execFile,
   });
 
+  const title = jsonString(parsed.title)?.trim();
   return {
-    number: parsed.number,
-    title:
-      typeof parsed.title === "string" && parsed.title.trim()
-        ? parsed.title.trim()
-        : `PR ${parsed.number}`,
+    number,
+    title: title || `PR ${number}`,
     repo: repoSlug,
     baseRef: preparedRefs.baseRef,
     headRef: preparedRefs.headRef,
@@ -362,11 +368,12 @@ function parseGithubPullRequestRepoSlug(value: string): string | undefined {
   return undefined;
 }
 
+/** The `gh pr view --json` fields, before they are checked. */
 interface PullRequestMetadata {
-  number?: unknown;
-  title?: unknown;
-  baseRefName?: unknown;
-  baseRefOid?: unknown;
+  number?: JsonValue;
+  title?: JsonValue;
+  baseRefName?: JsonValue;
+  baseRefOid?: JsonValue;
 }
 
 function parseGithubPullRequestNumber(value: string): number | undefined {
@@ -408,16 +415,13 @@ async function fetchPublicGithubPullRequestMetadata(input: {
       `GitHub REST API returned HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ""}`,
     );
   }
-  const metadata = (await response.json()) as {
-    number?: unknown;
-    title?: unknown;
-    base?: { ref?: unknown; sha?: unknown };
-  };
+  const metadata = jsonObject(await response.json());
+  const base = jsonObject(metadata?.base);
   return {
-    number: metadata.number,
-    title: metadata.title,
-    baseRefName: metadata.base?.ref,
-    baseRefOid: metadata.base?.sha,
+    number: metadata?.number,
+    title: metadata?.title,
+    baseRefName: base?.ref,
+    baseRefOid: base?.sha,
   };
 }
 

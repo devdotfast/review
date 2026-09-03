@@ -11,11 +11,13 @@ import {
 } from "@dev.fast/local-vcs";
 import {
   type JsonObject,
+  type JsonValue,
   type ReviewCommentThreadRecord,
   type ReviewSessionWire,
   type ReviewThreadsCommit,
   type ReviewVerbRequest,
   isJsonObject,
+  jsonString,
   parseReviewFileContentRequest,
 } from "@dev.fast/review-protocol";
 import { type Context, Hono } from "hono";
@@ -110,9 +112,9 @@ function recordClientError(
   event: ReturnType<typeof sanitizeUiTelemetryEvent>,
 ): void {
   if (event?.event !== "review_client_error") return;
-  const sessionId = event.properties.app_session_id;
-  const errorName = event.properties.error_name;
-  if (typeof sessionId !== "string" || typeof errorName !== "string") return;
+  const sessionId = jsonString(event.properties.app_session_id);
+  const errorName = jsonString(event.properties.error_name);
+  if (sessionId === undefined || errorName === undefined) return;
   const names = clientErrorsBySession.get(sessionId) ?? [];
   names.push(errorName);
   if (names.length > MAX_CLIENT_ERRORS_PER_SESSION) names.shift();
@@ -120,7 +122,7 @@ function recordClientError(
   clientErrorsBySession.set(sessionId, names);
   while (clientErrorsBySession.size > MAX_CLIENT_ERROR_SESSIONS) {
     const oldest = clientErrorsBySession.keys().next().value;
-    if (typeof oldest !== "string") break;
+    if (oldest === undefined) break;
     clientErrorsBySession.delete(oldest);
   }
 }
@@ -154,8 +156,8 @@ export interface ReviewTelemetryCapture {
 export async function captureSanitizedUiTelemetry(
   telemetry: ReviewTelemetryCapture,
   request: Request,
-  name: unknown,
-  properties: unknown,
+  name: JsonValue,
+  properties: JsonValue,
   onSanitized?: (
     event: NonNullable<ReturnType<typeof sanitizeUiTelemetryEvent>>,
   ) => void,
@@ -166,7 +168,7 @@ export async function captureSanitizedUiTelemetry(
    * the original message, and bundle-relative frames. The allowlist re-checks
    * all of it. Never merge this into `properties`.
    */
-  rawError?: unknown,
+  rawError?: JsonValue,
 ): Promise<void> {
   const appSessionId =
     request.headers.get(REVIEW_APP_SESSION_ID_HEADER) ?? undefined;
@@ -928,11 +930,12 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     context: Context<ReviewHonoEnv>,
   ): Promise<Response> {
     const url = new URL(context.req.url);
-    const contentRequest = parseReviewFileContentRequest({
-      path: url.searchParams.get("path") ?? undefined,
-      side: url.searchParams.get("side") ?? undefined,
-      commit: url.searchParams.get("commit") ?? undefined,
-    });
+    const contentQuery: JsonObject = {};
+    for (const key of ["path", "side", "commit"]) {
+      const value = url.searchParams.get(key);
+      if (value !== null) contentQuery[key] = value;
+    }
+    const contentRequest = parseReviewFileContentRequest(contentQuery);
     const diffTarget = await resolveScopedDiffTarget(
       url,
       contentRequest.commit,
@@ -1018,11 +1021,23 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   };
 }
 
-function parseCodePeekGraph(value: unknown): "head" | "base" {
+function parseCodePeekGraph(value: JsonValue): "head" | "base" {
   return value === "base" ? "base" : "head";
 }
 
-function readJson(request: Request): Promise<unknown> {
+function parseCodePeekIncludeDiff(value: JsonValue): boolean {
+  return value === true;
+}
+
+function parseCodePeekIncludeDiffSummary(value: JsonValue): boolean {
+  return value === true;
+}
+
+function readReviewStatus(stateReviewPath: string): string {
+  return readReviewStoreRecord(path.dirname(stateReviewPath)).status;
+}
+
+function readJson(request: Request): Promise<JsonValue> {
   return readBoundedRequestJson(request, undefined, {});
 }
 

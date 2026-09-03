@@ -7,24 +7,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { sequenceDiagramPropsSchema } from "../../src/authoring";
 import { ReviewDocumentBoundary } from "./review-document-boundary";
 import { testReviewSession } from "./review-session-test-utils";
-import { captureClientError } from "./ui-telemetry";
+import {
+  captureClientError,
+  type captureUiEvent,
+  type clientErrorName,
+} from "./ui-telemetry";
 
 const session = testReviewSession();
 
 vi.mock("./ui-telemetry", () => ({
-  captureUiEvent:
-    vi.fn<
-      (
-        session: unknown,
-        name: string,
-        properties?: Record<string, string | number | boolean>,
-        error?: unknown,
-      ) => void
-    >(),
-  captureClientError:
-    vi.fn<(session: unknown, errorSource: string, error: unknown) => void>(),
-  clientErrorName: (error: unknown) =>
+  captureUiEvent: vi.fn<typeof captureUiEvent>(),
+  captureClientError: vi.fn<typeof captureClientError>(),
+  clientErrorName: vi.fn<typeof clientErrorName>((error) =>
     error instanceof Error ? error.name : "Error",
+  ),
 }));
 
 const roots: Array<ReturnType<typeof createRoot>> = [];
@@ -50,7 +46,7 @@ describe("ReviewDocumentBoundary", () => {
   });
 
   it("contains a document render error, leaves the shell mounted, and recovers on a new revision", async () => {
-    const onError = vi.fn<(revision: string, error: unknown) => void>();
+    const onError = vi.fn<(revision: string, error: Error) => void>();
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);

@@ -2,6 +2,12 @@ import { mkdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
+import {
+  jsonNumber,
+  jsonObject,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
+
 const LOCK_OWNER_FILE = "owner.json";
 const DEFAULT_HEARTBEAT_MS = 30_000;
 
@@ -105,9 +111,9 @@ function startHeartbeat(lockPath: string, intervalMs: number): NodeJS.Timeout {
 
 async function readLockOwner(lockPath: string): Promise<number | null> {
   return readFile(path.join(lockPath, LOCK_OWNER_FILE), "utf8")
-    .then((contents) => {
-      const value = JSON.parse(contents) as { pid?: unknown };
-      return typeof value.pid === "number" ? value.pid : null;
-    })
+    .then(
+      (contents) =>
+        jsonNumber(jsonObject(parseJsonText(contents))?.pid) ?? null,
+    )
     .catch(() => null);
 }

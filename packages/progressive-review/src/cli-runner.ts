@@ -3,7 +3,12 @@ import path from "node:path";
 import type { Writable } from "node:stream";
 
 import { devfastPrepareCommands } from "@dev.fast/local-vcs";
-import type { ReviewView } from "@dev.fast/review-protocol";
+import {
+  type ReviewView,
+  jsonObject,
+  jsonString,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
 import { Argument, Command, CommanderError, Option } from "commander";
 
 import {
@@ -1187,9 +1192,14 @@ function installTargets(targets: readonly string[]): InstallTarget[] {
   ];
 }
 
+interface StopHookPayload {
+  cwd?: string;
+  transcriptPath?: string;
+}
+
 async function readStopHookPayload(
   input: ProgressiveReviewCliInput,
-): Promise<{ cwd?: string; transcriptPath?: string }> {
+): Promise<StopHookPayload> {
   const stdin = input.stdin ?? process.stdin;
   if (stdin.isTTY) return {};
   try {
@@ -1199,16 +1209,13 @@ async function readStopHookPayload(
     }
     const raw = Buffer.concat(chunks).toString("utf8").trim();
     if (!raw) return {};
-    const parsed = JSON.parse(raw) as {
-      cwd?: unknown;
-      transcript_path?: unknown;
-    };
-    return {
-      ...(typeof parsed.cwd === "string" ? { cwd: parsed.cwd } : {}),
-      ...(typeof parsed.transcript_path === "string"
-        ? { transcriptPath: parsed.transcript_path }
-        : {}),
-    };
+    const parsed = jsonObject(parseJsonText(raw));
+    const payload: StopHookPayload = {};
+    const cwd = jsonString(parsed?.cwd);
+    if (cwd !== undefined) payload.cwd = cwd;
+    const transcriptPath = jsonString(parsed?.transcript_path);
+    if (transcriptPath !== undefined) payload.transcriptPath = transcriptPath;
+    return payload;
   } catch {
     return {};
   }
@@ -1483,12 +1490,12 @@ async function finishActiveTelemetry(
       }
     | undefined,
   exitCode: number,
-  error?: unknown,
+  cause?: unknown,
   properties: Record<string, boolean | number | string | null | undefined> = {},
 ): Promise<void> {
   if (!active || active.finished) return;
   active.finished = true;
-  const classification = errorClassification(active.command, error);
+  const classification = errorClassification(active.command, cause);
   await attemptTelemetry(() =>
     exitCode === 0
       ? telemetry.captureCommandSucceeded({
@@ -1515,14 +1522,14 @@ async function captureOneOffCommand(
   telemetry: ProgressiveReviewCommandTelemetry,
   command: ProgressiveReviewCommandPath,
   exitCode: number,
-  error?: unknown,
+  cause?: unknown,
 ): Promise<void> {
   const commandRunId = telemetry.createCommandRunId();
   await attemptTelemetry(() => telemetry.captureInstallationCreated());
   await attemptTelemetry(() =>
     telemetry.captureCommandStarted({ command, commandRunId }),
   );
-  const classification = errorClassification(command, error);
+  const classification = errorClassification(command, cause);
   await attemptTelemetry(() =>
     exitCode === 0
       ? telemetry.captureCommandSucceeded({
@@ -1598,12 +1605,12 @@ interface ErrorClassification {
 
 function errorClassification(
   command: ProgressiveReviewCommandPath,
-  error: unknown,
+  cause: unknown,
 ): ErrorClassification {
-  if (error instanceof CommanderError || command === "invalid") {
+  if (cause instanceof CommanderError || command === "invalid") {
     return { errorName: "usage_error", errorCategory: "user_input" };
   }
-  const name = error instanceof Error ? error.name.toLowerCase() : "";
+  const name = cause instanceof Error ? cause.name.toLowerCase() : "";
   if (name.includes("notfound")) {
     return { errorName: "review_not_found", errorCategory: "local_state" };
   }
@@ -1628,7 +1635,7 @@ function errorClassification(
   if (command.startsWith("map.") || command.startsWith("cache.")) {
     return { errorName: "repository_error", errorCategory: "local_state" };
   }
-  if (error) {
+  if (cause) {
     return { errorName: "unexpected_error", errorCategory: "internal" };
   }
   return { errorName: "process_error", errorCategory: "dependency" };
@@ -1646,11 +1653,11 @@ function commanderErrorMessage(error: CommanderError): string {
   return error.message.replace(/^error:\s*/i, "");
 }
 
-function formatCliError(error: unknown): string {
-  if (error instanceof Error) {
-    return error.stack || `${error.name}: ${error.message}`;
+function formatCliError(cause: unknown): string {
+  if (cause instanceof Error) {
+    return cause.stack || `${cause.name}: ${cause.message}`;
   }
-  return String(error);
+  return String(cause);
 }
 
 function ensureTrailingNewline(value: string): string {

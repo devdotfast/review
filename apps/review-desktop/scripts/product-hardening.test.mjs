@@ -122,7 +122,7 @@ test("keeps upstream identity out of the fields Review has claimed", () => {
   ];
   for (const key of claimedKeys) {
     const value = product[key];
-    assert.equal(typeof value, "string", key);
+    assert.match(value, /\S/u, key);
     assert.doesNotMatch(value, /vscode|Microsoft|code-oss|CodeOSS/i, key);
   }
 });
@@ -217,3 +217,4 @@ test("configures Zod's CSP-safe mode before the canvas module evaluates", () => 
     /canvasGlobal\.__zod_globalConfig\.jitless = true;/,
   );
 });
+

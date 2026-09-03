@@ -54,7 +54,11 @@ test("comment zone widgets recognise Review inline code editors", () => {
   );
 });
 
-test("files entries and label URIs (ported in a later commit)", () => {
+// `reviewFilesDiffView.ts` reaches the DOM through the multi-diff widget and a
+// CSS import, so nothing under `code-oss/src/vs/review/**/*.test.ts` can import
+// it under plain Node. These four needles stand in for the behaviour until the
+// `.test.ts` tier gains a DOM harness.
+test("the Files view builds its entries and follows the widget's active item", () => {
   const reviewFilesDiffView = source(
     "../code-oss/src/vs/review/services/reviewFilesDiffView.ts",
   );
@@ -62,5 +66,13 @@ test("files entries and label URIs (ported in a later commit)", () => {
   assert.match(
     reviewFilesDiffView,
     /export async function buildReviewFilesEntries/,
+  );
+  assert.match(
+    reviewFilesDiffView,
+    /this\.widget\.onDidChangeActiveItem\(\(\) =>\s*this\.syncFileSelectionFromWidget\(\),?\s*\)/,
+  );
+  assert.match(
+    reviewFilesDiffView,
+    /toggleRenderSideBySide\(\): void \{[\s\S]*?this\.widget\.getActiveItem\(\)\?\.modified/,
   );
 });

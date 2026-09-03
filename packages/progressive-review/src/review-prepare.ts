@@ -3,6 +3,8 @@ import crypto from "node:crypto";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { jsonObject, parseJsonText } from "@dev.fast/review-protocol";
+
 import { withFileLock } from "./with-file-lock";
 
 // Dependency preparation for pinned worktrees. The repo owner configures the
@@ -175,10 +177,10 @@ export async function markerMatches(
   expectedHash: string,
 ): Promise<boolean> {
   return readFile(markerPath, "utf8")
-    .then((contents) => {
-      const value = JSON.parse(contents) as { commandsHash?: unknown };
-      return value.commandsHash === expectedHash;
-    })
+    .then(
+      (contents) =>
+        jsonObject(parseJsonText(contents))?.commandsHash === expectedHash,
+    )
     .catch(() => false);
 }
 

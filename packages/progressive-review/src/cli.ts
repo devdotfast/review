@@ -93,17 +93,15 @@ function maybeDelegateToDesktopCli(argv: string[]): number | null {
   }
   // Prefer the app's Electron-as-Node runtime: it matches the server exactly
   // and works even when this process runs on an older system Node.
+  const childEnv: NodeJS.ProcessEnv = {
+    ...env,
+    DEV_FAST_REVIEW_CLI_DELEGATED: "1",
+  };
+  if (runtimePath) childEnv.ELECTRON_RUN_AS_NODE = "1";
   const result = spawnSync(
     runtimePath ?? process.execPath,
     [cliPath, ...argv],
-    {
-      stdio: "inherit",
-      env: {
-        ...env,
-        DEV_FAST_REVIEW_CLI_DELEGATED: "1",
-        ...(runtimePath ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
-      },
-    },
+    { stdio: "inherit", env: childEnv },
   );
   if (result.signal) {
     process.kill(process.pid, result.signal);

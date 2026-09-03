@@ -4,7 +4,7 @@ import type {
   TutorialFeatureProps,
   TutorialViewButtonProps,
 } from "../../src/authoring";
-import { useReview } from "./review-context";
+import { useReviewActions } from "./review-context";
 import { useTutorial } from "./tutorial-context";
 
 export function TutorialFeature({
@@ -12,9 +12,9 @@ export function TutorialFeature({
   children,
 }: TutorialFeatureProps): ReactElement | null {
   const tutorial = useTutorial();
-  const review = useReview();
+  const { softwareMapEnabled } = useReviewActions();
   if (!tutorial) return null;
-  if (feature === "softwareMap" && !review.softwareMapEnabled) return null;
+  if (feature === "softwareMap" && !softwareMapEnabled) return null;
   return <>{children}</>;
 }
 
@@ -23,9 +23,9 @@ export function TutorialViewButton({
   children,
 }: TutorialViewButtonProps): ReactElement | null {
   const tutorial = useTutorial();
-  const review = useReview();
+  const { softwareMapEnabled } = useReviewActions();
   if (!tutorial) return null;
-  if (view === "map" && !review.softwareMapEnabled) return null;
+  if (view === "map" && !softwareMapEnabled) return null;
   return (
     <button
       type="button"

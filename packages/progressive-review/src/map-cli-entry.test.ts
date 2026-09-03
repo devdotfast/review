@@ -7,20 +7,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { collectingWritable } from "./cli-output";
+import type { runSoftwareMapCli } from "./map-cli";
+import { runSoftwareMapCliEntry } from "./map-cli-entry";
 
-const mapMocks = vi.hoisted(() => ({
-  runSoftwareMapCli: vi.fn<typeof import("./map-cli").runSoftwareMapCli>(),
-}));
-
-vi.mock("./map-cli", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./map-cli")>();
-  return {
-    ...actual,
-    runSoftwareMapCli: mapMocks.runSoftwareMapCli,
-  };
-});
-
-const { runSoftwareMapCliEntry } = await import("./map-cli-entry");
+const mapMocks = {
+  runSoftwareMapCli: vi.fn<typeof runSoftwareMapCli>(),
+};
 
 describe("runSoftwareMapCliEntry telemetry", () => {
   const tempDirs: string[] = [];
@@ -46,6 +38,7 @@ describe("runSoftwareMapCliEntry telemetry", () => {
         env: await telemetryEnv(tempDirs),
         stdout: writableOutput([]),
         stderr: writableOutput([]),
+        runSoftwareMapCli: mapMocks.runSoftwareMapCli,
       });
 
       expect(exitCode).toBe(0);
@@ -76,6 +69,7 @@ describe("runSoftwareMapCliEntry telemetry", () => {
       env: await telemetryEnv(tempDirs),
       stdout: writableOutput([]),
       stderr: writableOutput([]),
+      runSoftwareMapCli: mapMocks.runSoftwareMapCli,
     });
 
     const body = lastCaptureBody(fetchMock);
@@ -102,6 +96,7 @@ describe("runSoftwareMapCliEntry telemetry", () => {
       env: await telemetryEnv(tempDirs),
       stdout: writableOutput([]),
       stderr: writableOutput([]),
+      runSoftwareMapCli: mapMocks.runSoftwareMapCli,
     });
 
     expect(exitCode).toBe(1);

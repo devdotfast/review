@@ -23,6 +23,9 @@ interface AcquiredLockSync {
   release: () => void;
 }
 
+/** What the locked callback produced: its value, or whatever it threw. */
+type CallbackOutcome<T> = { value: T } | { thrown: unknown };
+
 export class FileLockTimeoutError extends Error {
   constructor(lockPath: string, waitedMs: number) {
     super(`Timed out after ${waitedMs}ms waiting for lock ${lockPath}.`);
@@ -35,12 +38,11 @@ export async function withFileLock<T>(
   callback: () => Promise<T>,
 ): Promise<T> {
   const acquired = await acquireFileLock(options);
-  let result: T | undefined;
-  let callbackError: unknown;
+  let outcome: CallbackOutcome<T>;
   try {
-    result = await callback();
-  } catch (error) {
-    callbackError = error;
+    outcome = { value: await callback() };
+  } catch (thrown) {
+    outcome = { thrown };
   }
 
   let releaseError: unknown;
@@ -50,11 +52,11 @@ export async function withFileLock<T>(
     releaseError = error;
   }
 
-  if (callbackError !== undefined) throw callbackError;
+  if ("thrown" in outcome) throw outcome.thrown;
   const compromisedError = acquired.compromisedError();
   if (compromisedError) throw compromisedError;
   if (releaseError !== undefined) throw releaseError;
-  return result as T;
+  return outcome.value;
 }
 
 export function withFileLockSync<T>(
@@ -62,12 +64,11 @@ export function withFileLockSync<T>(
   callback: () => T,
 ): T {
   const acquired = acquireFileLockSync(options);
-  let result: T | undefined;
-  let callbackError: unknown;
+  let outcome: CallbackOutcome<T>;
   try {
-    result = callback();
-  } catch (error) {
-    callbackError = error;
+    outcome = { value: callback() };
+  } catch (thrown) {
+    outcome = { thrown };
   }
 
   let releaseError: unknown;
@@ -77,11 +78,11 @@ export function withFileLockSync<T>(
     releaseError = error;
   }
 
-  if (callbackError !== undefined) throw callbackError;
+  if ("thrown" in outcome) throw outcome.thrown;
   const compromisedError = acquired.compromisedError();
   if (compromisedError) throw compromisedError;
   if (releaseError !== undefined) throw releaseError;
-  return result as T;
+  return outcome.value;
 }
 
 async function acquireFileLock(input: FileLockOptions): Promise<AcquiredLock> {
@@ -226,7 +227,8 @@ function lstatSyncOrNull(lockPath: string): fs.Stats | null {
 }
 
 function isLockContentionError(cause: unknown): boolean {
-  const code = (cause as NodeJS.ErrnoException)?.code;
+  const code =
+    cause instanceof Error && "code" in cause ? cause.code : undefined;
   return (
     code === "EEXIST" ||
     code === "ELOCKED" ||

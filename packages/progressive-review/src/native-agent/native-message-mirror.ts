@@ -132,18 +132,20 @@ export class NativeMessageMirror {
     );
     if (match) watcher.threadCursor = match.index + 1;
     const messageId = match?.message.id ?? randomUUID();
-    this.#service.upsertAgentSessionMessage({
+    const upsert: Parameters<
+      ReviewThreadsService["upsertAgentSessionMessage"]
+    >[0] = {
       mutationId: randomUUID(),
       threadId,
       messageId,
       role: message.role === "assistant" ? "agent" : "reviewer",
-      ...(message.role === "assistant"
-        ? { author: agentLabel(binding.harness) }
-        : {}),
       body: match?.message.body ?? body,
       createdAt: message.createdAt,
       agentInput: match?.message.agentInput ?? false,
-    });
+    };
+    if (message.role === "assistant")
+      upsert.author = agentLabel(binding.harness);
+    this.#service.upsertAgentSessionMessage(upsert);
     if (!match) {
       const updated = this.#currentThread(threadId);
       const index = updated?.messages.findIndex(

@@ -754,7 +754,7 @@ function codexCodeModeEvent(
   if (cmdMatch) {
     let command = cmdMatch[1];
     try {
-      command = JSON.parse(`"${cmdMatch[1]}"`) as string;
+      command = jsonString(parseJsonText(`"${cmdMatch[1]}"`)) ?? command;
     } catch {
       // Keep the escaped form.
     }

@@ -197,7 +197,7 @@ export async function applyCliInstall(input: {
     ),
   );
   if (input.targets.length > 0 || input.trace !== undefined) {
-    const code = await runInstall({
+    const installInput: Parameters<typeof runInstall>[0] = {
       targets: input.targets,
       homeDir,
       packageRoot: input.packageRoot,
@@ -207,16 +207,15 @@ export async function applyCliInstall(input: {
         wantShim || (await isFile(pathShimPath(homeDir)))
           ? pathShimPath(homeDir)
           : "review",
-      ...(input.trace !== undefined
-        ? {
-            trace: {
-              credentials: input.trace === true ? undefined : input.trace,
-            },
-          }
-        : {}),
       stdout: sink,
       stderr: sink,
-    });
+    };
+    if (input.trace !== undefined) {
+      installInput.trace = {
+        credentials: input.trace === true ? undefined : input.trace,
+      };
+    }
+    const code = await runInstall(installInput);
     if (code !== 0) return { code, output: chunks.join("") };
   }
 
@@ -276,20 +275,22 @@ export async function applyCliInstall(input: {
   const traceManaged =
     input.trace !== undefined ||
     (previous?.consent === "granted" && previous.traceManaged === true);
-  await writePrivateJsonAtomic(cliInstallStampPath(env), {
+  const stamp: ReviewCliInstallStamp = {
     consent: "granted",
     fingerprint: await installFingerprint(input.packageRoot),
     targets: [...new Set([...previousTargets, ...input.targets])],
-    ...(stampShimPath ? { shimPath: stampShimPath } : {}),
-    ...(fffRegistrations.length > 0 ? { fffRegistrations } : {}),
-    ...(traceManaged ? { traceManaged: true } : {}),
     updatedAt: new Date().toISOString(),
-  } satisfies ReviewCliInstallStamp);
-  return {
+  };
+  if (stampShimPath) stamp.shimPath = stampShimPath;
+  if (fffRegistrations.length > 0) stamp.fffRegistrations = fffRegistrations;
+  if (traceManaged) stamp.traceManaged = true;
+  await writePrivateJsonAtomic(cliInstallStampPath(env), stamp);
+  const result: Awaited<ReturnType<typeof applyCliInstall>> = {
     code: 0,
     output: chunks.join(""),
-    ...(shimPath ? { shimPath } : {}),
   };
+  if (shimPath) result.shimPath = shimPath;
+  return result;
 }
 
 export async function declineCliInstall(
@@ -413,15 +414,16 @@ export async function removeCliInstall(input: {
     const fffRegistrations = (previous.fffRegistrations ?? []).filter(
       (registration) => !removedFffTargets.has(registration.target),
     );
-    await writePrivateJsonAtomic(cliInstallStampPath(env), {
+    const stamp: ReviewCliInstallStamp = {
       consent: "granted",
-      ...(previous.fingerprint ? { fingerprint: previous.fingerprint } : {}),
       targets,
-      ...(shimPath ? { shimPath } : {}),
-      ...(fffRegistrations.length > 0 ? { fffRegistrations } : {}),
-      ...(!input.trace && previous.traceManaged ? { traceManaged: true } : {}),
       updatedAt: new Date().toISOString(),
-    } satisfies ReviewCliInstallStamp);
+    };
+    if (previous.fingerprint) stamp.fingerprint = previous.fingerprint;
+    if (shimPath) stamp.shimPath = shimPath;
+    if (fffRegistrations.length > 0) stamp.fffRegistrations = fffRegistrations;
+    if (!input.trace && previous.traceManaged) stamp.traceManaged = true;
+    await writePrivateJsonAtomic(cliInstallStampPath(env), stamp);
   }
   return { output: chunks.join("") };
 }

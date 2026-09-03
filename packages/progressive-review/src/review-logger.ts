@@ -31,7 +31,7 @@ export function createReviewLogger(input: {
           sync: true,
           colorize:
             input.colorize ??
-            Boolean((input.output as NodeJS.WriteStream).isTTY),
+            ("isTTY" in input.output && Boolean(input.output.isTTY)),
           translateTime: false,
           singleLine: true,
           messageFormat: "{event}",
@@ -88,7 +88,7 @@ export function serializeReviewError(cause: unknown): ReviewLifecycleError {
   const stack = jsonString(fields?.stack);
   const component = jsonString(fields?.component);
   const propertyPath = jsonString(fields?.propertyPath);
-  return {
+  const error: ReviewLifecycleError = {
     name:
       cause instanceof Error
         ? cause.name
@@ -97,16 +97,17 @@ export function serializeReviewError(cause: unknown): ReviewLifecycleError {
       cause instanceof Error
         ? cause.message
         : (jsonString(fields?.message) ?? String(cause)),
-    ...(stack === undefined ? {} : { stack }),
-    ...(component === undefined ? {} : { component }),
-    ...(propertyPath === undefined ? {} : { propertyPath }),
-    ...(fields && "expected" in fields
-      ? { expected: jsonSafeValue(fields.expected) }
-      : {}),
-    ...(fields && "received" in fields
-      ? { received: jsonSafeValue(fields.received) }
-      : {}),
   };
+  if (stack !== undefined) error.stack = stack;
+  if (component !== undefined) error.component = component;
+  if (propertyPath !== undefined) error.propertyPath = propertyPath;
+  if (fields && "expected" in fields) {
+    error.expected = jsonSafeValue(fields.expected);
+  }
+  if (fields && "received" in fields) {
+    error.received = jsonSafeValue(fields.received);
+  }
+  return error;
 }
 
 /** Round-trip through JSON so a value that cannot serialize still logs. */

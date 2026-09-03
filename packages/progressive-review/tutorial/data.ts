@@ -7,6 +7,9 @@ import {
 
 import authoringConversationInput from "./authoring-conversation.json";
 
+// SAFETY: scripts/check-tutorial.ts parses authoring-conversation.json with
+// tutorialAuthoringConversationSchema in CI, which pins version to 1 and role
+// to "user" | "assistant"; the JSON import only widens those literals.
 export const authoringConversation: TutorialAuthoringConversation = {
   version: authoringConversationInput.version as 1,
   title: authoringConversationInput.title,

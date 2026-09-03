@@ -12,8 +12,8 @@ import {
   selectDatabaseOperationHighlights,
 } from "./database-lens";
 import { createTestReviewDefinitionSession } from "./review-definition-test-utils";
+import { c4LayoutSignature } from "./software-map/c4-layout-geometry";
 import { defineSoftwareModel } from "./software-map/model";
-import { c4LayoutSignature } from "./software-map/SoftwareMap";
 
 const { defineSoftwareStores } = createTestReviewDefinitionSession();
 

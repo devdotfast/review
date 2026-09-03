@@ -27,7 +27,7 @@ export async function runDesktopHost(
   // This value bootstraps the stored setting. Remove it after persistence so
   // a later in-app enable also reaches telemetry instances created elsewhere.
   delete env.DEV_FAST_REVIEW_TELEMETRY_DISABLED;
-  const server = createGlobalReviewServer({
+  const serverInput: Parameters<typeof createGlobalReviewServer>[0] = {
     appPid,
     packageRoot,
     toolingRoot,
@@ -35,10 +35,11 @@ export async function runDesktopHost(
     token: env.DEV_FAST_REVIEW_SERVER_TOKEN,
     instanceId: env.DEV_FAST_REVIEW_INSTANCE_ID,
     telemetry,
-    ...(env.DEV_FAST_REVIEW_CLI_RUNTIME
-      ? { cliRuntimePath: env.DEV_FAST_REVIEW_CLI_RUNTIME }
-      : {}),
-  });
+  };
+  if (env.DEV_FAST_REVIEW_CLI_RUNTIME) {
+    serverInput.cliRuntimePath = env.DEV_FAST_REVIEW_CLI_RUNTIME;
+  }
+  const server = createGlobalReviewServer(serverInput);
   await server.listen();
   process.stdout.write(
     `${JSON.stringify({ event: "ready", ...server.discovery, installationId })}\n`,

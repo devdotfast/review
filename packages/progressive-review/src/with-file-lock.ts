@@ -61,7 +61,11 @@ export async function withFileLock<T>(
       }
       break;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if (
+        !(error instanceof Error && "code" in error && error.code === "EEXIST")
+      ) {
+        throw error;
+      }
       const lockAge = await stat(lockPath)
         .then((metadata) => Date.now() - metadata.mtimeMs)
         .catch(() => 0);
@@ -94,7 +98,7 @@ export function processIsAlive(pid: number): boolean {
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
+    return error instanceof Error && "code" in error && error.code === "EPERM";
   }
 }
 

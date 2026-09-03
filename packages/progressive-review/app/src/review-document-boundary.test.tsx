@@ -1,27 +1,29 @@
 // @vitest-environment jsdom
 
+import {
+  type JsonObject,
+  isJsonObject,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
 import { StrictMode, act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  type Mock,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { sequenceDiagramPropsSchema } from "../../src/authoring";
+import type { ReviewSession } from "./host/review-session";
 import { ReviewDocumentBoundary } from "./review-document-boundary";
 import { testReviewSession } from "./review-session-test-utils";
-import {
-  captureClientError,
-  type captureUiEvent,
-  type clientErrorName,
-} from "./ui-telemetry";
 
-const session = testReviewSession();
-
-vi.mock("./ui-telemetry", () => ({
-  captureUiEvent: vi.fn<typeof captureUiEvent>(),
-  captureClientError: vi.fn<typeof captureClientError>(),
-  clientErrorName: vi.fn<typeof clientErrorName>((error) =>
-    error instanceof Error ? error.name : "Error",
-  ),
-}));
+let request: Mock<(url: string, init?: RequestInit) => Promise<Response>>;
+let session: ReviewSession;
 
 const roots: Array<ReturnType<typeof createRoot>> = [];
 
@@ -32,7 +34,10 @@ describe("ReviewDocumentBoundary", () => {
         IS_REACT_ACT_ENVIRONMENT?: boolean;
       }
     ).IS_REACT_ACT_ENVIRONMENT = true;
-    vi.mocked(captureClientError).mockClear();
+    request = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(
+      async () => jsonResponse({ ok: true }),
+    );
+    session = testReviewSession({}, { request });
     vi.spyOn(console, "error").mockImplementation(() => undefined);
   });
 
@@ -76,12 +81,19 @@ describe("ReviewDocumentBoundary", () => {
     );
     expect(onError).toHaveBeenCalledWith("bad-1", expect.any(TypeError));
     expect(onError).toHaveBeenCalledTimes(1);
-    expect(captureClientError).toHaveBeenCalledWith(
-      session,
-      "render",
-      expect.any(TypeError),
-    );
-    expect(captureClientError).toHaveBeenCalledTimes(1);
+    expect(clientErrorReports()).toEqual([
+      expect.objectContaining({
+        name: "client_error",
+        properties: expect.objectContaining({
+          error_source: "render",
+          error_name: "TypeError",
+        }),
+        error: expect.objectContaining({
+          name: "TypeError",
+          message: "sequence actor exploded",
+        }),
+      }),
+    ]);
 
     await act(async () => {
       root.render(
@@ -123,11 +135,12 @@ describe("ReviewDocumentBoundary", () => {
       );
     });
 
-    expect(captureClientError).toHaveBeenCalledWith(
-      session,
-      "render",
-      expect.objectContaining({ name: "ZodError" }),
-    );
+    expect(clientErrorReports()).toEqual([
+      expect.objectContaining({
+        properties: expect.objectContaining({ error_source: "render" }),
+        error: expect.objectContaining({ name: "ZodError" }),
+      }),
+    ]);
   });
 });
 
@@ -140,4 +153,22 @@ function ThrowingAuthoringDocument(): never {
     label: "Request",
     messages: [{ from: "HeyGen" }],
   }) as never;
+}
+
+function clientErrorReports(): JsonObject[] {
+  return request.mock.calls
+    .filter(([url]) => url.includes("/telemetry/event"))
+    .map(([, init]) => {
+      const body = parseJsonText(String(init?.body));
+      if (!isJsonObject(body)) {
+        throw new Error("Telemetry event body is not an object");
+      }
+      return body;
+    });
+}
+
+function jsonResponse(body: JsonObject): Response {
+  return new Response(JSON.stringify(body), {
+    headers: { "content-type": "application/json" },
+  });
 }

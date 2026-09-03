@@ -16,6 +16,8 @@ export function SoftwareMapUnavailable({
   height?: number | string;
   className?: string;
 }): ReactElement {
+  // SAFETY: React passes "--*" keys through to style.setProperty; CSSProperties
+  // only lacks an index signature for custom properties.
   const style =
     height === undefined
       ? undefined

@@ -619,53 +619,55 @@ function projectRelationships(
   }));
 }
 
-function projectedRelationshipSchemaEndpoints(
-  model: NormalizedSoftwareModel,
-  bucket: RelationshipBucket,
-): Pick<
+type ProjectedRelationshipSchemaEndpoints = Pick<
   ProjectedC4Relationship,
   | "fromSchemaFieldPath"
   | "toSchemaFieldPath"
   | "fromSchemaEndpointKind"
   | "toSchemaEndpointKind"
-> {
-  if (bucket.relationships.length !== 1) return {};
+>;
+
+function projectedRelationshipSchemaEndpoints(
+  model: NormalizedSoftwareModel,
+  bucket: RelationshipBucket,
+): ProjectedRelationshipSchemaEndpoints {
+  const endpoints: ProjectedRelationshipSchemaEndpoints = {};
+  if (bucket.relationships.length !== 1) return endpoints;
   const relationship = bucket.relationships[0];
-  if (!relationship) return {};
+  if (!relationship) return endpoints;
   const fromEndpoint = looksLikeDataStoreSchemaEndpoint(relationship.from)
     ? parseDataStoreSchemaEndpoint(relationship.from, model.elementsByPath)
     : undefined;
   const toEndpoint = looksLikeDataStoreSchemaEndpoint(relationship.to)
     ? parseDataStoreSchemaEndpoint(relationship.to, model.elementsByPath)
     : undefined;
-  return {
-    ...(fromEndpoint &&
+  if (
+    fromEndpoint &&
     bucket.from ===
       dataStoreCollectionPath(
         fromEndpoint.dataStorePath,
         fromEndpoint.collectionKind,
         fromEndpoint.collectionId,
       )
-      ? {
-          fromSchemaFieldPath: fromEndpoint.fieldPath,
-          fromSchemaEndpointKind:
-            fromEndpoint.fieldPath.length > 0 ? "field" : "header",
-        }
-      : {}),
-    ...(toEndpoint &&
+  ) {
+    endpoints.fromSchemaFieldPath = fromEndpoint.fieldPath;
+    endpoints.fromSchemaEndpointKind =
+      fromEndpoint.fieldPath.length > 0 ? "field" : "header";
+  }
+  if (
+    toEndpoint &&
     bucket.to ===
       dataStoreCollectionPath(
         toEndpoint.dataStorePath,
         toEndpoint.collectionKind,
         toEndpoint.collectionId,
       )
-      ? {
-          toSchemaFieldPath: toEndpoint.fieldPath,
-          toSchemaEndpointKind:
-            toEndpoint.fieldPath.length > 0 ? "field" : "header",
-        }
-      : {}),
-  };
+  ) {
+    endpoints.toSchemaFieldPath = toEndpoint.fieldPath;
+    endpoints.toSchemaEndpointKind =
+      toEndpoint.fieldPath.length > 0 ? "field" : "header";
+  }
+  return endpoints;
 }
 
 function looksLikeDataStoreSchemaEndpoint(endpoint: string) {

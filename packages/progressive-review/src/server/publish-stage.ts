@@ -14,6 +14,7 @@ export async function materializePublishRevision(input: {
   try {
     if ((await stat(destinationPath)).isDirectory()) return destinationPath;
   } catch (error) {
+    // SAFETY: fs/promises stat rejects with a Node ErrnoException carrying `code`.
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
   await mkdir(path.dirname(destinationPath), { recursive: true, mode: 0o700 });

@@ -129,7 +129,7 @@ export async function ensurePinnedReviewWorktreeAtCommit(
   }
 
   const commands = await devfastPrepareCommands(input.repoRoot).catch(
-    () => [] as string[],
+    (): string[] => [],
   );
   if (commands.length === 0) {
     return sourceRootPath;

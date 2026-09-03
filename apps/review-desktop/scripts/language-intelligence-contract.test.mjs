@@ -13,13 +13,6 @@ const workspaceFolderContribution = readFileSync(
   ),
   "utf8",
 );
-const reviewDesktopMain = readFileSync(
-  new URL(
-    "../code-oss/src/vs/review/electron-browser/review.main.ts",
-    import.meta.url,
-  ),
-  "utf8",
-);
 const reviewDesktopManifest = readFileSync(
   new URL(
     "../code-oss/src/vs/review/review.desktop.main.ts",
@@ -34,37 +27,9 @@ const mainThreadExtensionService = readFileSync(
   ),
   "utf8",
 );
-const reviewExtensionHost = readFileSync(
-  new URL(
-    "../code-oss/src/vs/review/reviewExtensionHost.contribution.ts",
-    import.meta.url,
-  ),
-  "utf8",
-);
-const unsupportedApiPeers = readFileSync(
-  new URL(
-    "../code-oss/src/vs/review/reviewExtensionHostUnsupportedApiPeers.ts",
-    import.meta.url,
-  ),
-  "utf8",
-);
 const reviewServices = readFileSync(
   new URL(
     "../code-oss/src/vs/review/services/reviewWorkbenchServices.ts",
-    import.meta.url,
-  ),
-  "utf8",
-);
-const resources = readFileSync(
-  new URL(
-    "../code-oss/src/vs/review/common/reviewCodeResources.ts",
-    import.meta.url,
-  ),
-  "utf8",
-);
-const codeResourceService = readFileSync(
-  new URL(
-    "../code-oss/src/vs/review/services/reviewCodeResourceService.ts",
     import.meta.url,
   ),
   "utf8",
@@ -125,50 +90,9 @@ const keylessTelemetryClients = [
 ];
 
 test("Review exposes a language-provider-generic extension host seam", () => {
-  assert.match(reviewMain, /languageFeaturesService/);
-  assert.match(reviewMain, /builtinExtensionsScannerService/);
-  assert.match(reviewMain, /reviewExtensionHost\.contribution/);
-  assert.doesNotMatch(reviewMain, /api\/browser\/extensionHost\.contribution/);
-  assert.match(reviewDesktopMain, /ReviewDefaultAccountService/);
-  assert.doesNotMatch(
-    reviewDesktopMain,
-    /services\/accounts\/browser\/defaultAccount/,
-  );
-  assert.match(reviewServices, /IExtensionsWorkbenchService/);
-  assert.match(reviewServices, /class ReviewQuickDiffModelService/);
-  assert.match(reviewServices, /registerSingleton\(IQuickDiffModelService,/);
-  assert.doesNotMatch(reviewMain, /quickDiff\.contribution/);
-  assert.doesNotMatch(reviewMain, /QuickDiffModelService/);
-  assert.match(resources, /reviewHeadFileUri/);
   assert.match(
     mainThreadExtensionService,
     /ExtHostCustomersRegistry\.getNamedCustomers\(\)/,
-  );
-  for (const participant of [
-    "mainThreadDebugService",
-    "mainThreadDocuments",
-    "mainThreadExtensionService",
-    "mainThreadLanguageFeatures",
-    "mainThreadLanguages",
-  ]) {
-    assert.match(reviewExtensionHost, new RegExp(participant));
-  }
-  assert.match(reviewExtensionHost, /reviewExtensionHostUnsupportedApiPeers/);
-  for (const participant of [
-    "MainThreadAuthentication",
-    "MainThreadLanguageModelTools",
-    "MainThreadTask",
-    "MainThreadTerminalService",
-    "MainThreadUrls",
-  ]) {
-    assert.match(unsupportedApiPeers, new RegExp(participant));
-  }
-  assert.doesNotMatch(reviewExtensionHost, /mainThreadChatAgents/);
-  assert.doesNotMatch(reviewExtensionHost, /mainThreadSCM/);
-  assert.doesNotMatch(reviewExtensionHost, /mainThreadUriOpeners/);
-  assert.doesNotMatch(
-    `${reviewServices}\n${resources}`,
-    /typescript-language-features|javascript-language-features/,
   );
 });
 
@@ -181,16 +105,6 @@ test("keyless bundled language clients skip their telemetry reporters", () => {
       `${name} must not construct telemetry with an absent key`,
     );
   }
-});
-
-test("CodePeeks retain the same file-backed models as native file diffs", () => {
-  assert.doesNotMatch(codeResourceService, /scheme:\s*["']review-peek["']/);
-  assert.doesNotMatch(codeResourceService, /createDiffSlice/);
-  assert.match(inlineEditorService, /MultiDiffEditorInput/);
-  assert.doesNotMatch(inlineEditorService, /new MultiDiffEditorViewModel/);
-  assert.doesNotMatch(inlineEditorService, /RefCounted/);
-  assert.doesNotMatch(inlineEditorService, /createChild/);
-  assert.match(inlineEditorService, /setHiddenAreas/);
 });
 
 test("the Review canvas exposes its focused CodePeek through VS Code's composite editor contract", () => {

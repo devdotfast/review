@@ -1,0 +1,626 @@
+import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
+
+/**
+ * Software map for 65dab35 (base) — the Review runtime as a stack of caches.
+ * Every layer between a reviewer's click and a VCS subprocess memoizes: the
+ * renderer caches CodePeek results, software-map resolved data, agent traces
+ * and review document modules; the local server caches request-scoped source
+ * targets and diffs plus a process-wide resolved-data cache; the document
+ * pipeline caches compilations in memory and document-scan manifests on disk;
+ * and local-vcs caches command output on a short TTL behind an argv allow-list.
+ */
+export default defineSoftwareMap({
+  people: {
+    reviewer: {
+      label: "Reviewer",
+      description:
+        "Developer reading agent-authored changes in Review Desktop: opens CodePeeks, software maps, and agent traces.",
+    },
+  },
+  systems: {
+    review: {
+      label: "Review Desktop",
+      description:
+        "Local desktop app plus its local server that turn agent-authored changes into guided Reviews.",
+      containers: {
+        reviewApp: {
+          label: "Review renderer app",
+          description:
+            "The React app rendered inside Review documents: CodePeeks, software maps, agent traces, and the module loader that pulls compiled documents from the server.",
+          coverage: {
+            files: [
+              { path: "packages/progressive-review/app/src/CodePeek.tsx" },
+              { path: "packages/progressive-review/app/src/ReviewTraceView.tsx" },
+              { path: "packages/progressive-review/app/src/desktop-entry.tsx" },
+              { path: "packages/progressive-review/app/src/host/review-client.ts" },
+              { path: "packages/progressive-review/app/src/software-map/SoftwareMap.tsx" },
+              { path: "packages/progressive-review/app/src/use-agent-trace.ts" },
+            ],
+          },
+          components: {
+            codePeek: {
+              label: "CodePeek",
+              description:
+                "Inline code excerpt embedded in a Review document; resolves a validated ref to a source snapshot and optional diff.",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/app/src/CodePeek.tsx" },
+                ],
+              },
+              codeElements: {
+                useCodePeekResolution: {
+                  label: "useCodePeekResolution",
+                  description:
+                    "Hook that derives a request key from the request path and resolve input, seeds state from the cached result for that key, then fetches.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.reviewApp.codePeek.fetchCodePeekResultWithRetry",
+                      label: "fetches on key change",
+                    },
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.reviewApp.codePeek.codePeekResultCache",
+                      semanticKind: "reads",
+                      label: "renders the cached snapshot first",
+                    },
+                  ],
+                },
+                codePeekResultCache: {
+                  label: "CodePeek result cache",
+                  description:
+                    "Version-tagged in-memory Map of resolved CodePeek results mirrored into window session storage, capped at 30 entries and keyed by request path plus resolve input.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.reviewServer.reviewApi.codePeekResolve",
+                      semanticKind: "shadows",
+                      label: "answers repeats without a request",
+                    },
+                  ],
+                },
+                fetchCodePeekResultWithRetry: {
+                  label: "fetchCodePeekResultWithRetry",
+                  description:
+                    "Dedupes concurrent resolves against an in-flight request map, then retries the resolve endpoint on a fixed backoff schedule.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.reviewServer.reviewApi.codePeekResolve",
+                      label: "POST /code-peek/resolve",
+                    },
+                  ],
+                },
+              },
+            },
+            softwareMapView: {
+              label: "Software map view",
+              description:
+                "Renders a Review's software map and resolves per-element diff counts, coverage, and source ranges from the server.",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/app/src/software-map/SoftwareMap.tsx" },
+                ],
+              },
+              codeElements: {
+                fetchSoftwareMapResolvedData: {
+                  label: "fetchSoftwareMapResolvedData",
+                  description:
+                    "Resolved-data fetch that consults the value cache and the in-flight request cache before calling the endpoint, with a force flag that bypasses both.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.reviewServer.reviewApi.softwareMapResolvedData",
+                      label: "POST /software-map/resolved-data",
+                    },
+                  ],
+                },
+                resolvedDataCaches: {
+                  label: "resolved-data caches",
+                  description:
+                    "Module-level request, value, and last-usable-snapshot Maps keyed by a resolved-data cache version plus the map's signature, each evicted past 20 entries and mirrored into session storage.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.reviewServer.reviewApi.softwareMapResolvedDataCache",
+                      semanticKind: "mirrors",
+                      label: "client-side twin of the server cache",
+                    },
+                  ],
+                },
+                stableModelSnapshot: {
+                  label: "stable model snapshot",
+                  description:
+                    "Last usable resolved snapshot, restored from session storage on mount, that keeps the map rendered while a new resolve is in flight.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "reviewer",
+                      semanticKind: "serves",
+                      label: "shows stale map data during refresh",
+                    },
+                  ],
+                },
+              },
+            },
+            agentTraceLoader: {
+              label: "Agent trace loader",
+              description:
+                "Shared hook that loads an agent session trace and shares one request and one cached response across every component asking for it.",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/app/src/use-agent-trace.ts" },
+                ],
+              },
+              codeElements: {
+                useAgentTrace: {
+                  label: "useAgentTrace",
+                  description:
+                    "Returns idle/loading/loaded/error state for a session trace, starting from the cached trace when one exists and subscribing to any in-flight request instead of issuing a second one.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.reviewServer.reviewApi.agentTraceDetail",
+                      label: "GET /agent-traces/:sessionId",
+                    },
+                  ],
+                },
+                agentTraceCaches: {
+                  label: "agent trace caches",
+                  description:
+                    "Session-scoped WeakMaps holding loaded traces by key and in-flight requests with their subscriber sets and abort controllers.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.reviewServer.reviewApi.agentTraceDetail",
+                      semanticKind: "shadows",
+                      label: "one fetch per session and trace key",
+                    },
+                  ],
+                },
+                getAgentTraceCache: {
+                  label: "getAgentTraceCache",
+                  description:
+                    "Synchronous cache read used by views that want trace metadata without triggering a load.",
+                },
+                clearAgentTraceCache: {
+                  label: "clearAgentTraceCache",
+                  description:
+                    "Drops a session's cached traces and aborts its in-flight requests, or resets every session when called with no argument.",
+                },
+              },
+            },
+            traceView: {
+              label: "Review trace view",
+              description:
+                "Trace picker and header rendered inside a Review document for the selected agent session.",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/app/src/ReviewTraceView.tsx" },
+                ],
+              },
+              codeElements: {
+                traceHeaderMetadata: {
+                  label: "trace header metadata",
+                  description:
+                    "Chooses the harness and title shown for the active trace and each picker row by reading the trace cache directly, falling back to the target's declared values.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.reviewApp.agentTraceLoader.getAgentTraceCache",
+                      label: "reads cached trace metadata",
+                    },
+                  ],
+                },
+              },
+            },
+            reviewClient: {
+              label: "Review host client",
+              description:
+                "Fetch and dynamic-import helpers that talk to the local review server from the renderer.",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/app/src/host/review-client.ts" },
+                ],
+              },
+              codeElements: {
+                importReviewModule: {
+                  label: "importReviewModule",
+                  description:
+                    "Imports a server-built review document module, returning the memoized promise for a module URL and doc-runtime URL pair and evicting it when the import rejects.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.reviewServer.docBundler.buildReviewDocument",
+                      label: "loads the bundled document module",
+                    },
+                  ],
+                },
+                reviewModuleCache: {
+                  label: "reviewModuleCache",
+                  description:
+                    "Module-level promise Map keyed by module URL plus doc-runtime URL so a document module is bundled and evaluated once per renderer.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.reviewServer.docBundler.buildReviewDocument",
+                      semanticKind: "shadows",
+                      label: "repeat imports never reach the bundler",
+                    },
+                  ],
+                },
+              },
+            },
+            appEntry: {
+              label: "Desktop app entry",
+              description:
+                "Mounts the Review canvas and its providers into the desktop shell and updates it as document content changes.",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/app/src/desktop-entry.tsx" },
+                ],
+              },
+              codeElements: {
+                mountReviewCanvas: {
+                  label: "mountReviewCanvas",
+                  description:
+                    "Mounts the canvas and, on every content update, invalidates the session's agent trace cache before re-rendering.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.reviewApp.agentTraceLoader.clearAgentTraceCache",
+                      label: "invalidates traces on update",
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        reviewServer: {
+          label: "progressive-review local server",
+          description:
+            "The local Node server behind a Review: the HTTP API the renderer calls, the esbuild document bundler, and the document compiler and scanner that feed it.",
+          coverage: {
+            files: [
+              { path: "packages/progressive-review/src/compiler/review-document-compiler.ts" },
+              { path: "packages/progressive-review/src/compiler/review-documents-module.ts" },
+              { path: "packages/progressive-review/src/server/doc-bundler.ts" },
+              { path: "packages/progressive-review/src/server/review-api.ts" },
+            ],
+          },
+          components: {
+            reviewApi: {
+              label: "Review HTTP API",
+              description:
+                "Hono app serving one review session: CodePeek resolution, software-map resolved data, agent traces, comments, and diffs.",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/src/server/review-api.ts" },
+                ],
+              },
+              codeElements: {
+                requestCache: {
+                  label: "ReviewApiRequestCache",
+                  description:
+                    "Per-server cache allocated in createReviewApi holding promises for resolved source targets, CodePeek diff files, and the session's commit range, with failed entries evicted.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.localVcs.commandLayer.commandOutput",
+                      semanticKind: "avoids",
+                      label: "skips repeat VCS subprocesses",
+                    },
+                  ],
+                },
+                codePeekResolve: {
+                  label: "codePeekResolve",
+                  description:
+                    "Resolves a CodePeek request to a source snapshot and optional diff, threading the request cache through source-target and diff resolution.",
+                },
+                resolveRequestSourceTarget: {
+                  label: "resolveRequestSourceTarget",
+                  description:
+                    "Resolves the review's pinned head and base checkouts for a request, memoized in the request cache by resolved review document path.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.localVcs.commandLayer.repoIdentityResolution",
+                      semanticKind: "resolves",
+                      label: "repo root and refs",
+                    },
+                  ],
+                },
+                resolveCodePeekDiffFiles: {
+                  label: "resolveCodePeekDiffFiles",
+                  description:
+                    "Runs the review diff for a set of paths, memoized in the request cache by diff root, refs, and paths whenever a head ref is pinned.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.localVcs.commandLayer.commandOutput",
+                      semanticKind: "invokes",
+                      label: "one diff per uncached tuple",
+                    },
+                  ],
+                },
+                softwareMapResolvedData: {
+                  label: "softwareMapResolvedData",
+                  description:
+                    "Builds per-element diff counts, coverage, and source ranges for a software map, served through the process-wide resolved-data cache.",
+                },
+                softwareMapResolvedDataCache: {
+                  label: "software map resolved-data cache",
+                  description:
+                    "Process-wide promise cache of resolved-data responses keyed by a stable hash of cache version, review document path and mtime, roots, refs, code elements, and coverage claims; capped at 50 entries and reset by the artifacts-refresh route.",
+                },
+                reviewCommits: {
+                  label: "reviewCommits",
+                  description:
+                    "Lists the commit range between the pinned base and head, memoized once per server in the request cache.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.localVcs.commandLayer.commandOutput",
+                      semanticKind: "invokes",
+                      label: "lists the commit range",
+                    },
+                  ],
+                },
+                agentTraceDetail: {
+                  label: "agentTraceDetail",
+                  description:
+                    "Serves one agent session's parsed trace to the renderer.",
+                },
+              },
+            },
+            docBundler: {
+              label: "Review document bundler",
+              description:
+                "Compiles and esbuild-bundles the active Review document into the ES module the renderer imports.",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/src/server/doc-bundler.ts" },
+                ],
+              },
+              codeElements: {
+                buildReviewDocument: {
+                  label: "buildReviewDocument",
+                  description:
+                    "Refreshes the requested route's scan entry, compiles the document, bundles it with esbuild, and cancels the scan in a finally block on every exit path.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.reviewServer.documentScan.ensureReviewDocumentFresh",
+                      label: "refreshes the route's manifest",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.reviewServer.documentCompiler.compileReviewDocument",
+                      label: "compiles the MDX document",
+                    },
+                  ],
+                },
+              },
+            },
+            documentCompiler: {
+              label: "Review document compiler",
+              description:
+                "Turns a Review MDX document into runtime code plus diagnostics, keyed by a revision over the document and its dependencies.",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/src/compiler/review-document-compiler.ts" },
+                ],
+              },
+              codeElements: {
+                compileReviewDocument: {
+                  label: "compileReviewDocument",
+                  description:
+                    "Returns the memoized compilation promise for a document revision, evicting the entry when compilation rejects.",
+                },
+                compilationCache: {
+                  label: "compilation cache",
+                  description:
+                    "Module-level Map of revision key to compilation promise, capped at 50 entries and evicted oldest-first.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.reviewServer.docBundler.buildReviewDocument",
+                      semanticKind: "serves",
+                      label: "repeat builds skip type checking",
+                    },
+                  ],
+                },
+                reviewDocumentRevision: {
+                  label: "reviewDocumentRevision",
+                  description:
+                    "Cache key over the document source and every dependency path collected by collectReviewDocumentDependencies, which deliberately includes missing resolution candidates so creating a module invalidates a cached diagnostic.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.reviewServer.documentScan",
+                      semanticKind: "parallels",
+                      label: "both fingerprint document inputs",
+                    },
+                  ],
+                },
+              },
+            },
+            documentScan: {
+              label: "Review document scan",
+              description:
+                "Discovers Review documents, resolves each one's manifest (title, models, pinned software-map artifact paths), and generates the module the renderer imports.",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/src/compiler/review-documents-module.ts" },
+                ],
+              },
+              codeElements: {
+                collectReviewDocumentScan: {
+                  label: "collectReviewDocumentScan",
+                  description:
+                    "Synchronous directory scan served from an in-memory cache keyed by the normalized scan input and revalidated against an mtime/size fingerprint of the review store and every document.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.localVcs.commandLayer.commandOutputSync",
+                      semanticKind: "invokes",
+                      label: "sync ref reads",
+                    },
+                  ],
+                },
+                asyncScanState: {
+                  label: "async scan state",
+                  description:
+                    "Per-key state holding discovered documents, disk-seeded manifests, and in-flight manifest scans, run through a concurrency limiter sized by DEV_FAST_REVIEW_DOCUMENT_SCAN_CONCURRENCY and cancellable by the caller.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.reviewServer.docBundler.buildReviewDocument",
+                      semanticKind: "serves",
+                      label: "non-active documents resolve lazily",
+                    },
+                  ],
+                },
+                scanDiskCache: {
+                  label: "document scan disk cache",
+                  description:
+                    "Per-document JSON entry under the repo storage root, named by a sha256 of the document path and usable only when file mtime/size, route, and resolved head and base refs all still match and the recorded software-map artifacts still exist.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.reviewServer.docBundler.buildReviewDocument",
+                      semanticKind: "serves",
+                      label: "cold builds skip artifact materialization",
+                    },
+                  ],
+                },
+                ensureReviewDocumentManifest: {
+                  label: "ensureReviewDocumentManifest",
+                  description:
+                    "Returns a document's manifest from the disk cache when it is still usable, otherwise loads it and writes a fresh cache entry for pinned refs.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.localVcs.commandLayer.commandOutput",
+                      semanticKind: "invokes",
+                      label: "resolves head and base refs",
+                    },
+                  ],
+                },
+                ensureReviewDocumentFresh: {
+                  label: "ensureReviewDocumentFresh",
+                  description:
+                    "Re-resolves one route's manifest, compares it with the seeded one, and reports the software-map paths plus whether the module must be invalidated.",
+                },
+              },
+            },
+          },
+        },
+        localVcs: {
+          label: "@dev.fast/local-vcs",
+          description:
+            "Shared jj-first Git and jj wrapper: every ref, diff, and repo-identity query in Review goes through it.",
+          coverage: {
+            files: [{ path: "packages/local-vcs/src/index.ts" }],
+          },
+          components: {
+            commandLayer: {
+              label: "VCS command layer",
+              description:
+                "Runs jj and git subprocesses for the whole product and memoizes the read-only ones.",
+              coverage: {
+                files: [{ path: "packages/local-vcs/src/index.ts" }],
+              },
+              codeElements: {
+                commandOutput: {
+                  label: "commandOutput",
+                  description:
+                    "Async subprocess entry point: serves cacheable read queries from the TTL cache, joins an in-flight run when one exists, and otherwise spawns and records the result.",
+                },
+                commandOutputSync: {
+                  label: "commandOutputSync",
+                  description:
+                    "Synchronous twin of commandOutput sharing the same allow-list and TTL, negative-caching failures so a failing query returns null without respawning.",
+                },
+                commandOutputCaches: {
+                  label: "command output caches",
+                  description:
+                    "Async and sync success/failure caches on a 4s TTL plus an in-flight promise map, keyed by command, canonical cwd, trim flag, and argv; DEV_FAST_LOCAL_VCS_NO_CACHE disables them and an argv allow-list restricts caching to read-only jj and git queries.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.reviewServer.reviewApi.requestCache",
+                      semanticKind: "backs",
+                      label: "second layer behind request caches",
+                    },
+                  ],
+                },
+                repoIdentityResolution: {
+                  label: "repo identity resolution",
+                  description:
+                    "gitCommonDir and resolveRepoContext, with sync twins, resolving the shared Git directory and origin identity for a root; both memoize per resolved root for the life of the process, including negative results, and expose test hooks that clear them.",
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  relationships: [
+    {
+      kind: "semantic",
+      from: "reviewer",
+      to: "review",
+      semanticKind: "uses",
+      label: "reads reviews",
+      description:
+        "Opens Review documents and navigates their CodePeeks, software maps, and agent traces.",
+    },
+    {
+      kind: "semantic",
+      from: "review.reviewApp",
+      to: "review.reviewServer",
+      semanticKind: "consumes",
+      label: "local review HTTP API",
+      description:
+        "Every renderer view resolves its data from the session-scoped local server.",
+    },
+    {
+      kind: "semantic",
+      from: "review.reviewServer",
+      to: "review.localVcs",
+      semanticKind: "uses",
+      label: "ref, diff, and identity queries",
+      description:
+        "Source-target resolution, diffs, commit ranges, and document ref resolution all bottom out in local-vcs subprocesses.",
+    },
+  ],
+});

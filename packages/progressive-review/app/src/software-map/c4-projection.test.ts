@@ -1005,6 +1005,188 @@ describe("projectInlineC4", () => {
       ),
     ).toBe(false);
   });
+
+  it("keeps foreign-key edges when a changed data store is expanded in modified-only mode", () => {
+    const model = defineSoftwareModel({
+      systems: {
+        product: {
+          changeStatus: "modified",
+          dataStores: {
+            graphDb: {
+              kind: "database",
+              label: "Graph DB",
+              changeStatus: "modified",
+              tables: {
+                nodes: {
+                  schema: {
+                    id: { type: "text", pk: true },
+                    source_file: { type: "text", fk: "source_files.path" },
+                  },
+                },
+                source_files: {
+                  schema: { path: { type: "text", pk: true } },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const projection = projectInlineC4({
+      model,
+      expandedNodeIds: new Set(["product", "product.graphDb"]),
+      modifiedOnly: true,
+    });
+
+    expect(
+      projection.nodes.map((node) => ({ path: node.path, type: node.type })),
+    ).toEqual([
+      { path: "product", type: "softwareSystem" },
+      { path: "product.graphDb", type: "dataStore" },
+      {
+        path: "product.graphDb.tables.nodes",
+        type: "dataStoreCollection",
+      },
+      {
+        path: "product.graphDb.tables.source_files",
+        type: "dataStoreCollection",
+      },
+    ]);
+    expect(projection.relationships).toEqual([
+      expect.objectContaining({
+        id: "schema-fk:product.graphDb.tables.nodes.source_file->product.graphDb.tables.source_files.path",
+        kind: "semantic",
+        semanticKind: "foreign key",
+        from: "product.graphDb.tables.nodes",
+        to: "product.graphDb.tables.source_files",
+        hideLabel: true,
+        fromSchemaFieldPath: ["source_file"],
+        fromSchemaEndpointKind: "field",
+        toSchemaFieldPath: [],
+        toSchemaEndpointKind: "header",
+      }),
+    ]);
+    expect(
+      projection.relationships.some(
+        (relationship) => relationship.kind === "implied",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps schema-field relationships when a changed data store is expanded in modified-only mode", () => {
+    const model = defineSoftwareModel({
+      systems: {
+        product: {
+          changeStatus: "modified",
+          containers: {
+            emitter: {
+              changeStatus: "modified",
+              components: { writer: {} },
+            },
+          },
+          dataStores: {
+            graphDb: {
+              kind: "database",
+              label: "Graph DB",
+              changeStatus: "modified",
+              tables: {
+                nodes: { schema: { id: { type: "text", pk: true } } },
+              },
+            },
+          },
+        },
+      },
+      relationships: [
+        {
+          kind: "semantic",
+          semanticKind: "writes",
+          from: "product.emitter.writer",
+          to: "product.graphDb.tables.nodes.id",
+          label: "writes nodes",
+        },
+      ],
+    });
+
+    const collapsed = projectInlineC4({
+      model,
+      expandedNodeIds: new Set(["product"]),
+      modifiedOnly: true,
+    });
+    expect(
+      collapsed.relationships.map((r) => ({ from: r.from, to: r.to })),
+    ).toEqual([{ from: "product.emitter", to: "product.graphDb" }]);
+
+    const expanded = projectInlineC4({
+      model,
+      expandedNodeIds: new Set(["product", "product.graphDb"]),
+      modifiedOnly: true,
+    });
+    expect(
+      expanded.relationships.map((r) => ({ from: r.from, to: r.to })),
+    ).toEqual([
+      { from: "product.emitter", to: "product.graphDb.tables.nodes" },
+    ]);
+    expect(expanded.relationships).toContainEqual(
+      expect.objectContaining({
+        from: "product.emitter",
+        to: "product.graphDb.tables.nodes",
+        toSchemaFieldPath: ["id"],
+        toSchemaEndpointKind: "field",
+      }),
+    );
+    expect(expanded.relationships.some((r) => r.kind === "implied")).toBe(
+      false,
+    );
+  });
+
+  it("does not seed collection nodes for an unchanged expanded data store in modified-only mode", () => {
+    const model = defineSoftwareModel({
+      systems: {
+        product: {
+          changeStatus: "modified",
+          containers: {
+            emitter: {
+              changeStatus: "modified",
+              components: { writer: {} },
+            },
+          },
+          dataStores: {
+            graphDb: {
+              kind: "database",
+              label: "Graph DB",
+              tables: {
+                nodes: {
+                  schema: {
+                    id: { type: "text", pk: true },
+                    source_file: { type: "text", fk: "source_files.path" },
+                  },
+                },
+                source_files: {
+                  schema: { path: { type: "text", pk: true } },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const projection = projectInlineC4({
+      model,
+      expandedNodeIds: new Set(["product", "product.graphDb"]),
+      modifiedOnly: true,
+    });
+
+    expect(projection.nodes.map((node) => node.path)).toEqual([
+      "product",
+      "product.emitter",
+    ]);
+    expect(
+      projection.nodes.some((node) => node.type === "dataStoreCollection"),
+    ).toBe(false);
+    expect(projection.relationships).toEqual([]);
+  });
 });
 
 describe("collapseInlineC4Node", () => {

@@ -42,8 +42,8 @@ import {
   parseAgentTraceJsonl,
 } from "./agent-trace-parser";
 import { devReviewHome } from "./review-storage";
-import { requireStoreClient } from "./store-auth";
-import { StoreApiError } from "./store-client";
+import { readStoreAuth, requireStoreClient } from "./store-auth";
+import { StoreApiError, type StoreClient } from "./store-client";
 import { resolveAllowedTraceRepository } from "./trace-hook-runner";
 import {
   type TraceStoreSession,
@@ -142,6 +142,8 @@ export interface TraceStoreAccessInput {
   cwd?: string;
   transport?: TraceStoreTransport;
   repositoryId?: number;
+  /** The client that answers the store lookup. Tests inject their own. */
+  client?: StoreClient;
   /** Where a store failure is reported. Commands pass their own stderr. */
   onWarning?: TraceStoreWarning;
 }
@@ -179,22 +181,36 @@ function reportStoreFailure(access: TraceStoreAccess, error: unknown): void {
 const lastCheckedTimes = new Map<string, number>();
 
 /**
- * The store for this repository, or null when the repository is not allowed
- * or the user is not logged in. Read paths then work from the local corpus
- * alone.
+ * The store for this repository, or null when no store answers for it. Read
+ * paths then work from the local corpus alone.
+ *
+ * An allow entry names the repository the user may publish from. A reader
+ * needs no allow entry: a login plus GitHub read access to the repository is
+ * enough, so a user who only reads a repository still sees its sessions. The
+ * allow entry stays a condition of every write.
  */
 export async function resolveTraceStoreAccess(
   input: TraceStoreAccessInput = {},
 ): Promise<TraceStoreAccess | null> {
-  let repositoryId = input.repositoryId;
-  if (repositoryId === undefined) {
-    const entry = await resolveAllowedTraceRepository(
-      input.cwd ?? process.cwd(),
-    );
-    if (!entry) return null;
-    repositoryId = entry.repositoryId;
-  }
+  const cwd = input.cwd ?? process.cwd();
   const warn = input.onWarning;
+  const report = warn ?? defaultTraceStoreWarning;
+  let repositoryId = input.repositoryId;
+  let client = input.client;
+  if (repositoryId === undefined) {
+    const entry = await resolveAllowedTraceRepository(cwd);
+    if (entry) {
+      repositoryId = entry.repositoryId;
+    } else {
+      // No allow entry. A machine with no login wants no store at all, so it
+      // reads the local corpus without a message.
+      if (!client && !(await readStoreAuth())) return null;
+      const store = await findTraceStoreForRepository(cwd, client, report);
+      if (!store) return null;
+      repositoryId = store.repositoryId;
+      client = store.client;
+    }
+  }
   if (input.transport) {
     return {
       transport: input.transport,
@@ -204,17 +220,54 @@ export async function resolveTraceStoreAccess(
   }
   try {
     return {
-      transport: createHttpTraceStoreTransport(await requireStoreClient()),
+      transport: createHttpTraceStoreTransport(
+        client ?? (await requireStoreClient()),
+      ),
       repositoryId,
       ...(warn ? { warn } : {}),
     };
   } catch {
     // The repository is allowed but the machine holds no login.
-    (warn ?? defaultTraceStoreWarning)(
-      "The trace store login is missing. Run `review login`.",
-    );
+    report("The trace store login is missing. Run `review login`.");
     return null;
   }
+}
+
+/** The store this repository's Git remote points at, or null. */
+async function findTraceStoreForRepository(
+  cwd: string,
+  injected: StoreClient | undefined,
+  report: TraceStoreWarning,
+): Promise<{ repositoryId: number; client: StoreClient } | null> {
+  let repo: TraceRepo;
+  try {
+    repo = await inferRepoFromGit(cwd);
+  } catch {
+    // Not a GitHub repository: no store can hold its sessions.
+    return null;
+  }
+  let client: StoreClient;
+  try {
+    client = injected ?? (await requireStoreClient());
+  } catch {
+    report("The trace store login is missing. Run `review login`.");
+    return null;
+  }
+  try {
+    const store = await client.findStore({
+      owner: repo.owner,
+      name: repo.repo,
+    });
+    if (store) return { repositoryId: store.repositoryId, client };
+  } catch (error) {
+    const message = storeReadWarning(error);
+    if (message) report(message);
+    return null;
+  }
+  report(
+    "This repository has no hosted trace store. Run `review trace onboard` first.",
+  );
+  return null;
 }
 
 /** The store's record of one session, or null when the store has none. */
@@ -634,6 +687,7 @@ export async function pullReviewTraceCorpus(input: {
   cwd?: string;
   transport?: TraceStoreTransport;
   repositoryId?: number;
+  client?: StoreClient;
   onWarning?: TraceStoreWarning;
 }): Promise<ReviewTracePullResult> {
   const repository = `${input.repo.owner}/${input.repo.repo}`;
@@ -642,6 +696,7 @@ export async function pullReviewTraceCorpus(input: {
     cwd: input.cwd,
     transport: input.transport,
     repositoryId: input.repositoryId,
+    client: input.client,
     onWarning: input.onWarning,
   });
 

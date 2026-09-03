@@ -9,14 +9,14 @@ import { traceObjectKey } from "@dev-fast/trace-shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { pullReviewTraceCorpus, syncReviewTrace } from "./review-agent-traces";
-import type { StoreClient } from "./store-client";
+import { StoreClient } from "./store-client";
 import {
   createHttpTraceStoreTransport,
   createMemoryTraceStoreTransport,
   gzipToTemp,
   memoryTraceSessionKey,
 } from "./trace-store-transport";
-import { allowTraceRepository } from "./trace-user-config";
+import { allowTraceRepository, denyTraceRepository } from "./trace-user-config";
 
 const REPOSITORY_ID = 123;
 
@@ -224,6 +224,73 @@ describe("trace-store-transport", () => {
     expect(result.paths).toEqual([corpusPath]);
     expect(result.sessions).toEqual([
       { session: sessionId, traces: 1, events: 1, files: 1 },
+    ]);
+  });
+
+  it("pull reads an onboarded store without an allow entry", async () => {
+    await denyTraceRepository("acme/app");
+    const sessionId = "session-0003";
+    const transport = createMemoryTraceStoreTransport();
+    const compressed = zlib.gzipSync(
+      Buffer.from(
+        `${JSON.stringify({
+          type: "session",
+          id: sessionId,
+          cwd: "/repo",
+          timestamp: "2026-09-02T12:00:00Z",
+        })}\n`,
+        "utf8",
+      ),
+    );
+    transport.objects.set(
+      traceObjectKey(REPOSITORY_ID, sessionId, "main.jsonl.gz"),
+      compressed,
+    );
+    transport.sessions.set(memoryTraceSessionKey(REPOSITORY_ID, sessionId), {
+      repositoryId: REPOSITORY_ID,
+      sessionId,
+      harness: "claude",
+      updatedAt: "2026-09-02T12:00:10Z",
+      commits: [],
+      objects: [
+        {
+          name: "main.jsonl.gz",
+          size: compressed.byteLength,
+          sha256: "0".repeat(64),
+        },
+      ],
+      complete: true,
+    });
+    const fetchImpl = vi.fn<typeof fetch>(
+      async () =>
+        new Response(
+          JSON.stringify({
+            repositoryId: REPOSITORY_ID,
+            displayName: "acme/app",
+            status: "active",
+            createdAt: "2026-09-02T12:00:00Z",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+
+    const result = await pullReviewTraceCorpus({
+      repo: { owner: "acme", repo: "app" },
+      sessions: [{ id: sessionId }],
+      cwd: repoDir,
+      transport,
+      client: new StoreClient({
+        origin: "https://store.invalid",
+        token: "token",
+        fetch: fetchImpl,
+      }),
+    });
+
+    expect(String(fetchImpl.mock.calls[0][0])).toBe(
+      "https://store.invalid/api/trace/v1/stores?owner=acme&name=app",
+    );
+    expect(result.sessions).toEqual([
+      { session: sessionId, traces: 1, events: 0, files: 1 },
     ]);
   });
 });

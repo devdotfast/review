@@ -552,6 +552,7 @@ export async function runReviewTracePull(input: {
       mainOnly: input.mainOnly,
       cwd: repoRoot,
       transport: traceStoreTransport(input),
+      ...(input.client ? { client: input.client } : {}),
       onWarning: storeWarningSink(input.stderr),
     });
     const output = {

@@ -232,7 +232,7 @@ function ReviewLayout({
               key={document.routePath}
               documentRoute={document.routePath}
               softwareMapEnabled={softwareMapEnabled}
-              openTraceSession={(sel) => setTraceSelection(sel)}
+              openTraceSession={setTraceSelection}
             >
               <ReviewPanelProvider detailRevision={document.Component}>
                 <ReviewLayoutContent

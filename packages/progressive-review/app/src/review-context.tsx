@@ -129,28 +129,15 @@ export interface ThreadFocusRequest {
   nonce: number;
 }
 
-interface ReviewContextValue {
+export interface ReviewActionsValue {
   softwareMapEnabled: boolean;
-  historicalRevision: string | null;
   listVersions: () => Promise<ReviewDocumentVersionWire[] | null>;
-  resolvedBaseRef: string | null;
-  resolvedHeadRef: string | null;
-  focusedThreadId: string | null;
-  threadFocusRequest: ThreadFocusRequest | null;
-  /** Focus a thread: sets focusedThreadId and enqueues a focus request.
-   *  scroll and inline default to true. Always bumps nonce so repeated
-   *  clicks re-trigger. */
   focusThread: (
     threadId: string,
     options?: { scroll?: boolean; inline?: boolean },
   ) => void;
-  /** Clear focus (click-away / Escape). */
   blurThread: () => void;
-  /** Consumer (the annotations layer) acknowledges the request after handling it. */
   clearThreadFocusRequest: () => void;
-  commentThreads: ReadonlyMap<string, ReviewCommentThreadRecord>;
-  allCommentThreads: () => CommentThreadView[];
-  pendingCommentCount: number;
   submitPendingComments: (
     decision: "approve" | "request-changes",
     summary?: string,
@@ -158,9 +145,7 @@ interface ReviewContextValue {
   dismissReview: () => Promise<void>;
   openCommentDraft: (target: OpenCommentDraftTarget) => void;
   closeCommentDraft: () => void;
-  draftTarget: CommentDraftTarget | null;
   askAgent: (input: CreateReviewCommentInput) => Promise<void>;
-  softwareMapFocusRequest: SoftwareMapFocusRequest | null;
   openSoftwareMapElement: (elementPath: string) => void;
   openTraceSession?: (input: {
     sessionId: string;
@@ -176,19 +161,33 @@ interface ReviewContextValue {
   deleteComment: (threadId: string) => Promise<void>;
   deleteCommentMessage: (threadId: string, messageId: string) => Promise<void>;
   setCommentResolved: (threadId: string, resolved: boolean) => Promise<void>;
-  /** Resolved comment threads, for the Threads sidebar's Resolved section. */
-  resolvedCommentThreads: () => CommentThreadView[];
-  submissionOutcome: ReviewSubmissionOutcome | null;
   deleteLocalComment: (threadId: string) => void;
+  createAnchorCommentTarget: (anchor: AnchorRef) => OpenCommentDraftTarget;
+}
+
+export interface ReviewStateValue {
+  historicalRevision: string | null;
+  resolvedBaseRef: string | null;
+  resolvedHeadRef: string | null;
+  focusedThreadId: string | null;
+  threadFocusRequest: ThreadFocusRequest | null;
+  commentThreads: ReadonlyMap<string, ReviewCommentThreadRecord>;
+  allCommentThreads: () => CommentThreadView[];
+  resolvedCommentThreads: () => CommentThreadView[];
+  pendingCommentCount: number;
+  draftTarget: CommentDraftTarget | null;
+  softwareMapFocusRequest: SoftwareMapFocusRequest | null;
+  submissionOutcome: ReviewSubmissionOutcome | null;
   commentsForTarget: (target: ThreadTarget) => CommentThreadView[];
   commentsForAnchor: (anchor: AnchorRef) => CommentThreadView[];
   lineCommentsForAnchor: (anchor: AnchorRef) => SourceLineComment[];
-  createAnchorCommentTarget: (anchor: AnchorRef) => OpenCommentDraftTarget;
   createAstLineCommentTarget: (
     anchor: AnchorRef,
     input: AstLineCommentRange,
   ) => OpenCommentDraftTarget;
 }
+
+export type ReviewContextValue = ReviewActionsValue & ReviewStateValue;
 
 interface PendingSubmission {
   key: string;
@@ -196,7 +195,8 @@ interface PendingSubmission {
   summaryComment?: CreateReviewCommentInput;
 }
 
-const ReviewContext = createContext<ReviewContextValue | null>(null);
+const ReviewActionsContext = createContext<ReviewActionsValue | null>(null);
+const ReviewStateContext = createContext<ReviewStateValue | null>(null);
 export function ReviewProvider({
   documentRoute,
   softwareMapEnabled = false,
@@ -262,6 +262,8 @@ function ReviewCoordinator({
   const [historicalRevision, setHistoricalRevision] = useState<string | null>(
     null,
   );
+  const historicalRevisionRef = useRef<string | null>(null);
+  historicalRevisionRef.current = historicalRevision;
   const pendingSubmissionRef = useRef<PendingSubmission | null>(null);
   const threadFocusNonceRef = useRef(0);
 
@@ -269,6 +271,8 @@ function ReviewCoordinator({
   const localComments = commentSnapshot.localComments;
   const agentActivities = commentSnapshot.agentActivities;
   const pendingCommentCount = commentSnapshot.pendingCommentCount;
+  const commentThreadsRef = useRef(commentThreads);
+  commentThreadsRef.current = commentThreads;
   const commentTargetIndex = useMemo(
     () => buildThreadTargetIndex(commentThreads.values()),
     [commentThreads],
@@ -386,7 +390,7 @@ function ReviewCoordinator({
 
   const saveComment = useCallback(
     async (input: CreateReviewCommentInput) => {
-      const existing = commentSnapshot.commentThreads.get(input.threadId);
+      const existing = commentThreadsRef.current.get(input.threadId);
       await commentStore.saveComment(input);
       if (input.body.trim()) {
         captureUiEvent(session, "comment_created", {
@@ -394,8 +398,25 @@ function ReviewCoordinator({
         });
       }
     },
-    [commentSnapshot.commentThreads, commentStore, session],
+    [commentStore, session],
   );
+  const openCommentDraft = useCallback(
+    (target: OpenCommentDraftTarget) => {
+      if (historicalRevisionRef.current) return;
+      captureUiEvent(session, "thread_draft_opened", {
+        intent: target.intent ?? "comment",
+      });
+      setDraftTarget({
+        ...target,
+        draftSurface: target.draftSurface ?? "document",
+        threadId: target.threadId ?? createClientId(),
+        messageId: createClientId(),
+        placement: target.placement ?? commentDraftPlacementFromActiveElement(),
+      });
+    },
+    [session],
+  );
+  const closeCommentDraft = useCallback(() => setDraftTarget(null), []);
   const deleteLocalComment = useCallback(
     (threadId: string) => commentStore.deleteLocalComment(threadId),
     [commentStore],
@@ -572,41 +593,18 @@ function ReviewCoordinator({
     };
   }, [documentRoute, reviewFetch, session]);
 
-  const value = useMemo<ReviewContextValue>(
+  const actions = useMemo<ReviewActionsValue>(
     () => ({
       softwareMapEnabled,
-      historicalRevision,
       listVersions,
-      resolvedBaseRef,
-      resolvedHeadRef,
-      focusedThreadId,
-      threadFocusRequest,
       focusThread,
       blurThread,
       clearThreadFocusRequest,
-      commentThreads,
-      allCommentThreads,
-      pendingCommentCount,
       submitPendingComments,
       dismissReview,
-      openCommentDraft: (target) => {
-        if (historicalRevision) return;
-        captureUiEvent(session, "thread_draft_opened", {
-          intent: target.intent ?? "comment",
-        });
-        setDraftTarget({
-          ...target,
-          draftSurface: target.draftSurface ?? "document",
-          threadId: target.threadId ?? createClientId(),
-          messageId: createClientId(),
-          placement:
-            target.placement ?? commentDraftPlacementFromActiveElement(),
-        });
-      },
-      closeCommentDraft: () => setDraftTarget(null),
-      draftTarget,
+      openCommentDraft,
+      closeCommentDraft,
       askAgent,
-      softwareMapFocusRequest,
       openSoftwareMapElement,
       openTraceSession,
       saveComment,
@@ -614,55 +612,77 @@ function ReviewCoordinator({
       deleteComment,
       deleteCommentMessage,
       setCommentResolved,
-      resolvedCommentThreads,
-      submissionOutcome,
       deleteLocalComment,
-      commentsForTarget,
-      commentsForAnchor,
-      lineCommentsForAnchor,
       createAnchorCommentTarget,
-      createAstLineCommentTarget: createAstLineCommentTargetBound,
     }),
     [
+      askAgent,
       blurThread,
       clearThreadFocusRequest,
-      commentThreads,
-      allCommentThreads,
-      askAgent,
-      commentsForAnchor,
-      commentsForTarget,
+      closeCommentDraft,
       createAnchorCommentTarget,
-      createAstLineCommentTargetBound,
       deleteComment,
       deleteCommentMessage,
       deleteLocalComment,
-      draftTarget,
-      focusedThreadId,
+      dismissReview,
       focusThread,
-      historicalRevision,
-      lineCommentsForAnchor,
       listVersions,
+      openCommentDraft,
       openSoftwareMapElement,
       openTraceSession,
-      pendingCommentCount,
-      resolvedBaseRef,
-      resolvedHeadRef,
       saveComment,
-      session,
-      softwareMapEnabled,
       setCommentResolved,
-      resolvedCommentThreads,
-      submissionOutcome,
-      softwareMapFocusRequest,
+      softwareMapEnabled,
       submitPendingComments,
-      dismissReview,
-      threadFocusRequest,
       updateComment,
     ],
   );
 
+  const state = useMemo<ReviewStateValue>(
+    () => ({
+      historicalRevision,
+      resolvedBaseRef,
+      resolvedHeadRef,
+      focusedThreadId,
+      threadFocusRequest,
+      commentThreads,
+      allCommentThreads,
+      resolvedCommentThreads,
+      pendingCommentCount,
+      draftTarget,
+      softwareMapFocusRequest,
+      submissionOutcome,
+      commentsForTarget,
+      commentsForAnchor,
+      lineCommentsForAnchor,
+      createAstLineCommentTarget: createAstLineCommentTargetBound,
+    }),
+    [
+      allCommentThreads,
+      commentThreads,
+      commentsForAnchor,
+      commentsForTarget,
+      createAstLineCommentTargetBound,
+      draftTarget,
+      focusedThreadId,
+      historicalRevision,
+      lineCommentsForAnchor,
+      pendingCommentCount,
+      resolvedBaseRef,
+      resolvedCommentThreads,
+      resolvedHeadRef,
+      softwareMapFocusRequest,
+      submissionOutcome,
+      threadFocusRequest,
+    ],
+  );
+
   return (
-    <ReviewContext.Provider value={value}>{children}</ReviewContext.Provider>
+    <ReviewActionsContext.Provider value={actions}>
+      <ReviewStateContext.Provider value={state}>
+        {children}
+      </ReviewStateContext.Provider>
+    </ReviewActionsContext.Provider>
   );
 }
 
@@ -915,9 +935,23 @@ function reportBackgroundReviewError(cause: unknown): void {
   console.error(cause instanceof Error ? cause : new Error(String(cause)));
 }
 
-export function useReview(): ReviewContextValue {
-  const value = useContext(ReviewContext);
+export function useReviewActions(): ReviewActionsValue {
+  const value = useContext(ReviewActionsContext);
   if (!value)
     throw new Error("Review components must render inside ReviewProvider");
   return value;
+}
+
+export function useReviewState(): ReviewStateValue {
+  const value = useContext(ReviewStateContext);
+  if (!value)
+    throw new Error("Review components must render inside ReviewProvider");
+  return value;
+}
+
+/** Merged view for consumers that need both halves. Re-renders on state changes. */
+export function useReview(): ReviewContextValue {
+  const actions = useReviewActions();
+  const state = useReviewState();
+  return useMemo(() => ({ ...actions, ...state }), [actions, state]);
 }

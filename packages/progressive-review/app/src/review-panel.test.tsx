@@ -233,6 +233,41 @@ describe("Review panel host", () => {
     expect(container.querySelector(".thread-chat-reopen-hint")).toBeNull();
   });
 
+  it("lists only-resolved threads under a compact empty state", async () => {
+    await session.bridge.comments.saveComment({
+      threadId: "thread-1",
+      messageId: "message-1",
+      target: { kind: "document" },
+      body: "is this anchor still right?",
+    });
+    await session.bridge.comments.setCommentResolved("thread-1", true);
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      renderWithSession(
+        <ReviewDebugSettingsProvider>
+          <ReviewProvider>
+            <ReviewPanelProvider>
+              <OpenThreadsPanel />
+              <ReviewPanelHost />
+            </ReviewPanelProvider>
+          </ReviewProvider>
+        </ReviewDebugSettingsProvider>,
+      );
+      await Promise.resolve();
+    });
+
+    const body = container.querySelector(".review-panel-body")!;
+    expect(
+      body.querySelector(".question-sidebar-list--empty strong")?.textContent,
+    ).toBe("No open threads");
+    const resolved = body.querySelector(".thread-resolved-section");
+    expect(resolved).not.toBeNull();
+    expect(resolved!.querySelectorAll(".question-thread-row")).toHaveLength(1);
+  });
+
   it("replaces Threads when a document peek opens", async () => {
     const addEventListener = vi.spyOn(document, "addEventListener");
     const container = document.createElement("div");

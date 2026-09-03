@@ -221,7 +221,8 @@ fi
 chmod 600 "$AUTH_HEADER"
 upload_url() { printf '%s/api/trace/v1/stores/%s/sessions/session-00000001/uploads' "$ORIGIN" "$1"; }
 NO_TOKEN="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$(upload_url "$ID")")"
-BAD_STORE="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "@$AUTH_HEADER" -H "Origin: $ORIGIN" "$(upload_url 999999999)")"
+PROBE_BODY='{"harness":"claude","objects":[{"name":"main.jsonl.gz","size":1,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}'
+BAD_STORE="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "@$AUTH_HEADER" -H "Origin: $ORIGIN" -H 'content-type: application/json' -d "$PROBE_BODY" "$(upload_url 999999999)")"
 BAD_TOKEN="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "authorization: Bearer not-a-real-token" -H "Origin: $ORIGIN" "$(upload_url "$ID")")"
 if { [ "$NO_TOKEN" = "401" ] || [ "$NO_TOKEN" = "403" ]; } && [ "$BAD_STORE" = "403" ] && [ "$BAD_TOKEN" = "401" ]; then
   pass 11 "no token=$NO_TOKEN, foreign store=$BAD_STORE, bad token=$BAD_TOKEN"
@@ -236,7 +237,7 @@ else
   DELETED="$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -H "@$AUTH_HEADER" -H "Origin: $ORIGIN" "$ORIGIN/api/trace/v1/stores/$ID")"
   if [ "$DELETED" = "204" ]; then
     COUNT="$(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "r$ID/" --query 'KeyCount' --output text)"
-    check "$([ "$COUNT" = "0" ] && echo 0 || echo 1)" 12 "DELETE=204, keys left=$COUNT"
+    check "$([ "$COUNT" = "0" ] || [ "$COUNT" = "None" ] && echo 0 || echo 1)" 12 "DELETE=204, keys left=${COUNT:-0}"
   elif [ "$DELETED" = "403" ]; then
     fail 12 "DELETE=403 (not admin); the store stays"
   else

@@ -14,12 +14,13 @@ type TraceCredentials = Exclude<InstallApplyRequest["trace"], true | undefined>;
  * Features only: onboarding never mentions it, and nothing else in the app
  * depends on it being enabled.
  *
- * The on/off state is the machine-level trace setting the review server owns,
- * read back through the install status. Enabling installs the agent hooks and
- * trace skill for every agent already set up; disabling removes them again.
- * The hosted trace store needs no machine credentials: a user runs
- * `review login` once, then `review trace allow .` in each repository that
- * may publish traces.
+ * The state reads the repositories the user allowed with
+ * `review trace allow .`, so it shows "enabled" only when a repository can
+ * publish traces. Enable installs the agent hooks and the trace skill for
+ * every agent already set up. The app cannot allow a repository for the
+ * user: that needs a repository path, a login, and an onboarded store.
+ * Disable removes the hooks and the skill, and denies every allowed
+ * repository.
  */
 export function TraceCaptureSection({
   install,
@@ -53,6 +54,9 @@ export function TraceCaptureSection({
     }
   };
 
+  // The stamp is the only record that this machine installed the hooks; the
+  // enabled state alone cannot tell an unallowed machine from a bare one.
+  const hooksManaged = status.stamp?.traceManaged === true;
   const installedTargets = status.stamp?.targets?.length
     ? status.stamp.targets
     : status.agents
@@ -86,25 +90,19 @@ export function TraceCaptureSection({
         <span
           className="review-agent-setup-state"
           data-installed={status.trace.enabled}
-          title={status.trace.envPath}
         >
-          {status.trace.enabled
-            ? status.trace.error
-              ? "enabled, storage check failed"
-              : "enabled"
-            : status.trace.configured
-              ? "ready to enable"
-              : "off"}
+          {status.trace.enabled ? "enabled" : "off"}
         </span>
         <span className="review-agent-setup-cli">
           Records agent sessions to the hosted trace store so reviews can quote
-          them. Run <code>review login</code>, then{" "}
+          them. Enable installs the session hooks and the trace skill. The state
+          shows enabled after you run <code>review login</code> and then{" "}
           <code>review trace allow .</code> in each repository that may publish
           traces. Session hooks activate each Git or Jujutsu repository when an
           agent session starts.
         </span>
       </div>
-      {status.trace.enabled ? (
+      {status.trace.enabled || hooksManaged ? (
         <button
           type="button"
           className="review-agent-setup-subtle"
@@ -131,13 +129,9 @@ export function TraceCaptureSection({
           )
         }
       >
-        {busy === "trace"
-          ? "Checking…"
-          : status.trace.enabled
-            ? "Repair"
-            : "Enable"}
+        {busy === "trace" ? "Checking…" : hooksManaged ? "Repair" : "Enable"}
       </button>
-      {status.trace.enabled && fffTargets.length > 0 ? (
+      {(status.trace.enabled || hooksManaged) && fffTargets.length > 0 ? (
         <div className="review-agent-setup-terminal review-agent-setup-trace-search">
           <div className="review-agent-setup-terminal-info">
             <span className="review-agent-setup-name">Trace search</span>

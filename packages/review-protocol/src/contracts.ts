@@ -1405,19 +1405,9 @@ export const ReviewCliInstallStatusSchema = z.strictObject({
       }),
     ),
   }),
-  trace: z.strictObject({
-    enabled: z.boolean(),
-    configured: z.boolean(),
-    autoActivateRepositories: z.boolean(),
-    envPath: requiredString,
-    settingsPath: requiredString,
-    endpoint: requiredString.optional(),
-    bucket: requiredString.optional(),
-    region: requiredString.optional(),
-    accessKeyIdPrefix: requiredString.optional(),
-    verifiedAt: requiredString.optional(),
-    error: requiredString.optional(),
-  }),
+  // Trace capture is enabled when the user allowed at least one repository
+  // to publish traces. The hosted store needs no machine credentials.
+  trace: z.strictObject({ enabled: z.boolean() }),
   // Null when the serving package has no built CLI (a source-run dev server).
   cli: z
     .strictObject({ path: requiredString, version: requiredString })

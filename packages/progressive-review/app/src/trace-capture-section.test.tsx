@@ -59,10 +59,34 @@ describe("TraceCaptureSection", () => {
     });
   });
 
+  it("reports enabled while a repository may publish traces", async () => {
+    const install: ReviewCanvasInstallContent = {
+      status: { ...traceStatus, trace: { enabled: true } },
+      apply: vi.fn<ReviewCanvasInstallContent["apply"]>(),
+      remove: vi.fn<ReviewCanvasInstallContent["remove"]>(),
+      decline: vi.fn<ReviewCanvasInstallContent["decline"]>(),
+      skip: vi.fn<ReviewCanvasInstallContent["skip"]>(),
+      enablePrompts: vi.fn<ReviewCanvasInstallContent["enablePrompts"]>(),
+    };
+
+    await act(async () =>
+      root.render(<TraceCaptureSection install={install} />),
+    );
+
+    expect(
+      container.querySelector(".review-agent-setup-state")?.textContent,
+    ).toBe("enabled");
+    expect(
+      [...container.querySelectorAll<HTMLButtonElement>("button")].map(
+        (button) => button.textContent,
+      ),
+    ).toContain("Disable");
+  });
+
   it("disables capture through the shared remove action", async () => {
     const enabledStatus: ReviewCliInstallStatus = {
       ...traceStatus,
-      trace: { ...traceStatus.trace, enabled: true },
+      trace: { enabled: true },
     };
     const remove = vi.fn<ReviewCanvasInstallContent["remove"]>(
       async () => traceStatus,
@@ -113,15 +137,6 @@ const traceStatus: ReviewCliInstallStatus = {
     binary: { path: "/tmp/fff-mcp", installed: false },
     registrations: [{ target: "codex", present: false, managed: false }],
   },
-  trace: {
-    enabled: false,
-    configured: true,
-    autoActivateRepositories: false,
-    envPath: "/tmp/trace-env",
-    settingsPath: "/tmp/trace-settings.json",
-    endpoint: "https://account.r2.cloudflarestorage.com",
-    bucket: "review-traces",
-    accessKeyIdPrefix: "key-id",
-  },
+  trace: { enabled: false },
   cli: { path: "/tmp/cli.js", version: "0.0.1" },
 };

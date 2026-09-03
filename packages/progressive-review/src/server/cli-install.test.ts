@@ -6,6 +6,10 @@ import type { ReviewCliInstallStamp } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  allowTraceRepository,
+  readTraceUserConfig,
+} from "../trace-user-config";
+import {
   applyCliInstall,
   cliInstallStampPath,
   ensureShellProfilePath,
@@ -63,14 +67,11 @@ describe("skipCliInstall", () => {
 });
 
 describe("trace capture installation", () => {
-  it("installs the trace hooks and reports the legacy machine state", async () => {
+  it("reports capture as enabled only while a repository is allowed", async () => {
     const homeDir = await mkdtemp(path.join(tmpdir(), "review-trace-install-"));
     temporaryDirectories.push(homeDir);
-    const env: NodeJS.ProcessEnv = {
-      DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
-      TRACE_ENV_FILE: path.join(homeDir, "trace.env"),
-      TRACE_SETTINGS_FILE: path.join(homeDir, "trace-settings.json"),
-    };
+    const devHome = path.join(homeDir, ".dev");
+    const env: NodeJS.ProcessEnv = { DEV_REVIEW_HOME: devHome };
     const applied = await applyCliInstall({
       packageRoot,
       targets: [],
@@ -80,9 +81,30 @@ describe("trace capture installation", () => {
     });
 
     expect(applied.code).toBe(0);
-    const status = await resolveCliInstallStatus({ packageRoot, homeDir, env });
-    expect(status.trace).toMatchObject({ enabled: false, configured: false });
-    expect(status.stamp?.traceManaged).toBe(true);
+    // The hooks are installed, but no repository may publish traces yet.
+    const installed = await resolveCliInstallStatus({
+      packageRoot,
+      homeDir,
+      env,
+    });
+    expect(installed.trace).toEqual({ enabled: false });
+    expect(installed.stamp?.traceManaged).toBe(true);
+
+    await allowTraceRepository(
+      {
+        repositoryId: 7,
+        name: "acme/app",
+        store: "https://app.dev.fast",
+      },
+      devHome,
+    );
+
+    const allowed = await resolveCliInstallStatus({
+      packageRoot,
+      homeDir,
+      env,
+    });
+    expect(allowed.trace).toEqual({ enabled: true });
 
     await removeCliInstall({ targets: [], trace: true, homeDir, env });
 
@@ -91,7 +113,8 @@ describe("trace capture installation", () => {
       homeDir,
       env,
     });
-    expect(disabled.trace.enabled).toBe(false);
+    expect(disabled.trace).toEqual({ enabled: false });
+    expect((await readTraceUserConfig(devHome)).repositories).toEqual([]);
   });
 });
 

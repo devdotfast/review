@@ -380,7 +380,7 @@ function collectHeadingEntries(article: HTMLElement): ReviewTocEntry[] {
       {
         id: heading.id,
         text,
-        level: heading.tagName.toLowerCase() as ReviewTocLevel,
+        level: heading.tagName === "H3" ? "h3" : "h2",
       },
     ];
   });

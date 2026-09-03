@@ -1,28 +1,35 @@
 // @vitest-environment jsdom
 
-import type {
-  ReviewCanvasTutorialBridge,
-  ReviewDocumentVersionWire,
+import {
+  type JsonObject,
+  type ReviewCanvasTutorialBridge,
+  type ReviewDocumentVersionWire,
 } from "@dev.fast/review-protocol";
 import { act } from "react";
 import { type Root, createRoot } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  type Mock,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { ReviewSessionProvider } from "./host/review-session";
+import { ReviewProvider } from "./review-context";
 import { ReviewHistoryControl } from "./review-history-control";
 import { testReviewSession } from "./review-session-test-utils";
 import { TutorialProvider } from "./tutorial-context";
 
-const { listVersionsMock } = vi.hoisted(() => ({
-  listVersionsMock: vi.fn<() => Promise<ReviewDocumentVersionWire[] | null>>(),
-}));
-
-vi.mock("./review-context", () => ({
-  useReview: () => ({
-    historicalRevision: null,
-    listVersions: listVersionsMock,
-  }),
-}));
+const versions: ReviewDocumentVersionWire[] = [
+  {
+    revision: "a".repeat(40),
+    sealedAt: Date.UTC(2026, 7, 19),
+    isCurrent: true,
+  },
+];
 
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -31,18 +38,18 @@ vi.mock("./review-context", () => ({
 describe("ReviewHistoryControl", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let request: Mock<(url: string, init?: RequestInit) => Promise<Response>>;
 
   beforeEach(() => {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
-    listVersionsMock.mockResolvedValue([
-      {
-        revision: "a".repeat(40),
-        sealedAt: Date.UTC(2026, 7, 19),
-        isCurrent: true,
-      },
-    ]);
+    request = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(
+      async (url) =>
+        url.includes("/revisions")
+          ? jsonResponse({ ok: true, versions })
+          : jsonResponse({ ok: true }),
+    );
   });
 
   afterEach(async () => {
@@ -55,7 +62,7 @@ describe("ReviewHistoryControl", () => {
     await renderControl(tutorialBridge());
 
     expect(historyButton().disabled).toBe(true);
-    expect(listVersionsMock).not.toHaveBeenCalled();
+    expect(revisionRequests()).toHaveLength(0);
 
     await act(async () => historyButton().click());
     expect(container.querySelector('[role="menu"]')).toBeNull();
@@ -64,20 +71,22 @@ describe("ReviewHistoryControl", () => {
   it("loads versions and stays enabled for a regular Review", async () => {
     await renderControl();
     await act(async () => {
-      await Promise.resolve();
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
     });
 
-    expect(listVersionsMock).toHaveBeenCalledTimes(1);
+    expect(revisionRequests()).toHaveLength(1);
     expect(historyButton().disabled).toBe(false);
   });
 
   async function renderControl(tutorial?: ReviewCanvasTutorialBridge) {
     await act(async () => {
       root.render(
-        <ReviewSessionProvider session={testReviewSession()}>
-          <TutorialProvider tutorial={tutorial}>
-            <ReviewHistoryControl />
-          </TutorialProvider>
+        <ReviewSessionProvider session={testReviewSession({}, { request })}>
+          <ReviewProvider>
+            <TutorialProvider tutorial={tutorial}>
+              <ReviewHistoryControl />
+            </TutorialProvider>
+          </ReviewProvider>
         </ReviewSessionProvider>,
       );
     });
@@ -89,6 +98,10 @@ describe("ReviewHistoryControl", () => {
     );
     if (!button) throw new Error("Version history button not found");
     return button;
+  }
+
+  function revisionRequests() {
+    return request.mock.calls.filter(([url]) => url.includes("/revisions"));
   }
 });
 
@@ -105,4 +118,10 @@ function tutorialBridge(): ReviewCanvasTutorialBridge {
     async selectKeymap() {},
     close() {},
   };
+}
+
+function jsonResponse(body: JsonObject): Response {
+  return new Response(JSON.stringify(body), {
+    headers: { "content-type": "application/json" },
+  });
 }

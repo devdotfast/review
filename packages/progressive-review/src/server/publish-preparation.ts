@@ -52,13 +52,14 @@ export async function prepareReviewPublish(input: {
       `Pinned commits are behind ${sourceBranch}. Run \`review scaffold --update\` and publish again to present the latest commits.`,
     );
   }
-  return {
+  const prepared: PreparedReviewPublish = {
     review,
     uuid: review.review.uuid,
     sourceCommit,
     sourceBranch,
-    ...(warnings.length > 0 ? { warnings } : {}),
   };
+  if (warnings.length > 0) prepared.warnings = warnings;
+  return prepared;
 }
 
 async function pinsAreBehind(

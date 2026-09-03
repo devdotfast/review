@@ -43,7 +43,7 @@ import { hasTextSelectionWithin } from "./diagram-text-selection";
 import { DiagramTourOverlay, useDiagramTourShell } from "./diagram-tour";
 import { useReviewSession } from "./host/review-session";
 import { HoverCommentButton } from "./hover-comment-button";
-import { useReview } from "./review-context";
+import { useReviewActions } from "./review-context";
 import { useReviewPanel } from "./review-panel";
 import type { GuidedTour } from "./review-panel-model";
 import { useTourPersist, useTourRestore } from "./review-view-state";
@@ -64,6 +64,22 @@ type SequenceParticipantNodeData = {
 type SequenceParticipantFlowNode = ReactFlowNode<
   SequenceParticipantNodeData,
   "sequenceParticipant"
+>;
+
+type SequenceMessageEdgeData = {
+  message: SequenceMessage;
+  index: number;
+  width: number;
+  active: boolean;
+  diagram: string;
+  path: string[];
+  openTour: (anchor?: string) => void;
+  stepNumber: number | null;
+};
+
+type SequenceMessageFlowEdge = ReactFlowEdge<
+  SequenceMessageEdgeData,
+  "sequenceMessage"
 >;
 
 const sequenceNodeTypes = { sequenceParticipant: SequenceParticipantNode };
@@ -555,7 +571,7 @@ function SequenceDiagramFigure({
       })),
     [height, laneWidth, sequence],
   );
-  const reactFlowEdges: ReactFlowEdge[] = useMemo(
+  const reactFlowEdges: SequenceMessageFlowEdge[] = useMemo(
     () =>
       sequence.messages.map((message, index) => {
         const isActive = activeTourAnchor === message.anchor.id;
@@ -590,10 +606,12 @@ function SequenceDiagramFigure({
       }),
     [activeTourAnchor, onCloseTour, openTour, sequence, width],
   );
-  const onEdgeClick: EdgeMouseHandler = (event, edge) => {
+  const onEdgeClick: EdgeMouseHandler<SequenceMessageFlowEdge> = (
+    event,
+    edge,
+  ) => {
     event.stopPropagation();
-    const data = edge.data as { message?: SequenceMessage } | undefined;
-    if (data?.message) openTour(data.message.anchor.id);
+    if (edge.data) openTour(edge.data.message.anchor.id);
   };
   const scrollSequenceHorizontally = useCallback((event: WheelEvent) => {
     const scroll = event.currentTarget;
@@ -654,6 +672,9 @@ function SequenceDiagramFigure({
       behavior: panelMotion === "restored" ? "auto" : "smooth",
     });
   }, [activeTourAnchor, laneWidth, panelMotion, sequence]);
+  // SAFETY: the `--sequence-*` keys are CSS custom properties, which React
+  // forwards to style.setProperty; the CSSProperties typings only omit custom
+  // names.
   const style = {
     "--sequence-width": `${width}px`,
     "--sequence-height": `${height}px`,
@@ -781,7 +802,7 @@ function DiagramHeader({
 function SequenceParticipantNode({
   data,
 }: ReactFlowNodeProps<SequenceParticipantFlowNode>) {
-  const review = useReview();
+  const { openCommentDraft } = useReviewActions();
   const { participant, diagram, height, messages, messageGap, messageTop } =
     data;
   const target = buildGraphTarget({
@@ -798,7 +819,7 @@ function SequenceParticipantNode({
   const openParticipantComment = (event: MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    review.openCommentDraft({
+    openCommentDraft({
       target,
       title: participant.label,
       body: "",
@@ -890,19 +911,13 @@ export function sequenceSelfMessagePath(input: {
   return `M ${input.sourceX} ${input.sourceY} H ${loopX} V ${input.targetY} H ${input.targetX}`;
 }
 
-function SequenceMessageEdge(props: ReactFlowEdgeProps) {
-  const review = useReview();
+function SequenceMessageEdge(
+  props: ReactFlowEdgeProps<SequenceMessageFlowEdge>,
+) {
+  const { openCommentDraft } = useReviewActions();
   const [isHoveringEdge, setIsHoveringEdge] = useState(false);
-  const data = props.data as {
-    message: SequenceMessage;
-    index: number;
-    width: number;
-    active: boolean;
-    diagram: string;
-    path: string[];
-    openTour: (anchor?: string) => void;
-    stepNumber: number | null;
-  };
+  const data = props.data;
+  if (!data) return null;
   const isSelfLoop = props.source === props.target;
   const loopDirection = props.sourceX + 72 > data.width ? -1 : 1;
   const loopX = props.sourceX + loopDirection * 54;
@@ -942,7 +957,7 @@ function SequenceMessageEdge(props: ReactFlowEdgeProps) {
   const openMessageComment = (event: MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    review.openCommentDraft({
+    openCommentDraft({
       target,
       title: data.message.label,
       body: "",

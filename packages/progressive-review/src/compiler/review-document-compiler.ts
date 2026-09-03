@@ -7,6 +7,7 @@ import { compile } from "@mdx-js/mdx";
 import type { Nodes as MdastNode, Root } from "mdast";
 import remarkMdx from "remark-mdx";
 import {
+  type Mapping,
   type RawSourceMap,
   SourceMapConsumer,
   SourceMapGenerator,
@@ -32,6 +33,31 @@ import { reviewMdxOptions } from "./review-mdx-options";
 import { reviewHelperImports } from "./review-mdx-transform";
 
 const require = createRequire(import.meta.url);
+
+const RawSourceMapSchema = z.object({
+  version: z.number(),
+  sources: z.array(z.string()),
+  names: z.array(z.string()),
+  sourceRoot: z.string().optional(),
+  sourcesContent: z.array(z.string()).optional(),
+  mappings: z.string(),
+  file: z.string(),
+});
+
+// The fields an MDX parse error (a VFileMessage) carries its position in.
+const MdxPointSchema = z.object({
+  line: z.number().optional().catch(undefined),
+  column: z.number().optional().catch(undefined),
+});
+const MdxErrorSchema = z.object({
+  message: z.string().optional().catch(undefined),
+  line: z.number().optional().catch(undefined),
+  column: z.number().optional().catch(undefined),
+  place: z
+    .object({ start: MdxPointSchema.optional().catch(undefined) })
+    .optional()
+    .catch(undefined),
+});
 
 export interface ReviewDocumentInput {
   filePath: string;
@@ -272,7 +298,7 @@ export async function compileReviewDocument(
     };
   }
   const mdxCode = String(file);
-  const runtimeMap = file.map as RawSourceMap | undefined;
+  const runtimeMap = file.map ?? undefined;
   const syntaxDiagnostics = unsupportedTypescriptDiagnostics(
     input,
     authoredTypescript,
@@ -335,7 +361,7 @@ async function emitReviewRuntime(
     map: await composeRuntimeSourceMap({
       filePath,
       prefixLineOffset: countLines(prefix) - 1,
-      transpileMap: JSON.parse(emitted.sourceMapText) as RawSourceMap,
+      transpileMap: RawSourceMapSchema.parse(JSON.parse(emitted.sourceMapText)),
       mdxMap,
     }),
   };
@@ -393,15 +419,16 @@ async function composeRuntimeSourceMap(input: {
       ) {
         return;
       }
-      generator.addMapping({
+      const composed: Mapping = {
         generated: {
           line: mapping.generatedLine + input.prefixLineOffset,
           column: mapping.generatedColumn,
         },
         original: { line: authored.line, column: authored.column },
         source: input.filePath,
-        ...(authored.name ? { name: authored.name } : {}),
-      });
+      };
+      if (authored.name) composed.name = authored.name;
+      generator.addMapping(composed);
     });
     if (input.mdxMap.sourcesContent?.[0] !== undefined) {
       generator.setSourceContent(
@@ -800,20 +827,17 @@ function typescriptDiagnostic(
         : original.column + 1;
   }
   if (sourceLine === undefined && !isGeneratedMdxDiagnostic) return [];
-  return [
-    {
-      source: "typescript",
-      severity:
-        diagnostic.category === ts.DiagnosticCategory.Error
-          ? "error"
-          : "warning",
-      code: `TS${diagnostic.code}`,
-      message,
-      filePath: input.authoredFilePath,
-      ...(sourceLine === undefined ? {} : { line: sourceLine }),
-      ...(sourceColumn === undefined ? {} : { column: sourceColumn }),
-    },
-  ];
+  const mapped: ReviewDocumentDiagnostic = {
+    source: "typescript",
+    severity:
+      diagnostic.category === ts.DiagnosticCategory.Error ? "error" : "warning",
+    code: `TS${diagnostic.code}`,
+    message,
+    filePath: input.authoredFilePath,
+  };
+  if (sourceLine !== undefined) mapped.line = sourceLine;
+  if (sourceColumn !== undefined) mapped.column = sourceColumn;
+  return [mapped];
 }
 
 function createSourceMapConsumer(map: RawSourceMap) {
@@ -944,12 +968,7 @@ function mdxDiagnostic(
   filePath: string,
   cause: unknown,
 ): ReviewDocumentDiagnostic {
-  const candidate = cause as {
-    message?: string;
-    line?: number;
-    column?: number;
-    place?: { start?: { line?: number; column?: number } };
-  };
+  const candidate = MdxErrorSchema.safeParse(cause).data;
   return {
     source: "mdx",
     severity: "error",

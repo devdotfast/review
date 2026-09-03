@@ -12,19 +12,27 @@ import {
   patchChangedLines,
 } from "./call-stack-diff";
 
+interface AnchorPeekProps {
+  file: string;
+  fromLine: number;
+  toLine: number;
+  graph?: "base" | "head";
+}
+
 function anchor(id: string, graph?: "base" | "head"): PeekableAnchorRef {
+  const props: AnchorPeekProps = {
+    file: `src/${id}.ts`,
+    fromLine: 1,
+    toLine: 5,
+  };
+  if (graph !== undefined) props.graph = graph;
   return Object.freeze({
     __kind: "db-anchor-ref",
     id,
     title: `Anchor ${id}`,
     peek: {
       __kind: "code-peek-ref",
-      props: {
-        file: `src/${id}.ts`,
-        fromLine: 1,
-        toLine: 5,
-        ...(graph === undefined ? {} : { graph }),
-      },
+      props,
       resolution: null,
     },
   }) as PeekableAnchorRef;

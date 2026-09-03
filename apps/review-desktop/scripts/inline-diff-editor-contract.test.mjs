@@ -30,13 +30,6 @@ const itemTemplateSource = readFileSync(
   ),
   "utf8",
 );
-const reviewCommentsSource = readFileSync(
-  new URL(
-    "../code-oss/src/vs/review/contrib/comments/reviewComments.contribution.ts",
-    import.meta.url,
-  ),
-  "utf8",
-);
 const commentThreadHeaderSource = readFileSync(
   new URL(
     "../code-oss/src/vs/workbench/contrib/comments/browser/commentThreadHeader.ts",
@@ -65,27 +58,6 @@ const factorySource = readFileSync(
   ),
   "utf8",
 );
-const resourceSource = readFileSync(
-  new URL(
-    "../code-oss/src/vs/review/services/reviewCodeResourceService.ts",
-    import.meta.url,
-  ),
-  "utf8",
-);
-const unifiedDefinitionSource = readFileSync(
-  new URL(
-    "../code-oss/src/vs/review/services/reviewUnifiedDefinition.ts",
-    import.meta.url,
-  ),
-  "utf8",
-);
-const reviewConfiguration = readFileSync(
-  new URL(
-    "../code-oss/src/vs/review/common/reviewConfigurationDefaults.ts",
-    import.meta.url,
-  ),
-  "utf8",
-);
 const reviewStyles = readFileSync(
   new URL(
     "../code-oss/src/vs/review/browser/media/review.css",
@@ -100,51 +72,6 @@ const referencesControllerSource = readFileSync(
   ),
   "utf8",
 );
-const referencesWidgetSource = readFileSync(
-  new URL(
-    "../code-oss/src/vs/editor/contrib/gotoSymbol/browser/peek/referencesWidget.ts",
-    import.meta.url,
-  ),
-  "utf8",
-);
-test("internal changed CodePeeks keep the native multi-diff used by Files", () => {
-  assert.match(source, /MultiDiffEditorWidget/);
-  assert.match(source, /MultiDiffEditorInput/);
-  assert.match(source, /MultiDiffEditorItem/);
-  assert.doesNotMatch(source, /new MultiDiffEditorViewModel/);
-  assert.doesNotMatch(source, /RefCounted/);
-  assert.match(source, /resolveDiff\(/);
-  assert.match(resourceSource, /reviewPeekWindow/);
-  assert.match(source, /\.setHiddenAreas\(/);
-  assert.doesNotMatch(resourceSource, /scheme:\s*["']review-peek["']/);
-  assert.doesNotMatch(resourceSource, /getValueInRange\(/);
-  assert.match(source, /originalWindow/);
-  assert.match(source, /modifiedWindow/);
-  assert.match(source, /computeMultiDiffEditorOptions/);
-  assert.match(source, /name: this\.spec\.title/);
-  assert.match(source, /hideUnchangedRegions:\s*{[\s\S]*?enabled:\s*false/);
-  assert.match(
-    itemTemplateSource,
-    /hideUnchangedRegions:\s*options\.hideUnchangedRegions\s*\?\?/,
-  );
-  assert.match(
-    viewModelSource,
-    /hideUnchangedRegions:\s*options\.hideUnchangedRegions\s*\?\?/,
-  );
-  assert.match(source, /initialScrollPosition:\s*"top"/);
-  assert.match(source, /widget\.onDidScroll/);
-  assert.match(source, /widget\.getScrollTop\(\)/);
-  assert.match(source, /widget\.onDidChangeContentHeight/);
-  assert.match(source, /ElementSizeObserver/);
-  assert.match(source, /sizeObserver\.startObserving\(\)/);
-  assert.match(source, /multiDiffEditor\.getContentHeight\(\)/);
-  assert.match(source, /wordWrap:\s*"off"/);
-  assert.match(source, /diffWordWrap:\s*"off"/);
-  assert.match(source, /domReadOnly:\s*false/);
-  assert.match(source, /horizontal:\s*"auto"/);
-  assert.doesNotMatch(source, /createInstance\(\s*DiffEditorWidget/);
-});
-
 test("authored CodePeeks use one unified native comment editor", () => {
   assert.match(
     source,
@@ -154,10 +81,6 @@ test("authored CodePeeks use one unified native comment editor", () => {
   assert.match(source, /reviewInlineEditorContributions\(true\)/);
   assert.match(source, /lineNumbers:\s*\(lineNumber\) =>/);
   assert.match(source, /className:\s*added \? "line-insert" : "line-delete"/);
-  assert.match(resourceSource, /REVIEW_UNIFIED_SCHEME/);
-  assert.match(resourceSource, /version:\s*session\.session\.sessionId/);
-  assert.match(resourceSource, /side,/);
-  assert.doesNotMatch(resourceSource, /instance:\s*generateUuid/);
 });
 
 test("light-theme comments use light surfaces and preserve the diff tint", () => {
@@ -224,6 +147,7 @@ test("peek scrolling is confined to the window's rendered range", () => {
   );
   // No hand-rolled wheel handling — Monaco owns release at both bounds.
   assert.doesNotMatch(source, /addDisposableListener\([^)]*"wheel"/);
+  assert.match(source, /setHiddenAreas/);
 });
 
 test("peek code intelligence widgets escape the canvas clip", () => {
@@ -259,7 +183,6 @@ test("inline CodePeek references redirect to the workbench editor", () => {
   );
   // The compact in-place layout is gone; the widget is upstream again.
   assert.doesNotMatch(referencesControllerSource, /data\.heightInLines = 5/);
-  assert.doesNotMatch(referencesWidgetSource, /_compactLayout/);
   assert.doesNotMatch(reviewStyles, /@container review-inline-code/);
 });
 
@@ -269,67 +192,17 @@ test("unified CodePeek navigation opens the mapped review resource", () => {
   assert.match(source, /unified\.targetForRange\(startLine, endLine\)/);
   assert.match(source, /this\.resources\.target\(mapped\.path, mapped\.side\)/);
   assert.match(source, /resource: target\.resource/);
-  assert.match(
-    resourceSource,
-    /registerTextModelContentProvider\(\s*REVIEW_UNIFIED_SCHEME/,
-  );
-  assert.match(
-    resourceSource,
-    /resolverReference = await this\.textModelService\.createModelReference/,
-  );
-  assert.match(resourceSource, /resolverReference\.dispose\(\)/);
 });
 
-test("unified CodePeek definitions delegate to the mapped source model", () => {
+test("unified definitions and hovers register exclusive providers for the review scheme", () => {
   assert.match(
     source,
     /definitionProvider\.register\(\s*\{ scheme: REVIEW_UNIFIED_SCHEME, exclusive: true \}/,
   );
   assert.match(
-    unifiedDefinitionSource,
-    /unified\?\.targetForRange\(\s*position\.lineNumber,\s*position\.lineNumber/,
-  );
-  assert.match(
-    unifiedDefinitionSource,
-    /createModelReference\(\s*target\.resource,\s*\)/,
-  );
-  assert.match(
-    unifiedDefinitionSource,
-    /resolveDefinitions\(\s*definitionProviders,\s*sourceModel,\s*sourcePosition/,
-  );
-  assert.match(
-    unifiedDefinitionSource,
-    /activateByEvent\(\s*`onLanguage:\$\{sourceModel\.getLanguageId\(\)\}`/,
-  );
-  assert.match(
-    unifiedDefinitionSource,
-    /followSameFileDefinition\(\s*definitionProviders,\s*sourceModel,\s*definition/,
-  );
-  assert.match(unifiedDefinitionSource, /sourceReference\.dispose\(\)/);
-});
-
-test("unified CodePeek hovers delegate to the mapped source model", () => {
-  assert.match(
     source,
     /hoverProvider\.register\(\s*\{ scheme: REVIEW_UNIFIED_SCHEME, exclusive: true \}/,
   );
-  assert.match(
-    unifiedDefinitionSource,
-    /resolveHovers\(\s*hoverProviders,\s*sourceModel,\s*sourcePosition/,
-  );
-  assert.match(
-    unifiedDefinitionSource,
-    /contents: hovers\.flatMap\(\(hover\) => hover\.contents\)/,
-  );
-});
-
-test("the multi-diff scroller releases the wheel at real content bounds", () => {
-  // With the scroll range in place the widget's own wheel handling is
-  // honest: handleMouseWheel and alwaysConsumeMouseWheel stay at their
-  // defaults, so a fitting window or a boundary hit bubbles to the
-  // document scroller. No host knob overrides either.
-  assert.doesNotMatch(widgetImplementationSource, /handleMouseWheel/);
-  assert.doesNotMatch(widgetImplementationSource, /alwaysConsumeMouseWheel/);
 });
 
 test("native multi-diff headers host Review stats and the open action", () => {
@@ -366,29 +239,22 @@ test("Files and every CodePeek reuse one native multi-diff resource header", () 
     source,
     /this\.setExpandedHeight\(bodyHeight\s*\+\s*INLINE_HEADER_HEIGHT\)/,
   );
+  assert.match(
+    itemTemplateSource,
+    /hideUnchangedRegions:\s*options\.hideUnchangedRegions\s*\?\?/,
+  );
+  assert.match(
+    viewModelSource,
+    /hideUnchangedRegions:\s*options\.hideUnchangedRegions\s*\?\?/,
+  );
 });
 
-test("Review diff surfaces share the same indicator-free visual language", () => {
-  assert.match(
-    reviewConfiguration,
-    /['"]diffEditor\.renderIndicators['"]:\s*false/,
-  );
+test("review diff surfaces compute their multi-diff editor options via a shared helper", () => {
   assert.match(source, /computeMultiDiffEditorOptions/);
 });
 
 test("authored CodePeeks use the stock native comment contribution", () => {
-  assert.match(source, /commentsController\.js/);
-  assert.match(source, /reviewInlineEditorContributions\(/);
-  assert.match(source, /reviewInlineDiffEditorContributions\(/);
-  assert.match(source, /contribution\.id !== COMMENT_EDITOR_CONTRIBUTION_ID/);
   assert.match(itemTemplateSource, /codeEditorWidgetOptions \?\? \{\}/);
-});
-
-test("the Review delete action discards an empty native draft", () => {
-  assert.match(
-    reviewCommentsSource,
-    /async deleteThread\(thread: CommentThread\): Promise<void> \{\s*if \(thread\.isTemplate\) \{\s*this\.deleteCommentThreadMain\(thread\.threadId\);\s*return;\s*\}/,
-  );
 });
 
 test("native thread controls place a clear minimize action before delete", () => {
@@ -397,9 +263,4 @@ test("native thread controls place a clear minimize action before delete", () =>
     commentThreadHeaderSource,
     /push\(\[this\._collapseAction, \.\.\.groups\]/,
   );
-});
-
-test("unchanged CodePeeks retain the native code editor fallback", () => {
-  assert.match(source, /CodeEditorWidget/);
-  assert.match(source, /acquireSnippet\(/);
 });

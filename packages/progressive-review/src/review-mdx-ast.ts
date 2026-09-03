@@ -263,11 +263,18 @@ export function objectLiteralProperties(
           ? literalStringValue(property.key)
           : null;
     if (name === null) continue;
-    if (property.value.type === "ObjectPattern") continue;
+    if (
+      property.value.type === "ObjectPattern" ||
+      property.value.type === "ArrayPattern" ||
+      property.value.type === "RestElement" ||
+      property.value.type === "AssignmentPattern"
+    ) {
+      continue;
+    }
     properties.push({
       name,
       line: estreeLine(property),
-      value: property.value as Expression,
+      value: property.value,
     });
   }
   return properties;

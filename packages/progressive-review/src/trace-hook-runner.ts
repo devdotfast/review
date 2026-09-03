@@ -5,6 +5,11 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { git } from "@dev.fast/local-vcs";
+import {
+  jsonObject,
+  jsonString,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
 
 import type { CliInputStream } from "./cli-output";
 import {
@@ -54,12 +59,11 @@ export async function runReviewTraceHook(
       }
       const raw = Buffer.concat(chunks).toString("utf8").trim();
       if (raw) {
-        const parsed = JSON.parse(raw) as {
-          hook_event_name?: string;
-          session_id?: string;
-        };
-        if (parsed.hook_event_name) event = parsed.hook_event_name;
-        if (parsed.session_id) sessionId = parsed.session_id;
+        const parsed = jsonObject(parseJsonText(raw));
+        const hookEventName = jsonString(parsed?.hook_event_name);
+        const parsedSessionId = jsonString(parsed?.session_id);
+        if (hookEventName) event = hookEventName;
+        if (parsedSessionId) sessionId = parsedSessionId;
       }
     } catch {
       // Ignore JSON parse errors from stdin

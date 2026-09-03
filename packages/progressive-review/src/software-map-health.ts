@@ -138,7 +138,13 @@ export async function loadPublishSoftwareMaps(input: {
     });
     if (scratchPath) {
       const scratch = await readFile(scratchPath, "utf8").catch((error) => {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+        if (
+          error instanceof Error &&
+          "code" in error &&
+          error.code === "ENOENT"
+        ) {
+          return null;
+        }
         throw error;
       });
       if (

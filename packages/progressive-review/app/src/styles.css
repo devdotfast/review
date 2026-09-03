@@ -6940,8 +6940,9 @@ button {
 
 .review-doc-meta {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 14px;
+  min-height: 26px;
   width: min(100%, var(--review-prose-max-width));
   margin: -6px auto 0;
   color: var(--ink-faint);
@@ -6957,6 +6958,198 @@ button {
 
 a.review-doc-meta-pr:hover {
   text-decoration: underline;
+}
+
+.review-stack-selector {
+  position: relative;
+  color: var(--ink-faint);
+}
+
+.review-stack-selector > summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--ink);
+  list-style: none;
+}
+
+.review-stack-selector > summary::-webkit-details-marker {
+  display: none;
+}
+
+.review-stack-selector > summary:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--rule-soft));
+  background: var(--control-bg);
+}
+
+.review-stack-position-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--ink-faint);
+  border-radius: 50%;
+  color: var(--ink-soft);
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.review-stack-position {
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.review-stack-label {
+  color: var(--ink-faint);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.review-stack-selector > summary svg {
+  width: 12px;
+  height: 12px;
+  color: var(--ink-faint);
+  transition: transform 120ms ease-out;
+}
+
+.review-stack-selector > summary path {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.25;
+}
+
+.review-stack-selector[open] > summary svg {
+  transform: rotate(180deg);
+}
+
+.review-stack-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  display: flex;
+  min-width: 340px;
+  padding: 7px;
+  flex-direction: column;
+  border: 1px solid var(--rule-soft);
+  border-radius: 9px;
+  background: var(--surface-raised);
+  box-shadow: 0 14px 32px var(--shadow-color);
+}
+
+.review-stack-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 48px;
+  padding: 7px 9px;
+  gap: 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+
+.review-stack-row.is-current {
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-raised));
+}
+
+button.review-stack-row:not(:disabled) {
+  cursor: pointer;
+}
+
+button.review-stack-row:not(:disabled):hover {
+  background: var(--bg-2);
+}
+
+button.review-stack-row:disabled {
+  cursor: default;
+}
+
+button.review-stack-row:disabled .review-stack-layer-title,
+button.review-stack-row:disabled .review-stack-branch,
+button.review-stack-row:disabled .review-stack-position-marker,
+button.review-stack-row:disabled .review-stack-relation {
+  color: var(--ink-faint);
+}
+
+.review-stack-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  flex: 0 0 24px;
+}
+
+.review-stack-row.is-current .review-stack-position-marker {
+  border-color: color-mix(in srgb, var(--accent) 64%, var(--rule-soft));
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.review-stack-layer-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.review-stack-layer-title,
+.review-stack-branch {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-stack-layer-title {
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.review-stack-row.is-current .review-stack-layer-title {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.review-stack-branch {
+  color: var(--ink-faint);
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.review-stack-row.is-current .review-stack-branch {
+  color: var(--ink-soft);
+}
+
+.review-stack-row.is-current .review-stack-relation {
+  color: var(--accent);
+}
+
+.review-stack-relation {
+  width: 54px;
+  flex: 0 0 54px;
+  color: var(--ink-faint);
+  font-size: 8px;
+  letter-spacing: 0.02em;
+  line-height: 13px;
+  text-align: right;
+  text-transform: uppercase;
 }
 
 .review-doc-meta-added {

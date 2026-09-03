@@ -132,12 +132,14 @@ function openThreadDb(
 }
 
 function readThreadDbSchemaVersion(db: DatabaseSync): string | null {
+  // SAFETY: the query projects the single integer column `present`.
   const hasMeta = db
     .prepare(
       "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'meta'",
     )
     .get() as { present: number } | undefined;
   if (!hasMeta) return null;
+  // SAFETY: meta.value is a TEXT NOT NULL column (see REVIEW_THREAD_DB_DDL).
   return (
     (
       db
@@ -252,6 +254,8 @@ export async function migrateReviewThreadDb(
 /** Normalize message markers and remove provider provenance before validation. */
 function migrateNativeAgentSessionRecords(db: DatabaseSync): void {
   for (const table of ["comments", "comment_drafts"] as const) {
+    // SAFETY: both tables declare thread_id TEXT PRIMARY KEY and record_json
+    // TEXT NOT NULL, and every insert binds strings for them.
     const rows = db
       .prepare(`SELECT thread_id, record_json FROM ${table}`)
       .all() as Array<{ thread_id: string; record_json: string }>;
@@ -332,6 +336,8 @@ async function migrateLegacyCodeRecords(
     { name: "comment_drafts", kind: "comment-draft" },
   ] as const;
   for (const table of tables) {
+    // SAFETY: both tables declare thread_id TEXT PRIMARY KEY and record_json
+    // TEXT NOT NULL, and every insert binds strings for them.
     const rows = db
       .prepare(`SELECT thread_id, record_json FROM ${table.name}`)
       .all() as Array<{ thread_id: string; record_json: string }>;
@@ -387,6 +393,8 @@ function readThreadTable(
 ): JsonObject {
   const db = openThreadDb(dbPath, { create: false });
   if (!db) return {};
+  // SAFETY: the key column is the TEXT PRIMARY KEY and record_json is TEXT NOT
+  // NULL in both tables, and every insert binds strings for them.
   const rows = db
     .prepare(`SELECT ${keyColumn} AS key, record_json FROM ${table}`)
     .all() as Array<{ key: string; record_json: string }>;

@@ -16,7 +16,8 @@ import {
   type ResolvedCommentCodeSource,
   commentDraftTargetForSurface,
   createClientId,
-  useReview,
+  useReviewActions,
+  useReviewState,
 } from "./review-context";
 import { useReviewRoots } from "./review-root-context";
 import { commentThreadView, targetQuote } from "./review-threads";
@@ -148,11 +149,12 @@ function groupPanelThreadBadges(
   for (const range of ranges) {
     const key = `${range.side ?? "file"}:${range.fromLine}`;
     const current = counts.get(key);
-    counts.set(key, {
+    const badge: PanelLineBadge = {
       line: range.fromLine,
       count: (current?.count ?? 0) + range.count,
-      ...(range.side ? { side: range.side } : {}),
-    });
+    };
+    if (range.side) badge.side = range.side;
+    counts.set(key, badge);
   }
   return [...counts.values()].sort(
     (left, right) =>
@@ -202,11 +204,12 @@ export function normalizePanelLineRange(
   const first = "start" in range ? range.start : range.fromLine;
   const last = "end" in range ? range.end : range.toLine;
   const side = range.side ?? ("endSide" in range ? range.endSide : undefined);
-  return {
+  const normalized: PanelLineRange = {
     fromLine: Math.min(first, last),
     toLine: Math.max(first, last),
-    ...(side ? { side } : {}),
   };
+  if (side) normalized.side = side;
+  return normalized;
 }
 
 export function panelLineRangeLabel(range: PanelLineRange): string {
@@ -220,22 +223,24 @@ export function panelThreadInjectionTarget(input: {
   expandedThread: { threadId: string; range: PanelLineRange } | null;
 }): PanelThreadInjectionTarget | null {
   if (input.draft) {
-    return {
+    const target: PanelThreadInjectionTarget = {
       kind: "draft",
       key: `draft:${input.draft.threadId}`,
       line: input.draft.range.toLine,
-      ...(input.draft.range.side ? { side: input.draft.range.side } : {}),
     };
+    if (input.draft.range.side) target.side = input.draft.range.side;
+    return target;
   }
   if (input.expandedThread) {
-    return {
+    const target: PanelThreadInjectionTarget = {
       kind: "thread",
       key: `thread:${input.expandedThread.threadId}`,
       line: input.expandedThread.range.toLine,
-      ...(input.expandedThread.range.side
-        ? { side: input.expandedThread.range.side }
-        : {}),
     };
+    if (input.expandedThread.range.side) {
+      target.side = input.expandedThread.range.side;
+    }
+    return target;
   }
   return null;
 }
@@ -377,14 +382,25 @@ export function usePanelThreadController({
   threadHost?: PanelThreadHost;
 }): PanelThreadController {
   const appRef = useReviewRoots()?.appRef;
-  const review = useReview();
-  const comments = review
-    .commentsForAnchor(anchor)
-    .filter(
-      (thread) =>
-        threadHost === "all" ||
-        panelThreadHostForTarget(thread.target, anchor.id) === threadHost,
-    );
+  const {
+    focusThread,
+    blurThread,
+    openCommentDraft,
+    closeCommentDraft,
+    askAgent: askAgentAction,
+    saveComment,
+    setCommentResolved,
+    updateComment,
+    deleteCommentMessage,
+    deleteComment,
+  } = useReviewActions();
+  const { commentsForAnchor, draftTarget: draftTargetFromContext } =
+    useReviewState();
+  const comments = commentsForAnchor(anchor).filter(
+    (thread) =>
+      threadHost === "all" ||
+      panelThreadHostForTarget(thread.target, anchor.id) === threadHost,
+  );
   const openComments = comments.filter(
     (thread) => thread.status !== "resolved",
   );
@@ -392,7 +408,7 @@ export function usePanelThreadController({
     (thread) => thread.status === "resolved",
   );
   const panelDraftTarget = commentDraftTargetForSurface(
-    review.draftTarget,
+    draftTargetFromContext,
     "panel",
   );
   const defaultCodeSide =
@@ -558,7 +574,7 @@ export function usePanelThreadController({
   const activateThread = (threadId: string) => {
     setCollapsed(false);
     setActiveThreadId(threadId);
-    review.focusThread(threadId, { scroll: false });
+    focusThread(threadId, { scroll: false });
   };
 
   const activateLine = (line: number, side?: PanelSelectionSide) => {
@@ -573,7 +589,7 @@ export function usePanelThreadController({
 
   const minimize = () => {
     setActiveThreadId(null);
-    review.blurThread();
+    blurThread();
   };
 
   const endLineSelection = (range: PanelLineRange | null) => {
@@ -582,7 +598,7 @@ export function usePanelThreadController({
     if (!normalized || !createLineTarget) return;
     setCollapsed(false);
     setActiveThreadId(null);
-    review.openCommentDraft({
+    openCommentDraft({
       ...createLineTarget(normalized),
       draftSurface: "panel",
     });
@@ -638,7 +654,7 @@ export function usePanelThreadController({
           draftHasTextRef.current,
         ) === "close"
       ) {
-        review.closeCommentDraft();
+        closeCommentDraft();
       }
     };
     const handleDraftEscape = (event: KeyboardEvent) => {
@@ -652,7 +668,7 @@ export function usePanelThreadController({
       event.preventDefault();
       event.stopImmediatePropagation();
       if (action === "close-draft") {
-        review.closeCommentDraft();
+        closeCommentDraft();
         return;
       }
       draftCardRef.current?.querySelector("textarea")?.blur();
@@ -671,7 +687,7 @@ export function usePanelThreadController({
       );
       document.removeEventListener("keydown", handleDraftEscape, true);
     };
-  }, [appRef, draftTarget?.threadId, review]);
+  }, [appRef, draftTarget?.threadId, closeCommentDraft]);
 
   useEffect(() => {
     if (!activeThreadId) return;
@@ -702,22 +718,22 @@ export function usePanelThreadController({
     try {
       const target = resolveTarget ? await resolveTarget() : draftTarget.target;
       if (askAgent) {
-        await review.askAgent({
+        await askAgentAction({
           threadId: draftTarget.threadId,
           target,
           messageId: draftTarget.messageId,
           body,
         });
-        review.closeCommentDraft();
+        closeCommentDraft();
         return true;
       }
-      await review.saveComment({
+      await saveComment({
         threadId: draftTarget.threadId,
         target,
         messageId: draftTarget.messageId,
         body,
       });
-      review.closeCommentDraft();
+      closeCommentDraft();
       return true;
     } catch (error) {
       setDraftSubmitError(
@@ -742,11 +758,11 @@ export function usePanelThreadController({
           quoteKind={activeRange ? "line" : "text"}
           onMinimize={minimize}
           onResolve={(resolved) => {
-            void review.setCommentResolved(activeThread.threadId, resolved);
+            void setCommentResolved(activeThread.threadId, resolved);
             if (resolved) minimize();
           }}
           onAskNow={(body) =>
-            review.askAgent({
+            askAgentAction({
               threadId: activeThread.threadId,
               messageId: createClientId(),
               target: activeThread.target,
@@ -754,7 +770,7 @@ export function usePanelThreadController({
             })
           }
           onAddToReview={(body) =>
-            review.saveComment({
+            saveComment({
               threadId: activeThread.threadId,
               messageId: createClientId(),
               target: activeThread.target,
@@ -762,14 +778,14 @@ export function usePanelThreadController({
             })
           }
           onEditMessage={(messageId, body) =>
-            review.updateComment(activeThread.threadId, body, messageId)
+            updateComment(activeThread.threadId, body, messageId)
           }
           onDeleteMessage={(messageId) =>
-            review.deleteCommentMessage(activeThread.threadId, messageId)
+            deleteCommentMessage(activeThread.threadId, messageId)
           }
           onDelete={() => {
             minimize();
-            return review.deleteComment(activeThread.threadId);
+            return deleteComment(activeThread.threadId);
           }}
         />
       </div>
@@ -791,7 +807,7 @@ export function usePanelThreadController({
         onSubmitComment={(body) => submitDraft(false, body)}
         onAskAgent={(body) => submitDraft(true, body)}
         error={draftSubmitError}
-        onCancel={review.closeCommentDraft}
+        onCancel={closeCommentDraft}
         onDraftStateChange={(hasText) => {
           draftHasTextRef.current = hasText;
         }}
@@ -886,7 +902,7 @@ export function usePanelThreadController({
                   <button
                     type="button"
                     onClick={() =>
-                      void review.setCommentResolved(thread.threadId, false)
+                      void setCommentResolved(thread.threadId, false)
                     }
                   >
                     Reopen
@@ -1141,11 +1157,8 @@ export function PanelCodeSurface({
     line: PanelCodeLine,
   ) => {
     event.preventDefault();
-    const range = {
-      fromLine: line.line,
-      toLine: line.line,
-      ...(line.side ? { side: line.side } : {}),
-    };
+    const range: PanelLineRange = { fromLine: line.line, toLine: line.line };
+    if (line.side) range.side = line.side;
     dragAnchorRef.current = range;
     dragRangeRef.current = range;
     controller.beginLineSelection(range);
@@ -1157,11 +1170,12 @@ export function PanelCodeSurface({
     const anchor = dragAnchorRef.current;
     if (!anchor || event.buttons !== 1) return;
     if (anchor.side && line.side && anchor.side !== line.side) return;
-    const range = {
+    const range: PanelLineRange = {
       fromLine: Math.min(anchor.fromLine, line.line),
       toLine: Math.max(anchor.toLine, line.line),
-      ...(anchor.side || line.side ? { side: anchor.side ?? line.side } : {}),
     };
+    const side = anchor.side ?? line.side;
+    if (side) range.side = side;
     dragRangeRef.current = range;
     controller.changeLineSelection(range);
   };

@@ -31,7 +31,7 @@ const positiveIntegerSchema = z.coerce
   .int("must be a positive integer")
   .positive("must be a positive integer");
 
-const softwareMapLineRangeShape = {
+const softwareMapLineRangeFields = {
   fromLine: positiveIntegerSchema,
   toLine: positiveIntegerSchema,
 };
@@ -50,7 +50,7 @@ function validateSoftwareMapLineRange(
 }
 
 export const SoftwareMapLineRangeInputSchema = z
-  .strictObject(softwareMapLineRangeShape)
+  .strictObject(softwareMapLineRangeFields)
   .superRefine(validateSoftwareMapLineRange);
 
 export function parseReviewBugReportInput(value: JsonValue) {
@@ -81,7 +81,7 @@ export function parseReviewBugReportInput(value: JsonValue) {
 export const SoftwareMapSourceRangeInputSchema = z
   .strictObject({
     file: nonEmptyStringSchema,
-    ...softwareMapLineRangeShape,
+    ...softwareMapLineRangeFields,
   })
   .superRefine(validateSoftwareMapLineRange);
 

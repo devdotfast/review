@@ -272,15 +272,18 @@ function esbuildDiagnostics(
       },
     ];
   }
-  return messages.map((message) => ({
-    source: "review",
-    severity: "error",
-    code: "bundle",
-    message: message.text,
-    filePath: message.location?.file ?? fallbackFilePath,
-    ...(message.location?.line ? { line: message.location.line } : {}),
-    ...(message.location?.column
-      ? { column: message.location.column + 1 }
-      : {}),
-  }));
+  return messages.map((message) => {
+    const diagnostic: ReviewDocumentDiagnostic = {
+      source: "review",
+      severity: "error",
+      code: "bundle",
+      message: message.text,
+      filePath: message.location?.file ?? fallbackFilePath,
+    };
+    if (message.location?.line) diagnostic.line = message.location.line;
+    if (message.location?.column) {
+      diagnostic.column = message.location.column + 1;
+    }
+    return diagnostic;
+  });
 }

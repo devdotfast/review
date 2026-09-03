@@ -186,6 +186,9 @@ importers:
         specifier: 4.5.7
         version: 4.5.7(@types/react@19.2.14)(react@19.2.5)
     devDependencies:
+      '@dev-fast/trace-shared':
+        specifier: workspace:*
+        version: link:../trace-shared
       '@dev.fast/review-protocol':
         specifier: workspace:*
         version: link:../review-protocol

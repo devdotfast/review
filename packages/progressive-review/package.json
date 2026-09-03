@@ -53,7 +53,7 @@
     "build": "tsdown",
     "build:tutorial-assets": "tsx scripts/build-tutorial-assets.ts",
     "check:tutorial": "tsx scripts/check-tutorial.ts",
-    "build:workspace-deps": "pnpm --filter @dev.fast/local-vcs --filter @dev.fast/review-protocol build",
+    "build:workspace-deps": "pnpm --filter @dev.fast/local-vcs --filter @dev.fast/review-protocol --filter @dev-fast/trace-shared build",
     "pretypecheck": "pnpm run build:workspace-deps",
     "pretest": "pnpm run build:workspace-deps",
     "prepack": "pnpm run build && pnpm run app:desktop:build",
@@ -102,6 +102,7 @@
     "zustand": "4.5.7"
   },
   "devDependencies": {
+    "@dev-fast/trace-shared": "workspace:*",
     "@dev.fast/review-protocol": "workspace:*",
     "@types/estree": "1.0.8",
     "@types/hast": "3.0.4",

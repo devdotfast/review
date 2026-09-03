@@ -49,7 +49,7 @@ import {
   resolveReviewDocumentFilePath,
 } from "../review-paths";
 import { saveReviewSubmissionAudit } from "../review-state-store";
-import { ReviewThreadsService } from "../review-threads-service";
+import type { ReviewThreadsService } from "../review-threads-service";
 import {
   type ReviewSourceTarget,
   readReviewStoreRecord,
@@ -91,6 +91,7 @@ import {
   parseUpdateReviewCommentInput,
   requestJsonErrorStatus,
 } from "./review-api-parsers";
+import { reviewStateService } from "./review-state-service";
 
 const REVIEW_SUBMIT_HOOK_ENV = "DEV_FAST_REVIEW_SUBMIT_HOOK";
 export const TUTORIAL_QUESTION_SOURCE_WAIT_MS = 5_000;
@@ -281,10 +282,11 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     if (!service) {
       service =
         resolveReviewThreadsService?.(writableReviewPath) ??
-        new ReviewThreadsService({
-          reviewPath: writableReviewPath,
-          author: process.env.USER ?? "Reviewer",
-        });
+        reviewStateService.threads(
+          `${stateReviewPath ?? reviewPath}:${writableReviewPath}`,
+          writableReviewPath,
+          process.env.USER ?? "Reviewer",
+        );
       threadServices.set(writableReviewPath, service);
       const snapshot = service.snapshot();
       const hasAgentSession =

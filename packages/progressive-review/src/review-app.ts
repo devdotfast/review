@@ -5,6 +5,7 @@ import { type ReviewPickerItem, pickReview } from "./review-app-picker";
 import { actionableReviewsForCheckout } from "./review-change-scope";
 import { type StoredReview, listReviews } from "./review-home";
 import { resolveReviewRoot } from "./runtime";
+import { reviewStateService } from "./server/review-state-service";
 
 interface ReviewAppRuntime {
   launch: typeof runReviewAppLaunch;
@@ -38,7 +39,7 @@ export async function runReviewAppPick(
   const runtime: ReviewAppRuntime = {
     launch: runReviewAppLaunch,
     readReviewDesktopDiscovery,
-    listReviews,
+    listReviews: reviewStateService.list.bind(reviewStateService),
     resolveReviewRoot,
     pickReview,
     hasLiveReviewPage,

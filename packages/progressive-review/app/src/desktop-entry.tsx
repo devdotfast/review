@@ -349,6 +349,7 @@ function applyReviewStateEvent(
     }
     return { ...current, threads, drafts };
   }
+  if (event.type === "review.committed") return current;
   const nodes = { ...current.page.nodes };
   for (const node of event.upsertedNodes) nodes[node.id] = node;
   for (const nodeId of event.deletedNodeIds) delete nodes[nodeId];

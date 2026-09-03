@@ -48,6 +48,8 @@ export class ReviewThreadsService {
   }
 
   snapshot(): ReviewThreadsSnapshot {
+    this.comments = readReviewComments(this.options.reviewPath);
+    this.drafts = readReviewCommentDrafts(this.options.reviewPath);
     return {
       revision: this.revision,
       comments: this.comments,

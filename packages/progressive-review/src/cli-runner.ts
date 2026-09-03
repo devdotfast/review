@@ -45,6 +45,7 @@ import {
 } from "./review-reopen-marker";
 import { runReviewScaffold } from "./review-scaffold";
 import { runReviewWait, validateReviewWait } from "./review-wait";
+import { reviewStateService } from "./server/review-state-service";
 import {
   runReviewThreadsGet,
   runReviewThreadsList,
@@ -1206,7 +1207,7 @@ function progressiveReviewCliRuntime(
     runReviewTraceHook,
     runReviewTraceGitHook,
     runReviewTraceSync,
-    listReviews,
+    listReviews: reviewStateService.list.bind(reviewStateService),
     sealReviewCandidate,
     prepareReviewPinnedCheckout,
     ...overrides,

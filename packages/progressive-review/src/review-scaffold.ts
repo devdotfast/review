@@ -28,10 +28,7 @@ import { removeReviewManagedCheckouts } from "./review-head-checkout";
 import {
   DISABLED_REVIEW_SOURCE_SESSION,
   type StoredReview,
-  createReviewDir,
   createReviewUuid,
-  listReviews,
-  updateReviewPins,
 } from "./review-home";
 import type { ReviewInfoEvent } from "./review-info";
 import { evaluateReviewDocumentBundleForPublish } from "./review-publish-evaluate";
@@ -45,6 +42,7 @@ import { ensurePinnedReviewWorktreeAtCommit } from "./review-worktree-target";
 import { resolveReviewRoot, resolveReviewSource } from "./runtime";
 import { compileReviewDocumentBundle } from "./server/doc-bundler";
 import { reviewInfoEvent } from "./server/review-info";
+import { reviewStateService } from "./server/review-state-service";
 import { traceMachineEnabled } from "./trace-machine-setup";
 
 export interface RunReviewScaffoldInput {
@@ -176,7 +174,7 @@ async function createReview(
   }
   let created: StoredReview;
   try {
-    created = await createReviewDir({
+    created = await reviewStateService.create({
       uuid,
       worktreePath: source.reviewRoot,
       baseRef: source.subject.baseRef,
@@ -292,7 +290,7 @@ export async function repinReview(
     sourceSession = authoringSessionKey(frozen);
   }
   await pinReviewSourceHeadRef(root, reviewSourceHeadRef(uuid), headCommit);
-  const updated = await updateReviewPins(review, {
+  const updated = await reviewStateService.updatePins(review, {
     baseRef,
     baseCommit,
     sourceCommit,
@@ -491,7 +489,7 @@ async function rejectDuplicateActiveReviews(
   reviewRoot: string,
   sourceIdentity: ReviewSourceIdentity,
 ): Promise<void> {
-  const listed = await listReviews({ worktreePath: reviewRoot });
+  const listed = await reviewStateService.list({ worktreePath: reviewRoot });
   if (listed.errors.length > 0) {
     throw new Error(
       `Could not read reviews:\n${listed.errors.map((error) => error.message).join("\n")}`,
@@ -523,7 +521,7 @@ async function findUpdateTarget(
   reviewUuid: string | undefined,
 ): Promise<StoredReview | null> {
   const reviewRoot = await resolveReviewRoot(cwd);
-  const listed = await listReviews({ worktreePath: reviewRoot });
+  const listed = await reviewStateService.list({ worktreePath: reviewRoot });
   if (listed.errors.length > 0) {
     throw new Error(
       `Could not read reviews:\n${listed.errors.map((error) => error.message).join("\n")}`,

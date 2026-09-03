@@ -15,14 +15,8 @@ import type {
   ReviewBinding,
   ReviewSummary,
 } from "../live-review-types";
-import {
-  type StoredReview,
-  computeSync,
-  createReviewDir,
-  listReviews,
-} from "../review-home";
+import { type StoredReview, computeSync } from "../review-home";
 import { resolveReviewRoot } from "../runtime";
-import { writePrivateJsonAtomic } from "./desktop-paths";
 import { reviewStateService } from "./review-state-service";
 
 export class LiveReviewTerminalError extends Error {
@@ -61,7 +55,7 @@ export async function listLiveReviews(input: {
   scope?: "current-checkout" | "all";
 }): Promise<ReviewSummary[]> {
   const reviewRoot = await resolveReviewRoot(path.resolve(input.cwd));
-  const listed = await listReviews(
+  const listed = await reviewStateService.list(
     input.scope === "current-checkout" ? { worktreePath: reviewRoot } : {},
   );
   if (listed.errors.length > 0) {
@@ -98,7 +92,7 @@ export async function createLiveReview(input: {
   const head = await currentHead(reviewRoot);
   if (!head)
     throw new Error(`Could not resolve the checkout at ${reviewRoot}.`);
-  const review = await createReviewDir({
+  const review = await reviewStateService.create({
     worktreePath: reviewRoot,
     baseRef: head.commit,
     baseCommit: head.commit,
@@ -129,7 +123,10 @@ export async function createLiveReview(input: {
     const page: LiveReviewPage = { ...pageWithoutProjection, projection };
     const info = liveReviewInfo(review, page);
     reviewStateService.initialize(review.dir, page);
-    const active = await setLiveReviewStatus(review, "awaiting-agent-updates");
+    const active = await reviewStateService.setStatus(
+      review,
+      "awaiting-agent-updates",
+    );
     return { review: active, info };
   } catch (error) {
     await rm(review.dir, { recursive: true, force: true });
@@ -252,16 +249,7 @@ export async function handoffLiveReview(
       "A terminal Review cannot change lifecycle status.",
     );
   }
-  return setLiveReviewStatus(review, "awaiting-review");
-}
-
-async function setLiveReviewStatus(
-  review: StoredReview,
-  status: StoredReview["review"]["status"],
-): Promise<StoredReview> {
-  const next = { ...review.review, status };
-  await writePrivateJsonAtomic(path.join(review.dir, "review.json"), next);
-  return { ...review, review: next };
+  return reviewStateService.setStatus(review, "awaiting-review");
 }
 
 function bindingFor(review: StoredReview): ReviewBinding {

@@ -1,16 +1,9 @@
-import path from "node:path";
-
 import { reviewMatchesCheckout } from "../review-change-scope";
-import {
-  type StoredReview,
-  computeSync,
-  findReview,
-  listReviews,
-} from "../review-home";
+import { type StoredReview, computeSync } from "../review-home";
 import { type ReviewInfoEvent, type RunReviewInfoInput } from "../review-info";
-import { readReviewComments } from "../review-state-store";
 import { resolveReviewRoot } from "../runtime";
 import { resolveReviewRepositoryIdentity } from "./repository-identity";
+import { reviewStateService } from "./review-state-service";
 
 export async function resolveReviewInfo(
   input: RunReviewInfoInput,
@@ -19,7 +12,7 @@ export async function resolveReviewInfo(
     throw new Error("Review info cannot combine all and reviewUuid.");
   }
   if (input.reviewUuid) {
-    const review = await findReview(input.reviewUuid);
+    const review = await reviewStateService.find(input.reviewUuid);
     if (!review) throw new Error(`Review not found: ${input.reviewUuid}`);
     return reviewInfoEvent([review]);
   }
@@ -28,7 +21,7 @@ export async function resolveReviewInfo(
   const filter = input.all
     ? { repoKey: repository.repositoryId }
     : { worktreePath: reviewRoot };
-  const listed = await listReviews(filter);
+  const listed = await reviewStateService.list(filter);
   if (listed.errors.length > 0) {
     throw new Error(
       `Could not list reviews:\n${listed.errors.map((error) => `${error.reviewDir}: ${error.message}`).join("\n")}`,
@@ -61,7 +54,7 @@ export async function reviewInfoEvent(
           change: stored.review.sourceIdentity?.name ?? null,
           inSync,
           matchesCheckout,
-          unresolvedComments: countUnresolvedComments(stored.dir),
+          unresolvedComments: countUnresolvedComments(stored),
           status: stored.review.status,
           title: stored.review.title,
         };
@@ -70,8 +63,15 @@ export async function reviewInfoEvent(
   };
 }
 
-function countUnresolvedComments(dir: string): number {
-  const comments = readReviewComments(path.join(dir, "review.mdx"));
+function countUnresolvedComments(stored: StoredReview): number {
+  const comments = reviewStateService
+    .threads(
+      stored.review.uuid,
+      path.join(stored.dir, "review.mdx"),
+      "Reviewer",
+    )
+    .snapshot().comments;
   return Object.values(comments).filter((thread) => thread.status === "open")
     .length;
 }
+import path from "node:path";

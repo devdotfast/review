@@ -25,7 +25,6 @@ import {
   humanStream,
   jsonRequestedInArgv,
 } from "./cli-output";
-import { touchReviewAgentSession } from "./review-home";
 import { runReviewMapPublish } from "./review-map-publish";
 import {
   SOFTWARE_MAP_FILE_NAME,
@@ -35,6 +34,7 @@ import {
 import { resolveReviewRepoRootFromStore } from "./review-worktree-target";
 import { resolveReviewRoot } from "./runtime";
 import { resolvePublishReview } from "./server/publish-preparation";
+import { reviewStateService } from "./server/review-state-service";
 import {
   type HydrateScratchResult,
   canonicalizeModelImport,
@@ -557,7 +557,7 @@ async function checkSoftwareMapScratch(
   if (agent && input.reviewUuid) {
     const worktreeRoot = await resolveReviewRoot(input.rootPath);
     const review = await resolvePublishReview(worktreeRoot, input.reviewUuid);
-    await touchReviewAgentSession(
+    await reviewStateService.touchAgentSession(
       review,
       authoringSessionKey(agent),
       "map-worker",

@@ -55,13 +55,7 @@ import {
   type ProgressiveReviewSourceKind,
   ProgressiveReviewTelemetry,
 } from "../progressive-review-telemetry";
-import {
-  dismissReview,
-  markReviewViewed,
-  restoreReview,
-  reviewReapsAt,
-  selectReapableReviews,
-} from "../review-attention";
+import { reviewReapsAt, selectReapableReviews } from "../review-attention";
 import { listReviewDocumentVersions } from "../review-document-versions";
 import {
   ensureReviewPinnedCheckout,
@@ -70,16 +64,9 @@ import {
 import {
   DISABLED_REVIEW_SOURCE_SESSION,
   type StoredReview,
-  type StoredReviewRecord,
-  bindReviewAuthorSession,
-  countReviewComments,
-  findReview,
-  listReviews,
   parseStoredReviewRecord,
-  reviewDescriptor,
   reviewTitleFromDocument,
   reviewsHomeDir,
-  touchReviewAgentSession,
 } from "../review-home";
 import type { RunReviewInfoInput } from "../review-info";
 import {
@@ -251,7 +238,7 @@ export interface GlobalReviewServerInput {
   capacity?: number;
   sessionHandlerFactory?: typeof createReviewSessionHandler;
   tutorialAuthoringSessionFactory?: typeof createTutorialAuthoringSession;
-  tutorialAuthorSessionBinder?: typeof bindReviewAuthorSession;
+  tutorialAuthorSessionBinder?: typeof reviewStateService.bindAuthorSession;
   tutorialAgentResolver?: () => Promise<ReviewAgentHarness | undefined>;
   publishRuntime?: {
     materializePublishRevision: typeof materializePublishRevision;
@@ -290,7 +277,8 @@ export function createGlobalReviewServer(
   const tutorialAuthoringSessionFactory =
     input.tutorialAuthoringSessionFactory ?? createTutorialAuthoringSession;
   const tutorialAuthorSessionBinder =
-    input.tutorialAuthorSessionBinder ?? bindReviewAuthorSession;
+    input.tutorialAuthorSessionBinder ??
+    reviewStateService.bindAuthorSession.bind(reviewStateService);
   const tutorialAgentResolver =
     input.tutorialAgentResolver ??
     (async () =>
@@ -491,7 +479,10 @@ export function createGlobalReviewServer(
       review.review.sourceSession === DISABLED_REVIEW_SOURCE_SESSION
     ) {
       const staleSession = activeSessionForReview(review.review.uuid);
-      review = await bindReviewAuthorSession(review, request.agent);
+      review = await reviewStateService.bindAuthorSession(
+        review,
+        request.agent,
+      );
       if (staleSession) await closeSession(staleSession, "replaced", false);
     }
     const appSessionIdHeader = context.req.header(REVIEW_APP_SESSION_ID_HEADER);
@@ -643,10 +634,10 @@ export function createGlobalReviewServer(
   app.get("/reviews", async () => {
     const { dismissedRetentionDays } = await readReviewPreferences();
     await reapDismissedReviews(dismissedRetentionDays);
-    const listed = await listReviews();
+    const listed = await reviewStateService.list();
     const reviews = await Promise.all(
       listed.reviews.map((stored) =>
-        reviewDescriptor(stored, dismissedRetentionDays),
+        reviewStateService.descriptor(stored, dismissedRetentionDays),
       ),
     );
     reviews.sort(
@@ -658,9 +649,9 @@ export function createGlobalReviewServer(
     return globalJson(200, { reviews, errors: listed.errors });
   });
   app.get("/reviews/:uuid", async (context) => {
-    const review = await findReview(context.req.param("uuid"));
+    const review = await reviewStateService.find(context.req.param("uuid"));
     if (!review) throw new ReviewServerError("Review not found.", 404);
-    return globalJson(200, await reviewDescriptor(review));
+    return globalJson(200, await reviewStateService.descriptor(review));
   });
   app.get("/sessions", () =>
     globalJson(200, {
@@ -689,7 +680,7 @@ export function createGlobalReviewServer(
     if (!stored) {
       throw new ReviewServerError("Review not found.", 404);
     }
-    return globalJson(200, await reviewDescriptor(stored));
+    return globalJson(200, await reviewStateService.descriptor(stored));
   });
   app.post("/tutorial/open", async () => {
     return globalJson(
@@ -864,7 +855,7 @@ export function createGlobalReviewServer(
       const request = parseReviewPublishReadyRequest(
         await readBoundedRequestJson(context.req.raw),
       );
-      let review = await findReview(request.reviewUuid);
+      let review = await reviewStateService.find(request.reviewUuid);
       if (!review) throw new ReviewServerError("Review not found.", 404);
       if (hasLiveReviewPage(review.dir)) {
         throw new ReviewServerError(
@@ -877,7 +868,7 @@ export function createGlobalReviewServer(
       if (agent) {
         const found = review;
         review = await withReviewLock(request.reviewUuid, () =>
-          touchReviewAgentSession(
+          reviewStateService.touchAgentSession(
             found,
             authoringSessionKey(agent),
             "publisher",
@@ -898,13 +889,13 @@ export function createGlobalReviewServer(
       const request = parseReviewPublishReadyRequest(
         await readBoundedRequestJson(context.req.raw),
       );
-      let review = await findReview(request.reviewUuid);
+      let review = await reviewStateService.find(request.reviewUuid);
       if (!review) throw new ReviewServerError("Review not found.", 404);
       const agent = request.agent;
       if (agent) {
         const found = review;
         review = await withReviewLock(request.reviewUuid, () =>
-          touchReviewAgentSession(
+          reviewStateService.touchAgentSession(
             found,
             authoringSessionKey(agent),
             "publisher",
@@ -1026,7 +1017,7 @@ export function createGlobalReviewServer(
 
   async function requireStoredReview(uuidInput: string): Promise<StoredReview> {
     const uuid = requireLiveReviewUuid(uuidInput);
-    const review = await findReview(uuid);
+    const review = await reviewStateService.find(uuid);
     if (!review) throw new ReviewServerError("Review not found.", 404);
     return review;
   }
@@ -1052,7 +1043,7 @@ export function createGlobalReviewServer(
     review: StoredReview;
   }> {
     const { review } = input;
-    const initialDescriptor = await reviewDescriptor(review);
+    const initialDescriptor = await reviewStateService.descriptor(review);
     if (!initialDescriptor.available) {
       throw new ReviewServerError(
         "The review worktree or document is unavailable.",
@@ -1094,7 +1085,9 @@ export function createGlobalReviewServer(
       async () => {
         const current = await requireStoredReview(review.review.uuid);
         const wasDismissed = Boolean(current.review.dismissedAt);
-        const viewed = await restoreReview(await markReviewViewed(current));
+        const viewed = await reviewStateService.restore(
+          await reviewStateService.markViewed(current),
+        );
         if (
           viewed.review.viewedAt !== current.review.viewedAt ||
           viewed.review.dismissedAt !== current.review.dismissedAt
@@ -1136,7 +1129,7 @@ export function createGlobalReviewServer(
       });
       return { active, review: latest, existed: false } as const;
     });
-    const descriptor = await reviewDescriptor(installed.review);
+    const descriptor = await reviewStateService.descriptor(installed.review);
     const homeReview: ReviewDescriptor = {
       ...descriptor,
       viewedAt: installed.review.review.viewedAt ?? null,
@@ -1278,17 +1271,16 @@ export function createGlobalReviewServer(
         ) {
           throw new ReviewServerError("Review session is unavailable.", 404);
         }
-        const latest = await findReview(review.review.uuid);
+        const latest = await reviewStateService.find(review.review.uuid);
         if (!latest) throw new ReviewServerError("Review not found.", 404);
         rejectTerminalPublication(latest);
         rejectConcurrentPublication(latest, review);
         requireClosedThreadsForRepublish(latest);
-        successor.review = await promoteReview(
-          latest,
-          successor.revision,
-          successor.source,
-          await reviewTitleFromDocument(documentPath),
-        );
+        successor.review = await reviewStateService.publishDocument(latest, {
+          revision: successor.revision,
+          sourceCommit: successor.source.sourceCommit,
+          title: await reviewTitleFromDocument(documentPath),
+        });
         successor.promoted = true;
         await startSessionTelemetry(successor);
         await clearReopenPending(successor.review.review.worktreePath);
@@ -1300,7 +1292,7 @@ export function createGlobalReviewServer(
         broadcastGlobal({
           event: "session-registered",
           session: successor.descriptor,
-          review: await reviewDescriptor(
+          review: await reviewStateService.descriptor(
             successor.review,
             (await readReviewPreferences()).dismissedRetentionDays,
           ),
@@ -1413,17 +1405,20 @@ export function createGlobalReviewServer(
         );
       }
       await withReviewLock(review.review.uuid, async () => {
-        const latest = await findReview(review.review.uuid);
+        const latest = await reviewStateService.find(review.review.uuid);
         if (!latest) throw new ReviewServerError("Review not found.", 404);
         rejectTerminalPublication(latest);
         rejectConcurrentPublication(latest, review);
-        successor.review = await promoteSoftwareMap(latest, revision);
+        successor.review = await reviewStateService.publishSoftwareMap(
+          latest,
+          revision,
+        );
         successor.promoted = true;
         await startSessionTelemetry(successor);
         broadcastGlobal({
           event: "session-registered",
           session: successor.descriptor,
-          review: await reviewDescriptor(
+          review: await reviewStateService.descriptor(
             successor.review,
             (await readReviewPreferences()).dismissedRetentionDays,
           ),
@@ -1628,7 +1623,7 @@ export function createGlobalReviewServer(
       reviewUuid: session.review.review.uuid,
       sessionId: session.descriptor.sessionId,
       url: session.descriptor.sessionUrl,
-      review: await reviewDescriptor(session.review),
+      review: await reviewStateService.descriptor(session.review),
       session: session.descriptor,
     };
   }
@@ -1705,7 +1700,9 @@ export function createGlobalReviewServer(
           prepared.review.review.uuid,
           async () => {
             if (!isCurrent()) return undefined;
-            const latest = await findReview(prepared.review.review.uuid);
+            const latest = await reviewStateService.find(
+              prepared.review.review.uuid,
+            );
             if (!latest) return undefined;
             const bound = await tutorialAuthorSessionBinder(latest, session);
             prepared.review = bound;
@@ -1793,7 +1790,7 @@ export function createGlobalReviewServer(
       if (!existsSync(dir)) {
         throw new ReviewServerError("Review not found.", 404);
       }
-      const stored = await findReview(uuid).catch(() => null);
+      const stored = await reviewStateService.find(uuid).catch(() => null);
       if (stored) {
         await deleteStoredReviewUnlocked(stored);
         return;
@@ -1959,7 +1956,9 @@ export function createGlobalReviewServer(
         listDocumentVersions: hasLiveReviewPage(registration.review.dir)
           ? async () => []
           : async () => {
-              const latest = await findReview(registration.review.review.uuid);
+              const latest = await reviewStateService.find(
+                registration.review.review.uuid,
+              );
               return latest ? listReviewDocumentVersions(latest) : [];
             },
         session: sessionWire,
@@ -1977,7 +1976,8 @@ export function createGlobalReviewServer(
             uuid: registration.review.review.uuid,
             sessionId,
             commit,
-            commentCount: countReviewComments(
+            commentCount: reviewStateService.countThreads(
+              registration.review.review.uuid,
               path.join(registration.review.dir, "review.mdx"),
             ),
           });
@@ -1988,9 +1988,11 @@ export function createGlobalReviewServer(
         resolveQuestionSourceSession: registration.resolveQuestionSourceSession,
         onQuestionAgentSession: (agent) =>
           withReviewLock(registration.review.review.uuid, async () => {
-            const latest = await findReview(registration.review.review.uuid);
+            const latest = await reviewStateService.find(
+              registration.review.review.uuid,
+            );
             if (!latest) throw new Error("Review not found.");
-            active.review = await touchReviewAgentSession(
+            active.review = await reviewStateService.touchAgentSession(
               latest,
               authoringSessionKey(agent),
               "question",
@@ -2030,7 +2032,7 @@ export function createGlobalReviewServer(
       broadcastGlobal({
         event: "session-registered",
         session: descriptor,
-        review: await reviewDescriptor(
+        review: await reviewStateService.descriptor(
           active.review,
           (await readReviewPreferences()).dismissedRetentionDays,
         ),
@@ -2051,7 +2053,7 @@ export function createGlobalReviewServer(
       throw new Error("An unpromoted Review session cannot be submitted.");
     }
     await withReviewLock(active.review.review.uuid, async () => {
-      const latest = await findReview(active.review.review.uuid);
+      const latest = await reviewStateService.find(active.review.review.uuid);
       if (
         !latest ||
         active.closing ||
@@ -2072,7 +2074,7 @@ export function createGlobalReviewServer(
         submission.decision === "approve"
           ? "accepted"
           : "awaiting-agent-updates";
-      active.review = await setReviewStatus(latest, status);
+      active.review = await reviewStateService.setStatus(latest, status);
       if (submission.decision === "request-changes") {
         await markReopenPending(
           active.review.review.worktreePath,
@@ -2103,7 +2105,7 @@ export function createGlobalReviewServer(
       throw new Error("An unpromoted Review session cannot be dismissed.");
     }
     await withReviewLock(active.review.review.uuid, async () => {
-      const latest = await findReview(active.review.review.uuid);
+      const latest = await reviewStateService.find(active.review.review.uuid);
       if (
         !latest ||
         active.closing ||
@@ -2112,7 +2114,7 @@ export function createGlobalReviewServer(
       ) {
         return;
       }
-      active.review = await dismissReview(latest);
+      active.review = await reviewStateService.dismiss(latest);
       await clearReopenPending(active.review.review.worktreePath);
       await broadcastReviewAttention(active.review, "dismissed");
       broadcastGlobal({
@@ -2142,11 +2144,11 @@ export function createGlobalReviewServer(
       throw new ReviewServerError("Review not found.", 404);
     }
     return withReviewLock(uuid, async () => {
-      const stored = await findReview(uuid);
+      const stored = await reviewStateService.find(uuid);
       if (!stored) throw new ReviewServerError("Review not found.", 404);
       const next = dismissed
-        ? await dismissReview(stored)
-        : await restoreReview(stored);
+        ? await reviewStateService.dismiss(stored)
+        : await reviewStateService.restore(stored);
       const attention = dismissed
         ? "dismissed"
         : next.review.viewedAt
@@ -2200,7 +2202,7 @@ export function createGlobalReviewServer(
     retentionDays: number | null,
   ): Promise<void> {
     if (retentionDays === null) return;
-    const listed = await listReviews().catch(() => null);
+    const listed = await reviewStateService.list().catch(() => null);
     if (!listed) return;
     for (const stored of selectReapableReviews(listed.reviews, retentionDays)) {
       const { uuid } = stored.review;
@@ -2650,41 +2652,6 @@ function sessionWireFor(
   };
 }
 
-async function promoteReview(
-  stored: StoredReview,
-  revision: string,
-  source: { sourceCommit: string; sourceBranch: string },
-  title: string | undefined,
-): Promise<StoredReview> {
-  const review: StoredReviewRecord = {
-    ...stored.review,
-    sourceCommit: source.sourceCommit,
-    ...(title ? { title } : {}),
-    status: "awaiting-review",
-    presentedDocumentRevision: revision,
-    lastPublishedAt: new Date().toISOString(),
-    /* A publish is new work, so the review earns attention again and returns
-       to Home as new. This also rescues a review that was dismissed and then
-       updated rather than dropped. */
-    viewedAt: null,
-    dismissedAt: null,
-  };
-  await writePrivateJsonAtomic(path.join(stored.dir, "review.json"), review);
-  return { ...stored, review };
-}
-
-async function promoteSoftwareMap(
-  stored: StoredReview,
-  revision: string,
-): Promise<StoredReview> {
-  const review: StoredReviewRecord = {
-    ...stored.review,
-    presentedSoftwareMapRevision: revision,
-  };
-  await writePrivateJsonAtomic(path.join(stored.dir, "review.json"), review);
-  return { ...stored, review };
-}
-
 async function reviewWithPresentedDocumentPins(
   stored: StoredReview,
   documentBuildDir: string,
@@ -2735,15 +2702,6 @@ function rejectConcurrentPublication(
       "review_publication_conflict",
     );
   }
-}
-
-async function setReviewStatus(
-  stored: StoredReview,
-  status: ReviewRecord["status"],
-): Promise<StoredReview> {
-  const review: StoredReviewRecord = { ...stored.review, status };
-  await writePrivateJsonAtomic(path.join(stored.dir, "review.json"), review);
-  return { ...stored, review };
 }
 
 function lifecycleFrame(record: {

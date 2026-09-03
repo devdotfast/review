@@ -20,8 +20,9 @@ import {
   syncReviewTrace,
 } from "./review-agent-traces";
 import { reviewUuidForManagedCheckout } from "./review-head-checkout";
-import { type StoredReview, findReview, listReviews } from "./review-home";
+import type { StoredReview } from "./review-home";
 import { resolveReviewRepoRootFromStore } from "./review-worktree-target";
+import { reviewStateService } from "./server/review-state-service";
 import { runReviewTraceGitHook } from "./trace-git-hook-runner";
 import { runReviewTraceHook } from "./trace-hook-runner";
 import { traceMachineStatus } from "./trace-machine-setup";
@@ -561,13 +562,13 @@ async function resolveTraceReview(
   const managedReviewUuid = await reviewUuidForManagedCheckout(cwd);
   const wantedUuid = reviewUuid ?? managedReviewUuid ?? undefined;
   if (wantedUuid) {
-    const review = await findReview(wantedUuid);
+    const review = await reviewStateService.find(wantedUuid);
     if (!review) throw new Error(`Review not found: ${wantedUuid}`);
     return review;
   }
-  const candidates = (await listReviews({ worktreePath: cwd })).reviews.filter(
-    (review) => review.review.status !== "rejected",
-  );
+  const candidates = (
+    await reviewStateService.list({ worktreePath: cwd })
+  ).reviews.filter((review) => review.review.status !== "rejected");
   if (candidates.length === 0) {
     throw new Error("No review found for this worktree.");
   }

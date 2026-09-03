@@ -2,12 +2,19 @@ import path from "node:path";
 
 import type {
   ReviewAuthoringTarget,
+  ReviewDescriptor,
+  ReviewRecord,
   ReviewCommentDraftThreadMap,
   ReviewCommentThreadMap,
   ReviewThreadsCommit,
 } from "@dev.fast/review-protocol";
+import type {
+  ReviewAgentSessionRole,
+  ReviewSourceIdentity,
+} from "@dev.fast/review-protocol";
 import type { Spec } from "@json-render/core";
 
+import type { SessionRef } from "../authoring-session";
 import {
   commitLiveReviewPage,
   initializeLiveReviewPage,
@@ -18,10 +25,30 @@ import type {
   StoredLiveReviewNode,
 } from "../live-review-types";
 import {
+  dismissReview,
+  markReviewViewed,
+  restoreReview,
+} from "../review-attention";
+import {
+  type CreateReviewDirBinding,
+  type ListReviewsFilter,
+  type ListReviewsResult,
+  type StoredReview,
+  type StoredReviewRecord,
+  bindReviewAuthorSession,
+  createReviewDir,
+  findReview,
+  listReviews,
+  reviewDescriptor,
+  touchReviewAgentSession,
+  updateReviewPins,
+} from "../review-home";
+import {
   readReviewCommentDrafts,
   readReviewComments,
 } from "../review-state-store";
 import { ReviewThreadsService } from "../review-threads-service";
+import { writePrivateJsonAtomic } from "./desktop-paths";
 
 export interface ReviewStateSnapshot {
   page: LiveReviewPage;
@@ -51,7 +78,8 @@ export type ReviewStateEvent =
   | {
       type: "threads.committed";
       commit: ReviewThreadsCommit;
-    };
+    }
+  | { type: "review.committed"; review: StoredReviewRecord };
 
 type ReviewStateListener = (event: ReviewStateEvent) => void;
 
@@ -65,6 +93,112 @@ export class ReviewStateService {
   readonly #authoringTargets = new Map<string, ReviewAuthoringTarget>();
   readonly #listeners = new Map<string, Set<ReviewStateListener>>();
   readonly #threadServices = new Map<string, ReviewThreadsService>();
+
+  find(reviewId: string): Promise<StoredReview | null> {
+    return findReview(reviewId);
+  }
+
+  list(filter: ListReviewsFilter = {}): Promise<ListReviewsResult> {
+    return listReviews(filter);
+  }
+
+  descriptor(
+    stored: StoredReview,
+    retentionDays?: number | null,
+  ): Promise<ReviewDescriptor> {
+    return reviewDescriptor(stored, retentionDays);
+  }
+
+  create(binding: CreateReviewDirBinding): Promise<StoredReview> {
+    return createReviewDir(binding);
+  }
+
+  async bindAuthorSession(
+    stored: StoredReview,
+    session: SessionRef,
+  ): Promise<StoredReview> {
+    return this.#commitRecord(await bindReviewAuthorSession(stored, session));
+  }
+
+  async touchAgentSession(
+    stored: StoredReview,
+    sessionKey: string,
+    role: ReviewAgentSessionRole,
+  ): Promise<StoredReview> {
+    return this.#commitRecord(
+      await touchReviewAgentSession(stored, sessionKey, role),
+    );
+  }
+
+  async updatePins(
+    stored: StoredReview,
+    pins: {
+      baseRef: string;
+      baseCommit: string;
+      sourceCommit: string;
+      sourceIdentity: ReviewSourceIdentity;
+      sourceSession: string;
+    },
+  ): Promise<StoredReview> {
+    return this.#commitRecord(await updateReviewPins(stored, pins));
+  }
+
+  async markViewed(stored: StoredReview): Promise<StoredReview> {
+    return this.#commitRecord(await markReviewViewed(stored));
+  }
+
+  async dismiss(stored: StoredReview): Promise<StoredReview> {
+    return this.#commitRecord(await dismissReview(stored));
+  }
+
+  async restore(stored: StoredReview): Promise<StoredReview> {
+    return this.#commitRecord(await restoreReview(stored));
+  }
+
+  async setStatus(
+    stored: StoredReview,
+    status: ReviewRecord["status"],
+  ): Promise<StoredReview> {
+    return this.updateRecord(stored, { status });
+  }
+
+  async publishDocument(
+    stored: StoredReview,
+    input: {
+      revision: string;
+      sourceCommit: string;
+      title?: string;
+      publishedAt?: string;
+    },
+  ): Promise<StoredReview> {
+    return this.updateRecord(stored, {
+      sourceCommit: input.sourceCommit,
+      ...(input.title ? { title: input.title } : {}),
+      status: "awaiting-review",
+      presentedDocumentRevision: input.revision,
+      lastPublishedAt: input.publishedAt ?? new Date().toISOString(),
+      viewedAt: null,
+      dismissedAt: null,
+    });
+  }
+
+  async publishSoftwareMap(
+    stored: StoredReview,
+    revision: string,
+  ): Promise<StoredReview> {
+    return this.updateRecord(stored, {
+      presentedSoftwareMapRevision: revision,
+    });
+  }
+
+  async updateRecord(
+    stored: StoredReview,
+    patch: Partial<StoredReviewRecord>,
+  ): Promise<StoredReview> {
+    const review = { ...stored.review, ...patch };
+    await writePrivateJsonAtomic(path.join(stored.dir, "review.json"), review);
+    return this.#commitRecord({ ...stored, review });
+  }
 
   readPage(reviewDir: string): LiveReviewPage | null {
     return readLiveReviewPage(reviewDir);
@@ -117,6 +251,12 @@ export class ReviewStateService {
     return service;
   }
 
+  countThreads(reviewId: string, reviewPath: string): number {
+    return Object.keys(
+      this.threads(reviewId, reviewPath, "Reviewer").snapshot().comments,
+    ).length;
+  }
+
   subscribe(reviewId: string, listener: ReviewStateListener): () => void {
     const listeners = this.#listeners.get(reviewId) ?? new Set();
     listeners.add(listener);
@@ -134,6 +274,14 @@ export class ReviewStateService {
 
   #emit(reviewId: string, event: ReviewStateEvent): void {
     for (const listener of this.#listeners.get(reviewId) ?? []) listener(event);
+  }
+
+  #commitRecord(stored: StoredReview): StoredReview {
+    this.#emit(stored.review.uuid, {
+      type: "review.committed",
+      review: stored.review,
+    });
+    return stored;
   }
 }
 

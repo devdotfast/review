@@ -15,7 +15,7 @@ import { streamSSE } from "hono/streaming";
 
 import type { ReviewAgentHarness, SessionRef } from "../authoring-session";
 import type { AgentServer } from "../native-agent/native-session";
-import { ReviewThreadsService } from "../review-threads-service";
+import type { ReviewThreadsService } from "../review-threads-service";
 import { resolveReviewSessionBaseCommit } from "../review-worktree-target";
 import {
   type ReviewSoftwareMapBundle,
@@ -34,6 +34,7 @@ import {
   jsonResponse,
 } from "./hono-http";
 import { type ReviewApi, createReviewApi } from "./review-api";
+import { reviewStateService } from "./review-state-service";
 
 const API_PREFIX = "/__progressive-review";
 const MAP_MODULE_PATH_PREFIX = `${API_PREFIX}/software-map-modules/`;
@@ -325,10 +326,11 @@ export async function createReviewSessionHandler(
   const primaryReviewPath = input.stateReviewPath ?? input.reviewPath;
   const primaryThreads =
     input.reviewThreadsService ??
-    new ReviewThreadsService({
-      reviewPath: primaryReviewPath,
-      author: process.env.USER ?? "Reviewer",
-    });
+    reviewStateService.threads(
+      input.reviewUuid ?? primaryReviewPath,
+      primaryReviewPath,
+      process.env.USER ?? "Reviewer",
+    );
   const threadSubscriptions = new Map<ReviewThreadsService, () => void>();
   const resolveReviewThreadsService = (
     writableReviewPath: string,
@@ -336,10 +338,11 @@ export async function createReviewSessionHandler(
     const service =
       writableReviewPath === primaryReviewPath
         ? primaryThreads
-        : new ReviewThreadsService({
-            reviewPath: writableReviewPath,
-            author: process.env.USER ?? "Reviewer",
-          });
+        : reviewStateService.threads(
+            `${input.reviewUuid ?? primaryReviewPath}:${writableReviewPath}`,
+            writableReviewPath,
+            process.env.USER ?? "Reviewer",
+          );
     if (!threadSubscriptions.has(service)) {
       threadSubscriptions.set(
         service,

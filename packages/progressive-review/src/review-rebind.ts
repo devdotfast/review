@@ -1,5 +1,3 @@
-import path from "node:path";
-
 import {
   changeIdentityForRevision,
   resolveRevision,
@@ -7,8 +5,8 @@ import {
 
 import { repinReview } from "./review-scaffold";
 import { resolveReviewRoot } from "./runtime";
-import { writePrivateJsonAtomic } from "./server/desktop-paths";
 import { resolvePublishReview } from "./server/publish-preparation";
+import { reviewStateService } from "./server/review-state-service";
 
 /**
  * Move a review to a different unit of change and re-pin from it
@@ -44,16 +42,15 @@ export async function runReviewRebind(input: {
     throw new Error(`Change does not resolve to one identity: ${input.change}`);
   }
   const record = { ...review.review, sourceIdentity };
-  await writePrivateJsonAtomic(path.join(review.dir, "review.json"), record);
-  const repinned = await repinReview(
-    { dir: review.dir, review: record },
-    {
-      cwd: reviewRoot,
-      toolingRoot: input.toolingRoot,
-      progress: input.progress,
-      env: input.env,
-    },
-  );
+  const rebound = await reviewStateService.updateRecord(review, {
+    sourceIdentity,
+  });
+  const repinned = await repinReview(rebound, {
+    cwd: reviewRoot,
+    toolingRoot: input.toolingRoot,
+    progress: input.progress,
+    env: input.env,
+  });
   input.stdout.write(
     `${JSON.stringify({
       event: "rebound",

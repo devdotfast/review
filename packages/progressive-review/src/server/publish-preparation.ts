@@ -4,11 +4,12 @@ import {
   actionableReviewsForCheckout,
   isPositionalChangeIdentity,
 } from "../review-change-scope";
-import { type StoredReview, listReviews } from "../review-home";
+import type { StoredReview } from "../review-home";
 import {
   requireClosedThreadsForRepublish,
   requireCompletedAgentResponsesForRepublish,
 } from "../review-publish-thread-gate";
+import { reviewStateService } from "./review-state-service";
 
 export interface PreparedReviewPublish {
   review: StoredReview;
@@ -89,7 +90,7 @@ export async function resolvePublishReview(
   reviewUuid: string | undefined,
   options: { includeTerminal?: boolean } = {},
 ): Promise<StoredReview> {
-  const listed = await listReviews({ worktreePath: cwd });
+  const listed = await reviewStateService.list({ worktreePath: cwd });
   if (listed.errors.length > 0) {
     throw new Error(
       `Could not read reviews:\n${listed.errors.map((error) => error.message).join("\n")}`,

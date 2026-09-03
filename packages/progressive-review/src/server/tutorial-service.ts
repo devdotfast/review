@@ -22,10 +22,7 @@ import {
 } from "../authoring-session";
 import {
   type StoredReview,
-  createReviewDir,
   createReviewUuid,
-  findReview,
-  listReviews,
   reviewTitleFromDocument,
   sealReviewCandidate,
 } from "../review-home";
@@ -35,6 +32,7 @@ import {
 } from "../review-source-ref";
 import { devReviewHome } from "../review-storage";
 import { writePrivateJsonAtomic } from "./desktop-paths";
+import { reviewStateService } from "./review-state-service";
 
 const execFilePromise = promisify(execFile);
 const TUTORIAL_STATUS_VERSION = 1;
@@ -80,7 +78,7 @@ export function createTutorialService(input: {
   const findTutorialReview = async (
     uuid: string,
   ): Promise<StoredReview | null> => {
-    const loaded = await findReview(uuid);
+    const loaded = await reviewStateService.find(uuid);
     return loaded?.review.visibility === "system" ? loaded : null;
   };
 
@@ -114,7 +112,7 @@ export function createTutorialService(input: {
   };
 
   const cleanup = async (): Promise<void> => {
-    const listed = await listReviews({ includeSystem: true });
+    const listed = await reviewStateService.list({ includeSystem: true });
     for (const review of listed.reviews) {
       if (await isManagedTutorialPath(review.review.worktreePath, sampleRoot)) {
         await input.deleteReview(review);
@@ -177,7 +175,7 @@ export function createTutorialService(input: {
         head.commit,
       );
       const sourceSession = freshSourceSessionKey(agent);
-      const created = await createReviewDir({
+      const created = await reviewStateService.create({
         uuid,
         visibility: "system",
         worktreePath: sampleRoot,
@@ -202,10 +200,7 @@ export function createTutorialService(input: {
           lastPublishedAt: publishedAt,
         },
       };
-      await writePrivateJsonAtomic(
-        path.join(candidate.dir, "review.json"),
-        candidate.review,
-      );
+      await reviewStateService.updateRecord(created, candidate.review);
       const runtimeManifest = await readTutorialRuntimeManifest(assetsRoot);
       await Promise.all([
         ...runtimeManifest.reviewFiles.map((entry) =>
@@ -231,10 +226,7 @@ export function createTutorialService(input: {
           presentedSoftwareMapRevision: revision,
         },
       };
-      await writePrivateJsonAtomic(
-        path.join(review.dir, "review.json"),
-        review.review,
-      );
+      await reviewStateService.updateRecord(candidate, review.review);
       await writePrivateJsonAtomic(stampPath, {
         version: TUTORIAL_STAMP_VERSION,
         reviewUuid: review.review.uuid,

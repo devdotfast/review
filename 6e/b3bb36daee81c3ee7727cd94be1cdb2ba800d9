@@ -798,6 +798,12 @@ export default defineSoftwareMap({
     },
     {
       kind: "semantic",
+      from: "reviewer",
+      to: "review.reviewApp.panelCoordinator.panelHost",
+      label: "opens one right-panel workflow at a time",
+    },
+    {
+      kind: "semantic",
       from: "review.cliPackage.serverSurface.desktopServer",
       to: "review.desktopApp.terminalHost.reviewVerbs",
       label: "dispatches openNativeAgentTerminal verb",

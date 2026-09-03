@@ -135,6 +135,7 @@ describe("annotationForThread", () => {
           kind: "comment",
           index: 1,
           status: "persisted",
+          resolved: false,
         },
       );
 

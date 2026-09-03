@@ -27,6 +27,21 @@ export function CommentIcon(): ReactElement {
   );
 }
 
+/** The comment bubble with its text lines replaced by a check: a resolved thread. */
+export function ResolvedCommentIcon(): ReactElement {
+  return (
+    <svg
+      aria-hidden="true"
+      className="ui-icon ui-icon--comment-resolved"
+      focusable="false"
+      viewBox="0 0 24 24"
+    >
+      <path d="M6.25 5.75h11.5a2.5 2.5 0 0 1 2.5 2.5v5.25a2.5 2.5 0 0 1-2.5 2.5h-6.5L7 19.25V16H6.25a2.5 2.5 0 0 1-2.5-2.5V8.25a2.5 2.5 0 0 1 2.5-2.5Z" />
+      <path d="M8.75 11.25l2.25 2.25 4.25-4.5" />
+    </svg>
+  );
+}
+
 export function ThreadsIcon(): ReactElement {
   return (
     <svg

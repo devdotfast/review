@@ -18,7 +18,7 @@ import {
   commentAnnotationPositionsEqual,
 } from "./comment-pins";
 import { useReviewSession } from "./host/review-session";
-import { CommentIcon } from "./icons";
+import { CommentIcon, ResolvedCommentIcon } from "./icons";
 import {
   type CommentDraftTarget,
   commentDraftTargetForSurface,
@@ -173,12 +173,20 @@ export function ThreadAnnotations({
   } = useReviewActions();
   const {
     allCommentThreads,
+    resolvedCommentThreads,
     draftTarget: contextDraftTarget,
     focusedThreadId,
     threadFocusRequest,
   } = useReviewState();
   const reviewRoots = useReviewRoots();
-  const commentThreads = allCommentThreads();
+  // Resolved threads stay pinned in the document as quiet markers, so they
+  // are annotated alongside the open ones.
+  const openThreads = allCommentThreads();
+  const resolvedThreads = resolvedCommentThreads();
+  const commentThreads = useMemo(
+    () => [...openThreads, ...resolvedThreads],
+    [openThreads, resolvedThreads],
+  );
   const draftTarget = isGlobalCommentDraft(contextDraftTarget)
     ? null
     : commentDraftTargetForSurface(contextDraftTarget, "document");
@@ -339,6 +347,7 @@ export function ThreadAnnotations({
                 // The marker badge is the number of messages in this thread.
                 index: thread.messages.length,
                 status: thread.clientStatus,
+                resolved: thread.status === "resolved",
               })
             : [],
         ),
@@ -352,6 +361,7 @@ export function ThreadAnnotations({
               kind: "comment" as const,
               index: 0,
               status: "draft" as const,
+              resolved: false,
             }).map((annotation) => ({ ...annotation, marker: null }))
           : []),
       ].flat();
@@ -608,21 +618,23 @@ export function ThreadAnnotations({
       const articleRect = article.getBoundingClientRect();
       const x = event.clientX - articleRect.left;
       const y = event.clientY - articleRect.top;
-      const hit = annotations.find((annotation) =>
-        annotation.rects.some(
-          (rect) =>
-            x >= rect.x &&
-            x <= rect.x + rect.width &&
-            y >= rect.y &&
-            y <= rect.y + rect.height,
-        ),
+      const hit = annotations.find(
+        (annotation) =>
+          (!annotation.resolved || annotation.threadId === focusedThreadId) &&
+          annotation.rects.some(
+            (rect) =>
+              x >= rect.x &&
+              x <= rect.x + rect.width &&
+              y >= rect.y &&
+              y <= rect.y + rect.height,
+          ),
       );
       if (!hit) return;
       activate(hit);
     };
     article.addEventListener("click", onClick);
     return () => article.removeEventListener("click", onClick);
-  }, [annotations, gutter]);
+  }, [annotations, focusedThreadId, gutter]);
 
   // Focused threads and empty drafts collapse on outside pointer down.
   useEffect(() => {
@@ -687,9 +699,13 @@ export function ThreadAnnotations({
 
   if (annotations.length === 0 && !draftTarget) return null;
 
+  // Resolved threads never take a margin card; they stay a marker at the
+  // line edge in every layout.
   const marginCards =
     gutter?.mode === "cards"
-      ? annotations.filter((annotation) => annotation.anchorY !== null)
+      ? annotations.filter(
+          (annotation) => annotation.anchorY !== null && !annotation.resolved,
+        )
       : [];
   const popoverHost = reviewRoots?.appRef.current ?? null;
 
@@ -705,39 +721,54 @@ export function ThreadAnnotations({
           const stateClasses =
             ` review-annotation--${annotation.kind}` +
             ` review-annotation--${annotation.status}` +
+            (annotation.resolved ? " review-annotation--resolved" : "") +
             (isActive ? " review-annotation--active" : "") +
             (isFocused ? " review-annotation--focused" : "");
           const showMarker =
             annotation.marker &&
-            (gutter?.mode !== "cards" || annotation.anchorY === null);
+            (gutter?.mode !== "cards" ||
+              annotation.anchorY === null ||
+              annotation.resolved);
+          // A resolved thread's highlight comes back only while it is
+          // focused; at rest the marker alone says the thread is there.
+          const showHighlight = !annotation.resolved || isFocused;
           return (
             <span key={annotation.key}>
-              {annotation.rects.map((rect, rectIndex) => (
-                <div
-                  key={rectIndex}
-                  className={`review-highlight${stateClasses}`}
-                  data-review-locator={annotation.targetKey}
-                  style={{
-                    left: rect.x,
-                    top: rect.y,
-                    width: rect.width,
-                    height: rect.height,
-                  }}
-                />
-              ))}
+              {showHighlight &&
+                annotation.rects.map((rect, rectIndex) => (
+                  <div
+                    key={rectIndex}
+                    className={`review-highlight${stateClasses}`}
+                    data-review-locator={annotation.targetKey}
+                    style={{
+                      left: rect.x,
+                      top: rect.y,
+                      width: rect.width,
+                      height: rect.height,
+                    }}
+                  />
+                ))}
               {showMarker && annotation.marker && (
                 <button
                   type="button"
                   className={`thread-marker${stateClasses}`}
                   data-review-locator={annotation.targetKey}
-                  aria-label="Open comment thread"
+                  aria-label={
+                    annotation.resolved
+                      ? "Open resolved comment thread"
+                      : "Open comment thread"
+                  }
                   onClick={() => activate(annotation)}
                   style={{
                     left: annotation.marker.x,
                     top: annotation.marker.y,
                   }}
                 >
-                  <CommentIcon />
+                  {annotation.resolved ? (
+                    <ResolvedCommentIcon />
+                  ) : (
+                    <CommentIcon />
+                  )}
                   {annotation.index > 1 && <span>{annotation.index}</span>}
                 </button>
               )}
@@ -931,6 +962,7 @@ export function annotationForThread(
     kind: CommentAnnotationPosition["kind"];
     index: number;
     status: CommentAnnotationPosition["status"];
+    resolved: boolean;
   },
 ): CommentAnnotationPosition[] {
   const element = elementForThread(article, target);

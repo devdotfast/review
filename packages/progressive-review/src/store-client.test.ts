@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { StoreClient } from "./store-client";
+import { StoreApiError, StoreClient } from "./store-client";
 
 describe("StoreClient", () => {
   it("sends the bearer token and parses the envelope on error", async () => {
@@ -60,6 +60,28 @@ describe("StoreClient", () => {
     expect(await client.deviceToken("dc")).toEqual({
       pending: "authorization_pending",
     });
+
+    const rejectingFetch = vi.fn<typeof globalThis.fetch>(
+      async () =>
+        new Response(
+          JSON.stringify({
+            error: "invalid_grant",
+            error_description: "The device code is invalid.",
+          }),
+          { status: 400 },
+        ),
+    );
+    const rejectingClient = new StoreClient({
+      origin: "https://app.dev.fast",
+      fetch: rejectingFetch,
+    });
+    await expect(rejectingClient.deviceToken("dc")).rejects.toSatisfy(
+      (error) => {
+        expect(error).toBeInstanceOf(StoreApiError);
+        expect((error as StoreApiError).message).toMatch(/invalid/i);
+        return true;
+      },
+    );
   });
 
   it("validates responses against the contract", async () => {

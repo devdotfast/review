@@ -193,8 +193,9 @@ review logout
 
 `review login` opens a browser to sign in with GitHub and stores a session
 token at `$DEV_REVIEW_HOME/auth.json`. Use `--no-browser` on a headless
-machine; the command prints a URL to open elsewhere. `review whoami` shows
-the stored login. `review logout` deletes it.
+machine; the command prints a URL to open elsewhere. Use `--origin <url>` to
+sign in to a different store. `review whoami` shows the stored login.
+`review logout` deletes it.
 
 ```sh
 review trace onboard [path]

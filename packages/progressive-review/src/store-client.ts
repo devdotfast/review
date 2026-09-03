@@ -13,12 +13,23 @@ import {
   beginUploadResponseSchema,
   completeUploadResponseSchema,
   listSessionsResponseSchema,
+  storeErrorCodeSchema,
   storeErrorEnvelopeSchema,
   storeResponseSchema,
 } from "@dev-fast/trace-shared";
-import type { z } from "zod";
+import { z } from "zod";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+
+/**
+ * The OAuth device-flow error shape used by the Better Auth device
+ * endpoints, e.g. `{"error":"invalid_grant","error_description":"..."}`.
+ * This is distinct from the store's own `storeErrorEnvelopeSchema`.
+ */
+const oauthDeviceErrorSchema = z.object({
+  error: z.string(),
+  error_description: z.string().optional(),
+});
 
 export class StoreApiError extends Error {
   constructor(
@@ -88,16 +99,19 @@ export class StoreClient {
       signal: AbortSignal.timeout(this.timeoutMs),
     });
     if (response.status === 400) {
-      // SAFETY: a 400 from the device token endpoint carries an OAuth
-      // device-flow error body; the read below only checks for the two
-      // known polling codes and falls through to toStoreApiError otherwise.
-      const body = (await response.json()) as { error?: string };
+      // The device token endpoint answers with an OAuth device-flow error
+      // body, not the store's own error envelope. Read the body once here,
+      // since the response stream cannot be read a second time.
+      const raw = await this.readJsonBody(response);
+      const oauthError = oauthDeviceErrorSchema.safeParse(raw);
       if (
-        body.error === "authorization_pending" ||
-        body.error === "slow_down"
+        oauthError.success &&
+        (oauthError.data.error === "authorization_pending" ||
+          oauthError.data.error === "slow_down")
       ) {
-        return { pending: body.error };
+        return { pending: oauthError.data.error };
       }
+      throw this.oauthOrEnvelopeError(raw, response.status);
     }
     if (!response.ok) {
       throw await this.toStoreApiError(response);
@@ -245,27 +259,55 @@ export class StoreClient {
   }
 
   private async toStoreApiError(response: Response): Promise<StoreApiError> {
-    let raw: unknown;
+    const raw = await this.readJsonBody(response);
+    return this.oauthOrEnvelopeError(raw, response.status);
+  }
+
+  /**
+   * Reads a response body once, as text, and parses it as JSON. Returns
+   * `undefined` if the body cannot be read or is not valid JSON.
+   */
+  private async readJsonBody(response: Response): Promise<unknown> {
+    let text: string;
     try {
-      raw = await response.json();
+      text = await response.text();
     } catch {
+      return undefined;
+    }
+    try {
+      return JSON.parse(text);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Builds a StoreApiError from an already-parsed body, which is either the
+   * store's own `{ error: { code, message } }` envelope or the OAuth
+   * device-flow error shape `{ error, error_description }` used by the
+   * Better Auth device endpoints.
+   */
+  private oauthOrEnvelopeError(raw: unknown, status: number): StoreApiError {
+    const oauthError = oauthDeviceErrorSchema.safeParse(raw);
+    if (oauthError.success) {
+      const knownCode = storeErrorCodeSchema.safeParse(oauthError.data.error);
       return new StoreApiError(
-        "internal",
-        response.status,
-        "The store returned an unreadable response.",
+        knownCode.success ? knownCode.data : "invalid_request",
+        status,
+        oauthError.data.error_description ?? oauthError.data.error,
       );
     }
     const result = storeErrorEnvelopeSchema.safeParse(raw);
     if (!result.success) {
       return new StoreApiError(
         "internal",
-        response.status,
+        status,
         "The store returned an error response that does not match the contract.",
       );
     }
     return new StoreApiError(
       result.data.error.code,
-      response.status,
+      status,
       result.data.error.message,
     );
   }

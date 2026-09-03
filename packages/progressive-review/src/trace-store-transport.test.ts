@@ -34,13 +34,12 @@ describe("trace-store-transport", () => {
     );
     devHome = path.join(tempDir, "dev-home");
     localTraceRoot = path.join(tempDir, "local-traces");
-    corpusRoot = path.join(tempDir, "trace-search");
+    corpusRoot = path.join(devHome, "trace-search");
     repoDir = path.join(tempDir, "repo");
     for (const dir of [devHome, localTraceRoot, corpusRoot, repoDir]) {
       mkdirSync(dir, { recursive: true });
     }
     vi.stubEnv("DEV_REVIEW_HOME", devHome);
-    vi.stubEnv("REVIEW_TEST_TRACE_SEARCH_DIR", corpusRoot);
     vi.stubEnv("TRACE_LOCAL_TRACE_ROOT", localTraceRoot);
 
     execFileSync("git", ["init", "--quiet"], { cwd: repoDir });

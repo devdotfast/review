@@ -41,6 +41,7 @@ import {
   extractTraceEventText,
   parseAgentTraceJsonl,
 } from "./agent-trace-parser";
+import { devReviewHome } from "./review-storage";
 import { requireStoreClient } from "./store-auth";
 import { StoreApiError } from "./store-client";
 import { resolveAllowedTraceRepository } from "./trace-hook-runner";
@@ -621,7 +622,7 @@ export interface ReviewTracePullResult {
 export function traceSearchCorpusDir(): string {
   const dir =
     process.env.REVIEW_TEST_TRACE_SEARCH_DIR ??
-    path.join(homedir(), ".dev", "trace-search");
+    path.join(devReviewHome(), "trace-search");
   mkdirSync(dir, { recursive: true });
   return dir;
 }

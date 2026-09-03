@@ -233,6 +233,10 @@ describe("SoftwareMap C4 layout geometry", () => {
       new URL("./c4-layout-geometry.ts", import.meta.url),
       "utf8",
     );
+    const softwareMapSource = readFileSync(
+      new URL("./SoftwareMap.tsx", import.meta.url),
+      "utf8",
+    );
 
     expect(flow.edges).toEqual([
       expect.objectContaining({
@@ -247,6 +251,7 @@ describe("SoftwareMap C4 layout geometry", () => {
       }),
     ]);
     expect(source).not.toContain("GhostWaypointBeads");
+    expect(softwareMapSource).not.toContain("GhostWaypointBeads");
     expect(styles).not.toContain("software-map-c4-ghost-beads");
   });
 

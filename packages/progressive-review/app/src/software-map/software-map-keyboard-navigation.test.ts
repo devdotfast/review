@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { collapseInlineC4Node, projectInlineC4 } from "./c4-projection";
 import { defineSoftwareModel } from "./model";
 import {
-  C4_MAP_HOTKEY_GROUPS,
   c4MapReactFlowInteractionProps,
   c4SpatialDirectionForKey,
   findSpatialC4Node,

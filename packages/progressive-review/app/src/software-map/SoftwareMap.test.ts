@@ -8,17 +8,13 @@ import {
   C4_MAP_HOTKEY_GROUPS,
   c4MapReactFlowInteractionProps,
 } from "./software-map-keyboard-navigation";
-import {
-  initialSoftwareMapExpandedNodeIds,
-  seedSoftwareMapDefaultExpandedNodeIds,
-} from "./software-map-navigation-state";
-import { softwareMapSnapshotFromInlineC4Projection } from "./software-map-snapshot";
 
 function sourceBetween(source: string, start: string, end: string): string {
   const from = source.indexOf(start);
   const to = source.indexOf(end);
   if (from === -1) throw new Error(`marker not found: ${start}`);
   if (to === -1) throw new Error(`marker not found: ${end}`);
+  if (to < from) throw new Error(`markers out of order: ${start} after ${end}`);
   return source.slice(from, to);
 }
 
@@ -365,7 +361,7 @@ describe("SoftwareMap inline C4 helpers", () => {
     );
 
     expect(softwareMapSource).toContain("<SoftwareMapHotkeysTab");
-    expect(softwareMapSource).toContain("C4_MAP_HOTKEY_GROUPS");
+    expect(softwareMapSource).toContain("groups={C4_MAP_HOTKEY_GROUPS}");
     expect(hotkeysSource).toContain(
       'aria-label="Minimize software map hotkeys"',
     );

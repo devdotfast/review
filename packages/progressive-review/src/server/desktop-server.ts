@@ -657,6 +657,11 @@ export function createGlobalReviewServer(
     );
     return globalJson(200, { reviews, errors: listed.errors });
   });
+  app.get("/reviews/:uuid", async (context) => {
+    const review = await findReview(context.req.param("uuid"));
+    if (!review) throw new ReviewServerError("Review not found.", 404);
+    return globalJson(200, await reviewDescriptor(review));
+  });
   app.get("/sessions", () =>
     globalJson(200, {
       items: [...sessions.values()]

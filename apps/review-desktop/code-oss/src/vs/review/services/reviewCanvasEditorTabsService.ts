@@ -12,6 +12,7 @@ import { IEditorService } from "../../workbench/services/editor/common/editorSer
 import { ReviewCanvasEditorInput } from "../browser/parts/canvas/reviewCanvasEditorInput.js";
 import { IReviewSessionService } from "./reviewSessionService.js";
 import { shortPath } from "../common/reviewPaths.js";
+import type { ReviewDescriptor } from "../common/reviewProtocol.js";
 
 export const IReviewCanvasEditorTabsService =
 	createDecorator<IReviewCanvasEditorTabsService>("reviewCanvasEditorTabsService");
@@ -131,7 +132,9 @@ export class ReviewCanvasEditorTabsService
 		reviewUuid: string,
 		active: boolean,
 	): Promise<ReviewCanvasEditorInput> {
-		const input = this.reviewInput(reviewUuid);
+		const input = this.reviewInput(
+			await this.sessionService.getReview(reviewUuid),
+		);
 		await this.openReviewInput(input, active);
 		return input;
 	}
@@ -142,9 +145,7 @@ export class ReviewCanvasEditorTabsService
 		sealedAt: number | undefined,
 		active: boolean,
 	): Promise<ReviewCanvasEditorInput> {
-		const review = this.sessionService.reviews.find(
-			(candidate) => candidate.uuid === reviewUuid,
-		);
+		const review = await this.sessionService.getReview(reviewUuid);
 		const key = `${reviewUuid}@${revision}`;
 		let input = this.inputs.get(key);
 		if (!input || input.isDisposed()) {
@@ -166,22 +167,8 @@ export class ReviewCanvasEditorTabsService
 		return input;
 	}
 
-	private reviewInput(reviewUuid: string): ReviewCanvasEditorInput {
-		/* The tutorial Review is not in the store-backed list; its descriptor
-		   comes from the tutorial open response instead. */
-		const review =
-			this.sessionService.reviews.find(
-				(candidate) => candidate.uuid === reviewUuid,
-			) ??
-			(this.sessionService.tutorialReview?.uuid === reviewUuid
-				? this.sessionService.tutorialReview
-				: undefined);
-		const reviewError = this.sessionService.reviewErrors.find(
-			(candidate) => candidate.reviewUuid === reviewUuid,
-		);
-		if (!review && !reviewError) {
-			throw new Error(`Review descriptor is unavailable for ${reviewUuid}.`);
-		}
+	private reviewInput(review: ReviewDescriptor): ReviewCanvasEditorInput {
+		const reviewUuid = review.uuid;
 		let input = this.inputs.get(reviewUuid);
 		if (!input || input.isDisposed()) {
 			input = this.instantiationService.createInstance(
@@ -189,12 +176,9 @@ export class ReviewCanvasEditorTabsService
 					{
 						kind: "review",
 						reviewUuid,
-						title: review?.title ?? reviewError?.title ?? "",
-						repoLabel: shortPath(
-							review?.worktreePath ?? reviewError?.worktreePath ?? "",
-						),
-						lastPublishedAt:
-							review?.lastPublishedAt ?? reviewError?.lastPublishedAt ?? null,
+						title: review.title,
+						repoLabel: shortPath(review.worktreePath),
+						lastPublishedAt: review.lastPublishedAt ?? null,
 				},
 			);
 			this.inputs.set(reviewUuid, input);
@@ -299,10 +283,9 @@ export class ReviewCanvasEditorTabsService
 				undefined,
 				false,
 			)
-			: this.reviewInput(session.reviewUuid);
+			: this.reviewInput(await this.sessionService.getReview(session.reviewUuid));
 		input.preferSession(sessionId);
 		await this.openReviewInput(input, active);
 		return input;
 	}
 }
-

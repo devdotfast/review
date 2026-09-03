@@ -264,6 +264,17 @@ Open <AnchorLink anchor={{ id: "shared-source", title: "Shared source", peek: { 
       });
       expect(handlers).toHaveLength(1);
 
+      const descriptor = await liveRequest(
+        server.url,
+        `/reviews/${createResult.info.reviewId}`,
+      );
+      expect(descriptor.status).toBe(200);
+      await expect(descriptor.json()).resolves.toMatchObject({
+        uuid: createResult.info.reviewId,
+        title: "Server-owned tracer",
+        available: true,
+      });
+
       const stored = await findReview(createResult.info.reviewId);
       expect(stored?.review.status).toBe("awaiting-agent-updates");
       expect(stored?.review.sourceSession).toBe("codex:source-thread");

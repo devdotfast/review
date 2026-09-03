@@ -942,8 +942,8 @@ export type ReviewCanvasContent =
   | { kind: "source"; error?: string }
   | {
       kind: "home";
-      reviews: readonly ReviewDescriptor[];
-      reviewErrors: readonly ReviewListError[];
+      serverUrl: string;
+      token: string;
       openReview(uuid: string): void;
       // Deletes the review and closes its canvas. Absent when the host does
       // not support deletion.

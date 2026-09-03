@@ -53,7 +53,7 @@ import {
 } from "../../../../workbench/services/layout/browser/layoutService.js";
 import { ITelemetryService } from "../../../../platform/telemetry/common/telemetry.js";
 import {
-	parseReviewListResponse,
+	parseReviewDescriptor,
 	parseReviewVerbRequest,
 	parseReviewSessionResponse,
 	ReviewSoftwareMapModuleResponseSchema,
@@ -478,27 +478,10 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			this.sessionModelService.setActiveModel(null);
 			this.setSessionState("home");
 			const setup = await this.resolveHomeSetup();
-			let emptyStateVisible = false;
-			/* The empty-list render suspends on the install fetch below, while
-			   the list render has no await at all. The sequence number keeps a
-			   suspended empty render from resuming after a later list render
-			   and overwriting it with a stale snapshot. */
-			let renderSeq = 0;
+			const connection = await this.sessionService.getConnection();
 			const renderHome = async () =>
 				{
-					const seq = ++renderSeq;
-					const isEmpty = this.sessionService.reviews.length === 0;
-					// Only the Welcome rail needs install status; the list must
-					// render without waiting on it. One fetch serves both the
-					// install card and the onboarding rail.
-					const install = isEmpty
-						? await this.resolveInstallContent()
-						: undefined;
-					if (seq !== renderSeq) return;
-					if (isEmpty && !emptyStateVisible) {
-						this.reviewTelemetryService.capture("home_empty_state_viewed");
-					}
-					emptyStateVisible = isEmpty;
+					const install = await this.resolveInstallContent();
 					const openReview = (uuid: string) => {
 						this.reviewTelemetryService.capture("review_opened", {
 							via: "home",
@@ -508,8 +491,8 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					return this.render(
 					{
 						kind: "home",
-						reviews: this.sessionService.reviews,
-						reviewErrors: this.sessionService.reviewErrors,
+						serverUrl: connection.serverUrl,
+						token: connection.token,
 						openReview: (uuid) => void openReview(uuid),
 						deleteReview: (uuid) => this.sessionService.deleteReview(uuid),
 						dismissReview: (uuid) => this.sessionService.dismissReview(uuid),
@@ -527,7 +510,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 								.then(() => this.explorerParts.show());
 						},
 						setup,
-						// Home shows the Welcome rail while the list is empty.
 						install,
 						onboarding: install
 							? this.resolveOnboarding(install.status)
@@ -537,12 +519,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					generation,
 					);
 				};
-			// Home stays live while it is the rendered input: a deletion or a
-			// newly published review re-renders the list. render() drops stale
-			// generations once another input starts loading.
-			this.modelSubscription.value = this.sessionService.onDidChangeLists(
-				() => void renderHome(),
-			);
 			await renderHome();
 			return;
 		}
@@ -1005,9 +981,9 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				checked.has(step),
 			).length,
 			tutorialTotal: steps.length,
-			// Drafts are filtered out of this list and the tutorial never
-			// joins it, so this counts only a real published review.
-			published: this.sessionService.reviews.length > 0,
+			// Home replaces this with the live catalog result. Welcome has no
+			// catalog surface and therefore starts unpublished.
+			published: false,
 		};
 	}
 
@@ -1235,7 +1211,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					reviewUuid: model.reviewUuid,
 					softwareMap,
 					softwareMapEnabled,
-					reviewErrors: this.sessionService.reviewErrors,
+					reviewErrors: [],
 					commits: model.session.review.commits ?? [],
 					range: {
 						baseRef: model.session.review.baseRef ?? session.session.baseRef,
@@ -1329,7 +1305,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			{
 				kind: "error",
 				message: error instanceof Error ? error.message : String(error),
-				reviewErrors: this.sessionService.reviewErrors,
+				reviewErrors: [],
 			},
 			activeGeneration,
 		);
@@ -1563,7 +1539,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				reviewUuid: session.review.uuid,
 				softwareMap: softwareMapPromise,
 				softwareMapEnabled: true,
-				reviewErrors: this.sessionService.reviewErrors,
+				reviewErrors: [],
 				commits: session.review.commits ?? [],
 				range: {
 					baseRef: session.review.baseRef ?? session.session.baseRef,
@@ -1624,22 +1600,17 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		if (!descriptor) {
 			throw new Error(`Review session is unavailable: ${sessionId}`);
 		}
-		const reviewsResponse = await fetch(
-			`${connection.serverUrl}/reviews?limit=100`,
+		const reviewResponse = await fetch(
+			`${connection.serverUrl}/reviews/${encodeURIComponent(descriptor.reviewUuid)}`,
 			{
 				headers: { "x-review-token": connection.token },
 				signal: AbortSignal.timeout(5_000),
 			},
 		);
-		if (!reviewsResponse.ok) {
-			throw new Error(`Review list returned ${reviewsResponse.status}.`);
+		if (!reviewResponse.ok) {
+			throw new Error(`Review lookup returned ${reviewResponse.status}.`);
 		}
-		const review = parseReviewListResponse(
-			await reviewsResponse.json(),
-		).reviews.find((candidate) => candidate.uuid === descriptor.reviewUuid);
-		if (!review) {
-			throw new Error(`Review is unavailable: ${descriptor.reviewUuid}`);
-		}
+		const review = parseReviewDescriptor(await reviewResponse.json());
 		const response = await fetch(
 			`${descriptor.sessionUrl}/__progressive-review/session`,
 			{

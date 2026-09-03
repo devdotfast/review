@@ -496,19 +496,12 @@ export class ReviewSessionModelService
 		const descriptor = this.sessionService.sessions.find(
 			(candidate) => candidate.sessionId === current.session.sessionId,
 		);
-		const review = this.findReviewDescriptor(current.review.uuid);
-		if (!review) {
-			return true;
-		}
 		if (!descriptor) {
 			return this.sessionService.sessions.some(
 				(candidate) => candidate.reviewUuid === current.review.uuid,
 			);
 		}
-		return (
-			JSON.stringify([descriptor, review]) !==
-			JSON.stringify([current.descriptor, current.review])
-		);
+		return JSON.stringify(descriptor) !== JSON.stringify(current.descriptor);
 	}
 
 	private async resolveSession(
@@ -534,33 +527,9 @@ export class ReviewSessionModelService
 				`Review session is unavailable: ${reviewUuid}`,
 			);
 		}
-		let review = this.findReviewDescriptor(reviewUuid);
-		if (!review) {
-			await this.sessionService.refresh();
-			review = this.findReviewDescriptor(reviewUuid);
-		}
-		if (!review) {
-			throw new ReviewSessionUnavailableError(
-				`Review is unavailable: ${reviewUuid}`,
-			);
-		}
+		const review = await this.sessionService.getReview(reviewUuid);
 		const connection = await this.sessionService.getConnection();
 		return resolveDesktopSession(connection, descriptor, review);
-	}
-
-	/** The tutorial Review is not in the store-backed list; its descriptor
-	    comes from the tutorial open response instead. */
-	private findReviewDescriptor(
-		reviewUuid: string,
-	): ReviewDescriptor | undefined {
-		const listed = this.sessionService.reviews.find(
-			(candidate) => candidate.uuid === reviewUuid,
-		);
-		if (listed) {
-			return listed;
-		}
-		const tutorial = this.sessionService.tutorialReview;
-		return tutorial?.uuid === reviewUuid ? tutorial : undefined;
 	}
 
 	private findSession(

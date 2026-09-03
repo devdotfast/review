@@ -2,7 +2,11 @@ import type {
   ReviewAuthoringTarget,
   ReviewCanvasContent,
   ReviewCanvasHandle,
+  ReviewDescriptor,
+  ReviewDesktopGlobalEvent,
+  ReviewListError,
 } from "@dev.fast/review-protocol";
+import { parseReviewListResponse } from "@dev.fast/review-protocol";
 import {
   QueryClient,
   QueryClientProvider,
@@ -238,7 +242,7 @@ function ReviewCanvas({
   if (content.kind === "session") {
     return <QuerySessionCanvas content={content} findHost={findHost} />;
   }
-  if (content.kind === "home") return <Home content={content} />;
+  if (content.kind === "home") return <QueryHomeCanvas content={content} />;
   if (content.kind === "source") {
     if (content.error) {
       return (
@@ -369,19 +373,85 @@ function applyReviewStateEvent(
   };
 }
 
+function QueryHomeCanvas({
+  content,
+}: {
+  content: Extract<ReviewCanvasContent, { kind: "home" }>;
+}) {
+  const client = useMemo(() => new QueryClient(), []);
+  return (
+    <QueryClientProvider client={client}>
+      <Home content={content} />
+    </QueryClientProvider>
+  );
+}
+
 function Home({
   content,
 }: {
   content: Extract<ReviewCanvasContent, { kind: "home" }>;
 }) {
+  const queryClient = useQueryClient();
+  const catalogQuery = useQuery({
+    queryKey: ["review-catalog"],
+    queryFn: async ({ signal }) => {
+      const response = await fetch(
+        new URL("/reviews?limit=100", content.serverUrl),
+        {
+          headers: { "x-review-token": content.token },
+          signal,
+        },
+      );
+      if (!response.ok) {
+        throw new Error(`Review list returned ${response.status}.`);
+      }
+      return parseReviewListResponse(await response.json());
+    },
+    staleTime: Infinity,
+  });
+  useEffect(() => {
+    const url = new URL("/events", content.serverUrl);
+    url.searchParams.set("token", content.token);
+    const events = new EventSource(url);
+    events.onmessage = (message) => {
+      try {
+        const event = JSON.parse(message.data) as ReviewDesktopGlobalEvent;
+        if (event.event === "preferences-changed") {
+          void queryClient.invalidateQueries({ queryKey: ["review-catalog"] });
+          return;
+        }
+        queryClient.setQueryData<ReviewCatalog>(["review-catalog"], (current) =>
+          current ? applyCatalogEvent(current, event) : current,
+        );
+      } catch {
+        // Reconnecting refetches the authoritative catalog below.
+      }
+    };
+    events.onopen = () => {
+      void queryClient.invalidateQueries({ queryKey: ["review-catalog"] });
+    };
+    return () => events.close();
+  }, [content.serverUrl, content.token, queryClient]);
+  if (catalogQuery.error) {
+    return (
+      <CanvasShell title="Review unavailable">
+        <p>{catalogQuery.error.message}</p>
+      </CanvasShell>
+    );
+  }
+  if (!catalogQuery.data) {
+    return <ReviewCanvasLoading page note="Loading reviews…" />;
+  }
   const deleteReview = content.deleteReview;
   const dismissReview = content.dismissReview;
   const restoreReview = content.restoreReview;
   const openSourceTree = content.openSourceTree;
   return (
     <ReviewHome
-      reviews={content.reviews}
-      reviewErrors={content.reviewErrors}
+      reviews={catalogQuery.data.reviews.filter(
+        (review) => review.status !== "draft",
+      )}
+      reviewErrors={catalogQuery.data.errors}
       onOpen={(review) => content.openReview(review.uuid)}
       onDelete={
         deleteReview ? (review) => deleteReview(review.uuid) : undefined
@@ -397,10 +467,76 @@ function Home({
       }
       setup={content.setup}
       install={content.install}
-      onboarding={content.onboarding}
+      onboarding={
+        content.onboarding
+          ? {
+              ...content.onboarding,
+              published: catalogQuery.data.reviews.some(
+                (review) => review.status !== "draft",
+              ),
+            }
+          : undefined
+      }
       onOpenTutorial={content.openTutorial}
     />
   );
+}
+
+interface ReviewCatalog {
+  reviews: ReviewDescriptor[];
+  errors: ReviewListError[];
+}
+
+function applyCatalogEvent(
+  current: ReviewCatalog,
+  event: ReviewDesktopGlobalEvent,
+): ReviewCatalog {
+  if (event.event === "session-registered" && event.review) {
+    return {
+      ...current,
+      reviews: [
+        event.review,
+        ...current.reviews.filter(
+          (review) => review.uuid !== event.review!.uuid,
+        ),
+      ],
+    };
+  }
+  if (event.event === "review-deleted") {
+    return {
+      ...current,
+      reviews: current.reviews.filter((review) => review.uuid !== event.uuid),
+    };
+  }
+  if (event.event === "review-threads-committed") {
+    return patchCatalogReview(current, event.uuid, {
+      commentCount: event.commentCount,
+    });
+  }
+  if (event.event === "review-status-changed") {
+    return patchCatalogReview(current, event.uuid, { status: event.status });
+  }
+  if (event.event === "review-attention-changed") {
+    return patchCatalogReview(current, event.uuid, {
+      viewedAt: event.viewedAt,
+      dismissedAt: event.dismissedAt,
+      reapsAt: event.reapsAt,
+    });
+  }
+  return current;
+}
+
+function patchCatalogReview(
+  current: ReviewCatalog,
+  uuid: string,
+  patch: Partial<ReviewDescriptor>,
+): ReviewCatalog {
+  return {
+    ...current,
+    reviews: current.reviews.map((review) =>
+      review.uuid === uuid ? { ...review, ...patch } : review,
+    ),
+  };
 }
 
 function CanvasShell({

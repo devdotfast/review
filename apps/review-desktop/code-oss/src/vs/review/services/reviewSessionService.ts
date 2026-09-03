@@ -23,7 +23,6 @@ import {
 	type ReviewCliInstallTarget,
 	type ReviewDescriptor,
 	type ReviewDesktopGlobalEvent,
-	type ReviewListError,
 	type ReviewSessionDescriptor,
 	type ReviewTutorialOpenResponse,
 	type ReviewVerbResponse,
@@ -31,7 +30,7 @@ import {
 	parseReviewCliInstallStatus,
 	parseReviewDesktopGlobalEvent,
 	parseReviewDesktopVerbFrame,
-	parseReviewListResponse,
+	parseReviewDescriptor,
 	parseReviewOpenResponse,
 	parseReviewTutorialOpenResponse,
 } from "../common/reviewProtocol.js";
@@ -83,11 +82,10 @@ export interface IReviewSessionService {
 	readonly onDidDeleteReview: Event<string>;
 	readonly onDidFail: Event<Error>;
 	readonly sessions: readonly ReviewSessionDescriptor[];
-	readonly reviews: readonly ReviewDescriptor[];
-	readonly reviewErrors: readonly ReviewListError[];
 	readonly tutorialReview: ReviewDescriptor | undefined;
 	initialize(): Promise<void>;
 	getConnection(): Promise<ReviewSessionConnection>;
+	getReview(uuid: string): Promise<ReviewDescriptor>;
 	refresh(): Promise<void>;
 	openReview(
 		uuid: string,
@@ -158,15 +156,7 @@ export class ReviewSessionService
 	get sessions(): readonly ReviewSessionDescriptor[] {
 		return this._sessionRecords;
 	}
-	private _reviews: ReviewDescriptor[] = [];
-	get reviews(): readonly ReviewDescriptor[] {
-		return this._reviews;
-	}
-	private _reviewErrors: ReviewListError[] = [];
 	private readonly deletedReviewNotifications = new Set<string>();
-	get reviewErrors(): readonly ReviewListError[] {
-		return this._reviewErrors;
-	}
 	/* The tutorial Review lives outside the review store, so it is never in
 	   `reviews`. Open caches its descriptor here for tab and model fallbacks. */
 	private _tutorialReview: ReviewDescriptor | undefined;
@@ -242,6 +232,25 @@ export class ReviewSessionService
 		return { serverUrl: this.serverUrl, token: this.token };
 	}
 
+	async getReview(uuid: string): Promise<ReviewDescriptor> {
+		await this.initialize();
+		if (uuid === this._tutorialReview?.uuid) return this._tutorialReview;
+		const response = await fetch(
+			`${this.serverUrl}/reviews/${encodeURIComponent(uuid)}`,
+			{
+				headers: this.authHeaders(),
+				signal: AbortSignal.timeout(REVIEW_LIST_TIMEOUT_MS),
+			},
+		);
+		if (!response.ok) {
+			throw await reviewResponseError(
+				response,
+				`Review lookup returned ${response.status}.`,
+			);
+		}
+		return parseReviewDescriptor(await response.json());
+	}
+
 	async refresh(): Promise<void> {
 		await this.initialize();
 		await this.refreshLists();
@@ -292,7 +301,6 @@ export class ReviewSessionService
 		}
 		const payload = parseReviewOpenResponse(await response.json());
 		this.upsertSession(payload.session);
-		this.upsertReview(payload.review);
 		return payload.session;
 	}
 
@@ -330,7 +338,7 @@ export class ReviewSessionService
 					: `Review delete returned ${response.status}.`,
 			);
 		}
-		this.removeReview(uuid);
+		this.notifyReviewDeleted(uuid);
 	}
 
 	/**
@@ -373,11 +381,6 @@ export class ReviewSessionService
 		) {
 			throw new Error(`Review ${action} returned an invalid response.`);
 		}
-		this.patchReview(uuid, {
-			viewedAt: payload.viewedAt,
-			dismissedAt: payload.dismissedAt,
-			reapsAt: payload.reapsAt,
-		});
 	}
 
 	/**
@@ -747,48 +750,23 @@ export class ReviewSessionService
 	}
 
 	private async refreshLists(): Promise<void> {
-		const [sessionsResponse, reviewsResponse] = await Promise.all([
-			fetch(`${this.serverUrl}/sessions?limit=100`, {
+		const sessionsResponse = await fetch(
+			`${this.serverUrl}/sessions?limit=100`,
+			{
 				headers: this.authHeaders(),
 				signal: AbortSignal.timeout(REVIEW_LIST_TIMEOUT_MS),
-			}),
-			fetch(`${this.serverUrl}/reviews?limit=100`, {
-				headers: this.authHeaders(),
-				signal: AbortSignal.timeout(REVIEW_LIST_TIMEOUT_MS),
-			}),
-		]);
+			},
+		);
 		if (!sessionsResponse.ok) {
 			throw await reviewResponseError(
 				sessionsResponse,
 				`Review session list returned ${sessionsResponse.status}.`,
 			);
 		}
-		if (!reviewsResponse.ok) {
-			throw await reviewResponseError(
-				reviewsResponse,
-				`Review list returned ${reviewsResponse.status}.`,
-			);
-		}
 		this._sessionRecords = (
 			(await sessionsResponse.json()) as { items: ReviewSessionDescriptor[] }
 		).items;
-		this.applyReviewList(await reviewsResponse.json());
 		this._onDidChangeLists.fire();
-	}
-
-	/**
-	 * The server lists every review, drafts included. A review stays a draft
-	 * until its first publish, so it belongs to no picker or list event yet.
-	 */
-	private applyReviewList(payload: unknown): void {
-		const parsed = parseReviewListResponse(payload);
-		this._reviews = parsed.reviews.filter(
-			(review) => review.status !== "draft",
-		);
-		for (const review of this._reviews) {
-			this.deletedReviewNotifications.delete(review.uuid);
-		}
-		this._reviewErrors = parsed.errors;
 	}
 
 	private async maintainGlobalEvents(onConnected: () => void): Promise<void> {
@@ -839,13 +817,11 @@ export class ReviewSessionService
 
 	private acceptGlobalEvent(event: ReviewDesktopGlobalEvent): void {
 		if (event.event === "review-threads-committed") {
-			this.patchReview(event.uuid, { commentCount: event.commentCount });
 			this._onDidCommitReviewThreads.fire(event);
 			return;
 		}
 		if (event.event === "session-registered") {
 			this.upsertSession(event.session);
-			if (event.review) this.upsertReview(event.review);
 			this._onDidRegisterSession.fire({
 				session: event.session,
 				background: event.background === true,
@@ -857,33 +833,19 @@ export class ReviewSessionService
 			return;
 		}
 		if (event.event === "review-status-changed") {
-			this.patchReview(event.uuid, { status: event.status });
 			return;
 		}
 		if (event.event === "review-attention-changed") {
-			this.patchReview(event.uuid, {
-				viewedAt: event.viewedAt,
-				dismissedAt: event.dismissedAt,
-				reapsAt: event.reapsAt,
-			});
 			if (event.attention === "dismissed") {
 				this._onDidDismissReview.fire(event.uuid);
 			}
 			return;
 		}
 		if (event.event === "preferences-changed") {
-			this._reviews = this._reviews.map((review) => ({
-				...review,
-				reapsAt: reviewReapsAt(
-					review.dismissedAt,
-					event.preferences.dismissedRetentionDays,
-				),
-			}));
-			this._onDidChangeLists.fire();
 			return;
 		}
 		if (event.event === "review-deleted") {
-			this.removeReview(event.uuid);
+			this.notifyReviewDeleted(event.uuid);
 			return;
 		}
 		const closed = this._sessionRecords.find(
@@ -893,9 +855,7 @@ export class ReviewSessionService
 		if (closed) {
 			this._onDidCloseSession.fire({
 				session: closed,
-				review: this._reviews.find(
-					(review) => review.uuid === closed.reviewUuid,
-				),
+				review: undefined,
 				reason: event.reason,
 			});
 		}
@@ -988,37 +948,7 @@ export class ReviewSessionService
 		this._onDidChangeLists.fire();
 	}
 
-	private upsertReview(review: ReviewDescriptor): void {
-		if (review.status === "draft") return;
-		this.deletedReviewNotifications.delete(review.uuid);
-		this._reviews = [
-			review,
-			...this._reviews.filter((item) => item.uuid !== review.uuid),
-		];
-		this._onDidChangeLists.fire();
-	}
-
-	private patchReview(
-		uuid: string,
-		patch: Partial<ReviewDescriptor>,
-	): void {
-		let changed = false;
-		this._reviews = this._reviews.map((review) => {
-			if (review.uuid !== uuid) return review;
-			changed = Object.entries(patch).some(
-				([key, value]) => review[key as keyof ReviewDescriptor] !== value,
-			);
-			return changed ? { ...review, ...patch } : review;
-		});
-		if (changed) this._onDidChangeLists.fire();
-	}
-
-	private removeReview(uuid: string): void {
-		const next = this._reviews.filter((review) => review.uuid !== uuid);
-		if (next.length !== this._reviews.length) {
-			this._reviews = next;
-			this._onDidChangeLists.fire();
-		}
+	private notifyReviewDeleted(uuid: string): void {
 		if (this.deletedReviewNotifications.has(uuid)) return;
 		this.deletedReviewNotifications.add(uuid);
 		this._onDidDeleteReview.fire(uuid);
@@ -1031,16 +961,6 @@ export class ReviewSessionService
 
 function isNullableString(value: unknown): value is string | null {
 	return value === null || typeof value === "string";
-}
-
-function reviewReapsAt(
-	dismissedAt: string | null | undefined,
-	dismissedRetentionDays: number | null,
-): string | null {
-	if (!dismissedAt || dismissedRetentionDays === null) return null;
-	return new Date(
-		new Date(dismissedAt).getTime() + dismissedRetentionDays * 86_400_000,
-	).toISOString();
 }
 
 async function reviewResponseError(

@@ -8,6 +8,8 @@ import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import type { Writable } from "node:stream";
 
+import { z } from "zod";
+
 import {
   type CliJsonOutput,
   emitJsonEvent,
@@ -20,12 +22,14 @@ import { StoreApiError, StoreClient } from "./store-client";
 
 export const DEFAULT_STORE_ORIGIN = "https://app.dev.fast";
 
-export interface StoreAuth {
-  origin: string;
-  token: string;
-  login: string;
-  savedAt: string;
-}
+const storeAuthSchema = z.object({
+  origin: z.string().min(1),
+  token: z.string().min(1),
+  login: z.string(),
+  savedAt: z.string(),
+});
+
+export type StoreAuth = z.infer<typeof storeAuthSchema>;
 
 /** Slow-down backoff added to the poll interval, per the OAuth device spec. */
 const SLOW_DOWN_MS = 5_000;
@@ -37,13 +41,24 @@ export function storeAuthPath(env: NodeJS.ProcessEnv = process.env): string {
 export async function readStoreAuth(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<StoreAuth | null> {
+  let raw: string;
   try {
-    const raw = await readFile(storeAuthPath(env), "utf8");
-    return JSON.parse(raw) as StoreAuth;
+    raw = await readFile(storeAuthPath(env), "utf8");
   } catch (error) {
+    // SAFETY: readFile rejects with an ErrnoException.
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   }
+  // A file this reader cannot parse means no login: `review login` writes a
+  // fresh one, and every caller already handles a missing login.
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  const result = storeAuthSchema.safeParse(parsed);
+  return result.success ? result.data : null;
 }
 
 export async function writeStoreAuth(
@@ -180,9 +195,10 @@ export async function runReviewLogin(input: {
 
 export async function runReviewLogout(input: {
   stdout: Writable;
+  env?: NodeJS.ProcessEnv;
 }): Promise<number> {
-  const existing = await readStoreAuth();
-  await clearStoreAuth();
+  const existing = await readStoreAuth(input.env);
+  await clearStoreAuth(input.env);
   input.stdout.write(
     existing ? "You are logged out.\n" : "You were not logged in.\n",
   );

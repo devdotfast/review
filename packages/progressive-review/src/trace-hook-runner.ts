@@ -200,6 +200,9 @@ export async function runReviewTraceHook(
         detached: true,
         stdio: "ignore",
       });
+      // A missing `review` command reports asynchronously. Without this
+      // listener the error would escape the SessionEnd hook.
+      child.on("error", () => {});
       child.unref();
     } catch {
       // Ignore sync spawn errors

@@ -1,8 +1,8 @@
 // Per-user trace repository allowlist for the hosted trace store.
 //
-// A user allows a repository once (via `review trace allow`, not yet built)
-// and every trace-upload path reads this file back to confirm the repository
-// is still allowed before it uploads anything.
+// A user allows a repository once with `review trace allow`, and every
+// trace-upload path reads this file back to confirm the repository is still
+// allowed before it uploads anything.
 
 import { readFile } from "node:fs/promises";
 import path from "node:path";

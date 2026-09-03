@@ -1,5 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -73,6 +80,10 @@ describe("trace-store-transport", () => {
 
     expect(gzipped.size).toBeGreaterThan(0);
     expect(gzipped.sha256).toMatch(/^[0-9a-f]{64}$/);
+    // The digest describes the gzipped bytes the store signs.
+    expect(
+      createHash("sha256").update(readFileSync(gzipped.path)).digest("hex"),
+    ).toBe(gzipped.sha256);
     expect(zlib.gunzipSync(await readFile(gzipped.path)).toString("utf8")).toBe(
       "hello\n",
     );

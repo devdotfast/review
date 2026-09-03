@@ -288,6 +288,13 @@ export class StoreClient {
    * Better Auth device endpoints.
    */
   private oauthOrEnvelopeError(raw: unknown, status: number): StoreApiError {
+    if (raw === undefined) {
+      return new StoreApiError(
+        "internal",
+        status,
+        "The store returned an unreadable response.",
+      );
+    }
     const oauthError = oauthDeviceErrorSchema.safeParse(raw);
     if (oauthError.success) {
       const knownCode = storeErrorCodeSchema.safeParse(oauthError.data.error);

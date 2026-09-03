@@ -222,7 +222,10 @@ export function createMemoryTraceStoreTransport(): MemoryTraceStoreTransport {
           headers: {
             "content-type": "application/gzip",
             "content-length": String(object.size),
-            "x-amz-checksum-sha256": object.sha256,
+            // S3 and R2 sign the digest in base64, as the real store does.
+            "x-amz-checksum-sha256": Buffer.from(object.sha256, "hex").toString(
+              "base64",
+            ),
           },
           expiresAt: MEMORY_EXPIRES_AT,
         })),
@@ -230,10 +233,22 @@ export function createMemoryTraceStoreTransport(): MemoryTraceStoreTransport {
     },
 
     async putObject(upload, filePath) {
-      objects.set(
-        upload.url.slice(MEMORY_URL_PREFIX.length),
-        await readFile(filePath),
-      );
+      // S3 rejects a body whose length or digest differs from the signed
+      // headers. The memory store rejects it the same way.
+      const body = await readFile(filePath);
+      const declaredSize = Number(upload.headers["content-length"]);
+      if (body.byteLength !== declaredSize) {
+        throw new Error(
+          `The trace store did not store ${upload.name} (size ${body.byteLength} does not match the signed ${declaredSize}).`,
+        );
+      }
+      const digest = createHash("sha256").update(body).digest("base64");
+      if (digest !== upload.headers["x-amz-checksum-sha256"]) {
+        throw new Error(
+          `The trace store did not store ${upload.name} (the digest does not match the signed checksum).`,
+        );
+      }
+      objects.set(upload.url.slice(MEMORY_URL_PREFIX.length), body);
     },
 
     async completeUpload(repositoryId, sessionId, body) {

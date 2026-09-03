@@ -41,8 +41,8 @@ import {
 import { DiagramTourOverlay, useDiagramTourShell } from "./diagram-tour";
 import { useReviewSession } from "./host/review-session";
 import { HoverCommentButton } from "./hover-comment-button";
-import type { GuidedTour } from "./review-panel-model";
 import { useReviewActions } from "./review-context";
+import type { GuidedTour } from "./review-panel-model";
 import { useTourPersist, useTourRestore } from "./review-view-state";
 import {
   type DataStoreFieldExample,

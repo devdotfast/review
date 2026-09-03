@@ -183,9 +183,8 @@ export function mapDiffLineCountsToSoftwareMapElements(input: {
     for (const range of element.sourceRanges ?? []) {
       const fileCounts = input.countsByFile.get(range.file);
       if (!fileCounts) continue;
-      for (let line = range.fromLine; line <= range.toLine; line += 1) {
-        const counts = fileCounts.get(line);
-        if (!counts) continue;
+      for (const [line, counts] of fileCounts) {
+        if (line < range.fromLine || line > range.toLine) continue;
         const lineKey = `${range.file}:${line}`;
         if (countedLines.has(lineKey)) continue;
         countedLines.add(lineKey);

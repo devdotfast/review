@@ -18,7 +18,8 @@ export interface CommentHighlightRect {
  * client rects of the annotated range (rendered as highlights); element
  * targets carry only a marker position. `anchorY` aligns the thread's
  * margin card with its anchor; `marker` is the compact-width affordance at
- * the line's (or element's) edge.
+ * the line's (or element's) edge. Resolved threads keep their marker (drawn
+ * quiet) but show their highlight only while focused.
  */
 export interface CommentAnnotationPosition {
   key: string;
@@ -27,6 +28,7 @@ export interface CommentAnnotationPosition {
   kind: "comment";
   index: number;
   status: CommentAnnotationStatus;
+  resolved: boolean;
   rects: CommentHighlightRect[];
   marker: { x: number; y: number } | null;
   anchorY: number | null;
@@ -55,6 +57,7 @@ export function commentAnnotationPositionsEqual(
         annotation.targetKey === other.targetKey &&
         annotation.index === other.index &&
         annotation.status === other.status &&
+        annotation.resolved === other.resolved &&
         annotation.marker?.x === other.marker?.x &&
         annotation.marker?.y === other.marker?.y &&
         annotation.anchorY === other.anchorY &&

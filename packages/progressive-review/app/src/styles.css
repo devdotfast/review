@@ -114,6 +114,11 @@
   --highlight-thread-bg: rgba(243, 207, 107, 0.15);
   --highlight-thread-bg-active: rgba(243, 207, 107, 0.3);
   --highlight-thread-border: rgba(243, 207, 107, 0.7);
+  /* Resolved threads re-highlight in neutral gray, never the open yellow. */
+  --highlight-resolved-bg-active: rgba(155, 161, 172, 0.14);
+  --highlight-resolved-border: #565c66;
+  --marker-resolved-rule: #3a414d;
+  --marker-resolved-ink: #6f7786;
   --rail-1: #f0897e;
   --rail-2: #7c9cf5;
   --rail-3: #7cf5b0;
@@ -2254,6 +2259,10 @@ button {
   --highlight-thread-bg: rgba(194, 119, 42, 0.14);
   --highlight-thread-bg-active: rgba(194, 119, 42, 0.3);
   --highlight-thread-border: rgba(194, 119, 42, 0.6);
+  --highlight-resolved-bg-active: rgba(85, 85, 85, 0.1);
+  --highlight-resolved-border: #999999;
+  --marker-resolved-rule: #bbbbbb;
+  --marker-resolved-ink: #888888;
   --rail-1: #b5453b;
   --rail-2: #2b4fe0;
   --rail-3: #2e9e66;
@@ -4633,6 +4642,15 @@ button {
   background: var(--diff-removed-bg);
 }
 
+/* A resolved thread's range only renders while focused (see
+   ThreadAnnotations), and then in gray so it never reads as open work. */
+.review-highlight.review-annotation--resolved,
+.review-highlight.review-annotation--resolved.review-annotation--active,
+.review-highlight.review-annotation--resolved.review-annotation--focused {
+  border-bottom-color: var(--highlight-resolved-border);
+  background: var(--highlight-resolved-bg-active);
+}
+
 /* Notion-style thread surfaces: margin cards, popovers, and the panel body
    all render the same ThreadCard. One neutral treatment for comments and
    questions; the yellow anchor quote bar is the only accent. */
@@ -5568,6 +5586,28 @@ button {
 
 .thread-marker.review-annotation--running {
   color: var(--ink-faint);
+}
+
+/* Resolved: the same chip, hollowed out — dashed rule, no fill, muted ink,
+   check in the bubble. Focus brings the rule and ink back with a gray wash. */
+.thread-marker.review-annotation--resolved {
+  border-style: dashed;
+  border-color: var(--marker-resolved-rule);
+  background: transparent;
+  color: var(--marker-resolved-ink);
+}
+
+.thread-marker.review-annotation--resolved:hover,
+.thread-marker.review-annotation--resolved.review-annotation--active {
+  border-color: var(--ink-faint);
+  color: var(--ink);
+}
+
+.thread-marker.review-annotation--resolved.review-annotation--focused {
+  border-style: solid;
+  border-color: var(--ink-faint);
+  background: var(--highlight-resolved-bg-active);
+  color: var(--ink);
 }
 
 /* Floating presentation of the same card at narrow widths. The portal mounts

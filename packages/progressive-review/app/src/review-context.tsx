@@ -315,8 +315,9 @@ function ReviewCoordinator({
     [agentActivities, commentTargetIndex, localComments],
   );
 
-  // Resolved threads are hidden from the document and the default lists;
-  // they live in the Threads sidebar's Resolved section.
+  // Resolved threads are left out of the default lists and live in the
+  // Threads sidebar's Resolved section; the document still pins them as quiet
+  // markers (see ThreadAnnotations).
   const activeCommentThreads = useMemo(
     () =>
       [...commentThreads.values()]

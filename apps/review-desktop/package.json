@@ -10,12 +10,13 @@
     "app:package:macos": "bash scripts/package-macos.sh",
     "app:notarize:macos": "bash scripts/notarize-macos.sh",
     "app:run": "bash scripts/run.sh",
-    "app:watch": "npm --prefix code-oss run watch",
-    "protocol:check": "node scripts/protocol-sync.mjs --check",
+    "app:watch": "pnpm run protocol:sync && npm --prefix code-oss run watch",
     "protocol:sync": "node scripts/protocol-sync.mjs",
     "smoke:error-telemetry": "node scripts/smoke-error-telemetry.mjs",
     "smoke:telemetry-delivery": "node scripts/smoke-telemetry-delivery.mjs",
-    "test": "pnpm run protocol:check && node --test \"scripts/**/*.test.mjs\" && TSX_TSCONFIG_PATH=tsconfig.test.json node --import tsx --test \"code-oss/src/vs/review/**/*.test.ts\"",
+    "pretest": "pnpm run protocol:sync",
+    "test": "node --test \"scripts/**/*.test.mjs\" && TSX_TSCONFIG_PATH=tsconfig.test.json node --import tsx --test \"code-oss/src/vs/review/**/*.test.ts\"",
+    "pretypecheck": "pnpm run protocol:sync",
     "typecheck": "npm --prefix code-oss run typecheck-client"
   },
   "dependencies": {

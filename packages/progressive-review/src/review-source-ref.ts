@@ -30,9 +30,10 @@ export async function pinReviewSourceHeadRef(
 export async function deleteReviewSourceHeadRef(
   cwd: string,
   targetRef: string,
+  runGit: typeof git = git,
 ): Promise<void> {
   assertReviewSourceHeadRef(targetRef);
-  await git(cwd, ["update-ref", "-d", targetRef]);
+  await runGit(cwd, ["update-ref", "-d", targetRef]);
 }
 
 async function updateRef(

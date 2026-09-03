@@ -355,3 +355,123 @@ test("keeps one stable comment projection per diff resource", async () => {
   assert.equal(commentingRangeUpdates, 1);
   controller.dispose();
 });
+
+test("deleting an empty draft discards it without reaching the comment store", async () => {
+  Object.assign(globalThis, { window: globalThis });
+  const { ReviewCommentController } = await import(
+    "./reviewComments.contribution.js"
+  );
+  const commentEvents: Array<{
+    readonly added: Array<{ readonly threadId: string }>;
+    readonly removed: Array<{ readonly threadId: string }>;
+  }> = [];
+  const deletedThreadIds: string[] = [];
+  const commentService = {
+    registerCommentController() {},
+    unregisterCommentController() {},
+    onDidDeleteDataProvider: Event.None,
+    updateComments(_owner: string, event: (typeof commentEvents)[number]) {
+      commentEvents.push(event);
+    },
+    setWorkspaceComments() {},
+    removeWorkspaceComments() {},
+    updateCommentingRanges() {},
+  };
+  const model = {
+    state: "active",
+    session: {
+      session: {
+        sessionId,
+        resolvedBaseRef: baseSha,
+        headRef: headSha,
+        headRootPath: "/tmp/review-head",
+      },
+    },
+    comments: {
+      subscribe: () => () => {},
+      getSnapshot: () => snapshot,
+      async deleteComment(threadId: string) {
+        deletedThreadIds.push(threadId);
+      },
+    },
+  };
+  const unifiedResource = URI.from({
+    scheme: REVIEW_UNIFIED_SCHEME,
+    path: `/${path}`,
+    query: `version=${sessionId}`,
+  });
+  const codeResources = {
+    async files() {
+      return [diffFile];
+    },
+    unifiedResource: (resource: URI) =>
+      resource.toString() === unifiedResource.toString()
+        ? {
+            path,
+            diffFile,
+            rows: [],
+            commentingRanges: [{ startLine: 1, endLine: 10 }],
+            targetForRange: () => null,
+            rangeForTarget: () => undefined,
+            positionRowsForRange: () => null,
+            rangeForPositionRows: () => ({ startLine: 3, endLine: 9 }),
+          }
+        : null,
+    async projectPosition(_position: unknown, resource: URI) {
+      return resource.toString() === unifiedResource.toString()
+        ? { startLine: 3, endLine: 9 }
+        : undefined;
+    },
+    async positionRowsForResourceRange() {
+      return {
+        diffFile,
+        start: { old_line: 267, new_line: null },
+        end: { old_line: null, new_line: 322 },
+      };
+    },
+  };
+  const controller = new ReviewCommentController(
+    commentService as never,
+    { activeModel: model, onDidChangeActiveModel: Event.None } as never,
+    codeResources as never,
+    { tutorialReview: null } as never,
+    { createKey: () => ({ set() {}, reset() {}, get: () => true }) } as never,
+  );
+
+  await controller.createCommentThreadTemplate(
+    unifiedResource,
+    new Range(3, 1, 9, 1),
+  );
+  const template = commentEvents.at(-1)!.added[0]!;
+  assert.equal(
+    (template as unknown as { isTemplate: boolean }).isTemplate,
+    true,
+  );
+
+  await controller.deleteThread(template as never);
+
+  // The draft was never saved, so there is nothing on the server to delete;
+  // asking would 404 and leave the empty widget on screen.
+  assert.deepEqual(deletedThreadIds, []);
+  assert.deepEqual(
+    commentEvents.at(-1)!.removed.map((thread) => thread.threadId),
+    [template.threadId],
+  );
+  const remaining = await controller.getDocumentComments(
+    unifiedResource,
+    CancellationToken.None,
+  );
+  assert.equal(
+    remaining.threads.some((thread) => thread.threadId === template.threadId),
+    false,
+  );
+
+  // A thread that exists on the server still goes through the store.
+  const stored = remaining.threads.find(
+    (thread) => thread.threadId === "thread-1",
+  );
+  assert.ok(stored);
+  await controller.deleteThread(stored as never);
+  assert.deepEqual(deletedThreadIds, ["thread-1"]);
+  controller.dispose();
+});

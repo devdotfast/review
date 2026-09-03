@@ -72,13 +72,15 @@ async function main(): Promise<void> {
       : await buildTutorialAssets({ outDir });
     await checkRuntimeManifest(outDir);
 
-    const documentManifest = JSON.parse(
-      await readFile(
-        path.join(outDir, ".bundle", "document", "manifest.json"),
-        "utf8",
+    const documentManifest = jsonObject(
+      parseJsonText(
+        await readFile(
+          path.join(outDir, ".bundle", "document", "manifest.json"),
+          "utf8",
+        ),
       ),
-    ) as { version?: unknown; routePath?: unknown };
-    if (documentManifest.version !== 1 || documentManifest.routePath !== "/") {
+    );
+    if (documentManifest?.version !== 1 || documentManifest.routePath !== "/") {
       throw new Error("Tutorial document manifest is invalid.");
     }
     const bundle = await readFile(
@@ -88,14 +90,16 @@ async function main(): Promise<void> {
     if (bundle.length === 0) {
       throw new Error("Tutorial document bundle is empty.");
     }
-    const mapManifest = JSON.parse(
-      await readFile(
-        path.join(outDir, ".bundle", "software-map", "manifest.json"),
-        "utf8",
+    const mapManifest = jsonObject(
+      parseJsonText(
+        await readFile(
+          path.join(outDir, ".bundle", "software-map", "manifest.json"),
+          "utf8",
+        ),
       ),
-    ) as { headCommit?: unknown; baseCommit?: unknown };
+    );
     if (
-      mapManifest.headCommit !== built.commit ||
+      mapManifest?.headCommit !== built.commit ||
       mapManifest.baseCommit !== built.baseCommit ||
       !/^[0-9a-f]{40}$/i.test(built.baseCommit) ||
       !/^[0-9a-f]{40}$/i.test(built.commit)

@@ -33,6 +33,8 @@ import {
   ReviewPublishReadyRequestSchema,
   type ReviewSessionResponse,
   ReviewSessionResponseSchema,
+  type ReviewStackResponse,
+  ReviewStackResponseSchema,
   type ReviewTutorialOpenResponse,
   ReviewTutorialOpenResponseSchema,
   type ReviewVerbRequest,
@@ -55,6 +57,12 @@ export function parseReviewDesktopDiscovery(
 
 export function parseReviewListResponse(value: JsonValue): ReviewListResponse {
   return parseZod(ReviewListResponseSchema, value);
+}
+
+export function parseReviewStackResponse(
+  value: JsonValue,
+): ReviewStackResponse {
+  return parseZod(ReviewStackResponseSchema, value);
 }
 
 export function parseReviewCliInstallStatus(

@@ -128,7 +128,8 @@ export function MarkdownCodeBlock({
 }
 
 function normalizeMarkdownCodeLanguage(language: string): ShjLanguage | null {
-  switch (language.trim().toLowerCase()) {
+  const normalized = language.trim().toLowerCase();
+  switch (normalized) {
     case "asm":
     case "bash":
     case "bf":
@@ -163,7 +164,7 @@ function normalizeMarkdownCodeLanguage(language: string): ShjLanguage | null {
     case "uri":
     case "xml":
     case "yaml":
-      return language.trim().toLowerCase() as ShjLanguage;
+      return normalized;
     case "javascript":
     case "jsx":
       return "js";

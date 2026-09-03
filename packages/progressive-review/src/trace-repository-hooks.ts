@@ -10,17 +10,19 @@ import {
   jsonString,
   parseJsonText,
 } from "@dev.fast/review-protocol";
+import { z } from "zod";
 
 const execFileAsync = promisify(execFile);
 
-interface RepositoryHookState {
-  version: 1;
-  root: string;
-  managedHooksPath: string;
-  previousHooksPath: string;
-  previousHookDirectory: string;
-  previousWasConfigured: boolean;
-}
+const repositoryHookStateSchema = z.object({
+  version: z.literal(1),
+  root: z.string(),
+  managedHooksPath: z.string(),
+  previousHooksPath: z.string(),
+  previousHookDirectory: z.string(),
+  previousWasConfigured: z.boolean(),
+});
+type RepositoryHookState = z.infer<typeof repositoryHookStateSchema>;
 
 export interface TraceRepositoryStatus {
   repository: boolean;
@@ -194,20 +196,19 @@ export async function traceRepositoryStatus(
     path.resolve(resolved.root, current.value || ".") ===
       path.resolve(state.managedHooksPath),
   );
-  return {
+  const status: TraceRepositoryStatus = {
     repository: true,
     enabled,
     root: resolved.root,
-    ...(state
-      ? {
-          managedHooksPath: state.managedHooksPath,
-          previousHooksPath: state.previousHooksPath,
-        }
-      : {}),
     message: enabled
       ? "Review trace hooks are enabled for this repository."
       : "Review trace hooks are not enabled for this repository.",
   };
+  if (state) {
+    status.managedHooksPath = state.managedHooksPath;
+    status.previousHooksPath = state.previousHooksPath;
+  }
+  return status;
 }
 
 export async function disableAllTraceRepositories(
@@ -295,10 +296,10 @@ async function readState(
   filePath: string,
 ): Promise<RepositoryHookState | null> {
   try {
-    const value = JSON.parse(
-      await readFile(filePath, "utf8"),
-    ) as RepositoryHookState;
-    return value.version === 1 ? value : null;
+    const parsed = repositoryHookStateSchema.safeParse(
+      parseJsonText(await readFile(filePath, "utf8")),
+    );
+    return parsed.success ? parsed.data : null;
   } catch {
     return null;
   }
@@ -366,6 +367,8 @@ async function runGit(
     return { ok: true, stdout, stderr };
   } catch (cause) {
     if (!allowFailure) throw cause;
+    // SAFETY: execFile rejects with an ExecFileException that carries the
+    // child's captured stdout and stderr as utf8 strings.
     const error = cause as { stdout?: string; stderr?: string };
     return {
       ok: false,

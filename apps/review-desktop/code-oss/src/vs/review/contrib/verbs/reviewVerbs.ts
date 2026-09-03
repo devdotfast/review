@@ -224,6 +224,12 @@ export class ReviewVerbsService
           }
           break;
         }
+        case "openReview":
+          await this.tabsService.openReview(
+            request.args.reviewUuid,
+            request.args.active,
+          );
+          break;
         case "showThreads":
           await this.showThreads();
           break;

@@ -680,6 +680,9 @@ async function fetchCodePeekResult(
     headers: { "content-type": "application/json" },
     body: JSON.stringify(input),
   });
+  // SAFETY: the review server's /code-peek/resolve route
+  // (src/server/review-api.ts) answers `{ ok: true, snapshot, diff? }` on
+  // success and `{ ok: false, error }` on failure.
   const json = (await response.json()) as
     | { ok: true; snapshot: SourceSnapshot; diff?: CodePeekDiffPayload }
     | { ok: false; error?: string };

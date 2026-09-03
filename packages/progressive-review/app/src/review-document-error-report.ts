@@ -1,4 +1,8 @@
-import { isJsonObject, jsonString } from "@dev.fast/review-protocol";
+import {
+  type ReviewCanvasDiagnostic,
+  isJsonObject,
+  jsonString,
+} from "@dev.fast/review-protocol";
 
 import type { ReviewSession } from "./host/review-session";
 
@@ -21,19 +25,21 @@ export function reviewDocumentErrorReport(
   cause: unknown,
 ): ReviewDocumentErrorReport {
   if (cause instanceof Error) {
-    return {
+    const report: ReviewDocumentErrorReport = {
       name: cause.name,
       message: cause.message,
-      ...(cause.stack ? { stack: cause.stack } : {}),
     };
+    if (cause.stack) report.stack = cause.stack;
+    return report;
   }
   const fields = isJsonObject(cause) ? cause : undefined;
   const stack = jsonString(fields?.stack);
-  return {
+  const report: ReviewDocumentErrorReport = {
     name: jsonString(fields?.name) ?? "Error",
     message: jsonString(fields?.message) ?? String(cause),
-    ...(stack === undefined ? {} : { stack }),
   };
+  if (stack !== undefined) report.stack = stack;
+  return report;
 }
 
 export function reportReviewDocumentRenderError(
@@ -41,12 +47,13 @@ export function reportReviewDocumentRenderError(
   cause: unknown,
 ): void {
   const report = reviewDocumentErrorReport(cause);
-  session.reportDiagnostic({
+  const diagnostic: ReviewCanvasDiagnostic = {
     level: "error",
     source: "render",
     message: `${report.name}: ${report.message}`,
-    ...(report.stack ? { stack: report.stack } : {}),
-  });
+  };
+  if (report.stack) diagnostic.stack = report.stack;
+  session.reportDiagnostic(diagnostic);
   // `import.meta.hot` exists only in the Vite dev client, which is the only
   // place a componentDidCatch runs for this app; it is undefined under SSR.
   import.meta.hot?.send(REVIEW_DOCUMENT_ERROR_EVENT, report);

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -13,6 +13,7 @@ import {
   requireClosedThreadsForRepublish,
   requireCompletedAgentResponsesForRepublish,
 } from "./review-publish-thread-gate";
+import { putReviewRecord } from "./review-state-db";
 import {
   appendReviewAgentMessage,
   appendReviewComment,
@@ -84,14 +85,10 @@ describe("requireClosedThreadsForRepublish", () => {
   it("reports the blocked re-publish as an NDJSON publish error", async () => {
     const review = await createTestReview();
     addComment(review.dir, "thread-1");
-    await writeFile(
-      path.join(review.dir, "review.json"),
-      `${JSON.stringify({
-        ...review.review,
-        presentedDocumentRevision: "published-revision",
-      })}\n`,
-      "utf8",
-    );
+    putReviewRecord(review.dir, {
+      ...review.review,
+      presentedDocumentRevision: "published-revision",
+    });
     const stdout = new PassThrough();
     let output = "";
     stdout.on("data", (chunk) => (output += String(chunk)));

@@ -11,7 +11,7 @@ import type { StoredReview } from "./review-home";
 import { reviewStateService } from "./server/review-state-service";
 
 // `review threads get` reads its attached Review server. Other commands can
-// still operate after that server closes, so they use review.db.
+// still operate after that server closes through the same local state service.
 
 export interface ReviewThreadsTarget {
   cwd: string;

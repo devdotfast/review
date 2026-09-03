@@ -26,11 +26,13 @@ import {
   findReview,
   listReviews,
   parseStoredReviewRecord,
+  readReviewRecord,
   reviewDescriptor,
   reviewsHomeDir,
   touchReviewAgentSession,
   updateReviewPins,
 } from "./review-home";
+import { deleteReviewState, reviewStateDbPath } from "./review-state-db";
 import { appendReviewComment, readReviewComments } from "./review-state-store";
 
 const execFilePromise = promisify(execFile);
@@ -190,12 +192,12 @@ describe("review home", () => {
       await expect(
         readFile(path.join(created.dir, "package.json"), "utf8"),
       ).resolves.toContain('"test": "node review-test.mjs"');
-      expect(existsSync(path.join(created.dir, "review.db"))).toBe(true);
+      expect(existsSync(reviewStateDbPath(home))).toBe(true);
+      expect(existsSync(path.join(created.dir, "review.db"))).toBe(false);
       expect(existsSync(path.join(created.dir, "comments.json"))).toBe(false);
       expect(existsSync(path.join(created.dir, "questions.json"))).toBe(false);
-      await expect(
-        readFile(path.join(created.dir, "review.json"), "utf8"),
-      ).resolves.toContain(`"uuid": "${created.review.uuid}"`);
+      expect(existsSync(path.join(created.dir, "review.json"))).toBe(false);
+      expect(readReviewRecord(created.dir).uuid).toBe(created.review.uuid);
     } finally {
       vi.unstubAllEnvs();
       await rm(home, { recursive: true, force: true });
@@ -214,9 +216,8 @@ describe("review home", () => {
         baseRef: "main",
         baseCommit: await git(root, ["rev-parse", "HEAD"]),
       });
-      const record = JSON.parse(
-        await readFile(path.join(created.dir, "review.json"), "utf8"),
-      );
+      const record = readReviewRecord(created.dir);
+      deleteReviewState(created.dir);
       await writeFile(
         path.join(created.dir, "review.json"),
         JSON.stringify({
@@ -257,9 +258,7 @@ describe("review home", () => {
         sourceCommit: "abcdef",
         sourceIdentity: { kind: "git-branch", name: "HEAD" },
       });
-      await expect(
-        readFile(path.join(created.dir, "review.json"), "utf8"),
-      ).resolves.toContain('"sourceCommit": "abcdef"');
+      expect(readReviewRecord(created.dir).sourceCommit).toBe("abcdef");
     } finally {
       vi.unstubAllEnvs();
       await rm(home, { recursive: true, force: true });
@@ -288,9 +287,7 @@ describe("review home", () => {
         pullRequestNumber: 673,
         pullRequestUrl: "https://github.com/Fix-Fast/dev/pull/673",
       });
-      await expect(
-        readFile(path.join(created.dir, "review.json"), "utf8"),
-      ).resolves.toContain('"pullRequestNumber": 673');
+      expect(readReviewRecord(created.dir).pullRequestNumber).toBe(673);
     } finally {
       vi.unstubAllEnvs();
       await rm(home, { recursive: true, force: true });
@@ -582,7 +579,7 @@ describe("review home", () => {
             title: "",
             worktreePath: malformed,
             lastPublishedAt: null,
-            message: expect.stringContaining("Could not read review.json"),
+            message: expect.stringContaining("Could not import legacy Review"),
           },
           {
             reviewDir: invalid,
@@ -591,7 +588,7 @@ describe("review home", () => {
             worktreePath: invalid,
             lastPublishedAt: null,
             code: "MIGRATION_REQUIRED",
-            message: expect.stringContaining("review migrate apply"),
+            message: expect.stringContaining("Invalid stored Review"),
           },
           {
             reviewDir: incompatible,
@@ -600,7 +597,7 @@ describe("review home", () => {
             worktreePath: "/tmp/incompatible",
             lastPublishedAt: "2026-08-08T00:00:00.000Z",
             code: "MIGRATION_REQUIRED",
-            message: expect.stringContaining("review migrate apply"),
+            message: expect.stringContaining("Invalid stored Review"),
           },
         ]),
       );

@@ -33,10 +33,7 @@ import {
   parseFreshSourceSessionHarness,
 } from "../authoring-session";
 import { preferredInstalledReviewAgent } from "../installed-review-agent";
-import {
-  LiveReviewVersionConflictError,
-  hasLiveReviewPage,
-} from "../live-review-store";
+import { LiveReviewVersionConflictError } from "../live-review-store";
 import {
   liveReviewCreateRequestSchema,
   liveReviewListRequestSchema,
@@ -149,7 +146,7 @@ interface ReviewDesktopEventClient {
 
 interface ActiveReviewSession {
   descriptor: ReviewSessionDescriptor;
-  review: StoredReview;
+  readonly review: StoredReview;
   documentPath: string;
   softwareMapRootPath?: string;
   revision?: string;
@@ -620,8 +617,6 @@ export function createGlobalReviewServer(
     return withReviewLock(uuid, async () => {
       const review = await requireStoredLiveReview(uuid);
       const updated = await handoffLiveReview(review);
-      const active = activeSessionForReview(uuid);
-      if (active) active.review = updated;
       broadcastGlobal({
         event: "review-status-changed",
         uuid,
@@ -857,7 +852,7 @@ export function createGlobalReviewServer(
       );
       let review = await reviewStateService.find(request.reviewUuid);
       if (!review) throw new ReviewServerError("Review not found.", 404);
-      if (hasLiveReviewPage(review.dir)) {
+      if (reviewStateService.readPage(review.dir)) {
         throw new ReviewServerError(
           "Live Reviews are updated through renderMdx and setReviewStatus, not document publication.",
           409,
@@ -1005,7 +1000,7 @@ export function createGlobalReviewServer(
     uuidInput: string,
   ): Promise<StoredReview> {
     const review = await requireStoredReview(uuidInput);
-    if (!review || !hasLiveReviewPage(review.dir)) {
+    if (!review || !reviewStateService.readPage(review.dir)) {
       throw new ReviewServerError(
         "Live Review not found.",
         404,
@@ -1051,7 +1046,7 @@ export function createGlobalReviewServer(
         "review_unavailable",
       );
     }
-    if (!hasLiveReviewPage(review.dir)) {
+    if (!reviewStateService.readPage(review.dir)) {
       throw new ReviewServerError(
         "Review has no live canvas page.",
         409,
@@ -1114,7 +1109,6 @@ export function createGlobalReviewServer(
       const latest = await requireStoredReview(review.review.uuid);
       const existing = activeSessionForReview(review.review.uuid);
       if (existing) {
-        existing.review = latest;
         existing.appSessionId ??= input.appSessionId;
         return { active: existing, review: latest, existed: true } as const;
       }
@@ -1276,7 +1270,7 @@ export function createGlobalReviewServer(
         rejectTerminalPublication(latest);
         rejectConcurrentPublication(latest, review);
         requireClosedThreadsForRepublish(latest);
-        successor.review = await reviewStateService.publishDocument(latest, {
+        await reviewStateService.publishDocument(latest, {
           revision: successor.revision,
           sourceCommit: successor.source.sourceCommit,
           title: await reviewTitleFromDocument(documentPath),
@@ -1409,10 +1403,7 @@ export function createGlobalReviewServer(
         if (!latest) throw new ReviewServerError("Review not found.", 404);
         rejectTerminalPublication(latest);
         rejectConcurrentPublication(latest, review);
-        successor.review = await reviewStateService.publishSoftwareMap(
-          latest,
-          revision,
-        );
+        await reviewStateService.publishSoftwareMap(latest, revision);
         successor.promoted = true;
         await startSessionTelemetry(successor);
         broadcastGlobal({
@@ -1501,7 +1492,7 @@ export function createGlobalReviewServer(
       softwareMapExists &&
       existsSync(cached.checkoutRoots.baseRootPath) &&
       existsSync(cached.checkoutRoots.headRootPath) &&
-      hasLiveReviewPage(cached.review.dir);
+      Boolean(reviewStateService.readPage(cached.review.dir));
     if (
       !currentReview ||
       currentReview.uuid !== cachedReview.uuid ||
@@ -1571,6 +1562,7 @@ export function createGlobalReviewServer(
       reviewDir: presentedReview.dir,
       reviewId: presentedReview.review.uuid,
       sourceRootPath: checkoutRoots.headRootPath,
+      state: reviewStateService,
     });
     console.info(
       `[Review tutorial] local preparation completed in ${Date.now() - startedAt}ms.`,
@@ -1706,11 +1698,6 @@ export function createGlobalReviewServer(
             if (!latest) return undefined;
             const bound = await tutorialAuthorSessionBinder(latest, session);
             prepared.review = bound;
-            for (const active of sessions.values()) {
-              if (active.review.review.uuid === bound.review.uuid) {
-                active.review = bound;
-              }
-            }
             return bound;
           },
         );
@@ -1783,17 +1770,17 @@ export function createGlobalReviewServer(
   }
 
   async function deleteReviewByUuid(uuid: string): Promise<void> {
-    // Deletion bypasses findReview on purpose: a review with a corrupt
-    // review.json must still be deletable.
+    // Deletion also handles a corrupt state row so a broken Review remains
+    // removable from Home.
     await withReviewLock(uuid, async () => {
       const dir = path.join(reviewsHomeDir(), uuid);
-      if (!existsSync(dir)) {
-        throw new ReviewServerError("Review not found.", 404);
-      }
       const stored = await reviewStateService.find(uuid).catch(() => null);
       if (stored) {
         await deleteStoredReviewUnlocked(stored);
         return;
+      }
+      if (!existsSync(dir)) {
+        throw new ReviewServerError("Review not found.", 404);
       }
       const open = [...sessions.values()].filter(
         (session) => session.review.review.uuid === uuid,
@@ -1801,6 +1788,7 @@ export function createGlobalReviewServer(
       await Promise.all(
         open.map((session) => closeSession(session, "closed", false)),
       );
+      reviewStateService.delete(dir);
       await rm(dir, { recursive: true, force: true });
       const worktreePath = open[0]?.review.review.worktreePath;
       if (worktreePath) {
@@ -1830,6 +1818,7 @@ export function createGlobalReviewServer(
       rootPath: review.review.worktreePath,
       reviewUuid: review.review.uuid,
     });
+    reviewStateService.delete(review.dir);
     await rm(review.dir, { recursive: true, force: true });
     await clearReopenPending(review.review.worktreePath).catch(() => undefined);
     reviewStateService.forget(review.review.uuid);
@@ -1953,7 +1942,9 @@ export function createGlobalReviewServer(
         sessionId,
         reviewUuid: registration.review.review.uuid,
         historicalRevision: registration.historicalRevision,
-        listDocumentVersions: hasLiveReviewPage(registration.review.dir)
+        listDocumentVersions: reviewStateService.readPage(
+          registration.review.dir,
+        )
           ? async () => []
           : async () => {
               const latest = await reviewStateService.find(
@@ -1992,7 +1983,7 @@ export function createGlobalReviewServer(
               registration.review.review.uuid,
             );
             if (!latest) throw new Error("Review not found.");
-            active.review = await reviewStateService.touchAgentSession(
+            await reviewStateService.touchAgentSession(
               latest,
               authoringSessionKey(agent),
               "question",
@@ -2010,7 +2001,12 @@ export function createGlobalReviewServer(
     }
     active = {
       descriptor,
-      review: registration.review,
+      get review() {
+        return {
+          dir: registration.review.dir,
+          review: reviewStateService.record(registration.review.dir),
+        };
+      },
       documentPath: registration.documentPath,
       softwareMapRootPath: registration.softwareMapRootPath,
       revision: registration.revision,
@@ -2064,7 +2060,6 @@ export function createGlobalReviewServer(
           "Only a review awaiting human action can be submitted.",
         );
       }
-      active.review = latest;
       lifecycle.append({
         event: "submitted",
         sessionId: active.descriptor.sessionId,
@@ -2074,7 +2069,7 @@ export function createGlobalReviewServer(
         submission.decision === "approve"
           ? "accepted"
           : "awaiting-agent-updates";
-      active.review = await reviewStateService.setStatus(latest, status);
+      await reviewStateService.setStatus(latest, status);
       if (submission.decision === "request-changes") {
         await markReopenPending(
           active.review.review.worktreePath,
@@ -2114,7 +2109,7 @@ export function createGlobalReviewServer(
       ) {
         return;
       }
-      active.review = await reviewStateService.dismiss(latest);
+      await reviewStateService.dismiss(latest);
       await clearReopenPending(active.review.review.worktreePath);
       await broadcastReviewAttention(active.review, "dismissed");
       broadcastGlobal({

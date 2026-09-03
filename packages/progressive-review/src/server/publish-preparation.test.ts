@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createReviewDir } from "../review-home";
+import { createReviewDir, readReviewRecord } from "../review-home";
 import { prepareReviewPublish } from "./publish-preparation";
 
 const execFilePromise = promisify(execFile);
@@ -141,9 +141,7 @@ describe("prepareReviewPublish", () => {
     expect(prepared.warnings).toEqual([
       "Pinned commits are behind feature. Run `review scaffold --update` and publish again to present the latest commits.",
     ]);
-    const stored = JSON.parse(
-      await readFile(path.join(review.dir, "review.json"), "utf8"),
-    ) as { baseCommit: string; sourceCommit: string };
+    const stored = readReviewRecord(review.dir);
     expect(stored.baseCommit).toBe(repo.baseCommit);
     expect(stored.sourceCommit).toBe(repo.featureCommit);
   });

@@ -11,6 +11,11 @@ import {
 
 import { writeFileAtomic } from "./atomic-write";
 import {
+  importLegacyReview,
+  openReviewStateDbForDir,
+  reviewIdForDir,
+} from "./review-state-db";
+import {
   reviewStateDir,
   reviewThreadStoreBackend,
 } from "./review-thread-store-backend";
@@ -28,8 +33,8 @@ import type {
   UpdateReviewCommentInput,
 } from "./types";
 
-// Review comments used to live as an `export const` object inside the review
-// MDX. They now live beside the document in a per-review SQLite database.
+// Review comments used to live in MDX and then in per-review databases. They
+// now live in the global Review state database, keyed by Review UUID.
 //
 // Concurrency: every mutator here is a synchronous read-modify-write
 // (read -> mutate -> write) with no `await` between the read and the write, so
@@ -103,11 +108,14 @@ function validatePositionAtStoredCommits(
 function readReviewCodeTargetContext(
   reviewMdxPath: string,
 ): ReviewCodeTargetContext | null {
-  const recordPath = path.join(reviewStateDir(reviewMdxPath), "review.json");
+  const reviewDir = reviewStateDir(reviewMdxPath);
   try {
-    const parsed = ReviewRecordSchema.safeParse(
-      JSON.parse(readFileSync(recordPath, "utf8")),
-    );
+    importLegacyReview(reviewDir);
+    const row = openReviewStateDbForDir(reviewDir)
+      .prepare("SELECT record_json FROM reviews WHERE review_id = ?")
+      .get(reviewIdForDir(reviewDir)) as { record_json: string } | undefined;
+    if (!row) return null;
+    const parsed = ReviewRecordSchema.safeParse(JSON.parse(row.record_json));
     if (!parsed.success) return null;
     return {
       rootPath: parsed.data.worktreePath,

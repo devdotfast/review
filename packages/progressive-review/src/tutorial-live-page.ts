@@ -3,12 +3,8 @@ import type { Spec } from "@json-render/core";
 import { tutorialAnchorInputs } from "../tutorial/fixture";
 import type { AnchorRef } from "./authoring";
 import { liveReviewTutorialPropsSchema } from "./live-review-catalog";
-import {
-  hasLiveReviewPage,
-  initializeLiveReviewPage,
-  readLiveReviewPage,
-} from "./live-review-store";
 import type { LiveReviewPage } from "./live-review-types";
+import type { ReviewStateService } from "./server/review-state-service";
 import { resolveReviewSourceRange } from "./source-range-resolver";
 
 const TUTORIAL_ROOT_NODE_ID = "tutorial-root";
@@ -19,10 +15,10 @@ export async function ensureTutorialLiveReviewPage(input: {
   reviewDir: string;
   reviewId: string;
   sourceRootPath: string;
+  state: Pick<ReviewStateService, "readPage" | "initialize">;
 }): Promise<LiveReviewPage> {
-  if (hasLiveReviewPage(input.reviewDir)) {
-    const existing = readLiveReviewPage(input.reviewDir);
-    if (!existing) throw new Error("Tutorial live Review page disappeared");
+  const existing = input.state.readPage(input.reviewDir);
+  if (existing) {
     if (existing.id !== input.reviewId) {
       throw new Error("Tutorial live Review page does not match its Review");
     }
@@ -91,6 +87,6 @@ export async function ensureTutorialLiveReviewPage(input: {
     updatedAt: new Date().toISOString(),
     projection,
   };
-  initializeLiveReviewPage(input.reviewDir, page);
+  input.state.initialize(input.reviewDir, page);
   return page;
 }

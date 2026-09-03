@@ -53,9 +53,7 @@ describe("migrateStoredReviewData", () => {
       sourceCommit,
       sourceIdentity: { kind: "git-branch", name: "main" },
     });
-    const current = JSON.parse(
-      await readFile(path.join(created.dir, "review.json"), "utf8"),
-    ) as Record<string, unknown>;
+    const current = created.review as Record<string, unknown>;
     const {
       presentedDocumentRevision: _documentRevision,
       presentedSoftwareMapRevision: _softwareMapRevision,
@@ -109,6 +107,10 @@ describe("migrateStoredReviewData", () => {
       sourceIdentity: { kind: "git-branch", name: "main" },
     });
     await writeFile(
+      path.join(created.dir, "review.json"),
+      `${JSON.stringify(created.review)}\n`,
+    );
+    await writeFile(
       path.join(created.dir, "data.ts"),
       [
         'import { defineAnchors } from "virtual:progressive-review-authoring";',
@@ -160,6 +162,10 @@ describe("migrateStoredReviewData", () => {
       sourceCommit,
       sourceIdentity: { kind: "git-branch", name: "main" },
     });
+    await writeFile(
+      path.join(created.dir, "review.json"),
+      `${JSON.stringify(created.review)}\n`,
+    );
     await writeFile(
       path.join(created.dir, "data.ts"),
       [

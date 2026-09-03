@@ -40,8 +40,10 @@ describe("live Review page store", () => {
     const stored = JSON.parse(
       (
         db
-          .prepare("SELECT page_json FROM live_review_page WHERE singleton = 1")
-          .get() as { page_json: string }
+          .prepare(
+            "SELECT page_json FROM live_review_pages WHERE review_id = ?",
+          )
+          .get(path.basename(reviewDir)) as { page_json: string }
       ).page_json,
     ) as Record<string, unknown>;
     expect(
@@ -69,15 +71,15 @@ describe("live Review page store", () => {
     initializeLiveReviewPage(reviewDir, fixturePage());
     const db = new DatabaseSync(path.join(reviewDir, "review.db"));
     const row = db
-      .prepare("SELECT page_json FROM live_review_page WHERE singleton = 1")
-      .get() as { page_json: string };
+      .prepare("SELECT page_json FROM live_review_pages WHERE review_id = ?")
+      .get(path.basename(reviewDir)) as { page_json: string };
     const stored = JSON.parse(row.page_json) as {
       projection: { elements: { root: { props: { nodeId: string } } } };
     };
     stored.projection.elements.root.props.nodeId = "wrong-root";
     db.prepare(
-      "UPDATE live_review_page SET page_json = ? WHERE singleton = 1",
-    ).run(JSON.stringify(stored));
+      "UPDATE live_review_pages SET page_json = ? WHERE review_id = ?",
+    ).run(JSON.stringify(stored), path.basename(reviewDir));
     db.close();
 
     expect(() => readLiveReviewPage(reviewDir!)).toThrow();

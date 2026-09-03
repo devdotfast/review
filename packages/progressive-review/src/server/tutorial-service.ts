@@ -116,6 +116,7 @@ export function createTutorialService(input: {
     for (const review of listed.reviews) {
       if (await isManagedTutorialPath(review.review.worktreePath, sampleRoot)) {
         await input.deleteReview(review);
+        reviewStateService.delete(review.dir);
       }
     }
     await rm(tutorialRoot, { recursive: true, force: true });

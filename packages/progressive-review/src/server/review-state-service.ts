@@ -39,16 +39,17 @@ import {
   createReviewDir,
   findReview,
   listReviews,
+  readReviewRecord,
   reviewDescriptor,
   touchReviewAgentSession,
   updateReviewPins,
 } from "../review-home";
+import { deleteReviewState, putReviewRecord } from "../review-state-db";
 import {
   readReviewCommentDrafts,
   readReviewComments,
 } from "../review-state-store";
 import { ReviewThreadsService } from "../review-threads-service";
-import { writePrivateJsonAtomic } from "./desktop-paths";
 
 export interface ReviewStateSnapshot {
   page: LiveReviewPage;
@@ -107,6 +108,10 @@ export class ReviewStateService {
     retentionDays?: number | null,
   ): Promise<ReviewDescriptor> {
     return reviewDescriptor(stored, retentionDays);
+  }
+
+  record(reviewDir: string): StoredReviewRecord {
+    return readReviewRecord(reviewDir);
   }
 
   create(binding: CreateReviewDirBinding): Promise<StoredReview> {
@@ -196,7 +201,7 @@ export class ReviewStateService {
     patch: Partial<StoredReviewRecord>,
   ): Promise<StoredReview> {
     const review = { ...stored.review, ...patch };
-    await writePrivateJsonAtomic(path.join(stored.dir, "review.json"), review);
+    putReviewRecord(stored.dir, review);
     return this.#commitRecord({ ...stored, review });
   }
 
@@ -215,6 +220,12 @@ export class ReviewStateService {
       threads: readReviewComments(path.join(reviewDir, "review.mdx")),
       drafts: readReviewCommentDrafts(path.join(reviewDir, "review.mdx")),
     };
+  }
+
+  openThreadCount(reviewDir: string): number {
+    return Object.values(
+      readReviewComments(path.join(reviewDir, "review.mdx")),
+    ).filter((thread) => thread.status === "open").length;
   }
 
   initialize(reviewDir: string, page: LiveReviewPage): void {
@@ -270,6 +281,11 @@ export class ReviewStateService {
   forget(reviewId: string): void {
     this.#authoringTargets.delete(reviewId);
     this.#threadServices.delete(reviewId);
+  }
+
+  delete(reviewDir: string): void {
+    deleteReviewState(reviewDir);
+    this.forget(path.basename(reviewDir));
   }
 
   #emit(reviewId: string, event: ReviewStateEvent): void {

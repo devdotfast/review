@@ -429,6 +429,10 @@ async function canonicalReview(): Promise<{
       encoding: "utf8",
     }).trim(),
   });
+  await writeFile(
+    path.join(created.dir, "review.json"),
+    `${JSON.stringify(created.review)}\n`,
+  );
   return { reviewHome, reviewDir: created.dir };
 }
 

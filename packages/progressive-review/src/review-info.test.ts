@@ -13,10 +13,11 @@ import { promisify } from "node:util";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { createReviewDir } from "./review-home";
+import { createReviewDir, readReviewRecord } from "./review-home";
 import { runReviewRebind } from "./review-rebind";
 import { runReviewScaffold } from "./review-scaffold";
 import { reviewSourceHeadRef } from "./review-source-ref";
+import { putReviewRecord } from "./review-state-db";
 import { appendReviewComment, updateReviewComment } from "./review-state-store";
 import { closeAllReviewThreadStores } from "./review-thread-store-backend";
 import { resolveReviewInfo } from "./server/review-info";
@@ -90,12 +91,7 @@ describe("review info", () => {
         ],
       });
 
-      const reviewJson = JSON.parse(
-        await readFile(
-          path.join(created.reviews[0]!.dir, "review.json"),
-          "utf8",
-        ),
-      );
+      const reviewJson = readReviewRecord(created.reviews[0]!.dir);
       expect(reviewJson.sourceSession).toBe("codex:thread-1-fork");
       expect(reviewJson.baseRef).toEqual(expect.any(String));
       expect(created.reviews[0]?.change).toBe(reviewJson.sourceIdentity?.name);
@@ -278,10 +274,7 @@ describe("review info", () => {
       const created = await runReviewScaffold({
         cwd: root,
         onReviewBound: async (uuid) => {
-          await readFile(
-            path.join(home, "reviews", uuid, "review.json"),
-            "utf8",
-          );
+          readReviewRecord(path.join(home, "reviews", uuid));
           createdBindings.push(uuid);
         },
       });
@@ -361,25 +354,20 @@ describe("review info", () => {
       await git(root, ["checkout", "-b", "feature"]);
       const different = await runReviewScaffold({ cwd: root });
       expect(different.reviews[0]?.uuid).not.toBe(initial.reviews[0]?.uuid);
-      const recordPath = path.join(different.reviews[0]!.dir, "review.json");
-      const record = JSON.parse(await readFile(recordPath, "utf8"));
-      await writeFile(
-        recordPath,
-        `${JSON.stringify({ ...record, status: "accepted" }, null, 2)}\n`,
-      );
+      const record = readReviewRecord(different.reviews[0]!.dir);
+      putReviewRecord(different.reviews[0]!.dir, {
+        ...record,
+        status: "accepted",
+      });
       const afterTerminal = await runReviewScaffold({ cwd: root });
       expect(afterTerminal.reviews[0]?.uuid).not.toBe(
         different.reviews[0]?.uuid,
       );
-      const rejectedPath = path.join(
-        afterTerminal.reviews[0]!.dir,
-        "review.json",
-      );
-      const rejected = JSON.parse(await readFile(rejectedPath, "utf8"));
-      await writeFile(
-        rejectedPath,
-        `${JSON.stringify({ ...rejected, status: "rejected" }, null, 2)}\n`,
-      );
+      const rejected = readReviewRecord(afterTerminal.reviews[0]!.dir);
+      putReviewRecord(afterTerminal.reviews[0]!.dir, {
+        ...rejected,
+        status: "rejected",
+      });
       await expect(runReviewScaffold({ cwd: root })).resolves.toMatchObject({
         reviews: [{ status: "draft" }],
       });
@@ -411,12 +399,7 @@ describe("review info", () => {
         baseRef: "main",
         headRef: "feature",
       });
-      const reviewJson = JSON.parse(
-        await readFile(
-          path.join(created.reviews[0]!.dir, "review.json"),
-          "utf8",
-        ),
-      );
+      const reviewJson = readReviewRecord(created.reviews[0]!.dir);
 
       expect(reviewJson.baseRef).toBe("main");
       expect(reviewJson.baseCommit).toBe(forkPoint);
@@ -463,12 +446,7 @@ describe("review info", () => {
       });
       expect(updated.reviews).toHaveLength(1);
       expect(updated.reviews[0]?.uuid).toBe(uuid);
-      const reviewJson = JSON.parse(
-        await readFile(
-          path.join(updated.reviews[0]!.dir, "review.json"),
-          "utf8",
-        ),
-      );
+      const reviewJson = readReviewRecord(updated.reviews[0]!.dir);
       expect(reviewJson.sourceCommit).toBe(movedHead);
       expect(reviewJson.baseCommit).toBe(forkPoint);
       expect(reviewJson.baseRef).toBe("main");
@@ -479,12 +457,7 @@ describe("review info", () => {
         update: true,
         baseRef: movedMain,
       });
-      const rebasedJson = JSON.parse(
-        await readFile(
-          path.join(rebased.reviews[0]!.dir, "review.json"),
-          "utf8",
-        ),
-      );
+      const rebasedJson = readReviewRecord(rebased.reviews[0]!.dir);
       expect(rebasedJson.baseRef).toBe(movedMain);
       expect(rebasedJson.baseCommit).toBe(forkPoint);
     } finally {
@@ -571,12 +544,7 @@ describe("review info", () => {
         headRef: "feat-a",
       });
       const uuid = created.reviews[0]!.uuid;
-      const createdJson = JSON.parse(
-        await readFile(
-          path.join(created.reviews[0]!.dir, "review.json"),
-          "utf8",
-        ),
-      );
+      const createdJson = readReviewRecord(created.reviews[0]!.dir);
       expect(createdJson.sourceCommit).toBe(featATip);
       expect(createdJson.sourceCommit).not.toBe(featBTip);
       expect(createdJson.baseCommit).toBe(forkPoint);
@@ -595,12 +563,7 @@ describe("review info", () => {
         update: true,
         reviewUuid: uuid,
       });
-      const updatedJson = JSON.parse(
-        await readFile(
-          path.join(updated.reviews[0]!.dir, "review.json"),
-          "utf8",
-        ),
-      );
+      const updatedJson = readReviewRecord(updated.reviews[0]!.dir);
       expect(updatedJson.sourceCommit).toBe(movedFeatATip);
       expect(updatedJson.sourceCommit).not.toBe(featBTip);
       expect(updatedJson.baseCommit).toBe(forkPoint);
@@ -632,12 +595,7 @@ describe("review info", () => {
       ).trim();
 
       const created = await runReviewScaffold({ cwd: root });
-      const reviewJson = JSON.parse(
-        await readFile(
-          path.join(created.reviews[0]!.dir, "review.json"),
-          "utf8",
-        ),
-      );
+      const reviewJson = readReviewRecord(created.reviews[0]!.dir);
 
       expect(reviewJson.baseRef).toBe("main");
       expect(reviewJson.baseCommit).toBe(forkPoint);
@@ -722,12 +680,7 @@ describe("review info", () => {
       const updated = await runReviewScaffold({ cwd: root, update: true });
       expect(updated.reviews).toHaveLength(1);
       expect(updated.reviews[0]?.uuid).toBe(uuid);
-      const reviewJson = JSON.parse(
-        await readFile(
-          path.join(updated.reviews[0]!.dir, "review.json"),
-          "utf8",
-        ),
-      );
+      const reviewJson = readReviewRecord(updated.reviews[0]!.dir);
       expect(reviewJson.sourceCommit).toBe(movedTip);
     } finally {
       vi.unstubAllEnvs();
@@ -795,12 +748,7 @@ describe("review info", () => {
         env: { CODEX_THREAD_ID: "rebind-1" },
         stdout: nullStream(),
       });
-      const reviewJson = JSON.parse(
-        await readFile(
-          path.join(created.reviews[0]!.dir, "review.json"),
-          "utf8",
-        ),
-      );
+      const reviewJson = readReviewRecord(created.reviews[0]!.dir);
       expect(reviewJson.sourceIdentity).toEqual({
         kind: "git-branch",
         name: "other",
@@ -891,12 +839,7 @@ describe("review info", () => {
         headRef: featureCommit,
       });
       expect(created.warnings).toBeUndefined();
-      const reviewJson = JSON.parse(
-        await readFile(
-          path.join(created.reviews[0]!.dir, "review.json"),
-          "utf8",
-        ),
-      );
+      const reviewJson = readReviewRecord(created.reviews[0]!.dir);
       expect(reviewJson.sourceCommit).toBe(featureCommit);
     } finally {
       vi.unstubAllEnvs();
@@ -948,12 +891,7 @@ describe("review info", () => {
         baseRef: baseCommit,
         headRef: headCommit,
       });
-      const reviewJson = JSON.parse(
-        await readFile(
-          path.join(created.reviews[0]!.dir, "review.json"),
-          "utf8",
-        ),
-      );
+      const reviewJson = readReviewRecord(created.reviews[0]!.dir);
       expect(reviewJson.sourceCommit).toBe(headCommit);
       expect(reviewJson.sourceIdentity).toEqual({
         kind: "git-commit",
@@ -973,10 +911,11 @@ describe("review info", () => {
 
     try {
       const created = await runReviewScaffold({ cwd: root });
-      const reviewJsonPath = path.join(created.reviews[0]!.dir, "review.json");
-      const review = JSON.parse(await readFile(reviewJsonPath, "utf8"));
-      review.status = "rejected";
-      await writeFile(reviewJsonPath, `${JSON.stringify(review, null, 2)}\n`);
+      const review = readReviewRecord(created.reviews[0]!.dir);
+      putReviewRecord(created.reviews[0]!.dir, {
+        ...review,
+        status: "rejected",
+      });
 
       await expect(resolveReviewInfo({ cwd: root })).resolves.toMatchObject({
         reviews: [],

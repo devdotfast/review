@@ -5,9 +5,9 @@ import {
 
 import { readReviewDesktopDiscovery } from "./desktop-discovery";
 import type { StoredReview } from "./review-home";
-import { readOpenReviewThreadCount } from "./review-storage";
 import { resolveReviewRoot } from "./runtime";
 import { resolvePublishReview } from "./server/publish-preparation";
+import { reviewStateService } from "./server/review-state-service";
 
 const DEFAULT_TIMEOUT_SECONDS = 3600;
 
@@ -66,7 +66,7 @@ export interface ReviewWaitDependencies {
   fetch: typeof fetch;
   now(): number;
   readDesktopDiscovery: typeof readReviewDesktopDiscovery;
-  readOpenReviewThreadCount: typeof readOpenReviewThreadCount;
+  readOpenReviewThreadCount(reviewDir: string): number;
   resolvePublishReview: typeof resolvePublishReview;
   resolveReviewRoot: typeof resolveReviewRoot;
 }
@@ -75,7 +75,8 @@ const defaultReviewWaitDependencies: ReviewWaitDependencies = {
   fetch,
   now: Date.now,
   readDesktopDiscovery: readReviewDesktopDiscovery,
-  readOpenReviewThreadCount,
+  readOpenReviewThreadCount:
+    reviewStateService.openThreadCount.bind(reviewStateService),
   resolvePublishReview,
   resolveReviewRoot,
 };

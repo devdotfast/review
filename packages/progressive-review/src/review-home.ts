@@ -35,6 +35,13 @@ import {
   remapReviewCodeThreads,
 } from "./review-code-target-remap";
 import { resolveReviewDiffFiles } from "./review-diff-files";
+import {
+  importLegacyReview,
+  openReviewStateDb,
+  openReviewStateDbForDir,
+  putReviewRecord,
+  reviewIdForDir,
+} from "./review-state-db";
 import { readReviewComments } from "./review-state-store";
 import { devReviewHome } from "./review-storage";
 import {
@@ -173,7 +180,7 @@ export async function createReviewDir(
       writeFile(path.join(dir, ".gitignore"), reviewGitignore, "utf8"),
     ]);
     createReviewThreadDb(dir);
-    await writePrivateJsonAtomic(path.join(dir, "review.json"), review);
+    putReviewRecord(dir, review);
   } catch (error) {
     await rm(dir, { recursive: true, force: true });
     throw error;
@@ -199,14 +206,11 @@ export async function touchReviewAgentSession(
   if (!parseAuthoringSessionKey(sessionKey)) {
     throw new Error(`Review agent session key is invalid: ${sessionKey}`);
   }
-  const recordPath = path.join(review.dir, "review.json");
   const outcome = await withFileLock(
     path.join(review.dir, ".agent-sessions.lock"),
     AGENT_SESSION_LOCK_OPTIONS,
     async () => {
-      const current = parseStoredReviewRecord(
-        JSON.parse(await readFile(recordPath, "utf8")),
-      );
+      const current = readReviewRecord(review.dir);
       const prior = current.agentSessions?.[sessionKey];
       const roles = prior?.roles.includes(role)
         ? prior.roles
@@ -222,7 +226,7 @@ export async function touchReviewAgentSession(
           },
         },
       };
-      await writePrivateJsonAtomic(recordPath, updated);
+      putReviewRecord(review.dir, updated);
       return { dir: review.dir, review: updated };
     },
   );
@@ -243,14 +247,11 @@ export async function bindReviewAuthorSession(
   now = new Date().toISOString(),
 ): Promise<StoredReview> {
   const sessionKey = authoringSessionKey(session);
-  const recordPath = path.join(review.dir, "review.json");
   const outcome = await withFileLock(
     path.join(review.dir, ".agent-sessions.lock"),
     AGENT_SESSION_LOCK_OPTIONS,
     async () => {
-      const current = parseStoredReviewRecord(
-        JSON.parse(await readFile(recordPath, "utf8")),
-      );
+      const current = readReviewRecord(review.dir);
       const freshHarness = parseFreshSourceSessionHarness(
         current.sourceSession,
       );
@@ -287,7 +288,7 @@ export async function bindReviewAuthorSession(
           },
         },
       };
-      await writePrivateJsonAtomic(recordPath, updated);
+      putReviewRecord(review.dir, updated);
       return { dir: review.dir, review: updated };
     },
   );
@@ -303,6 +304,12 @@ export async function sealReviewCandidate(
   dir: string,
   message: string,
 ): Promise<string> {
+  // This is an immutable publication manifest, not runtime state. Runtime
+  // reads and mutations use the global Review database exclusively.
+  await writePrivateJsonAtomic(
+    path.join(dir, "review.json"),
+    readReviewRecord(dir),
+  );
   return reviewVcs.seal(dir, message);
 }
 
@@ -369,10 +376,7 @@ export async function updateReviewPins(
       sourceCommit: refreshed.review.sourceCommit,
     },
   });
-  await writePrivateJsonAtomic(
-    path.join(refreshed.dir, "review.json"),
-    refreshed.review,
-  );
+  putReviewRecord(refreshed.dir, refreshed.review);
   threadStore.writeCommentState(comments, remappedDrafts);
   return refreshed;
 }
@@ -405,7 +409,7 @@ export async function findReview(uuid: string): Promise<StoredReview | null> {
   if (loaded.review.uuid !== uuid) {
     throw new ReviewHomeScanError([
       reviewHomeError(loaded.dir, loaded.review, {
-        message: "review.json UUID does not match its directory.",
+        message: "Stored Review UUID does not match its directory.",
       }),
     ]);
   }
@@ -428,7 +432,7 @@ export async function reviewDescriptor(
   const available =
     reviewDirExists && worktreeExists && (Boolean(livePage) || documentExists);
   /* Same diff target as the review document (resolveRequestDiffTarget):
-     the pinned baseCommit..sourceCommit from review.json. An empty diff
+     the pinned baseCommit..sourceCommit from the Review record. An empty diff
      reports null so the views omit the numbers, as the document does. */
   const headCommit = stored.review.sourceCommit ?? stored.review.baseCommit;
   const [diffStats, commits] = await Promise.all([
@@ -492,28 +496,45 @@ export function countReviewComments(reviewMdxPath: string): number {
 export async function listReviews(
   filter: ListReviewsFilter = {},
 ): Promise<ListReviewsResult> {
-  let loaded: Array<StoredReview | { error: ReviewHomeError }>;
+  const result: ListReviewsResult = { reviews: [], errors: [] };
   try {
     const entries = await readdir(reviewsHomeDir(), { withFileTypes: true });
-    loaded = await Promise.all(
-      entries
-        .filter((entry) => entry.isDirectory())
-        .map((entry) =>
-          readStoredReview(path.join(reviewsHomeDir(), entry.name)),
-        ),
-    );
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return { reviews: [], errors: [] };
+    for (const entry of entries.filter((candidate) =>
+      candidate.isDirectory(),
+    )) {
+      const dir = path.join(reviewsHomeDir(), entry.name);
+      try {
+        importLegacyReview(dir);
+      } catch (error) {
+        result.errors.push(
+          reviewHomeError(dir, undefined, {
+            message: `Could not import legacy Review: ${error instanceof Error ? error.message : String(error)}`,
+          }),
+        );
+      }
     }
-    throw error;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
-  const result: ListReviewsResult = { reviews: [], errors: [] };
-  for (const entry of loaded) {
-    if ("error" in entry) {
-      result.errors.push(entry.error);
+  const rows = openReviewStateDb()
+    .prepare("SELECT review_id, review_dir, record_json FROM reviews")
+    .all() as Array<{
+    review_id: string;
+    review_dir: string;
+    record_json: string;
+  }>;
+  for (const row of rows) {
+    const parsed = safeParseStoredReviewRecord(JSON.parse(row.record_json));
+    if (!parsed.success) {
+      result.errors.push(
+        reviewHomeError(row.review_dir, JSON.parse(row.record_json), {
+          message: `Invalid stored Review: ${parsed.error.issues.map((issue) => issue.message).join("; ")}`,
+          code: "MIGRATION_REQUIRED",
+        }),
+      );
       continue;
     }
+    const entry: StoredReview = { dir: row.review_dir, review: parsed.data };
     if (
       (!filter.includeSystem && entry.review.visibility === "system") ||
       (filter.worktreePath &&
@@ -583,14 +604,25 @@ export async function materializeReviewRevision(
 export async function readStoredReview(
   dir: string,
 ): Promise<StoredReview | { error: ReviewHomeError }> {
-  const reviewPath = path.join(dir, "review.json");
   try {
-    const value: unknown = JSON.parse(await readFile(reviewPath, "utf8"));
+    importLegacyReview(dir);
+    const row = openReviewStateDbForDir(dir)
+      .prepare("SELECT record_json FROM reviews WHERE review_id = ?")
+      .get(reviewIdForDir(dir)) as { record_json: string } | undefined;
+    if (!row) {
+      return {
+        error: reviewHomeError(dir, undefined, {
+          message: "Review does not exist.",
+          code: "ENOENT",
+        }),
+      };
+    }
+    const value: unknown = JSON.parse(row.record_json);
     const parsed = safeParseStoredReviewRecord(value);
     if (!parsed.success) {
       return {
         error: reviewHomeError(dir, value, {
-          message: `Invalid review.json; run \`review migrate apply\`: ${parsed.error.issues.map((issue) => issue.message).join("; ")}`,
+          message: `Invalid stored Review; run \`review migrate apply\`: ${parsed.error.issues.map((issue) => issue.message).join("; ")}`,
           code: "MIGRATION_REQUIRED",
         }),
       };
@@ -600,11 +632,20 @@ export async function readStoredReview(
     const code = (error as NodeJS.ErrnoException).code;
     return {
       error: reviewHomeError(dir, undefined, {
-        message: `Could not read review.json: ${error instanceof Error ? error.message : String(error)}`,
+        message: `Could not read Review state: ${error instanceof Error ? error.message : String(error)}`,
         ...(code ? { code } : {}),
       }),
     };
   }
+}
+
+export function readReviewRecord(reviewDir: string): StoredReviewRecord {
+  importLegacyReview(reviewDir);
+  const row = openReviewStateDbForDir(reviewDir)
+    .prepare("SELECT record_json FROM reviews WHERE review_id = ?")
+    .get(reviewIdForDir(reviewDir)) as { record_json: string } | undefined;
+  if (!row) throw new Error(`Review not found: ${reviewIdForDir(reviewDir)}`);
+  return parseStoredReviewRecord(JSON.parse(row.record_json));
 }
 
 function reviewHomeError(

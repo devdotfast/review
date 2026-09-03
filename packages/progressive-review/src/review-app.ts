@@ -1,5 +1,4 @@
 import { readReviewDesktopDiscovery } from "./desktop-discovery";
-import { hasLiveReviewPage } from "./live-review-store";
 import { runReviewAppLaunch } from "./review-app-launcher";
 import { type ReviewPickerItem, pickReview } from "./review-app-picker";
 import { actionableReviewsForCheckout } from "./review-change-scope";
@@ -13,7 +12,7 @@ interface ReviewAppRuntime {
   listReviews: typeof listReviews;
   resolveReviewRoot: typeof resolveReviewRoot;
   pickReview: typeof pickReview;
-  hasLiveReviewPage: typeof hasLiveReviewPage;
+  hasLiveReviewPage(reviewDir: string): boolean;
   fetch: typeof globalThis.fetch;
 }
 
@@ -42,7 +41,8 @@ export async function runReviewAppPick(
     listReviews: reviewStateService.list.bind(reviewStateService),
     resolveReviewRoot,
     pickReview,
-    hasLiveReviewPage,
+    hasLiveReviewPage: (reviewDir) =>
+      reviewStateService.readPage(reviewDir) !== null,
     fetch: globalThis.fetch,
     ...overrides,
   };
@@ -96,7 +96,7 @@ export const runReviewApp = runReviewAppPick;
 function resolveAppReview(
   reviews: readonly StoredReview[],
   reviewUuid: string,
-  hasLivePage: typeof hasLiveReviewPage,
+  hasLivePage: ReviewAppRuntime["hasLiveReviewPage"],
 ): StoredReview {
   const selected = reviews.find((review) => review.review.uuid === reviewUuid);
   if (!selected) throw new Error(`Review not found: ${reviewUuid}`);

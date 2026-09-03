@@ -1,6 +1,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -8,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { readLiveReviewPage } from "../live-review-store";
 import { ProgressiveReviewTelemetry } from "../progressive-review-telemetry";
 import { findReview } from "../review-home";
+import { reviewStateDbPath } from "../review-state-db";
 import type { ReviewSubmissionEvent } from "../types";
 import { createGlobalReviewServer } from "./desktop-server";
 import type { ReviewStateEvent } from "./review-state-service";
@@ -491,8 +493,11 @@ Open <AnchorLink anchor={{ id: "shared-source", title: "Shared source", peek: { 
       const uuid = String(
         (created.body as { info: { reviewId: string } }).info.reviewId,
       );
-      const stored = await findReview(uuid);
-      await writeFile(path.join(stored!.dir, "review.json"), "not json\n");
+      const db = new DatabaseSync(reviewStateDbPath(home));
+      db.prepare(
+        "UPDATE reviews SET record_json = '{}' WHERE review_id = ?",
+      ).run(uuid);
+      db.close();
 
       const response = await liveRequest(server.url, `/live-reviews/${uuid}`);
       expect(response.status).toBe(500);

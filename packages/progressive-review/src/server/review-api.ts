@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readFileSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -547,7 +547,11 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       session: {
         resolvedBaseRef,
         ...(stateReviewPath
-          ? { reviewStatus: readReviewStatus(stateReviewPath) }
+          ? {
+              reviewStatus: reviewStateService.record(
+                path.dirname(stateReviewPath),
+              ).status,
+            }
           : {}),
       },
     });
@@ -1056,23 +1060,6 @@ function parseCodePeekIncludeDiff(value: unknown): boolean {
 
 function parseCodePeekIncludeDiffSummary(value: unknown): boolean {
   return value === true;
-}
-
-function readReviewStatus(stateReviewPath: string): string {
-  const record: unknown = JSON.parse(
-    readFileSync(
-      path.join(path.dirname(stateReviewPath), "review.json"),
-      "utf8",
-    ),
-  );
-  if (!record || typeof record !== "object" || Array.isArray(record)) {
-    throw new Error("Invalid review.json.");
-  }
-  const status = (record as { status?: unknown }).status;
-  if (typeof status !== "string") {
-    throw new Error("review.json has no status.");
-  }
-  return status;
 }
 
 function readJson(request: Request): Promise<unknown> {

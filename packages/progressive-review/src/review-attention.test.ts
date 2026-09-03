@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -18,6 +18,7 @@ import {
   selectReapableReviews,
 } from "./review-attention";
 import type { StoredReview } from "./review-home";
+import { openReviewStateDbForDir, reviewIdForDir } from "./review-state-db";
 
 const DISMISSED_AT = "2026-01-01T00:00:00.000Z";
 
@@ -86,12 +87,13 @@ describe("review attention stamps", () => {
     return { dir, review: { ...storedReview("stamped", patch).review } };
   }
 
-  async function readStamps(
+  function readStamps(
     stored: StoredReview,
-  ): Promise<Pick<ReviewRecord, "viewedAt" | "dismissedAt">> {
-    const raw: ReviewRecord = JSON.parse(
-      await readFile(path.join(stored.dir, "review.json"), "utf8"),
-    );
+  ): Pick<ReviewRecord, "viewedAt" | "dismissedAt"> {
+    const row = openReviewStateDbForDir(stored.dir)
+      .prepare("SELECT record_json FROM reviews WHERE review_id = ?")
+      .get(reviewIdForDir(stored.dir)) as { record_json: string };
+    const raw = JSON.parse(row.record_json) as ReviewRecord;
     return { viewedAt: raw.viewedAt, dismissedAt: raw.dismissedAt };
   }
 
@@ -99,7 +101,7 @@ describe("review attention stamps", () => {
     const stored = await makeReview();
     const first = await markReviewViewed(stored, new Date("2026-02-01Z"));
     expect(first.review.viewedAt).toBe("2026-02-01T00:00:00.000Z");
-    expect(await readStamps(first)).toMatchObject({
+    expect(readStamps(first)).toMatchObject({
       viewedAt: "2026-02-01T00:00:00.000Z",
     });
 
@@ -121,7 +123,7 @@ describe("review attention stamps", () => {
     const dismissed = await dismissReview(stored, new Date("2026-02-01Z"));
     const restored = await restoreReview(dismissed);
     expect(restored.review.dismissedAt).toBeNull();
-    expect(await readStamps(restored)).toMatchObject({ dismissedAt: null });
+    expect(readStamps(restored)).toMatchObject({ dismissedAt: null });
 
     expect(await restoreReview(restored)).toBe(restored);
   });
@@ -132,7 +134,7 @@ describe("review attention stamps", () => {
     const dismissed = await dismissReview(viewed, new Date("2026-02-02Z"));
 
     const reset = await resetReviewAttention(dismissed);
-    expect(await readStamps(reset)).toEqual({
+    expect(readStamps(reset)).toEqual({
       viewedAt: null,
       dismissedAt: null,
     });

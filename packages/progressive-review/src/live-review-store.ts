@@ -1,12 +1,16 @@
 import { existsSync } from "node:fs";
-import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 
 import { validateSpec, type Spec } from "@json-render/core";
 import { z } from "zod";
 
 import { liveReviewCatalog } from "./live-review-catalog";
 import type { LiveReviewPage } from "./live-review-types";
+import {
+  importLegacyReview,
+  openReviewStateDbForDir,
+  reviewIdForDir,
+  reviewStateDbPathForDir,
+} from "./review-state-db";
 
 const nodeSchema = z.strictObject({
   id: z.string().min(1),
@@ -25,7 +29,7 @@ const projectionSchema = z.custom<Spec>((value) => {
 }, "Invalid live Review projection");
 
 // z.object intentionally strips obsolete fields from the first tracer build.
-// review.json owns lifecycle status; SQLite's version column owns the CAS.
+// The reviews row owns lifecycle status; this row's version owns the CAS.
 const pageSchema = z
   .object({
     id: z.string().min(1),
@@ -154,56 +158,34 @@ const pageSchema = z
     }
   });
 
-const LIVE_REVIEW_DDL = `
-CREATE TABLE IF NOT EXISTS live_review_page (
-  singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-  page_json TEXT NOT NULL CHECK (json_valid(page_json)),
-  version INTEGER NOT NULL CHECK (version >= 0)
-) STRICT;
-`;
-
 export class LiveReviewVersionConflictError extends Error {
   override readonly name = "LiveReviewVersionConflictError";
 }
 
 export function hasLiveReviewPage(reviewDir: string): boolean {
-  const dbPath = path.join(reviewDir, "review.db");
-  if (!existsSync(dbPath)) return false;
-  const db = new DatabaseSync(dbPath, { readOnly: true });
-  try {
-    const table = db
-      .prepare(
-        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'live_review_page'",
-      )
-      .get();
-    if (!table) return false;
-    return Boolean(
-      db.prepare("SELECT 1 FROM live_review_page WHERE singleton = 1").get(),
-    );
-  } finally {
-    db.close();
-  }
+  if (!existsSync(reviewStateDbPathForDir(reviewDir))) return false;
+  importLegacyReview(reviewDir);
+  return Boolean(
+    openReviewStateDbForDir(reviewDir)
+      .prepare("SELECT 1 FROM live_review_pages WHERE review_id = ?")
+      .get(reviewIdForDir(reviewDir)),
+  );
 }
 
 export function readLiveReviewPage(reviewDir: string): LiveReviewPage | null {
   if (!hasLiveReviewPage(reviewDir)) return null;
-  const db = new DatabaseSync(path.join(reviewDir, "review.db"), {
-    readOnly: true,
-  });
-  try {
-    const row = db
-      .prepare(
-        "SELECT page_json, version FROM live_review_page WHERE singleton = 1",
-      )
-      .get() as { page_json: string; version: number } | undefined;
-    if (!row) return null;
-    return {
-      ...pageSchema.parse(JSON.parse(row.page_json)),
-      version: row.version,
-    };
-  } finally {
-    db.close();
-  }
+  const row = openReviewStateDbForDir(reviewDir)
+    .prepare(
+      "SELECT page_json, version FROM live_review_pages WHERE review_id = ?",
+    )
+    .get(reviewIdForDir(reviewDir)) as
+    | { page_json: string; version: number }
+    | undefined;
+  if (!row) return null;
+  return {
+    ...pageSchema.parse(JSON.parse(row.page_json)),
+    version: row.version,
+  };
 }
 
 export function initializeLiveReviewPage(
@@ -212,20 +194,21 @@ export function initializeLiveReviewPage(
 ): void {
   const parsed = storedPage(page);
   const db = openWritableLiveReviewDb(reviewDir);
+  const reviewId = reviewIdForDir(reviewDir);
   let inTransaction = false;
   try {
     db.exec("BEGIN IMMEDIATE");
     inTransaction = true;
     db.prepare(
-      "INSERT INTO live_review_page (singleton, page_json, version) VALUES (1, ?, ?)",
-    ).run(JSON.stringify(parsed), page.version);
+      "INSERT INTO live_review_pages (review_id, page_json, version) VALUES (?, ?, ?)",
+    ).run(reviewId, JSON.stringify(parsed), page.version);
     db.exec("COMMIT");
     inTransaction = false;
   } catch (error) {
     if (inTransaction) db.exec("ROLLBACK");
     throw error;
   } finally {
-    db.close();
+    // The process-wide state database remains open for all review domains.
   }
 }
 
@@ -241,15 +224,16 @@ export function commitLiveReviewPage(
   }
   const parsed = storedPage(page);
   const db = openWritableLiveReviewDb(reviewDir);
+  const reviewId = reviewIdForDir(reviewDir);
   let inTransaction = false;
   try {
     db.exec("BEGIN IMMEDIATE");
     inTransaction = true;
     const result = db
       .prepare(
-        "UPDATE live_review_page SET page_json = ?, version = ? WHERE singleton = 1 AND version = ?",
+        "UPDATE live_review_pages SET page_json = ?, version = ? WHERE review_id = ? AND version = ?",
       )
-      .run(JSON.stringify(parsed), page.version, expectedVersion);
+      .run(JSON.stringify(parsed), page.version, reviewId, expectedVersion);
     if (result.changes !== 1) {
       throw new LiveReviewVersionConflictError(
         "The Review page changed while the mutation was being validated.",
@@ -261,7 +245,7 @@ export function commitLiveReviewPage(
     if (inTransaction) db.exec("ROLLBACK");
     throw error;
   } finally {
-    db.close();
+    // The process-wide state database remains open for all review domains.
   }
 }
 
@@ -270,11 +254,7 @@ function storedPage(page: LiveReviewPage): z.infer<typeof pageSchema> {
   return pageSchema.parse(stored);
 }
 
-function openWritableLiveReviewDb(reviewDir: string): DatabaseSync {
-  const db = new DatabaseSync(path.join(reviewDir, "review.db"));
-  db.exec(
-    "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;",
-  );
-  db.exec(LIVE_REVIEW_DDL);
-  return db;
+function openWritableLiveReviewDb(reviewDir: string) {
+  importLegacyReview(reviewDir);
+  return openReviewStateDbForDir(reviewDir);
 }

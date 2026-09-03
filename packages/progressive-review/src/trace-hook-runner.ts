@@ -13,7 +13,7 @@ import {
 
 import type { CliInputStream } from "./cli-output";
 import { inferRepoFromGit } from "./review-agent-traces";
-import { DEV_REVIEW_HOME_ENV } from "./review-storage";
+import { devReviewHome } from "./review-storage";
 import {
   readActiveTraceSessions,
   writeTraceSessions,
@@ -45,10 +45,7 @@ export async function resolveAllowedTraceRepository(
   } catch {
     return null;
   }
-  const devHome = env[DEV_REVIEW_HOME_ENV]?.trim()
-    ? path.resolve(env[DEV_REVIEW_HOME_ENV])
-    : undefined;
-  const config = await readTraceUserConfig(devHome);
+  const config = await readTraceUserConfig(devReviewHome(env));
   return findTraceRepository(config, `${owner}/${repo}`);
 }
 

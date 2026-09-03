@@ -5,7 +5,6 @@
 // reads that file back through requireStoreClient.
 
 import { readFile, rm } from "node:fs/promises";
-import { homedir } from "node:os";
 import path from "node:path";
 import type { Writable } from "node:stream";
 
@@ -15,7 +14,7 @@ import {
   failWithJsonError,
   humanStream,
 } from "./cli-output";
-import { DEV_REVIEW_HOME_ENV } from "./review-storage";
+import { devReviewHome } from "./review-storage";
 import { writePrivateJsonAtomic } from "./server/desktop-paths";
 import { StoreApiError, StoreClient } from "./store-client";
 
@@ -32,10 +31,7 @@ export interface StoreAuth {
 const SLOW_DOWN_MS = 5_000;
 
 export function storeAuthPath(env: NodeJS.ProcessEnv = process.env): string {
-  const home = env[DEV_REVIEW_HOME_ENV]?.trim()
-    ? path.resolve(env[DEV_REVIEW_HOME_ENV])
-    : path.join(homedir(), ".dev");
-  return path.join(home, "auth.json");
+  return path.join(devReviewHome(env), "auth.json");
 }
 
 export async function readStoreAuth(

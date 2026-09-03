@@ -22,7 +22,7 @@ import {
 } from "./agent-trace-hooks";
 import { emitJsonEvent, failWithJsonError, humanStream } from "./cli-output";
 import { isDirectory } from "./fs-utils";
-import { DEV_REVIEW_HOME_ENV } from "./review-storage";
+import { devReviewHome } from "./review-storage";
 import { readTraceUserConfig } from "./trace-user-config";
 
 export type InstallTarget = "claude" | "codex" | "cursor" | "pi";
@@ -190,12 +190,11 @@ async function anyTraceRepository(
   homeDir: string,
   env: NodeJS.ProcessEnv,
 ): Promise<boolean> {
-  const override = env[DEV_REVIEW_HOME_ENV]?.trim();
-  const devHome = override
-    ? path.resolve(override)
-    : path.join(homeDir, ".dev");
   try {
-    return (await readTraceUserConfig(devHome)).repositories.length > 0;
+    return (
+      (await readTraceUserConfig(devReviewHome(env, homeDir))).repositories
+        .length > 0
+    );
   } catch {
     return false;
   }

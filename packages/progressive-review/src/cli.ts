@@ -62,8 +62,11 @@ function maybeDelegateToDesktopCli(argv: string[]): number | null {
     return null;
   const ownPath = fileURLToPath(import.meta.url);
   if (!/[\\/]dist[\\/]cli\.js$/.test(ownPath)) return null;
+  // This bootstrap runs before the Node floor check, so it cannot import
+  // devReviewHome() from review-storage: that module graph needs a modern
+  // Node. Keep this copy in step with devReviewHome().
   const devHome = env.DEV_REVIEW_HOME?.trim()
-    ? path.resolve(env.DEV_REVIEW_HOME)
+    ? path.resolve(env.DEV_REVIEW_HOME.trim())
     : path.join(os.homedir(), ".dev");
   let cliPath: string;
   let runtimePath: string | undefined;

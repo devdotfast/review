@@ -1,12 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import path from "node:path";
 
-import { type JsonValue, parseJsonText } from "@dev.fast/review-protocol";
-import { z } from "zod";
-
-import { isMissingFileError } from "./native-agent/transcript-json";
+import { devReviewHome } from "./review-storage";
 import { writePrivateJsonAtomic } from "./server/desktop-paths";
 import { processIsAlive, withFileLock } from "./with-file-lock";
 
@@ -168,9 +164,7 @@ function reviewCodexWaitStatePath(input: {
   reviewUuid: string;
   threadId: string;
 }): string {
-  const devHome = input.env.DEV_REVIEW_HOME?.trim()
-    ? path.resolve(input.env.DEV_REVIEW_HOME)
-    : path.join(homedir(), ".dev");
+  const devHome = devReviewHome(input.env);
   const threadKey = createHash("sha256")
     .update(input.threadId)
     .digest("hex")

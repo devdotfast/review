@@ -28,17 +28,14 @@ export const LEGACY_APP_TELEMETRY_CONFIG_RELATIVE_PATH = path.join(
 export function progressiveReviewTelemetryConfigPath(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  return path.join(
-    env[DEV_REVIEW_HOME_ENV] ?? devReviewHome(),
-    TELEMETRY_CONFIG_RELATIVE_PATH,
-  );
+  return path.join(devReviewHome(env), TELEMETRY_CONFIG_RELATIVE_PATH);
 }
 
 export function legacyAppTelemetryConfigPath(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
   return path.join(
-    env[DEV_REVIEW_HOME_ENV] ?? devReviewHome(),
+    devReviewHome(env),
     LEGACY_APP_TELEMETRY_CONFIG_RELATIVE_PATH,
   );
 }

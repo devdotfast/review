@@ -2439,6 +2439,79 @@ button {
   display: none;
 }
 
+.review-branch-range {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  margin-left: 8px;
+  color: var(--ink-soft);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.review-branch-ref {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 3px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.review-branch-ref--linked:hover,
+.review-branch-ref--linked:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+  outline: none;
+}
+
+.review-branch-label {
+  color: var(--ink-faint);
+}
+
+.review-branch-name {
+  max-width: 150px;
+  overflow: hidden;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+}
+
+.review-branch-copy {
+  display: grid;
+  width: 20px;
+  height: 22px;
+  flex: 0 0 20px;
+  margin: 0 2px;
+  padding: 4px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--chrome-control-radius);
+  background: transparent;
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+
+.review-branch-copy:hover,
+.review-branch-copy:focus-visible {
+  background: var(--chrome-hover-bg);
+  color: var(--chrome-fg);
+  outline: none;
+}
+
+.review-branch-copy svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.1;
+}
+
+.review-branch-arrow {
+  margin: 0 4px;
+  color: var(--ink-faint);
+}
+
 .review-topbar-actions {
   flex: 0 0 auto;
 }

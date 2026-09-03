@@ -43,6 +43,7 @@ import {
   listReviewTraceSessions,
   loadReviewAgentTrace,
 } from "../review-agent-traces";
+import { resolveReviewBranchLinks } from "../review-branch-links";
 import { reviewCommentPrompt } from "../review-comment-agent";
 import { resolveReviewCommitScope } from "../review-commits";
 import type {
@@ -379,6 +380,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     route(softwareMapArtifactsRefresh),
   );
   app.get("/document-meta", route(documentMeta));
+  app.get("/branch-links", route(branchLinks));
   app.post("/diff-files", route(diffFiles));
   app.get("/file-content", route(fileContent));
   app.get("/agent-traces", route(agentTraces));
@@ -894,6 +896,27 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       pullRequestNumber: session?.pullRequestNumber ?? null,
       pullRequestUrl: session?.pullRequestUrl ?? null,
     });
+  }
+
+  async function branchLinks(
+    context: Context<ReviewHonoEnv>,
+  ): Promise<Response> {
+    const url = new URL(context.req.url);
+    const baseRef = url.searchParams.get("baseRef")?.trim();
+    const headRef = url.searchParams.get("headRef")?.trim();
+    if (!baseRef || !headRef) {
+      return reviewApiJsonResponse(400, {
+        ok: false,
+        error: "baseRef and headRef are required.",
+      });
+    }
+    const links = await resolveReviewBranchLinks({
+      rootPath,
+      baseRef,
+      headRef,
+      pullRequestUrl: session.pullRequestUrl,
+    });
+    return reviewApiJsonResponse(200, { ok: true, ...links });
   }
 
   async function diffFiles(context: Context<ReviewHonoEnv>): Promise<Response> {

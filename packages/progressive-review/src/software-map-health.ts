@@ -15,7 +15,10 @@ import {
   scratchSoftwareMapPath,
   writeFileIfChangedSync,
 } from "./software-map-artifact";
-import { collectSoftwareMapCoverageErrors } from "./software-map-coverage-validation";
+import {
+  collectSoftwareMapCoverageErrors,
+  normalizeClaimedPath,
+} from "./software-map-coverage-validation";
 import {
   type NormalizedSoftwareModel,
   isNormalizedSoftwareModel,
@@ -66,7 +69,7 @@ export async function checkSoftwareMapSource(input: {
       model.elements.flatMap((element) =>
         (element.coverage?.files ?? [])
           .filter((file) => file.ranges.length > 0)
-          .map((file) => file.path),
+          .map((file) => normalizeClaimedPath(file.path)),
       ),
     ),
   ].filter((filePath) => treeFiles.includes(filePath));

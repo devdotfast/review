@@ -490,6 +490,6 @@ function readTrackedFile(rootPath: string, filePath: string) {
   return readFileSync(absolutePath, "utf8");
 }
 
-function normalizeClaimedPath(value: string) {
+export function normalizeClaimedPath(value: string) {
   return value.replace(/\\/g, "/").replace(/^\.\//, "");
 }

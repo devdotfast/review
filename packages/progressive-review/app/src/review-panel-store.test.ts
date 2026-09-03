@@ -77,6 +77,22 @@ describe("Review panel store", () => {
     });
   });
 
+  it("keeps Threads closed when a page change lands after the terminal took over", () => {
+    const store = createReviewPanelStore();
+
+    store.getState().openThreads({ kind: "new-ask" });
+    store.getState().closeForAgentTerminal();
+    store.getState().setThreadsPage({ kind: "comment", threadId: "comment-1" });
+    expect(store.getState().active).toBeNull();
+
+    store.getState().openThreads({ kind: "new-ask" });
+    store.getState().setThreadsPage({ kind: "comment", threadId: "comment-1" });
+    expect(store.getState().active).toEqual({
+      kind: "threads",
+      page: { kind: "comment", threadId: "comment-1" },
+    });
+  });
+
   it("distinguishes explicit tour reveals from focus-only activation", () => {
     const store = createReviewPanelStore();
     store.getState().openTour(tour, anchor.id);

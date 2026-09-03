@@ -1467,6 +1467,7 @@ function ThreadPanelInner({
   const review = useReview();
   const session = useReviewSession();
   const openThreads = useReviewPanel((state) => state.openThreads);
+  const setThreadsPage = useReviewPanel((state) => state.setThreadsPage);
   const newAskTargetRef = useRef<{
     threadId: string;
     target: ThreadTarget;
@@ -1509,8 +1510,10 @@ function ThreadPanelInner({
       target: destination.target,
       body,
     });
+    // The native terminal may already have closed Threads by the time the
+    // ask resolves; only move within the panel if it is still open.
     if (panel.page.kind === "new-ask") {
-      openThreads({ kind: "comment", threadId: destination.threadId });
+      setThreadsPage({ kind: "comment", threadId: destination.threadId });
     }
   };
   const resumeInTerminal = async (item: ThreadView) => {
@@ -1533,11 +1536,11 @@ function ThreadPanelInner({
       target: destination.target,
       body,
     });
-    if (panel.page.kind === "new-ask") {
-      openThreads();
-    } else {
-      openThreads({ kind: "comment", threadId: destination.threadId });
-    }
+    setThreadsPage(
+      panel.page.kind === "new-ask"
+        ? { kind: "list" }
+        : { kind: "comment", threadId: destination.threadId },
+    );
   };
   const selectListThread = (item: ThreadView) => {
     // Scroll to and highlight the anchor, but keep the detail here in the

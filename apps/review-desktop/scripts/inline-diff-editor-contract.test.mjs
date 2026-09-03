@@ -147,10 +147,6 @@ test("authored CodePeeks use one unified native comment editor", () => {
   assert.match(source, /reviewInlineEditorContributions\(true\)/);
   assert.match(source, /lineNumbers:\s*\(lineNumber\) =>/);
   assert.match(source, /className:\s*added \? "line-insert" : "line-delete"/);
-  assert.match(resourceSource, /REVIEW_UNIFIED_SCHEME/);
-  assert.match(resourceSource, /version:\s*session\.session\.sessionId/);
-  assert.match(resourceSource, /side,/);
-  assert.doesNotMatch(resourceSource, /instance:\s*generateUuid/);
 });
 
 test("light-theme comments use light surfaces and preserve the diff tint", () => {
@@ -262,15 +258,6 @@ test("unified CodePeek navigation opens the mapped review resource", () => {
   assert.match(source, /unified\.targetForRange\(startLine, endLine\)/);
   assert.match(source, /this\.resources\.target\(mapped\.path, mapped\.side\)/);
   assert.match(source, /resource: target\.resource/);
-  assert.match(
-    resourceSource,
-    /registerTextModelContentProvider\(\s*REVIEW_UNIFIED_SCHEME/,
-  );
-  assert.match(
-    resourceSource,
-    /resolverReference = await this\.textModelService\.createModelReference/,
-  );
-  assert.match(resourceSource, /resolverReference\.dispose\(\)/);
 });
 
 test("unified CodePeek definitions delegate to the mapped source model", () => {

@@ -8,6 +8,11 @@ export const TRACE_STORE_API_PREFIX = "/api/trace/v1" as const;
 export const TRACE_STORE_CLIENT_ID = "review-cli" as const;
 export const PRESIGNED_URL_TTL_SECONDS = 900 as const;
 
+/** Largest single trace object the store accepts. */
+export const MAX_TRACE_OBJECT_BYTES = 256 * 1024 * 1024;
+/** Largest total size of one session's declared objects. */
+export const MAX_TRACE_SESSION_BYTES = 1024 * 1024 * 1024;
+
 const nameSegment = z.string().regex(/^[A-Za-z0-9_.-]{1,100}$/);
 
 export const traceHarnessSchema = z.enum(["claude", "codex", "pi"]);
@@ -43,7 +48,7 @@ export const beginUploadRequestSchema = z.object({
     .array(
       z.object({
         name: traceObjectNameSchema,
-        size: z.number().int().positive(),
+        size: z.number().int().positive().max(MAX_TRACE_OBJECT_BYTES),
         sha256: sha256HexSchema,
       }),
     )

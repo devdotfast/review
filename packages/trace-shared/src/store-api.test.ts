@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  MAX_TRACE_OBJECT_BYTES,
   TRACE_STORE_API_PREFIX,
   beginUploadRequestSchema,
   createStoreRequestSchema,
@@ -37,6 +38,20 @@ describe("store-api contracts", () => {
       objects: [{ name: "main.jsonl.gz", size: 0, sha256: "A".repeat(64) }],
     });
     expect(bad.success).toBe(false);
+  });
+
+  it("rejects an object above the size cap", () => {
+    const oversize = beginUploadRequestSchema.safeParse({
+      harness: "claude",
+      objects: [
+        {
+          name: "main.jsonl.gz",
+          size: MAX_TRACE_OBJECT_BYTES + 1,
+          sha256: "a".repeat(64),
+        },
+      ],
+    });
+    expect(oversize.success).toBe(false);
   });
 
   it("rejects owner/name with path characters", () => {

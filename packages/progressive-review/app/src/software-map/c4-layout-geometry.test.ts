@@ -230,7 +230,7 @@ describe("SoftwareMap C4 layout geometry", () => {
       "utf8",
     );
     const source = readFileSync(
-      new URL("./SoftwareMap.tsx", import.meta.url),
+      new URL("./c4-layout-geometry.ts", import.meta.url),
       "utf8",
     );
 

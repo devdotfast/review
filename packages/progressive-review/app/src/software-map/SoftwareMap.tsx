@@ -1,30 +1,18 @@
 import { isJsonObject } from "@dev.fast/review-protocol";
 import {
-  type ElkGraph as LibavoidElkGraph,
-  init as initLibavoidEdgeRouter,
-  routeEdges as routeLibavoidEdges,
-} from "@mr_mint/elkjs-libavoid";
-import {
   Background,
   BaseEdge,
   Controls,
   EdgeLabelRenderer,
   Handle,
-  MarkerType,
   MiniMap,
   Position,
   ReactFlow,
   type Edge as ReactFlowEdge,
   type EdgeProps as ReactFlowEdgeProps,
   type ReactFlowInstance,
-  type Node as ReactFlowNode,
   type NodeProps as ReactFlowNodeProps,
-  type Viewport,
 } from "@xyflow/react";
-import ELK, {
-  type ElkNode,
-  type LayoutOptions,
-} from "elkjs/lib/elk.bundled.js";
 import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -41,7 +29,6 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { throwAuthoringIssue } from "../../../src/authoring";
 import { CodePeekGroup } from "../CodePeek";
 import { useReviewDebugSettings } from "../debug-settings";
 import { hasTextSelectionWithin } from "../diagram-text-selection";
@@ -56,17 +43,10 @@ import { useReviewInitialData } from "../review-initial-data-context";
 import { useRightPanelResize } from "../side-panel-resizer";
 import { buildGraphTarget, targetKey } from "../target-fingerprint";
 import { useRegisterLiveDiagram } from "../thread-target-model";
-import type { LiveDiagramTarget } from "../thread-target-state";
 import { captureUiEvent } from "../ui-telemetry";
 import {
-  C4_EXPANDED_GROUP_LABEL_HEADER_HEIGHT,
-  c4EdgeLabelNodeObstacles,
   c4EdgeLabelPoint,
   c4EdgePointsFromSections,
-  c4ElkLabelFromLayout,
-  c4PolylineMidpoint,
-  estimateC4EdgeLabelDimensions,
-  positionC4EdgeLabels,
 } from "./c4-edge-label-geometry";
 import {
   C4_FIT_VIEW_PADDING,
@@ -86,31 +66,18 @@ import {
   softwareMapDataStoreOutlineKind,
 } from "./c4-layout-geometry";
 import type {
-  C4EdgeEndpointBubble,
-  C4ElkEdgeSection,
-  C4ElkLabel,
   C4ElkPoint,
-  C4LabelDimensions,
-  C4LabelObstacle,
-  C4LayoutBox,
-  C4LayoutEntry,
   C4LayoutResult,
   C4MapAnyFlowNode,
   C4MapEdgeData,
   C4MapFlowGroupNode,
   C4MapFlowNode,
   C4MapInteractionMode,
-  C4MapNodeData,
   C4NodeDimensions,
   InlineC4LayoutResult,
 } from "./c4-map-flow-types";
 import { scheduleC4NodeMeasurements } from "./c4-node-measurement";
-import {
-  type C4Projection,
-  type ProjectedC4Relationship,
-  collapseInlineC4Node,
-  projectInlineC4,
-} from "./c4-projection";
+import { collapseInlineC4Node, projectInlineC4 } from "./c4-projection";
 import { SoftwareMapHotkeysTab } from "./hotkeys-tab";
 import type {
   NormalizedSoftwareModel,
@@ -137,7 +104,6 @@ import {
   shouldShowSoftwareMapFloatingActions,
   softwareMapChildNodeIdForDrill,
   softwareMapEventTargetNodeId,
-  softwareMapKeyboardNodeDomAttributes,
   softwareMapNodeForKeyboardExpansion,
   softwareMapNodeIdForDrill,
   softwareMapOverlayClassName,
@@ -158,9 +124,7 @@ import {
 import { refreshSoftwareMapArtifacts } from "./software-map-patch-client";
 import {
   softwareMapLiveDiagram,
-  softwareMapNodeLabelPath,
   softwareMapNodeTargetPayload,
-  softwareMapRelationshipLabelPath,
   softwareMapRelationshipTargetPayload,
 } from "./software-map-paths";
 import {
@@ -172,19 +136,14 @@ import {
   softwareMapResolvedDataInputKey,
 } from "./software-map-resolved-data";
 import {
-  type SoftwareMapChangeSummary,
-  type SoftwareMapCoverageClaim,
   type SoftwareMapDataStoreSchemaSectionSnapshot,
-  type SoftwareMapDiffCounts,
   type SoftwareMapElementType,
   type SoftwareMapNodeDiffPeek,
   type SoftwareMapNodeSnapshot,
-  type SoftwareMapRelationshipKind,
   type SoftwareMapRelationshipSnapshot,
   type SoftwareMapResolvedDataPayload,
   type SoftwareMapResolvedDataState,
   type SoftwareMapResolvedSnapshot,
-  type SoftwareMapUnmappedDiffSummary,
   type SoftwareMapViewType,
   buildSoftwareMapChangeSummaries,
   c4DisplayedSnapshotForCurrentState,

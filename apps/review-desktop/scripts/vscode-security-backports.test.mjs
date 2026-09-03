@@ -63,7 +63,7 @@ test("keeps the security boundary backports", async () => {
   }
   assert.match(processes, /dangerousEnvVariables\.has\(key\.toUpperCase\(\)\)/);
   assert.match(commands, /\.slice\(obj\.buffer\.byteOffset,/);
-  assert.match(webview, /new Uint8Array\(chunk\.buffer\)/g);
+  assert.match(webview, /new Uint8Array\(chunk\.buffer\)/);
   assert.match(
     environment,
     /this\.payload && \(!this\.isBuilt \|\| this\.enableSmokeTestDriver\)/,
@@ -101,7 +101,7 @@ test("keeps the memory and crash backports", async () => {
   assert.match(events, /this\._stacks!\.delete\(stackKey\)/);
   assert.match(editors, /new DisposableMap<string, MainThreadTextEditor>\(\)/);
   assert.match(editors, /this\._textEditors\.deleteAndDispose\(id\)/);
-  assert.match(codeActions, /this\.codeActionsDisposable\.clear\(\)/g);
+  assert.match(codeActions, /this\.codeActionsDisposable\.clear\(\)/);
   assert.match(multiDiff, /if \(this\._store\.isDisposed\) \{\n\s*return;/);
   assert.ok((app.match(/frame\.isDestroyed\(\)/g) ?? []).length >= 3);
   assert.match(textMate, /this\._vscodeOniguruma = null;\n\s*throw error;/);

@@ -1,5 +1,12 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -106,5 +113,85 @@ describe("withFileLock", () => {
     const outcome = await withFileLock(lockPath, FAST, async () => "ran");
 
     expect(outcome).toEqual({ acquired: true, result: "ran" });
+  });
+
+  it("does not release a lock that was reclaimed while the holder was still live", async () => {
+    const lockPath = await createLockPath();
+    // Reproduces the suspended-holder reclaim: the original holder acquires,
+    // its heartbeat then goes silent past staleMs (simulated by backdating the
+    // lock mtime, the symptom of a frozen event loop from laptop sleep /
+    // SIGSTOP / container freeze), a waiter reclaims, and the original holder
+    // later resumes. The original holder's `finally` must not rm the directory
+    // the reclaimer now owns.
+    //
+    // Both holders run in this process, so their owner.json pids are
+    // identical; ownership must be tracked by a per-acquisition token, not by
+    // pid alone.
+    //
+    // The handshakes below make the interleaving DETERMINISTIC (the two
+    // withFileLock calls race to mkdir on the fs thread pool, so without a
+    // gate the roles can invert): the reclaimer does not even call
+    // withFileLock until the original holder has acquired AND backdated the
+    // mtime, so the reclaimer is guaranteed to be the one that contends and
+    // reclaims. The reclaimer then awaits the original holder's full
+    // withFileLock promise — which resolves only once the original holder's
+    // `finally` has run — before asserting, so the assertion never depends on
+    // a fixed sleep.
+    const opts = {
+      retryMs: 5,
+      staleMs: 50,
+      timeoutMs: 10_000,
+      unownedGraceMs: 10_000,
+      heartbeatMs: 60_000,
+    };
+
+    let originalHolding!: () => void;
+    const originalHoldingP = new Promise<void>(
+      (resolve) => (originalHolding = resolve),
+    );
+    let reclaimerAcquired!: () => void;
+    const reclaimerStarted = new Promise<void>(
+      (resolve) => (reclaimerAcquired = resolve),
+    );
+
+    const original = withFileLock(lockPath, opts, async () => {
+      // Simulate the suspended-process symptom: the heartbeat mtime is older
+      // than staleMs, so a waiter reclaims. This runs only after the original
+      // holder has already acquired, and it signals `originalHolding` only
+      // after the backdate, so the reclaimer is certain to observe a stale
+      // lock on its first contend.
+      const stale = new Date(Date.now() - 1_000);
+      await utimes(lockPath, stale, stale);
+      originalHolding();
+      await reclaimerStarted;
+      return "original";
+    });
+
+    // Do not start the reclaimer until the original holder is holding and its
+    // mtime is already stale; this fixes which side acquires first.
+    await originalHoldingP;
+
+    const reclaimer = withFileLock(lockPath, opts, async () => {
+      reclaimerAcquired();
+      // Waiting for the original holder's full promise guarantees its `finally`
+      // (which must choose to skip the rm) has executed before we inspect the
+      // lock directory.
+      await original;
+      expect(existsSync(lockPath)).toBe(true);
+      const owner = JSON.parse(
+        await readFile(path.join(lockPath, "owner.json"), "utf8"),
+      );
+      expect(owner.pid).toBe(process.pid);
+      return "reclaimer";
+    });
+
+    const outcomes = await Promise.all([original, reclaimer]);
+    expect(outcomes).toEqual([
+      { acquired: true, result: "original" },
+      { acquired: true, result: "reclaimer" },
+    ]);
+    // The rightful owner (the reclaimer) still releases its own lock, so the
+    // original holder skipping rm does not leak the directory.
+    expect(existsSync(lockPath)).toBe(false);
   });
 });

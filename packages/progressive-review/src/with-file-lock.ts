@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -5,6 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import {
   jsonNumber,
   jsonObject,
+  jsonString,
   parseJsonText,
 } from "@dev.fast/review-protocol";
 
@@ -39,6 +41,19 @@ export type FileLockOutcome<T> =
 // loop is starved for the whole stale window (minutes) can be falsely
 // reclaimed, and that trade is accepted so a hung holder cannot wedge every
 // future review.
+//
+// Release policy: a holder removes the directory only if it still owns it.
+// owner.json carries a per-acquisition token (not just the pid) so a holder can
+// tell its current acquisition from a later reclaim-and-reacquire that happens
+// to reuse the same pid. A suspended holder whose heartbeat went silent past
+// staleMs may be reclaimed while it is still alive: the reclaimer removes the
+// directory and writes a fresh owner.json. When the original holder later
+// resumes and reaches its finally, it must not rm a directory another process
+// now owns, so it re-reads the token and leaves the directory in place for its
+// successor whenever the token no longer matches. The read-then-rm remains a
+// TOCTOU, but it only opens a window while this holder verifiably still owns
+// the lock, which is the same narrow reclaim race the policy above already
+// accepts.
 export async function withFileLock<T>(
   lockPath: string,
   options: FileLockOptions,
@@ -46,13 +61,14 @@ export async function withFileLock<T>(
 ): Promise<FileLockOutcome<T>> {
   await mkdir(path.dirname(lockPath), { recursive: true });
   const deadline = Date.now() + options.timeoutMs;
+  const token = randomUUID();
   while (true) {
     try {
       await mkdir(lockPath);
       try {
         await writeFile(
           path.join(lockPath, LOCK_OWNER_FILE),
-          JSON.stringify({ pid: process.pid }),
+          JSON.stringify({ pid: process.pid, token }),
           "utf8",
         );
       } catch (error) {
@@ -89,7 +105,9 @@ export async function withFileLock<T>(
     return { acquired: true, result: await operation() };
   } finally {
     clearInterval(heartbeat);
-    await rm(lockPath, { recursive: true, force: true });
+    if ((await readLockToken(lockPath)) === token) {
+      await rm(lockPath, { recursive: true, force: true });
+    }
   }
 }
 
@@ -118,6 +136,15 @@ async function readLockOwner(lockPath: string): Promise<number | null> {
     .then(
       (contents) =>
         jsonNumber(jsonObject(parseJsonText(contents))?.pid) ?? null,
+    )
+    .catch(() => null);
+}
+
+async function readLockToken(lockPath: string): Promise<string | null> {
+  return readFile(path.join(lockPath, LOCK_OWNER_FILE), "utf8")
+    .then(
+      (contents) =>
+        jsonString(jsonObject(parseJsonText(contents))?.token) ?? null,
     )
     .catch(() => null);
 }

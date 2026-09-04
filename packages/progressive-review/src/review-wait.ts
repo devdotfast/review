@@ -176,6 +176,23 @@ export async function waitForReviewAction(
     };
   }
 
+  // Dismissal that happened before the wait attached. Dismissal stamps
+  // `dismissedAt` while leaving `status` as awaiting-review, so it never
+  // matched the early return above. The `/events` stream is live-only with
+  // no replay buffer, so the dismissal frame already fired and would never
+  // arrive; without this check the wait would fall through to a spurious
+  // `timeout`. Only check this when the status early-return did not fire,
+  // so a terminal `status` still wins.
+  if (review.review.dismissedAt) {
+    await response.body.cancel();
+    return {
+      event: "review-dismissed",
+      uuid: review.review.uuid,
+      occurredAtMs: dependencies.now(),
+      review,
+    };
+  }
+
   const result = await waitForReviewStatusChange(
     response.body,
     review.review.uuid,

@@ -272,27 +272,36 @@ export class ReviewSessionModel extends Disposable {
 	private async loadDocument(
 		loader: ReviewDocumentModuleLoader,
 	): Promise<ReviewCanvasDocument> {
-		if (!this._session.session.historicalRevision) {
-			const snapshot = await loadReviewDocumentSnapshot(
+		if (this._session.session.historicalRevision) {
+			return loadReviewSessionCanvasDocument(
 				this._session,
-				this.reviewUuid,
+				loader,
 				(url, init) => this.request(url, init),
 			);
-			if (
-				snapshot.mode === "incremental" &&
-				snapshot.routePath === reviewRoutePath(this._session)
-			) {
-				this.incrementalDocumentStore?.dispose();
-				this.incrementalDocumentStore = new ReviewDocumentStore(snapshot);
-				return {
-					kind: "incremental",
-					store: this.incrementalDocumentStore,
-				};
-			}
+		}
+		const snapshot = await loadReviewDocumentSnapshot(
+			this._session,
+			this.reviewUuid,
+			(url, init) => this.request(url, init),
+		);
+		if (
+			snapshot.mode === "incremental" &&
+			snapshot.routePath === reviewRoutePath(this._session)
+		) {
+			this.incrementalDocumentStore?.dispose();
+			this.incrementalDocumentStore = new ReviewDocumentStore(snapshot);
+			return {
+				kind: "incremental",
+				store: this.incrementalDocumentStore,
+			};
 		}
 		return {
 			kind: "compiled",
-			bundle: await loadReviewSessionDocument(this._session, loader),
+			bundle: await loadReviewSessionDocument(
+				this._session,
+				loader,
+				(url, init) => this.request(url, init),
+			),
 		};
 	}
 
@@ -334,6 +343,41 @@ export class ReviewSessionModel extends Disposable {
 		this.incrementalDocumentStore?.dispose();
 		super.dispose();
 	}
+}
+
+export async function loadReviewSessionCanvasDocument(
+	session: ReviewDesktopSession,
+	loader: ReviewDocumentModuleLoader,
+	fetchImpl: (url: string, init: RequestInit) => Promise<Response> = fetch,
+): Promise<ReviewCanvasDocument> {
+	const snapshot = await loadReviewSessionDocumentSnapshot(session, fetchImpl);
+	if (snapshot.mode === "incremental") {
+		return { kind: "incremental", store: new ReviewDocumentStore(snapshot) };
+	}
+	return {
+		kind: "compiled",
+		bundle: await loadReviewSessionDocument(session, loader, fetchImpl),
+	};
+}
+
+async function loadReviewSessionDocumentSnapshot(
+	session: ReviewDesktopSession,
+	fetchImpl: (url: string, init: RequestInit) => Promise<Response> = fetch,
+): Promise<ReviewDocumentSnapshot> {
+	const url = new URL(`${session.sessionUrl}/__progressive-review/document`);
+	const response = await fetchImpl(url.href, {
+		headers: { "x-review-token": session.token },
+		signal: AbortSignal.timeout(30_000),
+	});
+	const payload = parseReviewDocumentSnapshotResponse(await response.json());
+	if (!response.ok || !payload.ok) {
+		throw new Error(
+			payload.ok
+				? `Review document returned ${response.status}.`
+				: payload.error,
+		);
+	}
+	return payload.snapshot;
 }
 
 async function loadReviewDocumentSnapshot(
@@ -388,13 +432,14 @@ export function reviewSessionApiRequest(
 export async function loadReviewSessionDocument(
 	session: ReviewDesktopSession,
 	loader: ReviewDocumentModuleLoader,
+	fetchImpl: (url: string, init: RequestInit) => Promise<Response> = fetch,
 ): Promise<unknown> {
 	const url = new URL(`${session.sessionUrl}/__progressive-review/doc-module`);
 	const routePath = session.session.routePath ?? session.descriptor.routePath;
 	if (routePath && routePath !== "/") {
 		url.searchParams.set("document", routePath);
 	}
-	const response = await fetch(url, {
+	const response = await fetchImpl(url.href, {
 		headers: { "x-review-token": session.token },
 		signal: AbortSignal.timeout(30_000),
 	});

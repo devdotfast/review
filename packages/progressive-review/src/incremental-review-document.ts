@@ -120,28 +120,12 @@ export async function readReviewDocumentSnapshot(
 ): Promise<ReviewDocumentSnapshot> {
   const routePath = "/";
   const documentPath = path.join(review.dir, "review.mdx");
-  const source = await readFile(documentPath, "utf8");
-  const sourceHash = hashSource(source);
-  const parsed = parseIncrementalReviewDocument(source);
-  const snapshot: ReviewDocumentSnapshot = parsed
-    ? {
-        reviewId: review.review.uuid,
-        routePath,
-        mode: "incremental",
-        revision: parsed.revision,
-        sourceHash,
-        source,
-        nodes: parsed.nodes,
-      }
-    : {
-        reviewId: review.review.uuid,
-        routePath,
-        mode: "compiled",
-        revision: 0,
-        sourceHash,
-        source,
-        nodes: null,
-      };
+  const snapshot = await readReviewDocumentFileSnapshot({
+    reviewId: review.review.uuid,
+    routePath,
+    documentPath,
+  });
+  const sourceHash = snapshot.sourceHash;
   const stored = readReviewDocumentState(review.dir, routePath);
   if (
     !stored ||
@@ -157,6 +141,36 @@ export async function readReviewDocumentSnapshot(
     });
   }
   return snapshot;
+}
+
+export async function readReviewDocumentFileSnapshot(input: {
+  reviewId: string;
+  routePath: string;
+  documentPath: string;
+}): Promise<ReviewDocumentSnapshot> {
+  const { reviewId, routePath, documentPath } = input;
+  const source = await readFile(documentPath, "utf8");
+  const sourceHash = hashSource(source);
+  const parsed = parseIncrementalReviewDocument(source);
+  return parsed
+    ? {
+        reviewId,
+        routePath,
+        mode: "incremental",
+        revision: parsed.revision,
+        sourceHash,
+        source,
+        nodes: parsed.nodes,
+      }
+    : {
+        reviewId,
+        routePath,
+        mode: "compiled",
+        revision: 0,
+        sourceHash,
+        source,
+        nodes: null,
+      };
 }
 
 export async function mutateReviewDocument(

@@ -17,7 +17,7 @@ import { streamSSE } from "hono/streaming";
 
 import type { ReviewAgentHarness, SessionRef } from "../authoring-session";
 import type { AgentServer } from "../native-agent/native-session";
-import { readReviewDocumentBundle } from "../review-bundle";
+import { type ReviewDocumentBundle, readReviewDocumentBundle } from "../review-bundle";
 import { resolveReviewSessionBaseCommit } from "../review-worktree-target";
 import {
   type ReviewSoftwareMapBundle,
@@ -28,7 +28,6 @@ import type {
   ProgressiveReviewTelemetryContext,
 } from "../telemetry";
 import type { ReviewSubmissionEvent } from "../types";
-import type { ReviewDocumentBundle } from "./doc-bundler";
 import {
   type ReviewHonoEnv,
   applyCorsHeaders,
@@ -286,7 +285,7 @@ export async function createReviewSessionHandler(
         404,
       );
     }
-    return new Response(bundle.code, {
+    return new Response(bundle.json, {
       status: 200,
       headers: {
         "cache-control": "no-store",

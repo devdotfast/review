@@ -14,7 +14,14 @@ import {
   ProgressiveReviewTelemetry,
   type ProgressiveReviewTelemetryCaptureClient,
 } from "../progressive-review-telemetry";
-import { writeReviewDocumentBundle } from "../review-bundle";
+import {
+  bundleReviewDocument,
+  writeReviewDocumentBundle,
+} from "../review-bundle";
+import {
+  REVIEW_DOCUMENT_FORMAT,
+  type ReviewDocumentData,
+} from "../review-document-data";
 import { readReviewComments } from "../review-state-store";
 import {
   bundleReviewSoftwareMap,
@@ -37,6 +44,17 @@ const unusedAgentServices = {
   ReviewSessionHandlerInput,
   "agentServer" | "openNativeAgentTerminal"
 >;
+
+const reviewDocument: ReviewDocumentData = {
+  format: REVIEW_DOCUMENT_FORMAT,
+  title: "Review",
+  routePath: "/",
+  sourcePath: "review.mdx",
+  body: [],
+  anchors: {},
+  anchorContents: {},
+  softwareModels: [],
+};
 
 let rootPath: string | undefined;
 
@@ -238,12 +256,10 @@ describe("createReviewSessionHandler", () => {
     const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
     const token = "session-secret";
     await writeFile(reviewPath, "# Review\n", "utf8");
-    await writeReviewDocumentBundle(rootPath, {
-      code: "export const activeReviewDocument = {};",
-      contentHash: "0123456789abcdef0123",
-      routePath: "/",
-      sourcePath: reviewPath,
-    });
+    await writeReviewDocumentBundle(
+      rootPath,
+      bundleReviewDocument(reviewDocument),
+    );
     const handler = await createReviewSessionHandler({
       ...unusedAgentServices,
       rootPath,

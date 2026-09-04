@@ -11,6 +11,7 @@ import {
   type ReactElement,
   type ReactNode,
   createElement,
+  isValidElement,
 } from "react";
 
 import { RenderedCodeBlock } from "./code-block";
@@ -328,6 +329,9 @@ function textFromChildren(children: ReactNode): string | null {
       .join("")
       .trim();
     return text || null;
+  }
+  if (isValidElement<{ children?: ReactNode }>(children)) {
+    return textFromChildren(children.props.children);
   }
   return null;
 }

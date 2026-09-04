@@ -77,6 +77,45 @@ describe("agent markdown", () => {
     );
   });
 
+  it("renders local filesystem links with inline-code text as code references", () => {
+    const html = renderToStaticMarkup(
+      createElement(AgentMarkdown, {
+        source: "[`App.tsx`](file:///Users/foo/App.tsx)",
+      }),
+    );
+
+    expect(html).not.toContain("href=");
+    expect(html).not.toContain("file://");
+    expect(html).not.toContain("local file");
+    expect(html).toContain(
+      '<code class="agent-markdown-code-reference">App.tsx</code>',
+    );
+  });
+
+  it("renders local filesystem links with bold/italic text as code references", () => {
+    const html = renderToStaticMarkup(
+      createElement(AgentMarkdown, {
+        source: [
+          "[**bold-name**](/Users/foo/bold)",
+          "[*italic-name*](/home/foo/italic)",
+          "[`code` and **mixed**](/tmp/foo/mixed)",
+        ].join("\n\n"),
+      }),
+    );
+
+    expect(html).not.toContain("href=");
+    expect(html).not.toContain("local file");
+    expect(html).toContain(
+      '<code class="agent-markdown-code-reference">bold-name</code>',
+    );
+    expect(html).toContain(
+      '<code class="agent-markdown-code-reference">italic-name</code>',
+    );
+    expect(html).toContain(
+      '<code class="agent-markdown-code-reference">code and mixed</code>',
+    );
+  });
+
   it("highlights quote spans inside markdown paragraphs and inline code", () => {
     const html = renderToStaticMarkup(
       createElement(AgentMarkdown, {

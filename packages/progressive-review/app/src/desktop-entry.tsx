@@ -13,6 +13,7 @@ import {
   createReviewSession,
   useReviewSession,
 } from "./host/review-session";
+import { hydratePublishedSoftwareMap } from "./hydrate-published-software-map";
 import { ReviewCanvasLoading } from "./review-canvas-loading";
 import { reviewDefinitionDiagnostics } from "./review-definition-runtime";
 import type { ReadyReviewDocumentEntry } from "./review-documents-runtime";
@@ -84,9 +85,13 @@ function DesktopReviewApp({
         // the ReviewDocumentBundle (`activeReviewDocument`).
         const bundle = documentValue as ReviewDocumentBundle;
         setDocument(bundle.activeReviewDocument);
-        // SAFETY: the host resolves `softwareMap` with the published software
-        // map module, or null when no map was published for the review.
-        setSoftwareMap(softwareMapValue as PublishedSoftwareMap | null);
+        // SAFETY: the host resolves `softwareMap` with the published head and
+        // base JSON values, or null when no map was published for the review.
+        const maps = softwareMapValue as {
+          head: unknown;
+          base: unknown;
+        } | null;
+        setSoftwareMap(maps ? hydratePublishedSoftwareMap(maps) : null);
         setSoftwareMapLoaded(true);
       },
       (loadError) => {

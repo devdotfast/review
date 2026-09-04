@@ -10,8 +10,6 @@ import type { ReviewDesktopSession } from "../../../services/reviewSessionModelS
 
 type ReviewDocumentImporter = (url: string) => Promise<unknown>;
 
-const softwareMapModules = new ReviewModuleCache();
-
 const reviewDocumentPolicy = createTrustedTypesPolicy("reviewDocumentModule", {
 	createScriptURL: (value: string) => value,
 });
@@ -76,54 +74,33 @@ export async function loadReviewDocumentModule(
 	);
 }
 
-export async function loadReviewSoftwareMapModules(
+export async function loadReviewSoftwareMaps(
 	session: ReviewDesktopSession,
-	headModuleUrl: string,
-	baseModuleUrl: string,
-	importModule: ReviewDocumentImporter = importBlobReviewModule,
-): Promise<unknown> {
+	headMapUrl: string,
+	baseMapUrl: string,
+): Promise<{ head: unknown; base: unknown }> {
 	const [head, base] = await Promise.all([
-		loadSoftwareMapModule(session, headModuleUrl, importModule),
-		loadSoftwareMapModule(session, baseModuleUrl, importModule),
+		fetchReviewJson(session, headMapUrl, "Software map"),
+		fetchReviewJson(session, baseMapUrl, "Software map"),
 	]);
-	return {
-		head: unwrapDefault(head),
-		base: unwrapDefault(base),
-	};
+	return { head, base };
 }
 
-function loadSoftwareMapModule(
+export async function fetchReviewJson(
 	session: ReviewDesktopSession,
-	moduleUrl: string,
-	importModule: ReviewDocumentImporter,
+	url: string,
+	label: string,
 ): Promise<unknown> {
-	const url = new URL(moduleUrl, session.serverUrl);
-	if (session.token) url.searchParams.set("token", session.token);
-	return softwareMapModules.load(url.href, async () => {
-		const response = await fetch(url, {
-			headers: session.token
-				? { "x-review-token": session.token }
-				: undefined,
-		});
-		if (!response.ok) {
-			throw new Error(`Software map module returned ${response.status}.`);
-		}
-		const blobUrl = URL.createObjectURL(
-			new Blob([await response.text()], { type: "text/javascript" }),
-		);
-		try {
-			const trustedUrl =
-				reviewDocumentPolicy?.createScriptURL(blobUrl) ?? blobUrl;
-			return await importModule(trustedUrl as string);
-		} finally {
-			URL.revokeObjectURL(blobUrl);
-		}
+	const target = new URL(url, session.serverUrl);
+	const response = await fetch(target, {
+		headers: session.token
+			? { "x-review-token": session.token }
+			: undefined,
 	});
-}
-
-function unwrapDefault(module: unknown): unknown {
-	if (!module || typeof module !== "object") return module;
-	return (module as { default?: unknown }).default ?? module;
+	if (!response.ok) {
+		throw new Error(`${label} returned ${response.status}.`);
+	}
+	return response.json();
 }
 
 function importBlobReviewModule(url: string): Promise<unknown> {

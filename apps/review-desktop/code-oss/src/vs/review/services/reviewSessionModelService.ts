@@ -18,7 +18,7 @@ import {
 import { ReviewModuleCache } from "../common/reviewModuleCache.js";
 import {
 	ReviewDocModuleResponseSchema,
-	ReviewSoftwareMapModuleResponseSchema,
+	ReviewSoftwareMapResponseSchema,
 	type ReviewCommentStoreBridge,
 	type ReviewDescriptor,
 	type ReviewSessionDescriptor,
@@ -51,10 +51,10 @@ export type ReviewDocumentModuleLoader = (
 	moduleUrl: string,
 ) => Promise<unknown>;
 
-export type ReviewSoftwareMapModuleLoader = (
+export type ReviewSoftwareMapLoader = (
 	session: ReviewDesktopSession,
-	headModuleUrl: string,
-	baseModuleUrl: string,
+	headMapUrl: string,
+	baseMapUrl: string,
 ) => Promise<unknown>;
 
 type ReviewSessionResolver = (
@@ -219,7 +219,7 @@ export class ReviewSessionModel extends Disposable {
 	}
 
 	resolveSoftwareMap(
-		loader: ReviewSoftwareMapModuleLoader,
+		loader: ReviewSoftwareMapLoader,
 	): Promise<unknown | null> {
 		return this.modules.load("software-map", () =>
 			this.loadSoftwareMap(loader),
@@ -235,7 +235,7 @@ export class ReviewSessionModel extends Disposable {
 	}
 
 	private loadSoftwareMap(
-		loader: ReviewSoftwareMapModuleLoader,
+		loader: ReviewSoftwareMapLoader,
 	): Promise<unknown | null> {
 		return loadReviewSessionSoftwareMap(this._session, loader);
 	}
@@ -302,27 +302,25 @@ export async function loadReviewSessionDocument(
 
 export async function loadReviewSessionSoftwareMap(
 	session: ReviewDesktopSession,
-	loader: ReviewSoftwareMapModuleLoader,
+	loader: ReviewSoftwareMapLoader,
 ): Promise<unknown | null> {
 	const url = new URL(
-		`${session.sessionUrl}/__progressive-review/software-map-module`,
+		`${session.sessionUrl}/__progressive-review/software-map`,
 	);
 	const response = await fetch(url, {
 		headers: { "x-review-token": session.token },
 		signal: AbortSignal.timeout(30_000),
 	});
 	if (response.status === 404) return null;
-	const payload = ReviewSoftwareMapModuleResponseSchema.parse(
-		await response.json(),
-	);
+	const payload = ReviewSoftwareMapResponseSchema.parse(await response.json());
 	if (!response.ok || !payload.ok) {
 		throw new Error(
 			payload.ok
-				? `Software map module returned ${response.status}.`
+				? `Software map returned ${response.status}.`
 				: payload.error,
 		);
 	}
-	return loader(session, payload.headModuleUrl, payload.baseModuleUrl);
+	return loader(session, payload.headMapUrl, payload.baseMapUrl);
 }
 
 function reviewDocumentRevision(session: ReviewDesktopSession): string {

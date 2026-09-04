@@ -276,7 +276,6 @@ export function appendReviewCommentDraft(
   input: CreateReviewCommentInput & { author: string },
 ): AppendReviewCommentDraftResult {
   const { author, ...draftInput } = input;
-  requireValidCodeTarget(reviewMdxPath, input.target);
   const drafts = readReviewCommentDrafts(reviewMdxPath);
   const persisted = readReviewComments(reviewMdxPath)[input.threadId];
   const existing = drafts[input.threadId];
@@ -285,6 +284,9 @@ export function appendReviewCommentDraft(
     throw new Error(
       `Comment thread ${input.threadId} already targets different content.`,
     );
+  }
+  if (!current) {
+    requireValidCodeTarget(reviewMdxPath, input.target);
   }
   if (
     existing?.inputs.some(

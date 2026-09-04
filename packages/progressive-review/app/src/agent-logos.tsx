@@ -77,9 +77,26 @@ export function PiLogo(): ReactElement {
   );
 }
 
+export function OpenCodeLogo(): ReactElement {
+  return (
+    <svg
+      aria-hidden="true"
+      className="review-agent-logo review-agent-logo--opencode"
+      focusable="false"
+      viewBox="0 0 24 24"
+    >
+      <path
+        d="M4 5h16v14H4V5zm4 4v6h3V9H8zm5 0v6h3V9h-3z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
 export const AGENT_LOGOS = {
   claude: ClaudeCodeLogo,
   codex: CodexLogo,
   cursor: CursorLogo,
+  opencode: OpenCodeLogo,
   pi: PiLogo,
 } as const;

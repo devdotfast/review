@@ -1340,8 +1340,8 @@ export const ReviewStackResponseSchema = z.strictObject({
 export type ReviewStackResponse = z.infer<typeof ReviewStackResponseSchema>;
 
 export const ReviewCliInstallTargetSchema = z.enum(
-  ["claude", "codex", "cursor", "pi"],
-  { error: "must be claude, codex, cursor, or pi" },
+  ["claude", "codex", "cursor", "opencode", "pi"],
+  { error: "must be claude, codex, cursor, opencode, or pi" },
 );
 export type ReviewCliInstallTarget = z.infer<
   typeof ReviewCliInstallTargetSchema

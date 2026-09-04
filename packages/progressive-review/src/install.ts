@@ -1,5 +1,7 @@
 import {
+  copyFile,
   cp,
+  lstat,
   mkdir,
   readFile,
   readdir,
@@ -21,11 +23,11 @@ import {
   installPiTraceExtension,
 } from "./agent-trace-hooks";
 import { emitJsonEvent, failWithJsonError, humanStream } from "./cli-output";
-import { isDirectory } from "./fs-utils";
+import { isDirectory, isFile } from "./fs-utils";
 import { devReviewHome } from "./review-storage";
 import { readTraceUserConfig } from "./trace-user-config";
 
-export type InstallTarget = "claude" | "codex" | "cursor" | "pi";
+export type InstallTarget = "claude" | "codex" | "cursor" | "opencode" | "pi";
 
 const REQUIRED_SKILL_NAMES = ["dev-review", "dev-review-map"] as const;
 // Installed only on machines that publish traces; removed when no repository
@@ -42,10 +44,14 @@ export const ALL_INSTALL_TARGETS: InstallTarget[] = [
   "claude",
   "codex",
   "cursor",
+  "opencode",
   "pi",
 ];
 
-type InstalledItem = { kind: "skill" | "extension"; dest: string };
+type InstalledItem = { kind: "skill" | "extension" | "plugin"; dest: string };
+
+const OPENCODE_PLUGIN_NAME = "review.ts";
+const OPENCODE_PLUGIN_MARKER = "Managed by Review Desktop (@dev.fast/review).";
 
 export function defaultPackageRoot(): string {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -89,6 +95,28 @@ export async function runInstall(input: RunInstallInput): Promise<number> {
       `Bundled skills not found in ${skillsDir}: ${missingSkills.join(", ")}.`,
     );
   }
+  const openCodePluginSource = path.join(
+    packageRoot,
+    "plugins",
+    OPENCODE_PLUGIN_NAME,
+  );
+  if (input.targets.includes("opencode") && !(await isFile(openCodePluginSource))) {
+    return failWithJsonError(
+      input,
+      "install",
+      `Bundled OpenCode plugin not found: ${openCodePluginSource}.`,
+    );
+  }
+  if (
+    input.targets.includes("opencode") &&
+    (await managedOpenCodePlugin(openCodePluginPath(homeDir))) === "unmanaged"
+  ) {
+    return failWithJsonError(
+      input,
+      "install",
+      `${openCodePluginPath(homeDir)} already exists and is not managed by Review.`,
+    );
+  }
 
   // Agent hooks only make sense when this machine publishes traces. The
   // machine publishes traces once `review trace allow` records one
@@ -109,6 +137,11 @@ export async function runInstall(input: RunInstallInput): Promise<number> {
       }
       await installDirectory(skillDir.src, skillDest);
       installed.push({ kind: "skill", dest: skillDest });
+    }
+    if (target === "opencode") {
+      const pluginDest = openCodePluginPath(homeDir);
+      await installFile(openCodePluginSource, pluginDest);
+      installed.push({ kind: "plugin", dest: pluginDest });
     }
     if (!installTraceHooks) continue;
     if (target === "claude") {
@@ -213,6 +246,12 @@ export async function removeInstalledSkills(
   ]) {
     await rm(path.join(destRoot, name), { recursive: true, force: true });
   }
+  if (
+    target === "opencode" &&
+    (await managedOpenCodePlugin(openCodePluginPath(homeDir))) === "managed"
+  ) {
+    await rm(openCodePluginPath(homeDir), { force: true });
+  }
 }
 
 export async function removeTraceSkills(
@@ -240,6 +279,20 @@ export async function detectInstalledTargets(
   const installed: InstallTarget[] = [];
   for (const target of ALL_INSTALL_TARGETS) {
     const destRoot = skillsDestRoot(homeDir, target);
+    if (target === "opencode") {
+      const skillsPresent = await Promise.all(
+        REQUIRED_SKILL_NAMES.map((name) =>
+          hasValidSkillFile(path.join(destRoot, name, "SKILL.md"), name),
+        ),
+      );
+      if (
+        skillsPresent.every(Boolean) &&
+        (await managedOpenCodePlugin(openCodePluginPath(homeDir))) === "managed"
+      ) {
+        installed.push(target);
+      }
+      continue;
+    }
     const found = await Promise.all(
       knownSkillNames.map((name) => isDirectory(path.join(destRoot, name))),
     );
@@ -251,6 +304,9 @@ export async function detectInstalledTargets(
 function skillsDestRoot(homeDir: string, target: InstallTarget): string {
   if (target === "claude") return path.join(homeDir, ".claude", "skills");
   if (target === "cursor") return path.join(homeDir, ".cursor", "skills");
+  if (target === "opencode") {
+    return path.join(homeDir, ".config", "opencode", "skills");
+  }
   if (target === "pi") return path.join(homeDir, ".agents", "skills");
   return path.join(homeDir, ".agents", "skills");
 }
@@ -311,6 +367,54 @@ async function installDirectory(src: string, dest: string): Promise<void> {
     throw error;
   }
   if (movedExisting) await rm(backup, { recursive: true, force: true });
+}
+
+async function installFile(src: string, dest: string): Promise<void> {
+  await mkdir(path.dirname(dest), { recursive: true });
+  const staging = `${dest}.tmp-${process.pid}`;
+  const backup = `${dest}.bak-${process.pid}`;
+  await rm(staging, { force: true });
+  await rm(backup, { force: true });
+  await copyFile(src, staging);
+  let movedExisting = false;
+  try {
+    await rename(dest, backup);
+    movedExisting = true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  try {
+    await rename(staging, dest);
+  } catch (error) {
+    if (movedExisting) await rename(backup, dest).catch(() => {});
+    throw error;
+  }
+  if (movedExisting) await rm(backup, { force: true });
+}
+
+function openCodePluginPath(homeDir: string): string {
+  return path.join(
+    homeDir,
+    ".config",
+    "opencode",
+    "plugins",
+    OPENCODE_PLUGIN_NAME,
+  );
+}
+
+async function managedOpenCodePlugin(
+  filePath: string,
+): Promise<"managed" | "missing" | "unmanaged"> {
+  try {
+    const metadata = await lstat(filePath);
+    if (!metadata.isFile() || metadata.isSymbolicLink()) return "unmanaged";
+    return (await readFile(filePath, "utf8")).includes(OPENCODE_PLUGIN_MARKER)
+      ? "managed"
+      : "unmanaged";
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing";
+    throw error;
+  }
 }
 
 async function removeStaleSkills(destRoot: string): Promise<void> {

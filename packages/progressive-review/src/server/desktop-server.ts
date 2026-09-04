@@ -951,6 +951,25 @@ export function createGlobalReviewServer(
     return response;
   }
 
+  // `.build/<rev>` directories that still-open sessions of `uuid` read from
+  // disk. Derive them from the captured on-disk paths, not from
+  // `review.review.presentedSoftwareMapRevision`: a historical session opened
+  // after a map republish pins the older map build while the working-store
+  // pointer has already advanced, so the store pointer would protect the wrong
+  // (already-kept) revision.
+  function liveSessionBuildRevisions(uuid: string): string[] {
+    const revisions = new Set<string>();
+    for (const session of sessions.values()) {
+      if (session.review.review.uuid !== uuid) continue;
+      const documentRevision = session.historicalRevision ?? session.revision;
+      if (documentRevision) revisions.add(documentRevision);
+      if (session.softwareMapRootPath) {
+        revisions.add(path.basename(session.softwareMapRootPath));
+      }
+    }
+    return [...revisions];
+  }
+
   // The CLI already validated, bundled, and sealed the revision; the server
   // materializes it, has the app mount it off-screen, and promotes it only
   // when that mount is clean.
@@ -1072,6 +1091,7 @@ export function createGlobalReviewServer(
       ...(successor.review.review.presentedSoftwareMapRevision
         ? [successor.review.review.presentedSoftwareMapRevision]
         : []),
+      ...liveSessionBuildRevisions(successor.review.review.uuid),
     ]).catch(() => undefined);
     const mounted: Awaited<ReturnType<typeof mountPublishedDocument>> = {
       ok: true,
@@ -1188,9 +1208,11 @@ export function createGlobalReviewServer(
       name: "focusCanvas",
       args: {},
     });
-    await pruneReviewBuilds(review.dir, [documentRevision, revision]).catch(
-      () => undefined,
-    );
+    await pruneReviewBuilds(review.dir, [
+      documentRevision,
+      revision,
+      ...liveSessionBuildRevisions(review.review.uuid),
+    ]).catch(() => undefined);
     return { ok: true, revision };
   }
 

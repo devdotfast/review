@@ -512,10 +512,18 @@ export class ReviewSessionModelService
 	): Promise<ReviewSessionModel> {
 		const existing = this.models.get(key);
 		if (existing) {
-			if (preferredSessionId) {
-				await existing.refresh(preferredSessionId);
+			const alive = this.sessionService.sessions.some(
+				(candidate) =>
+					candidate.sessionId === existing.session.session.sessionId,
+			);
+			if (alive) {
+				if (preferredSessionId) {
+					await existing.refresh(preferredSessionId);
+				}
+				return existing;
 			}
-			return existing;
+			this.models.delete(key);
+			existing.dispose();
 		}
 		const session = await this.resolveSession(
 			reviewUuid,

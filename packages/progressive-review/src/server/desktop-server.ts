@@ -81,6 +81,7 @@ import {
   touchReviewAgentSession,
 } from "../review-home";
 import type { RunReviewInfoInput } from "../review-info";
+import { withReviewMutationLock } from "../review-mutation-lock";
 import {
   readReviewPreferences,
   writeReviewPreferences,
@@ -1078,6 +1079,13 @@ export function createGlobalReviewServer(
     const buildDir = await timed("materialize document revision", () =>
       publishRuntime.materializePublishRevision({ review, revision }),
     );
+    const preparedRecord = parseStoredReviewRecord(
+      JSON.parse(await readFile(path.join(buildDir, "review.json"), "utf8")),
+    );
+    rejectConcurrentPublication(review, {
+      dir: buildDir,
+      review: preparedRecord,
+    });
     const softwareMapRootPath = review.review.presentedSoftwareMapRevision
       ? await timed("materialize software map revision", () =>
           publishRuntime.materializePublishRevision({
@@ -1216,6 +1224,15 @@ export function createGlobalReviewServer(
       }),
       publishRuntime.materializePublishRevision({ review, revision }),
     ]);
+    const preparedMapRecord = parseStoredReviewRecord(
+      JSON.parse(
+        await readFile(path.join(softwareMapRootPath, "review.json"), "utf8"),
+      ),
+    );
+    rejectConcurrentPublication(review, {
+      dir: softwareMapRootPath,
+      review: preparedMapRecord,
+    });
     const mapBundle = await readReviewSoftwareMapBundle(softwareMapRootPath);
     if (!mapBundle) {
       throw new ReviewServerError(
@@ -2145,7 +2162,10 @@ export function createGlobalReviewServer(
     reviewLocks.set(reviewUuid, chain);
     await previous;
     try {
-      return await operation();
+      return await withReviewMutationLock(
+        path.join(reviewsHomeDir(), reviewUuid),
+        operation,
+      );
     } finally {
       release();
       if (reviewLocks.get(reviewUuid) === chain) reviewLocks.delete(reviewUuid);
@@ -2518,6 +2538,9 @@ function rejectConcurrentPublication(
   startedFrom: StoredReview,
 ): void {
   if (
+    latest.review.status !== startedFrom.review.status ||
+    latest.review.sourceCommit !== startedFrom.review.sourceCommit ||
+    latest.review.baseCommit !== startedFrom.review.baseCommit ||
     latest.review.presentedDocumentRevision !==
       startedFrom.review.presentedDocumentRevision ||
     latest.review.presentedSoftwareMapRevision !==

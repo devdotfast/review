@@ -9,6 +9,7 @@ import {
   type ReviewDocumentData,
   reviewDocumentDataSchema,
 } from "./review-document-data";
+import { withReviewMutationLock } from "./review-mutation-lock";
 
 // `review publish` writes the built document bundle into the review dir and
 // seals it with the revision. The desktop server serves these exact bytes from
@@ -55,28 +56,30 @@ export async function writeReviewDocumentBundle(
   reviewDir: string,
   bundle: ReviewDocumentBundle,
 ): Promise<void> {
-  const bundleDir = path.join(reviewDir, REVIEW_DOCUMENT_BUNDLE_DIR);
-  await mkdir(bundleDir, { recursive: true, mode: 0o700 });
-  const manifest: ReviewBundleManifest = {
-    version: BUNDLE_MANIFEST_VERSION,
-    routePath: bundle.routePath,
-    sourcePath: bundle.sourcePath,
-  };
-  await Promise.all([
-    writeFile(path.join(bundleDir, BUNDLE_JSON_FILE), bundle.json, "utf8"),
-    writeFile(
-      path.join(bundleDir, BUNDLE_MANIFEST_FILE),
-      `${JSON.stringify(manifest, null, 2)}\n`,
-      "utf8",
-    ),
-    rm(path.join(bundleDir, LEGACY_BUNDLE_CODE_FILE), { force: true }),
-    rm(path.join(reviewDir, REVIEW_BUNDLE_DIR, LEGACY_BUNDLE_CODE_FILE), {
-      force: true,
-    }),
-    rm(path.join(reviewDir, REVIEW_BUNDLE_DIR, BUNDLE_MANIFEST_FILE), {
-      force: true,
-    }),
-  ]);
+  return withReviewMutationLock(reviewDir, async () => {
+    const bundleDir = path.join(reviewDir, REVIEW_DOCUMENT_BUNDLE_DIR);
+    await mkdir(bundleDir, { recursive: true, mode: 0o700 });
+    const manifest: ReviewBundleManifest = {
+      version: BUNDLE_MANIFEST_VERSION,
+      routePath: bundle.routePath,
+      sourcePath: bundle.sourcePath,
+    };
+    await Promise.all([
+      writeFile(path.join(bundleDir, BUNDLE_JSON_FILE), bundle.json, "utf8"),
+      writeFile(
+        path.join(bundleDir, BUNDLE_MANIFEST_FILE),
+        `${JSON.stringify(manifest, null, 2)}\n`,
+        "utf8",
+      ),
+      rm(path.join(bundleDir, LEGACY_BUNDLE_CODE_FILE), { force: true }),
+      rm(path.join(reviewDir, REVIEW_BUNDLE_DIR, LEGACY_BUNDLE_CODE_FILE), {
+        force: true,
+      }),
+      rm(path.join(reviewDir, REVIEW_BUNDLE_DIR, BUNDLE_MANIFEST_FILE), {
+        force: true,
+      }),
+    ]);
+  });
 }
 
 export async function readReviewDocumentBundle(

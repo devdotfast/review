@@ -53,10 +53,10 @@ describe("tutorial service", () => {
       });
       await expect(
         readFile(
-          path.join(build, ".bundle", "document", "review-document.js"),
+          path.join(build, ".bundle", "document", "review-document.json"),
           "utf8",
         ),
-      ).resolves.toContain("createActiveReviewDocument");
+      ).resolves.toContain('"format":"review-document/1"');
       await expect(
         readFile(path.join(review.dir, "authoring-conversation.json"), "utf8"),
       ).resolves.toContain('"title": "How this Review was made"');

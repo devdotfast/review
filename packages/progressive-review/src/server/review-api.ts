@@ -195,7 +195,7 @@ export async function captureSanitizedUiTelemetry(
 
 interface ReviewApiOptions {
   readOnlyReview?: ReviewRecord;
-  readOnly?: boolean;
+  readOnly?: () => boolean;
   sourceUnavailable?: string;
   reviewPath: string;
   reviewDocumentsDir: string;
@@ -575,9 +575,10 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   ): Response {
     return reviewApiJsonResponse(200, {
       ok: true,
-      snapshot: options.readOnly
-        ? readReviewThreadsReadOnly(writableReviewPath)
-        : threadsFor(writableReviewPath).snapshot(),
+      snapshot:
+        options.readOnlyReview || options.readOnly?.()
+          ? readReviewThreadsReadOnly(writableReviewPath)
+          : threadsFor(writableReviewPath).snapshot(),
     });
   }
 

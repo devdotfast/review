@@ -356,6 +356,9 @@ export async function buildBugReportRequest(
       })),
     ],
   };
+  if (payload.description.trim().length > 0) {
+    meta.description = payload.description;
+  }
   if (payload.trace) meta.trace_harness = payload.trace.harness;
   const form = new FormData();
   form.append("meta", JSON.stringify(meta));

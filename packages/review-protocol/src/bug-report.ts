@@ -52,6 +52,13 @@ export const ReviewBugReportMetaV2Schema = z
   .strictObject({
     schema_version: z.literal(2),
     description_length: z.number().int().nonnegative().max(65_536),
+    description: z
+      .string()
+      .refine(
+        (value) => new TextEncoder().encode(value).byteLength <= 65_536,
+        "must not exceed 65,536 UTF-8 bytes",
+      )
+      .optional(),
     has_review: z.boolean(),
     has_map: z.boolean(),
     has_diff: z.boolean(),
@@ -85,6 +92,17 @@ export const ReviewBugReportMetaV2Schema = z
     parts: z.array(ReviewBugReportPartSchema).min(1).max(34),
   })
   .superRefine((meta, context) => {
+    if (
+      meta.description !== undefined &&
+      new TextEncoder().encode(meta.description).byteLength !==
+        meta.description_length
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["description_length"],
+        message: "must match the description UTF-8 byte length",
+      });
+    }
     const [first, ...traces] = meta.parts;
     const validOrder =
       first?.field === "payload" &&

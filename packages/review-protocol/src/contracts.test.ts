@@ -147,7 +147,6 @@ const contracts: Array<[string, ZodType, JsonObject]> = [
       sessionId: "session-1",
       token: "",
       wasmUrl: "http://127.0.0.1:5570/libavoid.wasm",
-      docRuntimeUrl: "vscode-file://review/doc-runtime.js",
       appVersion: "0.0.13",
       theme: "dark",
       host: "desktop",

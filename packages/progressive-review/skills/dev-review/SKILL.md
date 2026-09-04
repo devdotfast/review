@@ -104,9 +104,15 @@ If no sub-agent facility exists, publish the document. Report that the map is no
 
 ### 4. Author the document
 
-Read [Document authoring](references/document-authoring.md) before you edit `review.mdx` or `data.ts`.
+Read [Document authoring](references/document-authoring.md) before authoring the document. All document and comment reads and edits must go through the Review API; do not read or write `review.mdx`, `data.ts`, or comment databases directly. Register `review mcp` with your MCP client if its tools are not available.
 
-When the Review canvas MCP tools are available, use `review_get_document` and
+For rich MDX, use `review_get_document_file` and `review_write_document_file` with
+`name: "review.mdx"` or `name: "data.ts"`. Pass the returned `sourceHash` as
+`expectedSourceHash`; null creates a missing input. Keep built-in components and
+imports intact. Write each input through the API, then publish to compile and
+present the complete document.
+
+For incremental documents, use `review_get_document` and
 the revision-checked `review_replace_document`, `review_insert_node`,
 `review_update_node`, `review_delete_node`, and `review_move_node` tools. Keep
 the returned revision for the next mutation. Converting a compiled Review

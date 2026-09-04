@@ -14,6 +14,8 @@ import {
   type ReviewDescriptor,
   type ReviewDesktopDiscovery,
   type ReviewDesktopGlobalEvent,
+  ReviewDocumentFileNameSchema,
+  ReviewDocumentFileWriteSchema,
   type ReviewRecord,
   type ReviewSessionDescriptor,
   type ReviewSessionWire,
@@ -61,6 +63,10 @@ import {
   reviewReapsAt,
   selectReapableReviews,
 } from "../review-attention";
+import {
+  readReviewDocumentFile,
+  writeReviewDocumentFile,
+} from "../review-document-files";
 import { listReviewDocumentVersions } from "../review-document-versions";
 import {
   ensureReviewPinnedCheckout,
@@ -432,6 +438,47 @@ export function createGlobalReviewServer(
       mutationId: request.mutationId,
     });
     return globalJson(200, response);
+  });
+  app.get("/reviews/:uuid/document/files/:name", async (context) => {
+    const name = ReviewDocumentFileNameSchema.safeParse(
+      context.req.param("name"),
+    );
+    if (!name.success)
+      throw new ReviewServerError("Unknown document input.", 404);
+    const review = await requireStoredReview(context.req.param("uuid"));
+    return globalJson(200, {
+      ok: true,
+      file: await readReviewDocumentFile(review, name.data),
+    });
+  });
+  app.post("/reviews/:uuid/document/files/:name", async (context) => {
+    const uuid = context.req.param("uuid");
+    const name = ReviewDocumentFileNameSchema.safeParse(
+      context.req.param("name"),
+    );
+    const request = ReviewDocumentFileWriteSchema.safeParse(
+      await readBoundedRequestJson(context.req.raw),
+    );
+    if (!name.success)
+      throw new ReviewServerError("Unknown document input.", 404);
+    if (!request.success)
+      throw new ReviewServerError(request.error.message, 400);
+    const file = await withReviewLock(uuid, async () => {
+      const review = await requireStoredReview(uuid);
+      if (
+        review.review.status === "accepted" ||
+        review.review.status === "rejected"
+      ) {
+        throw new ReviewServerError(
+          `Review ${uuid} is frozen.`,
+          409,
+          "review_terminal",
+        );
+      }
+      return writeReviewDocumentFile(review, name.data, request.data);
+    });
+    // Rich MDX is compiled and presented by the existing publish operation.
+    return globalJson(200, { ok: true, file });
   });
   app.get("/reviews/:uuid/comments", async (context) => {
     const review = await requireStoredReview(context.req.param("uuid"));

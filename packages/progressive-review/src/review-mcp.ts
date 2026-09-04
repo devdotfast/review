@@ -5,6 +5,8 @@ import type { Readable, Writable } from "node:stream";
 import {
   type JsonObject,
   type JsonValue,
+  ReviewDocumentFileNameSchema,
+  ReviewDocumentFileWriteSchema,
   ReviewDocumentNodeSchema,
   isJsonObject,
   jsonNumber,
@@ -122,6 +124,26 @@ async function callReviewTool(
   args: JsonObject,
 ): Promise<JsonValue> {
   const reviewId = requireString(args, "reviewId");
+  if (name === "review_get_document_file") {
+    return requireOk(
+      await api.getDocumentFile(
+        reviewId,
+        ReviewDocumentFileNameSchema.parse(args.name),
+      ),
+    );
+  }
+  if (name === "review_write_document_file") {
+    return requireOk(
+      await api.writeDocumentFile(
+        reviewId,
+        ReviewDocumentFileNameSchema.parse(args.name),
+        ReviewDocumentFileWriteSchema.parse({
+          source: args.source,
+          expectedSourceHash: args.expectedSourceHash,
+        }),
+      ),
+    );
+  }
   if (name === "review_get_document") {
     return requireOk(await api.getDocument(reviewId));
   }
@@ -285,6 +307,30 @@ const MUTATION_PROPERTIES = {
 } as const;
 
 const REVIEW_MCP_TOOLS: JsonValue[] = [
+  tool(
+    "review_get_document_file",
+    "Read a rich MDX document input through the API. Returns source and sourceHash; both are null for a missing input.",
+    {
+      properties: {
+        reviewId: BASE_PROPERTIES.reviewId,
+        name: { type: "string", enum: ["review.mdx", "data.ts"] },
+      },
+      required: ["reviewId", "name"],
+    },
+  ),
+  tool(
+    "review_write_document_file",
+    "Write rich MDX or data.ts using the sourceHash from review_get_document_file (null creates a missing input). Preserves rich components. Publish after editing to compile and present changes. Use node tools for incremental documents.",
+    {
+      properties: {
+        reviewId: BASE_PROPERTIES.reviewId,
+        name: { type: "string", enum: ["review.mdx", "data.ts"] },
+        source: { type: "string" },
+        expectedSourceHash: { type: ["string", "null"] },
+      },
+      required: ["reviewId", "name", "source", "expectedSourceHash"],
+    },
+  ),
   tool("review_get_document", "Read the current Review document snapshot.", {
     properties: { reviewId: BASE_PROPERTIES.reviewId },
     required: ["reviewId"],

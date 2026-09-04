@@ -691,6 +691,25 @@ export type ReviewDocumentSnapshot = z.infer<
   typeof ReviewDocumentSnapshotSchema
 >;
 
+// Rich MDX authoring exposes only its two authored inputs, never arbitrary paths.
+export const ReviewDocumentFileNameSchema = z.enum(["review.mdx", "data.ts"]);
+export type ReviewDocumentFileName = z.infer<
+  typeof ReviewDocumentFileNameSchema
+>;
+export const ReviewDocumentFileSchema = z.strictObject({
+  name: ReviewDocumentFileNameSchema,
+  source: z.string().nullable(),
+  sourceHash: requiredString.nullable(),
+});
+export type ReviewDocumentFile = z.infer<typeof ReviewDocumentFileSchema>;
+export const ReviewDocumentFileWriteSchema = z.strictObject({
+  source: z.string(),
+  expectedSourceHash: requiredString.nullable(),
+});
+export type ReviewDocumentFileWrite = z.infer<
+  typeof ReviewDocumentFileWriteSchema
+>;
+
 const ReviewDocumentNodePatchSchema = z
   .strictObject({
     kind: ReviewDocumentNodeSchema.shape.kind.optional(),
@@ -1338,6 +1357,14 @@ export const ReviewErrorResponseSchema = z.strictObject({
   error: requiredString,
 });
 export type ReviewErrorResponse = z.infer<typeof ReviewErrorResponseSchema>;
+
+export const ReviewDocumentFileResponseSchema = z.discriminatedUnion("ok", [
+  z.strictObject({ ok: z.literal(true), file: ReviewDocumentFileSchema }),
+  ReviewErrorResponseSchema,
+]);
+export type ReviewDocumentFileResponse = z.infer<
+  typeof ReviewDocumentFileResponseSchema
+>;
 
 export const ReviewDocumentSnapshotResponseSchema = z.discriminatedUnion("ok", [
   z.strictObject({

@@ -886,6 +886,10 @@ export function ThreadComposer(props: ThreadComposerProps): ReactElement {
         return;
       }
       if (event.key !== "Enter") return;
+      // The Enter that confirms an in-progress IME (CJK) candidate sets
+      // isComposing (and keyCode 229 on older browsers); treat it as text
+      // input rather than a submit so the partial draft is not sent.
+      if (event.nativeEvent.isComposing || event.keyCode === 229) return;
       // Enter submits, as does Cmd/Ctrl+Enter (the workbench composer's
       // shortcut, shown on the button). Shift/Alt+Enter insert a newline.
       const shouldSubmit = !event.shiftKey && !event.altKey;

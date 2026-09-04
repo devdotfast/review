@@ -42,8 +42,9 @@ export type UiTelemetryPropertySpec =
   // carrying the message itself.
   | "hash_hex"
   // Stack frames that resolve inside the shipped bundle, separated by "|".
-  // Every frame is re-checked here against BUNDLE_FRAME_PATTERN, so a bug in
-  // the producer cannot smuggle a user path through.
+  // Every frame is re-checked here so a bug in the producer cannot smuggle a
+  // user path through: it must begin at a bundle root and contain no `..`
+  // segment (see `isReportableBundleFrame`).
   | "bundle_frames"
   // An error message that has been through the cleaner. Re-checked here against
   // the same secret shapes, plus a refusal of any surviving path separator.
@@ -182,9 +183,17 @@ export const BUNDLE_FRAME_ENTRY_FILES = [
 
 /**
  * One normalized stack frame: a bundle-relative path, then `:line:col`. The
- * character class is deliberately narrow — anything outside it could carry user
- * content — and there is no function name, because the file already identifies
- * the frame and a minified name adds surface for nothing.
+ * character class is deliberately narrow — anything outside it could carry
+ * user content — and there is no function name, because the file already
+ * identifies the frame and a minified name adds surface for nothing.
+ *
+ * The class admits `.` and `/` individually — a real path needs both — but
+ * together they let a `..` parent segment through, which is how a path can
+ * begin at a bundle root and still traverse out of it into user content. A
+ * frame is therefore reportable only when it matches this pattern AND has no
+ * `..` path segment; `isReportableBundleFrame` is the check both the producer
+ * and this allowlist's re-check use, so neither layer trusts the other to have
+ * rejected it.
  */
 const escapeForPattern = (value: string): string =>
   value.replaceAll(".", "\\.").replaceAll("/", "\\/");
@@ -197,6 +206,27 @@ export const BUNDLE_FRAME_PATTERN = new RegExp(
     "):\\d{1,9}:\\d{1,9}$",
 );
 export const BUNDLE_FRAME_SEPARATOR = "|";
+
+/**
+ * A `..` path segment: `../` mid-frame, `..` at the start, or `..` as the last
+ * path segment before the `:line:col`. Each character is in the bundle charset,
+ * so the pattern above admits it; a `..` segment as a whole is not, because it
+ * is the one shape that leaves the bundle root.
+ */
+const TRAVERSAL_SEGMENT_PATTERN = /(?:^|\/)\.\.(?=\/|:|$)/;
+
+/**
+ * Whether one normalized stack frame may leave the process. It must begin at a
+ * bundle root and contain no `..` segment. The producer (`packBundleFrames`)
+ * and this allowlist's re-check (`sanitizeBundleFrames`) both call this, so a
+ * `..` that a writable `Error.stack` smuggles across a bundle anchor is refused
+ * at both ends rather than only one — there is no single permissive gate.
+ */
+export function isReportableBundleFrame(frame: string): boolean {
+  return (
+    BUNDLE_FRAME_PATTERN.test(frame) && !TRAVERSAL_SEGMENT_PATTERN.test(frame)
+  );
+}
 const MAX_BUNDLE_FRAMES = 10;
 const MAX_BUNDLE_FRAMES_LENGTH = 1_024;
 const HASH_HEX_PATTERN = /^[0-9a-f]{16}$/;
@@ -554,16 +584,17 @@ export function isReportableCleanedMessage(value: string): boolean {
 }
 
 /**
- * Keep only the frames that match BUNDLE_FRAME_PATTERN. Frames arrive already
- * normalized; this is the independent second check, so it never repairs a frame
- * — it drops it. Returns undefined when nothing survives.
+ * Keep only the frames that are reportable bundle frames. Frames arrive already
+ * normalized; this is the independent second check, so it never repairs a
+ * frame — it drops it, including any frame whose `..` segment would let it
+ * escape the bundle root. Returns undefined when nothing survives.
  */
 function sanitizeBundleFrames(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
   const kept: string[] = [];
   let length = 0;
   for (const frame of value.split(BUNDLE_FRAME_SEPARATOR)) {
-    if (!BUNDLE_FRAME_PATTERN.test(frame)) continue;
+    if (!isReportableBundleFrame(frame)) continue;
     const next = length + frame.length + (kept.length > 0 ? 1 : 0);
     if (next > MAX_BUNDLE_FRAMES_LENGTH) break;
     kept.push(frame);

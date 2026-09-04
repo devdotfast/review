@@ -26,8 +26,8 @@ import {
 
 import { cleanTelemetryText } from "./telemetry-clean-text";
 import {
-  BUNDLE_FRAME_PATTERN,
   BUNDLE_FRAME_SEPARATOR,
+  isReportableBundleFrame,
   isReportableCleanedMessage,
 } from "./ui-telemetry-events";
 
@@ -190,8 +190,10 @@ export function packBundleFrames(
     if (!file) continue;
     const frame = `${file}:${match[2]}:${match[3]}`;
     // A user directory can be called "out" too, so anchoring alone is not
-    // enough: the result must also start inside a known bundle directory.
-    if (!BUNDLE_FRAME_PATTERN.test(frame)) continue;
+    // enough: the result must also start inside a known bundle directory and
+    // contain no `..` segment, which would let it traverse back out and carry a
+    // user path. The allowlist re-checks this independently.
+    if (!isReportableBundleFrame(frame)) continue;
     frames.push(frame);
     if (frames.length >= MAX_FRAMES) break;
   }

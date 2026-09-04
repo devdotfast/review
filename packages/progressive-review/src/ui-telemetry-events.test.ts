@@ -104,6 +104,44 @@ describe("sanitizeUiTelemetryEvent", () => {
     });
   });
 
+  it("drops a `..` segment that traverses out of a bundle root", () => {
+    // The continuation charset admits `.` and `/` separately, so a `..`
+    // segment after a bundle root is the smuggle vector: it passes the charset
+    // but escapes the bundle into user content.
+    expect(
+      sanitizeUiTelemetryEvent({
+        name: "client_error",
+        properties: {
+          error_source: "window",
+          frames: [
+            "vs/review/browser/workbench.js:456:12",
+            "vs/review/../../leak.js:1:1",
+            "vs/review/../../Users/alice/secret/leak.js:1:1",
+            "assets/../../etc/passwd:1:1",
+            "vs/review/foo/..:1:1",
+            "assets/canvas-a1b2c3.js:1:284712",
+          ].join("|"),
+        },
+      })?.properties.frames,
+    ).toBe(
+      "vs/review/browser/workbench.js:456:12|assets/canvas-a1b2c3.js:1:284712",
+    );
+  });
+
+  it("keeps a frame whose `..` is inside a filename, not a path segment", () => {
+    // A `..` run bounded by other characters is part of a file or directory
+    // name, not a parent-directory reference, so it must not be over-rejected.
+    expect(
+      sanitizeUiTelemetryEvent({
+        name: "client_error",
+        properties: {
+          error_source: "window",
+          frames: "vs/review/foo..bar.js:1:1|vs/review/v1.0.2/fix.js:1:1",
+        },
+      })?.properties.frames,
+    ).toBe("vs/review/foo..bar.js:1:1|vs/review/v1.0.2/fix.js:1:1");
+  });
+
   it("requires a message hash to be a truncated hex digest", () => {
     const hashed = (message_hash: string) =>
       sanitizeUiTelemetryEvent({

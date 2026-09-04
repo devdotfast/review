@@ -98,6 +98,24 @@ describe("packBundleFrames", () => {
     expect(packBundleFrames("")).toBeUndefined();
     expect(packBundleFrames({ stack: "no" })).toBeUndefined();
   });
+
+  it("drops a `..` traversal a hostile stack smuggles past a bundle anchor", () => {
+    // Error.stack is writable, so a producer bug or hostile throw can put a
+    // `..` run after a bundle anchor. `bundleRelativePath` keeps everything
+    // after the anchor, so the reportable-frame check must then drop it.
+    const hostile = {
+      name: "Error",
+      message: "boom",
+      stack: [
+        "    at foo (file:///Users/alice/secret-repo/work/out/vs/review/../../leak.js:1:1)",
+        "    at bar (file:///app/out/assets/../../etc/passwd:1:1)",
+        "    at real (file:///app/out/vs/base/common/errors.js:78:3)",
+      ].join("\n"),
+    };
+    expect(packBundleFrames(hostile.stack)).toBe(
+      "vs/base/common/errors.js:78:3",
+    );
+  });
 });
 
 describe("deriveErrorTelemetryProperties", () => {
@@ -300,5 +318,32 @@ describe("deriveErrorTelemetryProperties", () => {
       message_hash: expect.stringMatching(/^[0-9a-f]{16}$/),
     });
     expect(JSON.stringify(sanitized)).not.toContain("alice");
+  });
+
+  it("does not leak a smuggled `..` path through to PostHog", () => {
+    // A writable Error.stack whose frames carry `../` traversal past a bundle
+    // anchor must not survive the producer + allowlist chain. Before the fix
+    // the sanitized `frames` held "vs/review/../../leak.js:1:1" verbatim.
+    const hostile = {
+      name: "Error",
+      message: "boom",
+      stack: [
+        "    at foo (file:///Users/alice/secret-repo/work/out/vs/review/../../leak.js:1:1)",
+        "    at bar (file:///app/out/assets/../../etc/passwd:1:1)",
+        "    at real (file:///app/out/vs/base/common/errors.js:78:3)",
+      ].join("\n"),
+    };
+    const sanitized = sanitizeUiTelemetryEvent({
+      name: "client_error",
+      properties: mergeErrorTelemetryProperties(
+        { error_source: "renderer_unexpected", error_name: "Error" },
+        hostile,
+      ),
+    });
+    const serialized = JSON.stringify(sanitized);
+    for (const token of ["leak", "passwd", "alice", "secret-repo", "../"]) {
+      expect(serialized).not.toContain(token);
+    }
+    expect(sanitized?.properties.frames).toBe("vs/base/common/errors.js:78:3");
   });
 });

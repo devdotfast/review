@@ -103,4 +103,62 @@ describe("Review Find document text", () => {
     expect(ranges).toHaveLength(1);
     expect(ranges[0]?.toString()).toBe("Needle   one");
   });
+
+  it("drops whitespace-only matches that fall on a block separator", () => {
+    const article = document.createElement("article");
+    article.innerHTML = "<p>foo</p><p>bar</p>";
+    document.body.append(article);
+    expect(reviewFindText(article)).toBe("foo bar");
+    // The single matched space is a synthesized block separator with no
+    // authored DOM target; it must not surface as a collapsed range.
+    const ranges = reviewFindRanges(article, compile({ text: " " }));
+    expect(ranges).toHaveLength(0);
+  });
+
+  it("keeps authored whitespace matches intact", () => {
+    const article = document.createElement("article");
+    article.innerHTML = "<p>foo bar</p>";
+    document.body.append(article);
+    const ranges = reviewFindRanges(article, compile({ text: " " }));
+    expect(ranges).toHaveLength(1);
+    expect(ranges[0]?.collapsed).toBe(false);
+    expect(ranges[0]?.toString()).toBe(" ");
+  });
+
+  it("keeps straddling authored matches intact across blocks", () => {
+    const article = document.createElement("article");
+    article.innerHTML = "<p>foo</p><p>bar</p>";
+    document.body.append(article);
+    const ranges = reviewFindRanges(article, compile({ text: "o b" }));
+    expect(ranges).toHaveLength(1);
+    expect(ranges[0]?.collapsed).toBe(false);
+    // The synthesized separator has no DOM text, so the Range string omits it.
+    expect(ranges[0]?.toString()).toBe("ob");
+  });
+
+  it("drops every whitespace-only match across multiple blocks", () => {
+    const article = document.createElement("article");
+    article.innerHTML = "<p>a</p><p>b</p><p>c</p><p>d</p><p>e</p>";
+    document.body.append(article);
+    expect(reviewFindText(article)).toBe("a b c d e");
+    expect(reviewFindRanges(article, compile({ text: " " }))).toHaveLength(0);
+    expect(
+      reviewFindRanges(article, compile({ text: "\\s", isRegex: true })),
+    ).toHaveLength(0);
+  });
+
+  it("keeps authored whitespace while dropping separator whitespace", () => {
+    const article = document.createElement("article");
+    article.innerHTML = "<p>foo bar</p><p>baz qux</p>";
+    document.body.append(article);
+    expect(reviewFindText(article)).toBe("foo bar baz qux");
+    // Two authored spaces (inside the paragraphs) survive; the single
+    // synthesized inter-block separator space is dropped.
+    const ranges = reviewFindRanges(article, compile({ text: " " }));
+    expect(ranges).toHaveLength(2);
+    for (const range of ranges) {
+      expect(range.collapsed).toBe(false);
+      expect(range.toString()).toBe(" ");
+    }
+  });
 });

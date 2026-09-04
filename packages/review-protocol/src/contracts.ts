@@ -120,7 +120,6 @@ export const ReviewRuntimeConfigSchema = z.strictObject({
   sessionId: requiredString,
   token: stringAllowEmpty,
   wasmUrl: absoluteUrlSchema,
-  docRuntimeUrl: absoluteUrlSchema,
   appVersion: requiredString.max(100),
   theme: reviewThemeSchema,
   host: z.literal("desktop"),

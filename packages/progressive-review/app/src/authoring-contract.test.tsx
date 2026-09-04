@@ -200,7 +200,14 @@ describe("review authoring contract", () => {
   it("renders map-free review document content without either repo map", () => {
     const html = renderToStaticMarkup(
       <ReviewDocumentContent
-        ReviewDocument={() => <p>Map-free review prose</p>}
+        body={[
+          {
+            type: "element",
+            tag: "p",
+            props: {},
+            children: [{ type: "text", value: "Map-free review prose" }],
+          },
+        ]}
       />,
     );
 

@@ -11,6 +11,83 @@ import {
 } from "./review-document-compiler";
 
 describe("compileReviewDocument", () => {
+  it("re-exports local data bindings for publish materialization", async () => {
+    const rootPath = await mkdtemp(
+      path.join(os.tmpdir(), "review-document-data-exports-"),
+    );
+    const filePath = path.join(rootPath, "review.mdx");
+    const source = [
+      "Some introductory prose.",
+      "",
+      'import { anchors, importedModel } from "./data.ts";',
+      "",
+      "# Review",
+      "",
+      "<CodePeek anchor={anchors.used} />",
+    ].join("\n");
+
+    try {
+      await writeFile(
+        path.join(rootPath, "data.ts"),
+        [
+          'import { defineAnchors, defineSoftwareModel } from "virtual:progressive-review-authoring";',
+          "export const anchors = defineAnchors({",
+          '  used: { title: "Used", peek: { file: "src/a.ts", fromLine: 1, toLine: 1 } },',
+          '  unused: { title: "Unused", peek: { file: "src/b.ts", fromLine: 1, toLine: 1 } },',
+          "});",
+          'export const importedModel = defineSoftwareModel({ systems: { app: { label: "App" } } });',
+        ].join("\n"),
+      );
+      await writeFile(filePath, source);
+
+      const result = await compileReviewDocument({
+        filePath,
+        reviewRootPath: rootPath,
+        source,
+      });
+
+      expect(result.diagnostics).toEqual([]);
+      expect(result.runtimeCode).toMatch(
+        /export\s*\{\s*anchors\s*,\s*importedModel\s*\}/,
+      );
+    } finally {
+      await rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("does not duplicate a local binding the MDX already exports", async () => {
+    const rootPath = await mkdtemp(
+      path.join(os.tmpdir(), "review-document-existing-export-"),
+    );
+    const filePath = path.join(rootPath, "review.mdx");
+    const source = [
+      'import { anchors } from "./data.ts";',
+      "export { anchors };",
+      "",
+      "# Review",
+    ].join("\n");
+
+    try {
+      await writeFile(
+        path.join(rootPath, "data.ts"),
+        "export const anchors = {};\n",
+      );
+      await writeFile(filePath, source);
+      const result = await compileReviewDocument({
+        filePath,
+        reviewRootPath: rootPath,
+        source,
+      });
+
+      expect(result.diagnostics).toEqual([]);
+      expect(
+        result.runtimeCode?.match(/export\s*\{\s*anchors\s*\}/g),
+      ).toHaveLength(1);
+    } finally {
+      await rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("explains that built-in MDX components must not be imported", async () => {
     const rootPath = await mkdtemp(
       path.join(os.tmpdir(), "review-document-component-import-"),

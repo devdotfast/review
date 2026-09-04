@@ -1,16 +1,16 @@
 import { afterEach, expect, it, vi } from "vitest";
 
 import {
-  createBrowserReviewDefinitionSession,
+  resolveCodePeekRequest,
   runWithCodePeekResolutionSlot,
 } from "./review-definition-runtime";
-import { defineSoftwareModel } from "./software-map/model";
+import { testReviewSession } from "./review-session-test-utils";
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it("bounds concurrent SSR CodePeek requests to the running server", async () => {
+it("bounds concurrent CodePeek requests to the running server", async () => {
   let active = 0;
   let maximumActive = 0;
 
@@ -29,18 +29,8 @@ it("bounds concurrent SSR CodePeek requests to the running server", async () => 
   expect(maximumActive).toBe(8);
 });
 
-it("supports map-free working-tree review documents", async () => {
-  const session = createBrowserReviewDefinitionSession({
-    routePath: "/",
-    softwareMap: null,
-    baseSoftwareMap: null,
-  });
-  session.begin();
-  await expect(session.ready()).resolves.toBeUndefined();
-});
-
-it("resolves authoring peeks through the running review server during SSR", async () => {
-  const sourceId = "source-range:src/example.ts:1-1";
+it("resolves peeks through the configured ReviewSession request path", async () => {
+  const sourceId = "source-range:src/example.ts:1-3";
   const fetchMock = vi.fn<typeof fetch>(async () =>
     Promise.resolve(
       new Response(
@@ -48,32 +38,7 @@ it("resolves authoring peeks through the running review server during SSR", asyn
           ok: true,
           snapshot: {
             roots: [{ kind: "source", sourceId }],
-            resolved: {
-              [sourceId]: {
-                source: {
-                  id: sourceId,
-                  name: "example.ts L1-L1",
-                  kind: "source-range",
-                  file: "src/example.ts",
-                  line: 1,
-                  endLine: 1,
-                },
-                lines: [[{ t: "export function example() {}", k: "t" }]],
-              },
-            },
-          },
-          diff: {
-            orientation: "head",
-            files: [
-              {
-                path: "src/example.ts",
-                status: "modified",
-                additions: 1,
-                deletions: 1,
-                patch:
-                  "diff --git a/src/example.ts b/src/example.ts\n--- a/src/example.ts\n+++ b/src/example.ts\n@@ -1 +1 @@\n-export function example() {}\n+export function example() { return true; }",
-              },
-            ],
+            resolved: {},
           },
         }),
         { status: 200, headers: { "content-type": "application/json" } },
@@ -81,25 +46,20 @@ it("resolves authoring peeks through the running review server during SSR", asyn
     ),
   );
   vi.stubGlobal("fetch", fetchMock);
-  const softwareMap = defineSoftwareModel({ systems: {} });
-  const session = createBrowserReviewDefinitionSession({
-    routePath: "/",
-    softwareMap,
-    baseSoftwareMap: softwareMap,
-    requestOrigin: "http://localhost:5620/",
-    requestToken: "ssr-secret",
+  const session = testReviewSession({
+    sessionUrl: "http://localhost:5620/sessions/review-a",
+    routePath: "/default",
+    token: "session-secret",
   });
 
-  session.defineAnchors({
-    greeting: {
-      title: "Greeting",
-      peek: { file: "src/example.ts", fromLine: 1, toLine: 3 },
-    },
-  });
-  await session.ready();
+  await resolveCodePeekRequest(
+    "/guide",
+    { file: "src/example.ts", fromLine: 1, toLine: 3 },
+    session,
+  );
 
   expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
-    "http://localhost:5620/__progressive-review/code-peek/resolve",
+    "http://localhost:5620/sessions/review-a/__progressive-review/code-peek/resolve?document=%2Fguide",
   );
   expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
     includeDiff: false,
@@ -107,47 +67,5 @@ it("resolves authoring peeks through the running review server during SSR", asyn
   });
   expect(
     new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("x-review-token"),
-  ).toBe("ssr-secret");
-});
-
-it("leaves authoring peeks unresolved in the client for lazy loading", async () => {
-  const fetchMock = vi.fn<typeof fetch>();
-  vi.stubGlobal("fetch", fetchMock);
-  const softwareMap = defineSoftwareModel({ systems: {} });
-  const session = createBrowserReviewDefinitionSession({
-    routePath: "/",
-    softwareMap,
-    baseSoftwareMap: softwareMap,
-    resolveCodePeeks: false,
-  });
-
-  const anchors = session.defineAnchors({
-    greeting: {
-      title: "Greeting",
-      peek: { file: "src/example.ts", fromLine: 1, toLine: 3 },
-    },
-  });
-
-  await expect(session.ready()).resolves.toBeUndefined();
-  expect(fetchMock).not.toHaveBeenCalled();
-  expect(anchors.greeting.peek.resolution).toBeNull();
-  expect(Object.isFrozen(anchors.greeting.peek)).toBe(false);
-});
-
-it("creates a browser definition session without materialized software maps", async () => {
-  const session = createBrowserReviewDefinitionSession({
-    routePath: "/",
-    softwareMap: null,
-    baseSoftwareMap: null,
-    resolveCodePeeks: false,
-  });
-
-  session.defineAnchors({
-    greeting: {
-      title: "Greeting",
-      peek: { file: "src/example.ts", fromLine: 1, toLine: 3 },
-    },
-  });
-
-  await expect(session.ready()).resolves.toBeUndefined();
+  ).toBe("session-secret");
 });

@@ -5,6 +5,7 @@ import path from "node:path";
 import { REVIEW_SCHEMA_VERSION } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { evaluateReviewDocumentBundleForPublish } from "../review-publish-evaluate";
 import { bundleReviewDocument } from "./doc-bundler";
 
 describe("review document bundler", () => {
@@ -76,29 +77,23 @@ describe("review document bundler", () => {
     await writeFile(
       path.join(reviewDir, "data.ts"),
       [
-        'import { defineActors } from "virtual:progressive-review-authoring";',
-        "export const actors = defineActors({",
-        '  reviewer: { label: "Data file reviewer" },',
+        'import { defineAnchors, defineSoftwareModel } from "virtual:progressive-review-authoring";',
+        "export const anchors = defineAnchors({",
+        '  used: { title: "Used", peek: { file: "src/used.ts", fromLine: 1, toLine: 1 } },',
+        '  unused: { title: "Unused", peek: { file: "src/unused.ts", fromLine: 1, toLine: 1 } },',
         "});",
+        'export const importedModel = defineSoftwareModel({ systems: { app: { label: "Imported app" } } });',
       ].join("\n"),
       "utf8",
     );
     await writeFile(
       reviewPath,
       [
-        'import { actors } from "./data.ts";',
+        'import { anchors, importedModel } from "./data.ts";',
         "",
         "# Data-backed review",
         "",
-        "<SequenceDiagram",
-        '  label="Data-backed flow"',
-        "  messages={[{",
-        "    from: actors.reviewer,",
-        "    to: actors.reviewer,",
-        '    label: "Review data separately",',
-        '    code: "pnpm test",',
-        "  }]}",
-        "/>",
+        "<CodePeek anchor={anchors.used} />",
       ].join("\n"),
       "utf8",
     );
@@ -110,9 +105,20 @@ describe("review document bundler", () => {
       routePath: "/",
     });
 
-    expect(bundle.code).toContain("Data file reviewer");
-    expect(bundle.code).toContain("Review data separately");
     expect(bundle.code).not.toContain('from "./data.ts"');
+    const evaluated = await evaluateReviewDocumentBundleForPublish({
+      reviewDir: reviewDir,
+      bundleCode: bundle.code,
+      validateRanges: false,
+    });
+    expect(evaluated.errors).toEqual([]);
+    expect(Object.keys(evaluated.document?.anchors ?? {}).sort()).toEqual([
+      "unused",
+      "used",
+    ]);
+    expect(evaluated.document?.softwareModels[0]?.elements[0]?.label).toBe(
+      "Imported app",
+    );
   });
 });
 

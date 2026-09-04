@@ -175,6 +175,10 @@ export async function runReviewTraceHook(
         detached: true,
         stdio: "ignore",
       });
+      // Command lookup failures arrive asynchronously on the child rather than
+      // throwing from spawn(), so the surrounding try/catch cannot observe
+      // them. Trace sync is best-effort and must never escape a session hook.
+      child.once("error", () => undefined);
       child.unref();
     } catch {
       // Ignore sync spawn errors

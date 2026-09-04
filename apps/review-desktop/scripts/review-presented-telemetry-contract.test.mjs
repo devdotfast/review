@@ -19,8 +19,14 @@ test("presented telemetry follows a successful visible canvas ready signal", asy
 
   assert.match(
     desktopEntry,
-    /Promise\.all\(\[documentBundle, softwareMapBundle\]\)/,
+    /`\/live-reviews\/\$\{encodeURIComponent\(reviewUuid\)\}\/page`/,
   );
+  assert.match(
+    desktopEntry,
+    /setDocument\(createLiveReviewDocument\(payload\.page as LiveReviewPage\)\)/,
+  );
+  assert.match(desktopEntry, /void softwareMapBundle\.then\(/);
+  assert.doesNotMatch(desktopEntry, /setDocument\(null\)/);
   assert.match(
     desktopEntry,
     /if \(document && softwareMapLoaded && !error\) session\.signalReady\(\)/,

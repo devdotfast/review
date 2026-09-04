@@ -85,7 +85,6 @@ export const ReviewRuntimeConfigSchema = z.strictObject({
   sessionId: requiredString,
   token: stringAllowEmpty,
   wasmUrl: absoluteUrlSchema,
-  docRuntimeUrl: absoluteUrlSchema,
   appVersion: requiredString.max(100),
   theme: reviewThemeSchema,
   host: z.literal("desktop"),
@@ -783,7 +782,6 @@ export interface ReviewCanvasBridge {
   readonly comments: ReviewCommentStoreBridge;
   readonly inlineEditors: ReviewInlineEditorFactory;
   readonly diffView: ReviewDiffViewFactory;
-  request(url: string, init?: RequestInit): Promise<Response>;
   post(request: ReviewVerbRequest): Promise<ReviewVerbResponse>;
   subscribe(listener: (event: ReviewSurfaceEvent) => void): ReviewDisposable;
   currentTheme(): ReviewTheme;
@@ -947,8 +945,8 @@ export type ReviewCanvasContent =
   | { kind: "source"; error?: string }
   | {
       kind: "home";
-      reviews: readonly ReviewDescriptor[];
-      reviewErrors: readonly ReviewListError[];
+      serverUrl: string;
+      token: string;
       openReview(uuid: string): void;
       // Deletes the review and closes its canvas. Absent when the host does
       // not support deletion.
@@ -996,7 +994,7 @@ export type ReviewCanvasContent =
   | {
       kind: "session";
       bridge: ReviewCanvasBridge;
-      document: Promise<unknown>;
+      reviewUuid: string;
       softwareMap: Promise<unknown | null>;
       softwareMapEnabled: boolean;
       reviewErrors: readonly ReviewListError[];
@@ -1503,6 +1501,12 @@ export type ReviewSessionLifecycleEvent = z.infer<
   typeof ReviewSessionLifecycleEventSchema
 >;
 
+export const ReviewAuthoringTargetSchema = z.strictObject({
+  targetNodeId: requiredString,
+  sectionNodeId: requiredString.nullable(),
+});
+export type ReviewAuthoringTarget = z.infer<typeof ReviewAuthoringTargetSchema>;
+
 export const ReviewDesktopGlobalEventSchema = z.discriminatedUnion("event", [
   z.strictObject({
     event: z.literal("session-registered"),
@@ -1518,11 +1522,6 @@ export const ReviewDesktopGlobalEventSchema = z.discriminatedUnion("event", [
   z.strictObject({
     event: z.literal("session-updated"),
     session: ReviewSessionDescriptorSchema,
-  }),
-  z.strictObject({
-    event: z.literal("review-data-changed"),
-    uuid: z.uuid({ error: "must be a UUID" }),
-    sessionId: requiredString,
   }),
   z.strictObject({
     event: z.literal("review-threads-committed"),
@@ -1689,18 +1688,6 @@ export const ReviewSessionResponseSchema = z.discriminatedUnion("ok", [
   ReviewErrorResponseSchema,
 ]);
 export type ReviewSessionResponse = z.infer<typeof ReviewSessionResponseSchema>;
-
-export const ReviewDocModuleResponseSchema = z.discriminatedUnion("ok", [
-  z.strictObject({
-    ok: z.literal(true),
-    contentHash: requiredString,
-    moduleUrl: absoluteUrlSchema,
-  }),
-  ReviewErrorResponseSchema,
-]);
-export type ReviewDocModuleResponse = z.infer<
-  typeof ReviewDocModuleResponseSchema
->;
 
 export const ReviewSoftwareMapModuleResponseSchema = z.discriminatedUnion(
   "ok",

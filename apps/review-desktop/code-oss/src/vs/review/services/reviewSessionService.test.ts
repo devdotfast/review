@@ -52,10 +52,7 @@ class TestStorage {
 	}
 }
 
-function serviceWith(
-	reviews: ReviewDescriptor[] = [],
-	storage = new TestStorage(),
-): ReviewSessionService {
+function serviceWith(storage = new TestStorage()): ReviewSessionService {
 	const service = new ReviewSessionService(
 		{} as never,
 		{ appSessionId: "app-session" } as never,
@@ -69,7 +66,6 @@ function serviceWith(
 			instanceId: "instance",
 		},
 		initializePromise: Promise.resolve(),
-		_reviews: reviews,
 	});
 	return service;
 }
@@ -85,36 +81,39 @@ function mockFetch(
 	});
 }
 
-test("confirmed dismiss updates the cached review", async (t) => {
-	const service = serviceWith([review]);
-	mockFetch(t, async () =>
-		Response.json({
+test("dismiss forwards the review id without retaining catalog state", async (t) => {
+	const service = serviceWith();
+	const requests: string[] = [];
+	mockFetch(t, async (input) => {
+		requests.push(String(input));
+		return Response.json({
 			ok: true,
 			uuid,
 			viewedAt: null,
 			dismissedAt: "2026-08-25T01:00:00.000Z",
 			reapsAt: "2026-09-24T01:00:00.000Z",
-		}),
-	);
+		});
+	});
 
 	await service.dismissReview(uuid);
 
-	assert.equal(service.reviews[0]?.dismissedAt, "2026-08-25T01:00:00.000Z");
+	assert.deepEqual(requests, [
+		`http://127.0.0.1:5000/reviews/${uuid}/dismiss`,
+	]);
 	service.dispose();
 });
 
-test("failed dismiss leaves the cached review unchanged", async (t) => {
-	const service = serviceWith([review]);
+test("failed dismiss reports the server error", async (t) => {
+	const service = serviceWith();
 	mockFetch(t, async () => Response.json({ error: "nope" }, { status: 500 }));
 
 	await assert.rejects(service.dismissReview(uuid), /nope/);
 
-	assert.strictEqual(service.reviews[0], review);
 	service.dispose();
 });
 
 test("open uses the returned descriptors without listing reviews", async (t) => {
-	const service = serviceWith([review]);
+	const service = serviceWith();
 	const requests: string[] = [];
 	mockFetch(t, async (input) => {
 		requests.push(String(input));
@@ -130,7 +129,20 @@ test("open uses the returned descriptors without listing reviews", async (t) => 
 
 	assert.deepEqual(requests, [`http://127.0.0.1:5000/reviews/${uuid}/open`]);
 	assert.deepEqual(service.sessions[0], session);
-	assert.equal(service.reviews[0]?.viewedAt, "2026-08-25T01:00:00.000Z");
+	service.dispose();
+});
+
+test("review descriptors are fetched on demand instead of cached", async (t) => {
+	const service = serviceWith();
+	let requests = 0;
+	mockFetch(t, async () => {
+		requests += 1;
+		return Response.json(review);
+	});
+
+	assert.deepEqual(await service.getReview(uuid), review);
+	assert.deepEqual(await service.getReview(uuid), review);
+	assert.equal(requests, 2);
 	service.dispose();
 });
 
@@ -184,11 +196,11 @@ test("tutorial deletion suppresses auto-prepare across restarts until explicit o
 		return Response.json({ ok: true });
 	});
 
-	const deletingService = serviceWith([], storage);
+	const deletingService = serviceWith(storage);
 	await deletingService.deleteTutorial();
 	deletingService.dispose();
 
-	const suppressedService = serviceWith([], storage);
+	const suppressedService = serviceWith(storage);
 	await suppressedService.prepareTutorial();
 	assert.equal(requests.length, 1);
 	await suppressedService.openTutorial();
@@ -198,7 +210,7 @@ test("tutorial deletion suppresses auto-prepare across restarts until explicit o
 	assert.deepEqual(suppressedService.sessions, [session]);
 	suppressedService.dispose();
 
-	const restoredService = serviceWith([], storage);
+	const restoredService = serviceWith(storage);
 	await restoredService.prepareTutorial();
 	assert.equal(requests.length, 3);
 	assert.match(requests[2] ?? "", /POST .*\/tutorial\/prepare$/);

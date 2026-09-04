@@ -8,7 +8,6 @@ import { type ReactNode, createContext, useContext } from "react";
 import { createReviewAppSessionId } from "../tab-dwell-telemetry";
 import {
   type ReviewRequestOptions,
-  importReviewModule,
   reviewApiUrl,
   reviewBeaconUrl,
   reviewStorageKey,
@@ -28,7 +27,6 @@ export interface ReviewSession {
     options?: ReviewRequestOptions,
   ) => Promise<Response>;
   fetchUrl(url: string | URL, init?: RequestInit): Promise<Response>;
-  importModule<T>(moduleUrl: string): Promise<T>;
   beaconUrl(endpoint: `/${string}`): string;
   wasmUrl(): string;
   storageKey(
@@ -40,13 +38,21 @@ export interface ReviewSession {
   reportDiagnostic(diagnostic: ReviewCanvasDiagnostic): void;
 }
 
-export function createReviewSession(bridge: ReviewCanvasBridge): ReviewSession {
+export type ReviewFetch = (
+  url: string,
+  init?: RequestInit,
+) => Promise<Response>;
+
+export function createReviewSession(
+  bridge: ReviewCanvasBridge,
+  fetchUrl: ReviewFetch = (url, init) => globalThis.fetch(url, init),
+): ReviewSession {
   const config = bridge.config;
   const appSessionId = bridge.appSessionId ?? createReviewAppSessionId();
   const request = (url: string | URL, init: RequestInit = {}) => {
     const headers = new Headers(init.headers);
     if (config.token) headers.set("x-review-token", config.token);
-    return bridge.request(String(url), { ...init, headers });
+    return fetchUrl(String(url), { ...init, headers });
   };
   return {
     appSessionId,
@@ -57,7 +63,6 @@ export function createReviewSession(bridge: ReviewCanvasBridge): ReviewSession {
     fetch: (endpoint, init, options) =>
       request(reviewApiUrl(config, endpoint, options), init),
     fetchUrl: request,
-    importModule: (moduleUrl) => importReviewModule(config, moduleUrl),
     beaconUrl: (endpoint) => reviewBeaconUrl(config, endpoint),
     wasmUrl: () => reviewWasmUrl(config),
     storageKey: (namespace, ...parts) =>

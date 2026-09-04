@@ -18,7 +18,6 @@ import {
   ReviewDiffFileSchema,
   ReviewDiffFilesRequestSchema,
   ReviewDiffFilesResponseSchema,
-  ReviewDocModuleResponseSchema,
   ReviewEditorSelectionSchema,
   ReviewErrorResponseSchema,
   ReviewFileContentRequestSchema,
@@ -161,7 +160,6 @@ const contracts: Array<[string, ZodType, Record<string, unknown>]> = [
       sessionId: "session-1",
       token: "",
       wasmUrl: "http://127.0.0.1:5570/libavoid.wasm",
-      docRuntimeUrl: "vscode-file://review/doc-runtime.js",
       appVersion: "0.0.13",
       theme: "dark",
       host: "desktop",
@@ -227,15 +225,6 @@ const contracts: Array<[string, ZodType, Record<string, unknown>]> = [
     { event: "session-updated", session: descriptor },
   ],
   [
-    "desktop review data event",
-    ReviewDesktopGlobalEventSchema,
-    {
-      event: "review-data-changed",
-      uuid: reviewRecord.uuid,
-      sessionId: descriptor.sessionId,
-    },
-  ],
-  [
     "desktop review deleted event",
     ReviewDesktopGlobalEventSchema,
     {
@@ -292,15 +281,6 @@ const contracts: Array<[string, ZodType, Record<string, unknown>]> = [
     "session response",
     ReviewSessionResponseSchema,
     { ok: true, session, token: "token" },
-  ],
-  [
-    "document module response",
-    ReviewDocModuleResponseSchema,
-    {
-      ok: true,
-      contentHash: "hash",
-      moduleUrl: "http://127.0.0.1:5570/module.js",
-    },
   ],
   ["error response", ReviewErrorResponseSchema, { ok: false, error: "bad" }],
   ["comment target", ReviewCommentTargetSchema, commentTarget],

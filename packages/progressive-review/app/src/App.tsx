@@ -48,6 +48,7 @@ import {
   ReviewDiffFilesProvider,
   useReviewDiffFiles,
 } from "./review-diff-files-context";
+import type { ReadyReviewDocumentEntry } from "./review-document";
 import { ReviewDocumentBoundary } from "./review-document-boundary";
 import {
   ActiveReviewDocumentProvider,
@@ -55,7 +56,6 @@ import {
 } from "./review-document-context";
 import { reportReviewDocumentRenderError } from "./review-document-error-report";
 import { ReviewDocumentContent } from "./review-document-surface";
-import type { ReadyReviewDocumentEntry } from "./review-documents-runtime";
 import {
   type ReviewFindHost,
   ReviewFindProvider,

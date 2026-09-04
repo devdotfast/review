@@ -20,7 +20,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import { parseSoftwareMapCliArgs, runSoftwareMapCli } from "./map-cli";
-import { createReviewDir } from "./review-home";
+import { createReviewDir, readReviewRecord } from "./review-home";
 import { SOFTWARE_MAP_NOTES_REF } from "./review-storage";
 import {
   CANONICAL_SOFTWARE_MAP_MODEL_IMPORT,
@@ -729,10 +729,8 @@ describe("review map check", () => {
       expect(
         await readNote({ rootPath, ref: SOFTWARE_MAP_NOTES_REF, commit }),
       ).toContain("Active session map");
-      const record = JSON.parse(
-        await readFile(path.join(review.dir, "review.json"), "utf8"),
-      );
-      expect(record.agentSessions["codex:map-worker-1"].roles).toEqual([
+      const record = readReviewRecord(review.dir);
+      expect(record.agentSessions?.["codex:map-worker-1"]?.roles).toEqual([
         "map-worker",
       ]);
     } finally {

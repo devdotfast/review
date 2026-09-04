@@ -15,7 +15,7 @@ import { streamSSE } from "hono/streaming";
 
 import type { ReviewAgentHarness, SessionRef } from "../authoring-session";
 import type { AgentServer } from "../native-agent/native-session";
-import { readReviewDocumentBundle } from "../review-bundle";
+import type { ReviewThreadsService } from "../review-threads-service";
 import { resolveReviewSessionBaseCommit } from "../review-worktree-target";
 import {
   type ReviewSoftwareMapBundle,
@@ -26,7 +26,6 @@ import type {
   ProgressiveReviewTelemetryContext,
 } from "../telemetry";
 import type { ReviewSubmissionEvent } from "../types";
-import type { ReviewDocumentBundle } from "./doc-bundler";
 import {
   type ReviewHonoEnv,
   applyCorsHeaders,
@@ -34,10 +33,10 @@ import {
   isAuthorizedRequest,
   jsonResponse,
 } from "./hono-http";
-import { createReviewApi, type ReviewApi } from "./review-api";
+import { type ReviewApi, createReviewApi } from "./review-api";
+import { reviewStateService } from "./review-state-service";
 
 const API_PREFIX = "/__progressive-review";
-const MODULE_PATH_PREFIX = `${API_PREFIX}/doc-modules/`;
 const MAP_MODULE_PATH_PREFIX = `${API_PREFIX}/software-map-modules/`;
 
 interface ReviewEventClient {
@@ -64,9 +63,8 @@ export interface ReviewSessionHandlerInput {
   getReviewStatus?: () => ReviewRecord["status"];
   onSubmission?: (event: ReviewSubmissionEvent) => void | Promise<void>;
   onReviewDismiss?: () => void | Promise<void>;
-  onReviewDataChange?: () => void;
   onReviewThreadsCommit?: (commit: ReviewThreadsCommit) => void;
-  runReviewThreadMutation?: <T>(operation: () => T | Promise<T>) => Promise<T>;
+  reviewThreadsService?: ReviewThreadsService;
   agentServer: (harness: ReviewAgentHarness) => AgentServer;
   openNativeAgentTerminal: (
     input: Extract<
@@ -110,8 +108,6 @@ export async function createReviewSessionHandler(
   const token = input.token ?? crypto.randomBytes(32).toString("base64url");
   const sessionUrl = (session.sessionUrl ?? session.appUrl).replace(/\/$/, "");
   const documentsDir = path.join(renderDir, ".review-documents");
-  let currentBundle: ReviewDocumentBundle | null = null;
-  let bundlePromise: Promise<ReviewDocumentBundle> | null = null;
   let softwareMapBundlePromise: Promise<ReviewSoftwareMapBundle | null> | null =
     null;
   const eventClients = new Set<ReviewEventClient>();
@@ -159,25 +155,6 @@ export async function createReviewSessionHandler(
       }
     : undefined;
 
-  const getBundle = async (): Promise<ReviewDocumentBundle> => {
-    if (currentBundle) return currentBundle;
-    bundlePromise ??= (async () => {
-      const bundle = await readReviewDocumentBundle(renderDir, input.routePath);
-      if (!bundle) {
-        throw new Error(
-          "The published Review document bundle is missing. Run `review migrate apply`.",
-        );
-      }
-      return bundle;
-    })();
-    try {
-      currentBundle = await bundlePromise;
-      return currentBundle;
-    } finally {
-      bundlePromise = null;
-    }
-  };
-
   const getSoftwareMapBundle = async () => {
     if (!input.softwareMapRootPath) return null;
     softwareMapBundlePromise ??= readReviewSoftwareMapBundle(
@@ -190,9 +167,6 @@ export async function createReviewSessionHandler(
     const frame = `data: ${JSON.stringify(event)}\n\n`;
     for (const client of eventClients) client.write(frame);
   };
-
-  const moduleUrl = (bundle: ReviewDocumentBundle): string =>
-    `${sessionUrl}${MODULE_PATH_PREFIX}${bundle.contentHash}.js`;
 
   const app = new Hono<ReviewHonoEnv>();
   app.use("*", async (context, next) => {
@@ -268,33 +242,6 @@ export async function createReviewSessionHandler(
       { ok: true, versions: await input.listDocumentVersions() },
       200,
     );
-  });
-  app.get(`${API_PREFIX}/doc-module`, async () => {
-    const bundle = await getBundle();
-    return jsonResponse(
-      {
-        ok: true,
-        contentHash: bundle.contentHash,
-        moduleUrl: moduleUrl(bundle),
-      },
-      200,
-    );
-  });
-  app.get(`${MODULE_PATH_PREFIX}:moduleName`, async (context) => {
-    const bundle = await getBundle();
-    if (context.req.param("moduleName") !== `${bundle.contentHash}.js`) {
-      return jsonResponse(
-        { ok: false, error: "Document module not found" },
-        404,
-      );
-    }
-    return new Response(bundle.code, {
-      status: 200,
-      headers: {
-        "cache-control": "no-store",
-        "content-type": "text/javascript; charset=utf-8",
-      },
-    });
   });
   app.get(`${API_PREFIX}/software-map-module`, async () => {
     const bundle = await getSoftwareMapBundle();
@@ -376,6 +323,37 @@ export async function createReviewSessionHandler(
     response.headers.set("content-type", "text/event-stream; charset=utf-8");
     return response;
   });
+  const primaryReviewPath = input.stateReviewPath ?? input.reviewPath;
+  const primaryThreads =
+    input.reviewThreadsService ??
+    reviewStateService.threads(
+      input.reviewUuid ?? primaryReviewPath,
+      primaryReviewPath,
+      process.env.USER ?? "Reviewer",
+    );
+  const threadSubscriptions = new Map<ReviewThreadsService, () => void>();
+  const resolveReviewThreadsService = (
+    writableReviewPath: string,
+  ): ReviewThreadsService => {
+    const service =
+      writableReviewPath === primaryReviewPath
+        ? primaryThreads
+        : reviewStateService.threads(
+            `${input.reviewUuid ?? primaryReviewPath}:${writableReviewPath}`,
+            writableReviewPath,
+            process.env.USER ?? "Reviewer",
+          );
+    if (!threadSubscriptions.has(service)) {
+      threadSubscriptions.set(
+        service,
+        service.subscribe((commit) => {
+          broadcast({ event: "review-threads-committed", commit });
+          input.onReviewThreadsCommit?.(commit);
+        }),
+      );
+    }
+    return service;
+  };
   const reviewApi = createReviewApi({
     reviewPath: input.reviewPath,
     reviewDocumentsDir: documentsDir,
@@ -393,12 +371,7 @@ export async function createReviewSessionHandler(
       await input.onSubmission?.(event);
     },
     onReviewDismiss: input.onReviewDismiss,
-    onReviewDataChange: input.onReviewDataChange,
-    onReviewThreadsCommit: (commit) => {
-      broadcast({ event: "review-threads-committed", commit });
-      input.onReviewThreadsCommit?.(commit);
-    },
-    runReviewThreadMutation: input.runReviewThreadMutation,
+    resolveReviewThreadsService,
     reviewToken: token,
     agentServer: input.agentServer,
     openNativeAgentTerminal: input.openNativeAgentTerminal,
@@ -458,6 +431,8 @@ export async function createReviewSessionHandler(
     },
     close: async () => {
       await reviewApi.close();
+      for (const unsubscribe of threadSubscriptions.values()) unsubscribe();
+      threadSubscriptions.clear();
       for (const client of eventClients) client.close();
       eventClients.clear();
     },

@@ -7,15 +7,11 @@ import {
 } from "./native-agent/terminal-command";
 import { ReviewCommentThreadRecordSchema } from "./review-comment-schema";
 import { reviewUuidForManagedCheckout } from "./review-head-checkout";
-import { type StoredReview, findReview, listReviews } from "./review-home";
-import {
-  appendReviewComment,
-  readReviewComments,
-  updateReviewComment,
-} from "./review-state-store";
+import type { StoredReview } from "./review-home";
+import { reviewStateService } from "./server/review-state-service";
 
 // `review threads get` reads its attached Review server. Other commands can
-// still operate after that server closes, so they use review.db.
+// still operate after that server closes through the same local state service.
 
 export interface ReviewThreadsTarget {
   cwd: string;
@@ -29,7 +25,9 @@ export async function runReviewThreadsList(
   const document = reviewDocumentPath(review);
   const payload = {
     review: review.review.uuid,
-    comments: readReviewComments(document),
+    comments: reviewStateService
+      .threads(review.review.uuid, document, "Reviewer")
+      .snapshot().comments,
   };
   // Indented output is easier for a human to read, but it breaks any reader
   // that takes one event per line. --json picks the line-oriented form.
@@ -120,7 +118,15 @@ export async function runReviewThreadsResolve(
 ): Promise<number> {
   const review = await resolveThreadsReview(input.cwd, input.reviewUuid);
   const document = reviewDocumentPath(review);
-  if (!updateReviewComment(document, input.threadId, { status: "resolved" })) {
+  const commit = reviewStateService
+    .threads(review.review.uuid, document, "Reviewer")
+    .dispatch({
+      command: "comment.update",
+      mutationId: randomUUID(),
+      threadId: input.threadId,
+      update: { status: "resolved" },
+    });
+  if (!commit) {
     throw new Error(`Comment thread not found: ${input.threadId}`);
   }
   input.stdout.write(
@@ -145,20 +151,25 @@ export async function runReviewThreadsReply(
   if (!body) throw new Error("Reply body is required.");
   const review = await resolveThreadsReview(input.cwd, input.reviewUuid);
   const document = reviewDocumentPath(review);
-  const thread = readReviewComments(document)[input.threadId];
+  const service = reviewStateService.threads(
+    review.review.uuid,
+    document,
+    input.author?.trim() || "Agent",
+  );
+  const thread = service.snapshot().comments[input.threadId];
   if (!thread) {
     throw new Error(`Comment thread not found: ${input.threadId}`);
   }
   const messageId = randomUUID();
-  appendReviewComment(document, {
+  const commit = service.appendAgentMessage({
+    mutationId: randomUUID(),
     threadId: input.threadId,
     messageId,
-    target: thread.target,
     body,
     author: input.author?.trim() || "Agent",
-    role: "agent",
     format: "markdown",
   });
+  if (!commit) throw new Error(`Comment thread not found: ${input.threadId}`);
   input.stdout.write(
     `${JSON.stringify({
       event: "replied",
@@ -205,10 +216,10 @@ async function reviewsForThreads(
         `Managed checkout belongs to Review ${managedReviewUuid}, not ${reviewUuid}.`,
       );
     }
-    const review = await findReview(managedReviewUuid);
+    const review = await reviewStateService.find(managedReviewUuid);
     return review ? [review] : [];
   }
-  const listed = await listReviews({ worktreePath: cwd });
+  const listed = await reviewStateService.list({ worktreePath: cwd });
   if (listed.errors.length > 0) {
     throw new Error(
       `Could not read reviews:\n${listed.errors.map((error) => error.message).join("\n")}`,

@@ -2,6 +2,7 @@ import { resolveAuthoringSessionRef } from "./authoring-session";
 import { emitJsonEvent } from "./cli-output";
 import type { ReviewDocumentDiagnostic } from "./compiler/review-document-compiler";
 import { requireHealthyReviewDesktop } from "./desktop-discovery";
+import { hasLiveReviewPage } from "./live-review-store";
 import { REVIEW_PUBLISH_CANDIDATE_MESSAGE } from "./review-document-versions";
 import { sealReviewCandidate } from "./review-home";
 import {
@@ -56,6 +57,12 @@ async function publish(
     onReviewBound: input.onReviewBound,
   });
   const review = prepared.review;
+  if (hasLiveReviewPage(review.dir)) {
+    reporter.error("prepare", [
+      "Live Reviews are updated through renderMdx and setReviewStatus; document publication is disabled.",
+    ]);
+    return 1;
+  }
   if (prepared.warnings?.length) {
     reporter.warning("prepare", prepared.warnings);
   }

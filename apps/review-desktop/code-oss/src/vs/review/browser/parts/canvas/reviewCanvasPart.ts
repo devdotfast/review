@@ -53,10 +53,9 @@ import {
 } from "../../../../workbench/services/layout/browser/layoutService.js";
 import { ITelemetryService } from "../../../../platform/telemetry/common/telemetry.js";
 import {
-	parseReviewListResponse,
+	parseReviewDescriptor,
 	parseReviewVerbRequest,
 	parseReviewSessionResponse,
-	ReviewDocModuleResponseSchema,
 	ReviewSoftwareMapModuleResponseSchema,
 	DEFAULT_DISMISSED_RETENTION_DAYS,
 	REVIEW_CANVAS_RESUME_EVENT,
@@ -122,14 +121,10 @@ import {
 import { IReviewCanvasEditorTabsService } from "../../../services/reviewCanvasEditorTabsService.js";
 import { IReviewExplorerPartsService } from "../explorer/reviewExplorerPart.js";
 import { ReviewCanvasEditorInput } from "./reviewCanvasEditorInput.js";
-import {
-	loadReviewDocumentModule,
-	loadReviewSoftwareMapModules,
-} from "./reviewDocumentModule.js";
+import { loadReviewSoftwareMapModules } from "./reviewSoftwareMapModule.js";
 
 interface ReviewCanvasAssetsModule extends ReviewCanvasModule {
 	readonly clearReviewViewState: (config: ReviewRuntimeConfig) => void;
-	readonly reviewDocRuntimeUrl: string;
 	readonly reviewWasmUrl: string;
 	readonly reviewStylesheetUrls: readonly string[];
 }
@@ -483,27 +478,10 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			this.sessionModelService.setActiveModel(null);
 			this.setSessionState("home");
 			const setup = await this.resolveHomeSetup();
-			let emptyStateVisible = false;
-			/* The empty-list render suspends on the install fetch below, while
-			   the list render has no await at all. The sequence number keeps a
-			   suspended empty render from resuming after a later list render
-			   and overwriting it with a stale snapshot. */
-			let renderSeq = 0;
+			const connection = await this.sessionService.getConnection();
 			const renderHome = async () =>
 				{
-					const seq = ++renderSeq;
-					const isEmpty = this.sessionService.reviews.length === 0;
-					// Only the Welcome rail needs install status; the list must
-					// render without waiting on it. One fetch serves both the
-					// install card and the onboarding rail.
-					const install = isEmpty
-						? await this.resolveInstallContent()
-						: undefined;
-					if (seq !== renderSeq) return;
-					if (isEmpty && !emptyStateVisible) {
-						this.reviewTelemetryService.capture("home_empty_state_viewed");
-					}
-					emptyStateVisible = isEmpty;
+					const install = await this.resolveInstallContent();
 					const openReview = (uuid: string) => {
 						this.reviewTelemetryService.capture("review_opened", {
 							via: "home",
@@ -513,8 +491,8 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					return this.render(
 					{
 						kind: "home",
-						reviews: this.sessionService.reviews,
-						reviewErrors: this.sessionService.reviewErrors,
+						serverUrl: connection.serverUrl,
+						token: connection.token,
 						openReview: (uuid) => void openReview(uuid),
 						deleteReview: (uuid) => this.sessionService.deleteReview(uuid),
 						dismissReview: (uuid) => this.sessionService.dismissReview(uuid),
@@ -532,7 +510,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 								.then(() => this.explorerParts.show());
 						},
 						setup,
-						// Home shows the Welcome rail while the list is empty.
 						install,
 						onboarding: install
 							? this.resolveOnboarding(install.status)
@@ -542,12 +519,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					generation,
 					);
 				};
-			// Home stays live while it is the rendered input: a deletion or a
-			// newly published review re-renders the list. render() drops stale
-			// generations once another input starts loading.
-			this.modelSubscription.value = this.sessionService.onDidChangeLists(
-				() => void renderHome(),
-			);
 			await renderHome();
 			return;
 		}
@@ -1010,9 +981,9 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				checked.has(step),
 			).length,
 			tutorialTotal: steps.length,
-			// Drafts are filtered out of this list and the tutorial never
-			// joins it, so this counts only a real published review.
-			published: this.sessionService.reviews.length > 0,
+			// Home replaces this with the live catalog result. Welcome has no
+			// catalog surface and therefore starts unpublished.
+			published: false,
 		};
 	}
 
@@ -1204,13 +1175,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			if (generation !== this.loadGeneration) {
 				return new Error("Review canvas load was superseded.");
 			}
-			const document = model.resolveDocument((activeSession, moduleUrl) =>
-				loadReviewDocumentModule(
-					activeSession,
-					moduleUrl,
-					assets.reviewDocRuntimeUrl,
-				),
-			);
 			const softwareMapEnabled = this.currentSoftwareMapEnabled();
 			const softwareMap = softwareMapEnabled
 				? model.resolveSoftwareMap(
@@ -1244,10 +1208,10 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					{
 					kind: "session",
 					bridge,
-					document,
+					reviewUuid: model.reviewUuid,
 					softwareMap,
 					softwareMapEnabled,
-					reviewErrors: this.sessionService.reviewErrors,
+					reviewErrors: [],
 					commits: model.session.review.commits ?? [],
 					range: {
 						baseRef: model.session.review.baseRef ?? session.session.baseRef,
@@ -1341,7 +1305,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			{
 				kind: "error",
 				message: error instanceof Error ? error.message : String(error),
-				reviewErrors: this.sessionService.reviewErrors,
+				reviewErrors: [],
 			},
 			activeGeneration,
 		);
@@ -1412,7 +1376,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			sessionId: session.session.sessionId,
 			token: session.token,
 			wasmUrl: assets.reviewWasmUrl,
-			docRuntimeUrl: assets.reviewDocRuntimeUrl,
 			appVersion:
 				this.productService.reviewVersion ?? this.productService.version,
 			theme: this.colorScheme(),
@@ -1424,7 +1387,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			comments: model.comments,
 			inlineEditors: this.inlineEditors,
 			diffView: this.diffViews,
-			request: (url, init) => model.request(url, init),
 			post: (request) =>
 				this.verbs.dispatch(session.session.sessionId, request),
 			subscribe: (listener) => this.surfaceEvents.event(listener),
@@ -1492,10 +1454,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		try {
 			const assets = await this.loadAssets();
 			const session = await this.resolveValidationSession(sessionId);
-			const documentPromise = this.loadValidationDocument(
-				session,
-				assets.reviewDocRuntimeUrl,
-			);
 			const softwareMapPromise = this.loadValidationSoftwareMap(session);
 			const request = (endpoint: string, init: RequestInit = {}) => {
 				const url = new URL(
@@ -1529,7 +1487,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					sessionId: session.descriptor.sessionId,
 					token: session.token,
 					wasmUrl: assets.reviewWasmUrl,
-					docRuntimeUrl: assets.reviewDocRuntimeUrl,
 					appVersion:
 						this.productService.reviewVersion ?? this.productService.version,
 					theme: this.colorScheme(),
@@ -1546,7 +1503,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 						onDidError: () => ({ dispose: () => undefined }),
 					}),
 				},
-				request: (url, init) => fetch(url, init),
 				// Verbs act on the visible workbench; a validation mount must not
 				// touch it, so verb posts succeed as no-ops.
 				post: async () => ({ ok: true }),
@@ -1580,10 +1536,10 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			handle = assets.mountReviewCanvas(container, {
 				kind: "session",
 				bridge,
-				document: documentPromise,
+				reviewUuid: session.review.uuid,
 				softwareMap: softwareMapPromise,
 				softwareMapEnabled: true,
-				reviewErrors: this.sessionService.reviewErrors,
+				reviewErrors: [],
 				commits: session.review.commits ?? [],
 				range: {
 					baseRef: session.review.baseRef ?? session.session.baseRef,
@@ -1644,22 +1600,17 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		if (!descriptor) {
 			throw new Error(`Review session is unavailable: ${sessionId}`);
 		}
-		const reviewsResponse = await fetch(
-			`${connection.serverUrl}/reviews?limit=100`,
+		const reviewResponse = await fetch(
+			`${connection.serverUrl}/reviews/${encodeURIComponent(descriptor.reviewUuid)}`,
 			{
 				headers: { "x-review-token": connection.token },
 				signal: AbortSignal.timeout(5_000),
 			},
 		);
-		if (!reviewsResponse.ok) {
-			throw new Error(`Review list returned ${reviewsResponse.status}.`);
+		if (!reviewResponse.ok) {
+			throw new Error(`Review lookup returned ${reviewResponse.status}.`);
 		}
-		const review = parseReviewListResponse(
-			await reviewsResponse.json(),
-		).reviews.find((candidate) => candidate.uuid === descriptor.reviewUuid);
-		if (!review) {
-			throw new Error(`Review is unavailable: ${descriptor.reviewUuid}`);
-		}
+		const review = parseReviewDescriptor(await reviewResponse.json());
 		const response = await fetch(
 			`${descriptor.sessionUrl}/__progressive-review/session`,
 			{
@@ -1686,36 +1637,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			review,
 			session: payload.session as ReviewDesktopSession["session"],
 		};
-	}
-
-	private async loadValidationDocument(
-		session: ReviewDesktopSession,
-		reviewDocRuntimeUrl: string,
-	): Promise<unknown> {
-		const url = new URL(
-			`${session.sessionUrl}/__progressive-review/doc-module`,
-		);
-		const routePath = session.session.routePath ?? session.descriptor.routePath;
-		if (routePath && routePath !== "/") {
-			url.searchParams.set("document", routePath);
-		}
-		const response = await fetch(url, {
-			headers: { "x-review-token": session.token },
-			signal: AbortSignal.timeout(30_000),
-		});
-		const payload = ReviewDocModuleResponseSchema.parse(await response.json());
-		if (!response.ok || !payload.ok) {
-			throw new Error(
-				payload.ok
-					? `Review document module returned ${response.status}.`
-					: payload.error,
-			);
-		}
-		return loadReviewDocumentModule(
-			session,
-			payload.moduleUrl,
-			reviewDocRuntimeUrl,
-		);
 	}
 
 	private async loadValidationSoftwareMap(

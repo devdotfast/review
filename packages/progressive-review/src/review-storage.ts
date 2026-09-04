@@ -3,8 +3,6 @@ import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { readReviewComments } from "./review-state-store";
-
 export const DEV_REVIEW_HOME_ENV = "DEV_REVIEW_HOME";
 
 export function devReviewHome(): string {
@@ -114,11 +112,4 @@ export function materializedSoftwareMapDir(
 
 export function safeStorageSegment(value: string): string {
   return value.replace(/[^A-Za-z0-9_.-]+/g, "__");
-}
-
-/** Count open comment threads stored for a UUID Review directory. */
-export function readOpenReviewThreadCount(reviewDir: string): number {
-  const threads = readReviewComments(path.join(reviewDir, "review.mdx"));
-  return Object.values(threads).filter((thread) => thread.status === "open")
-    .length;
 }

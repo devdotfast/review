@@ -18,6 +18,7 @@ const tempRoots: string[] = [];
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   while (tempRoots.length > 0) {
     const dir = tempRoots.pop();
     if (dir) await rm(dir, { recursive: true, force: true });
@@ -62,6 +63,25 @@ async function makeGitRepo(): Promise<string> {
 }
 
 describe("runReviewTraceHook", () => {
+  it("ignores a missing detached trace sync command", async () => {
+    const repo = await makeGitRepo();
+    vi.stubEnv(
+      "REVIEW_TRACE_COMMAND",
+      path.join(repo, "missing-review-command"),
+    );
+
+    await expect(
+      runReviewTraceHook({
+        cwd: repo,
+        event: "SessionEnd",
+        sessionId: "01a015e4-0477-7055-a0fd-21a0f72a4ec6",
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
+    ).resolves.toBe(0);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  });
+
   it("records session ID on SessionStart and removes on SessionEnd", async () => {
     const repo = await makeGitRepo();
     const sessionId = "01a015e4-0477-7055-a0fd-21a0f72a4ec6";

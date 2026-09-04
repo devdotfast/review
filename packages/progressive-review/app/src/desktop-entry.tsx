@@ -1,20 +1,40 @@
 import type {
+  ReviewAuthoringTarget,
   ReviewCanvasContent,
   ReviewCanvasHandle,
+  ReviewDescriptor,
+  ReviewDesktopGlobalEvent,
+  ReviewListError,
 } from "@dev.fast/review-protocol";
-import { useEffect, useRef, useState } from "react";
+import { parseReviewListResponse } from "@dev.fast/review-protocol";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
+import type { LiveReviewPage } from "../../src/live-review-types";
+import type {
+  ReviewStateEvent,
+  ReviewStateSnapshot,
+} from "../../src/server/review-state-service";
 import { App, type PublishedSoftwareMap } from "./App";
+import { LiveCommentThreadsProvider } from "./comments-context";
 import {
   type ReviewSession,
   ReviewSessionProvider,
   createReviewSession,
   useReviewSession,
 } from "./host/review-session";
+import {
+  LiveReviewAuthoringTargetContext,
+  createLiveReviewDocument,
+} from "./live-review-renderer";
 import { ReviewCanvasLoading } from "./review-canvas-loading";
 import { reviewDefinitionDiagnostics } from "./review-definition-runtime";
-import type { ReadyReviewDocumentEntry } from "./review-documents-runtime";
 import { type ReviewFindHost, createReviewFindHost } from "./review-find";
 import { ReviewHome, ReviewMigrationWarning } from "./review-home-view";
 import {
@@ -30,12 +50,8 @@ import "./styles.css";
 
 export { clearPersistedReviewViewState as clearReviewViewState } from "./review-view-state";
 
-interface ReviewDocumentBundle {
-  activeReviewDocument: ReadyReviewDocumentEntry;
-}
-
 function DesktopReviewApp({
-  documentBundle,
+  reviewUuid,
   softwareMapBundle,
   softwareMapEnabled,
   range,
@@ -44,7 +60,7 @@ function DesktopReviewApp({
   tutorial,
   findHost,
 }: {
-  documentBundle: Promise<unknown>;
+  reviewUuid: string;
   softwareMapBundle: Promise<unknown | null>;
   softwareMapEnabled: boolean;
   range: Extract<ReviewCanvasContent, { kind: "session" }>["range"];
@@ -60,49 +76,110 @@ function DesktopReviewApp({
   const sessionRef = useRef(session);
   sessionRef.current = session;
   const container = useReviewContainer();
-  const [document, setDocument] = useState<ReadyReviewDocumentEntry | null>(
-    null,
+  const queryClient = useQueryClient();
+  const stateKey = useMemo(
+    () => ["review-state", reviewUuid] as const,
+    [reviewUuid],
   );
+  const stateQuery = useQuery({
+    queryKey: stateKey,
+    queryFn: async ({ signal }) => {
+      const response = await session.fetchUrl(
+        new URL(
+          `/live-reviews/${encodeURIComponent(reviewUuid)}/state`,
+          session.config.serverUrl,
+        ),
+        { signal },
+      );
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        state?: ReviewStateSnapshot;
+        error?: string;
+      };
+      if (!response.ok || payload.ok !== true || !payload.state) {
+        throw new Error(
+          payload.error ?? `Review state returned ${response.status}.`,
+        );
+      }
+      return payload.state;
+    },
+    staleTime: Infinity,
+  });
+  const state = stateQuery.data;
+  const document = useMemo(
+    () => (state ? createLiveReviewDocument(state.page) : null),
+    [state],
+  );
+  const reviewThreads = useMemo(
+    () => new Map(Object.entries(state?.threads ?? {})),
+    [state?.threads],
+  );
+  const reviewDrafts = state?.drafts ?? {};
   const [softwareMap, setSoftwareMap] = useState<PublishedSoftwareMap | null>(
     null,
   );
   const [softwareMapLoaded, setSoftwareMapLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const authoringTarget = state?.authoringTarget ?? null;
+
+  const reportLoadError = (loadError: unknown) => {
+    captureClientError(sessionRef.current, "document", loadError);
+    const message =
+      loadError instanceof Error ? loadError.message : String(loadError);
+    sessionRef.current.reportDiagnostic({
+      level: "error",
+      source: "loader",
+      message,
+      ...(loadError instanceof Error && loadError.stack
+        ? { stack: loadError.stack }
+        : {}),
+    });
+    setError(message);
+  };
+
+  useEffect(() => {
+    const url = new URL(
+      `/live-reviews/${encodeURIComponent(reviewUuid)}/state/events`,
+      session.config.serverUrl,
+    );
+    if (session.config.token) {
+      url.searchParams.set("token", session.config.token);
+    }
+    const events = new EventSource(url);
+    events.onmessage = (event) => {
+      try {
+        const update = JSON.parse(event.data) as ReviewStateEvent;
+        queryClient.setQueryData<ReviewStateSnapshot>(stateKey, (current) =>
+          current ? applyReviewStateEvent(current, update) : current,
+        );
+      } catch {
+        // A reconnect reads a fresh authoritative snapshot.
+      }
+    };
+    return () => events.close();
+  }, [queryClient, reviewUuid, session, stateKey]);
+
+  useEffect(() => {
+    if (stateQuery.error) reportLoadError(stateQuery.error);
+  }, [stateQuery.error]);
 
   useEffect(() => {
     let cancelled = false;
-    setDocument(null);
-    setSoftwareMap(null);
-    setSoftwareMapLoaded(false);
-    setError(null);
-    void Promise.all([documentBundle, softwareMapBundle]).then(
-      ([documentValue, softwareMapValue]) => {
+    void softwareMapBundle.then(
+      (softwareMapValue) => {
         if (cancelled) return;
-        const bundle = documentValue as ReviewDocumentBundle;
-        setDocument(bundle.activeReviewDocument);
         setSoftwareMap(softwareMapValue as PublishedSoftwareMap | null);
         setSoftwareMapLoaded(true);
       },
       (loadError) => {
         if (cancelled) return;
-        captureClientError(sessionRef.current, "document", loadError);
-        const message =
-          loadError instanceof Error ? loadError.message : String(loadError);
-        sessionRef.current.reportDiagnostic({
-          level: "error",
-          source: "loader",
-          message,
-          ...(loadError instanceof Error && loadError.stack
-            ? { stack: loadError.stack }
-            : {}),
-        });
-        setError(message);
+        reportLoadError(loadError);
       },
     );
     return () => {
       cancelled = true;
     };
-  }, [documentBundle, softwareMapBundle]);
+  }, [softwareMapBundle]);
 
   useEffect(() => {
     if (document && softwareMapLoaded && !error) session.signalReady();
@@ -134,16 +211,23 @@ function DesktopReviewApp({
   return (
     <div className="review-session-content">
       <ReviewMigrationWarning errors={reviewErrors} />
-      <TutorialProvider tutorial={tutorial}>
-        <App
-          document={document}
-          softwareMap={softwareMap}
-          softwareMapEnabled={softwareMapEnabled}
-          range={range}
-          commits={commits}
-          findHost={findHost}
-        />
-      </TutorialProvider>
+      <LiveReviewAuthoringTargetContext.Provider value={authoringTarget}>
+        <TutorialProvider tutorial={tutorial}>
+          <LiveCommentThreadsProvider
+            threads={reviewThreads}
+            drafts={reviewDrafts}
+          >
+            <App
+              document={document}
+              softwareMap={softwareMap}
+              softwareMapEnabled={softwareMapEnabled}
+              range={range}
+              commits={commits}
+              findHost={findHost}
+            />
+          </LiveCommentThreadsProvider>
+        </TutorialProvider>
+      </LiveReviewAuthoringTargetContext.Provider>
     </div>
   );
 }
@@ -156,21 +240,9 @@ function ReviewCanvas({
   findHost: ReviewFindHost;
 }) {
   if (content.kind === "session") {
-    return (
-      <DesktopReviewApp
-        key={content.bridge.config.sessionId}
-        documentBundle={content.document}
-        softwareMapBundle={content.softwareMap}
-        softwareMapEnabled={content.softwareMapEnabled}
-        range={content.range}
-        commits={content.commits}
-        reviewErrors={content.reviewErrors}
-        tutorial={content.tutorial}
-        findHost={findHost}
-      />
-    );
+    return <QuerySessionCanvas content={content} findHost={findHost} />;
   }
-  if (content.kind === "home") return <Home content={content} />;
+  if (content.kind === "home") return <QueryHomeCanvas content={content} />;
   if (content.kind === "source") {
     if (content.error) {
       return (
@@ -227,19 +299,168 @@ function ReviewCanvas({
   return <ReviewCanvasLoading page note="Preparing the selected review…" />;
 }
 
+function QuerySessionCanvas({
+  content,
+  findHost,
+}: {
+  content: Extract<ReviewCanvasContent, { kind: "session" }>;
+  findHost: ReviewFindHost;
+}) {
+  const client = useMemo(() => new QueryClient(), []);
+  return (
+    <QueryClientProvider client={client}>
+      <DesktopReviewApp
+        key={content.bridge.config.sessionId}
+        reviewUuid={content.reviewUuid}
+        softwareMapBundle={content.softwareMap}
+        softwareMapEnabled={content.softwareMapEnabled}
+        range={content.range}
+        commits={content.commits}
+        reviewErrors={content.reviewErrors}
+        tutorial={content.tutorial}
+        findHost={findHost}
+      />
+    </QueryClientProvider>
+  );
+}
+
+function applyReviewStateEvent(
+  current: ReviewStateSnapshot,
+  event: ReviewStateEvent,
+): ReviewStateSnapshot {
+  if (event.type === "state.snapshot") return event.state;
+  if (event.type === "authoring-target.changed") {
+    return { ...current, authoringTarget: event.target };
+  }
+  if (event.type === "threads.committed") {
+    const threads = { ...current.threads };
+    const drafts = { ...current.drafts };
+    for (const thread of event.commit.upsertedThreads) {
+      threads[thread.threadId] = thread;
+    }
+    for (const threadId of event.commit.deletedThreadIds) {
+      delete threads[threadId];
+    }
+    for (const { threadId, draft } of event.commit.upsertedDrafts) {
+      drafts[threadId] = draft;
+    }
+    for (const threadId of event.commit.deletedDraftThreadIds) {
+      delete drafts[threadId];
+    }
+    return { ...current, threads, drafts };
+  }
+  if (event.type === "review.committed") return current;
+  const nodes = { ...current.page.nodes };
+  for (const node of event.upsertedNodes) nodes[node.id] = node;
+  for (const nodeId of event.deletedNodeIds) delete nodes[nodeId];
+  const elements = { ...current.page.projection.elements };
+  for (const [elementId, element] of Object.entries(
+    event.projection.upsertedElements,
+  )) {
+    elements[elementId] = element;
+  }
+  for (const elementId of event.projection.deletedElementIds) {
+    delete elements[elementId];
+  }
+  return {
+    ...current,
+    page: {
+      ...current.page,
+      nodes,
+      version: event.version,
+      updatedAt: event.updatedAt,
+      projection: { root: event.projection.root, elements },
+    },
+  };
+}
+
+function QueryHomeCanvas({
+  content,
+}: {
+  content: Extract<ReviewCanvasContent, { kind: "home" }>;
+}) {
+  const client = useMemo(() => new QueryClient(), []);
+  return (
+    <QueryClientProvider client={client}>
+      <Home content={content} />
+    </QueryClientProvider>
+  );
+}
+
 function Home({
   content,
 }: {
   content: Extract<ReviewCanvasContent, { kind: "home" }>;
 }) {
+  const queryClient = useQueryClient();
+  const catalogQuery = useQuery({
+    queryKey: ["review-catalog"],
+    queryFn: async ({ signal }) => {
+      const response = await fetch(
+        new URL("/reviews?limit=100", content.serverUrl),
+        {
+          headers: { "x-review-token": content.token },
+          signal,
+        },
+      );
+      if (!response.ok) {
+        throw new Error(`Review list returned ${response.status}.`);
+      }
+      return parseReviewListResponse(await response.json());
+    },
+    // SSE patches are the fast path, but they are intentionally disposable.
+    // A laptop sleep, renderer suspension, or connection race can miss one;
+    // reconcile from the authoritative SQLite-backed snapshot whenever the
+    // user returns to the app instead of treating the cached catalog as fresh
+    // forever.
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: "always",
+    refetchOnReconnect: "always",
+  });
+  useEffect(() => {
+    const url = new URL("/events", content.serverUrl);
+    url.searchParams.set("token", content.token);
+    const events = new EventSource(url);
+    events.onmessage = (message) => {
+      try {
+        const event = JSON.parse(message.data) as ReviewDesktopGlobalEvent;
+        if (event.event === "preferences-changed") {
+          void queryClient.invalidateQueries({ queryKey: ["review-catalog"] });
+          return;
+        }
+        queryClient.setQueryData<ReviewCatalog>(["review-catalog"], (current) =>
+          current ? applyCatalogEvent(current, event) : current,
+        );
+      } catch {
+        // Reconnecting refetches the authoritative catalog below.
+      }
+    };
+    events.onopen = () => {
+      void queryClient.invalidateQueries({ queryKey: ["review-catalog"] });
+    };
+    return () => events.close();
+  }, [content.serverUrl, content.token, queryClient]);
+  if (catalogQuery.error) {
+    return (
+      <CanvasShell title="Review unavailable">
+        <p>{catalogQuery.error.message}</p>
+      </CanvasShell>
+    );
+  }
+  if (!catalogQuery.data) {
+    return <ReviewCanvasLoading page note="Loading reviews…" />;
+  }
   const deleteReview = content.deleteReview;
   const dismissReview = content.dismissReview;
   const restoreReview = content.restoreReview;
   const openSourceTree = content.openSourceTree;
   return (
     <ReviewHome
-      reviews={content.reviews}
-      reviewErrors={content.reviewErrors}
+      reviews={catalogQuery.data.reviews.filter(
+        (review) => review.status !== "draft",
+      )}
+      reviewErrors={catalogQuery.data.errors}
       onOpen={(review) => content.openReview(review.uuid)}
       onDelete={
         deleteReview ? (review) => deleteReview(review.uuid) : undefined
@@ -255,10 +476,76 @@ function Home({
       }
       setup={content.setup}
       install={content.install}
-      onboarding={content.onboarding}
+      onboarding={
+        content.onboarding
+          ? {
+              ...content.onboarding,
+              published: catalogQuery.data.reviews.some(
+                (review) => review.status !== "draft",
+              ),
+            }
+          : undefined
+      }
       onOpenTutorial={content.openTutorial}
     />
   );
+}
+
+interface ReviewCatalog {
+  reviews: ReviewDescriptor[];
+  errors: ReviewListError[];
+}
+
+function applyCatalogEvent(
+  current: ReviewCatalog,
+  event: ReviewDesktopGlobalEvent,
+): ReviewCatalog {
+  if (event.event === "session-registered" && event.review) {
+    return {
+      ...current,
+      reviews: [
+        event.review,
+        ...current.reviews.filter(
+          (review) => review.uuid !== event.review!.uuid,
+        ),
+      ],
+    };
+  }
+  if (event.event === "review-deleted") {
+    return {
+      ...current,
+      reviews: current.reviews.filter((review) => review.uuid !== event.uuid),
+    };
+  }
+  if (event.event === "review-threads-committed") {
+    return patchCatalogReview(current, event.uuid, {
+      commentCount: event.commentCount,
+    });
+  }
+  if (event.event === "review-status-changed") {
+    return patchCatalogReview(current, event.uuid, { status: event.status });
+  }
+  if (event.event === "review-attention-changed") {
+    return patchCatalogReview(current, event.uuid, {
+      viewedAt: event.viewedAt,
+      dismissedAt: event.dismissedAt,
+      reapsAt: event.reapsAt,
+    });
+  }
+  return current;
+}
+
+function patchCatalogReview(
+  current: ReviewCatalog,
+  uuid: string,
+  patch: Partial<ReviewDescriptor>,
+): ReviewCatalog {
+  return {
+    ...current,
+    reviews: current.reviews.map((review) =>
+      review.uuid === uuid ? { ...review, ...patch } : review,
+    ),
+  };
 }
 
 function CanvasShell({

@@ -11,6 +11,7 @@ import type { ReactNode } from "react";
 
 import { reviewFetchUrl } from "./host/review-client";
 import {
+  type ReviewFetch,
   type ReviewSession,
   ReviewSessionProvider,
   createReviewSession,
@@ -23,7 +24,6 @@ export const TEST_REVIEW_CONFIG = {
   sessionId: "test-session",
   token: "secret-token",
   wasmUrl: "vscode-file://review/libavoid.wasm",
-  docRuntimeUrl: "vscode-file://review/doc-runtime.js",
   appVersion: "0.0.13",
   theme: "dark",
   host: "desktop",
@@ -49,7 +49,6 @@ export function testReviewBridge(
         throw new Error("unused test inline editor");
       },
     },
-    request: (url, init) => reviewFetchUrl({}, url, init),
     post: async () => ({ ok: true }),
     subscribe: () => ({ dispose() {} }),
     currentTheme: () => "dark",
@@ -211,9 +210,15 @@ function createTestCommentStore(): ReviewCommentStoreBridge {
 
 export function testReviewSession(
   config: Partial<ReviewRuntimeConfig> = {},
-  bridge: Partial<Omit<ReviewCanvasBridge, "config">> = {},
+  overrides: Partial<Omit<ReviewCanvasBridge, "config">> & {
+    request?: ReviewFetch;
+  } = {},
 ): ReviewSession {
-  return createReviewSession(testReviewBridge(config, bridge));
+  const { request, ...bridge } = overrides;
+  return createReviewSession(
+    testReviewBridge(config, bridge),
+    request ?? ((url, init) => reviewFetchUrl({}, url, init)),
+  );
 }
 
 // Test files that are plain .ts cannot write JSX, and passing `children`

@@ -4,6 +4,7 @@ import { type ReviewPickerItem, pickReview } from "./review-app-picker";
 import { actionableReviewsForCheckout } from "./review-change-scope";
 import { type StoredReview, listReviews } from "./review-home";
 import { resolveReviewRoot } from "./runtime";
+import { reviewStateService } from "./server/review-state-service";
 
 interface ReviewAppRuntime {
   launch: typeof runReviewAppLaunch;
@@ -11,6 +12,7 @@ interface ReviewAppRuntime {
   listReviews: typeof listReviews;
   resolveReviewRoot: typeof resolveReviewRoot;
   pickReview: typeof pickReview;
+  hasLiveReviewPage(reviewDir: string): boolean;
   fetch: typeof globalThis.fetch;
 }
 
@@ -36,9 +38,11 @@ export async function runReviewAppPick(
   const runtime: ReviewAppRuntime = {
     launch: runReviewAppLaunch,
     readReviewDesktopDiscovery,
-    listReviews,
+    listReviews: reviewStateService.list.bind(reviewStateService),
     resolveReviewRoot,
     pickReview,
+    hasLiveReviewPage: (reviewDir) =>
+      reviewStateService.readPage(reviewDir) !== null,
     fetch: globalThis.fetch,
     ...overrides,
   };
@@ -51,7 +55,11 @@ export async function runReviewAppPick(
     );
   }
   const review = input.reviewUuid
-    ? resolveAppReview(listed.reviews, input.reviewUuid)
+    ? resolveAppReview(
+        listed.reviews,
+        input.reviewUuid,
+        runtime.hasLiveReviewPage,
+      )
     : await pickAppReview(
         await actionableReviewsForCheckout(listed.reviews, reviewRoot),
         input,
@@ -88,10 +96,14 @@ export const runReviewApp = runReviewAppPick;
 function resolveAppReview(
   reviews: readonly StoredReview[],
   reviewUuid: string,
+  hasLivePage: ReviewAppRuntime["hasLiveReviewPage"],
 ): StoredReview {
   const selected = reviews.find((review) => review.review.uuid === reviewUuid);
   if (!selected) throw new Error(`Review not found: ${reviewUuid}`);
-  if (selected.review.presentedDocumentRevision === null) {
+  if (
+    selected.review.presentedDocumentRevision === null &&
+    !hasLivePage(selected.dir)
+  ) {
     throw new Error(
       `Review ${reviewUuid} is not published. Run \`review publish --review ${reviewUuid}\` first.`,
     );
@@ -110,7 +122,9 @@ async function pickAppReview(
     );
   }
   const openable = reviews.filter(
-    (review) => review.review.presentedDocumentRevision !== null,
+    (review) =>
+      review.review.presentedDocumentRevision !== null ||
+      runtime.hasLiveReviewPage(review.dir),
   );
   if (openable.length === 0) {
     throw new Error("No published review to show. Run `review publish` first.");
@@ -132,7 +146,7 @@ async function pickAppReview(
     stdout: input.stdout,
   });
   if (!picked) return null;
-  return resolveAppReview(reviews, picked.uuid);
+  return resolveAppReview(reviews, picked.uuid, runtime.hasLiveReviewPage);
 }
 
 function reviewAppResponseError(payload: unknown, status: number): string {

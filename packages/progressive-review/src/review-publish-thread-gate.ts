@@ -1,7 +1,5 @@
-import path from "node:path";
-
 import type { StoredReview } from "./review-home";
-import { readReviewComments } from "./review-state-store";
+import { reviewStateService } from "./server/review-state-service";
 
 export class ReviewOpenThreadsError extends Error {
   override readonly name = "ReviewOpenThreadsError";
@@ -41,7 +39,13 @@ export class ReviewMissingAgentResponsesError extends Error {
 /** The first publication has no previous review round to close. */
 export function requireClosedThreadsForRepublish(review: StoredReview): void {
   if (!review.review.presentedDocumentRevision) return;
-  const comments = readReviewComments(path.join(review.dir, "review.mdx"));
+  const comments = reviewStateService
+    .threads(
+      review.review.uuid,
+      path.join(review.dir, "review.mdx"),
+      "Reviewer",
+    )
+    .snapshot().comments;
   const threadIds = Object.values(comments)
     .filter((thread) => thread.status === "open")
     .map((thread) => thread.threadId)
@@ -58,7 +62,13 @@ export function requireCompletedAgentResponsesForRepublish(
   const publishedAt = review.review.lastPublishedAt;
   if (!review.review.presentedDocumentRevision || !publishedAt) return;
 
-  const comments = readReviewComments(path.join(review.dir, "review.mdx"));
+  const comments = reviewStateService
+    .threads(
+      review.review.uuid,
+      path.join(review.dir, "review.mdx"),
+      "Reviewer",
+    )
+    .snapshot().comments;
   const threadIds = Object.values(comments)
     .filter((thread) =>
       thread.messages.some(
@@ -105,3 +115,4 @@ function messageIsAfter(messageAt: string, publishedAt: string): boolean {
   }
   return messageAt > publishedAt;
 }
+import path from "node:path";

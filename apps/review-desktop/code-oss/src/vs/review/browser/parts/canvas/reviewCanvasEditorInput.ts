@@ -23,7 +23,6 @@ import {
   IReviewSessionModelService,
   type ReviewSessionModel,
 } from "../../../services/reviewSessionModelService.js";
-import { IReviewSessionService } from "../../../services/reviewSessionService.js";
 import { shortPath } from "../../../common/reviewPaths.js";
 
 export type ReviewCanvasEditorTarget =
@@ -66,8 +65,6 @@ export class ReviewCanvasEditorInput extends EditorInput {
     target: ReviewCanvasEditorTarget,
     @IReviewSessionModelService
     private readonly modelService: IReviewSessionModelService,
-    @IReviewSessionService
-    private readonly sessionService: IReviewSessionService,
     @IEditorGroupsService
     private readonly editorGroupsService: IEditorGroupsService,
   ) {
@@ -267,12 +264,9 @@ export class ReviewCanvasEditorInput extends EditorInput {
     if (this.target.kind === "home") return "Home";
     if (this.target.kind === "welcome") return "Welcome";
     if (this.target.kind === "settings") return "Settings";
-    if (this.target.kind === "source") {
-      const worktreePath =
-        this.modelService.activeModel?.session.review.worktreePath ??
-        this.sessionService.reviews.find(
-          (review) => review.uuid === this.preferredReviewUuid,
-        )?.worktreePath;
+		if (this.target.kind === "source") {
+			const worktreePath =
+				this.modelService.activeModel?.session.review.worktreePath;
       return worktreePath ? shortPath(worktreePath) : "Source";
     }
     if (this.target.revision) {

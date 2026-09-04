@@ -28,7 +28,6 @@ import {
 export interface ReviewThreadsServiceOptions {
   reviewPath: string;
   author: string;
-  onCommit?: (commit: ReviewThreadsCommit) => void;
 }
 
 /**
@@ -41,6 +40,7 @@ export class ReviewThreadsService {
   private comments: ReviewCommentThreadMap;
   private drafts: ReviewCommentDraftThreadMap;
   private revision = 0;
+  private readonly listeners = new Set<(commit: ReviewThreadsCommit) => void>();
 
   constructor(private readonly options: ReviewThreadsServiceOptions) {
     this.comments = readReviewComments(options.reviewPath);
@@ -48,11 +48,18 @@ export class ReviewThreadsService {
   }
 
   snapshot(): ReviewThreadsSnapshot {
+    this.comments = readReviewComments(this.options.reviewPath);
+    this.drafts = readReviewCommentDrafts(this.options.reviewPath);
     return {
       revision: this.revision,
       comments: this.comments,
       drafts: this.drafts,
     };
+  }
+
+  subscribe(listener: (commit: ReviewThreadsCommit) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
   dispatch(command: ReviewThreadsCommand): ReviewThreadsCommit | null {
@@ -300,7 +307,7 @@ export class ReviewThreadsService {
       upsertedDrafts,
       deletedDraftThreadIds,
     } satisfies ReviewThreadsCommit;
-    this.options.onCommit?.(commit);
+    for (const listener of this.listeners) listener(commit);
     return commit;
   }
 }

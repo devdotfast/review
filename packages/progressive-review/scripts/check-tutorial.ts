@@ -133,7 +133,7 @@ async function checkRuntimeManifest(outDir: string): Promise<void> {
     manifest.reviewFiles.length === 0 ||
     manifest.requiredPaths.length === 0 ||
     !manifest.reviewFiles.every((entry) =>
-      isSafeManifestPath(entry, manifest.requiredPaths),
+      isSafeManifestPath(entry, manifest.requiredPaths as unknown[]),
     ) ||
     !manifest.requiredPaths.every((entry) => isSafeManifestPath(entry))
   ) {

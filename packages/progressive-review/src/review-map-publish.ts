@@ -7,11 +7,7 @@ import {
 } from "./authoring-session";
 import { emitJsonEvent } from "./cli-output";
 import { readReviewDesktopDiscovery } from "./desktop-discovery";
-import {
-  parseStoredReviewRecord,
-  sealReviewCandidate,
-  touchReviewAgentSession,
-} from "./review-home";
+import { parseStoredReviewRecord, sealReviewCandidate } from "./review-home";
 import {
   ReviewPublicationValidationError,
   prepareReviewSoftwareMapBundle,
@@ -19,6 +15,7 @@ import {
 import { resolveReviewRoot } from "./runtime";
 import { resolvePublishReview } from "./server/publish-preparation";
 import { materializePublishRevision } from "./server/publish-stage";
+import { reviewStateService } from "./server/review-state-service";
 import {
   readReviewSoftwareMapBundle,
   sameReviewSoftwareMapBundle,
@@ -85,7 +82,7 @@ export async function runReviewMapPublish(input: {
       const existing = await readReviewSoftwareMapBundle(existingDir);
       if (existing && sameReviewSoftwareMapBundle(existing, bundle)) {
         if (agent) {
-          await touchReviewAgentSession(
+          await reviewStateService.touchAgentSession(
             review,
             authoringSessionKey(agent),
             "publisher",

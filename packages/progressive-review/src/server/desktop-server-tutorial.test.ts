@@ -6,7 +6,9 @@ import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { AnchorRef } from "../authoring";
 import type { SessionRef } from "../authoring-session";
+import { readLiveReviewPage } from "../live-review-store";
 import { bindReviewAuthorSession, findReview } from "../review-home";
 import type { ReviewSubmissionEvent } from "../types";
 import { createGlobalReviewServer } from "./desktop-server";
@@ -64,6 +66,28 @@ describe("Review Desktop tutorial preparation", () => {
       expect(preparedA.status).toBe(200);
       expect(preparedB.status).toBe(200);
       expect(authoringFactory).not.toHaveBeenCalled();
+      const preparedBody = (await preparedA.json()) as { reviewUuid: string };
+      const preparedReview = await findReview(preparedBody.reviewUuid);
+      const livePage = readLiveReviewPage(preparedReview!.dir);
+      expect(livePage).toMatchObject({
+        id: preparedBody.reviewUuid,
+        rootNodeId: "tutorial-root",
+        nodes: {
+          "tutorial-root": {
+            title: "Review Desktop: three-minute tour",
+          },
+        },
+        projection: {
+          elements: {
+            "tutorial-content": { type: "Tutorial" },
+          },
+        },
+      });
+      const tutorialAnchors = livePage!.projection.elements["tutorial-content"]!
+        .props.anchors as Record<string, AnchorRef>;
+      expect(
+        tutorialAnchors.placeOrder?.peek?.resolution?.snapshot,
+      ).toBeTruthy();
 
       const opened = await tutorialJson(first.url, "/tutorial/open", "POST");
       await vi.waitFor(() => expect(authoringFactory).toHaveBeenCalledOnce());

@@ -110,6 +110,35 @@ describe("review app", () => {
     });
   });
 
+  it("opens a live Review without a legacy published revision", async () => {
+    const selected = storedReview("live", null);
+    selected.review.presentedDocumentRevision = null;
+
+    await expect(
+      runReviewApp(
+        {
+          cwd: "/repo",
+          stdin: fakeTty(),
+          stdout: process.stdout,
+          reviewUuid: selected.review.uuid,
+        },
+        {
+          launch: async () => ({
+            event: "app",
+            action: "launch",
+            state: "running",
+            instanceId: discovery.instanceId,
+          }),
+          resolveReviewRoot: async () => "/repo",
+          listReviews: async () => ({ reviews: [selected], errors: [] }),
+          hasLiveReviewPage: (dir) => dir === selected.dir,
+          readReviewDesktopDiscovery: async () => discovery,
+          fetch: async () => Response.json({ sessionId: "session-live" }),
+        },
+      ),
+    ).resolves.toMatchObject({ reviewUuid: selected.review.uuid });
+  });
+
   it("requires a TTY only for the interactive picker", async () => {
     await expect(
       runReviewApp(

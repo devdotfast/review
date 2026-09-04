@@ -13,15 +13,19 @@ const decodeNamedCharacterReferenceIndex = path.join(
 
 const isolatedTests = [
   "app/src/review-document-boundary.test.tsx",
+  "app/src/review-history-control.test.tsx",
   "app/src/review-panel.test.tsx",
   "app/src/review-ui-state.test.ts",
   "app/src/side-panel-resizer.test.tsx",
-  "src/compiler/review-documents-module.test.ts",
+  "app/src/tutorial-dynamic-content.test.tsx",
+  "app/src/tutorial-experience.test.tsx",
   "src/compiler/review-document-compiler.test.ts",
   "src/review-source-ref-errors.test.ts",
   "src/map-cli-entry.test.ts",
   "src/review-comment-agent.test.ts",
+  "src/server/desktop-server-live-review.test.ts",
   "src/server/review-api.test.ts",
+  "src/live-review-api.test.ts",
 ];
 
 export default defineConfig({

@@ -22,6 +22,11 @@ import {
   spawnReviewPrepareBackground,
 } from "./review-prepare";
 import {
+  importLegacyReview,
+  openReviewStateDbForDir,
+  reviewIdForDir,
+} from "./review-state-db";
+import {
   type ReviewCheckoutRole,
   reviewManagedCheckoutDir,
 } from "./review-storage";
@@ -230,6 +235,18 @@ export function readReviewStoreRecord(
   reviewRootPath: string,
 ): StoredReviewRecord {
   const storePath = path.resolve(reviewRootPath);
+  try {
+    importLegacyReview(storePath);
+    const row = openReviewStateDbForDir(storePath)
+      .prepare("SELECT record_json FROM reviews WHERE review_id = ?")
+      .get(reviewIdForDir(storePath)) as { record_json: string } | undefined;
+    if (row) {
+      const parsed = safeParseStoredReviewRecord(JSON.parse(row.record_json));
+      if (parsed.success) return parsed.data;
+    }
+  } catch {
+    // A materialized historical revision is not a canonical Review directory.
+  }
   try {
     const value: unknown = JSON.parse(
       fs.readFileSync(path.join(storePath, "review.json"), "utf8"),

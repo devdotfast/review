@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readFileSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -11,7 +11,6 @@ import {
 } from "@dev.fast/local-vcs";
 import {
   type ReviewSessionWire,
-  type ReviewThreadsCommit,
   type ReviewVerbRequest,
   parseReviewFileContentRequest,
 } from "@dev.fast/review-protocol";
@@ -50,7 +49,7 @@ import {
   resolveReviewDocumentFilePath,
 } from "../review-paths";
 import { saveReviewSubmissionAudit } from "../review-state-store";
-import { ReviewThreadsService } from "../review-threads-service";
+import type { ReviewThreadsService } from "../review-threads-service";
 import {
   type ReviewSourceTarget,
   readReviewStoreRecord,
@@ -92,6 +91,7 @@ import {
   parseUpdateReviewCommentInput,
   requestJsonErrorStatus,
 } from "./review-api-parsers";
+import { reviewStateService } from "./review-state-service";
 
 const REVIEW_SUBMIT_HOOK_ENV = "DEV_FAST_REVIEW_SUBMIT_HOOK";
 export const TUTORIAL_QUESTION_SOURCE_WAIT_MS = 5_000;
@@ -198,9 +198,9 @@ interface ReviewApiOptions {
   telemetry?: ReviewTelemetryCapture;
   onSubmission?: (event: ReviewSubmissionEvent) => void | Promise<void>;
   onReviewDismiss?: () => void | Promise<void>;
-  onReviewDataChange?: () => void;
-  onReviewThreadsCommit?: (commit: ReviewThreadsCommit) => void;
-  runReviewThreadMutation?: <T>(operation: () => T | Promise<T>) => Promise<T>;
+  resolveReviewThreadsService?: (
+    writableReviewPath: string,
+  ) => ReviewThreadsService;
   reviewToken: string;
   agentServer: (harness: ReviewAgentHarness) => AgentServer;
   openNativeAgentTerminal: (
@@ -250,8 +250,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     telemetry = defaultTelemetry,
     onSubmission,
     onReviewDismiss,
-    onReviewThreadsCommit,
-    runReviewThreadMutation = async (operation) => operation(),
+    resolveReviewThreadsService,
     agentServer,
     openNativeAgentTerminal,
     resolveQuestionSourceSession,
@@ -281,11 +280,13 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   const threadsFor = (writableReviewPath: string): ReviewThreadsService => {
     let service = threadServices.get(writableReviewPath);
     if (!service) {
-      service = new ReviewThreadsService({
-        reviewPath: writableReviewPath,
-        author: process.env.USER ?? "Reviewer",
-        onCommit: onReviewThreadsCommit,
-      });
+      service =
+        resolveReviewThreadsService?.(writableReviewPath) ??
+        reviewStateService.threads(
+          `${stateReviewPath ?? reviewPath}:${writableReviewPath}`,
+          writableReviewPath,
+          process.env.USER ?? "Reviewer",
+        );
       threadServices.set(writableReviewPath, service);
       const snapshot = service.snapshot();
       const hasAgentSession =
@@ -346,15 +347,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       return handler(context, writableReviewPath);
     });
 
-  const threadMutation = (
-    handler: (
-      context: Context<ReviewHonoEnv>,
-      writableReviewPath: string,
-    ) => Promise<Response> | Response,
-  ): ReviewApiHandler =>
-    writable((context, writableReviewPath) =>
-      runReviewThreadMutation(() => handler(context, writableReviewPath)),
-    );
+  const threadMutation = writable;
 
   app.post("/telemetry/tab", route(telemetryTab));
   app.post("/telemetry/event", route(telemetryEvent));
@@ -554,7 +547,11 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       session: {
         resolvedBaseRef,
         ...(stateReviewPath
-          ? { reviewStatus: readReviewStatus(stateReviewPath) }
+          ? {
+              reviewStatus: reviewStateService.record(
+                path.dirname(stateReviewPath),
+              ).status,
+            }
           : {}),
       },
     });
@@ -678,11 +675,9 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   ): Promise<Response> {
     const url = new URL(context.req.url);
     const body = parseReviewSubmissionInput(await readJson(context.req.raw));
-    await runReviewThreadMutation(() =>
-      threadsFor(writableReviewPath).submitDrafts(
-        body.submissionId,
-        body.comments,
-      ),
+    threadsFor(writableReviewPath).submitDrafts(
+      body.submissionId,
+      body.comments,
     );
     const event = buildReviewSubmissionEvent({
       submission: body,
@@ -1065,23 +1060,6 @@ function parseCodePeekIncludeDiff(value: unknown): boolean {
 
 function parseCodePeekIncludeDiffSummary(value: unknown): boolean {
   return value === true;
-}
-
-function readReviewStatus(stateReviewPath: string): string {
-  const record: unknown = JSON.parse(
-    readFileSync(
-      path.join(path.dirname(stateReviewPath), "review.json"),
-      "utf8",
-    ),
-  );
-  if (!record || typeof record !== "object" || Array.isArray(record)) {
-    throw new Error("Invalid review.json.");
-  }
-  const status = (record as { status?: unknown }).status;
-  if (typeof status !== "string") {
-    throw new Error("review.json has no status.");
-  }
-  return status;
 }
 
 function readJson(request: Request): Promise<unknown> {

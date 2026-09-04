@@ -45,6 +45,7 @@ import {
 } from "./review-reopen-marker";
 import { runReviewScaffold } from "./review-scaffold";
 import { runReviewWait, validateReviewWait } from "./review-wait";
+import { reviewStateService } from "./server/review-state-service";
 import {
   runReviewThreadsGet,
   runReviewThreadsList,
@@ -65,7 +66,11 @@ import {
   runReviewTraceSync,
 } from "./trace-cli";
 
+const runLiveReviewMcpServer = async (input: { cwd: string }) =>
+  (await import("./live-review-mcp.js")).runLiveReviewMcpServer(input);
+
 interface ProgressiveReviewCliRuntime {
+  runLiveReviewMcpServer: typeof runLiveReviewMcpServer;
   runReviewAppLaunch: typeof runReviewAppLaunch;
   runReviewAppPick: typeof runReviewAppPick;
   runReviewInfo: typeof runReviewInfo;
@@ -317,6 +322,13 @@ export async function runProgressiveReviewCli(
     app.command("launch").description("Start or activate Review Desktop"),
     "plain",
   ).action(launchApp);
+  program
+    .command("mcp")
+    .description("Run the Review MCP server over stdio")
+    .action(async () => {
+      await runtime.runLiveReviewMcpServer({ cwd });
+      state.exitCode = 0;
+    });
   configureJsonOutput(
     app
       .command("pick")
@@ -1165,6 +1177,7 @@ function progressiveReviewCliRuntime(
   overrides: Partial<ProgressiveReviewCliRuntime> | undefined,
 ): ProgressiveReviewCliRuntime {
   return {
+    runLiveReviewMcpServer,
     runReviewAppLaunch,
     runReviewAppPick,
     runReviewInfo,
@@ -1194,7 +1207,7 @@ function progressiveReviewCliRuntime(
     runReviewTraceHook,
     runReviewTraceGitHook,
     runReviewTraceSync,
-    listReviews,
+    listReviews: reviewStateService.list.bind(reviewStateService),
     sealReviewCandidate,
     prepareReviewPinnedCheckout,
     ...overrides,

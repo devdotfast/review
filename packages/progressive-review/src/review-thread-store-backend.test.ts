@@ -14,7 +14,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { appendReviewComment, readReviewComments } from "./review-state-store";
 import {
   REVIEW_THREAD_DB_SCHEMA_VERSION,
-  ReviewThreadDbVersionError,
   closeAllReviewThreadStores,
   createReviewThreadDb,
   migrateReviewThreadDb,
@@ -34,7 +33,11 @@ afterEach(() => {
 function makeReviewPath(): string {
   const root = mkdtempSync(path.join(tmpdir(), "review-thread-backend-"));
   roots.push(root);
-  const dir = path.join(root, "review");
+  const dir = path.join(
+    root,
+    "reviews",
+    "11111111-1111-4111-8111-111111111111",
+  );
   mkdirSync(dir, { recursive: true });
   return path.join(dir, "review.mdx");
 }
@@ -95,30 +98,32 @@ describe("sqlite thread store", () => {
   it("rejects a database with an unsupported schema version", () => {
     const reviewPath = makeReviewPath();
     const dbPath = reviewThreadDbPath(reviewPath);
-    createReviewThreadDb(path.dirname(reviewPath));
+    seedComment(reviewPath);
+    closeAllReviewThreadStores();
     const db = new DatabaseSync(dbPath);
     db.prepare(
-      "UPDATE meta SET value = '999' WHERE key = 'schema_version'",
+      "UPDATE review_state_meta SET value = '999' WHERE key = 'schema_version'",
     ).run();
     db.close();
     expect(() => readReviewComments(reviewPath)).toThrow(
-      ReviewThreadDbVersionError,
+      /schema version 999; expected 1/,
     );
   });
 
   it("drops the question table through the managed v2 upgrade", async () => {
     const reviewPath = makeReviewPath();
-    const dbPath = reviewThreadDbPath(reviewPath);
-    createReviewThreadDb(path.dirname(reviewPath));
-    closeAllReviewThreadStores();
+    const dbPath = path.join(path.dirname(reviewPath), "review.db");
     const db = new DatabaseSync(dbPath);
     db.exec(`
+      CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      INSERT INTO meta VALUES ('schema_version', '2');
+      CREATE TABLE comments (thread_id TEXT PRIMARY KEY, record_json TEXT NOT NULL);
+      CREATE TABLE comment_drafts (thread_id TEXT PRIMARY KEY, record_json TEXT NOT NULL);
       CREATE TABLE questions (
         question_id TEXT PRIMARY KEY,
         record_json TEXT NOT NULL
       );
       INSERT INTO questions VALUES ('question-1', '{}');
-      UPDATE meta SET value = '2' WHERE key = 'schema_version';
     `);
     db.close();
 
@@ -141,10 +146,14 @@ describe("sqlite thread store", () => {
 
   it("normalizes message markers and removes native provenance", async () => {
     const reviewPath = makeReviewPath();
-    const dbPath = reviewThreadDbPath(reviewPath);
-    createReviewThreadDb(path.dirname(reviewPath));
-    closeAllReviewThreadStores();
+    const dbPath = path.join(path.dirname(reviewPath), "review.db");
     const db = new DatabaseSync(dbPath);
+    db.exec(`
+      CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      INSERT INTO meta VALUES ('schema_version', '4');
+      CREATE TABLE comments (thread_id TEXT PRIMARY KEY, record_json TEXT NOT NULL);
+      CREATE TABLE comment_drafts (thread_id TEXT PRIMARY KEY, record_json TEXT NOT NULL);
+    `);
     db.prepare(
       "INSERT INTO comments (thread_id, record_json) VALUES (?, ?)",
     ).run(
@@ -198,20 +207,29 @@ describe("sqlite thread store", () => {
         ],
       }),
     );
-    db.prepare(
-      "UPDATE meta SET value = '4' WHERE key = 'schema_version'",
-    ).run();
     db.close();
 
     await expect(migrateReviewThreadDb(reviewPath)).resolves.toBe("upgraded");
-    expect(readReviewComments(reviewPath)["thread-1"]).toMatchObject({
+    const migrated = new DatabaseSync(dbPath, { readOnly: true });
+    const comments = Object.fromEntries(
+      (
+        migrated
+          .prepare("SELECT thread_id, record_json FROM comments")
+          .all() as Array<{
+          thread_id: string;
+          record_json: string;
+        }>
+      ).map((row) => [row.thread_id, JSON.parse(row.record_json)]),
+    );
+    migrated.close();
+    expect(comments["thread-1"]).toMatchObject({
       agentSession: {
         harness: "codex",
         sessionId: "child-session",
       },
       messages: [{ body: "Keep this message." }],
     });
-    expect(readReviewComments(reviewPath)["thread-without-source"]).toEqual({
+    expect(comments["thread-without-source"]).toEqual({
       threadId: "thread-without-source",
       target: { kind: "document" },
       status: "open",
@@ -249,8 +267,12 @@ describe("sqlite thread store", () => {
     createReviewThreadDb(path.dirname(reviewPath));
     const db = new DatabaseSync(dbPath);
     db.prepare(
-      "INSERT INTO comments (thread_id, record_json) VALUES (?, ?)",
-    ).run("malformed-thread", JSON.stringify({ threadId: "wrong-thread" }));
+      "INSERT INTO comments (review_id, thread_id, record_json) VALUES (?, ?, ?)",
+    ).run(
+      path.basename(path.dirname(reviewPath)),
+      "malformed-thread",
+      JSON.stringify({ threadId: "wrong-thread" }),
+    );
     db.close();
     const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
 

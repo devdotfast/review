@@ -71,6 +71,18 @@ describe("ReviewHistoryControl", () => {
     expect(historyButton().disabled).toBe(false);
   });
 
+  it("removes document history when the live Review has no versions", async () => {
+    listVersionsMock.mockResolvedValue([]);
+    await renderControl();
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('button[aria-label="Version history"]'),
+    ).toBeNull();
+  });
+
   async function renderControl(tutorial?: ReviewCanvasTutorialBridge) {
     await act(async () => {
       root.render(

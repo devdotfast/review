@@ -16,7 +16,6 @@ import {
 	IInstantiationService,
 } from "../../platform/instantiation/common/instantiation.js";
 import {
-	ReviewDocModuleResponseSchema,
 	ReviewSoftwareMapModuleResponseSchema,
 	type ReviewCommentStoreBridge,
 	type ReviewDescriptor,
@@ -26,7 +25,6 @@ import {
 } from "../common/reviewProtocol.js";
 import {
 	IReviewSessionService,
-	type ReviewDataChangedEvent,
 	type ReviewSessionConnection,
 	type ReviewSessionClosedEvent,
 	type ReviewThreadsCommittedEvent,
@@ -44,11 +42,6 @@ export interface ReviewDesktopSession {
 		readonly storageDir: string;
 	};
 }
-
-export type ReviewDocumentModuleLoader = (
-	session: ReviewDesktopSession,
-	moduleUrl: string,
-) => Promise<unknown>;
 
 export type ReviewSoftwareMapModuleLoader = (
 	session: ReviewDesktopSession,
@@ -86,7 +79,6 @@ export class ReviewSessionModel extends Disposable {
 	}
 
 	private documentRevision: string;
-	private documentPromise: Promise<unknown> | undefined;
 	private softwareMapPromise: Promise<unknown | null> | undefined;
 	private refreshPromise: Promise<void> | undefined;
 	private _comments: ReviewCommentStore;
@@ -98,7 +90,6 @@ export class ReviewSessionModel extends Disposable {
 		session: ReviewDesktopSession,
 		private readonly resolveSession: ReviewSessionResolver,
 		onDidChangeLists: Event<void>,
-		onDidChangeReviewData: Event<ReviewDataChangedEvent> = Event.None,
 		onDidCloseSession: Event<ReviewSessionClosedEvent> = Event.None,
 		private readonly shouldRefresh: ReviewSessionRefreshPredicate = () => true,
 		onDidCommitReviewThreads: Event<ReviewThreadsCommittedEvent> = Event.None,
@@ -118,14 +109,6 @@ export class ReviewSessionModel extends Disposable {
 						error,
 					);
 				});
-			}),
-		);
-		this._register(
-			onDidChangeReviewData((event) => {
-				if (event.uuid !== this.reviewUuid || this._state !== "active") {
-					return;
-				}
-				this._onDidChange.fire();
 			}),
 		);
 		this._register(
@@ -190,7 +173,6 @@ export class ReviewSessionModel extends Disposable {
 					return;
 				}
 				if (this.documentRevision !== previousRevision) {
-					this.documentPromise = undefined;
 					this.softwareMapPromise = undefined;
 				}
 				this._onDidChange.fire();
@@ -215,21 +197,6 @@ export class ReviewSessionModel extends Disposable {
 		return this.refreshPromise;
 	}
 
-	resolveDocument(loader: ReviewDocumentModuleLoader): Promise<unknown> {
-		if (this.documentPromise) {
-			return this.documentPromise;
-		}
-		let pending: Promise<unknown>;
-		pending = this.loadDocument(loader).catch((error) => {
-			if (this.documentPromise === pending) {
-				this.documentPromise = undefined;
-			}
-			throw error;
-		});
-		this.documentPromise = pending;
-		return pending;
-	}
-
 	resolveSoftwareMap(
 		loader: ReviewSoftwareMapModuleLoader,
 	): Promise<unknown | null> {
@@ -247,32 +214,6 @@ export class ReviewSessionModel extends Disposable {
 
 	async request(url: string, init: RequestInit = {}): Promise<Response> {
 		return fetch(url, init);
-	}
-
-	private async loadDocument(
-		loader: ReviewDocumentModuleLoader,
-	): Promise<unknown> {
-		const session = this._session;
-		const url = new URL(
-			`${session.sessionUrl}/__progressive-review/doc-module`,
-		);
-		const routePath = session.session.routePath ?? session.descriptor.routePath;
-		if (routePath && routePath !== "/") {
-			url.searchParams.set("document", routePath);
-		}
-		const response = await fetch(url, {
-			headers: { "x-review-token": session.token },
-			signal: AbortSignal.timeout(30_000),
-		});
-		const payload = ReviewDocModuleResponseSchema.parse(await response.json());
-		if (!response.ok || !payload.ok) {
-			throw new Error(
-				payload.ok
-					? `Review document module returned ${response.status}.`
-					: payload.error,
-			);
-		}
-		return loader(session, payload.moduleUrl);
 	}
 
 	private async loadSoftwareMap(
@@ -535,7 +476,6 @@ export class ReviewSessionModelService
 			session,
 			resolveSession,
 			this.sessionService.onDidChangeLists,
-			this.sessionService.onDidChangeReviewData,
 			this.sessionService.onDidCloseSession,
 			(current) => this.shouldRefreshModel(current),
 			this.sessionService.onDidCommitReviewThreads ?? Event.None,
@@ -556,19 +496,12 @@ export class ReviewSessionModelService
 		const descriptor = this.sessionService.sessions.find(
 			(candidate) => candidate.sessionId === current.session.sessionId,
 		);
-		const review = this.findReviewDescriptor(current.review.uuid);
-		if (!review) {
-			return true;
-		}
 		if (!descriptor) {
 			return this.sessionService.sessions.some(
 				(candidate) => candidate.reviewUuid === current.review.uuid,
 			);
 		}
-		return (
-			JSON.stringify([descriptor, review]) !==
-			JSON.stringify([current.descriptor, current.review])
-		);
+		return JSON.stringify(descriptor) !== JSON.stringify(current.descriptor);
 	}
 
 	private async resolveSession(
@@ -594,33 +527,9 @@ export class ReviewSessionModelService
 				`Review session is unavailable: ${reviewUuid}`,
 			);
 		}
-		let review = this.findReviewDescriptor(reviewUuid);
-		if (!review) {
-			await this.sessionService.refresh();
-			review = this.findReviewDescriptor(reviewUuid);
-		}
-		if (!review) {
-			throw new ReviewSessionUnavailableError(
-				`Review is unavailable: ${reviewUuid}`,
-			);
-		}
+		const review = await this.sessionService.getReview(reviewUuid);
 		const connection = await this.sessionService.getConnection();
 		return resolveDesktopSession(connection, descriptor, review);
-	}
-
-	/** The tutorial Review is not in the store-backed list; its descriptor
-	    comes from the tutorial open response instead. */
-	private findReviewDescriptor(
-		reviewUuid: string,
-	): ReviewDescriptor | undefined {
-		const listed = this.sessionService.reviews.find(
-			(candidate) => candidate.uuid === reviewUuid,
-		);
-		if (listed) {
-			return listed;
-		}
-		const tutorial = this.sessionService.tutorialReview;
-		return tutorial?.uuid === reviewUuid ? tutorial : undefined;
 	}
 
 	private findSession(

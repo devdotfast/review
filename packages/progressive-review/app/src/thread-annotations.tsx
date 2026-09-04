@@ -130,9 +130,8 @@ interface GutterInfo {
  * the right of the prose measure.
  *
  * `available` is measured from the prose's right edge to the review region's
- * right border edge, so it includes the region padding that
- * `--review-thread-gutter` reserves for this column (styles.css). Cards fill
- * whatever gutter there is, less the inset and trailing margin; at exactly
+ * right border edge. Cards use whatever space the canvas naturally leaves,
+ * less the inset and trailing margin; at exactly
  * MARGIN_CARDS_MIN_GUTTER that lands on CARD_MIN_WIDTH, which is why the
  * threshold is derived from the width rather than stated separately. Below it,
  * threads fall back to markers plus the hover popover.

@@ -41,6 +41,10 @@ import {
   remapReviewCodeThreads,
 } from "./review-code-target-remap";
 import { resolveReviewDiffFiles } from "./review-diff-files";
+import {
+  assertReviewUnchanged,
+  withReviewMutationLock,
+} from "./review-mutation-lock";
 import { readReviewComments } from "./review-state-store";
 import { devReviewHome } from "./review-storage";
 import {
@@ -205,31 +209,33 @@ export async function touchReviewAgentSession(
     throw new Error(`Review agent session key is invalid: ${sessionKey}`);
   }
   const recordPath = path.join(review.dir, "review.json");
-  const outcome = await withFileLock(
-    path.join(review.dir, ".agent-sessions.lock"),
-    AGENT_SESSION_LOCK_OPTIONS,
-    async () => {
-      const current = parseStoredReviewRecord(
-        JSON.parse(await readFile(recordPath, "utf8")),
-      );
-      const prior = current.agentSessions?.[sessionKey];
-      const roles = prior?.roles.includes(role)
-        ? prior.roles
-        : [...(prior?.roles ?? []), role];
-      const updated: StoredReviewRecord = {
-        ...current,
-        agentSessions: {
-          ...current.agentSessions,
-          [sessionKey]: {
-            roles,
-            firstSeenAt: prior?.firstSeenAt ?? now,
-            lastSeenAt: now,
+  const outcome = await withReviewMutationLock(review.dir, () =>
+    withFileLock(
+      path.join(review.dir, ".agent-sessions.lock"),
+      AGENT_SESSION_LOCK_OPTIONS,
+      async () => {
+        const current = parseStoredReviewRecord(
+          JSON.parse(await readFile(recordPath, "utf8")),
+        );
+        const prior = current.agentSessions?.[sessionKey];
+        const roles = prior?.roles.includes(role)
+          ? prior.roles
+          : [...(prior?.roles ?? []), role];
+        const updated: StoredReviewRecord = {
+          ...current,
+          agentSessions: {
+            ...current.agentSessions,
+            [sessionKey]: {
+              roles,
+              firstSeenAt: prior?.firstSeenAt ?? now,
+              lastSeenAt: now,
+            },
           },
-        },
-      };
-      await writePrivateJsonAtomic(recordPath, updated);
-      return { dir: review.dir, review: updated };
-    },
+        };
+        await writePrivateJsonAtomic(recordPath, updated);
+        return { dir: review.dir, review: updated };
+      },
+    ),
   );
   if (!outcome.acquired) {
     throw new Error(
@@ -249,49 +255,51 @@ export async function bindReviewAuthorSession(
 ): Promise<StoredReview> {
   const sessionKey = authoringSessionKey(session);
   const recordPath = path.join(review.dir, "review.json");
-  const outcome = await withFileLock(
-    path.join(review.dir, ".agent-sessions.lock"),
-    AGENT_SESSION_LOCK_OPTIONS,
-    async () => {
-      const current = parseStoredReviewRecord(
-        JSON.parse(await readFile(recordPath, "utf8")),
-      );
-      const freshHarness = parseFreshSourceSessionHarness(
-        current.sourceSession,
-      );
-      const boundSession = parseAuthoringSessionKey(current.sourceSession);
-      if (freshHarness && freshHarness !== session.harness) {
-        throw new Error(
-          `Review fresh-session harness ${freshHarness} does not match ${session.harness}.`,
+  const outcome = await withReviewMutationLock(review.dir, () =>
+    withFileLock(
+      path.join(review.dir, ".agent-sessions.lock"),
+      AGENT_SESSION_LOCK_OPTIONS,
+      async () => {
+        const current = parseStoredReviewRecord(
+          JSON.parse(await readFile(recordPath, "utf8")),
         );
-      }
-      if (
-        !freshHarness &&
-        (!boundSession || authoringSessionKey(boundSession) !== sessionKey)
-      ) {
-        throw new Error(
-          "Review is already bound to another authoring session.",
+        const freshHarness = parseFreshSourceSessionHarness(
+          current.sourceSession,
         );
-      }
-      const prior = current.agentSessions?.[sessionKey];
-      const roles = prior?.roles.includes("author")
-        ? prior.roles
-        : [...(prior?.roles ?? []), "author" as const];
-      const updated: StoredReviewRecord = {
-        ...current,
-        sourceSession: sessionKey,
-        agentSessions: {
-          ...current.agentSessions,
-          [sessionKey]: {
-            roles,
-            firstSeenAt: prior?.firstSeenAt ?? now,
-            lastSeenAt: now,
+        const boundSession = parseAuthoringSessionKey(current.sourceSession);
+        if (freshHarness && freshHarness !== session.harness) {
+          throw new Error(
+            `Review fresh-session harness ${freshHarness} does not match ${session.harness}.`,
+          );
+        }
+        if (
+          !freshHarness &&
+          (!boundSession || authoringSessionKey(boundSession) !== sessionKey)
+        ) {
+          throw new Error(
+            "Review is already bound to another authoring session.",
+          );
+        }
+        const prior = current.agentSessions?.[sessionKey];
+        const roles = prior?.roles.includes("author")
+          ? prior.roles
+          : [...(prior?.roles ?? []), "author" as const];
+        const updated: StoredReviewRecord = {
+          ...current,
+          sourceSession: sessionKey,
+          agentSessions: {
+            ...current.agentSessions,
+            [sessionKey]: {
+              roles,
+              firstSeenAt: prior?.firstSeenAt ?? now,
+              lastSeenAt: now,
+            },
           },
-        },
-      };
-      await writePrivateJsonAtomic(recordPath, updated);
-      return { dir: review.dir, review: updated };
-    },
+        };
+        await writePrivateJsonAtomic(recordPath, updated);
+        return { dir: review.dir, review: updated };
+      },
+    ),
   );
   if (!outcome.acquired) {
     throw new Error(
@@ -305,10 +313,30 @@ export async function sealReviewCandidate(
   dir: string,
   message: string,
 ): Promise<string> {
-  return reviewVcs.seal(dir, message);
+  return withReviewMutationLock(dir, () => reviewVcs.seal(dir, message));
 }
 
 export async function updateReviewPins(
+  review: StoredReview,
+  pins: Parameters<typeof updateReviewPinsLocked>[1],
+): Promise<StoredReview> {
+  return withReviewMutationLock(review.dir, async () => {
+    await assertReviewUnchanged(review.dir, review.review);
+    return updateReviewPinsLocked(
+      {
+        ...review,
+        review: parseStoredReviewRecord(
+          parseJsonText(
+            await readFile(path.join(review.dir, "review.json"), "utf8"),
+          ),
+        ),
+      },
+      pins,
+    );
+  });
+}
+
+async function updateReviewPinsLocked(
   review: StoredReview,
   pins: {
     baseRef: string;
@@ -644,6 +672,12 @@ export function parseStoredReviewRecordForMigration(
 ): StoredReviewRecord {
   if (!isJsonObject(value)) return parseStoredReviewRecord(value);
   const record = stripLegacySoftwareMap(value);
+  if (record.schemaVersion === 4) {
+    return StoredReviewRecordSchema.parse({
+      ...record,
+      schemaVersion: REVIEW_SCHEMA_VERSION,
+    });
+  }
   if (record.schemaVersion === 3) {
     const { agentSession, schemaVersion: _schemaVersion, ...current } = record;
     return StoredReviewRecordSchema.parse({

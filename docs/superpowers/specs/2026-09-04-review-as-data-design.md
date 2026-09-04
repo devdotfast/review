@@ -93,8 +93,8 @@ interface ReviewComponentNode {
   stable ids.
 - **Sections and anchor links** are components, because the existing
   `remark-review-sections` and `remark-review-anchor-links` plugins already
-  rewrite `##` headings to `ReviewSection` and `[label](anchors.key)` to
-  `AnchorLink`.
+  rewrite `##` headings to `ReviewSection` and links such as `[label]`
+  targeting `anchors.key` to `AnchorLink`.
 - **Lowercase JSX tags** in prose (`<b>`, `<br />`) are HTML in MDX and become
   hast elements. Only capitalized names are components.
 - `anchorContents` moves from the browser (`collectReviewAnchors`) to publish.

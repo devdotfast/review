@@ -126,7 +126,7 @@ import { IReviewExplorerPartsService } from "../explorer/reviewExplorerPart.js";
 import { ReviewCanvasEditorInput } from "./reviewCanvasEditorInput.js";
 import {
 	loadReviewDocumentModule,
-	loadReviewSoftwareMapModules,
+	loadReviewSoftwareMaps,
 } from "./reviewDocumentModule.js";
 
 interface ReviewCanvasAssetsModule extends ReviewCanvasModule {
@@ -1212,11 +1212,11 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			const softwareMapEnabled = this.currentSoftwareMapEnabled();
 			const softwareMap = softwareMapEnabled
 				? model.resolveSoftwareMap(
-						(activeSession, headModuleUrl, baseModuleUrl) =>
-							loadReviewSoftwareMapModules(
+						(activeSession, headMapUrl, baseMapUrl) =>
+							loadReviewSoftwareMaps(
 								activeSession,
-								headModuleUrl,
-								baseModuleUrl,
+								headMapUrl,
+								baseMapUrl,
 							),
 					)
 				: disabledSoftwareMap;
@@ -1525,7 +1525,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				),
 			);
 			const softwareMapPromise = timed("fetch + load software map", () =>
-				loadReviewSessionSoftwareMap(session, loadReviewSoftwareMapModules),
+				loadReviewSessionSoftwareMap(session, loadReviewSoftwareMaps),
 			);
 			comments = new ReviewCommentStore({
 				request: (endpoint, init) =>

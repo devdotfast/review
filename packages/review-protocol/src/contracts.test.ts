@@ -217,6 +217,16 @@ const contracts: Array<[string, ZodType, JsonObject]> = [
     },
   ],
   [
+    "desktop document authoring target event",
+    ReviewDesktopGlobalEventSchema,
+    {
+      event: "review-document-authoring-target-changed",
+      uuid: reviewRecord.uuid,
+      routePath: "/",
+      targetNodeId: "summary",
+    },
+  ],
+  [
     "desktop review deleted event",
     ReviewDesktopGlobalEventSchema,
     {

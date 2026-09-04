@@ -64,6 +64,11 @@ export type ReviewDocumentChangedEvent = Extract<
 	{ event: "review-document-changed" }
 >;
 
+export type ReviewDocumentAuthoringTargetChangedEvent = Extract<
+	ReviewDesktopGlobalEvent,
+	{ event: "review-document-authoring-target-changed" }
+>;
+
 export interface ReviewSessionClosedEvent {
 	readonly session: ReviewSessionDescriptor;
 	readonly review: ReviewDescriptor | undefined;
@@ -89,6 +94,9 @@ export interface IReviewSessionService {
 	readonly onDidChangeLists: Event<void>;
 	readonly onDidChangeReviewData: Event<ReviewDataChangedEvent>;
 	readonly onDidChangeReviewDocument: Event<ReviewDocumentChangedEvent>;
+	readonly onDidChangeReviewDocumentAuthoringTarget: Event<
+		ReviewDocumentAuthoringTargetChangedEvent
+	>;
 	readonly onDidCommitReviewThreads: Event<ReviewThreadsCommittedEvent>;
 	readonly onDidCloseSession: Event<ReviewSessionClosedEvent>;
 	readonly onDidRegisterSession: Event<ReviewSessionRegisteredEvent>;
@@ -157,6 +165,11 @@ export class ReviewSessionService
 	);
 	readonly onDidChangeReviewDocument =
 		this._onDidChangeReviewDocument.event;
+	private readonly _onDidChangeReviewDocumentAuthoringTarget = this._register(
+		new Emitter<ReviewDocumentAuthoringTargetChangedEvent>(),
+	);
+	readonly onDidChangeReviewDocumentAuthoringTarget =
+		this._onDidChangeReviewDocumentAuthoringTarget.event;
 	private readonly _onDidCommitReviewThreads = this._register(
 		new Emitter<ReviewThreadsCommittedEvent>(),
 	);
@@ -859,6 +872,10 @@ export class ReviewSessionService
 				}
 				if (event.event === "review-document-changed") {
 					this._onDidChangeReviewDocument.fire(event);
+					return;
+				}
+				if (event.event === "review-document-authoring-target-changed") {
+					this._onDidChangeReviewDocumentAuthoringTarget.fire(event);
 					return;
 				}
 				if (event.event === "session-registered") {

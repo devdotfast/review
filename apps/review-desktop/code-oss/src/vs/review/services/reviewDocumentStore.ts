@@ -17,6 +17,7 @@ export class ReviewDocumentStore
 	implements ReviewDocumentStoreBridge
 {
 	private readonly _onDidChange = this._register(new Emitter<void>());
+	private authoringTargetNodeId: string | null = null;
 
 	constructor(private snapshot: ReviewDocumentSnapshot) {
 		super();
@@ -24,6 +25,10 @@ export class ReviewDocumentStore
 
 	getSnapshot(): ReviewDocumentSnapshot {
 		return this.snapshot;
+	}
+
+	getAuthoringTargetNodeId(): string | null {
+		return this.authoringTargetNodeId;
 	}
 
 	subscribe(listener: () => void) {
@@ -51,6 +56,14 @@ export class ReviewDocumentStore
 					}),
 				}
 			: snapshot;
+		this._onDidChange.fire();
+	}
+
+	setAuthoringTargetNodeId(nodeId: string | null): void {
+		if (nodeId === this.authoringTargetNodeId) {
+			return;
+		}
+		this.authoringTargetNodeId = nodeId;
 		this._onDidChange.fire();
 	}
 }

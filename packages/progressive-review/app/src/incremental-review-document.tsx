@@ -4,9 +4,12 @@ import type {
   ReviewDocumentStoreBridge,
 } from "@dev.fast/review-protocol";
 import {
+  type CSSProperties,
   type ReactElement,
   memo,
   useCallback,
+  useEffect,
+  useRef,
   useSyncExternalStore,
 } from "react";
 
@@ -59,6 +62,22 @@ export function IncrementalReviewDocument({
     () => store.getSnapshot(),
     () => store.getSnapshot(),
   );
+  const authoringTargetNodeId = useSyncExternalStore(
+    subscribe,
+    () => store.getAuthoringTargetNodeId(),
+    () => store.getAuthoringTargetNodeId(),
+  );
+  const previousNodeIds = useRef<ReadonlySet<string> | null>(null);
+  const enteringNodeIds = new Set(
+    previousNodeIds.current
+      ? (snapshot.nodes ?? [])
+          .filter((node) => !previousNodeIds.current?.has(node.id))
+          .map((node) => node.id)
+      : [],
+  );
+  useEffect(() => {
+    previousNodeIds.current = new Set(snapshot.nodes?.map((node) => node.id));
+  }, [snapshot.nodes, snapshot.revision]);
   if (snapshot.mode !== "incremental" || !snapshot.nodes) {
     throw new Error("The incremental renderer received a compiled document.");
   }
@@ -68,7 +87,12 @@ export function IncrementalReviewDocument({
       data-review-document-revision={snapshot.revision}
     >
       {snapshot.nodes.map((node) => (
-        <IncrementalReviewNode key={node.id} node={node} />
+        <IncrementalReviewNode
+          key={node.id}
+          node={node}
+          isAuthoring={authoringTargetNodeId === node.id}
+          isEntering={enteringNodeIds.has(node.id)}
+        />
       ))}
     </div>
   );
@@ -76,14 +100,28 @@ export function IncrementalReviewDocument({
 
 const IncrementalReviewNode = memo(function IncrementalReviewNode({
   node,
+  isAuthoring,
+  isEntering,
 }: {
   node: ReviewDocumentNode;
+  isAuthoring: boolean;
+  isEntering: boolean;
 }): ReactElement {
+  const className = [
+    "review-incremental-node",
+    `review-incremental-node--${node.kind}`,
+    isAuthoring ? "review-incremental-node--authoring-active" : undefined,
+    isEntering ? "review-incremental-node--entering" : undefined,
+  ]
+    .filter(Boolean)
+    .join(" ");
   return (
     <section
-      className={`review-incremental-node review-incremental-node--${node.kind}`}
+      className={className}
       data-review-node-id={node.id}
+      {...(isAuthoring ? { "data-review-authoring-target": "true" } : {})}
     >
+      {isAuthoring ? <AuthoringSparkles /> : null}
       {node.kind === "code" ? (
         <RenderedCodeBlock
           className="markdown-code-block"
@@ -110,6 +148,30 @@ const IncrementalReviewNode = memo(function IncrementalReviewNode({
     </section>
   );
 });
+
+const AUTHORING_SPARKLE_COUNT = 28;
+
+function AuthoringSparkles(): ReactElement {
+  return (
+    <span
+      className="review-incremental-node__authoring-sparkles"
+      aria-hidden="true"
+    >
+      {Array.from({ length: AUTHORING_SPARKLE_COUNT }, (_, index) => (
+        <i
+          key={index}
+          style={
+            // SAFETY: React accepts custom CSS properties at runtime; the
+            // standard CSSProperties type does not model their names.
+            {
+              "--review-sparkle-index": index,
+            } as CSSProperties
+          }
+        />
+      ))}
+    </span>
+  );
+}
 
 function incrementalDocumentTitle(snapshot: ReviewDocumentSnapshot): string {
   for (const node of snapshot.nodes ?? []) {

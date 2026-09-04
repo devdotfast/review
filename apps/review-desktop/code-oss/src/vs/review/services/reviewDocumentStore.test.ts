@@ -42,6 +42,29 @@ test("keeps unchanged node identities and ignores stale snapshots", () => {
 	store.dispose();
 });
 
+test("publishes ephemeral authoring target changes without changing revisions", () => {
+	const store = new ReviewDocumentStore(
+		snapshot(1, [{ id: "overview", kind: "markdown", content: "Overview" }]),
+	);
+	let changes = 0;
+	store.subscribe(() => {
+		changes += 1;
+	});
+
+	store.setAuthoringTargetNodeId("overview");
+	assert.equal(store.getAuthoringTargetNodeId(), "overview");
+	assert.equal(store.getSnapshot().revision, 1);
+	assert.equal(changes, 1);
+
+	store.setAuthoringTargetNodeId("overview");
+	assert.equal(changes, 1);
+
+	store.setAuthoringTargetNodeId(null);
+	assert.equal(store.getAuthoringTargetNodeId(), null);
+	assert.equal(changes, 2);
+	store.dispose();
+});
+
 function snapshot(
 	revision: number,
 	nodes: NonNullable<ReviewDocumentSnapshot["nodes"]>,

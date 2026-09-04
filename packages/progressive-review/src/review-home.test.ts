@@ -24,6 +24,7 @@ import {
   computeSync,
   createReviewDir,
   findReview,
+  findReviewForRecovery,
   listReviews,
   parseStoredReviewRecord,
   reviewDescriptor,
@@ -36,6 +37,82 @@ import { appendReviewComment, readReviewComments } from "./review-state-store";
 const execFilePromise = promisify(execFile);
 
 describe("review home", () => {
+  it.each([2, 3, 4])(
+    "lists schema %s recovery alongside its blocker without changing bytes",
+    async (schemaVersion) => {
+      const root = await makeGitRepository();
+      const home = await mkdtemp(
+        path.join(os.tmpdir(), "review-home-recovery-"),
+      );
+      vi.stubEnv("DEV_REVIEW_HOME", home);
+      try {
+        const created = await createReviewDir({
+          worktreePath: root,
+          baseRef: "main",
+          baseCommit: await git(root, ["rev-parse", "HEAD"]),
+        });
+        const {
+          sourceSession,
+          presentedDocumentRevision: _document,
+          presentedSoftwareMapRevision: _map,
+          ...common
+        } = created.review;
+        const legacy = {
+          ...common,
+          schemaVersion,
+          status: "accepted",
+          dismissedAt: "2026-01-01T00:00:00Z",
+          ...(schemaVersion === 4
+            ? { sourceSession }
+            : { agentSession: sourceSession }),
+          ...(schemaVersion === 2
+            ? { presentedRevision: "a".repeat(40) }
+            : {
+                presentedDocumentRevision: "a".repeat(40),
+                presentedSoftwareMapRevision: null,
+              }),
+        };
+        const recordPath = path.join(created.dir, "review.json");
+        const bytes = JSON.stringify(legacy);
+        await writeFile(recordPath, bytes);
+        const listed = await listReviews({ includeRecovery: true });
+        expect(listed.errors).toHaveLength(1);
+        expect(listed.errors[0]?.code).toBe("MIGRATION_REQUIRED");
+        expect(listed.reviews).toHaveLength(1);
+        const recovery = await findReviewForRecovery(created.review.uuid);
+        expect(recovery).toMatchObject({
+          recovery: true,
+          review: {
+            status: "accepted",
+            presentedDocumentRevision: "a".repeat(40),
+          },
+        });
+        expect(await reviewDescriptor(recovery!)).toMatchObject({
+          recovery: true,
+          available: true,
+          reapsAt: null,
+        });
+        await expect(findReview(created.review.uuid)).rejects.toThrow(
+          "Could not read reviews",
+        );
+        expect(await readFile(recordPath, "utf8")).toBe(bytes);
+        await writeFile(
+          recordPath,
+          JSON.stringify({ ...legacy, baseCommit: 42 }),
+        );
+        expect(
+          (await listReviews({ includeRecovery: true })).reviews,
+        ).toHaveLength(0);
+        await expect(
+          findReviewForRecovery(created.review.uuid),
+        ).rejects.toThrow("Could not read reviews");
+      } finally {
+        vi.unstubAllEnvs();
+        await rm(home, { recursive: true, force: true });
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
   it("atomically replaces a fresh marker with the durable author session", async () => {
     const root = await makeGitRepository();
     const home = await mkdtemp(path.join(os.tmpdir(), "review-home-"));

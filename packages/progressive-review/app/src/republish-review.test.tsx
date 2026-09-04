@@ -34,6 +34,19 @@ afterEach(async () => {
 });
 
 describe("RepublishReview", () => {
+  it("explains legacy recovery without offering publication commands", async () => {
+    await act(async () =>
+      root.render(
+        <RepublishReview reviewUuid={reviewUuid} mapStale recovery />,
+      ),
+    );
+    expect(container.textContent).toContain("Review recovery");
+    expect(container.textContent).toContain(
+      "published software map also needs recovery",
+    );
+    expect(container.querySelector("button")).toBeNull();
+    expect(container.textContent).not.toContain("review publish");
+  });
   it.each([false, true])(
     "copies the exact commands and prompt with mapStale=%s",
     async (mapStale) => {

@@ -1,11 +1,22 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { afterEach, describe, expect, it } from "vitest";
+import type { JsonObject } from "@dev.fast/review-protocol";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import {
+  bundleReviewDocument,
+  writeReviewDocumentBundle,
+} from "../review-bundle";
 import { reviewTitleFromDocument } from "../review-home";
+import { appendReviewComment } from "../review-state-store";
+import {
+  closeAllReviewThreadStores,
+  createReviewThreadDb,
+} from "../review-thread-store-backend";
+import { reviewVcs } from "../review-vcs";
 import {
   type ReviewAgentSessionSource,
   createGlobalReviewServer,
@@ -86,6 +97,170 @@ describe("reviewAgentKind", () => {
 });
 
 describe("Review Desktop open requests", () => {
+  it("opens legacy current and historical presentations without changing stored records, threads or refs", async () => {
+    directory = await mkdtemp(path.join(tmpdir(), "review-recovery-server-"));
+    vi.stubEnv("DEV_REVIEW_HOME", directory);
+    const uuid = "11111111-1111-4111-8111-111111111111";
+    const dir = path.join(directory, "reviews", uuid);
+    await mkdir(dir, { recursive: true });
+    await reviewVcs.init(dir);
+    const record = {
+      schemaVersion: 4,
+      uuid,
+      repoKey: "repo",
+      worktreePath: path.join(directory, "missing-source"),
+      baseRef: "main",
+      baseCommit: "a".repeat(40),
+      sourceCommit: "b".repeat(40),
+      sourceIdentity: null,
+      title: "Recovery",
+      sourceSession: "disabled:review",
+      status: "accepted",
+      presentedDocumentRevision: null,
+      presentedSoftwareMapRevision: null,
+      createdAt: "2026-09-01T00:00:00Z",
+      lastPublishedAt: "2026-09-01T00:00:00Z",
+      dismissedAt: "2026-01-01T00:00:00Z",
+    };
+    await writeFile(path.join(dir, "review.mdx"), "# Recovery");
+    await writeFile(path.join(dir, ".gitignore"), ".build/\nreview.db*\n");
+    await writeFile(path.join(dir, "review.json"), JSON.stringify(record));
+    const oldRevision = await reviewVcs.seal(dir, "Review publish candidate");
+    await writeReviewDocumentBundle(
+      dir,
+      bundleReviewDocument({
+        format: "review-document/1",
+        title: "Recovery",
+        routePath: "/",
+        sourcePath: "review.mdx",
+        body: [],
+        anchors: {},
+        anchorContents: {},
+        softwareModels: [],
+      }),
+    );
+    const historicalJsonRevision = await reviewVcs.seal(
+      dir,
+      "Review publish candidate",
+    );
+    await writeFile(
+      path.join(dir, "review.mdx"),
+      "# Recovery\n\nCurrent revision",
+    );
+    const currentRevision = await reviewVcs.seal(
+      dir,
+      "Review publish candidate",
+    );
+    await writeFile(
+      path.join(dir, "review.json"),
+      JSON.stringify({ ...record, presentedDocumentRevision: currentRevision }),
+    );
+    createReviewThreadDb(dir);
+    appendReviewComment(path.join(dir, "review.mdx"), {
+      threadId: "recovery-thread",
+      messageId: "recovery-message",
+      target: { kind: "document" },
+      body: "Keep this thread",
+      author: "Reviewer",
+    });
+    closeAllReviewThreadStores();
+    const files = [
+      "review.json",
+      "review.mdx",
+      "review.db",
+      ".git/refs/heads/main",
+    ];
+    const before = await Promise.all(
+      files.map((file) => readFile(path.join(dir, file))),
+    );
+    const token = "recovery-secret";
+    const server = createGlobalReviewServer({
+      appPid: process.pid,
+      packageRoot,
+      toolingRoot: packageRoot,
+      port: 0,
+      token,
+      discoveryPath: path.join(directory, "desktop.json"),
+    });
+    try {
+      await server.listen();
+      const request = (route: string, body?: JsonObject) =>
+        fetch(`${server.url}${route}`, {
+          method: body ? "POST" : "GET",
+          headers: {
+            "x-review-token": token,
+            "content-type": "application/json",
+          },
+          body: body ? JSON.stringify(body) : undefined,
+        });
+      const listed = await (await request("/reviews")).json();
+      expect(listed.reviews).toHaveLength(1);
+      expect(listed.reviews[0]).toMatchObject({
+        recovery: true,
+        status: "accepted",
+        available: true,
+        sourceUnavailable: "The pinned source commits are unavailable.",
+      });
+      expect(listed.errors).toHaveLength(1);
+      const current = await request(`/reviews/${uuid}/open`, {});
+      expect(current.status).toBe(201);
+      const opened = await current.json();
+      expect(opened.review.sourceUnavailable).toContain(
+        "pinned source commits are unavailable",
+      );
+      const prefix = `/sessions/${opened.sessionId}/__progressive-review`;
+      expect((await request(`${prefix}/document`)).status).toBe(200);
+      const comments = await request(`${prefix}/comments`);
+      expect(comments.status).toBe(200);
+      expect(
+        (await comments.json()).snapshot.comments["recovery-thread"].messages,
+      ).toHaveLength(1);
+      const diff = await request(`${prefix}/diff-files`, {});
+      expect(await diff.json()).toMatchObject({
+        ok: false,
+        error: expect.stringContaining("pinned source commits are unavailable"),
+      });
+      expect((await request(`${prefix}/dismiss`, {})).status).toBe(409);
+      const historical = await request(`/reviews/${uuid}/open`, {
+        revision: oldRevision,
+      });
+      expect(historical.status).toBe(201);
+      const old = await historical.json();
+      expect(
+        await (
+          await request(
+            `/sessions/${old.sessionId}/__progressive-review/document`,
+          )
+        ).json(),
+      ).toMatchObject({
+        code: "historical_revision_unavailable",
+        error: "This older revision is unavailable in this version of Review",
+        reviewUuid: uuid,
+      });
+      const historicalJson = await request(`/reviews/${uuid}/open`, {
+        revision: historicalJsonRevision,
+      });
+      expect(historicalJson.status).toBe(201);
+      const jsonVersion = await historicalJson.json();
+      expect(jsonVersion.session.historicalRevision).toBe(
+        historicalJsonRevision,
+      );
+      expect(
+        (
+          await request(
+            `/sessions/${jsonVersion.sessionId}/__progressive-review/document`,
+          )
+        ).status,
+      ).toBe(200);
+      const after = await Promise.all(
+        files.map((file) => readFile(path.join(dir, file))),
+      );
+      expect(after).toEqual(before);
+    } finally {
+      await server.close();
+      vi.unstubAllEnvs();
+    }
+  });
   it("rejects an unknown Review view before opening a session", async () => {
     directory = await mkdtemp(path.join(tmpdir(), "review-view-server-"));
     const token = "review-view-test-token";

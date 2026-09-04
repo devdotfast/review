@@ -43,7 +43,7 @@ import {
   TerminalIcon,
   ThreadsIcon,
 } from "./icons";
-import { RepublishReview } from "./republish-review";
+import { RepublishReview, ReviewRecovery } from "./republish-review";
 import { ReviewPanelHost } from "./review-components";
 import {
   ReviewProvider,
@@ -148,15 +148,20 @@ export interface PublishedSoftwareMap {
 export type ReviewDocumentAppState =
   | { state: "loading" }
   | { state: "ready"; document: ReadyReviewDocumentEntry }
-  | { state: "needs-republish"; reviewUuid: string; mapStale: boolean }
-  | { state: "unavailable"; message: string };
+  | {
+      state: "needs-republish";
+      reviewUuid: string;
+      mapStale: boolean;
+      recovery?: boolean;
+    }
+  | { state: "unavailable"; message: string; currentReviewUuid?: string };
 
 export type ReviewSoftwareMapAppState =
   | { state: "loading" }
   | { state: "ready"; softwareMap: PublishedSoftwareMap }
   | { state: "absent" }
-  | { state: "needs-republish"; reviewUuid: string }
-  | { state: "unavailable"; message: string };
+  | { state: "needs-republish"; reviewUuid: string; recovery?: boolean }
+  | { state: "unavailable"; message: string; currentReviewUuid?: string };
 
 function ReviewDocumentApp({
   documentState,
@@ -720,10 +725,15 @@ function ReviewLayoutContent({
                   {softwareMapState.state === "loading" ? (
                     <MapLoadState message="Loading software map…" />
                   ) : softwareMapState.state === "needs-republish" ? (
-                    <MapLoadState message="This software map must be republished." />
+                    softwareMapState.recovery ? (
+                      <ReviewRecovery mapStale />
+                    ) : (
+                      <MapLoadState message="This software map must be republished." />
+                    )
                   ) : softwareMapState.state === "unavailable" ? (
                     <MapLoadState
                       message={`Software map unavailable: ${softwareMapState.message}`}
+                      currentReviewUuid={softwareMapState.currentReviewUuid}
                       alert
                     />
                   ) : (
@@ -821,6 +831,7 @@ function ReviewDocumentLoadState({
       <RepublishReview
         reviewUuid={state.reviewUuid}
         mapStale={state.mapStale}
+        recovery={state.recovery}
       />
     );
   }
@@ -828,6 +839,9 @@ function ReviewDocumentLoadState({
     <div className="review-document-load-state" role="alert">
       <h2>Review unavailable</h2>
       <p>{state.message}</p>
+      {state.currentReviewUuid ? (
+        <OpenCurrentReview reviewUuid={state.currentReviewUuid} />
+      ) : null}
     </div>
   );
 }
@@ -835,9 +849,11 @@ function ReviewDocumentLoadState({
 function MapLoadState({
   message,
   alert = false,
+  currentReviewUuid,
 }: {
   message: string;
   alert?: boolean;
+  currentReviewUuid?: string;
 }): ReactElement {
   return (
     <div
@@ -845,7 +861,31 @@ function MapLoadState({
       role={alert ? "alert" : "status"}
     >
       {message}
+      {currentReviewUuid ? (
+        <OpenCurrentReview reviewUuid={currentReviewUuid} />
+      ) : null}
     </div>
+  );
+}
+
+function OpenCurrentReview({
+  reviewUuid,
+}: {
+  reviewUuid: string;
+}): ReactElement {
+  const session = useReviewSession();
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        void session.surface.post({
+          name: "openReview",
+          args: { reviewUuid, active: true },
+        })
+      }
+    >
+      Open current review
+    </button>
   );
 }
 

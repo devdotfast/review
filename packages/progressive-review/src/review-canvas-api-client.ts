@@ -2,6 +2,10 @@ import {
   type JsonObject,
   type JsonValue,
   type ReviewDesktopDiscovery,
+  type ReviewDocumentFileName,
+  type ReviewDocumentFileResponse,
+  ReviewDocumentFileResponseSchema,
+  type ReviewDocumentFileWrite,
   type ReviewDocumentMutationRequest,
   type ReviewDocumentMutationResponse,
   ReviewDocumentMutationResponseSchema,
@@ -20,6 +24,15 @@ import {
 import { requireHealthyReviewDesktop } from "./desktop-discovery";
 
 export interface ReviewCanvasApi {
+  getDocumentFile(
+    reviewId: string,
+    name: ReviewDocumentFileName,
+  ): Promise<ReviewDocumentFileResponse>;
+  writeDocumentFile(
+    reviewId: string,
+    name: ReviewDocumentFileName,
+    request: ReviewDocumentFileWrite,
+  ): Promise<ReviewDocumentFileResponse>;
   getDocument(reviewId: string): Promise<ReviewDocumentSnapshotResponse>;
   mutateDocument(
     reviewId: string,
@@ -50,6 +63,30 @@ export class ReviewCanvasApiClient implements ReviewCanvasApi {
 
   constructor(private readonly options: ReviewCanvasApiClientOptions = {}) {
     this.fetch = options.fetch ?? globalThis.fetch;
+  }
+
+  async getDocumentFile(
+    reviewId: string,
+    name: ReviewDocumentFileName,
+  ): Promise<ReviewDocumentFileResponse> {
+    return ReviewDocumentFileResponseSchema.parse(
+      await this.request(
+        `/reviews/${encodeURIComponent(reviewId)}/document/files/${encodeURIComponent(name)}`,
+      ),
+    );
+  }
+
+  async writeDocumentFile(
+    reviewId: string,
+    name: ReviewDocumentFileName,
+    request: ReviewDocumentFileWrite,
+  ): Promise<ReviewDocumentFileResponse> {
+    return ReviewDocumentFileResponseSchema.parse(
+      await this.request(
+        `/reviews/${encodeURIComponent(reviewId)}/document/files/${encodeURIComponent(name)}`,
+        request,
+      ),
+    );
   }
 
   async getDocument(reviewId: string): Promise<ReviewDocumentSnapshotResponse> {

@@ -28,6 +28,65 @@ afterEach(async () => {
 });
 
 describe("Review Desktop document and comment API", () => {
+  it("authors rich MDX and imported data through hash-checked API writes", async () => {
+    const { client, reviewId, server } = await setupServer();
+    try {
+      const missing = await client.getDocumentFile(reviewId, "data.ts");
+      expect(missing).toEqual({
+        ok: true,
+        file: { name: "data.ts", source: null, sourceHash: null },
+      });
+      const data = "export const title = 'Rich document';\n";
+      const created = await client.writeDocumentFile(reviewId, "data.ts", {
+        source: data,
+        expectedSourceHash: null,
+      });
+      expect(await client.getDocumentFile(reviewId, "data.ts")).toEqual(
+        created,
+      );
+      // Retrying a successful write after losing its response does not conflict.
+      expect(
+        await client.writeDocumentFile(reviewId, "data.ts", {
+          source: data,
+          expectedSourceHash: null,
+        }),
+      ).toEqual(created);
+      const initial = await client.getDocumentFile(reviewId, "review.mdx");
+      if (!initial.ok) throw new Error(initial.error);
+      const source =
+        'import { title } from "./data.ts";\n\n# {title}\n\n<AnchorLink anchor={anchors.example}>Evidence</AnchorLink>\n\n<CodePeek anchor={anchors.example} />\n';
+      const request = { source, expectedSourceHash: initial.file.sourceHash };
+      const written = await client.writeDocumentFile(
+        reviewId,
+        "review.mdx",
+        request,
+      );
+      expect(written).toMatchObject({ ok: true, file: { source } });
+      expect(await client.getDocument(reviewId)).toMatchObject({
+        ok: true,
+        snapshot: { mode: "compiled", source },
+      });
+      await expect(
+        client.writeDocumentFile(reviewId, "review.mdx", {
+          ...request,
+          source: "# Stale overwrite",
+        }),
+      ).rejects.toMatchObject({ statusCode: 409 });
+      // The allowlist is enforced by the server, not just TypeScript callers.
+      const unknown = await fetch(
+        `${server.url}/reviews/${reviewId}/document/files/review.json`,
+        { headers: { "x-review-token": "review-api-token" } },
+      );
+      expect(unknown.status).toBe(404);
+      const unauthenticated = await fetch(
+        `${server.url}/reviews/${reviewId}/document/files/review.mdx`,
+      );
+      expect(unauthenticated.status).toBe(401);
+    } finally {
+      await server.close();
+    }
+  });
+
   it("updates the MDX document incrementally and rejects stale revisions", async () => {
     const { client, reviewId, server } = await setupServer();
     try {
@@ -51,6 +110,13 @@ describe("Review Desktop document and comment API", () => {
         ok: true,
         snapshot: { revision: 1, nodes: [{ id: "intro" }] },
       });
+
+      await expect(
+        client.writeDocumentFile(reviewId, "review.mdx", {
+          source: "# Bypass nodes",
+          expectedSourceHash: replaced.ok ? replaced.snapshot.sourceHash : null,
+        }),
+      ).rejects.toMatchObject({ statusCode: 409 });
 
       await expect(
         client.mutateDocument(reviewId, {

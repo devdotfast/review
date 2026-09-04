@@ -11,6 +11,55 @@ import type { ReviewCanvasApi } from "./review-canvas-api-client";
 import { runReviewMcp } from "./review-mcp";
 
 describe("Review MCP server", () => {
+  it("routes rich MDX input reads and writes through the API", async () => {
+    const api = fakeApi();
+    const reviewId = "11111111-1111-4111-8111-111111111111";
+    const source = "export const title = 'From MCP';";
+    const output = await exchange(api, [
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "review_get_document_file",
+          arguments: { reviewId, name: "data.ts" },
+        },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "review_write_document_file",
+          arguments: {
+            reviewId,
+            name: "data.ts",
+            source,
+            expectedSourceHash: null,
+          },
+        },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: {
+          name: "review_write_document_file",
+          arguments: { reviewId, name: "data.ts", source },
+        },
+      },
+    ]);
+    expect(api.getDocumentFile).toHaveBeenCalledWith(reviewId, "data.ts");
+    expect(api.writeDocumentFile).toHaveBeenCalledExactlyOnceWith(
+      reviewId,
+      "data.ts",
+      { source, expectedSourceHash: null },
+    );
+    expect(output[1]).toMatchObject({
+      result: { structuredContent: { ok: true, file: { source } } },
+    });
+    expect(output[2]).toMatchObject({ result: { isError: true } });
+  });
   it("negotiates and exposes explicit Review canvas tools", async () => {
     const output = await exchange(fakeApi(), [
       { jsonrpc: "2.0", id: 1, method: "initialize", params: {} },
@@ -151,6 +200,18 @@ function fakeApi(): ReviewCanvasApi {
     },
   }));
   return {
+    getDocumentFile: vi.fn<ReviewCanvasApi["getDocumentFile"]>(
+      async (_reviewId, name) => ({
+        ok: true as const,
+        file: { name, source: null, sourceHash: null },
+      }),
+    ),
+    writeDocumentFile: vi.fn<ReviewCanvasApi["writeDocumentFile"]>(
+      async (_reviewId, name, request) => ({
+        ok: true as const,
+        file: { name, source: request.source, sourceHash: "new-hash" },
+      }),
+    ),
     getDocument,
     mutateDocument,
     getComments,

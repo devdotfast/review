@@ -158,6 +158,12 @@ async function makeReview(): Promise<{
       author: "Reviewer",
     });
   const api: ReviewCanvasApi = {
+    getDocumentFile: async () => {
+      throw new Error("Not used by thread CLI tests.");
+    },
+    writeDocumentFile: async () => {
+      throw new Error("Not used by thread CLI tests.");
+    },
     getComments: async () => ({ ok: true, snapshot: threads().snapshot() }),
     command: async (_reviewId, command) => {
       const commit = threads().dispatch(command);

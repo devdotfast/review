@@ -10227,17 +10227,17 @@ a.review-doc-meta-pr:hover {
 .review-incremental-node__authoring-sparkles {
   position: absolute;
   z-index: 2;
-  top: -29px;
-  left: 10px;
+  top: 4px;
+  left: -59px;
   display: grid;
-  grid-template-columns: repeat(14, 7px);
-  grid-template-rows: repeat(2, 7px);
+  grid-template-columns: repeat(4, 7px);
+  grid-template-rows: repeat(7, 7px);
   gap: 4px 5px;
-  width: 163px;
-  height: 18px;
+  width: 43px;
+  height: 73px;
   pointer-events: none;
   mask-image: linear-gradient(
-    90deg,
+    180deg,
     transparent,
     #000 9%,
     #000 91%,

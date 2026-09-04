@@ -81,6 +81,39 @@ describe("publish range evaluation", () => {
     ]);
   });
 
+  it("rejects a code peek anchored on an in-root symlink that escapes the pinned worktree", async () => {
+    const reviewDir = fixtureDir("review");
+    const head = sourceFixture("head line");
+    // Plant a real out-of-root secret and an in-root symlink to it inside the
+    // head worktree. The publish flow's resolveCodePeek must propagate the
+    // resolver's containment rejection and must not surface the out-of-root
+    // bytes anywhere in the result.
+    const outside = fixtureDir("outside");
+    const secret = "REVIEWER-HOST-SECRET";
+    fs.writeFileSync(path.join(outside, "secret.txt"), secret);
+    fs.symlinkSync(
+      path.join(outside, "secret.txt"),
+      path.join(head, "src", "escape.link"),
+    );
+
+    const result = await evaluateReviewDocumentBundleForPublish({
+      reviewDir,
+      bundleCode: bundleWithAnchors(`
+        escape: {
+          title: "Escape",
+          peek: { file: "src/escape.link", fromLine: 1, toLine: 1 },
+        },
+      `),
+      prepareEvidence: async () => ({ head: { sourceRootPath: head } }),
+    });
+
+    expect(result.errors).toEqual([
+      expect.stringContaining("inside the review root"),
+    ]);
+    expect(result.errors.some((e) => e.includes(secret))).toBe(false);
+    expect(JSON.stringify(result)).not.toContain(secret);
+  });
+
   it("does not prepare a worktree when the document has no peeks", async () => {
     const prepareEvidence =
       vi.fn<() => Promise<ReviewPublishEvidenceTargets>>();

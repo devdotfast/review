@@ -284,12 +284,15 @@ export function auditReviewDocumentComponent(input: {
     return;
   }
 
+  const visited = new WeakSet<PublishAuditElement>();
   const walk = (
     node: PublishAuditNode,
     parentName: AuthoringComponentName | null,
   ) => {
     for (const child of flattenChildren(node)) {
       if (!isAuditElement(child)) continue;
+      if (visited.has(child)) continue;
+      visited.add(child);
       const name = componentNames.get(child.type) ?? null;
       if (name) {
         auditElement(

@@ -191,26 +191,30 @@ is settled in the plan.
 
 ## 6. Software map as data
 
-The map is authored as `software-map.ts` and published with `review map
-publish`, which stores the source in git notes. The server bundles the note
-for the pinned head and base refs at session time and the browser executes
-`defineSoftwareMap`. This is the same "code in the app" shape and it depends on
-the runtime chunk this design deletes, so it is in scope.
+The map is authored as `software-map.ts` and stored in git notes by
+`review map publish`, which also materializes a per-review bundle in
+`.bundle/software-map/` (`head-map.js`, `base-map.js`, `manifest.json`;
+`src/software-map-bundle.ts`). The server serves those files and the browser
+executes `defineSoftwareMap`. This is the same "code in the app" shape and it
+depends on the runtime chunk this design deletes, so it is in scope. The notes
+format does not change.
 
-- `review map publish` evaluates `software-map.ts` in Node the same way as
-  `data.ts`: native import, resolve hook mapping
-  `@dev.fast/progressive-review/software-map-model` to the built model module.
-  It stores the normalized model as JSON in the note alongside the source.
-  `elementsByPath` is not stored; the app rebuilds it from `elements`.
+- `review map publish` evaluates the head and base `software-map.ts` sources in
+  Node the same way as `data.ts`: native import, resolve hook mapping
+  `@dev.fast/progressive-review/software-map-model` to the built model module,
+  version-stamped URLs. It writes `head-map.json` and `base-map.json` with a
+  version-2 manifest. `elementsByPath` is not stored; the app rebuilds it from
+  `elements`.
 - The stored shape is `{ format: "software-map/1", elements, relationships }`
   with its zod schema in `review-protocol`. The tolerant-model materialization
   path exists to keep old snapshots rendering after schema tightening; stored
   normalized JSON makes that unnecessary and it is deleted.
-- The server serves `/software-map-modules/{head,base}-<hash>.json` from the
-  note's JSON. A note with source but no JSON, from an older publish, is
-  treated as no map, and the Map tab shows the existing "author one with
-  `review map`" guidance.
-- The server process no longer runs esbuild or executes authored code.
+- The server serves `/software-map-modules/{head,base}-<hash>.json` as JSON.
+- A review whose map bundle is version 1 or missing renders the Map tab's
+  existing "author one with `review map`" guidance; the republish state in
+  section 7 adds the `review map publish` command when the map bundle is
+  stale.
+- The server process no longer bundles or executes authored code.
 
 ## 7. Republish state
 
@@ -225,6 +229,9 @@ state in place of the document:
   ```
   review publish --review <uuid>
   ```
+
+  When the map bundle is stale too, a second line follows with
+  `review map publish --review <uuid>` and its own copy button.
 
 - A primary button, "Copy prompt", next to the command's copy button. The
   prompt is one paragraph for an agent: republish review `<uuid>` with the

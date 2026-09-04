@@ -9,6 +9,7 @@ import type {
 } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { serializeIncrementalReviewDocument } from "../incremental-review-document";
 import type { PostHogCaptureInput } from "../posthog-capture-client";
 import {
   ProgressiveReviewTelemetry,
@@ -258,6 +259,58 @@ describe("createReviewSessionHandler", () => {
 
       expect(response.status).toBe(200);
       expect(await response.json()).toMatchObject({ ok: true });
+    } finally {
+      await handler.close();
+    }
+  });
+
+  it("serves an incremental snapshot from the session revision", async () => {
+    rootPath = await mkdtemp(path.join(tmpdir(), "review-session-handler-"));
+    const reviewPath = path.join(rootPath, "review.mdx");
+    const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
+    const token = "session-secret";
+    const reviewUuid = "86df96ed-65ef-46de-9348-c94811e3bb46";
+    await writeFile(
+      reviewPath,
+      serializeIncrementalReviewDocument(3, [
+        { id: "summary", kind: "markdown", content: "# Safe snapshot" },
+      ]),
+      "utf8",
+    );
+    const handler = await createReviewSessionHandler({
+      ...unusedAgentServices,
+      rootPath,
+      toolingRoot: rootPath,
+      reviewPath,
+      reviewUuid,
+      routePath: "/",
+      token,
+      session: {
+        rootPath,
+        baseRef: "HEAD",
+        appUrl: sessionUrl,
+        reviewPath,
+        startedAt: Date.now(),
+      },
+    });
+
+    try {
+      const response = await handler.handle(
+        new Request(new URL("/__progressive-review/document", sessionUrl), {
+          headers: { "x-review-token": token },
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        ok: true,
+        snapshot: {
+          reviewId: reviewUuid,
+          mode: "incremental",
+          revision: 3,
+          nodes: [{ id: "summary", content: "# Safe snapshot" }],
+        },
+      });
     } finally {
       await handler.close();
     }

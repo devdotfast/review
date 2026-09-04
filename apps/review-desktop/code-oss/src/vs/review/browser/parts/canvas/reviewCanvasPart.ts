@@ -115,7 +115,7 @@ import { IReviewSessionService } from "../../../services/reviewSessionService.js
 import { ReviewCommentStore } from "../../../services/reviewCommentStore.js";
 import {
 	IReviewSessionModelService,
-	loadReviewSessionDocument,
+	loadReviewSessionCanvasDocument,
 	loadReviewSessionSoftwareMap,
 	type ReviewDesktopSession,
 	type ReviewSessionModel,
@@ -1498,7 +1498,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		try {
 			const assets = await this.loadAssets();
 			const session = await this.resolveValidationSession(sessionId);
-			const documentPromise = loadReviewSessionDocument(
+			const documentPromise = loadReviewSessionCanvasDocument(
 				session,
 				(draftSession, moduleUrl) =>
 					loadReviewDocumentModule(

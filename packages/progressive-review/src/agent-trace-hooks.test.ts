@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   installClaudeTraceHook,
   installCodexTraceHook,
+  installOpenCodeTraceExtension,
   installPiTraceExtension,
   removeAgentTraceHook,
 } from "./agent-trace-hooks";
@@ -139,6 +140,50 @@ command = "review trace hook SessionEnd"
 
     const second = await installPiTraceExtension(homeDir);
     expect(second.modified).toBe(false);
+  });
+
+  it("installs the OpenCode trace plugin in ~/.config/opencode/plugins/review-trace.ts idempotently", async () => {
+    const homeDir = await makeTempHome();
+
+    const first = await installOpenCodeTraceExtension(homeDir, "/opt/review");
+    expect(first.modified).toBe(true);
+    expect(first.path).toBe(
+      path.join(homeDir, ".config", "opencode", "plugins", "review-trace.ts"),
+    );
+
+    const content = await readFile(first.path, "utf8");
+    expect(content).toContain("session.created");
+    expect(content).toContain("message.updated");
+    expect(content).toContain("session.idle");
+    expect(content).toContain('runTraceHook("SessionStart"');
+    expect(content).toContain('"UserPromptSubmit"');
+    expect(content).toContain('"SessionEnd"');
+    expect(content).toContain(
+      'spawn("/opt/review", ["trace", "hook", eventName]',
+    );
+
+    const second = await installOpenCodeTraceExtension(homeDir, "/opt/review");
+    expect(second.modified).toBe(false);
+
+    expect(await removeAgentTraceHook("opencode", homeDir)).toBe(true);
+    expect(existsSync(first.path)).toBe(false);
+    expect(await removeAgentTraceHook("opencode", homeDir)).toBe(false);
+  });
+
+  it("leaves an OpenCode trace plugin it did not write alone", async () => {
+    const homeDir = await makeTempHome();
+    const pluginPath = path.join(
+      homeDir,
+      ".config",
+      "opencode",
+      "plugins",
+      "review-trace.ts",
+    );
+    await mkdir(path.dirname(pluginPath), { recursive: true });
+    await writeFile(pluginPath, "export default async () => ({});\n");
+
+    expect(await removeAgentTraceHook("opencode", homeDir)).toBe(false);
+    expect(existsSync(pluginPath)).toBe(true);
   });
 
   it("removes owned hooks and preserves unrelated agent configuration", async () => {

@@ -20,6 +20,7 @@ import { installFffForTargets, isFffTarget } from "./agent-fff";
 import {
   installClaudeTraceHook,
   installCodexTraceHook,
+  installOpenCodeTraceExtension,
   installPiTraceExtension,
 } from "./agent-trace-hooks";
 import { emitJsonEvent, failWithJsonError, humanStream } from "./cli-output";
@@ -151,6 +152,8 @@ export async function runInstall(input: RunInstallInput): Promise<number> {
       await installClaudeTraceHook(homeDir, input.reviewCommand);
     } else if (target === "codex") {
       await installCodexTraceHook(homeDir, input.reviewCommand);
+    } else if (target === "opencode") {
+      await installOpenCodeTraceExtension(homeDir, input.reviewCommand);
     } else if (target === "pi") {
       await installPiTraceExtension(homeDir, input.reviewCommand);
     }

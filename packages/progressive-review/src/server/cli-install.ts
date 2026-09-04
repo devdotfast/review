@@ -328,7 +328,7 @@ export async function removeCliInstall(input: {
   const chunks: string[] = [];
   for (const target of input.targets) {
     await removeInstalledSkills(target, homeDir);
-    if (target === "claude" || target === "codex" || target === "pi") {
+    if (target !== "cursor") {
       await removeAgentTraceHook(target, homeDir);
     }
     chunks.push(`[ok] removed skills for ${target}\n`);
@@ -365,7 +365,7 @@ export async function removeCliInstall(input: {
     // for it, regardless of which targets this request named.
     for (const target of await detectInstalledTargets(homeDir)) {
       await removeTraceSkills(target, homeDir);
-      if (target === "claude" || target === "codex" || target === "pi") {
+      if (target !== "cursor") {
         await removeAgentTraceHook(target, homeDir);
       }
     }

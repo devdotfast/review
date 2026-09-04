@@ -89,6 +89,7 @@ export function sniffAgentTraceHarness(
       const type = jsonObject(parseJsonText(trimmed))?.type;
       if (type === "session_meta") return "codex";
       if (type === "session") return "pi";
+      if (type === "opencode_session") return "opencode";
       return "claude-code";
     } catch {
       continue;
@@ -117,7 +118,9 @@ export function parseAgentTraceJsonl(
       ? parseCodexRecords(records)
       : firstType === "session"
         ? parsePiRecords(records)
-        : parseClaudeRecords(records, options);
+        : firstType === "opencode_session"
+          ? parseOpenCodeRecords(records)
+          : parseClaudeRecords(records, options);
   parsed.activeMs = computeActiveMs(parsed.events);
   return parsed;
 }
@@ -1271,6 +1274,251 @@ function parsePiRecords(records: readonly JsonValue[]): AgentTraceParseResult {
   return {
     harness: "pi",
     title: firstUserText ? compactLine(firstUserText) : null,
+    events,
+    startedAt,
+    endedAt,
+    activeMs: null,
+    userTurns,
+    toolCalls,
+  };
+}
+
+// --- OpenCode sessions -----------------------------------------------------
+// Records are the JSONL rendering of `opencode export` written by
+// opencode-trace-export.ts: one `opencode_session` header, then one
+// `opencode_message` per message with its parts in order.
+
+interface OpenCodeTime {
+  created?: number;
+  completed?: number;
+  start?: number;
+  end?: number;
+}
+
+interface OpenCodeToolState {
+  status?: string;
+  input?: JsonObject;
+  output?: string;
+  error?: string;
+  title?: string;
+  time?: OpenCodeTime;
+}
+
+interface OpenCodePart {
+  type?: string;
+  text?: string;
+  ignored?: boolean;
+  synthetic?: boolean;
+  time?: OpenCodeTime;
+  tool?: string;
+  state?: OpenCodeToolState;
+}
+
+interface OpenCodeRecord {
+  type?: string;
+  directory?: string;
+  title?: string;
+  time?: OpenCodeTime;
+  info?: {
+    role?: string;
+    time?: OpenCodeTime;
+  };
+  parts?: OpenCodePart[];
+}
+
+function openCodeIso(millis: number | undefined): string | undefined {
+  return typeof millis === "number"
+    ? new Date(millis).toISOString()
+    : undefined;
+}
+
+function openCodeText(parts: OpenCodePart[]): string {
+  return parts
+    .filter(
+      (part) =>
+        part.type === "text" &&
+        typeof part.text === "string" &&
+        part.ignored !== true &&
+        part.synthetic !== true,
+    )
+    .map((part) => part.text as string)
+    .join("\n")
+    .trim();
+}
+
+function openCodeToolEvent(
+  part: OpenCodePart,
+  at: string | undefined,
+  cwd: string | null,
+): AgentTraceToolEvent {
+  const name = part.tool ?? "tool";
+  const state = part.state ?? {};
+  const args: JsonObject = state.input ?? {};
+  const argText = (key: string): string | null => jsonString(args[key]) ?? null;
+  const lineCount = (key: string): number | undefined =>
+    jsonString(args[key])?.split("\n").length;
+  const event: AgentTraceToolEvent = {
+    kind: "tool",
+    tool: name,
+    verb: "Called",
+    title: state.title || name,
+    at,
+  };
+  const filePath = argText("filePath");
+  const fileTitle = (): void => {
+    if (!filePath) return;
+    event.filePath = relativizePath(filePath, cwd);
+    event.title = compactFileLine(event.filePath);
+  };
+  switch (name) {
+    case "bash": {
+      const command = argText("command") ?? "";
+      event.verb = "Ran";
+      event.title = compactLine(command);
+      event.command = truncate(command, INPUT_LIMIT);
+      break;
+    }
+    case "read":
+      event.verb = "Read";
+      fileTitle();
+      break;
+    case "edit": {
+      event.verb = "Edited";
+      fileTitle();
+      const additions = lineCount("newString");
+      const deletions = lineCount("oldString");
+      if (additions !== undefined) event.additions = additions;
+      if (deletions !== undefined) event.deletions = deletions;
+      break;
+    }
+    case "write": {
+      event.verb = "Wrote";
+      fileTitle();
+      const additions = lineCount("content");
+      if (additions !== undefined) event.additions = additions;
+      break;
+    }
+    case "apply_patch": {
+      const summary = codexPatchSummary(argText("patchText") ?? "", cwd);
+      event.verb = "Edited";
+      event.title = compactFileLine(summary.files.join(", ") || name);
+      if (summary.filePath) event.filePath = summary.filePath;
+      event.additions = summary.additions;
+      event.deletions = summary.deletions;
+      break;
+    }
+    case "glob":
+    case "grep":
+      event.verb = "Searched";
+      event.title = compactLine(argText("pattern") ?? name);
+      break;
+    case "list":
+      event.verb = "Listed";
+      event.title = compactFileLine(
+        argText("path") ? relativizePath(argText("path") as string, cwd) : name,
+      );
+      break;
+    case "task":
+      event.verb = "Ran agent";
+      event.title = compactLine(argText("description") ?? name);
+      break;
+    case "webfetch":
+      event.verb = "Fetched";
+      event.title = compactLine(argText("url") ?? name);
+      break;
+    case "websearch":
+      event.verb = "Searched web";
+      event.title = compactLine(argText("query") ?? name);
+      break;
+    case "skill":
+      event.verb = "Loaded skill";
+      event.title = compactLine(argText("name") ?? name);
+      break;
+    default:
+      break;
+  }
+  if (!event.command) {
+    const pretty = codexValueText(args);
+    if (pretty && pretty !== "{}") event.input = truncate(pretty, INPUT_LIMIT);
+  }
+  const output =
+    state.status === "error" && typeof state.error === "string"
+      ? state.error
+      : typeof state.output === "string"
+        ? state.output
+        : "";
+  if (output.trim()) event.output = truncate(output, OUTPUT_LIMIT);
+  return event;
+}
+
+function parseOpenCodeRecords(records: unknown[]): AgentTraceParseResult {
+  const events: AgentTraceEvent[] = [];
+  let title: string | null = null;
+  let startedAt: string | null = null;
+  let endedAt: string | null = null;
+  let cwd: string | null = null;
+  let userTurns = 0;
+  let toolCalls = 0;
+  let firstUserText: string | null = null;
+
+  for (const raw of records) {
+    const record = raw as OpenCodeRecord;
+    if (record.type === "opencode_session") {
+      cwd = record.directory ?? null;
+      title = record.title?.trim() || null;
+      startedAt ??= openCodeIso(record.time?.created) ?? null;
+      continue;
+    }
+    if (record.type !== "opencode_message" || !record.info) continue;
+    const parts = Array.isArray(record.parts) ? record.parts : [];
+    const createdAt = openCodeIso(record.info.time?.created);
+    if (createdAt) {
+      startedAt ??= createdAt;
+      endedAt = openCodeIso(record.info.time?.completed) ?? createdAt;
+    }
+    if (record.info.role === "user") {
+      const text = openCodeText(parts);
+      if (!text) continue;
+      userTurns += 1;
+      firstUserText ??= text;
+      events.push({ kind: "user", text, at: createdAt });
+      continue;
+    }
+    if (record.info.role !== "assistant") continue;
+    for (const part of parts) {
+      if (part.type === "reasoning" && typeof part.text === "string") {
+        const trimmed = part.text.trim();
+        if (trimmed) {
+          events.push({
+            kind: "assistant",
+            markdown: trimmed,
+            thinking: true,
+            at: openCodeIso(part.time?.start) ?? createdAt,
+          });
+        }
+      } else if (part.type === "text" && typeof part.text === "string") {
+        const trimmed = part.text.trim();
+        if (trimmed) {
+          events.push({ kind: "assistant", markdown: trimmed, at: createdAt });
+        }
+      } else if (part.type === "tool") {
+        toolCalls += 1;
+        events.push(
+          openCodeToolEvent(
+            part,
+            openCodeIso(part.state?.time?.start) ?? createdAt,
+            cwd,
+          ),
+        );
+      } else if (part.type === "compaction") {
+        events.push({ kind: "separator", label: "Context compacted" });
+      }
+    }
+  }
+
+  return {
+    harness: "opencode",
+    title: title ?? (firstUserText ? compactLine(firstUserText) : null),
     events,
     startedAt,
     endedAt,

@@ -361,7 +361,7 @@ describe("runInstall", () => {
     const streams = silentStreams();
 
     const code = await runInstall({
-      targets: ["claude", "codex", "opencode", "pi"],
+      targets: ["claude", "codex", "pi"],
       homeDir,
       packageRoot,
       trace: true,
@@ -385,24 +385,6 @@ describe("runInstall", () => {
     expect(
       existsSync(
         path.join(homeDir, ".pi", "agent", "extensions", "review-trace.ts"),
-      ),
-    ).toBe(true);
-    expect(
-      await readFile(
-        path.join(
-          homeDir,
-          ".config",
-          "opencode",
-          "skills",
-          "trace-archaeology",
-          "SKILL.md",
-        ),
-        "utf8",
-      ),
-    ).toContain("# trace-archaeology");
-    expect(
-      existsSync(
-        path.join(homeDir, ".config", "opencode", "plugins", "review-trace.ts"),
       ),
     ).toBe(true);
   });

@@ -36,7 +36,13 @@ import {
   parseAgentTraceJsonl,
   sniffAgentTraceHarness,
 } from "./agent-trace-parser";
-import { r2GetBytes, r2HeadSize, r2ListKeys, r2PutBytes, r2Request } from "./r2-client";
+import {
+  r2GetBytes,
+  r2HeadSize,
+  r2ListKeys,
+  r2PutBytes,
+  r2Request,
+} from "./r2-client";
 import { traceCommand } from "./startup-trace";
 
 /**
@@ -121,7 +127,6 @@ export interface ReviewTraceDoctorResult {
   reachable: boolean;
   error?: string;
 }
-
 
 export function isTraceR2Configured(): boolean {
   if (process.env.TRACE_R2_MODE === "mock") return true;
@@ -481,12 +486,15 @@ async function mapWithConcurrency<T, R>(
 ): Promise<R[]> {
   const results: R[] = new Array(items.length);
   let next = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (next < items.length) {
-      const index = next++;
-      results[index] = await work(items[index]);
-    }
-  });
+  const workers = Array.from(
+    { length: Math.min(limit, items.length) },
+    async () => {
+      while (next < items.length) {
+        const index = next++;
+        results[index] = await work(items[index]);
+      }
+    },
+  );
   await Promise.all(workers);
   return results;
 }
@@ -514,7 +522,9 @@ export async function pullReviewTraceCorpus(input: {
         refresh: true,
       });
       if (!main) return { sessionRef, main: null, subagents: [] };
-      const subagentNames = input.mainOnly ? [] : (sessionRef.traces ?? main.subagents);
+      const subagentNames = input.mainOnly
+        ? []
+        : (sessionRef.traces ?? main.subagents);
       const subagents = await mapWithConcurrency(
         subagentNames,
         TRACE_PULL_CONCURRENCY,

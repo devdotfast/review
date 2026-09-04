@@ -130,7 +130,11 @@ export async function r2HeadSize(
   config: R2ClientConfig,
   key: string,
 ): Promise<number | null> {
-  const response = await r2Request(config, { method: "HEAD", key, timeoutMs: 10_000 });
+  const response = await r2Request(config, {
+    method: "HEAD",
+    key,
+    timeoutMs: 10_000,
+  });
   if (response.status === 404) return null;
   if (response.status < 200 || response.status >= 300) {
     throw new Error(`R2 HEAD ${key} returned ${response.status}.`);
@@ -158,7 +162,12 @@ export async function r2PutBytes(
   body: Buffer,
   contentType = "application/octet-stream",
 ): Promise<void> {
-  const response = await r2Request(config, { method: "PUT", key, body, contentType });
+  const response = await r2Request(config, {
+    method: "PUT",
+    key,
+    body,
+    contentType,
+  });
   if (response.status < 200 || response.status >= 300) {
     throw new Error(`R2 PUT ${key} returned ${response.status}.`);
   }
@@ -182,12 +191,14 @@ export async function r2ListKeys(
       throw new Error(`R2 LIST ${prefix} returned ${response.status}.`);
     }
     const xml = response.body.toString("utf8");
-    for (const match of xml.matchAll(/<Key>([^<]*)<\/Key>/g)) keys.push(decodeXml(match[1]));
+    for (const match of xml.matchAll(/<Key>([^<]*)<\/Key>/g))
+      keys.push(decodeXml(match[1]));
     for (const match of xml.matchAll(/<Prefix>([^<]*)<\/Prefix>/g)) {
       const value = decodeXml(match[1]);
       if (value !== prefix) prefixes.push(value);
     }
-    const token = /<NextContinuationToken>([^<]*)<\/NextContinuationToken>/.exec(xml);
+    const token =
+      /<NextContinuationToken>([^<]*)<\/NextContinuationToken>/.exec(xml);
     continuation = token ? decodeXml(token[1]) : undefined;
   } while (continuation);
   return { keys, prefixes };

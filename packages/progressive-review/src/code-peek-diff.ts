@@ -1,10 +1,10 @@
 import type { CodePeekDiffPayload } from "./authoring";
-import type { SourceSnapshot } from "./source-code-types";
 import {
   codePeekRootSourceRanges,
   sliceReviewDiffFileToCodePeekRanges,
 } from "./codepeek-symbol-diff";
 import type { ReviewDiffFile } from "./review-diff-files";
+import type { SourceSnapshot } from "./source-code-types";
 
 /**
  * The diff summary a code peek carries: the pinned range's slice of the
@@ -26,7 +26,11 @@ export function codePeekDiffFromFiles(input: {
   );
   if (paths.size === 0) return undefined;
   const files = input.files
-    .filter((file) => paths.has(file.path) || (file.previousPath !== undefined && paths.has(file.previousPath)))
+    .filter(
+      (file) =>
+        paths.has(file.path) ||
+        (file.previousPath !== undefined && paths.has(file.previousPath)),
+    )
     .map((file) =>
       sliceReviewDiffFileToCodePeekRanges({
         file,

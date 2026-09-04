@@ -21,15 +21,15 @@ import {
   callStackEvidenceErrors,
   diffCallStacks,
 } from "./call-stack-diff";
+import { codePeekDiffFromFiles, codePeekResolutionKey } from "./code-peek-diff";
 import { loadReviewAgentTrace } from "./review-agent-traces";
+import type { ReviewDiffFile } from "./review-diff-files";
 import {
   type PublishAuditTraceQuote,
   auditReviewDocumentComponent,
   createPublishValidationReact,
 } from "./review-publish-element-audit";
 import { defineSoftwareMap } from "./software-map-model";
-import { codePeekDiffFromFiles, codePeekResolutionKey } from "./code-peek-diff";
-import type { ReviewDiffFile } from "./review-diff-files";
 import { resolveReviewSourceRange } from "./source-range-resolver";
 import { span, startSpan } from "./startup-trace";
 
@@ -178,7 +178,9 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
             includePatch: false,
           })
         : undefined;
-      const resolution: CodePeekResolution = diff ? { snapshot, diff } : { snapshot };
+      const resolution: CodePeekResolution = diff
+        ? { snapshot, diff }
+        : { snapshot };
       codePeeks[codePeekResolutionKey(props)] = resolution;
       peekSpan.end();
       return resolution;

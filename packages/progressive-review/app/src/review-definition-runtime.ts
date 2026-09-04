@@ -75,7 +75,9 @@ const EMBEDDED_CODE_PEEKS_GLOBAL = "__reviewEmbeddedCodePeeks";
 function embeddedCodePeeks(
   routePath: string,
 ): Record<string, CodePeekResolution> | null {
-  const all = (globalThis as Record<string, unknown>)[EMBEDDED_CODE_PEEKS_GLOBAL];
+  const all = (globalThis as Record<string, unknown>)[
+    EMBEDDED_CODE_PEEKS_GLOBAL
+  ];
   if (!all || typeof all !== "object") return null;
   const forRoute = (all as Record<string, unknown>)[routePath];
   return forRoute && typeof forRoute === "object"

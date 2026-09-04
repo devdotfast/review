@@ -167,7 +167,10 @@ it("resolves peeks from the bundle's embedded resolutions without a request", as
             line: 3,
             endLine: 4,
           },
-          lines: [[{ t: "const a = 1;", k: "t" }], [{ t: "const b = 2;", k: "t" }]],
+          lines: [
+            [{ t: "const a = 1;", k: "t" }],
+            [{ t: "const b = 2;", k: "t" }],
+          ],
         },
       },
     },

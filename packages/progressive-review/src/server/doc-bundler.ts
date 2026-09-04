@@ -1,4 +1,3 @@
-import type { CodePeekResolution } from "../authoring";
 import crypto from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -6,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { type Message, type Plugin, build } from "esbuild";
 
+import type { CodePeekResolution } from "../authoring";
 import {
   type ReviewDocumentDiagnostic,
   compileReviewDocument,
@@ -94,7 +94,11 @@ export function embedCodePeeks(
   return {
     ...bundle,
     code,
-    contentHash: crypto.createHash("sha256").update(code).digest("hex").slice(0, 20),
+    contentHash: crypto
+      .createHash("sha256")
+      .update(code)
+      .digest("hex")
+      .slice(0, 20),
   };
 }
 

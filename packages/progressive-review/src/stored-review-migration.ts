@@ -1,5 +1,6 @@
 import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import {
   type JsonObject,
@@ -45,8 +46,14 @@ import { writePrivateJsonAtomic } from "./server/desktop-paths";
 import { compileReviewDocumentBundle } from "./server/doc-bundler";
 import {
   type ReviewSoftwareMapBundle,
+  bundleReviewSoftwareMap,
+  readReviewSoftwareMapBundle,
   writeReviewSoftwareMapBundle,
 } from "./software-map-bundle";
+import {
+  type NormalizedSoftwareModel,
+  isNormalizedSoftwareModel,
+} from "./software-map-model";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -426,13 +433,29 @@ export async function migrateStoredReviewData(input: {
           input.log?.(message);
           continue;
         }
-      } else if (schemaVersion !== REVIEW_SCHEMA_VERSION) {
-        await writePrivateJsonAtomic(
-          path.join(reviewDir, "review.json"),
-          migratedRecord,
-        );
       } else {
-        parseStoredReviewRecord(migrationValue);
+        if (schemaVersion !== REVIEW_SCHEMA_VERSION) {
+          await writePrivateJsonAtomic(
+            path.join(reviewDir, "review.json"),
+            migratedRecord,
+          );
+        } else {
+          parseStoredReviewRecord(migrationValue);
+        }
+        if (migratedRecord.presentedSoftwareMapRevision) {
+          try {
+            await migrateCurrentPresentedSoftwareMap({
+              reviewDir,
+              review: migratedRecord,
+              legacyRevision: migratedRecord.presentedSoftwareMapRevision,
+            });
+          } catch (error) {
+            const message = `${reviewDir}: software-map artifact migration failed: ${errorMessage(error)}`;
+            input.onBlocker?.(message);
+            input.log?.(message);
+            continue;
+          }
+        }
       }
       const removedPeekKeys = await removedCodePeekKeys(reviewDir);
       if (removedPeekKeys.length > 0) {
@@ -584,7 +607,7 @@ async function migrateLegacyPresentedArtifacts(input: {
       compiled.diagnostics.map((diagnostic) => diagnostic.message).join("; "),
     );
   }
-  const mapBundle: ReviewSoftwareMapBundle | null = null;
+  const mapBundle = await legacySoftwareMapBundle(legacyBuildDir);
 
   await mkdir(backupDir, { recursive: true, mode: 0o700 });
   for (const name of ["review.mdx", "data.ts", "review.json", ".bundle"]) {
@@ -654,6 +677,153 @@ async function migrateLegacyPresentedArtifacts(input: {
       rm(backupDir, { recursive: true, force: true }),
     ]);
   }
+}
+
+async function migrateCurrentPresentedSoftwareMap(input: {
+  reviewDir: string;
+  review: ReturnType<typeof parseStoredReviewRecordForMigration>;
+  legacyRevision: string;
+}): Promise<void> {
+  const nonce = `${process.pid}-${Math.random().toString(36).slice(2)}`;
+  const legacyBuildDir = path.join(
+    input.reviewDir,
+    ".build",
+    `map-migration-source-${nonce}`,
+  );
+  const backupDir = path.join(
+    input.reviewDir,
+    ".build",
+    `map-migration-backup-${nonce}`,
+  );
+  await materializeReviewRevision(
+    input.reviewDir,
+    input.legacyRevision,
+    legacyBuildDir,
+  );
+  try {
+    // Re-running migration against a revision already written as v2 is a
+    // no-op. In particular, its document revision remains an independent pin.
+    if (await readReviewSoftwareMapBundle(legacyBuildDir)) return;
+
+    const mapBundle = await legacySoftwareMapBundle(legacyBuildDir);
+    if (!mapBundle) {
+      await writePrivateJsonAtomic(path.join(input.reviewDir, "review.json"), {
+        ...input.review,
+        presentedSoftwareMapRevision: null,
+      });
+      return;
+    }
+
+    await mkdir(backupDir, { recursive: true, mode: 0o700 });
+    await Promise.all([
+      cp(
+        path.join(input.reviewDir, "review.json"),
+        path.join(backupDir, "review.json"),
+      ),
+      cp(
+        path.join(input.reviewDir, ".bundle", "software-map"),
+        path.join(backupDir, "software-map"),
+        { recursive: true, force: true },
+      ).catch((error) => {
+        if (!isMissingFileError(error)) throw error;
+      }),
+    ]);
+    let completed = false;
+    try {
+      await rm(path.join(input.reviewDir, ".bundle", "software-map"), {
+        recursive: true,
+        force: true,
+      });
+      await writeReviewSoftwareMapBundle(input.reviewDir, mapBundle);
+      const revision = await sealReviewCandidate(
+        input.reviewDir,
+        "Migrate Review software-map publication artifact",
+      );
+      await materializeReviewRevision(
+        input.reviewDir,
+        revision,
+        path.join(input.reviewDir, ".build", revision),
+      );
+      await writePrivateJsonAtomic(path.join(input.reviewDir, "review.json"), {
+        ...input.review,
+        presentedSoftwareMapRevision: revision,
+      });
+      completed = true;
+    } finally {
+      if (!completed) {
+        await Promise.all([
+          cp(
+            path.join(backupDir, "review.json"),
+            path.join(input.reviewDir, "review.json"),
+            { force: true },
+          ),
+          rm(path.join(input.reviewDir, ".bundle", "software-map"), {
+            recursive: true,
+            force: true,
+          }).then(() =>
+            cp(
+              path.join(backupDir, "software-map"),
+              path.join(input.reviewDir, ".bundle", "software-map"),
+              { recursive: true, force: true },
+            ).catch((error) => {
+              if (!isMissingFileError(error)) throw error;
+            }),
+          ),
+        ]);
+      }
+    }
+  } finally {
+    await Promise.all([
+      rm(legacyBuildDir, { recursive: true, force: true }),
+      rm(backupDir, { recursive: true, force: true }),
+    ]);
+  }
+}
+
+async function legacySoftwareMapBundle(
+  legacyBuildDir: string,
+): Promise<ReviewSoftwareMapBundle | null> {
+  const mapDir = path.join(legacyBuildDir, ".bundle", "software-map");
+  let manifestValue: JsonObject | undefined;
+  try {
+    manifestValue = jsonObject(
+      parseJsonText(await readFile(path.join(mapDir, "manifest.json"), "utf8")),
+    );
+  } catch (error) {
+    if (isMissingFileError(error) || error instanceof SyntaxError) return null;
+    throw error;
+  }
+  const headCommit = jsonString(manifestValue?.headCommit);
+  const baseCommit = jsonString(manifestValue?.baseCommit);
+  if (
+    manifestValue?.version !== 1 ||
+    !headCommit ||
+    !baseCommit ||
+    !/^[0-9a-f]{40}$/i.test(headCommit) ||
+    !/^[0-9a-f]{40}$/i.test(baseCommit)
+  ) {
+    return null;
+  }
+  const load = async (
+    file: string,
+  ): Promise<NormalizedSoftwareModel | null> => {
+    const url = pathToFileURL(path.join(mapDir, file));
+    url.searchParams.set("t", `${Date.now()}-${Math.random()}`);
+    try {
+      // SAFETY: an imported legacy map module has no static TypeScript shape;
+      // isNormalizedSoftwareModel validates its default export before use.
+      const module = (await import(url.href)) as { default?: unknown };
+      return isNormalizedSoftwareModel(module.default) ? module.default : null;
+    } catch {
+      return null;
+    }
+  };
+  const [head, base] = await Promise.all([
+    load("head-map.js"),
+    load("base-map.js"),
+  ]);
+  if (!head || !base) return null;
+  return bundleReviewSoftwareMap({ head, base, headCommit, baseCommit });
 }
 
 async function restoreMigrationAuthoringFiles(

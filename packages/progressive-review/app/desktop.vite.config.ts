@@ -62,7 +62,6 @@ export default defineConfig({
       preserveEntrySignatures: "strict",
       input: {
         canvas: path.resolve(__dirname, "src/desktop-entry.tsx"),
-        "doc-runtime": path.resolve(__dirname, "src/doc-runtime.ts"),
       },
       output: {
         entryFileNames: "assets/[name]-[hash].js",

@@ -15,7 +15,6 @@ const injectedConfig = {
   sessionId: "desktop-session",
   token: "secret-token",
   wasmUrl: "vscode-file://review/libavoid.wasm",
-  docRuntimeUrl: "vscode-file://review/doc-runtime.js",
   appVersion: "0.0.13",
   theme: "dark",
   host: "desktop",

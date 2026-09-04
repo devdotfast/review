@@ -6,6 +6,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  PREPARE_OUTPUT_DRAIN_GRACE_MS,
   prepareReviewPinnedCheckout,
   resolveReviewPrepareCliEntryPath,
   reviewPrepareLogPath,
@@ -255,5 +256,84 @@ describe("prepareReviewPinnedCheckout", () => {
 
     expect(retried).toEqual({ prepared: true });
     expect(existsSync(reviewPrepareLogPath(checkoutPath))).toBe(false);
+  });
+
+  it("captures output a leaky descendant writes after the shell exits", async () => {
+    const checkoutPath = await createCheckoutDir();
+    const warnings: string[] = [];
+
+    const result = await prepareReviewPinnedCheckout({
+      checkoutPath,
+      commit: COMMIT,
+      // A backgrounded descendant writes to the inherited stderr after the
+      // shell exits and then closes the pipe; those bytes arrive between the
+      // child 'exit' and 'close' events and must not be dropped from the
+      // captured output.
+      commands: [
+        "echo EARLY-STDERR-LINE >&2; (sleep 0.1; echo LATE-STDERR-LINE >&2; echo EVEN-LATER-LINE >&2) & exit 7",
+      ],
+      warning: (message) => warnings.push(message),
+    });
+
+    expect(result).toEqual({ prepared: false });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("exit 7");
+    expect(warnings[0]).toContain("EARLY-STDERR-LINE");
+    expect(warnings[0]).toContain("LATE-STDERR-LINE");
+    expect(warnings[0]).toContain("EVEN-LATER-LINE");
+    const logPath = reviewPrepareLogPath(checkoutPath);
+    const log = readFileSync(logPath, "utf8");
+    expect(log).toContain("EARLY-STDERR-LINE");
+    expect(log).toContain("LATE-STDERR-LINE");
+    expect(log).toContain("EVEN-LATER-LINE");
+    expect(existsSync(reviewPrepareMarkerPath(checkoutPath))).toBe(false);
+  });
+
+  it("settles within the drain grace window for a long-lived leaky descendant", async () => {
+    const checkoutPath = await createCheckoutDir();
+    // The descendant keeps the inherited stderr open well past the drain
+    // grace window; the resolve must not wait for it.
+    const lateDelaySeconds = 2;
+    const start = Date.now();
+
+    const result = await prepareReviewPinnedCheckout({
+      checkoutPath,
+      commit: COMMIT,
+      commands: [
+        `echo EARLY-ONLY-LINE >&2; (sleep ${lateDelaySeconds}; echo NEVER-CAPTURED-LINE >&2) & exit 7`,
+      ],
+    });
+    const elapsed = Date.now() - start;
+
+    expect(result).toEqual({ prepared: false });
+    // Settles within the bounded grace window (500 ms) plus overhead, far
+    // sooner than the long-lived descendant's write. A naive resolve on
+    // 'close' would block until the descendant closes the pipe (~2 s) and
+    // trip this assertion.
+    expect(elapsed).toBeLessThan(lateDelaySeconds * 1000 - 500);
+    const logPath = reviewPrepareLogPath(checkoutPath);
+    const log = readFileSync(logPath, "utf8");
+    expect(log).toContain("EARLY-ONLY-LINE");
+    expect(log).not.toContain("NEVER-CAPTURED-LINE");
+  });
+
+  it("does not delay a synchronous command beyond prompt stdio close", async () => {
+    const checkoutPath = await createCheckoutDir();
+    // A synchronous command that exits 0 has its pipes close promptly when
+    // the shell exits, so 'close' fires well before the grace timer and the
+    // prepare completes without waiting for the drain window.
+    const start = Date.now();
+    const result = await prepareReviewPinnedCheckout({
+      checkoutPath,
+      commit: COMMIT,
+      commands: ["printf prepared > prepare-output.txt; echo sync-out >&2"],
+    });
+    const elapsed = Date.now() - start;
+
+    expect(result).toEqual({ prepared: true });
+    expect(elapsed).toBeLessThan(PREPARE_OUTPUT_DRAIN_GRACE_MS);
+    expect(existsSync(path.join(checkoutPath, "prepare-output.txt"))).toBe(
+      true,
+    );
   });
 });

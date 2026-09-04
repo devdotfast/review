@@ -22,6 +22,12 @@ const PREPARE_LOCK_TIMEOUT_MS = 30 * 60_000;
 const PREPARE_LOCK_UNOWNED_GRACE_MS = 1_000;
 const PREPARE_OUTPUT_TAIL_LINES = 20;
 const PREPARE_OUTPUT_BUFFER_BYTES = 256 * 1024;
+// After the child exits, inherited stdio pipes may still emit `data` before
+// `close`. Drain those post-exit bytes for this long, then settle, so a
+// leaky descendant that writes after the shell exits appears in the captured
+// output without risking a perpetual hang if a long-lived descendant holds
+// the pipe open.
+export const PREPARE_OUTPUT_DRAIN_GRACE_MS = 500;
 
 export interface PrepareCommandResult {
   exitCode: number | null;
@@ -265,7 +271,30 @@ function runPrepareShellCommand(
     };
     child.stdout?.on("data", append);
     child.stderr?.on("data", append);
-    child.on("error", reject);
-    child.on("exit", (code) => resolve({ exitCode: code, output }));
+    // 'exit' means the child process ended; inherited stdio pipes may still
+    // emit 'data' before 'close'. Resolving on 'exit' alone snapshots `output`
+    // before those post-exit bytes, silently truncating the durable failure
+    // log and warning. Settle on whichever comes first: 'close' (pipes
+    // drained) or the bounded drain grace window — so a leaky descendant's
+    // brief post-exit writes are captured, while a long-lived descendant
+    // cannot hold the resolve open beyond the grace window.
+    let exitCode: number | null = null;
+    let settled = false;
+    let drainTimer: ReturnType<typeof setTimeout> | undefined;
+    const settle = (action: () => void) => {
+      if (settled) return;
+      settled = true;
+      if (drainTimer) clearTimeout(drainTimer);
+      action();
+    };
+    child.on("error", (cause) => settle(() => reject(cause)));
+    child.on("exit", (code) => {
+      exitCode = code;
+      child.once("close", () => settle(() => resolve({ exitCode, output })));
+      drainTimer = setTimeout(
+        () => settle(() => resolve({ exitCode, output })),
+        PREPARE_OUTPUT_DRAIN_GRACE_MS,
+      );
+    });
   });
 }

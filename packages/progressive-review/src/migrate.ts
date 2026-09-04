@@ -35,6 +35,7 @@ import {
   parseStoredReviewRecord,
   parseStoredReviewRecordForMigration,
 } from "./review-home";
+import { putReviewRecord } from "./review-state-db";
 import { DEV_REVIEW_HOME_ENV } from "./review-storage";
 import { reviewVcs } from "./review-vcs";
 import { writePrivateJsonAtomic } from "./server/desktop-paths";
@@ -380,6 +381,15 @@ export async function migrateJjReviewRepositories(input: {
         recordSource,
         force: input.force,
       });
+      putReviewRecord(
+        reviewDir,
+        parseStoredReviewRecord(
+          JSON.parse(
+            await readFile(path.join(reviewDir, "review.json"), "utf8"),
+          ),
+        ),
+        input.reviewHome,
+      );
       input.log?.(`Converted jj Review repository ${reviewDir} to plain Git.`);
       result.migrated += 1;
     } catch (error) {

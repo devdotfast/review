@@ -1,4 +1,3 @@
-import path from "node:path";
 import type { Writable } from "node:stream";
 
 import {
@@ -6,9 +5,9 @@ import {
   resolveRevision,
 } from "@dev.fast/local-vcs";
 
+import { persistStoredReviewRecord } from "./review-home";
 import { type RunReviewScaffoldInput, repinReview } from "./review-scaffold";
 import { resolveReviewRoot } from "./runtime";
-import { writePrivateJsonAtomic } from "./server/desktop-paths";
 import { resolvePublishReview } from "./server/publish-preparation";
 
 /**
@@ -53,7 +52,7 @@ export async function runReviewRebind(input: {
     throw new Error(`Change does not resolve to one identity: ${input.change}`);
   }
   const record = { ...review.review, sourceIdentity };
-  await writePrivateJsonAtomic(path.join(review.dir, "review.json"), record);
+  await persistStoredReviewRecord(review.dir, record);
   const repinned = await repinReview(
     { dir: review.dir, review: record },
     {

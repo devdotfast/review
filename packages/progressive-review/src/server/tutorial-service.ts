@@ -33,6 +33,7 @@ import {
   createReviewUuid,
   findReview,
   listReviews,
+  persistStoredReviewRecord,
   reviewTitleFromDocument,
   sealReviewCandidate,
 } from "../review-home";
@@ -40,6 +41,7 @@ import {
   pinReviewSourceHeadRef,
   reviewSourceHeadRef,
 } from "../review-source-ref";
+import { deleteReviewState } from "../review-state-db";
 import { devReviewHome } from "../review-storage";
 import { writePrivateJsonAtomic } from "./desktop-paths";
 
@@ -125,6 +127,7 @@ export function createTutorialService(input: {
     for (const review of listed.reviews) {
       if (await isManagedTutorialPath(review.review.worktreePath, sampleRoot)) {
         await input.deleteReview(review);
+        deleteReviewState(review.dir);
       }
     }
     await rm(tutorialRoot, { recursive: true, force: true });
@@ -209,10 +212,7 @@ export function createTutorialService(input: {
           lastPublishedAt: publishedAt,
         },
       };
-      await writePrivateJsonAtomic(
-        path.join(candidate.dir, "review.json"),
-        candidate.review,
-      );
+      await persistStoredReviewRecord(candidate.dir, candidate.review);
       const runtimeManifest = await readTutorialRuntimeManifest(assetsRoot);
       await Promise.all([
         ...runtimeManifest.reviewFiles.map((entry) =>
@@ -238,10 +238,7 @@ export function createTutorialService(input: {
           presentedSoftwareMapRevision: revision,
         },
       };
-      await writePrivateJsonAtomic(
-        path.join(review.dir, "review.json"),
-        review.review,
-      );
+      await persistStoredReviewRecord(review.dir, review.review);
       await writePrivateJsonAtomic(stampPath, {
         version: TUTORIAL_STAMP_VERSION,
         reviewUuid: review.review.uuid,

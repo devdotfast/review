@@ -68,6 +68,7 @@ import {
   findReview,
   listReviews,
   parseStoredReviewRecord,
+  persistStoredReviewRecord,
   reviewDescriptor,
   reviewTitleFromDocument,
   reviewsHomeDir,
@@ -83,6 +84,7 @@ import {
   requireClosedThreadsForRepublish,
 } from "../review-publish-thread-gate";
 import { clearReopenPending, markReopenPending } from "../review-reopen-marker";
+import { deleteReviewState } from "../review-state-db";
 import { devReviewHome } from "../review-storage";
 import { readReviewSoftwareMapBundle } from "../software-map-bundle";
 import { createTutorialAuthoringSession } from "../tutorial-authoring-session";
@@ -1540,6 +1542,7 @@ export function createGlobalReviewServer(
         open.map((session) => closeSession(session, "closed", false)),
       );
       await rm(dir, { recursive: true, force: true });
+      deleteReviewState(dir);
       const worktreePath = open[0]?.review.review.worktreePath;
       if (worktreePath) {
         await clearReopenPending(worktreePath).catch(() => undefined);
@@ -1568,6 +1571,7 @@ export function createGlobalReviewServer(
       reviewUuid: review.review.uuid,
     });
     await rm(review.dir, { recursive: true, force: true });
+    deleteReviewState(review.dir);
     await clearReopenPending(review.review.worktreePath).catch(() => undefined);
     broadcastGlobal({ event: "review-deleted", uuid: review.review.uuid });
   }
@@ -2334,7 +2338,7 @@ async function promoteReview(
     dismissedAt: null,
   };
   if (title) review.title = title;
-  await writePrivateJsonAtomic(path.join(stored.dir, "review.json"), review);
+  await persistStoredReviewRecord(stored.dir, review);
   return { ...stored, review };
 }
 
@@ -2346,7 +2350,7 @@ async function promoteSoftwareMap(
     ...stored.review,
     presentedSoftwareMapRevision: revision,
   };
-  await writePrivateJsonAtomic(path.join(stored.dir, "review.json"), review);
+  await persistStoredReviewRecord(stored.dir, review);
   return { ...stored, review };
 }
 
@@ -2407,7 +2411,7 @@ async function setReviewStatus(
   status: ReviewRecord["status"],
 ): Promise<StoredReview> {
   const review: StoredReviewRecord = { ...stored.review, status };
-  await writePrivateJsonAtomic(path.join(stored.dir, "review.json"), review);
+  await persistStoredReviewRecord(stored.dir, review);
   return { ...stored, review };
 }
 

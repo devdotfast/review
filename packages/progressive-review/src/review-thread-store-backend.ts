@@ -16,14 +16,22 @@ import {
 } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
+import {
+  closeAllReviewStateDatabases,
+  ensureReviewRegistration,
+  importLegacyReview,
+  openReviewStateDb,
+  reviewIdForDir,
+  reviewStateDbPath,
+} from "./review-state-db";
 import type {
   ReviewCommentDraftThreadMap,
   ReviewCommentThreadMap,
 } from "./types";
 
-// The review thread store persists comments in a per-review SQLite database.
-// Its synchronous mutators rely on read-modify-write with no interleaving
-// await. See review-state-store.ts.
+// Comments for every review share the Review home database. All queries are
+// scoped by review_id and route_path; the per-review review.db name is retained
+// only as a legacy migration input.
 
 export const REVIEW_THREAD_DB_FILENAME = "review.db";
 export const REVIEW_THREAD_DB_SCHEMA_VERSION = 6;
@@ -33,6 +41,11 @@ export function reviewStateDir(reviewMdxPath: string): string {
 }
 
 export function reviewThreadDbPath(reviewMdxPath: string): string {
+  void reviewMdxPath;
+  return reviewStateDbPath();
+}
+
+export function legacyReviewThreadDbPath(reviewMdxPath: string): string {
   return path.join(reviewStateDir(reviewMdxPath), REVIEW_THREAD_DB_FILENAME);
 }
 
@@ -150,7 +163,7 @@ function readThreadDbSchemaVersion(db: DatabaseSync): string | null {
 }
 
 export function checkReviewThreadDbVersion(reviewMdxPath: string): void {
-  const dbPath = reviewThreadDbPath(reviewMdxPath);
+  const dbPath = legacyReviewThreadDbPath(reviewMdxPath);
   if (!existsSync(dbPath)) return;
   const db = new DatabaseSync(dbPath, { readOnly: true });
   try {
@@ -183,7 +196,7 @@ export async function migrateReviewThreadDb(
   reviewMdxPath: string,
   options: ReviewThreadDbMigrationOptions = {},
 ): Promise<ReviewThreadDbMigrationResult> {
-  const dbPath = reviewThreadDbPath(reviewMdxPath);
+  const dbPath = legacyReviewThreadDbPath(reviewMdxPath);
   if (!existsSync(dbPath)) return "missing";
   const cached = openDatabases.get(dbPath);
   if (cached) {
@@ -387,17 +400,25 @@ function hasLegacyCodeTargets(db: DatabaseSync): boolean {
 }
 
 function readThreadTable(
-  dbPath: string,
+  reviewDir: string,
   table: "comments" | "comment_drafts",
   keyColumn: "thread_id",
 ): JsonObject {
-  const db = openThreadDb(dbPath, { create: false });
-  if (!db) return {};
+  const dbPath = reviewStateDbPath();
+  const legacyDbPath = path.join(reviewDir, REVIEW_THREAD_DB_FILENAME);
+  if (!existsSync(dbPath) && !existsSync(legacyDbPath)) return {};
+  checkReviewThreadDbVersion(path.join(reviewDir, "review.mdx"));
+  importLegacyReview(reviewDir);
+  const db = openReviewStateDb();
+  const reviewId = reviewIdForDir(reviewDir);
   // SAFETY: the key column is the TEXT PRIMARY KEY and record_json is TEXT NOT
   // NULL in both tables, and every insert binds strings for them.
   const rows = db
-    .prepare(`SELECT ${keyColumn} AS key, record_json FROM ${table}`)
-    .all() as Array<{ key: string; record_json: string }>;
+    .prepare(
+      `SELECT ${keyColumn} AS key, record_json FROM ${table}
+       WHERE review_id = ? AND route_path = '/'`,
+    )
+    .all(reviewId) as Array<{ key: string; record_json: string }>;
   const result: JsonObject = {};
   for (const row of rows) {
     result[row.key] = parseJsonText(row.record_json);
@@ -406,21 +427,27 @@ function readThreadTable(
 }
 
 function writeThreadTable(
-  dbPath: string,
+  reviewDir: string,
   table: "comments" | "comment_drafts",
   keyColumn: "thread_id",
   value: ReviewCommentThreadMap | ReviewCommentDraftThreadMap,
 ): void {
-  const db = openThreadDb(dbPath, { create: true });
-  if (!db) throw new Error(`Could not open ${dbPath}.`);
+  checkReviewThreadDbVersion(path.join(reviewDir, "review.mdx"));
+  importLegacyReview(reviewDir);
+  ensureReviewRegistration(reviewDir);
+  const db = openReviewStateDb();
+  const reviewId = reviewIdForDir(reviewDir);
   const insert = db.prepare(
-    `INSERT INTO ${table} (${keyColumn}, record_json) VALUES (?, ?)`,
+    `INSERT INTO ${table}
+     (review_id, route_path, ${keyColumn}, record_json) VALUES (?, '/', ?, ?)`,
   );
   db.exec("BEGIN IMMEDIATE");
   try {
-    db.exec(`DELETE FROM ${table}`);
+    db.prepare(
+      `DELETE FROM ${table} WHERE review_id = ? AND route_path = '/'`,
+    ).run(reviewId);
     for (const [key, record] of Object.entries(value)) {
-      insert.run(key, JSON.stringify(record));
+      insert.run(reviewId, key, JSON.stringify(record));
     }
     db.exec("COMMIT");
   } catch (error) {
@@ -430,30 +457,38 @@ function writeThreadTable(
 }
 
 function writeCommentState(
-  dbPath: string,
+  reviewDir: string,
   comments: ReviewCommentThreadMap,
   drafts: ReviewCommentDraftThreadMap,
 ): void {
-  const db = openThreadDb(dbPath, { create: true });
-  if (!db) throw new Error(`Could not open ${dbPath}.`);
+  checkReviewThreadDbVersion(path.join(reviewDir, "review.mdx"));
+  importLegacyReview(reviewDir);
+  ensureReviewRegistration(reviewDir);
+  const db = openReviewStateDb();
+  const reviewId = reviewIdForDir(reviewDir);
   const insertComment = db.prepare(
-    "INSERT INTO comments (thread_id, record_json) VALUES (?, ?)",
+    "INSERT INTO comments (review_id, route_path, thread_id, record_json) VALUES (?, '/', ?, ?)",
   );
   const insertDraft = db.prepare(
-    "INSERT INTO comment_drafts (thread_id, record_json) VALUES (?, ?)",
+    "INSERT INTO comment_drafts (review_id, route_path, thread_id, record_json) VALUES (?, '/', ?, ?)",
   );
   db.exec("BEGIN IMMEDIATE");
   try {
-    db.exec("DELETE FROM comments; DELETE FROM comment_drafts;");
+    db.prepare(
+      "DELETE FROM comments WHERE review_id = ? AND route_path = '/'",
+    ).run(reviewId);
+    db.prepare(
+      "DELETE FROM comment_drafts WHERE review_id = ? AND route_path = '/'",
+    ).run(reviewId);
     for (const [threadId, record] of Object.entries(
       parseStoredReviewCommentThreadMap(comments),
     )) {
-      insertComment.run(threadId, JSON.stringify(record));
+      insertComment.run(reviewId, threadId, JSON.stringify(record));
     }
     for (const [threadId, record] of Object.entries(
       ReviewCommentDraftThreadMapSchema.parse(drafts),
     )) {
-      insertDraft.run(threadId, JSON.stringify(record));
+      insertDraft.run(reviewId, threadId, JSON.stringify(record));
     }
     db.exec("COMMIT");
   } catch (error) {
@@ -465,41 +500,41 @@ function writeCommentState(
 function sqliteThreadStoreBackend(
   reviewMdxPath: string,
 ): ReviewThreadStoreBackend {
-  const dbPath = reviewThreadDbPath(reviewMdxPath);
+  const reviewDir = reviewStateDir(reviewMdxPath);
   return {
-    readComments: () => readValidComments(dbPath),
+    readComments: () => readValidComments(reviewDir),
     writeComments: (comments) =>
       writeThreadTable(
-        dbPath,
+        reviewDir,
         "comments",
         "thread_id",
         parseStoredReviewCommentThreadMap(comments),
       ),
     readCommentDrafts: () =>
       ReviewCommentDraftThreadMapSchema.parse(
-        readThreadTable(dbPath, "comment_drafts", "thread_id"),
+        readThreadTable(reviewDir, "comment_drafts", "thread_id"),
       ),
     writeCommentDrafts: (drafts) =>
       writeThreadTable(
-        dbPath,
+        reviewDir,
         "comment_drafts",
         "thread_id",
         ReviewCommentDraftThreadMapSchema.parse(drafts),
       ),
     writeCommentState: (comments, drafts) =>
-      writeCommentState(dbPath, comments, drafts),
+      writeCommentState(reviewDir, comments, drafts),
   };
 }
 
-function readValidComments(dbPath: string): ReviewCommentThreadMap {
-  const stored = readThreadTable(dbPath, "comments", "thread_id");
+function readValidComments(reviewDir: string): ReviewCommentThreadMap {
+  const stored = readThreadTable(reviewDir, "comments", "thread_id");
   const comments = parseReviewCommentThreadMap(stored);
   const dropped = Object.keys(stored).filter((key) => !(key in comments));
   if (dropped.length === 0) return comments;
   console.error(
-    `[Review] Dropped ${dropped.length} malformed comment record${dropped.length === 1 ? "" : "s"} from ${dbPath}: ${dropped.join(", ")}`,
+    `[Review] Dropped ${dropped.length} malformed comment record${dropped.length === 1 ? "" : "s"} from ${reviewStateDbPath()}: ${dropped.join(", ")}`,
   );
-  writeThreadTable(dbPath, "comments", "thread_id", comments);
+  writeThreadTable(reviewDir, "comments", "thread_id", comments);
   return comments;
 }
 
@@ -508,7 +543,15 @@ function readValidComments(dbPath: string): ReviewCommentThreadMap {
  * so the database's presence marks the review sqlite-first from birth. Not
  * cached: the scaffold may be rolled back (rm -rf) on a later failure.
  */
-export function createReviewThreadDb(reviewDir: string): void {
+export function createReviewThreadDb(
+  reviewDir: string,
+  reviewHome?: string,
+): void {
+  ensureReviewRegistration(reviewDir, reviewHome);
+}
+
+/** Create the old per-review database shape for migration tests and tools. */
+export function createLegacyReviewThreadDb(reviewDir: string): void {
   const dbPath = path.join(reviewDir, REVIEW_THREAD_DB_FILENAME);
   const cached = openDatabases.get(dbPath);
   if (cached) {
@@ -532,4 +575,5 @@ export function closeAllReviewThreadStores(): void {
     }
   }
   openDatabases.clear();
+  closeAllReviewStateDatabases();
 }

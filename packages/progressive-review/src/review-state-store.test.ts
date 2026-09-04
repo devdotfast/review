@@ -8,7 +8,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   appendReviewAgentMessage,
@@ -35,6 +35,7 @@ import type { ReviewSubmissionEvent, ThreadTarget } from "./types";
 const roots: string[] = [];
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   closeAllReviewThreadStores();
   for (const root of roots.splice(0)) {
     rmSync(root, { recursive: true, force: true });
@@ -54,7 +55,9 @@ const target: ThreadTarget = {
 };
 
 function makeReviewPath(): string {
-  const reviewPath = path.join(tempRoot(), "current", "review.mdx");
+  const root = tempRoot();
+  vi.stubEnv("DEV_REVIEW_HOME", root);
+  const reviewPath = path.join(root, "reviews", "current", "review.mdx");
   return reviewPath;
 }
 

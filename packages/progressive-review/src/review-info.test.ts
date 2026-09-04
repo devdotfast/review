@@ -14,7 +14,7 @@ import { promisify } from "node:util";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { createReviewDir } from "./review-home";
+import { createReviewDir, persistStoredReviewRecord } from "./review-home";
 import { runReviewRebind as rebindReview } from "./review-rebind";
 import {
   type RunReviewScaffoldInput,
@@ -368,10 +368,10 @@ describe("review info", () => {
       expect(different.reviews[0]?.uuid).not.toBe(initial.reviews[0]?.uuid);
       const recordPath = path.join(different.reviews[0]!.dir, "review.json");
       const record = JSON.parse(await readFile(recordPath, "utf8"));
-      await writeFile(
-        recordPath,
-        `${JSON.stringify({ ...record, status: "accepted" }, null, 2)}\n`,
-      );
+      await persistStoredReviewRecord(different.reviews[0]!.dir, {
+        ...record,
+        status: "accepted",
+      });
       const afterTerminal = await runReviewScaffold({ cwd: root });
       expect(afterTerminal.reviews[0]?.uuid).not.toBe(
         different.reviews[0]?.uuid,
@@ -381,10 +381,10 @@ describe("review info", () => {
         "review.json",
       );
       const rejected = JSON.parse(await readFile(rejectedPath, "utf8"));
-      await writeFile(
-        rejectedPath,
-        `${JSON.stringify({ ...rejected, status: "rejected" }, null, 2)}\n`,
-      );
+      await persistStoredReviewRecord(afterTerminal.reviews[0]!.dir, {
+        ...rejected,
+        status: "rejected",
+      });
       await expect(runReviewScaffold({ cwd: root })).resolves.toMatchObject({
         reviews: [{ status: "draft" }],
       });
@@ -981,7 +981,7 @@ describe("review info", () => {
       const reviewJsonPath = path.join(created.reviews[0]!.dir, "review.json");
       const review = JSON.parse(await readFile(reviewJsonPath, "utf8"));
       review.status = "rejected";
-      await writeFile(reviewJsonPath, `${JSON.stringify(review, null, 2)}\n`);
+      await persistStoredReviewRecord(created.reviews[0]!.dir, review);
 
       await expect(resolveReviewInfo({ cwd: root })).resolves.toMatchObject({
         reviews: [],

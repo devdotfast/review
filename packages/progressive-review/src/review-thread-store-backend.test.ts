@@ -16,7 +16,8 @@ import {
   REVIEW_THREAD_DB_SCHEMA_VERSION,
   ReviewThreadDbVersionError,
   closeAllReviewThreadStores,
-  createReviewThreadDb,
+  createLegacyReviewThreadDb,
+  legacyReviewThreadDbPath,
   migrateReviewThreadDb,
   reviewThreadDbPath,
 } from "./review-thread-store-backend";
@@ -25,6 +26,7 @@ const roots: string[] = [];
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   closeAllReviewThreadStores();
   for (const root of roots.splice(0)) {
     rmSync(root, { recursive: true, force: true });
@@ -34,7 +36,8 @@ afterEach(() => {
 function makeReviewPath(): string {
   const root = mkdtempSync(path.join(tmpdir(), "review-thread-backend-"));
   roots.push(root);
-  const dir = path.join(root, "review");
+  vi.stubEnv("DEV_REVIEW_HOME", root);
+  const dir = path.join(root, "reviews", "review");
   mkdirSync(dir, { recursive: true });
   return path.join(dir, "review.mdx");
 }
@@ -94,8 +97,8 @@ describe("sqlite thread store", () => {
 
   it("rejects a database with an unsupported schema version", () => {
     const reviewPath = makeReviewPath();
-    const dbPath = reviewThreadDbPath(reviewPath);
-    createReviewThreadDb(path.dirname(reviewPath));
+    const dbPath = legacyReviewThreadDbPath(reviewPath);
+    createLegacyReviewThreadDb(path.dirname(reviewPath));
     const db = new DatabaseSync(dbPath);
     db.prepare(
       "UPDATE meta SET value = '999' WHERE key = 'schema_version'",
@@ -108,8 +111,8 @@ describe("sqlite thread store", () => {
 
   it("drops the question table through the managed v2 upgrade", async () => {
     const reviewPath = makeReviewPath();
-    const dbPath = reviewThreadDbPath(reviewPath);
-    createReviewThreadDb(path.dirname(reviewPath));
+    const dbPath = legacyReviewThreadDbPath(reviewPath);
+    createLegacyReviewThreadDb(path.dirname(reviewPath));
     closeAllReviewThreadStores();
     const db = new DatabaseSync(dbPath);
     db.exec(`
@@ -141,8 +144,8 @@ describe("sqlite thread store", () => {
 
   it("normalizes message markers and removes native provenance", async () => {
     const reviewPath = makeReviewPath();
-    const dbPath = reviewThreadDbPath(reviewPath);
-    createReviewThreadDb(path.dirname(reviewPath));
+    const dbPath = legacyReviewThreadDbPath(reviewPath);
+    createLegacyReviewThreadDb(path.dirname(reviewPath));
     closeAllReviewThreadStores();
     const db = new DatabaseSync(dbPath);
     db.prepare(
@@ -245,8 +248,8 @@ describe("sqlite thread store", () => {
 
   it("drops a malformed database record and emits a diagnostic", () => {
     const reviewPath = makeReviewPath();
-    const dbPath = reviewThreadDbPath(reviewPath);
-    createReviewThreadDb(path.dirname(reviewPath));
+    const dbPath = legacyReviewThreadDbPath(reviewPath);
+    createLegacyReviewThreadDb(path.dirname(reviewPath));
     const db = new DatabaseSync(dbPath);
     db.prepare(
       "INSERT INTO comments (thread_id, record_json) VALUES (?, ?)",
@@ -260,10 +263,15 @@ describe("sqlite thread store", () => {
     );
 
     closeAllReviewThreadStores();
-    const reopened = new DatabaseSync(dbPath);
+    const reopened = new DatabaseSync(reviewThreadDbPath(reviewPath));
     expect(
       reopened.prepare("SELECT count(*) AS count FROM comments").get(),
     ).toEqual({ count: 0 });
     reopened.close();
+    const legacy = new DatabaseSync(dbPath, { readOnly: true });
+    expect(
+      legacy.prepare("SELECT count(*) AS count FROM comments").get(),
+    ).toEqual({ count: 1 });
+    legacy.close();
   });
 });

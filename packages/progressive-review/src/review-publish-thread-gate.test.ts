@@ -5,7 +5,7 @@ import { PassThrough } from "node:stream";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createReviewDir } from "./review-home";
+import { createReviewDir, persistStoredReviewRecord } from "./review-home";
 import { runReviewPublish } from "./review-publish";
 import {
   ReviewMissingAgentResponsesError,
@@ -84,14 +84,10 @@ describe("requireClosedThreadsForRepublish", () => {
   it("reports the blocked re-publish as an NDJSON publish error", async () => {
     const review = await createTestReview();
     addComment(review.dir, "thread-1");
-    await writeFile(
-      path.join(review.dir, "review.json"),
-      `${JSON.stringify({
-        ...review.review,
-        presentedDocumentRevision: "published-revision",
-      })}\n`,
-      "utf8",
-    );
+    await persistStoredReviewRecord(review.dir, {
+      ...review.review,
+      presentedDocumentRevision: "published-revision",
+    });
     const stdout = new PassThrough();
     let output = "";
     stdout.on("data", (chunk) => (output += String(chunk)));

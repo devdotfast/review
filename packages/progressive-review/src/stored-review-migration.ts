@@ -38,6 +38,11 @@ import {
 import { reviewTypescriptEstreeParser } from "./review-mdx-typescript-parser";
 import { createReviewSourceAgentSession } from "./review-source-agent-session";
 import {
+  deleteReviewState,
+  importLegacyReview,
+  putReviewRecord,
+} from "./review-state-db";
+import {
   type ReviewThreadDbMigrationOptions,
   migrateReviewThreadDb,
 } from "./review-thread-store-backend";
@@ -387,6 +392,7 @@ export async function migrateStoredReviewData(input: {
           schemaVersion !== 2)
       ) {
         await rm(reviewDir, { recursive: true, force: true });
+        deleteReviewState(reviewDir, input.reviewHome);
         total.droppedReviews += 1;
         input.log?.(`Dropped old Review ${entry.name}.`);
         continue;
@@ -437,6 +443,7 @@ export async function migrateStoredReviewData(input: {
       const removedPeekKeys = await removedCodePeekKeys(reviewDir);
       if (removedPeekKeys.length > 0) {
         await rm(reviewDir, { recursive: true, force: true });
+        deleteReviewState(reviewDir, input.reviewHome);
         total.droppedLegacyPeekReviews += 1;
         total.droppedReviews += 1;
         input.log?.(
@@ -478,11 +485,14 @@ export async function migrateStoredReviewData(input: {
         );
       }
       const result = await dropLegacyReviewState(reviewPath, input.log);
+      importLegacyReview(reviewDir, input.reviewHome);
+      putReviewRecord(reviewDir, migratedRecord, input.reviewHome);
       total.droppedComments += result.droppedComments;
       total.droppedQuestions += result.droppedQuestions;
       total.documents += 1;
     } catch (error) {
       await rm(reviewDir, { recursive: true, force: true });
+      deleteReviewState(reviewDir, input.reviewHome);
       total.droppedReviews += 1;
       input.log?.(
         `Dropped malformed Review ${entry.name}: ${errorMessage(error)}`,

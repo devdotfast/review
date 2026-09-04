@@ -1,0 +1,190 @@
+# Authoring-latency runs. `uv run review-latency run --id review-27` runs one;
+# `--all` runs every entry. Paths are absolute so the harness can be invoked
+# from anywhere.
+
+[defaults]
+model = "opus"
+# Pinned explicitly: `claude -p` otherwise inherits ~/.claude/settings.json effortLevel.
+effort = "high"
+runs_dir = "~/.dev/review-latency/runs"
+# "source": run packages/progressive-review/src/cli.ts (instrumented, no
+# desktop delegation) as `review` on the agent's PATH. "installed": use
+# whatever `review` already resolves to.
+review_cli = "source"
+# Which Review Desktop each run launches: "packaged" (/Applications, what users
+# run) or "dev" (this checkout's Code OSS build, needed to measure desktop-side
+# instrumentation). Per-run override: desktop = "dev".
+# Default is "dev": server- and desktop-side fixes made in this checkout must be
+# exercised by the desktop the runs talk to. review#8 A/B showed no time-to-visible
+# difference between the two (229s packaged vs 224s dev).
+desktop = "dev"
+max_turns = 300
+timeout_minutes = 60
+# The harness measures prompt -> published document and terminates the agent
+# once the document is published and shown (or when it enters `review wait`),
+# so the prompt carries no harness instructions.
+# Slash-command syntax: args follow after a space (a colon makes the harness
+# reject the command name).
+prompt = "/dev-review write me a review of PR #{pr}"
+# Fork runs replay the session at its cut state, so the review target is the
+# branch the worktree is on — not the PR head, which usually moved on after
+# the cut and would make the agent explore commits it never saw.
+prompt_fork = "/dev-review write me a review of this branch"
+
+[repos.review]
+path = "/Volumes/workspace/src/review"
+
+[repos.dev]
+path = "/Users/sidharthkmenon/workspace/src/dev"
+
+# --- completed tracer bullets (kept for reference) --------------------------
+[[runs]]
+id = "review-27"
+repo = "review"
+pr = 27
+mode = "create"
+
+[[runs]]
+id = "review-27-fork-codex"
+repo = "review"
+pr = 27
+mode = "fork"
+harness = "codex"
+session = "01a037c9-f06c-7692-8b48-18b8cb4fef0c"
+model = "default"
+prompt = "can you create a tiny dev-review of this change so i can just validate this stuff works when there's an already running app?"
+
+[[runs]]
+id = "review-27-fork-claude"
+repo = "review"
+pr = 27
+mode = "fork"
+harness = "claude-code"
+session = "a3048527-ef89-4dc0-9d84-9be5445f6738"
+# Concurrent sessions dual-stamp trailers; this session's own work is the
+# trace-capture stack.
+worktree = "f88947c58f96ab46fef8e8bf65a7d7a2ccc6fd3f"
+
+# --- fork batch -------------------------------------------------------------
+[[runs]]
+id = "review-24-fork"
+repo = "review"
+pr = 24
+mode = "fork"
+harness = "codex"
+session = "01a037e0-5b94-7c81-a471-edd7bdd07b30"
+model = "default"
+
+[[runs]]
+id = "review-16-fork"
+repo = "review"
+pr = 16
+mode = "fork"
+harness = "codex"
+session = "01a01dfe-8b71-7792-8837-664f64474da7"
+model = "default"
+
+[[runs]]
+id = "review-2-fork"
+repo = "review"
+pr = 2
+mode = "fork"
+harness = "codex"
+session = "01a015e7-579e-70d1-b569-b6994cadbeeb"
+model = "default"
+
+[[runs]]
+id = "dev-884-fork"
+repo = "dev"
+pr = 884
+mode = "fork"
+harness = "codex"
+session = "019ff1a3-7178-70a3-8613-5b85d0937ea0"
+model = "default"
+prompt = "can you create a $dev-review for this?"
+
+[[runs]]
+id = "dev-898-fork"
+repo = "dev"
+pr = 898
+mode = "fork"
+harness = "codex"
+session = "019ff24d-3795-7132-9be7-4f6b7dc4a9e9"
+model = "default"
+
+# --- cold batch (review-only / meta sessions) -------------------------------
+[[runs]]
+id = "review-17-cold"
+repo = "review"
+pr = 17
+mode = "create"
+
+[[runs]]
+id = "review-8-cold"
+repo = "review"
+pr = 8
+mode = "create"
+
+[[runs]]
+id = "review-20-cold"
+repo = "review"
+pr = 20
+mode = "create"
+
+# --- fork batch 2 (Sep 2: new sessions since the first sweep) ---------------
+# Both come from one Claude lineage building the AgentServer refactor. The
+# branch was amended after the reviews, so the reviewed sourceCommits are
+# rebase twins of the current PR history; worktrees pin the on-branch twins.
+[[runs]]
+id = "review-83-fork"
+repo = "review"
+pr = 83
+mode = "fork"
+harness = "claude-code"
+# Session that made review ded05b1d ("Ask agent: one AgentServer per harness").
+session = "8ea33762-e18b-4447-ae65-41b41e70b359"
+# On-branch twin of reviewed sourceCommit 6970219e (subject + author date match).
+worktree = "5c0cf8c2286ea8ff1dd84f96b1ee8d6127e4a6ec"
+
+[[runs]]
+id = "review-84-fork"
+repo = "review"
+pr = 84
+mode = "fork"
+harness = "claude-code"
+# Session that made review 12ed2707 ("OpenCode on AgentServer"). The default
+# cut lands on this lineage's *first* review request (same fork as
+# review-83-fork), so cut is pinned to the later explicit request:
+# record 2727, 2026-09-02T00:24:31Z, "can you write me a dev-review of just
+# our branch's opencode chagne". Prefix includes the earlier PR-83 review
+# work - a realistic second-review-of-the-day scenario.
+session = "5295d23e-fc0b-4de3-ac13-485c72cb753e"
+cut = 2727
+# PR 84 head = on-branch twin of reviewed sourceCommit 998e15c1.
+worktree = "7feca67370cdb24cd8e58d09afc1d3c11ffef261"
+
+# Same replay at lower reasoning effort: is thinking time the lever?
+[[runs]]
+id = "review-83-fork-medium"
+effort = "medium"
+repo = "review"
+pr = 83
+mode = "fork"
+harness = "claude-code"
+# Session that made review ded05b1d ("Ask agent: one AgentServer per harness").
+session = "8ea33762-e18b-4447-ae65-41b41e70b359"
+# On-branch twin of reviewed sourceCommit 6970219e (subject + author date match).
+worktree = "5c0cf8c2286ea8ff1dd84f96b1ee8d6127e4a6ec"
+
+[[runs]]
+id = "review-83-fork-low"
+effort = "low"
+repo = "review"
+pr = 83
+mode = "fork"
+harness = "claude-code"
+# Session that made review ded05b1d ("Ask agent: one AgentServer per harness").
+session = "8ea33762-e18b-4447-ae65-41b41e70b359"
+# On-branch twin of reviewed sourceCommit 6970219e (subject + author date match).
+worktree = "5c0cf8c2286ea8ff1dd84f96b1ee8d6127e4a6ec"
+

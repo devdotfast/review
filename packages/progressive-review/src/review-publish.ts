@@ -10,6 +10,7 @@ import {
 } from "./review-publication-preparation";
 import { resolveReviewRoot } from "./runtime";
 import { prepareReviewPublish } from "./server/publish-preparation";
+import { recordSpan, span, startSpan } from "./startup-trace";
 
 // The CLI owns the whole publish flow: it validates, bundles, resolves every
 // code reference, and seals the revision. The desktop is only notified via
@@ -50,11 +51,13 @@ async function publish(
   reporter: PublishReporter,
 ): Promise<number> {
   const reviewRoot = await resolveReviewRoot(input.cwd);
-  const prepared = await prepareReviewPublish({
-    cwd: reviewRoot,
-    reviewUuid: input.reviewUuid,
-    onReviewBound: input.onReviewBound,
-  });
+  const prepared = await span("publish: prepare", () =>
+    prepareReviewPublish({
+      cwd: reviewRoot,
+      reviewUuid: input.reviewUuid,
+      onReviewBound: input.onReviewBound,
+    }),
+  );
   const review = prepared.review;
   if (prepared.warnings?.length) {
     reporter.warning("prepare", prepared.warnings);
@@ -63,7 +66,9 @@ async function publish(
   reporter.stage("validate", "running");
   let preparedDocument;
   try {
-    preparedDocument = await prepareReviewDocumentBundle({ review });
+    preparedDocument = await span("publish: validate document", () =>
+      prepareReviewDocumentBundle({ review }),
+    );
   } catch (error) {
     if (error instanceof ReviewPublicationValidationError) {
       if (error.warnings.length > 0) {
@@ -87,14 +92,16 @@ async function publish(
   reporter.stage("validate", "complete");
 
   reporter.stage("revision", "running");
-  const revision = await sealReviewCandidate(
-    review.dir,
-    REVIEW_PUBLISH_CANDIDATE_MESSAGE,
+  const revision = await span("publish: seal revision", () =>
+    sealReviewCandidate(review.dir, REVIEW_PUBLISH_CANDIDATE_MESSAGE),
   );
   reporter.stage("revision", "complete", { revision });
 
-  const discovery = await requireHealthyReviewDesktop("review publish");
+  const discovery = await span("publish: desktop health", () =>
+    requireHealthyReviewDesktop("review publish"),
+  );
   reporter.stage("mount", "running");
+  const mountSpan = startSpan("publish: POST /publish-ready");
   const response = await fetch(`${discovery.url}/publish-ready`, {
     method: "POST",
     headers: {
@@ -113,7 +120,13 @@ async function publish(
     url?: string;
     focusWarning?: string;
     error?: string;
+    timings?: Array<{ name: string; startEpochMs: number; endEpochMs: number }>;
   } | null;
+  if (response.ok) mountSpan.end();
+  else mountSpan.fail(`HTTP ${response.status}`);
+  for (const timing of result?.timings ?? []) {
+    recordSpan(`desktop: ${timing.name}`, timing, { parentId: mountSpan.id });
+  }
   if (!response.ok || !result?.ok || !result.sessionId) {
     throw new Error(
       result?.error ??

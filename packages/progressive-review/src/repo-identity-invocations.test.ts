@@ -8,7 +8,13 @@ const SOURCE_ROOTS = [path.resolve(import.meta.dirname)];
 const ALLOWLIST: ReadonlyArray<{
   location: string;
   justification: string;
-}> = [];
+}> = [
+  {
+    location: "src/software-map-health.ts:258",
+    justification:
+      "readCommitTreeFileSync builds its args with gitArgsSync one statement earlier so the same array can name the traceCommandSync span.",
+  },
+];
 
 describe("repo identity subprocesses", () => {
   it("pins every production git and gh invocation to an explicit repository", () => {

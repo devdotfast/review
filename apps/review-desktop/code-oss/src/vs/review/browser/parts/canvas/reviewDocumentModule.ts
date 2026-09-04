@@ -16,15 +16,30 @@ const reviewDocumentPolicy = createTrustedTypesPolicy("reviewDocumentModule", {
 });
 const reviewDocumentModules = new ReviewDocumentModuleCache();
 
+export type ReviewDocumentLoadStep = (
+	name: string,
+	startEpochMs: number,
+	endEpochMs: number,
+) => void;
+
 export async function loadReviewDocumentModule(
 	session: ReviewDesktopSession,
 	moduleUrl: string,
 	runtimeUrl: string,
 	importModule: ReviewDocumentImporter = importBlobReviewModule,
+	onStep?: ReviewDocumentLoadStep,
 ): Promise<unknown> {
 	const url = new URL(moduleUrl, session.serverUrl);
 	const resolvedModuleUrl = url.href;
 	const resolvedRuntimeUrl = new URL(runtimeUrl).href;
+	const timed = async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
+		const startEpochMs = Date.now();
+		try {
+			return await fn();
+		} finally {
+			onStep?.(name, startEpochMs, Date.now());
+		}
+	};
 	return reviewDocumentModules.load(
 		resolvedModuleUrl,
 		resolvedRuntimeUrl,
@@ -32,26 +47,30 @@ export async function loadReviewDocumentModule(
 			if (session.token) {
 				url.searchParams.set("token", session.token);
 			}
-			const response = await fetch(url, {
-				headers: session.token
-					? { "x-review-token": session.token }
-					: undefined,
-			});
+			const response = await timed("module: fetch bundle", () =>
+				fetch(url, {
+					headers: session.token
+						? { "x-review-token": session.token }
+						: undefined,
+				}),
+			);
 			if (!response.ok) {
 				throw new Error(
 					`Review document module returned ${response.status}.`,
 				);
 			}
-			const source = await response.text();
+			const source = await timed("module: read body", () => response.text());
 			const rewritten = rewriteReviewDocumentRuntime(
 				source,
 				resolvedRuntimeUrl,
 			);
 			// Published bundles carry no origin or token; hand the runtime this
 			// session's request context before the document module evaluates.
-			const runtimeModule = (await importModule(
-				(reviewDocumentPolicy?.createScriptURL(resolvedRuntimeUrl) ??
-					resolvedRuntimeUrl) as string,
+			const runtimeModule = (await timed("module: import runtime", () =>
+				importModule(
+					(reviewDocumentPolicy?.createScriptURL(resolvedRuntimeUrl) ??
+						resolvedRuntimeUrl) as string,
+				),
 			)) as {
 				setReviewRequestContext?: (context: {
 					origin?: string;
@@ -68,7 +87,9 @@ export async function loadReviewDocumentModule(
 			try {
 				const trustedUrl =
 					reviewDocumentPolicy?.createScriptURL(blobUrl) ?? blobUrl;
-				return await importModule(trustedUrl as string);
+				return await timed("module: import document", () =>
+					importModule(trustedUrl as string),
+				);
 			} finally {
 				URL.revokeObjectURL(blobUrl);
 			}

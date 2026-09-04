@@ -21,6 +21,7 @@
     "build": "pnpm -r --if-present build"
   },
   "devDependencies": {
+    "@ast-grep/cli": "0.40.0",
     "@types/node": "24.12.2",
     "oxfmt": "0.48.0",
     "oxlint": "1.63.0",

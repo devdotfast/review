@@ -29,6 +29,7 @@ import {
 } from "./review-publish-element-audit";
 import { defineSoftwareMap } from "./software-map-model";
 import { resolveReviewSourceRange } from "./source-range-resolver";
+import { span, startSpan } from "./startup-trace";
 
 // Publish evaluates the exact bundle it ships: the document module runs under
 // Node with this validation runtime substituted for `review-doc-runtime`, so
@@ -132,6 +133,9 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
         },
       };
     }
+    const peekSpan = startSpan("evaluate: code peek", {
+      detail: `${props.graph ?? "head"} ${props.file}:${props.fromLine}-${props.toLine}`,
+    });
     try {
       const targets = await evidence();
       const primary = props.graph === "base" ? targets.base : targets.head;
@@ -147,8 +151,10 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
           toLine: props.toLine,
         },
       });
+      peekSpan.end();
       return { snapshot };
     } catch (error) {
+      peekSpan.fail();
       const message = `Code peek range ${props.file}:${props.fromLine}-${props.toLine}: ${errorMessage(error)}`;
       if (!failures.includes(message)) failures.push(message);
       throw error;
@@ -202,7 +208,10 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
     );
     moduleUrl.searchParams.set("t", String(Date.now()));
     try {
-      await import(moduleUrl.href);
+      await span(
+        "evaluate: import document module",
+        () => import(moduleUrl.href),
+      );
     } catch (error) {
       importError = error;
     }
@@ -214,6 +223,12 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
   // CallStackDiff evidence: the same gate as range resolution. Every "-"
   // row must anchor deleted lines and every "+" row added lines, so a
   // marker can never claim a change the diff does not contain.
+  const callStackSpan =
+    callStackProps.length > 0 && input.validateRanges !== false
+      ? startSpan("evaluate: call stack diffs", {
+          detail: `${callStackProps.length} diagrams`,
+        })
+      : null;
   if (callStackProps.length > 0 && input.validateRanges !== false) {
     if (!input.resolveChangedLines) {
       failures.push(
@@ -251,7 +266,14 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
   // TraceQuote resolution: every quoted string is matched against the target
   // normalized trace. Text found nowhere is a hard error; multiple matches
   // without a deciding event hint emit a warning with the event index.
+  callStackSpan?.end();
   const traceQuoteWarnings: string[] = [];
+  const traceQuoteSpan =
+    traceQuotes.length > 0 && input.validateRanges !== false
+      ? startSpan("evaluate: trace quotes", {
+          detail: `${traceQuotes.length} quotes`,
+        })
+      : null;
   if (traceQuotes.length > 0 && input.validateRanges !== false) {
     const traceCwd = input.prepareEvidence
       ? (await evidence()).head.sourceRootPath
@@ -310,6 +332,7 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
     }
   }
 
+  traceQuoteSpan?.end();
   const errors =
     failures.length > 0
       ? failures

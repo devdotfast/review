@@ -1,11 +1,15 @@
-import { execFile, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { promisify } from "node:util";
 
 import gitUrlParse from "git-url-parse";
 
-const execFileAsync = promisify(execFile);
+import { execFileAsync, execFileSyncObserved } from "./exec";
+
+export {
+  type LocalVcsCommandObserver,
+  setLocalVcsCommandObserver,
+} from "./exec";
+
 const LOCAL_GIT_ENV_KEYS = [
   "GIT_ALTERNATE_OBJECT_DIRECTORIES",
   "GIT_COMMON_DIR",
@@ -2153,7 +2157,7 @@ function runCommandOutputSync(
   options: CommandOutputOptions,
 ): string | null {
   try {
-    const output = execFileSync(command, args, {
+    const output = execFileSyncObserved(command, args, {
       cwd: options.cwd,
       encoding: "utf8",
       env: commandEnvironment(command, args),

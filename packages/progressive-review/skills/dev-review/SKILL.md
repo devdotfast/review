@@ -91,11 +91,9 @@ If no sub-agent facility exists, publish the document. Report that the map is no
 
 Read [Document authoring](references/document-authoring.md) before you edit `review.mdx` or `data.ts`.
 
-Use the materialized files in `traces.paths` from the scaffold event. When that array is non-empty, read [Trace quoting](references/trace-quoting.md) and complete its intent pass before authoring. Use FFF for candidate discovery.
+Use the materialized files in `traces.paths` from the scaffold event. When that array is non-empty, read [Trace quoting](references/trace-quoting.md) and complete its intent pass before authoring. Use FFF for trace search candidate discovery.
 
-Use the smallest document that explains the important change. Default to `AnchorLink` for source evidence, and use this to hyperlink any text in the review that refers to a specific piece of code. Use `CodePeek` only when readers must see the code inline to understand the main claim.
-
-Read every referenced range from the correct pinned checkout before you add it. Use the `checkouts` paths from the scaffold event: the head checkout for a head range, the base checkout for a base range.
+Use the `checkouts` paths from the scaffold event: the head checkout for a head range, the base checkout for a base range.
 
 ### 4. Publish the document
 
@@ -167,3 +165,11 @@ Complete the authoring turn only when all applicable conditions are true:
 - All document diagnostics are resolved.
 - Both map checks passed before map publication.
 - The Review is waiting on the reviewer, the reader dismissed it, or the Review was deleted.
+
+## Errata
+
+Do not run typechecks, compilation checks, lints, or tests of any sort until you get explicit instructions from the user.
+
+You do not need ANY of this information to write a good review and it is a complete waste of time.
+
+The point is to help the user understand the code; it does not relevant if CI is or is going to be green.

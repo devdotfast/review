@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { type Message, type Plugin, build } from "esbuild";
 
+import type { CodePeekResolution } from "../authoring";
 import {
   type ReviewDocumentDiagnostic,
   compileReviewDocument,
@@ -74,6 +75,30 @@ export async function compileReviewDocumentBundle(
       routePath: result.document.routePath,
       sourcePath: result.document.filePath,
     },
+  };
+}
+
+export const EMBEDDED_CODE_PEEKS_GLOBAL = "__reviewEmbeddedCodePeeks";
+
+/** Prepend the publish-time code peek resolutions to the bundle. The browser
+    runtime reads them at session creation instead of requesting each peek. */
+export function embedCodePeeks(
+  bundle: ReviewDocumentBundle,
+  codePeeks: Record<string, CodePeekResolution>,
+): ReviewDocumentBundle {
+  const prelude =
+    `globalThis.${EMBEDDED_CODE_PEEKS_GLOBAL} = Object.assign(` +
+    `globalThis.${EMBEDDED_CODE_PEEKS_GLOBAL} ?? {}, ` +
+    `${JSON.stringify({ [bundle.routePath]: codePeeks })});\n`;
+  const code = prelude + bundle.code;
+  return {
+    ...bundle,
+    code,
+    contentHash: crypto
+      .createHash("sha256")
+      .update(code)
+      .digest("hex")
+      .slice(0, 20),
   };
 }
 

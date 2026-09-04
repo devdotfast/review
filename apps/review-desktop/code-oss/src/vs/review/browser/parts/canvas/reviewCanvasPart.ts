@@ -174,13 +174,6 @@ function isTutorialStepId(step: unknown): step is TutorialStepId {
 		REVIEW_TUTORIAL_STEP_IDS.includes(step as TutorialStepId)
 	);
 }
-// First commit is not proof of document health: effect-driven errors land
-// just after it. Mount validation holds its success signal for this settle
-// window so an error diagnostic reported from an effect still fails the
-// publish. Interaction-driven errors (for example a tour opened later) are
-// out of reach for any window.
-const mountValidationSettleMs = 2_000;
-
 function embeddedSelectionChangeReason(
 	event: ICursorPositionChangedEvent,
 ): EditorPaneSelectionChangeReason {
@@ -1488,7 +1481,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		let handle: ReviewCanvasHandle | undefined;
 		let comments: ReviewCommentStore | undefined;
 		let loadTimeout: ReturnType<typeof setTimeout> | undefined;
-		let settleTimeout: ReturnType<typeof setTimeout> | undefined;
 		// Each step of the off-screen mount reports its wall-clock interval back
 		// to the server, which folds it into the publish timings the CLI shows.
 		const timings: { name: string; startEpochMs: number; endEpochMs: number }[] = [];
@@ -1571,15 +1563,15 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				subscribe: () => ({ dispose: () => undefined }),
 				currentTheme: () => this.colorScheme(),
 				onDidChangeTheme: () => ({ dispose: () => undefined }),
+				// First commit is the success signal. Errors reported from effects
+				// that run before it still fail the mount via reportDiagnostic;
+				// later ones are the visible pane's problem, not publish's.
 				ready: () => {
-					if (finished || settleTimeout) {
+					if (finished) {
 						return;
 					}
 					timings.push({ name: "first commit", startEpochMs: mountedAt, endEpochMs: Date.now() });
-					settleTimeout = setTimeout(
-						() => finishMount(null),
-						mountValidationSettleMs,
-					);
+					finishMount(null);
 				},
 				reportDiagnostic: (diagnostic) => {
 					if (diagnostic.level === "error") {
@@ -1632,7 +1624,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			};
 		} finally {
 			if (loadTimeout) clearTimeout(loadTimeout);
-			if (settleTimeout) clearTimeout(settleTimeout);
 			handle?.dispose();
 			container?.remove();
 			comments?.dispose();

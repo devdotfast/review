@@ -4,32 +4,42 @@
 
 The reader sees the original user request and the Review document. The reader does not see agent reasoning or the implementation session.
 
-The H1 is the review's display title in Review Desktop tabs and Home. Write a short, specific title for the change (for example, "Publish pipeline: single mount"), not a generic one. Publishing syncs the title. Use progressive disclosure: short prose first, then details that earn their cost. Typical useful sections are interface change, lifecycle/data flow, state/storage, and testing evidence. Write in ASD-STE100 Simplified Technical English (STE).
+The H1 is the review's display title in Review Desktop tabs and Home. Write a short, specific title for the change (for example, "Publish pipeline: single mount"), not a generic one. Use progressive disclosure: short prose first, then details that earn their cost. Write in ASD-STE100 Simplified Technical English (STE).
 
-Assume raw prose will confuse the reader. Spend substantial reasoning effort deciding what to omit, rather than what to include; deep analysis followed by a small amount of clear output text is the correct tradeoff. Start brief and add resolution only where it earns the reader's attention; the reader's time and attention are incredibly expensive and thus every word you put out taxes and pains them. Your job is to not waste that time. Think about the style of RFCs from great tech leaders like Russ Cox, Dave Cheney, and the early React RFCs.
+Assume raw prose will confuse the reader. Think about the style of RFCs from great tech leaders like Russ Cox, Dave Cheney, and the early React RFCs.
 
 Remember that the reader can ONLY see the 'user' prompts _before_ coding started and the document you write to explain what changed. This means jargon in the middle - references to specific parts of code, especially any and all abstractions, changes, and code referenced _during_ the editing process - is confusing and not helpful. More words do not help. Progressive disclosure of complexity is key.
 
-Open the document with a landing section after the H1 and before the first H2. Be concise.
+If you have context on the change already in previous chat history, there's almost no reason to do extra exploration - go straight into authoring. Just make sure to attach examples to your claims.
 
-**Summary** 
-- short bullet points that summarize the change, for example:
-- comment peeks now open in the real diff editor, not a stitched-together fake buffer
-- both diff sides are actual files on disk, so imports and go-to-definition just work
-- comments stick to real lines — deleted ones included
+Open the document with a landing section after the H1 and before the first H2. Be concise; this section should just be *quotes from the prompt behind the change* (either through associated agent trace sessions, or your own context window, if you have the implementation session in context.)
+
+**Summary** - *What* behavior was changed
+- keep max ~5 bullet points. 1 is best and indicates a clean PR.
 
 **Why**
-A couple short sentences about: What problem does this change solve? (What problem(s) is this change not trying to solve?) For a bugfix, this can be what was wrong before; for a new feature, this can be what this adds. Capture the intent behind the pr using the developer's own prompts, if those are available to you (either through associated agent trace sessions, or your own context window, if you have the implementation session in context.)
+A couple short sentences about: What problem does this change solve? (What problem(s) is this change not trying to solve?) For a bugfix, this can be what was wrong before; for a new feature, this can be what this adds. 
 
 After the landing section, use fewer than five further sections when practical. Choose the sections that fit this change. Good section choices are:
 
 - requirements
+  - best expressed via links to trace
 - design
+  - best expressed via decision log w/ diagram or code examples w/ links to trace
 - interface change
+  - best expressed through links to code w/ example usage
 - lifecycle or data flow
+  - obviously best expressed via diagram (sequence + state diagram)
 - state or storage
+  - database diagram
 - testing evidence
-- decision log
+  - do:
+    - reference what is tested via integration-style or E2E tests via pseudocode.
+      - generally, it is wise here to skip noting unit tests
+    - add links to decisions etc. that are relevant here (e.g. explicit user guidance on what to test)
+  - do not:
+    - run tests or linters.
+    - "xxx/yyy tests are passing" (overwhelming without giving information; CI being green is enough).
 
 Add implementation detail only when it helps the reader check an important claim.
 
@@ -54,12 +64,46 @@ Do not import runtime values from source repository files. Put document data in 
 
 Scaffold creates one pinned checkout per pinned commit and prints both paths in its JSON event, under `checkouts.head` and `checkouts.base`. Read the paths from that output. Do not derive them from the repository layout. When you have no scaffold output, the layout is `<git-common-dir>/dev-fast/reviews/<review-uuid>/{head,base}/<full-commit>/`; resolve the common dir with `git rev-parse --git-common-dir` in the source worktree.
 
-Read each range from the correct pinned checkout before you add it:
+1. **Load the change into your context window**:
+   - *IMPORTANT*: THIS STEP IS OPTIONAL; SKIP to #2 IF THIS IS THE SAME SESSION THAT AUTHORED THE CHANGE
+   - Typically involves batched commands; utilize code mode + parallel subagents to minimize the number of tool calls. If it's available, use ast-grep as per the code search section below.
+   - infer if "this is the same session that authored the change" via the user's messages.
+2. **Decide on the evidence that you want to show**
+3. **For locations where you can't remember specific line numbers, search for code locations to match your chosen examples/anchors.**
 
-- Use the head checkout (`sourceCommit`) for a head range.
-- Use the base checkout (`baseCommit`) for a base range.
+Default to `AnchorLink` or `CodePeek` for source evidence (prefer `AnchorLink`, with `CodePeek` superior for examples which are best demonstrated via inline code, e.g. an API change).
 
-Use the smallest range that proves the claim. Default to `AnchorLink` for source evidence. Use `CodePeek` only when readers must see the code inline to understand the main claim. A path outside the pinned checkout or an invalid line range blocks document publication.
+A path outside the pinned checkout blocks document publication.
+
+### Code Search
+   - Utilize batching to minimize tool calls / code-mode + parallelism (e.g. via subagents) to speed things up.
+   - *IMPORTANT*: when at all possible, use `ast-grep` (on PATH) vs. vanilla grep, reading files (e.g. via sed/cat), or counting line ranges. 'sed, grep, cat' are slow and ill-fitted to this use-case (finding starting/closing brackets of code snippets).
+      - Match declarations by **node kind + name** with `ast-grep scan`, not by a code pattern (`ast-grep run -p`): a pattern must parse as a complete program, and a bare method or signature does not, so method patterns return nothing.
+      - One call resolves every anchor on a checkout. List all the names in the regex; run it once for head and once for base:
+      ```sh
+      ast-grep scan --json=compact --inline-rules '
+      id: anchors
+      language: TypeScript
+      rule:
+        any: [{kind: function_declaration}, {kind: method_definition}, {kind: class_declaration},
+              {kind: interface_declaration}, {kind: type_alias_declaration}, {kind: variable_declarator}]
+        has: {field: name, regex: ^(nameA|nameB|nameC)$}
+      ' <checkout>/<dir> \
+        | jq -r '.[] | "\(.file) \(.range.start.line+1)-\(.range.end.line+1)\n\(.text)\n"'
+      ```
+      - The output is `file fromLine-toLine` followed by the full source of the match, already 1-based (`range.*.line` is 0-based; the `+1` is in the jq). That text is the code you will describe or peek at; do not re-read it with `sed`/`cat`.
+      - Private members match by their `#name` (`regex: ^#mirror$`).
+      - If a declaration shape is not matching, ask ast-grep which kind carries its `name:` field and use that kind:
+      ```sh
+      ast-grep run -l <lang> -p '<one complete, valid declaration of that shape>' --debug-query=ast
+      ```
+        e.g. `const f = (x: X): Y => { … }` shows `lexical_declaration > variable_declarator > name: identifier`, so the kind is `variable_declarator`. This is also how to get kinds for other languages.
+      - For a range inside a declaration (one call, one statement), add `inside: {kind: <declaration kind>, has: {field: name, regex: ^outer$}}` to the rule and match the inner node.
+      - The range from ast-grep is authorative & there's no need to second-guess it with 'sed' or 'cat' calls.
+
+Remember that a review has two pinned checkouts (base checkout, or `baseCommit`, and head checkout, or `sourceCommit`). Depending on the anchor/code ref you may need to be specific about one side or the other.
+
+If code context is already in your context window (e.g. file/symbols), leverage that information to avoid extraneous searches.
 
 ## Authoring API (data.ts)
 
@@ -146,4 +190,4 @@ See <AnchorLink anchor={anchors.publish}>the publish implementation</AnchorLink>
 
 ## Publication checks
 
-Run `review publish --review <uuid> --json`. Do not run `npm test` against the private Review directory. The publish command supplies the correct private test command and returns document diagnostics as NDJSON events.
+Run `review publish --review <uuid> --json` to publish.

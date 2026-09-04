@@ -213,8 +213,11 @@ export function ReviewFindProvider({
     }
     const compiled = compileReviewFindQuery(query);
     if ("error" in compiled) {
+      clearHighlights();
       setSearching(false);
       setInvalid(compiled.error);
+      setMatches([]);
+      setActiveIndex(-1);
       return;
     }
     clearHighlights();

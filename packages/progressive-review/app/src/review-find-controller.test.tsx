@@ -114,6 +114,64 @@ it("ignores results from an older query generation", async () => {
   );
 });
 
+it("resets stale matches and highlights when the regex becomes invalid", async () => {
+  const handle = findHandle();
+  const container = document.createElement("div");
+  document.body.append(container);
+  const host = createReviewFindHost();
+  root = createRoot(container);
+  await act(async () => {
+    root?.render(<FindHarness host={host} handles={[handle]} />);
+  });
+
+  await act(async () => {
+    expect(host.showFind("Alpha")).toBe(true);
+  });
+  await vi.waitFor(() => {
+    expect(container.querySelector(".review-find-count")?.textContent).toBe(
+      "1 of 3",
+    );
+  });
+
+  await act(async () => button(container, "Use Regular Expression").click());
+  await vi.waitFor(() => {
+    expect(container.querySelector(".review-find-count")?.textContent).toBe(
+      "1 of 3",
+    );
+  });
+
+  handle.clearFind.mockClear();
+  handle.revealFindMatch.mockClear();
+
+  await setInput(container, "[");
+  await vi.waitFor(() => {
+    expect(container.querySelector(".review-find-count")?.textContent).toBe(
+      "Invalid expression",
+    );
+  });
+
+  expect(handle.clearFind).toHaveBeenCalled();
+  const next = button(container, "Next Match");
+  const previous = button(container, "Previous Match");
+  expect(next.disabled).toBe(true);
+  expect(previous.disabled).toBe(true);
+  await act(async () => next.click());
+  expect(handle.revealFindMatch).not.toHaveBeenCalled();
+
+  await setInput(container, "Alpha");
+  await vi.waitFor(() => {
+    expect(container.querySelector(".review-find-count")?.textContent).toBe(
+      "1 of 3",
+    );
+  });
+  const recoveredNext = button(container, "Next Match");
+  expect(recoveredNext.disabled).toBe(false);
+  await act(async () => recoveredNext.click());
+  await vi.waitFor(() => {
+    expect(handle.revealFindMatch).toHaveBeenCalledWith(0);
+  });
+});
+
 it("uses equal action controls and describes every Find option", async () => {
   const container = document.createElement("div");
   document.body.append(container);

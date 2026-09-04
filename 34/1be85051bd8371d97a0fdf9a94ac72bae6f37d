@@ -1203,6 +1203,42 @@ export default defineSoftwareMap({
       "from": "review.reviewApp.traceView",
       "to": "review.cliPackage.traceStore",
       "label": "loads the selected transcript through the local API"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.traceCommands",
+      "to": "review.cliPackage.traceStore.sync",
+      "label": "publishes selected sessions"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.reviewApp.traceView",
+      "to": "review.cliPackage.traceStore.corpus",
+      "label": "loads normalized transcript events"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.traceStore.sync",
+      "to": "review.cliPackage.traceStore.directStorage",
+      "label": "uploads raw objects and indexes"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.traceStore.corpus",
+      "to": "review.traceCorpus",
+      "label": "persists normalized events"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.mapValidation",
+      "to": "review.reviewApp.mapProjection",
+      "label": "validates maps rendered by the canvas"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.reviewApp.threadAnnotations",
+      "to": "review.reviewApp.threadPanel",
+      "label": "highlights and navigates selected thread targets"
     }
   ]
 });

@@ -1,9 +1,9 @@
-import { execFile, execFileSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
 
+import { execFileAsync, execFileSyncObserved } from "./exec";
 import { withFileLock, withFileLockSync } from "./file-lock";
 import {
   git,
@@ -12,8 +12,6 @@ import {
   gitCommonDir,
   gitCommonDirSync,
 } from "./index";
-
-const execFileAsync = promisify(execFile);
 
 const NOTES_LOCK_STALE_MS = 60_000;
 const NOTES_LOCK_POLL_MS = 50;
@@ -77,7 +75,7 @@ export function readNoteSync(input: {
   commit: string;
 }): string | null {
   try {
-    return execFileSync(
+    return execFileSyncObserved(
       "git",
       gitArgsSync(input.rootPath, [
         "notes",
@@ -284,7 +282,7 @@ export function writeNoteSync(input: {
     );
     fs.writeFileSync(tmp, input.content, "utf8");
     try {
-      const blob = execFileSync(
+      const blob = execFileSyncObserved(
         "git",
         gitArgsSync(input.rootPath, ["hash-object", "-w", "--no-filters", tmp]),
         { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
@@ -292,7 +290,7 @@ export function writeNoteSync(input: {
       let lastError: unknown = null;
       for (let attempt = 0; attempt < NOTES_WRITE_RETRIES; attempt += 1) {
         try {
-          execFileSync(
+          execFileSyncObserved(
             "git",
             gitArgsSync(input.rootPath, [
               "notes",
@@ -548,7 +546,7 @@ export function notesRemoteSync(
   if (explicit) return explicit;
   try {
     return (
-      execFileSync(
+      execFileSyncObserved(
         "git",
         gitArgsSync(rootPath, [
           "config",
@@ -758,7 +756,7 @@ export async function notesFetchDisabled(rootPath: string): Promise<boolean> {
 export function notesFetchDisabledSync(rootPath: string): boolean {
   try {
     return (
-      execFileSync(
+      execFileSyncObserved(
         "git",
         gitArgsSync(rootPath, [
           "config",
@@ -849,7 +847,7 @@ export function ensureNotesConfigSync(input: { rootPath: string }): void {
   if (notesConfigEnsured.has(cacheKey)) return;
   const config = (args: string[]) => {
     try {
-      return execFileSync(
+      return execFileSyncObserved(
         "git",
         gitArgsSync(input.rootPath, ["config", ...args]),
         {

@@ -45,6 +45,7 @@ import {
 } from "./review-reopen-marker";
 import { runReviewScaffold } from "./review-scaffold";
 import { runReviewWait, validateReviewWait } from "./review-wait";
+import { setTraceAttribute, span } from "./startup-trace";
 import {
   runReviewThreadsGet,
   runReviewThreadsList,
@@ -295,6 +296,7 @@ export async function runProgressiveReviewCli(
     const active = activeTelemetry;
     if (!active || active.finished || active.reviewUuid) return;
     active.reviewUuid = reviewUuid;
+    setTraceAttribute("reviewUuid", reviewUuid);
     await attemptTelemetry(() =>
       telemetry.captureCommandBound({
         command: active.command,
@@ -1000,6 +1002,8 @@ export async function runProgressiveReviewCli(
     const command = telemetryCommandPath(actionCommand, input.argv);
     if (!command) return;
     const commandRunId = telemetry.createCommandRunId();
+    setTraceAttribute("command", command);
+    setTraceAttribute("commandRunId", commandRunId);
     activeTelemetry = {
       command,
       commandRunId,
@@ -1530,7 +1534,6 @@ function errorClassification(
 
 async function attemptTelemetry(fn: () => Promise<void>): Promise<void> {
   try {
-    const { span } = await import("./startup-trace");
     await span("telemetry capture", fn);
   } catch {
     // Telemetry must never affect CLI behavior.

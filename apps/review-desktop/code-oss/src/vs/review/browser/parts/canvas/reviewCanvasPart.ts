@@ -1489,14 +1489,31 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		let comments: ReviewCommentStore | undefined;
 		let loadTimeout: ReturnType<typeof setTimeout> | undefined;
 		let settleTimeout: ReturnType<typeof setTimeout> | undefined;
+		// Each step of the off-screen mount reports its wall-clock interval back
+		// to the server, which folds it into the publish timings the CLI shows.
+		const timings: { name: string; startEpochMs: number; endEpochMs: number }[] = [];
+		const step = (name: string, startEpochMs: number, endEpochMs: number) => {
+			timings.push({ name, startEpochMs, endEpochMs });
+		};
+		const timed = async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
+			const startEpochMs = Date.now();
+			try {
+				return await fn();
+			} finally {
+				timings.push({ name, startEpochMs, endEpochMs: Date.now() });
+			}
+		};
 		try {
-			const assets = await this.loadAssets();
-			const session = await this.resolveValidationSession(sessionId);
-			const documentPromise = this.loadValidationDocument(
-				session,
-				assets.reviewDocRuntimeUrl,
+			const assets = await timed("load canvas assets", () => this.loadAssets());
+			const session = await timed("fetch session descriptor", () =>
+				this.resolveValidationSession(sessionId),
 			);
-			const softwareMapPromise = this.loadValidationSoftwareMap(session);
+			const documentPromise = timed("fetch + load document module", () =>
+				this.loadValidationDocument(session, assets.reviewDocRuntimeUrl, step),
+			);
+			const softwareMapPromise = timed("fetch + load software map", () =>
+				this.loadValidationSoftwareMap(session),
+			);
 			const request = (endpoint: string, init: RequestInit = {}) => {
 				const url = new URL(
 					`${session.sessionUrl}/__progressive-review${endpoint}`,
@@ -1512,6 +1529,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			};
 			comments = new ReviewCommentStore({ request });
 			let finished = false;
+			let mountedAt = Date.now();
 			let finishMount!: (error: Error | null) => void;
 			const mountResult = new Promise<Error | null>((resolve) => {
 				finishMount = (error) => {
@@ -1557,6 +1575,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					if (finished || settleTimeout) {
 						return;
 					}
+					timings.push({ name: "first commit", startEpochMs: mountedAt, endEpochMs: Date.now() });
 					settleTimeout = setTimeout(
 						() => finishMount(null),
 						mountValidationSettleMs,
@@ -1577,6 +1596,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			container.style.overflow = "hidden";
 			container.style.pointerEvents = "none";
 			targetDocument.body.appendChild(container);
+			mountedAt = Date.now();
 			handle = assets.mountReviewCanvas(container, {
 				kind: "session",
 				bridge,
@@ -1602,7 +1622,9 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				30_000,
 			);
 			const error = await mountResult;
-			return error ? { ok: false, error: error.message } : { ok: true };
+			return error
+				? { ok: false, error: error.message }
+				: { ok: true, result: { timings } };
 		} catch (error) {
 			return {
 				ok: false,
@@ -1691,6 +1713,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	private async loadValidationDocument(
 		session: ReviewDesktopSession,
 		reviewDocRuntimeUrl: string,
+		onStep?: (name: string, startEpochMs: number, endEpochMs: number) => void,
 	): Promise<unknown> {
 		const url = new URL(
 			`${session.sessionUrl}/__progressive-review/doc-module`,
@@ -1699,11 +1722,13 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		if (routePath && routePath !== "/") {
 			url.searchParams.set("document", routePath);
 		}
+		const descriptorStart = Date.now();
 		const response = await fetch(url, {
 			headers: { "x-review-token": session.token },
 			signal: AbortSignal.timeout(30_000),
 		});
 		const payload = ReviewDocModuleResponseSchema.parse(await response.json());
+		onStep?.("module: doc-module descriptor", descriptorStart, Date.now());
 		if (!response.ok || !payload.ok) {
 			throw new Error(
 				payload.ok
@@ -1715,6 +1740,8 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			session,
 			payload.moduleUrl,
 			reviewDocRuntimeUrl,
+			undefined,
+			onStep,
 		);
 	}
 

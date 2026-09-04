@@ -12,6 +12,7 @@ import {
 } from "../compiler/review-document-compiler";
 import { collectReviewDocumentScanForRuntime } from "../compiler/review-documents-module";
 import { REVIEW_AUTHORING_MODULE_ID } from "../compiler/review-documents-module";
+import { span } from "../startup-trace";
 
 const DOCUMENT_MODULE_ID = "review:document";
 const ENTRY_MODULE_ID = "review:entry";
@@ -118,35 +119,38 @@ async function buildReviewDocument(
     return { diagnostics: errors };
   }
 
+  const runtimeCode = compilation.runtimeCode;
   let result;
   try {
-    result = await build({
-      absWorkingDir: input.reviewRootPath,
-      bundle: true,
-      format: "esm",
-      minify: false,
-      platform: "browser",
-      plugins: [
-        reviewDocumentPlugin({
-          document,
-          runtimeCode: compilation.runtimeCode,
-          mode,
-        }),
-      ],
-      sourcemap: mode === "bundle" ? "inline" : false,
-      stdin: {
-        contents:
-          mode === "bundle"
-            ? `export { activeReviewDocument } from ${JSON.stringify(ENTRY_MODULE_ID)};`
-            : `import ${JSON.stringify(ENTRY_MODULE_ID)};`,
-        loader: "js",
-        resolveDir: input.reviewRootPath,
-        sourcefile: "review-document-entry.js",
-      },
-      target: ["chrome120"],
-      treeShaking: true,
-      write: false,
-    });
+    result = await span("review document: esbuild bundle", () =>
+      build({
+        absWorkingDir: input.reviewRootPath,
+        bundle: true,
+        format: "esm",
+        minify: false,
+        platform: "browser",
+        plugins: [
+          reviewDocumentPlugin({
+            document,
+            runtimeCode,
+            mode,
+          }),
+        ],
+        sourcemap: mode === "bundle" ? "inline" : false,
+        stdin: {
+          contents:
+            mode === "bundle"
+              ? `export { activeReviewDocument } from ${JSON.stringify(ENTRY_MODULE_ID)};`
+              : `import ${JSON.stringify(ENTRY_MODULE_ID)};`,
+          loader: "js",
+          resolveDir: input.reviewRootPath,
+          sourcefile: "review-document-entry.js",
+        },
+        target: ["chrome120"],
+        treeShaking: true,
+        write: false,
+      }),
+    );
   } catch (error) {
     return { diagnostics: esbuildDiagnostics(error, document.filePath) };
   }

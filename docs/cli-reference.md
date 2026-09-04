@@ -75,10 +75,17 @@ $ review version --json
 | `review rebind` | Move a Review to another branch, bookmark, or change ID. |
 | `review wait` | Wait for reviewer activity or an agent-action state. |
 | `review threads` | Read, reply to, and resolve Review threads. |
+| `review mcp` | Serve revision-checked Review document and comment tools over MCP stdio. |
 | `review map` | Author, validate, publish, and share experimental software maps. |
 | `review install` | Install Review skills for supported coding agents. |
 | `review migrate apply` | Migrate supported legacy Review data. |
 | `review version` | Print the Review package version. |
+
+`review mcp` is intended for MCP client registration. It exposes explicit tools
+to read or replace an incremental document, insert/update/delete/move stable
+nodes, and list/reply to/resolve comments. The process talks only to the
+authenticated Review Desktop API; it never opens the Review database or MDX
+file itself.
 
 ## Desktop and discovery
 

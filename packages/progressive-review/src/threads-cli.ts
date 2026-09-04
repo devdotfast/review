@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import path from "node:path";
 import type { Writable } from "node:stream";
 
 import {
@@ -8,18 +7,19 @@ import {
   jsonString,
 } from "@dev.fast/review-protocol";
 
+import {
+  type ReviewCanvasApi,
+  ReviewCanvasApiClient,
+  ReviewCanvasApiError,
+} from "./review-canvas-api-client";
 import { reviewUuidForManagedCheckout } from "./review-head-checkout";
 import { type StoredReview, findReview, listReviews } from "./review-home";
-import {
-  appendReviewAgentMessage,
-  readReviewComments,
-  updateReviewComment,
-} from "./review-state-store";
 
-// `review threads get` reads its attached Review server. Other commands can
-// still operate after that server closes, so they use review.db.
+// Comment state is owned by Review Desktop. CLI commands resolve the target
+// Review locally, then perform every comment read and mutation over its API.
 
 export interface ReviewThreadsTarget {
+  api?: ReviewCanvasApi;
   cwd: string;
   reviewUuid?: string;
 }
@@ -31,10 +31,13 @@ export async function runReviewThreadsList(
   input: ReviewThreadsTarget & { json?: boolean; stdout: Writable },
 ): Promise<number> {
   const review = await resolveThreadsReview(input.cwd, input.reviewUuid);
-  const document = reviewDocumentPath(review);
+  const response = await reviewCanvasApi(input.api).getComments(
+    review.review.uuid,
+  );
+  if (!response.ok) throw new Error(response.error);
   const payload = {
     review: review.review.uuid,
-    comments: readReviewComments(document),
+    comments: response.snapshot.comments,
   };
   // Indented output is easier for a human to read, but it breaks any reader
   // that takes one event per line. --json picks the line-oriented form.
@@ -120,8 +123,15 @@ export async function runReviewThreadsResolve(
   },
 ): Promise<number> {
   const review = await resolveThreadsReview(input.cwd, input.reviewUuid);
-  const document = reviewDocumentPath(review);
-  if (!updateReviewComment(document, input.threadId, { status: "resolved" })) {
+  const response = await commentThreadRequest(input.threadId, () =>
+    reviewCanvasApi(input.api).command(review.review.uuid, {
+      command: "comment.update",
+      mutationId: randomUUID(),
+      threadId: input.threadId,
+      update: { status: "resolved" },
+    }),
+  );
+  if (!response.ok) {
     throw new Error(`Comment thread not found: ${input.threadId}`);
   }
   input.stdout.write(
@@ -145,23 +155,23 @@ export async function runReviewThreadsReply(
   const body = input.body.trim();
   if (!body) throw new Error("Reply body is required.");
   const review = await resolveThreadsReview(input.cwd, input.reviewUuid);
-  const document = reviewDocumentPath(review);
-  const thread = readReviewComments(document)[input.threadId];
-  if (!thread) {
-    throw new Error(`Comment thread not found: ${input.threadId}`);
-  }
   const messageId = randomUUID();
   // The republish gate requires a completed model response with role "agent"
   // on every current-round thread, so a CLI reply must not read as another
   // reviewer message.
-  appendReviewAgentMessage(document, input.threadId, {
-    id: messageId,
-    by: input.author?.trim() || "Agent",
-    at: new Date().toISOString(),
-    body,
-    role: "agent",
-    format: "plain",
-  });
+  const response = await commentThreadRequest(input.threadId, () =>
+    reviewCanvasApi(input.api).reply({
+      reviewId: review.review.uuid,
+      threadId: input.threadId,
+      mutationId: randomUUID(),
+      messageId,
+      author: input.author?.trim() || "Agent",
+      body,
+    }),
+  );
+  if (!response.ok) {
+    throw new Error(`Comment thread not found: ${input.threadId}`);
+  }
   input.stdout.write(
     `${JSON.stringify({
       event: "replied",
@@ -173,8 +183,22 @@ export async function runReviewThreadsReply(
   return 0;
 }
 
-function reviewDocumentPath(review: StoredReview): string {
-  return path.join(review.dir, "review.mdx");
+function reviewCanvasApi(api?: ReviewCanvasApi): ReviewCanvasApi {
+  return api ?? new ReviewCanvasApiClient();
+}
+
+async function commentThreadRequest<T>(
+  threadId: string,
+  request: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await request();
+  } catch (error) {
+    if (error instanceof ReviewCanvasApiError && error.statusCode === 404) {
+      throw new Error(`Comment thread not found: ${threadId}`);
+    }
+    throw error;
+  }
 }
 
 async function resolveThreadsReview(

@@ -125,6 +125,11 @@ async function callReviewTool(
   if (name === "review_get_document") {
     return requireOk(await api.getDocument(reviewId));
   }
+  if (name === "review_get_node") {
+    return requireOk(
+      await api.getDocumentNode(reviewId, requireString(args, "nodeId")),
+    );
+  }
   if (name === "review_list_comments") {
     return requireOk(await api.getComments(reviewId));
   }
@@ -290,8 +295,19 @@ const REVIEW_MCP_TOOLS: JsonValue[] = [
     required: ["reviewId"],
   }),
   tool(
+    "review_get_node",
+    "Read and visibly select one stable node before authoring it.",
+    {
+      properties: {
+        reviewId: BASE_PROPERTIES.reviewId,
+        nodeId: { type: "string" },
+      },
+      required: ["reviewId", "nodeId"],
+    },
+  ),
+  tool(
     "review_replace_document",
-    "Replace or initialize stable Review nodes.",
+    "Replace or initialize stable Review nodes. Select an existing lead node with review_get_node first when replacing a visible document.",
     {
       properties: {
         ...MUTATION_PROPERTIES,
@@ -300,34 +316,50 @@ const REVIEW_MCP_TOOLS: JsonValue[] = [
       required: ["reviewId", "expectedRevision", "nodes"],
     },
   ),
-  tool("review_insert_node", "Insert one stable node at an index.", {
-    properties: {
-      ...MUTATION_PROPERTIES,
-      index: { type: "integer", minimum: 0 },
-      node: nodeSchema(),
+  tool(
+    "review_insert_node",
+    "Insert one stable node at an index. Select the neighboring node with review_get_node first when one exists.",
+    {
+      properties: {
+        ...MUTATION_PROPERTIES,
+        index: { type: "integer", minimum: 0 },
+        node: nodeSchema(),
+      },
+      required: ["reviewId", "expectedRevision", "index", "node"],
     },
-    required: ["reviewId", "expectedRevision", "index", "node"],
-  }),
-  tool("review_update_node", "Update one node without replacing the canvas.", {
-    properties: {
-      ...MUTATION_PROPERTIES,
-      nodeId: { type: "string" },
-      patch: { type: "object" },
+  ),
+  tool(
+    "review_update_node",
+    "Update one node without replacing the canvas. Call review_get_node for this node first.",
+    {
+      properties: {
+        ...MUTATION_PROPERTIES,
+        nodeId: { type: "string" },
+        patch: { type: "object" },
+      },
+      required: ["reviewId", "expectedRevision", "nodeId", "patch"],
     },
-    required: ["reviewId", "expectedRevision", "nodeId", "patch"],
-  }),
-  tool("review_delete_node", "Delete one node by stable ID.", {
-    properties: { ...MUTATION_PROPERTIES, nodeId: { type: "string" } },
-    required: ["reviewId", "expectedRevision", "nodeId"],
-  }),
-  tool("review_move_node", "Move one node to a new index.", {
-    properties: {
-      ...MUTATION_PROPERTIES,
-      nodeId: { type: "string" },
-      index: { type: "integer", minimum: 0 },
+  ),
+  tool(
+    "review_delete_node",
+    "Delete one node by stable ID. Call review_get_node for this node first.",
+    {
+      properties: { ...MUTATION_PROPERTIES, nodeId: { type: "string" } },
+      required: ["reviewId", "expectedRevision", "nodeId"],
     },
-    required: ["reviewId", "expectedRevision", "nodeId", "index"],
-  }),
+  ),
+  tool(
+    "review_move_node",
+    "Move one node to a new index. Call review_get_node for this node first.",
+    {
+      properties: {
+        ...MUTATION_PROPERTIES,
+        nodeId: { type: "string" },
+        index: { type: "integer", minimum: 0 },
+      },
+      required: ["reviewId", "expectedRevision", "nodeId", "index"],
+    },
+  ),
   tool("review_list_comments", "Read Review comment threads.", {
     properties: { reviewId: BASE_PROPERTIES.reviewId },
     required: ["reviewId"],

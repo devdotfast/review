@@ -5,6 +5,8 @@ import {
   type ReviewDocumentMutationRequest,
   type ReviewDocumentMutationResponse,
   ReviewDocumentMutationResponseSchema,
+  type ReviewDocumentNodeResponse,
+  ReviewDocumentNodeResponseSchema,
   type ReviewDocumentSnapshotResponse,
   ReviewDocumentSnapshotResponseSchema,
   type ReviewThreadsCommand,
@@ -21,6 +23,10 @@ import { requireHealthyReviewDesktop } from "./desktop-discovery";
 
 export interface ReviewCanvasApi {
   getDocument(reviewId: string): Promise<ReviewDocumentSnapshotResponse>;
+  getDocumentNode(
+    reviewId: string,
+    nodeId: string,
+  ): Promise<ReviewDocumentNodeResponse>;
   mutateDocument(
     reviewId: string,
     request: ReviewDocumentMutationRequest,
@@ -55,6 +61,17 @@ export class ReviewCanvasApiClient implements ReviewCanvasApi {
   async getDocument(reviewId: string): Promise<ReviewDocumentSnapshotResponse> {
     return ReviewDocumentSnapshotResponseSchema.parse(
       await this.request(`/reviews/${encodeURIComponent(reviewId)}/document`),
+    );
+  }
+
+  async getDocumentNode(
+    reviewId: string,
+    nodeId: string,
+  ): Promise<ReviewDocumentNodeResponse> {
+    return ReviewDocumentNodeResponseSchema.parse(
+      await this.request(
+        `/reviews/${encodeURIComponent(reviewId)}/document/nodes/${encodeURIComponent(nodeId)}`,
+      ),
     );
   }
 

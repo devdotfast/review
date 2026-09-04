@@ -678,6 +678,13 @@ export const ReviewDocumentNodeSchema = z.strictObject({
 });
 export type ReviewDocumentNode = z.infer<typeof ReviewDocumentNodeSchema>;
 
+export const ReviewDocumentAuthoringTargetSchema = z.strictObject({
+  targetNodeId: reviewNodeIdSchema,
+});
+export type ReviewDocumentAuthoringTarget = z.infer<
+  typeof ReviewDocumentAuthoringTargetSchema
+>;
+
 export const ReviewDocumentSnapshotSchema = z.strictObject({
   reviewId: z.uuid({ error: "must be a UUID" }),
   routePath: routePathSchema,
@@ -1045,6 +1052,21 @@ export interface ReviewCanvasSettingsContent {
   install?: ReviewCanvasInstallContent;
 }
 
+/**
+ * A host-owned, read-only projection of the current incremental document.
+ * The canvas subscribes to this bridge instead of performing network or
+ * filesystem I/O itself.
+ */
+export interface ReviewDocumentStoreBridge {
+  getSnapshot(): ReviewDocumentSnapshot;
+  getAuthoringTargetNodeId(): string | null;
+  subscribe(listener: () => void): ReviewDisposable;
+}
+
+export type ReviewCanvasDocument =
+  | { kind: "compiled"; bundle: unknown }
+  | { kind: "incremental"; store: ReviewDocumentStoreBridge };
+
 export type ReviewCanvasContent =
   | { kind: "loading" }
   | {
@@ -1108,7 +1130,7 @@ export type ReviewCanvasContent =
   | {
       kind: "session";
       bridge: ReviewCanvasBridge;
-      document: Promise<unknown>;
+      document: Promise<ReviewCanvasDocument>;
       softwareMap: Promise<unknown | null>;
       softwareMapEnabled: boolean;
       reviewErrors: readonly ReviewListError[];
@@ -1348,6 +1370,20 @@ export const ReviewDocumentSnapshotResponseSchema = z.discriminatedUnion("ok", [
 ]);
 export type ReviewDocumentSnapshotResponse = z.infer<
   typeof ReviewDocumentSnapshotResponseSchema
+>;
+
+export const ReviewDocumentNodeResponseSchema = z.discriminatedUnion("ok", [
+  z.strictObject({
+    ok: z.literal(true),
+    reviewId: z.uuid({ error: "must be a UUID" }),
+    routePath: routePathSchema,
+    revision: nonNegativeInteger,
+    node: ReviewDocumentNodeSchema,
+  }),
+  ReviewErrorResponseSchema,
+]);
+export type ReviewDocumentNodeResponse = z.infer<
+  typeof ReviewDocumentNodeResponseSchema
 >;
 
 export const ReviewDocumentMutationResponseSchema = z.discriminatedUnion("ok", [
@@ -1642,6 +1678,12 @@ export const ReviewDesktopGlobalEventSchema = z.discriminatedUnion("event", [
     routePath: routePathSchema,
     revision: nonNegativeInteger,
     mutationId: threadTargetNonEmptyStringSchema,
+  }),
+  z.strictObject({
+    event: z.literal("review-document-authoring-target-changed"),
+    uuid: z.uuid({ error: "must be a UUID" }),
+    routePath: routePathSchema,
+    targetNodeId: reviewNodeIdSchema.nullable(),
   }),
   z.strictObject({
     event: z.literal("session-closed"),

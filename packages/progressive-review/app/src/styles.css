@@ -10189,3 +10189,134 @@ a.review-doc-meta-pr:hover {
 .review-trace-peek-open-full:hover {
   background: var(--accent-wash);
 }
+/* Incremental documents keep one keyed surface per API node. Updating one
+ * node therefore leaves sibling DOM (and text-thread targets) undisturbed. */
+.review-incremental-node {
+  display: flow-root;
+}
+
+.review-incremental-node--entering {
+  animation: review-incremental-node-enter 220ms cubic-bezier(0.2, 0.8, 0.2, 1)
+    both;
+}
+
+@keyframes review-incremental-node-enter {
+  from {
+    opacity: 0;
+    transform: translateY(7px) scale(0.995);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.review-incremental-node--authoring-active {
+  position: relative;
+  isolation: isolate;
+  border-radius: 8px;
+  outline: 1px solid color-mix(in srgb, var(--accent) 86%, transparent);
+  outline-offset: 6px;
+  box-shadow:
+    0 0 0 6px color-mix(in srgb, var(--accent-wash) 72%, transparent),
+    0 8px 28px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* Paper-style agent activity belongs to exactly one stable API node. */
+.review-incremental-node__authoring-sparkles {
+  position: absolute;
+  z-index: 2;
+  top: 4px;
+  left: -59px;
+  display: grid;
+  grid-template-columns: repeat(4, 7px);
+  grid-template-rows: repeat(7, 7px);
+  gap: 4px 5px;
+  width: 43px;
+  height: 73px;
+  pointer-events: none;
+  mask-image: linear-gradient(
+    180deg,
+    transparent,
+    #000 9%,
+    #000 91%,
+    transparent
+  );
+}
+
+.review-incremental-node__authoring-sparkles i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--accent) 22%, transparent);
+  animation: review-authoring-sparkle 1.55s ease-in-out infinite;
+  animation-delay: calc(var(--review-sparkle-index) * -113ms);
+}
+
+.review-incremental-node__authoring-sparkles i:nth-child(3n) {
+  animation-duration: 1.9s;
+}
+
+.review-incremental-node__authoring-sparkles i:nth-child(4n + 1) {
+  animation-duration: 1.2s;
+}
+
+.review-incremental-node__authoring-sparkles i:nth-child(6n + 2),
+.review-incremental-node__authoring-sparkles i:nth-child(11n + 5) {
+  visibility: hidden;
+}
+
+@keyframes review-authoring-sparkle {
+  0%,
+  100% {
+    opacity: 0.18;
+    transform: scale(0.72);
+  }
+
+  38% {
+    opacity: 0.96;
+    transform: scale(1);
+  }
+
+  64% {
+    opacity: 0.42;
+    transform: scale(0.86);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review-incremental-node--entering,
+  .review-incremental-node__authoring-sparkles i {
+    animation: none;
+    transform: none;
+  }
+
+  .review-incremental-node__authoring-sparkles i {
+    opacity: 0.62;
+  }
+}
+
+.review-incremental-node--callout {
+  border-inline-start: 3px solid var(--vscode-textBlockQuote-border);
+  margin-block: 1rem;
+  padding: 0.65rem 0.9rem;
+}
+
+.review-incremental-callout-title {
+  display: block;
+  margin-block-end: 0.35rem;
+}
+
+.review-incremental-callout--warning {
+  border-inline-start-color: var(--vscode-editorWarning-foreground);
+}
+
+.review-incremental-callout--danger {
+  border-inline-start-color: var(--vscode-editorError-foreground);
+}
+
+.review-incremental-callout--success {
+  border-inline-start-color: var(--vscode-testing-iconPassed);
+}

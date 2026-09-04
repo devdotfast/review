@@ -1,8 +1,13 @@
+import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
 
 import { patchChangedLines } from "./call-stack-diff";
 import type { ReviewDocumentDiagnostic } from "./compiler/review-document-compiler";
-import { writeReviewDocumentBundle } from "./review-bundle";
+import { parseIncrementalReviewDocument } from "./incremental-review-document";
+import {
+  REVIEW_DOCUMENT_BUNDLE_DIR,
+  writeReviewDocumentBundle,
+} from "./review-bundle";
 import {
   type ReviewDiffFilesResult,
   resolveReviewDiffFiles,
@@ -54,8 +59,21 @@ export async function prepareReviewDocumentBundle(input: {
   review: StoredReview;
 }): Promise<{ warnings: string[] }> {
   const warnings: string[] = [];
+  const reviewPath = path.join(input.review.dir, "review.mdx");
+  const source = await readFile(reviewPath, "utf8");
+  if (parseIncrementalReviewDocument(source)) {
+    // Incremental node content is untrusted runtime markdown. Do not feed it
+    // through the executable MDX compiler; the canvas renders its validated
+    // node projection. Remove any bundle left by a prior compiled revision so
+    // the sealed candidate cannot accidentally serve stale executable code.
+    await rm(path.join(input.review.dir, REVIEW_DOCUMENT_BUNDLE_DIR), {
+      recursive: true,
+      force: true,
+    });
+    return { warnings };
+  }
   const compiled = await compileReviewDocumentBundle({
-    reviewPath: path.join(input.review.dir, "review.mdx"),
+    reviewPath,
     reviewDocumentsDir: path.join(input.review.dir, ".review-documents"),
     reviewRootPath: input.review.dir,
     routePath: "/",

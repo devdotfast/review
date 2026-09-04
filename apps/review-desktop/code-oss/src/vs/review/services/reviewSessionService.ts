@@ -59,6 +59,16 @@ export type ReviewThreadsCommittedEvent = Extract<
 	{ event: "review-threads-committed" }
 >;
 
+export type ReviewDocumentChangedEvent = Extract<
+	ReviewDesktopGlobalEvent,
+	{ event: "review-document-changed" }
+>;
+
+export type ReviewDocumentAuthoringTargetChangedEvent = Extract<
+	ReviewDesktopGlobalEvent,
+	{ event: "review-document-authoring-target-changed" }
+>;
+
 export interface ReviewSessionClosedEvent {
 	readonly session: ReviewSessionDescriptor;
 	readonly review: ReviewDescriptor | undefined;
@@ -83,6 +93,10 @@ export interface IReviewSessionService {
 	readonly _serviceBrand: undefined;
 	readonly onDidChangeLists: Event<void>;
 	readonly onDidChangeReviewData: Event<ReviewDataChangedEvent>;
+	readonly onDidChangeReviewDocument: Event<ReviewDocumentChangedEvent>;
+	readonly onDidChangeReviewDocumentAuthoringTarget: Event<
+		ReviewDocumentAuthoringTargetChangedEvent
+	>;
 	readonly onDidCommitReviewThreads: Event<ReviewThreadsCommittedEvent>;
 	readonly onDidCloseSession: Event<ReviewSessionClosedEvent>;
 	readonly onDidRegisterSession: Event<ReviewSessionRegisteredEvent>;
@@ -146,6 +160,16 @@ export class ReviewSessionService
 		new Emitter<ReviewDataChangedEvent>(),
 	);
 	readonly onDidChangeReviewData = this._onDidChangeReviewData.event;
+	private readonly _onDidChangeReviewDocument = this._register(
+		new Emitter<ReviewDocumentChangedEvent>(),
+	);
+	readonly onDidChangeReviewDocument =
+		this._onDidChangeReviewDocument.event;
+	private readonly _onDidChangeReviewDocumentAuthoringTarget = this._register(
+		new Emitter<ReviewDocumentAuthoringTargetChangedEvent>(),
+	);
+	readonly onDidChangeReviewDocumentAuthoringTarget =
+		this._onDidChangeReviewDocumentAuthoringTarget.event;
 	private readonly _onDidCommitReviewThreads = this._register(
 		new Emitter<ReviewThreadsCommittedEvent>(),
 	);
@@ -844,6 +868,14 @@ export class ReviewSessionService
 				if (event.event === "review-threads-committed") {
 					this.patchReview(event.uuid, { commentCount: event.commentCount });
 					this._onDidCommitReviewThreads.fire(event);
+					return;
+				}
+				if (event.event === "review-document-changed") {
+					this._onDidChangeReviewDocument.fire(event);
+					return;
+				}
+				if (event.event === "review-document-authoring-target-changed") {
+					this._onDidChangeReviewDocumentAuthoringTarget.fire(event);
 					return;
 				}
 				if (event.event === "session-registered") {

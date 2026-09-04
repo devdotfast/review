@@ -286,6 +286,7 @@ export function createGlobalReviewServer(
   const relay = new GlobalReviewDesktopVerbRelay();
   const sessions = new Map<string, ActiveReviewSession>();
   const reviewLocks = new Map<string, Promise<void>>();
+  const documentAuthoringTargets = new Map<string, string>();
   const globalClients = new Set<ReviewDesktopEventClient>();
   const tutorial = createTutorialService({
     packageRoot: input.packageRoot,
@@ -405,6 +406,34 @@ export function createGlobalReviewServer(
       snapshot: await readReviewDocumentSnapshot(review),
     });
   });
+  app.get("/reviews/:uuid/document/nodes/:nodeId", async (context) => {
+    const uuid = context.req.param("uuid");
+    const review = await requireStoredReview(uuid);
+    const snapshot = await readReviewDocumentSnapshot(review);
+    const nodeId = context.req.param("nodeId");
+    const node = snapshot.nodes?.find((candidate) => candidate.id === nodeId);
+    if (!node) {
+      throw new ReviewServerError(
+        `Review document node not found: ${nodeId}`,
+        404,
+        "review_document_node_not_found",
+      );
+    }
+    documentAuthoringTargets.set(uuid, nodeId);
+    broadcastGlobal({
+      event: "review-document-authoring-target-changed",
+      uuid,
+      routePath: snapshot.routePath,
+      targetNodeId: nodeId,
+    });
+    return globalJson(200, {
+      ok: true,
+      reviewId: uuid,
+      routePath: snapshot.routePath,
+      revision: snapshot.revision,
+      node,
+    });
+  });
   app.post("/reviews/:uuid/document/mutations", async (context) => {
     const uuid = context.req.param("uuid");
     const review = await requireStoredReview(uuid);
@@ -431,6 +460,14 @@ export function createGlobalReviewServer(
       revision: response.snapshot.revision,
       mutationId: request.mutationId,
     });
+    if (documentAuthoringTargets.delete(uuid)) {
+      broadcastGlobal({
+        event: "review-document-authoring-target-changed",
+        uuid,
+        routePath: response.snapshot.routePath,
+        targetNodeId: null,
+      });
+    }
     return globalJson(200, response);
   });
   app.get("/reviews/:uuid/comments", async (context) => {

@@ -20,7 +20,8 @@ import { isFile } from "./fs-utils";
 import { devReviewHome } from "./review-storage";
 
 export const FFF_SERVER_NAME = "fff";
-export const FFF_INSTALL_URL = "https://dmtrkovalenko.dev/install-fff-mcp.sh";
+export const FFF_INSTALL_URL =
+  "https://raw.githubusercontent.com/dmtrKovalenko/fff/main/install-mcp.sh";
 export const FFF_TARGETS: ReviewFffInstallTarget[] = ["claude", "codex", "pi"];
 export const PI_FFF_PACKAGE = "npm:@ff-labs/pi-fff";
 
@@ -74,7 +75,10 @@ export async function installFffForTargets(input: {
     input.write("Installing FFF MCP…\n");
     const installer = await runCommand(
       "/bin/bash",
-      ["-c", `set -o pipefail; curl -fL ${FFF_INSTALL_URL} | bash`],
+      [
+        "-c",
+        `set -o pipefail; curl -fsSL --retry 3 --retry-all-errors ${FFF_INSTALL_URL} | bash`,
+      ],
       input.homeDir,
       input.env,
     );

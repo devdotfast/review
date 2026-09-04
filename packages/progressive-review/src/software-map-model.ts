@@ -990,21 +990,22 @@ export function hydrateSoftwareModel(
   };
 }
 
+const SoftwareElementDataSchema = z.looseObject({ path: z.string() });
+const SoftwareRelationshipDataSchema = z.looseObject({
+  from: z.string(),
+  to: z.string(),
+});
+
 export const softwareModelDataSchema: z.ZodType<SoftwareModelData> = z.object({
   elements: z.array(
     z.custom<NormalizedSoftwareElement>(
-      (value) =>
-        isObjectValue(value) &&
-        typeof (value as { path?: unknown }).path === "string",
+      (value) => SoftwareElementDataSchema.safeParse(value).success,
       "software element",
     ),
   ),
   relationships: z.array(
     z.custom<NormalizedSoftwareRelationship>(
-      (value) =>
-        isObjectValue(value) &&
-        typeof (value as { from?: unknown }).from === "string" &&
-        typeof (value as { to?: unknown }).to === "string",
+      (value) => SoftwareRelationshipDataSchema.safeParse(value).success,
       "software relationship",
     ),
   ),

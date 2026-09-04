@@ -115,7 +115,7 @@ when you need to manage the current repository manually.
 For a missing registration, setup runs the equivalent commands:
 
 ```sh
-curl -L https://dmtrkovalenko.dev/install-fff-mcp.sh | bash
+curl -fsSL --retry 3 --retry-all-errors https://raw.githubusercontent.com/dmtrKovalenko/fff/main/install-mcp.sh | bash
 claude mcp add -s user fff -- "$HOME/.local/bin/fff-mcp" "$HOME/.dev/trace-search"
 codex mcp add fff -- "$HOME/.local/bin/fff-mcp" "$HOME/.dev/trace-search"
 pi install npm:@ff-labs/pi-fff

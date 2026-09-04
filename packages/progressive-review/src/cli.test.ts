@@ -957,6 +957,91 @@ describe("Review CLI", () => {
       }),
     );
   });
+
+  it("emits a JSON error event on stdout when trace blame --json fails", async () => {
+    // An invalid -L range throws in lookupReviewTraceBlame before any git work,
+    // so no repository setup is required. The dispatcher must turn that throw
+    // into a machine-readable error event on stdout under --json.
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "review-cli-blame-json-"));
+    const stdout = outputStream();
+    let out = "";
+    stdout.on("data", (chunk) => (out += String(chunk)));
+    const stderr = outputStream();
+    let err = "";
+    stderr.on("data", (chunk) => (err += String(chunk)));
+
+    try {
+      await expect(
+        runProgressiveReviewCli({
+          argv: ["trace", "blame", "--json", "app.ts", "-L", "0,5"],
+          cwd,
+          stdout,
+          stderr,
+        }),
+      ).resolves.toBe(1);
+
+      const lines = out.trimEnd().split("\n");
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0]!)).toMatchObject({
+        event: "error",
+        error: {
+          name: "Error",
+          message: expect.stringContaining("Invalid line range"),
+        },
+      });
+      // In --json mode the dispatcher emits only the JSON error event on
+      // stdout and writes nothing to stderr; the old swallow path wrote a
+      // free-text "trace blame error:" line to stderr instead.
+      expect(err).toBe("");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("emits a JSON error event on stdout when trace pull --json cannot infer the repository", async () => {
+    // A non-git directory with no GITHUB_REPOSITORY env cannot infer a repo,
+    // so inferRepoFromGit throws. With --session the handler skips session
+    // listing and reaches inferRepoFromGit directly.
+    const cwd = await mkdtemp(path.join(os.tmpdir(), "review-cli-pull-json-"));
+    const stdout = outputStream();
+    let out = "";
+    stdout.on("data", (chunk) => (out += String(chunk)));
+    const stderr = outputStream();
+    let err = "";
+    stderr.on("data", (chunk) => (err += String(chunk)));
+
+    vi.stubEnv("GITHUB_REPOSITORY", "");
+    try {
+      await expect(
+        runProgressiveReviewCli({
+          argv: [
+            "trace",
+            "pull",
+            "--json",
+            "--session",
+            "11111111-aaaa-bbbb-cccc-000000000001",
+          ],
+          cwd,
+          stdout,
+          stderr,
+        }),
+      ).resolves.toBe(1);
+
+      const lines = out.trimEnd().split("\n");
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0]!)).toMatchObject({
+        event: "error",
+        error: {
+          name: "Error",
+          message: expect.stringContaining("Could not infer GitHub repository"),
+        },
+      });
+      expect(err).toBe("");
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
 });
 
 function emptyScaffoldEvent(): Awaited<

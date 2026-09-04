@@ -19,7 +19,6 @@ import {
   humanStream,
 } from "./cli-output";
 import {
-  type ReviewTraceBlameLookupResult,
   type ReviewTraceCommitLookupResult,
   type ReviewTraceSessionDescriptor,
   describeTraceSession,
@@ -536,86 +535,79 @@ export async function runReviewTracePull(input: {
   client?: StoreClient;
   transport?: TraceStoreTransport;
 }): Promise<number> {
-  try {
-    let scope: TracePullScope;
-    let sessions: Array<{ id: string; traces?: string[] }>;
-    let repoRoot = input.cwd;
+  let scope: TracePullScope;
+  let sessions: Array<{ id: string; traces?: string[] }>;
+  let repoRoot = input.cwd;
 
-    if (input.reviewUuid) {
-      const review = await resolveTraceReview(input.cwd, input.reviewUuid);
-      repoRoot = resolveReviewRepoRootFromStore(review.dir);
-      const refs = await listSessionsForReview(review);
-      scope = { review: review.review.uuid };
-      sessions = refs.map((ref) => ({
-        id: ref.sessionId,
-        traces: ref.subagents,
-      }));
-    } else if (input.commitSha) {
-      const resolution = await lookupReviewTraceCommit({
-        cwd: input.cwd,
-        sha: input.commitSha,
-      });
-      scope = { commit: resolution.commit };
-      sessions = resolution.sessions.map((id) => ({ id }));
-    } else if (input.session) {
-      scope = { session: input.session };
-      sessions = [{ id: input.session }];
-    } else {
-      sessions = (await listRepositoryTraceSessionIds(input.cwd)).map((id) => ({
-        id,
-      }));
-      scope = { repository: input.repo ?? "current" };
-    }
-
-    const repo = input.repo
-      ? parseRepo(input.repo)
-      : await inferRepoFromGit(repoRoot);
-    const pullInput: Parameters<typeof pullReviewTraceCorpus>[0] = {
-      repo,
-      sessions,
-      mainOnly: input.mainOnly,
-      cwd: repoRoot,
-      transport: traceStoreTransport(input),
-      onWarning: storeWarningSink(input.stderr),
-    };
-    if (input.client) pullInput.client = input.client;
-    const result = await pullReviewTraceCorpus(pullInput);
-    const output = {
-      scope,
-      corpus_root: result.corpusRoot,
-      repository: result.repository,
-      sessions: result.sessions,
-      unavailable_sessions: result.unavailableSessions,
-      events: result.events,
-      files: result.files,
-      paths: result.paths,
-    };
-
-    if (input.json) {
-      input.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
-    } else {
-      input.stdout.write(
-        `Pulled ${result.sessions.length} session(s) into ${result.corpusRoot}.\n`,
-      );
-      input.stdout.write(
-        `Materialized ${result.files} normalized trace file(s) with ${result.events} event(s) for ${result.repository}.\n`,
-      );
-      for (const filePath of result.paths) {
-        input.stdout.write(`  ${filePath}\n`);
-      }
-      if (result.unavailableSessions.length > 0) {
-        input.stderr.write(
-          `Unavailable sessions: ${result.unavailableSessions.join(", ")}\n`,
-        );
-      }
-    }
-    return sessions.length > 0 && result.sessions.length === 0 ? 1 : 0;
-  } catch (error) {
-    input.stderr.write(
-      `trace pull error: ${error instanceof Error ? error.message : String(error)}\n`,
-    );
-    return 1;
+  if (input.reviewUuid) {
+    const review = await resolveTraceReview(input.cwd, input.reviewUuid);
+    repoRoot = resolveReviewRepoRootFromStore(review.dir);
+    const refs = await listSessionsForReview(review);
+    scope = { review: review.review.uuid };
+    sessions = refs.map((ref) => ({
+      id: ref.sessionId,
+      traces: ref.subagents,
+    }));
+  } else if (input.commitSha) {
+    const resolution = await lookupReviewTraceCommit({
+      cwd: input.cwd,
+      sha: input.commitSha,
+    });
+    scope = { commit: resolution.commit };
+    sessions = resolution.sessions.map((id) => ({ id }));
+  } else if (input.session) {
+    scope = { session: input.session };
+    sessions = [{ id: input.session }];
+  } else {
+    sessions = (await listRepositoryTraceSessionIds(input.cwd)).map((id) => ({
+      id,
+    }));
+    scope = { repository: input.repo ?? "current" };
   }
+
+  const repo = input.repo
+    ? parseRepo(input.repo)
+    : await inferRepoFromGit(repoRoot);
+  const pullInput: Parameters<typeof pullReviewTraceCorpus>[0] = {
+    repo,
+    sessions,
+    mainOnly: input.mainOnly,
+    cwd: repoRoot,
+    transport: traceStoreTransport(input),
+    onWarning: storeWarningSink(input.stderr),
+  };
+  if (input.client) pullInput.client = input.client;
+  const result = await pullReviewTraceCorpus(pullInput);
+  const output = {
+    scope,
+    corpus_root: result.corpusRoot,
+    repository: result.repository,
+    sessions: result.sessions,
+    unavailable_sessions: result.unavailableSessions,
+    events: result.events,
+    files: result.files,
+    paths: result.paths,
+  };
+
+  if (input.json) {
+    input.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
+  } else {
+    input.stdout.write(
+      `Pulled ${result.sessions.length} session(s) into ${result.corpusRoot}.\n`,
+    );
+    input.stdout.write(
+      `Materialized ${result.files} normalized trace file(s) with ${result.events} event(s) for ${result.repository}.\n`,
+    );
+    for (const filePath of result.paths) {
+      input.stdout.write(`  ${filePath}\n`);
+    }
+    if (result.unavailableSessions.length > 0) {
+      input.stderr.write(
+        `Unavailable sessions: ${result.unavailableSessions.join(", ")}\n`,
+      );
+    }
+  }
+  return sessions.length > 0 && result.sessions.length === 0 ? 1 : 0;
 }
 
 export async function runReviewTraceLookupCommit(input: {
@@ -655,20 +647,12 @@ export async function runReviewTraceBlame(input: {
   stdout: Writable;
   stderr: Writable;
 }): Promise<number> {
-  let result: ReviewTraceBlameLookupResult;
-  try {
-    result = await lookupReviewTraceBlame({
-      cwd: input.cwd,
-      file: input.file,
-      lines: input.lines,
-      history: input.history,
-    });
-  } catch (err: unknown) {
-    input.stderr.write(
-      `trace blame error: ${err instanceof Error ? err.message : String(err)}\n`,
-    );
-    return 1;
-  }
+  const result = await lookupReviewTraceBlame({
+    cwd: input.cwd,
+    file: input.file,
+    lines: input.lines,
+    history: input.history,
+  });
 
   if (input.json) {
     input.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

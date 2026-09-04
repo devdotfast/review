@@ -1713,20 +1713,17 @@ export type ReviewDocModuleResponse = z.infer<
   typeof ReviewDocModuleResponseSchema
 >;
 
-export const ReviewSoftwareMapModuleResponseSchema = z.discriminatedUnion(
-  "ok",
-  [
-    z.strictObject({
-      ok: z.literal(true),
-      contentHash: requiredString,
-      headModuleUrl: absoluteUrlSchema,
-      baseModuleUrl: absoluteUrlSchema,
-    }),
-    ReviewErrorResponseSchema,
-  ],
-);
-export type ReviewSoftwareMapModuleResponse = z.infer<
-  typeof ReviewSoftwareMapModuleResponseSchema
+export const ReviewSoftwareMapResponseSchema = z.discriminatedUnion("ok", [
+  z.strictObject({
+    ok: z.literal(true),
+    contentHash: requiredString,
+    headMapUrl: absoluteUrlSchema,
+    baseMapUrl: absoluteUrlSchema,
+  }),
+  ReviewErrorResponseSchema,
+]);
+export type ReviewSoftwareMapResponse = z.infer<
+  typeof ReviewSoftwareMapResponseSchema
 >;
 
 export const ReviewServerEventSchema = z.discriminatedUnion("event", [

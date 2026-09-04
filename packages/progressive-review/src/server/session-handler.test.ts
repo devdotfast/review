@@ -17,6 +17,11 @@ import {
 import { writeReviewDocumentBundle } from "../review-bundle";
 import { readReviewComments } from "../review-state-store";
 import {
+  bundleReviewSoftwareMap,
+  writeReviewSoftwareMapBundle,
+} from "../software-map-bundle";
+import { defineSoftwareMap } from "../software-map-model";
+import {
   type ReviewSessionHandlerInput,
   createReviewSessionHandler,
 } from "./session-handler";
@@ -258,6 +263,153 @@ describe("createReviewSessionHandler", () => {
 
       expect(response.status).toBe(200);
       expect(await response.json()).toMatchObject({ ok: true });
+    } finally {
+      await handler.close();
+    }
+  });
+
+  it("serves the published software map as JSON", async () => {
+    rootPath = await mkdtemp(path.join(tmpdir(), "review-session-handler-"));
+    const reviewPath = path.join(rootPath, "review.mdx");
+    const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
+    const sessionPath = new URL(sessionUrl).pathname;
+    const token = "session-secret";
+    const head = defineSoftwareMap({
+      systems: { app: { label: "App" } },
+    });
+    const base = defineSoftwareMap({
+      systems: { api: { label: "API" } },
+    });
+    const bundle = bundleReviewSoftwareMap({
+      head,
+      base,
+      headCommit: "a".repeat(40),
+      baseCommit: "b".repeat(40),
+    });
+    await writeReviewSoftwareMapBundle(rootPath, bundle);
+    const handler = await createReviewSessionHandler({
+      ...unusedAgentServices,
+      rootPath,
+      toolingRoot: rootPath,
+      reviewPath,
+      softwareMapRootPath: rootPath,
+      routePath: "/",
+      token,
+      session: {
+        rootPath,
+        baseRef: "HEAD",
+        appUrl: sessionUrl,
+        reviewPath,
+        startedAt: Date.now(),
+      },
+    });
+    const dispatchSessionUrl = (url: string) => {
+      const requestUrl = new URL(url);
+      expect(requestUrl.pathname.startsWith(`${sessionPath}/`)).toBe(true);
+      requestUrl.pathname = requestUrl.pathname.slice(sessionPath.length);
+      return handler.handle(
+        new Request(requestUrl, {
+          headers: { "x-review-token": token },
+        }),
+      );
+    };
+
+    try {
+      const index = await handler.handle(
+        new Request(new URL("/__progressive-review/software-map", sessionUrl), {
+          headers: { "x-review-token": token },
+        }),
+      );
+      expect(index.status).toBe(200);
+      const payload = (await index.json()) as {
+        ok: true;
+        contentHash: string;
+        headMapUrl: string;
+        baseMapUrl: string;
+      };
+      expect(payload).toMatchObject({
+        ok: true,
+        contentHash: bundle.contentHash,
+      });
+      expect(payload.headMapUrl).toMatch(
+        /\/sessions\/test-session\/__progressive-review\/software-maps\/head-[0-9a-f]{20}\.json$/,
+      );
+      expect(payload.baseMapUrl).toMatch(
+        /\/sessions\/test-session\/__progressive-review\/software-maps\/base-[0-9a-f]{20}\.json$/,
+      );
+
+      for (const [mapUrl, expectedPath] of [
+        [payload.headMapUrl, "app"],
+        [payload.baseMapUrl, "api"],
+      ] as const) {
+        const response = await dispatchSessionUrl(mapUrl);
+        expect(response.status).toBe(200);
+        expect(response.headers.get("content-type")).toBe(
+          "application/json; charset=utf-8",
+        );
+        expect(response.headers.get("cache-control")).toBe("no-store");
+        const mapJson = (await response.json()) as {
+          format: string;
+          elements: Array<{ path: string }>;
+        };
+        expect(mapJson.format).toBe("software-map/1");
+        expect(mapJson.elements.map((element) => element.path)).toEqual([
+          expectedPath,
+        ]);
+      }
+
+      const missing = await handler.handle(
+        new Request(
+          new URL(
+            "/__progressive-review/software-maps/head-missing.json",
+            sessionUrl,
+          ),
+          { headers: { "x-review-token": token } },
+        ),
+      );
+      expect(missing.status).toBe(404);
+      await expect(missing.json()).resolves.toEqual({
+        ok: false,
+        error: "Software map not found",
+      });
+    } finally {
+      await handler.close();
+    }
+  });
+
+  it("reports an unpublished software map", async () => {
+    rootPath = await mkdtemp(path.join(tmpdir(), "review-session-handler-"));
+    const reviewPath = path.join(rootPath, "review.mdx");
+    const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
+    const token = "session-secret";
+    const handler = await createReviewSessionHandler({
+      ...unusedAgentServices,
+      rootPath,
+      toolingRoot: rootPath,
+      reviewPath,
+      softwareMapRootPath: rootPath,
+      routePath: "/",
+      token,
+      session: {
+        rootPath,
+        baseRef: "HEAD",
+        appUrl: sessionUrl,
+        reviewPath,
+        startedAt: Date.now(),
+      },
+    });
+
+    try {
+      const response = await handler.handle(
+        new Request(new URL("/__progressive-review/software-map", sessionUrl), {
+          headers: { "x-review-token": token },
+        }),
+      );
+      expect(response.status).toBe(404);
+      await expect(response.json()).resolves.toEqual({
+        ok: false,
+        error: "Software map is not published",
+      });
     } finally {
       await handler.close();
     }

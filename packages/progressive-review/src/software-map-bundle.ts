@@ -20,8 +20,6 @@ export const SOFTWARE_MAP_DATA_FORMAT = "software-map/1";
 const HEAD_MAP_FILE = "head-map.json";
 const BASE_MAP_FILE = "base-map.json";
 const MANIFEST_FILE = "manifest.json";
-const LEGACY_HEAD_MODULE_KEY: `${"head"}${"Code"}` = `${"head"}${"Code"}`;
-const LEGACY_BASE_MODULE_KEY: `${"base"}${"Code"}` = `${"base"}${"Code"}`;
 // Version 1 wrote ES modules (head-map.js / base-map.js). Version 2 writes
 // JSON; a version-1 bundle reads as null and `review migrate apply` converts it.
 const MANIFEST_VERSION = 2;
@@ -39,7 +37,7 @@ const SoftwareMapDataFileSchema = z
   .object({ format: z.literal(SOFTWARE_MAP_DATA_FORMAT) })
   .and(softwareModelDataSchema);
 
-interface ReviewSoftwareMapDataBundle {
+export interface ReviewSoftwareMapBundle {
   head: SoftwareModelData;
   base: SoftwareModelData;
   headJson: string;
@@ -48,16 +46,6 @@ interface ReviewSoftwareMapDataBundle {
   headCommit: string;
   baseCommit: string;
 }
-
-// A2 changes the server routes to consume the JSON fields. Until then, keep
-// its in-memory module view derived from the same normalized data.
-type LegacySoftwareMapModuleView = Record<
-  typeof LEGACY_HEAD_MODULE_KEY | typeof LEGACY_BASE_MODULE_KEY,
-  string
->;
-
-export type ReviewSoftwareMapBundle = ReviewSoftwareMapDataBundle &
-  LegacySoftwareMapModuleView;
 
 export function bundleReviewSoftwareMap(input: {
   head: NormalizedSoftwareModel;
@@ -77,8 +65,6 @@ export function bundleReviewSoftwareMap(input: {
     contentHash: bundleHash(headJson, baseJson),
     headCommit: input.headCommit,
     baseCommit: input.baseCommit,
-    [LEGACY_HEAD_MODULE_KEY]: softwareMapModuleSource(head),
-    [LEGACY_BASE_MODULE_KEY]: softwareMapModuleSource(base),
   };
 }
 
@@ -143,8 +129,6 @@ export async function readReviewSoftwareMapBundle(
     contentHash: bundleHash(headJson, baseJson),
     headCommit: manifest.headCommit,
     baseCommit: manifest.baseCommit,
-    [LEGACY_HEAD_MODULE_KEY]: softwareMapModuleSource(head),
-    [LEGACY_BASE_MODULE_KEY]: softwareMapModuleSource(base),
   };
 }
 
@@ -173,16 +157,6 @@ function parseJson<T>(raw: string, schema: z.ZodType<T>): T | null {
   }
   const parsed = schema.safeParse(value);
   return parsed.success ? parsed.data : null;
-}
-
-function softwareMapModuleSource(model: SoftwareModelData): string {
-  return [
-    `const elements = Object.freeze(${JSON.stringify(model.elements)});`,
-    `const relationships = Object.freeze(${JSON.stringify(model.relationships)});`,
-    "const elementsByPath = new Map(elements.map((element) => [element.path, element]));",
-    "export default Object.freeze({ elements, elementsByPath, relationships });",
-    "",
-  ].join("\n");
 }
 
 function bundleHash(headJson: string, baseJson: string): string {

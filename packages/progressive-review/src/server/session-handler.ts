@@ -39,7 +39,7 @@ import { createReviewApi } from "./review-api";
 
 const API_PREFIX = "/__progressive-review";
 const MODULE_PATH_PREFIX = `${API_PREFIX}/doc-modules/`;
-const MAP_MODULE_PATH_PREFIX = `${API_PREFIX}/software-map-modules/`;
+const MAP_PATH_PREFIX = `${API_PREFIX}/software-maps/`;
 
 interface ReviewEventClient {
   write(frame: string): void;
@@ -288,7 +288,7 @@ export async function createReviewSessionHandler(
       },
     });
   });
-  app.get(`${API_PREFIX}/software-map-module`, async () => {
+  app.get(`${API_PREFIX}/software-map`, async () => {
     const bundle = await getSoftwareMapBundle();
     if (!bundle) {
       return jsonResponse(
@@ -300,32 +300,29 @@ export async function createReviewSessionHandler(
       {
         ok: true,
         contentHash: bundle.contentHash,
-        headModuleUrl: `${sessionUrl}${MAP_MODULE_PATH_PREFIX}head-${bundle.contentHash}.js`,
-        baseModuleUrl: `${sessionUrl}${MAP_MODULE_PATH_PREFIX}base-${bundle.contentHash}.js`,
+        headMapUrl: `${sessionUrl}${MAP_PATH_PREFIX}head-${bundle.contentHash}.json`,
+        baseMapUrl: `${sessionUrl}${MAP_PATH_PREFIX}base-${bundle.contentHash}.json`,
       },
       200,
     );
   });
-  app.get(`${MAP_MODULE_PATH_PREFIX}:moduleName`, async (context) => {
+  app.get(`${MAP_PATH_PREFIX}:mapName`, async (context) => {
     const bundle = await getSoftwareMapBundle();
-    const moduleName = context.req.param("moduleName");
-    const code =
-      moduleName === `head-${bundle?.contentHash}.js`
-        ? bundle?.headCode
-        : moduleName === `base-${bundle?.contentHash}.js`
-          ? bundle?.baseCode
+    const mapName = context.req.param("mapName");
+    const json =
+      mapName === `head-${bundle?.contentHash}.json`
+        ? bundle?.headJson
+        : mapName === `base-${bundle?.contentHash}.json`
+          ? bundle?.baseJson
           : undefined;
-    if (!code) {
-      return jsonResponse(
-        { ok: false, error: "Software map module not found" },
-        404,
-      );
+    if (!json) {
+      return jsonResponse({ ok: false, error: "Software map not found" }, 404);
     }
-    return new Response(code, {
+    return new Response(json, {
       status: 200,
       headers: {
         "cache-control": "no-store",
-        "content-type": "text/javascript; charset=utf-8",
+        "content-type": "application/json; charset=utf-8",
       },
     });
   });

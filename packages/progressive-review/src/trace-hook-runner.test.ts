@@ -353,6 +353,40 @@ describe("runReviewTraceHook", () => {
     const agentSessionFile = path.join(repo, ".git", "agent-session");
     expect(await readActiveTraceSessions(agentSessionFile)).toEqual(new Map());
   });
+
+  it("swallows an unresolvable SessionEnd sync command without crashing the hook", async () => {
+    const repo = await makeGitRepo();
+    const sessionId = "01a015e4-0477-7055-a0fd-21a0f72a4ec6";
+    const missingBinary = path.join(
+      os.tmpdir(),
+      "definitely-missing-review-binary",
+    );
+    const prior = process.env.REVIEW_TRACE_COMMAND;
+    let uncaught: Error | null = null;
+    const onUncaught = (err: Error) => {
+      uncaught = err;
+    };
+    process.on("uncaughtException", onUncaught);
+    try {
+      process.env.REVIEW_TRACE_COMMAND = missingBinary;
+      const code = await runReviewTraceHook({
+        cwd: repo,
+        event: "SessionEnd",
+        sessionId,
+        homeDir: repo,
+        env: { DEV_REVIEW_HOME: repo },
+      });
+      // Drain queued ticks so an async spawn `error` (if unhandled) would fire.
+      await new Promise((resolve) => setImmediate(resolve));
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(code).toBe(0);
+      expect(uncaught).toBe(null);
+    } finally {
+      process.removeListener("uncaughtException", onUncaught);
+      if (prior === undefined) delete process.env.REVIEW_TRACE_COMMAND;
+      else process.env.REVIEW_TRACE_COMMAND = prior;
+    }
+  });
 });
 
 async function commandAvailable(command: string): Promise<boolean> {

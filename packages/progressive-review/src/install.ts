@@ -100,7 +100,10 @@ export async function runInstall(input: RunInstallInput): Promise<number> {
     "plugins",
     OPENCODE_PLUGIN_NAME,
   );
-  if (input.targets.includes("opencode") && !(await isFile(openCodePluginSource))) {
+  if (
+    input.targets.includes("opencode") &&
+    !(await isFile(openCodePluginSource))
+  ) {
     return failWithJsonError(
       input,
       "install",

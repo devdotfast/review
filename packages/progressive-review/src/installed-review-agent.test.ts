@@ -64,8 +64,8 @@ describe("preferredInstalledReviewAgent", () => {
   });
 
   it("selects OpenCode when it is the installed agent", () => {
-    expect(preferredInstalledReviewAgent(status(["opencode"], ["opencode"]))).toBe(
-      "opencode",
-    );
+    expect(
+      preferredInstalledReviewAgent(status(["opencode"], ["opencode"])),
+    ).toBe("opencode");
   });
 });

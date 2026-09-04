@@ -3,18 +3,22 @@ import { createHash, createHmac } from "node:crypto";
 import { span } from "./startup-trace";
 
 /**
- * In-process S3-compatible client for the trace bucket (Cloudflare R2),
- * signing requests with SigV4 over `fetch`. It replaces one `aws` CLI spawn
- * per object operation (~0.5–1s each) with a plain HTTPS round-trip.
+ * In-process S3-compatible client for the trace bucket, signing requests
+ * with SigV4 over `fetch`. Works against any S3 API (AWS S3, Cloudflare R2,
+ * MinIO, …); nothing here is vendor-specific. It replaces one `aws` CLI
+ * spawn per object operation (~0.5–1s each) with a plain HTTPS round-trip.
  */
-export interface R2ClientConfig {
+export interface S3ClientConfig {
   bucket: string;
   endpoint: string;
   accessKeyId: string;
   secretAccessKey: string;
+  // SigV4 signing region. R2 and MinIO accept "auto"; AWS S3 needs the
+  // bucket's region (for example "us-east-1").
+  region?: string;
 }
 
-const REGION = "auto";
+const DEFAULT_REGION = "auto";
 const SERVICE = "s3";
 const EMPTY_SHA256 = createHash("sha256").update("").digest("hex");
 
@@ -49,14 +53,14 @@ function amzDate(now: Date): { date: string; stamp: string } {
   return { stamp: iso, date: iso.slice(0, 8) };
 }
 
-export interface R2Response {
+export interface S3Response {
   status: number;
   headers: Headers;
   body: Buffer;
 }
 
-export async function r2Request(
-  config: R2ClientConfig,
+export async function s3Request(
+  config: S3ClientConfig,
   input: {
     method: "GET" | "HEAD" | "PUT";
     key: string;
@@ -65,7 +69,7 @@ export async function r2Request(
     contentType?: string;
     timeoutMs?: number;
   },
-): Promise<R2Response> {
+): Promise<S3Response> {
   const endpoint = new URL(config.endpoint);
   const pathName = canonicalPath(config.bucket, input.key);
   const query = input.query ?? {};
@@ -93,7 +97,8 @@ export async function r2Request(
     signedHeaders,
     payloadHash,
   ].join("\n");
-  const scope = `${date}/${REGION}/${SERVICE}/aws4_request`;
+  const region = config.region ?? DEFAULT_REGION;
+  const scope = `${date}/${region}/${SERVICE}/aws4_request`;
   const stringToSign = [
     "AWS4-HMAC-SHA256",
     stamp,
@@ -101,7 +106,7 @@ export async function r2Request(
     sha256Hex(canonicalRequest),
   ].join("\n");
   const signingKey = hmac(
-    hmac(hmac(hmac(`AWS4${config.secretAccessKey}`, date), REGION), SERVICE),
+    hmac(hmac(hmac(`AWS4${config.secretAccessKey}`, date), region), SERVICE),
     "aws4_request",
   );
   const signature = createHmac("sha256", signingKey)
@@ -126,11 +131,11 @@ export async function r2Request(
 }
 
 /** Object size, or null when it does not exist. Other failures throw. */
-export async function r2HeadSize(
-  config: R2ClientConfig,
+export async function s3HeadSize(
+  config: S3ClientConfig,
   key: string,
 ): Promise<number | null> {
-  const response = await r2Request(config, {
+  const response = await s3Request(config, {
     method: "HEAD",
     key,
     timeoutMs: 10_000,
@@ -144,11 +149,11 @@ export async function r2HeadSize(
 }
 
 /** Object bytes, or null when it does not exist. Other failures throw. */
-export async function r2GetBytes(
-  config: R2ClientConfig,
+export async function s3GetBytes(
+  config: S3ClientConfig,
   key: string,
 ): Promise<Buffer | null> {
-  const response = await r2Request(config, { method: "GET", key });
+  const response = await s3Request(config, { method: "GET", key });
   if (response.status === 404) return null;
   if (response.status < 200 || response.status >= 300) {
     throw new Error(`R2 GET ${key} returned ${response.status}.`);
@@ -156,13 +161,13 @@ export async function r2GetBytes(
   return response.body;
 }
 
-export async function r2PutBytes(
-  config: R2ClientConfig,
+export async function s3PutBytes(
+  config: S3ClientConfig,
   key: string,
   body: Buffer,
   contentType = "application/octet-stream",
 ): Promise<void> {
-  const response = await r2Request(config, {
+  const response = await s3Request(config, {
     method: "PUT",
     key,
     body,
@@ -174,8 +179,8 @@ export async function r2PutBytes(
 }
 
 /** Keys under a prefix (ListObjectsV2, one level when `delimiter` is set). */
-export async function r2ListKeys(
-  config: R2ClientConfig,
+export async function s3ListKeys(
+  config: S3ClientConfig,
   prefix: string,
   options: { delimiter?: string } = {},
 ): Promise<{ keys: string[]; prefixes: string[] }> {
@@ -186,7 +191,7 @@ export async function r2ListKeys(
     const query: Record<string, string> = { "list-type": "2", prefix };
     if (options.delimiter) query.delimiter = options.delimiter;
     if (continuation) query["continuation-token"] = continuation;
-    const response = await r2Request(config, { method: "GET", key: "", query });
+    const response = await s3Request(config, { method: "GET", key: "", query });
     if (response.status < 200 || response.status >= 300) {
       throw new Error(`R2 LIST ${prefix} returned ${response.status}.`);
     }

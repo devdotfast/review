@@ -37,12 +37,12 @@ import {
   sniffAgentTraceHarness,
 } from "./agent-trace-parser";
 import {
-  r2GetBytes,
-  r2HeadSize,
-  r2ListKeys,
-  r2PutBytes,
-  r2Request,
-} from "./r2-client";
+  s3GetBytes,
+  s3HeadSize,
+  s3ListKeys,
+  s3PutBytes,
+  s3Request,
+} from "./s3-client";
 import { traceCommand } from "./startup-trace";
 
 /**
@@ -1304,7 +1304,7 @@ export async function checkReviewTraceDoctor(input?: {
   }
 
   try {
-    const probe = await r2Request(config, {
+    const probe = await s3Request(config, {
       method: "GET",
       key: "",
       query: { "list-type": "2", "max-keys": "1" },
@@ -1516,6 +1516,7 @@ export interface TraceR2Config {
   endpoint: string;
   accessKeyId: string;
   secretAccessKey: string;
+  region?: string;
 }
 
 let cachedTraceEnv: Record<string, string> | null = null;
@@ -1565,7 +1566,16 @@ export function traceR2Config(): TraceR2Config | null {
     traceEnvValue("TRACE_R2_SECRET_ACCESS_KEY") ??
     traceEnvValue("AWS_SECRET_ACCESS_KEY");
   if (!bucket || !endpoint || !accessKeyId || !secretAccessKey) return null;
-  return { bucket, endpoint, accessKeyId, secretAccessKey };
+  // Any S3-compatible store works; TRACE_S3_REGION is only needed where the
+  // provider requires a real SigV4 region (AWS S3). R2 accepts the default.
+  const region = traceEnvValue("TRACE_S3_REGION");
+  return {
+    bucket,
+    endpoint,
+    accessKeyId,
+    secretAccessKey,
+    ...(region ? { region } : {}),
+  };
 }
 
 const execFilePromise = promisify(execFile);
@@ -1603,7 +1613,7 @@ export async function r2HeadObjectSize(key: string): Promise<number | null> {
   const config = traceR2Config();
   if (!config) return null;
   try {
-    return await r2HeadSize(config, key);
+    return await s3HeadSize(config, key);
   } catch {
     return null;
   }
@@ -1631,7 +1641,7 @@ export async function r2GetObject(
   const config = traceR2Config();
   if (!config) return false;
   try {
-    const bytes = await r2GetBytes(config, key);
+    const bytes = await s3GetBytes(config, key);
     if (bytes === null) return false;
     writeFileSync(destPath, bytes);
     return true;
@@ -1693,7 +1703,7 @@ export async function r2PutFile(
   const config = traceR2Config();
   if (!config) return false;
   try {
-    await r2PutBytes(config, key, readFileSync(filePath));
+    await s3PutBytes(config, key, readFileSync(filePath));
     return true;
   } catch {
     return false;
@@ -1790,7 +1800,7 @@ export async function listSessionSubagents(
     const config = traceR2Config();
     if (config) {
       try {
-        const listed = await r2ListKeys(config, prefix);
+        const listed = await s3ListKeys(config, prefix);
         for (const key of listed.keys) {
           if (key.startsWith(prefix) && key.endsWith(".jsonl")) {
             const subName = key.slice(prefix.length, -6);

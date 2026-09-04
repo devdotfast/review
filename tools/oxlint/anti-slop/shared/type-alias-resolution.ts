@@ -195,15 +195,18 @@ function aliasSubstitutions(
 	const parameters = alias.typeParameters?.params ?? [];
 	const arguments_ = reference.typeArguments?.params ?? [];
 	const next = new Map(base);
+	const defaultNext = new Map<string, Substitution>();
 	for (const [index, parameter] of parameters.entries()) {
 		const explicitArgument = arguments_[index];
 		const argument = explicitArgument ?? parameter.default;
 		if (argument === null || argument === undefined) return null;
-		const argumentSubstitutions = explicitArgument === undefined ? next : base;
-		next.set(parameter.name.name, {
+		const argumentSubstitutions = explicitArgument === undefined ? defaultNext : base;
+		const entry: Substitution = {
 			type: argument,
 			substitutions: new Map(argumentSubstitutions),
-		});
+		};
+		next.set(parameter.name.name, entry);
+		defaultNext.set(parameter.name.name, entry);
 	}
 	return next;
 }

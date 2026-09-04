@@ -427,7 +427,7 @@ The report never sends these review files:
 
 - `review.json`, which holds a local directory path and the pull request URL
 - the compiled document in `.bundle/`, and the build output in `.build/`
-- `review.db`, which holds the comment threads and the questions
+- the shared `review.db`, which holds Review metadata and comment threads
 
 Trace attachment consent is independent of passive telemetry and trace sync.
 Neither setting enables trace attachment for a bug report. If the user opts in,

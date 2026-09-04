@@ -5,7 +5,7 @@ import {
   resolveRevision,
 } from "@dev.fast/local-vcs";
 
-import { type RunReviewScaffoldInput, repinReview } from "./review-scaffold";
+import { repinReview } from "./review-scaffold";
 import { resolveReviewRoot } from "./runtime";
 import { resolvePublishReview } from "./server/publish-preparation";
 
@@ -30,7 +30,6 @@ export async function runReviewRebind(input: {
   progress?: (message: string) => void;
   env?: NodeJS.ProcessEnv;
   stdout: Writable;
-  createSourceAgentSession?: RunReviewScaffoldInput["createSourceAgentSession"];
 }): Promise<number> {
   const reviewRoot = await resolveReviewRoot(input.cwd);
   const review = await resolvePublishReview(reviewRoot, input.reviewUuid);
@@ -58,7 +57,6 @@ export async function runReviewRebind(input: {
       toolingRoot: input.toolingRoot,
       progress: input.progress,
       env: input.env,
-      createSourceAgentSession: input.createSourceAgentSession,
     },
   );
   const output: ReviewRebindJsonOutput = {

@@ -308,6 +308,38 @@ export async function sealReviewCandidate(
   return reviewVcs.seal(dir, message);
 }
 
+/** Binds a freshly frozen source session to a Review record. The frozen
+    copy is the authoring snapshot every new thread forks from, so it carries
+    the author role. Publish writes the result together with the promoted
+    revision, so a reader never sees one without the other. */
+export function bindPublishedSourceSession(
+  record: StoredReviewRecord,
+  sessionKey: string,
+  now = new Date().toISOString(),
+): StoredReviewRecord {
+  if (!parseAuthoringSessionKey(sessionKey)) {
+    throw new Error(`Review source session key is invalid: ${sessionKey}`);
+  }
+  const prior = record.agentSessions?.[sessionKey];
+  const roles = prior?.roles.includes("author")
+    ? prior.roles
+    : [...(prior?.roles ?? []), "author" as const];
+  return {
+    ...record,
+    sourceSession: sessionKey,
+    agentSessions: {
+      ...record.agentSessions,
+      [sessionKey]: {
+        roles,
+        firstSeenAt: prior?.firstSeenAt ?? now,
+        lastSeenAt: now,
+      },
+    },
+  };
+}
+
+/** Moves the pinned range. The source session stays as it is: publish
+    forks a fresh one for the new pins. */
 export async function updateReviewPins(
   review: StoredReview,
   pins: {
@@ -315,37 +347,20 @@ export async function updateReviewPins(
     baseCommit: string;
     sourceCommit: string;
     sourceIdentity: ReviewSourceIdentity;
-    sourceSession: string;
   },
 ): Promise<StoredReview> {
   if (
     review.review.baseRef === pins.baseRef &&
     review.review.baseCommit === pins.baseCommit &&
     review.review.sourceCommit === pins.sourceCommit &&
-    review.review.sourceSession === pins.sourceSession &&
     review.review.sourceIdentity?.kind === pins.sourceIdentity.kind &&
     review.review.sourceIdentity.name === pins.sourceIdentity.name
   ) {
     return review;
   }
-  const now = new Date().toISOString();
-  const sourceAttribution = parseAuthoringSessionKey(pins.sourceSession)
-    ? {
-        agentSessions: {
-          ...review.review.agentSessions,
-          [pins.sourceSession]: {
-            roles: ["updater" as const],
-            firstSeenAt:
-              review.review.agentSessions?.[pins.sourceSession]?.firstSeenAt ??
-              now,
-            lastSeenAt: now,
-          },
-        },
-      }
-    : {};
   const refreshed: StoredReview = {
     ...review,
-    review: { ...review.review, ...pins, ...sourceAttribution },
+    review: { ...review.review, ...pins },
   };
   const threadStore = reviewThreadStoreBackend(
     path.join(refreshed.dir, "review.mdx"),

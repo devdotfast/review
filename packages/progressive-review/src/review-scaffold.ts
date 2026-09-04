@@ -27,16 +27,15 @@ import {
 import { isPositionalChangeIdentity } from "./review-change-scope";
 import { removeReviewManagedCheckouts } from "./review-head-checkout";
 import {
-  DISABLED_REVIEW_SOURCE_SESSION,
   type StoredReview,
   createReviewDir,
   createReviewUuid,
   listReviews,
+  touchReviewAgentSession,
   updateReviewPins,
 } from "./review-home";
 import type { ReviewInfoEvent } from "./review-info";
 import { evaluateReviewDocumentBundleForPublish } from "./review-publish-evaluate";
-import { createReviewSourceAgentSession } from "./review-source-agent-session";
 import {
   deleteReviewSourceHeadRef,
   pinReviewSourceHeadRef,
@@ -61,8 +60,6 @@ export interface RunReviewScaffoldInput {
   newReview?: boolean;
   background?: boolean;
   onReviewBound?: (uuid: string) => void | Promise<void>;
-  /** Forks the invoking agent session; defaults to the harness-native fork. */
-  createSourceAgentSession?: typeof createReviewSourceAgentSession;
 }
 
 // Scaffold's event carries pinned commits, managed checkouts, and normalized
@@ -162,23 +159,9 @@ async function createReview(
     progress: input.progress,
     background: input.background,
   });
-  const invokingAgent = resolveAuthoringSessionRef(input.env ?? process.env);
-  let sourceAgentSession: string | null = null;
-  if (invokingAgent) {
-    if (!setup.headRootPath) {
-      throw new Error(
-        "Review scaffold cannot create a source session without its managed head checkout.",
-      );
-    }
-    const frozen = await (
-      input.createSourceAgentSession ?? createReviewSourceAgentSession
-    )({
-      agent: invokingAgent,
-      reviewUuid: uuid,
-      rootPath: setup.headRootPath,
-    });
-    sourceAgentSession = authoringSessionKey(frozen);
-  }
+  // A draft has no source session yet. Publish forks the invoking agent
+  // once the document exists, so every thread inherits the finished
+  // authoring context instead of a transcript that stops here.
   let created: StoredReview;
   try {
     created = await createReviewDir({
@@ -191,7 +174,6 @@ async function createReview(
       pullRequestNumber: source.subject.pullRequestNumber ?? null,
       pullRequestUrl: source.subject.pullRequestUrl ?? null,
       title: source.subject.pullRequestTitle ?? "Progressive Review",
-      sourceSession: sourceAgentSession ?? undefined,
     });
   } catch (error) {
     await removeReviewManagedCheckouts({
@@ -278,34 +260,24 @@ export async function repinReview(
     progress: input.progress,
     background: input.background,
   });
-  const invokingAgent = resolveAuthoringSessionRef(input.env ?? process.env);
-  let sourceSession = DISABLED_REVIEW_SOURCE_SESSION;
-  if (invokingAgent) {
-    if (!setup.headRootPath) {
-      throw new Error(
-        "Review update cannot create a source session without its managed head checkout.",
-      );
-    }
-    // The fork belongs to the same unit of work as the pin. A Review whose
-    // Ask Agent cannot answer is not a usable Review, so a failure here fails
-    // the update and leaves the stored pins untouched.
-    const frozen = await (
-      input.createSourceAgentSession ?? createReviewSourceAgentSession
-    )({
-      agent: invokingAgent,
-      reviewUuid: uuid,
-      rootPath: setup.headRootPath,
-    });
-    sourceSession = authoringSessionKey(frozen);
-  }
   await pinReviewSourceHeadRef(root, reviewSourceHeadRef(uuid), headCommit);
-  const updated = await updateReviewPins(review, {
+  let updated = await updateReviewPins(review, {
     baseRef,
     baseCommit,
     sourceCommit,
     sourceIdentity,
-    sourceSession,
   });
+  const pinsMoved = updated !== review;
+  // The source session stays as it is until the next publish forks a fresh
+  // one for the new pins. The invoking agent is only recorded as an updater.
+  const invokingAgent = resolveAuthoringSessionRef(input.env ?? process.env);
+  if (invokingAgent) {
+    updated = await touchReviewAgentSession(
+      updated,
+      authoringSessionKey(invokingAgent),
+      "updater",
+    );
+  }
   await reportRangeStaleness({
     review: updated,
     oldHeadCommit,
@@ -314,7 +286,7 @@ export async function repinReview(
     newBaseCommit: baseCommit,
     progress: input.progress,
   }).catch(() => undefined);
-  if (updated !== review && updated.review.status === "awaiting-review") {
+  if (pinsMoved && updated.review.status === "awaiting-review") {
     setup.warnings.push(
       "Pins moved under a published revision. Publish again to present the new commits.",
     );

@@ -20,6 +20,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   ReviewHomeScanError,
+  bindPublishedSourceSession,
   bindReviewAuthorSession,
   computeSync,
   createReviewDir,
@@ -449,7 +450,6 @@ describe("review home", () => {
         baseCommit: originalCommit,
         sourceCommit: movedCommit,
         sourceIdentity: { kind: "git-branch", name: "main" },
-        sourceSession: created.review.sourceSession,
       });
       const moved = readReviewComments(reviewPath)["thread-1"]!;
       if (moved.target.kind !== "code")
@@ -476,7 +476,6 @@ describe("review home", () => {
         baseCommit: originalCommit,
         sourceCommit: changedCommit,
         sourceIdentity: { kind: "git-branch", name: "main" },
-        sourceSession: movedReview.review.sourceSession,
       });
       const outdated = readReviewComments(reviewPath)["thread-1"]!;
       if (outdated.target.kind !== "code") {
@@ -500,7 +499,6 @@ describe("review home", () => {
         baseCommit: originalCommit,
         sourceCommit: restoredCommit,
         sourceIdentity: { kind: "git-branch", name: "main" },
-        sourceSession: outdatedReview.review.sourceSession,
       });
       const stillOutdated = readReviewComments(reviewPath)["thread-1"]!;
       if (stillOutdated.target.kind !== "code") {
@@ -726,3 +724,75 @@ async function git(root: string, args: string[]): Promise<string> {
   });
   return stdout.trim();
 }
+
+describe("bindPublishedSourceSession", () => {
+  const record = parseStoredReviewRecord({
+    schemaVersion: 4,
+    uuid: "11111111-1111-4111-8111-111111111111",
+    repoKey: "repo",
+    worktreePath: "/repo",
+    baseRef: "main",
+    baseCommit: "a".repeat(40),
+    sourceCommit: "b".repeat(40),
+    sourceIdentity: { kind: "git-branch", name: "feature" },
+    pullRequestNumber: null,
+    pullRequestUrl: null,
+    title: "Progressive Review",
+    sourceSession: "disabled:review",
+    status: "draft",
+    presentedDocumentRevision: null,
+    presentedSoftwareMapRevision: null,
+    createdAt: "2026-09-03T10:00:00.000Z",
+    lastPublishedAt: null,
+    agentSessions: {
+      "claude-code:live": {
+        roles: ["publisher"],
+        firstSeenAt: "2026-09-03T10:00:00.000Z",
+        lastSeenAt: "2026-09-03T10:00:00.000Z",
+      },
+    },
+  });
+
+  it("replaces the source session and attributes the frozen fork as author", () => {
+    const bound = bindPublishedSourceSession(
+      record,
+      "claude-code:frozen-1",
+      "2026-09-03T11:00:00.000Z",
+    );
+    expect(bound.sourceSession).toBe("claude-code:frozen-1");
+    expect(bound.agentSessions).toEqual({
+      "claude-code:live": record.agentSessions!["claude-code:live"],
+      "claude-code:frozen-1": {
+        roles: ["author"],
+        firstSeenAt: "2026-09-03T11:00:00.000Z",
+        lastSeenAt: "2026-09-03T11:00:00.000Z",
+      },
+    });
+    expect(record.sourceSession).toBe("disabled:review");
+  });
+
+  it("moves a republished Review to the newest fork", () => {
+    const first = bindPublishedSourceSession(
+      record,
+      "codex:frozen-1",
+      "2026-09-03T11:00:00.000Z",
+    );
+    const second = bindPublishedSourceSession(
+      first,
+      "codex:frozen-2",
+      "2026-09-03T12:00:00.000Z",
+    );
+    expect(second.sourceSession).toBe("codex:frozen-2");
+    expect(Object.keys(second.agentSessions!)).toEqual([
+      "claude-code:live",
+      "codex:frozen-1",
+      "codex:frozen-2",
+    ]);
+  });
+
+  it("rejects a key that is not an agent session", () => {
+    expect(() => bindPublishedSourceSession(record, "fresh:codex")).toThrow(
+      /invalid/,
+    );
+  });
+});

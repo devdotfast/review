@@ -1288,60 +1288,91 @@ function parsePiRecords(records: readonly JsonValue[]): AgentTraceParseResult {
 // opencode-trace-export.ts: one `opencode_session` header, then one
 // `opencode_message` per message with its parts in order.
 
-interface OpenCodeTime {
-  created?: number;
-  completed?: number;
-  start?: number;
-  end?: number;
-}
-
 interface OpenCodeToolState {
   status?: string;
-  input?: JsonObject;
+  input: JsonObject;
   output?: string;
   error?: string;
   title?: string;
-  time?: OpenCodeTime;
+  startedAt?: string;
 }
 
 interface OpenCodePart {
   type?: string;
   text?: string;
-  ignored?: boolean;
-  synthetic?: boolean;
-  time?: OpenCodeTime;
+  ignored: boolean;
+  synthetic: boolean;
+  startedAt?: string;
   tool?: string;
-  state?: OpenCodeToolState;
+  state: OpenCodeToolState;
 }
 
 interface OpenCodeRecord {
   type?: string;
   directory?: string;
   title?: string;
-  time?: OpenCodeTime;
-  info?: {
-    role?: string;
-    time?: OpenCodeTime;
+  /** Session header: when the session was created. */
+  createdAt?: string;
+  role?: string;
+  /** Message: when it was created and, for assistants, completed. */
+  messageCreatedAt?: string;
+  completedAt?: string;
+  parts: OpenCodePart[];
+}
+
+function openCodeIso(value: JsonValue | undefined): string | undefined {
+  const millis = jsonNumber(value);
+  return millis === undefined ? undefined : new Date(millis).toISOString();
+}
+
+function openCodeRecord(value: JsonObject): OpenCodeRecord {
+  const info = jsonObject(value.info);
+  const infoTime = jsonObject(info?.time);
+  const time = jsonObject(value.time);
+  return {
+    type: jsonString(value.type),
+    directory: jsonString(value.directory),
+    title: jsonString(value.title),
+    createdAt: openCodeIso(time?.created),
+    role: jsonString(info?.role),
+    messageCreatedAt: openCodeIso(infoTime?.created),
+    completedAt: openCodeIso(infoTime?.completed),
+    parts: (jsonArray(value.parts) ?? []).flatMap((part) =>
+      isJsonObject(part) ? [openCodePart(part)] : [],
+    ),
   };
-  parts?: OpenCodePart[];
 }
 
-function openCodeIso(millis: number | undefined): string | undefined {
-  return typeof millis === "number"
-    ? new Date(millis).toISOString()
-    : undefined;
+function openCodePart(value: JsonObject): OpenCodePart {
+  const state = jsonObject(value.state);
+  return {
+    type: jsonString(value.type),
+    text: jsonString(value.text),
+    ignored: jsonBoolean(value.ignored) === true,
+    synthetic: jsonBoolean(value.synthetic) === true,
+    startedAt: openCodeIso(jsonObject(value.time)?.start),
+    tool: jsonString(value.tool),
+    state: {
+      status: jsonString(state?.status),
+      input: jsonObject(state?.input) ?? {},
+      output: jsonString(state?.output),
+      error: jsonString(state?.error),
+      title: jsonString(state?.title),
+      startedAt: openCodeIso(jsonObject(state?.time)?.start),
+    },
+  };
 }
 
-function openCodeText(parts: OpenCodePart[]): string {
+function openCodeText(parts: readonly OpenCodePart[]): string {
   return parts
-    .filter(
-      (part) =>
-        part.type === "text" &&
-        typeof part.text === "string" &&
-        part.ignored !== true &&
-        part.synthetic !== true,
+    .flatMap((part) =>
+      part.type === "text" &&
+      part.text !== undefined &&
+      !part.ignored &&
+      !part.synthetic
+        ? [part.text]
+        : [],
     )
-    .map((part) => part.text as string)
     .join("\n")
     .trim();
 }
@@ -1352,8 +1383,8 @@ function openCodeToolEvent(
   cwd: string | null,
 ): AgentTraceToolEvent {
   const name = part.tool ?? "tool";
-  const state = part.state ?? {};
-  const args: JsonObject = state.input ?? {};
+  const state = part.state;
+  const args = state.input;
   const argText = (key: string): string | null => jsonString(args[key]) ?? null;
   const lineCount = (key: string): number | undefined =>
     jsonString(args[key])?.split("\n").length;
@@ -1412,12 +1443,14 @@ function openCodeToolEvent(
       event.verb = "Searched";
       event.title = compactLine(argText("pattern") ?? name);
       break;
-    case "list":
+    case "list": {
+      const listPath = argText("path");
       event.verb = "Listed";
       event.title = compactFileLine(
-        argText("path") ? relativizePath(argText("path") as string, cwd) : name,
+        listPath ? relativizePath(listPath, cwd) : name,
       );
       break;
+    }
     case "task":
       event.verb = "Ran agent";
       event.title = compactLine(argText("description") ?? name);
@@ -1442,16 +1475,16 @@ function openCodeToolEvent(
     if (pretty && pretty !== "{}") event.input = truncate(pretty, INPUT_LIMIT);
   }
   const output =
-    state.status === "error" && typeof state.error === "string"
+    state.status === "error" && state.error !== undefined
       ? state.error
-      : typeof state.output === "string"
-        ? state.output
-        : "";
+      : (state.output ?? "");
   if (output.trim()) event.output = truncate(output, OUTPUT_LIMIT);
   return event;
 }
 
-function parseOpenCodeRecords(records: unknown[]): AgentTraceParseResult {
+function parseOpenCodeRecords(
+  records: readonly JsonValue[],
+): AgentTraceParseResult {
   const events: AgentTraceEvent[] = [];
   let title: string | null = null;
   let startedAt: string | null = null;
@@ -1462,41 +1495,41 @@ function parseOpenCodeRecords(records: unknown[]): AgentTraceParseResult {
   let firstUserText: string | null = null;
 
   for (const raw of records) {
-    const record = raw as OpenCodeRecord;
+    if (!isJsonObject(raw)) continue;
+    const record = openCodeRecord(raw);
     if (record.type === "opencode_session") {
       cwd = record.directory ?? null;
       title = record.title?.trim() || null;
-      startedAt ??= openCodeIso(record.time?.created) ?? null;
+      startedAt ??= record.createdAt ?? null;
       continue;
     }
-    if (record.type !== "opencode_message" || !record.info) continue;
-    const parts = Array.isArray(record.parts) ? record.parts : [];
-    const createdAt = openCodeIso(record.info.time?.created);
+    if (record.type !== "opencode_message") continue;
+    const createdAt = record.messageCreatedAt;
     if (createdAt) {
       startedAt ??= createdAt;
-      endedAt = openCodeIso(record.info.time?.completed) ?? createdAt;
+      endedAt = record.completedAt ?? createdAt;
     }
-    if (record.info.role === "user") {
-      const text = openCodeText(parts);
+    if (record.role === "user") {
+      const text = openCodeText(record.parts);
       if (!text) continue;
       userTurns += 1;
       firstUserText ??= text;
       events.push({ kind: "user", text, at: createdAt });
       continue;
     }
-    if (record.info.role !== "assistant") continue;
-    for (const part of parts) {
-      if (part.type === "reasoning" && typeof part.text === "string") {
+    if (record.role !== "assistant") continue;
+    for (const part of record.parts) {
+      if (part.type === "reasoning" && part.text !== undefined) {
         const trimmed = part.text.trim();
         if (trimmed) {
           events.push({
             kind: "assistant",
             markdown: trimmed,
             thinking: true,
-            at: openCodeIso(part.time?.start) ?? createdAt,
+            at: part.startedAt ?? createdAt,
           });
         }
-      } else if (part.type === "text" && typeof part.text === "string") {
+      } else if (part.type === "text" && part.text !== undefined) {
         const trimmed = part.text.trim();
         if (trimmed) {
           events.push({ kind: "assistant", markdown: trimmed, at: createdAt });
@@ -1504,11 +1537,7 @@ function parseOpenCodeRecords(records: unknown[]): AgentTraceParseResult {
       } else if (part.type === "tool") {
         toolCalls += 1;
         events.push(
-          openCodeToolEvent(
-            part,
-            openCodeIso(part.state?.time?.start) ?? createdAt,
-            cwd,
-          ),
+          openCodeToolEvent(part, part.state.startedAt ?? createdAt, cwd),
         );
       } else if (part.type === "compaction") {
         events.push({ kind: "separator", label: "Context compacted" });

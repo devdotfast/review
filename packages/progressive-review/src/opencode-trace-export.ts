@@ -10,7 +10,13 @@ import {
 } from "node:fs";
 import path from "node:path";
 
-import { isJsonRecord } from "./native-agent/transcript-json";
+import {
+  type JsonObject,
+  type JsonValue,
+  jsonArray,
+  jsonObject,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
 
 export const OPENCODE_SESSION_RECORD = "opencode_session";
 export const OPENCODE_MESSAGE_RECORD = "opencode_message";
@@ -36,32 +42,26 @@ export async function exportOpenCodeTrace(input: {
   const staging = `${destination}.tmp-${process.pid}`;
   const raw = await runOpenCodeExport(input.sessionId, `${staging}.json`);
   if (raw === null) return null;
-  const exported = JSON.parse(raw) as unknown;
-  if (!isJsonRecord(exported) || !isJsonRecord(exported.info)) {
+  const exported = jsonObject(parseJsonText(raw));
+  const info = jsonObject(exported?.info);
+  if (!exported || !info) {
     throw new Error(
       `opencode export ${input.sessionId} returned no session info.`,
     );
   }
-  if (!Array.isArray(exported.messages)) {
+  const messages = jsonArray(exported.messages);
+  if (!messages) {
     throw new Error(
       `opencode export ${input.sessionId} returned no message list.`,
     );
   }
+  const header: JsonObject = {
+    type: OPENCODE_SESSION_RECORD,
+    ...pick(info, ["id", "parentID", "directory", "title", "version", "time"]),
+  };
   const lines = [
-    JSON.stringify({
-      type: OPENCODE_SESSION_RECORD,
-      ...pick(exported.info, [
-        "id",
-        "parentID",
-        "directory",
-        "title",
-        "version",
-        "time",
-      ]),
-    }),
-    ...exported.messages.map((message) =>
-      JSON.stringify(traceMessageRecord(message)),
-    ),
+    JSON.stringify(header),
+    ...messages.map((message) => JSON.stringify(traceMessageRecord(message))),
   ];
   writeFileSync(staging, `${lines.join("\n")}\n`, "utf8");
   renameSync(staging, destination);
@@ -122,14 +122,16 @@ function runOpenCodeExport(
   });
 }
 
-function traceMessageRecord(message: unknown): Record<string, unknown> {
-  if (!isJsonRecord(message) || !isJsonRecord(message.info)) {
+function traceMessageRecord(message: JsonValue) {
+  const record = jsonObject(message);
+  const info = jsonObject(record?.info);
+  if (!record || !info) {
     throw new Error("opencode export returned a message without info.");
   }
-  const parts = Array.isArray(message.parts) ? message.parts : [];
-  return {
+  const parts = jsonArray(record.parts) ?? [];
+  const trace: JsonObject = {
     type: OPENCODE_MESSAGE_RECORD,
-    info: pick(message.info, [
+    info: pick(info, [
       "id",
       "sessionID",
       "role",
@@ -139,34 +141,31 @@ function traceMessageRecord(message: unknown): Record<string, unknown> {
       "modelID",
       "providerID",
     ]),
-    parts: parts.flatMap((part) =>
-      isJsonRecord(part) ? [tracePart(part)] : [],
-    ),
+    parts: parts.flatMap((part) => {
+      const object = jsonObject(part);
+      return object ? [tracePart(object)] : [];
+    }),
   };
+  return trace;
 }
 
-function tracePart(part: Record<string, unknown>): Record<string, unknown> {
+function tracePart(part: JsonObject) {
   const common = pick(part, ["id", "type"]);
   switch (part.type) {
     case "text":
       return { ...common, ...pick(part, ["text", "ignored", "synthetic"]) };
     case "reasoning":
       return { ...common, ...pick(part, ["text", "time"]) };
-    case "tool":
+    case "tool": {
+      const state = jsonObject(part.state);
       return {
         ...common,
         ...pick(part, ["tool", "callID"]),
-        state: isJsonRecord(part.state)
-          ? pick(part.state, [
-              "status",
-              "input",
-              "output",
-              "error",
-              "title",
-              "time",
-            ])
+        state: state
+          ? pick(state, ["status", "input", "output", "error", "title", "time"])
           : {},
       };
+    }
     case "file":
       return { ...common, ...pick(part, ["mime", "filename"]) };
     case "patch":
@@ -178,13 +177,11 @@ function tracePart(part: Record<string, unknown>): Record<string, unknown> {
   }
 }
 
-function pick(
-  value: Record<string, unknown>,
-  keys: readonly string[],
-): Record<string, unknown> {
-  const picked: Record<string, unknown> = {};
+function pick(value: JsonObject, keys: readonly string[]) {
+  const picked: JsonObject = {};
   for (const key of keys) {
-    if (value[key] !== undefined) picked[key] = value[key];
+    const entry = value[key];
+    if (entry !== undefined) picked[key] = entry;
   }
   return picked;
 }

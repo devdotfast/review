@@ -125,6 +125,7 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
   let peekCount = 0;
   let evidencePromise: Promise<ReviewPublishEvidenceTargets> | null = null;
   const sessions: ReviewDefinitionSession[] = [];
+  const definedModels: ReviewDocumentModuleExports = {};
   const documentCapture: PublishDocumentCapture = {
     input: null,
     audit: null,
@@ -190,6 +191,9 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
   };
 
   const runtimeExports = validationRuntimeExports({
+    captureDefinition: (value) => {
+      definedModels[`definition-${Object.keys(definedModels).length}`] = value;
+    },
     createSession: (session) => {
       sessions.push(session);
     },
@@ -358,7 +362,10 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
     failures.push(...materialized.errors);
     let anchors: ReturnType<typeof collectReviewAnchors> | null = null;
     try {
-      anchors = collectReviewAnchors(documentCapture.input.models);
+      anchors = collectReviewAnchors({
+        ...documentCapture.input.models,
+        ...definedModels,
+      });
     } catch (error) {
       failures.push(errorMessage(error));
     }
@@ -366,7 +373,7 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
     if (failures.length === 0 && anchors) {
       try {
         const softwareModels = collectDocumentSoftwareModels(
-          documentCapture.input.models,
+          { ...documentCapture.input.models, ...definedModels },
           documentCapture.input.modelNames,
         ).map((model) => softwareModelData(model));
         const candidate = stripPeekResolutions({
@@ -514,6 +521,7 @@ function validationRuntimeModuleSource(exportNames: readonly string[]): string {
 }
 
 function validationRuntimeExports(input: {
+  captureDefinition: (value: ReviewDocumentExport) => void;
   createSession: (session: ReviewDefinitionSession) => void;
   resolveCodePeek: (
     props: CodePeekProps,
@@ -531,7 +539,11 @@ function validationRuntimeExports(input: {
   return {
     ...react,
     calls,
-    defineSoftwareModel: defineSoftwareMap,
+    defineSoftwareModel: (...args: Parameters<typeof defineSoftwareMap>) => {
+      const model = defineSoftwareMap(...args);
+      input.captureDefinition(model);
+      return model;
+    },
     setReviewRequestContext: noop,
     createBrowserReviewDefinitionSession: (sessionInput: {
       softwareMap?: Parameters<
@@ -549,7 +561,19 @@ function validationRuntimeExports(input: {
         resolveCodePeek: input.resolveCodePeek,
       });
       input.createSession(session);
-      return session;
+      // Older sealed bundles omitted imported data.ts exports from `models`.
+      // Capture definitions while that exact bundle executes, including unused
+      // anchors, without reading or recompiling editable authoring sources.
+      return {
+        ...session,
+        defineAnchors: (
+          anchors: Parameters<ReviewDefinitionSession["defineAnchors"]>[0],
+        ) => {
+          const defined = session.defineAnchors(anchors);
+          input.captureDefinition(defined);
+          return defined;
+        },
+      };
     },
     createActiveReviewDocument: (document: PublishDocumentInput) => {
       if (!isPublishAuditComponent(document.Component)) {

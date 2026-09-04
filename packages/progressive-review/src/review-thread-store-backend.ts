@@ -166,6 +166,8 @@ export function checkReviewThreadDbVersion(reviewMdxPath: string): void {
 export type ReviewThreadDbMigrationResult = "missing" | "current" | "upgraded";
 
 export interface ReviewThreadDbMigrationOptions {
+  /** Artifact migration retains historical questions even though current UI no longer reads them. */
+  preserveLegacyQuestions?: boolean;
   force?: boolean;
   migrateLegacyCodeRecord?: (
     record: JsonValue,
@@ -211,7 +213,10 @@ export async function migrateReviewThreadDb(
       throw new ReviewThreadDbVersionError(dbPath, version);
     }
     if (version === "1") db.exec(REVIEW_THREAD_DB_V1_TO_V2_DDL);
-    if (version === "1" || version === "2") {
+    if (
+      (version === "1" || version === "2") &&
+      !options.preserveLegacyQuestions
+    ) {
       db.exec(REVIEW_THREAD_DB_V2_TO_V3_DDL);
     }
     if (hasLegacyCodeTargets(db)) {

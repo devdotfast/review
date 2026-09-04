@@ -5,6 +5,7 @@ import path from "node:path";
 import { type JsonValue, parseJsonText } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
+import { withReviewMutationLock } from "./review-mutation-lock";
 import {
   type NormalizedSoftwareModel,
   type SoftwareModelData,
@@ -72,22 +73,24 @@ export async function writeReviewSoftwareMapBundle(
   reviewDir: string,
   bundle: ReviewSoftwareMapBundle,
 ): Promise<void> {
-  const bundleDir = path.join(reviewDir, REVIEW_SOFTWARE_MAP_BUNDLE_DIR);
-  await mkdir(bundleDir, { recursive: true, mode: 0o700 });
-  const manifest: SoftwareMapBundleManifest = {
-    version: MANIFEST_VERSION,
-    headCommit: bundle.headCommit,
-    baseCommit: bundle.baseCommit,
-  };
-  await Promise.all([
-    writeFile(path.join(bundleDir, HEAD_MAP_FILE), bundle.headJson, "utf8"),
-    writeFile(path.join(bundleDir, BASE_MAP_FILE), bundle.baseJson, "utf8"),
-    writeFile(
-      path.join(bundleDir, MANIFEST_FILE),
-      `${JSON.stringify(manifest, null, 2)}\n`,
-      "utf8",
-    ),
-  ]);
+  return withReviewMutationLock(reviewDir, async () => {
+    const bundleDir = path.join(reviewDir, REVIEW_SOFTWARE_MAP_BUNDLE_DIR);
+    await mkdir(bundleDir, { recursive: true, mode: 0o700 });
+    const manifest: SoftwareMapBundleManifest = {
+      version: MANIFEST_VERSION,
+      headCommit: bundle.headCommit,
+      baseCommit: bundle.baseCommit,
+    };
+    await Promise.all([
+      writeFile(path.join(bundleDir, HEAD_MAP_FILE), bundle.headJson, "utf8"),
+      writeFile(path.join(bundleDir, BASE_MAP_FILE), bundle.baseJson, "utf8"),
+      writeFile(
+        path.join(bundleDir, MANIFEST_FILE),
+        `${JSON.stringify(manifest, null, 2)}\n`,
+        "utf8",
+      ),
+    ]);
+  });
 }
 
 export async function readReviewSoftwareMapBundle(

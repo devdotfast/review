@@ -95,6 +95,22 @@ describe("publish range evaluation", () => {
     expect(prepareEvidence).not.toHaveBeenCalled();
   });
 
+  it("recovers imported anchors omitted by old sealed document exports, including unused anchors", async () => {
+    const result = await evaluateReviewDocumentBundleForPublish({
+      reviewDir: fixtureDir("review"),
+      validateRanges: false,
+      bundleCode: `import { createBrowserReviewDefinitionSession, createActiveReviewDocument, jsx } from "review-doc-runtime";
+        const session = createBrowserReviewDefinitionSession({});
+        const anchors = session.defineAnchors({ shown: { title: "Shown", peek: { file: "x.ts", fromLine: 1, toLine: 1 } }, unused: { title: "Unused", peek: { file: "x.ts", fromLine: 2, toLine: 2 } } });
+        export default createActiveReviewDocument({ title: "Legacy", routePath: "/", filePath: "review.mdx", modelNames: [], models: {}, Component: ({ components }) => jsx(components.AnchorLink, { anchor: anchors.shown, children: "Shown" }), isDefault: true });`,
+    });
+    expect(result.errors).toEqual([]);
+    expect(Object.keys(result.document!.anchors).sort()).toEqual([
+      "shown",
+      "unused",
+    ]);
+  });
+
   it("materializes document metadata, nodes, anchors, and ordered software models", async () => {
     const reviewDir = fixtureDir("review");
     const head = sourceFixture("one line");

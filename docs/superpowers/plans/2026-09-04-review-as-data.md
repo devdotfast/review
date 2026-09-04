@@ -1,14 +1,39 @@
-# Review as data — Implementation Plan (draft 2, after the Codex design review)
+# Review as data — Implementation Plan (current-presentation recovery revision)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A published Review is JSON that the canvas app renders. No agent-authored code is imported by the app, the desktop server, or the code-oss host.
 
-**Architecture:** Three phases. **Phase 1** writes the per-review software-map bundle as JSON and fetches it as JSON. **Phase 2** keeps the proven MDX → TypeScript → esbuild → publish-validation pipeline and adds one traversal, `materializeReviewDocument`, over the element records the validation runtime already builds; the result is JSON-round-tripped, schema-parsed, sealed, served, fetched, and rendered by a small tree renderer using the existing component registry. Old sealed revisions are converted by `review migrate apply` running the *sealed bundle* through the same validation runtime. **Phase 3** (scoped here, planned separately) removes the compiler and esbuild by producing the same JSON from the markdown AST plus a native Node import of `data.ts`.
+**Architecture:** Three phases. **Phase 1** writes the per-review software-map bundle as JSON and fetches it as JSON. **Phase 2** keeps the proven MDX → TypeScript → esbuild → publish-validation pipeline and adds one traversal, `materializeReviewDocument`, over the element records the validation runtime already builds; the result is JSON-round-tripped, schema-parsed, sealed, served, fetched, and rendered by a small tree renderer using the existing component registry. Current pre-data presentations are converted by `review migrate apply` running the *sealed bundle* through the same validation runtime; explicit repair handles recoverable failures. Older historical revisions are not converted. **Phase 3** (scoped here, planned separately) removes the compiler and esbuild by producing the same JSON from the markdown AST plus a native Node import of `data.ts`.
 
 **Tech Stack:** zod 4; React 19; Hono; vitest (`// @vitest-environment jsdom` per file, `react-dom/server` or `react-dom/client`); code-oss host tests under Node's built-in runner; Node 24 (already pinned by both `engines` fields).
 
 **Spec:** `docs/superpowers/specs/2026-09-04-review-as-data-design.md` (decisions D1–D12 as revised 2026-09-04).
+
+## Approved recovery clarification — 2026-09-04
+
+The user approved recovery of **only the currently presented revision**, including
+accepted/rejected reviews, not every historical revision. “Current” means the
+current `presentedDocumentRevision` plus its independently selected
+`presentedSoftwareMapRevision`, not the source branch tip or an older selected
+history entry. This amendment resolves the D2/B8 failure-recovery conflict.
+
+- Automatic migration evaluates exact sealed bundles and never recompiles
+  authoring sources. Failed conversions roll back unchanged and stay blockers.
+- A read-only legacy-record adapter makes supported failures visible/openable
+  for recovery while retaining the migration warning.
+- Explicit `review repair --review <uuid> [--json]` may regenerate current
+  artifacts, with source fallback and full validation, without changing status,
+  pins, title, threads, dismissal or publication timestamps. Normal publish
+  still rejects terminal reviews. See spec §7 for source and atomicity rules.
+- Older pre-data history remains immutable/unavailable with an Open current
+  review action, never a command that silently repairs another revision.
+
+**Resume order:** A1–A4 and B1–B7 are already implemented; do not redo their
+commits. Continue **B8 → B8a → B8b → B9**. B8a/B8b are the two added tasks;
+each requires red-first tests, its own green gates and the stated commit.
+B8b intentionally supersedes B7's initial publish-based recovery copy.
+This is a plan-only amendment; implementation resumes only when requested.
 
 ## Global Constraints
 
@@ -18,9 +43,11 @@
 - Component identity: the renderer creates elements with the functions from `reviewAuthoringComponents`, never wrappers (`DatabaseLens` checks `child.type === DbUseCase`; `ReviewSection` checks `child.type === "h2"`).
 - Components stay synchronous: every code peek is resolved once before the document mounts (D9). `validatedCodePeekInputFromRef` keeps throwing on an unresolved ref.
 - `ReviewCanvasContent` stays `kind: "session"`; `document` and `softwareMap` resolve to independent load states (D10). UI keyed by content hash (D11).
-- Copy strings (exact): republish title "Republish this review"; command `review publish --review <uuid>`; map command `review map publish --review <uuid>`; primary button "Copy prompt"; prompt text in Task B7.
+- Final recovery copy is exact per spec §7 and B8b: "Repair this review", command `review repair --review <uuid>`, and "Copy prompt". B7's publish/map-publish copy describes the completed intermediate step, not final acceptance.
 - Work in `../review-data-format` (branch `review-data-format`). pnpm only. Commit messages without `Co-Authored-By`. Every task ends green: `pnpm --filter @dev.fast/review test`, `pnpm --filter @dev.fast/review typecheck`; for host tasks `pnpm --filter @dev.fast/review-desktop test` (its `pretest` runs `protocol:sync`). `pnpm lint && pnpm format:check` clean at the end of each phase.
 - Delete the untracked spike directory `packages/progressive-review/spike-review-data/` in the first commit of Phase 2.
+- Console acceptance: no new errors from this change. Record the observed preexisting `ResizeObserver loop completed with undelivered notifications` caveat; do not suppress it or expand this task to fix it. An intentionally absent map's metadata 404 is an expected response, not a renderer failure. Report all other errors explicitly.
+- Never mutate real review stores during migration/repair E2E. Use a disposable HOME and DEV_REVIEW_HOME, copy/clone source repositories too, and repoint only scratch records so prepared-worktree cleanup cannot affect real repositories. Remove only validated scratch paths after testing.
 
 ## Verified facts this plan relies on (origin/main 0ad9297b)
 
@@ -60,6 +87,7 @@
 - Create `app/src/review-document-hydrate.ts` (schema parse, canonical anchors, store/model hydration, pre-mount peek resolution), `app/src/review-document-renderer.tsx`, `app/src/republish-review.tsx` (+ tests).
 - Modify `app/src/review-documents-runtime.ts`, `review-document-surface.tsx`, `App.tsx`, `desktop-entry.tsx`, `host/review-client.ts`, `review-definition-runtime.ts`.
 - Modify `src/stored-review-migration.ts` — schema 5, convert sealed bundles.
+- B8a/B8b: legacy record/recovery descriptors in `review-home.ts`, Home and session opening, CLI repair orchestration, dedicated atomic repair promotion in the server, transport/host recovery metadata, and repair UI/tests. Reuse existing validation and clipboard helpers, not ordinary publish lifecycle promotion.
 - Docs: `docs/how-review-works.md`, `skills/dev-review/references/lifecycle-and-storage.md`, `goal/PLAN.md`.
 
 **Phase 3 — remove the compiler and esbuild** (scope only; separate plan)
@@ -486,7 +514,7 @@ git commit -m "Load the software map as JSON in the desktop host"
 
 **End-to-end check:** copy the real store to a scratch home (`cp -R ~/.dev/reviews /tmp/review-home-a4/reviews`), run the migration with the app runtime (`DEV_REVIEW_HOME=/tmp/review-home-a4 review migrate apply`), then launch the app with `DEV_REVIEW_HOME=/tmp/review-home-a4` and open a migrated review that had a map: the Map tab renders. Delete the scratch home afterwards.
 
-**Phase 1 gate (before the PR):** `pnpm --filter @dev.fast/review test`, `pnpm --filter @dev.fast/review typecheck`, `pnpm --filter @dev.fast/review-desktop test`, `pnpm lint && pnpm format:check`, `pnpm --filter @dev.fast/review check:tutorial`, and a packaged build (`pnpm --filter @dev.fast/review-desktop app:desktop:build` or the CI packaging script) whose app opens the tutorial with a working Map tab.
+**Phase 1 gate (before the PR):** `pnpm --filter @dev.fast/review test`, `pnpm --filter @dev.fast/review typecheck`, `pnpm --filter @dev.fast/review-desktop test`, `pnpm lint && pnpm format:check`, `pnpm --filter @dev.fast/review check:tutorial`, and a packaged build (`SKIP_NOTARIZE=1 pnpm --filter @dev.fast/review-desktop app:package:macos` for local macOS QA, or the platform CI packaging script) whose app opens the tutorial with a working Map tab.
 
 - [ ] **Step 1: Tutorial and packaging references** as listed.
 
@@ -1073,11 +1101,16 @@ function renderNode(node: ReviewNode, components: ReviewDocumentComponents): Rea
   return createElement(override ?? node.tag, node.props, ...children);
 }
 ```
-- [ ] **Step 4: Implement hydration and pre-mount resolution** per Interfaces; `desktop-entry.tsx`'s effect becomes: await both promises → switch on `document.state`: `ready` → `hydrateReviewDocument` → `await resolveReviewDocumentPeeks` → `setDocument`; `needs-republish` → `setRepublish({ reviewUuid, mapStale })`; `unavailable` → existing error path. Map: `ready` → `hydratePublishedSoftwareMap`; otherwise `null`. Cache: keep a module-level `Map<contentHash, Promise<HydratedReviewDocument>>` so re-mounts of the same revision skip re-resolution (D9).
+- [ ] **Step 4: Implement hydration and pre-mount resolution** per Interfaces; settle the document and map promises independently (D10), never gate either artifact on the other promise. Document `ready` → hydrate → resolve every unique peek → mount; other states replace only the document surface. Map `ready` → hydrate; other states affect only Map. Cache hydrated-document promises by artifact content hash within the session/route scope so offscreen validation and visible mounts share resolution without leaking pinned results across sessions. Bound the cache and evict rejected promises. This records the completed B6 adaptation, not a new task.
 - [ ] **Step 5: App keying** — `detailRevision={document.contentHash}`, `documentRevision={document.contentHash}`; `ReviewDocumentContent({ body })` renders `renderReviewNodes(body, reviewDocumentComponents)`; `ReviewLayoutContent` prop `ReviewDocument: ReviewDocumentComponent` → `body: ReviewNode[]`.
 - [ ] **Step 6: Run** — `pnpm --filter @dev.fast/review test` → green after fixture updates. Commit `"Render the review document from data"`.
 
 ### Task B7: Republish state
+
+**Completed intermediate step:** commit `ea3552f2`. The following copy and
+publish-based live check record that step. B8b replaces the recovery action and
+copy with explicit repair; do not rerun B7 as new implementation. Live manifest
+tests require a server restart if tab close/reopen reuses a cached bundle.
 
 **Files:**
 - Create: `app/src/republish-review.tsx` (+ `republish-review.test.tsx`, `// @vitest-environment jsdom`)
@@ -1102,22 +1135,28 @@ Prompt (exact):
 - [ ] **Step 2: Implement** — `section.review-republish > h2 + p + div.review-republish-command(code + CopyCommandButton) [+ map line] + div.review-republish-actions(CopyPromptButton)`; `CopyCommandButton` mirrors `CopyPromptButton` with `aria-label="Copy command"` and icon-only content.
 - [ ] **Step 3: Run, commit** `"Show a republish state for pre-data review revisions"`.
 
-### Task B8: Migration converts sealed bundles
+### Task B8: Migration converts current sealed bundles
 
 **Files:**
 - Modify: `packages/review-protocol/src/contracts.ts:33-37` — `REVIEW_SCHEMA_VERSION = 5` with the comment "Version 5: document and software-map bundles are JSON".
 - Modify: `packages/progressive-review/src/stored-review-migration.ts:383-437, 551-663`
+- Modify: `src/review-home.ts` migration parser and `src/migrate.ts` post-migration reporting; keep strict current-record parsing outside the explicit legacy adapter added in B8a.
 - Test: `stored-review-migration.test.ts`
 
 **Success criteria:**
-- `REVIEW_SCHEMA_VERSION === 5` and every `schemaVersion` literal/parsers agree (`grep -rn "schemaVersion" packages/progressive-review/src | grep -v test` shows no `4`).
+- `REVIEW_SCHEMA_VERSION === 5`; new records/writers use 5. Explicit legacy adapters must still accept 2/3/4, so a textual ban on every `4` is incorrect. Audit writers and compatibility branches separately.
 - `stored-review-migration.test.ts`: a schema-4 review with a sealed version-1 document bundle migrates to schema 5, gains `review-document.json` with `format: "review-document/1"` and the expected nodes, changes `presentedDocumentRevision`, and leaves no `review-document.js`; a review whose sealed bundle fails validation is reported as a blocker and left untouched (backup restored).
 - Schema-2 and schema-3 stores still migrate through the existing paths and end at schema 5.
+- Convert only current presentation pointers, including accepted/rejected records. Resolve document and map from their own sealed revisions; stage both before promotion, seal the map first if necessary so the document's embedded record names the final map revision. Preserve already-valid v2 pointers, absent maps, status, pins, title, threads, dismissal and publication timestamps. Drafts without a presentation only upgrade their record.
+- Failed conversion preserves record/authoring/candidate bytes and private refs, reports one actionable blocker, and never drops the review. Post-migration reporting must understand supported legacy failures rather than adding a misleading second schema error. Recovery visibility is completed by B8a/B8b, not by weakening rollback.
+- Idempotent second run changes no presentation pointers. Older private commits remain untouched; a broken current map is a blocker, not silently treated as an absent map. An intact sealed document converts even if editable authoring sources are missing.
+- These guarantees cover the entire `review migrate apply` command, including follow-on repository conversion, source audit and cleanup. A successful conversion must not subsequently reset presentation pointers, replace private history or delete threads; failed supported records must remain unchanged through those phases. Add a colocated-jj regression fixture; preserve its history or report an actionable blocker instead of resetting it.
+- Use one cross-process mutation lock for migration and every competing candidate, seal, record and attribution writer, including CLI document/map publication. Server-only locking is insufficient. Do not hold a CLI lock while awaiting an HTTP operation that reacquires it; revalidate the prepared revision at promotion. Test a competing writer against both success and rollback so neither can erase the other's changes.
 
-**End-to-end check:** on a scratch copy of the real store (`DEV_REVIEW_HOME=/tmp/review-home-b8`, as in A4), run `review migrate apply` with the app runtime: it logs one regeneration per review and no blockers for reviews whose sources are intact; launch the app against that home: the home screen shows no migration warning, and every migrated review opens and renders (spot-check two, including one with a map). Delete the scratch home afterwards.
+**End-to-end check:** on an isolated scratch store with isolated source repositories, run `review migrate apply` with the app runtime. It reports one conversion per changed review and no blockers for supported valid sealed artifacts (not merely intact sources). With only convertible fixtures, Home has no migration warning; spot-check two current presentations, including one map and one terminal review. In a separate mixed fixture, a failed conversion remains unchanged and the migration warning persists. Record rollback/idempotence evidence; B8a/B8b add recovery of that failure. Delete the validated scratch home/repositories afterwards.
 
 - [ ] **Step 1: Failing test** — seed a schema-4 review with a sealed revision containing a version-1 document bundle whose `review-document.js` is a hand-written bundle in the `bundleWithAnchors` style (imports from `"review-doc-runtime"`, calls `createActiveReviewDocument({ title, routePath: "/", filePath: "review.mdx", modelNames: [], models: { anchors }, Component: ({ components }) => jsx("h1", { children: "T" }), isDefault: true })`); run `migrateStoredReviewData`; assert `schemaVersion === 5`, `review-document.json` exists with `format === "review-document/1"` and an `h1` node, `presentedDocumentRevision` changed, no `review-document.js` remains.
-- [ ] **Step 2: Implement** — accept `schemaVersion === 4` in the migrate set; rename `migrateLegacyPresentedArtifacts` → `regeneratePresentedArtifacts`; replace its `compileReviewDocumentBundle` call with:
+- [ ] **Step 2: Implement** — accept `schemaVersion === 4` in the migrate set and migration parser; rename `migrateLegacyPresentedArtifacts` → `regeneratePresentedArtifacts`; use the following only for legacy v1 document conversion (preserve v2 bundles and unpresented drafts):
 
 ```ts
   const legacyBundleCode = await readFile(path.join(legacyBuildDir, ".bundle", "document", "review-document.js"), "utf8")
@@ -1126,8 +1165,104 @@ Prompt (exact):
   if (!evaluated.document) throw new Error(evaluated.errors.join("; "));
   const documentBundle = bundleReviewDocument(evaluated.document);
 ```
-and write with `writeReviewDocumentBundle(input.reviewDir, documentBundle)`; `evaluated.warnings` → `input.log`. For schema 4 the legacy revision is `presentedDocumentRevision`. Map recovery is A4's `legacySoftwareMapBundle`.
+Write into isolated staging first; `evaluated.warnings` → `input.log`. For schema 4 the legacy document revision is `presentedDocumentRevision`; map recovery reads `presentedSoftwareMapRevision`, not the document directory by assumption. Adapt A4's `legacySoftwareMapBundle` to distinguish absent maps from conversion errors. Commit all candidates/pointers under the review lock only after preparation succeeds; preserve rollback and lifecycle invariants above.
 - [ ] **Step 3: Run, commit** `"Migrate stored reviews to JSON document artifacts"`.
+
+### Task B8a: Expose recovery for current legacy presentations
+
+**Files:** `src/review-home.ts`, `src/server/desktop-server.ts`, Home/recovery
+transport contracts and host consumers, `app/src/review-home-view.tsx`, and tests.
+Inspect existing descriptors before extending them; do not cast malformed
+records to the current schema or write upgraded records while listing/opening.
+
+**Success criteria:**
+- A strictly validated schema-2/3/4 record that failed B8 remains an explicit
+  migration blocker and also appears as an openable recovery entry in Home.
+  Ordinary schema-5 records retain their current behavior. Unsupported/malformed
+  records remain errors, not fabricated sessions.
+- Opening current recovery normalizes supported metadata in memory, including
+  embedded sealed records. It never imports legacy JS or modifies the store.
+  It reports independent document/map states and retains Diff, Commits, Threads
+  and valid artifacts. Missing underlying data gets specific unavailable states.
+- A requested older revision with a pre-data bundle is unavailable with the
+  exact message and Open current review action from spec §7, not a current
+  repair command. Already-JSON historical versions remain readable, including
+  those with a supported legacy embedded record. No private history is rewritten.
+- Terminal status and all stored bytes/refs remain unchanged by listing/opening.
+
+**End-to-end check:** open the mixed failed-migration scratch fixture from Home,
+including a terminal case; verify recovery visibility alongside the warning,
+correct UUID and intact independent views. Open an older pre-data revision and
+verify its unavailable message and navigation to the current review. Compare
+stored bytes/refs before and after these read-only actions.
+
+- [ ] **Step 1: Red tests** for supported failure visibility, malformed-record
+  rejection, current-vs-historical routing, independent views and read-only state.
+  Run and confirm failures before implementation.
+- [ ] **Step 2: Implement** the narrow legacy adapter and explicit recovery
+  descriptors/open routing. Add the historical unavailable state without a dual
+  executable loader. Show an explanatory recovery state without executable copy
+  actions for legacy/terminal records until B8b implements repair; do not expose
+  B7's ordinary publish command as a temporary terminal recovery workaround.
+- [ ] **Step 3: Gates and live check** — Review tests/typecheck, desktop tests,
+  protocol sync and the E2E above. Commit `"Expose current legacy review recovery"`.
+
+### Task B8b: Repair current artifacts without lifecycle changes
+
+**Files:** CLI registration/orchestration (new `review-repair.ts` if appropriate),
+shared artifact preparation/validation, server repair endpoint/promotion and
+locking, protocol/host consumers as needed, `republish-review.tsx` and map-only
+recovery UI, tests. Preserve normal publish and map-publish terminal checks.
+
+**Interface:** `review repair --review <uuid> [--json]`. Require explicit UUID;
+no history revision selector and no implicit checkout selection. Return old/new
+artifact revisions and preserved status, or structured diagnostics/no-op.
+
+**Success criteria:**
+- Follow spec §7 exactly: current presentation only; sealed conversion first;
+  explicit editable-source fallback with full pinned-range/evidence validation;
+  stale-map sealed conversion or validated saved notes at the same pins. An
+  already-valid independent artifact is preserved, not needlessly regenerated.
+- Do not silently overwrite source files or adopt unrelated unpublished edits.
+  The command reports when source fallback is required/used and the prompt
+  instructs the caller to reconcile those edits without changing the review's
+  meaning. Validation is not represented as proof of semantic equivalence.
+- Healthy current artifacts return a no-op; drafts without a presentation are
+  directed to publish. Missing inputs or failed validation leave the old review
+  unchanged with actionable diagnostics. Never turn a broken map into no map.
+- A dedicated promotion path validates mount/readiness, acquires the review
+  lock, checks original pointers/pins/status for concurrent changes, then updates
+  only schema/artifact fields. Preserve status, pins, title, threads, dismissal,
+  publication timestamps and old private revisions. Repair does not resolve or
+  submit feedback, require closed comments, or reopen accepted/rejected reviews.
+  Pending active agent writes must block repair rather than race authoring.
+- Failure at preparation, mount, concurrency check or promotion rolls back
+  candidate files/refs/record and retains the visible old presentation. Successful
+  terminal repair remains terminal; ordinary publish/map publish still fail.
+- Replace B7's final copy with spec §7: heading "Repair this review", one
+  `review repair --review <uuid>` command, shared Copy command/Copy prompt,
+  exact prompt and conditional stale-map sentence. A map-only failure exposes
+  repair inside Map while a valid document remains usable. Expected recovery
+  states signal ready without error diagnostics.
+
+**End-to-end check:** use scratch current active, accepted and rejected reviews
+with failed legacy conversion and repairable sources, plus a map-only failure.
+Verify copy values and independent views; repair via the copied command and
+reopen to see JSON. Compare status/pins/title/threads/dismissal/timestamps and
+old history before/after. Confirm ordinary terminal publish still fails. Exercise
+one validation failure and one concurrency rejection with unchanged pointers;
+repeat successful repair for a no-op. A missing-source fixture must remain a
+clear blocker, not falsely claim success. Restore/delete only scratch data.
+
+- [ ] **Step 1: Red tests** for CLI selection, terminal preservation, copy text,
+  map-only repair, source fallback, healthy no-op, drafts, missing inputs,
+  rollback, mount failure and concurrent changes. Run and confirm failures.
+- [ ] **Step 2: Implement** shared preparation plus dedicated repair promotion;
+  wire CLI/UI without routing through normal lifecycle promotion. Extend B7's
+  clipboard/state tests instead of keeping competing recovery commands.
+- [ ] **Step 3: Gates and live check** — Review tests/typecheck, desktop tests,
+  protocol sync, targeted lint/format and the E2E above. Commit
+  `"Repair current review artifacts without reopening reviews"`.
 
 ### Task B9: Tutorial end-to-end, docs, gate
 
@@ -1136,13 +1271,24 @@ and write with `writeReviewDocumentBundle(input.reviewDir, documentBundle)`; `ev
 - Block-index parity: the ordered `(tag, index, text)` list from the `main` MDX render equals the list from the new renderer for the tutorial (recorded in the PR description).
 - Docs updated as listed; the gate commands all pass.
 
-**End-to-end check (Phase 2 gate):** the B6, B7, and B8 live checks re-run on the *packaged* app (`app:desktop:build` output), plus: publish a new review end to end with the packaged app's CLI (`review scaffold` → author → `review publish` → `review map publish`) and open it; open a historical (terminal) review after migration; confirm `~/.dev/reviews/<uuid>/.bundle/document` contains only JSON for every review touched. Commands: `pnpm --filter @dev.fast/review test && pnpm --filter @dev.fast/review typecheck && pnpm --filter @dev.fast/review-desktop test && pnpm lint && pnpm format:check && pnpm --filter @dev.fast/review check:tutorial`.
+**End-to-end check (Phase 2 gate):** rerun B6, B8, B8a and B8b on the *packaged*
+app. B8b's repair UI replaces B7's obsolete publish-based recovery check.
+Build with `SKIP_NOTARIZE=1 pnpm --filter @dev.fast/review-desktop app:package:macos`
+for local macOS QA; `pnpm --filter @dev.fast/review app:desktop:build` builds only
+the canvas and is not a packaged-app substitute. Publish a new review with the
+packaged CLI (`scaffold` → author → `publish` → `map publish`) and open it.
+Open the **current presentation of a terminal review** after migration/repair;
+this does not mean repairing every historical revision. Separately verify that
+older pre-data history is unavailable with Open current review and no repair
+action. Current candidate document directories of successfully migrated/repaired
+reviews contain only JSON; unchanged failed records and immutable old history
+may retain JS and must be reported, not silently deleted. Run the full gate below.
 
 - [ ] **Step 1: Tutorial data test** — `app/src/tutorial-document.test.tsx` (as draft 1 Task B8): parse `tutorial/.bundle/document/review-document.json`, render through `hydrateReviewDocument` (peeks stubbed) + `renderReviewNodes`, assert the registry names present and that `data-review-block-index` values are `0..n-1` in DOM order.
-- [ ] **Step 2: Block-index parity** — on `main`, run the old tutorial bundle in jsdom (`git stash` not needed: `git worktree add ../review-main origin/main`, build tutorial assets there, render the MDX component with `renderToStaticMarkup`) and diff the ordered list of `(tag, index, text)` against the new renderer's output. Record the result in the PR description.
-- [ ] **Step 3: Manual smoke** — open the tutorial in the desktop app: prose threads, a code peek, sequence tour, database lens, Map tab, Threads-panel scroll; then a legacy review after `review migrate apply`; then a review with a deliberately deleted `.bundle/document` to see the republish state.
-- [ ] **Step 4: Docs** — `docs/how-review-works.md` and `lifecycle-and-storage.md` name `review-document.json`; `goal/PLAN.md:15,40` note the JSON document is CDN-cacheable (the compiler line stays until Phase 3); `document-authoring.md` gains one line: document-local React components are not supported.
-- [ ] **Step 5: Gate** — `pnpm --filter @dev.fast/review test && pnpm --filter @dev.fast/review typecheck && pnpm --filter @dev.fast/review-desktop test && pnpm lint && pnpm format:check && pnpm --filter @dev.fast/review check:tutorial`. Commit `"Document the JSON review artifact"`; PR "Review document as data" against `main` (stacked on Phase 1).
+- [ ] **Step 2: Block-index parity** — use a clean sibling worktree at the recorded pre-change base `0ad9297b` (not a drifting `origin/main` that may already include these changes). Build the old tutorial assets, render the old MDX component with React DOM/jsdom, and compare ordered `(tag, index, text)` values against the JSON renderer. Record the exact base SHA and result in the PR description. Never stash or mutate the core checkout.
+- [ ] **Step 3: Manual smoke** — perform the packaged-app E2E above, including failed-conversion recovery, exact clipboard strings, map-only failure, terminal preservation, old-history navigation and failure rollback. A deliberately stale materialized manifest can require a server restart to clear the immutable session bundle cache. Restore it afterward. Record the preexisting ResizeObserver caveat separately from new failures.
+- [ ] **Step 4: Docs** — update `docs/how-review-works.md` and `lifecycle-and-storage.md` for JSON, schema 5, migrate-versus-repair, current-only recovery, terminal preservation and unsupported pre-data history. Document CDN-cacheable JSON in `goal/PLAN.md` if it exists, otherwise the existing architecture documentation and report the substitution. Keep compiler/dependency descriptions until Phase 3. Add only the document-local-component restriction to `document-authoring.md`.
+- [ ] **Step 5: Gate** — `pnpm --filter @dev.fast/review test && pnpm --filter @dev.fast/review typecheck && pnpm --filter @dev.fast/review-desktop test && pnpm lint && pnpm format:check && pnpm --filter @dev.fast/review check:tutorial`. Commit `"Document the JSON review artifact"`; open PR "Review document as data" against the Phase 1 branch `software-map-bundle-json` while PR1 is unmerged, or against `main` if PR1 has merged. Include all deviations and E2E evidence, the recovery scope amendment, and unresolved blockers. Do not merge without a separate request.
 
 ---
 
@@ -1160,9 +1306,9 @@ Not executed under this plan. Write `docs/superpowers/plans/<date>-remove-mdx-co
 
 **Deliverables when planned:** loader module (`review-data-module.ts`), tree builder (`review-document-tree.ts`), build orchestration replacing `evaluateReviewDocumentBundleForPublish`, publish-error test matrix, dependency removal, docs.
 
-## Self-review (draft 2)
+## Self-review (recovery revision)
 
-- Spec coverage: D1 → B1–B6; D2/D12 → A4, B8; D3 → B2; D4 → Phase 3; D5 → B1, B2; D6 → B2 Step 4; D7 → B1; D8 → A1–A4; D9 → B6; D10 → B4, B5; D11 → B6 Step 5; §7 republish → B7; §8 docs → B9; §9 tests → each task plus B9.
+- Spec coverage: D1 → B1–B6; D2/D12 → A4, B8/B8a/B8b; D3 → B2; D4 → Phase 3; D5 → B1, B2; D6 → B2 Step 4; D7 → B1; D8 → A1–A4; D9 → B6; D10 → B4/B5/B8a/B8b; D11 → B6 Step 5; §7 initial UI → B7 and final repair → B8b; §8 docs → B9; §9 tests → each task plus B9.
 - Placeholders: `collectReviewAnchors` and the schema-2 `legacyRevision` field are marked as literal ports of code quoted in this plan's "Verified facts"; no TBDs.
 - Type consistency: `ReviewDocumentBundle` (JSON) vs `CompiledReviewDocument` (esbuild output) are distinct names from B3 on; `ReviewDocumentLoad`/`ReviewSoftwareMapLoad` are defined once in B4 and consumed in B5/B6; `HydratedReviewDocument` is the `ReadyReviewDocumentEntry` alias from B6 on.
-- Open for review: whether `reviewNodeSchema` should also re-run every component's authoring schema at load (currently JSON-shape only plus the `DatabaseLens` store schema; components re-parse their own props at render), and whether the Phase 2 migration should also accept schema-3 stores (it does, through the existing 3→4 path followed by regeneration).
+- Settled boundaries: schema-2/3/4 migration is supported; only current presentations are converted/repaired; failed automatic conversion rolls back but remains discoverable; explicit repair preserves lifecycle state; ordinary terminal publish stays forbidden. Phase 3 authoring restrictions/dependency removals remain deferred. The existing JSON-shape/store boundary plus component parsing stays in Phase 2; this amendment does not introduce another schema redesign.

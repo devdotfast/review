@@ -19,12 +19,14 @@ import { collectingWritable } from "./cli-output";
 import {
   type ReviewPackageManager,
   migrateJjReviewRepositories,
+  migrateReviewManagedCheckouts,
   removeLegacyDesktopCatalog,
   removeLegacyGlobalReviewInstalls,
   removeLegacyReviewSkills,
   runReviewMigration,
 } from "./migrate";
-import { createReviewDir } from "./review-home";
+import { createReviewDir, sealReviewCandidate } from "./review-home";
+import { auditStoredReviewDocuments } from "./stored-review-migration";
 
 const tempRoots: string[] = [];
 type TestRunCommand = (
@@ -47,6 +49,135 @@ afterEach(async () => {
 });
 
 describe("review migrate apply", () => {
+  it("keeps a migrated terminal colocated-jj presentation and old history through every follow-on phase", async () => {
+    const { reviewHome, reviewDir } = await canonicalReview();
+    await mkdir(path.join(reviewDir, ".bundle/document"), { recursive: true });
+    await writeFile(
+      path.join(reviewDir, ".bundle/document/manifest.json"),
+      JSON.stringify({ version: 1, routePath: "/", sourcePath: "review.mdx" }),
+    );
+    await writeFile(
+      path.join(reviewDir, ".bundle/document/review-document.js"),
+      `import { jsx, createActiveReviewDocument } from "review-doc-runtime";
+      export default createActiveReviewDocument({ title: "Exact", filePath: "review.mdx", routePath: "/", modelNames: [], models: {}, Component: () => jsx("h1", { children: "Exact" }) });`,
+    );
+    const revision = await sealReviewCandidate(
+      reviewDir,
+      "Legacy current publication",
+    );
+    const record = JSON.parse(
+      await readFile(path.join(reviewDir, "review.json"), "utf8"),
+    );
+    await writeFile(
+      path.join(reviewDir, "review.json"),
+      JSON.stringify({
+        ...record,
+        schemaVersion: 4,
+        status: "accepted",
+        presentedDocumentRevision: revision,
+      }),
+    );
+    await mkdir(path.join(reviewDir, ".jj/repo"), { recursive: true });
+    await writeFile(path.join(reviewDir, ".jj/repo/operation"), "preserve");
+    await writeFile(
+      path.join(reviewDir, "review.mdx"),
+      "{broken unpublished source",
+    );
+    const cleanup = async () => ({ checked: 0, removed: 0, blockers: [] });
+    const io = streams();
+    const code = await runReviewMigration({
+      homeDir: reviewHome,
+      env: { DEV_REVIEW_HOME: reviewHome },
+      stdout: io.stdout,
+      stderr: io.stderr,
+      runtime: {
+        removeLegacyDesktopCatalog: cleanup,
+        removeLegacyReviewSkills: cleanup,
+        removeLegacyGlobalReviewInstalls: cleanup,
+      },
+    });
+    expect(io.err.join("")).not.toContain("blocker:");
+    expect(code).toBe(0);
+    const current = JSON.parse(
+      await readFile(path.join(reviewDir, "review.json"), "utf8"),
+    );
+    expect(current).toMatchObject({ schemaVersion: 5, status: "accepted" });
+    expect(current.presentedDocumentRevision).not.toBe(revision);
+    expect(current.presentedDocumentRevision).not.toBeNull();
+    expect(
+      await git.readCommit({ fs, dir: reviewDir, oid: revision }),
+    ).toBeDefined();
+    expect(
+      await readFile(path.join(reviewDir, ".jj/repo/operation"), "utf8"),
+    ).toBe("preserve");
+    expect(await readFile(path.join(reviewDir, "review.mdx"), "utf8")).toBe(
+      "{broken unpublished source",
+    );
+  });
+  it("does not reparse a failed legacy review or audit unrelated editable sources after sealed conversion", async () => {
+    const io = streams();
+    const uuid = "3b241101-e2bb-4255-8caf-4136c566a962";
+    const managed = vi.fn<typeof migrateReviewManagedCheckouts>(async () => ({
+      checked: 0,
+      created: 0,
+      legacyRemoved: 0,
+      blockers: [],
+    }));
+    const audit = vi.fn<typeof auditStoredReviewDocuments>(async () => ({
+      documents: 0,
+      issues: [],
+    }));
+    const jj = vi.fn<typeof migrateJjReviewRepositories>(async () => ({
+      checked: 0,
+      migrated: 0,
+      blockers: [],
+    }));
+    const cleanup = async () => ({ checked: 0, removed: 0, blockers: [] });
+    const code = await runReviewMigration({
+      homeDir: "/home/reviewer",
+      packageRoot: "/desktop/review",
+      env: { DEV_REVIEW_HOME: "/review-home" },
+      stdout: io.stdout,
+      stderr: io.stderr,
+      runtime: {
+        migrateStoredReviewData: async (input) => {
+          input.onBlocker?.(
+            "Exact sealed conversion failed; review preserved.",
+          );
+          return {
+            documents: 1,
+            failedReviewUuids: [uuid],
+            droppedLegacyPeekReviews: 0,
+            droppedReviews: 0,
+            droppedComments: 0,
+            droppedQuestions: 0,
+            legacyCheckoutsRemoved: 0,
+            upgradedThreadDatabases: 0,
+          };
+        },
+        migrateJjReviewRepositories: jj,
+        migrateReviewManagedCheckouts: managed,
+        auditStoredReviewDocuments: audit,
+        removeLegacyDesktopCatalog: cleanup,
+        removeLegacyReviewSkills: cleanup,
+        removeLegacyGlobalReviewInstalls: cleanup,
+      },
+    });
+    expect(code).toBe(1);
+    expect(managed).toHaveBeenCalledWith(
+      expect.objectContaining({ skipReviewUuids: [uuid] }),
+    );
+    expect(jj).toHaveBeenCalledWith(
+      expect.objectContaining({ skipReviewUuids: [uuid] }),
+    );
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skipReviewUuids: [uuid],
+        onlyUnpresented: true,
+      }),
+    );
+    expect(io.out.join("")).toContain("1 blocker");
+  });
   it("reports every completed phase and returns nonzero for blockers", async () => {
     const io = streams();
     const code = await runReviewMigration({
@@ -211,6 +342,37 @@ describe("review migrate apply", () => {
 });
 
 describe("jj Review repository migration", () => {
+  it("preserves current pointers and every private historical commit for colocated jj reviews", async () => {
+    const { reviewHome, reviewDir } = await canonicalReview();
+    const revision = await sealReviewCandidate(
+      reviewDir,
+      "Immutable legacy history",
+    );
+    const record = JSON.parse(
+      await readFile(path.join(reviewDir, "review.json"), "utf8"),
+    );
+    const current = JSON.stringify({
+      ...record,
+      presentedDocumentRevision: revision,
+    });
+    await writeFile(path.join(reviewDir, "review.json"), current);
+    await mkdir(path.join(reviewDir, ".jj/repo"), { recursive: true });
+    await writeFile(path.join(reviewDir, ".jj/repo/operation"), "keep history");
+    expect(await migrateJjReviewRepositories({ reviewHome })).toEqual({
+      checked: 1,
+      migrated: 0,
+      blockers: [],
+    });
+    expect(await readFile(path.join(reviewDir, "review.json"), "utf8")).toBe(
+      current,
+    );
+    expect(
+      await git.readCommit({ fs, dir: reviewDir, oid: revision }),
+    ).toBeDefined();
+    expect(
+      await readFile(path.join(reviewDir, ".jj/repo/operation"), "utf8"),
+    ).toBe("keep history");
+  });
   it("rebuilds a canonical Review as plain Git from its working copy", async () => {
     const { reviewHome, reviewDir } = await canonicalReview();
     await mkdir(path.join(reviewDir, ".jj", "repo"), { recursive: true });

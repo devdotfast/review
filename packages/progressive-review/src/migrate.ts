@@ -144,6 +144,7 @@ export async function runReviewMigration(input: {
     () =>
       runtime.migrateJjReviewRepositories({
         reviewHome,
+        skipReviewUuids: stored.failedReviewUuids,
         force: input.force,
         log: (message) => input.stderr.write(`${message}\n`),
       }),
@@ -155,6 +156,7 @@ export async function runReviewMigration(input: {
     () =>
       runtime.migrateReviewManagedCheckouts({
         reviewHome,
+        skipReviewUuids: stored.failedReviewUuids,
         log: (message) => input.stderr.write(`${message}\n`),
       }),
     blockers,
@@ -162,7 +164,12 @@ export async function runReviewMigration(input: {
   const audit = await runMigrationPhase(
     "Review document audit",
     { documents: 0, issues: [] },
-    () => runtime.auditStoredReviewDocuments({ reviewHome }),
+    () =>
+      runtime.auditStoredReviewDocuments({
+        reviewHome,
+        skipReviewUuids: stored.failedReviewUuids,
+        onlyUnpresented: true,
+      }),
     blockers,
   );
   const catalog = await runMigrationPhase(
@@ -266,6 +273,7 @@ export async function runReviewMigration(input: {
 
 export async function migrateReviewManagedCheckouts(input: {
   reviewHome: string;
+  skipReviewUuids?: readonly string[];
   log?: (message: string) => void;
 }): Promise<ManagedCheckoutMigrationResult> {
   const reviewsRoot = path.join(input.reviewHome, "reviews");
@@ -278,6 +286,7 @@ export async function migrateReviewManagedCheckouts(input: {
   const sourceRoots = new Set<string>();
   for (const entry of await readDirectory(reviewsRoot)) {
     if (!entry.isDirectory() || !UUID_PATTERN.test(entry.name)) continue;
+    if (input.skipReviewUuids?.includes(entry.name)) continue;
     const reviewDir = path.join(reviewsRoot, entry.name);
     result.checked += 1;
     try {
@@ -346,6 +355,7 @@ async function runMigrationPhase<T>(
 
 export async function migrateJjReviewRepositories(input: {
   reviewHome: string;
+  skipReviewUuids?: readonly string[];
   force?: boolean;
   log?: (message: string) => void;
 }): Promise<JjMigrationResult> {
@@ -359,6 +369,7 @@ export async function migrateJjReviewRepositories(input: {
     if (!entry.isDirectory() || !UUID_PATTERN.test(entry.name)) continue;
     const reviewDir = path.join(reviewsRoot, entry.name);
     if (!(await pathExists(path.join(reviewDir, ".jj")))) continue;
+    if (input.skipReviewUuids?.includes(entry.name)) continue;
     result.checked += 1;
     let recordSource: string;
     try {
@@ -371,6 +382,18 @@ export async function migrateJjReviewRepositories(input: {
       );
       if (parsed.uuid !== entry.name) {
         throw new Error("review.json UUID does not match its directory");
+      }
+      // The current implementation already reads the colocated Git objects.
+      // Rebuilding from the worktree would erase immutable publication history.
+      if (
+        parsed.presentedDocumentRevision ||
+        parsed.presentedSoftwareMapRevision ||
+        (await reviewVcs.log(reviewDir)).length > 0
+      ) {
+        input.log?.(
+          `Preserved colocated Review history for ${parsed.uuid}; no repository reset is needed.`,
+        );
+        continue;
       }
       await resetJjReviewRepository({
         reviewDir,

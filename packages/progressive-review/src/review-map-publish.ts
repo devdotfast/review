@@ -16,6 +16,10 @@ import {
   touchReviewAgentSession,
 } from "./review-home";
 import {
+  assertReviewUnchanged,
+  withReviewMutationLock,
+} from "./review-mutation-lock";
+import {
   ReviewPublicationValidationError,
   prepareReviewSoftwareMapBundle,
 } from "./review-publication-preparation";
@@ -105,11 +109,11 @@ export async function runReviewMapPublish(input: {
     }
 
     report.stage("revision", "running");
-    await writeReviewSoftwareMapBundle(review.dir, bundle);
-    const revision = await sealReviewCandidate(
-      review.dir,
-      "Publish Review software map",
-    );
+    const revision = await withReviewMutationLock(review.dir, async () => {
+      await assertReviewUnchanged(review.dir, review.review);
+      await writeReviewSoftwareMapBundle(review.dir, bundle);
+      return sealReviewCandidate(review.dir, "Publish Review software map");
+    });
     report.stage("revision", "complete", { revision });
 
     const discovery = await readReviewDesktopDiscovery();

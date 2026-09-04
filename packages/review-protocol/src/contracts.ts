@@ -34,7 +34,8 @@ export type SessionMeta = z.infer<typeof sessionMetaSchema>;
 // desktop serves prebuilt revisions and exposes /publish-ready instead of the
 // removed /publish route. (Version 2 added the bundled-CLI discovery fields.)
 export const REVIEW_DESKTOP_DISCOVERY_VERSION = 3;
-export const REVIEW_SCHEMA_VERSION = 4;
+// Version 5: document and software-map bundles are JSON.
+export const REVIEW_SCHEMA_VERSION = 5;
 
 const requiredString = z
   .string({ error: "must be a string" })

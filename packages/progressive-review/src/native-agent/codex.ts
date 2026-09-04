@@ -1,3 +1,11 @@
+import {
+  type JsonValue,
+  jsonArray,
+  jsonNumber,
+  jsonObject,
+  jsonString,
+} from "@dev.fast/review-protocol";
+
 import { DEV_REVIEW_HOME_ENV, devReviewHome } from "../review-storage";
 import { AsyncQueue } from "./async-queue";
 import {
@@ -23,7 +31,6 @@ import {
   ReviewCommandPath,
   tomlInline,
 } from "./terminal-command";
-import { isJsonRecord } from "./transcript-json";
 
 const MATERIALIZE_TIMEOUT_MS = 60_000;
 
@@ -114,18 +121,19 @@ export class CodexAgentServer implements AgentServer {
       "resume",
       threadId,
     );
+    const env: NativeTerminalCommand["env"] = {
+      [REVIEW_AGENT_THREAD_URL_ENV]: `${this.#desktop.baseUrl}/native-agent-events/codex/${encodeURIComponent(threadId)}/thread`,
+      [REVIEW_AGENT_THREAD_TOKEN_ENV]: this.#desktop.token,
+      [DEV_REVIEW_HOME_ENV]: reviewHome,
+    };
+    if (pathValue) env.PATH = pathValue;
     return {
       sessionId: threadId,
       command: {
         cwd: input.cwd,
         executable: "codex",
         args,
-        env: {
-          [REVIEW_AGENT_THREAD_URL_ENV]: `${this.#desktop.baseUrl}/native-agent-events/codex/${encodeURIComponent(threadId)}/thread`,
-          [REVIEW_AGENT_THREAD_TOKEN_ENV]: this.#desktop.token,
-          [DEV_REVIEW_HOME_ENV]: reviewHome,
-          ...(pathValue ? { PATH: pathValue } : {}),
-        },
+        env,
       },
     };
   }
@@ -191,7 +199,7 @@ export class CodexAgentServer implements AgentServer {
     client: CodexAppServerClient,
     threadId: string,
   ): Promise<CodexMessage[]> {
-    let result: unknown;
+    let result: JsonValue | undefined;
     try {
       result = await client.request("thread/read", {
         threadId,
@@ -201,10 +209,11 @@ export class CodexAgentServer implements AgentServer {
       if (isUnmaterialized(error)) return [];
       throw error;
     }
-    if (!isJsonRecord(result) || !isJsonRecord(result.thread)) {
+    const thread = jsonObject(jsonObject(result)?.thread);
+    if (!thread) {
       throw new Error("Codex returned an invalid thread.");
     }
-    return projectCodexTurns(result.thread.turns);
+    return projectCodexTurns(thread.turns);
   }
 
   #materialized(threadId: string): Promise<void> {
@@ -231,8 +240,8 @@ export class CodexAgentServer implements AgentServer {
   }
 
   #receive(notification: CodexNotification): void {
-    const threadId = notification.params.threadId;
-    if (typeof threadId !== "string") return;
+    const threadId = jsonString(notification.params.threadId);
+    if (threadId === undefined) return;
     const state = this.#threads.get(threadId);
     if (!state) return;
     for (const message of projectCodexNotification(notification)) {
@@ -272,19 +281,24 @@ export interface CodexMessage extends NativeReviewMessage {
 }
 
 /** Review-visible messages from `thread/read` turns: every user message, and the final agent message of each completed turn. */
-export function projectCodexTurns(turns: unknown): CodexMessage[] {
-  if (!Array.isArray(turns)) return [];
+export function projectCodexTurns(
+  turns: JsonValue | undefined,
+): CodexMessage[] {
+  const list = jsonArray(turns);
+  if (!list) return [];
   const messages: CodexMessage[] = [];
-  for (const turn of turns) {
-    if (!isJsonRecord(turn) || !Array.isArray(turn.items)) continue;
+  for (const entry of list) {
+    const turn = jsonObject(entry);
+    const items = jsonArray(turn?.items);
+    if (!turn || !items) continue;
     const startedAt = secondsToIso(turn.startedAt);
     const completedAt = secondsToIso(turn.completedAt);
-    for (const item of turn.items) {
+    for (const item of items) {
       const user = userMessage(item, startedAt);
       if (user) messages.push(user);
     }
     if (turn.status === "completed") {
-      const final = finalAgentMessage(turn.items, completedAt);
+      const final = finalAgentMessage(items, completedAt);
       if (final) messages.push(final);
     }
   }
@@ -300,83 +314,78 @@ export function projectCodexNotification(
     const user = userMessage(params.item, millisToIso(params.completedAtMs));
     return user ? [user] : [];
   }
-  if (method === "turn/completed" && isJsonRecord(params.turn)) {
-    const turn = params.turn;
-    if (turn.status !== "completed" || !Array.isArray(turn.items)) return [];
-    const final = finalAgentMessage(turn.items, secondsToIso(turn.completedAt));
+  const turn = jsonObject(params.turn);
+  if (method === "turn/completed" && turn) {
+    const items = jsonArray(turn.items);
+    if (turn.status !== "completed" || !items) return [];
+    const final = finalAgentMessage(items, secondsToIso(turn.completedAt));
     return final ? [final] : [];
   }
   return [];
 }
 
 function userMessage(
-  item: unknown,
+  item: JsonValue | undefined,
   createdAt: string,
 ): CodexMessage | undefined {
+  const record = jsonObject(item);
+  const itemId = jsonString(record?.id);
+  const content = jsonArray(record?.content);
   if (
-    !isJsonRecord(item) ||
-    item.type !== "userMessage" ||
-    typeof item.id !== "string" ||
-    !Array.isArray(item.content)
+    !record ||
+    record.type !== "userMessage" ||
+    itemId === undefined ||
+    !content
   ) {
     return undefined;
   }
-  const body = item.content
-    .flatMap((part) =>
-      isJsonRecord(part) &&
-      part.type === "text" &&
-      typeof part.text === "string"
-        ? [part.text]
-        : [],
-    )
+  const body = content
+    .flatMap((entry) => {
+      const part = jsonObject(entry);
+      const text = jsonString(part?.text);
+      return part?.type === "text" && text !== undefined ? [text] : [];
+    })
     .join("\n")
     .trim();
   if (!body) return undefined;
-  return { role: "user", body, createdAt, itemId: item.id };
+  return { role: "user", body, createdAt, itemId };
 }
 
 function finalAgentMessage(
-  items: unknown[],
+  items: readonly JsonValue[],
   createdAt: string,
 ): CodexMessage | undefined {
   for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index];
-    if (
-      isJsonRecord(item) &&
-      item.type === "agentMessage" &&
-      typeof item.id === "string" &&
-      typeof item.text === "string" &&
-      item.text.trim()
-    ) {
-      return {
-        role: "assistant",
-        body: item.text.trim(),
-        createdAt,
-        itemId: item.id,
-      };
+    const item = jsonObject(items[index]);
+    const itemId = jsonString(item?.id);
+    const text = jsonString(item?.text)?.trim();
+    if (item?.type === "agentMessage" && itemId !== undefined && text) {
+      return { role: "assistant", body: text, createdAt, itemId };
     }
   }
   return undefined;
 }
 
-function isUnmaterialized(error: unknown): boolean {
+function isUnmaterialized(cause: unknown): boolean {
   return (
-    error instanceof Error &&
-    (/no rollout found/u.test(error.message) ||
-      /not materialized/u.test(error.message))
+    cause instanceof Error &&
+    (/no rollout found/u.test(cause.message) ||
+      /not materialized/u.test(cause.message))
   );
 }
 
-function secondsToIso(value: unknown): string {
-  return typeof value === "number"
-    ? new Date(value * 1000).toISOString()
-    : new Date(0).toISOString();
+function secondsToIso(value: JsonValue | undefined): string {
+  const seconds = jsonNumber(value);
+  return seconds === undefined
+    ? new Date(0).toISOString()
+    : new Date(seconds * 1000).toISOString();
 }
 
-function millisToIso(value: unknown): string {
-  return typeof value === "number"
-    ? new Date(value).toISOString()
-    : new Date(0).toISOString();
+function millisToIso(value: JsonValue | undefined): string {
+  const millis = jsonNumber(value);
+  return millis === undefined
+    ? new Date(0).toISOString()
+    : new Date(millis).toISOString();
 }
 
 export function server(

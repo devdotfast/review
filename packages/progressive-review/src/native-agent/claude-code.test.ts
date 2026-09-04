@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import type { JsonValue } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import * as claudeCode from "./claude-code";
@@ -119,15 +120,14 @@ describe("updates", () => {
   /** Posts a hook the way the native hook client does. */
   async function postHook(
     env: Record<string, string>,
-    payload: unknown,
+    payload: JsonValue,
     token = env.DEV_FAST_REVIEW_AGENT_HOOK_TOKEN,
   ): Promise<Response> {
+    const headers = new Headers({ "content-type": "application/json" });
+    if (token) headers.set("x-review-token", token);
     return fetch(env.DEV_FAST_REVIEW_AGENT_HOOK_URL!, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(token ? { "x-review-token": token } : {}),
-      },
+      headers,
       body: JSON.stringify(payload),
     });
   }

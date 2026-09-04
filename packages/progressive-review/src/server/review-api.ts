@@ -638,6 +638,8 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
         error: "This thread has no agent terminal.",
       });
     }
+    // SAFETY: thread records store agent sessions through the review
+    // protocol schema, whose harness enum is the ReviewAgentHarness union.
     const binding = agentSession as SessionRef;
     const { command } = await agentServer(binding.harness).launch({
       session: { resume: binding.sessionId },
@@ -1119,13 +1121,14 @@ async function answerReviewComment(input: {
   if (!launch) {
     throw new Error("This Review has no authoring agent session.");
   }
+  const launchInput: LaunchInput = {
+    prompt: reviewCommentPrompt(input.comment),
+    cwd: input.rootPath,
+  };
+  if (launch.session) launchInput.session = launch.session;
   const { sessionId, command } = await input
     .agentServer(launch.harness)
-    .launch({
-      ...(launch.session ? { session: launch.session } : {}),
-      prompt: reviewCommentPrompt(input.comment),
-      cwd: input.rootPath,
-    });
+    .launch(launchInput);
   const binding: SessionRef = { harness: launch.harness, sessionId };
   await input.openNativeAgentTerminal({ session: binding, command });
   const commit = input.service.setAgentSession({

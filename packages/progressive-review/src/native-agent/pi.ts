@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
 
+import {
+  type JsonValue,
+  jsonArray,
+  jsonObject,
+  jsonString,
+} from "@dev.fast/review-protocol";
+
 import { DEV_REVIEW_HOME_ENV, devReviewHome } from "../review-storage";
 import { AsyncQueue } from "./async-queue";
 import { LoopbackIngress } from "./loopback-ingress";
@@ -21,7 +28,6 @@ import {
   ReviewCommandPath,
   companionModulePath,
 } from "./terminal-command";
-import { isJsonRecord } from "./transcript-json";
 
 interface SessionState {
   /** The latest projection the extension posted. */
@@ -80,20 +86,21 @@ export class PiAgentServer implements AgentServer {
     }
     if (input.prompt !== undefined) args.push(input.prompt);
     this.#session(sessionId);
+    const env: NativeTerminalCommand["env"] = {
+      [REVIEW_AGENT_BRIDGE_URL_ENV]: `${bridgeUrl}/${this.harness}/${encodedSession}`,
+      [REVIEW_AGENT_BRIDGE_TOKEN_ENV]: this.#ingress.token,
+      [REVIEW_AGENT_THREAD_URL_ENV]: `${this.#desktop.baseUrl}/native-agent-events/${this.harness}/${encodedSession}/thread`,
+      [REVIEW_AGENT_THREAD_TOKEN_ENV]: this.#desktop.token,
+      [DEV_REVIEW_HOME_ENV]: devReviewHome(),
+    };
+    if (pathValue) env.PATH = pathValue;
     return {
       sessionId,
       command: {
         cwd: input.cwd,
         executable: "pi",
         args,
-        env: {
-          [REVIEW_AGENT_BRIDGE_URL_ENV]: `${bridgeUrl}/${this.harness}/${encodedSession}`,
-          [REVIEW_AGENT_BRIDGE_TOKEN_ENV]: this.#ingress.token,
-          [REVIEW_AGENT_THREAD_URL_ENV]: `${this.#desktop.baseUrl}/native-agent-events/${this.harness}/${encodedSession}/thread`,
-          [REVIEW_AGENT_THREAD_TOKEN_ENV]: this.#desktop.token,
-          [DEV_REVIEW_HOME_ENV]: devReviewHome(),
-          ...(pathValue ? { PATH: pathValue } : {}),
-        },
+        env,
       },
     };
   }
@@ -125,19 +132,18 @@ export class PiAgentServer implements AgentServer {
     await this.#ingress.close();
   }
 
-  #receive(sessionId: string, payload: unknown): void {
-    if (!isJsonRecord(payload)) {
+  #receive(sessionId: string, payload: JsonValue): void {
+    const record = jsonObject(payload);
+    if (!record) {
       throw new Error("The Pi bridge posted a non-object payload.");
     }
-    if (
-      typeof payload.sessionId === "string" &&
-      payload.sessionId !== sessionId
-    ) {
+    const postedSession = jsonString(record.sessionId);
+    if (postedSession !== undefined && postedSession !== sessionId) {
       throw new Error(
-        `The Pi bridge for session "${payload.sessionId}" posted to session "${sessionId}".`,
+        `The Pi bridge for session "${postedSession}" posted to session "${sessionId}".`,
       );
     }
-    const messages = bridgeMessages(payload.messages);
+    const messages = bridgeMessages(record.messages);
     const state = this.#session(sessionId);
     state.messages = messages;
     for (const subscriber of state.subscribers) {
@@ -162,20 +168,24 @@ export class PiAgentServer implements AgentServer {
   }
 }
 
-function bridgeMessages(value: unknown): NativeReviewMessage[] {
-  if (!Array.isArray(value)) {
+function bridgeMessages(value: JsonValue | undefined): NativeReviewMessage[] {
+  const list = jsonArray(value);
+  if (!list) {
     throw new Error("The Pi bridge posted no message list.");
   }
-  return value.map((entry) => {
+  return list.map((entry) => {
+    const record = jsonObject(entry);
+    const role = jsonString(record?.role);
+    const body = jsonString(record?.body);
+    const createdAt = jsonString(record?.createdAt);
     if (
-      !isJsonRecord(entry) ||
-      (entry.role !== "user" && entry.role !== "assistant") ||
-      typeof entry.body !== "string" ||
-      typeof entry.createdAt !== "string"
+      (role !== "user" && role !== "assistant") ||
+      body === undefined ||
+      createdAt === undefined
     ) {
       throw new Error("The Pi bridge posted a malformed message.");
     }
-    return { role: entry.role, body: entry.body, createdAt: entry.createdAt };
+    return { role, body, createdAt };
   });
 }
 

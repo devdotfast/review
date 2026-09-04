@@ -5,6 +5,11 @@
  * Every post carries the whole projection; the server forwards the tail.
  */
 
+interface PiContentBlock {
+  type?: string;
+  text?: string;
+}
+
 interface PiEntry {
   id?: string;
   parentId?: string | null;
@@ -12,7 +17,8 @@ interface PiEntry {
   timestamp?: string;
   message?: {
     role?: string;
-    content?: unknown;
+    /** Plain text, or Pi's content blocks. */
+    content?: string | PiContentBlock[];
     stopReason?: string;
     timestamp?: number;
   };
@@ -25,11 +31,16 @@ interface PiBridgeContext {
   };
 }
 
+/** Pi's event object; the bridge re-projects the session instead of reading it. */
+interface PiBridgeEvent {
+  type?: string;
+}
+
 interface PiBridgeApi {
   on(
     event: "agent_settled" | "message_end" | "session_start",
     listener: (
-      event: unknown,
+      event: PiBridgeEvent,
       context: PiBridgeContext,
     ) => void | Promise<void>,
   ): void;
@@ -107,24 +118,17 @@ export function projectBranch(branch: readonly PiEntry[]): BridgeMessage[] {
   return messages;
 }
 
-function textBlocks(value: unknown): string[] {
-  if (typeof value === "string") return value.trim() ? [value] : [];
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((block: unknown) =>
-    typeof block === "object" &&
-    block !== null &&
-    (block as { type?: unknown }).type === "text" &&
-    typeof (block as { text?: unknown }).text === "string" &&
-    (block as { text: string }).text.trim()
-      ? [(block as { text: string }).text]
-      : [],
+function textBlocks(value: string | PiContentBlock[] | undefined): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return value.trim() ? [value] : [];
+  return value.flatMap((block) =>
+    block.type === "text" && block.text?.trim() ? [block.text] : [],
   );
 }
 
 function timestamp(entry: PiEntry): string {
-  if (typeof entry.timestamp === "string") return entry.timestamp;
-  if (typeof entry.message?.timestamp === "number") {
-    return new Date(entry.message.timestamp).toISOString();
-  }
+  if (entry.timestamp !== undefined) return entry.timestamp;
+  const millis = entry.message?.timestamp;
+  if (millis !== undefined) return new Date(millis).toISOString();
   return new Date(0).toISOString();
 }

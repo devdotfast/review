@@ -2,6 +2,13 @@ import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import {
+  type JsonObject,
+  type JsonValue,
+  jsonObject,
+  jsonString,
+} from "@dev.fast/review-protocol";
+
 import { DEV_REVIEW_HOME_ENV, devReviewHome } from "../review-storage";
 import { AsyncQueue } from "./async-queue";
 import { readClaudeReviewMessages } from "./claude-transcript";
@@ -24,7 +31,6 @@ import {
   ReviewCommandPath,
   nativeHookCommand,
 } from "./terminal-command";
-import { isJsonRecord } from "./transcript-json";
 
 const OBSERVER_EVENTS = [
   "SessionStart",
@@ -122,21 +128,22 @@ export class ClaudeAgentServer implements AgentServer {
     }
     if (input.prompt !== undefined) args.push(input.prompt);
     this.#session(sessionId);
+    const env: NativeTerminalCommand["env"] = {
+      [REVIEW_AGENT_HOOK_URL_ENV]: `${hookBaseUrl}/${sessionPath}`,
+      [REVIEW_AGENT_HOOK_TOKEN_ENV]: this.#ingress.token,
+      [REVIEW_AGENT_THREAD_URL_ENV]: `${this.#desktop.baseUrl}/native-agent-events/${sessionPath}/thread`,
+      [REVIEW_AGENT_THREAD_TOKEN_ENV]: this.#desktop.token,
+      [DEV_REVIEW_HOME_ENV]: devReviewHome(),
+      CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: "1",
+    };
+    if (pathValue) env.PATH = pathValue;
     return {
       sessionId,
       command: {
         cwd: input.cwd,
         executable: "claude",
         args,
-        env: {
-          [REVIEW_AGENT_HOOK_URL_ENV]: `${hookBaseUrl}/${sessionPath}`,
-          [REVIEW_AGENT_HOOK_TOKEN_ENV]: this.#ingress.token,
-          [REVIEW_AGENT_THREAD_URL_ENV]: `${this.#desktop.baseUrl}/native-agent-events/${sessionPath}/thread`,
-          [REVIEW_AGENT_THREAD_TOKEN_ENV]: this.#desktop.token,
-          [DEV_REVIEW_HOME_ENV]: devReviewHome(),
-          ...(pathValue ? { PATH: pathValue } : {}),
-          CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: "1",
-        },
+        env,
       },
     };
   }
@@ -189,9 +196,10 @@ export class ClaudeAgentServer implements AgentServer {
     return settingsPath;
   }
 
-  #receiveHook(sessionId: string, payload: unknown): void {
-    if (!isJsonRecord(payload)) return;
-    const event = hookEvent(payload);
+  #receiveHook(sessionId: string, payload: JsonValue): void {
+    const record = jsonObject(payload);
+    if (!record) return;
+    const event = hookEvent(record);
     if (event.sessionId && event.sessionId !== sessionId) {
       throw new Error(
         `A native hook for session "${event.sessionId}" was posted to session "${sessionId}".`,
@@ -251,17 +259,19 @@ export class ClaudeAgentServer implements AgentServer {
   }
 }
 
-function isMissingTranscript(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  if ("code" in error && error.code === "ENOENT") return true;
-  return / has no transcript file\.$/u.test(error.message);
+function isMissingTranscript(cause: unknown): boolean {
+  if (!(cause instanceof Error)) return false;
+  if ("code" in cause && cause.code === "ENOENT") return true;
+  return / has no transcript file\.$/u.test(cause.message);
 }
 
-function hookEvent(payload: Record<string, unknown>): {
+interface NativeHookEvent {
   sessionId?: string;
   transcriptPath?: string;
   completesTurn: boolean;
-} {
+}
+
+function hookEvent(payload: JsonObject): NativeHookEvent {
   const sessionId = firstString(payload.session_id, payload.sessionId);
   const transcriptPath = firstString(
     payload.transcript_path,
@@ -271,17 +281,20 @@ function hookEvent(payload: Record<string, unknown>): {
     payload.hook_event_name,
     payload.hookEventName,
   )?.toLowerCase();
-  return {
-    ...(sessionId ? { sessionId } : {}),
-    ...(transcriptPath ? { transcriptPath } : {}),
+  const event: NativeHookEvent = {
     completesTurn: name === "stop" || name === "sessionend",
   };
+  if (sessionId) event.sessionId = sessionId;
+  if (transcriptPath) event.transcriptPath = transcriptPath;
+  return event;
 }
 
-function firstString(...values: unknown[]): string | undefined {
-  return values.find(
-    (value): value is string => typeof value === "string" && value.length > 0,
-  );
+function firstString(...values: (JsonValue | undefined)[]): string | undefined {
+  for (const value of values) {
+    const text = jsonString(value);
+    if (text) return text;
+  }
+  return undefined;
 }
 
 export function server(options: ClaudeAgentServerOptions): AgentServer {

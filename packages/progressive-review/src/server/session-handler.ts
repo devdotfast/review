@@ -36,7 +36,7 @@ import {
   isAuthorizedRequest,
   jsonResponse,
 } from "./hono-http";
-import { createReviewApi, type ReviewApi } from "./review-api";
+import { type ReviewApi, createReviewApi } from "./review-api";
 
 const API_PREFIX = "/__progressive-review";
 const MODULE_PATH_PREFIX = `${API_PREFIX}/doc-modules/`;

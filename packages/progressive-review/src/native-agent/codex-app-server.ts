@@ -8,6 +8,7 @@ import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 
 import {
+  type JsonObject,
   type JsonValue,
   jsonObject,
   jsonProperty,
@@ -26,7 +27,7 @@ interface PendingRequest {
 
 export interface CodexNotification {
   method: string;
-  params: Record<string, unknown>;
+  params: JsonObject;
 }
 
 /** One side of a JSON-RPC line stream. */
@@ -163,10 +164,11 @@ export class CodexAppServerClient {
     }
     if (!isJsonRecord(value)) return;
     if (value.id === undefined) {
-      if (typeof value.method === "string") {
-        const params = isJsonRecord(value.params) ? value.params : {};
+      const method = jsonString(value.method);
+      if (method !== undefined) {
+        const params = jsonObject(value.params) ?? {};
         for (const listener of this.#listeners) {
-          listener({ method: value.method, params });
+          listener({ method, params });
         }
       }
       return;
@@ -238,9 +240,7 @@ function webSocketTransport(socket: WebSocket): Transport {
     send: (line) => socket.send(line),
     onLine: (listener) => {
       socket.addEventListener("message", (event) => {
-        listener(
-          typeof event.data === "string" ? event.data : String(event.data),
-        );
+        listener(String(event.data));
       });
     },
     onClose: (listener) => {

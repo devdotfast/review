@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import type { JsonValue } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { AgentServerOptions, SessionUpdate } from "./native-session";
@@ -41,7 +42,7 @@ async function nextUpdates(
 
 async function postBridge(
   env: Record<string, string>,
-  payload: unknown,
+  payload: JsonValue,
 ): Promise<Response> {
   return fetch(env.DEV_FAST_REVIEW_AGENT_BRIDGE_URL!, {
     method: "POST",

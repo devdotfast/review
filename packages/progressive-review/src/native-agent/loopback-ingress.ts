@@ -2,13 +2,15 @@ import { randomBytes } from "node:crypto";
 import { type IncomingMessage, type Server, createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 
+import { type JsonValue, parseJsonText } from "@dev.fast/review-protocol";
+
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 
 export interface LoopbackIngressInput {
   /** First path segment every post must carry, e.g. the harness name. */
   scope: string;
   /** Handle one post for `/<scope>/<sessionId>`. Throw to answer 400. */
-  onPost(sessionId: string, payload: unknown): void;
+  onPost(sessionId: string, payload: JsonValue): void;
 }
 
 /**
@@ -48,13 +50,14 @@ export class LoopbackIngress {
             response.writeHead(status, { "content-type": "application/json" });
             response.end(JSON.stringify(body));
           })
-          .catch((error: unknown) => {
+          .catch((cause: unknown) => {
             response.writeHead(500, { "content-type": "application/json" });
-            response.end(JSON.stringify({ ok: false, error: String(error) }));
+            response.end(JSON.stringify({ ok: false, error: String(cause) }));
           });
       });
       server.once("error", reject);
       server.listen(0, "127.0.0.1", () => {
+        // SAFETY: a TCP listener bound to a port reports an AddressInfo, never a pipe path.
         const { port } = server.address() as AddressInfo;
         resolve({ server, url: `http://127.0.0.1:${port}` });
       });
@@ -91,7 +94,7 @@ export class LoopbackIngress {
   }
 }
 
-async function readJsonBody(request: IncomingMessage): Promise<unknown> {
+async function readJsonBody(request: IncomingMessage): Promise<JsonValue> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of request) {
@@ -103,5 +106,5 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
     chunks.push(buffer);
   }
   const text = Buffer.concat(chunks).toString("utf8");
-  return text ? (JSON.parse(text) as unknown) : {};
+  return text ? parseJsonText(text) : {};
 }

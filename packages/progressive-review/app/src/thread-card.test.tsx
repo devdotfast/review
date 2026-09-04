@@ -175,6 +175,87 @@ describe("ThreadComposer", () => {
     expect(onAskNow).not.toHaveBeenCalled();
     expect(container.querySelector('[role="menu"]')).toBeNull();
   });
+
+  it("does not submit a reply on the Enter that confirms an IME candidate", async () => {
+    const onSubmit = vi.fn<(body: string) => void>();
+    // No autoFocus: the reply surface starts as the "Reply..." button and
+    // collapses back to it after a successful submit. Without an IME guard
+    // the confirming Enter would post the partial draft and collapse here.
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    roots.push(root);
+    await act(async () => {
+      root.render(
+        <ThreadComposer
+          kind="message"
+          placeholder="Reply..."
+          submitLabel="Reply"
+          onSubmit={onSubmit}
+        />,
+      );
+    });
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".thread-reply-row")!.click();
+    });
+    const field = textarea(container);
+
+    // Build a CJK candidate the way a browser does: compositionstart, then a
+    // series of composing `input` events. React 19 keeps `draft` in lock-step
+    // with the composing text (no composition guard on the input/change path).
+    await beginComposition(field);
+    await typeComposing(field, "日");
+    await typeComposing(field, "日本");
+    await typeComposing(field, "日本語");
+    expect(field.value).toBe("日本語");
+
+    // The Enter that confirms the candidate carries isComposing: true; it
+    // must be treated as text input, not a submit.
+    await act(async () => {
+      field.dispatchEvent(composeConfirmEnter({ isComposing: true }));
+    });
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(textarea(container).value).toBe("日本語");
+    expect(container.querySelector("textarea")).not.toBeNull();
+
+    // Once the composition is closed, a plain Enter submits as before,
+    // proving the guard does not break ordinary submission.
+    await act(async () => {
+      field.dispatchEvent(composeConfirmEnter({ isComposing: false }));
+    });
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit).toHaveBeenCalledWith("日本語");
+    // The reply composer collapses back to the "Reply..." button.
+    expect(container.querySelector("textarea")).toBeNull();
+    expect(container.querySelector(".thread-reply-row")).not.toBeNull();
+  });
+
+  it("the legacy keyCode 229 fallback also guards a confirming Enter", async () => {
+    const onAskNow = vi.fn<(body: string) => void>();
+    const { container } = await renderComposer({ onAskNow });
+    const field = textarea(container);
+
+    await beginComposition(field);
+    await typeComposing(field, "テスト");
+
+    // Older browsers (IE / old Safari) set keyCode 229 without isComposing;
+    // the guard must bail on that legacy signal too.
+    await act(async () => {
+      field.dispatchEvent(composeConfirmEnter({ keyCode: 229 }));
+    });
+
+    expect(onAskNow).not.toHaveBeenCalled();
+    expect(textarea(container).value).toBe("テスト");
+
+    await act(async () => {
+      field.dispatchEvent(composeConfirmEnter({}));
+    });
+
+    expect(onAskNow).toHaveBeenCalledTimes(1);
+    expect(onAskNow).toHaveBeenCalledWith("テスト");
+  });
 });
 
 describe("compose verb menu placement", () => {
@@ -444,4 +525,54 @@ function primaryButton(container: HTMLElement): HTMLButtonElement {
   );
   if (!button) throw new Error("Missing primary compose verb button");
   return button;
+}
+
+/** Begins an IME (CJK) composition on the textarea, mirroring the browser's
+ * `compositionstart` event. */
+async function beginComposition(field: HTMLTextAreaElement) {
+  await act(async () => {
+    field.dispatchEvent(
+      new CompositionEvent("compositionstart", { bubbles: true }),
+    );
+  });
+}
+
+/** Simulates the composing `input` events a browser fires as an IME
+ * candidate is built. The native value setter is used (as in `setTextarea`)
+ * so React's controlled-value tracker sees a real change and keeps `draft`
+ * in lock-step with the composing text — the load-bearing fact behind the
+ * bug, since `draft` already holds the candidate at the confirming Enter. */
+async function typeComposing(field: HTMLTextAreaElement, value: string) {
+  await act(async () => {
+    const setValue = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )?.set;
+    if (!setValue) throw new Error("Missing textarea value setter");
+    setValue.call(field, value);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+/** Builds the `keydown` Enter a browser dispatches when a user confirms an
+ * IME candidate. Modern browsers set `isComposing`; older ones (IE / old
+ * Safari) only set the legacy `keyCode` 229. */
+function composeConfirmEnter(
+  opts: { isComposing?: boolean; keyCode?: number } = {},
+): KeyboardEvent {
+  const event = new KeyboardEvent("keydown", {
+    key: "Enter",
+    bubbles: true,
+    cancelable: true,
+    isComposing: opts.isComposing ?? false,
+  });
+  if (opts.keyCode !== undefined) {
+    // jsdom derives keyCode from `key` (Enter -> 13); force the IME value so
+    // the legacy keyCode-229 fallback path can be exercised in isolation.
+    Object.defineProperty(event, "keyCode", {
+      configurable: true,
+      value: opts.keyCode,
+    });
+  }
+  return event;
 }

@@ -140,7 +140,7 @@ function discoverSource(options: ReviewUserConfigImportOptions): SourceCandidate
 
 	const configRoot = options.platform === 'darwin' || (options.platform === undefined && process.platform === 'darwin')
 		? path.join(homeDir, 'Library', 'Application Support')
-		: path.resolve(env['XDG_CONFIG_HOME'] ?? path.join(homeDir, '.config'));
+		: path.resolve(env['XDG_CONFIG_HOME'] || path.join(homeDir, '.config'));
 
 	const candidates = SOURCE_INSTALLS
 		.map(install => {

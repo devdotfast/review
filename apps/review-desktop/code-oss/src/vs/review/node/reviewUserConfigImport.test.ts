@@ -217,6 +217,24 @@ describe('ReviewUserConfigImport', () => {
 		);
 	});
 
+	test('treats an empty XDG_CONFIG_HOME string as unset and falls back to $HOME/.config on linux', () => {
+		const fixture = createFixture();
+		const fallbackConfigRoot = path.join(fixture.root, '.config');
+		const codeUser = path.join(fallbackConfigRoot, 'Code', 'User');
+		mkdirSync(codeUser, { recursive: true });
+		writeFileSync(path.join(codeUser, 'settings.json'), '{ "editor.fontSize": 17 }\n');
+
+		const result = importReviewUserConfig({
+			userDataPath: fixture.target,
+			platform: 'linux',
+			env: { XDG_CONFIG_HOME: '' },
+			homeDir: fixture.root,
+		});
+
+		assert.strictEqual(result.status, 'imported');
+		assert.strictEqual(result.source, codeUser);
+	});
+
 	test('no Review hardening default survives an import', () => {
 		// An imported setting beats a default, so any key Review pins here that
 		// arrives from the user's old profile silently un-hardens the app.

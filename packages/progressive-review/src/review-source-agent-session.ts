@@ -14,6 +14,7 @@ import { errorMessage } from "./error-message";
 import { findClaudeTranscript } from "./native-agent/claude-transcript";
 import { forkCodexThread } from "./native-agent/codex-app-server";
 import { forkOpencodeSession } from "./native-agent/opencode";
+import { span } from "./startup-trace";
 
 /**
  * Fork the invoking session once and bind the frozen copy to the Review.
@@ -27,10 +28,14 @@ export async function createReviewSourceAgentSession(input: {
   rootPath: string;
 }): Promise<SessionRef> {
   if (input.agent.harness === "claude-code") {
-    return createClaudeReviewSourceSession(input);
+    return span("fork session: copy claude transcript", () =>
+      createClaudeReviewSourceSession(input),
+    );
   }
   if (input.agent.harness === "pi") {
-    return createPiReviewSourceSession(input);
+    return span("fork session: pi --fork", () =>
+      createPiReviewSourceSession(input),
+    );
   }
   if (input.agent.harness === "opencode") {
     return {
@@ -43,10 +48,12 @@ export async function createReviewSourceAgentSession(input: {
   }
   return {
     harness: "codex",
-    sessionId: await forkCodexThread({
-      sourceThreadId: input.agent.sessionId,
-      cwd: input.rootPath,
-    }),
+    sessionId: await span("fork session: codex thread/fork", () =>
+      forkCodexThread({
+        sourceThreadId: input.agent.sessionId,
+        cwd: input.rootPath,
+      }),
+    ),
   };
 }
 

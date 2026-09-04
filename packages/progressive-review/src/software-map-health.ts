@@ -23,6 +23,7 @@ import {
   type NormalizedSoftwareModel,
   isNormalizedSoftwareModel,
 } from "./software-map-model";
+import { span, startSpan, traceCommandSync } from "./startup-trace";
 
 export interface SoftwareMapSourceCheck {
   canonicalSource: string;
@@ -45,10 +46,8 @@ export async function checkSoftwareMapSource(input: {
 
   let model: NormalizedSoftwareModel;
   try {
-    model = await loadSoftwareMap(
-      input.repoRootPath,
-      canonicalSource,
-      input.sourceName,
+    model = await span("map check: import map module", () =>
+      loadSoftwareMap(input.repoRootPath, canonicalSource, input.sourceName),
     );
   } catch (error) {
     return {
@@ -63,7 +62,11 @@ export async function checkSoftwareMapSource(input: {
   // deleted a file. This is uniform — even when the target is the working
   // copy's current commit — so there is exactly one frame of reference, and
   // the errors name it.
-  const treeFiles = await listCommitTreeFiles(input.repoRootPath, input.commit);
+  const treeFiles = await span(
+    "map check: list commit tree files",
+    () => listCommitTreeFiles(input.repoRootPath, input.commit),
+    input.commit,
+  );
   const filesToRead = [
     ...new Set(
       model.elements.flatMap((element) =>
@@ -78,6 +81,7 @@ export async function checkSoftwareMapSource(input: {
     input.commit,
     filesToRead,
   );
+  const coverageSpan = startSpan("map check: coverage validation");
   const errors = [
     // An element-free model is the unauthored schema stub; green-lighting it
     // would flush a stub note that ancestor hydration then propagates to
@@ -101,6 +105,7 @@ export async function checkSoftwareMapSource(input: {
       pathsFrame: `tree of ${input.commit.slice(0, 12)}`,
     }),
   ];
+  coverageSpan.end();
   return { canonicalSource, model, errors };
 }
 
@@ -161,12 +166,17 @@ export async function loadPublishSoftwareMaps(input: {
         continue;
       }
     }
-    const check = await checkSoftwareMapSource({
-      repoRootPath: input.repoRootPath,
-      commit: read.commit,
-      source: read.source,
-      sourceName: "software-map.ts",
-    });
+    const check = await span(
+      `map publish: check ${role} map`,
+      () =>
+        checkSoftwareMapSource({
+          repoRootPath: input.repoRootPath,
+          commit: read.commit,
+          source: read.source,
+          sourceName: "software-map.ts",
+        }),
+      read.commit,
+    );
     for (const error of check.errors) {
       errors.push(
         `Software map at ${role} commit ${short} fails \`review map check\`: ${error}`,
@@ -260,14 +270,13 @@ function readCommitTreeFilesSync(
   filePaths: readonly string[],
 ): Map<string, string> {
   if (filePaths.length === 0) return new Map();
-  const output = execFileSync(
-    "git",
-    gitArgsSync(rootPath, ["cat-file", "--batch"]),
-    {
+  const args = gitArgsSync(rootPath, ["cat-file", "--batch"]);
+  const output = traceCommandSync("git", args, () =>
+    execFileSync("git", args, {
       input: `${filePaths.map((filePath) => `${commit}:${filePath}`).join("\n")}\n`,
       maxBuffer: 64 * 1024 * 1024,
       stdio: ["pipe", "pipe", "pipe"],
-    },
+    }),
   );
   const contents = new Map<string, string>();
   let offset = 0;

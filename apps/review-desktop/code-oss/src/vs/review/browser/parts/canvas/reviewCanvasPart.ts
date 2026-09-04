@@ -1495,27 +1495,45 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		let comments: ReviewCommentStore | undefined;
 		let loadTimeout: ReturnType<typeof setTimeout> | undefined;
 		let settleTimeout: ReturnType<typeof setTimeout> | undefined;
+		// Each step of the off-screen mount reports its wall-clock interval back
+		// to the server, which folds it into the publish timings the CLI shows.
+		const timings: { name: string; startEpochMs: number; endEpochMs: number }[] = [];
+		const step = (name: string, startEpochMs: number, endEpochMs: number) => {
+			timings.push({ name, startEpochMs, endEpochMs });
+		};
+		const timed = async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
+			const startEpochMs = Date.now();
+			try {
+				return await fn();
+			} finally {
+				timings.push({ name, startEpochMs, endEpochMs: Date.now() });
+			}
+		};
 		try {
-			const assets = await this.loadAssets();
-			const session = await this.resolveValidationSession(sessionId);
-			const documentPromise = loadReviewSessionDocument(
-				session,
-				(draftSession, moduleUrl) =>
+			const assets = await timed("load canvas assets", () => this.loadAssets());
+			const session = await timed("fetch session descriptor", () =>
+				this.resolveValidationSession(sessionId),
+			);
+			const documentPromise = timed("fetch + load document module", () =>
+				loadReviewSessionDocument(session, (draftSession, moduleUrl) =>
 					loadReviewDocumentModule(
 						draftSession,
 						moduleUrl,
 						assets.reviewDocRuntimeUrl,
+						undefined,
+						step,
 					),
+				),
 			);
-			const softwareMapPromise = loadReviewSessionSoftwareMap(
-				session,
-				loadReviewSoftwareMapModules,
+			const softwareMapPromise = timed("fetch + load software map", () =>
+				loadReviewSessionSoftwareMap(session, loadReviewSoftwareMapModules),
 			);
 			comments = new ReviewCommentStore({
 				request: (endpoint, init) =>
 					reviewSessionApiRequest(session, endpoint, init),
 			});
 			let finished = false;
+			let mountedAt = Date.now();
 			let finishMount!: (error: Error | null) => void;
 			const mountResult = new Promise<Error | null>((resolve) => {
 				finishMount = (error) => {
@@ -1549,6 +1567,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					if (finished || settleTimeout) {
 						return;
 					}
+					timings.push({ name: "first commit", startEpochMs: mountedAt, endEpochMs: Date.now() });
 					settleTimeout = setTimeout(
 						() => finishMount(null),
 						mountValidationSettleMs,
@@ -1569,6 +1588,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			container.style.overflow = "hidden";
 			container.style.pointerEvents = "none";
 			targetDocument.body.appendChild(container);
+			mountedAt = Date.now();
 			handle = assets.mountReviewCanvas(container, {
 				kind: "session",
 				bridge,
@@ -1594,7 +1614,9 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				30_000,
 			);
 			const error = await mountResult;
-			return error ? { ok: false, error: error.message } : { ok: true };
+			return error
+				? { ok: false, error: error.message }
+				: { ok: true, result: { timings } };
 		} catch (error) {
 			return {
 				ok: false,

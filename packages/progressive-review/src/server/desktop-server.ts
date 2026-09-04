@@ -19,6 +19,7 @@ import {
   type ReviewSessionWire,
   type ReviewTutorialOpenResponse,
   type ReviewVerbRequest,
+  type ReviewVerbResponse,
   type ReviewView,
   isJsonObject,
   isObjectValue,
@@ -33,6 +34,7 @@ import {
 import { type Context, Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { z } from "zod";
 
 import {
   type ReviewAgentHarness,
@@ -128,6 +130,26 @@ import {
   createReviewSessionHandler,
 } from "./session-handler";
 import { createTutorialService } from "./tutorial-service";
+
+export interface PublishMountTiming {
+  name: string;
+  startEpochMs: number;
+  endEpochMs: number;
+}
+
+// The renderer returns its mount step timings inside the verb result; parse
+// them at this boundary rather than trusting the shape.
+const MountVerbResultSchema = z.object({
+  timings: z
+    .array(
+      z.object({
+        name: z.string(),
+        startEpochMs: z.number(),
+        endEpochMs: z.number(),
+      }),
+    )
+    .optional(),
+});
 
 const REVIEW_REAPER_INTERVAL_MS = 60 * 60 * 1_000;
 const TUTORIAL_LIFECYCLE_LOCK_KEY = "tutorial-lifecycle";
@@ -992,6 +1014,14 @@ export function createGlobalReviewServer(
   // The CLI already validated, bundled, and sealed the revision; the server
   // materializes it, has the app mount it off-screen, and promotes it only
   // when that mount is clean.
+  function mountStepTimings(
+    validation: ReviewVerbResponse,
+  ): PublishMountTiming[] {
+    if (!validation.ok) return [];
+    const parsed = MountVerbResultSchema.safeParse(validation.result);
+    return parsed.success ? (parsed.data.timings ?? []) : [];
+  }
+
   async function mountPublishedDocument(
     review: StoredReview,
     revision: string,
@@ -1002,7 +1032,19 @@ export function createGlobalReviewServer(
     sessionId: string;
     url: string;
     focusWarning?: string;
+    timings: PublishMountTiming[];
   }> {
+    // Each mount step reports its wall-clock interval so the publishing CLI
+    // can show where desktop time went; the CLI only sees the round-trip.
+    const timings: PublishMountTiming[] = [];
+    const timed = async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
+      const startEpochMs = Date.now();
+      try {
+        return await fn();
+      } finally {
+        timings.push({ name, startEpochMs, endEpochMs: Date.now() });
+      }
+    };
     const sourceCommit = review.review.sourceCommit;
     const sourceBranch = review.review.sourceIdentity?.name;
     if (!sourceCommit || !sourceBranch) {
@@ -1013,33 +1055,38 @@ export function createGlobalReviewServer(
       );
     }
     const source = { sourceCommit, sourceBranch };
-    const buildDir = await publishRuntime.materializePublishRevision({
-      review,
-      revision,
-    });
+    const buildDir = await timed("materialize document revision", () =>
+      publishRuntime.materializePublishRevision({ review, revision }),
+    );
     const softwareMapRootPath = review.review.presentedSoftwareMapRevision
-      ? await publishRuntime.materializePublishRevision({
-          review,
-          revision: review.review.presentedSoftwareMapRevision,
-        })
+      ? await timed("materialize software map revision", () =>
+          publishRuntime.materializePublishRevision({
+            review,
+            revision: review.review.presentedSoftwareMapRevision!,
+          }),
+        )
       : undefined;
     const documentPath = path.join(buildDir, "review.mdx");
-    const successor = await registerSerialized({
-      review,
-      documentPath,
-      softwareMapRootPath,
-      revision,
-      source,
-      promoted: false,
-    });
+    const successor = await timed("register session", () =>
+      registerSerialized({
+        review,
+        documentPath,
+        softwareMapRootPath,
+        revision,
+        source,
+        promoted: false,
+      }),
+    );
     try {
       // The app mounts the unpromoted session off-screen first. A failed
       // mount fails the publish before promotion, so the reviewer keeps the
       // last good revision on screen.
-      const validation = await relay.dispatch(successor.descriptor.sessionId, {
-        name: "validateCanvasMount",
-        args: {},
-      });
+      const validation = await timed("validate canvas mount", () =>
+        relay.dispatch(successor.descriptor.sessionId, {
+          name: "validateCanvasMount",
+          args: {},
+        }),
+      );
       if (!validation.ok) {
         throw new ReviewServerError(
           `Review document failed to mount: ${validation.error ?? "unknown error"}`,
@@ -1047,52 +1094,59 @@ export function createGlobalReviewServer(
           "mount_validation_failed",
         );
       }
-      await withReviewLock(review.review.uuid, async () => {
-        if (
-          successor.closing ||
-          sessions.get(successor.descriptor.sessionId) !== successor ||
-          !successor.revision ||
-          !successor.source
-        ) {
-          throw new ReviewServerError("Review session is unavailable.", 404);
-        }
-        const latest = await findReview(review.review.uuid);
-        if (!latest) throw new ReviewServerError("Review not found.", 404);
-        rejectTerminalPublication(latest);
-        rejectConcurrentPublication(latest, review);
-        requireClosedThreadsForRepublish(latest);
-        successor.review = await promoteReview(
-          latest,
-          successor.revision,
-          successor.source,
-          await reviewTitleFromDocument(documentPath),
-        );
-        successor.promoted = true;
-        await startSessionTelemetry(successor);
-        await clearReopenPending(successor.review.review.worktreePath);
-        broadcastGlobal({
-          event: "review-status-changed",
-          uuid: successor.review.review.uuid,
-          status: "awaiting-review",
-        });
-        broadcastGlobal({
-          event: "session-registered",
-          session: successor.descriptor,
-          review: await reviewDescriptor(
-            successor.review,
-            (await readReviewPreferences()).dismissedRetentionDays,
-          ),
-        });
-        const replaced = [...sessions.values()].filter(
-          (session) =>
-            session !== successor &&
-            session.review.review.uuid === successor.review.review.uuid &&
-            session.promoted,
-        );
-        await Promise.all(
-          replaced.map((session) => closeSession(session, "replaced", false)),
-        );
-      });
+      // The renderer reports the mount's own steps (asset load, session and
+      // module fetches, first commit, settle timer) inside the verb result.
+      for (const step of mountStepTimings(validation)) {
+        timings.push({ ...step, name: `mount: ${step.name}` });
+      }
+      await timed("promote", () =>
+        withReviewLock(review.review.uuid, async () => {
+          if (
+            successor.closing ||
+            sessions.get(successor.descriptor.sessionId) !== successor ||
+            !successor.revision ||
+            !successor.source
+          ) {
+            throw new ReviewServerError("Review session is unavailable.", 404);
+          }
+          const latest = await findReview(review.review.uuid);
+          if (!latest) throw new ReviewServerError("Review not found.", 404);
+          rejectTerminalPublication(latest);
+          rejectConcurrentPublication(latest, review);
+          requireClosedThreadsForRepublish(latest);
+          successor.review = await promoteReview(
+            latest,
+            successor.revision,
+            successor.source,
+            await reviewTitleFromDocument(documentPath),
+          );
+          successor.promoted = true;
+          await startSessionTelemetry(successor);
+          await clearReopenPending(successor.review.review.worktreePath);
+          broadcastGlobal({
+            event: "review-status-changed",
+            uuid: successor.review.review.uuid,
+            status: "awaiting-review",
+          });
+          broadcastGlobal({
+            event: "session-registered",
+            session: successor.descriptor,
+            review: await reviewDescriptor(
+              successor.review,
+              (await readReviewPreferences()).dismissedRetentionDays,
+            ),
+          });
+          const replaced = [...sessions.values()].filter(
+            (session) =>
+              session !== successor &&
+              session.review.review.uuid === successor.review.review.uuid &&
+              session.promoted,
+          );
+          await Promise.all(
+            replaced.map((session) => closeSession(session, "replaced", false)),
+          );
+        }),
+      );
     } finally {
       if (!successor.promoted) {
         await closeSession(successor, "closed", false);
@@ -1101,21 +1155,23 @@ export function createGlobalReviewServer(
     // Promotion already happened: from here on nothing can fail the publish.
     // A focus failure is a warning — the promoted revision is live either
     // way — and a prune failure is ignored.
-    const focus = await relay.dispatch(
-      successor.descriptor.sessionId,
-      revealVerb(view),
+    const focus = await timed("focus canvas", () =>
+      relay.dispatch(successor.descriptor.sessionId, revealVerb(view)),
     );
-    await pruneReviewBuilds(review.dir, [
-      revision,
-      ...(successor.review.review.presentedSoftwareMapRevision
-        ? [successor.review.review.presentedSoftwareMapRevision]
-        : []),
-    ]).catch(() => undefined);
+    await timed("prune builds", () =>
+      pruneReviewBuilds(review.dir, [
+        revision,
+        ...(successor.review.review.presentedSoftwareMapRevision
+          ? [successor.review.review.presentedSoftwareMapRevision]
+          : []),
+      ]).catch(() => undefined),
+    );
     const mounted: Awaited<ReturnType<typeof mountPublishedDocument>> = {
       ok: true,
       revision,
       sessionId: successor.descriptor.sessionId,
       url: successor.descriptor.sessionUrl,
+      timings,
     };
     if (!focus.ok) mounted.focusWarning = focus.error;
     return mounted;

@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { requireHealthyReviewDesktop } from "./desktop-discovery";
 import type { StoredReview } from "./review-home";
+import { span } from "./startup-trace";
 
 export interface RunReviewInfoInput {
   cwd: string;
@@ -50,15 +51,19 @@ const ReviewInfoEventSchema: z.ZodType<ReviewInfoEvent> = z.object({
 export async function runReviewInfo(
   input: RunReviewInfoInput,
 ): Promise<ReviewInfoEvent> {
-  const discovery = await requireHealthyReviewDesktop("review info");
-  const response = await fetch(`${discovery.url}/info`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-review-token": discovery.token,
-    },
-    body: JSON.stringify(input),
-  });
+  const discovery = await span("info: desktop health", () =>
+    requireHealthyReviewDesktop("review info"),
+  );
+  const response = await span("info: POST /info", () =>
+    fetch(`${discovery.url}/info`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-review-token": discovery.token,
+      },
+      body: JSON.stringify(input),
+    }),
+  );
   const payload: JsonValue = await response.json();
   if (!response.ok) {
     throw new Error(reviewInfoResponseError(payload, response.status));

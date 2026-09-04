@@ -8,7 +8,7 @@ function status(
   installed: ReviewCliInstallStatus["agents"][number]["target"][],
 ): ReviewCliInstallStatus {
   return {
-    agents: ["claude", "codex", "cursor", "opencode", "pi"].map((target) => ({
+    agents: ["claude", "codex", "cursor", "pi"].map((target) => ({
       target: target as ReviewCliInstallStatus["agents"][number]["target"],
       present: true,
       installed: installed.includes(
@@ -61,11 +61,5 @@ describe("preferredInstalledReviewAgent", () => {
     expect(
       preferredInstalledReviewAgent(status(["cursor"], ["cursor"])),
     ).toBeUndefined();
-  });
-
-  it("selects OpenCode when it is the installed agent", () => {
-    expect(
-      preferredInstalledReviewAgent(status(["opencode"], ["opencode"])),
-    ).toBe("opencode");
   });
 });

@@ -1,6 +1,32 @@
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { groupCommitsByDate, visibleCommitFiles } from "./ReviewCommitsView";
+import {
+  ReviewCommitsView,
+  groupCommitsByDate,
+  visibleCommitFiles,
+} from "./ReviewCommitsView";
+
+it("shows missing pinned source as unavailable rather than zero commits", () => {
+  const html = renderToStaticMarkup(
+    <ReviewCommitsView
+      commits={[]}
+      range={{
+        baseRef: "main",
+        headRef: "feature",
+        baseCommit: "a".repeat(40),
+        headCommit: "b".repeat(40),
+        sourceUnavailable:
+          "The pinned source commits are unavailable: missing head",
+      }}
+      onOpenDiff={() => {}}
+    />,
+  );
+  expect(html).toContain(
+    "The pinned source commits are unavailable: missing head",
+  );
+  expect(html).not.toContain("0 commits");
+});
 
 describe("visibleCommitFiles", () => {
   it("omits tests, sorts by total changes, and caps the result", () => {

@@ -36,6 +36,34 @@ function mockFetch(
 	});
 }
 
+test("preserves recovery and historical navigation metadata without loading code", async (t) => {
+	let historical = false;
+	mockFetch(t, async () => Response.json({
+		ok: false,
+		code: historical ? "historical_revision_unavailable" : "needs_republish",
+		error: "This older revision is unavailable in this version of Review",
+		reviewUuid,
+		...(historical ? {} : { recovery: true, mapStale: true }),
+	}, { status: 409 }));
+	const loader = async (): Promise<never> => {
+		throw new Error("loader must not run");
+	};
+	assert.deepEqual(await loadReviewSessionDocument(session, loader), {
+		state: "needs-republish", reviewUuid, mapStale: true, recovery: true,
+	});
+	assert.deepEqual(await loadReviewSessionSoftwareMap(session, loader), {
+		state: "needs-republish", reviewUuid, recovery: true,
+	});
+	historical = true;
+	const expected = {
+		state: "unavailable",
+		message: "This older revision is unavailable in this version of Review",
+		currentReviewUuid: reviewUuid,
+	};
+	assert.deepEqual(await loadReviewSessionDocument(session, loader), expected);
+	assert.deepEqual(await loadReviewSessionSoftwareMap(session, loader), expected);
+});
+
 test("loads document JSON into a ready state", async (t) => {
 	const documentUrl =
 		"http://127.0.0.1:5570/sessions/session-1/__progressive-review/documents/document-hash.json";

@@ -19,7 +19,9 @@ export function republishReviewPrompt({
 export function RepublishReview(props: {
   reviewUuid: string;
   mapStale: boolean;
+  recovery?: boolean;
 }): ReactElement {
+  if (props.recovery) return <ReviewRecovery mapStale={props.mapStale} />;
   const command = `review publish --review ${props.reviewUuid}`;
   const mapCommand = `review map publish --review ${props.reviewUuid}`;
   return (
@@ -42,6 +44,23 @@ export function RepublishReview(props: {
       <div className="review-republish-actions">
         <CopyPromptButton prompt={republishReviewPrompt(props)} />
       </div>
+    </section>
+  );
+}
+
+export function ReviewRecovery({
+  mapStale = false,
+}: {
+  mapStale?: boolean;
+}): ReactElement {
+  return (
+    <section className="review-republish" role="status">
+      <h2>Review recovery</h2>
+      <p>
+        This review's published artifacts need recovery. Its review status,
+        pinned commits, and threads are preserved.
+      </p>
+      {mapStale ? <p>The published software map also needs recovery.</p> : null}
     </section>
   );
 }

@@ -40,6 +40,52 @@ afterEach(() => {
 });
 
 describe("desktop review document load states", () => {
+  it("opens the current review from expected historical unavailability without diagnostics", async () => {
+    const post = vi.fn<() => Promise<{ ok: true }>>(async () => ({ ok: true }));
+    const reportDiagnostic =
+      vi.fn<(diagnostic: ReviewCanvasDiagnostic) => void>();
+    const bridge = testReviewBridge(
+      { sessionId: "old-history" },
+      {
+        request: requestStub,
+        post,
+        reportDiagnostic,
+        diffView: { create: createDiffView },
+      },
+    );
+    const reviewUuid = "11111111-1111-4111-8111-111111111111";
+    const container = document.createElement("div");
+    document.body.append(container);
+    let handle: ReturnType<typeof mountReviewCanvas> | undefined;
+    await act(async () => {
+      handle = mountReviewCanvas(
+        container,
+        sessionContent(bridge, {
+          document: Promise.resolve({
+            state: "unavailable",
+            message:
+              "This older revision is unavailable in this version of Review",
+            currentReviewUuid: reviewUuid,
+          }),
+          softwareMap: Promise.resolve(null),
+        }),
+      );
+    });
+    expect(container.textContent).toContain(
+      "This older revision is unavailable in this version of Review",
+    );
+    expect(container.textContent).not.toContain("review publish");
+    const button = [...container.querySelectorAll("button")].find(
+      (node) => node.textContent === "Open current review",
+    );
+    await act(async () => button!.click());
+    expect(post).toHaveBeenCalledWith({
+      name: "openReview",
+      args: { reviewUuid, active: true },
+    });
+    expect(reportDiagnostic).not.toHaveBeenCalled();
+    await act(async () => handle?.dispose());
+  });
   it("hoists the authored heading, collapses its body, and discovers database use cases", async () => {
     const bridge = testReviewBridge(
       { sessionId: "rendered-data-behavior" },
@@ -186,9 +232,14 @@ describe("desktop review document load states", () => {
     await act(async () => handle?.dispose());
   });
 
-  it.each([false, true])(
-    "signals ready for needs-republish without reporting an error (mapStale=%s)",
-    async (mapStale) => {
+  it.each([
+    { mapStale: false, recovery: false },
+    { mapStale: true, recovery: false },
+    { mapStale: false, recovery: true },
+    { mapStale: true, recovery: true },
+  ])(
+    "signals ready for needs-republish without reporting an error (%j)",
+    async ({ mapStale, recovery }) => {
       const ready = vi.fn<() => void>();
       const reportDiagnostic =
         vi.fn<(diagnostic: ReviewCanvasDiagnostic) => void>();
@@ -206,12 +257,14 @@ describe("desktop review document load states", () => {
           state: "needs-republish",
           reviewUuid: "11111111-1111-4111-8111-111111111111",
           mapStale,
+          recovery,
         }),
         softwareMap: Promise.resolve(
           mapStale
             ? {
                 state: "needs-republish",
                 reviewUuid: "11111111-1111-4111-8111-111111111111",
+                recovery,
               }
             : null,
         ),
@@ -224,7 +277,9 @@ describe("desktop review document load states", () => {
         handle = mountReviewCanvas(container, content);
       });
       await vi.waitFor(() => {
-        expect(container.textContent).toContain("Republish this review");
+        expect(container.textContent).toContain(
+          recovery ? "Review recovery" : "Republish this review",
+        );
       });
 
       expect(ready).toHaveBeenCalledTimes(1);
@@ -233,17 +288,34 @@ describe("desktop review document load states", () => {
       expect(container.textContent).toContain("Commits");
       expect(container.textContent).toContain("Diff");
       expect(container.querySelectorAll(".review-republish code")).toHaveLength(
-        mapStale ? 2 : 1,
+        recovery ? 0 : mapStale ? 2 : 1,
       );
       expect(container.querySelector(".review-republish h2")?.textContent).toBe(
-        "Republish this review",
+        recovery ? "Review recovery" : "Republish this review",
       );
       expect(
-        container.querySelector('button[aria-label="Copy command"]'),
-      ).not.toBeNull();
+        container.querySelector('button[aria-label="Copy command"]') !== null,
+      ).toBe(!recovery);
       expect(
-        container.querySelector('button[aria-label="Copy prompt"]'),
-      ).not.toBeNull();
+        container.querySelector('button[aria-label="Copy prompt"]') !== null,
+      ).toBe(!recovery);
+      if (mapStale && recovery) {
+        await act(async () =>
+          container
+            .querySelector<HTMLButtonElement>(
+              'button[aria-label="Map (Experimental)"]',
+            )!
+            .click(),
+        );
+      }
+      expect(
+        container
+          .querySelector(".review-map-view")
+          ?.textContent?.includes("Review recovery") ?? false,
+      ).toBe(mapStale && recovery);
+      expect(
+        container.querySelector(".review-map-view")?.textContent ?? "",
+      ).not.toContain("review publish");
       await act(async () => handle?.dispose());
     },
   );

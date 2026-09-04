@@ -1,7 +1,9 @@
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -18,6 +20,7 @@ import {
   closeAllReviewThreadStores,
   createReviewThreadDb,
   migrateReviewThreadDb,
+  readReviewThreadsReadOnly,
   reviewThreadDbPath,
 } from "./review-thread-store-backend";
 
@@ -50,6 +53,50 @@ function seedComment(reviewPath: string): void {
 }
 
 describe("sqlite thread store", () => {
+  it("reads committed WAL threads without changing original DB, WAL or SHM bytes", () => {
+    const source = makeReviewPath();
+    seedComment(source);
+    const target = makeReviewPath();
+    const sourceDb = reviewThreadDbPath(source);
+    const targetDb = reviewThreadDbPath(target);
+    const suffixes = ["", "-wal", "-shm"];
+    for (const suffix of suffixes)
+      copyFileSync(`${sourceDb}${suffix}`, `${targetDb}${suffix}`);
+    const before = suffixes.map((suffix) =>
+      readFileSync(`${targetDb}${suffix}`),
+    );
+    expect(
+      readReviewThreadsReadOnly(target).comments["thread-1"]?.messages,
+    ).toHaveLength(1);
+    expect(
+      suffixes.map((suffix) => readFileSync(`${targetDb}${suffix}`)),
+    ).toEqual(before);
+  });
+  it("reads recovery threads without changing bytes or pruning malformed rows", () => {
+    const reviewPath = makeReviewPath();
+    expect(() => readReviewThreadsReadOnly(reviewPath)).toThrow(
+      "thread database is unavailable",
+    );
+    expect(existsSync(reviewThreadDbPath(reviewPath))).toBe(false);
+    seedComment(reviewPath);
+    closeAllReviewThreadStores();
+    const dbPath = reviewThreadDbPath(reviewPath);
+    const before = readFileSync(dbPath);
+    expect(
+      readReviewThreadsReadOnly(reviewPath).comments["thread-1"]?.messages,
+    ).toHaveLength(1);
+    expect(readFileSync(dbPath)).toEqual(before);
+    const db = new DatabaseSync(dbPath);
+    db.prepare(
+      "INSERT INTO comments(thread_id, record_json) VALUES (?, ?)",
+    ).run("broken", "{}");
+    db.close();
+    const malformed = readFileSync(dbPath);
+    expect(() => readReviewThreadsReadOnly(reviewPath)).toThrow(
+      /thread|invalid|required|expected/i,
+    );
+    expect(readFileSync(dbPath)).toEqual(malformed);
+  });
   it("reads empty maps without creating the database", () => {
     const reviewPath = makeReviewPath();
     expect(readReviewComments(reviewPath)).toEqual({});

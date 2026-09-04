@@ -310,12 +310,17 @@ export class NativeReviewTurnLauncher {
     if (!reviewCliPath) return undefined;
     this.#reviewCommandDirectory ??= (async () => {
       const commandDirectory = join(this.#runtimeDirectory, "bin");
-      await writePathShim(
-        join(commandDirectory, "review"),
-        reviewCliPath,
-        this.#reviewCliRuntimePath,
-      );
-      return commandDirectory;
+      try {
+        await writePathShim(
+          join(commandDirectory, "review"),
+          reviewCliPath,
+          this.#reviewCliRuntimePath,
+        );
+        return commandDirectory;
+      } catch (error) {
+        this.#reviewCommandDirectory = undefined;
+        throw error;
+      }
     })();
     return this.#reviewCommandDirectory;
   }

@@ -289,6 +289,135 @@ export function deleteReviewState(
     .run(reviewIdForDir(reviewDir));
 }
 
+export interface StoredReviewDocumentState {
+  mode: "compiled" | "incremental";
+  revision: number;
+  sourceHash: string | null;
+  projection: JsonValue | null;
+}
+
+export function readReviewDocumentState(
+  reviewDir: string,
+  routePath: string,
+): StoredReviewDocumentState | null {
+  importLegacyReview(reviewDir);
+  // SAFETY: the selected columns use the exact TEXT/INTEGER schema declared
+  // above; projection_json and source_hash are the only nullable columns.
+  const row = openReviewStateDb()
+    .prepare(
+      `SELECT mode, revision, source_hash, projection_json
+       FROM documents WHERE review_id = ? AND route_path = ?`,
+    )
+    .get(reviewIdForDir(reviewDir), routePath) as
+    | {
+        mode: "compiled" | "incremental";
+        revision: number;
+        source_hash: string | null;
+        projection_json: string | null;
+      }
+    | undefined;
+  if (!row) return null;
+  return {
+    mode: row.mode,
+    revision: row.revision,
+    sourceHash: row.source_hash,
+    projection: row.projection_json ? parseJsonText(row.projection_json) : null,
+  };
+}
+
+export function putReviewDocumentState(
+  reviewDir: string,
+  routePath: string,
+  state: StoredReviewDocumentState,
+): void {
+  ensureReviewRegistration(reviewDir);
+  openReviewStateDb()
+    .prepare(
+      `INSERT INTO documents
+       (review_id, route_path, mode, revision, source_hash, projection_json)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(review_id, route_path) DO UPDATE SET
+         mode = excluded.mode,
+         revision = excluded.revision,
+         source_hash = excluded.source_hash,
+         projection_json = excluded.projection_json`,
+    )
+    .run(
+      reviewIdForDir(reviewDir),
+      routePath,
+      state.mode,
+      state.revision,
+      state.sourceHash,
+      state.projection === null ? null : JSON.stringify(state.projection),
+    );
+}
+
+export function readReviewMutationReceipt(
+  reviewDir: string,
+  mutationId: string,
+): JsonValue | null {
+  importLegacyReview(reviewDir);
+  // SAFETY: mutation_receipts.response_json is declared TEXT NOT NULL.
+  const row = openReviewStateDb()
+    .prepare(
+      "SELECT response_json FROM mutation_receipts WHERE review_id = ? AND mutation_id = ?",
+    )
+    .get(reviewIdForDir(reviewDir), mutationId) as
+    | { response_json: string }
+    | undefined;
+  return row ? parseJsonText(row.response_json) : null;
+}
+
+export function commitReviewDocumentMutation(input: {
+  reviewDir: string;
+  routePath: string;
+  mutationId: string;
+  state: StoredReviewDocumentState;
+  response: JsonValue;
+  createdAt: string;
+}): void {
+  ensureReviewRegistration(input.reviewDir);
+  const db = openReviewStateDb();
+  const reviewId = reviewIdForDir(input.reviewDir);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.prepare(
+      `INSERT INTO documents
+       (review_id, route_path, mode, revision, source_hash, projection_json)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(review_id, route_path) DO UPDATE SET
+         mode = excluded.mode,
+         revision = excluded.revision,
+         source_hash = excluded.source_hash,
+         projection_json = excluded.projection_json`,
+    ).run(
+      reviewId,
+      input.routePath,
+      input.state.mode,
+      input.state.revision,
+      input.state.sourceHash,
+      input.state.projection === null
+        ? null
+        : JSON.stringify(input.state.projection),
+    );
+    db.prepare(
+      `INSERT INTO mutation_receipts
+       (review_id, mutation_id, revision, response_json, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(
+      reviewId,
+      input.mutationId,
+      input.state.revision,
+      JSON.stringify(input.response),
+      input.createdAt,
+    );
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 export function closeAllReviewStateDatabases(): void {
   for (const db of connections.values()) {
     try {

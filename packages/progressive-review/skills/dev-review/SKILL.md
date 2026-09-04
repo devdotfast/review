@@ -55,7 +55,7 @@ Pass resolved commit ids to `--base` and `--head`. Parent suffixes like `<rev>^`
 
 If scaffold warns that `devfast.prepare` is not configured, set up that command according to [Prepared worktrees](references/prepared-worktrees.md).
 
-Read the scaffold JSON event and `<review-dir>/review.json`. Together they carry these values; record them:
+Read the scaffold JSON event and `review info --json`. Together they carry these values; record them. Do not treat the compatibility `review.json` mirror as authoritative:
 
 - Review UUID and directory
 - source worktree
@@ -105,6 +105,13 @@ If no sub-agent facility exists, publish the document. Report that the map is no
 ### 4. Author the document
 
 Read [Document authoring](references/document-authoring.md) before you edit `review.mdx` or `data.ts`.
+
+When the Review canvas MCP tools are available, use `review_get_document` and
+the revision-checked `review_replace_document`, `review_insert_node`,
+`review_update_node`, `review_delete_node`, and `review_move_node` tools. Keep
+the returned revision for the next mutation. Converting a compiled Review
+requires the exact `sourceHash` returned by `review_get_document`. Never edit an
+incremental `review.mdx` directly.
 
 Use the materialized files in `traces.paths` from the scaffold event. When that array is non-empty, read [Trace quoting](references/trace-quoting.md) and complete its intent pass before authoring. Use FFF for candidate discovery.
 

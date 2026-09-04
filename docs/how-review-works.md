@@ -73,10 +73,16 @@ Authored Reviews are stored under:
 ${DEV_REVIEW_HOME:-~/.dev}/reviews/<uuid>/
 ```
 
-The directory contains the document, supporting TypeScript, pinned state,
-thread database, sealed revisions, and disposable build output. Review owns the
-infrastructure files; agents author `review.mdx` and `data.ts`, and use the CLI
-for publication and threads.
+The directory contains the MDX document, supporting TypeScript, a compatibility
+record mirror, sealed revisions, and disposable build output. One shared
+`${DEV_REVIEW_HOME:-~/.dev}/review.db` is authoritative for every Review's
+metadata and comments. Canvas and agent clients use the Review API instead of
+reading that database or the current document from disk.
+
+Existing rich MDX Reviews keep the compiled publication path. Incremental
+Reviews use stable `ReviewNode` IDs: MCP tools apply one revision-checked node
+operation at a time, Review Desktop writes the MDX, and the canvas receives a
+document-change event without replacing the whole session.
 
 Software maps are stored per commit in Git notes under
 `refs/notes/dev-fast/*`. They do not add generated map files to the reviewed

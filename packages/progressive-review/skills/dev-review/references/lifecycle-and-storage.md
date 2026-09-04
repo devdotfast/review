@@ -77,7 +77,6 @@ ${DEV_REVIEW_HOME:-~/.dev}/reviews/<uuid>/
 ├── review.mdx
 ├── data.ts
 ├── review.json
-├── review.db
 ├── package.json
 ├── review-test.mjs
 ├── .gitignore
@@ -88,9 +87,9 @@ ${DEV_REVIEW_HOME:-~/.dev}/reviews/<uuid>/
 └── .git/
 ```
 
-`review.json` is schema 3 state. It contains the source worktree, binding, pinned commits, status, `presentedDocumentRevision`, and `presentedSoftwareMapRevision`.
+`review.json` is a compatibility mirror used by sealed historical revisions. The authoritative Review record and comment state live in `${DEV_REVIEW_HOME:-~/.dev}/review.db`, shared by every Review.
 
-`review.db` contains durable comment and question threads. Use only `review threads` to read or change it.
+Use only the Review API, MCP tools, or `review threads` to read or change documents and comments. Never query `review.db` or edit an incremental `review.mdx` directly.
 
 `.bundle/document/` contains the current document candidate. `.bundle/software-map/` contains the current map candidate when one exists. The private Review Git repository seals these candidates as revisions.
 

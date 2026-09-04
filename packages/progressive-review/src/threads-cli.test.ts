@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { ReviewCanvasApi } from "./review-canvas-api-client";
 import { type StoredReview, createReviewDir } from "./review-home";
 import { requireCompletedAgentResponsesForRepublish } from "./review-publish-thread-gate";
 import { appendReviewComment } from "./review-state-store";
@@ -15,6 +16,7 @@ import {
   closeAllReviewThreadStores,
   reviewThreadDbPath,
 } from "./review-thread-store-backend";
+import { ReviewThreadsService } from "./review-threads-service";
 import {
   runReviewThreadsList,
   runReviewThreadsReply,
@@ -35,7 +37,7 @@ afterEach(async () => {
 
 describe("review threads CLI", () => {
   it("lists, replies to, and resolves comment threads", async () => {
-    const { root, review, document } = await makeReview();
+    const { api, root, review, document } = await makeReview();
 
     appendReviewComment(document, {
       threadId: "thread-1",
@@ -46,7 +48,7 @@ describe("review threads CLI", () => {
     });
     const listed = JSON.parse(
       await captureOutput((stdout) =>
-        runReviewThreadsList({ cwd: root, stdout }),
+        runReviewThreadsList({ api, cwd: root, stdout }),
       ),
     );
     expect(listed).toMatchObject({
@@ -60,6 +62,7 @@ describe("review threads CLI", () => {
       await captureOutput((stdout) =>
         runReviewThreadsReply({
           cwd: root,
+          api,
           threadId: "thread-1",
           body: "Fixed in the latest revision.",
           stdout,
@@ -70,7 +73,12 @@ describe("review threads CLI", () => {
 
     const resolved = JSON.parse(
       await captureOutput((stdout) =>
-        runReviewThreadsResolve({ cwd: root, threadId: "thread-1", stdout }),
+        runReviewThreadsResolve({
+          api,
+          cwd: root,
+          threadId: "thread-1",
+          stdout,
+        }),
       ),
     );
     expect(resolved).toMatchObject({
@@ -80,7 +88,7 @@ describe("review threads CLI", () => {
 
     const after = JSON.parse(
       await captureOutput((stdout) =>
-        runReviewThreadsList({ cwd: root, stdout }),
+        runReviewThreadsList({ api, cwd: root, stdout }),
       ),
     );
     expect(after.comments["thread-1"]).toMatchObject({
@@ -108,10 +116,11 @@ describe("review threads CLI", () => {
   });
 
   it("rejects unknown threads and reviews", async () => {
-    const { root } = await makeReview();
+    const { api, root } = await makeReview();
     await expect(
       runReviewThreadsResolve({
         cwd: root,
+        api,
         threadId: "missing",
         stdout: outputStream(),
       }),
@@ -119,6 +128,7 @@ describe("review threads CLI", () => {
     await expect(
       runReviewThreadsList({
         cwd: root,
+        api,
         reviewUuid: "22222222-2222-4222-8222-222222222222",
         stdout: outputStream(),
       }),
@@ -127,6 +137,7 @@ describe("review threads CLI", () => {
 });
 
 async function makeReview(): Promise<{
+  api: ReviewCanvasApi;
   root: string;
   review: StoredReview;
   document: string;
@@ -141,7 +152,38 @@ async function makeReview(): Promise<{
     baseCommit: await git(root, ["rev-parse", "HEAD"]),
   });
   const document = path.join(review.dir, "review.mdx");
-  return { root, review, document };
+  const threads = () =>
+    new ReviewThreadsService({
+      reviewPath: document,
+      author: "Reviewer",
+    });
+  const api: ReviewCanvasApi = {
+    getComments: async () => ({ ok: true, snapshot: threads().snapshot() }),
+    command: async (_reviewId, command) => {
+      const commit = threads().dispatch(command);
+      if (!commit) return { ok: false, error: "Comment thread not found." };
+      return { ok: true, commit };
+    },
+    reply: async (input) => {
+      const commit = threads().appendAgentMessage({
+        mutationId: input.mutationId,
+        threadId: input.threadId,
+        messageId: input.messageId,
+        author: input.author ?? "Agent",
+        body: input.body,
+        format: "plain",
+      });
+      if (!commit) return { ok: false, error: "Comment thread not found." };
+      return { ok: true, commit };
+    },
+    getDocument: async () => {
+      throw new Error("Not used by thread CLI tests.");
+    },
+    mutateDocument: async () => {
+      throw new Error("Not used by thread CLI tests.");
+    },
+  };
+  return { api, root, review, document };
 }
 
 async function makeGitRepository(): Promise<string> {

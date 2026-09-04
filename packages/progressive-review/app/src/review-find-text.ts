@@ -78,6 +78,7 @@ export function reviewFindRanges(
       const range = article.ownerDocument.createRange();
       range.setStart(startPoint.node, startPoint.offset);
       range.setEnd(endPoint.node, endPoint.offset);
+      if (range.collapsed) return [];
       return [range];
     },
   );

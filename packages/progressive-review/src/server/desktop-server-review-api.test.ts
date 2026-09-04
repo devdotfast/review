@@ -117,6 +117,16 @@ describe("Review Desktop document and comment API", () => {
           expectedSourceHash: replaced.ok ? replaced.snapshot.sourceHash : null,
         }),
       ).rejects.toMatchObject({ statusCode: 409 });
+      await expect(
+        client.getDocumentNode(reviewId, "intro"),
+      ).resolves.toMatchObject({
+        ok: true,
+        revision: 1,
+        node: { id: "intro", content: "# Hello" },
+      });
+      await expect(
+        client.getDocumentNode(reviewId, "missing"),
+      ).rejects.toMatchObject({ statusCode: 404 });
 
       await expect(
         client.mutateDocument(reviewId, {

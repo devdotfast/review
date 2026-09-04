@@ -31,6 +31,7 @@ import {
 import {
 	IReviewSessionService,
 	type ReviewDataChangedEvent,
+	type ReviewDocumentAuthoringTargetChangedEvent,
 	type ReviewDocumentChangedEvent,
 	type ReviewSessionConnection,
 	type ReviewSessionClosedEvent,
@@ -96,6 +97,7 @@ export class ReviewSessionModel extends Disposable {
 	private refreshPromise: Promise<void> | undefined;
 	private _comments: ReviewCommentStore;
 	private incrementalDocumentStore: ReviewDocumentStore | undefined;
+	private documentAuthoringTargetNodeId: string | null = null;
 	get comments(): ReviewCommentStoreBridge {
 		return this._comments;
 	}
@@ -109,6 +111,9 @@ export class ReviewSessionModel extends Disposable {
 		private readonly shouldRefresh: ReviewSessionRefreshPredicate = () => true,
 		onDidCommitReviewThreads: Event<ReviewThreadsCommittedEvent> = Event.None,
 		onDidChangeReviewDocument: Event<ReviewDocumentChangedEvent> = Event.None,
+		onDidChangeReviewDocumentAuthoringTarget: Event<
+			ReviewDocumentAuthoringTargetChangedEvent
+		> = Event.None,
 	) {
 		super();
 		this._session = session;
@@ -165,6 +170,22 @@ export class ReviewSessionModel extends Disposable {
 			}),
 		);
 		this._register(
+			onDidChangeReviewDocumentAuthoringTarget((event) => {
+				if (
+					event.uuid !== this.reviewUuid ||
+					event.routePath !== reviewRoutePath(this._session) ||
+					this._state !== "active" ||
+					this._session.session.historicalRevision
+				) {
+					return;
+				}
+				this.documentAuthoringTargetNodeId = event.targetNodeId;
+				this.incrementalDocumentStore?.setAuthoringTargetNodeId(
+					event.targetNodeId,
+				);
+			}),
+		);
+		this._register(
 			onDidCommitReviewThreads((event) => {
 				if (
 					event.uuid !== this.reviewUuid ||
@@ -218,6 +239,8 @@ export class ReviewSessionModel extends Disposable {
 				) {
 					this._comments.dispose();
 					this._comments = this.createCommentStore();
+					this.documentAuthoringTargetNodeId = null;
+					this.incrementalDocumentStore?.setAuthoringTargetNodeId(null);
 				}
 				this.documentRevision = reviewDocumentRevision(session);
 				if (
@@ -290,6 +313,9 @@ export class ReviewSessionModel extends Disposable {
 		) {
 			this.incrementalDocumentStore?.dispose();
 			this.incrementalDocumentStore = new ReviewDocumentStore(snapshot);
+			this.incrementalDocumentStore.setAuthoringTargetNodeId(
+				this.documentAuthoringTargetNodeId,
+			);
 			return {
 				kind: "incremental",
 				store: this.incrementalDocumentStore,
@@ -690,6 +716,7 @@ export class ReviewSessionModelService
 			(current) => this.shouldRefreshModel(current),
 			this.sessionService.onDidCommitReviewThreads ?? Event.None,
 			this.sessionService.onDidChangeReviewDocument ?? Event.None,
+			this.sessionService.onDidChangeReviewDocumentAuthoringTarget ?? Event.None,
 		);
 		this.models.set(key, model);
 		return model;

@@ -16,6 +16,7 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 
 import type { ReviewAgentHarness, SessionRef } from "../authoring-session";
+import { readReviewDocumentFileSnapshot } from "../incremental-review-document";
 import type { AgentServer } from "../native-agent/native-session";
 import { readReviewDocumentBundle } from "../review-bundle";
 import type { ReviewThreadsService } from "../review-threads-service";
@@ -261,6 +262,25 @@ export async function createReviewSessionHandler(
     }
     return jsonResponse(
       { ok: true, versions: await input.listDocumentVersions() },
+      200,
+    );
+  });
+  app.get(`${API_PREFIX}/document`, async () => {
+    if (!input.reviewUuid) {
+      return jsonResponse(
+        { ok: false, error: "The Review document is unavailable." },
+        404,
+      );
+    }
+    return jsonResponse(
+      {
+        ok: true,
+        snapshot: await readReviewDocumentFileSnapshot({
+          reviewId: input.reviewUuid,
+          routePath: input.routePath,
+          documentPath: input.reviewPath,
+        }),
+      },
       200,
     );
   });

@@ -2,6 +2,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { isObjectValue } from "@dev.fast/review-protocol";
 import { init as initModuleLexer, parse as parseModule } from "es-module-lexer";
 
 import { extractTraceEventText } from "./agent-trace-parser";
@@ -30,6 +31,7 @@ import {
   stripPeekResolutions,
 } from "./review-document-data";
 import {
+  type ReviewDocumentExport,
   type ReviewDocumentModuleExports,
   collectReviewAnchors,
   materializeReviewDocument,
@@ -363,14 +365,10 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
 
     if (failures.length === 0 && anchors) {
       try {
-        const softwareModels = documentCapture.input.modelNames.flatMap(
-          (name) => {
-            const model = documentCapture.input?.models[name];
-            return isNormalizedSoftwareModel(model)
-              ? [softwareModelData(model)]
-              : [];
-          },
-        );
+        const softwareModels = collectDocumentSoftwareModels(
+          documentCapture.input.models,
+          documentCapture.input.modelNames,
+        ).map((model) => softwareModelData(model));
         const candidate = stripPeekResolutions({
           format: REVIEW_DOCUMENT_FORMAT,
           title: documentCapture.input.title,
@@ -418,6 +416,34 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
     errors,
     warnings: [...new Set(warnings)],
   };
+}
+
+function collectDocumentSoftwareModels(
+  models: ReviewDocumentModuleExports,
+  preferredNames: readonly string[],
+) {
+  const result: ReturnType<typeof defineSoftwareMap>[] = [];
+  const seenModels = new Set<object>();
+  const visited = new Set<object>();
+  const add = (value: ReviewDocumentExport) => {
+    if (!isNormalizedSoftwareModel(value) || seenModels.has(value)) return;
+    seenModels.add(value);
+    result.push(value);
+  };
+  for (const name of preferredNames) add(models[name]);
+  const visit = (value: ReviewDocumentExport): void => {
+    if (!isObjectValue(value) || visited.has(value)) return;
+    visited.add(value);
+    if (isNormalizedSoftwareModel(value)) {
+      add(value);
+      return;
+    }
+    for (const child of Array.isArray(value) ? value : Object.values(value)) {
+      visit(child);
+    }
+  };
+  for (const value of Object.values(models)) visit(value);
+  return result;
 }
 
 interface PublishDocumentInput {

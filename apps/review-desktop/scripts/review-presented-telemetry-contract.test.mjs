@@ -17,13 +17,17 @@ test("presented telemetry follows a successful visible canvas ready signal", asy
     readFile(desktopEntryUrl, "utf8"),
   ]);
 
+  assert.doesNotMatch(desktopEntry, /Promise\.all/);
+  assert.match(desktopEntry, /const load = await documentBundle/);
+  assert.match(desktopEntry, /const load = await softwareMapBundle/);
   assert.match(
     desktopEntry,
-    /Promise\.all\(\[documentBundle, softwareMapBundle\]\)/,
+    /documentState\.state !== "loading" &&\s*softwareMapState\.state !== "loading"[\s\S]*?session\.signalReady\(\)/,
   );
-  assert.match(
-    desktopEntry,
-    /if \(document && softwareMapLoaded && !error\) session\.signalReady\(\)/,
+  assert.ok(
+    desktopEntry.indexOf("session.signalReady()") <
+      desktopEntry.indexOf("reportLoadError("),
+    "the visible ready signal must settle before unavailable diagnostics",
   );
 
   const visibleBridge = canvasPart.slice(

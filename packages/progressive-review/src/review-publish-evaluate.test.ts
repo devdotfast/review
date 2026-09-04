@@ -115,6 +115,10 @@ describe("publish range evaluation", () => {
             title: "Request",
             peek: { file: "src/example.ts", fromLine: 1, toLine: 1 },
           },
+          unused: {
+            title: "Unused imported anchor",
+            peek: { file: "src/example.ts", fromLine: 1, toLine: 1 },
+          },
         });
         const first = defineSoftwareModel({
           systems: { first: { label: "First" } },
@@ -127,8 +131,8 @@ describe("publish range evaluation", () => {
           title: "Materialized",
           routePath: "/guide",
           filePath: "/repo/review.mdx",
-          modelNames: ["second", "first"],
-          models: { anchors, first, ignored: first, second },
+          modelNames: ["second"],
+          models: { anchors, importedModel: first, ignored: first, second },
           Component: ({ components }) => React.createElement(
             React.Fragment,
             null,
@@ -160,6 +164,9 @@ describe("publish range evaluation", () => {
       ],
     });
     expect(result.document?.anchors.request?.peek?.resolution).toBeNull();
+    expect(result.document?.anchors.unused?.title).toBe(
+      "Unused imported anchor",
+    );
     expect(
       result.document?.softwareModels.map((model) => model.elements[0]?.label),
     ).toEqual(["Second", "First"]);

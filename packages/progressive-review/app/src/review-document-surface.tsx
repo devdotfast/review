@@ -4,7 +4,8 @@ import { MarkdownCodeBlock } from "./code-block";
 import { reviewAuthoringComponents } from "./review-authoring-components";
 import { a } from "./review-components";
 import { ReviewDocumentMetaLine } from "./review-doc-meta";
-import type { ReviewDocumentComponent } from "./review-documents-runtime";
+import type { HydratedReviewNode } from "./review-document-hydrate";
+import { renderReviewNodes } from "./review-document-renderer";
 
 export const reviewDocumentComponents = {
   ...reviewAuthoringComponents,
@@ -26,9 +27,9 @@ function ReviewDocumentTitle({
 }
 
 export function ReviewDocumentContent({
-  ReviewDocument,
+  body,
 }: {
-  ReviewDocument: ReviewDocumentComponent;
+  body: HydratedReviewNode[];
 }): ReactElement {
-  return <ReviewDocument components={reviewDocumentComponents} />;
+  return <>{renderReviewNodes(body, reviewDocumentComponents)}</>;
 }

@@ -969,6 +969,16 @@ export interface ReviewCanvasSettingsContent {
   install?: ReviewCanvasInstallContent;
 }
 
+export type ReviewDocumentLoad =
+  | { state: "ready"; contentHash: string; data: unknown }
+  | { state: "needs-republish"; reviewUuid: string; mapStale: boolean }
+  | { state: "unavailable"; message: string };
+
+export type ReviewSoftwareMapLoad =
+  | { state: "ready"; contentHash: string; head: unknown; base: unknown }
+  | { state: "needs-republish"; reviewUuid: string }
+  | { state: "unavailable"; message: string };
+
 export type ReviewCanvasContent =
   | { kind: "loading" }
   | {
@@ -1032,8 +1042,8 @@ export type ReviewCanvasContent =
   | {
       kind: "session";
       bridge: ReviewCanvasBridge;
-      document: Promise<unknown>;
-      softwareMap: Promise<unknown | null>;
+      document: Promise<ReviewDocumentLoad>;
+      softwareMap: Promise<ReviewSoftwareMapLoad | null>;
       softwareMapEnabled: boolean;
       reviewErrors: readonly ReviewListError[];
       range: ReviewCanvasRange;
@@ -1260,6 +1270,9 @@ export type AuthoringAgentSessionWire = z.infer<
 export const ReviewErrorResponseSchema = z.strictObject({
   ok: z.literal(false),
   error: requiredString,
+  code: requiredString.optional(),
+  reviewUuid: z.uuid({ error: "must be a UUID" }).optional(),
+  mapStale: z.boolean().optional(),
 });
 export type ReviewErrorResponse = z.infer<typeof ReviewErrorResponseSchema>;
 
@@ -1701,16 +1714,16 @@ export const ReviewSessionResponseSchema = z.discriminatedUnion("ok", [
 ]);
 export type ReviewSessionResponse = z.infer<typeof ReviewSessionResponseSchema>;
 
-export const ReviewDocModuleResponseSchema = z.discriminatedUnion("ok", [
+export const ReviewDocumentResponseSchema = z.discriminatedUnion("ok", [
   z.strictObject({
     ok: z.literal(true),
     contentHash: requiredString,
-    moduleUrl: absoluteUrlSchema,
+    documentUrl: absoluteUrlSchema,
   }),
   ReviewErrorResponseSchema,
 ]);
-export type ReviewDocModuleResponse = z.infer<
-  typeof ReviewDocModuleResponseSchema
+export type ReviewDocumentResponse = z.infer<
+  typeof ReviewDocumentResponseSchema
 >;
 
 export const ReviewSoftwareMapResponseSchema = z.discriminatedUnion("ok", [

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -15,6 +15,7 @@ import {
   type ProgressiveReviewTelemetryCaptureClient,
 } from "../progressive-review-telemetry";
 import {
+  REVIEW_DOCUMENT_BUNDLE_DIR,
   bundleReviewDocument,
   writeReviewDocumentBundle,
 } from "../review-bundle";
@@ -24,6 +25,7 @@ import {
 } from "../review-document-data";
 import { readReviewComments } from "../review-state-store";
 import {
+  REVIEW_SOFTWARE_MAP_BUNDLE_DIR,
   bundleReviewSoftwareMap,
   writeReviewSoftwareMapBundle,
 } from "../software-map-bundle";
@@ -49,6 +51,9 @@ const reviewDocument: ReviewDocumentData = {
   anchorContents: {},
   softwareModels: [],
 };
+
+const needsRepublishError =
+  "This review was published by an earlier version of Review and its document must be regenerated.";
 
 let rootPath: string | undefined;
 
@@ -244,16 +249,184 @@ describe("createReviewSessionHandler", () => {
     }
   });
 
-  it("serves the stored document bundle", async () => {
+  it("serves the stored document as JSON from session-prefixed URLs", async () => {
+    rootPath = await mkdtemp(path.join(tmpdir(), "review-session-handler-"));
+    const reviewPath = path.join(rootPath, "review.mdx");
+    const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
+    const sessionPath = new URL(sessionUrl).pathname;
+    const token = "session-secret";
+    await writeFile(reviewPath, "# Review\n", "utf8");
+    const bundle = bundleReviewDocument(reviewDocument);
+    await writeReviewDocumentBundle(rootPath, bundle);
+    const handler = await createReviewSessionHandler({
+      ...unusedAgentServices,
+      rootPath,
+      toolingRoot: rootPath,
+      reviewPath,
+      routePath: "/",
+      token,
+      session: {
+        rootPath,
+        baseRef: "HEAD",
+        appUrl: sessionUrl,
+        reviewPath,
+        startedAt: Date.now(),
+      },
+    });
+    const dispatchSessionUrl = (url: string) => {
+      const requestUrl = new URL(url);
+      expect(requestUrl.pathname.startsWith(`${sessionPath}/`)).toBe(true);
+      requestUrl.pathname = requestUrl.pathname.slice(sessionPath.length);
+      return handler.handle(
+        new Request(requestUrl, {
+          headers: { "x-review-token": token },
+        }),
+      );
+    };
+
+    try {
+      const response = await handler.handle(
+        new Request(new URL("/__progressive-review/document", sessionUrl), {
+          headers: { "x-review-token": token },
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      const payload = await response.json();
+      expect(payload).toEqual({
+        ok: true,
+        contentHash: bundle.contentHash,
+        documentUrl: `${sessionUrl}/__progressive-review/documents/${bundle.contentHash}.json`,
+      });
+      const documentResponse = await dispatchSessionUrl(payload.documentUrl);
+      expect(documentResponse.status).toBe(200);
+      expect(documentResponse.headers.get("content-type")).toBe(
+        "application/json; charset=utf-8",
+      );
+      expect(documentResponse.headers.get("cache-control")).toBe("no-store");
+      await expect(documentResponse.text()).resolves.toBe(bundle.json);
+
+      for (const documentName of ["missing.json", `${bundle.contentHash}.js`]) {
+        const missing = await handler.handle(
+          new Request(
+            new URL(
+              `/__progressive-review/documents/${documentName}`,
+              sessionUrl,
+            ),
+            { headers: { "x-review-token": token } },
+          ),
+        );
+        expect(missing.status).toBe(404);
+        await expect(missing.json()).resolves.toEqual({
+          ok: false,
+          error: "Review document not found",
+        });
+      }
+
+      const legacyRoute = await handler.handle(
+        new Request(new URL("/__progressive-review/doc-module", sessionUrl), {
+          headers: { "x-review-token": token },
+        }),
+      );
+      expect(legacyRoute.status).toBe(404);
+    } finally {
+      await handler.close();
+    }
+  });
+
+  it.each([
+    { documentState: "missing", mapState: "unpublished", mapStale: false },
+    { documentState: "missing", mapState: "stale", mapStale: true },
+    { documentState: "missing", mapState: "ready", mapStale: false },
+    { documentState: "v1", mapState: "unpublished", mapStale: false },
+    { documentState: "v1", mapState: "stale", mapStale: true },
+    { documentState: "v1", mapState: "ready", mapStale: false },
+  ] as const)(
+    "signals $documentState documents for a $mapState map with mapStale=$mapStale",
+    async ({ documentState, mapState, mapStale }) => {
+      rootPath = await mkdtemp(path.join(tmpdir(), "review-session-handler-"));
+      const reviewPath = path.join(rootPath, "review.mdx");
+      const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
+      const token = "session-secret";
+      const reviewUuid = "86df96ed-65ef-46de-9348-c94811e3bb46";
+      await writeFile(reviewPath, "# Review\n", "utf8");
+      if (documentState === "v1") {
+        const documentBundleDir = path.join(
+          rootPath,
+          REVIEW_DOCUMENT_BUNDLE_DIR,
+        );
+        await mkdir(documentBundleDir, { recursive: true });
+        await writeFile(
+          path.join(documentBundleDir, "manifest.json"),
+          JSON.stringify({
+            version: 1,
+            routePath: "/",
+            sourcePath: "review.mdx",
+          }),
+          "utf8",
+        );
+        await writeFile(
+          path.join(documentBundleDir, "review-document.js"),
+          "export default {};",
+          "utf8",
+        );
+      }
+      if (mapState === "ready") {
+        await writeReviewSoftwareMapBundle(
+          rootPath,
+          bundleReviewSoftwareMap({
+            head: defineSoftwareMap({ systems: { app: { label: "App" } } }),
+            base: defineSoftwareMap({ systems: { api: { label: "API" } } }),
+            headCommit: "a".repeat(40),
+            baseCommit: "b".repeat(40),
+          }),
+        );
+      }
+      const softwareMapRootPath =
+        mapState === "unpublished" ? undefined : rootPath;
+      const handler = await createReviewSessionHandler({
+        ...unusedAgentServices,
+        rootPath,
+        toolingRoot: rootPath,
+        reviewPath,
+        softwareMapRootPath,
+        routePath: "/",
+        token,
+        reviewUuid,
+        session: {
+          rootPath,
+          baseRef: "HEAD",
+          appUrl: sessionUrl,
+          reviewPath,
+          startedAt: Date.now(),
+        },
+      });
+
+      try {
+        const response = await handler.handle(
+          new Request(new URL("/__progressive-review/document", sessionUrl), {
+            headers: { "x-review-token": token },
+          }),
+        );
+        expect(response.status).toBe(409);
+        await expect(response.json()).resolves.toEqual({
+          ok: false,
+          code: "needs_republish",
+          error: needsRepublishError,
+          reviewUuid,
+          mapStale,
+        });
+      } finally {
+        await handler.close();
+      }
+    },
+  );
+
+  it("fails clearly if needs-republish has no review UUID", async () => {
     rootPath = await mkdtemp(path.join(tmpdir(), "review-session-handler-"));
     const reviewPath = path.join(rootPath, "review.mdx");
     const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
     const token = "session-secret";
-    await writeFile(reviewPath, "# Review\n", "utf8");
-    await writeReviewDocumentBundle(
-      rootPath,
-      bundleReviewDocument(reviewDocument),
-    );
     const handler = await createReviewSessionHandler({
       ...unusedAgentServices,
       rootPath,
@@ -272,13 +445,15 @@ describe("createReviewSessionHandler", () => {
 
     try {
       const response = await handler.handle(
-        new Request(new URL("/__progressive-review/doc-module", sessionUrl), {
+        new Request(new URL("/__progressive-review/document", sessionUrl), {
           headers: { "x-review-token": token },
         }),
       );
-
-      expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({ ok: true });
+      expect(response.status).toBe(500);
+      await expect(response.json()).resolves.toEqual({
+        ok: false,
+        error: "A review UUID is required to report needs_republish.",
+      });
     } finally {
       await handler.close();
     }
@@ -393,7 +568,71 @@ describe("createReviewSessionHandler", () => {
     }
   });
 
-  it("reports an unpublished software map", async () => {
+  it.each(["missing", "v1"] as const)(
+    "reports a %s software map bundle as needing republish",
+    async (mapState) => {
+      rootPath = await mkdtemp(path.join(tmpdir(), "review-session-handler-"));
+      const reviewPath = path.join(rootPath, "review.mdx");
+      const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
+      const token = "session-secret";
+      const reviewUuid = "86df96ed-65ef-46de-9348-c94811e3bb46";
+      if (mapState === "v1") {
+        const softwareMapBundleDir = path.join(
+          rootPath,
+          REVIEW_SOFTWARE_MAP_BUNDLE_DIR,
+        );
+        await mkdir(softwareMapBundleDir, { recursive: true });
+        await writeFile(
+          path.join(softwareMapBundleDir, "manifest.json"),
+          JSON.stringify({
+            version: 1,
+            headCommit: "a".repeat(40),
+            baseCommit: "b".repeat(40),
+          }),
+          "utf8",
+        );
+      }
+      const handler = await createReviewSessionHandler({
+        ...unusedAgentServices,
+        rootPath,
+        toolingRoot: rootPath,
+        reviewPath,
+        softwareMapRootPath: rootPath,
+        routePath: "/",
+        token,
+        reviewUuid,
+        session: {
+          rootPath,
+          baseRef: "HEAD",
+          appUrl: sessionUrl,
+          reviewPath,
+          startedAt: Date.now(),
+        },
+      });
+
+      try {
+        const response = await handler.handle(
+          new Request(
+            new URL("/__progressive-review/software-map", sessionUrl),
+            {
+              headers: { "x-review-token": token },
+            },
+          ),
+        );
+        expect(response.status).toBe(409);
+        await expect(response.json()).resolves.toEqual({
+          ok: false,
+          code: "needs_republish",
+          error: "This review's software map must be regenerated.",
+          reviewUuid,
+        });
+      } finally {
+        await handler.close();
+      }
+    },
+  );
+
+  it("reports an unpublished software map when no map root exists", async () => {
     rootPath = await mkdtemp(path.join(tmpdir(), "review-session-handler-"));
     const reviewPath = path.join(rootPath, "review.mdx");
     const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
@@ -403,7 +642,6 @@ describe("createReviewSessionHandler", () => {
       rootPath,
       toolingRoot: rootPath,
       reviewPath,
-      softwareMapRootPath: rootPath,
       routePath: "/",
       token,
       session: {

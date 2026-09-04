@@ -182,6 +182,7 @@ function codeResourceRangeLabel(
 }
 
 function agentActivityLabel(activity: ReviewCommentAgentActivity): string {
+  if (activity.status === "starting") return "Starting\u2026";
   if (activity.status === "running") return "Running\u2026";
   return `Failed: ${"error" in activity ? activity.error : "Unknown error"}`;
 }
@@ -829,7 +830,10 @@ export class ReviewCommentController
     for (const record of snapshot.commentThreads.values()) {
       if (record.target.kind !== "code") continue;
       const agentActivity = snapshot.agentActivities.get(record.threadId);
-      if (agentActivity?.status === "starting") continue;
+      const visibleActivity =
+        agentActivity && agentActivity.status !== "starting"
+          ? agentActivity
+          : undefined;
       const target = record.target;
       const rows = gitLabDiffPositionRows(target.position);
       const outdated =
@@ -846,7 +850,7 @@ export class ReviewCommentController
         range: undefined,
         outdated,
         draft: snapshot.localComments.has(record.threadId),
-        agentActivity,
+        agentActivity: visibleActivity,
       });
     }
     return projections;

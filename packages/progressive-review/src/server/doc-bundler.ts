@@ -19,7 +19,7 @@ const ENTRY_MODULE_ID = "review:entry";
 const VIRTUAL_NAMESPACE = "review-document";
 export const REVIEW_DOC_RUNTIME_SPECIFIER = "review-doc-runtime";
 
-export interface ReviewDocumentBundle {
+export interface CompiledReviewDocument {
   code: string;
   contentHash: string;
   routePath: string;
@@ -35,7 +35,7 @@ export interface ReviewDocumentBundlerInput {
 
 export async function bundleReviewDocument(
   input: ReviewDocumentBundlerInput,
-): Promise<ReviewDocumentBundle> {
+): Promise<CompiledReviewDocument> {
   const result = await compileReviewDocumentBundle(input);
   if (!result.bundle) {
     throw new Error(formatReviewDocumentDiagnostics(result.diagnostics));
@@ -49,7 +49,7 @@ export async function bundleReviewDocument(
 export async function compileReviewDocumentBundle(
   input: ReviewDocumentBundlerInput,
 ): Promise<{
-  bundle: ReviewDocumentBundle | null;
+  bundle: CompiledReviewDocument | null;
   diagnostics: ReviewDocumentDiagnostic[];
 }> {
   const result = await buildReviewDocument(input);

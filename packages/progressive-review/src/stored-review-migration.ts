@@ -18,7 +18,10 @@ import {
 } from "./authoring-session";
 import { errorMessage } from "./error-message";
 import { isMissingFileError } from "./native-agent/transcript-json";
-import { writeReviewDocumentBundle } from "./review-bundle";
+import {
+  bundleReviewDocument,
+  writeReviewDocumentBundle,
+} from "./review-bundle";
 import { createLegacyCodeRecordMigrator } from "./review-code-target-migration";
 import { maskReviewFrontmatter } from "./review-frontmatter";
 import {
@@ -37,6 +40,7 @@ import {
   parseReviewMdxDocument,
 } from "./review-mdx-ast";
 import { reviewTypescriptEstreeParser } from "./review-mdx-typescript-parser";
+import { evaluateReviewDocumentBundleForPublish } from "./review-publish-evaluate";
 import { createReviewSourceAgentSession } from "./review-source-agent-session";
 import {
   type ReviewThreadDbMigrationOptions,
@@ -607,6 +611,19 @@ async function migrateLegacyPresentedArtifacts(input: {
       compiled.diagnostics.map((diagnostic) => diagnostic.message).join("; "),
     );
   }
+  const evaluated = await evaluateReviewDocumentBundleForPublish({
+    bundleCode: compiled.bundle.code,
+    reviewDir: legacyBuildDir,
+    validateRanges: false,
+  });
+  if (!evaluated.document) {
+    throw new Error(
+      evaluated.errors.length > 0
+        ? evaluated.errors.join("; ")
+        : "Review document did not materialize.",
+    );
+  }
+  const documentBundle = bundleReviewDocument(evaluated.document);
   const mapBundle = await legacySoftwareMapBundle(legacyBuildDir);
 
   await mkdir(backupDir, { recursive: true, mode: 0o700 });
@@ -639,7 +656,7 @@ async function migrateLegacyPresentedArtifacts(input: {
         force: true,
       }),
     ]);
-    await writeReviewDocumentBundle(input.reviewDir, compiled.bundle);
+    await writeReviewDocumentBundle(input.reviewDir, documentBundle);
     if (mapBundle) {
       await writeReviewSoftwareMapBundle(input.reviewDir, mapBundle);
     }

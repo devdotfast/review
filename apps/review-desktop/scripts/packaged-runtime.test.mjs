@@ -238,7 +238,7 @@ test("the packaged app carries its own Review runtime and is never written to at
   assert.ok(tutorialManifest.requiredPaths.includes("git-stub/HEAD"));
   assert.ok(
     tutorialManifest.requiredPaths.includes(
-      ".bundle/document/review-document.js",
+      ".bundle/document/review-document.json",
     ),
   );
   assert.ok(

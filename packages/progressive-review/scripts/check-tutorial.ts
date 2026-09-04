@@ -80,15 +80,19 @@ async function main(): Promise<void> {
         ),
       ),
     );
-    if (documentManifest?.version !== 1 || documentManifest.routePath !== "/") {
+    if (documentManifest?.version !== 2 || documentManifest.routePath !== "/") {
       throw new Error("Tutorial document manifest is invalid.");
     }
-    const bundle = await readFile(
-      path.join(outDir, ".bundle", "document", "review-document.js"),
-      "utf8",
+    const document = jsonObject(
+      parseJsonText(
+        await readFile(
+          path.join(outDir, ".bundle", "document", "review-document.json"),
+          "utf8",
+        ),
+      ),
     );
-    if (bundle.length === 0) {
-      throw new Error("Tutorial document bundle is empty.");
+    if (document?.format !== "review-document/1") {
+      throw new Error("Tutorial document format is invalid.");
     }
     const mapManifest = jsonObject(
       parseJsonText(

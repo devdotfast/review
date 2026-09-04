@@ -243,6 +243,16 @@ test("the packaged app carries its own Review runtime and is never written to at
   );
   assert.ok(
     tutorialManifest.requiredPaths.includes(
+      ".bundle/software-map/head-map.json",
+    ),
+  );
+  assert.ok(
+    tutorialManifest.requiredPaths.includes(
+      ".bundle/software-map/base-map.json",
+    ),
+  );
+  assert.ok(
+    tutorialManifest.requiredPaths.includes(
       ".bundle/software-map/manifest.json",
     ),
   );

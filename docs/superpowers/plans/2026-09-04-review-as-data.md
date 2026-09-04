@@ -97,6 +97,13 @@ Ships as its own PR.
   ```
   `extractLegacyReviewSoftwareMapBundle`, `DocumentModuleSchema`, `EvaluatedDocumentSchema`, and the `es-module-lexer` import leave this file.
 
+**Success criteria:**
+- `readReviewSoftwareMapBundle` returns a value deep-equal to what `writeReviewSoftwareMapBundle` wrote, and `hydrateSoftwareModel(read.head).elementsByPath` equals the original model's map.
+- A version-1 (JavaScript) bundle reads as `null`; no `.js` file is written; `head-map.json` contains `format`, `elements`, `relationships` and no `elementsByPath`.
+- `grep -rn "headCode\|baseCode" packages/progressive-review/src` hits only `server/session-handler.ts`; `es-module-lexer` is no longer imported by `software-map-bundle.ts`.
+
+**End-to-end check:** `pnpm --filter @dev.fast/review build:tutorial-assets` succeeds and `ls packages/progressive-review/tutorial/.bundle/software-map` lists exactly `base-map.json head-map.json manifest.json`, with `jq .version …/manifest.json` printing `2`. (The tutorial builder already goes through `bundleReviewSoftwareMap` + `writeReviewSoftwareMapBundle`.)
+
 - [ ] **Step 1: Write the failing tests** — replace `software-map-bundle.test.ts`:
 
 ```ts
@@ -320,6 +327,13 @@ git commit -m "Write the review software-map bundle as JSON"
   ```
 - Routes: `GET /__progressive-review/software-map` → that response (404 `Software map is not published` when the bundle is null); `GET /__progressive-review/software-maps/head-<hash>.json` and `base-<hash>.json` → `application/json; charset=utf-8`, `cache-control: no-store`.
 
+**Success criteria:**
+- `GET /__progressive-review/software-map` returns `{ ok: true, contentHash, headMapUrl, baseMapUrl }` with both URLs ending in `.json`; returns 404 `Software map is not published` when the bundle is null.
+- `GET /__progressive-review/software-maps/head-<hash>.json` and `base-<hash>.json` return `application/json; charset=utf-8`, `cache-control: no-store`, a body whose `format` is `software-map/1`; any other name returns 404.
+- `ReviewSoftwareMapModuleResponseSchema` no longer exists anywhere (`grep -rn ReviewSoftwareMapModuleResponseSchema packages apps` is empty after A3).
+
+**End-to-end check:** covered by the handler test, which drives the real Hono app over real files. The live-app check is in A3 (the host is still on the old route until then).
+
 - [ ] **Step 1: Failing server test** — add next to the doc-module test (`:230-262`), mirroring its full `createReviewSessionHandler` argument shape (it has more required fields than shown; copy them):
 
 ```ts
@@ -405,6 +419,13 @@ export async function loadReviewSoftwareMaps(session: ReviewDesktopSession, head
 export async function fetchReviewJson(session: ReviewDesktopSession, url: string, label: string): Promise<unknown>   // reused by Phase 2
 ```
 
+**Success criteria:**
+- `pnpm --filter @dev.fast/review-desktop test` and `pnpm --filter @dev.fast/review typecheck` pass after `protocol:sync`.
+- `grep -n "createObjectURL" apps/review-desktop/code-oss/src/vs/review/browser/parts/canvas/reviewDocumentModule.ts` shows only the document path (removed entirely in B5); no `Blob` is created for maps.
+- In the app, `PublishedSoftwareMap.head.elementsByPath instanceof Map` (assert in `desktop-entry` via the existing jsdom test for the entry, or a new one that calls `hydratePublishedSoftwareMap`).
+
+**End-to-end check:** run the desktop app from this worktree (`run` skill / `apps/review-desktop/scripts/run.sh`), open the tutorial review, switch to the **Map** tab: the "Order service" system renders with its containers, the base/head topology diff badges appear, and the canvas console shows no errors. Then open the network log in the workbench devtools and confirm the map requests are `…/software-maps/head-<hash>.json` with `content-type: application/json`.
+
 - [ ] **Step 1: Regenerate the overlay** — `pnpm --filter @dev.fast/review-desktop protocol:sync`; the host now fails to typecheck on the old schema name (the failing state).
 
 - [ ] **Step 2: Host loader**
@@ -458,6 +479,14 @@ git commit -m "Load the software map as JSON in the desktop host"
 - Modify: `packages/progressive-review/tutorial/runtime-manifest.json:12-13`, `scripts/check-tutorial.ts` (map manifest `version !== 2`; read `head-map.json`, assert `format`), `apps/review-desktop/scripts/packaged-runtime.test.mjs:235-245`.
 - Modify: `packages/progressive-review/src/stored-review-migration.ts:596-609`
 - Test: `packages/progressive-review/src/stored-review-migration.test.ts` (existing schema-2 case: assert the migrated bundle has `head-map.json`).
+
+**Success criteria:**
+- `pnpm --filter @dev.fast/review check:tutorial` passes and asserts `head-map.json` has `format: "software-map/1"`; `packaged-runtime.test.mjs` passes with the `.json` names.
+- `stored-review-migration.test.ts`: a schema-2 review whose sealed revision contains version-1 `head-map.js`/`base-map.js` comes out with `.bundle/software-map/head-map.json` and `presentedSoftwareMapRevision` set; a review whose legacy map files are missing comes out with `presentedSoftwareMapRevision: null` and no blocker.
+
+**End-to-end check:** copy the real store to a scratch home (`cp -R ~/.dev/reviews /tmp/review-home-a4/reviews`), run the migration with the app runtime (`DEV_REVIEW_HOME=/tmp/review-home-a4 review migrate apply`), then launch the app with `DEV_REVIEW_HOME=/tmp/review-home-a4` and open a migrated review that had a map: the Map tab renders. Delete the scratch home afterwards.
+
+**Phase 1 gate (before the PR):** `pnpm --filter @dev.fast/review test`, `pnpm --filter @dev.fast/review typecheck`, `pnpm --filter @dev.fast/review-desktop test`, `pnpm lint && pnpm format:check`, `pnpm --filter @dev.fast/review check:tutorial`, and a packaged build (`pnpm --filter @dev.fast/review-desktop app:desktop:build` or the CI packaging script) whose app opens the tutorial with a working Map tab.
 
 - [ ] **Step 1: Tutorial and packaging references** as listed.
 
@@ -530,6 +559,13 @@ PR "Software map bundle as JSON" against `main`.
   export function walkReviewNodes(nodes: ReviewNode[], visit: (node: ReviewNode, parent: ReviewComponentNode | null) => void): void;
   ```
   Element props schema: keys ∈ {`className`, `href`, `title`, `id`, `align`, `checked`, `disabled`, `start`, `type`, `alt`, `src`} ∪ `/^data-review-/`; `href`/`src` values must match `/^(https?:|mailto:|#|\/|\.{0,2}\/|[^:]*$)/` (no other protocol). `DatabaseLens` component props validate `stores` with `z.record(storeRefDataSchema)`; every other component's props are `z.record(z.string(), jsonValueSchema)`.
+
+**Success criteria:**
+- `reviewDocumentDataSchema.parse(JSON.parse(JSON.stringify(document)))` deep-equals `document` for a document using an element with `data-review-*` props and a `CodePeek` with an inlined anchor.
+- The schema rejects: an unknown component name, a tag outside `PROSE_TAGS`, a prop outside the allowlist, an `href` with a non-allowlisted protocol, a `DatabaseLens` whose collection lacks `schema`/`target`.
+- `storeRefData` → JSON → `hydrateStoreRef` restores `collectionSchema(...)` and field targets (`resolveTargetRef(hydrated.tables.orders.status).path` equals `["status"]`).
+
+**End-to-end check:** none on its own; this is a pure module. It is exercised end to end by B2's tutorial materialization test.
 
 - [ ] **Step 1: Failing tests**
 
@@ -749,6 +785,13 @@ export interface ReviewPublishEvaluationResult { document: ReviewDocumentData | 
 ```
 Materialization rules: string/number → text; array → flattened; `FRAGMENT` → flattened children; string tag → element (props minus `children`/`key`; every value must be string/number/boolean; else error); registry stub → `schema.parse(props)` then `normalizeComponentProps(name, parsed)` (drop `children`; `DatabaseLens.stores` → `mapValues(storeRefData)`); any other function type → error `Document-local components are not supported; use the Review components.`; other symbols → error.
 
+**Success criteria:**
+- `materializeReviewDocument` converts prose, fragments, nested registry components, and `DatabaseLens` stores into nodes that survive `JSON.parse(JSON.stringify(...))` unchanged; document-local components and non-literal prose props are reported as errors.
+- `evaluateReviewDocumentBundleForPublish` returns `document !== null` with `errors: []` for a valid bundle, and `document: null` plus at least one error for any audit, peek, evidence, or schema failure. Every `peek.resolution` in `document` is `null`.
+- `document.title`, `routePath`, `sourcePath` come from the bundle's `createActiveReviewDocument` input; `document.anchors` has one entry per authored anchor id; `document.softwareModels` has one entry per `defineSoftwareModel` export.
+
+**End-to-end check:** add `packages/progressive-review/src/tutorial-document-data.test.ts` (node env; requires `build:tutorial-assets` to have produced `tutorial/git-stub`): compile the tutorial with `compileReviewDocumentBundle`, evaluate it with `prepareEvidence` pointing at the stub repo (exactly as `scripts/build-tutorial-assets.ts:215-222` does), and assert `errors` is empty, `document` is non-null, the set of component names in `document.body` equals `{ReviewSection, AnchorLink, CodePeek, SequenceDiagram, DatabaseLens, DbUseCase, DbWrite, TutorialKeymapPicker, TutorialAuthoringConversation, TutorialViewButton, TutorialFeature}`, `JSON.stringify(document)` contains no `"resolution":{`, and `reviewDocumentDataSchema.parse(JSON.parse(JSON.stringify(document)))` equals `document`.
+
 - [ ] **Step 1: Failing materialize test** — build records with the real stub React (`createPublishValidationReact().jsx`) and a `componentNames` map made the way the audit does:
 
 ```ts
@@ -908,6 +951,13 @@ export async function readReviewDocumentBundle(documentDir: string, routePath: s
 ```
 `compileReviewDocumentBundle`'s `ReviewDocumentBundle` type in `doc-bundler.ts` is renamed `CompiledReviewDocument` (`code`, `contentHash`, `routePath`, `sourcePath`) to free the name.
 
+**Success criteria:**
+- `readReviewDocumentBundle(await write(bundle))` deep-equals `bundle` and `contentHash` is identical across write and read; a version-1 manifest with `review-document.js` reads as `null`; writing removes any stray `review-document.js`.
+- `pnpm --filter @dev.fast/review check:tutorial` passes with the JSON assertions; `packaged-runtime.test.mjs` passes with the `.json` name.
+- Note: `session-handler.ts` must compile after this task. Change its `new Response(bundle.code, …)` to `bundle.json` here (route names change in B4).
+
+**End-to-end check:** `pnpm --filter @dev.fast/review build:tutorial-assets` then `jq -r .format packages/progressive-review/tutorial/.bundle/document/review-document.json` prints `review-document/1` and `ls …/document` lists exactly `manifest.json review-document.json`. Then, with the app runtime, `review scaffold` + author the two-line sample from `document-authoring.md` + `review publish --review <uuid> --json` on a real repo: the command reports `published`, and `~/.dev/reviews/<uuid>/.bundle/document/` contains `review-document.json` and no `.js`. (The running app cannot render it until B6; that is expected here.)
+
 - [ ] **Step 1: Failing test** — write/read round trip with a minimal `ReviewDocumentData`; a version-1 manifest + `review-document.js` reads as `null`; `contentHash` is stable across write/read.
 - [ ] **Step 2: Implement** as in Interfaces (mirror A1's structure; `parseJsonText` + `reviewDocumentDataSchema.safeParse`).
 - [ ] **Step 3: Callers** — `review-publication-preparation.ts`: after evaluation, `if (!evaluation.document) throw new ReviewPublicationValidationError(evaluation.errors.length ? evaluation.errors : ["Review document did not materialize."], undefined, warnings)`; `await writeReviewDocumentBundle(input.review.dir, bundleReviewDocument(evaluation.document))`. `build-tutorial-assets.ts:269`: `writeReviewDocumentBundle(outDir, bundleReviewDocument(evaluation.document!))` after the existing checks. `check-tutorial.ts`: manifest `version !== 2`; parse `review-document.json` and assert `format`. `runtime-manifest.json`, `run.sh`, `packaged-runtime.test.mjs`: `.json`.
@@ -933,6 +983,13 @@ export async function readReviewDocumentBundle(documentDir: string, routePath: s
 - Modify: `packages/progressive-review/src/server/session-handler.ts:41, 160-176, 192-193, 264-289` (+ `/software-map` returns `409 needs_republish` when the map bundle read is null but a map root exists).
 - Test: `session-handler.test.ts` — `/document` happy path; `409 needs_republish` with `reviewUuid` and `mapStale`.
 
+**Success criteria:**
+- `GET /__progressive-review/document` returns `{ ok: true, contentHash, documentUrl }` ending in `.json`; `GET /__progressive-review/documents/<hash>.json` returns the sealed JSON as `application/json; charset=utf-8`, `cache-control: no-store`; other names 404.
+- A version-1 or missing document bundle answers `409 { ok: false, code: "needs_republish", error, reviewUuid, mapStale }`, with `mapStale: true` exactly when a map root exists but its bundle reads as `null`.
+- `pnpm --filter @dev.fast/review-protocol test` passes; `rewriteReviewDocumentRuntime` is gone from `review-protocol` and its overlay; `ReviewCanvasContent`'s session member is typed with `ReviewDocumentLoad` / `ReviewSoftwareMapLoad`.
+
+**End-to-end check:** covered by the handler tests over the real Hono app. Live check lands in B6 once the host and app consume the new route.
+
 - [ ] **Step 1: Failing tests** (as in draft 1, Task B5 Step 1, with `/document` and `documentUrl`).
 - [ ] **Step 2: Implement** — routes exactly as draft 1 Task B5 Step 2 (`DOCUMENT_PATH_PREFIX = "/documents/"`, `getBundle(): Promise<ReviewDocumentBundle | null>`, 409 payload `{ ok: false, code: "needs_republish", error: "This review was published by an earlier version of Review and its document must be regenerated.", reviewUuid, mapStale }`). Audit other `getBundle()` users for `null`.
 - [ ] **Step 3: Run** — protocol tests, session-handler tests → PASS. Commit `"Serve the review document as JSON and signal republish"`.
@@ -943,6 +1000,13 @@ export async function readReviewDocumentBundle(documentDir: string, routePath: s
 - Modify: `reviewSessionModelService.ts:49-58, 279-325` — loaders return `ReviewDocumentLoad` / `ReviewSoftwareMapLoad`; a 409 `needs_republish` becomes `{ state: "needs-republish", ... }`; any other failure becomes `{ state: "unavailable", message }` (no throw).
 - Rename `reviewDocumentModule.ts` → `reviewDocumentData.ts`: `loadReviewDocumentData(session, documentUrl, contentHash): Promise<ReviewDocumentLoad>` via `fetchReviewJson`; `loadReviewSoftwareMaps(...)` returns the ready state. Delete the Trusted Types policy, `ReviewModuleCache` uses, `importBlobReviewModule`.
 - Modify: `reviewCanvasPart.ts:132-137, 1209-1226, 1445-1462, 1498-1512`; `apps/review-desktop/scripts/copy-canvas.mjs:42, 78-92` (+ `packaged-runtime.test.mjs:100-125`); `app/desktop.vite.config.ts:62-66`; delete `app/src/doc-runtime.ts`; `ReviewRuntimeConfig.docRuntimeUrl` removed; `app/src/review-session-test-utils.tsx:26`; `app/src/host/review-client.ts` (drop `importReviewModule`, `loadReviewModule`, `importBlobReviewModule`, `docRuntimeUrl` from the config pick) and its two import tests.
+
+**Success criteria:**
+- `pnpm --filter @dev.fast/review-desktop test` passes; `loadReviewSessionDocument` resolves to `{ state: "ready", contentHash, data }` for a 200, `{ state: "needs-republish", reviewUuid, mapStale }` for the 409, `{ state: "unavailable", message }` for any other failure, and never rejects (add three cases to the host's Node test runner next to `reviewModuleCache.test.ts`, stubbing `fetch`).
+- The Vite manifest has no `doc-runtime` entry (`grep doc-runtime packages/progressive-review/app/dist/.vite/manifest.json` after `app:desktop:build` is empty); `canvas-loader.js` no longer exports `reviewDocRuntimeUrl`; `ReviewRuntimeConfig` has no `docRuntimeUrl`.
+- `grep -rn "createObjectURL\|createScriptURL" apps/review-desktop/code-oss/src/vs/review/browser/parts/canvas/reviewDocumentData.ts` is empty.
+
+**End-to-end check:** none on its own; the canvas cannot consume the load states until B6. Do not open the app between B5 and B6 expecting a rendered review.
 
 - [ ] **Step 1: Implement** as listed; `protocol:sync`.
 - [ ] **Step 2: Verify** — `pnpm --filter @dev.fast/review-desktop test && pnpm --filter @dev.fast/review typecheck`; `grep -rn "doc-runtime\|reviewDocRuntimeUrl\|docRuntimeUrl\|review-doc-runtime" packages apps --include='*.ts' --include='*.tsx' --include='*.mjs' --include='*.sh' -l` → only `src/review-publish-evaluate.ts` (the validation runtime keeps the specifier by design) and `src/stored-review-migration.ts`.
@@ -971,6 +1035,13 @@ export function renderReviewNodes(nodes: ReviewNode[], components: ReviewDocumen
 // review-documents-runtime.ts
 export type ReadyReviewDocumentEntry = HydratedReviewDocument   // App reads contentHash, body, anchors, anchorContents, documentSoftwareModels, routePath, filePath
 ```
+
+**Success criteria:**
+- Hydration: an anchor inlined in a component prop is the *same object* as `anchors[id]` after hydration; `DatabaseLens` stores pass `collectionSchema`; software models carry a `Map`; `resolveReviewDocumentPeeks` issues exactly one request per unique peek and sets `peek.resolution` on the shared object; a failing peek rejects and the entry reports `unavailable`.
+- Renderer: element props render verbatim; `pre > code.language-x` reaches `MarkdownCodeBlock`; a `ReviewSection` hoists the `h2`; `DatabaseLens` finds `DbUseCase` children by identity.
+- `pnpm --filter @dev.fast/review test` and `typecheck` pass; `grep -rn "createBrowserReviewDefinitionSession\|setReviewRequestContext\|mdx/types" packages/progressive-review/app/src` is empty.
+
+**End-to-end check (the main one):** run the desktop app from this worktree and open the tutorial (rebuilt by B3). Verify, in order: the document renders with section collapse working; hovering a typed symbol in the first code peek shows hover info and F12 jumps to the definition; leaving a comment on a prose paragraph creates a thread and clicking it in the Threads panel scrolls to it; the sequence diagram **Tour** walks messages and opens code evidence; the database lens opens the "Create an order" use case and highlights `orders.status`; the **Map** tab renders; the workbench devtools console shows no errors and the network log shows one `/__progressive-review/documents/<hash>.json` request plus one `/code-peek/resolve` per unique anchor. Then open a second review published with this build and repeat the peek and thread checks.
 
 - [ ] **Step 1: Failing hydrate test** — a `ReviewDocumentData` literal with one anchor inlined twice (in `anchors` and in a `CodePeek` prop): after hydration the prop's anchor `===` the map entry; a DatabaseLens node's `stores.db.tables.orders` passes `collectionSchema(...)`; `documentSoftwareModels[0].elementsByPath` is a `Map`. Peek resolution test: stub `resolveCodePeekRequest` via `vi.mock("./review-definition-runtime")`, assert one request per anchor and `peek.resolution` set on the shared object.
 - [ ] **Step 2: Failing renderer test** — as draft 1 Task B7 Step 1 (element props, `pre>code` → `MarkdownCodeBlock`, `ReviewSection` heading hoist, `DatabaseLens` children found by identity).
@@ -1021,6 +1092,12 @@ Prompt (exact):
 > Republish the Review with id `<uuid>`. It was published by an earlier version of Review and its document must be regenerated. Run `review publish --review <uuid> --json`. If it reports validation errors, fix them in that Review's `review.mdx` or `data.ts` without changing what the review says, and rerun until it succeeds.
 > *(mapStale)* Then run `review map publish --review <uuid> --json`.
 
+**Success criteria:**
+- `RepublishReview` renders the `h2` "Republish this review", the command in a `code` element, a button labelled "Copy command" that copies the command, and a primary button labelled "Copy prompt" that copies `republishReviewPrompt(...)`; the map line and the prompt's map sentence appear only when `mapStale` is true.
+- With a `needs-republish` document load, `desktop-entry` renders the state instead of the loading screen, does not report an error diagnostic, and calls `session.signalReady()` (assert with the existing test utilities' fake session).
+
+**End-to-end check:** open a review in the app, close it, edit the presented revision's materialized manifest (`~/.dev/reviews/<uuid>/.build/<presentedDocumentRevision>/.bundle/document/manifest.json`, set `"version": 1`), reopen: the republish state shows with the correct uuid; **Copy command** puts `review publish --review <uuid>` on the clipboard; **Copy prompt** puts the full prompt; Diff, Commits, and Threads tabs still work; running the copied command with the app runtime and reopening renders the document. Restore the manifest (or just republish) afterwards.
+
 - [ ] **Step 1: Failing test** — as draft 1 Task B9 Step 1 (title `h2`, `code` with the command, buttons with `aria-label` "Copy command" then "Copy prompt", `copyText` called with the command and with the prompt, map line only when `mapStale`).
 - [ ] **Step 2: Implement** — `section.review-republish > h2 + p + div.review-republish-command(code + CopyCommandButton) [+ map line] + div.review-republish-actions(CopyPromptButton)`; `CopyCommandButton` mirrors `CopyPromptButton` with `aria-label="Copy command"` and icon-only content.
 - [ ] **Step 3: Run, commit** `"Show a republish state for pre-data review revisions"`.
@@ -1031,6 +1108,13 @@ Prompt (exact):
 - Modify: `packages/review-protocol/src/contracts.ts:33-37` — `REVIEW_SCHEMA_VERSION = 5` with the comment "Version 5: document and software-map bundles are JSON".
 - Modify: `packages/progressive-review/src/stored-review-migration.ts:383-437, 551-663`
 - Test: `stored-review-migration.test.ts`
+
+**Success criteria:**
+- `REVIEW_SCHEMA_VERSION === 5` and every `schemaVersion` literal/parsers agree (`grep -rn "schemaVersion" packages/progressive-review/src | grep -v test` shows no `4`).
+- `stored-review-migration.test.ts`: a schema-4 review with a sealed version-1 document bundle migrates to schema 5, gains `review-document.json` with `format: "review-document/1"` and the expected nodes, changes `presentedDocumentRevision`, and leaves no `review-document.js`; a review whose sealed bundle fails validation is reported as a blocker and left untouched (backup restored).
+- Schema-2 and schema-3 stores still migrate through the existing paths and end at schema 5.
+
+**End-to-end check:** on a scratch copy of the real store (`DEV_REVIEW_HOME=/tmp/review-home-b8`, as in A4), run `review migrate apply` with the app runtime: it logs one regeneration per review and no blockers for reviews whose sources are intact; launch the app against that home: the home screen shows no migration warning, and every migrated review opens and renders (spot-check two, including one with a map). Delete the scratch home afterwards.
 
 - [ ] **Step 1: Failing test** — seed a schema-4 review with a sealed revision containing a version-1 document bundle whose `review-document.js` is a hand-written bundle in the `bundleWithAnchors` style (imports from `"review-doc-runtime"`, calls `createActiveReviewDocument({ title, routePath: "/", filePath: "review.mdx", modelNames: [], models: { anchors }, Component: ({ components }) => jsx("h1", { children: "T" }), isDefault: true })`); run `migrateStoredReviewData`; assert `schemaVersion === 5`, `review-document.json` exists with `format === "review-document/1"` and an `h1` node, `presentedDocumentRevision` changed, no `review-document.js` remains.
 - [ ] **Step 2: Implement** — accept `schemaVersion === 4` in the migrate set; rename `migrateLegacyPresentedArtifacts` → `regeneratePresentedArtifacts`; replace its `compileReviewDocumentBundle` call with:
@@ -1046,6 +1130,13 @@ and write with `writeReviewDocumentBundle(input.reviewDir, documentBundle)`; `ev
 - [ ] **Step 3: Run, commit** `"Migrate stored reviews to JSON document artifacts"`.
 
 ### Task B9: Tutorial end-to-end, docs, gate
+
+**Success criteria:**
+- `tutorial-document.test.tsx` passes: the parsed tutorial JSON renders, every expected registry name is present, and `data-review-block-index` values are `0…n-1` in DOM order.
+- Block-index parity: the ordered `(tag, index, text)` list from the `main` MDX render equals the list from the new renderer for the tutorial (recorded in the PR description).
+- Docs updated as listed; the gate commands all pass.
+
+**End-to-end check (Phase 2 gate):** the B6, B7, and B8 live checks re-run on the *packaged* app (`app:desktop:build` output), plus: publish a new review end to end with the packaged app's CLI (`review scaffold` → author → `review publish` → `review map publish`) and open it; open a historical (terminal) review after migration; confirm `~/.dev/reviews/<uuid>/.bundle/document` contains only JSON for every review touched. Commands: `pnpm --filter @dev.fast/review test && pnpm --filter @dev.fast/review typecheck && pnpm --filter @dev.fast/review-desktop test && pnpm lint && pnpm format:check && pnpm --filter @dev.fast/review check:tutorial`.
 
 - [ ] **Step 1: Tutorial data test** — `app/src/tutorial-document.test.tsx` (as draft 1 Task B8): parse `tutorial/.bundle/document/review-document.json`, render through `hydrateReviewDocument` (peeks stubbed) + `renderReviewNodes`, assert the registry names present and that `data-review-block-index` values are `0..n-1` in DOM order.
 - [ ] **Step 2: Block-index parity** — on `main`, run the old tutorial bundle in jsdom (`git stash` not needed: `git worktree add ../review-main origin/main`, build tutorial assets there, render the MDX component with `renderToStaticMarkup`) and diff the ordered list of `(tag, index, text)` against the new renderer's output. Record the result in the PR description.
@@ -1064,6 +1155,8 @@ Not executed under this plan. Write `docs/superpowers/plans/<date>-remove-mdx-co
 **What replaces it (design proven by the 2026-09-04 spike, spec §3):** parse `review.mdx` to mdast with the existing `remarkReviewAnchorLinks`/`remarkReviewSections` plugins; import `data.ts` in place with Node 24 type stripping through a `module.registerHooks` resolve hook that maps `virtual:progressive-review-authoring` to a per-call shim and version-stamps every URL under the realpathed review dir; evaluate attribute expressions against the imported bindings named by the MDX import line; parse each component's props with its zod schema; convert to hast and normalize props with `property-information`; emit the **same `ReviewDocumentData`** Phase 2 emits, so the server, host, and app do not change.
 
 **Preconditions and known costs:** new authoring constraints (erasable TypeScript in `data.ts`, JSON imports with `with { type: "json" }`, one import from `./data.ts`, no bare `{}` expressions, no JSX in attributes, no spread); `typescript` stays if `software-map-connectivity-validation.ts` still needs it; `review migrate apply` must keep a copy of the validation-runtime evaluator for one release to convert any remaining version-1 bundles, or drop support for them with a release note. The tutorial's `data.ts` already carries the JSON import attribute (done in this worktree).
+
+**Acceptance criteria when planned:** the tutorial's `review-document.json` produced by the new builder is byte-identical (after stable-key JSON formatting) to the one Phase 2 produces from the compiler; `esbuild`, `@mdx-js/mdx`, `remark-*`, `source-map`, `es-module-lexer` are absent from `dependencies`; a publish-error test matrix covers every new authoring constraint with the `review.mdx:<line>` position; `review migrate apply` still converts a version-1 bundle or the release notes state that support ended.
 
 **Deliverables when planned:** loader module (`review-data-module.ts`), tree builder (`review-document-tree.ts`), build orchestration replacing `evaluateReviewDocumentBundleForPublish`, publish-error test matrix, dependency removal, docs.
 

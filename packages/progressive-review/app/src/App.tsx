@@ -43,6 +43,7 @@ import {
   TerminalIcon,
   ThreadsIcon,
 } from "./icons";
+import { RepublishReview } from "./republish-review";
 import { ReviewPanelHost } from "./review-components";
 import {
   ReviewProvider,
@@ -817,14 +818,10 @@ function ReviewDocumentLoadState({
   }
   if (state.state === "needs-republish") {
     return (
-      <div className="review-document-load-state" role="status">
-        <h2>Republish this review</h2>
-        <p>
-          This review was published by an earlier version of Review and its
-          document must be regenerated.
-        </p>
-        <code>review publish --review {state.reviewUuid}</code>
-      </div>
+      <RepublishReview
+        reviewUuid={state.reviewUuid}
+        mapStale={state.mapStale}
+      />
     );
   }
   return (

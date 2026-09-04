@@ -217,6 +217,78 @@ describe("publish range evaluation", () => {
       expect(result.errors[0]).toContain("not found in session");
     });
 
+    it("emits one error for a failing TraceQuote behind a passthrough wrapper", async () => {
+      const reviewDir = fixtureDir("review");
+      const result = await evaluateReviewDocumentBundleForPublish({
+        reviewDir,
+        bundleCode: `
+          import React, {
+            createActiveReviewDocument,
+            createBrowserReviewDefinitionSession,
+          } from "review-doc-runtime";
+          const session = createBrowserReviewDefinitionSession({
+            softwareMap: null,
+            baseSoftwareMap: null,
+          });
+          await session.ready();
+          const Section = ({ children }) => children;
+          createActiveReviewDocument({
+            Component: ({ components }) => {
+              const TraceQuote = components.TraceQuote;
+              return React.createElement(
+                Section,
+                null,
+                React.createElement(
+                  TraceQuote,
+                  { sessionId: "${sessionId}" },
+                  "Nonexistent text that never happened"
+                )
+              );
+            }
+          });
+        `,
+      });
+
+      expect(result.errors.length).toBe(1);
+      expect(result.errors[0]).toContain("not found in session");
+    });
+
+    it("still fails when a discarding wrapper drops a failing TraceQuote at render", async () => {
+      const reviewDir = fixtureDir("review");
+      const result = await evaluateReviewDocumentBundleForPublish({
+        reviewDir,
+        bundleCode: `
+          import React, {
+            createActiveReviewDocument,
+            createBrowserReviewDefinitionSession,
+          } from "review-doc-runtime";
+          const session = createBrowserReviewDefinitionSession({
+            softwareMap: null,
+            baseSoftwareMap: null,
+          });
+          await session.ready();
+          const Discarding = () => React.createElement("footer", null);
+          createActiveReviewDocument({
+            Component: ({ components }) => {
+              const TraceQuote = components.TraceQuote;
+              return React.createElement(
+                Discarding,
+                null,
+                React.createElement(
+                  TraceQuote,
+                  { sessionId: "${sessionId}" },
+                  "Nonexistent text that never happened"
+                )
+              );
+            }
+          });
+        `,
+      });
+
+      expect(result.errors.length).toBe(1);
+      expect(result.errors[0]).toContain("not found in session");
+    });
+
     it("emits warning when event hint is stale", async () => {
       const reviewDir = fixtureDir("review");
       const result = await evaluateReviewDocumentBundleForPublish({

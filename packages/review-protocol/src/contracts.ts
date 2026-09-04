@@ -1045,6 +1045,20 @@ export interface ReviewCanvasSettingsContent {
   install?: ReviewCanvasInstallContent;
 }
 
+/**
+ * A host-owned, read-only projection of the current incremental document.
+ * The canvas subscribes to this bridge instead of performing network or
+ * filesystem I/O itself.
+ */
+export interface ReviewDocumentStoreBridge {
+  getSnapshot(): ReviewDocumentSnapshot;
+  subscribe(listener: () => void): ReviewDisposable;
+}
+
+export type ReviewCanvasDocument =
+  | { kind: "compiled"; bundle: unknown }
+  | { kind: "incremental"; store: ReviewDocumentStoreBridge };
+
 export type ReviewCanvasContent =
   | { kind: "loading" }
   | {
@@ -1108,7 +1122,7 @@ export type ReviewCanvasContent =
   | {
       kind: "session";
       bridge: ReviewCanvasBridge;
-      document: Promise<unknown>;
+      document: Promise<ReviewCanvasDocument>;
       softwareMap: Promise<unknown | null>;
       softwareMapEnabled: boolean;
       reviewErrors: readonly ReviewListError[];

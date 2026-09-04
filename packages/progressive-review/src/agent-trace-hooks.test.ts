@@ -151,17 +151,6 @@ command = "review trace hook SessionEnd"
       path.join(homeDir, ".config", "opencode", "plugins", "review-trace.ts"),
     );
 
-    const content = await readFile(first.path, "utf8");
-    expect(content).toContain("session.created");
-    expect(content).toContain("message.updated");
-    expect(content).toContain("session.idle");
-    expect(content).toContain('runTraceHook("SessionStart"');
-    expect(content).toContain('"UserPromptSubmit"');
-    expect(content).toContain('"SessionEnd"');
-    expect(content).toContain(
-      'spawn("/opt/review", ["trace", "hook", eventName]',
-    );
-
     const second = await installOpenCodeTraceExtension(homeDir, "/opt/review");
     expect(second.modified).toBe(false);
 

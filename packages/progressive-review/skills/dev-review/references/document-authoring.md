@@ -10,19 +10,11 @@ Assume raw prose will confuse the reader. Think about the style of RFCs from gre
 
 Remember that the reader can ONLY see the 'user' prompts _before_ coding started and the document you write to explain what changed. This means jargon in the middle - references to specific parts of code, especially any and all abstractions, changes, and code referenced _during_ the editing process - is confusing and not helpful. More words do not help. Progressive disclosure of complexity is key.
 
-You are optimizing for human readership here; humans prefer, in order:
- 1. interactive diagrams to explain context
- 2. code examples
- 3. text
-
-Raw text should almost always be accompanied by (1) or (2).
-
 If you have context on the change already in previous chat history, there's almost no reason to do extra exploration - go straight into authoring. Just make sure to attach examples to your claims.
 
 Open the document with a landing section after the H1 and before the first H2. Be concise; this section should just be *quotes from the prompt behind the change* (either through associated agent trace sessions, or your own context window, if you have the implementation session in context.)
 
 **Summary** - *What* behavior was changed
-- if possible, show this through visuals, links, etc
 - keep max ~5 bullet points. 1 is best and indicates a clean PR.
 
 **Why**
@@ -72,22 +64,46 @@ Do not import runtime values from source repository files. Put document data in 
 
 Scaffold creates one pinned checkout per pinned commit and prints both paths in its JSON event, under `checkouts.head` and `checkouts.base`. Read the paths from that output. Do not derive them from the repository layout. When you have no scaffold output, the layout is `<git-common-dir>/dev-fast/reviews/<review-uuid>/{head,base}/<full-commit>/`; resolve the common dir with `git rev-parse --git-common-dir` in the source worktree.
 
-1. (OPTIONAL; SKIP IF THIS IS THE SAME SESSION THAT AUTHORED THE CHANGE): **Load the change into your context window**
-   - Typically involves batched commands; utilize code mode + parallel subagents to minimize the number of tool calls.
+1. **Load the change into your context window**:
+   - *IMPORTANT*: THIS STEP IS OPTIONAL; SKIP to #2 IF THIS IS THE SAME SESSION THAT AUTHORED THE CHANGE
+   - Typically involves batched commands; utilize code mode + parallel subagents to minimize the number of tool calls. If it's available, use ast-grep as per the code search section below.
+   - infer if "this is the same session that authored the change" via the user's messages.
 2. **Decide on the evidence that you want to show**
 3. **For locations where you can't remember specific line numbers, search for code locations to match your chosen examples/anchors.**
+
+Default to `AnchorLink` or `CodePeek` for source evidence (prefer `AnchorLink`, with `CodePeek` superior for examples which are best demonstrated via inline code, e.g. an API change).
+
+A path outside the pinned checkout blocks document publication.
+
+### Code Search
    - Utilize batching to minimize tool calls / code-mode + parallelism (e.g. via subagents) to speed things up.
    - *IMPORTANT*: when at all possible, use `ast-grep` (on PATH) vs. vanilla grep, reading files (e.g. via sed/cat), or counting line ranges. 'sed, grep, cat' are slow and ill-fitted to this use-case (finding starting/closing brackets of code snippets).
-      - match the declaration or the exact node you're citing and take `fromLine`/`toLine` from `range.start.line`/`range.end.line` in `--json` output
-      - ast-grep's `range.*.line` is 0-based (vs. the 1-based index of `fromLine`/`toLine`)
-      - Resolve all anchors in as few calls as possible.
-      - because ast-grep gives you the end lines inline you can effectively batch calls and reduce total number of turns
+      - Match declarations by **node kind + name** with `ast-grep scan`, not by a code pattern (`ast-grep run -p`): a pattern must parse as a complete program, and a bare method or signature does not, so method patterns return nothing.
+      - One call resolves every anchor on a checkout. List all the names in the regex; run it once for head and once for base:
+      ```sh
+      ast-grep scan --json=compact --inline-rules '
+      id: anchors
+      language: TypeScript
+      rule:
+        any: [{kind: function_declaration}, {kind: method_definition}, {kind: class_declaration},
+              {kind: interface_declaration}, {kind: type_alias_declaration}, {kind: variable_declarator}]
+        has: {field: name, regex: ^(nameA|nameB|nameC)$}
+      ' <checkout>/<dir> \
+        | jq -r '.[] | "\(.file) \(.range.start.line+1)-\(.range.end.line+1)\n\(.text)\n"'
+      ```
+      - The output is `file fromLine-toLine` followed by the full source of the match, already 1-based (`range.*.line` is 0-based; the `+1` is in the jq). That text is the code you will describe or peek at; do not re-read it with `sed`/`cat`.
+      - Private members match by their `#name` (`regex: ^#mirror$`).
+      - If a declaration shape is not matching, ask ast-grep which kind carries its `name:` field and use that kind:
+      ```sh
+      ast-grep run -l <lang> -p '<one complete, valid declaration of that shape>' --debug-query=ast
+      ```
+        e.g. `const f = (x: X): Y => { … }` shows `lexical_declaration > variable_declarator > name: identifier`, so the kind is `variable_declarator`. This is also how to get kinds for other languages.
+      - For a range inside a declaration (one call, one statement), add `inside: {kind: <declaration kind>, has: {field: name, regex: ^outer$}}` to the rule and match the inner node.
+      - The range from ast-grep is authorative & there's no need to second-guess it with 'sed' or 'cat' calls.
 
 Remember that a review has two pinned checkouts (base checkout, or `baseCommit`, and head checkout, or `sourceCommit`). Depending on the anchor/code ref you may need to be specific about one side or the other.
 
 If code context is already in your context window (e.g. file/symbols), leverage that information to avoid extraneous searches.
-
-Default to `AnchorLink` or `CodePeek` for source evidence (prefer `AnchorLink`, with `CodePeek` superior for examples which are best demonstrated via code, e.g. an API change). A path outside the pinned checkout blocks document publication.
 
 ## Authoring API (data.ts)
 
@@ -174,4 +190,4 @@ See <AnchorLink anchor={anchors.publish}>the publish implementation</AnchorLink>
 
 ## Publication checks
 
-Run `review publish --review <uuid> --json`. Do not run `npm test` against the private Review directory. The publish command supplies the correct private test command and returns document diagnostics as NDJSON events.
+Run `review publish --review <uuid> --json` to publish.

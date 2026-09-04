@@ -1,6 +1,6 @@
 ---
 name: dev-review
-description: Use when the user wants to understand a complex code change in the 'Review' app (alt: dev Review app). 
+description: Answer product questions about Review Desktop, or author and publish a progressive Review for a branch, jj change, or pull request. Use for Review capabilities, setup, CLI, privacy, telemetry, troubleshooting, and code-change or architecture reviews.
 ---
 
 # dev.fast Review
@@ -165,3 +165,11 @@ Complete the authoring turn only when all applicable conditions are true:
 - All document diagnostics are resolved.
 - Both map checks passed before map publication.
 - The Review is waiting on the reviewer, the reader dismissed it, or the Review was deleted.
+
+## Errata
+
+Do not run typechecks, compilation checks, lints, or tests of any sort until you get explicit instructions from the user.
+
+You do not need ANY of this information to write a good review and it is a complete waste of time.
+
+The point is to help the user understand the code; it does not relevant if CI is or is going to be green.

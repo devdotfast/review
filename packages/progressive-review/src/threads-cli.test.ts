@@ -179,6 +179,9 @@ async function makeReview(): Promise<{
     getDocument: async () => {
       throw new Error("Not used by thread CLI tests.");
     },
+    getDocumentNode: async () => {
+      throw new Error("Not used by thread CLI tests.");
+    },
     mutateDocument: async () => {
       throw new Error("Not used by thread CLI tests.");
     },

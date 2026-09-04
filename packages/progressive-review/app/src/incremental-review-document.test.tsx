@@ -12,11 +12,16 @@ import { IncrementalReviewDocument } from "./incremental-review-document";
 
 class TestDocumentStore implements ReviewDocumentStoreBridge {
   private readonly listeners = new Set<() => void>();
+  private authoringTargetNodeId: string | null = null;
 
   constructor(private snapshot: ReviewDocumentSnapshot) {}
 
   getSnapshot(): ReviewDocumentSnapshot {
     return this.snapshot;
+  }
+
+  getAuthoringTargetNodeId(): string | null {
+    return this.authoringTargetNodeId;
   }
 
   subscribe(listener: () => void) {
@@ -26,6 +31,11 @@ class TestDocumentStore implements ReviewDocumentStoreBridge {
 
   replace(snapshot: ReviewDocumentSnapshot): void {
     this.snapshot = snapshot;
+    for (const listener of this.listeners) listener();
+  }
+
+  select(nodeId: string | null): void {
+    this.authoringTargetNodeId = nodeId;
     for (const listener of this.listeners) listener();
   }
 }
@@ -84,9 +94,53 @@ describe("incremental review document", () => {
     expect(details?.textContent).toContain("Updated details");
     expect(
       container
+        .querySelector('[data-review-node-id="intro"]')
+        ?.classList.contains("review-incremental-node--entering"),
+    ).toBe(true);
+    expect(
+      overview?.classList.contains("review-incremental-node--entering"),
+    ).toBe(false);
+    expect(
+      container
         .querySelector(".review-incremental-document")
         ?.getAttribute("data-review-document-revision"),
     ).toBe("2");
+  });
+
+  it("shows Paper-style activity only on the selected authoring node", () => {
+    const store = new TestDocumentStore(
+      snapshot(1, [
+        { id: "overview", kind: "markdown", content: "# Overview" },
+        { id: "details", kind: "markdown", content: "Details" },
+      ]),
+    );
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    roots.push(root);
+    act(() => root.render(<IncrementalReviewDocument store={store} />));
+
+    act(() => store.select("details"));
+
+    expect(
+      container
+        .querySelector('[data-review-node-id="details"]')
+        ?.getAttribute("data-review-authoring-target"),
+    ).toBe("true");
+    expect(
+      container.querySelectorAll(
+        '[data-review-node-id="details"] .review-incremental-node__authoring-sparkles i',
+      ),
+    ).toHaveLength(28);
+    expect(
+      container
+        .querySelector('[data-review-node-id="overview"]')
+        ?.hasAttribute("data-review-authoring-target"),
+    ).toBe(false);
+
+    act(() => store.select(null));
+    expect(
+      container.querySelector("[data-review-authoring-target]"),
+    ).toBeNull();
   });
 
   it("renders callout and code node kinds without evaluating document source", () => {

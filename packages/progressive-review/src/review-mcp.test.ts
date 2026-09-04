@@ -26,10 +26,38 @@ describe("Review MCP server", () => {
       result: {
         tools: expect.arrayContaining([
           expect.objectContaining({ name: "review_get_document" }),
+          expect.objectContaining({ name: "review_get_node" }),
           expect.objectContaining({ name: "review_insert_node" }),
           expect.objectContaining({ name: "review_reply_comment" }),
         ]),
       },
+    });
+  });
+
+  it("reads and selects a node before authoring it", async () => {
+    const api = fakeApi();
+    const getNode = vi.mocked(api.getDocumentNode);
+    const output = await exchange(api, [
+      {
+        jsonrpc: "2.0",
+        id: "node-1",
+        method: "tools/call",
+        params: {
+          name: "review_get_node",
+          arguments: {
+            reviewId: "11111111-1111-4111-8111-111111111111",
+            nodeId: "next",
+          },
+        },
+      },
+    ]);
+
+    expect(getNode).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      "next",
+    );
+    expect(output[0]).toMatchObject({
+      result: { structuredContent: { ok: true, node: { id: "next" } } },
     });
   });
 
@@ -115,6 +143,15 @@ function fakeApi(): ReviewCanvasApi {
     ok: true,
     snapshot,
   }));
+  const getDocumentNode = vi.fn<ReviewCanvasApi["getDocumentNode"]>(
+    async (reviewId, nodeId) => ({
+      ok: true,
+      reviewId,
+      routePath: "/",
+      revision: snapshot.revision,
+      node: snapshot.nodes.find((node) => node.id === nodeId)!,
+    }),
+  );
   const mutateDocument = vi.fn<ReviewCanvasApi["mutateDocument"]>(
     async (_reviewId, request) => ({
       ok: true,
@@ -152,6 +189,7 @@ function fakeApi(): ReviewCanvasApi {
   }));
   return {
     getDocument,
+    getDocumentNode,
     mutateDocument,
     getComments,
     command,

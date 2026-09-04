@@ -53,6 +53,17 @@ describe("Review Desktop document and comment API", () => {
       });
 
       await expect(
+        client.getDocumentNode(reviewId, "intro"),
+      ).resolves.toMatchObject({
+        ok: true,
+        revision: 1,
+        node: { id: "intro", content: "# Hello" },
+      });
+      await expect(
+        client.getDocumentNode(reviewId, "missing"),
+      ).rejects.toMatchObject({ statusCode: 404 });
+
+      await expect(
         client.mutateDocument(reviewId, {
           mutationId: "stale-1",
           expectedRevision: 0,

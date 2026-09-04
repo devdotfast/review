@@ -36,7 +36,20 @@ function resolveSourceRange(
   const { file, fromLine, toLine } = parseSourceRange(input);
   const absoluteRoot = path.resolve(rootPath);
   const absoluteFile = path.resolve(absoluteRoot, file);
-  if (!isInsideDirectoryOrSame(absoluteFile, absoluteRoot)) {
+  // `path.resolve` is purely lexical and does not resolve symlinks, so an
+  // in-root symlink whose target escapes the review root would pass a purely
+  // lexical containment check and `fs.readFileSync` would follow it out of the
+  // root. Resolve both paths to their on-disk canonical form (which follows
+  // symlinks) and re-run containment against the canonicalized paths before
+  // any read. Keep the lexical paths for the reported `relativeFile` so
+  // legitimately readable files (including in-root symlinks) keep their
+  // existing snapshot identity.
+  if (
+    !isInsideDirectoryOrSame(
+      canonicalPath(absoluteFile),
+      canonicalPath(absoluteRoot),
+    )
+  ) {
     throw new Error("file must be inside the review root");
   }
 
@@ -99,4 +112,18 @@ function isInsideDirectoryOrSame(filePath: string, directory: string): boolean {
     relative === "" ||
     (!relative.startsWith("..") && !path.isAbsolute(relative))
   );
+}
+
+// Resolve a path to its on-disk canonical form, which follows symlinks. A
+// purely lexical resolve cannot detect an in-root symlink pointing outside
+// the review root. Falls back to the lexical absolute path when the target
+// does not exist on disk (e.g. a broken symlink or a not-yet-created file):
+// such a path cannot satisfy `fs.readFileSync` either, so the read still
+// fails before any out-of-root byte is returned.
+function canonicalPath(filePath: string): string {
+  try {
+    return fs.realpathSync.native(filePath);
+  } catch {
+    return path.resolve(filePath);
+  }
 }

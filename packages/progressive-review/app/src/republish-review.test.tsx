@@ -4,12 +4,11 @@ import { act } from "react";
 import { type Root, createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { RepublishReview, republishReviewPrompt } from "./republish-review";
+import { RepairReview, repairReviewPrompt } from "./republish-review";
 
 const reviewUuid = "11111111-1111-4111-8111-111111111111";
-const command = `review publish --review ${reviewUuid}`;
-const mapCommand = `review map publish --review ${reviewUuid}`;
-const prompt = `Republish the Review with id \`${reviewUuid}\`. It was published by an earlier version of Review and its document must be regenerated. Run \`${command} --json\`. If it reports validation errors, fix them in that Review's \`review.mdx\` or \`data.ts\` without changing what the review says, and rerun until it succeeds.`;
+const command = `review repair --review ${reviewUuid}`;
+const prompt = `Repair the currently presented Review with id \`${reviewUuid}\`. Run \`${command} --json\`. If it reports validation errors, fix only the reported authoring inputs without changing what the current review says, then rerun. Reconcile any unpublished authoring edits before using source-based repair. Preserve the review status, pinned commits, and threads; do not republish or repair older historical revisions.`;
 let root: Root;
 let container: HTMLDivElement;
 const writeText = vi.fn<(text: string) => Promise<void>>(async () => {});
@@ -33,56 +32,50 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-describe("RepublishReview", () => {
-  it("explains legacy recovery without offering publication commands", async () => {
+describe("RepairReview", () => {
+  it("offers repair for legacy recovery without offering publication commands", async () => {
     await act(async () =>
-      root.render(
-        <RepublishReview reviewUuid={reviewUuid} mapStale recovery />,
-      ),
+      root.render(<RepairReview reviewUuid={reviewUuid} mapStale />),
     );
-    expect(container.textContent).toContain("Review recovery");
+    expect(container.textContent).toContain("Repair this review");
     expect(container.textContent).toContain(
-      "published software map also needs recovery",
+      "The published software map also needs repair.",
     );
-    expect(container.querySelector("button")).toBeNull();
+    expect(container.querySelector("code")?.textContent).toBe(command);
     expect(container.textContent).not.toContain("review publish");
   });
   it.each([false, true])(
     "copies the exact commands and prompt with mapStale=%s",
     async (mapStale) => {
       const expectedPrompt = mapStale
-        ? `${prompt} Then run \`${mapCommand} --json\`.`
+        ? `${prompt} The published software map also needs repair.`
         : prompt;
-      expect(republishReviewPrompt({ reviewUuid, mapStale })).toBe(
-        expectedPrompt,
-      );
+      expect(repairReviewPrompt({ reviewUuid, mapStale })).toBe(expectedPrompt);
       await act(async () =>
         root.render(
-          <RepublishReview reviewUuid={reviewUuid} mapStale={mapStale} />,
+          <RepairReview reviewUuid={reviewUuid} mapStale={mapStale} />,
         ),
       );
       expect(container.querySelector("h2")?.textContent).toBe(
-        "Republish this review",
+        "Repair this review",
       );
       expect(
         Array.from(
           container.querySelectorAll("code"),
           (node) => node.textContent,
         ),
-      ).toEqual(mapStale ? [command, mapCommand] : [command]);
+      ).toEqual([command]);
+      expect(container.querySelector("p")?.textContent).toBe(
+        "This review's published artifacts must be regenerated. Repair keeps its review status, pinned commits, and threads.",
+      );
       const buttons = container.querySelectorAll<HTMLButtonElement>(
         'button[aria-label="Copy command"]',
       );
-      expect(buttons).toHaveLength(mapStale ? 2 : 1);
+      expect(buttons).toHaveLength(1);
       await act(async () => buttons[0]!.click());
       expect(writeText).toHaveBeenLastCalledWith(command);
       expect(buttons[0]!.getAttribute("aria-label")).toBe("Command copied");
-      if (mapStale) {
-        await act(async () => buttons[1]!.click());
-      }
-      expect(writeText.mock.calls.map(([text]) => text)).toEqual(
-        mapStale ? [command, mapCommand] : [command],
-      );
+      expect(writeText.mock.calls.map(([text]) => text)).toEqual([command]);
       await act(async () =>
         container
           .querySelector<HTMLButtonElement>('button[aria-label="Copy prompt"]')!

@@ -503,6 +503,7 @@ async function findReviewRecord(
 export async function reviewDescriptor(
   stored: StoredReview,
   retentionDays: DismissedRetentionDays = DEFAULT_DISMISSED_RETENTION_DAYS,
+  readOnlyThreads = false,
 ): Promise<ReviewDescriptor> {
   const documentPath = path.join(stored.dir, "review.mdx");
   const [reviewDirExists, worktreeExists, documentStats] = await Promise.all([
@@ -547,18 +548,19 @@ export async function reviewDescriptor(
         })
       : [],
   ]);
-  const commentCount = stored.recovery
-    ? (() => {
-        try {
-          return Object.keys(readReviewThreadsReadOnly(documentPath).comments)
-            .length;
-        } catch {
-          return 0;
-        }
-      })()
-    : documentExists
-      ? countReviewComments(documentPath)
-      : 0;
+  const commentCount =
+    stored.recovery || readOnlyThreads
+      ? (() => {
+          try {
+            return Object.keys(readReviewThreadsReadOnly(documentPath).comments)
+              .length;
+          } catch {
+            return 0;
+          }
+        })()
+      : documentExists
+        ? countReviewComments(documentPath)
+        : 0;
   return {
     uuid: stored.review.uuid,
     title: stored.review.title,

@@ -85,6 +85,44 @@ function mockFetch(
 	});
 }
 
+test("successful repair registration refreshes cached migration warnings", async (t) => {
+	const service = serviceWith([review]);
+	let errorsAtRegistration: unknown;
+	service.onDidRegisterSession(() => {
+		errorsAtRegistration = service.reviewErrors;
+	});
+	let lists = 0;
+	mockFetch(t, async (input) => {
+		const url = String(input);
+		if (url.includes("/events")) {
+			return new Response(
+				`data: ${JSON.stringify({ event: "session-registered", session, review })}\n\n`,
+			);
+		}
+		if (url.includes("/sessions")) return Response.json({ items: [session] });
+		lists += 1;
+		return Response.json({
+			reviews: [review],
+			errors: lists === 1 ? [{
+				reviewDir: "/tmp/review",
+				reviewUuid: uuid,
+				title: review.title,
+				worktreePath: review.worktreePath,
+				lastPublishedAt: review.lastPublishedAt,
+				code: "review_needs_migration",
+				message: "Needs migration",
+			}] : [],
+		});
+	});
+	await (service as unknown as {
+		watchGlobalEvents(connected: () => void): Promise<void>;
+	}).watchGlobalEvents(() => undefined);
+	assert.deepEqual(service.reviewErrors, []);
+	assert.deepEqual(errorsAtRegistration, []);
+	assert.equal(lists, 2);
+	service.dispose();
+});
+
 test("confirmed dismiss updates the cached review", async (t) => {
 	const service = serviceWith([review]);
 	mockFetch(t, async () =>

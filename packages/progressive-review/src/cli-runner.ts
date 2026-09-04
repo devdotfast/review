@@ -64,6 +64,7 @@ import {
   markReopenNudged,
   readReopenMarker,
 } from "./review-reopen-marker";
+import { runReviewRepair } from "./review-repair";
 import { runReviewScaffold } from "./review-scaffold";
 import { runReviewWait, validateReviewWait } from "./review-wait";
 import { installReviewCommand, pathShimPath } from "./server/cli-install";
@@ -96,6 +97,7 @@ interface ProgressiveReviewCliRuntime {
   runReviewScaffold: typeof runReviewScaffold;
   runReviewInternalTest: typeof runReviewInternalTest;
   runReviewPublish: typeof runReviewPublish;
+  runReviewRepair: typeof runReviewRepair;
   runReviewRebind: typeof runReviewRebind;
   runReviewThreadsGet: typeof runReviewThreadsGet;
   runReviewThreadsList: typeof runReviewThreadsList;
@@ -390,6 +392,24 @@ export async function runProgressiveReviewCli(
       progress: (message) => input.stderr.write(`${message}\n`),
       env,
       stdout: input.stdout,
+    });
+  });
+
+  configureJsonOutput(
+    program
+      .command("repair")
+      .description(
+        "Repair current Review artifacts without changing review status",
+      )
+      .requiredOption("--review <uuid>", "explicit review UUID"),
+    "plain",
+  ).action(async (options: { review: string; json?: boolean }) => {
+    state.exitCode = await runtime.runReviewRepair({
+      reviewUuid: options.review,
+      json: options.json,
+      stdout: input.stdout,
+      stderr: input.stderr,
+      env,
     });
   });
 
@@ -1260,6 +1280,7 @@ function progressiveReviewCliRuntime(
     runReviewScaffold,
     runReviewInternalTest,
     runReviewPublish,
+    runReviewRepair,
     runReviewRebind,
     runReviewThreadsGet,
     runReviewThreadsList,

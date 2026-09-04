@@ -7,8 +7,6 @@ import { once } from "node:events";
 import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 
-import { WebSocket } from "undici";
-
 import {
   type JsonValue,
   jsonObject,
@@ -16,6 +14,7 @@ import {
   jsonString,
   parseJsonText,
 } from "@dev.fast/review-protocol";
+import { WebSocket } from "undici";
 
 import { isJsonRecord } from "./transcript-json";
 

@@ -173,7 +173,7 @@ type ReviewDocumentExportContainer =
   | readonly ReviewDocumentExport[]
   | ReviewDocumentExportRecord;
 
-type ReviewDocumentExport =
+export type ReviewDocumentExport =
   | ReviewDocumentExportContainer
   | PublishAuditComponent
   | JsonPrimitive

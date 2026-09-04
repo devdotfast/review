@@ -681,4 +681,38 @@ describe("SoftwareMap inline C4 helpers", () => {
       /\.software-map-c4-node-shell:hover > \.comment-hover-button,\s*\.software-map-c4-group-shell:hover > \.comment-hover-button,/s,
     );
   });
+
+  it("re-applies refresh-fetched resolved data for an unchanged model signature", () => {
+    const source = readFileSync(new URL("./SoftwareMap.tsx", import.meta.url), {
+      encoding: "utf8",
+    });
+    const fetchSuccessSource = sourceBetween(
+      source,
+      "void fetchSoftwareMapResolvedData(",
+      ".catch((cause: unknown) => {",
+    );
+
+    // The success branch must apply the resolved-data payload whenever the
+    // effect run is still current. The per-run `cancelled` flag is the only
+    // supersession guard: the old `appliedResolvedDataKeyRef.current !==
+    // resolvedDataKey` check dropped every refresh-triggered re-fetch for an
+    // already-applied key, contradicting the refresh path's deliberate bypass
+    // of the same-key dedupe early-return below.
+    expect(fetchSuccessSource).toContain("if (!cancelled) {");
+    expect(fetchSuccessSource).toContain("applyResolvedDataState({");
+    expect(fetchSuccessSource).not.toContain(
+      "appliedResolvedDataKeyRef.current !== resolvedDataKey",
+    );
+
+    // The dedupe early-return still short-circuits ordinary re-render
+    // re-fetches (refreshEpoch === 0) for an already-applied key; only a
+    // refresh (refreshEpoch !== 0) is meant to re-fetch and re-apply.
+    const dedupeSource = sourceBetween(
+      source,
+      "appliedResolvedDataKeyRef.current === resolvedDataKey &&",
+      "const initialEntry = initialData?.softwareMapResolvedData.find",
+    );
+    expect(dedupeSource).toContain("refreshEpoch === 0");
+    expect(dedupeSource).toContain("return;");
+  });
 });

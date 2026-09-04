@@ -496,10 +496,7 @@ function SoftwareMapWithModel({
       resolvedDataRequestPath,
     )
       .then((resolvedData) => {
-        if (
-          !cancelled &&
-          appliedResolvedDataKeyRef.current !== resolvedDataKey
-        ) {
+        if (!cancelled) {
           applyResolvedDataState({
             key: resolvedDataKey,
             ...resolvedData,

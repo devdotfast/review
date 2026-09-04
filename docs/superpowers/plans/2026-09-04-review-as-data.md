@@ -1,6 +1,6 @@
 # Review as data — Implementation Plan (current-presentation recovery revision)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Execute task-by-task with red-first tests and the gates below. Subagents are optional when useful; use Astra at medium reasoning for substantive workers, per the user's preference. Do not require unavailable superpowers skills. Steps use checkbox (`- [ ]`) syntax for tracking; completed-task instructions below are historical, not a request to replay them.
 
 **Goal:** A published Review is JSON that the canvas app renders. No agent-authored code is imported by the app, the desktop server, or the code-oss host.
 
@@ -29,11 +29,16 @@ history entry. This amendment resolves the D2/B8 failure-recovery conflict.
 - Older pre-data history remains immutable/unavailable with an Open current
   review action, never a command that silently repairs another revision.
 
-**Resume order:** A1–A4 and B1–B7 are already implemented; do not redo their
-commits. Continue **B8 → B8a → B8b → B9**. B8a/B8b are the two added tasks;
-each requires red-first tests, its own green gates and the stated commit.
+**Resume state (verified 2026-09-04):** A1–A4 and B1–B8a are committed;
+B8 is `098d8c45` and B8a is `39fe8af9`. Do not redo their commits.
+B8b has preserved, uncommitted implementation and tests; it is not complete
+until all gates and live E2E pass. Resume **finish B8b → B9**, inspecting that
+work before adding more. B8a/B8b are the two added tasks; each requires
+red-first tests, its own green gates and the stated commit.
 B8b intentionally supersedes B7's initial publish-based recovery copy.
-This is a plan-only amendment; implementation resumes only when requested.
+This turn changes planning only; workers are paused and existing implementation
+is preserved. Resume implementation only when the user turns goal mode back on
+or otherwise explicitly requests it. Preserve the user's untracked `code-review.md`.
 
 ## Global Constraints
 
@@ -47,6 +52,7 @@ This is a plan-only amendment; implementation resumes only when requested.
 - Work in `../review-data-format` (branch `review-data-format`). pnpm only. Commit messages without `Co-Authored-By`. Every task ends green: `pnpm --filter @dev.fast/review test`, `pnpm --filter @dev.fast/review typecheck`; for host tasks `pnpm --filter @dev.fast/review-desktop test` (its `pretest` runs `protocol:sync`). `pnpm lint && pnpm format:check` clean at the end of each phase.
 - Delete the untracked spike directory `packages/progressive-review/spike-review-data/` in the first commit of Phase 2.
 - Console acceptance: no new errors from this change. Record the observed preexisting `ResizeObserver loop completed with undelivered notifications` caveat; do not suppress it or expand this task to fix it. An intentionally absent map's metadata 404 is an expected response, not a renderer failure. Report all other errors explicitly.
+- This console policy governs earlier task language saying "no errors" too; it does not waive unexplained errors. Expected stale-artifact 409 responses are recovery signals, not renderer failures. Record the observed missing webview/custom-editor actor errors separately: the registration gap is inherited at the source level, but earlier-runtime reproduction is unproven. Do not silently suppress or fix unrelated shell errors under this plan.
 - Never mutate real review stores during migration/repair E2E. Use a disposable HOME and DEV_REVIEW_HOME, copy/clone source repositories too, and repoint only scratch records so prepared-worktree cleanup cannot affect real repositories. Remove only validated scratch paths after testing.
 
 ## Verified facts this plan relies on (origin/main 0ad9297b)
@@ -88,7 +94,7 @@ This is a plan-only amendment; implementation resumes only when requested.
 - Modify `app/src/review-documents-runtime.ts`, `review-document-surface.tsx`, `App.tsx`, `desktop-entry.tsx`, `host/review-client.ts`, `review-definition-runtime.ts`.
 - Modify `src/stored-review-migration.ts` — schema 5, convert sealed bundles.
 - B8a/B8b: legacy record/recovery descriptors in `review-home.ts`, Home and session opening, CLI repair orchestration, dedicated atomic repair promotion in the server, transport/host recovery metadata, and repair UI/tests. Reuse existing validation and clipboard helpers, not ordinary publish lifecycle promotion.
-- Docs: `docs/how-review-works.md`, `skills/dev-review/references/lifecycle-and-storage.md`, `goal/PLAN.md`.
+- Docs: `docs/how-review-works.md`, `packages/progressive-review/skills/dev-review/references/lifecycle-and-storage.md`, `packages/progressive-review/skills/dev-review/references/document-authoring.md`. `goal/PLAN.md` is absent; document CDN-cacheable JSON in the existing architecture doc (`docs/how-review-works.md`) and report that substitution, rather than creating a goal file.
 
 **Phase 3 — remove the compiler and esbuild** (scope only; separate plan)
 
@@ -1268,7 +1274,7 @@ clear blocker, not falsely claim success. Restore/delete only scratch data.
 
 **Success criteria:**
 - `tutorial-document.test.tsx` passes: the parsed tutorial JSON renders, every expected registry name is present, and `data-review-block-index` values are `0…n-1` in DOM order.
-- Block-index parity: the ordered `(tag, index, text)` list from the `main` MDX render equals the list from the new renderer for the tutorial (recorded in the PR description).
+- Block-index parity: the ordered `(tag, index, text)` list from the pre-change `0ad9297b` MDX render equals the list from the new renderer for the tutorial (recorded in the PR description), not the current moving `main`.
 - Docs updated as listed; the gate commands all pass.
 
 **End-to-end check (Phase 2 gate):** rerun B6, B8, B8a and B8b on the *packaged*
@@ -1287,7 +1293,7 @@ may retain JS and must be reported, not silently deleted. Run the full gate belo
 - [ ] **Step 1: Tutorial data test** — `app/src/tutorial-document.test.tsx` (as draft 1 Task B8): parse `tutorial/.bundle/document/review-document.json`, render through `hydrateReviewDocument` (peeks stubbed) + `renderReviewNodes`, assert the registry names present and that `data-review-block-index` values are `0..n-1` in DOM order.
 - [ ] **Step 2: Block-index parity** — use a clean sibling worktree at the recorded pre-change base `0ad9297b` (not a drifting `origin/main` that may already include these changes). Build the old tutorial assets, render the old MDX component with React DOM/jsdom, and compare ordered `(tag, index, text)` values against the JSON renderer. Record the exact base SHA and result in the PR description. Never stash or mutate the core checkout.
 - [ ] **Step 3: Manual smoke** — perform the packaged-app E2E above, including failed-conversion recovery, exact clipboard strings, map-only failure, terminal preservation, old-history navigation and failure rollback. A deliberately stale materialized manifest can require a server restart to clear the immutable session bundle cache. Restore it afterward. Record the preexisting ResizeObserver caveat separately from new failures.
-- [ ] **Step 4: Docs** — update `docs/how-review-works.md` and `lifecycle-and-storage.md` for JSON, schema 5, migrate-versus-repair, current-only recovery, terminal preservation and unsupported pre-data history. Document CDN-cacheable JSON in `goal/PLAN.md` if it exists, otherwise the existing architecture documentation and report the substitution. Keep compiler/dependency descriptions until Phase 3. Add only the document-local-component restriction to `document-authoring.md`.
+- [ ] **Step 4: Docs** — update `docs/how-review-works.md` and `packages/progressive-review/skills/dev-review/references/lifecycle-and-storage.md` for JSON, schema 5, migrate-versus-repair, current-only recovery, terminal preservation and unsupported pre-data history. Document CDN-cacheable JSON in `docs/how-review-works.md` and report the substitution for absent `goal/PLAN.md`. Keep compiler/dependency descriptions until Phase 3. Add only the document-local-component restriction to `packages/progressive-review/skills/dev-review/references/document-authoring.md`.
 - [ ] **Step 5: Gate** — `pnpm --filter @dev.fast/review test && pnpm --filter @dev.fast/review typecheck && pnpm --filter @dev.fast/review-desktop test && pnpm lint && pnpm format:check && pnpm --filter @dev.fast/review check:tutorial`. Commit `"Document the JSON review artifact"`; open PR "Review document as data" against the Phase 1 branch `software-map-bundle-json` while PR1 is unmerged, or against `main` if PR1 has merged. Include all deviations and E2E evidence, the recovery scope amendment, and unresolved blockers. Do not merge without a separate request.
 
 ---

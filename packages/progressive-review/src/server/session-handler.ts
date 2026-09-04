@@ -66,6 +66,7 @@ export interface ReviewSessionHandlerInput {
   submitHook?: string;
   historicalRevision?: string;
   recovery?: boolean;
+  isReadOnly?: () => boolean;
   readOnlyReview?: ReviewRecord;
   documentUnavailable?: string;
   softwareMapUnavailable?: string;
@@ -219,8 +220,16 @@ export async function createReviewSessionHandler(
     }
     await next();
   });
-  if (input.historicalRevision || input.recovery) {
+  if (input.historicalRevision || input.recovery || input.isReadOnly) {
     app.use(`${API_PREFIX}/*`, async (context, next) => {
+      if (
+        !input.historicalRevision &&
+        !input.recovery &&
+        !input.isReadOnly?.()
+      ) {
+        await next();
+        return;
+      }
       const method = context.req.method;
       if (
         method === "GET" ||
@@ -288,8 +297,16 @@ export async function createReviewSessionHandler(
       return jsonResponse(
         {
           ok: false,
-          code: "artifact_unavailable",
+          code: input.historicalRevision
+            ? "historical_revision_unavailable"
+            : "needs_republish",
           error: input.documentUnavailable,
+          reviewUuid: needsRepublishReviewUuid(),
+          recovery: input.historicalRevision ? undefined : true,
+          mapStale: Boolean(
+            input.softwareMapUnavailable ||
+            (input.softwareMapRootPath && !(await getSoftwareMapBundle())),
+          ),
         },
         409,
       );
@@ -359,8 +376,12 @@ export async function createReviewSessionHandler(
       return jsonResponse(
         {
           ok: false,
-          code: "artifact_unavailable",
+          code: input.historicalRevision
+            ? "historical_revision_unavailable"
+            : "needs_republish",
           error: input.softwareMapUnavailable,
+          reviewUuid: needsRepublishReviewUuid(),
+          recovery: input.historicalRevision ? undefined : true,
         },
         409,
       );
@@ -470,7 +491,10 @@ export async function createReviewSessionHandler(
   });
   const reviewApi = createReviewApi({
     readOnlyReview: input.readOnlyReview,
-    readOnly: Boolean(input.recovery || input.historicalRevision),
+    readOnly: () =>
+      Boolean(
+        input.recovery || input.historicalRevision || input.isReadOnly?.(),
+      ),
     sourceUnavailable: input.sourceUnavailable,
     reviewPath: input.reviewPath,
     reviewDocumentsDir: documentsDir,

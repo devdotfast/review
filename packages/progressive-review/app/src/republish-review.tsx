@@ -3,64 +3,39 @@ import { type ReactElement, useEffect, useRef, useState } from "react";
 import { CopyPromptButton } from "./copy-prompt-button";
 import { CopyIcon, copyText } from "./copy-text";
 
-export function republishReviewPrompt({
+export function repairReviewPrompt({
   reviewUuid,
   mapStale,
 }: {
   reviewUuid: string;
   mapStale: boolean;
 }): string {
-  const prompt = `Republish the Review with id \`${reviewUuid}\`. It was published by an earlier version of Review and its document must be regenerated. Run \`review publish --review ${reviewUuid} --json\`. If it reports validation errors, fix them in that Review's \`review.mdx\` or \`data.ts\` without changing what the review says, and rerun until it succeeds.`;
+  const prompt = `Repair the currently presented Review with id \`${reviewUuid}\`. Run \`review repair --review ${reviewUuid} --json\`. If it reports validation errors, fix only the reported authoring inputs without changing what the current review says, then rerun. Reconcile any unpublished authoring edits before using source-based repair. Preserve the review status, pinned commits, and threads; do not republish or repair older historical revisions.`;
   return mapStale
-    ? `${prompt} Then run \`review map publish --review ${reviewUuid} --json\`.`
+    ? `${prompt} The published software map also needs repair.`
     : prompt;
 }
 
-export function RepublishReview(props: {
+export function RepairReview(props: {
   reviewUuid: string;
   mapStale: boolean;
-  recovery?: boolean;
 }): ReactElement {
-  if (props.recovery) return <ReviewRecovery mapStale={props.mapStale} />;
-  const command = `review publish --review ${props.reviewUuid}`;
-  const mapCommand = `review map publish --review ${props.reviewUuid}`;
+  const command = `review repair --review ${props.reviewUuid}`;
   return (
-    <section className="review-republish">
-      <h2>Republish this review</h2>
+    <section className="review-republish" role="status">
+      <h2>Repair this review</h2>
       <p>
-        This review was published by an earlier version of Review and its
-        document must be regenerated.
+        This review's published artifacts must be regenerated. Repair keeps its
+        review status, pinned commits, and threads.
       </p>
+      {props.mapStale ? (
+        <p>The published software map also needs repair.</p>
+      ) : null}
       <div className="review-republish-command">
         <code>{command}</code>
         <CopyCommandButton command={command} />
+        <CopyPromptButton prompt={repairReviewPrompt(props)} />
       </div>
-      {props.mapStale ? (
-        <div className="review-republish-command">
-          <code>{mapCommand}</code>
-          <CopyCommandButton command={mapCommand} />
-        </div>
-      ) : null}
-      <div className="review-republish-actions">
-        <CopyPromptButton prompt={republishReviewPrompt(props)} />
-      </div>
-    </section>
-  );
-}
-
-export function ReviewRecovery({
-  mapStale = false,
-}: {
-  mapStale?: boolean;
-}): ReactElement {
-  return (
-    <section className="review-republish" role="status">
-      <h2>Review recovery</h2>
-      <p>
-        This review's published artifacts need recovery. Its review status,
-        pinned commits, and threads are preserved.
-      </p>
-      {mapStale ? <p>The published software map also needs recovery.</p> : null}
     </section>
   );
 }

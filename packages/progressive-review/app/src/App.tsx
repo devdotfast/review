@@ -42,7 +42,7 @@ import {
   TerminalIcon,
   ThreadsIcon,
 } from "./icons";
-import { RepublishReview, ReviewRecovery } from "./republish-review";
+import { RepairReview } from "./republish-review";
 import { ReviewPanelHost } from "./review-components";
 import {
   ReviewProvider,
@@ -713,11 +713,10 @@ function ReviewLayoutContent({
                   {softwareMapState.state === "loading" ? (
                     <MapLoadState message="Loading software map…" />
                   ) : softwareMapState.state === "needs-republish" ? (
-                    softwareMapState.recovery ? (
-                      <ReviewRecovery mapStale />
-                    ) : (
-                      <MapLoadState message="This software map must be republished." />
-                    )
+                    <RepairReview
+                      reviewUuid={softwareMapState.reviewUuid}
+                      mapStale
+                    />
                   ) : softwareMapState.state === "unavailable" ? (
                     <MapLoadState
                       message={`Software map unavailable: ${softwareMapState.message}`}
@@ -816,11 +815,7 @@ function ReviewDocumentLoadState({
   }
   if (state.state === "needs-republish") {
     return (
-      <RepublishReview
-        reviewUuid={state.reviewUuid}
-        mapStale={state.mapStale}
-        recovery={state.recovery}
-      />
+      <RepairReview reviewUuid={state.reviewUuid} mapStale={state.mapStale} />
     );
   }
   return (

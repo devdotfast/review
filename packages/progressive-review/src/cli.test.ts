@@ -32,6 +32,7 @@ import {
 } from "./review-home";
 import { runReviewInfo as runReviewInfoActual } from "./review-info";
 import { runReviewPublish as runReviewPublishActual } from "./review-publish";
+import { runReviewRepair as runReviewRepairActual } from "./review-repair";
 import { runReviewScaffold as runReviewScaffoldActual } from "./review-scaffold";
 import {
   installReviewCommand as installReviewCommandActual,
@@ -44,6 +45,35 @@ import {
 } from "./threads-cli";
 
 describe("Review CLI", () => {
+  it("routes explicit current-review repair and rejects implicit or historical selection", async () => {
+    const runReviewRepair = vi.fn<typeof runReviewRepairActual>(async () => 0);
+    const uuid = "11111111-1111-4111-8111-111111111111";
+    expect(
+      await runProgressiveReviewCli({
+        argv: ["repair", "--review", uuid, "--json"],
+        stdout: outputStream(),
+        stderr: outputStream(),
+        runtime: { runReviewRepair },
+      }),
+    ).toBe(0);
+    expect(runReviewRepair).toHaveBeenCalledWith(
+      expect.objectContaining({ reviewUuid: uuid, json: true }),
+    );
+    for (const argv of [
+      ["repair"],
+      ["repair", "--review", uuid, "--revision", "a".repeat(40)],
+    ]) {
+      expect(
+        await runProgressiveReviewCli({
+          argv,
+          stdout: outputStream(),
+          stderr: outputStream(),
+          runtime: { runReviewRepair },
+        }),
+      ).toBe(1);
+    }
+    expect(runReviewRepair).toHaveBeenCalledTimes(1);
+  });
   it("installs the review command with headless skills", async () => {
     const rootPath = await mkdtemp(
       path.join(os.tmpdir(), "review-cli-shim-install-"),

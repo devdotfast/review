@@ -65,6 +65,47 @@ afterEach(async () => {
 });
 
 describe("createReviewSessionHandler", () => {
+  it("offers current repair metadata when a sealed artifact is missing", async () => {
+    rootPath = await mkdtemp(path.join(tmpdir(), "review-missing-repair-"));
+    const reviewPath = path.join(rootPath, "review.mdx");
+    const reviewUuid = "11111111-1111-4111-8111-111111111111";
+    const handler = await createReviewSessionHandler({
+      ...unusedAgentServices,
+      rootPath,
+      toolingRoot: rootPath,
+      reviewPath,
+      routePath: "/",
+      token: "secret",
+      reviewUuid,
+      documentUnavailable: "Document revision is missing.",
+      softwareMapUnavailable: "Map revision is missing.",
+      session: {
+        rootPath,
+        baseRef: "HEAD",
+        appUrl: "http://127.0.0.1:5570",
+        reviewPath,
+        startedAt: Date.now(),
+      },
+    });
+    try {
+      for (const artifact of ["document", "software-map"]) {
+        const response = await handler.handle(
+          new Request(
+            `http://127.0.0.1:5570/__progressive-review/${artifact}`,
+            { headers: { "x-review-token": "secret" } },
+          ),
+        );
+        expect(response.status).toBe(409);
+        expect(await response.json()).toMatchObject({
+          code: "needs_republish",
+          reviewUuid,
+          recovery: true,
+        });
+      }
+    } finally {
+      await handler.close();
+    }
+  });
   it("keeps legacy recovery and historical artifact states independent and read-only", async () => {
     rootPath = await mkdtemp(path.join(tmpdir(), "review-recovery-handler-"));
     const reviewPath = path.join(rootPath, "review.mdx");

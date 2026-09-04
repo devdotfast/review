@@ -13,6 +13,7 @@ import { testReviewBridge } from "./review-session-test-utils";
 import { defineSoftwareModel } from "./software-map/model";
 
 beforeEach(() => {
+  localStorage.clear();
   (
     globalThis as typeof globalThis & {
       IS_REACT_ACT_ENVIRONMENT?: boolean;
@@ -40,6 +41,73 @@ afterEach(() => {
 });
 
 describe("desktop review document load states", () => {
+  it("keeps a valid document visible and offers repair only inside a stale map", async () => {
+    const reportDiagnostic =
+      vi.fn<(diagnostic: ReviewCanvasDiagnostic) => void>();
+    const bridge = testReviewBridge(
+      { sessionId: "map-only-repair" },
+      {
+        request: requestStub,
+        reportDiagnostic,
+        diffView: { create: createDiffView },
+      },
+    );
+    const container = document.createElement("div");
+    document.body.append(container);
+    let handle: ReturnType<typeof mountReviewCanvas> | undefined;
+    await act(async () => {
+      handle = mountReviewCanvas(
+        container,
+        sessionContent(bridge, {
+          document: Promise.resolve({
+            state: "ready",
+            contentHash: "healthy-document",
+            data: {
+              format: "review-document/1",
+              title: "Healthy document",
+              routePath: "/",
+              sourcePath: "review.mdx",
+              anchors: {},
+              anchorContents: {},
+              softwareModels: [],
+              body: [
+                {
+                  type: "element",
+                  tag: "p",
+                  props: {},
+                  children: [
+                    { type: "text", value: "Keep this valid document" },
+                  ],
+                },
+              ],
+            },
+          }),
+          softwareMap: Promise.resolve({
+            state: "needs-republish",
+            reviewUuid: "11111111-1111-4111-8111-111111111111",
+            recovery: true,
+          }),
+        }),
+      );
+    });
+    expect(container.textContent).toContain("Keep this valid document");
+    expect(container.textContent).not.toContain("Repair this review");
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Map (Experimental)"]',
+        )!
+        .click(),
+    );
+    expect(container.querySelector(".review-map-view")?.textContent).toContain(
+      "Repair this review",
+    );
+    expect(container.querySelector(".review-map-view code")?.textContent).toBe(
+      "review repair --review 11111111-1111-4111-8111-111111111111",
+    );
+    expect(reportDiagnostic).not.toHaveBeenCalled();
+    await act(async () => handle?.dispose());
+  });
   it("opens the current review from expected historical unavailability without diagnostics", async () => {
     const post = vi.fn<() => Promise<{ ok: true }>>(async () => ({ ok: true }));
     const reportDiagnostic =
@@ -75,6 +143,7 @@ describe("desktop review document load states", () => {
       "This older revision is unavailable in this version of Review",
     );
     expect(container.textContent).not.toContain("review publish");
+    expect(container.textContent).not.toContain("review repair");
     const button = [...container.querySelectorAll("button")].find(
       (node) => node.textContent === "Open current review",
     );
@@ -277,9 +346,7 @@ describe("desktop review document load states", () => {
         handle = mountReviewCanvas(container, content);
       });
       await vi.waitFor(() => {
-        expect(container.textContent).toContain(
-          recovery ? "Review recovery" : "Republish this review",
-        );
+        expect(container.textContent).toContain("Repair this review");
       });
 
       expect(ready).toHaveBeenCalledTimes(1);
@@ -288,18 +355,18 @@ describe("desktop review document load states", () => {
       expect(container.textContent).toContain("Commits");
       expect(container.textContent).toContain("Diff");
       expect(container.querySelectorAll(".review-republish code")).toHaveLength(
-        recovery ? 0 : mapStale ? 2 : 1,
+        1,
       );
       expect(container.querySelector(".review-republish h2")?.textContent).toBe(
-        recovery ? "Review recovery" : "Republish this review",
+        "Repair this review",
       );
       expect(
         container.querySelector('button[aria-label="Copy command"]') !== null,
-      ).toBe(!recovery);
+      ).toBe(true);
       expect(
         container.querySelector('button[aria-label="Copy prompt"]') !== null,
-      ).toBe(!recovery);
-      if (mapStale && recovery) {
+      ).toBe(true);
+      if (mapStale) {
         await act(async () =>
           container
             .querySelector<HTMLButtonElement>(
@@ -311,8 +378,8 @@ describe("desktop review document load states", () => {
       expect(
         container
           .querySelector(".review-map-view")
-          ?.textContent?.includes("Review recovery") ?? false,
-      ).toBe(mapStale && recovery);
+          ?.textContent?.includes("Repair this review") ?? false,
+      ).toBe(mapStale);
       expect(
         container.querySelector(".review-map-view")?.textContent ?? "",
       ).not.toContain("review publish");

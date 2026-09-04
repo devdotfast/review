@@ -902,6 +902,47 @@ button {
   color: var(--ink);
 }
 
+.review-republish {
+  max-width: 680px;
+  margin: 32px auto;
+  padding: 24px;
+  border: 1px solid var(--change-modified);
+  border-radius: 7px;
+  background: var(--accent-wash);
+  color: var(--ink-soft);
+}
+
+.review-republish h2 {
+  margin: 0 0 12px;
+  color: var(--ink);
+}
+
+.review-republish p {
+  margin: 0 0 20px;
+}
+
+.review-republish-command {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.review-republish-command code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+}
+
+.review-republish-command .review-home-prompt-copy {
+  flex: 0 0 auto;
+}
+
+.review-republish-actions {
+  display: flex;
+  margin-top: 20px;
+}
+
 .review-session-content {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);

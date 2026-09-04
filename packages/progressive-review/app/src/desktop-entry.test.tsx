@@ -186,43 +186,67 @@ describe("desktop review document load states", () => {
     await act(async () => handle?.dispose());
   });
 
-  it("signals ready for needs-republish without reporting an error", async () => {
-    const ready = vi.fn<() => void>();
-    const reportDiagnostic =
-      vi.fn<(diagnostic: ReviewCanvasDiagnostic) => void>();
-    const bridge = testReviewBridge(
-      { sessionId: "needs-republish" },
-      {
-        request: requestStub,
-        ready,
-        reportDiagnostic,
-        diffView: { create: createDiffView },
-      },
-    );
-    const content = sessionContent(bridge, {
-      document: Promise.resolve({
-        state: "needs-republish",
-        reviewUuid: "11111111-1111-4111-8111-111111111111",
-        mapStale: false,
-      }),
-      softwareMap: Promise.resolve(null),
-    });
-    const container = document.createElement("div");
-    document.body.append(container);
+  it.each([false, true])(
+    "signals ready for needs-republish without reporting an error (mapStale=%s)",
+    async (mapStale) => {
+      const ready = vi.fn<() => void>();
+      const reportDiagnostic =
+        vi.fn<(diagnostic: ReviewCanvasDiagnostic) => void>();
+      const bridge = testReviewBridge(
+        { sessionId: `needs-republish-${mapStale}` },
+        {
+          request: requestStub,
+          ready,
+          reportDiagnostic,
+          diffView: { create: createDiffView },
+        },
+      );
+      const content = sessionContent(bridge, {
+        document: Promise.resolve({
+          state: "needs-republish",
+          reviewUuid: "11111111-1111-4111-8111-111111111111",
+          mapStale,
+        }),
+        softwareMap: Promise.resolve(
+          mapStale
+            ? {
+                state: "needs-republish",
+                reviewUuid: "11111111-1111-4111-8111-111111111111",
+              }
+            : null,
+        ),
+      });
+      const container = document.createElement("div");
+      document.body.append(container);
 
-    let handle: ReturnType<typeof mountReviewCanvas> | undefined;
-    await act(async () => {
-      handle = mountReviewCanvas(container, content);
-    });
-    await vi.waitFor(() => {
-      expect(container.textContent).toContain("Republish this review");
-    });
+      let handle: ReturnType<typeof mountReviewCanvas> | undefined;
+      await act(async () => {
+        handle = mountReviewCanvas(container, content);
+      });
+      await vi.waitFor(() => {
+        expect(container.textContent).toContain("Republish this review");
+      });
 
-    expect(ready).toHaveBeenCalledTimes(1);
-    expect(reportDiagnostic).not.toHaveBeenCalled();
-    expect(container.textContent).toContain("Threads");
-    await act(async () => handle?.dispose());
-  });
+      expect(ready).toHaveBeenCalledTimes(1);
+      expect(reportDiagnostic).not.toHaveBeenCalled();
+      expect(container.textContent).toContain("Threads");
+      expect(container.textContent).toContain("Commits");
+      expect(container.textContent).toContain("Diff");
+      expect(container.querySelectorAll(".review-republish code")).toHaveLength(
+        mapStale ? 2 : 1,
+      );
+      expect(container.querySelector(".review-republish h2")?.textContent).toBe(
+        "Republish this review",
+      );
+      expect(
+        container.querySelector('button[aria-label="Copy command"]'),
+      ).not.toBeNull();
+      expect(
+        container.querySelector('button[aria-label="Copy prompt"]'),
+      ).not.toBeNull();
+      await act(async () => handle?.dispose());
+    },
+  );
 });
 
 function sessionContent(

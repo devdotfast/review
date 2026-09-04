@@ -44,7 +44,7 @@ import {
 import { writePrivateJsonAtomic } from "./server/desktop-paths";
 import { compileReviewDocumentBundle } from "./server/doc-bundler";
 import {
-  extractLegacyReviewSoftwareMapBundle,
+  type ReviewSoftwareMapBundle,
   writeReviewSoftwareMapBundle,
 } from "./software-map-bundle";
 
@@ -584,19 +584,7 @@ async function migrateLegacyPresentedArtifacts(input: {
       compiled.diagnostics.map((diagnostic) => diagnostic.message).join("; "),
     );
   }
-  const legacyBundleCode = await readFile(
-    path.join(legacyBuildDir, ".bundle", "review-document.js"),
-    "utf8",
-  ).catch(() => null);
-  const mapBundle =
-    input.review.sourceCommit && legacyBundleCode
-      ? await extractLegacyReviewSoftwareMapBundle({
-          bundleCode: legacyBundleCode,
-          evaluationDir: path.join(legacyBuildDir, `.map-extract-${nonce}`),
-          headCommit: input.review.sourceCommit,
-          baseCommit: input.review.baseCommit,
-        }).catch(() => null)
-      : null;
+  const mapBundle: ReviewSoftwareMapBundle | null = null;
 
   await mkdir(backupDir, { recursive: true, mode: 0o700 });
   for (const name of ["review.mdx", "data.ts", "review.json", ".bundle"]) {

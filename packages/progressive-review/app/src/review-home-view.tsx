@@ -190,6 +190,20 @@ export function ReviewHome({
           {reviewErrors.length > 0 ? (
             <ReviewScanWarning errors={reviewErrors} />
           ) : null}
+          {found
+            .filter((review) => review.recovery)
+            .map((review) => (
+              <section
+                key={review.uuid}
+                className="review-migration-warning"
+                aria-label={`Recovery for ${reviewTitle(review)}`}
+              >
+                <span>{reviewTitle(review)}</span>
+                <button type="button" onClick={() => onOpen(review)}>
+                  Open recovery
+                </button>
+              </section>
+            ))}
           <div className="review-home-page-header">
             <h1>Reviews</h1>
             <div className="review-home-page-header-tools">

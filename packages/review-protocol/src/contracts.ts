@@ -971,13 +971,18 @@ export interface ReviewCanvasSettingsContent {
 
 export type ReviewDocumentLoad =
   | { state: "ready"; contentHash: string; data: unknown }
-  | { state: "needs-republish"; reviewUuid: string; mapStale: boolean }
-  | { state: "unavailable"; message: string };
+  | {
+      state: "needs-republish";
+      reviewUuid: string;
+      mapStale: boolean;
+      recovery?: boolean;
+    }
+  | { state: "unavailable"; message: string; currentReviewUuid?: string };
 
 export type ReviewSoftwareMapLoad =
   | { state: "ready"; contentHash: string; head: unknown; base: unknown }
-  | { state: "needs-republish"; reviewUuid: string }
-  | { state: "unavailable"; message: string };
+  | { state: "needs-republish"; reviewUuid: string; recovery?: boolean }
+  | { state: "unavailable"; message: string; currentReviewUuid?: string };
 
 export type ReviewCanvasContent =
   | { kind: "loading" }
@@ -1052,6 +1057,7 @@ export type ReviewCanvasContent =
     };
 
 export interface ReviewCanvasRange {
+  sourceUnavailable?: string;
   baseRef: string;
   headRef: string;
   baseCommit: string;
@@ -1194,6 +1200,8 @@ export const ReviewCommitSummarySchema = z.strictObject({
 export type ReviewCommitSummary = z.infer<typeof ReviewCommitSummarySchema>;
 
 export const ReviewDescriptorSchema = z.strictObject({
+  sourceUnavailable: requiredString.optional(),
+  recovery: z.boolean().optional(),
   uuid: z.uuid({ error: "must be a UUID" }),
   title: stringAllowEmpty,
   status: z.enum([
@@ -1268,6 +1276,7 @@ export type AuthoringAgentSessionWire = z.infer<
 >;
 
 export const ReviewErrorResponseSchema = z.strictObject({
+  recovery: z.boolean().optional(),
   ok: z.literal(false),
   error: requiredString,
   code: requiredString.optional(),

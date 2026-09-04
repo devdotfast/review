@@ -1238,6 +1238,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					reviewErrors: this.sessionService.reviewErrors,
 					commits: model.session.review.commits ?? [],
 					range: {
+						sourceUnavailable: model.session.review.sourceUnavailable,
 						baseRef: model.session.review.baseRef ?? session.session.baseRef,
 						headRef: model.session.review.headRef ?? session.session.headRef ?? session.session.baseRef,
 						baseCommit: session.session.baseRef,
@@ -1558,6 +1559,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				reviewErrors: this.sessionService.reviewErrors,
 				commits: session.review.commits ?? [],
 				range: {
+					sourceUnavailable: session.review.sourceUnavailable,
 					baseRef: session.review.baseRef ?? session.session.baseRef,
 					headRef: session.review.headRef ?? session.session.headRef ?? session.session.baseRef,
 					baseCommit: session.session.baseRef,

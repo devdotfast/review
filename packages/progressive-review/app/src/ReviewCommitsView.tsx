@@ -23,6 +23,14 @@ export function ReviewCommitsView({
   range: import("@dev.fast/review-protocol").ReviewCanvasRange;
   onOpenDiff: (commit: ReviewCommitSummary, via: "row") => void;
 }) {
+  if (range.sourceUnavailable) {
+    return (
+      <div className="review-document-load-state" role="status">
+        <h2>Commits unavailable</h2>
+        <p>{range.sourceUnavailable}</p>
+      </div>
+    );
+  }
   return (
     <div className="review-commits-view">
       <div className="review-commits-column">

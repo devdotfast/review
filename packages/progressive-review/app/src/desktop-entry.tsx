@@ -94,7 +94,8 @@ function DesktopReviewApp({
         } else if (load.state === "needs-republish") {
           setDocumentState(load);
         } else {
-          documentLoadError.current = new Error(load.message);
+          if (!load.currentReviewUuid)
+            documentLoadError.current = new Error(load.message);
           setDocumentState(load);
         }
       } catch (error) {
@@ -122,7 +123,8 @@ function DesktopReviewApp({
         } else if (load.state === "needs-republish") {
           setSoftwareMapState(load);
         } else {
-          softwareMapLoadError.current = new Error(load.message);
+          if (!load.currentReviewUuid)
+            softwareMapLoadError.current = new Error(load.message);
           setSoftwareMapState(load);
         }
       } catch (error) {
@@ -161,6 +163,7 @@ function DesktopReviewApp({
     }
     if (
       documentState.state === "unavailable" &&
+      !documentState.currentReviewUuid &&
       !reportedLoadErrors.current.has("document")
     ) {
       reportedLoadErrors.current.add("document");
@@ -172,6 +175,7 @@ function DesktopReviewApp({
     }
     if (
       softwareMapState.state === "unavailable" &&
+      !softwareMapState.currentReviewUuid &&
       !reportedLoadErrors.current.has("software-map")
     ) {
       reportedLoadErrors.current.add("software-map");

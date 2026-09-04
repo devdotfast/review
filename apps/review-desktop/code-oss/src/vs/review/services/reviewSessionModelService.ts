@@ -298,6 +298,17 @@ export async function loadReviewSessionDocument(
 		});
 		const payload = ReviewDocumentResponseSchema.parse(await response.json());
 		if (
+			!payload.ok &&
+			payload.code === "historical_revision_unavailable" &&
+			payload.reviewUuid
+		) {
+			return {
+				state: "unavailable",
+				message: payload.error,
+				currentReviewUuid: payload.reviewUuid,
+			};
+		}
+		if (
 			response.status === 409 &&
 			!payload.ok &&
 			payload.code === "needs_republish" &&
@@ -308,6 +319,7 @@ export async function loadReviewSessionDocument(
 				state: "needs-republish",
 				reviewUuid: payload.reviewUuid,
 				mapStale: payload.mapStale,
+				...(payload.recovery === undefined ? {} : { recovery: payload.recovery }),
 			};
 		}
 		if (!response.ok || !payload.ok) {
@@ -342,12 +354,27 @@ export async function loadReviewSessionSoftwareMap(
 		if (response.status === 404) return null;
 		const payload = ReviewSoftwareMapResponseSchema.parse(await response.json());
 		if (
+			!payload.ok &&
+			payload.code === "historical_revision_unavailable" &&
+			payload.reviewUuid
+		) {
+			return {
+				state: "unavailable",
+				message: payload.error,
+				currentReviewUuid: payload.reviewUuid,
+			};
+		}
+		if (
 			response.status === 409 &&
 			!payload.ok &&
 			payload.code === "needs_republish" &&
 			payload.reviewUuid !== undefined
 		) {
-			return { state: "needs-republish", reviewUuid: payload.reviewUuid };
+			return {
+				state: "needs-republish",
+				reviewUuid: payload.reviewUuid,
+				...(payload.recovery === undefined ? {} : { recovery: payload.recovery }),
+			};
 		}
 		if (!response.ok || !payload.ok) {
 			throw new Error(

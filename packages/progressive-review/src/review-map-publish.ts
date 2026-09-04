@@ -11,7 +11,7 @@ import {
 import { type CliJsonEvent, emitJsonEvent } from "./cli-output";
 import { readReviewDesktopDiscovery } from "./desktop-discovery";
 import {
-  parseStoredReviewRecord,
+  parseStoredReviewRecordForRecovery,
   sealReviewCandidate,
   touchReviewAgentSession,
 } from "./review-home";
@@ -60,7 +60,7 @@ export async function runReviewMapPublish(input: {
       review,
       revision: documentRevision,
     });
-    const presentedDocument = parseStoredReviewRecord(
+    const presentedDocument = parseStoredReviewRecordForRecovery(
       JSON.parse(
         await readFile(path.join(documentBuildDir, "review.json"), "utf8"),
       ),

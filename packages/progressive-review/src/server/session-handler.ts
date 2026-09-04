@@ -65,6 +65,11 @@ export interface ReviewSessionHandlerInput {
   reviewCliRuntimePath?: string;
   submitHook?: string;
   historicalRevision?: string;
+  recovery?: boolean;
+  readOnlyReview?: ReviewRecord;
+  documentUnavailable?: string;
+  softwareMapUnavailable?: string;
+  sourceUnavailable?: string;
   listDocumentVersions?: () => Promise<ReviewDocumentVersionWire[]>;
   session: ReviewSessionWire;
   stderr?: Writable;
@@ -214,14 +219,20 @@ export async function createReviewSessionHandler(
     }
     await next();
   });
-  if (input.historicalRevision) {
+  if (input.historicalRevision || input.recovery) {
     app.use(`${API_PREFIX}/*`, async (context, next) => {
       const method = context.req.method;
       if (
         method === "GET" ||
         method === "HEAD" ||
         method === "OPTIONS" ||
-        context.req.path.startsWith(`${API_PREFIX}/telemetry`)
+        context.req.path.startsWith(`${API_PREFIX}/telemetry`) ||
+        (method === "POST" &&
+          [
+            "/code-peek/resolve",
+            "/software-map/resolved-data",
+            "/diff-files",
+          ].some((route) => context.req.path === `${API_PREFIX}${route}`))
       ) {
         await next();
         return;
@@ -229,20 +240,28 @@ export async function createReviewSessionHandler(
       return jsonResponse(
         {
           ok: false,
-          error: "This historical version is read-only.",
-          code: "historical_revision",
+          error: input.historicalRevision
+            ? "This historical version is read-only."
+            : "This legacy review is open for read-only recovery.",
+          code: input.historicalRevision
+            ? "historical_revision"
+            : "review_recovery",
         },
         409,
       );
     });
   }
   app.get(`${API_PREFIX}/session`, async () => {
-    const resolvedBaseRef = await (
-      dependencies.resolveReviewSessionBaseCommit ??
-      resolveReviewSessionBaseCommit
-    )({
-      reviewRootPath,
-    });
+    const resolvedBaseRef = input.readOnlyReview
+      ? input.sourceUnavailable
+        ? null
+        : input.readOnlyReview.baseCommit
+      : await (
+          dependencies.resolveReviewSessionBaseCommit ??
+          resolveReviewSessionBaseCommit
+        )({
+          reviewRootPath,
+        });
     const sessionPayload: ReturnType<typeof reviewSessionPayload> & {
       resolvedBaseRef: typeof resolvedBaseRef;
       reviewStatus?: ReviewRecord["status"];
@@ -265,8 +284,28 @@ export async function createReviewSessionHandler(
     );
   });
   app.get(`${API_PREFIX}/document`, async () => {
+    if (input.documentUnavailable)
+      return jsonResponse(
+        {
+          ok: false,
+          code: "artifact_unavailable",
+          error: input.documentUnavailable,
+        },
+        409,
+      );
     const bundle = await getBundle();
     if (!bundle) {
+      if (input.historicalRevision)
+        return jsonResponse(
+          {
+            ok: false,
+            code: "historical_revision_unavailable",
+            error:
+              "This older revision is unavailable in this version of Review",
+            reviewUuid: needsRepublishReviewUuid(),
+          },
+          409,
+        );
       const mapStale = Boolean(
         input.softwareMapRootPath && !(await getSoftwareMapBundle()),
       );
@@ -277,6 +316,12 @@ export async function createReviewSessionHandler(
           error: NEEDS_REPUBLISH_ERROR,
           reviewUuid: needsRepublishReviewUuid(),
           mapStale,
+          recovery:
+            input.recovery ||
+            input.getReviewStatus?.() === "accepted" ||
+            input.getReviewStatus?.() === "rejected"
+              ? true
+              : undefined,
         },
         409,
       );
@@ -310,15 +355,41 @@ export async function createReviewSessionHandler(
     });
   });
   app.get(`${API_PREFIX}/software-map`, async () => {
+    if (input.softwareMapUnavailable)
+      return jsonResponse(
+        {
+          ok: false,
+          code: "artifact_unavailable",
+          error: input.softwareMapUnavailable,
+        },
+        409,
+      );
     const bundle = await getSoftwareMapBundle();
     if (!bundle) {
       if (input.softwareMapRootPath) {
+        if (input.historicalRevision)
+          return jsonResponse(
+            {
+              ok: false,
+              code: "historical_revision_unavailable",
+              error:
+                "This older revision is unavailable in this version of Review",
+              reviewUuid: needsRepublishReviewUuid(),
+            },
+            409,
+          );
         return jsonResponse(
           {
             ok: false,
             code: "needs_republish",
             error: "This review's software map must be regenerated.",
             reviewUuid: needsRepublishReviewUuid(),
+            recovery:
+              input.recovery ||
+              input.getReviewStatus?.() === "accepted" ||
+              input.getReviewStatus?.() === "rejected"
+                ? true
+                : undefined,
           },
           409,
         );
@@ -398,6 +469,9 @@ export async function createReviewSessionHandler(
     return response;
   });
   const reviewApi = createReviewApi({
+    readOnlyReview: input.readOnlyReview,
+    readOnly: Boolean(input.recovery || input.historicalRevision),
+    sourceUnavailable: input.sourceUnavailable,
     reviewPath: input.reviewPath,
     reviewDocumentsDir: documentsDir,
     rootPath: input.rootPath,

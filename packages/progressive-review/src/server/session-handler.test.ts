@@ -65,6 +65,66 @@ afterEach(async () => {
 });
 
 describe("createReviewSessionHandler", () => {
+  it("keeps legacy recovery and historical artifact states independent and read-only", async () => {
+    rootPath = await mkdtemp(path.join(tmpdir(), "review-recovery-handler-"));
+    const reviewPath = path.join(rootPath, "review.mdx");
+    await writeFile(reviewPath, "# Review");
+    await writeReviewSoftwareMapBundle(
+      rootPath,
+      bundleReviewSoftwareMap({
+        head: defineSoftwareMap({ systems: {} }),
+        base: defineSoftwareMap({ systems: {} }),
+        headCommit: "a".repeat(40),
+        baseCommit: "b".repeat(40),
+      }),
+    );
+    for (const historicalRevision of [undefined, "c".repeat(40)]) {
+      const handler = await createReviewSessionHandler({
+        ...unusedAgentServices,
+        rootPath,
+        toolingRoot: rootPath,
+        reviewPath,
+        softwareMapRootPath: rootPath,
+        routePath: "/",
+        token: "secret",
+        recovery: true,
+        historicalRevision,
+        reviewUuid: "11111111-1111-4111-8111-111111111111",
+        session: {
+          rootPath,
+          baseRef: "HEAD",
+          appUrl: "http://127.0.0.1:5570",
+          reviewPath,
+          startedAt: Date.now(),
+        },
+      });
+      const request = (route: string, method = "GET") =>
+        handler.handle(
+          new Request(`http://127.0.0.1:5570/__progressive-review/${route}`, {
+            method,
+            headers: { "x-review-token": "secret" },
+          }),
+        );
+      try {
+        const doc = await request("document");
+        expect(doc.status).toBe(409);
+        expect(await doc.json()).toMatchObject(
+          historicalRevision
+            ? {
+                code: "historical_revision_unavailable",
+                error:
+                  "This older revision is unavailable in this version of Review",
+                reviewUuid: "11111111-1111-4111-8111-111111111111",
+              }
+            : { code: "needs_republish", recovery: true, mapStale: false },
+        );
+        expect((await request("software-map")).status).toBe(200);
+        expect((await request("dismiss", "POST")).status).toBe(409);
+      } finally {
+        await handler.close();
+      }
+    }
+  });
   it("scopes routed UI telemetry and presents a session only once", async () => {
     rootPath = await mkdtemp(path.join(tmpdir(), "review-session-handler-"));
     const reviewPath = path.join(rootPath, "review.mdx");
@@ -202,7 +262,10 @@ describe("createReviewSessionHandler", () => {
           headers: { "x-review-token": token },
         }),
       );
-      expect(read.status).toBe(200);
+      expect(read.status).toBe(400);
+      expect(await read.json()).toMatchObject({
+        error: "The review thread database is unavailable.",
+      });
     } finally {
       await handler.close();
     }

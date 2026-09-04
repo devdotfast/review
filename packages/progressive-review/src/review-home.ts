@@ -27,6 +27,7 @@ import {
   parseJsonText,
   summarizeReviewDiffFiles,
 } from "@dev.fast/review-protocol";
+import { z } from "zod";
 
 import {
   type SessionRef,
@@ -51,6 +52,7 @@ import {
   ReviewThreadDbVersionError,
   checkReviewThreadDbVersion,
   createReviewThreadDb,
+  readReviewThreadsReadOnly,
   reviewThreadStoreBackend,
 } from "./review-thread-store-backend";
 import { reviewVcs } from "./review-vcs";
@@ -81,9 +83,47 @@ export const DISABLED_REVIEW_SOURCE_SESSION = "disabled:review";
 export const StoredReviewRecordSchema = ReviewRecordSchema;
 export type StoredReviewRecord = ReviewRecord;
 
+const legacySourceSessionFields = {
+  sourceSession: z.string().min(1).optional(),
+  agentSession: z.string().min(1).optional(),
+};
+const legacyRecordFields = StoredReviewRecordSchema.omit({
+  schemaVersion: true,
+  sourceSession: true,
+});
+const LegacyRecoveryRecordSchema = z
+  .union([
+    StoredReviewRecordSchema.extend({ schemaVersion: z.literal(4) }),
+    legacyRecordFields.extend({
+      schemaVersion: z.literal(3),
+      ...legacySourceSessionFields,
+    }),
+    legacyRecordFields
+      .omit({
+        presentedDocumentRevision: true,
+        presentedSoftwareMapRevision: true,
+      })
+      .extend({
+        schemaVersion: z.literal(2),
+        ...legacySourceSessionFields,
+        presentedRevision: z.string().min(1).nullable(),
+      }),
+  ])
+  .refine(
+    (record) =>
+      Boolean(
+        record.sourceSession ||
+        ("agentSession" in record && record.agentSession),
+      ),
+    "A source session is required.",
+  );
+
 export interface StoredReview {
   dir: string;
   review: StoredReviewRecord;
+  /** Supported legacy metadata normalized only for a read-only session. */
+  recovery?: true;
+  legacySchemaVersion?: 2 | 3 | 4;
 }
 
 export interface ListReviewsFilter {
@@ -91,6 +131,7 @@ export interface ListReviewsFilter {
   repoKey?: string;
   status?: ReviewRecord["status"];
   includeSystem?: boolean;
+  includeRecovery?: boolean;
 }
 
 export interface ReviewHomeError {
@@ -424,10 +465,27 @@ export async function reviewTitleFromDocument(
 }
 
 export async function findReview(uuid: string): Promise<StoredReview | null> {
+  return findReviewRecord(uuid, false);
+}
+
+/** Never use this lookup for a writer: its legacy record exists only in memory. */
+export async function findReviewForRecovery(
+  uuid: string,
+): Promise<StoredReview | null> {
+  return findReviewRecord(uuid, true);
+}
+
+async function findReviewRecord(
+  uuid: string,
+  recovery: boolean,
+): Promise<StoredReview | null> {
   if (!UUID_PATTERN.test(uuid)) {
     throw new Error(`Review UUID is invalid: ${uuid}`);
   }
-  const loaded = await readStoredReview(path.join(reviewsHomeDir(), uuid));
+  const loaded = await readStoredReview(
+    path.join(reviewsHomeDir(), uuid),
+    recovery,
+  );
   if ("error" in loaded) {
     if (loaded.error.code === "ENOENT") return null;
     throw new ReviewHomeScanError([loaded.error]);
@@ -453,11 +511,17 @@ export async function reviewDescriptor(
     statIfExists(documentPath),
   ]);
   const documentExists = documentStats !== null;
-  const available = reviewDirExists && worktreeExists && documentExists;
+  const available =
+    reviewDirExists &&
+    (stored.recovery === true || (worktreeExists && documentExists));
   /* Same diff target as the review document (resolveRequestDiffTarget):
      the pinned baseCommit..sourceCommit from review.json. An empty diff
      reports null so the views omit the numbers, as the document does. */
   const headCommit = stored.review.sourceCommit ?? stored.review.baseCommit;
+  let sourceUnavailable =
+    stored.recovery && (!worktreeExists || !stored.review.sourceCommit)
+      ? "The pinned source commits are unavailable."
+      : undefined;
   const [diffStats, commits] = await Promise.all([
     worktreeExists && stored.review.sourceCommit
       ? resolveReviewDiffFiles({
@@ -476,10 +540,25 @@ export async function reviewDescriptor(
           rootPath: stored.review.worktreePath,
           baseRef: stored.review.baseCommit,
           headRef: headCommit,
-        }).catch(() => [])
+        }).catch(() => {
+          if (stored.recovery)
+            sourceUnavailable = "The pinned source commits are unavailable.";
+          return [];
+        })
       : [],
   ]);
-  const commentCount = documentExists ? countReviewComments(documentPath) : 0;
+  const commentCount = stored.recovery
+    ? (() => {
+        try {
+          return Object.keys(readReviewThreadsReadOnly(documentPath).comments)
+            .length;
+        } catch {
+          return 0;
+        }
+      })()
+    : documentExists
+      ? countReviewComments(documentPath)
+      : 0;
   return {
     uuid: stored.review.uuid,
     title: stored.review.title,
@@ -499,9 +578,13 @@ export async function reviewDescriptor(
     presentedSoftwareMapRevision: stored.review.presentedSoftwareMapRevision,
     lastPublishedAt: stored.review.lastPublishedAt,
     available,
+    recovery: stored.recovery,
+    sourceUnavailable,
     viewedAt: stored.review.viewedAt ?? null,
     dismissedAt: stored.review.dismissedAt ?? null,
-    reapsAt: reviewReapsAt(stored.review, retentionDays),
+    reapsAt: stored.recovery
+      ? null
+      : reviewReapsAt(stored.review, retentionDays),
   };
 }
 
@@ -523,7 +606,10 @@ export async function listReviews(
       entries
         .filter((entry) => entry.isDirectory())
         .map((entry) =>
-          readStoredReview(path.join(reviewsHomeDir(), entry.name)),
+          readStoredReview(
+            path.join(reviewsHomeDir(), entry.name),
+            filter.includeRecovery,
+          ),
         ),
     );
   } catch (error) {
@@ -547,7 +633,13 @@ export async function listReviews(
     ) {
       continue;
     }
-    const migrationError = reviewThreadMigrationError(entry);
+    const migrationError = entry.recovery
+      ? reviewHomeError(entry.dir, entry.review, {
+          code: "MIGRATION_REQUIRED",
+          message:
+            "This review requires migration; run `review migrate apply`. Open recovery to inspect its current presentation.",
+        })
+      : reviewThreadMigrationError(entry);
     if (migrationError) result.errors.push(migrationError);
     result.reviews.push(entry);
   }
@@ -606,12 +698,30 @@ export async function materializeReviewRevision(
 
 export async function readStoredReview(
   dir: string,
+  includeRecovery = false,
 ): Promise<StoredReview | { error: ReviewHomeError }> {
   const reviewPath = path.join(dir, "review.json");
   try {
     const value = parseJsonText(await readFile(reviewPath, "utf8"));
     const parsed = safeParseStoredReviewRecord(value);
     if (!parsed.success) {
+      if (includeRecovery) {
+        try {
+          const review = parseStoredReviewRecordForRecovery(value);
+          if (review.uuid !== path.basename(dir))
+            throw new Error("review.json UUID does not match its directory.");
+          const legacySchemaVersion =
+            isJsonObject(value) &&
+            (value.schemaVersion === 2 ||
+              value.schemaVersion === 3 ||
+              value.schemaVersion === 4)
+              ? value.schemaVersion
+              : undefined;
+          return { dir, review, recovery: true, legacySchemaVersion };
+        } catch {
+          // Malformed and unsupported records remain explicit blockers.
+        }
+      }
       return {
         error: reviewHomeError(dir, jsonObject(value), {
           message: `Invalid review.json; run \`review migrate apply\`: ${parsed.error.issues.map((issue) => issue.message).join("; ")}`,
@@ -665,6 +775,18 @@ function reviewHomeError(
 
 export function parseStoredReviewRecord(value: JsonValue): StoredReviewRecord {
   return StoredReviewRecordSchema.parse(stripLegacySoftwareMap(value));
+}
+
+/** Strict metadata-only adapter. No files, artifacts, or stored schema are changed. */
+export function parseStoredReviewRecordForRecovery(
+  value: JsonValue,
+): StoredReviewRecord {
+  if (!isJsonObject(value)) return parseStoredReviewRecord(value);
+  if (value.schemaVersion === REVIEW_SCHEMA_VERSION)
+    return parseStoredReviewRecord(value);
+  return parseStoredReviewRecordForMigration(
+    LegacyRecoveryRecordSchema.parse(stripLegacySoftwareMap(value)),
+  );
 }
 
 export function parseStoredReviewRecordForMigration(

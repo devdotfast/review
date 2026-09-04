@@ -263,8 +263,10 @@ export function DatabaseLens(props: DatabaseLensProps) {
   const tourAnchor = tourState?.anchor ?? null;
   const tourOpen = tourState !== null;
 
+  const restoreAttemptedRef = useRef(false);
   useEffect(() => {
-    if (!restoredTour) return;
+    if (!restoredTour || restoreAttemptedRef.current) return;
+    restoreAttemptedRef.current = true;
     const restoredUseCase = useCases.find(
       (useCase) => tourIdFor(lensId, useCase.id) === restoredTour.tour.id,
     );

@@ -384,6 +384,7 @@ async function installFile(src: string, dest: string): Promise<void> {
     await rename(dest, backup);
     movedExisting = true;
   } catch (error) {
+    // SAFETY: fs rename rejects with a Node errno exception.
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
   try {
@@ -415,6 +416,7 @@ async function managedOpenCodePlugin(
       ? "managed"
       : "unmanaged";
   } catch (error) {
+    // SAFETY: fs lstat and readFile reject with a Node errno exception.
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing";
     throw error;
   }

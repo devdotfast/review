@@ -1,9 +1,15 @@
 import { mkdtemp, rm } from "node:fs/promises";
-import { createServer, type Server, type ServerResponse } from "node:http";
+import { type Server, type ServerResponse, createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import {
+  type JsonObject,
+  type JsonValue,
+  jsonObject,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { AgentServerOptions, SessionUpdate } from "./native-session";
@@ -37,15 +43,24 @@ const user = (id: string, text: string, created = 1_000) => ({
   info: { id, sessionID: "ses_1", role: "user", time: { created } },
   parts: [{ id: `${id}-p`, type: "text", text }],
 });
-const assistant = (id: string, text: string, completed?: number) => ({
-  info: {
-    id,
-    sessionID: "ses_1",
-    role: "assistant",
-    time: { created: 1_500, ...(completed ? { completed } : {}) },
-  },
-  parts: [{ id: `${id}-p`, type: "text", text }],
-});
+const failedAssistant = (id: string, text: string, completed: number) => {
+  const message = assistant(id, text, completed);
+  const info: JsonObject = {
+    ...jsonObject(message.info),
+    error: { name: "UnknownError" },
+  };
+  return { ...message, info };
+};
+
+const assistant = (id: string, text: string, completed?: number) => {
+  const time: JsonObject = { created: 1_500 };
+  if (completed !== undefined) time.completed = completed;
+  const message: JsonObject = {
+    info: { id, sessionID: "ses_1", role: "assistant", time },
+    parts: [{ id: `${id}-p`, type: "text", text }],
+  };
+  return message;
+};
 
 /** A fake `opencode serve`: sessions, prompts, messages, and an event stream. */
 async function fakeOpencode() {
@@ -53,16 +68,16 @@ async function fakeOpencode() {
     method: string;
     path: string;
     directory: string | null;
-    body: unknown;
+    body: JsonValue;
   }> = [];
-  const messages: unknown[] = [];
+  const messages: JsonValue[] = [];
   const listeners = new Set<ServerResponse>();
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://localhost");
     let raw = "";
     request.on("data", (chunk) => (raw += String(chunk)));
     request.on("end", () => {
-      const body = raw ? (JSON.parse(raw) as unknown) : undefined;
+      const body = raw ? parseJsonText(raw) : null;
       requests.push({
         method: request.method ?? "",
         path: url.pathname,
@@ -85,7 +100,7 @@ async function fakeOpencode() {
         response.on("close", () => listeners.delete(response));
         return;
       }
-      const reply = (value: unknown) => {
+      const reply = (value: JsonValue) => {
         response.writeHead(200, { "content-type": "application/json" });
         response.end(JSON.stringify(value));
       };
@@ -131,7 +146,7 @@ async function fakeOpencode() {
       }),
       close: async () => undefined,
     },
-    emit(event: unknown) {
+    emit(event: JsonValue) {
       for (const listener of listeners)
         listener.write(`data: ${JSON.stringify(event)}\n\n`);
     },
@@ -157,13 +172,7 @@ describe("projectOpencodeMessages", () => {
         user("msg_1", "hello"),
         assistant("msg_2", "still streaming"),
         assistant("msg_3", "done", 2_000),
-        {
-          ...assistant("msg_4", "broken", 2_500),
-          info: {
-            ...assistant("msg_4", "broken", 2_500).info,
-            error: { name: "UnknownError" },
-          },
-        },
+        failedAssistant("msg_4", "broken", 2_500),
       ]),
     ).toEqual([
       {

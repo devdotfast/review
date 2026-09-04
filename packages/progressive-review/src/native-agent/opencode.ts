@@ -1,6 +1,16 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import type { AddressInfo } from "node:net";
 import { createServer } from "node:net";
+
+import {
+  type JsonValue,
+  jsonArray,
+  jsonNumber,
+  jsonObject,
+  jsonString,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
 
 import { DEV_REVIEW_HOME_ENV, devReviewHome } from "../review-storage";
 import { AsyncQueue } from "./async-queue";
@@ -19,7 +29,6 @@ import {
   REVIEW_AGENT_THREAD_URL_ENV,
   ReviewCommandPath,
 } from "./terminal-command";
-import { isJsonRecord } from "./transcript-json";
 
 const HOST = "127.0.0.1";
 const STARTUP_TIMEOUT_MS = 15_000;
@@ -103,6 +112,13 @@ export class OpencodeAgentServer implements AgentServer {
       );
     }
     const pathValue = await this.#commandPath.resolve();
+    const env: NativeTerminalCommand["env"] = {
+      OPENCODE_SERVER_PASSWORD: client.password,
+      [REVIEW_AGENT_THREAD_URL_ENV]: `${this.#desktop.baseUrl}/native-agent-events/opencode/${encodeURIComponent(sessionId)}/thread`,
+      [REVIEW_AGENT_THREAD_TOKEN_ENV]: this.#desktop.token,
+      [DEV_REVIEW_HOME_ENV]: devReviewHome(),
+    };
+    if (pathValue) env.PATH = pathValue;
     return {
       sessionId,
       command: {
@@ -116,13 +132,7 @@ export class OpencodeAgentServer implements AgentServer {
           "--dir",
           session.directory,
         ],
-        env: {
-          OPENCODE_SERVER_PASSWORD: client.password,
-          [REVIEW_AGENT_THREAD_URL_ENV]: `${this.#desktop.baseUrl}/native-agent-events/opencode/${encodeURIComponent(sessionId)}/thread`,
-          [REVIEW_AGENT_THREAD_TOKEN_ENV]: this.#desktop.token,
-          [DEV_REVIEW_HOME_ENV]: devReviewHome(),
-          ...(pathValue ? { PATH: pathValue } : {}),
-        },
+        env,
       },
     };
   }
@@ -237,24 +247,30 @@ export interface OpencodeMessage extends NativeReviewMessage {
 }
 
 /** Every user message, and every assistant message that completed without error. */
-export function projectOpencodeMessages(value: unknown): OpencodeMessage[] {
-  if (!Array.isArray(value)) {
+export function projectOpencodeMessages(
+  value: JsonValue | undefined,
+): OpencodeMessage[] {
+  const list = jsonArray(value);
+  if (!list) {
     throw new Error("OpenCode returned an invalid session message list.");
   }
   const messages: OpencodeMessage[] = [];
-  for (const entry of value) {
-    if (!isJsonRecord(entry) || !isJsonRecord(entry.info)) continue;
-    const info = entry.info;
-    if (typeof info.id !== "string" || !isJsonRecord(info.time)) continue;
-    const body = (Array.isArray(entry.parts) ? entry.parts : [])
-      .flatMap((part) =>
-        isJsonRecord(part) &&
-        part.type === "text" &&
-        part.ignored !== true &&
-        typeof part.text === "string"
-          ? [part.text]
-          : [],
-      )
+  for (const entry of list) {
+    const record = jsonObject(entry);
+    const info = jsonObject(record?.info);
+    const time = jsonObject(info?.time);
+    const messageId = jsonString(info?.id);
+    if (!record || !info || !time || messageId === undefined) continue;
+    const body = (jsonArray(record.parts) ?? [])
+      .flatMap((item) => {
+        const part = jsonObject(item);
+        const text = jsonString(part?.text);
+        return part?.type === "text" &&
+          part.ignored !== true &&
+          text !== undefined
+          ? [text]
+          : [];
+      })
       .join("\n")
       .trim();
     if (!body) continue;
@@ -262,67 +278,61 @@ export function projectOpencodeMessages(value: unknown): OpencodeMessage[] {
       messages.push({
         role: "user",
         body,
-        createdAt: millisToIso(info.time.created),
-        messageId: info.id,
+        createdAt: millisToIso(time.created),
+        messageId,
       });
-    } else if (
+      continue;
+    }
+    const completed = jsonNumber(time.completed);
+    if (
       info.role === "assistant" &&
-      typeof info.time.completed === "number" &&
+      completed !== undefined &&
       info.error === undefined
     ) {
       messages.push({
         role: "assistant",
         body,
-        createdAt: millisToIso(info.time.completed),
-        messageId: info.id,
+        createdAt: millisToIso(completed),
+        messageId,
       });
     }
   }
   return messages;
 }
 
-function eventSessionId(event: unknown): string | undefined {
-  if (!isJsonRecord(event) || !isJsonRecord(event.properties)) return undefined;
-  const properties = event.properties;
-  if (
-    event.type === "message.updated" &&
-    isJsonRecord(properties.info) &&
-    typeof properties.info.sessionID === "string"
-  ) {
-    return properties.info.sessionID;
-  }
-  if (
-    (event.type === "session.idle" || event.type === "session.updated") &&
-    typeof properties.sessionID === "string"
-  ) {
-    return properties.sessionID;
-  }
-  if (
-    event.type === "session.updated" &&
-    isJsonRecord(properties.info) &&
-    typeof properties.info.id === "string"
-  ) {
-    return properties.info.id;
+function eventSessionId(event: JsonValue): string | undefined {
+  const record = jsonObject(event);
+  const properties = jsonObject(record?.properties);
+  if (!record || !properties) return undefined;
+  const info = jsonObject(properties.info);
+  if (record.type === "message.updated") return jsonString(info?.sessionID);
+  if (record.type === "session.idle") return jsonString(properties.sessionID);
+  if (record.type === "session.updated") {
+    return jsonString(properties.sessionID) ?? jsonString(info?.id);
   }
   return undefined;
 }
 
-function sessionOf(value: unknown): { id: string; directory: string } {
-  if (
-    !isJsonRecord(value) ||
-    typeof value.id !== "string" ||
-    !value.id ||
-    typeof value.directory !== "string"
-  ) {
-    throw new Error("OpenCode returned an invalid session.");
-  }
-  return { id: value.id, directory: value.directory };
+interface OpencodeSession {
+  id: string;
+  directory: string;
 }
 
-function millisToIso(value: unknown): string {
-  return typeof value === "number"
-    ? new Date(value).toISOString()
-    : new Date(0).toISOString();
+function sessionOf(value: JsonValue | undefined): OpencodeSession {
+  const record = jsonObject(value);
+  const id = jsonString(record?.id);
+  const directory = jsonString(record?.directory);
+  if (!id || directory === undefined) {
+    throw new Error("OpenCode returned an invalid session.");
+  }
+  return { id, directory };
+}
+
+function millisToIso(value: JsonValue | undefined): string {
+  const millis = jsonNumber(value);
+  return millis === undefined
+    ? new Date(0).toISOString()
+    : new Date(millis).toISOString();
 }
 
 /** Authenticated HTTP client for one `opencode serve`. */
@@ -340,8 +350,8 @@ export class OpencodeClient {
     method: "GET" | "POST",
     pathname: string,
     directory: string | undefined,
-    body?: unknown,
-  ): Promise<unknown> {
+    body?: JsonValue,
+  ): Promise<JsonValue | undefined> {
     const response = await this.#fetch(method, pathname, directory, body);
     const text = await response.text();
     if (!response.ok) {
@@ -349,42 +359,43 @@ export class OpencodeClient {
         `OpenCode ${method} ${pathname} failed (${response.status}): ${text}`,
       );
     }
-    return text ? (JSON.parse(text) as unknown) : undefined;
+    return text ? parseJsonText(text) : undefined;
   }
 
   #fetch(
     method: "GET" | "POST",
     pathname: string,
     directory: string | undefined,
-    body?: unknown,
+    body?: JsonValue,
   ): Promise<Response> {
     const url = new URL(pathname, this.baseUrl);
     if (directory) url.searchParams.set("directory", directory);
-    return fetch(url, {
+    const headers = new Headers({ authorization: this.#authorization });
+    const init: RequestInit = {
       method,
-      headers: {
-        authorization: this.#authorization,
-        ...(body === undefined ? {} : { "content-type": "application/json" }),
-      },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      headers,
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
+    };
+    if (body !== undefined) {
+      headers.set("content-type", "application/json");
+      init.body = JSON.stringify(body);
+    }
+    return fetch(url, init);
   }
 
   /**
    * Find a session by id. Sessions are stored per project, and a lookup is
    * scoped to one directory, so every project the server knows is tried.
    */
-  async session(id: string): Promise<{ id: string; directory: string }> {
-    const projects = await this.json("GET", "/project", undefined);
-    if (!Array.isArray(projects)) {
+  async session(id: string): Promise<OpencodeSession> {
+    const projects = jsonArray(await this.json("GET", "/project", undefined));
+    if (!projects) {
       throw new Error("OpenCode returned an invalid project list.");
     }
-    const worktrees = projects.flatMap((project) =>
-      isJsonRecord(project) && typeof project.worktree === "string"
-        ? [project.worktree]
-        : [],
-    );
+    const worktrees = projects.flatMap((project) => {
+      const worktree = jsonString(jsonObject(project)?.worktree);
+      return worktree === undefined ? [] : [worktree];
+    });
     for (const worktree of new Set(worktrees)) {
       const response = await this.#fetch(
         "GET",
@@ -397,13 +408,13 @@ export class OpencodeClient {
           `OpenCode GET /session/${id} failed (${response.status}): ${await response.text()}`,
         );
       }
-      return sessionOf(JSON.parse(await response.text()) as unknown);
+      return sessionOf(parseJsonText(await response.text()));
     }
     throw new Error(`OpenCode has no session ${id} in any known project.`);
   }
 
   /** Parsed `/global/event` server-sent events until the signal aborts. */
-  async *events(signal: AbortSignal): AsyncGenerator<unknown> {
+  async *events(signal: AbortSignal): AsyncGenerator<JsonValue> {
     const response = await fetch(new URL("/global/event", this.baseUrl), {
       headers: {
         authorization: this.#authorization,
@@ -435,7 +446,7 @@ export class OpencodeClient {
             .filter((line) => line.startsWith("data:"))
             .map((line) => line.slice(5).trimStart())
             .join("\n");
-          if (data) yield JSON.parse(data) as unknown;
+          if (data) yield parseJsonText(data);
           boundary = buffer.indexOf("\n\n");
         }
       }
@@ -498,7 +509,7 @@ export class OpencodeServeHost implements OpencodeHost {
       while (child.exitCode === null) {
         try {
           const health = await client.json("GET", "/global/health", undefined);
-          if (isJsonRecord(health) && health.healthy === true) {
+          if (jsonObject(health)?.healthy === true) {
             return { child, baseUrl, password };
           }
         } catch {
@@ -528,10 +539,11 @@ async function reservePort(): Promise<number> {
   await new Promise<void>((resolve, reject) =>
     server.close((error) => (error ? reject(error) : resolve())),
   );
-  if (!address || typeof address === "string") {
+  if (!address) {
     throw new Error("Could not reserve a loopback port for OpenCode.");
   }
-  return address.port;
+  // SAFETY: a TCP listener bound to a port reports an AddressInfo, never a pipe path.
+  return (address as AddressInfo).port;
 }
 
 /** Fork a session on a throwaway server. Used by the CLI to freeze a review's source. */
@@ -615,17 +627,14 @@ export async function createOpencodeSession(input: {
 }
 
 /** The first assistant message that ended in an error, as a short description. */
-function assistantFailure(messages: unknown): string | undefined {
-  if (!Array.isArray(messages)) return undefined;
-  for (const entry of messages) {
-    if (!isJsonRecord(entry) || !isJsonRecord(entry.info)) continue;
-    const info = entry.info;
-    if (info.role !== "assistant" || !isJsonRecord(info.error)) continue;
-    const name =
-      typeof info.error.name === "string" ? info.error.name : "error";
-    const data = isJsonRecord(info.error.data) ? info.error.data : {};
-    const message = typeof data.message === "string" ? `: ${data.message}` : "";
-    return `${name}${message}`;
+function assistantFailure(messages: JsonValue | undefined): string | undefined {
+  for (const entry of jsonArray(messages) ?? []) {
+    const info = jsonObject(jsonObject(entry)?.info);
+    const error = jsonObject(info?.error);
+    if (info?.role !== "assistant" || !error) continue;
+    const name = jsonString(error.name) ?? "error";
+    const message = jsonString(jsonObject(error.data)?.message);
+    return message === undefined ? name : `${name}: ${message}`;
   }
   return undefined;
 }

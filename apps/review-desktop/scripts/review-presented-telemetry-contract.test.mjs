@@ -19,7 +19,7 @@ test("presented telemetry follows a successful visible canvas ready signal", asy
 
   assert.match(
     desktopEntry,
-    /Promise\.all\(\[documentBundle, softwareMapBundle\]\)/,
+    /Promise\.all\(\[documentContent, softwareMapBundle\]\)/,
   );
   assert.match(
     desktopEntry,

@@ -17,10 +17,13 @@ import {
 } from "../../platform/instantiation/common/instantiation.js";
 import { ReviewModuleCache } from "../common/reviewModuleCache.js";
 import {
+	parseReviewDocumentSnapshotResponse,
 	ReviewDocModuleResponseSchema,
 	ReviewSoftwareMapModuleResponseSchema,
+	type ReviewCanvasDocument,
 	type ReviewCommentStoreBridge,
 	type ReviewDescriptor,
+	type ReviewDocumentSnapshot,
 	type ReviewSessionDescriptor,
 	type ReviewSessionWire,
 	parseReviewSessionResponse,
@@ -28,11 +31,13 @@ import {
 import {
 	IReviewSessionService,
 	type ReviewDataChangedEvent,
+	type ReviewDocumentChangedEvent,
 	type ReviewSessionConnection,
 	type ReviewSessionClosedEvent,
 	type ReviewThreadsCommittedEvent,
 } from "./reviewSessionService.js";
 import { ReviewCommentStore } from "./reviewCommentStore.js";
+import { ReviewDocumentStore } from "./reviewDocumentStore.js";
 
 export interface ReviewDesktopSession {
 	readonly serverUrl: string;
@@ -90,6 +95,7 @@ export class ReviewSessionModel extends Disposable {
 	private readonly modules = new ReviewModuleCache();
 	private refreshPromise: Promise<void> | undefined;
 	private _comments: ReviewCommentStore;
+	private incrementalDocumentStore: ReviewDocumentStore | undefined;
 	get comments(): ReviewCommentStoreBridge {
 		return this._comments;
 	}
@@ -102,6 +108,7 @@ export class ReviewSessionModel extends Disposable {
 		onDidCloseSession: Event<ReviewSessionClosedEvent> = Event.None,
 		private readonly shouldRefresh: ReviewSessionRefreshPredicate = () => true,
 		onDidCommitReviewThreads: Event<ReviewThreadsCommittedEvent> = Event.None,
+		onDidChangeReviewDocument: Event<ReviewDocumentChangedEvent> = Event.None,
 	) {
 		super();
 		this._session = session;
@@ -129,10 +136,40 @@ export class ReviewSessionModel extends Disposable {
 			}),
 		);
 		this._register(
+			onDidChangeReviewDocument((event) => {
+				if (
+					event.uuid !== this.reviewUuid ||
+					event.routePath !== reviewRoutePath(this._session) ||
+					this._state !== "active" ||
+					this._session.session.historicalRevision
+				) {
+					return;
+				}
+				if (!this.incrementalDocumentStore) {
+					this.modules.clear();
+					this._onDidChange.fire();
+					return;
+				}
+				if (
+					event.revision <=
+					this.incrementalDocumentStore.getSnapshot().revision
+				) {
+					return;
+				}
+				void this.refreshIncrementalDocument().catch((error) => {
+					console.error(
+						`[Review Desktop] failed to refresh incremental document ${reviewUuid}`,
+						error,
+					);
+				});
+			}),
+		);
+		this._register(
 			onDidCommitReviewThreads((event) => {
 				if (
 					event.uuid !== this.reviewUuid ||
-					event.sessionId !== this._session.session.sessionId ||
+					(event.sessionId !== undefined &&
+						event.sessionId !== this._session.session.sessionId) ||
 					this._state !== "active"
 				) {
 					return;
@@ -214,7 +251,9 @@ export class ReviewSessionModel extends Disposable {
 		return this.refreshPromise;
 	}
 
-	resolveDocument(loader: ReviewDocumentModuleLoader): Promise<unknown> {
+	resolveDocument(
+		loader: ReviewDocumentModuleLoader,
+	): Promise<ReviewCanvasDocument> {
 		return this.modules.load("document", () => this.loadDocument(loader));
 	}
 
@@ -230,8 +269,49 @@ export class ReviewSessionModel extends Disposable {
 		return fetch(url, init);
 	}
 
-	private loadDocument(loader: ReviewDocumentModuleLoader): Promise<unknown> {
-		return loadReviewSessionDocument(this._session, loader);
+	private async loadDocument(
+		loader: ReviewDocumentModuleLoader,
+	): Promise<ReviewCanvasDocument> {
+		if (!this._session.session.historicalRevision) {
+			const snapshot = await loadReviewDocumentSnapshot(
+				this._session,
+				this.reviewUuid,
+				(url, init) => this.request(url, init),
+			);
+			if (
+				snapshot.mode === "incremental" &&
+				snapshot.routePath === reviewRoutePath(this._session)
+			) {
+				this.incrementalDocumentStore?.dispose();
+				this.incrementalDocumentStore = new ReviewDocumentStore(snapshot);
+				return {
+					kind: "incremental",
+					store: this.incrementalDocumentStore,
+				};
+			}
+		}
+		return {
+			kind: "compiled",
+			bundle: await loadReviewSessionDocument(this._session, loader),
+		};
+	}
+
+	private async refreshIncrementalDocument(): Promise<void> {
+		const store = this.incrementalDocumentStore;
+		if (!store) return;
+		const snapshot = await loadReviewDocumentSnapshot(
+			this._session,
+			this.reviewUuid,
+			(url, init) => this.request(url, init),
+		);
+		if (snapshot.mode !== "incremental") {
+			this.incrementalDocumentStore = undefined;
+			store.dispose();
+			this.modules.clear();
+			this._onDidChange.fire();
+			return;
+		}
+		store.replace(snapshot);
 	}
 
 	private loadSoftwareMap(
@@ -251,8 +331,37 @@ export class ReviewSessionModel extends Disposable {
 
 	override dispose(): void {
 		this._comments.dispose();
+		this.incrementalDocumentStore?.dispose();
 		super.dispose();
 	}
+}
+
+async function loadReviewDocumentSnapshot(
+	session: ReviewDesktopSession,
+	reviewUuid: string,
+	fetchImpl: (url: string, init: RequestInit) => Promise<Response> = fetch,
+): Promise<ReviewDocumentSnapshot> {
+	const url = new URL(
+		`/reviews/${encodeURIComponent(reviewUuid)}/document`,
+		session.serverUrl,
+	);
+	const response = await fetchImpl(url.href, {
+		headers: { "x-review-token": session.token },
+		signal: AbortSignal.timeout(30_000),
+	});
+	const payload = parseReviewDocumentSnapshotResponse(await response.json());
+	if (!response.ok || !payload.ok) {
+		throw new Error(
+			payload.ok
+				? `Review document returned ${response.status}.`
+				: payload.error,
+		);
+	}
+	return payload.snapshot;
+}
+
+function reviewRoutePath(session: ReviewDesktopSession): string {
+	return session.session.routePath ?? session.descriptor.routePath ?? "/";
 }
 
 /**
@@ -535,6 +644,7 @@ export class ReviewSessionModelService
 			this.sessionService.onDidCloseSession,
 			(current) => this.shouldRefreshModel(current),
 			this.sessionService.onDidCommitReviewThreads ?? Event.None,
+			this.sessionService.onDidChangeReviewDocument ?? Event.None,
 		);
 		this.models.set(key, model);
 		return model;

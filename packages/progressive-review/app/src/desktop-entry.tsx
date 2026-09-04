@@ -13,6 +13,7 @@ import {
   createReviewSession,
   useReviewSession,
 } from "./host/review-session";
+import { createIncrementalReviewDocumentEntry } from "./incremental-review-document";
 import { ReviewCanvasLoading } from "./review-canvas-loading";
 import { reviewDefinitionDiagnostics } from "./review-definition-runtime";
 import type { ReadyReviewDocumentEntry } from "./review-documents-runtime";
@@ -36,7 +37,7 @@ interface ReviewDocumentBundle {
 }
 
 function DesktopReviewApp({
-  documentBundle,
+  documentContent,
   softwareMapBundle,
   softwareMapEnabled,
   range,
@@ -45,7 +46,10 @@ function DesktopReviewApp({
   tutorial,
   findHost,
 }: {
-  documentBundle: Promise<unknown>;
+  documentContent: Extract<
+    ReviewCanvasContent,
+    { kind: "session" }
+  >["document"];
   softwareMapBundle: Promise<unknown | null>;
   softwareMapEnabled: boolean;
   range: Extract<ReviewCanvasContent, { kind: "session" }>["range"];
@@ -76,14 +80,19 @@ function DesktopReviewApp({
     setSoftwareMap(null);
     setSoftwareMapLoaded(false);
     setError(null);
-    void Promise.all([documentBundle, softwareMapBundle]).then(
+    void Promise.all([documentContent, softwareMapBundle]).then(
       ([documentValue, softwareMapValue]) => {
         if (cancelled) return;
-        // SAFETY: the desktop host resolves the session content's `document`
-        // promise with the loaded review-document module, whose exports are
-        // the ReviewDocumentBundle (`activeReviewDocument`).
-        const bundle = documentValue as ReviewDocumentBundle;
-        setDocument(bundle.activeReviewDocument);
+        if (documentValue.kind === "incremental") {
+          setDocument(
+            createIncrementalReviewDocumentEntry(documentValue.store),
+          );
+        } else {
+          // SAFETY: the desktop host resolves compiled content with the loaded
+          // review-document module, whose exports are ReviewDocumentBundle.
+          const bundle = documentValue.bundle as ReviewDocumentBundle;
+          setDocument(bundle.activeReviewDocument);
+        }
         // SAFETY: the host resolves `softwareMap` with the published software
         // map module, or null when no map was published for the review.
         setSoftwareMap(softwareMapValue as PublishedSoftwareMap | null);
@@ -109,7 +118,7 @@ function DesktopReviewApp({
     return () => {
       cancelled = true;
     };
-  }, [documentBundle, softwareMapBundle]);
+  }, [documentContent, softwareMapBundle]);
 
   useEffect(() => {
     if (document && softwareMapLoaded && !error) session.signalReady();
@@ -166,7 +175,7 @@ function ReviewCanvas({
     return (
       <DesktopReviewApp
         key={content.bridge.config.sessionId}
-        documentBundle={content.document}
+        documentContent={content.document}
         softwareMapBundle={content.softwareMap}
         softwareMapEnabled={content.softwareMapEnabled}
         range={content.range}

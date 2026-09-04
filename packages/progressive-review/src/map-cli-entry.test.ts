@@ -42,7 +42,12 @@ describe("runSoftwareMapCliEntry telemetry", () => {
       });
 
       expect(exitCode).toBe(0);
-      expect(lastCaptureBody(fetchMock).properties).toMatchObject({
+      const event = await waitForCaptureBody(
+        fetchMock,
+        (e) =>
+          e.properties.command === "map" && e.properties.subcommand === mode,
+      );
+      expect(event.properties).toMatchObject({
         command: "map",
         command_path: mode === "check" ? "map.check" : "invalid",
         subcommand: mode,
@@ -72,7 +77,11 @@ describe("runSoftwareMapCliEntry telemetry", () => {
       runSoftwareMapCli: mapMocks.runSoftwareMapCli,
     });
 
-    const body = lastCaptureBody(fetchMock);
+    const body = await waitForCaptureBody(
+      fetchMock,
+      (e) =>
+        e.properties.command === "map" && e.properties.subcommand === "update",
+    );
     expect(exitCode).toBe(0);
     expect(body.properties).toMatchObject({
       command: "map",
@@ -100,7 +109,11 @@ describe("runSoftwareMapCliEntry telemetry", () => {
     });
 
     expect(exitCode).toBe(1);
-    expect(lastCaptureBody(fetchMock)).toMatchObject({
+    const body = await waitForCaptureBody(
+      fetchMock,
+      (e) => e.event === "review_command_failed",
+    );
+    expect(body).toMatchObject({
       event: "review_command_failed",
       properties: {
         command: "map",
@@ -136,18 +149,43 @@ function writableOutput(output: string[]): Writable {
   return collectingWritable(output);
 }
 
-function lastCaptureBody(fetchMock: {
-  mock: { calls: Array<Parameters<typeof fetch>> };
-}) {
-  const body = z.string().safeParse(fetchMock.mock.calls.at(-1)?.[1]?.body);
-  if (!body.success) throw new Error("Expected JSON string body");
-  const parsed = JSON.parse(body.data) as {
-    batch: Array<{
-      event: string;
-      properties: Record<string, string | number | boolean | undefined>;
-    }>;
-  };
-  const event = parsed.batch.at(-1);
-  if (!event) throw new Error("Expected a PostHog batch event");
-  return event;
+// The PostHog capture client queues events to files named
+// `${createdAt}-${randomUUID}.json` and the flush reads them sorted by filename.
+// Events captured in the same millisecond therefore appear in a RANDOM relative
+// order (the UUID suffix dominates the sort), so the completion event is not
+// reliably the LAST element of the last batch. Wait for the completion event
+// to appear SOMEWHERE in the captured batches and return that event, rather
+// than reading `at(-1)` and racing a non-deterministic flush order. (The flush
+// is also sent on a timer the CLI does not always await before resolving, so
+// poll until the event lands.)
+async function waitForCaptureBody(
+  fetchMock: { mock: { calls: Array<Parameters<typeof fetch>> } },
+  predicate: (event: {
+    event: string;
+    properties: Record<string, string | number | boolean | undefined>;
+  }) => boolean,
+  timeoutMs = 2_000,
+): Promise<{
+  event: string;
+  properties: Record<string, string | number | boolean | undefined>;
+}> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    for (const call of fetchMock.mock.calls) {
+      const parsed = z.string().safeParse(call[1]?.body);
+      if (!parsed.success) continue;
+      const payload = JSON.parse(parsed.data) as {
+        batch: Array<{
+          event: string;
+          properties: Record<string, string | number | boolean | undefined>;
+        }>;
+      };
+      const match = payload.batch.find((e) => predicate(e));
+      if (match) return match;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error("Timed out waiting for the telemetry completion event");
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+  }
 }

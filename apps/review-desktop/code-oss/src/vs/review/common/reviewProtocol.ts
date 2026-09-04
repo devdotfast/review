@@ -1328,8 +1328,8 @@ export type ReviewListResponse = z.infer<typeof ReviewListResponseSchema>;
 export type ReviewListError = ReviewListResponse["errors"][number];
 
 export const ReviewCliInstallTargetSchema = z.enum(
-  ["claude", "codex", "cursor", "pi"],
-  { error: "must be claude, codex, cursor, or pi" },
+  ["claude", "codex", "cursor", "opencode", "pi"],
+  { error: "must be claude, codex, cursor, opencode, or pi" },
 );
 export type ReviewCliInstallTarget = z.infer<
   typeof ReviewCliInstallTargetSchema

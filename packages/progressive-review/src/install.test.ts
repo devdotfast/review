@@ -40,6 +40,11 @@ async function makePackageRoot(): Promise<string> {
   for (const name of ALL_SKILLS) {
     await writeSkill(packageRoot, name);
   }
+  await mkdir(path.join(packageRoot, "plugins"), { recursive: true });
+  await writeFile(
+    path.join(packageRoot, "plugins", "review.ts"),
+    "// Managed by Review Desktop (@dev.fast/review).\n",
+  );
   return packageRoot;
 }
 
@@ -55,6 +60,29 @@ function silentStreams() {
 }
 
 describe("runInstall", () => {
+  it("installs the OpenCode shell environment plugin", async () => {
+    const packageRoot = await makePackageRoot();
+    const homeDir = await makeTempDir();
+    const streams = silentStreams();
+
+    expect(
+      await runInstall({
+        targets: ["opencode"],
+        homeDir,
+        packageRoot,
+        stdout: streams.stdout,
+        stderr: streams.stderr,
+      }),
+    ).toBe(0);
+
+    expect(
+      await readFile(
+        path.join(homeDir, ".config", "opencode", "plugins", "review.ts"),
+        "utf8",
+      ),
+    ).toContain("Managed by Review Desktop");
+  });
+
   it("installs Review skills to Claude Code, Codex, and Cursor by default", async () => {
     const packageRoot = await makePackageRoot();
     const homeDir = await makeTempDir();

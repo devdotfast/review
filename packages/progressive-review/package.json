@@ -16,6 +16,7 @@
     "!app/src/**/*.test.tsx",
     "dist",
     "skills",
+    "plugins",
     "tutorial",
     "src",
     "!src/**/*.test.ts",

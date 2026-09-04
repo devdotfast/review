@@ -1,9 +1,10 @@
-import path from "node:path";
-
 import type { ReviewRecord } from "@dev.fast/review-protocol";
 
-import type { StoredReview, StoredReviewRecord } from "./review-home";
-import { writePrivateJsonAtomic } from "./server/desktop-paths";
+import {
+  type StoredReview,
+  type StoredReviewRecord,
+  persistStoredReviewRecord,
+} from "./review-home";
 
 /**
  * The reader-facing lifecycle: new -> viewed -> dismissed. It is a separate
@@ -23,7 +24,7 @@ export async function writeReviewRecord(
   patch: Partial<StoredReviewRecord>,
 ): Promise<StoredReview> {
   const review: StoredReviewRecord = { ...stored.review, ...patch };
-  await writePrivateJsonAtomic(path.join(stored.dir, "review.json"), review);
+  await persistStoredReviewRecord(stored.dir, review);
   return { ...stored, review };
 }
 

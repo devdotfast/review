@@ -161,7 +161,8 @@ describe("review home", () => {
       await expect(
         readFile(path.join(created.dir, "package.json"), "utf8"),
       ).resolves.toContain('"test": "node review-test.mjs"');
-      expect(existsSync(path.join(created.dir, "review.db"))).toBe(true);
+      expect(existsSync(path.join(home, "review.db"))).toBe(true);
+      expect(existsSync(path.join(created.dir, "review.db"))).toBe(false);
       expect(existsSync(path.join(created.dir, "comments.json"))).toBe(false);
       expect(existsSync(path.join(created.dir, "questions.json"))).toBe(false);
       await expect(

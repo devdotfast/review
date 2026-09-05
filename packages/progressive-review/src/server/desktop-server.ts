@@ -105,6 +105,7 @@ import {
   fingerprintReviewRepairInputs,
 } from "../review-repair-state";
 import { devReviewHome } from "../review-storage";
+import { readReviewThreadDatabaseFingerprint } from "../review-thread-store-backend";
 import { readReviewSoftwareMapBundle } from "../software-map-bundle";
 import { createTutorialAuthoringSession } from "../tutorial-authoring-session";
 import type { ReviewSubmissionEvent } from "../types";
@@ -215,6 +216,7 @@ interface RegisterSessionInput {
   documentUnavailable?: string;
   softwareMapUnavailable?: string;
   repairValidation?: boolean;
+  readOnlyThreadsPath?: string;
   source?: ActiveReviewSession["source"];
   appSessionId?: string;
   promoted: boolean;
@@ -1148,6 +1150,9 @@ export function createGlobalReviewServer(
     await validateRepairStagingRepository(review.dir, stagingDir);
     const next = await readPreparedReviewRepairRecord(request);
     const stageFingerprint = await fingerprintReviewRepairInputs(stagingDir);
+    const stagedThreadDbFingerprint = request.expectedThreadDbFingerprint
+      ? readReviewThreadDatabaseFingerprint(path.join(stagingDir, "review.mdx"))
+      : undefined;
     const createdBuilds: string[] = [];
     let successor: ActiveReviewSession | undefined;
     try {
@@ -1239,6 +1244,9 @@ export function createGlobalReviewServer(
         revision: request.newDocumentRevision,
         promoted: false,
         repairValidation: true,
+        readOnlyThreadsPath: request.expectedThreadDbFingerprint
+          ? path.join(stagingDir, "review.mdx")
+          : undefined,
       });
       const validation = await relay.dispatch(successor.descriptor.sessionId, {
         name: "validateCanvasMount",
@@ -1258,7 +1266,12 @@ export function createGlobalReviewServer(
         )
           throw new Error("Repair validation session closed before promotion.");
         if (
-          (await fingerprintReviewRepairInputs(stagingDir)) !== stageFingerprint
+          (await fingerprintReviewRepairInputs(stagingDir)) !==
+            stageFingerprint ||
+          (stagedThreadDbFingerprint !== undefined &&
+            readReviewThreadDatabaseFingerprint(
+              path.join(stagingDir, "review.mdx"),
+            ) !== stagedThreadDbFingerprint)
         )
           throw new Error(
             "Prepared repair changed after mount validation; retry.",
@@ -2087,6 +2100,7 @@ export function createGlobalReviewServer(
       reviewPath: registration.documentPath,
       softwareMapRootPath: registration.softwareMapRootPath,
       stateReviewPath: path.join(registration.review.dir, "review.mdx"),
+      readOnlyThreadsPath: registration.readOnlyThreadsPath,
       routePath: "/",
       token,
       sessionId,

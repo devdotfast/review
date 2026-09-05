@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -178,6 +179,13 @@ export function checkReviewThreadDbVersion(reviewMdxPath: string): void {
 /** SQLite readOnly still changes WAL reader marks in SHM. Recovery therefore
  * reads a verified DB+WAL copy and never opens SQLite on the original files. */
 export function readReviewThreadsReadOnly(reviewMdxPath: string) {
+  return withThreadDatabaseSnapshot(reviewMdxPath, readThreadDatabaseSnapshot);
+}
+
+function withThreadDatabaseSnapshot<T>(
+  reviewMdxPath: string,
+  read: (snapshotPath: string, dbPath: string) => T,
+): T {
   const dbPath = reviewThreadDbPath(reviewMdxPath);
   if (!existsSync(dbPath))
     throw new Error("The review thread database is unavailable.");
@@ -187,10 +195,99 @@ export function readReviewThreadsReadOnly(reviewMdxPath: string) {
     const snapshotPath = path.join(snapshotDir, REVIEW_THREAD_DB_FILENAME);
     writeFileSync(snapshotPath, snapshot.database);
     if (snapshot.wal) writeFileSync(`${snapshotPath}-wal`, snapshot.wal);
-    return readThreadDatabaseSnapshot(snapshotPath, dbPath);
+    return read(snapshotPath, dbPath);
   } finally {
     rmSync(snapshotDir, { recursive: true, force: true });
   }
+}
+
+function threadDatabaseFingerprint(
+  snapshot: ReturnType<typeof stableThreadDatabaseSnapshot>,
+): string {
+  return createHash("sha256")
+    .update(createHash("sha256").update(snapshot.database).digest())
+    .update(
+      snapshot.wal === null
+        ? "absent"
+        : createHash("sha256").update(snapshot.wal).digest(),
+    )
+    .digest("hex");
+}
+
+export function readReviewThreadDatabaseFingerprint(
+  reviewMdxPath: string,
+): string {
+  return threadDatabaseFingerprint(
+    stableThreadDatabaseSnapshot(reviewThreadDbPath(reviewMdxPath)),
+  );
+}
+
+/** Copy committed database state without opening the live database in SQLite. */
+export function copyReviewThreadDatabaseSnapshot(
+  reviewMdxPath: string,
+  destinationReviewMdxPath: string,
+): string {
+  const snapshot = stableThreadDatabaseSnapshot(
+    reviewThreadDbPath(reviewMdxPath),
+  );
+  const destination = reviewThreadDbPath(destinationReviewMdxPath);
+  writeFileSync(destination, snapshot.database);
+  if (snapshot.wal) writeFileSync(`${destination}-wal`, snapshot.wal);
+  return threadDatabaseFingerprint(snapshot);
+}
+
+const PendingAgentThreadSchema = z.object({
+  messages: z.array(
+    z.object({
+      role: z.enum(["reviewer", "agent"]).optional(),
+      agentInput: z.boolean().default(false),
+    }),
+  ),
+});
+
+/** Inspect only message ordering, so legacy targets and provider metadata do
+ * not require a live database migration before artifacts can be repaired. */
+export function hasPendingReviewAgentWrites(reviewMdxPath: string): boolean {
+  return withThreadDatabaseSnapshot(reviewMdxPath, (snapshotPath, dbPath) => {
+    const db = new DatabaseSync(snapshotPath, { readOnly: true });
+    try {
+      const version = readThreadDbSchemaVersion(db);
+      if (!version || !["1", "2", "3", "4", "5", "6"].includes(version))
+        throw new ReviewThreadDbVersionError(dbPath, version);
+      const tables =
+        version === "1"
+          ? (["comments"] as const)
+          : (["comments", "comment_drafts"] as const);
+      for (const table of tables) {
+        for (const raw of db
+          .prepare(`SELECT thread_id, record_json FROM ${table}`)
+          .all()) {
+          const row = StoredThreadRowSchema.parse(raw);
+          const value = parseJsonText(row.record_json);
+          const thread = PendingAgentThreadSchema.parse(
+            table === "comment_drafts" && isJsonObject(value)
+              ? value.thread
+              : value,
+          );
+          const lastInput = thread.messages.reduce(
+            (last, message, index) =>
+              message.agentInput && message.role !== "agent" ? index : last,
+            -1,
+          );
+          if (
+            lastInput >= 0 &&
+            !thread.messages
+              .slice(lastInput + 1)
+              .some((message) => message.role === "agent")
+          )
+            return true;
+        }
+      }
+      return false;
+    } finally {
+      db.close();
+    }
+  });
 }
 
 function stableThreadDatabaseSnapshot(dbPath: string) {

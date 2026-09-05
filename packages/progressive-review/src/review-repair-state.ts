@@ -6,7 +6,7 @@ import path from "node:path";
 import { z } from "zod";
 
 import {
-  readReviewThreadsReadOnly,
+  hasPendingReviewAgentWrites,
   reviewThreadDbPath,
 } from "./review-thread-store-backend";
 
@@ -16,6 +16,10 @@ export const ReviewRepairReadyRequestSchema = z.strictObject({
   stagingDir: z.string().min(1),
   expectedRecord: z.string().min(1),
   expectedFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+  expectedThreadDbFingerprint: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .optional(),
   newDocumentRevision: revisionSchema,
   newMapRevision: revisionSchema.nullable(),
   sourceFallback: z.strictObject({ document: z.boolean(), map: z.boolean() }),
@@ -69,26 +73,7 @@ export async function fingerprintReviewRepairInputs(
 export function assertNoActiveReviewAgentWrites(dir: string): void {
   const reviewPath = path.join(dir, "review.mdx");
   if (!existsSync(reviewThreadDbPath(reviewPath))) return;
-  const snapshot = readReviewThreadsReadOnly(reviewPath);
-  const threads = [
-    ...Object.values(snapshot.comments),
-    ...Object.values(snapshot.drafts).map((draft) => draft.thread),
-  ];
-  if (
-    threads.some((thread) => {
-      const lastInput = thread.messages.reduce(
-        (index, message, current) =>
-          message.agentInput && message.role !== "agent" ? current : index,
-        -1,
-      );
-      return (
-        lastInput >= 0 &&
-        !thread.messages
-          .slice(lastInput + 1)
-          .some((message) => message.role === "agent")
-      );
-    })
-  )
+  if (hasPendingReviewAgentWrites(reviewPath))
     throw new Error(
       "Review repair is blocked by pending agent writes; wait for the active agent response to finish, then retry.",
     );

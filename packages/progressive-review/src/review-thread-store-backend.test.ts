@@ -19,6 +19,7 @@ import {
   ReviewThreadDbVersionError,
   closeAllReviewThreadStores,
   createReviewThreadDb,
+  hasPendingReviewAgentWrites,
   migrateReviewThreadDb,
   readReviewThreadsReadOnly,
   reviewThreadDbPath,
@@ -462,4 +463,63 @@ describe("sqlite thread store", () => {
     ).toEqual({ count: 0 });
     reopened.close();
   });
+});
+
+it.each(["1", "2", "3", "4", "5", "6"])(
+  "inspects pending messages in DB schema %s without converting targets or changing files",
+  (version) => {
+    const reviewPath = makeReviewPath();
+    seedComment(reviewPath);
+    closeAllReviewThreadStores();
+    const dbPath = reviewThreadDbPath(reviewPath);
+    const db = new DatabaseSync(dbPath);
+    db.prepare("UPDATE meta SET value = ? WHERE key = 'schema_version'").run(
+      version,
+    );
+    db.prepare(
+      "UPDATE comments SET record_json = ? WHERE thread_id = 'thread-1'",
+    ).run(
+      JSON.stringify({
+        target: { kind: "code", file: "old.ts" },
+        messages: [{ role: "reviewer", agentInput: true }],
+      }),
+    );
+    if (version === "1") db.exec("DROP TABLE comment_drafts");
+    db.close();
+    const before = readFileSync(dbPath);
+    expect(hasPendingReviewAgentWrites(reviewPath)).toBe(true);
+    expect(readFileSync(dbPath)).toEqual(before);
+    const answered = new DatabaseSync(dbPath);
+    answered
+      .prepare(
+        "UPDATE comments SET record_json = ? WHERE thread_id = 'thread-1'",
+      )
+      .run(
+        JSON.stringify({
+          messages: [{ role: "reviewer", agentInput: true }, { role: "agent" }],
+        }),
+      );
+    answered.close();
+    expect(hasPendingReviewAgentWrites(reviewPath)).toBe(false);
+  },
+);
+
+it("rejects unknown database versions and malformed message arrays during pending-write inspection", () => {
+  const reviewPath = makeReviewPath();
+  seedComment(reviewPath);
+  closeAllReviewThreadStores();
+  const db = new DatabaseSync(reviewThreadDbPath(reviewPath));
+  db.exec("UPDATE meta SET value = '999' WHERE key = 'schema_version'");
+  db.close();
+  expect(() => hasPendingReviewAgentWrites(reviewPath)).toThrow(
+    ReviewThreadDbVersionError,
+  );
+  const malformed = new DatabaseSync(reviewThreadDbPath(reviewPath));
+  malformed.exec(
+    "UPDATE meta SET value = '5' WHERE key = 'schema_version'; UPDATE comments SET record_json = '{}'",
+  );
+  malformed.close();
+  expect(() => hasPendingReviewAgentWrites(reviewPath)).toThrow(
+    /messages|array/i,
+  );
 });

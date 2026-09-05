@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { cp, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -11,6 +12,7 @@ import {
   parseJsonText,
 } from "@dev.fast/review-protocol";
 import type { Node as EstreeNode } from "estree";
+import { z } from "zod";
 
 import {
   authoringSessionKey,
@@ -311,16 +313,29 @@ export interface StoredReviewMigrationOutcome {
   threadDbError?: string;
 }
 
-/** One review: record normalization, sealed artifact conversion, thread DB
- * upgrade. Shared by the CLI sweep and the store loader. Repo-level cleanup
- * (legacy checkouts, `repos/`) stays in the sweep. */
-export async function migrateStoredReview(input: {
+interface StoredReviewMigrationInput {
   reviewDir: string;
   log?: (message: string) => void;
   createSourceSession?: typeof createReviewSourceAgentSession;
   force?: boolean;
   onDropLegacyCodeRecord?: ReviewThreadDbMigrationOptions["onDropLegacyCodeRecord"];
-}): Promise<StoredReviewMigrationOutcome> {
+  promoteArtifacts?: typeof promoteReviewArtifactFiles;
+}
+
+/** One review: record normalization, sealed artifact conversion, thread DB
+ * upgrade. Shared by the CLI sweep and the store loader. Repo-level cleanup
+ * (legacy checkouts, `repos/`) stays in the sweep. */
+export async function migrateStoredReview(
+  input: StoredReviewMigrationInput,
+): Promise<StoredReviewMigrationOutcome> {
+  return withReviewMutationLock(input.reviewDir, () =>
+    migrateStoredReviewLocked(input),
+  );
+}
+
+async function migrateStoredReviewLocked(
+  input: StoredReviewMigrationInput,
+): Promise<StoredReviewMigrationOutcome> {
   const reviewPath = path.join(input.reviewDir, "review.mdx");
   const value = jsonObject(
     parseJsonText(
@@ -336,12 +351,8 @@ export async function migrateStoredReview(input: {
   }
   let migrationValue = value;
   if (schemaVersion === 3 || schemaVersion === 2) {
-    migrationValue = await migrateReviewSourceSession({
-      onWarning: (message) => input.log?.(message),
-      createSourceSession:
-        input.createSourceSession ?? createReviewSourceAgentSession,
-      value,
-    });
+    const { agentSession: _agentSession, ...record } = value;
+    migrationValue = { ...record, sourceSession: "disabled:review" };
   }
   const migratedRecord = parseStoredReviewRecordForMigration(migrationValue);
   if (migratedRecord.uuid !== path.basename(input.reviewDir))
@@ -354,7 +365,32 @@ export async function migrateStoredReview(input: {
       original: value,
       allowAbsentMap: schemaVersion === 2,
       log: input.log,
+      promoteArtifacts: input.promoteArtifacts,
+      finalizeSource: async (record) => {
+        if (schemaVersion !== 2 && schemaVersion !== 3) return record;
+        const migrated = await migratePendingReviewSourceSession({
+          reviewDir: input.reviewDir,
+          value,
+          createSourceSession:
+            input.createSourceSession ?? createReviewSourceAgentSession,
+          onWarning: input.log,
+        });
+        return {
+          ...record,
+          sourceSession: migrated.sourceSession,
+          agentSessions: migrated.agentSessions,
+        };
+      },
     }));
+  if (schemaVersion === 2 || schemaVersion === 3) {
+    try {
+      await rm(sourceMigrationStatePath(input.reviewDir), { force: true });
+    } catch (error) {
+      input.log?.(
+        `Review source binding migrated, but pending state cleanup failed: ${errorMessage(error)}`,
+      );
+    }
+  }
   const record = parseStoredReviewRecord(
     parseJsonText(
       await readFile(path.join(input.reviewDir, "review.json"), "utf8"),
@@ -464,6 +500,113 @@ export async function migrateStoredReviewData(input: {
   return total;
 }
 
+const sourceMigrationStateSchema = z.discriminatedUnion("state", [
+  z.object({
+    version: z.literal(1),
+    key: z.string(),
+    state: z.literal("started"),
+  }),
+  z.object({
+    version: z.literal(1),
+    key: z.string(),
+    state: z.literal("ready"),
+    sourceSession: z
+      .string()
+      .refine(
+        (value) =>
+          value === "disabled:review" ||
+          parseAuthoringSessionKey(value) !== undefined,
+      ),
+    boundAt: z.iso.datetime(),
+  }),
+]);
+
+function sourceMigrationStatePath(reviewDir: string): string {
+  return `${reviewDir}.source-migration.json`;
+}
+
+async function migratePendingReviewSourceSession(input: {
+  reviewDir: string;
+  onWarning?: (message: string) => void;
+  createSourceSession: typeof createReviewSourceAgentSession;
+  value: JsonObject;
+}): Promise<StoredReviewRecord> {
+  const key = createHash("sha256")
+    .update(
+      JSON.stringify([
+        input.value.uuid,
+        input.value.schemaVersion,
+        input.value.agentSession,
+        input.value.sourceIdentity,
+        input.value.worktreePath,
+        input.value.baseRef,
+        input.value.baseCommit,
+        input.value.sourceCommit,
+        input.value.presentedDocumentRevision,
+        input.value.presentedRevision,
+        input.value.presentedSoftwareMapRevision,
+      ]),
+    )
+    .digest("hex");
+  const statePath = sourceMigrationStatePath(input.reviewDir);
+  let pending: z.infer<typeof sourceMigrationStateSchema> | undefined;
+  try {
+    pending = sourceMigrationStateSchema.parse(
+      parseJsonText(await readFile(statePath, "utf8")),
+    );
+  } catch (error) {
+    if (!isMissingFileError(error))
+      throw new Error(
+        `Cannot read source migration binding ${statePath}. Inspect and recover this file before retrying; no new native fork was created.`,
+        { cause: error },
+      );
+  }
+  if (pending && pending.key !== key) {
+    throw new Error(
+      `Source migration binding ${statePath} belongs to different Review pins. Inspect and reconcile the pending binding before retrying; no new native fork was created.`,
+    );
+  }
+  if (pending?.state === "started") {
+    throw new Error(
+      `Source migration binding ${statePath} was interrupted after starting a native fork. Inspect the native session and recover the pending binding before retrying; no new native fork was created.`,
+    );
+  }
+  if (!pending) {
+    await writePrivateJsonAtomic(statePath, {
+      version: 1,
+      key,
+      state: "started",
+    });
+    const migrated = await migrateReviewSourceSession(input);
+    pending = {
+      version: 1,
+      key,
+      state: "ready",
+      sourceSession:
+        parseStoredReviewRecordForMigration(migrated).sourceSession,
+      boundAt: new Date().toISOString(),
+    };
+    await writePrivateJsonAtomic(statePath, pending);
+  }
+  const { agentSession: _agentSession, ...record } = input.value;
+  const priorAgentSessions = jsonObject(record.agentSessions) ?? {};
+  return parseStoredReviewRecordForMigration({
+    ...record,
+    sourceSession: pending.sourceSession,
+    agentSessions:
+      pending.sourceSession === "disabled:review"
+        ? priorAgentSessions
+        : {
+            ...priorAgentSessions,
+            [pending.sourceSession]: {
+              firstSeenAt: pending.boundAt,
+              lastSeenAt: pending.boundAt,
+              roles: ["author"],
+            },
+          },
+  });
+}
+
 async function migrateReviewSourceSession(input: {
   onWarning?: (message: string) => void;
   createSourceSession: typeof createReviewSourceAgentSession;
@@ -568,6 +711,8 @@ async function regeneratePresentedArtifacts(input: {
   original: JsonObject;
   allowAbsentMap: boolean;
   log?: (message: string) => void;
+  finalizeSource: (record: StoredReviewRecord) => Promise<StoredReviewRecord>;
+  promoteArtifacts?: typeof promoteReviewArtifactFiles;
 }): Promise<boolean> {
   const staging = await mkdtemp(
     path.join(tmpdir(), "review-artifact-migration-"),
@@ -641,10 +786,13 @@ async function regeneratePresentedArtifacts(input: {
           input.original.schemaVersion !== REVIEW_SCHEMA_VERSION ||
           mapRevision !== input.review.presentedSoftwareMapRevision
         ) {
-          await writePrivateJsonAtomic(recordPath, {
-            ...input.review,
-            presentedSoftwareMapRevision: mapRevision,
-          });
+          await writePrivateJsonAtomic(
+            recordPath,
+            await input.finalizeSource({
+              ...input.review,
+              presentedSoftwareMapRevision: mapRevision,
+            }),
+          );
           input.log?.("Migrated Review " + input.review.uuid + " to schema 5.");
           return true;
         }
@@ -737,7 +885,8 @@ async function regeneratePresentedArtifacts(input: {
             path.join(input.reviewDir, ".build", revision),
           );
         }
-        await promoteReviewArtifactFiles({
+        next = await input.finalizeSource(next);
+        await (input.promoteArtifacts ?? promoteReviewArtifactFiles)({
           reviewDir: input.reviewDir,
           candidateDir,
           record: next,

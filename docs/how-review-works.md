@@ -93,6 +93,14 @@ upgrade. Repeat reads need no further migration. `review migrate apply` runs
 the same per-review upgrade across the store and also performs repository-level
 cleanup.
 
+Migration validates and seals replacement artifacts before forking a legacy
+authoring session. A private sibling pending-binding file makes successful
+forks reusable if promotion fails. An interrupted fork with an unknown outcome
+blocks another automatic fork until its pending binding is inspected and
+recovered; migration does not guess whether the native provider persisted it.
+Transient mutation contention is reported as retryable busy, not corruption or
+a reason to repair.
+
 If sealed conversion fails, the record, authoring inputs, candidates, and
 private refs stay unchanged. Home lists an attention entry with the exact
 command to run: `review repair --review <uuid>`. That Review cannot be opened

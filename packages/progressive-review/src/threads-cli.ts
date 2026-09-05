@@ -212,14 +212,17 @@ async function reviewsForThreads(
     const review = await findReview(managedReviewUuid);
     return review ? [review] : [];
   }
+  if (reviewUuid) {
+    const selected = await findReview(reviewUuid);
+    return selected && selected.review.worktreePath === path.resolve(cwd)
+      ? [selected]
+      : [];
+  }
   const listed = await listReviews({ worktreePath: cwd });
   if (listed.errors.length > 0) {
     throw new Error(
       `Could not read reviews:\n${listed.errors.map((error) => error.message).join("\n")}`,
     );
-  }
-  if (reviewUuid) {
-    return listed.reviews.filter((entry) => entry.review.uuid === reviewUuid);
   }
   return listed.reviews;
 }

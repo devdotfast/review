@@ -11,13 +11,14 @@ import { readReviewDesktopDiscovery } from "./desktop-discovery";
 import { runReviewAppLaunch } from "./review-app-launcher";
 import { type ReviewPickerItem, pickReview } from "./review-app-picker";
 import { actionableReviewsForCheckout } from "./review-change-scope";
-import { type StoredReview, listReviews } from "./review-home";
+import { type StoredReview, findReview, listReviews } from "./review-home";
 import { resolveReviewRoot } from "./runtime";
 
 interface ReviewAppRuntime {
   launch: typeof runReviewAppLaunch;
   readReviewDesktopDiscovery: typeof readReviewDesktopDiscovery;
   listReviews: typeof listReviews;
+  findReview: typeof findReview;
   resolveReviewRoot: typeof resolveReviewRoot;
   pickReview: typeof pickReview;
   fetch: typeof globalThis.fetch;
@@ -47,6 +48,7 @@ export async function runReviewAppPick(
     launch: runReviewAppLaunch,
     readReviewDesktopDiscovery,
     listReviews,
+    findReview,
     resolveReviewRoot,
     pickReview,
     fetch: globalThis.fetch,
@@ -54,19 +56,7 @@ export async function runReviewAppPick(
   };
   await runtime.launch();
   const reviewRoot = await runtime.resolveReviewRoot(input.cwd);
-  const listed = await runtime.listReviews({ worktreePath: reviewRoot });
-  if (listed.errors.length > 0) {
-    throw new Error(
-      `Could not read reviews:\n${listed.errors.map((error) => error.message).join("\n")}`,
-    );
-  }
-  const review = input.reviewUuid
-    ? resolveAppReview(listed.reviews, input.reviewUuid)
-    : await pickAppReview(
-        await actionableReviewsForCheckout(listed.reviews, reviewRoot),
-        input,
-        runtime,
-      );
+  const review = await selectAppReview(input, reviewRoot, runtime);
   if (!review) return null;
   const discovery = await runtime.readReviewDesktopDiscovery();
   if (!discovery) {
@@ -98,6 +88,29 @@ export async function runReviewAppPick(
 }
 
 export const runReviewApp = runReviewAppPick;
+
+async function selectAppReview(
+  input: RunReviewAppInput,
+  reviewRoot: string,
+  runtime: ReviewAppRuntime,
+): Promise<StoredReview | null> {
+  if (input.reviewUuid) {
+    const selected = await runtime.findReview(input.reviewUuid);
+    if (!selected || selected.review.worktreePath !== reviewRoot)
+      throw new Error(`Review not found: ${input.reviewUuid}`);
+    return resolveAppReview([selected], input.reviewUuid);
+  }
+  const listed = await runtime.listReviews({ worktreePath: reviewRoot });
+  if (listed.errors.length > 0)
+    throw new Error(
+      `Could not read reviews:\n${listed.errors.map((error) => error.message).join("\n")}`,
+    );
+  return pickAppReview(
+    await actionableReviewsForCheckout(listed.reviews, reviewRoot),
+    input,
+    runtime,
+  );
+}
 
 function resolveAppReview(
   reviews: readonly StoredReview[],

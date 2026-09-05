@@ -129,6 +129,7 @@ export interface ListReviewsFilter {
   repoKey?: string;
   status?: ReviewRecord["status"];
   includeSystem?: boolean;
+  includeUnscopedErrors?: boolean;
 }
 
 export interface ReviewHomeError {
@@ -613,14 +614,14 @@ export function countReviewComments(reviewMdxPath: string): number {
 export async function listReviews(
   filter: ListReviewsFilter = {},
 ): Promise<ListReviewsResult> {
-  let loaded: Array<StoredReview | { error: ReviewHomeError }>;
+  let loaded: Array<StoredReview | { error: ReviewHomeError } | null>;
   try {
     const entries = await readdir(reviewsHomeDir(), { withFileTypes: true });
     loaded = await Promise.all(
       entries
         .filter((entry) => entry.isDirectory() && UUID_PATTERN.test(entry.name))
         .map((entry) =>
-          readStoredReview(path.join(reviewsHomeDir(), entry.name)),
+          readReviewForList(path.join(reviewsHomeDir(), entry.name), filter),
         ),
     );
   } catch (error) {
@@ -631,6 +632,7 @@ export async function listReviews(
   }
   const result: ListReviewsResult = { reviews: [], errors: [] };
   for (const entry of loaded) {
+    if (!entry) continue;
     if ("error" in entry) {
       result.errors.push(entry.error);
       continue;
@@ -649,6 +651,35 @@ export async function listReviews(
     result.reviews.push(entry);
   }
   return result;
+}
+
+async function readReviewForList(
+  dir: string,
+  filter: ListReviewsFilter,
+): Promise<StoredReview | { error: ReviewHomeError } | null> {
+  if (!filter.worktreePath && !filter.repoKey) return readStoredReview(dir);
+  let record: JsonObject | undefined;
+  try {
+    record = jsonObject(
+      parseJsonText(await readFile(path.join(dir, "review.json"), "utf8")),
+    );
+  } catch {
+    return filter.includeUnscopedErrors ? readStoredReview(dir) : null;
+  }
+  if (filter.worktreePath) {
+    const worktreePath = jsonString(record?.worktreePath);
+    if (!worktreePath)
+      return filter.includeUnscopedErrors ? readStoredReview(dir) : null;
+    if (path.resolve(worktreePath) !== path.resolve(filter.worktreePath))
+      return null;
+  }
+  if (filter.repoKey) {
+    const repoKey = jsonString(record?.repoKey);
+    if (!repoKey)
+      return filter.includeUnscopedErrors ? readStoredReview(dir) : null;
+    if (repoKey !== filter.repoKey) return null;
+  }
+  return readStoredReview(dir);
 }
 
 function reviewThreadMigrationError(

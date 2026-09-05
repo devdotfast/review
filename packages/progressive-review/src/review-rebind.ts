@@ -34,6 +34,11 @@ export async function runReviewRebind(input: {
 }): Promise<number> {
   const reviewRoot = await resolveReviewRoot(input.cwd);
   const review = await resolvePublishReview(reviewRoot, input.reviewUuid);
+  if (review.review.pullRequestNumber != null) {
+    throw new Error(
+      `Review ${review.review.uuid} is bound to a pull request. Re-bind is for moving branch-bound reviews; use \`review scaffold --update\` to re-fetch a PR review.`,
+    );
+  }
   const resolved = await resolveRevision(
     review.review.worktreePath,
     input.change,

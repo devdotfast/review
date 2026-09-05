@@ -346,13 +346,15 @@ export async function migrateStoredReview(input: {
   const migratedRecord = parseStoredReviewRecordForMigration(migrationValue);
   if (migratedRecord.uuid !== path.basename(input.reviewDir))
     throw new Error("review.json UUID does not match its directory");
-  const migrated = await regeneratePresentedArtifacts({
-    reviewDir: input.reviewDir,
-    review: migratedRecord,
-    original: value,
-    allowAbsentMap: schemaVersion === 2,
-    log: input.log,
-  });
+  const migrated =
+    schemaVersion !== REVIEW_SCHEMA_VERSION &&
+    (await regeneratePresentedArtifacts({
+      reviewDir: input.reviewDir,
+      review: migratedRecord,
+      original: value,
+      allowAbsentMap: schemaVersion === 2,
+      log: input.log,
+    }));
   const record = parseStoredReviewRecord(
     parseJsonText(
       await readFile(path.join(input.reviewDir, "review.json"), "utf8"),

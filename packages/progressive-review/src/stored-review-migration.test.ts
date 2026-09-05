@@ -14,6 +14,7 @@ import path from "node:path";
 import { jsonObject, parseJsonText } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { snapshotReviewTree } from "./fixtures/legacy-reviews/legacy-review-fixture";
 import {
   bundleReviewDocument,
   readReviewDocumentBundle,
@@ -703,7 +704,7 @@ describe("migrateStoredReviewData", () => {
     expect(migrated.presentedSoftwareMapRevision).toBeNull();
   });
 
-  it("converts a current legacy map independently from its document revision", async () => {
+  it("converts a schema-4 legacy map independently and skips artifact work on a repeated sweep", async () => {
     const { created, reviewHome, sourceCommit } = await storedReview();
     const documentRevision = await sealReviewCandidate(
       created.dir,
@@ -722,6 +723,7 @@ describe("migrateStoredReviewData", () => {
       force: true,
     });
     await writeCurrentRecord(created.dir, {
+      schemaVersion: 4,
       presentedDocumentRevision: documentRevision,
       presentedSoftwareMapRevision: legacyMapRevision,
     });
@@ -739,7 +741,22 @@ describe("migrateStoredReviewData", () => {
       migrated.presentedSoftwareMapRevision!,
     );
     const migratedMapRevision = migrated.presentedSoftwareMapRevision;
-    await migrateStoredReviewData({ reviewHome });
+    const before = await snapshotReviewTree(created.dir);
+    const materialize = vi.spyOn(reviewVcs, "materialize");
+    const seal = vi.spyOn(reviewVcs, "seal");
+    const legacyRepos = path.join(reviewHome, "repos");
+    await mkdir(legacyRepos);
+    await writeFile(path.join(legacyRepos, "legacy-cache"), "retired");
+    const repeated = await migrateStoredReviewData({ reviewHome });
+    expect(repeated).toMatchObject({
+      documents: 1,
+      upgradedThreadDatabases: 0,
+      droppedReviews: 0,
+    });
+    expect(materialize).not.toHaveBeenCalled();
+    expect(seal).not.toHaveBeenCalled();
+    expect(await snapshotReviewTree(created.dir)).toEqual(before);
+    await expect(stat(legacyRepos)).rejects.toMatchObject({ code: "ENOENT" });
     expect(
       (await readReviewRecord(created.dir)).presentedSoftwareMapRevision,
     ).toBe(migratedMapRevision);
@@ -918,8 +935,12 @@ describe("migrateStoredReview", () => {
     ).toBe("Sealed");
 
     const before = await snapshotMigrationFiles(created.dir);
+    const materialize = vi.spyOn(reviewVcs, "materialize");
+    const seal = vi.spyOn(reviewVcs, "seal");
     const second = await migrateStoredReview({ reviewDir: created.dir });
     expect(second.migrated).toBe(false);
+    expect(materialize).not.toHaveBeenCalled();
+    expect(seal).not.toHaveBeenCalled();
     expect(await snapshotMigrationFiles(created.dir)).toEqual(before);
   });
 
@@ -1093,6 +1114,7 @@ async function writeSchema2Record(
 async function writeCurrentRecord(
   reviewDir: string,
   revisions: {
+    schemaVersion?: 4;
     presentedDocumentRevision: string;
     presentedSoftwareMapRevision: string;
   },

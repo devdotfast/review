@@ -97,7 +97,7 @@ ${DEV_REVIEW_HOME:-~/.dev}/reviews/<uuid>/
 
 `.bundle/document/` contains the current document candidate. `.bundle/software-map/` contains the current map candidate when one exists. The private Review Git repository seals these candidates as revisions.
 
-The document candidate is `review-document.json` with format `review-document/1` and a version-2 manifest. Map candidates are `head-map.json` and `base-map.json` with format `software-map/1`. The server serves JSON; the canvas renders built-in components without executing authored JavaScript. Authoring still uses `review.mdx` and `data.ts`; the CLI retains the MDX compiler, TypeScript checks, esbuild, and Node validation runtime.
+The document candidate is `review-document.json` with format `review-document/1` and a version-2 manifest. Map candidates are `head-map.json` and `base-map.json` with format `software-map/1`. The server serves JSON; the canvas renders built-in components without executing authored JavaScript. The local server may evaluate legacy sealed JavaScript during migration, but the renderer remains JSON-only. Authoring still uses `review.mdx` and `data.ts`; the CLI retains the MDX compiler, TypeScript checks, esbuild, and Node validation runtime.
 
 `.build/<revision>/` contains a temporary materialization of one sealed revision. Review can create it again.
 
@@ -119,9 +119,9 @@ A document re-publish requires zero open comment threads and a completed agent r
 
 ## Migration and repair
 
-Run `review migrate apply` for legacy Review state. It upgrades supported schema-2/3/4 records to schema 5 by converting the exact sealed current document and independently presented map. It never recompiles `review.mdx` or `data.ts`. Accepted and rejected Reviews are included. Valid JSON artifacts retain their pointers; absent maps stay absent. A draft without a presentation only needs its record upgraded.
+Your supported schema-2/3/4 Reviews upgrade to schema 5 on the first ordinary store read: a Home scan, opening a Review, or a CLI lookup. Migration converts the exact sealed current document and independently presented map; it never recompiles `review.mdx` or `data.ts`. Accepted and rejected Reviews are included. Valid JSON artifacts retain their pointers; absent maps stay absent. A draft without a presentation only needs its record upgraded. Repeat reads need no further migration. Run `review migrate apply` to apply the same per-review upgrade across the store and perform repository-level cleanup.
 
-Conversion failure leaves the Review's record, authoring inputs, candidates, and private refs unchanged and reports a blocker. A failed supported record remains visible in Home with the migration warning and **Open recovery**. Listing and opening recovery are read-only; they do not write schema 5 or execute legacy JavaScript. Diff, Commits, Threads, and valid independent artifacts remain available where their underlying data exists. Invalid or unsupported records remain explicit blockers.
+Conversion failure leaves the Review's record, authoring inputs, candidates, and private refs unchanged. Home shows the error and a copyable `review repair --review <uuid>` command; you cannot open that Review until repair succeeds. Invalid or unsupported records remain explicit list errors. Broken artifacts on a current-schema Review show the repair command in the document or map load state instead.
 
 Use `review repair --review <uuid> --json` for explicit recovery of the current presentation. An explicit UUID is required; there is no historical revision selector. Healthy current-schema Reviews return a no-op. Drafts without a presentation are directed to `review publish`.
 
@@ -129,6 +129,6 @@ Repair tries exact sealed conversion first. If that fails, it may compile editab
 
 Repair requires Review Desktop for mount validation. It stages all required artifacts before promotion, blocks pending agent writes, and rejects concurrent record, pin, or candidate changes. Preparation, validation, mount, or promotion failures retain the old presentation with actionable diagnostics. Missing usable artifacts and authoring inputs remain a blocker.
 
-Successful migration and repair preserve status, pins, title, threads, dismissal, publication timestamps, and old private history. Repair reports old/new artifact revisions and preserved status. It does not submit or resolve feedback, require closed comment threads, re-pin, or reopen accepted/rejected Reviews. Ordinary `review publish` and `review map publish` retain their terminal and feedback gates.
+Successful migration and repair preserve status, pins, title, threads, dismissal, viewed and publication timestamps, and old private history. Opening a Review still applies its ordinary viewed and dismissal lifecycle after migration. Repair reports old/new artifact revisions and preserved status. It does not submit or resolve feedback, require closed comment threads, re-pin, or reopen accepted/rejected Reviews. Ordinary `review publish` and `review map publish` retain their terminal and feedback gates.
 
 Only current presentation pointers are migrated or repaired. Already-JSON historical revisions remain readable. A pre-data historical revision shows “This older revision is unavailable in this version of Review” and **Open current review**, not a repair command. Old private commits remain immutable and may retain legacy JavaScript.

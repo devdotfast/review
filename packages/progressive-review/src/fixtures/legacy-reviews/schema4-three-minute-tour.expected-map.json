@@ -1,0 +1,523 @@
+{
+  "head": {
+    "elements": [
+      {
+        "type": "softwareSystem",
+        "id": "orderService",
+        "path": "orderService",
+        "label": "Order service",
+        "description": "Accepts checkout requests, records orders, and completes fulfillment.",
+        "children": [
+          "orderService.api",
+          "orderService.application",
+          "orderService.data",
+          "orderService.fulfillment",
+          "orderService.shipping"
+        ]
+      },
+      {
+        "type": "container",
+        "id": "api",
+        "path": "orderService.api",
+        "parentPath": "orderService",
+        "label": "Checkout API",
+        "description": "Provides the typed checkout entry point.",
+        "children": ["orderService.api.checkout"]
+      },
+      {
+        "type": "component",
+        "id": "checkout",
+        "path": "orderService.api.checkout",
+        "parentPath": "orderService.api",
+        "label": "Checkout API",
+        "description": "Accepts a checkout request and delegates order creation.",
+        "coverage": {
+          "files": [
+            {
+              "path": "src/api/checkout-api.ts",
+              "ranges": []
+            }
+          ],
+          "globs": []
+        },
+        "children": []
+      },
+      {
+        "type": "container",
+        "id": "application",
+        "path": "orderService.application",
+        "parentPath": "orderService",
+        "label": "Order application",
+        "description": "Applies the rules for creating an order.",
+        "children": ["orderService.application.orders"]
+      },
+      {
+        "type": "component",
+        "id": "orders",
+        "path": "orderService.application.orders",
+        "parentPath": "orderService.application",
+        "label": "Order service",
+        "description": "Calculates the total, reserves stock, charges payment, and creates the order.",
+        "coverage": {
+          "files": [
+            {
+              "path": "src/orders/order-service.ts",
+              "ranges": []
+            },
+            {
+              "path": "src/orders/order.ts",
+              "ranges": []
+            },
+            {
+              "path": "src/inventory/inventory-service.ts",
+              "ranges": []
+            },
+            {
+              "path": "src/payments/payment-gateway.ts",
+              "ranges": []
+            }
+          ],
+          "globs": []
+        },
+        "children": []
+      },
+      {
+        "type": "container",
+        "id": "data",
+        "path": "orderService.data",
+        "parentPath": "orderService",
+        "label": "Order data",
+        "description": "Stores orders and defines their persisted shape.",
+        "children": [
+          "orderService.data.ordersRepository",
+          "orderService.data.ordersDatabase"
+        ]
+      },
+      {
+        "type": "component",
+        "id": "ordersRepository",
+        "path": "orderService.data.ordersRepository",
+        "parentPath": "orderService.data",
+        "label": "Orders repository",
+        "description": "Persists orders in memory and submits fulfillment jobs.",
+        "coverage": {
+          "files": [
+            {
+              "path": "src/orders/orders-repository.ts",
+              "ranges": []
+            }
+          ],
+          "globs": []
+        },
+        "children": []
+      },
+      {
+        "type": "component",
+        "id": "ordersDatabase",
+        "path": "orderService.data.ordersDatabase",
+        "parentPath": "orderService.data",
+        "label": "Orders table",
+        "description": "Defines the columns in the orders table.",
+        "coverage": {
+          "files": [
+            {
+              "path": "src/database/schema.ts",
+              "ranges": []
+            }
+          ],
+          "globs": []
+        },
+        "children": []
+      },
+      {
+        "type": "container",
+        "id": "fulfillment",
+        "path": "orderService.fulfillment",
+        "parentPath": "orderService",
+        "label": "Fulfillment",
+        "description": "Queues orders and runs one fulfillment job at a time.",
+        "children": [
+          "orderService.fulfillment.queue",
+          "orderService.fulfillment.worker"
+        ]
+      },
+      {
+        "type": "component",
+        "id": "queue",
+        "path": "orderService.fulfillment.queue",
+        "parentPath": "orderService.fulfillment",
+        "label": "Fulfillment queue",
+        "description": "Stores order identifiers until a worker can act.",
+        "coverage": {
+          "files": [
+            {
+              "path": "src/fulfillment/fulfillment-queue.ts",
+              "ranges": []
+            }
+          ],
+          "globs": []
+        },
+        "children": []
+      },
+      {
+        "type": "component",
+        "id": "worker",
+        "path": "orderService.fulfillment.worker",
+        "parentPath": "orderService.fulfillment",
+        "label": "Fulfillment worker",
+        "description": "Loads a queued order, creates its shipment, and marks it fulfilled.",
+        "coverage": {
+          "files": [
+            {
+              "path": "src/fulfillment/fulfillment-worker.ts",
+              "ranges": []
+            }
+          ],
+          "globs": []
+        },
+        "children": []
+      },
+      {
+        "type": "container",
+        "id": "shipping",
+        "path": "orderService.shipping",
+        "parentPath": "orderService",
+        "label": "Shipping",
+        "description": "Creates shipment tracking records.",
+        "children": ["orderService.shipping.gateway"]
+      },
+      {
+        "type": "component",
+        "id": "gateway",
+        "path": "orderService.shipping.gateway",
+        "parentPath": "orderService.shipping",
+        "label": "Shipping gateway",
+        "description": "Creates a shipment for an order.",
+        "coverage": {
+          "files": [
+            {
+              "path": "src/shipping/shipping-gateway.ts",
+              "ranges": []
+            }
+          ],
+          "globs": []
+        },
+        "children": []
+      }
+    ],
+    "relationships": [
+      {
+        "id": "model.relationship.0",
+        "from": "orderService.api.checkout",
+        "to": "orderService.application.orders",
+        "label": "Creates an order",
+        "kind": "semantic"
+      },
+      {
+        "id": "model.relationship.1",
+        "from": "orderService.application.orders",
+        "to": "orderService.data.ordersRepository",
+        "label": "Stores the order",
+        "kind": "semantic"
+      },
+      {
+        "id": "model.relationship.2",
+        "from": "orderService.data.ordersRepository",
+        "to": "orderService.data.ordersDatabase",
+        "label": "Writes an order row",
+        "kind": "semantic"
+      },
+      {
+        "id": "model.relationship.3",
+        "from": "orderService.data.ordersRepository",
+        "to": "orderService.fulfillment.queue",
+        "label": "Enqueues the order",
+        "kind": "semantic"
+      },
+      {
+        "id": "model.relationship.4",
+        "from": "orderService.fulfillment.queue",
+        "to": "orderService.fulfillment.worker",
+        "label": "Dispatches the job",
+        "kind": "semantic"
+      },
+      {
+        "id": "model.relationship.5",
+        "from": "orderService.fulfillment.worker",
+        "to": "orderService.shipping.gateway",
+        "label": "Creates a shipment",
+        "kind": "semantic"
+      },
+      {
+        "id": "model.relationship.6",
+        "from": "orderService.fulfillment.worker",
+        "to": "orderService.data.ordersRepository",
+        "label": "Marks the order fulfilled",
+        "kind": "semantic"
+      }
+    ]
+  },
+  "base": {
+    "elements": [
+      {
+        "type": "softwareSystem",
+        "id": "orderService",
+        "path": "orderService",
+        "label": "Order service",
+        "description": "Accepts checkout requests, records orders, and completes fulfillment.",
+        "children": [
+          "orderService.api",
+          "orderService.application",
+          "orderService.data",
+          "orderService.fulfillment",
+          "orderService.shipping"
+        ]
+      },
+      {
+        "type": "container",
+        "id": "api",
+        "path": "orderService.api",
+        "parentPath": "orderService",
+        "label": "Checkout API",
+        "description": "Provides the typed checkout entry point.",
+        "children": ["orderService.api.checkout"]
+      },
+      {
+        "type": "component",
+        "id": "checkout",
+        "path": "orderService.api.checkout",
+        "parentPath": "orderService.api",
+        "label": "Checkout API",
+        "description": "Accepts a checkout request and delegates order creation.",
+        "coverage": {
+          "files": [
+            {
+              "path": "src/api/checkout-api.ts",
+              "ranges": []
+            }
+          ],
+          "globs": []
+        },
+        "children": []
+      },
+      {
+        "type": "container",
+        "id": "application",
+        "path": "orderService.application",
+        "parentPath": "orderService",
+        "label": "Order application",
+        "description": "Applies the rules for creating an order.",
+        "children": ["orderService.application.orders"]
+      },
+      {
+        "type": "component",
+        "id": "orders",
+        "path": "orderService.application.orders",
+        "parentPath": "orderService.application",
+        "label": "Order service",
+        "description": "Calculates the total, reserves stock, charges payment, and creates the order.",
+        "coverage": {
+          "files": [
+            {
+              "path": "src/orders/order-service.ts",
+              "ranges": []
+            },
+            {
+              "path": "src/orders/order.ts",
+              "ranges": []
+            },
+            {
+              "path": "src/inventory/inventory-service.ts",
+              "ranges": []
+            },
+            {
+              "path": "src/payments/payment-gateway.ts",
+              "ranges": []
+            }
+          ],
+          "globs": []
+        },
+        "children": []
+      },
+      {
+        "type": "container",
+        "id": "data",
+        "path": "orderService.data",
+        "parentPath": "orderService",
+        "label": "Order data",
+        "description": "Stores orders and defines their persisted shape.",
+        "children": [
+          "orderService.data.ordersRepository",
+          "orderService.data.ordersDatabase"
+        ]
+      },
+      {
+        "type": "component",
+        "id": "ordersRepository",
+        "path": "orderService.data.ordersRepository",
+        "parentPath": "orderService.data",
+        "label": "Orders repository",
+        "description": "Persists orders in memory and submits fulfillment jobs.",
+        "coverage": {
+          "files": [
+            {
+              "path": "src/orders/orders-repository.ts",
+              "ranges": []
+            }
+          ],
+          "globs": []
+        },
+        "children": []
+      },
+      {
+        "type": "component",
+        "id": "ordersDatabase",
+        "path": "orderService.data.ordersDatabase",
+        "parentPath": "orderService.data",
+        "label": "Orders table",
+        "description": "Defines the columns in the orders table.",
+        "coverage": {
+          "files": [
+            {
+              "path": "src/database/schema.ts",
+              "ranges": []
+            }
+          ],
+          "globs": []
+        },
+        "children": []
+      },
+      {
+        "type": "container",
+        "id": "fulfillment",
+        "path": "orderService.fulfillment",
+        "parentPath": "orderService",
+        "label": "Fulfillment",
+        "description": "Queues orders and runs one fulfillment job at a time.",
+        "children": [
+          "orderService.fulfillment.queue",
+          "orderService.fulfillment.worker"
+        ]
+      },
+      {
+        "type": "component",
+        "id": "queue",
+        "path": "orderService.fulfillment.queue",
+        "parentPath": "orderService.fulfillment",
+        "label": "Fulfillment queue",
+        "description": "Stores order identifiers until a worker can act.",
+        "coverage": {
+          "files": [
+            {
+              "path": "src/fulfillment/fulfillment-queue.ts",
+              "ranges": []
+            }
+          ],
+          "globs": []
+        },
+        "children": []
+      },
+      {
+        "type": "component",
+        "id": "worker",
+        "path": "orderService.fulfillment.worker",
+        "parentPath": "orderService.fulfillment",
+        "label": "Fulfillment worker",
+        "description": "Loads a queued order, creates its shipment, and marks it fulfilled.",
+        "coverage": {
+          "files": [
+            {
+              "path": "src/fulfillment/fulfillment-worker.ts",
+              "ranges": []
+            }
+          ],
+          "globs": []
+        },
+        "children": []
+      },
+      {
+        "type": "container",
+        "id": "shipping",
+        "path": "orderService.shipping",
+        "parentPath": "orderService",
+        "label": "Shipping",
+        "description": "Creates shipment tracking records.",
+        "children": ["orderService.shipping.gateway"]
+      },
+      {
+        "type": "component",
+        "id": "gateway",
+        "path": "orderService.shipping.gateway",
+        "parentPath": "orderService.shipping",
+        "label": "Shipping gateway",
+        "description": "Creates a shipment for an order.",
+        "coverage": {
+          "files": [
+            {
+              "path": "src/shipping/shipping-gateway.ts",
+              "ranges": []
+            }
+          ],
+          "globs": []
+        },
+        "children": []
+      }
+    ],
+    "relationships": [
+      {
+        "id": "model.relationship.0",
+        "from": "orderService.api.checkout",
+        "to": "orderService.application.orders",
+        "label": "Creates an order",
+        "kind": "semantic"
+      },
+      {
+        "id": "model.relationship.1",
+        "from": "orderService.application.orders",
+        "to": "orderService.data.ordersRepository",
+        "label": "Stores the order",
+        "kind": "semantic"
+      },
+      {
+        "id": "model.relationship.2",
+        "from": "orderService.data.ordersRepository",
+        "to": "orderService.data.ordersDatabase",
+        "label": "Writes an order row",
+        "kind": "semantic"
+      },
+      {
+        "id": "model.relationship.3",
+        "from": "orderService.data.ordersRepository",
+        "to": "orderService.fulfillment.queue",
+        "label": "Enqueues the order",
+        "kind": "semantic"
+      },
+      {
+        "id": "model.relationship.4",
+        "from": "orderService.fulfillment.queue",
+        "to": "orderService.fulfillment.worker",
+        "label": "Dispatches the job",
+        "kind": "semantic"
+      },
+      {
+        "id": "model.relationship.5",
+        "from": "orderService.fulfillment.worker",
+        "to": "orderService.shipping.gateway",
+        "label": "Creates a shipment",
+        "kind": "semantic"
+      },
+      {
+        "id": "model.relationship.6",
+        "from": "orderService.fulfillment.worker",
+        "to": "orderService.data.ordersRepository",
+        "label": "Marks the order fulfilled",
+        "kind": "semantic"
+      }
+    ]
+  },
+  "headJson": "{\"format\":\"software-map/1\",\"elements\":[{\"type\":\"softwareSystem\",\"id\":\"orderService\",\"path\":\"orderService\",\"label\":\"Order service\",\"description\":\"Accepts checkout requests, records orders, and completes fulfillment.\",\"children\":[\"orderService.api\",\"orderService.application\",\"orderService.data\",\"orderService.fulfillment\",\"orderService.shipping\"]},{\"type\":\"container\",\"id\":\"api\",\"path\":\"orderService.api\",\"parentPath\":\"orderService\",\"label\":\"Checkout API\",\"description\":\"Provides the typed checkout entry point.\",\"children\":[\"orderService.api.checkout\"]},{\"type\":\"component\",\"id\":\"checkout\",\"path\":\"orderService.api.checkout\",\"parentPath\":\"orderService.api\",\"label\":\"Checkout API\",\"description\":\"Accepts a checkout request and delegates order creation.\",\"coverage\":{\"files\":[{\"path\":\"src/api/checkout-api.ts\",\"ranges\":[]}],\"globs\":[]},\"children\":[]},{\"type\":\"container\",\"id\":\"application\",\"path\":\"orderService.application\",\"parentPath\":\"orderService\",\"label\":\"Order application\",\"description\":\"Applies the rules for creating an order.\",\"children\":[\"orderService.application.orders\"]},{\"type\":\"component\",\"id\":\"orders\",\"path\":\"orderService.application.orders\",\"parentPath\":\"orderService.application\",\"label\":\"Order service\",\"description\":\"Calculates the total, reserves stock, charges payment, and creates the order.\",\"coverage\":{\"files\":[{\"path\":\"src/orders/order-service.ts\",\"ranges\":[]},{\"path\":\"src/orders/order.ts\",\"ranges\":[]},{\"path\":\"src/inventory/inventory-service.ts\",\"ranges\":[]},{\"path\":\"src/payments/payment-gateway.ts\",\"ranges\":[]}],\"globs\":[]},\"children\":[]},{\"type\":\"container\",\"id\":\"data\",\"path\":\"orderService.data\",\"parentPath\":\"orderService\",\"label\":\"Order data\",\"description\":\"Stores orders and defines their persisted shape.\",\"children\":[\"orderService.data.ordersRepository\",\"orderService.data.ordersDatabase\"]},{\"type\":\"component\",\"id\":\"ordersRepository\",\"path\":\"orderService.data.ordersRepository\",\"parentPath\":\"orderService.data\",\"label\":\"Orders repository\",\"description\":\"Persists orders in memory and submits fulfillment jobs.\",\"coverage\":{\"files\":[{\"path\":\"src/orders/orders-repository.ts\",\"ranges\":[]}],\"globs\":[]},\"children\":[]},{\"type\":\"component\",\"id\":\"ordersDatabase\",\"path\":\"orderService.data.ordersDatabase\",\"parentPath\":\"orderService.data\",\"label\":\"Orders table\",\"description\":\"Defines the columns in the orders table.\",\"coverage\":{\"files\":[{\"path\":\"src/database/schema.ts\",\"ranges\":[]}],\"globs\":[]},\"children\":[]},{\"type\":\"container\",\"id\":\"fulfillment\",\"path\":\"orderService.fulfillment\",\"parentPath\":\"orderService\",\"label\":\"Fulfillment\",\"description\":\"Queues orders and runs one fulfillment job at a time.\",\"children\":[\"orderService.fulfillment.queue\",\"orderService.fulfillment.worker\"]},{\"type\":\"component\",\"id\":\"queue\",\"path\":\"orderService.fulfillment.queue\",\"parentPath\":\"orderService.fulfillment\",\"label\":\"Fulfillment queue\",\"description\":\"Stores order identifiers until a worker can act.\",\"coverage\":{\"files\":[{\"path\":\"src/fulfillment/fulfillment-queue.ts\",\"ranges\":[]}],\"globs\":[]},\"children\":[]},{\"type\":\"component\",\"id\":\"worker\",\"path\":\"orderService.fulfillment.worker\",\"parentPath\":\"orderService.fulfillment\",\"label\":\"Fulfillment worker\",\"description\":\"Loads a queued order, creates its shipment, and marks it fulfilled.\",\"coverage\":{\"files\":[{\"path\":\"src/fulfillment/fulfillment-worker.ts\",\"ranges\":[]}],\"globs\":[]},\"children\":[]},{\"type\":\"container\",\"id\":\"shipping\",\"path\":\"orderService.shipping\",\"parentPath\":\"orderService\",\"label\":\"Shipping\",\"description\":\"Creates shipment tracking records.\",\"children\":[\"orderService.shipping.gateway\"]},{\"type\":\"component\",\"id\":\"gateway\",\"path\":\"orderService.shipping.gateway\",\"parentPath\":\"orderService.shipping\",\"label\":\"Shipping gateway\",\"description\":\"Creates a shipment for an order.\",\"coverage\":{\"files\":[{\"path\":\"src/shipping/shipping-gateway.ts\",\"ranges\":[]}],\"globs\":[]},\"children\":[]}],\"relationships\":[{\"id\":\"model.relationship.0\",\"from\":\"orderService.api.checkout\",\"to\":\"orderService.application.orders\",\"label\":\"Creates an order\",\"kind\":\"semantic\"},{\"id\":\"model.relationship.1\",\"from\":\"orderService.application.orders\",\"to\":\"orderService.data.ordersRepository\",\"label\":\"Stores the order\",\"kind\":\"semantic\"},{\"id\":\"model.relationship.2\",\"from\":\"orderService.data.ordersRepository\",\"to\":\"orderService.data.ordersDatabase\",\"label\":\"Writes an order row\",\"kind\":\"semantic\"},{\"id\":\"model.relationship.3\",\"from\":\"orderService.data.ordersRepository\",\"to\":\"orderService.fulfillment.queue\",\"label\":\"Enqueues the order\",\"kind\":\"semantic\"},{\"id\":\"model.relationship.4\",\"from\":\"orderService.fulfillment.queue\",\"to\":\"orderService.fulfillment.worker\",\"label\":\"Dispatches the job\",\"kind\":\"semantic\"},{\"id\":\"model.relationship.5\",\"from\":\"orderService.fulfillment.worker\",\"to\":\"orderService.shipping.gateway\",\"label\":\"Creates a shipment\",\"kind\":\"semantic\"},{\"id\":\"model.relationship.6\",\"from\":\"orderService.fulfillment.worker\",\"to\":\"orderService.data.ordersRepository\",\"label\":\"Marks the order fulfilled\",\"kind\":\"semantic\"}]}\n",
+  "baseJson": "{\"format\":\"software-map/1\",\"elements\":[{\"type\":\"softwareSystem\",\"id\":\"orderService\",\"path\":\"orderService\",\"label\":\"Order service\",\"description\":\"Accepts checkout requests, records orders, and completes fulfillment.\",\"children\":[\"orderService.api\",\"orderService.application\",\"orderService.data\",\"orderService.fulfillment\",\"orderService.shipping\"]},{\"type\":\"container\",\"id\":\"api\",\"path\":\"orderService.api\",\"parentPath\":\"orderService\",\"label\":\"Checkout API\",\"description\":\"Provides the typed checkout entry point.\",\"children\":[\"orderService.api.checkout\"]},{\"type\":\"component\",\"id\":\"checkout\",\"path\":\"orderService.api.checkout\",\"parentPath\":\"orderService.api\",\"label\":\"Checkout API\",\"description\":\"Accepts a checkout request and delegates order creation.\",\"coverage\":{\"files\":[{\"path\":\"src/api/checkout-api.ts\",\"ranges\":[]}],\"globs\":[]},\"children\":[]},{\"type\":\"container\",\"id\":\"application\",\"path\":\"orderService.application\",\"parentPath\":\"orderService\",\"label\":\"Order application\",\"description\":\"Applies the rules for creating an order.\",\"children\":[\"orderService.application.orders\"]},{\"type\":\"component\",\"id\":\"orders\",\"path\":\"orderService.application.orders\",\"parentPath\":\"orderService.application\",\"label\":\"Order service\",\"description\":\"Calculates the total, reserves stock, charges payment, and creates the order.\",\"coverage\":{\"files\":[{\"path\":\"src/orders/order-service.ts\",\"ranges\":[]},{\"path\":\"src/orders/order.ts\",\"ranges\":[]},{\"path\":\"src/inventory/inventory-service.ts\",\"ranges\":[]},{\"path\":\"src/payments/payment-gateway.ts\",\"ranges\":[]}],\"globs\":[]},\"children\":[]},{\"type\":\"container\",\"id\":\"data\",\"path\":\"orderService.data\",\"parentPath\":\"orderService\",\"label\":\"Order data\",\"description\":\"Stores orders and defines their persisted shape.\",\"children\":[\"orderService.data.ordersRepository\",\"orderService.data.ordersDatabase\"]},{\"type\":\"component\",\"id\":\"ordersRepository\",\"path\":\"orderService.data.ordersRepository\",\"parentPath\":\"orderService.data\",\"label\":\"Orders repository\",\"description\":\"Persists orders in memory and submits fulfillment jobs.\",\"coverage\":{\"files\":[{\"path\":\"src/orders/orders-repository.ts\",\"ranges\":[]}],\"globs\":[]},\"children\":[]},{\"type\":\"component\",\"id\":\"ordersDatabase\",\"path\":\"orderService.data.ordersDatabase\",\"parentPath\":\"orderService.data\",\"label\":\"Orders table\",\"description\":\"Defines the columns in the orders table.\",\"coverage\":{\"files\":[{\"path\":\"src/database/schema.ts\",\"ranges\":[]}],\"globs\":[]},\"children\":[]},{\"type\":\"container\",\"id\":\"fulfillment\",\"path\":\"orderService.fulfillment\",\"parentPath\":\"orderService\",\"label\":\"Fulfillment\",\"description\":\"Queues orders and runs one fulfillment job at a time.\",\"children\":[\"orderService.fulfillment.queue\",\"orderService.fulfillment.worker\"]},{\"type\":\"component\",\"id\":\"queue\",\"path\":\"orderService.fulfillment.queue\",\"parentPath\":\"orderService.fulfillment\",\"label\":\"Fulfillment queue\",\"description\":\"Stores order identifiers until a worker can act.\",\"coverage\":{\"files\":[{\"path\":\"src/fulfillment/fulfillment-queue.ts\",\"ranges\":[]}],\"globs\":[]},\"children\":[]},{\"type\":\"component\",\"id\":\"worker\",\"path\":\"orderService.fulfillment.worker\",\"parentPath\":\"orderService.fulfillment\",\"label\":\"Fulfillment worker\",\"description\":\"Loads a queued order, creates its shipment, and marks it fulfilled.\",\"coverage\":{\"files\":[{\"path\":\"src/fulfillment/fulfillment-worker.ts\",\"ranges\":[]}],\"globs\":[]},\"children\":[]},{\"type\":\"container\",\"id\":\"shipping\",\"path\":\"orderService.shipping\",\"parentPath\":\"orderService\",\"label\":\"Shipping\",\"description\":\"Creates shipment tracking records.\",\"children\":[\"orderService.shipping.gateway\"]},{\"type\":\"component\",\"id\":\"gateway\",\"path\":\"orderService.shipping.gateway\",\"parentPath\":\"orderService.shipping\",\"label\":\"Shipping gateway\",\"description\":\"Creates a shipment for an order.\",\"coverage\":{\"files\":[{\"path\":\"src/shipping/shipping-gateway.ts\",\"ranges\":[]}],\"globs\":[]},\"children\":[]}],\"relationships\":[{\"id\":\"model.relationship.0\",\"from\":\"orderService.api.checkout\",\"to\":\"orderService.application.orders\",\"label\":\"Creates an order\",\"kind\":\"semantic\"},{\"id\":\"model.relationship.1\",\"from\":\"orderService.application.orders\",\"to\":\"orderService.data.ordersRepository\",\"label\":\"Stores the order\",\"kind\":\"semantic\"},{\"id\":\"model.relationship.2\",\"from\":\"orderService.data.ordersRepository\",\"to\":\"orderService.data.ordersDatabase\",\"label\":\"Writes an order row\",\"kind\":\"semantic\"},{\"id\":\"model.relationship.3\",\"from\":\"orderService.data.ordersRepository\",\"to\":\"orderService.fulfillment.queue\",\"label\":\"Enqueues the order\",\"kind\":\"semantic\"},{\"id\":\"model.relationship.4\",\"from\":\"orderService.fulfillment.queue\",\"to\":\"orderService.fulfillment.worker\",\"label\":\"Dispatches the job\",\"kind\":\"semantic\"},{\"id\":\"model.relationship.5\",\"from\":\"orderService.fulfillment.worker\",\"to\":\"orderService.shipping.gateway\",\"label\":\"Creates a shipment\",\"kind\":\"semantic\"},{\"id\":\"model.relationship.6\",\"from\":\"orderService.fulfillment.worker\",\"to\":\"orderService.data.ordersRepository\",\"label\":\"Marks the order fulfilled\",\"kind\":\"semantic\"}]}\n",
+  "contentHash": "647092f80b757da2ac02",
+  "headCommit": "1f872164ec94ca87d99ca3ccbd2b452d487a0db0",
+  "baseCommit": "0f226b82647a7f6819c341527c304c2f63e81616"
+}

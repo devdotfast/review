@@ -1,0 +1,9 @@
+{
+  "name": "schema4-bug-report-dialog",
+  "sourceUuid": "7fa9af80-0f16-4652-b4ac-fe2fde5e4b9b",
+  "schemaVersion": 4,
+  "hasMap": false,
+  "baseCommit": "c87b5f3a0bee20d6d40370167baf0267d86d43e9",
+  "sourceCommit": "0c0d7943dcb451eda89621ef2c9965269dfeb040",
+  "sourceRepository": "devdotfast/review"
+}

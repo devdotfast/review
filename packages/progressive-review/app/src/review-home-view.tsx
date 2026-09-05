@@ -29,16 +29,14 @@ import {
 
 import { fuzzyMatches, fuzzySegments } from "../../src/fuzzy-match";
 import { TARGET_LABELS } from "./agent-setup-card";
-import { CopyPromptButton } from "./copy-prompt-button";
+import { CopyCommandButton } from "./copy-command-button";
+import { repairCommand } from "./repair-instruction";
 import { ArchiveIcon } from "./review-corner-action";
 import { WelcomePage } from "./welcome-page";
 
 export type ReviewHomeView = "cards" | "list";
 
 export const REVIEW_HOME_VIEW_STORAGE_KEY = "dev.fast.review.homeView";
-
-export const REVIEW_MIGRATION_PROMPT =
-  "Use the local `review` CLI to migrate my Review data. Run `review migrate apply`. If a code comment position cannot be recovered, rerun `review migrate apply --force` to drop only the unrecoverable threads. Then restart Review and confirm that the Reviews and comments load.";
 
 interface ReviewHomeProps {
   reviews: readonly ReviewDescriptor[];
@@ -190,20 +188,6 @@ export function ReviewHome({
           {reviewErrors.length > 0 ? (
             <ReviewScanWarning errors={reviewErrors} />
           ) : null}
-          {found
-            .filter((review) => review.recovery)
-            .map((review) => (
-              <section
-                key={review.uuid}
-                className="review-migration-warning"
-                aria-label={`Recovery for ${reviewTitle(review)}`}
-              >
-                <span>{reviewTitle(review)}</span>
-                <button type="button" onClick={() => onOpen(review)}>
-                  Open recovery
-                </button>
-              </section>
-            ))}
           <div className="review-home-page-header">
             <h1>Reviews</h1>
             <div className="review-home-page-header-tools">
@@ -245,37 +229,28 @@ export function ReviewHome({
   );
 }
 
-export function ReviewMigrationWarning({
-  errors,
-}: {
-  errors: readonly ReviewListError[];
-}) {
-  const migrationCount = errors.filter(
-    (error) => error.code === "MIGRATION_REQUIRED",
-  ).length;
-  if (migrationCount === 0) return null;
-  return (
-    <section
-      className="review-migration-warning"
-      aria-label="Review migration required"
-    >
-      <span>
-        {`${migrationCount} ${migrationCount === 1 ? "Review needs" : "Reviews need"} migration.`}
-      </span>
-      <CopyPromptButton prompt={REVIEW_MIGRATION_PROMPT} />
-    </section>
-  );
-}
-
 function ReviewScanWarning({ errors }: { errors: readonly ReviewListError[] }) {
-  const hasMigration = errors.some(
-    (error) => error.code === "MIGRATION_REQUIRED",
-  );
-  if (hasMigration) return <ReviewMigrationWarning errors={errors} />;
   return (
-    <section className="review-scan-warning" aria-label="Review warnings">
-      <span>{`${errors.length} ${errors.length === 1 ? "Review has" : "Reviews have"} issues.`}</span>
-    </section>
+    <>
+      {errors.map((error) => (
+        <section
+          key={error.reviewDir}
+          className="review-home-attention"
+          aria-label={`Attention for ${error.title || error.reviewUuid || error.reviewDir}`}
+        >
+          <span className="review-home-attention-title">
+            {error.title || error.reviewUuid || error.reviewDir}
+          </span>
+          <span>{error.message}</span>
+          {error.code === "REPAIR_REQUIRED" && error.reviewUuid ? (
+            <span className="review-home-attention-command">
+              <code>{repairCommand(error.reviewUuid)}</code>
+              <CopyCommandButton command={repairCommand(error.reviewUuid)} />
+            </span>
+          ) : null}
+        </section>
+      ))}
+    </>
   );
 }
 

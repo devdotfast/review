@@ -24,7 +24,7 @@ import { ReviewCanvasLoading } from "./review-canvas-loading";
 import { reviewDefinitionDiagnostics } from "./review-definition-runtime";
 import { prepareReviewDocument } from "./review-document-hydrate";
 import { type ReviewFindHost, createReviewFindHost } from "./review-find";
-import { ReviewHome, ReviewMigrationWarning } from "./review-home-view";
+import { ReviewHome } from "./review-home-view";
 import {
   ReviewContainerProvider,
   useReviewContainer,
@@ -44,7 +44,6 @@ function DesktopReviewApp({
   softwareMapEnabled,
   range,
   commits,
-  reviewErrors,
   tutorial,
   findHost,
 }: {
@@ -53,10 +52,6 @@ function DesktopReviewApp({
   softwareMapEnabled: boolean;
   range: Extract<ReviewCanvasContent, { kind: "session" }>["range"];
   commits: Extract<ReviewCanvasContent, { kind: "session" }>["commits"];
-  reviewErrors: Extract<
-    ReviewCanvasContent,
-    { kind: "session" }
-  >["reviewErrors"];
   tutorial?: Extract<ReviewCanvasContent, { kind: "session" }>["tutorial"];
   findHost: ReviewFindHost;
 }) {
@@ -204,7 +199,6 @@ function DesktopReviewApp({
     <div className="review-session-content">
       <TutorialProvider tutorial={tutorial}>
         <App
-          notice={<ReviewMigrationWarning errors={reviewErrors} />}
           documentState={documentState}
           softwareMapState={softwareMapState}
           softwareMapEnabled={softwareMapEnabled}
@@ -248,7 +242,6 @@ function ReviewCanvas({
         softwareMapEnabled={content.softwareMapEnabled}
         range={content.range}
         commits={content.commits}
-        reviewErrors={content.reviewErrors}
         tutorial={content.tutorial}
         findHost={findHost}
       />
@@ -303,7 +296,6 @@ function ReviewCanvas({
   if (content.kind === "error") {
     return (
       <CanvasShell title="Review unavailable">
-        <ReviewMigrationWarning errors={content.reviewErrors ?? []} />
         <p>{content.message}</p>
       </CanvasShell>
     );

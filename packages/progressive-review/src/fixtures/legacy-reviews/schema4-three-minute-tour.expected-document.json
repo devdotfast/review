@@ -1,0 +1,1149 @@
+{
+  "format": "review-document/1",
+  "title": "Review Desktop: three-minute tour",
+  "routePath": "/",
+  "sourcePath": "review.mdx",
+  "body": [
+    {
+      "type": "element",
+      "tag": "h1",
+      "props": {
+        "data-review-block-index": "0",
+        "data-review-block-tag": "h1"
+      },
+      "children": [
+        {
+          "type": "text",
+          "value": "Review Desktop: three-minute tour"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "value": "\n"
+    },
+    {
+      "type": "component",
+      "name": "ReviewSection",
+      "props": {
+        "title": "Welcome"
+      },
+      "children": [
+        {
+          "type": "element",
+          "tag": "h2",
+          "props": {
+            "data-review-block-index": "1",
+            "data-review-block-tag": "h2"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Welcome"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "2",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "A Review is a guided, interactive explanation of a code change. The document\nkeeps the important code, system views, and feedback in one place."
+            }
+          ]
+        },
+        {
+          "type": "component",
+          "name": "TutorialAuthoringConversation",
+          "props": {
+            "conversation": {
+              "version": 1,
+              "title": "How this Review was made",
+              "messages": [
+                {
+                  "role": "user",
+                  "body": "/dev-review I'd like to review the feature we just worked on."
+                },
+                {
+                  "role": "assistant",
+                  "body": "Ok, I'm on it..."
+                }
+              ]
+            }
+          },
+          "children": []
+        },
+        {
+          "type": "element",
+          "tag": "h3",
+          "props": {
+            "data-review-block-index": "3",
+            "data-review-block-tag": "h3"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Your keybindings"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "4",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Choose your editor keys. Review highlights the active choice and uses its\nexisting extension and reload flow for Vim and Emacs."
+            }
+          ]
+        },
+        {
+          "type": "component",
+          "name": "TutorialKeymapPicker",
+          "props": {},
+          "children": []
+        },
+        {
+          "type": "element",
+          "tag": "h3",
+          "props": {
+            "data-review-block-index": "5",
+            "data-review-block-tag": "h3"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Put the keybindings to work"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "6",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "The editor below is live. Try hover, "
+            },
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Go to Definition"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": ", or "
+            },
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Go to\nReferences"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " with the same commands you use in VS Code."
+            }
+          ]
+        },
+        {
+          "type": "component",
+          "name": "CodePeek",
+          "props": {
+            "anchor": {
+              "__kind": "db-anchor-ref",
+              "id": "placeOrder",
+              "title": "Order service creates the order",
+              "peek": {
+                "__kind": "code-peek-ref",
+                "props": {
+                  "file": "src/orders/order-service.ts",
+                  "fromLine": 13,
+                  "toLine": 29
+                },
+                "resolution": null
+              },
+              "softwareMapPath": "orderService.application.orders"
+            }
+          },
+          "children": []
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "7",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Prose in the review also supports "
+            },
+            {
+              "type": "component",
+              "name": "AnchorLink",
+              "props": {
+                "anchor": {
+                  "__kind": "db-anchor-ref",
+                  "id": "placeOrder",
+                  "title": "Order service creates the order",
+                  "peek": {
+                    "__kind": "code-peek-ref",
+                    "props": {
+                      "file": "src/orders/order-service.ts",
+                      "fromLine": 13,
+                      "toLine": 29
+                    },
+                    "resolution": null
+                  },
+                  "softwareMapPath": "orderService.application.orders"
+                }
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "links to code"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "value": "\n"
+    },
+    {
+      "type": "component",
+      "name": "ReviewSection",
+      "props": {
+        "title": "Commits and diffs"
+      },
+      "children": [
+        {
+          "type": "element",
+          "tag": "h2",
+          "props": {
+            "data-review-block-index": "8",
+            "data-review-block-tag": "h2"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Commits and diffs"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "9",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Review pins an exact base and head before the agent starts writing. Open\n"
+            },
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Commits"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " to see the change in author order. Expand the sample commit to see\nits files, then choose "
+            },
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Open diff"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " to inspect only that commit."
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "10",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "The "
+            },
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Diff"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " tab shows the complete change between the pinned base and head.\nChoose "
+            },
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Review"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " when you are ready to return to this tour."
+            }
+          ]
+        },
+        {
+          "type": "component",
+          "name": "TutorialViewButton",
+          "props": {
+            "view": "commits"
+          },
+          "children": [
+            {
+              "type": "element",
+              "tag": "p",
+              "props": {
+                "data-review-block-index": "11",
+                "data-review-block-tag": "p"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Explore the sample commits"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "value": "\n"
+    },
+    {
+      "type": "component",
+      "name": "ReviewSection",
+      "props": {
+        "title": "Comments are threads"
+      },
+      "children": [
+        {
+          "type": "element",
+          "tag": "h2",
+          "props": {
+            "data-review-block-index": "12",
+            "data-review-block-tag": "h2"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Comments are threads"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "13",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "You can attach a thread to any part of the canvas. Move the pointer over the\ncode below, select the comment control in the left gutter, and write a note."
+            }
+          ]
+        },
+        {
+          "type": "component",
+          "name": "CodePeek",
+          "props": {
+            "anchor": {
+              "__kind": "db-anchor-ref",
+              "id": "validateInventory",
+              "title": "Inventory rejects invalid quantities",
+              "peek": {
+                "__kind": "code-peek-ref",
+                "props": {
+                  "file": "src/inventory/inventory-service.ts",
+                  "fromLine": 4,
+                  "toLine": 8
+                },
+                "resolution": null
+              },
+              "softwareMapPath": "orderService.application.orders"
+            }
+          },
+          "children": []
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "14",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Choose "
+            },
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Ask now"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": ". The app starts an agent turn in a read-only checkout and\nputs its answer in the same thread. You can continue the conversation there."
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "15",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "The other standard choice, "
+            },
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Add to review"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": ", holds feedback for the next\nauthoring round. This tour uses "
+            },
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Ask now"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " so you can see the agent reply\nimmediately."
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "16",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Every comment is a thread anchored to one part of the Review. Use the "
+            },
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "+"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\nbutton in the toolbar to start a thread about the whole Review instead."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "value": "\n"
+    },
+    {
+      "type": "component",
+      "name": "ReviewSection",
+      "props": {
+        "title": "Interactive Diagrams"
+      },
+      "children": [
+        {
+          "type": "element",
+          "tag": "h2",
+          "props": {
+            "data-review-block-index": "17",
+            "data-review-block-tag": "h2"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Interactive Diagrams"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "18",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "The sequence diagram connects the checkout request to fulfillment. Select any\nmessage to open its supporting code."
+            }
+          ]
+        },
+        {
+          "type": "component",
+          "name": "SequenceDiagram",
+          "props": {
+            "label": "Checkout to fulfillment",
+            "messages": [
+              {
+                "from": {
+                  "__kind": "db-actor-ref",
+                  "id": "checkout",
+                  "label": "Checkout API",
+                  "softwareMapPath": "orderService.api.checkout"
+                },
+                "to": {
+                  "__kind": "db-actor-ref",
+                  "id": "orderService",
+                  "label": "Order service",
+                  "softwareMapPath": "orderService.application.orders"
+                },
+                "label": "Place order",
+                "anchor": {
+                  "__kind": "db-anchor-ref",
+                  "id": "checkout",
+                  "title": "Checkout API calls the order service",
+                  "peek": {
+                    "__kind": "code-peek-ref",
+                    "props": {
+                      "file": "src/api/checkout-api.ts",
+                      "fromLine": 12,
+                      "toLine": 15
+                    },
+                    "resolution": null
+                  },
+                  "softwareMapPath": "orderService.api.checkout"
+                }
+              },
+              {
+                "from": {
+                  "__kind": "db-actor-ref",
+                  "id": "orderService",
+                  "label": "Order service",
+                  "softwareMapPath": "orderService.application.orders"
+                },
+                "to": {
+                  "__kind": "db-actor-ref",
+                  "id": "repository",
+                  "label": "Orders repository",
+                  "softwareMapPath": "orderService.data.ordersRepository"
+                },
+                "label": "Save order",
+                "anchor": {
+                  "__kind": "db-anchor-ref",
+                  "id": "placeOrder",
+                  "title": "Order service creates the order",
+                  "peek": {
+                    "__kind": "code-peek-ref",
+                    "props": {
+                      "file": "src/orders/order-service.ts",
+                      "fromLine": 13,
+                      "toLine": 29
+                    },
+                    "resolution": null
+                  },
+                  "softwareMapPath": "orderService.application.orders"
+                }
+              },
+              {
+                "from": {
+                  "__kind": "db-actor-ref",
+                  "id": "repository",
+                  "label": "Orders repository",
+                  "softwareMapPath": "orderService.data.ordersRepository"
+                },
+                "to": {
+                  "__kind": "db-actor-ref",
+                  "id": "queue",
+                  "label": "Fulfillment queue",
+                  "softwareMapPath": "orderService.fulfillment.queue"
+                },
+                "label": "Enqueue fulfillment",
+                "anchor": {
+                  "__kind": "db-anchor-ref",
+                  "id": "insertOrder",
+                  "title": "Repository writes and queues the order",
+                  "peek": {
+                    "__kind": "code-peek-ref",
+                    "props": {
+                      "file": "src/orders/orders-repository.ts",
+                      "fromLine": 9,
+                      "toLine": 12
+                    },
+                    "resolution": null
+                  },
+                  "softwareMapPath": "orderService.data.ordersRepository"
+                }
+              },
+              {
+                "from": {
+                  "__kind": "db-actor-ref",
+                  "id": "queue",
+                  "label": "Fulfillment queue",
+                  "softwareMapPath": "orderService.fulfillment.queue"
+                },
+                "to": {
+                  "__kind": "db-actor-ref",
+                  "id": "worker",
+                  "label": "Fulfillment worker",
+                  "softwareMapPath": "orderService.fulfillment.worker"
+                },
+                "label": "Deliver job",
+                "anchor": {
+                  "__kind": "db-anchor-ref",
+                  "id": "dequeue",
+                  "title": "Queue gives work to the fulfillment worker",
+                  "peek": {
+                    "__kind": "code-peek-ref",
+                    "props": {
+                      "file": "src/fulfillment/fulfillment-worker.ts",
+                      "fromLine": 13,
+                      "toLine": 14
+                    },
+                    "resolution": null
+                  },
+                  "softwareMapPath": "orderService.fulfillment.worker"
+                }
+              },
+              {
+                "from": {
+                  "__kind": "db-actor-ref",
+                  "id": "worker",
+                  "label": "Fulfillment worker",
+                  "softwareMapPath": "orderService.fulfillment.worker"
+                },
+                "to": {
+                  "__kind": "db-actor-ref",
+                  "id": "shipping",
+                  "label": "Shipping gateway",
+                  "softwareMapPath": "orderService.shipping.gateway"
+                },
+                "label": "Create shipment",
+                "anchor": {
+                  "__kind": "db-anchor-ref",
+                  "id": "ship",
+                  "title": "Worker creates the shipment",
+                  "peek": {
+                    "__kind": "code-peek-ref",
+                    "props": {
+                      "file": "src/fulfillment/fulfillment-worker.ts",
+                      "fromLine": 17,
+                      "toLine": 19
+                    },
+                    "resolution": null
+                  },
+                  "softwareMapPath": "orderService.fulfillment.worker"
+                }
+              }
+            ]
+          },
+          "children": []
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "19",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "The database view groups writes by use case. Its operations open code too."
+            }
+          ]
+        },
+        {
+          "type": "component",
+          "name": "DatabaseLens",
+          "props": {
+            "title": "Order storage",
+            "stores": {
+              "orderDatabase": {
+                "__kind": "db-store-ref",
+                "id": "orderDatabase",
+                "kind": "relational",
+                "label": "Order database",
+                "softwareMapPath": "orderService.data.ordersDatabase",
+                "tables": {
+                  "orders": {
+                    "target": {
+                      "__kind": "db-target-ref",
+                      "storeId": "orderDatabase",
+                      "storeKind": "relational",
+                      "storeLabel": "Order database",
+                      "storeSoftwareMapPath": "orderService.data.ordersDatabase",
+                      "collectionKind": "tables",
+                      "collectionId": "orders",
+                      "collectionLabel": "orders",
+                      "path": []
+                    },
+                    "schema": {
+                      "id": {
+                        "type": "text",
+                        "pk": true,
+                        "example": "order-customer-42"
+                      },
+                      "customerId": {
+                        "type": "text",
+                        "example": "customer-42"
+                      },
+                      "totalCents": {
+                        "type": "integer",
+                        "example": 12500
+                      },
+                      "status": {
+                        "type": "text",
+                        "example": "fulfilled"
+                      },
+                      "createdAt": {
+                        "type": "timestamp",
+                        "example": "2026-08-10T12:00:00Z"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "height": 440
+          },
+          "children": [
+            {
+              "type": "component",
+              "name": "DbUseCase",
+              "props": {
+                "id": "create-order",
+                "label": "Create an order"
+              },
+              "children": [
+                {
+                  "type": "component",
+                  "name": "DbWrite",
+                  "props": {
+                    "from": {
+                      "__kind": "db-actor-ref",
+                      "id": "orderService",
+                      "label": "Order service",
+                      "softwareMapPath": "orderService.application.orders"
+                    },
+                    "to": {
+                      "__kind": "db-target-ref",
+                      "storeId": "orderDatabase",
+                      "storeKind": "relational",
+                      "storeLabel": "Order database",
+                      "storeSoftwareMapPath": "orderService.data.ordersDatabase",
+                      "collectionKind": "tables",
+                      "collectionId": "orders",
+                      "collectionLabel": "orders",
+                      "path": ["status"]
+                    },
+                    "label": "write pending order",
+                    "anchor": {
+                      "__kind": "db-anchor-ref",
+                      "id": "insertOrder",
+                      "title": "Repository writes and queues the order",
+                      "peek": {
+                        "__kind": "code-peek-ref",
+                        "props": {
+                          "file": "src/orders/orders-repository.ts",
+                          "fromLine": 9,
+                          "toLine": 12
+                        },
+                        "resolution": null
+                      },
+                      "softwareMapPath": "orderService.data.ordersRepository"
+                    }
+                  },
+                  "children": []
+                }
+              ]
+            },
+            {
+              "type": "component",
+              "name": "DbUseCase",
+              "props": {
+                "id": "fulfill-order",
+                "label": "Fulfill an order"
+              },
+              "children": [
+                {
+                  "type": "component",
+                  "name": "DbWrite",
+                  "props": {
+                    "from": {
+                      "__kind": "db-actor-ref",
+                      "id": "worker",
+                      "label": "Fulfillment worker",
+                      "softwareMapPath": "orderService.fulfillment.worker"
+                    },
+                    "to": {
+                      "__kind": "db-target-ref",
+                      "storeId": "orderDatabase",
+                      "storeKind": "relational",
+                      "storeLabel": "Order database",
+                      "storeSoftwareMapPath": "orderService.data.ordersDatabase",
+                      "collectionKind": "tables",
+                      "collectionId": "orders",
+                      "collectionLabel": "orders",
+                      "path": ["status"]
+                    },
+                    "label": "write fulfilled status",
+                    "anchor": {
+                      "__kind": "db-anchor-ref",
+                      "id": "ship",
+                      "title": "Worker creates the shipment",
+                      "peek": {
+                        "__kind": "code-peek-ref",
+                        "props": {
+                          "file": "src/fulfillment/fulfillment-worker.ts",
+                          "fromLine": 17,
+                          "toLine": 19
+                        },
+                        "resolution": null
+                      },
+                      "softwareMapPath": "orderService.fulfillment.worker"
+                    }
+                  },
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "component",
+          "name": "TutorialFeature",
+          "props": {
+            "feature": "softwareMap"
+          },
+          "children": [
+            {
+              "type": "element",
+              "tag": "p",
+              "props": {
+                "data-review-block-index": "20",
+                "data-review-block-tag": "p"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "The experimental "
+                },
+                {
+                  "type": "element",
+                  "tag": "strong",
+                  "props": {},
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "Map"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "value": " moves from the order system to its components and\ncode. Select a node to explore the sample service."
+                }
+              ]
+            },
+            {
+              "type": "component",
+              "name": "TutorialViewButton",
+              "props": {
+                "view": "map"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Open the software map"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "value": "\n"
+    },
+    {
+      "type": "component",
+      "name": "ReviewSection",
+      "props": {
+        "title": "Get help"
+      },
+      "children": [
+        {
+          "type": "element",
+          "tag": "h2",
+          "props": {
+            "data-review-block-index": "21",
+            "data-review-block-tag": "h2"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Get help"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "22",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "To manage the Review skills installed for your agents, open "
+            },
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Preferences →\nSettings"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": ". To revisit setup or take this tour again, open "
+            },
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Preferences →\nGetting Started"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "."
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "anchors": {
+    "checkout": {
+      "__kind": "db-anchor-ref",
+      "id": "checkout",
+      "title": "Checkout API calls the order service",
+      "peek": {
+        "__kind": "code-peek-ref",
+        "props": {
+          "file": "src/api/checkout-api.ts",
+          "fromLine": 12,
+          "toLine": 15
+        },
+        "resolution": null
+      },
+      "softwareMapPath": "orderService.api.checkout"
+    },
+    "placeOrder": {
+      "__kind": "db-anchor-ref",
+      "id": "placeOrder",
+      "title": "Order service creates the order",
+      "peek": {
+        "__kind": "code-peek-ref",
+        "props": {
+          "file": "src/orders/order-service.ts",
+          "fromLine": 13,
+          "toLine": 29
+        },
+        "resolution": null
+      },
+      "softwareMapPath": "orderService.application.orders"
+    },
+    "insertOrder": {
+      "__kind": "db-anchor-ref",
+      "id": "insertOrder",
+      "title": "Repository writes and queues the order",
+      "peek": {
+        "__kind": "code-peek-ref",
+        "props": {
+          "file": "src/orders/orders-repository.ts",
+          "fromLine": 9,
+          "toLine": 12
+        },
+        "resolution": null
+      },
+      "softwareMapPath": "orderService.data.ordersRepository"
+    },
+    "validateInventory": {
+      "__kind": "db-anchor-ref",
+      "id": "validateInventory",
+      "title": "Inventory rejects invalid quantities",
+      "peek": {
+        "__kind": "code-peek-ref",
+        "props": {
+          "file": "src/inventory/inventory-service.ts",
+          "fromLine": 4,
+          "toLine": 8
+        },
+        "resolution": null
+      },
+      "softwareMapPath": "orderService.application.orders"
+    },
+    "dequeue": {
+      "__kind": "db-anchor-ref",
+      "id": "dequeue",
+      "title": "Queue gives work to the fulfillment worker",
+      "peek": {
+        "__kind": "code-peek-ref",
+        "props": {
+          "file": "src/fulfillment/fulfillment-worker.ts",
+          "fromLine": 13,
+          "toLine": 14
+        },
+        "resolution": null
+      },
+      "softwareMapPath": "orderService.fulfillment.worker"
+    },
+    "ship": {
+      "__kind": "db-anchor-ref",
+      "id": "ship",
+      "title": "Worker creates the shipment",
+      "peek": {
+        "__kind": "code-peek-ref",
+        "props": {
+          "file": "src/fulfillment/fulfillment-worker.ts",
+          "fromLine": 17,
+          "toLine": 19
+        },
+        "resolution": null
+      },
+      "softwareMapPath": "orderService.fulfillment.worker"
+    },
+    "ordersTable": {
+      "__kind": "db-anchor-ref",
+      "id": "ordersTable",
+      "title": "Orders table",
+      "peek": {
+        "__kind": "code-peek-ref",
+        "props": {
+          "file": "src/database/schema.ts",
+          "fromLine": 1,
+          "toLine": 10
+        },
+        "resolution": null
+      },
+      "softwareMapPath": "orderService.data.ordersDatabase"
+    }
+  },
+  "anchorContents": {},
+  "softwareModels": []
+}

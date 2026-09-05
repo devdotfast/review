@@ -319,7 +319,6 @@ export async function loadReviewSessionDocument(
 				state: "needs-republish",
 				reviewUuid: payload.reviewUuid,
 				mapStale: payload.mapStale,
-				...(payload.recovery === undefined ? {} : { recovery: payload.recovery }),
 			};
 		}
 		if (!response.ok || !payload.ok) {
@@ -373,7 +372,6 @@ export async function loadReviewSessionSoftwareMap(
 			return {
 				state: "needs-republish",
 				reviewUuid: payload.reviewUuid,
-				...(payload.recovery === undefined ? {} : { recovery: payload.recovery }),
 			};
 		}
 		if (!response.ok || !payload.ok) {

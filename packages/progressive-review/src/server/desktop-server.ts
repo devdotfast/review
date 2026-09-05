@@ -67,12 +67,13 @@ import {
   removeReviewManagedCheckouts,
 } from "../review-head-checkout";
 import {
+  ReviewHomeScanError,
   type StoredReview,
   type StoredReviewRecord,
   bindReviewAuthorSession,
   countReviewComments,
   findReview,
-  findReviewForRecovery,
+  findReviewForRepair,
   listReviews,
   materializeReviewRevision,
   parseStoredReviewRecord,
@@ -432,7 +433,7 @@ export function createGlobalReviewServer(
   app.get("/reviews", async () => {
     const { dismissedRetentionDays } = await readReviewPreferences();
     await reapDismissedReviews(dismissedRetentionDays);
-    const listed = await listReviews({ includeRecovery: true });
+    const listed = await listReviews();
     const reviews = await Promise.all(
       listed.reviews.map((stored) =>
         reviewDescriptor(stored, dismissedRetentionDays),
@@ -509,7 +510,22 @@ export function createGlobalReviewServer(
       );
     }
     const view = parsedView.success ? parsedView.data : undefined;
-    const review = await findReviewForRecovery(uuid);
+    let review: StoredReview | null;
+    try {
+      review = await findReview(uuid);
+    } catch (error) {
+      if (error instanceof ReviewHomeScanError) {
+        const first = error.errors[0];
+        throw new ReviewServerError(
+          first?.message ?? error.message,
+          409,
+          first?.code === "REPAIR_REQUIRED"
+            ? "repair_required"
+            : "migration_required",
+        );
+      }
+      throw error;
+    }
     if (!review) {
       throw new ReviewServerError("Review not found.", 404);
     }
@@ -565,9 +581,7 @@ export function createGlobalReviewServer(
        render keeps the rule in one place and survives a canvas that never
        finishes loading. A dismissed review the reader reopens comes back. */
     const wasDismissed = Boolean(review.review.dismissedAt);
-    const viewed = review.recovery
-      ? review
-      : await restoreReview(await markReviewViewed(review));
+    const viewed = await restoreReview(await markReviewViewed(review));
     if (viewed.review !== review.review) {
       await broadcastReviewAttention(viewed, "viewed");
     }
@@ -575,9 +589,9 @@ export function createGlobalReviewServer(
       ...descriptor,
       viewedAt: viewed.review.viewedAt ?? null,
       dismissedAt: viewed.review.dismissedAt ?? null,
-      reapsAt: review.recovery ? descriptor.reapsAt : null,
+      reapsAt: null,
     };
-    if (wasDismissed && !review.recovery) {
+    if (wasDismissed) {
       await captureSanitizedUiTelemetry(
         telemetry,
         context.req.raw,
@@ -619,9 +633,7 @@ export function createGlobalReviewServer(
             review: viewed,
             revision: viewed.review.presentedSoftwareMapRevision,
           })
-          .then((root) =>
-            presentedMapRoot(root, viewed.legacySchemaVersion === 2),
-          )
+          .then((root) => presentedMapRoot(root, false))
           .catch(() => {
             softwareMapUnavailable = `The presented software map revision ${viewed.review.presentedSoftwareMapRevision} is unavailable.`;
             return undefined;
@@ -1051,7 +1063,7 @@ export function createGlobalReviewServer(
   // materializes it, has the app mount it off-screen, and promotes it only
   // when that mount is clean.
   async function mountRepairedReview(request: ReviewRepairReadyRequest) {
-    const review = await findReviewForRecovery(request.reviewUuid);
+    const review = await findReviewForRepair(request.reviewUuid);
     if (!review) throw new ReviewServerError("Review not found.", 404);
     const stagingDir = await realpath(request.stagingDir);
     const liveDir = await realpath(review.dir);
@@ -1961,8 +1973,7 @@ export function createGlobalReviewServer(
       registration.checkoutRoots ??
       (await ensureReviewCheckouts(registration.review, sourceCommit).catch(
         (error) => {
-          if (!registration.review.recovery && !registration.historicalRevision)
-            throw error;
+          if (!registration.historicalRevision) throw error;
           sourceUnavailable = `The pinned source commits are unavailable: ${error instanceof Error ? error.message : String(error)}`;
           return { baseRootPath: undefined, headRootPath: undefined };
         },
@@ -1989,23 +2000,22 @@ export function createGlobalReviewServer(
       sessionId,
       reviewUuid: registration.review.review.uuid,
       historicalRevision: registration.historicalRevision,
-      recovery: registration.review.recovery,
       isReadOnly: registration.repairValidation
         ? () => !active.promoted
         : undefined,
       readOnlyReview:
-        registration.review.recovery ||
-        registration.historicalRevision ||
-        registration.repairValidation
+        registration.historicalRevision || registration.repairValidation
           ? registration.review.review
           : undefined,
       documentUnavailable: registration.documentUnavailable,
       softwareMapUnavailable: registration.softwareMapUnavailable,
       sourceUnavailable,
       listDocumentVersions: async () => {
-        const latest = await findReviewForRecovery(
-          registration.review.review.uuid,
-        );
+        const latest = await (
+          registration.repairValidation && !active.promoted
+            ? findReviewForRepair
+            : findReview
+        )(registration.review.review.uuid);
         return latest ? listReviewDocumentVersions(latest) : [];
       },
       session: sessionWire,
@@ -2597,7 +2607,7 @@ function sessionWireFor(
   headRootPath?: string,
 ): ReviewSessionWire {
   const headRef = source?.sourceCommit ?? review.review.sourceCommit;
-  if (!headRef && !review.recovery && !descriptor.historicalRevision) {
+  if (!headRef && !descriptor.historicalRevision) {
     throw new ReviewServerError(
       `Review ${review.review.uuid} is not bound to a source commit.`,
       409,

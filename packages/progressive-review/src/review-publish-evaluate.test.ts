@@ -390,6 +390,75 @@ describe("publish range evaluation", () => {
     });
   });
 
+  it("serializes concurrent evaluations that share the process-global runtime", async () => {
+    const reviewDir = fixtureDir("review");
+    const events: string[] = [];
+    vi.stubGlobal("__reviewEvaluationEvents", events);
+    const slow = `
+      globalThis.__reviewEvaluationEvents.push("first:enter");
+      ${bundleWithAnchors("")
+        .replace('title: "Fixture"', 'title: "First"')
+        .replace(
+          "await session.ready();",
+          "await new Promise((resolve) => setTimeout(resolve, 150)); await session.ready();",
+        )}
+      globalThis.__reviewEvaluationEvents.push("first:exit");
+    `;
+    const fast = `
+      globalThis.__reviewEvaluationEvents.push("second:enter");
+      ${bundleWithAnchors("").replace('title: "Fixture"', 'title: "Second"')}
+      globalThis.__reviewEvaluationEvents.push("second:exit");
+    `;
+    try {
+      const [first, second] = await Promise.all([
+        evaluateReviewDocumentBundleForPublish({
+          reviewDir,
+          bundleCode: slow,
+          validateRanges: false,
+        }),
+        evaluateReviewDocumentBundleForPublish({
+          reviewDir,
+          bundleCode: fast,
+          validateRanges: false,
+        }),
+      ]);
+      expect(events).toEqual([
+        "first:enter",
+        "first:exit",
+        "second:enter",
+        "second:exit",
+      ]);
+      expect(first.errors).toEqual([]);
+      expect(second.errors).toEqual([]);
+      expect(first.document?.title).toBe("First");
+      expect(second.document?.title).toBe("Second");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("continues queued evaluations after an evaluation rejects", async () => {
+    const reviewDir = fixtureDir("review");
+    const invalidReviewDir = path.join(reviewDir, "not-a-directory");
+    fs.writeFileSync(invalidReviewDir, "occupied");
+    const failed = evaluateReviewDocumentBundleForPublish({
+      reviewDir: invalidReviewDir,
+      bundleCode: bundleWithAnchors(""),
+      validateRanges: false,
+    });
+    const next = evaluateReviewDocumentBundleForPublish({
+      reviewDir,
+      bundleCode: bundleWithAnchors(""),
+      validateRanges: false,
+    });
+
+    await expect(failed).rejects.toMatchObject({ code: "ENOTDIR" });
+    await expect(next).resolves.toMatchObject({
+      errors: [],
+      document: { title: "Fixture" },
+    });
+  });
+
   function sourceFixture(source: string): string {
     const root = fixtureDir("source");
     fs.mkdirSync(path.join(root, "src"));

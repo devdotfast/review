@@ -30,7 +30,9 @@ import {
   removeLegacyReviewCheckouts,
 } from "./review-head-checkout";
 import {
+  type StoredReviewRecord,
   materializeReviewRevision,
+  parseStoredReviewRecord,
   parseStoredReviewRecordForMigration,
   sealReviewCandidate,
 } from "./review-home";
@@ -301,6 +303,81 @@ function estreeLine(node: EstreeNode | undefined): number {
   return node?.loc?.start.line ?? 1;
 }
 
+export interface StoredReviewMigrationOutcome {
+  record: StoredReviewRecord;
+  migrated: boolean;
+  upgradedThreadDb: boolean;
+  threadDbError?: string;
+}
+
+/** One review: record normalization, sealed artifact conversion, thread DB
+ * upgrade. Shared by the CLI sweep and the store loader. Repo-level cleanup
+ * (legacy checkouts, `repos/`) stays in the sweep. */
+export async function migrateStoredReview(input: {
+  reviewDir: string;
+  log?: (message: string) => void;
+  createSourceSession?: typeof createReviewSourceAgentSession;
+}): Promise<StoredReviewMigrationOutcome> {
+  const reviewPath = path.join(input.reviewDir, "review.mdx");
+  const value = jsonObject(
+    parseJsonText(
+      await readFile(path.join(input.reviewDir, "review.json"), "utf8"),
+    ),
+  );
+  const schemaVersion = value?.schemaVersion;
+  if (
+    !value ||
+    ![2, 3, 4, REVIEW_SCHEMA_VERSION].includes(Number(schemaVersion))
+  ) {
+    throw new Error("Unsupported Review schema; the record was preserved.");
+  }
+  let migrationValue = value;
+  if (schemaVersion === 3 || schemaVersion === 2) {
+    migrationValue = await migrateReviewSourceSession({
+      onWarning: (message) => input.log?.(message),
+      createSourceSession:
+        input.createSourceSession ?? createReviewSourceAgentSession,
+      value,
+    });
+  }
+  const migratedRecord = parseStoredReviewRecordForMigration(migrationValue);
+  if (migratedRecord.uuid !== path.basename(input.reviewDir))
+    throw new Error("review.json UUID does not match its directory");
+  const migrated = await regeneratePresentedArtifacts({
+    reviewDir: input.reviewDir,
+    review: migratedRecord,
+    original: value,
+    allowAbsentMap: schemaVersion === 2,
+    log: input.log,
+  });
+  const record = parseStoredReviewRecord(
+    parseJsonText(
+      await readFile(path.join(input.reviewDir, "review.json"), "utf8"),
+    ),
+  );
+  const threadDbMigration: ReviewThreadDbMigrationOptions = {
+    force: false,
+    preserveLegacyQuestions: true,
+  };
+  if (record.sourceCommit) {
+    threadDbMigration.migrateLegacyCodeRecord = createLegacyCodeRecordMigrator({
+      rootPath: record.worktreePath,
+      baseCommit: record.baseCommit,
+      headCommit: record.sourceCommit,
+    });
+  }
+  let upgradedThreadDb = false;
+  let threadDbError: string | undefined;
+  try {
+    upgradedThreadDb =
+      (await migrateReviewThreadDb(reviewPath, threadDbMigration)) ===
+      "upgraded";
+  } catch (error) {
+    threadDbError = errorMessage(error);
+  }
+  return { record, migrated, upgradedThreadDb, threadDbError };
+}
+
 export async function migrateStoredReviewData(input: {
   reviewHome: string;
   force?: boolean;
@@ -333,39 +410,12 @@ export async function migrateStoredReviewData(input: {
   for (const entry of entries) {
     if (!entry.isDirectory() || !UUID_PATTERN.test(entry.name)) continue;
     const reviewDir = path.join(reviewsRoot, entry.name);
-    const reviewPath = path.join(reviewDir, "review.mdx");
     try {
-      const value = jsonObject(
-        parseJsonText(
-          await readFile(path.join(reviewDir, "review.json"), "utf8"),
-        ),
-      );
-      const schemaVersion = value?.schemaVersion;
-      if (
-        !value ||
-        ![2, 3, 4, REVIEW_SCHEMA_VERSION].includes(Number(schemaVersion))
-      ) {
-        throw new Error("Unsupported Review schema; the record was preserved.");
-      }
-      let migrationValue = value;
-      if (schemaVersion === 3 || schemaVersion === 2) {
-        migrationValue = await migrateReviewSourceSession({
-          onWarning: (message) => input.log?.(message),
-          value,
-        });
-      }
-      const migratedRecord =
-        parseStoredReviewRecordForMigration(migrationValue);
-      if (migratedRecord.uuid !== entry.name)
-        throw new Error("review.json UUID does not match its directory");
-      await regeneratePresentedArtifacts({
+      const outcome = await migrateStoredReview({
         reviewDir,
-        review: migratedRecord,
-        original: value,
-        allowAbsentMap: schemaVersion === 2,
         log: input.log,
       });
-      const worktreePath = migratedRecord.worktreePath;
+      const worktreePath = outcome.record.worktreePath;
       if (!cleanedLegacyRoots.has(worktreePath)) {
         cleanedLegacyRoots.add(worktreePath);
         total.legacyCheckoutsRemoved += await removeLegacyReviewCheckouts({
@@ -373,34 +423,16 @@ export async function migrateStoredReviewData(input: {
           onBlocker: input.onBlocker,
         });
       }
-      const threadDbMigration: ReviewThreadDbMigrationOptions = {
-        force: false,
-        preserveLegacyQuestions: true,
-      };
-      if (migratedRecord.sourceCommit) {
-        threadDbMigration.migrateLegacyCodeRecord =
-          createLegacyCodeRecordMigrator({
-            rootPath: migratedRecord.worktreePath,
-            baseCommit: migratedRecord.baseCommit,
-            headCommit: migratedRecord.sourceCommit,
-          });
-      }
-      try {
-        const databaseMigration = await migrateReviewThreadDb(
-          reviewPath,
-          threadDbMigration,
+      if (outcome.upgradedThreadDb) {
+        total.upgradedThreadDatabases += 1;
+        input.log?.(
+          `Upgraded Review database ${entry.name} to the current schema.`,
         );
-        if (databaseMigration === "upgraded") {
-          total.upgradedThreadDatabases += 1;
-          input.log?.(
-            `Upgraded Review database ${entry.name} to the current schema.`,
-          );
-        }
-      } catch (error) {
+      }
+      if (outcome.threadDbError)
         input.onBlocker?.(
-          `Review ${entry.name} database migration failed: ${errorMessage(error)}`,
+          `Review ${entry.name} database migration failed: ${outcome.threadDbError}`,
         );
-      }
       total.documents += 1;
     } catch (error) {
       total.failedReviewUuids?.push(entry.name);
@@ -414,6 +446,7 @@ export async function migrateStoredReviewData(input: {
 
 async function migrateReviewSourceSession(input: {
   onWarning?: (message: string) => void;
+  createSourceSession: typeof createReviewSourceAgentSession;
   value: JsonObject;
 }): Promise<JsonObject> {
   const source = parseAuthoringSessionKey(jsonString(input.value.agentSession));
@@ -437,7 +470,7 @@ async function migrateReviewSourceSession(input: {
     if (!checkout) {
       throw new Error("the pinned head checkout is unavailable");
     }
-    const frozen = await createReviewSourceAgentSession({
+    const frozen = await input.createSourceSession({
       agent: source,
       reviewUuid: uuid,
       rootPath: checkout,
@@ -474,7 +507,7 @@ async function regeneratePresentedArtifacts(input: {
   original: JsonObject;
   allowAbsentMap: boolean;
   log?: (message: string) => void;
-}): Promise<void> {
+}): Promise<boolean> {
   const staging = await mkdtemp(
     path.join(tmpdir(), "review-artifact-migration-"),
   );
@@ -545,7 +578,7 @@ async function regeneratePresentedArtifacts(input: {
       }
     }
     // Source migration and schema normalization must not race a lifecycle or pin change.
-    await withReviewMutationLock(input.reviewDir, async () => {
+    return await withReviewMutationLock(input.reviewDir, async () => {
       const recordPath = path.join(input.reviewDir, "review.json");
       const currentText = await readFile(recordPath, "utf8");
       if (
@@ -566,8 +599,9 @@ async function regeneratePresentedArtifacts(input: {
             presentedSoftwareMapRevision: mapRevision,
           });
           input.log?.("Migrated Review " + input.review.uuid + " to schema 5.");
+          return true;
         }
-        return;
+        return false;
       }
       const backupDir = path.join(staging, "backup");
       const candidateDir = path.join(staging, "candidate");
@@ -667,6 +701,7 @@ async function regeneratePresentedArtifacts(input: {
             input.review.uuid +
             " to JSON.",
         );
+        return true;
       } finally {
         if (!completed) {
           for (const name of names) {

@@ -64,7 +64,6 @@ export interface ReviewSessionHandlerInput {
   reviewUuid?: string;
   submitHook?: string;
   historicalRevision?: string;
-  recovery?: boolean;
   isReadOnly?: () => boolean;
   readOnlyReview?: ReviewRecord;
   documentUnavailable?: string;
@@ -221,13 +220,9 @@ export async function createReviewSessionHandler(
     }
     await next();
   });
-  if (input.historicalRevision || input.recovery || input.isReadOnly) {
+  if (input.historicalRevision || input.isReadOnly) {
     app.use(`${API_PREFIX}/*`, async (context, next) => {
-      if (
-        !input.historicalRevision &&
-        !input.recovery &&
-        !input.isReadOnly?.()
-      ) {
+      if (!input.historicalRevision && !input.isReadOnly?.()) {
         await next();
         return;
       }
@@ -252,10 +247,10 @@ export async function createReviewSessionHandler(
           ok: false,
           error: input.historicalRevision
             ? "This historical version is read-only."
-            : "This legacy review is open for read-only recovery.",
+            : "This review is read-only while repair is validated.",
           code: input.historicalRevision
             ? "historical_revision"
-            : "review_recovery",
+            : "review_read_only",
         },
         409,
       );
@@ -303,7 +298,6 @@ export async function createReviewSessionHandler(
             : "needs_republish",
           error: input.documentUnavailable,
           reviewUuid: needsRepublishReviewUuid(),
-          recovery: input.historicalRevision ? undefined : true,
           mapStale: Boolean(
             input.softwareMapUnavailable ||
             (input.softwareMapRootPath && !(await getSoftwareMapBundle())),
@@ -334,12 +328,6 @@ export async function createReviewSessionHandler(
           error: NEEDS_REPUBLISH_ERROR,
           reviewUuid: needsRepublishReviewUuid(),
           mapStale,
-          recovery:
-            input.recovery ||
-            input.getReviewStatus?.() === "accepted" ||
-            input.getReviewStatus?.() === "rejected"
-              ? true
-              : undefined,
         },
         409,
       );
@@ -382,7 +370,6 @@ export async function createReviewSessionHandler(
             : "needs_republish",
           error: input.softwareMapUnavailable,
           reviewUuid: needsRepublishReviewUuid(),
-          recovery: input.historicalRevision ? undefined : true,
         },
         409,
       );
@@ -406,12 +393,6 @@ export async function createReviewSessionHandler(
             code: "needs_republish",
             error: "This review's software map must be regenerated.",
             reviewUuid: needsRepublishReviewUuid(),
-            recovery:
-              input.recovery ||
-              input.getReviewStatus?.() === "accepted" ||
-              input.getReviewStatus?.() === "rejected"
-                ? true
-                : undefined,
           },
           409,
         );
@@ -492,10 +473,7 @@ export async function createReviewSessionHandler(
   });
   const reviewApi = createReviewApi({
     readOnlyReview: input.readOnlyReview,
-    readOnly: () =>
-      Boolean(
-        input.recovery || input.historicalRevision || input.isReadOnly?.(),
-      ),
+    readOnly: () => Boolean(input.historicalRevision || input.isReadOnly?.()),
     sourceUnavailable: input.sourceUnavailable,
     reviewPath: input.reviewPath,
     reviewDocumentsDir: documentsDir,

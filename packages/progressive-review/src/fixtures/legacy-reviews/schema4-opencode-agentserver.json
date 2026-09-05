@@ -1,0 +1,9 @@
+{
+  "name": "schema4-opencode-agentserver",
+  "sourceUuid": "87d4fa3d-0b20-44ee-9fc3-736cd7c72cbf",
+  "schemaVersion": 4,
+  "hasMap": true,
+  "baseCommit": "9243adcfcdeba20c247ed3930a0f1a4f0676976e",
+  "sourceCommit": "7feca67370cdb24cd8e58d09afc1d3c11ffef261",
+  "sourceRepository": "devdotfast/review"
+}

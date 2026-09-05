@@ -241,5 +241,7 @@ review version
 
 The app normally installs and updates agent skills. Use `review install` for a
 headless environment. Migration is only for legacy Review state; use `--force`
-only to restart an interrupted migration and accept its documented cleanup of
-unrecoverable legacy threads.
+only to restart an interrupted migration and drop unrecoverable legacy code
+comments and drafts. The command reports dropped thread IDs and kinds, not
+comment text; historical questions are retained. Automatic migration never
+drops these records.

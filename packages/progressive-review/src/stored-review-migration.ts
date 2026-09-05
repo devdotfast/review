@@ -318,6 +318,8 @@ export async function migrateStoredReview(input: {
   reviewDir: string;
   log?: (message: string) => void;
   createSourceSession?: typeof createReviewSourceAgentSession;
+  force?: boolean;
+  onDropLegacyCodeRecord?: ReviewThreadDbMigrationOptions["onDropLegacyCodeRecord"];
 }): Promise<StoredReviewMigrationOutcome> {
   const reviewPath = path.join(input.reviewDir, "review.mdx");
   const value = jsonObject(
@@ -356,9 +358,15 @@ export async function migrateStoredReview(input: {
       await readFile(path.join(input.reviewDir, "review.json"), "utf8"),
     ),
   );
+  const dropped: Array<
+    Parameters<
+      NonNullable<ReviewThreadDbMigrationOptions["onDropLegacyCodeRecord"]>
+    >[0]
+  > = [];
   const threadDbMigration: ReviewThreadDbMigrationOptions = {
-    force: false,
+    force: input.force ?? false,
     preserveLegacyQuestions: true,
+    onDropLegacyCodeRecord: (record) => dropped.push(record),
   };
   if (record.sourceCommit) {
     threadDbMigration.migrateLegacyCodeRecord = createLegacyCodeRecordMigrator({
@@ -376,6 +384,8 @@ export async function migrateStoredReview(input: {
   } catch (error) {
     threadDbError = errorMessage(error);
   }
+  if (upgradedThreadDb)
+    for (const record of dropped) input.onDropLegacyCodeRecord?.(record);
   return { record, migrated, upgradedThreadDb, threadDbError };
 }
 
@@ -415,6 +425,13 @@ export async function migrateStoredReviewData(input: {
       const outcome = await migrateStoredReview({
         reviewDir,
         log: input.log,
+        force: input.force,
+        onDropLegacyCodeRecord: ({ threadId, kind }) => {
+          total.droppedComments += 1;
+          input.log?.(
+            `Dropped legacy ${kind} ${JSON.stringify(threadId)} from Review ${entry.name}.`,
+          );
+        },
       });
       const worktreePath = outcome.record.worktreePath;
       if (!cleanedLegacyRoots.has(worktreePath)) {

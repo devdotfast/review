@@ -236,19 +236,27 @@ function parseReviewDiffFile(section: string): ReviewDiffFile | null {
   let additions = 0;
   let deletions = 0;
 
+  let inHunk = false;
   for (const line of lines) {
-    const parsedOldPath = parseGitFileLine(line, "--- ");
-    const parsedNewPath = parseGitFileLine(line, "+++ ");
-    if (parsedOldPath !== undefined) oldPath = parsedOldPath;
-    if (parsedNewPath !== undefined) newPath = parsedNewPath;
-    if (line.startsWith("rename from ")) {
-      renameFrom = unquoteGitPath(line.slice("rename from ".length).trim());
+    if (line.startsWith("@@")) {
+      inHunk = true;
+      continue;
     }
-    if (line.startsWith("rename to ")) {
-      renameTo = unquoteGitPath(line.slice("rename to ".length).trim());
+    if (!inHunk) {
+      const parsedOldPath = parseGitFileLine(line, "--- ");
+      const parsedNewPath = parseGitFileLine(line, "+++ ");
+      if (parsedOldPath !== undefined) oldPath = parsedOldPath;
+      if (parsedNewPath !== undefined) newPath = parsedNewPath;
+      if (line.startsWith("rename from ")) {
+        renameFrom = unquoteGitPath(line.slice("rename from ".length).trim());
+      }
+      if (line.startsWith("rename to ")) {
+        renameTo = unquoteGitPath(line.slice("rename to ".length).trim());
+      }
+      continue;
     }
-    if (line.startsWith("+") && !line.startsWith("+++ ")) additions += 1;
-    if (line.startsWith("-") && !line.startsWith("--- ")) deletions += 1;
+    if (line.startsWith("+")) additions += 1;
+    else if (line.startsWith("-")) deletions += 1;
   }
 
   const status = section.includes("\nnew file mode ")

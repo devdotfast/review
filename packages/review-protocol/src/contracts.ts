@@ -1159,6 +1159,13 @@ export const ReviewRecordSchema = z.strictObject({
   presentedSoftwareMapRevision: requiredString.nullable(),
   createdAt: requiredString,
   lastPublishedAt: requiredString.nullable(),
+  /* Document revisions the desktop actually promoted to reviewers, in seal
+     order. The reviewer-facing Version history lists only these, so a sealed
+     candidate that never reached promotion — e.g. a `review publish` that
+     failed between seal and the `/publish-ready` round-trip — is excluded
+     instead of leaking into history. Absent on reviews promoted before this
+     field existed; readers fall back to `presentedDocumentRevision`. */
+  promotedDocumentRevisions: z.array(requiredString).optional(),
   /* The attention axis, separate from status: status tracks the agent handoff,
      these track the reader. Both stay optional so a review.json written before
      this field existed still parses and needs no migration. */

@@ -55,7 +55,10 @@ import {
   reviewReapsAt,
   selectReapableReviews,
 } from "../review-attention";
-import { listReviewDocumentVersions } from "../review-document-versions";
+import {
+  appendPromotedDocumentRevision,
+  listReviewDocumentVersions,
+} from "../review-document-versions";
 import {
   ensureReviewPinnedCheckout,
   removeReviewManagedCheckouts,
@@ -2326,6 +2329,10 @@ async function promoteReview(
     sourceCommit: source.sourceCommit,
     status: "awaiting-review",
     presentedDocumentRevision: revision,
+    // Record the promotion inside the publication lock so the reviewer-facing
+    // Version history can later tell promoted revisions apart from sealed
+    // candidates that never reached promotion.
+    promotedDocumentRevisions: appendPromotedDocumentRevision(stored, revision),
     lastPublishedAt: new Date().toISOString(),
     /* A publish is new work, so the review earns attention again and returns
        to Home as new. This also rescues a review that was dismissed and then

@@ -6,6 +6,7 @@ import {
   readFile,
   rm,
   stat,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
@@ -36,8 +37,10 @@ import {
   touchReviewAgentSession,
   updateReviewPins,
 } from "./review-home";
+import { withReviewMutationLock } from "./review-mutation-lock";
 import { appendReviewComment, readReviewComments } from "./review-state-store";
 import { reviewVcs } from "./review-vcs";
+import { resolvePublishReview } from "./server/publish-preparation";
 
 const execFilePromise = promisify(execFile);
 
@@ -524,11 +527,68 @@ describe("review home", () => {
     }
   });
 
+  it("ignores active and stale locks and unrelated directories during discovery", async () => {
+    const root = await makeGitRepository();
+    const home = await mkdtemp(path.join(os.tmpdir(), "review-home-locks-"));
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+    try {
+      const created = await createReviewDir({
+        worktreePath: root,
+        baseRef: "main",
+        baseCommit: await git(root, ["rev-parse", "HEAD"]),
+      });
+      const staleReviewDir = path.join(
+        reviewsHomeDir(),
+        "11111111-1111-4111-8111-111111111111",
+      );
+      const staleLock = `${staleReviewDir}.mutation-lock`;
+      const unrelated = path.join(reviewsHomeDir(), "notes");
+      await mkdir(staleLock);
+      await utimes(staleLock, new Date(0), new Date(0));
+      await mkdir(unrelated);
+      await writeFile(path.join(unrelated, "review.json"), "not a Review");
+      await withReviewMutationLock(created.dir, () =>
+        withReviewMutationLock(
+          path.join(reviewsHomeDir(), "tutorial-lifecycle"),
+          async () => {
+            const homeListing = await listReviews();
+            expect(homeListing.errors).toEqual([]);
+            expect(
+              homeListing.reviews.map((entry) => entry.review.uuid),
+            ).toEqual([created.review.uuid]);
+            const scoped = await listReviews({ worktreePath: root });
+            expect(scoped.errors).toEqual([]);
+            expect(scoped.reviews.map((entry) => entry.review.uuid)).toEqual([
+              created.review.uuid,
+            ]);
+            await expect(
+              resolvePublishReview(root, created.review.uuid),
+            ).resolves.toMatchObject({ dir: created.dir });
+            expect(existsSync(staleLock)).toBe(true);
+            expect(
+              await readFile(path.join(unrelated, "review.json"), "utf8"),
+            ).toBe("not a Review");
+          },
+        ),
+      );
+      await expect(
+        withReviewMutationLock(staleReviewDir, async () => "reclaimed"),
+      ).resolves.toBe("reclaimed");
+      expect(existsSync(staleLock)).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(home, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("returns parse failures as explicit list errors", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "review-home-"));
     vi.stubEnv("DEV_REVIEW_HOME", home);
-    const malformed = path.join(reviewsHomeDir(), "not-a-review");
-    const invalid = path.join(reviewsHomeDir(), "invalid-review");
+    const malformedUuid = "33333333-3333-4333-8333-333333333333";
+    const invalidUuid = "44444444-4444-4444-8444-444444444444";
+    const malformed = path.join(reviewsHomeDir(), malformedUuid);
+    const invalid = path.join(reviewsHomeDir(), invalidUuid);
     const incompatibleUuid = "22222222-2222-4222-8222-222222222222";
     const incompatible = path.join(reviewsHomeDir(), incompatibleUuid);
     await mkdir(malformed, { recursive: true });
@@ -555,7 +615,7 @@ describe("review home", () => {
         expect.arrayContaining([
           {
             reviewDir: malformed,
-            reviewUuid: null,
+            reviewUuid: malformedUuid,
             title: "",
             worktreePath: malformed,
             lastPublishedAt: null,
@@ -563,7 +623,7 @@ describe("review home", () => {
           },
           {
             reviewDir: invalid,
-            reviewUuid: null,
+            reviewUuid: invalidUuid,
             title: "",
             worktreePath: invalid,
             lastPublishedAt: null,

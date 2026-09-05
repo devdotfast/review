@@ -618,7 +618,7 @@ export async function listReviews(
     const entries = await readdir(reviewsHomeDir(), { withFileTypes: true });
     loaded = await Promise.all(
       entries
-        .filter((entry) => entry.isDirectory())
+        .filter((entry) => entry.isDirectory() && UUID_PATTERN.test(entry.name))
         .map((entry) =>
           readStoredReview(path.join(reviewsHomeDir(), entry.name)),
         ),

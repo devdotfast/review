@@ -491,6 +491,215 @@ describe("projectInlineC4", () => {
     );
   });
 
+  it("projects document foreign keys and schema relationships to expanded document nodes", () => {
+    const model = defineSoftwareModel({
+      systems: {
+        product: {
+          dataStores: {
+            store: {
+              kind: "database",
+              label: "Store",
+              tables: {
+                users: {
+                  schema: { id: { type: "text", pk: true } },
+                },
+                orders: {
+                  schema: {
+                    id: { type: "text", pk: true },
+                    owner: { type: "text", fk: "users.id" },
+                  },
+                },
+              },
+              documents: {
+                audit: {
+                  key: "id",
+                  schema: {
+                    id: { type: "text", pk: true },
+                    ref: { type: "text", fk: "users.id" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const collapsed = projectInlineC4({
+      model,
+      expandedNodeIds: new Set(["product"]),
+    });
+    expect(
+      collapsed.relationships.some((relationship) =>
+        relationship.id.startsWith("schema-fk:"),
+      ),
+    ).toBe(false);
+
+    const expanded = projectInlineC4({
+      model,
+      expandedNodeIds: new Set(["product", "product.store"]),
+    });
+
+    expect(expanded.nodes).toContainEqual(
+      expect.objectContaining({
+        path: "product.store.documents.audit",
+        type: "dataStoreCollection",
+        parentPath: "product.store",
+        dataStoreSchemaSections: [
+          {
+            id: "document:audit",
+            kind: "document",
+            label: "audit",
+            key: "id",
+            rows: [
+              {
+                id: "audit:id",
+                label: "id",
+                depth: 0,
+                type: "text",
+                primaryKey: true,
+                foreignKey: false,
+              },
+              {
+                id: "audit:ref",
+                label: "ref",
+                depth: 0,
+                type: "text",
+                primaryKey: undefined,
+                foreignKey: true,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(expanded.relationships).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "schema-fk:product.store.tables.orders.owner->product.store.tables.users.id",
+          from: "product.store.tables.orders",
+          to: "product.store.tables.users",
+          semanticKind: "foreign key",
+          hideLabel: true,
+          fromSchemaFieldPath: ["owner"],
+          fromSchemaEndpointKind: "field",
+          toSchemaFieldPath: [],
+          toSchemaEndpointKind: "header",
+        }),
+        expect.objectContaining({
+          id: "schema-fk:product.store.documents.audit.ref->product.store.tables.users.id",
+          from: "product.store.documents.audit",
+          to: "product.store.tables.users",
+          semanticKind: "foreign key",
+          hideLabel: true,
+          fromSchemaFieldPath: ["ref"],
+          fromSchemaEndpointKind: "field",
+          toSchemaFieldPath: [],
+          toSchemaEndpointKind: "header",
+        }),
+      ]),
+    );
+  });
+
+  it("resolves a document foreign-key target that lives under documents", () => {
+    const model = defineSoftwareModel({
+      systems: {
+        product: {
+          dataStores: {
+            store: {
+              kind: "objectStore",
+              label: "Store",
+              documents: {
+                audit: {
+                  key: "id",
+                  schema: {
+                    id: { type: "text", pk: true },
+                    ref: { type: "text", fk: "other.id" },
+                  },
+                },
+                other: {
+                  key: "id",
+                  schema: { id: { type: "text", pk: true } },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const projection = projectInlineC4({
+      model,
+      expandedNodeIds: new Set(["product", "product.store"]),
+    });
+
+    expect(projection.relationships).toContainEqual(
+      expect.objectContaining({
+        id: "schema-fk:product.store.documents.audit.ref->product.store.documents.other.id",
+        from: "product.store.documents.audit",
+        to: "product.store.documents.other",
+        semanticKind: "foreign key",
+        hideLabel: true,
+        fromSchemaFieldPath: ["ref"],
+        fromSchemaEndpointKind: "field",
+        toSchemaFieldPath: [],
+        toSchemaEndpointKind: "header",
+      }),
+    );
+  });
+
+  it("prefers a tables target when a foreign-key target name exists in both tables and documents", () => {
+    const model = defineSoftwareModel({
+      systems: {
+        product: {
+          dataStores: {
+            store: {
+              kind: "database",
+              label: "Store",
+              tables: {
+                users: {
+                  schema: { id: { type: "text", pk: true } },
+                },
+                orders: {
+                  schema: {
+                    id: { type: "text", pk: true },
+                    owner: { type: "text", fk: "users.id" },
+                  },
+                },
+              },
+              documents: {
+                users: {
+                  key: "id",
+                  schema: { id: { type: "text", pk: true } },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const projection = projectInlineC4({
+      model,
+      expandedNodeIds: new Set(["product", "product.store"]),
+    });
+
+    expect(projection.relationships).toContainEqual(
+      expect.objectContaining({
+        id: "schema-fk:product.store.tables.orders.owner->product.store.tables.users.id",
+        from: "product.store.tables.orders",
+        to: "product.store.tables.users",
+        semanticKind: "foreign key",
+      }),
+    );
+    expect(
+      projection.relationships.some((relationship) =>
+        relationship.id.endsWith("->product.store.documents.users.id"),
+      ),
+    ).toBe(false);
+  });
+
   it("keeps document schema as data store collection nodes", () => {
     const model = defineSoftwareModel({
       systems: {
@@ -1062,6 +1271,77 @@ describe("projectInlineC4", () => {
         to: "product.graphDb.tables.source_files",
         hideLabel: true,
         fromSchemaFieldPath: ["source_file"],
+        fromSchemaEndpointKind: "field",
+        toSchemaFieldPath: [],
+        toSchemaEndpointKind: "header",
+      }),
+    ]);
+    expect(
+      projection.relationships.some(
+        (relationship) => relationship.kind === "implied",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps document foreign-key edges when a changed data store is expanded in modified-only mode", () => {
+    const model = defineSoftwareModel({
+      systems: {
+        product: {
+          changeStatus: "modified",
+          dataStores: {
+            store: {
+              kind: "database",
+              label: "Store",
+              changeStatus: "modified",
+              tables: {
+                users: {
+                  schema: { id: { type: "text", pk: true } },
+                },
+              },
+              documents: {
+                audit: {
+                  key: "id",
+                  schema: {
+                    id: { type: "text", pk: true },
+                    ref: { type: "text", fk: "users.id" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const projection = projectInlineC4({
+      model,
+      expandedNodeIds: new Set(["product", "product.store"]),
+      modifiedOnly: true,
+    });
+
+    expect(
+      projection.nodes.map((node) => ({ path: node.path, type: node.type })),
+    ).toEqual([
+      { path: "product", type: "softwareSystem" },
+      { path: "product.store", type: "dataStore" },
+      {
+        path: "product.store.tables.users",
+        type: "dataStoreCollection",
+      },
+      {
+        path: "product.store.documents.audit",
+        type: "dataStoreCollection",
+      },
+    ]);
+    expect(projection.relationships).toEqual([
+      expect.objectContaining({
+        id: "schema-fk:product.store.documents.audit.ref->product.store.tables.users.id",
+        kind: "semantic",
+        semanticKind: "foreign key",
+        from: "product.store.documents.audit",
+        to: "product.store.tables.users",
+        hideLabel: true,
+        fromSchemaFieldPath: ["ref"],
         fromSchemaEndpointKind: "field",
         toSchemaFieldPath: [],
         toSchemaEndpointKind: "header",

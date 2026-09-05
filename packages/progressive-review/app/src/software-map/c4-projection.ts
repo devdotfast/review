@@ -681,51 +681,56 @@ function projectDataStoreForeignKeyRelationships(
   const relationships: ProjectedC4Relationship[] = [];
   for (const element of model.elements) {
     if (element.type !== "dataStore" || !element.dataStoreSchema) continue;
-    for (const collection of Object.values(element.dataStoreSchema.tables)) {
-      const sourceCollectionPath = dataStoreCollectionPath(
-        element.path,
-        "tables",
-        collection.id,
-      );
-      if (!visibleNodeIds.has(sourceCollectionPath)) continue;
-      for (const row of flattenDataStoreSchemaRows(collection.schema)) {
-        if (!row.fk) continue;
-        const targetEndpoint = foreignKeyTargetEndpoint(element.path, row.fk);
-        if (
-          !targetEndpoint ||
-          !parseDataStoreSchemaEndpoint(targetEndpoint, model.elementsByPath)
-        ) {
-          continue;
-        }
-        const targetCollectionPath = dataStoreCollectionPathForEndpoint(
-          model,
-          targetEndpoint,
+    for (const collectionKind of ["tables", "documents"] as const) {
+      for (const collection of Object.values(
+        element.dataStoreSchema[collectionKind],
+      )) {
+        const sourceCollectionPath = dataStoreCollectionPath(
+          element.path,
+          collectionKind,
+          collection.id,
         );
-        if (
-          !targetCollectionPath ||
-          !visibleNodeIds.has(targetCollectionPath) ||
-          targetCollectionPath === sourceCollectionPath
-        ) {
-          continue;
+        if (!visibleNodeIds.has(sourceCollectionPath)) continue;
+        for (const row of flattenDataStoreSchemaRows(collection.schema)) {
+          if (!row.fk) continue;
+          const targetEndpoint = foreignKeyTargetEndpoint(
+            element.path,
+            row.fk,
+            model,
+          );
+          if (!targetEndpoint) continue;
+          const targetCollectionPath = dataStoreCollectionPathForEndpoint(
+            model,
+            targetEndpoint,
+          );
+          if (
+            !targetCollectionPath ||
+            !visibleNodeIds.has(targetCollectionPath) ||
+            targetCollectionPath === sourceCollectionPath
+          ) {
+            continue;
+          }
+          const sourceEndpoint = `${sourceCollectionPath}.${row.path.join(
+            ".",
+          )}`;
+          relationships.push({
+            id: `schema-fk:${sourceEndpoint}->${targetEndpoint}`,
+            kind: "semantic",
+            from: sourceCollectionPath,
+            to: targetCollectionPath,
+            semanticKind: "foreign key",
+            sourceRelationshipIds: [
+              `schema-fk:${sourceEndpoint}->${targetEndpoint}`,
+            ],
+            count: 1,
+            relationships: [],
+            hideLabel: true,
+            fromSchemaFieldPath: row.path,
+            fromSchemaEndpointKind: "field",
+            toSchemaFieldPath: [],
+            toSchemaEndpointKind: "header",
+          });
         }
-        const sourceEndpoint = `${sourceCollectionPath}.${row.path.join(".")}`;
-        relationships.push({
-          id: `schema-fk:${sourceEndpoint}->${targetEndpoint}`,
-          kind: "semantic",
-          from: sourceCollectionPath,
-          to: targetCollectionPath,
-          semanticKind: "foreign key",
-          sourceRelationshipIds: [
-            `schema-fk:${sourceEndpoint}->${targetEndpoint}`,
-          ],
-          count: 1,
-          relationships: [],
-          hideLabel: true,
-          fromSchemaFieldPath: row.path,
-          fromSchemaEndpointKind: "field",
-          toSchemaFieldPath: [],
-          toSchemaEndpointKind: "header",
-        });
       }
     }
   }
@@ -735,10 +740,18 @@ function projectDataStoreForeignKeyRelationships(
 function foreignKeyTargetEndpoint(
   dataStorePath: string,
   fk: SoftwareDataStoreForeignKeyRef,
+  model: NormalizedSoftwareModel,
 ): string | undefined {
   const target = foreignKeyTarget(fk);
   if (!target) return undefined;
-  return `${dataStorePath}.tables.${target.table}.${target.fieldPath.join(".")}`;
+  const fieldPath = target.fieldPath.join(".");
+  for (const collectionKind of ["tables", "documents"] as const) {
+    const endpoint = `${dataStorePath}.${collectionKind}.${target.table}.${fieldPath}`;
+    if (parseDataStoreSchemaEndpoint(endpoint, model.elementsByPath)) {
+      return endpoint;
+    }
+  }
+  return undefined;
 }
 
 /** The table and field a foreign key points at, or undefined when malformed. */

@@ -12,11 +12,11 @@ import {
 import path from "node:path";
 import { Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { setTimeout as delay } from "node:timers/promises";
 
 import { isJsonObject, parseJsonText } from "@dev.fast/review-protocol";
 
 import { devReviewHome } from "./review-storage";
+import { withFileLock } from "./with-file-lock";
 
 export interface EnsureBundledToolInput {
   tool: string;
@@ -112,42 +112,33 @@ export function stagedToolPath(
   );
 }
 
+const INSTALL_LOCK_RETRY_MS = 100;
+const INSTALL_LOCK_STALE_MS = 30 * 60_000;
+const INSTALL_LOCK_TIMEOUT_MS = 120_000;
+const INSTALL_LOCK_UNOWNED_GRACE_MS = 1_000;
+const INSTALL_LOCK_HEARTBEAT_MS = 30_000;
+
 async function withInstallLock<T>(
   destination: string,
   operation: () => Promise<T>,
 ): Promise<T> {
-  const lockPath = `${destination}.install-lock`;
-  const deadline = Date.now() + 120_000;
-  while (true) {
-    try {
-      await mkdir(lockPath, { mode: 0o700 });
-      break;
-    } catch (error) {
-      if (
-        !(error instanceof Error && "code" in error && error.code === "EEXIST")
-      ) {
-        throw error;
-      }
-      const lockAge = await stat(lockPath)
-        .then((value) => Date.now() - value.mtimeMs)
-        .catch(() => 0);
-      if (lockAge > 10 * 60_000) {
-        await rm(lockPath, { recursive: true, force: true });
-        continue;
-      }
-      if (Date.now() >= deadline) {
-        throw new Error(
-          `Timed out waiting for another Review process to install ${path.basename(destination)}.`,
-        );
-      }
-      await delay(100);
-    }
+  const outcome = await withFileLock(
+    `${destination}.install-lock`,
+    {
+      retryMs: INSTALL_LOCK_RETRY_MS,
+      staleMs: INSTALL_LOCK_STALE_MS,
+      timeoutMs: INSTALL_LOCK_TIMEOUT_MS,
+      unownedGraceMs: INSTALL_LOCK_UNOWNED_GRACE_MS,
+      heartbeatMs: INSTALL_LOCK_HEARTBEAT_MS,
+    },
+    operation,
+  );
+  if (!outcome.acquired) {
+    throw new Error(
+      `Timed out waiting for another Review process to install ${path.basename(destination)}.`,
+    );
   }
-  try {
-    return await operation();
-  } finally {
-    await rm(lockPath, { recursive: true, force: true });
-  }
+  return outcome.result;
 }
 
 function installedToolMatches(

@@ -810,7 +810,10 @@ function codexToolEvent(
     name === "local_shell"
   ) {
     const source = codexValueText(payload.arguments ?? payload.input);
-    if (source.includes("tools.")) {
+    if (
+      /tools\.\w+\(/.test(source) ||
+      /\*\*\* (?:Add|Update|Delete) File: [^\n\\"`]+/.test(source)
+    ) {
       return codexCodeModeEvent(event, source, cwd, flags.hasPatchEvents);
     }
     let command = source;

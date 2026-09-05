@@ -204,6 +204,178 @@ describe("agent-trace-parser", () => {
         at: "2026-08-16T10:02:00Z",
       });
     });
+
+    const codexExecJsonl = (argumentsText: string): string => {
+      const callId = "call-exec";
+      return [
+        JSON.stringify({
+          type: "session_meta",
+          payload: { cwd: "/repo", timestamp: "2026-08-16T10:00:00Z" },
+        }),
+        JSON.stringify({
+          type: "response_item",
+          timestamp: "2026-08-16T10:00:05Z",
+          payload: {
+            type: "function_call",
+            name: "exec",
+            call_id: callId,
+            arguments: argumentsText,
+          },
+        }),
+        JSON.stringify({
+          type: "response_item",
+          timestamp: "2026-08-16T10:00:06Z",
+          payload: {
+            type: "function_call_output",
+            call_id: callId,
+            output: "ok",
+          },
+        }),
+      ].join("\n");
+    };
+
+    it("surfaces exec command-field events whose args contain a bare 'tools.' substring", () => {
+      const control = parseAgentTraceJsonl(
+        codexExecJsonl(
+          JSON.stringify({ command: ["grep", "-n", "export", "src/util.ts"] }),
+        ),
+      );
+      expect(control.toolCalls).toBe(1);
+      expect(control.events).toHaveLength(1);
+      expect(control.events[0]).toMatchObject({
+        kind: "tool",
+        tool: "exec",
+        verb: "Ran",
+        title: "grep -n export src/util.ts",
+        command: "grep -n export src/util.ts",
+        output: "ok",
+      });
+
+      const toolsPath = parseAgentTraceJsonl(
+        codexExecJsonl(
+          JSON.stringify({
+            command: ["grep", "-n", "export", "src/tools.config.ts"],
+          }),
+        ),
+      );
+      expect(toolsPath.toolCalls).toBe(1);
+      expect(toolsPath.events).toHaveLength(1);
+      expect(toolsPath.events[0]).toMatchObject({
+        kind: "tool",
+        tool: "exec",
+        verb: "Ran",
+        command: "grep -n export src/tools.config.ts",
+      });
+
+      const toolsPattern = parseAgentTraceJsonl(
+        codexExecJsonl(JSON.stringify({ command: "rg -n tools. src/" })),
+      );
+      expect(toolsPattern.toolCalls).toBe(1);
+      expect(toolsPattern.events[0]).toMatchObject({
+        kind: "tool",
+        tool: "exec",
+        verb: "Ran",
+        command: "rg -n tools. src/",
+      });
+    });
+
+    it("routes code-mode tools.<name>( dispatches to Called and skips wait/mcp__", () => {
+      const called = parseAgentTraceJsonl(
+        codexExecJsonl(JSON.stringify({ blob: "tools.run(foo)" })),
+      );
+      expect(called.toolCalls).toBe(1);
+      expect(called.events[0]).toMatchObject({
+        kind: "tool",
+        tool: "exec",
+        verb: "Called",
+        title: "run",
+      });
+
+      const wait = parseAgentTraceJsonl(
+        codexExecJsonl(JSON.stringify({ blob: "tools.wait(123)" })),
+      );
+      expect(wait.toolCalls).toBe(0);
+      expect(wait.events).toHaveLength(0);
+
+      const mcp = parseAgentTraceJsonl(
+        codexExecJsonl(JSON.stringify({ blob: "tools.mcp__server(arg)" })),
+      );
+      expect(mcp.toolCalls).toBe(0);
+      expect(mcp.events).toHaveLength(0);
+    });
+
+    it("routes *** Add|Update|Delete File: patch blobs to Edited and respects skipPatches", () => {
+      const patchBlob =
+        "*** Add File: src/db.ts\n+++ b/src/db.ts\n@@ -1 +1 @@\n-old\n+new";
+
+      const edited = parseAgentTraceJsonl(codexExecJsonl(patchBlob));
+      expect(edited.toolCalls).toBe(1);
+      expect(edited.events).toHaveLength(1);
+      expect(edited.events[0]).toMatchObject({
+        kind: "tool",
+        tool: "exec",
+        verb: "Edited",
+        filePath: "src/db.ts",
+      });
+
+      const suppressible = parseAgentTraceJsonl(
+        [
+          JSON.stringify({
+            type: "session_meta",
+            payload: { cwd: "/repo", timestamp: "2026-08-16T10:00:00Z" },
+          }),
+          JSON.stringify({
+            type: "event_msg",
+            timestamp: "2026-08-16T10:00:05Z",
+            payload: {
+              type: "patch_apply_end",
+              changes: {
+                "/repo/src/other.ts": {
+                  type: "edit",
+                  unified_diff:
+                    "--- a/src/other.ts\n+++ b/src/other.ts\n@@ -1 +1 @@\n-a\n+b",
+                },
+              },
+              stdout: "Success",
+            },
+          }),
+          JSON.stringify({
+            type: "response_item",
+            timestamp: "2026-08-16T10:00:06Z",
+            payload: {
+              type: "function_call",
+              name: "exec",
+              call_id: "call-exec",
+              arguments: patchBlob,
+            },
+          }),
+        ].join("\n"),
+      );
+      expect(suppressible.toolCalls).toBe(1);
+      expect(suppressible.events).toHaveLength(1);
+      expect(suppressible.events[0]).toMatchObject({
+        kind: "tool",
+        tool: "apply_patch",
+        verb: "Edited",
+        filePath: "src/other.ts",
+      });
+    });
+
+    it("does not divert a command field that merely greps for the literal '*** Add File:' marker", () => {
+      const result = parseAgentTraceJsonl(
+        codexExecJsonl(
+          JSON.stringify({ command: ["grep", "*** Add File:", "src/"] }),
+        ),
+      );
+      expect(result.toolCalls).toBe(1);
+      expect(result.events).toHaveLength(1);
+      expect(result.events[0]).toMatchObject({
+        kind: "tool",
+        tool: "exec",
+        verb: "Ran",
+        command: "grep *** Add File: src/",
+      });
+    });
   });
 
   describe("Pi transcripts", () => {

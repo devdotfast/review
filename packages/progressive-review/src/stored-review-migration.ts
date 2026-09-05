@@ -483,6 +483,8 @@ export async function migrateStoredReviewData(input: {
         input.onBlocker?.(
           `Review ${entry.name} database migration failed: ${errorMessage(error)}`,
         );
+        // Keep recoverable legacy state intact; do not import or mark it done.
+        continue;
       }
       const result = await dropLegacyReviewState(reviewPath, input.log);
       importLegacyReview(reviewDir, input.reviewHome);

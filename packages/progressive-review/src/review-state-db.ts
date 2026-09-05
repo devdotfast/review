@@ -6,6 +6,8 @@ import { DatabaseSync } from "node:sqlite";
 import type { JsonValue } from "@dev.fast/review-protocol";
 import { parseJsonText } from "@dev.fast/review-protocol";
 
+import { requireCurrentThreadDbSchema } from "./review-thread-db-schema";
+
 export const REVIEW_STATE_DB_FILENAME = "review.db";
 export const REVIEW_STATE_DB_SCHEMA_VERSION = 1;
 
@@ -169,10 +171,6 @@ export function putReviewRecord(
          review_dir = excluded.review_dir,
          record_json = excluded.record_json`,
     ).run(reviewId, path.resolve(reviewDir), recordJson);
-    db.prepare(
-      `INSERT INTO legacy_review_imports (review_id, imported_at) VALUES (?, ?)
-       ON CONFLICT(review_id) DO NOTHING`,
-    ).run(reviewId, new Date().toISOString());
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
@@ -184,16 +182,21 @@ export function readReviewRecord(
   reviewDir: string,
   home = defaultReviewHome(),
 ): JsonValue | null {
-  importLegacyReview(reviewDir, home);
   const dbPath = reviewStateDbPath(home);
-  if (!existsSync(dbPath)) return null;
+  const recordPath = path.join(reviewDir, "review.json");
+  if (!existsSync(dbPath) && !existsSync(recordPath)) return null;
   // SAFETY: reviews.record_json is a nullable TEXT column in the schema above.
   const row = openReviewStateDb(home)
     .prepare("SELECT record_json FROM reviews WHERE review_id = ?")
     .get(reviewIdForDir(reviewDir)) as
     | { record_json: string | null }
     | undefined;
-  return row?.record_json ? parseJsonText(row.record_json) : null;
+  if (row?.record_json) return parseJsonText(row.record_json);
+  if (!existsSync(recordPath)) return null;
+  // Discovery must not import comment records before their schema migration.
+  const record = parseJsonText(readFileSync(recordPath, "utf8"));
+  putReviewRecord(reviewDir, record, home);
+  return record;
 }
 
 export function importLegacyReview(
@@ -219,6 +222,12 @@ export function importLegacyReview(
   const legacy = existsSync(legacyDbPath)
     ? new DatabaseSync(legacyDbPath, { readOnly: true })
     : null;
+  try {
+    if (legacy) requireCurrentThreadDbSchema(legacy, legacyDbPath);
+  } catch (error) {
+    legacy?.close();
+    throw error;
+  }
   db.exec("BEGIN IMMEDIATE");
   try {
     db.prepare(

@@ -17,6 +17,17 @@ import {
 import { z } from "zod";
 
 import {
+  REVIEW_THREAD_DB_SCHEMA_VERSION,
+  ReviewThreadDbVersionError,
+  readThreadDbSchemaVersion,
+  requireCurrentThreadDbSchema,
+} from "./review-thread-db-schema";
+export {
+  REVIEW_THREAD_DB_SCHEMA_VERSION,
+  ReviewThreadDbVersionError,
+} from "./review-thread-db-schema";
+
+import {
   closeAllReviewStateDatabases,
   ensureReviewRegistration,
   importLegacyReview,
@@ -34,7 +45,6 @@ import type {
 // only as a legacy migration input.
 
 export const REVIEW_THREAD_DB_FILENAME = "review.db";
-export const REVIEW_THREAD_DB_SCHEMA_VERSION = 6;
 
 export function reviewStateDir(reviewMdxPath: string): string {
   return path.dirname(path.resolve(reviewMdxPath));
@@ -47,18 +57,6 @@ export function reviewThreadDbPath(reviewMdxPath: string): string {
 
 export function legacyReviewThreadDbPath(reviewMdxPath: string): string {
   return path.join(reviewStateDir(reviewMdxPath), REVIEW_THREAD_DB_FILENAME);
-}
-
-export class ReviewThreadDbVersionError extends Error {
-  override readonly name = "ReviewThreadDbVersionError";
-
-  constructor(dbPath: string, found: string | null) {
-    super(
-      `Review thread database ${dbPath} has schema version ` +
-        `${found ?? "(missing)"}; this version of Review supports ` +
-        `${REVIEW_THREAD_DB_SCHEMA_VERSION}. Run \`review migrate apply\`.`,
-    );
-  }
 }
 
 export interface ReviewThreadStoreBackend {
@@ -144,33 +142,12 @@ function openThreadDb(
   return db;
 }
 
-function readThreadDbSchemaVersion(db: DatabaseSync): string | null {
-  // SAFETY: the query projects the single integer column `present`.
-  const hasMeta = db
-    .prepare(
-      "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'meta'",
-    )
-    .get() as { present: number } | undefined;
-  if (!hasMeta) return null;
-  // SAFETY: meta.value is a TEXT NOT NULL column (see REVIEW_THREAD_DB_DDL).
-  return (
-    (
-      db
-        .prepare("SELECT value FROM meta WHERE key = 'schema_version'")
-        .get() as { value: string } | undefined
-    )?.value ?? null
-  );
-}
-
 export function checkReviewThreadDbVersion(reviewMdxPath: string): void {
   const dbPath = legacyReviewThreadDbPath(reviewMdxPath);
   if (!existsSync(dbPath)) return;
   const db = new DatabaseSync(dbPath, { readOnly: true });
   try {
-    const version = readThreadDbSchemaVersion(db);
-    if (version !== String(REVIEW_THREAD_DB_SCHEMA_VERSION)) {
-      throw new ReviewThreadDbVersionError(dbPath, version);
-    }
+    requireCurrentThreadDbSchema(db, dbPath);
   } finally {
     db.close();
   }

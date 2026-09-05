@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { cp, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -18,6 +18,7 @@ import {
 } from "./authoring-session";
 import { errorMessage } from "./error-message";
 import { isMissingFileError } from "./native-agent/transcript-json";
+import { promoteReviewArtifactFiles } from "./review-artifact-promotion";
 import {
   bundleReviewDocument,
   readReviewDocumentBundle,
@@ -603,7 +604,6 @@ async function regeneratePresentedArtifacts(input: {
         }
         return false;
       }
-      const backupDir = path.join(staging, "backup");
       const candidateDir = path.join(staging, "candidate");
       await cp(input.reviewDir, candidateDir, {
         recursive: true,
@@ -617,15 +617,6 @@ async function regeneratePresentedArtifacts(input: {
         },
       });
       const candidateRecordPath = path.join(candidateDir, "review.json");
-      await mkdir(backupDir);
-      // The private index and refs belong to the same transaction as the candidates.
-      // Backup before touching any byte; preparation itself never edits the review.
-      const names = ["review.json", ".bundle", ".git"];
-      for (const name of names)
-        await copyIfPresent(
-          path.join(input.reviewDir, name),
-          path.join(backupDir, name),
-        );
       let completed = false;
       const newRevisions: string[] = [];
       try {
@@ -678,23 +669,11 @@ async function regeneratePresentedArtifacts(input: {
             path.join(input.reviewDir, ".build", revision),
           );
         }
-        // Sealing used an isolated private repository. Neither presentation
-        // pointer nor the stored schema changes until both artifacts exist.
-        await rm(path.join(input.reviewDir, ".bundle"), {
-          recursive: true,
-          force: true,
+        await promoteReviewArtifactFiles({
+          reviewDir: input.reviewDir,
+          candidateDir,
+          record: next,
         });
-        await cp(
-          path.join(candidateDir, ".bundle"),
-          path.join(input.reviewDir, ".bundle"),
-          { recursive: true, force: true },
-        );
-        await cp(
-          path.join(candidateDir, ".git"),
-          path.join(input.reviewDir, ".git"),
-          { recursive: true, force: true },
-        );
-        await writePrivateJsonAtomic(recordPath, next);
         completed = true;
         input.log?.(
           "Migrated current presentation for Review " +
@@ -704,16 +683,6 @@ async function regeneratePresentedArtifacts(input: {
         return true;
       } finally {
         if (!completed) {
-          for (const name of names) {
-            await rm(path.join(input.reviewDir, name), {
-              recursive: true,
-              force: true,
-            });
-            await copyIfPresent(
-              path.join(backupDir, name),
-              path.join(input.reviewDir, name),
-            );
-          }
           for (const revision of newRevisions)
             await rm(path.join(input.reviewDir, ".build", revision), {
               recursive: true,
@@ -724,17 +693,6 @@ async function regeneratePresentedArtifacts(input: {
     });
   } finally {
     await rm(staging, { recursive: true, force: true });
-  }
-}
-
-async function copyIfPresent(
-  source: string,
-  destination: string,
-): Promise<void> {
-  try {
-    await cp(source, destination, { recursive: true, force: true });
-  } catch (error) {
-    if (!isMissingFileError(error)) throw error;
   }
 }
 

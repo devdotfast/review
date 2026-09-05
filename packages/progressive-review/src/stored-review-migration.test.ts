@@ -5,6 +5,7 @@ import {
   readFile,
   readdir,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
@@ -48,6 +49,39 @@ afterEach(async () => {
 });
 
 describe("migrateStoredReviewData", () => {
+  it("does not replace live files when sealing the isolated candidate fails", async () => {
+    const { created } = await storedReview();
+    await writeLegacyDocument(created.dir);
+    const revision = await sealReviewCandidate(created.dir, "Legacy document");
+    await writeFile(
+      path.join(created.dir, "review.json"),
+      JSON.stringify({
+        ...created.review,
+        schemaVersion: 4,
+        presentedDocumentRevision: revision,
+      }),
+    );
+    const names = ["review.json", ".bundle", ".git"];
+    const before = await Promise.all(
+      names.map(async (name) => (await stat(path.join(created.dir, name))).ino),
+    );
+    vi.spyOn(reviewVcs, "seal").mockRejectedValue(
+      new Error("candidate disk full"),
+    );
+
+    await expect(
+      migrateStoredReview({ reviewDir: created.dir }),
+    ).rejects.toThrow("candidate disk full");
+
+    expect(
+      await Promise.all(
+        names.map(
+          async (name) => (await stat(path.join(created.dir, name))).ino,
+        ),
+      ),
+    ).toEqual(before);
+  });
+
   it.each([false, true])(
     "preserves a competing candidate writer after migration rollback=%s",
     async (fail) => {

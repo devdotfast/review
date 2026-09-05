@@ -11,7 +11,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 
-import { parseJsonText } from "@dev.fast/review-protocol";
+import { jsonObject, parseJsonText } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -29,6 +29,7 @@ import { withReviewMutationLock } from "./review-mutation-lock";
 import { reviewVcs } from "./review-vcs";
 import {
   bundleReviewSoftwareMap,
+  readReviewSoftwareMapBundle,
   writeReviewSoftwareMapBundle,
 } from "./software-map-bundle";
 import { defineSoftwareMap } from "./software-map-model";
@@ -624,6 +625,61 @@ describe("migrateStoredReviewData", () => {
     );
   });
 
+  it("preserves a genuine flat schema-2 embedded map and its sealed pins", async () => {
+    const { created } = await flatSchema2Review("valid");
+    const current = parseJsonText(
+      await readFile(path.join(created.dir, "review.json"), "utf8"),
+    );
+    await writeFile(
+      path.join(created.dir, "review.json"),
+      JSON.stringify({
+        ...jsonObject(current),
+        sourceCommit: "f".repeat(40),
+        baseCommit: "e".repeat(40),
+      }),
+    );
+    const result = await migrateStoredReview({ reviewDir: created.dir });
+    expect(result.record.schemaVersion).toBe(5);
+    expect(result.record.presentedSoftwareMapRevision).not.toBeNull();
+    const materialized = await materializedRevision(
+      created.dir,
+      result.record.presentedSoftwareMapRevision!,
+    );
+    const bundle = await readReviewSoftwareMapBundle(materialized);
+    expect(bundle?.head.elements).toEqual(
+      defineSoftwareMap({ systems: { service: { label: "Head" } } }).elements,
+    );
+    expect(bundle?.base.elements).toEqual(
+      defineSoftwareMap({ systems: { service: { label: "Base" } } }).elements,
+    );
+    expect(bundle?.headCommit).toBe(created.review.sourceCommit);
+    expect(bundle?.baseCommit).toBe(created.review.baseCommit);
+    expect(result.record.sourceCommit).toBe("f".repeat(40));
+    expect(result.record.baseCommit).toBe("e".repeat(40));
+  });
+
+  it("preserves the original flat schema-2 review when its embedded map pair is invalid", async () => {
+    const { created } = await flatSchema2Review("invalid");
+    const before = await snapshotMigrationFiles(created.dir);
+    await expect(
+      migrateStoredReview({ reviewDir: created.dir }),
+    ).rejects.toThrow("embedded software map");
+    expect(await snapshotMigrationFiles(created.dir)).toEqual(before);
+  });
+
+  it("does not invent an embedded repository map from inline flat schema-2 models", async () => {
+    const { created } = await flatSchema2Review("absent");
+    const result = await migrateStoredReview({ reviewDir: created.dir });
+    expect(result.record.schemaVersion).toBe(5);
+    expect(result.record.presentedSoftwareMapRevision).toBeNull();
+    const materialized = await materializedRevision(
+      created.dir,
+      result.record.presentedDocumentRevision!,
+    );
+    const bundle = await readReviewDocumentBundle(materialized, "/");
+    expect(bundle?.document.softwareModels).toHaveLength(2);
+  });
+
   it("migrates a schema-2 review with missing legacy maps without a blocker", async () => {
     const { created, reviewHome } = await storedReview();
     await writeLegacyDocument(created.dir);
@@ -892,6 +948,34 @@ describe("migrateStoredReview", () => {
     );
   });
 });
+
+async function flatSchema2Review(maps: "valid" | "invalid" | "absent") {
+  const fixture = await storedReview();
+  const bundleDir = path.join(fixture.created.dir, ".bundle");
+  await rm(bundleDir, { recursive: true, force: true });
+  await mkdir(bundleDir);
+  await writeFile(
+    path.join(bundleDir, "manifest.json"),
+    JSON.stringify({ version: 1, routePath: "/", sourcePath: "review.mdx" }),
+  );
+  await writeFile(
+    path.join(bundleDir, "review-document.js"),
+    `
+import { createActiveReviewDocument, defineSoftwareModel, jsx } from "review-doc-runtime";
+const head = defineSoftwareModel({ systems: { service: { label: "Head" } } });
+const base = defineSoftwareModel({ systems: { service: { label: "Base" } } });
+export default createActiveReviewDocument({ title: "Flat", routePath: "/", filePath: "review.mdx", modelNames: [], models: {},
+repoSoftwareMap: ${maps === "absent" ? "null" : "head"}, baseSoftwareMap: ${maps === "valid" ? "base" : "null"},
+Component: () => jsx("p", { children: "Sealed flat document" }), isDefault: true });
+`,
+  );
+  const revision = await sealReviewCandidate(
+    fixture.created.dir,
+    "Flat schema-2 publication",
+  );
+  await writeSchema2Record(fixture.created.dir, revision);
+  return fixture;
+}
 
 async function storedReview() {
   const reviewHome = await tempDir();

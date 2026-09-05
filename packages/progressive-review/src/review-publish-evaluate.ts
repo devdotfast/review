@@ -44,9 +44,11 @@ import {
   isPublishAuditComponent,
 } from "./review-publish-element-audit";
 import {
+  type NormalizedSoftwareModel,
   defineSoftwareMap,
   isNormalizedSoftwareModel,
   softwareModelData,
+  softwareModelDataSchema,
 } from "./software-map-model";
 import { resolveReviewSourceRange } from "./source-range-resolver";
 
@@ -109,6 +111,10 @@ export interface ReviewPublishRangePeek extends CodePeekProps {
 
 export interface ReviewPublishEvaluationResult {
   document: ReviewDocumentData | null;
+  legacySoftwareMap?: {
+    head: NormalizedSoftwareModel;
+    base: NormalizedSoftwareModel;
+  };
   // Number of code peeks the document resolved. Zero means source preparation
   // never ran.
   peekCount: number;
@@ -365,6 +371,23 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
     }
   }
 
+  let legacySoftwareMap: ReviewPublishEvaluationResult["legacySoftwareMap"];
+  const headMap = documentCapture.input?.repoSoftwareMap;
+  const baseMap = documentCapture.input?.baseSoftwareMap;
+  if (headMap != null || baseMap != null) {
+    if (
+      isNormalizedSoftwareModel(headMap) &&
+      isNormalizedSoftwareModel(baseMap) &&
+      softwareModelDataSchema.safeParse(softwareModelData(headMap)).success &&
+      softwareModelDataSchema.safeParse(softwareModelData(baseMap)).success
+    ) {
+      legacySoftwareMap = { head: headMap, base: baseMap };
+    } else {
+      failures.push(
+        "The embedded software map must contain valid head and base models.",
+      );
+    }
+  }
   let document: ReviewDocumentData | null = null;
   if (
     importErrorMessage === null &&
@@ -430,13 +453,16 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
     ),
     ...traceQuoteWarnings,
   ];
-  return {
+  const result: ReviewPublishEvaluationResult = {
     document,
     peekCount,
     rangePeeks,
     errors,
     warnings: [...new Set(warnings)],
   };
+  if (document && legacySoftwareMap)
+    result.legacySoftwareMap = legacySoftwareMap;
+  return result;
 }
 
 function collectDocumentSoftwareModels(
@@ -473,6 +499,8 @@ interface PublishDocumentInput {
   filePath: string;
   modelNames: string[];
   models: ReviewDocumentModuleExports;
+  repoSoftwareMap?: NormalizedSoftwareModel | null;
+  baseSoftwareMap?: NormalizedSoftwareModel | null;
   Component?: unknown;
 }
 

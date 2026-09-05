@@ -111,6 +111,46 @@ describe("publish range evaluation", () => {
     ]);
   });
 
+  it("captures the explicit legacy repository map pair separately from inline models", async () => {
+    const result = await evaluateReviewDocumentBundleForPublish({
+      reviewDir: fixtureDir("embedded-map"),
+      bundleCode: `import { createActiveReviewDocument, defineSoftwareModel, jsx } from "review-doc-runtime";
+const head = defineSoftwareModel({ systems: { service: { label: "Head" } } });
+const base = defineSoftwareModel({ systems: { service: { label: "Base" } } });
+defineSoftwareModel({ systems: { inline: { label: "Inline" } } });
+export default createActiveReviewDocument({ title: "Legacy", routePath: "/", filePath: "review.mdx", modelNames: [], models: {}, repoSoftwareMap: head, baseSoftwareMap: base, Component: () => jsx("p", { children: "Legacy" }) });`,
+    });
+    expect(result.errors).toEqual([]);
+    expect(result.legacySoftwareMap?.head.elements[0].label).toBe("Head");
+    expect(result.legacySoftwareMap?.base.elements[0].label).toBe("Base");
+    expect(result.document?.softwareModels).toHaveLength(3);
+  });
+
+  it.each([
+    { head: "head", base: "null" },
+    { head: "null", base: "head" },
+    { head: "{}", base: "head" },
+    {
+      head: "{ elements: [null], relationships: [], elementsByPath: new Map() }",
+      base: "head",
+    },
+  ])(
+    "rejects an invalid embedded software map pair: $head / $base",
+    async ({ head, base }) => {
+      const result = await evaluateReviewDocumentBundleForPublish({
+        reviewDir: fixtureDir("invalid-embedded-map"),
+        bundleCode: `import { createActiveReviewDocument, defineSoftwareModel, jsx } from "review-doc-runtime";
+const head = defineSoftwareModel({ systems: { service: { label: "Head" } } });
+export default createActiveReviewDocument({ title: "Legacy", routePath: "/", filePath: "review.mdx", modelNames: [], models: {}, repoSoftwareMap: ${head}, baseSoftwareMap: ${base}, Component: () => jsx("p", { children: "Legacy" }) });`,
+      });
+      expect(result.document).toBeNull();
+      expect(result.legacySoftwareMap).toBeUndefined();
+      expect(result.errors).toEqual([
+        expect.stringContaining("embedded software map"),
+      ]);
+    },
+  );
+
   it("materializes document metadata, nodes, anchors, and ordered software models", async () => {
     const reviewDir = fixtureDir("review");
     const head = sourceFixture("one line");

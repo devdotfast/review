@@ -502,6 +502,47 @@ async function migrateReviewSourceSession(input: {
   };
 }
 
+async function evaluateLegacyPresentedDocument(
+  reviewDir: string,
+  log?: (message: string) => void,
+) {
+  let legacyRoot = path.join(reviewDir, ".bundle/document");
+  let manifest: JsonObject | undefined;
+  try {
+    manifest = jsonObject(
+      parseJsonText(
+        await readFile(path.join(legacyRoot, "manifest.json"), "utf8"),
+      ),
+    );
+  } catch (error) {
+    if (!isMissingFileError(error)) throw error;
+    legacyRoot = path.join(reviewDir, ".bundle");
+    manifest = jsonObject(
+      parseJsonText(
+        await readFile(path.join(legacyRoot, "manifest.json"), "utf8"),
+      ),
+    );
+  }
+  if (manifest?.version !== 1)
+    throw new Error(
+      "The presented document manifest is invalid or unsupported.",
+    );
+  const evaluated = await evaluateReviewDocumentBundleForPublish({
+    bundleCode: await readFile(
+      path.join(legacyRoot, "review-document.js"),
+      "utf8",
+    ),
+    reviewDir,
+    validateRanges: false,
+  });
+  for (const warning of evaluated.warnings) log?.(warning);
+  if (!evaluated.document)
+    throw new Error(
+      evaluated.errors.join("; ") || "Review document did not materialize.",
+    );
+  return { ...evaluated, document: evaluated.document };
+}
+
 async function regeneratePresentedArtifacts(input: {
   reviewDir: string;
   review: ReturnType<typeof parseStoredReviewRecordForMigration>;
@@ -516,6 +557,9 @@ async function regeneratePresentedArtifacts(input: {
   const mapDir = path.join(staging, "map");
   try {
     let documentBundle: ReturnType<typeof bundleReviewDocument> | null = null;
+    let evaluatedDocument:
+      | Awaited<ReturnType<typeof evaluateLegacyPresentedDocument>>
+      | undefined;
     let mapBundle: ReviewSoftwareMapBundle | null = null;
     let mapRevision = input.review.presentedSoftwareMapRevision;
     const documentRevision = input.review.presentedDocumentRevision;
@@ -526,45 +570,11 @@ async function regeneratePresentedArtifacts(input: {
         documentDir,
       );
       if (!(await readReviewDocumentBundle(documentDir, "/"))) {
-        const modernPath = path.join(
+        evaluatedDocument = await evaluateLegacyPresentedDocument(
           documentDir,
-          ".bundle/document/manifest.json",
+          input.log,
         );
-        let legacyRoot = path.join(documentDir, ".bundle/document");
-        let manifest: JsonObject | undefined;
-        try {
-          manifest = jsonObject(
-            parseJsonText(await readFile(modernPath, "utf8")),
-          );
-        } catch (error) {
-          if (!isMissingFileError(error)) throw error;
-          legacyRoot = path.join(documentDir, ".bundle");
-          manifest = jsonObject(
-            parseJsonText(
-              await readFile(path.join(legacyRoot, "manifest.json"), "utf8"),
-            ),
-          );
-        }
-        if (manifest?.version !== 1)
-          throw new Error(
-            "The presented document manifest is invalid or unsupported.",
-          );
-        const bundleCode = await readFile(
-          path.join(legacyRoot, "review-document.js"),
-          "utf8",
-        );
-        const evaluated = await evaluateReviewDocumentBundleForPublish({
-          bundleCode,
-          reviewDir: documentDir,
-          validateRanges: false,
-        });
-        for (const warning of evaluated.warnings) input.log?.(warning);
-        if (!evaluated.document)
-          throw new Error(
-            evaluated.errors.join("; ") ||
-              "Review document did not materialize.",
-          );
-        documentBundle = bundleReviewDocument(evaluated.document);
+        documentBundle = bundleReviewDocument(evaluatedDocument.document);
       }
     }
     if (mapRevision) {
@@ -574,7 +584,24 @@ async function regeneratePresentedArtifacts(input: {
         if (!mapBundle) {
           if (!input.allowAbsentMap)
             throw new Error("The presented software map is missing.");
-          mapRevision = null;
+          const evaluated =
+            mapRevision === documentRevision && evaluatedDocument
+              ? evaluatedDocument
+              : await evaluateLegacyPresentedDocument(mapDir, input.log);
+          if (evaluated.legacySoftwareMap) {
+            const sealed = await withSealedSourcePins(input.review, mapDir);
+            if (!sealed.sourceCommit)
+              throw new Error(
+                "The embedded software map has no sealed source commit.",
+              );
+            mapBundle = bundleReviewSoftwareMap({
+              ...evaluated.legacySoftwareMap,
+              baseCommit: sealed.baseCommit,
+              headCommit: sealed.sourceCommit,
+            });
+          } else {
+            mapRevision = null;
+          }
         }
       }
     }

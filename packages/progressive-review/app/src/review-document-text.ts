@@ -1,6 +1,6 @@
 import { ANNOTATION_CONTAINER_SELECTOR } from "./comment-pins";
 
-const NON_DOCUMENT_TEXT_SELECTOR = `${ANNOTATION_CONTAINER_SELECTOR}, .review-doc-meta, .selection-action-buttons`;
+const NON_DOCUMENT_TEXT_SELECTOR = `${ANNOTATION_CONTAINER_SELECTOR}, .review-doc-meta, .selection-action-buttons, .review-section-meta`;
 const BLOCK_TEXT_TAGS = new Set([
   "ADDRESS",
   "ARTICLE",

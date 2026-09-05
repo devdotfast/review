@@ -173,7 +173,8 @@ export async function resolveReviewSessionBaseCommit(input: {
 }): Promise<string | null> {
   const review = readReviewStoreRecord(input.reviewRootPath);
   const repoRoot = resolveReviewRepoRootFromStore(input.reviewRootPath, review);
-  return resolveRevisionCommit(repoRoot, review.baseCommit);
+  const resolved = await resolveRevision(repoRoot, review.baseCommit);
+  return resolved ? resolved.commit : null;
 }
 
 export function resolveReviewRepoRootFromStore(

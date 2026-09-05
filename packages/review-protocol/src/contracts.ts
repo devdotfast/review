@@ -1245,6 +1245,7 @@ export const ReviewSessionDescriptorSchema = z.strictObject({
   reviewUuid: z.uuid({ error: "must be a UUID" }),
   routePath: routePathSchema,
   startedAt: positiveInteger,
+  sourceUnavailable: requiredString.optional(),
   historicalRevision: z
     .string()
     .regex(/^[0-9a-f]{40}$/)

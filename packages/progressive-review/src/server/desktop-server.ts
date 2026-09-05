@@ -163,7 +163,6 @@ interface ActiveReviewSession {
   softwareMapRootPath?: string;
   revision?: string;
   historicalRevision?: string;
-  sourceUnavailable?: string;
   source?: {
     sourceCommit: string;
     sourceBranch: string;
@@ -601,7 +600,6 @@ export function createGlobalReviewServer(
     }
     const existing = activeSessionForReview(review.review.uuid);
     if (existing) {
-      homeReview.sourceUnavailable = existing.sourceUnavailable;
       existing.appSessionId ??= appSessionId;
       if (!background) {
         void relay.dispatch(existing.descriptor.sessionId, revealVerb(view));
@@ -652,7 +650,6 @@ export function createGlobalReviewServer(
       background,
       appSessionId,
     });
-    homeReview.sourceUnavailable = active.sourceUnavailable;
     return globalJson(201, {
       sessionId: active.descriptor.sessionId,
       url: active.descriptor.sessionUrl,
@@ -680,10 +677,7 @@ export function createGlobalReviewServer(
         sessionId: existing.descriptor.sessionId,
         url: existing.descriptor.sessionUrl,
         session: existing.descriptor,
-        review: {
-          ...homeReview,
-          sourceUnavailable: existing.sourceUnavailable,
-        },
+        review: homeReview,
       });
     }
     let documentBuildDir: string;
@@ -738,7 +732,7 @@ export function createGlobalReviewServer(
       sessionId: active.descriptor.sessionId,
       url: active.descriptor.sessionUrl,
       session: active.descriptor,
-      review: { ...homeReview, sourceUnavailable: active.sourceUnavailable },
+      review: homeReview,
     });
   }
   app.post("/reviews/:uuid/dismiss", async (context) => {
@@ -1978,6 +1972,7 @@ export function createGlobalReviewServer(
           return { baseRootPath: undefined, headRootPath: undefined };
         },
       ));
+    if (sourceUnavailable) descriptor.sourceUnavailable = sourceUnavailable;
     const sessionWire = sessionWireFor(
       registration.review,
       descriptor,
@@ -2068,7 +2063,6 @@ export function createGlobalReviewServer(
       revision: registration.revision,
       historicalRevision: registration.historicalRevision,
       source: registration.source,
-      sourceUnavailable,
       handler,
       promoted: registration.promoted,
       terminal: false,

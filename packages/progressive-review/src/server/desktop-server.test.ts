@@ -151,10 +151,15 @@ describe("Review Desktop open requests", () => {
         softwareModels: [],
       }),
     );
+    await writeFile(
+      path.join(dir, "review.json"),
+      JSON.stringify({ ...record, sourceCommit: "f".repeat(40) }),
+    );
     const historicalJsonRevision = await reviewVcs.seal(
       dir,
       "Review publish candidate",
     );
+    await writeFile(path.join(dir, "review.json"), JSON.stringify(record));
     await writeFile(
       path.join(dir, "review.mdx"),
       "# Recovery\n\nCurrent revision",
@@ -271,6 +276,39 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
       expect(jsonVersion.session.historicalRevision).toBe(
         historicalJsonRevision,
       );
+      expect(jsonVersion.session.sourceUnavailable).toContain(
+        "The pinned source commits are unavailable:",
+      );
+      expect(jsonVersion.review.sourceUnavailable).toBeUndefined();
+      const refreshedSessions = await (await request("/sessions")).json();
+      expect(
+        refreshedSessions.items.find(
+          (item: { sessionId: string }) =>
+            item.sessionId === jsonVersion.sessionId,
+        ),
+      ).toMatchObject(jsonVersion.session);
+      expect(
+        refreshedSessions.items.find(
+          (item: { sessionId: string }) => item.sessionId === opened.sessionId,
+        ).sourceUnavailable,
+      ).toBeUndefined();
+      const refreshedReviews = await (await request("/reviews")).json();
+      expect(refreshedReviews.reviews[0].sourceUnavailable).toBeUndefined();
+      const reopened = await (
+        await request(`/reviews/${uuid}/open`, {
+          revision: historicalJsonRevision,
+        })
+      ).json();
+      expect(reopened.session).toEqual(jsonVersion.session);
+      const unavailableDiff = await request(
+        `/sessions/${jsonVersion.sessionId}/__progressive-review/diff-files`,
+        {},
+      );
+      expect(unavailableDiff.status).toBe(400);
+      expect((await unavailableDiff.json()).error).toBe(
+        jsonVersion.session.sourceUnavailable,
+      );
+      expect((await request(`${prefix}/diff-files`, {})).status).toBe(200);
       expect(
         (
           await request(

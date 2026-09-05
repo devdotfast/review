@@ -123,6 +123,52 @@ test("successful repair registration refreshes cached migration warnings", async
 	service.dispose();
 });
 
+test("historical source availability survives registration, refresh, and reconnect", async (t) => {
+	const service = serviceWith([review]);
+	const historical: ReviewSessionDescriptor = {
+		...session,
+		sessionId: "historical-session",
+		sessionUrl: `${session.sessionUrl}-historical`,
+		historicalRevision: "b".repeat(40),
+		sourceUnavailable: "The pinned source commits are unavailable: missing commit",
+	};
+	let connections = 0;
+	let registered = false;
+	service.onDidRegisterSession((event) => {
+		registered = true;
+		assert.deepEqual(event.session, historical);
+	});
+	mockFetch(t, async (input) => {
+		const url = String(input);
+		if (url.includes("/events")) {
+			connections += 1;
+			return new Response(connections === 1
+				? `data: ${JSON.stringify({ event: "session-registered", session: historical, review })}\n\ndata: ${JSON.stringify({ event: "review-status-changed", uuid, status: "accepted" })}\n\n`
+				: "");
+		}
+		if (url.includes("/sessions")) return Response.json({ items: registered ? [session, historical] : [session] });
+		return Response.json({ reviews: [review], errors: [] });
+	});
+	const watch = () => (service as unknown as {
+		watchGlobalEvents(connected: () => void): Promise<void>;
+	}).watchGlobalEvents(() => undefined);
+	const assertAvailability = () => {
+		assert.equal(service.sessions.find((item) => item.sessionId === historical.sessionId)?.sourceUnavailable, historical.sourceUnavailable);
+		assert.equal(service.sessions.find((item) => item.sessionId === session.sessionId)?.sourceUnavailable, undefined);
+		assert.equal(service.reviews[0].sourceUnavailable, undefined);
+	};
+	await watch();
+	assert.equal(registered, true);
+	assert.equal(service.reviews[0].status, "accepted");
+	assertAvailability();
+	await service.refresh();
+	assertAvailability();
+	await watch();
+	assert.equal(connections, 2);
+	assertAvailability();
+	service.dispose();
+});
+
 test("confirmed dismiss updates the cached review", async (t) => {
 	const service = serviceWith([review]);
 	mockFetch(t, async () =>

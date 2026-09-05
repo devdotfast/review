@@ -1533,6 +1533,48 @@ export default defineSoftwareMap({
       "from": "review.cliPackage.installer",
       "to": "review.cliPackage.traceConsent",
       "label": "reports enablement and denies repositories on disable"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.publication",
+      "to": "review.cliPackage.storedReviews",
+      "label": "writes published artifacts",
+      "semanticKind": "uses"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.reviewApp.documentRuntime",
+      "to": "review.cliPackage.publication",
+      "label": "loads published document bundles",
+      "semanticKind": "uses"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.nativeAgents.claudeCode",
+      "to": "review.cliPackage.nativeAgents.nativeSession",
+      "label": "implements AgentServer",
+      "semanticKind": "uses"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.nativeAgents.codex",
+      "to": "review.cliPackage.nativeAgents.nativeSession",
+      "label": "implements AgentServer",
+      "semanticKind": "uses"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.nativeAgents.pi",
+      "to": "review.cliPackage.nativeAgents.nativeSession",
+      "label": "implements AgentServer",
+      "semanticKind": "uses"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.nativeAgents.opencode",
+      "to": "review.cliPackage.nativeAgents.nativeSession",
+      "label": "implements AgentServer",
+      "semanticKind": "uses"
     }
   ]
 });

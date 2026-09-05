@@ -159,6 +159,13 @@ describe("migrateStoredReviewData", () => {
   it("converts independent current document/map revisions and embeds the final map pin", async () => {
     const { created, reviewHome, sourceCommit } = await storedReview();
     await writeLegacyDocument(created.dir);
+    const sourceFiles = ["review.mdx", "data.ts", "software-map.ts"];
+    for (const name of sourceFiles) {
+      await writeFile(
+        path.join(created.dir, name),
+        `Sealed document ${name}\n`,
+      );
+    }
     const documentRevision = await sealReviewCandidate(
       created.dir,
       "Legacy document only",
@@ -167,6 +174,9 @@ describe("migrateStoredReviewData", () => {
       headCommit: sourceCommit,
       baseCommit: sourceCommit,
     });
+    for (const name of sourceFiles) {
+      await writeFile(path.join(created.dir, name), `Sealed map ${name}\n`);
+    }
     const mapRevision = await sealReviewCandidate(
       created.dir,
       "Legacy independent map",
@@ -176,14 +186,14 @@ describe("migrateStoredReviewData", () => {
       JSON.stringify({
         ...created.review,
         schemaVersion: 4,
+        baseRef: "unpublished-branch",
         presentedDocumentRevision: documentRevision,
         presentedSoftwareMapRevision: mapRevision,
       }),
     );
-    await writeFile(
-      path.join(created.dir, "review.mdx"),
-      "Unpublished edits must stay here\n",
-    );
+    for (const name of sourceFiles) {
+      await writeFile(path.join(created.dir, name), `Unpublished ${name}\n`);
+    }
     const originalRecord = await readFile(
       path.join(created.dir, "review.json"),
       "utf8",
@@ -205,6 +215,7 @@ describe("migrateStoredReviewData", () => {
     expect(blockers).toEqual([]);
     expect(sealing).toHaveBeenCalledTimes(2);
     const current = await readReviewRecord(created.dir);
+    expect(current.baseRef).toBe("unpublished-branch");
     expect(current.presentedDocumentRevision).not.toBe(documentRevision);
     expect(current.presentedSoftwareMapRevision).not.toBe(mapRevision);
     expect(current.presentedDocumentRevision).not.toBe(
@@ -217,12 +228,27 @@ describe("migrateStoredReviewData", () => {
     expect((await readReviewRecord(sealed)).presentedSoftwareMapRevision).toBe(
       current.presentedSoftwareMapRevision,
     );
-    await expectJsonMapRevision(
+    expect((await readReviewRecord(sealed)).baseRef).toBe(
+      created.review.baseRef,
+    );
+    const sealedMap = await materializedRevision(
       created.dir,
       current.presentedSoftwareMapRevision!,
     );
-    expect(await readFile(path.join(created.dir, "review.mdx"), "utf8")).toBe(
-      "Unpublished edits must stay here\n",
+    for (const name of sourceFiles) {
+      expect(await readFile(path.join(sealed, name), "utf8")).toBe(
+        `Sealed document ${name}\n`,
+      );
+      expect(await readFile(path.join(sealedMap, name), "utf8")).toBe(
+        `Sealed map ${name}\n`,
+      );
+      expect(await readFile(path.join(created.dir, name), "utf8")).toBe(
+        `Unpublished ${name}\n`,
+      );
+    }
+    await expectJsonMapRevision(
+      created.dir,
+      current.presentedSoftwareMapRevision!,
     );
   });
 

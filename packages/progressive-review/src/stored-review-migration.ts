@@ -605,17 +605,31 @@ async function regeneratePresentedArtifacts(input: {
         return false;
       }
       const candidateDir = path.join(staging, "candidate");
-      await cp(input.reviewDir, candidateDir, {
-        recursive: true,
-        filter: (source) => {
-          const relative = path.relative(input.reviewDir, source);
-          return (
-            relative !== ".build" &&
-            !relative.startsWith(`.build${path.sep}`) &&
-            !/^review\.db(?:-|$)/.test(relative)
-          );
+      await cp(
+        path.join(input.reviewDir, ".git"),
+        path.join(candidateDir, ".git"),
+        {
+          recursive: true,
         },
-      });
+      );
+      await cp(
+        path.join(documentRevision ? documentDir : mapDir, ".bundle"),
+        path.join(candidateDir, ".bundle"),
+        { recursive: true },
+      );
+      if (!mapBundle) {
+        await rm(path.join(candidateDir, ".bundle/software-map"), {
+          recursive: true,
+          force: true,
+        });
+        if (mapRevision) {
+          await cp(
+            path.join(mapDir, ".bundle/software-map"),
+            path.join(candidateDir, ".bundle/software-map"),
+            { recursive: true },
+          );
+        }
+      }
       const candidateRecordPath = path.join(candidateDir, "review.json");
       let completed = false;
       const newRevisions: string[] = [];
@@ -644,17 +658,25 @@ async function regeneratePresentedArtifacts(input: {
           ...input.review,
           presentedSoftwareMapRevision: mapRevision,
         };
-        await writePrivateJsonAtomic(candidateRecordPath, next);
         if (mapBundle) {
+          await replaceCandidateSources(candidateDir, mapDir);
+          await writePrivateJsonAtomic(
+            candidateRecordPath,
+            await withSealedSourcePins(next, mapDir),
+          );
           mapRevision = await sealReviewCandidate(
             candidateDir,
             "Migrate current Review software map to JSON",
           );
           newRevisions.push(mapRevision);
           next = { ...next, presentedSoftwareMapRevision: mapRevision };
-          await writePrivateJsonAtomic(candidateRecordPath, next);
         }
         if (documentBundle) {
+          await replaceCandidateSources(candidateDir, documentDir);
+          await writePrivateJsonAtomic(
+            candidateRecordPath,
+            await withSealedSourcePins(next, documentDir),
+          );
           const revision = await sealReviewCandidate(
             candidateDir,
             "Migrate current Review document to JSON",
@@ -694,6 +716,43 @@ async function regeneratePresentedArtifacts(input: {
   } finally {
     await rm(staging, { recursive: true, force: true });
   }
+}
+
+async function replaceCandidateSources(
+  candidateDir: string,
+  sourceDir: string,
+): Promise<void> {
+  for (const name of await readdir(candidateDir)) {
+    if (name !== ".git" && name !== ".bundle") {
+      await rm(path.join(candidateDir, name), { recursive: true, force: true });
+    }
+  }
+  await cp(sourceDir, candidateDir, {
+    recursive: true,
+    filter: (source) => {
+      const name = path.relative(sourceDir, source).split(path.sep)[0];
+      return (
+        ![".git", ".bundle", ".build"].includes(name) &&
+        !/^review\.db(?:-|$)/.test(name)
+      );
+    },
+  });
+}
+
+async function withSealedSourcePins(
+  record: StoredReviewRecord,
+  sourceDir: string,
+): Promise<StoredReviewRecord> {
+  const sealed = parseStoredReviewRecordForMigration(
+    parseJsonText(await readFile(path.join(sourceDir, "review.json"), "utf8")),
+  );
+  return {
+    ...record,
+    baseRef: sealed.baseRef,
+    baseCommit: sealed.baseCommit,
+    sourceCommit: sealed.sourceCommit,
+    sourceIdentity: sealed.sourceIdentity,
+  };
 }
 
 export async function legacySoftwareMapBundle(

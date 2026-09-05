@@ -129,7 +129,6 @@ import {
 } from "./session-handler";
 import { createTutorialService } from "./tutorial-service";
 
-const DEFAULT_CAPACITY = 16;
 const REVIEW_REAPER_INTERVAL_MS = 60 * 60 * 1_000;
 const TUTORIAL_LIFECYCLE_LOCK_KEY = "tutorial-lifecycle";
 const UUID_PATTERN =
@@ -235,7 +234,6 @@ export interface GlobalReviewServerInput {
   token?: string;
   instanceId?: string;
   discoveryPath?: string;
-  capacity?: number;
   sessionHandlerFactory?: typeof createReviewSessionHandler;
   tutorialAuthoringSessionFactory?: typeof createTutorialAuthoringSession;
   tutorialAuthorSessionBinder?: typeof bindReviewAuthorSession;
@@ -263,7 +261,6 @@ export function createGlobalReviewServer(
   let boundPort = input.port;
   const urlForBoundPort = () => `http://127.0.0.1:${boundPort}`;
   const discoveryPath = input.discoveryPath ?? reviewDesktopDiscoveryPath();
-  const capacity = input.capacity ?? DEFAULT_CAPACITY;
   const sessionHandlerFactory =
     input.sessionHandlerFactory ?? createReviewSessionHandler;
   const tutorialAuthoringSessionFactory =
@@ -1680,14 +1677,6 @@ export function createGlobalReviewServer(
       );
       if (existing) return existing;
     }
-    if (sessions.size >= capacity) {
-      throw new ReviewServerError(
-        `Review Desktop supports at most ${capacity} sessions.`,
-        409,
-        "session_capacity",
-      );
-    }
-
     const sessionId = crypto.randomUUID();
     const sessionUrl = `${urlForBoundPort()}/sessions/${encodeURIComponent(sessionId)}`;
     const descriptor: ReviewSessionDescriptor = {

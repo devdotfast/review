@@ -24,7 +24,6 @@ const discovery: ReviewDesktopDiscovery = {
 
 describe("review app", () => {
   it("opens the requested Review through Desktop without exposing private handles", async () => {
-    const older = storedReview("older", "2026-07-29T09:00:00.000Z");
     const selected = storedReview("latest", "2026-07-29T10:00:00.000Z");
     const fetch = vi.fn<typeof globalThis.fetch>(async () =>
       Response.json({
@@ -49,10 +48,12 @@ describe("review app", () => {
             instanceId: discovery.instanceId,
           }),
           resolveReviewRoot: async () => "/repo",
-          listReviews: async () => ({
-            reviews: [older, selected],
-            errors: [],
-          }),
+          findReview: async () => selected,
+          listReviews: async () => {
+            throw new Error(
+              "Explicit selection must not scan unrelated reviews",
+            );
+          },
           readReviewDesktopDiscovery: async () => discovery,
           fetch,
         },
@@ -99,10 +100,7 @@ describe("review app", () => {
             instanceId: discovery.instanceId,
           }),
           resolveReviewRoot: async () => "/repo",
-          listReviews: async () => ({
-            reviews: [storedReview("other", null), selected],
-            errors: [],
-          }),
+          findReview: async () => selected,
           readReviewDesktopDiscovery: async () => discovery,
           fetch,
         },
@@ -151,6 +149,30 @@ describe("review app", () => {
     ).rejects.toThrow(
       "review app pick needs a terminal without --review. Pass --review <uuid> or run it in a terminal.",
     );
+  });
+
+  it("rejects an explicit UUID bound to another worktree", async () => {
+    const selected = storedReview("selected", null);
+    await expect(
+      runReviewApp(
+        {
+          cwd: "/other",
+          stdin: fakeTty(),
+          stdout: process.stdout,
+          reviewUuid: selected.review.uuid,
+        },
+        {
+          launch: async () => ({
+            event: "app",
+            action: "launch",
+            state: "running",
+            instanceId: discovery.instanceId,
+          }),
+          resolveReviewRoot: async () => "/other",
+          findReview: async () => selected,
+        },
+      ),
+    ).rejects.toThrow(`Review not found: ${selected.review.uuid}`);
   });
 });
 

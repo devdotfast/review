@@ -109,6 +109,46 @@ describe("publish range evaluation", () => {
     ]);
   });
 
+  it("captures the explicit legacy repository map pair separately from inline models", async () => {
+    const result = await evaluateReviewDocumentBundleForPublish({
+      reviewDir: fixtureDir("embedded-map"),
+      bundleCode: `import { createActiveReviewDocument, defineSoftwareModel, jsx } from "review-doc-runtime";
+const head = defineSoftwareModel({ systems: { service: { label: "Head" } } });
+const base = defineSoftwareModel({ systems: { service: { label: "Base" } } });
+defineSoftwareModel({ systems: { inline: { label: "Inline" } } });
+export default createActiveReviewDocument({ title: "Legacy", routePath: "/", filePath: "review.mdx", modelNames: [], models: {}, repoSoftwareMap: head, baseSoftwareMap: base, Component: () => jsx("p", { children: "Legacy" }) });`,
+    });
+    expect(result.errors).toEqual([]);
+    expect(result.legacySoftwareMap?.head.elements[0].label).toBe("Head");
+    expect(result.legacySoftwareMap?.base.elements[0].label).toBe("Base");
+    expect(result.document?.softwareModels).toHaveLength(3);
+  });
+
+  it.each([
+    { head: "head", base: "null" },
+    { head: "null", base: "head" },
+    { head: "{}", base: "head" },
+    {
+      head: "{ elements: [null], relationships: [], elementsByPath: new Map() }",
+      base: "head",
+    },
+  ])(
+    "rejects an invalid embedded software map pair: $head / $base",
+    async ({ head, base }) => {
+      const result = await evaluateReviewDocumentBundleForPublish({
+        reviewDir: fixtureDir("invalid-embedded-map"),
+        bundleCode: `import { createActiveReviewDocument, defineSoftwareModel, jsx } from "review-doc-runtime";
+const head = defineSoftwareModel({ systems: { service: { label: "Head" } } });
+export default createActiveReviewDocument({ title: "Legacy", routePath: "/", filePath: "review.mdx", modelNames: [], models: {}, repoSoftwareMap: ${head}, baseSoftwareMap: ${base}, Component: () => jsx("p", { children: "Legacy" }) });`,
+      });
+      expect(result.document).toBeNull();
+      expect(result.legacySoftwareMap).toBeUndefined();
+      expect(result.errors).toEqual([
+        expect.stringContaining("embedded software map"),
+      ]);
+    },
+  );
+
   it("materializes document metadata, nodes, anchors, and ordered software models", async () => {
     const reviewDir = fixtureDir("review");
     const head = sourceFixture("one line");
@@ -381,6 +421,75 @@ describe("publish range evaluation", () => {
       expect(result.errors).toEqual([]);
       expect(result.warnings.length).toBeGreaterThan(0);
       expect(result.warnings[0]).toContain("hint event={99} is stale");
+    });
+  });
+
+  it("serializes concurrent evaluations that share the process-global runtime", async () => {
+    const reviewDir = fixtureDir("review");
+    const events: string[] = [];
+    vi.stubGlobal("__reviewEvaluationEvents", events);
+    const slow = `
+      globalThis.__reviewEvaluationEvents.push("first:enter");
+      ${bundleWithAnchors("")
+        .replace('title: "Fixture"', 'title: "First"')
+        .replace(
+          "await session.ready();",
+          "await new Promise((resolve) => setTimeout(resolve, 150)); await session.ready();",
+        )}
+      globalThis.__reviewEvaluationEvents.push("first:exit");
+    `;
+    const fast = `
+      globalThis.__reviewEvaluationEvents.push("second:enter");
+      ${bundleWithAnchors("").replace('title: "Fixture"', 'title: "Second"')}
+      globalThis.__reviewEvaluationEvents.push("second:exit");
+    `;
+    try {
+      const [first, second] = await Promise.all([
+        evaluateReviewDocumentBundleForPublish({
+          reviewDir,
+          bundleCode: slow,
+          validateRanges: false,
+        }),
+        evaluateReviewDocumentBundleForPublish({
+          reviewDir,
+          bundleCode: fast,
+          validateRanges: false,
+        }),
+      ]);
+      expect(events).toEqual([
+        "first:enter",
+        "first:exit",
+        "second:enter",
+        "second:exit",
+      ]);
+      expect(first.errors).toEqual([]);
+      expect(second.errors).toEqual([]);
+      expect(first.document?.title).toBe("First");
+      expect(second.document?.title).toBe("Second");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("continues queued evaluations after an evaluation rejects", async () => {
+    const reviewDir = fixtureDir("review");
+    const invalidReviewDir = path.join(reviewDir, "not-a-directory");
+    fs.writeFileSync(invalidReviewDir, "occupied");
+    const failed = evaluateReviewDocumentBundleForPublish({
+      reviewDir: invalidReviewDir,
+      bundleCode: bundleWithAnchors(""),
+      validateRanges: false,
+    });
+    const next = evaluateReviewDocumentBundleForPublish({
+      reviewDir,
+      bundleCode: bundleWithAnchors(""),
+      validateRanges: false,
+    });
+
+    await expect(failed).rejects.toMatchObject({ code: "ENOTDIR" });
+    await expect(next).resolves.toMatchObject({
+      errors: [],
+      document: { title: "Fixture" },
     });
   });
 

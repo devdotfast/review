@@ -5,16 +5,19 @@ import {
   readFile,
   readdir,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { parseJsonText } from "@dev.fast/review-protocol";
+import { jsonObject, parseJsonText } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { snapshotReviewTree } from "./fixtures/legacy-reviews/legacy-review-fixture";
 import {
   bundleReviewDocument,
+  readReviewDocumentBundle,
   writeReviewDocumentBundle,
 } from "./review-bundle";
 import {
@@ -27,10 +30,14 @@ import { withReviewMutationLock } from "./review-mutation-lock";
 import { reviewVcs } from "./review-vcs";
 import {
   bundleReviewSoftwareMap,
+  readReviewSoftwareMapBundle,
   writeReviewSoftwareMapBundle,
 } from "./software-map-bundle";
 import { defineSoftwareMap } from "./software-map-model";
-import { migrateStoredReviewData } from "./stored-review-migration";
+import {
+  migrateStoredReview,
+  migrateStoredReviewData,
+} from "./stored-review-migration";
 
 const tempRoots: string[] = [];
 
@@ -44,6 +51,39 @@ afterEach(async () => {
 });
 
 describe("migrateStoredReviewData", () => {
+  it("does not replace live files when sealing the isolated candidate fails", async () => {
+    const { created } = await storedReview();
+    await writeLegacyDocument(created.dir);
+    const revision = await sealReviewCandidate(created.dir, "Legacy document");
+    await writeFile(
+      path.join(created.dir, "review.json"),
+      JSON.stringify({
+        ...created.review,
+        schemaVersion: 4,
+        presentedDocumentRevision: revision,
+      }),
+    );
+    const names = ["review.json", ".bundle", ".git"];
+    const before = await Promise.all(
+      names.map(async (name) => (await stat(path.join(created.dir, name))).ino),
+    );
+    vi.spyOn(reviewVcs, "seal").mockRejectedValue(
+      new Error("candidate disk full"),
+    );
+
+    await expect(
+      migrateStoredReview({ reviewDir: created.dir }),
+    ).rejects.toThrow("candidate disk full");
+
+    expect(
+      await Promise.all(
+        names.map(
+          async (name) => (await stat(path.join(created.dir, name))).ino,
+        ),
+      ),
+    ).toEqual(before);
+  });
+
   it.each([false, true])(
     "preserves a competing candidate writer after migration rollback=%s",
     async (fail) => {
@@ -121,6 +161,13 @@ describe("migrateStoredReviewData", () => {
   it("converts independent current document/map revisions and embeds the final map pin", async () => {
     const { created, reviewHome, sourceCommit } = await storedReview();
     await writeLegacyDocument(created.dir);
+    const sourceFiles = ["review.mdx", "data.ts", "software-map.ts"];
+    for (const name of sourceFiles) {
+      await writeFile(
+        path.join(created.dir, name),
+        `Sealed document ${name}\n`,
+      );
+    }
     const documentRevision = await sealReviewCandidate(
       created.dir,
       "Legacy document only",
@@ -129,6 +176,9 @@ describe("migrateStoredReviewData", () => {
       headCommit: sourceCommit,
       baseCommit: sourceCommit,
     });
+    for (const name of sourceFiles) {
+      await writeFile(path.join(created.dir, name), `Sealed map ${name}\n`);
+    }
     const mapRevision = await sealReviewCandidate(
       created.dir,
       "Legacy independent map",
@@ -138,14 +188,14 @@ describe("migrateStoredReviewData", () => {
       JSON.stringify({
         ...created.review,
         schemaVersion: 4,
+        baseRef: "unpublished-branch",
         presentedDocumentRevision: documentRevision,
         presentedSoftwareMapRevision: mapRevision,
       }),
     );
-    await writeFile(
-      path.join(created.dir, "review.mdx"),
-      "Unpublished edits must stay here\n",
-    );
+    for (const name of sourceFiles) {
+      await writeFile(path.join(created.dir, name), `Unpublished ${name}\n`);
+    }
     const originalRecord = await readFile(
       path.join(created.dir, "review.json"),
       "utf8",
@@ -167,6 +217,7 @@ describe("migrateStoredReviewData", () => {
     expect(blockers).toEqual([]);
     expect(sealing).toHaveBeenCalledTimes(2);
     const current = await readReviewRecord(created.dir);
+    expect(current.baseRef).toBe("unpublished-branch");
     expect(current.presentedDocumentRevision).not.toBe(documentRevision);
     expect(current.presentedSoftwareMapRevision).not.toBe(mapRevision);
     expect(current.presentedDocumentRevision).not.toBe(
@@ -179,12 +230,27 @@ describe("migrateStoredReviewData", () => {
     expect((await readReviewRecord(sealed)).presentedSoftwareMapRevision).toBe(
       current.presentedSoftwareMapRevision,
     );
-    await expectJsonMapRevision(
+    expect((await readReviewRecord(sealed)).baseRef).toBe(
+      created.review.baseRef,
+    );
+    const sealedMap = await materializedRevision(
       created.dir,
       current.presentedSoftwareMapRevision!,
     );
-    expect(await readFile(path.join(created.dir, "review.mdx"), "utf8")).toBe(
-      "Unpublished edits must stay here\n",
+    for (const name of sourceFiles) {
+      expect(await readFile(path.join(sealed, name), "utf8")).toBe(
+        `Sealed document ${name}\n`,
+      );
+      expect(await readFile(path.join(sealedMap, name), "utf8")).toBe(
+        `Sealed map ${name}\n`,
+      );
+      expect(await readFile(path.join(created.dir, name), "utf8")).toBe(
+        `Unpublished ${name}\n`,
+      );
+    }
+    await expectJsonMapRevision(
+      created.dir,
+      current.presentedSoftwareMapRevision!,
     );
   });
 
@@ -560,6 +626,61 @@ describe("migrateStoredReviewData", () => {
     );
   });
 
+  it("preserves a genuine flat schema-2 embedded map and its sealed pins", async () => {
+    const { created } = await flatSchema2Review("valid");
+    const current = parseJsonText(
+      await readFile(path.join(created.dir, "review.json"), "utf8"),
+    );
+    await writeFile(
+      path.join(created.dir, "review.json"),
+      JSON.stringify({
+        ...jsonObject(current),
+        sourceCommit: "f".repeat(40),
+        baseCommit: "e".repeat(40),
+      }),
+    );
+    const result = await migrateStoredReview({ reviewDir: created.dir });
+    expect(result.record.schemaVersion).toBe(5);
+    expect(result.record.presentedSoftwareMapRevision).not.toBeNull();
+    const materialized = await materializedRevision(
+      created.dir,
+      result.record.presentedSoftwareMapRevision!,
+    );
+    const bundle = await readReviewSoftwareMapBundle(materialized);
+    expect(bundle?.head.elements).toEqual(
+      defineSoftwareMap({ systems: { service: { label: "Head" } } }).elements,
+    );
+    expect(bundle?.base.elements).toEqual(
+      defineSoftwareMap({ systems: { service: { label: "Base" } } }).elements,
+    );
+    expect(bundle?.headCommit).toBe(created.review.sourceCommit);
+    expect(bundle?.baseCommit).toBe(created.review.baseCommit);
+    expect(result.record.sourceCommit).toBe("f".repeat(40));
+    expect(result.record.baseCommit).toBe("e".repeat(40));
+  });
+
+  it("preserves the original flat schema-2 review when its embedded map pair is invalid", async () => {
+    const { created } = await flatSchema2Review("invalid");
+    const before = await snapshotMigrationFiles(created.dir);
+    await expect(
+      migrateStoredReview({ reviewDir: created.dir }),
+    ).rejects.toThrow("embedded software map");
+    expect(await snapshotMigrationFiles(created.dir)).toEqual(before);
+  });
+
+  it("does not invent an embedded repository map from inline flat schema-2 models", async () => {
+    const { created } = await flatSchema2Review("absent");
+    const result = await migrateStoredReview({ reviewDir: created.dir });
+    expect(result.record.schemaVersion).toBe(5);
+    expect(result.record.presentedSoftwareMapRevision).toBeNull();
+    const materialized = await materializedRevision(
+      created.dir,
+      result.record.presentedDocumentRevision!,
+    );
+    const bundle = await readReviewDocumentBundle(materialized, "/");
+    expect(bundle?.document.softwareModels).toHaveLength(2);
+  });
+
   it("migrates a schema-2 review with missing legacy maps without a blocker", async () => {
     const { created, reviewHome } = await storedReview();
     await writeLegacyDocument(created.dir);
@@ -583,7 +704,7 @@ describe("migrateStoredReviewData", () => {
     expect(migrated.presentedSoftwareMapRevision).toBeNull();
   });
 
-  it("converts a current legacy map independently from its document revision", async () => {
+  it("converts a schema-4 legacy map independently and skips artifact work on a repeated sweep", async () => {
     const { created, reviewHome, sourceCommit } = await storedReview();
     const documentRevision = await sealReviewCandidate(
       created.dir,
@@ -602,6 +723,7 @@ describe("migrateStoredReviewData", () => {
       force: true,
     });
     await writeCurrentRecord(created.dir, {
+      schemaVersion: 4,
       presentedDocumentRevision: documentRevision,
       presentedSoftwareMapRevision: legacyMapRevision,
     });
@@ -619,7 +741,22 @@ describe("migrateStoredReviewData", () => {
       migrated.presentedSoftwareMapRevision!,
     );
     const migratedMapRevision = migrated.presentedSoftwareMapRevision;
-    await migrateStoredReviewData({ reviewHome });
+    const before = await snapshotReviewTree(created.dir);
+    const materialize = vi.spyOn(reviewVcs, "materialize");
+    const seal = vi.spyOn(reviewVcs, "seal");
+    const legacyRepos = path.join(reviewHome, "repos");
+    await mkdir(legacyRepos);
+    await writeFile(path.join(legacyRepos, "legacy-cache"), "retired");
+    const repeated = await migrateStoredReviewData({ reviewHome });
+    expect(repeated).toMatchObject({
+      documents: 1,
+      upgradedThreadDatabases: 0,
+      droppedReviews: 0,
+    });
+    expect(materialize).not.toHaveBeenCalled();
+    expect(seal).not.toHaveBeenCalled();
+    expect(await snapshotReviewTree(created.dir)).toEqual(before);
+    await expect(stat(legacyRepos)).rejects.toMatchObject({ code: "ENOENT" });
     expect(
       (await readReviewRecord(created.dir)).presentedSoftwareMapRevision,
     ).toBe(migratedMapRevision);
@@ -756,6 +893,111 @@ describe("migrateStoredReviewData", () => {
   });
 });
 
+describe("migrateStoredReview", () => {
+  it("upgrades one schema-4 review in place and is a byte-level no-op on repeat", async () => {
+    const { created } = await storedReview();
+    await writeLegacyDocument(created.dir);
+    const revision = await sealReviewCandidate(created.dir, "Legacy document");
+    await writeFile(
+      path.join(created.dir, "review.json"),
+      JSON.stringify({
+        ...created.review,
+        schemaVersion: 4,
+        status: "accepted",
+        dismissedAt: "2026-01-01T00:00:00Z",
+        presentedDocumentRevision: revision,
+      }),
+    );
+
+    const first = await migrateStoredReview({ reviewDir: created.dir });
+
+    expect(first.migrated).toBe(true);
+    expect(first.threadDbError).toBeUndefined();
+    const record = await readReviewRecord(created.dir);
+    expect(record).toMatchObject({
+      schemaVersion: 5,
+      uuid: created.review.uuid,
+      status: "accepted",
+      dismissedAt: "2026-01-01T00:00:00Z",
+      baseCommit: created.review.baseCommit,
+      sourceCommit: created.review.sourceCommit,
+    });
+    expect(record.presentedDocumentRevision).not.toBe(revision);
+    expect(first.record).toEqual(record);
+    const materialized = await tempDir();
+    await materializeReviewRevision(
+      created.dir,
+      record.presentedDocumentRevision!,
+      materialized,
+    );
+    expect(
+      (await readReviewDocumentBundle(materialized, "/"))?.document.title,
+    ).toBe("Sealed");
+
+    const before = await snapshotMigrationFiles(created.dir);
+    const materialize = vi.spyOn(reviewVcs, "materialize");
+    const seal = vi.spyOn(reviewVcs, "seal");
+    const second = await migrateStoredReview({ reviewDir: created.dir });
+    expect(second.migrated).toBe(false);
+    expect(materialize).not.toHaveBeenCalled();
+    expect(seal).not.toHaveBeenCalled();
+    expect(await snapshotMigrationFiles(created.dir)).toEqual(before);
+  });
+
+  it("leaves a review untouched when its sealed document is broken", async () => {
+    const { created } = await storedReview();
+    await writeLegacyDocument(
+      created.dir,
+      'import { jsx } from "review-doc-runtime"; throw new Error("broken sealed document");',
+    );
+    const revision = await sealReviewCandidate(created.dir, "Broken document");
+    const legacy = JSON.stringify({
+      ...created.review,
+      schemaVersion: 4,
+      presentedDocumentRevision: revision,
+    });
+    await writeFile(path.join(created.dir, "review.json"), legacy);
+    const before = await snapshotMigrationFiles(created.dir);
+
+    await expect(
+      migrateStoredReview({ reviewDir: created.dir }),
+    ).rejects.toThrow("broken sealed document");
+
+    expect(await snapshotMigrationFiles(created.dir)).toEqual(before);
+    expect(await readFile(path.join(created.dir, "review.json"), "utf8")).toBe(
+      legacy,
+    );
+  });
+});
+
+async function flatSchema2Review(maps: "valid" | "invalid" | "absent") {
+  const fixture = await storedReview();
+  const bundleDir = path.join(fixture.created.dir, ".bundle");
+  await rm(bundleDir, { recursive: true, force: true });
+  await mkdir(bundleDir);
+  await writeFile(
+    path.join(bundleDir, "manifest.json"),
+    JSON.stringify({ version: 1, routePath: "/", sourcePath: "review.mdx" }),
+  );
+  await writeFile(
+    path.join(bundleDir, "review-document.js"),
+    `
+import { createActiveReviewDocument, defineSoftwareModel, jsx } from "review-doc-runtime";
+const head = defineSoftwareModel({ systems: { service: { label: "Head" } } });
+const base = defineSoftwareModel({ systems: { service: { label: "Base" } } });
+export default createActiveReviewDocument({ title: "Flat", routePath: "/", filePath: "review.mdx", modelNames: [], models: {},
+repoSoftwareMap: ${maps === "absent" ? "null" : "head"}, baseSoftwareMap: ${maps === "valid" ? "base" : "null"},
+Component: () => jsx("p", { children: "Sealed flat document" }), isDefault: true });
+`,
+  );
+  const revision = await sealReviewCandidate(
+    fixture.created.dir,
+    "Flat schema-2 publication",
+  );
+  await writeSchema2Record(fixture.created.dir, revision);
+  return fixture;
+}
+
 async function storedReview() {
   const reviewHome = await tempDir();
   const sourceRoot = await gitRepository();
@@ -872,6 +1114,7 @@ async function writeSchema2Record(
 async function writeCurrentRecord(
   reviewDir: string,
   revisions: {
+    schemaVersion?: 4;
     presentedDocumentRevision: string;
     presentedSoftwareMapRevision: string;
   },

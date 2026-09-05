@@ -1,10 +1,12 @@
+import path from "node:path";
+
 import { mergeBase, resolveRevision } from "@dev.fast/local-vcs";
 
 import {
   actionableReviewsForCheckout,
   isPositionalChangeIdentity,
 } from "../review-change-scope";
-import { type StoredReview, listReviews } from "../review-home";
+import { type StoredReview, findReview, listReviews } from "../review-home";
 import {
   requireClosedThreadsForRepublish,
   requireCompletedAgentResponsesForRepublish,
@@ -90,6 +92,18 @@ export async function resolvePublishReview(
   reviewUuid: string | undefined,
   options: { includeTerminal?: boolean } = {},
 ): Promise<StoredReview> {
+  if (reviewUuid) {
+    const selected = await findReview(reviewUuid);
+    if (
+      !selected ||
+      selected.review.worktreePath !== path.resolve(cwd) ||
+      (!options.includeTerminal &&
+        (selected.review.status === "accepted" ||
+          selected.review.status === "rejected"))
+    )
+      throw new Error(`Active review not found: ${reviewUuid}`);
+    return selected;
+  }
   const listed = await listReviews({ worktreePath: cwd });
   if (listed.errors.length > 0) {
     throw new Error(
@@ -101,13 +115,6 @@ export async function resolvePublishReview(
       review.review.status !== "accepted" &&
       review.review.status !== "rejected",
   );
-  if (reviewUuid) {
-    const review = (
-      options.includeTerminal ? listed.reviews : publishable
-    ).find((entry) => entry.review.uuid === reviewUuid);
-    if (!review) throw new Error(`Active review not found: ${reviewUuid}`);
-    return review;
-  }
   const scoped = await actionableReviewsForCheckout(publishable, cwd);
   if (scoped.length === 0) {
     throw new Error(

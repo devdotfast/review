@@ -1253,21 +1253,22 @@ async function touchedStopHookReviews(
   scan: typeof listReviews,
 ): Promise<StoredReview[]> {
   const listed = await scan();
-  if (listed.errors.length > 0) {
-    throw new Error(
-      `Could not checkpoint reviews:\n${listed.errors.map((error) => `${error.reviewDir}: ${error.message}`).join("\n")}`,
-    );
-  }
   const cwd = input.cwd ? path.resolve(input.cwd) : undefined;
   const transcript = input.transcriptPath
     ? await readFile(input.transcriptPath, "utf8")
     : "";
-  return listed.reviews.filter((review) => {
-    const dir = path.resolve(review.dir);
+  const touched = (reviewDir: string) => {
+    const dir = path.resolve(reviewDir);
     const cwdInside =
       cwd === dir || (cwd?.startsWith(`${dir}${path.sep}`) ?? false);
     return cwdInside || transcript.includes(dir);
-  });
+  };
+  const errors = listed.errors.filter((error) => touched(error.reviewDir));
+  if (errors.length > 0)
+    throw new Error(
+      `Could not checkpoint reviews:\n${errors.map((error) => `${error.reviewDir}: ${error.message}`).join("\n")}`,
+    );
+  return listed.reviews.filter((review) => touched(review.dir));
 }
 
 function progressiveReviewCliRuntime(

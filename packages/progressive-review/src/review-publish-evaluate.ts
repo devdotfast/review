@@ -44,9 +44,11 @@ import {
   isPublishAuditComponent,
 } from "./review-publish-element-audit";
 import {
+  type NormalizedSoftwareModel,
   defineSoftwareMap,
   isNormalizedSoftwareModel,
   softwareModelData,
+  softwareModelDataSchema,
 } from "./software-map-model";
 import { resolveReviewSourceRange } from "./source-range-resolver";
 import { span, startSpan } from "./startup-trace";
@@ -62,6 +64,17 @@ const RUNTIME_GLOBAL = "__devFastReviewPublishRuntime";
 const RUNTIME_SPECIFIER = "review-doc-runtime";
 const RUNTIME_MODULE_FILE = "review-doc-runtime.mjs";
 const DOCUMENT_MODULE_FILE = "review-document.mjs";
+
+let evaluationQueue: Promise<unknown> = Promise.resolve();
+
+/** The runtime lives on a process global while the bundle imports, so two
+ * evaluations in one process must not overlap. The CLI evaluates once; the
+ * desktop server evaluates on every legacy read. */
+function serializeEvaluation<T>(run: () => Promise<T>): Promise<T> {
+  const next = evaluationQueue.then(run, run);
+  evaluationQueue = next.catch(() => undefined);
+  return next;
+}
 
 type PublishValidationRuntime = ReturnType<typeof validationRuntimeExports>;
 
@@ -99,6 +112,10 @@ export interface ReviewPublishRangePeek extends CodePeekProps {
 
 export interface ReviewPublishEvaluationResult {
   document: ReviewDocumentData | null;
+  legacySoftwareMap?: {
+    head: NormalizedSoftwareModel;
+    base: NormalizedSoftwareModel;
+  };
   // Number of code peeks the document resolved. Zero means source preparation
   // never ran.
   peekCount: number;
@@ -216,50 +233,50 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
     documentCapture,
   });
 
-  const evaluationDir = path.join(
-    input.reviewDir,
-    ".build",
-    `publish-validate-${process.pid}-${Math.random().toString(36).slice(2)}`,
-  );
-  // SAFETY: the slot is a private key on globalThis that only this evaluation
-  // writes; it holds a runtime from `validationRuntimeExports` or nothing.
-  const globalHolder = globalThis as PublishValidationRuntimeGlobal;
-  const previousRuntime = globalHolder[RUNTIME_GLOBAL];
   let importErrorMessage: string | null = null;
-  try {
-    const runtimeImportNames = await collectRuntimeImportNames(
-      input.bundleCode,
+  await serializeEvaluation(async () => {
+    const evaluationDir = path.join(
+      input.reviewDir,
+      ".build",
+      `publish-validate-${process.pid}-${Math.random().toString(36).slice(2)}`,
     );
-    await mkdir(evaluationDir, { recursive: true, mode: 0o700 });
-    await Promise.all([
-      writeFile(
-        path.join(evaluationDir, RUNTIME_MODULE_FILE),
-        validationRuntimeModuleSource(runtimeImportNames),
-        "utf8",
-      ),
-      writeFile(
-        path.join(evaluationDir, DOCUMENT_MODULE_FILE),
-        rewriteRuntimeSpecifier(input.bundleCode),
-        "utf8",
-      ),
-    ]);
-    globalHolder[RUNTIME_GLOBAL] = runtimeExports;
-    const moduleUrl = pathToFileURL(
-      path.join(evaluationDir, DOCUMENT_MODULE_FILE),
-    );
-    moduleUrl.searchParams.set("t", String(Date.now()));
+    // SAFETY: the slot is a private key on globalThis that only this
+    // evaluation writes; it holds a runtime from `validationRuntimeExports`
+    // or nothing.
+    const globalHolder = globalThis as PublishValidationRuntimeGlobal;
+    const previousRuntime = globalHolder[RUNTIME_GLOBAL];
     try {
-      await span(
-        "evaluate: import document module",
-        () => import(moduleUrl.href),
+      const runtimeImportNames = await collectRuntimeImportNames(
+        input.bundleCode,
       );
-    } catch (error) {
-      importErrorMessage = errorMessage(error);
+      await mkdir(evaluationDir, { recursive: true, mode: 0o700 });
+      await Promise.all([
+        writeFile(
+          path.join(evaluationDir, RUNTIME_MODULE_FILE),
+          validationRuntimeModuleSource(runtimeImportNames),
+          "utf8",
+        ),
+        writeFile(
+          path.join(evaluationDir, DOCUMENT_MODULE_FILE),
+          rewriteRuntimeSpecifier(input.bundleCode),
+          "utf8",
+        ),
+      ]);
+      globalHolder[RUNTIME_GLOBAL] = runtimeExports;
+      const moduleUrl = pathToFileURL(
+        path.join(evaluationDir, DOCUMENT_MODULE_FILE),
+      );
+      moduleUrl.searchParams.set("t", String(Date.now()));
+      try {
+        await span("evaluate: import document module", () => import(moduleUrl.href));
+      } catch (error) {
+        importErrorMessage = errorMessage(error);
+      }
+    } finally {
+      globalHolder[RUNTIME_GLOBAL] = previousRuntime;
+      await rm(evaluationDir, { recursive: true, force: true });
     }
-  } finally {
-    globalHolder[RUNTIME_GLOBAL] = previousRuntime;
-    await rm(evaluationDir, { recursive: true, force: true });
-  }
+  });
 
   // CallStackDiff evidence: the same gate as range resolution. Every "-"
   // row must anchor deleted lines and every "+" row added lines, so a
@@ -374,6 +391,23 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
   }
 
   traceQuoteSpan?.end();
+  let legacySoftwareMap: ReviewPublishEvaluationResult["legacySoftwareMap"];
+  const headMap = documentCapture.input?.repoSoftwareMap;
+  const baseMap = documentCapture.input?.baseSoftwareMap;
+  if (headMap != null || baseMap != null) {
+    if (
+      isNormalizedSoftwareModel(headMap) &&
+      isNormalizedSoftwareModel(baseMap) &&
+      softwareModelDataSchema.safeParse(softwareModelData(headMap)).success &&
+      softwareModelDataSchema.safeParse(softwareModelData(baseMap)).success
+    ) {
+      legacySoftwareMap = { head: headMap, base: baseMap };
+    } else {
+      failures.push(
+        "The embedded software map must contain valid head and base models.",
+      );
+    }
+  }
   let document: ReviewDocumentData | null = null;
   if (
     importErrorMessage === null &&
@@ -439,13 +473,16 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
     ),
     ...traceQuoteWarnings,
   ];
-  return {
+  const result: ReviewPublishEvaluationResult = {
     document,
     peekCount,
     rangePeeks,
     errors,
     warnings: [...new Set(warnings)],
   };
+  if (document && legacySoftwareMap)
+    result.legacySoftwareMap = legacySoftwareMap;
+  return result;
 }
 
 function collectDocumentSoftwareModels(
@@ -482,6 +519,8 @@ interface PublishDocumentInput {
   filePath: string;
   modelNames: string[];
   models: ReviewDocumentModuleExports;
+  repoSoftwareMap?: NormalizedSoftwareModel | null;
+  baseSoftwareMap?: NormalizedSoftwareModel | null;
   Component?: unknown;
 }
 

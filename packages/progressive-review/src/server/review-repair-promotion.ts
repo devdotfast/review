@@ -1,10 +1,10 @@
-import { cp, lstat, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { lstat, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
 import { jsonObject, parseJsonText } from "@dev.fast/review-protocol";
 
+import { promoteReviewArtifactFiles } from "../review-artifact-promotion";
 import {
   parseStoredReviewRecord,
   parseStoredReviewRecordForRecovery,
@@ -153,51 +153,12 @@ export async function applyPreparedReviewRepair(
   return withReviewMutationLock(dir, async () => {
     await assertReviewRepairInputsUnchanged(dir, request);
     const next = await readPreparedReviewRepairRecord(request);
-    const backup = await mkdtemp(path.join(tmpdir(), "review-repair-backup-"));
-    const names = [".bundle", ".git", "review.json"];
-    let retainBackup = false;
-    try {
-      for (const name of names)
-        await copyPresent(path.join(dir, name), path.join(backup, name));
-      try {
-        for (const name of [".bundle", ".git"]) {
-          await rm(path.join(dir, name), { recursive: true, force: true });
-          await cp(path.join(request.stagingDir, name), path.join(dir, name), {
-            recursive: true,
-          });
-        }
-        await (dependencies.writeRecord ?? writePrivateJsonAtomic)(
-          path.join(dir, "review.json"),
-          next,
-        );
-        return next;
-      } catch (error) {
-        try {
-          for (const name of names) {
-            await rm(path.join(dir, name), { recursive: true, force: true });
-            await copyPresent(path.join(backup, name), path.join(dir, name));
-          }
-        } catch (rollbackError) {
-          retainBackup = true;
-          throw new AggregateError(
-            [error, rollbackError],
-            `Repair rollback could not complete. Original review files are preserved at ${backup}.`,
-          );
-        }
-        throw error;
-      }
-    } finally {
-      if (!retainBackup) await rm(backup, { recursive: true, force: true });
-    }
+    await promoteReviewArtifactFiles({
+      reviewDir: dir,
+      candidateDir: request.stagingDir,
+      record: next,
+      writeRecord: dependencies.writeRecord,
+    });
+    return next;
   });
-}
-
-async function copyPresent(source: string, destination: string): Promise<void> {
-  try {
-    await cp(source, destination, { recursive: true });
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT")
-      return;
-    throw error;
-  }
 }

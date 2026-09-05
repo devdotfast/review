@@ -1,4 +1,6 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { setImmediate } from "node:timers/promises";
@@ -82,6 +84,76 @@ it("allows nested operations in the same transaction without deadlocking", async
       withReviewMutationLock(root, async () => "nested"),
     ),
   ).toBe("nested");
+});
+
+it("reports retryable contention and succeeds after the holder releases", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "review-busy-lock-"));
+  roots.push(root);
+  const entered = deferred();
+  const release = deferred();
+  const holding = withReviewMutationLock(root, async () => {
+    entered.resolve();
+    await release.promise;
+  });
+  await entered.promise;
+  try {
+    await expect(
+      withReviewMutationLock(root, async () => "overlap", { timeoutMs: 20 }),
+    ).rejects.toMatchObject({
+      name: "ReviewBusyError",
+      code: "REVIEW_BUSY",
+      retryable: true,
+      reviewUuid: path.basename(root),
+      message: expect.stringContaining(
+        "Retry after its current operation completes",
+      ),
+    });
+  } finally {
+    release.resolve();
+    await holding;
+  }
+  await expect(
+    withReviewMutationLock(root, async () => "retried"),
+  ).resolves.toBe("retried");
+});
+
+it("does not steal a healthy cross-process lock when its wait expires", async () => {
+  const parent = await mkdtemp(path.join(tmpdir(), "review-busy-process-"));
+  roots.push(parent);
+  const root = path.join(parent, "review");
+  await mkdir(root);
+  const lockPath = `${root}.mutation-lock`;
+  const script = path.join(parent, "holder.mjs");
+  await writeFile(
+    script,
+    `import { mkdir, writeFile, rm } from "node:fs/promises";
+const lockPath = process.argv[2];
+await mkdir(lockPath);
+await writeFile(lockPath + "/owner.json", JSON.stringify({ pid: process.pid }));
+process.stdout.write("ready");
+process.stdin.resume();
+process.stdin.once("data", async () => { await rm(lockPath, { recursive: true }); process.exit(0); });
+`,
+  );
+  const child = spawn(process.execPath, [script, lockPath], {
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  const exited = once(child, "exit");
+  try {
+    await once(child.stdout, "data");
+    await expect(
+      withReviewMutationLock(root, async () => "overlap", { timeoutMs: 20 }),
+    ).rejects.toMatchObject({ code: "REVIEW_BUSY", retryable: true });
+    expect(
+      JSON.parse(await readFile(path.join(lockPath, "owner.json"), "utf8")).pid,
+    ).toBe(child.pid);
+  } finally {
+    child.stdin.end("release");
+    await exited;
+  }
+  await expect(
+    withReviewMutationLock(root, async () => "retried"),
+  ).resolves.toBe("retried");
 });
 
 function deferred() {

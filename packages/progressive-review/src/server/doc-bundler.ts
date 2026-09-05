@@ -280,8 +280,9 @@ function esbuildDiagnostics(
       message: message.text,
       filePath: message.location?.file ?? fallbackFilePath,
     };
-    if (message.location?.line) diagnostic.line = message.location.line;
-    if (message.location?.column) {
+    if (message.location?.line !== undefined)
+      diagnostic.line = message.location.line;
+    if (message.location?.column !== undefined) {
       diagnostic.column = message.location.column + 1;
     }
     return diagnostic;

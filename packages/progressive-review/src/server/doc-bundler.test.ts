@@ -5,7 +5,11 @@ import path from "node:path";
 import { REVIEW_SCHEMA_VERSION } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { bundleReviewDocument } from "./doc-bundler";
+import { formatReviewDocumentDiagnostics } from "../compiler/review-document-compiler";
+import {
+  bundleReviewDocument,
+  compileReviewDocumentBundle,
+} from "./doc-bundler";
 
 describe("review document bundler", () => {
   const roots: string[] = [];
@@ -113,6 +117,98 @@ describe("review document bundler", () => {
     expect(bundle.code).toContain("Data file reviewer");
     expect(bundle.code).toContain("Review data separately");
     expect(bundle.code).not.toContain('from "./data.ts"');
+  });
+
+  it("reports a 1-based column for an esbuild error at column 0 in a colocated .js dependency", async () => {
+    // Safety note: This test deliberately feeds esbuild an invalid .js module so
+    // that compileReviewDocumentBundle surfaces a structured build diagnostic;
+    // the file is never executed.
+    const rootPath = await mkdtemp(path.join(tmpdir(), "review-doc-bundle-"));
+    roots.push(rootPath);
+    await writeReviewStore(rootPath);
+    const documentsDir = path.join(rootPath, ".review-documents");
+    const reviewDir = path.join(documentsDir, "current");
+    const reviewPath = path.join(reviewDir, "review.mdx");
+    await mkdir(reviewDir, { recursive: true });
+    // The trailing comma opens a declarator list whose next identifier is the
+    // end of the file at the first byte of line 3, so esbuild reports column 0.
+    await writeFile(
+      path.join(reviewDir, "dep.js"),
+      'export const marker = "v"\n,\n',
+      "utf8",
+    );
+    await writeFile(
+      reviewPath,
+      [
+        'import { marker } from "./dep.js";',
+        "",
+        "# Column-zero review",
+        "",
+        "The marker is {marker}.",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const result = await compileReviewDocumentBundle({
+      reviewPath,
+      reviewDocumentsDir: documentsDir,
+      reviewRootPath: rootPath,
+      routePath: "/",
+    });
+
+    expect(result.bundle).toBeNull();
+    const diagnostic = result.diagnostics.find((entry) =>
+      entry.filePath.endsWith("dep.js"),
+    );
+    expect(diagnostic).toBeDefined();
+    expect(diagnostic?.source).toBe("review");
+    expect(diagnostic?.severity).toBe("error");
+    expect(diagnostic?.code).toBe("bundle");
+    expect(diagnostic?.line).toBe(3);
+    // esbuild's column is 0-based, so column 0 must convert to 1 (not be
+    // dropped by a truthy guard).
+    expect(diagnostic?.column).toBe(1);
+    // The user-facing formatted location must include the column, which the
+    // bug previously omitted for column-0 errors.
+    expect(formatReviewDocumentDiagnostics(result.diagnostics)).toContain(
+      "dep.js:3:1",
+    );
+  });
+
+  it("bundles a valid colocated .js dependency into the document", async () => {
+    const rootPath = await mkdtemp(path.join(tmpdir(), "review-doc-bundle-"));
+    roots.push(rootPath);
+    await writeReviewStore(rootPath);
+    const documentsDir = path.join(rootPath, ".review-documents");
+    const reviewDir = path.join(documentsDir, "current");
+    const reviewPath = path.join(reviewDir, "review.mdx");
+    await mkdir(reviewDir, { recursive: true });
+    await writeFile(
+      path.join(reviewDir, "dep.js"),
+      'export const marker = "colocated-js-value"\n',
+      "utf8",
+    );
+    await writeFile(
+      reviewPath,
+      [
+        'import { marker } from "./dep.js";',
+        "",
+        "# Js-backed review",
+        "",
+        "The marker is {marker}.",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const bundle = await bundleReviewDocument({
+      reviewPath,
+      reviewDocumentsDir: documentsDir,
+      reviewRootPath: rootPath,
+      routePath: "/",
+    });
+
+    expect(bundle.code).toContain("colocated-js-value");
+    expect(bundle.code).not.toContain('from "./dep.js"');
   });
 });
 

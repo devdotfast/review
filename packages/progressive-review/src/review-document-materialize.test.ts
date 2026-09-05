@@ -43,6 +43,46 @@ const anchor = {
 } as const;
 
 describe("materializeReviewDocument", () => {
+  it.each(["left", "center", "right"])(
+    "preserves GFM table alignment %s as scalar data",
+    (alignment) => {
+      for (const tag of ["th", "td"]) {
+        const result = materializeReviewDocument({
+          tree: react.jsx(tag, {
+            style: { textAlign: alignment },
+            children: "Cell",
+          }),
+          componentNames,
+        });
+        expect(result).toEqual({
+          body: [
+            {
+              type: "element",
+              tag,
+              props: { align: alignment },
+              children: [{ type: "text", value: "Cell" }],
+            },
+          ],
+          errors: [],
+        });
+      }
+    },
+  );
+
+  it.each([
+    { textAlign: "justify" },
+    { textAlign: "left", color: "red" },
+    { backgroundImage: "url(https://example.com/pixel)" },
+  ])("does not admit arbitrary table styles: %j", (style) => {
+    const result = materializeReviewDocument({
+      tree: react.jsx("td", { style }),
+      componentNames,
+    });
+    expect(result.errors).toEqual([
+      '<td> prop "style" must be a string, number, or boolean.',
+    ]);
+  });
+
   it("turns prose, fragments, and nested registry elements into nodes", () => {
     const tree = react.jsx(FRAGMENT, {
       children: [

@@ -48,5 +48,19 @@ function renderNode(
   const override = components[node.tag] as
     | ComponentType<(typeof node)["props"]>
     | undefined;
+  const alignment = node.props.align;
+  // Restore only the validated table alignment, not arbitrary saved styles.
+  // Inline alignment retains MDX's precedence over the document's table CSS.
+  if (
+    !override &&
+    (node.tag === "th" || node.tag === "td") &&
+    (alignment === "left" || alignment === "center" || alignment === "right")
+  ) {
+    return createElement(
+      node.tag,
+      { ...node.props, style: { textAlign: alignment } },
+      ...children,
+    );
+  }
   return createElement(override ?? node.tag, node.props, ...children);
 }

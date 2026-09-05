@@ -97,7 +97,7 @@ ${DEV_REVIEW_HOME:-~/.dev}/reviews/<uuid>/
 
 `.bundle/document/` contains the current document candidate. `.bundle/software-map/` contains the current map candidate when one exists. The private Review Git repository seals these candidates as revisions.
 
-The document candidate is `review-document.json` with format `review-document/1` and a version-2 manifest. Map candidates are `head-map.json` and `base-map.json` with format `software-map/1`. The server serves JSON; the canvas renders built-in components without executing authored JavaScript. Authoring still uses `review.mdx` and `data.ts`; the CLI retains the MDX compiler, TypeScript checks, esbuild, and Node validation runtime until the separate Phase 3 compiler removal.
+The document candidate is `review-document.json` with format `review-document/1` and a version-2 manifest. Map candidates are `head-map.json` and `base-map.json` with format `software-map/1`. The server serves JSON; the canvas renders built-in components without executing authored JavaScript. Authoring still uses `review.mdx` and `data.ts`; the CLI retains the MDX compiler, TypeScript checks, esbuild, and Node validation runtime.
 
 `.build/<revision>/` contains a temporary materialization of one sealed revision. Review can create it again.
 

@@ -50,19 +50,13 @@ the candidate before making it visible.
 
 Authoring remains `review.mdx` and `data.ts`. The CLI keeps the MDX compiler,
 TypeScript checks, esbuild, and Node-side validation runtime. It materializes
-the validated document into schema-checked JSON before sealing it; removing
-that compiler is a separate Phase 3 change.
+the validated document into schema-checked JSON before sealing it.
 
 The published document is `.bundle/document/review-document.json`, with format
 `review-document/1` and a version-2 manifest. Software-map bundles contain
 `head-map.json` and `base-map.json`, with format `software-map/1`. The server
 serves JSON and the canvas renders it with built-in components. Neither the
 server nor the canvas executes agent-authored document or map JavaScript.
-
-These content-addressed JSON artifacts are suitable for CDN caching in a
-hosted architecture: the renderer ships separately, while immutable document
-and map data can be cached by content hash. This does not make local Reviews
-public or change access controls; local metadata responses remain uncached.
 
 A failed publish does not replace the last good revision. The document can also
 publish before its architecture map; `review map publish` validates and

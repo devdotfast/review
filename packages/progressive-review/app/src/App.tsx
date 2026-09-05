@@ -43,7 +43,7 @@ import {
   TerminalIcon,
   ThreadsIcon,
 } from "./icons";
-import { RepairReview } from "./republish-review";
+import { repairInstruction } from "./repair-instruction";
 import { ReviewPanelHost } from "./review-components";
 import {
   ReviewProvider,
@@ -155,7 +155,6 @@ export type ReviewDocumentAppState =
       state: "needs-republish";
       reviewUuid: string;
       mapStale: boolean;
-      recovery?: boolean;
     }
   | { state: "unavailable"; message: string; currentReviewUuid?: string };
 
@@ -163,7 +162,7 @@ export type ReviewSoftwareMapAppState =
   | { state: "loading" }
   | { state: "ready"; softwareMap: PublishedSoftwareMap }
   | { state: "absent" }
-  | { state: "needs-republish"; reviewUuid: string; recovery?: boolean }
+  | { state: "needs-republish"; reviewUuid: string }
   | { state: "unavailable"; message: string; currentReviewUuid?: string };
 
 function ReviewDocumentApp({
@@ -742,9 +741,12 @@ function ReviewLayoutContent({
                   {softwareMapState.state === "loading" ? (
                     <MapLoadState message="Loading software map…" />
                   ) : softwareMapState.state === "needs-republish" ? (
-                    <RepairReview
-                      reviewUuid={softwareMapState.reviewUuid}
-                      mapStale
+                    <MapLoadState
+                      message={repairInstruction(
+                        softwareMapState.reviewUuid,
+                        true,
+                      )}
+                      alert
                     />
                   ) : softwareMapState.state === "unavailable" ? (
                     <MapLoadState
@@ -844,7 +846,10 @@ function ReviewDocumentLoadState({
   }
   if (state.state === "needs-republish") {
     return (
-      <RepairReview reviewUuid={state.reviewUuid} mapStale={state.mapStale} />
+      <div className="review-document-load-state" role="alert">
+        <h2>Review unavailable</h2>
+        <p>{repairInstruction(state.reviewUuid, state.mapStale)}</p>
+      </div>
     );
   }
   return (

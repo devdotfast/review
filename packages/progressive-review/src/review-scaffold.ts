@@ -31,6 +31,7 @@ import {
   type StoredReview,
   createReviewDir,
   createReviewUuid,
+  findReview,
   listReviews,
   updateReviewPins,
 } from "./review-home";
@@ -253,12 +254,13 @@ async function createReview(
 export async function repinReview(
   review: StoredReview,
   input: RunReviewScaffoldInput,
+  targetSourceIdentity?: ReviewSourceIdentity,
 ): Promise<ReviewScaffoldEvent> {
   const root = review.review.worktreePath;
   const uuid = review.review.uuid;
   const oldHeadCommit = review.review.sourceCommit;
   const oldBaseCommit = review.review.baseCommit;
-  let sourceIdentity = review.review.sourceIdentity;
+  let sourceIdentity = targetSourceIdentity ?? review.review.sourceIdentity;
   let sourceBranch = sourceIdentity?.name;
   if (
     !sourceIdentity ||
@@ -547,7 +549,10 @@ async function rejectDuplicateActiveReviews(
   reviewRoot: string,
   sourceIdentity: ReviewSourceIdentity,
 ): Promise<void> {
-  const listed = await listReviews({ worktreePath: reviewRoot });
+  const listed = await listReviews({
+    worktreePath: reviewRoot,
+    includeUnscopedErrors: true,
+  });
   if (listed.errors.length > 0) {
     throw new Error(
       `Could not read reviews:\n${listed.errors.map((error) => error.message).join("\n")}`,
@@ -579,7 +584,21 @@ async function findUpdateTarget(
   reviewUuid: string | undefined,
 ): Promise<StoredReview | null> {
   const reviewRoot = await resolveReviewRoot(cwd);
-  const listed = await listReviews({ worktreePath: reviewRoot });
+  if (reviewUuid) {
+    const selected = await findReview(reviewUuid);
+    if (
+      !selected ||
+      selected.review.worktreePath !== reviewRoot ||
+      selected.review.status === "accepted" ||
+      selected.review.status === "rejected"
+    )
+      throw new Error(`Active review not found: ${reviewUuid}`);
+    return selected;
+  }
+  const listed = await listReviews({
+    worktreePath: reviewRoot,
+    includeUnscopedErrors: true,
+  });
   if (listed.errors.length > 0) {
     throw new Error(
       `Could not read reviews:\n${listed.errors.map((error) => error.message).join("\n")}`,
@@ -590,11 +609,6 @@ async function findUpdateTarget(
       review.review.status !== "accepted" &&
       review.review.status !== "rejected",
   );
-  if (reviewUuid) {
-    const review = active.find((entry) => entry.review.uuid === reviewUuid);
-    if (!review) throw new Error(`Active review not found: ${reviewUuid}`);
-    return review;
-  }
   const checkout = await currentHead(reviewRoot).catch(() => null);
   if (!checkout) return null;
   const scoped: StoredReview[] = [];

@@ -29,6 +29,8 @@ import {
 
 import { fuzzyMatches, fuzzySegments } from "../../src/fuzzy-match";
 import { TARGET_LABELS } from "./agent-setup-card";
+import { CopyCommandButton } from "./copy-command-button";
+import { repairCommand } from "./repair-instruction";
 import { ArchiveIcon } from "./review-corner-action";
 import { WelcomePage } from "./welcome-page";
 
@@ -186,20 +188,6 @@ export function ReviewHome({
           {reviewErrors.length > 0 ? (
             <ReviewScanWarning errors={reviewErrors} />
           ) : null}
-          {found
-            .filter((review) => review.recovery)
-            .map((review) => (
-              <section
-                key={review.uuid}
-                className="review-migration-warning"
-                aria-label={`Recovery for ${reviewTitle(review)}`}
-              >
-                <span>{reviewTitle(review)}</span>
-                <button type="button" onClick={() => onOpen(review)}>
-                  Open recovery
-                </button>
-              </section>
-            ))}
           <div className="review-home-page-header">
             <h1>Reviews</h1>
             <div className="review-home-page-header-tools">
@@ -242,15 +230,27 @@ export function ReviewHome({
 }
 
 function ReviewScanWarning({ errors }: { errors: readonly ReviewListError[] }) {
-  // Migration reminders are owned by the native workbench notification.
-  const issueCount = errors.filter(
-    (error) => error.code !== "MIGRATION_REQUIRED",
-  ).length;
-  if (issueCount === 0) return null;
   return (
-    <section className="review-scan-warning" aria-label="Review warnings">
-      <span>{`${issueCount} ${issueCount === 1 ? "Review has" : "Reviews have"} issues.`}</span>
-    </section>
+    <>
+      {errors.filter((error) => error.code !== "MIGRATION_REQUIRED").map((error) => (
+        <section
+          key={error.reviewDir}
+          className="review-home-attention"
+          aria-label={`Attention for ${error.title || error.reviewUuid || error.reviewDir}`}
+        >
+          <span className="review-home-attention-title">
+            {error.title || error.reviewUuid || error.reviewDir}
+          </span>
+          <span>{error.message}</span>
+          {error.code === "REPAIR_REQUIRED" && error.reviewUuid ? (
+            <span className="review-home-attention-command">
+              <code>{repairCommand(error.reviewUuid)}</code>
+              <CopyCommandButton command={repairCommand(error.reviewUuid)} />
+            </span>
+          ) : null}
+        </section>
+      ))}
+    </>
   );
 }
 

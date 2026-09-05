@@ -10,16 +10,11 @@ import { resolveAuthoringSessionRef } from "./authoring-session";
 import { type CliJsonEvent, emitJsonEvent } from "./cli-output";
 import type { ReviewDocumentDiagnostic } from "./compiler/review-document-compiler";
 import { requireHealthyReviewDesktop } from "./desktop-discovery";
-import { REVIEW_PUBLISH_CANDIDATE_MESSAGE } from "./review-document-versions";
-import { sealReviewCandidate } from "./review-home";
+import { ReviewPublicationValidationError } from "./review-publication-preparation";
 import {
-  assertReviewUnchanged,
-  withReviewMutationLock,
-} from "./review-mutation-lock";
-import {
-  ReviewPublicationValidationError,
-  prepareReviewDocumentBundle,
-} from "./review-publication-preparation";
+  sealReviewDocumentPublication,
+  stageReviewDocumentPublication,
+} from "./review-publication-staging";
 import { resolveReviewRoot } from "./runtime";
 import { prepareReviewPublish } from "./server/publish-preparation";
 import { recordSpan, span, startSpan } from "./startup-trace";
@@ -106,20 +101,12 @@ async function publish(
   reporter.stage("validate", "running");
   let revision: string;
   try {
-    const candidate = await withReviewMutationLock(review.dir, async () => {
-      await assertReviewUnchanged(review.dir, review.review);
-      const document = await span("publish: validate document", () => prepareReviewDocumentBundle({ review }));
-      if (document.warnings.length > 0)
-        reporter.warning("validate", document.warnings);
-      reporter.stage("validate", "complete");
-      reporter.stage("revision", "running");
-      const revision = await sealReviewCandidate(
-        review.dir,
-        REVIEW_PUBLISH_CANDIDATE_MESSAGE,
-      );
-      return { revision };
-    });
-    revision = candidate.revision;
+    const document = await span("publish: validate document", () => stageReviewDocumentPublication({ review }));
+    if (document.warnings.length > 0)
+      reporter.warning("validate", document.warnings);
+    reporter.stage("validate", "complete");
+    reporter.stage("revision", "running");
+    revision = await span("publish: seal revision", () => sealReviewDocumentPublication({ review, document }));
   } catch (error) {
     if (error instanceof ReviewPublicationValidationError) {
       if (error.warnings.length > 0) {

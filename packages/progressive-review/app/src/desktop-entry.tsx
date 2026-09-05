@@ -199,7 +199,6 @@ function DesktopReviewApp({
     <div className="review-session-content">
       <TutorialProvider tutorial={tutorial}>
         <App
-          notice={<ReviewMigrationWarning errors={reviewErrors} />}
           documentState={documentState}
           softwareMapState={softwareMapState}
           softwareMapEnabled={softwareMapEnabled}

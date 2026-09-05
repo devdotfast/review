@@ -1925,10 +1925,15 @@ export function createGlobalReviewServer(
     if (!listed) return;
     for (const stored of selectReapableReviews(listed.reviews, retentionDays)) {
       const { uuid } = stored.review;
-      // A review that is open must not vanish under the reader.
-      if (activeSessionForReview(uuid)) continue;
       try {
         await withReviewLock(uuid, async () => {
+          // A review that is open must not vanish under the reader.
+          const open = sessionsForReview(uuid);
+          if (open.length) {
+            await Promise.all(
+              open.map((session) => closeSession(session, "closed", false)),
+            );
+          }
           await rm(stored.dir, { recursive: true, force: true });
           await clearReopenPending(stored.review.worktreePath).catch(
             () => undefined,
@@ -2010,6 +2015,12 @@ export function createGlobalReviewServer(
     return [...sessions.values()].find(
       (session) =>
         session.review.review.uuid === reviewUuid && session.promoted,
+    );
+  }
+
+  function sessionsForReview(reviewUuid: string): ActiveReviewSession[] {
+    return [...sessions.values()].filter(
+      (session) => session.review.review.uuid === reviewUuid,
     );
   }
 

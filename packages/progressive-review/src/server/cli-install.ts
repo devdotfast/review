@@ -352,7 +352,7 @@ export async function removeCliInstall(input: {
   }
 
   if (input.trace) {
-    await disableAllTraceRepositories(homeDir);
+    await disableAllTraceRepositories(input.homeDir);
     // Capture reports as enabled while a repository is allowed, so disabling
     // it denies every allowed repository as `review trace deny` does.
     const devHome = devReviewHome(env, homeDir);

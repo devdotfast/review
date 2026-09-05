@@ -212,7 +212,7 @@ export async function traceRepositoryStatus(
 }
 
 export async function disableAllTraceRepositories(
-  homeDir = os.homedir(),
+  homeDir = traceHomeDir(),
 ): Promise<void> {
   const registry = await readRegistry(homeDir);
   for (const root of registry) {

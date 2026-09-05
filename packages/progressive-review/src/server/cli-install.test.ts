@@ -1,10 +1,16 @@
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import type { ReviewCliInstallStamp } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 
+import {
+  enableTraceRepository,
+  traceRepositoryStatus,
+} from "../trace-repository-hooks";
 import {
   allowTraceRepository,
   readTraceUserConfig,
@@ -452,6 +458,56 @@ describe("resolveInstalledReviewAgentStatus", () => {
   });
 });
 
+describe("trace repository uninstall under TRACE_HOME_DIR", () => {
+  it("disables repositories registered under TRACE_HOME_DIR during uninstall", async () => {
+    const homeSim = await mkdtemp(
+      path.join(tmpdir(), "review-trace-home-sim-"),
+    );
+    const traceHome = await mkdtemp(path.join(tmpdir(), "review-trace-home-"));
+    const repo = await mkdtemp(path.join(tmpdir(), "review-trace-repo-"));
+    temporaryDirectories.push(homeSim, traceHome, repo);
+    await runGit(repo, ["init", "-b", "main"]);
+
+    const prevHome = process.env.HOME;
+    const prevTrace = process.env.TRACE_HOME_DIR;
+    process.env.HOME = homeSim;
+    process.env.TRACE_HOME_DIR = traceHome;
+    try {
+      const enabled = await enableTraceRepository({
+        cwd: repo,
+        reviewCommand: "review",
+      });
+      expect(enabled.enabled).toBe(true);
+      expect((await traceRepositoryStatus(repo)).enabled).toBe(true);
+
+      expect(
+        await readFile(
+          path.join(traceHome, ".config", "dev-trace", "repositories.json"),
+          "utf8",
+        ),
+      ).toContain(repo);
+      await expect(
+        readFile(
+          path.join(homeSim, ".config", "dev-trace", "repositories.json"),
+          "utf8",
+        ),
+      ).rejects.toMatchObject({ code: "ENOENT" });
+
+      await removeCliInstall({
+        targets: [],
+        trace: true,
+        env: { HOME: homeSim, TRACE_HOME_DIR: traceHome },
+      });
+
+      expect((await traceRepositoryStatus(repo)).enabled).toBe(false);
+    } finally {
+      process.env.HOME = prevHome;
+      if (prevTrace === undefined) delete process.env.TRACE_HOME_DIR;
+      else process.env.TRACE_HOME_DIR = prevTrace;
+    }
+  });
+});
+
 async function isolatedEnvironment(): Promise<NodeJS.ProcessEnv> {
   const directory = await mkdtemp(path.join(tmpdir(), "review-cli-install-"));
   temporaryDirectories.push(directory);
@@ -470,4 +526,11 @@ function profileEnvironment(homeDir: string, shell: string): NodeJS.ProcessEnv {
     PATH: "/usr/bin:/bin",
     SHELL: shell,
   };
+}
+
+const execFileAsync = promisify(execFile);
+
+async function runGit(cwd: string, args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync("git", ["-C", cwd, ...args]);
+  return stdout.trim();
 }

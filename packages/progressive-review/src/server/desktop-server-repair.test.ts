@@ -11,9 +11,17 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { jsonObject } from "@dev.fast/review-protocol";
+import {
+  type JsonObject,
+  type ReviewThreadsCommand,
+  ReviewThreadsCommandResponseSchema,
+  ReviewThreadsSnapshotResponseSchema,
+  jsonObject,
+} from "@dev.fast/review-protocol";
 import { afterEach, expect, it, vi } from "vitest";
 
+import { ReviewCommentStore } from "../../../../apps/review-desktop/code-oss/src/vs/review/services/reviewCommentStore";
+import { snapshotReviewTree } from "../fixtures/legacy-reviews/legacy-review-fixture";
 import {
   bundleReviewDocument,
   writeReviewDocumentBundle,
@@ -171,7 +179,7 @@ async function fixture(schemaVersion: 4 | 5 = 4) {
   await server.listen();
   const post = (
     route: string,
-    body: ReviewRepairReadyRequest | Record<string, never>,
+    body: ReviewRepairReadyRequest | ReviewThreadsCommand | JsonObject,
   ) =>
     fetch(`${server.url}${route}`, {
       method: "POST",
@@ -186,6 +194,118 @@ async function fixture(schemaVersion: 4 | 5 = 4) {
     fetch(`${server.url}${route}`, { headers: { "x-review-token": token } });
   return { stored, record, request, server, post, list, visible, get };
 }
+
+it("switches repaired comments to live snapshots for resynchronization after promotion", async () => {
+  const { stored, record, request, server, post, get } = await fixture(5);
+  const comment = (index: number): ReviewThreadsCommand => ({
+    command: "comment.create",
+    mutationId: `repair-message-${index}`,
+    input: {
+      threadId: `repair-thread-${index}`,
+      messageId: `repair-message-${index}`,
+      target: { kind: "document" },
+      body: `Repair comment ${index}`,
+    },
+  });
+  const validationReads: Array<{ writeStatus: number; revision: number }> = [];
+  vi.spyOn(
+    GlobalReviewDesktopVerbRelay.prototype,
+    "dispatch",
+  ).mockImplementation(async (sessionId, value) => {
+    if (jsonObject(value)?.name !== "validateCanvasMount") return { ok: true };
+    const before = await snapshotReviewTree(stored.dir);
+    const prefix = `/sessions/${sessionId}/__progressive-review`;
+    const snapshot = ReviewThreadsSnapshotResponseSchema.parse(
+      await (await get(`${prefix}/comments`)).json(),
+    );
+    if (!snapshot.ok) throw new Error(snapshot.error);
+    const blocked = await post(`${prefix}/thread-commands`, comment(0));
+    validationReads.push({
+      writeStatus: blocked.status,
+      revision: snapshot.snapshot.revision,
+    });
+    expect(await snapshotReviewTree(stored.dir)).toEqual(before);
+    return { ok: true };
+  });
+  let client: ReviewCommentStore | undefined;
+  try {
+    const repaired = await post("/repair-ready", request);
+    expect(repaired.status).toBe(201);
+    expect(validationReads).toEqual([{ writeStatus: 409, revision: 0 }]);
+    const { sessionId } = await repaired.json();
+    const prefix = `/sessions/${sessionId}/__progressive-review`;
+    client = new ReviewCommentStore({
+      request: (endpoint) => get(`${prefix}${endpoint}`),
+    });
+    await client.refreshPersistedComments();
+    const commits = [];
+    for (const index of [1, 2]) {
+      const response = await post(`${prefix}/thread-commands`, comment(index));
+      expect(response.status).toBe(200);
+      const result = ReviewThreadsCommandResponseSchema.parse(
+        await response.json(),
+      );
+      if (!result.ok) throw new Error(result.error);
+      commits.push(result.commit);
+    }
+    expect(commits.map((commit) => commit.revision)).toEqual([1, 2]);
+    client.applyCommit(commits[0]!);
+    expect([...client.getSnapshot().commentThreads.keys()]).toEqual([
+      "repair-thread-1",
+    ]);
+    await client.refreshPersistedComments();
+    expect([...client.getSnapshot().commentThreads.keys()]).toEqual([
+      "repair-thread-1",
+      "repair-thread-2",
+    ]);
+    const resnapshot = ReviewThreadsSnapshotResponseSchema.parse(
+      await (await get(`${prefix}/comments`)).json(),
+    );
+    if (!resnapshot.ok) throw new Error(resnapshot.error);
+    expect(resnapshot.snapshot.revision).toBe(2);
+    expect(Object.keys(resnapshot.snapshot.comments)).toEqual([
+      "repair-thread-1",
+      "repair-thread-2",
+    ]);
+    const next = ReviewThreadsCommandResponseSchema.parse(
+      await (await post(`${prefix}/thread-commands`, comment(3))).json(),
+    );
+    if (!next.ok) throw new Error(next.error);
+    expect(next.commit.revision).toBe(resnapshot.snapshot.revision + 1);
+    client.applyCommit(next.commit);
+    expect([...client.getSnapshot().commentThreads.keys()]).toEqual([
+      "repair-thread-1",
+      "repair-thread-2",
+      "repair-thread-3",
+    ]);
+    const latest = ReviewThreadsSnapshotResponseSchema.parse(
+      await (await get(`${prefix}/comments`)).json(),
+    );
+    if (!latest.ok) throw new Error(latest.error);
+    expect(latest.snapshot.revision).toBe(next.commit.revision);
+    expect(Object.keys(latest.snapshot.comments)).toHaveLength(3);
+
+    const historical = await post(`/reviews/${record.uuid}/open`, {
+      revision: JSON.parse(request.expectedRecord).presentedDocumentRevision,
+    });
+    expect(historical.status).toBe(201);
+    const historicalPrefix = `/sessions/${(await historical.json()).sessionId}/__progressive-review`;
+    const beforeHistoricalRead = await snapshotReviewTree(stored.dir);
+    const historicalSnapshot = ReviewThreadsSnapshotResponseSchema.parse(
+      await (await get(`${historicalPrefix}/comments`)).json(),
+    );
+    if (!historicalSnapshot.ok) throw new Error(historicalSnapshot.error);
+    expect(historicalSnapshot.snapshot.revision).toBe(0);
+    expect(
+      (await post(`${historicalPrefix}/thread-commands`, comment(4))).status,
+    ).toBe(409);
+    expect(await snapshotReviewTree(stored.dir)).toEqual(beforeHistoricalRead);
+  } finally {
+    client?.dispose();
+    await server.close();
+  }
+});
+
 it.each([true, false])(
   "replaces only the repaired current-schema session when mount succeeds: %s",
   async (mountSucceeds) => {

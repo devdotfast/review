@@ -569,7 +569,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     return reviewApiJsonResponse(200, {
       ok: true,
       snapshot:
-        options.readOnlyReview || options.readOnly?.()
+        (options.readOnly?.() ?? Boolean(options.readOnlyReview))
           ? readReviewThreadsReadOnly(writableReviewPath)
           : threadsFor(writableReviewPath).snapshot(),
     });

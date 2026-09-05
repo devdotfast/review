@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   bundleReviewDocument,
+  readReviewDocumentBundle,
   writeReviewDocumentBundle,
 } from "./review-bundle";
 import {
@@ -30,7 +31,10 @@ import {
   writeReviewSoftwareMapBundle,
 } from "./software-map-bundle";
 import { defineSoftwareMap } from "./software-map-model";
-import { migrateStoredReviewData } from "./stored-review-migration";
+import {
+  migrateStoredReview,
+  migrateStoredReviewData,
+} from "./stored-review-migration";
 
 const tempRoots: string[] = [];
 
@@ -753,6 +757,79 @@ describe("migrateStoredReviewData", () => {
     await expect(
       readFile(path.join(created.dir, "review.json"), "utf8"),
     ).resolves.toContain(created.review.uuid);
+  });
+});
+
+describe("migrateStoredReview", () => {
+  it("upgrades one schema-4 review in place and is a byte-level no-op on repeat", async () => {
+    const { created } = await storedReview();
+    await writeLegacyDocument(created.dir);
+    const revision = await sealReviewCandidate(created.dir, "Legacy document");
+    await writeFile(
+      path.join(created.dir, "review.json"),
+      JSON.stringify({
+        ...created.review,
+        schemaVersion: 4,
+        status: "accepted",
+        dismissedAt: "2026-01-01T00:00:00Z",
+        presentedDocumentRevision: revision,
+      }),
+    );
+
+    const first = await migrateStoredReview({ reviewDir: created.dir });
+
+    expect(first.migrated).toBe(true);
+    expect(first.threadDbError).toBeUndefined();
+    const record = await readReviewRecord(created.dir);
+    expect(record).toMatchObject({
+      schemaVersion: 5,
+      uuid: created.review.uuid,
+      status: "accepted",
+      dismissedAt: "2026-01-01T00:00:00Z",
+      baseCommit: created.review.baseCommit,
+      sourceCommit: created.review.sourceCommit,
+    });
+    expect(record.presentedDocumentRevision).not.toBe(revision);
+    expect(first.record).toEqual(record);
+    const materialized = await tempDir();
+    await materializeReviewRevision(
+      created.dir,
+      record.presentedDocumentRevision!,
+      materialized,
+    );
+    expect(
+      (await readReviewDocumentBundle(materialized, "/"))?.document.title,
+    ).toBe("Sealed");
+
+    const before = await snapshotMigrationFiles(created.dir);
+    const second = await migrateStoredReview({ reviewDir: created.dir });
+    expect(second.migrated).toBe(false);
+    expect(await snapshotMigrationFiles(created.dir)).toEqual(before);
+  });
+
+  it("leaves a review untouched when its sealed document is broken", async () => {
+    const { created } = await storedReview();
+    await writeLegacyDocument(
+      created.dir,
+      'import { jsx } from "review-doc-runtime"; throw new Error("broken sealed document");',
+    );
+    const revision = await sealReviewCandidate(created.dir, "Broken document");
+    const legacy = JSON.stringify({
+      ...created.review,
+      schemaVersion: 4,
+      presentedDocumentRevision: revision,
+    });
+    await writeFile(path.join(created.dir, "review.json"), legacy);
+    const before = await snapshotMigrationFiles(created.dir);
+
+    await expect(
+      migrateStoredReview({ reviewDir: created.dir }),
+    ).rejects.toThrow("broken sealed document");
+
+    expect(await snapshotMigrationFiles(created.dir)).toEqual(before);
+    expect(await readFile(path.join(created.dir, "review.json"), "utf8")).toBe(
+      legacy,
+    );
   });
 });
 

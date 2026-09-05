@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -97,21 +98,26 @@ describe("reviewAgentKind", () => {
 });
 
 describe("Review Desktop open requests", () => {
-  it("opens legacy current and historical presentations without changing stored records, threads or refs", async () => {
+  it("migrates a legacy review on direct open and keeps historical JSON readable", async () => {
     directory = await mkdtemp(path.join(tmpdir(), "review-recovery-server-"));
     vi.stubEnv("DEV_REVIEW_HOME", directory);
+    await writeFile(
+      path.join(directory, "preferences.json"),
+      JSON.stringify({ dismissedRetentionDays: null }),
+    );
     const uuid = "11111111-1111-4111-8111-111111111111";
     const dir = path.join(directory, "reviews", uuid);
     await mkdir(dir, { recursive: true });
     await reviewVcs.init(dir);
+    const source = await makeSourceRepository(directory);
     const record = {
       schemaVersion: 4,
       uuid,
       repoKey: "repo",
-      worktreePath: path.join(directory, "missing-source"),
+      worktreePath: source.root,
       baseRef: "main",
-      baseCommit: "a".repeat(40),
-      sourceCommit: "b".repeat(40),
+      baseCommit: source.commit,
+      sourceCommit: source.commit,
       sourceIdentity: null,
       title: "Recovery",
       sourceSession: "disabled:review",
@@ -146,6 +152,20 @@ describe("Review Desktop open requests", () => {
     await writeFile(
       path.join(dir, "review.mdx"),
       "# Recovery\n\nCurrent revision",
+    );
+    await rm(path.join(dir, ".bundle/document"), {
+      recursive: true,
+      force: true,
+    });
+    await mkdir(path.join(dir, ".bundle/document"), { recursive: true });
+    await writeFile(
+      path.join(dir, ".bundle/document/manifest.json"),
+      JSON.stringify({ version: 1, routePath: "/", sourcePath: "review.mdx" }),
+    );
+    await writeFile(
+      path.join(dir, ".bundle/document/review-document.js"),
+      `import { createActiveReviewDocument, jsx } from "review-doc-runtime";
+export default createActiveReviewDocument({ title: "Legacy", routePath: "/", filePath: "review.mdx", modelNames: [], models: {}, Component: () => jsx("h1", { children: "Legacy sealed" }), isDefault: true });`,
     );
     const currentRevision = await reviewVcs.seal(
       dir,
@@ -193,21 +213,27 @@ describe("Review Desktop open requests", () => {
           },
           body: body ? JSON.stringify(body) : undefined,
         });
-      const listed = await (await request("/reviews")).json();
-      expect(listed.reviews).toHaveLength(1);
-      expect(listed.reviews[0]).toMatchObject({
-        recovery: true,
-        status: "accepted",
-        available: true,
-        sourceUnavailable: "The pinned source commits are unavailable.",
-      });
-      expect(listed.errors).toHaveLength(1);
       const current = await request(`/reviews/${uuid}/open`, {});
       expect(current.status).toBe(201);
       const opened = await current.json();
-      expect(opened.review.sourceUnavailable).toContain(
-        "pinned source commits are unavailable",
+      expect(opened.review).not.toHaveProperty("recovery");
+      const migrated = JSON.parse(
+        await readFile(path.join(dir, "review.json"), "utf8"),
       );
+      expect(migrated).toMatchObject({
+        schemaVersion: 5,
+        status: "accepted",
+        dismissedAt: null,
+      });
+      expect(migrated.presentedDocumentRevision).not.toBe(currentRevision);
+      const listed = await (await request("/reviews")).json();
+      expect(listed.errors).toEqual([]);
+      expect(listed.reviews).toHaveLength(1);
+      expect(listed.reviews[0]).toMatchObject({
+        status: "accepted",
+        available: true,
+      });
+      expect(listed.reviews[0]).not.toHaveProperty("recovery");
       const prefix = `/sessions/${opened.sessionId}/__progressive-review`;
       expect((await request(`${prefix}/document`)).status).toBe(200);
       const comments = await request(`${prefix}/comments`);
@@ -215,12 +241,6 @@ describe("Review Desktop open requests", () => {
       expect(
         (await comments.json()).snapshot.comments["recovery-thread"].messages,
       ).toHaveLength(1);
-      const diff = await request(`${prefix}/diff-files`, {});
-      expect(await diff.json()).toMatchObject({
-        ok: false,
-        error: expect.stringContaining("pinned source commits are unavailable"),
-      });
-      expect((await request(`${prefix}/dismiss`, {})).status).toBe(409);
       const historical = await request(`/reviews/${uuid}/open`, {
         revision: oldRevision,
       });
@@ -252,10 +272,145 @@ describe("Review Desktop open requests", () => {
           )
         ).status,
       ).toBe(200);
-      const after = await Promise.all(
-        files.map((file) => readFile(path.join(dir, file))),
-      );
-      expect(after).toEqual(before);
+      expect(
+        (
+          await request(
+            `/sessions/${jsonVersion.sessionId}/__progressive-review/dismiss`,
+            {},
+          )
+        ).status,
+      ).toBe(409);
+    } finally {
+      await server.close();
+      vi.unstubAllEnvs();
+    }
+  });
+  it("refuses to open corrupt sealed artifacts without changing records or refs", async () => {
+    directory = await mkdtemp(path.join(tmpdir(), "review-recovery-server-"));
+    vi.stubEnv("DEV_REVIEW_HOME", directory);
+    await writeFile(
+      path.join(directory, "preferences.json"),
+      JSON.stringify({ dismissedRetentionDays: null }),
+    );
+    const uuid = "11111111-1111-4111-8111-111111111111";
+    const dir = path.join(directory, "reviews", uuid);
+    await mkdir(dir, { recursive: true });
+    await reviewVcs.init(dir);
+    const source = await makeSourceRepository(directory);
+    const record = {
+      schemaVersion: 4,
+      uuid,
+      repoKey: "repo",
+      worktreePath: source.root,
+      baseRef: "main",
+      baseCommit: source.commit,
+      sourceCommit: source.commit,
+      sourceIdentity: null,
+      title: "Recovery",
+      sourceSession: "disabled:review",
+      status: "accepted",
+      presentedDocumentRevision: null,
+      presentedSoftwareMapRevision: null,
+      createdAt: "2026-09-01T00:00:00Z",
+      lastPublishedAt: "2026-09-01T00:00:00Z",
+      dismissedAt: "2026-01-01T00:00:00Z",
+    };
+    await writeFile(path.join(dir, "review.mdx"), "# Recovery");
+    await writeFile(path.join(dir, ".gitignore"), ".build/\nreview.db*\n");
+    await writeFile(path.join(dir, "review.json"), JSON.stringify(record));
+    await reviewVcs.seal(dir, "Review publish candidate");
+    await writeReviewDocumentBundle(
+      dir,
+      bundleReviewDocument({
+        format: "review-document/1",
+        title: "Recovery",
+        routePath: "/",
+        sourcePath: "review.mdx",
+        body: [],
+        anchors: {},
+        anchorContents: {},
+        softwareModels: [],
+      }),
+    );
+    await reviewVcs.seal(dir, "Review publish candidate");
+    await writeFile(
+      path.join(dir, "review.mdx"),
+      "# Recovery\n\nCurrent revision",
+    );
+    await rm(path.join(dir, ".bundle/document"), {
+      recursive: true,
+      force: true,
+    });
+    await mkdir(path.join(dir, ".bundle/document"), { recursive: true });
+    await writeFile(
+      path.join(dir, ".bundle/document/manifest.json"),
+      JSON.stringify({ version: 1, routePath: "/", sourcePath: "review.mdx" }),
+    );
+    await writeFile(
+      path.join(dir, ".bundle/document/review-document.js"),
+      'throw new Error("corrupt sealed document");',
+    );
+    const currentRevision = await reviewVcs.seal(
+      dir,
+      "Review publish candidate",
+    );
+    await writeFile(
+      path.join(dir, "review.json"),
+      JSON.stringify({ ...record, presentedDocumentRevision: currentRevision }),
+    );
+    createReviewThreadDb(dir);
+    appendReviewComment(path.join(dir, "review.mdx"), {
+      threadId: "recovery-thread",
+      messageId: "recovery-message",
+      target: { kind: "document" },
+      body: "Keep this thread",
+      author: "Reviewer",
+    });
+    closeAllReviewThreadStores();
+    const files = [
+      "review.json",
+      "review.mdx",
+      "review.db",
+      ".git/refs/heads/main",
+    ];
+    const before = await Promise.all(
+      files.map((file) => readFile(path.join(dir, file))),
+    );
+    const token = "recovery-secret";
+    const server = createGlobalReviewServer({
+      appPid: process.pid,
+      packageRoot,
+      toolingRoot: packageRoot,
+      port: 0,
+      token,
+      discoveryPath: path.join(directory, "desktop.json"),
+    });
+    try {
+      await server.listen();
+      const request = (route: string, body?: JsonObject) =>
+        fetch(`${server.url}${route}`, {
+          method: body ? "POST" : "GET",
+          headers: {
+            "x-review-token": token,
+            "content-type": "application/json",
+          },
+          body: body ? JSON.stringify(body) : undefined,
+        });
+      const current = await request(`/reviews/${uuid}/open`, {});
+      expect(current.status).toBe(409);
+      expect(await current.json()).toMatchObject({
+        ok: false,
+        code: "repair_required",
+        error: expect.stringContaining(`review repair --review ${uuid}`),
+      });
+      const listed = await (await request("/reviews")).json();
+      expect(listed.reviews).toEqual([]);
+      expect(listed.errors).toMatchObject([
+        { code: "REPAIR_REQUIRED", reviewUuid: uuid },
+      ]);
+      expect(
+        await Promise.all(files.map((file) => readFile(path.join(dir, file)))),
+      ).toEqual(before);
     } finally {
       await server.close();
       vi.unstubAllEnvs();
@@ -297,3 +452,17 @@ describe("Review Desktop open requests", () => {
     }
   });
 });
+
+async function makeSourceRepository(parent: string) {
+  const root = path.join(parent, "source");
+  await mkdir(root, { recursive: true });
+  const git = (args: string[]) =>
+    execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();
+  git(["init", "-q", "-b", "main"]);
+  git(["config", "user.email", "test@example.com"]);
+  git(["config", "user.name", "Test"]);
+  await writeFile(path.join(root, "README.md"), "# Source\n");
+  git(["add", "README.md"]);
+  git(["commit", "-q", "-m", "Initial"]);
+  return { root, commit: git(["rev-parse", "HEAD"]) };
+}

@@ -26,6 +26,7 @@ import {
   computeSync,
   createReviewDir,
   findReview,
+  findReviewForRepair,
   listReviews,
   materializeReviewRevision,
   parseStoredReviewRecord,
@@ -733,6 +734,54 @@ async function git(root: string, args: string[]): Promise<string> {
 }
 
 describe("legacy records on read", () => {
+  it("reads repair metadata without migration and preserves lookup validation", async () => {
+    const root = await makeGitRepository();
+    const home = await mkdtemp(path.join(os.tmpdir(), "review-home-repair-"));
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+    try {
+      const created = await createReviewDir({
+        worktreePath: root,
+        baseRef: "main",
+        baseCommit: await git(root, ["rev-parse", "HEAD"]),
+      });
+      const recordPath = path.join(created.dir, "review.json");
+      const record = await legacyRecord(created, 4, "a".repeat(40));
+      const bytes = JSON.stringify(record);
+      await writeFile(recordPath, bytes);
+      const loaded = await findReviewForRepair(created.review.uuid);
+      expect(loaded).toMatchObject({
+        dir: created.dir,
+        review: { schemaVersion: 5, presentedDocumentRevision: "a".repeat(40) },
+      });
+      expect(loaded).not.toHaveProperty("recovery");
+      expect(await readFile(recordPath, "utf8")).toBe(bytes);
+      for (const value of [
+        "{broken",
+        JSON.stringify({ ...record, baseCommit: 42 }),
+        JSON.stringify({ ...record, schemaVersion: 6 }),
+        JSON.stringify({
+          ...record,
+          uuid: "11111111-1111-4111-8111-111111111111",
+        }),
+      ]) {
+        await writeFile(recordPath, value);
+        await expect(
+          findReviewForRepair(created.review.uuid),
+        ).rejects.toBeInstanceOf(ReviewHomeScanError);
+        expect(await readFile(recordPath, "utf8")).toBe(value);
+      }
+      await expect(findReviewForRepair("not-a-uuid")).rejects.toThrow(
+        "Review UUID is invalid",
+      );
+      await expect(
+        findReviewForRepair("22222222-2222-4222-8222-222222222222"),
+      ).resolves.toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(home, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   it.each([2, 3, 4, 6] as const)(
     "does not mutate malformed or unsupported schema %s records",
     async (schemaVersion) => {

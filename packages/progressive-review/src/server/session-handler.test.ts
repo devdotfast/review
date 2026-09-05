@@ -102,17 +102,18 @@ describe("createReviewSessionHandler", () => {
           ),
         );
         expect(response.status).toBe(409);
-        expect(await response.json()).toMatchObject({
+        const payload = await response.json();
+        expect(payload).toMatchObject({
           code: "needs_republish",
           reviewUuid,
-          recovery: true,
         });
+        expect(payload).not.toHaveProperty("recovery");
       }
     } finally {
       await handler.close();
     }
   });
-  it("keeps legacy recovery and historical artifact states independent and read-only", async () => {
+  it("keeps repair validation and historical artifact states independent and read-only", async () => {
     rootPath = await mkdtemp(path.join(tmpdir(), "review-recovery-handler-"));
     const reviewPath = path.join(rootPath, "review.mdx");
     await writeFile(reviewPath, "# Review");
@@ -134,7 +135,7 @@ describe("createReviewSessionHandler", () => {
         softwareMapRootPath: rootPath,
         routePath: "/",
         token: "secret",
-        recovery: true,
+        isReadOnly: () => true,
         historicalRevision,
         reviewUuid: "11111111-1111-4111-8111-111111111111",
         session: {
@@ -163,10 +164,14 @@ describe("createReviewSessionHandler", () => {
                   "This older revision is unavailable in this version of Review",
                 reviewUuid: "11111111-1111-4111-8111-111111111111",
               }
-            : { code: "needs_republish", recovery: true, mapStale: false },
+            : { code: "needs_republish", mapStale: false },
         );
         expect((await request("software-map")).status).toBe(200);
-        expect((await request("dismiss", "POST")).status).toBe(409);
+        const dismissed = await request("dismiss", "POST");
+        expect(dismissed.status).toBe(409);
+        expect(await dismissed.json()).toMatchObject({
+          code: historicalRevision ? "historical_revision" : "review_read_only",
+        });
       } finally {
         await handler.close();
       }

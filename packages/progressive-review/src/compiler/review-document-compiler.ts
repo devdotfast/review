@@ -290,7 +290,13 @@ export async function compileReviewDocument(
       authoredTypescript,
     );
     if (unsupportedDiagnostics.length > 0) {
-      return { diagnostics: unsupportedDiagnostics, reviewDocument };
+      return {
+        diagnostics: [
+          mdxDiagnostic(input.filePath, error),
+          ...unsupportedDiagnostics,
+        ],
+        reviewDocument,
+      };
     }
     return {
       diagnostics: [mdxDiagnostic(input.filePath, error)],

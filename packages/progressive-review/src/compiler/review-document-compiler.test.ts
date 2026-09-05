@@ -199,6 +199,82 @@ describe("compileReviewDocument", () => {
     }
   });
 
+  it("surfaces both unsupported-TS and malformed-anchor-link diagnostics in one pass", async () => {
+    const rootPath = await mkdtemp(
+      path.join(os.tmpdir(), "review-document-enum-anchor-"),
+    );
+    const filePath = path.join(rootPath, "review.mdx");
+    const source = [
+      'export enum Theme { Light = "light", Dark = "dark" }',
+      "",
+      "# Review",
+      "",
+      "[Bad](anchors.bad-url)",
+    ].join("\n");
+
+    try {
+      await writeFile(filePath, source);
+      const result = await compileReviewDocument({
+        filePath,
+        reviewRootPath: rootPath,
+        source,
+      });
+
+      expect(result.runtimeCode).toBeUndefined();
+      expect(result.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            source: "mdx",
+            code: "MDX_PARSE_ERROR",
+            message: expect.stringContaining(
+              "Review anchor links must use [label](anchors.key)",
+            ),
+          }),
+          expect.objectContaining({
+            source: "typescript",
+            code: "UNSUPPORTED_TYPESCRIPT_SYNTAX",
+            message: expect.stringContaining(
+              "enum declarations are not supported",
+            ),
+          }),
+        ]),
+      );
+      expect(result.diagnostics).toHaveLength(2);
+    } finally {
+      await rm(rootPath, { force: true, recursive: true });
+    }
+  });
+
+  it("reports a malformed anchor link when there is no unsupported TS", async () => {
+    const rootPath = await mkdtemp(
+      path.join(os.tmpdir(), "review-document-anchor-only-"),
+    );
+    const filePath = path.join(rootPath, "review.mdx");
+    const source = ["# Review", "", "[Bad](anchors.bad-url)"].join("\n");
+
+    try {
+      await writeFile(filePath, source);
+      const result = await compileReviewDocument({
+        filePath,
+        reviewRootPath: rootPath,
+        source,
+      });
+
+      expect(result.runtimeCode).toBeUndefined();
+      expect(result.diagnostics).toEqual([
+        expect.objectContaining({
+          source: "mdx",
+          code: "MDX_PARSE_ERROR",
+          message: expect.stringContaining(
+            "Review anchor links must use [label](anchors.key)",
+          ),
+        }),
+      ]);
+    } finally {
+      await rm(rootPath, { force: true, recursive: true });
+    }
+  });
+
   it("gives filesystem aliases the same validated revision", async () => {
     const rootPath = await mkdtemp(
       path.join(os.tmpdir(), "review-document-revision-"),

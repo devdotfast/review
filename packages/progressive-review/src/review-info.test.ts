@@ -23,7 +23,10 @@ import {
   runReviewScaffold as scaffoldReview,
 } from "./review-scaffold";
 import type { createReviewSourceAgentSession } from "./review-source-agent-session";
-import { reviewSourceHeadRef } from "./review-source-ref";
+import {
+  pinReviewSourceHeadRef,
+  reviewSourceHeadRef,
+} from "./review-source-ref";
 import { appendReviewComment, updateReviewComment } from "./review-state-store";
 import { closeAllReviewThreadStores } from "./review-thread-store-backend";
 import { prepareReviewPublish } from "./server/publish-preparation";
@@ -970,6 +973,87 @@ describe("review info", () => {
     }
   });
 
+  it("rebind rejects a PR-bound review instead of silently re-pinning the PR", async () => {
+    const root = await makeGitRepository();
+    const home = await mkdtemp(path.join(os.tmpdir(), "review-info-home-"));
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+
+    try {
+      await git(root, ["checkout", "-b", "feature"]);
+      await writeFile(path.join(root, "README.md"), "# Feature\n", "utf8");
+      await git(root, ["commit", "-am", "feature"]);
+      const featureTip = await git(root, ["rev-parse", "feature"]);
+      const mainTip = await git(root, ["rev-parse", "main"]);
+      await git(root, ["checkout", "main"]);
+      await git(root, ["checkout", "-b", "other"]);
+      await writeFile(path.join(root, "other.txt"), "other\n", "utf8");
+      await git(root, ["add", "."]);
+      await git(root, ["commit", "-m", "other"]);
+
+      // The real `review scaffold --pr` flow persists pullRequestNumber/
+      // pullRequestUrl from the resolved PR subject; synthesizing them via
+      // createReviewDir matches that stored shape exactly.
+      const created = await createReviewDir({
+        worktreePath: root,
+        baseRef: "main",
+        baseCommit: mainTip,
+        sourceCommit: featureTip,
+        sourceIdentity: { kind: "git-branch", name: "feature" },
+        pullRequestNumber: 673,
+        pullRequestUrl: "https://github.com/Fix-Fast/dev/pull/673",
+      });
+      // `review scaffold --pr` also pins the source head ref at the bound
+      // commit; createReviewDir does not, so mirror that here.
+      await pinReviewSourceHeadRef(
+        root,
+        reviewSourceHeadRef(created.review.uuid),
+        featureTip,
+      );
+      const uuid = created.review.uuid;
+      const reviewJsonPath = path.join(created.dir, "review.json");
+      const before = JSON.parse(await readFile(reviewJsonPath, "utf8"));
+      const beforeHeadRef = featureTip;
+
+      const stdout = captureStream();
+
+      await expect(
+        runReviewRebind({
+          cwd: root,
+          change: "other",
+          reviewUuid: uuid,
+          env: { CODEX_THREAD_ID: "rebind-pr" },
+          stdout,
+        }),
+      ).rejects.toThrow(/bound to a pull request/);
+
+      // The misleading "rebound" success line must never be emitted: rebind
+      // cannot claim the binding moved when it never moved.
+      expect(stdout.captured()).toBe("");
+
+      // The stored binding, pins, and PR identity are untouched.
+      const after = JSON.parse(await readFile(reviewJsonPath, "utf8"));
+      expect(after.sourceIdentity).toEqual({
+        kind: "git-branch",
+        name: "feature",
+      });
+      expect(after.sourceCommit).toBe(featureTip);
+      expect(after.baseCommit).toBe(before.baseCommit);
+      expect(after.pullRequestNumber).toBe(673);
+      expect(after.pullRequestUrl).toBe(
+        "https://github.com/Fix-Fast/dev/pull/673",
+      );
+      // The pinned source head ref did not move.
+      await expect(
+        git(root, ["rev-parse", reviewSourceHeadRef(uuid)]),
+      ).resolves.toBe(beforeHeadRef);
+    } finally {
+      vi.unstubAllEnvs();
+      closeAllReviewThreadStores();
+      await rm(home, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("fails loudly when base and head share no ancestor", async () => {
     const root = await makeGitRepository();
     const home = await mkdtemp(path.join(os.tmpdir(), "review-info-home-"));
@@ -1182,6 +1266,17 @@ function nullStream(): Writable {
       callback();
     },
   });
+}
+
+function captureStream(): Writable & { captured: () => string } {
+  let out = "";
+  const stream = new Writable({
+    write(chunk, _encoding, callback) {
+      out += chunk.toString();
+      callback();
+    },
+  });
+  return Object.assign(stream, { captured: () => out });
 }
 
 async function jj(root: string, args: string[]): Promise<string> {

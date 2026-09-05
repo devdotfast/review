@@ -21,17 +21,17 @@ import { describe, expect, it, vi } from "vitest";
 import { readReviewDocumentBundle } from "./review-bundle";
 import {
   ReviewHomeScanError,
+  type StoredReview,
   bindReviewAuthorSession,
   computeSync,
   createReviewDir,
   findReview,
-  materializeReviewRevision,
-  sealReviewCandidate,
-  type StoredReview,
   listReviews,
+  materializeReviewRevision,
   parseStoredReviewRecord,
   reviewDescriptor,
   reviewsHomeDir,
+  sealReviewCandidate,
   touchReviewAgentSession,
   updateReviewPins,
 } from "./review-home";

@@ -452,7 +452,7 @@ describe("publish range evaluation", () => {
       validateRanges: false,
     });
 
-    await expect(failed).rejects.toThrow();
+    await expect(failed).rejects.toMatchObject({ code: "ENOTDIR" });
     await expect(next).resolves.toMatchObject({
       errors: [],
       document: { title: "Fixture" },

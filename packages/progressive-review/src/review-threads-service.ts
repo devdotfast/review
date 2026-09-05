@@ -32,7 +32,7 @@ export interface ReviewThreadsServiceOptions {
 }
 
 /**
- * Session-owned command boundary for durable Review comment state.
+ * Review-owned command boundary for durable Review comment state.
  *
  * SQLite commits first. The service then updates its projection and publishes
  * the exact committed change to every connected Review surface.
@@ -41,6 +41,7 @@ export class ReviewThreadsService {
   private comments: ReviewCommentThreadMap;
   private drafts: ReviewCommentDraftThreadMap;
   private revision = 0;
+  private readonly listeners = new Set<(commit: ReviewThreadsCommit) => void>();
 
   constructor(private readonly options: ReviewThreadsServiceOptions) {
     this.comments = readReviewComments(options.reviewPath);
@@ -52,6 +53,13 @@ export class ReviewThreadsService {
       revision: this.revision,
       comments: this.comments,
       drafts: this.drafts,
+    };
+  }
+
+  subscribe(listener: (commit: ReviewThreadsCommit) => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
     };
   }
 
@@ -301,6 +309,7 @@ export class ReviewThreadsService {
       deletedDraftThreadIds,
     } satisfies ReviewThreadsCommit;
     this.options.onCommit?.(commit);
+    for (const listener of this.listeners) listener(commit);
     return commit;
   }
 }

@@ -316,6 +316,7 @@ export function createGlobalReviewServer(
   const relay = new GlobalReviewDesktopVerbRelay();
   const sessions = new Map<string, ActiveReviewSession>();
   const reviewLocks = new Map<string, Promise<void>>();
+  const reviewThreads = new Map<string, ReviewThreadsService>();
   const globalClients = new Set<ReviewDesktopEventClient>();
   const tutorial = createTutorialService({
     packageRoot: input.packageRoot,
@@ -1773,7 +1774,9 @@ export function createGlobalReviewServer(
   }
 
   function threadsForReview(review: StoredReview): ReviewThreadsService {
-    return new ReviewThreadsService({
+    const existing = reviewThreads.get(review.review.uuid);
+    if (existing) return existing;
+    const service = new ReviewThreadsService({
       reviewPath: path.join(review.dir, "review.mdx"),
       author: process.env.USER ?? "Reviewer",
       onCommit: (commit) => {
@@ -1787,6 +1790,8 @@ export function createGlobalReviewServer(
         });
       },
     });
+    reviewThreads.set(review.review.uuid, service);
+    return service;
   }
 
   async function deleteReviewByUuid(uuid: string): Promise<void> {
@@ -1810,6 +1815,7 @@ export function createGlobalReviewServer(
       );
       await rm(dir, { recursive: true, force: true });
       deleteReviewState(dir);
+      reviewThreads.delete(uuid);
       const worktreePath = open[0]?.review.review.worktreePath;
       if (worktreePath) {
         await clearReopenPending(worktreePath).catch(() => undefined);
@@ -1839,6 +1845,7 @@ export function createGlobalReviewServer(
     });
     await rm(review.dir, { recursive: true, force: true });
     deleteReviewState(review.dir);
+    reviewThreads.delete(review.review.uuid);
     await clearReopenPending(review.review.worktreePath).catch(() => undefined);
     broadcastGlobal({ event: "review-deleted", uuid: review.review.uuid });
   }
@@ -1945,6 +1952,7 @@ export function createGlobalReviewServer(
       reviewPath: registration.documentPath,
       softwareMapRootPath: registration.softwareMapRootPath,
       stateReviewPath: path.join(registration.review.dir, "review.mdx"),
+      threadsService: threadsForReview(registration.review),
       routePath: "/",
       token,
       sessionId,
@@ -1963,17 +1971,6 @@ export function createGlobalReviewServer(
           event: "review-data-changed",
           uuid: registration.review.review.uuid,
           sessionId,
-        });
-      },
-      onReviewThreadsCommit: (commit) => {
-        broadcastGlobal({
-          event: "review-threads-committed",
-          uuid: registration.review.review.uuid,
-          sessionId,
-          commit,
-          commentCount: countReviewComments(
-            path.join(registration.review.dir, "review.mdx"),
-          ),
         });
       },
       runReviewThreadMutation: (operation) =>
@@ -2376,6 +2373,7 @@ export function createGlobalReviewServer(
       await Promise.all(
         [...agentServers.values()].map((server) => server.close()),
       );
+      reviewThreads.clear();
       await closeHttpServer(httpServer);
       await telemetry.shutdown(1_500);
     },

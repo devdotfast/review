@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  disableAllTraceRepositories,
   disableTraceRepository,
   enableTraceRepository,
   traceRepositoryStatus,
@@ -73,6 +74,54 @@ describe("trace repository hooks", () => {
     expect(await runGit(repo, ["config", "--get", "core.hooksPath"])).toBe(
       ".custom-hooks",
     );
+  });
+
+  it("disables repositories registered under TRACE_HOME_DIR when no homeDir is given", async () => {
+    const traceHome = await mkdtemp(
+      path.join(os.tmpdir(), "trace-hooks-trace-home-"),
+    );
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "trace-hooks-home-"));
+    const repo = await mkdtemp(path.join(os.tmpdir(), "trace-hooks-repo-"));
+    roots.push(traceHome, homeDir, repo);
+    await runGit(repo, ["init", "-b", "main"]);
+
+    const prevHome = process.env.HOME;
+    const prevTrace = process.env.TRACE_HOME_DIR;
+    process.env.HOME = homeDir;
+    process.env.TRACE_HOME_DIR = traceHome;
+    try {
+      const enabled = await enableTraceRepository({
+        cwd: repo,
+        reviewCommand: "review",
+      });
+      expect(enabled.enabled).toBe(true);
+      expect((await traceRepositoryStatus(repo)).enabled).toBe(true);
+
+      const traceRegistry = path.join(
+        traceHome,
+        ".config",
+        "dev-trace",
+        "repositories.json",
+      );
+      const homeRegistry = path.join(
+        homeDir,
+        ".config",
+        "dev-trace",
+        "repositories.json",
+      );
+      expect(await readFile(traceRegistry, "utf8")).toContain(repo);
+      await expect(readFile(homeRegistry, "utf8")).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+
+      await disableAllTraceRepositories();
+
+      expect((await traceRepositoryStatus(repo)).enabled).toBe(false);
+    } finally {
+      process.env.HOME = prevHome;
+      if (prevTrace === undefined) delete process.env.TRACE_HOME_DIR;
+      else process.env.TRACE_HOME_DIR = prevTrace;
+    }
   });
 });
 

@@ -15,7 +15,8 @@ import {
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 
-import type { SessionRef } from "../authoring-session";
+import type { ReviewAgentHarness, SessionRef } from "../authoring-session";
+import type { AgentServer } from "../native-agent/native-session";
 import { readReviewDocumentBundle } from "../review-bundle";
 import { resolveReviewSessionBaseCommit } from "../review-worktree-target";
 import {
@@ -35,7 +36,7 @@ import {
   isAuthorizedRequest,
   jsonResponse,
 } from "./hono-http";
-import { createReviewApi } from "./review-api";
+import { type ReviewApi, createReviewApi } from "./review-api";
 
 const API_PREFIX = "/__progressive-review";
 const MODULE_PATH_PREFIX = `${API_PREFIX}/doc-modules/`;
@@ -57,8 +58,6 @@ export interface ReviewSessionHandlerInput {
   token?: string;
   sessionId?: string;
   reviewUuid?: string;
-  reviewCliPath?: string;
-  reviewCliRuntimePath?: string;
   submitHook?: string;
   historicalRevision?: string;
   listDocumentVersions?: () => Promise<ReviewDocumentVersionWire[]>;
@@ -70,6 +69,7 @@ export interface ReviewSessionHandlerInput {
   onReviewDataChange?: () => void;
   onReviewThreadsCommit?: (commit: ReviewThreadsCommit) => void;
   runReviewThreadMutation?: <T>(operation: () => T | Promise<T>) => Promise<T>;
+  agentServer: (harness: ReviewAgentHarness) => AgentServer;
   openNativeAgentTerminal: (
     input: Extract<
       ReviewVerbRequest,
@@ -86,6 +86,7 @@ export interface ReviewSessionHandlerInput {
 export interface ReviewSessionHandler {
   readonly token: string;
   handle(request: Request, env?: ReviewHonoEnv["Bindings"]): Promise<Response>;
+  findAgentThread: ReviewApi["findAgentThread"];
   close(): Promise<void>;
 }
 
@@ -392,8 +393,7 @@ export async function createReviewSessionHandler(
     },
     runReviewThreadMutation: input.runReviewThreadMutation,
     reviewToken: token,
-    reviewCliPath: input.reviewCliPath,
-    reviewCliRuntimePath: input.reviewCliRuntimePath,
+    agentServer: input.agentServer,
     openNativeAgentTerminal: input.openNativeAgentTerminal,
     resolveQuestionSourceSession: input.resolveQuestionSourceSession,
     onQuestionAgentSession: input.onQuestionAgentSession,
@@ -443,6 +443,7 @@ export async function createReviewSessionHandler(
 
   return {
     token,
+    findAgentThread: reviewApi.findAgentThread,
     async handle(request, env) {
       // The desktop proxy forwards its own node bindings so response-close
       // hooks (submission acks, reject teardown) observe the real socket.

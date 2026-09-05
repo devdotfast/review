@@ -9,12 +9,16 @@ import { reviewCommentPromptPrefix } from "../review-comment-agent";
 import type { ReviewThreadsService } from "../review-threads-service";
 import type {
   NativeReviewMessage,
-  ObservedNativeSession,
-  ReviewThreadAgentBinding,
+  SessionRef,
+  SessionSnapshot,
+  SessionUpdate,
+  UpdatePipe,
 } from "./native-session";
 
 interface NativeMessageMirrorOptions {
-  observe(binding: ReviewThreadAgentBinding): ObservedNativeSession;
+  updates(
+    binding: SessionRef,
+  ): Promise<UpdatePipe<SessionSnapshot, SessionUpdate>>;
   service: ReviewThreadsService;
   onError?: (cause: unknown) => void;
 }
@@ -23,20 +27,20 @@ interface SessionWatcher {
   key: string;
   inReviewConversation: boolean;
   threadCursor: number;
-  pipe?: Awaited<ReturnType<ObservedNativeSession["updates"]>>;
+  pipe?: UpdatePipe<SessionSnapshot, SessionUpdate>;
   task: Promise<void>;
 }
 
 /** Mirrors native user and final assistant messages into Review threads. */
 export class NativeMessageMirror {
-  readonly #observe: NativeMessageMirrorOptions["observe"];
+  readonly #updates: NativeMessageMirrorOptions["updates"];
   readonly #service: ReviewThreadsService;
   readonly #onError: (cause: unknown) => void;
   readonly #watchers = new Map<string, SessionWatcher>();
   #closed = false;
 
   constructor(options: NativeMessageMirrorOptions) {
-    this.#observe = options.observe;
+    this.#updates = options.updates;
     this.#service = options.service;
     this.#onError = options.onError ?? ((cause) => console.error(cause));
   }
@@ -55,7 +59,7 @@ export class NativeMessageMirror {
     }
   }
 
-  watch(threadId: string, binding: ReviewThreadAgentBinding): void {
+  watch(threadId: string, binding: SessionRef): void {
     if (this.#closed) return;
     const key = `${binding.harness}:${binding.sessionId}`;
     if (this.#watchers.get(threadId)?.key === key) return;
@@ -82,10 +86,10 @@ export class NativeMessageMirror {
 
   async #mirror(
     threadId: string,
-    binding: ReviewThreadAgentBinding,
+    binding: SessionRef,
     watcher: SessionWatcher,
   ): Promise<void> {
-    const pipe = await this.#observe(binding).updates();
+    const pipe = await this.#updates(binding);
     watcher.pipe = pipe;
     try {
       for (const message of pipe.snapshot.messages) {
@@ -94,6 +98,7 @@ export class NativeMessageMirror {
       }
       for await (const update of pipe.updates) {
         if (this.#watchers.get(threadId) !== watcher) return;
+        if (update.type !== "message.updated") continue;
         this.#apply(threadId, binding, update.message, watcher);
       }
     } finally {
@@ -103,7 +108,7 @@ export class NativeMessageMirror {
 
   #apply(
     threadId: string,
-    binding: ReviewThreadAgentBinding,
+    binding: SessionRef,
     message: NativeReviewMessage,
     watcher: SessionWatcher,
   ): void {
@@ -171,7 +176,7 @@ export class NativeMessageMirror {
 
 function isNativeBinding(
   session: ReviewCommentAgentSession | undefined,
-): session is ReviewThreadAgentBinding {
+): session is SessionRef {
   return Boolean(session?.harness && session.sessionId);
 }
 
@@ -206,7 +211,7 @@ function reviewQuestionBody(threadId: string, body: string): string {
   return body.startsWith(prefix) ? body.slice(prefix.length) : body;
 }
 
-function agentLabel(harness: ReviewThreadAgentBinding["harness"]): string {
+function agentLabel(harness: SessionRef["harness"]): string {
   switch (harness) {
     case "claude-code":
       return "Claude Code";

@@ -22,10 +22,16 @@ import {
 } from "./session-handler";
 
 const unusedAgentServices = {
+  agentServer: () => {
+    throw new Error("This test does not launch a native agent.");
+  },
   openNativeAgentTerminal: async () => {
     throw new Error("This test does not open a native agent terminal.");
   },
-} satisfies Pick<ReviewSessionHandlerInput, "openNativeAgentTerminal">;
+} satisfies Pick<
+  ReviewSessionHandlerInput,
+  "agentServer" | "openNativeAgentTerminal"
+>;
 
 let rootPath: string | undefined;
 

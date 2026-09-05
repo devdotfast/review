@@ -42,6 +42,10 @@ import {
   parseFreshSourceSessionHarness,
 } from "../authoring-session";
 import { preferredInstalledReviewAgent } from "../installed-review-agent";
+import * as claudeCode from "../native-agent/claude-code";
+import * as codex from "../native-agent/codex";
+import type { AgentServer } from "../native-agent/native-session";
+import * as pi from "../native-agent/pi";
 import { readProgressiveReviewPackageVersion } from "../package-paths";
 import {
   type ProgressiveReviewSessionAgent,
@@ -285,6 +289,21 @@ export function createGlobalReviewServer(
   const tutorialAuthoringStates = new Map<string, TutorialAuthoringState>();
   let reviewReaper: ReturnType<typeof setInterval> | undefined;
   let closing = false;
+  const harnesses = { "claude-code": claudeCode, codex, pi } as const;
+  const agentServers = new Map<ReviewAgentHarness, AgentServer>();
+  const agentServerFor = (harness: ReviewAgentHarness): AgentServer => {
+    let server = agentServers.get(harness);
+    if (!server) {
+      server = harnesses[harness].server({
+        runtimeDirectory: path.join(devReviewHome(), "native-agent"),
+        reviewCliPath: discovery.cliPath,
+        reviewCliRuntimePath: discovery.cliRuntimePath,
+        desktopEndpoint: { baseUrl: urlForBoundPort(), token },
+      });
+      agentServers.set(harness, server);
+    }
+    return server;
+  };
   const openNativeAgentTerminal = async (
     reviewSessionId: string,
     terminal: Extract<
@@ -340,6 +359,27 @@ export function createGlobalReviewServer(
     }
     await next();
   });
+  // `review threads get` inside a native agent terminal reads its thread
+  // here; the owning review is found through the session binding.
+  app.get(
+    "/native-agent-events/:harness/:sessionId/thread/:threadId",
+    (context) => {
+      const ref = parseAuthoringSessionKey(
+        `${context.req.param("harness")}:${context.req.param("sessionId")}`,
+      );
+      const threadId = context.req.param("threadId");
+      if (ref && threadId) {
+        for (const session of sessions.values()) {
+          const found = session.handler.findAgentThread(ref, threadId);
+          if (found) return globalJson(200, found);
+        }
+      }
+      return globalJson(404, {
+        ok: false,
+        error: `Comment thread not found: ${threadId ?? ""}`,
+      });
+    },
+  );
   app.post("/app/focus", async () => {
     const result = await relay.dispatch("review-desktop", {
       name: "focusWindow",
@@ -1717,8 +1757,7 @@ export function createGlobalReviewServer(
         withReviewLock(registration.review.review.uuid, async () =>
           operation(),
         ),
-      reviewCliPath: discovery.cliPath,
-      reviewCliRuntimePath: discovery.cliRuntimePath,
+      agentServer: agentServerFor,
       openNativeAgentTerminal: (terminal) =>
         openNativeAgentTerminal(sessionId, terminal),
       resolveQuestionSourceSession: registration.resolveQuestionSourceSession,
@@ -2111,6 +2150,9 @@ export function createGlobalReviewServer(
       relay.close();
       for (const client of globalClients) client.close();
       globalClients.clear();
+      await Promise.all(
+        [...agentServers.values()].map((server) => server.close()),
+      );
       await closeHttpServer(httpServer);
       await telemetry.shutdown(1_500);
     },

@@ -8,6 +8,10 @@ import {
   jsonString,
 } from "@dev.fast/review-protocol";
 
+import {
+  REVIEW_AGENT_THREAD_TOKEN_ENV,
+  REVIEW_AGENT_THREAD_URL_ENV,
+} from "./native-agent/terminal-command";
 import { reviewUuidForManagedCheckout } from "./review-head-checkout";
 import { type StoredReview, findReview, listReviews } from "./review-home";
 import {
@@ -23,9 +27,6 @@ export interface ReviewThreadsTarget {
   cwd: string;
   reviewUuid?: string;
 }
-
-const REVIEW_AGENT_THREAD_URL_ENV = "DEV_FAST_REVIEW_AGENT_THREAD_URL";
-const REVIEW_AGENT_HOOK_TOKEN_ENV = "DEV_FAST_REVIEW_AGENT_HOOK_TOKEN";
 
 export async function runReviewThreadsList(
   input: ReviewThreadsTarget & { json?: boolean; stdout: Writable },
@@ -69,7 +70,7 @@ async function readAttachedReviewThread(input: {
 }> {
   const env = input.env ?? process.env;
   const baseUrl = env[REVIEW_AGENT_THREAD_URL_ENV]?.trim();
-  const token = env[REVIEW_AGENT_HOOK_TOKEN_ENV]?.trim();
+  const token = env[REVIEW_AGENT_THREAD_TOKEN_ENV]?.trim();
   if (!baseUrl || !token) {
     throw new Error(
       "review threads get requires an attached Review Desktop server.",

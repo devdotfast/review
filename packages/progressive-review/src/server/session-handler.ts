@@ -17,6 +17,7 @@ import { streamSSE } from "hono/streaming";
 
 import type { SessionRef } from "../authoring-session";
 import { readReviewDocumentBundle } from "../review-bundle";
+import type { ReviewThreadsService } from "../review-threads-service";
 import { resolveReviewSessionBaseCommit } from "../review-worktree-target";
 import {
   type ReviewSoftwareMapBundle,
@@ -53,6 +54,7 @@ export interface ReviewSessionHandlerInput {
   reviewPath: string;
   softwareMapRootPath?: string;
   stateReviewPath?: string;
+  threadsService?: ReviewThreadsService;
   routePath: string;
   token?: string;
   sessionId?: string;
@@ -368,6 +370,10 @@ export async function createReviewSessionHandler(
     response.headers.set("content-type", "text/event-stream; charset=utf-8");
     return response;
   });
+  const unsubscribeThreads = input.threadsService?.subscribe((commit) => {
+    broadcast({ event: "review-threads-committed", commit });
+    input.onReviewThreadsCommit?.(commit);
+  });
   const reviewApi = createReviewApi({
     reviewPath: input.reviewPath,
     reviewDocumentsDir: documentsDir,
@@ -375,6 +381,7 @@ export async function createReviewSessionHandler(
     reviewRootPath,
     toolingRoot: input.toolingRoot,
     stateReviewPath: input.stateReviewPath,
+    threadsService: input.threadsService,
     telemetry: sessionTelemetry,
     onSubmission: async (event) => {
       broadcast({
@@ -450,6 +457,7 @@ export async function createReviewSessionHandler(
     },
     close: async () => {
       await reviewApi.close();
+      unsubscribeThreads?.();
       for (const client of eventClients) client.close();
       eventClients.clear();
     },

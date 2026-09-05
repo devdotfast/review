@@ -133,7 +133,7 @@ describe("Review Desktop document and comment API", () => {
   it("exposes comment reads and mutations without client database access", async () => {
     const { client, reviewId, server } = await setupServer();
     try {
-      await client.command(reviewId, {
+      const created = await client.command(reviewId, {
         command: "comment.create",
         mutationId: "comment-1",
         input: {
@@ -143,14 +143,14 @@ describe("Review Desktop document and comment API", () => {
           body: "Please clarify.",
         },
       });
-      await client.reply({
+      const replied = await client.reply({
         reviewId,
         threadId: "thread-1",
         mutationId: "reply-1",
         messageId: "message-2",
         body: "Clarified.",
       });
-      await client.command(reviewId, {
+      const resolved = await client.command(reviewId, {
         command: "comment.update",
         mutationId: "resolve-1",
         threadId: "thread-1",
@@ -158,9 +158,13 @@ describe("Review Desktop document and comment API", () => {
       });
 
       const comments = await client.getComments(reviewId);
+      expect(created).toMatchObject({ ok: true, commit: { revision: 1 } });
+      expect(replied).toMatchObject({ ok: true, commit: { revision: 2 } });
+      expect(resolved).toMatchObject({ ok: true, commit: { revision: 3 } });
       expect(comments).toMatchObject({
         ok: true,
         snapshot: {
+          revision: 3,
           comments: {
             "thread-1": {
               status: "resolved",

@@ -16,6 +16,7 @@ import {
 } from "../progressive-review-telemetry";
 import { writeReviewDocumentBundle } from "../review-bundle";
 import { readReviewComments } from "../review-state-store";
+import { ReviewThreadsService } from "../review-threads-service";
 import {
   type ReviewSessionHandlerInput,
   createReviewSessionHandler,
@@ -335,6 +336,97 @@ describe("createReviewSessionHandler", () => {
       expect(onReviewThreadsCommit).toHaveBeenCalledTimes(1);
     } finally {
       await handler.close();
+    }
+  });
+
+  it("shares snapshots and revisions with external mutations across sessions", async () => {
+    rootPath = await mkdtemp(path.join(tmpdir(), "review-session-shared-"));
+    const reviewPath = path.join(rootPath, "review.mdx");
+    const threadsService = new ReviewThreadsService({
+      reviewPath,
+      author: "Reviewer",
+    });
+    const onCommit = vi.fn<(commit: ReviewThreadsCommit) => void>();
+    const options: ReviewSessionHandlerInput = {
+      ...unusedAgentServices,
+      rootPath,
+      toolingRoot: rootPath,
+      reviewPath,
+      routePath: "/",
+      token: "shared-token",
+      threadsService,
+      onReviewThreadsCommit: onCommit,
+      session: {
+        rootPath,
+        baseRef: "HEAD",
+        appUrl: "http://localhost/sessions/shared",
+        reviewPath,
+        startedAt: Date.now(),
+      },
+    };
+    const first = await createReviewSessionHandler(options);
+    const second = await createReviewSessionHandler(options);
+    const request = (suffix: string, body?: JsonObject) =>
+      new Request(`http://localhost/__progressive-review${suffix}`, {
+        method: body ? "POST" : "GET",
+        headers: {
+          "x-review-token": "shared-token",
+          "content-type": "application/json",
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+    try {
+      // Initialize both session projections before the external API mutation.
+      await first.handle(request("/comments"));
+      await second.handle(request("/comments"));
+      threadsService.dispatch({
+        command: "comment.create",
+        mutationId: "external",
+        input: {
+          threadId: "shared",
+          messageId: "one",
+          target: { kind: "document" },
+          body: "External comment",
+        },
+      });
+      for (const handler of [first, second]) {
+        const response = await handler.handle(request("/comments"));
+        expect(await response.json()).toMatchObject({
+          ok: true,
+          snapshot: {
+            revision: 1,
+            comments: { shared: { messages: [{ body: "External comment" }] } },
+          },
+        });
+      }
+      const response = await first.handle(
+        request("/thread-commands", {
+          command: "comment.update",
+          mutationId: "session",
+          threadId: "shared",
+          update: { status: "resolved" },
+        }),
+      );
+      expect(await response.json()).toMatchObject({
+        ok: true,
+        commit: { revision: 2 },
+      });
+      expect(threadsService.snapshot()).toMatchObject({
+        revision: 2,
+        comments: { shared: { status: "resolved" } },
+      });
+      expect(onCommit).toHaveBeenCalledTimes(4);
+      await first.close();
+      onCommit.mockClear();
+      threadsService.dispatch({
+        command: "comment.delete",
+        mutationId: "delete",
+        threadId: "shared",
+      });
+      expect(onCommit).toHaveBeenCalledTimes(1);
+    } finally {
+      await first.close();
+      await second.close();
     }
   });
 

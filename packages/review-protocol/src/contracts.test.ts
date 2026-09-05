@@ -406,6 +406,40 @@ describe("review source identity", () => {
   });
 });
 
+describe("review promoted document revisions", () => {
+  it("accepts an ordered list of sealed revisions and stays optional", () => {
+    expect(
+      ReviewRecordSchema.safeParse({
+        ...reviewRecord,
+        promotedDocumentRevisions: ["0".repeat(40), "1".repeat(40)],
+      }).success,
+    ).toBe(true);
+    // Absent on reviews promoted before the field existed.
+    expect(ReviewRecordSchema.safeParse(reviewRecord).success).toBe(true);
+  });
+
+  it("rejects a non-array and non-string entries", () => {
+    expect(
+      ReviewRecordSchema.safeParse({
+        ...reviewRecord,
+        promotedDocumentRevisions: "1".repeat(40),
+      }).success,
+    ).toBe(false);
+    expect(
+      ReviewRecordSchema.safeParse({
+        ...reviewRecord,
+        promotedDocumentRevisions: ["1".repeat(40), 42],
+      }).success,
+    ).toBe(false);
+    expect(
+      ReviewRecordSchema.safeParse({
+        ...reviewRecord,
+        promotedDocumentRevisions: ["1".repeat(40), ""],
+      }).success,
+    ).toBe(false);
+  });
+});
+
 describe("canonical comment contracts", () => {
   const position = createGitLabTextDiffPosition({
     base_sha: "0".repeat(40),

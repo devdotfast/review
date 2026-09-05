@@ -18,13 +18,16 @@ import {
 } from "@dev.fast/review-protocol";
 import { describe, expect, it, vi } from "vitest";
 
+import { readReviewDocumentBundle } from "./review-bundle";
 import {
   ReviewHomeScanError,
   bindReviewAuthorSession,
   computeSync,
   createReviewDir,
   findReview,
-  findReviewForRecovery,
+  materializeReviewRevision,
+  sealReviewCandidate,
+  type StoredReview,
   listReviews,
   parseStoredReviewRecord,
   reviewDescriptor,
@@ -33,86 +36,11 @@ import {
   updateReviewPins,
 } from "./review-home";
 import { appendReviewComment, readReviewComments } from "./review-state-store";
+import { reviewVcs } from "./review-vcs";
 
 const execFilePromise = promisify(execFile);
 
 describe("review home", () => {
-  it.each([2, 3, 4])(
-    "lists schema %s recovery alongside its blocker without changing bytes",
-    async (schemaVersion) => {
-      const root = await makeGitRepository();
-      const home = await mkdtemp(
-        path.join(os.tmpdir(), "review-home-recovery-"),
-      );
-      vi.stubEnv("DEV_REVIEW_HOME", home);
-      try {
-        const created = await createReviewDir({
-          worktreePath: root,
-          baseRef: "main",
-          baseCommit: await git(root, ["rev-parse", "HEAD"]),
-        });
-        const {
-          sourceSession,
-          presentedDocumentRevision: _document,
-          presentedSoftwareMapRevision: _map,
-          ...common
-        } = created.review;
-        const legacy = {
-          ...common,
-          schemaVersion,
-          status: "accepted",
-          dismissedAt: "2026-01-01T00:00:00Z",
-          ...(schemaVersion === 4
-            ? { sourceSession }
-            : { agentSession: sourceSession }),
-          ...(schemaVersion === 2
-            ? { presentedRevision: "a".repeat(40) }
-            : {
-                presentedDocumentRevision: "a".repeat(40),
-                presentedSoftwareMapRevision: null,
-              }),
-        };
-        const recordPath = path.join(created.dir, "review.json");
-        const bytes = JSON.stringify(legacy);
-        await writeFile(recordPath, bytes);
-        const listed = await listReviews({ includeRecovery: true });
-        expect(listed.errors).toHaveLength(1);
-        expect(listed.errors[0]?.code).toBe("MIGRATION_REQUIRED");
-        expect(listed.reviews).toHaveLength(1);
-        const recovery = await findReviewForRecovery(created.review.uuid);
-        expect(recovery).toMatchObject({
-          recovery: true,
-          review: {
-            status: "accepted",
-            presentedDocumentRevision: "a".repeat(40),
-          },
-        });
-        expect(await reviewDescriptor(recovery!)).toMatchObject({
-          recovery: true,
-          available: true,
-          reapsAt: null,
-        });
-        await expect(findReview(created.review.uuid)).rejects.toThrow(
-          "Could not read reviews",
-        );
-        expect(await readFile(recordPath, "utf8")).toBe(bytes);
-        await writeFile(
-          recordPath,
-          JSON.stringify({ ...legacy, baseCommit: 42 }),
-        );
-        expect(
-          (await listReviews({ includeRecovery: true })).reviews,
-        ).toHaveLength(0);
-        await expect(
-          findReviewForRecovery(created.review.uuid),
-        ).rejects.toThrow("Could not read reviews");
-      } finally {
-        vi.unstubAllEnvs();
-        await rm(home, { recursive: true, force: true });
-        await rm(root, { recursive: true, force: true });
-      }
-    },
-  );
   it("atomically replaces a fresh marker with the durable author session", async () => {
     const root = await makeGitRepository();
     const home = await mkdtemp(path.join(os.tmpdir(), "review-home-"));
@@ -802,4 +730,251 @@ async function git(root: string, args: string[]): Promise<string> {
     encoding: "utf8",
   });
   return stdout.trim();
+}
+
+describe("legacy records on read", () => {
+  it.each([2, 3, 4, 6] as const)(
+    "does not mutate malformed or unsupported schema %s records",
+    async (schemaVersion) => {
+      const root = await makeGitRepository();
+      const home = await mkdtemp(
+        path.join(os.tmpdir(), "review-home-invalid-"),
+      );
+      vi.stubEnv("DEV_REVIEW_HOME", home);
+      try {
+        const created = await createReviewDir({
+          worktreePath: root,
+          baseRef: "main",
+          baseCommit: await git(root, ["rev-parse", "HEAD"]),
+        });
+        const recordPath = path.join(created.dir, "review.json");
+        await sealReviewCandidate(created.dir, "Initial document");
+        const record = await legacyRecord(
+          created,
+          schemaVersion === 6 ? 4 : schemaVersion,
+          "a".repeat(40),
+        );
+        const bytes = JSON.stringify(
+          schemaVersion === 6
+            ? { ...created.review, schemaVersion }
+            : {
+                ...record,
+                schemaVersion,
+                baseCommit: 42,
+                agentSession: "codex",
+              },
+        );
+        await writeFile(recordPath, bytes);
+        const refs = await git(created.dir, ["rev-parse", "HEAD"]);
+        const listed = await listReviews();
+        expect(listed.reviews).toEqual([]);
+        expect(listed.errors).toMatchObject([{ code: "MIGRATION_REQUIRED" }]);
+        await expect(findReview(created.review.uuid)).rejects.toBeInstanceOf(
+          ReviewHomeScanError,
+        );
+        expect(await readFile(recordPath, "utf8")).toBe(bytes);
+        expect(await git(created.dir, ["rev-parse", "HEAD"])).toBe(refs);
+      } finally {
+        vi.unstubAllEnvs();
+        await rm(home, { recursive: true, force: true });
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.each([2, 3, 4] as const)(
+    "migrates a schema %s record on first read and lists it as current",
+    async (schemaVersion) => {
+      const root = await makeGitRepository();
+      const home = await mkdtemp(
+        path.join(os.tmpdir(), "review-home-migrate-"),
+      );
+      vi.stubEnv("DEV_REVIEW_HOME", home);
+      try {
+        const created = await createReviewDir({
+          worktreePath: root,
+          baseRef: "main",
+          baseCommit: await git(root, ["rev-parse", "HEAD"]),
+        });
+        await writeLegacyDocument(created.dir);
+        const revision = await sealReviewCandidate(
+          created.dir,
+          "Legacy document",
+        );
+        const recordPath = path.join(created.dir, "review.json");
+        await writeFile(
+          recordPath,
+          JSON.stringify(await legacyRecord(created, schemaVersion, revision)),
+        );
+
+        const listed = await listReviews();
+
+        expect(listed.errors).toEqual([]);
+        expect(listed.reviews).toHaveLength(1);
+        const stored = await findReview(created.review.uuid);
+        expect(stored?.review).toMatchObject({
+          schemaVersion: 5,
+          status: "accepted",
+          dismissedAt: "2026-01-01T00:00:00Z",
+          sourceSession: created.review.sourceSession,
+        });
+        expect(stored?.review.presentedDocumentRevision).not.toBe(revision);
+        expect(stored?.review.presentedSoftwareMapRevision).toBeNull();
+        const materialized = path.join(home, "materialized");
+        await materializeReviewRevision(
+          created.dir,
+          stored!.review.presentedDocumentRevision!,
+          materialized,
+        );
+        expect(
+          (await readReviewDocumentBundle(materialized, "/"))?.document.title,
+        ).toBe("Sealed");
+        expect(await reviewDescriptor(stored!)).toMatchObject({
+          available: true,
+          status: "accepted",
+        });
+
+        const bytes = await readFile(recordPath, "utf8");
+        await listReviews();
+        expect(await readFile(recordPath, "utf8")).toBe(bytes);
+      } finally {
+        vi.unstubAllEnvs();
+        await rm(home, { recursive: true, force: true });
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it("migrates once when two readers race", async () => {
+    const root = await makeGitRepository();
+    const home = await mkdtemp(path.join(os.tmpdir(), "review-home-race-"));
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+    try {
+      const created = await createReviewDir({
+        worktreePath: root,
+        baseRef: "main",
+        baseCommit: await git(root, ["rev-parse", "HEAD"]),
+      });
+      await writeLegacyDocument(created.dir);
+      const revision = await sealReviewCandidate(
+        created.dir,
+        "Legacy document",
+      );
+      await writeFile(
+        path.join(created.dir, "review.json"),
+        JSON.stringify(await legacyRecord(created, 4, revision)),
+      );
+      const seal = vi.spyOn(reviewVcs, "seal");
+
+      const [first, second] = await Promise.all([
+        findReview(created.review.uuid),
+        findReview(created.review.uuid),
+      ]);
+
+      expect(first?.review.schemaVersion).toBe(5);
+      expect(second?.review).toEqual(first?.review);
+      expect(seal).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.restoreAllMocks();
+      vi.unstubAllEnvs();
+      await rm(home, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reports repair without touching a review whose sealed document is broken", async () => {
+    const root = await makeGitRepository();
+    const home = await mkdtemp(path.join(os.tmpdir(), "review-home-broken-"));
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+    try {
+      const created = await createReviewDir({
+        worktreePath: root,
+        baseRef: "main",
+        baseCommit: await git(root, ["rev-parse", "HEAD"]),
+      });
+      await writeLegacyDocument(
+        created.dir,
+        'import { jsx } from "review-doc-runtime"; throw new Error("broken sealed document");',
+      );
+      const revision = await sealReviewCandidate(
+        created.dir,
+        "Broken document",
+      );
+      const recordPath = path.join(created.dir, "review.json");
+      const bytes = JSON.stringify(await legacyRecord(created, 4, revision));
+      await writeFile(recordPath, bytes);
+      const refs = await readFile(
+        path.join(created.dir, ".git/refs/heads/main"),
+      );
+
+      const listed = await listReviews();
+
+      expect(listed.reviews).toEqual([]);
+      expect(listed.errors).toHaveLength(1);
+      expect(listed.errors[0]).toMatchObject({
+        code: "REPAIR_REQUIRED",
+        reviewUuid: created.review.uuid,
+      });
+      expect(listed.errors[0]?.message).toContain(
+        `review repair --review ${created.review.uuid}`,
+      );
+      await expect(findReview(created.review.uuid)).rejects.toThrow(
+        "review repair --review",
+      );
+      await expect(findReview(created.review.uuid)).rejects.toMatchObject({
+        errors: [{ code: "REPAIR_REQUIRED" }],
+      });
+      expect(await readFile(recordPath, "utf8")).toBe(bytes);
+      expect(
+        await readFile(path.join(created.dir, ".git/refs/heads/main")),
+      ).toEqual(refs);
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(home, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+async function writeLegacyDocument(
+  dir: string,
+  code = `import { createActiveReviewDocument, jsx } from "review-doc-runtime";
+export default createActiveReviewDocument({ title: "Sealed", routePath: "/", filePath: "review.mdx", modelNames: [], models: {}, Component: () => jsx("h1", { children: "Exact sealed title" }), isDefault: true });`,
+) {
+  const target = path.join(dir, ".bundle/document");
+  await rm(target, { recursive: true, force: true });
+  await mkdir(target, { recursive: true });
+  await writeFile(
+    path.join(target, "manifest.json"),
+    JSON.stringify({ version: 1, routePath: "/", sourcePath: "review.mdx" }),
+  );
+  await writeFile(path.join(target, "review-document.js"), code);
+}
+
+async function legacyRecord(
+  created: StoredReview,
+  schemaVersion: 2 | 3 | 4,
+  revision: string,
+) {
+  const {
+    sourceSession,
+    presentedDocumentRevision: _document,
+    presentedSoftwareMapRevision: _map,
+    ...common
+  } = created.review;
+  return {
+    ...common,
+    schemaVersion,
+    status: "accepted",
+    dismissedAt: "2026-01-01T00:00:00Z",
+    ...(schemaVersion === 4
+      ? { sourceSession }
+      : { agentSession: sourceSession }),
+    ...(schemaVersion === 2
+      ? { presentedRevision: revision }
+      : {
+          presentedDocumentRevision: revision,
+          presentedSoftwareMapRevision: null,
+        }),
+  };
 }

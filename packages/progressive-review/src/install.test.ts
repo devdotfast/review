@@ -41,6 +41,11 @@ async function makePackageRoot(): Promise<string> {
   for (const name of ALL_SKILLS) {
     await writeSkill(packageRoot, name);
   }
+  await mkdir(path.join(packageRoot, "plugins"), { recursive: true });
+  await writeFile(
+    path.join(packageRoot, "plugins", "review.ts"),
+    "// Managed by Review Desktop (@dev.fast/review).\n",
+  );
   return packageRoot;
 }
 

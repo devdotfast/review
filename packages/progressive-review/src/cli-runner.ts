@@ -1434,6 +1434,7 @@ function progressiveReviewInstallHelp(): string {
     "  claude   Claude Code (~/.claude/skills)",
     "  codex    Codex (~/.agents/skills)",
     "  cursor   Cursor (~/.cursor/skills)",
+    "  opencode OpenCode (~/.config/opencode/plugins)",
     "  pi       Pi (~/.agents/skills and npm:@ff-labs/pi-fff)",
     "  all      Every supported agent (default)",
     "",

@@ -333,6 +333,7 @@ export function ReviewTraceView({
 function harnessLabel(harness: ReviewAgentTraceSession["harness"]): string {
   if (harness === "claude-code") return "claude";
   if (harness === "codex") return "codex";
+  if (harness === "opencode") return "opencode";
   if (harness === "pi") return "pi";
   return "agent";
 }
@@ -345,11 +346,13 @@ function harnessTag(
     if (harness === "pi") return "PI SUB";
     if (harness === "claude-code") return "CLAUDE SUB";
     if (harness === "codex") return "CODEX SUB";
+    if (harness === "opencode") return "OPENCODE SUB";
     return "SUBAGENT";
   }
   if (harness === "pi") return "PI";
   if (harness === "claude-code") return "CLAUDE";
   if (harness === "codex") return "CODEX";
+  if (harness === "opencode") return "OPENCODE";
   return "AGENT";
 }
 

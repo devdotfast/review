@@ -13,7 +13,7 @@ export const MAX_TRACE_SESSION_BYTES = 1024 * 1024 * 1024;
 
 const nameSegment = z.string().regex(/^[A-Za-z0-9_.-]{1,100}$/);
 
-export const traceHarnessSchema = z.enum(["claude", "codex", "pi"]);
+export const traceHarnessSchema = z.enum(["claude", "codex", "opencode", "pi"]);
 export type TraceHarness = z.infer<typeof traceHarnessSchema>;
 
 export const traceObjectNameSchema = z

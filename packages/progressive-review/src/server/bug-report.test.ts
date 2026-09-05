@@ -214,6 +214,7 @@ describe("submitReviewBugReport", () => {
       has_trace: false,
       parts: [{ field: "payload" }],
     });
+    expect(meta).not.toHaveProperty("description");
     const payloadBytes = capture.filePart("payload");
     expect(JSON.parse(gunzipSync(payloadBytes).toString("utf8"))).toMatchObject(
       {
@@ -223,6 +224,42 @@ describe("submitReviewBugReport", () => {
     );
     expect(meta.parts[0].bytes).toBe(payloadBytes.byteLength);
     expect(meta.parts[0].sha256).toBe(sha256(payloadBytes));
+  });
+
+  it("includes a verbatim meaningful description in report metadata", async () => {
+    writeReview("disabled:review");
+    const description = "First line\nSnow: 雪\nLast line";
+    const capture = captureFetch();
+
+    await submitReviewBugReport({
+      report: report({ description }),
+      reviewDocumentPath: path.join(reviewRootPath, "review.mdx"),
+      reviewRootPath,
+      clientErrorNames: [],
+      fetchImpl: capture.fetchImpl,
+    });
+
+    expect(JSON.parse(capture.textPart("meta"))).toMatchObject({
+      description,
+      description_length: Buffer.byteLength(description),
+    });
+  });
+
+  it("omits a whitespace-only description from report metadata", async () => {
+    writeReview("disabled:review");
+    const capture = captureFetch();
+
+    await submitReviewBugReport({
+      report: report({ description: " \n\t " }),
+      reviewDocumentPath: path.join(reviewRootPath, "review.mdx"),
+      reviewRootPath,
+      clientErrorNames: [],
+      fetchImpl: capture.fetchImpl,
+    });
+
+    const meta = JSON.parse(capture.textPart("meta"));
+    expect(meta).not.toHaveProperty("description");
+    expect(meta.description_length).toBe(4);
   });
 
   it.each([503, 422])(

@@ -41,6 +41,10 @@ import {
   extractTraceEventText,
   parseAgentTraceJsonl,
 } from "./agent-trace-parser";
+import {
+  exportOpenCodeTrace,
+  isOpenCodeSessionId,
+} from "./opencode-trace-export";
 import { devReviewHome } from "./review-storage";
 import { readStoreAuth, requireStoreClient } from "./store-auth";
 import { StoreApiError, type StoreClient } from "./store-client";
@@ -1131,6 +1135,18 @@ export async function findLocalTrace(
       tracePath = path.join(claudeRoot, `${sessionId}.jsonl`);
       harness = "claude";
     }
+  }
+
+  // OpenCode has no transcript file to find; the session is rendered fresh
+  // from its database each time so a sync sees everything up to now.
+  if (!tracePath && isOpenCodeSessionId(sessionId)) {
+    tracePath = await exportOpenCodeTrace({
+      sessionId,
+      root:
+        process.env.TRACE_OPENCODE_TRACES_ROOT ||
+        path.join(devReviewHome(), "opencode-traces"),
+    });
+    if (tracePath) harness = "opencode";
   }
 
   if (!tracePath) return null;

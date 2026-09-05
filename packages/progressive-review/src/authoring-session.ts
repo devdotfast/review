@@ -1,4 +1,4 @@
-export type ReviewAgentHarness = "claude-code" | "codex" | "pi";
+export type ReviewAgentHarness = "claude-code" | "codex" | "opencode" | "pi";
 
 export interface SessionRef {
   harness: ReviewAgentHarness;
@@ -69,7 +69,12 @@ export function resolveAuthoringSessionRef(
 }
 
 function isReviewAgentHarness(value: string): value is ReviewAgentHarness {
-  return value === "claude-code" || value === "codex" || value === "pi";
+  return (
+    value === "claude-code" ||
+    value === "codex" ||
+    value === "opencode" ||
+    value === "pi"
+  );
 }
 
 function readEnvValue(value: string | undefined): string | undefined {

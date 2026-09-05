@@ -473,7 +473,7 @@ export type CreateReviewCommentInput = z.infer<
 >;
 
 export const ReviewCommentAgentSessionSchema = z.strictObject({
-  harness: z.enum(["codex", "claude-code", "pi"]),
+  harness: z.enum(["codex", "claude-code", "opencode", "pi"]),
   sessionId: threadTargetNonEmptyStringSchema,
 });
 export type ReviewCommentAgentSession = z.infer<
@@ -1268,7 +1268,7 @@ export type ReviewDocumentVersionWire = z.infer<
 
 /** The native agent session that authored the review. */
 export const AuthoringAgentSessionSchema = z.strictObject({
-  harness: z.enum(["claude-code", "codex", "pi"]),
+  harness: z.enum(["claude-code", "codex", "opencode", "pi"]),
   sessionId: requiredString,
 });
 export type AuthoringAgentSessionWire = z.infer<
@@ -1362,8 +1362,8 @@ export const ReviewStackResponseSchema = z.strictObject({
 export type ReviewStackResponse = z.infer<typeof ReviewStackResponseSchema>;
 
 export const ReviewCliInstallTargetSchema = z.enum(
-  ["claude", "codex", "cursor", "pi"],
-  { error: "must be claude, codex, cursor, or pi" },
+  ["claude", "codex", "cursor", "opencode", "pi"],
+  { error: "must be claude, codex, cursor, opencode, or pi" },
 );
 export type ReviewCliInstallTarget = z.infer<
   typeof ReviewCliInstallTargetSchema
@@ -1938,12 +1938,14 @@ export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
   z.strictObject({
     name: z.literal("openNativeAgentTerminal"),
     args: z.strictObject({
-      launchId: requiredString,
-      harness: AuthoringAgentSessionSchema.shape.harness,
-      cwd: requiredString,
-      executable: requiredString,
-      args: z.array(z.string()),
-      env: z.record(requiredString, z.string()),
+      /** The native session the terminal runs; the app keys terminals by it. */
+      session: AuthoringAgentSessionSchema,
+      command: z.strictObject({
+        cwd: requiredString,
+        executable: requiredString,
+        args: z.array(z.string()),
+        env: z.record(requiredString, z.string()),
+      }),
     }),
   }),
   // Server-to-app only: mount the (unpromoted) session's document off-screen
@@ -2053,7 +2055,7 @@ export type ReviewAgentTraceEvent = z.infer<typeof ReviewAgentTraceEventSchema>;
 
 export const ReviewAgentTraceSessionSchema = z.strictObject({
   sessionId: requiredString,
-  harness: z.enum(["claude-code", "codex", "pi", "unknown"]),
+  harness: z.enum(["claude-code", "codex", "opencode", "pi", "unknown"]),
   available: z.boolean(),
   source: z.enum(["r2"]).nullable(),
   notSynced: z.boolean().optional(),

@@ -159,7 +159,7 @@ review wait --requires-agent --codex --review <uuid>
 
 Use only one wait command.
 
-- For `awaiting-agent-updates`, read the threads with `review threads list`. Address every open thread. Mark each addressed thread with `review threads resolve <threadId> --review <uuid>`. A document re-publish requires zero open comment threads. Update moved pins with `review scaffold --update` when required. If pins move, dispatch a new map worker with the new pins. Publish the document without waiting for the new map. Then publish the new map after both checks pass.
+- For `awaiting-agent-updates`, read the threads with `review threads list`. Address every open thread. Reply to each addressed thread with `review threads reply <threadId> --body <text> --review <uuid>`, then mark it resolved with `review threads resolve <threadId> --review <uuid>`. A document re-publish requires zero open comment threads and a completed agent response for every current-round reviewer message. Update moved pins with `review scaffold --update` when required. If pins move, dispatch a new map worker with the new pins. Publish the document without waiting for the new map. Then publish the new map after both checks pass.
 - For `review-dismissed` or `review-deleted`, stop the loop.
 - While the status is `awaiting-review`, the reviewer owns the next action.
 

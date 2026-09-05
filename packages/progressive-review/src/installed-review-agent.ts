@@ -10,6 +10,7 @@ const LAUNCHABLE_HARNESS: Partial<
 > = {
   claude: "claude-code",
   codex: "codex",
+  opencode: "opencode",
   pi: "pi",
 };
 

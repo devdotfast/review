@@ -56,6 +56,9 @@ it("refreshes note artifacts without executing authored code in the server", asy
       reviewRootPath: stored.dir,
       routePath: "/",
       token: "secret",
+      agentServer: () => {
+        throw new Error("Refresh must not launch an agent.");
+      },
       openNativeAgentTerminal: async () => {
         throw new Error("Refresh must not launch an agent.");
       },

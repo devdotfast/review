@@ -112,6 +112,12 @@ dispatcher that chains the repository's prior hooks. Jujutsu receives a
 repository commit-trailer template. A target repository needs no Review
 files.
 
+Trace capture hooks each agent's session lifecycle: Claude Code and Codex
+through their hook settings, Pi through a managed extension, and OpenCode
+through a managed `~/.config/opencode/plugins/review-trace.ts` plugin. OpenCode
+keeps sessions in its own database, so `review trace sync` renders one with
+`opencode export` before upload.
+
 Use `review trace status` to inspect the login and the allowed repositories.
 Use `review trace allow`, `review trace deny`, or `review trace repair` only
 when you need to manage the current repository manually.

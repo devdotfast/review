@@ -8,6 +8,28 @@ import { renderReviewNodes } from "./review-document-renderer";
 import { reviewDocumentComponents } from "./review-document-surface";
 
 describe("renderReviewNodes", () => {
+  it.each(["left", "center", "right"])(
+    "renders table alignment %s above the document CSS default",
+    (align) => {
+      for (const tag of ["th", "td"] as const) {
+        const nodes: ReviewNode[] = [
+          {
+            type: "element",
+            tag,
+            props: { align },
+            children: [{ type: "text", value: "Cell" }],
+          },
+        ];
+        const html = renderToStaticMarkup(
+          renderReviewNodes(nodes, reviewDocumentComponents),
+        );
+        expect(html).toContain(`style="text-align:${align}"`);
+        expect(nodes[0]).toMatchObject({ props: { align } });
+        expect(JSON.stringify(nodes)).not.toContain("style");
+      }
+    },
+  );
+
   it("passes prose props through the registry overrides", () => {
     const nodes: ReviewNode[] = [
       {

@@ -76,6 +76,21 @@ function materializeChildren(
     if (isStringValue(child.type)) {
       const elementProps: ReviewElementProps = {};
       for (const [name, value] of Object.entries(props)) {
+        // MDX emits GFM table alignment as a style object. Keep that one
+        // semantic value as a scalar; arbitrary authored styles remain invalid.
+        if (
+          name === "style" &&
+          (child.type === "th" || child.type === "td") &&
+          isObjectValue(value) &&
+          "textAlign" in value &&
+          Object.keys(value).length === 1 &&
+          (value.textAlign === "left" ||
+            value.textAlign === "right" ||
+            value.textAlign === "center")
+        ) {
+          elementProps.align = value.textAlign;
+          continue;
+        }
         if (
           isStringValue(value) ||
           isNumberValue(value) ||

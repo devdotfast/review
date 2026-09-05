@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { chmod, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import * as git from "isomorphic-git";
@@ -70,48 +70,77 @@ export const reviewVcs: ReviewVcs = {
 
   async materialize(dir, revision, destinationPath) {
     const commitId = await resolveCommit(dir, revision);
-    await rm(destinationPath, { recursive: true, force: true });
-    await mkdir(destinationPath, { recursive: true });
-    await git.walk({
-      fs,
-      dir,
-      trees: [git.TREE({ ref: commitId })],
-      map: async (filepath, [entry]) => {
-        if (!entry || filepath === ".") return;
-        const type = await entry.type();
-        if (type === "tree") return;
-        if (type === "commit") {
-          throw new Error(
-            `Cannot materialize Git submodule at ${filepath} from review ${commitId}.`,
-          );
-        }
-        if (type === "special") {
-          throw new Error(
-            `Cannot materialize special file at ${filepath} from review ${commitId}.`,
-          );
-        }
-        const content = await entry.content();
-        if (!content) {
-          throw new Error(
-            `Review ${commitId} has no blob content for ${filepath}.`,
-          );
-        }
-        const outputPath = path.join(destinationPath, filepath);
-        await mkdir(path.dirname(outputPath), { recursive: true });
-        const mode = await entry.mode();
-        if (mode === 0o120000) {
-          if (process.platform === "win32") {
+    // Materialize into a sibling staging directory and rename it into place
+    // as the FINAL step. `rename` is atomic on POSIX, so a partial tree left
+    // by a mid-walk failure (writeFile/content throw, or an external kill) can
+    // never exist under `destinationPath` — only the staging name carries
+    // partial state, and it is cleaned up on the next call. This keeps the
+    // existence-only cache check in `materializePublishRevision` sound: the
+    // final name only ever holds a complete tree.
+    const stagingPath = `${destinationPath}.partial`;
+    await rm(stagingPath, { recursive: true, force: true });
+    await mkdir(stagingPath, { recursive: true });
+    try {
+      await git.walk({
+        fs,
+        dir,
+        trees: [git.TREE({ ref: commitId })],
+        // Walk sibling entries SEQUENTIALLY. isomorphic-git's default
+        // `iterate` runs siblings concurrently through `Promise.all`, which
+        // does not cancel in-flight writes when one entry's `map` rejects —
+        // those writers keep going after this call has already thrown and
+        // race the cleanup `rm(stagingPath)` below. A sequential walk means a
+        // mid-walk failure stops before any further writes start, so the
+        // `finally` cleanup removes a fully quiescent staging tree.
+        iterate: async (walk, children) => {
+          const results: unknown[] = [];
+          for (const child of children) {
+            results.push(await walk(child));
+          }
+          return results;
+        },
+        map: async (filepath, [entry]) => {
+          if (!entry || filepath === ".") return;
+          const type = await entry.type();
+          if (type === "tree") return;
+          if (type === "commit") {
             throw new Error(
-              "Review symlink materialization is unsupported on Windows.",
+              `Cannot materialize Git submodule at ${filepath} from review ${commitId}.`,
             );
           }
-          await symlink(Buffer.from(content).toString("utf8"), outputPath);
-          return;
-        }
-        await writeFile(outputPath, content);
-        if (mode === 0o100755) await chmod(outputPath, 0o755);
-      },
-    });
+          if (type === "special") {
+            throw new Error(
+              `Cannot materialize special file at ${filepath} from review ${commitId}.`,
+            );
+          }
+          const content = await entry.content();
+          if (!content) {
+            throw new Error(
+              `Review ${commitId} has no blob content for ${filepath}.`,
+            );
+          }
+          const outputPath = path.join(stagingPath, filepath);
+          await mkdir(path.dirname(outputPath), { recursive: true });
+          const mode = await entry.mode();
+          if (mode === 0o120000) {
+            if (process.platform === "win32") {
+              throw new Error(
+                "Review symlink materialization is unsupported on Windows.",
+              );
+            }
+            await symlink(Buffer.from(content).toString("utf8"), outputPath);
+            return;
+          }
+          await writeFile(outputPath, content);
+          if (mode === 0o100755) await chmod(outputPath, 0o755);
+        },
+      });
+      await rm(destinationPath, { recursive: true, force: true });
+      await rename(stagingPath, destinationPath);
+    } catch (error) {
+      await rm(stagingPath, { recursive: true, force: true });
+      throw error;
+    }
   },
 };
 

@@ -1485,6 +1485,34 @@ export default defineSoftwareMap({
       "to": "review.reviewApp.diffWorkspace",
       "semanticKind": "uses",
       "label": "reads the changed files"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.publication.preparation",
+      "to": "review.cliPackage.publication.bundler",
+      "semanticKind": "uses",
+      "label": "builds the document module"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.publication.bundler",
+      "to": "review.cliPackage.publication.compiler",
+      "semanticKind": "uses",
+      "label": "checks authored modules"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.publication.preparation",
+      "to": "review.cliPackage.publication.evaluator",
+      "semanticKind": "uses",
+      "label": "evaluates pinned references"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.desktopApp.monacoDiff",
+      "to": "review.desktopApp.stickyScope",
+      "semanticKind": "uses",
+      "label": "native editor contribution available for enclosing scopes"
     }
   ]
 });

@@ -56,6 +56,7 @@ import {
 import { runReviewInfo } from "./review-info";
 import { runReviewInternalTest } from "./review-internal-test";
 import { emitReviewEvent, serializeReviewError } from "./review-logger";
+import { runReviewMcp } from "./review-mcp";
 import { prepareReviewPinnedCheckout } from "./review-prepare";
 import { runReviewPublish } from "./review-publish";
 import { runReviewRebind } from "./review-rebind";
@@ -94,6 +95,7 @@ interface ProgressiveReviewCliRuntime {
   runReviewInfo: typeof runReviewInfo;
   runReviewScaffold: typeof runReviewScaffold;
   runReviewInternalTest: typeof runReviewInternalTest;
+  runReviewMcp: typeof runReviewMcp;
   runReviewPublish: typeof runReviewPublish;
   runReviewRebind: typeof runReviewRebind;
   runReviewThreadsGet: typeof runReviewThreadsGet;
@@ -287,6 +289,16 @@ export async function runProgressiveReviewCli(
     await runtime.runReviewInternalTest(reviewDir ?? cwd);
     state.exitCode = 0;
   });
+
+  program
+    .command("mcp")
+    .description("Serve the Review canvas MCP tools over stdio")
+    .action(async () => {
+      state.exitCode = await runtime.runReviewMcp({
+        stdin: input.stdin ?? process.stdin,
+        stdout: input.stdout,
+      });
+    });
 
   const writeAppEvent = (
     event: ReviewAppLaunchEvent | ReviewAppEvent,
@@ -1255,6 +1267,7 @@ function progressiveReviewCliRuntime(
     runReviewInfo,
     runReviewScaffold,
     runReviewInternalTest,
+    runReviewMcp,
     runReviewPublish,
     runReviewRebind,
     runReviewThreadsGet,

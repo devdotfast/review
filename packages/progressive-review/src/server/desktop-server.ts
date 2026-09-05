@@ -14,6 +14,8 @@ import {
   type ReviewDescriptor,
   type ReviewDesktopDiscovery,
   type ReviewDesktopGlobalEvent,
+  ReviewDocumentFileNameSchema,
+  ReviewDocumentFileWriteSchema,
   type ReviewRecord,
   type ReviewSessionDescriptor,
   type ReviewSessionWire,
@@ -27,6 +29,7 @@ import {
   jsonProperty,
   jsonString,
   parseReviewCliInstallApplyRequest,
+  parseReviewDocumentMutationRequest,
   parseReviewPublishReadyRequest,
   reviewViewSchema,
 } from "@dev.fast/review-protocol";
@@ -41,6 +44,11 @@ import {
   parseAuthoringSessionKey,
   parseFreshSourceSessionHarness,
 } from "../authoring-session";
+import {
+  ReviewDocumentApiError,
+  mutateReviewDocument,
+  readReviewDocumentSnapshot,
+} from "../incremental-review-document";
 import { preferredInstalledReviewAgent } from "../installed-review-agent";
 import { readProgressiveReviewPackageVersion } from "../package-paths";
 import {
@@ -55,6 +63,10 @@ import {
   reviewReapsAt,
   selectReapableReviews,
 } from "../review-attention";
+import {
+  readReviewDocumentFile,
+  writeReviewDocumentFile,
+} from "../review-document-files";
 import { listReviewDocumentVersions } from "../review-document-versions";
 import {
   ensureReviewPinnedCheckout,
@@ -86,6 +98,7 @@ import {
 import { clearReopenPending, markReopenPending } from "../review-reopen-marker";
 import { deleteReviewState } from "../review-state-db";
 import { devReviewHome } from "../review-storage";
+import { ReviewThreadsService } from "../review-threads-service";
 import { readReviewSoftwareMapBundle } from "../software-map-bundle";
 import { createTutorialAuthoringSession } from "../tutorial-authoring-session";
 import type { ReviewSubmissionEvent } from "../types";
@@ -119,6 +132,7 @@ import {
 import { HttpJsonError } from "./http-json";
 import { materializePublishRevision } from "./publish-stage";
 import { captureSanitizedUiTelemetry } from "./review-api";
+import { parseReviewThreadsCommand } from "./review-api-parsers";
 import { resolveReviewInfo } from "./review-info";
 import {
   type ReviewSessionHandler,
@@ -278,6 +292,7 @@ export function createGlobalReviewServer(
   const relay = new GlobalReviewDesktopVerbRelay();
   const sessions = new Map<string, ActiveReviewSession>();
   const reviewLocks = new Map<string, Promise<void>>();
+  const reviewThreads = new Map<string, ReviewThreadsService>();
   const globalClients = new Set<ReviewDesktopEventClient>();
   const tutorial = createTutorialService({
     packageRoot: input.packageRoot,
@@ -389,6 +404,138 @@ export function createGlobalReviewServer(
         ) || left.uuid.localeCompare(right.uuid),
     );
     return globalJson(200, { reviews, errors: listed.errors });
+  });
+  app.get("/reviews/:uuid/document", async (context) => {
+    const review = await requireStoredReview(context.req.param("uuid"));
+    return globalJson(200, {
+      ok: true,
+      snapshot: await readReviewDocumentSnapshot(review),
+    });
+  });
+  app.post("/reviews/:uuid/document/mutations", async (context) => {
+    const uuid = context.req.param("uuid");
+    const review = await requireStoredReview(uuid);
+    if (
+      review.review.status === "accepted" ||
+      review.review.status === "rejected"
+    ) {
+      throw new ReviewServerError(
+        `Review ${uuid} is ${review.review.status}; its document is frozen.`,
+        409,
+        "review_terminal",
+      );
+    }
+    const request = parseReviewDocumentMutationRequest(
+      await readBoundedRequestJson(context.req.raw),
+    );
+    const response = await withReviewLock(uuid, () =>
+      mutateReviewDocument(review, request),
+    );
+    broadcastGlobal({
+      event: "review-document-changed",
+      uuid,
+      routePath: response.snapshot.routePath,
+      revision: response.snapshot.revision,
+      mutationId: request.mutationId,
+    });
+    return globalJson(200, response);
+  });
+  app.get("/reviews/:uuid/document/files/:name", async (context) => {
+    const name = ReviewDocumentFileNameSchema.safeParse(
+      context.req.param("name"),
+    );
+    if (!name.success)
+      throw new ReviewServerError("Unknown document input.", 404);
+    const review = await requireStoredReview(context.req.param("uuid"));
+    return globalJson(200, {
+      ok: true,
+      file: await readReviewDocumentFile(review, name.data),
+    });
+  });
+  app.post("/reviews/:uuid/document/files/:name", async (context) => {
+    const uuid = context.req.param("uuid");
+    const name = ReviewDocumentFileNameSchema.safeParse(
+      context.req.param("name"),
+    );
+    const request = ReviewDocumentFileWriteSchema.safeParse(
+      await readBoundedRequestJson(context.req.raw),
+    );
+    if (!name.success)
+      throw new ReviewServerError("Unknown document input.", 404);
+    if (!request.success)
+      throw new ReviewServerError(request.error.message, 400);
+    const file = await withReviewLock(uuid, async () => {
+      const review = await requireStoredReview(uuid);
+      if (
+        review.review.status === "accepted" ||
+        review.review.status === "rejected"
+      ) {
+        throw new ReviewServerError(
+          `Review ${uuid} is frozen.`,
+          409,
+          "review_terminal",
+        );
+      }
+      return writeReviewDocumentFile(review, name.data, request.data);
+    });
+    // Rich MDX is compiled and presented by the existing publish operation.
+    return globalJson(200, { ok: true, file });
+  });
+  app.get("/reviews/:uuid/comments", async (context) => {
+    const review = await requireStoredReview(context.req.param("uuid"));
+    return globalJson(200, {
+      ok: true,
+      snapshot: threadsForReview(review).snapshot(),
+    });
+  });
+  app.post("/reviews/:uuid/thread-commands", async (context) => {
+    const uuid = context.req.param("uuid");
+    const review = await requireStoredReview(uuid);
+    const command = parseReviewThreadsCommand(
+      await readBoundedRequestJson(context.req.raw),
+    );
+    const commit = await withReviewLock(uuid, async () =>
+      threadsForReview(review).dispatch(command),
+    );
+    return globalJson(
+      commit ? 200 : 404,
+      commit
+        ? { ok: true, commit }
+        : { ok: false, error: "Comment thread not found." },
+    );
+  });
+  app.post("/reviews/:uuid/comments/:threadId/replies", async (context) => {
+    const uuid = context.req.param("uuid");
+    const review = await requireStoredReview(uuid);
+    const value = await readBoundedRequestJson(context.req.raw);
+    const body = isJsonObject(value) ? value : {};
+    const mutationId = jsonString(body.mutationId);
+    const messageId = jsonString(body.messageId);
+    const text = jsonString(body.body)?.trim();
+    const author = jsonString(body.author)?.trim() || "Agent";
+    if (!mutationId || !messageId || !text) {
+      throw new ReviewServerError(
+        "mutationId, messageId, and body are required.",
+        400,
+        "invalid_reply",
+      );
+    }
+    const commit = await withReviewLock(uuid, async () =>
+      threadsForReview(review).appendAgentMessage({
+        mutationId,
+        threadId: context.req.param("threadId"),
+        messageId,
+        author,
+        body: text,
+        format: "plain",
+      }),
+    );
+    return globalJson(
+      commit ? 200 : 404,
+      commit
+        ? { ok: true, commit }
+        : { ok: false, error: "Comment thread not found." },
+    );
   });
   app.get("/sessions", () =>
     globalJson(200, {
@@ -872,7 +1019,8 @@ export function createGlobalReviewServer(
   app.onError((error) => {
     const serverError =
       error instanceof ReviewServerError ||
-      error instanceof ReviewOpenThreadsError
+      error instanceof ReviewOpenThreadsError ||
+      error instanceof ReviewDocumentApiError
         ? error
         : undefined;
     const message = toError(error).message;
@@ -1522,6 +1670,36 @@ export function createGlobalReviewServer(
     await tutorial.cleanup();
   }
 
+  async function requireStoredReview(uuid: string): Promise<StoredReview> {
+    if (!UUID_PATTERN.test(uuid)) {
+      throw new ReviewServerError("Review not found.", 404);
+    }
+    const review = await findReview(uuid);
+    if (!review) throw new ReviewServerError("Review not found.", 404);
+    return review;
+  }
+
+  function threadsForReview(review: StoredReview): ReviewThreadsService {
+    const existing = reviewThreads.get(review.review.uuid);
+    if (existing) return existing;
+    const service = new ReviewThreadsService({
+      reviewPath: path.join(review.dir, "review.mdx"),
+      author: process.env.USER ?? "Reviewer",
+      onCommit: (commit) => {
+        broadcastGlobal({
+          event: "review-threads-committed",
+          uuid: review.review.uuid,
+          commit,
+          commentCount: countReviewComments(
+            path.join(review.dir, "review.mdx"),
+          ),
+        });
+      },
+    });
+    reviewThreads.set(review.review.uuid, service);
+    return service;
+  }
+
   async function deleteReviewByUuid(uuid: string): Promise<void> {
     // Deletion bypasses findReview on purpose: a review with a corrupt
     // review.json must still be deletable.
@@ -1543,6 +1721,7 @@ export function createGlobalReviewServer(
       );
       await rm(dir, { recursive: true, force: true });
       deleteReviewState(dir);
+      reviewThreads.delete(uuid);
       const worktreePath = open[0]?.review.review.worktreePath;
       if (worktreePath) {
         await clearReopenPending(worktreePath).catch(() => undefined);
@@ -1572,6 +1751,7 @@ export function createGlobalReviewServer(
     });
     await rm(review.dir, { recursive: true, force: true });
     deleteReviewState(review.dir);
+    reviewThreads.delete(review.review.uuid);
     await clearReopenPending(review.review.worktreePath).catch(() => undefined);
     broadcastGlobal({ event: "review-deleted", uuid: review.review.uuid });
   }
@@ -1686,6 +1866,7 @@ export function createGlobalReviewServer(
       reviewPath: registration.documentPath,
       softwareMapRootPath: registration.softwareMapRootPath,
       stateReviewPath: path.join(registration.review.dir, "review.mdx"),
+      threadsService: threadsForReview(registration.review),
       routePath: "/",
       token,
       sessionId,
@@ -1704,17 +1885,6 @@ export function createGlobalReviewServer(
           event: "review-data-changed",
           uuid: registration.review.review.uuid,
           sessionId,
-        });
-      },
-      onReviewThreadsCommit: (commit) => {
-        broadcastGlobal({
-          event: "review-threads-committed",
-          uuid: registration.review.review.uuid,
-          sessionId,
-          commit,
-          commentCount: countReviewComments(
-            path.join(registration.review.dir, "review.mdx"),
-          ),
         });
       },
       runReviewThreadMutation: (operation) =>
@@ -2115,6 +2285,7 @@ export function createGlobalReviewServer(
       relay.close();
       for (const client of globalClients) client.close();
       globalClients.clear();
+      reviewThreads.clear();
       await closeHttpServer(httpServer);
       await telemetry.shutdown(1_500);
     },

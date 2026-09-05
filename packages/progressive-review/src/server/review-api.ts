@@ -197,6 +197,7 @@ interface ReviewApiOptions {
   reviewRootPath?: string;
   toolingRoot: string;
   stateReviewPath?: string;
+  threadsService?: ReviewThreadsService;
   telemetry?: ReviewTelemetryCapture;
   onSubmission?: (event: ReviewSubmissionEvent) => void | Promise<void>;
   onReviewDismiss?: () => void | Promise<void>;
@@ -279,11 +280,13 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   const threadsFor = (writableReviewPath: string): ReviewThreadsService => {
     let service = threadServices.get(writableReviewPath);
     if (!service) {
-      service = new ReviewThreadsService({
-        reviewPath: writableReviewPath,
-        author: process.env.USER ?? "Reviewer",
-        onCommit: onReviewThreadsCommit,
-      });
+      service =
+        options.threadsService ??
+        new ReviewThreadsService({
+          reviewPath: writableReviewPath,
+          author: process.env.USER ?? "Reviewer",
+          onCommit: onReviewThreadsCommit,
+        });
       threadServices.set(writableReviewPath, service);
       const snapshot = service.snapshot();
       const hasAgentSession =

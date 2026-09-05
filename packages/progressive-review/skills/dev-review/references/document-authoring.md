@@ -43,8 +43,8 @@ Do not invent user-impact risks. Ask the user when risk depends on product usage
 
 Agents can edit only these Review files:
 
-- `review.mdx` is the presentation layer.
-- `data.ts` contains typed document inputs.
+- `review.mdx` is the presentation layer. Read and write it through `review_get_document_file` / `review_write_document_file`, never direct filesystem access.
+- `data.ts` contains typed document inputs. Use the same API tools with `name: "data.ts"`. Read first and pass its `sourceHash` as `expectedSourceHash` when writing (null for a missing input). Publish after all inputs are updated.
 
 Do not edit `review.json`, `review.db`, `.bundle/`, `.build/`, or the private Review `.git/` directory.
 

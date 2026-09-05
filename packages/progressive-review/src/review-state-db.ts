@@ -6,6 +6,8 @@ import { DatabaseSync } from "node:sqlite";
 import type { JsonValue } from "@dev.fast/review-protocol";
 import { parseJsonText } from "@dev.fast/review-protocol";
 
+import { requireCurrentThreadDbSchema } from "./review-thread-db-schema";
+
 export const REVIEW_STATE_DB_FILENAME = "review.db";
 export const REVIEW_STATE_DB_SCHEMA_VERSION = 1;
 
@@ -169,10 +171,6 @@ export function putReviewRecord(
          review_dir = excluded.review_dir,
          record_json = excluded.record_json`,
     ).run(reviewId, path.resolve(reviewDir), recordJson);
-    db.prepare(
-      `INSERT INTO legacy_review_imports (review_id, imported_at) VALUES (?, ?)
-       ON CONFLICT(review_id) DO NOTHING`,
-    ).run(reviewId, new Date().toISOString());
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
@@ -184,16 +182,21 @@ export function readReviewRecord(
   reviewDir: string,
   home = defaultReviewHome(),
 ): JsonValue | null {
-  importLegacyReview(reviewDir, home);
   const dbPath = reviewStateDbPath(home);
-  if (!existsSync(dbPath)) return null;
+  const recordPath = path.join(reviewDir, "review.json");
+  if (!existsSync(dbPath) && !existsSync(recordPath)) return null;
   // SAFETY: reviews.record_json is a nullable TEXT column in the schema above.
   const row = openReviewStateDb(home)
     .prepare("SELECT record_json FROM reviews WHERE review_id = ?")
     .get(reviewIdForDir(reviewDir)) as
     | { record_json: string | null }
     | undefined;
-  return row?.record_json ? parseJsonText(row.record_json) : null;
+  if (row?.record_json) return parseJsonText(row.record_json);
+  if (!existsSync(recordPath)) return null;
+  // Discovery must not import comment records before their schema migration.
+  const record = parseJsonText(readFileSync(recordPath, "utf8"));
+  putReviewRecord(reviewDir, record, home);
+  return record;
 }
 
 export function importLegacyReview(
@@ -219,6 +222,12 @@ export function importLegacyReview(
   const legacy = existsSync(legacyDbPath)
     ? new DatabaseSync(legacyDbPath, { readOnly: true })
     : null;
+  try {
+    if (legacy) requireCurrentThreadDbSchema(legacy, legacyDbPath);
+  } catch (error) {
+    legacy?.close();
+    throw error;
+  }
   db.exec("BEGIN IMMEDIATE");
   try {
     db.prepare(
@@ -278,6 +287,135 @@ export function deleteReviewState(
   openReviewStateDb(home)
     .prepare("DELETE FROM reviews WHERE review_id = ?")
     .run(reviewIdForDir(reviewDir));
+}
+
+export interface StoredReviewDocumentState {
+  mode: "compiled" | "incremental";
+  revision: number;
+  sourceHash: string | null;
+  projection: JsonValue | null;
+}
+
+export function readReviewDocumentState(
+  reviewDir: string,
+  routePath: string,
+): StoredReviewDocumentState | null {
+  importLegacyReview(reviewDir);
+  // SAFETY: the selected columns use the exact TEXT/INTEGER schema declared
+  // above; projection_json and source_hash are the only nullable columns.
+  const row = openReviewStateDb()
+    .prepare(
+      `SELECT mode, revision, source_hash, projection_json
+       FROM documents WHERE review_id = ? AND route_path = ?`,
+    )
+    .get(reviewIdForDir(reviewDir), routePath) as
+    | {
+        mode: "compiled" | "incremental";
+        revision: number;
+        source_hash: string | null;
+        projection_json: string | null;
+      }
+    | undefined;
+  if (!row) return null;
+  return {
+    mode: row.mode,
+    revision: row.revision,
+    sourceHash: row.source_hash,
+    projection: row.projection_json ? parseJsonText(row.projection_json) : null,
+  };
+}
+
+export function putReviewDocumentState(
+  reviewDir: string,
+  routePath: string,
+  state: StoredReviewDocumentState,
+): void {
+  ensureReviewRegistration(reviewDir);
+  openReviewStateDb()
+    .prepare(
+      `INSERT INTO documents
+       (review_id, route_path, mode, revision, source_hash, projection_json)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(review_id, route_path) DO UPDATE SET
+         mode = excluded.mode,
+         revision = excluded.revision,
+         source_hash = excluded.source_hash,
+         projection_json = excluded.projection_json`,
+    )
+    .run(
+      reviewIdForDir(reviewDir),
+      routePath,
+      state.mode,
+      state.revision,
+      state.sourceHash,
+      state.projection === null ? null : JSON.stringify(state.projection),
+    );
+}
+
+export function readReviewMutationReceipt(
+  reviewDir: string,
+  mutationId: string,
+): JsonValue | null {
+  importLegacyReview(reviewDir);
+  // SAFETY: mutation_receipts.response_json is declared TEXT NOT NULL.
+  const row = openReviewStateDb()
+    .prepare(
+      "SELECT response_json FROM mutation_receipts WHERE review_id = ? AND mutation_id = ?",
+    )
+    .get(reviewIdForDir(reviewDir), mutationId) as
+    | { response_json: string }
+    | undefined;
+  return row ? parseJsonText(row.response_json) : null;
+}
+
+export function commitReviewDocumentMutation(input: {
+  reviewDir: string;
+  routePath: string;
+  mutationId: string;
+  state: StoredReviewDocumentState;
+  response: JsonValue;
+  createdAt: string;
+}): void {
+  ensureReviewRegistration(input.reviewDir);
+  const db = openReviewStateDb();
+  const reviewId = reviewIdForDir(input.reviewDir);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.prepare(
+      `INSERT INTO documents
+       (review_id, route_path, mode, revision, source_hash, projection_json)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(review_id, route_path) DO UPDATE SET
+         mode = excluded.mode,
+         revision = excluded.revision,
+         source_hash = excluded.source_hash,
+         projection_json = excluded.projection_json`,
+    ).run(
+      reviewId,
+      input.routePath,
+      input.state.mode,
+      input.state.revision,
+      input.state.sourceHash,
+      input.state.projection === null
+        ? null
+        : JSON.stringify(input.state.projection),
+    );
+    db.prepare(
+      `INSERT INTO mutation_receipts
+       (review_id, mutation_id, revision, response_json, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(
+      reviewId,
+      input.mutationId,
+      input.state.revision,
+      JSON.stringify(input.response),
+      input.createdAt,
+    );
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
 }
 
 export function closeAllReviewStateDatabases(): void {

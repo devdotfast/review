@@ -21,6 +21,12 @@ import {
   ReviewDesktopVerbResultSchema,
   type ReviewDiffFilesResponse,
   ReviewDiffFilesResponseSchema,
+  type ReviewDocumentMutationRequest,
+  ReviewDocumentMutationRequestSchema,
+  type ReviewDocumentMutationResponse,
+  ReviewDocumentMutationResponseSchema,
+  type ReviewDocumentSnapshotResponse,
+  ReviewDocumentSnapshotResponseSchema,
   type ReviewFileContentRequest,
   ReviewFileContentRequestSchema,
   type ReviewFileContentResponse,
@@ -119,6 +125,24 @@ export function parseReviewDiffFilesResponse(
   value: JsonValue,
 ): ReviewDiffFilesResponse {
   return parseZod(ReviewDiffFilesResponseSchema, value);
+}
+
+export function parseReviewDocumentMutationRequest(
+  value: JsonValue,
+): ReviewDocumentMutationRequest {
+  return parseZod(ReviewDocumentMutationRequestSchema, value);
+}
+
+export function parseReviewDocumentSnapshotResponse(
+  value: JsonValue,
+): ReviewDocumentSnapshotResponse {
+  return parseZod(ReviewDocumentSnapshotResponseSchema, value);
+}
+
+export function parseReviewDocumentMutationResponse(
+  value: JsonValue,
+): ReviewDocumentMutationResponse {
+  return parseZod(ReviewDocumentMutationResponseSchema, value);
 }
 
 export function parseReviewFileContentResponse(

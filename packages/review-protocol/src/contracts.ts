@@ -664,6 +664,101 @@ export const ReviewThreadsCommandSchema = z.discriminatedUnion("command", [
 ]);
 export type ReviewThreadsCommand = z.infer<typeof ReviewThreadsCommandSchema>;
 
+const reviewNodeIdSchema = z
+  .string({ error: "must be a stable node ID" })
+  .regex(/^[A-Za-z][A-Za-z0-9._-]{0,127}$/, "must be a stable node ID");
+
+export const ReviewDocumentNodeSchema = z.strictObject({
+  id: reviewNodeIdSchema,
+  kind: z.enum(["markdown", "callout", "code"]),
+  content: z.string(),
+  title: z.string().optional(),
+  tone: z.enum(["info", "warning", "success", "danger"]).optional(),
+  language: z.string().optional(),
+});
+export type ReviewDocumentNode = z.infer<typeof ReviewDocumentNodeSchema>;
+
+export const ReviewDocumentSnapshotSchema = z.strictObject({
+  reviewId: z.uuid({ error: "must be a UUID" }),
+  routePath: routePathSchema,
+  mode: z.enum(["compiled", "incremental"]),
+  revision: nonNegativeInteger,
+  sourceHash: requiredString,
+  source: z.string(),
+  nodes: z.array(ReviewDocumentNodeSchema).nullable(),
+});
+export type ReviewDocumentSnapshot = z.infer<
+  typeof ReviewDocumentSnapshotSchema
+>;
+
+// Rich MDX authoring exposes only its two authored inputs, never arbitrary paths.
+export const ReviewDocumentFileNameSchema = z.enum(["review.mdx", "data.ts"]);
+export type ReviewDocumentFileName = z.infer<
+  typeof ReviewDocumentFileNameSchema
+>;
+export const ReviewDocumentFileSchema = z.strictObject({
+  name: ReviewDocumentFileNameSchema,
+  source: z.string().nullable(),
+  sourceHash: requiredString.nullable(),
+});
+export type ReviewDocumentFile = z.infer<typeof ReviewDocumentFileSchema>;
+export const ReviewDocumentFileWriteSchema = z.strictObject({
+  source: z.string(),
+  expectedSourceHash: requiredString.nullable(),
+});
+export type ReviewDocumentFileWrite = z.infer<
+  typeof ReviewDocumentFileWriteSchema
+>;
+
+const ReviewDocumentNodePatchSchema = z
+  .strictObject({
+    kind: ReviewDocumentNodeSchema.shape.kind.optional(),
+    content: z.string().optional(),
+    title: z.string().nullable().optional(),
+    tone: ReviewDocumentNodeSchema.shape.tone.nullable().optional(),
+    language: z.string().nullable().optional(),
+  })
+  .refine((patch) => Object.keys(patch).length > 0, "must not be empty");
+
+export const ReviewDocumentOperationSchema = z.discriminatedUnion("type", [
+  z.strictObject({
+    type: z.literal("replace"),
+    nodes: z.array(ReviewDocumentNodeSchema),
+  }),
+  z.strictObject({
+    type: z.literal("insert"),
+    index: nonNegativeInteger,
+    node: ReviewDocumentNodeSchema,
+  }),
+  z.strictObject({
+    type: z.literal("update"),
+    nodeId: reviewNodeIdSchema,
+    patch: ReviewDocumentNodePatchSchema,
+  }),
+  z.strictObject({
+    type: z.literal("delete"),
+    nodeId: reviewNodeIdSchema,
+  }),
+  z.strictObject({
+    type: z.literal("move"),
+    nodeId: reviewNodeIdSchema,
+    index: nonNegativeInteger,
+  }),
+]);
+export type ReviewDocumentOperation = z.infer<
+  typeof ReviewDocumentOperationSchema
+>;
+
+export const ReviewDocumentMutationRequestSchema = z.strictObject({
+  mutationId: threadTargetNonEmptyStringSchema,
+  expectedRevision: nonNegativeInteger,
+  expectedSourceHash: requiredString.optional(),
+  operation: ReviewDocumentOperationSchema,
+});
+export type ReviewDocumentMutationRequest = z.infer<
+  typeof ReviewDocumentMutationRequestSchema
+>;
+
 export interface ReviewLocalCommentThread {
   clientStatus: "draft" | "submitting";
   thread: ReviewCommentThreadRecord;
@@ -1263,6 +1358,37 @@ export const ReviewErrorResponseSchema = z.strictObject({
 });
 export type ReviewErrorResponse = z.infer<typeof ReviewErrorResponseSchema>;
 
+export const ReviewDocumentFileResponseSchema = z.discriminatedUnion("ok", [
+  z.strictObject({ ok: z.literal(true), file: ReviewDocumentFileSchema }),
+  ReviewErrorResponseSchema,
+]);
+export type ReviewDocumentFileResponse = z.infer<
+  typeof ReviewDocumentFileResponseSchema
+>;
+
+export const ReviewDocumentSnapshotResponseSchema = z.discriminatedUnion("ok", [
+  z.strictObject({
+    ok: z.literal(true),
+    snapshot: ReviewDocumentSnapshotSchema,
+  }),
+  ReviewErrorResponseSchema,
+]);
+export type ReviewDocumentSnapshotResponse = z.infer<
+  typeof ReviewDocumentSnapshotResponseSchema
+>;
+
+export const ReviewDocumentMutationResponseSchema = z.discriminatedUnion("ok", [
+  z.strictObject({
+    ok: z.literal(true),
+    mutationId: threadTargetNonEmptyStringSchema,
+    snapshot: ReviewDocumentSnapshotSchema,
+  }),
+  ReviewErrorResponseSchema,
+]);
+export type ReviewDocumentMutationResponse = z.infer<
+  typeof ReviewDocumentMutationResponseSchema
+>;
+
 export const ReviewThreadsSnapshotResponseSchema = z.discriminatedUnion("ok", [
   z.strictObject({
     ok: z.literal(true),
@@ -1533,9 +1659,16 @@ export const ReviewDesktopGlobalEventSchema = z.discriminatedUnion("event", [
   z.strictObject({
     event: z.literal("review-threads-committed"),
     uuid: z.uuid({ error: "must be a UUID" }),
-    sessionId: requiredString,
+    sessionId: requiredString.optional(),
     commit: ReviewThreadsCommitSchema,
     commentCount: nonNegativeInteger,
+  }),
+  z.strictObject({
+    event: z.literal("review-document-changed"),
+    uuid: z.uuid({ error: "must be a UUID" }),
+    routePath: routePathSchema,
+    revision: nonNegativeInteger,
+    mutationId: threadTargetNonEmptyStringSchema,
   }),
   z.strictObject({
     event: z.literal("session-closed"),

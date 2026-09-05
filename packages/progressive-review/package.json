@@ -62,6 +62,8 @@
     "app:desktop:build": "vite build --config app/desktop.vite.config.ts",
     "map": "tsx src/map-cli-entry.ts",
     "review": "tsx src/cli.ts",
+    "fixtures:capture-legacy-review": "tsx scripts/capture-legacy-review-fixture.ts",
+    "fixtures:legacy-review-goldens": "tsx scripts/generate-legacy-review-goldens.ts",
     "test": "vitest run --config vitest.config.ts",
     "test:telemetry-privacy": "vitest run --config vitest.config.ts src/ui-telemetry-events.test.ts src/error-telemetry.test.ts",
     "typecheck": "pnpm -w exec tsc --noEmit -p packages/progressive-review"

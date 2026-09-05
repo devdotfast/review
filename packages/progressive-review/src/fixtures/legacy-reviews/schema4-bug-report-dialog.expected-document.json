@@ -1,0 +1,732 @@
+{
+  "format": "review-document/1",
+  "title": "Bug reports: screenshots and simpler consent",
+  "routePath": "/",
+  "sourcePath": "review.mdx",
+  "body": [
+    {
+      "type": "element",
+      "tag": "h1",
+      "props": {
+        "data-review-block-index": "0",
+        "data-review-block-tag": "h1"
+      },
+      "children": [
+        {
+          "type": "text",
+          "value": "Bug reports: screenshots and simpler consent"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "value": "\n"
+    },
+    {
+      "type": "element",
+      "tag": "p",
+      "props": {
+        "data-review-block-index": "1",
+        "data-review-block-tag": "p"
+      },
+      "children": [
+        {
+          "type": "text",
+          "value": "Bug reporting now starts with useful context and needs no written description. The tutorial keeps the Report bug and Version history controls visible, but disabled."
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "value": "\n"
+    },
+    {
+      "type": "component",
+      "name": "ReviewSection",
+      "props": {
+        "title": "Interface change"
+      },
+      "children": [
+        {
+          "type": "element",
+          "tag": "h2",
+          "props": {
+            "data-review-block-index": "2",
+            "data-review-block-tag": "h2"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Interface change"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "3",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "The dialog captures the Review window before it opens. It shows the JPEG as a removable preview. A user can replace it by pasting or dropping a PNG, JPEG, or WebP image."
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "4",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "The form has two attachment choices:"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "ul",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "5",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "element",
+                  "tag": "strong",
+                  "props": {},
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "Review"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "value": " sends both "
+                },
+                {
+                  "type": "element",
+                  "tag": "code",
+                  "props": {},
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "include_review"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "value": " and "
+                },
+                {
+                  "type": "element",
+                  "tag": "code",
+                  "props": {},
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "include_map"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "value": "."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "6",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "element",
+                  "tag": "strong",
+                  "props": {},
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "Changed-file diffs used by CodePeeks"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "value": " sends "
+                },
+                {
+                  "type": "element",
+                  "tag": "code",
+                  "props": {},
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "include_diff"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "value": "."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "7",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "The request keeps the existing wire flags and adds one optional field:"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "pre",
+          "props": {
+            "data-review-block-index": "8",
+            "data-review-block-tag": "pre"
+          },
+          "children": [
+            {
+              "type": "element",
+              "tag": "code",
+              "props": {
+                "className": "language-json"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "{\n  \"description\": \"\",\n  \"include_review\": true,\n  \"include_map\": true,\n  \"include_diff\": true,\n  \"screenshot\": {\n    \"mime\": \"image/jpeg\",\n    \"base64\": \"...\"\n  }\n}\n"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "value": "\n"
+    },
+    {
+      "type": "component",
+      "name": "ReviewSection",
+      "props": {
+        "title": "Screenshot flow"
+      },
+      "children": [
+        {
+          "type": "element",
+          "tag": "h2",
+          "props": {
+            "data-review-block-index": "9",
+            "data-review-block-tag": "h2"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Screenshot flow"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "ol",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "10",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Review Desktop captures the window through the host screenshot service."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "11",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "The canvas limits the longest edge to 1600 pixels and re-encodes at JPEG quality 0.8."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "12",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "The local API accepts at most 6 MiB of JSON and validates a decoded screenshot limit of 3 MiB."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "13",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Submission sends the existing gzipped multipart payload to the bug service."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "14",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "If the multipart payload is too large, the server drops diff, map, screenshot, then Review source. Metadata records whether the screenshot was sent or truncated."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "15",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Capture failure and a 1.5 second timeout are non-blocking. The dialog still opens, and paste or drop remains available."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "value": "\n"
+    },
+    {
+      "type": "component",
+      "name": "ReviewSection",
+      "props": {
+        "title": "Tutorial behavior"
+      },
+      "children": [
+        {
+          "type": "element",
+          "tag": "h2",
+          "props": {
+            "data-review-block-index": "16",
+            "data-review-block-tag": "h2"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Tutorial behavior"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "17",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Report bug and Version history use the same disabled visual state during the tutorial. The controls do not capture, load revisions, emit open telemetry, or open a dialog or menu."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "value": "\n"
+    },
+    {
+      "type": "component",
+      "name": "ReviewSection",
+      "props": {
+        "title": "Testing"
+      },
+      "children": [
+        {
+          "type": "element",
+          "tag": "h2",
+          "props": {
+            "data-review-block-index": "18",
+            "data-review-block-tag": "h2"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Testing"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "ul",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "19",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Protocol build, protocol synchronization, and 133 Review Desktop tests passed. One existing test stayed skipped."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "20",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "TypeScript typecheck passed."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "21",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "All 25 focused dialog, tutorial-control, and request-parser tests passed."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "22",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "The production desktop canvas build passed."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "23",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Focused formatting and lint checks passed."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "24",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "The parallel full progressive-review run still trips three unrelated "
+            },
+            {
+              "type": "element",
+              "tag": "code",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "review-info"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " cases. That file passes all 22 tests when run alone."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "value": "\n"
+    },
+    {
+      "type": "component",
+      "name": "ReviewSection",
+      "props": {
+        "title": "Decision log"
+      },
+      "children": [
+        {
+          "type": "element",
+          "tag": "h2",
+          "props": {
+            "data-review-block-index": "25",
+            "data-review-block-tag": "h2"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Decision log"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "ul",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "26",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "The description is optional."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "27",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "The label is "
+                },
+                {
+                  "type": "element",
+                  "tag": "strong",
+                  "props": {},
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "Review"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "value": ", but it still drives both Review and software-map wire flags."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "28",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Automatic capture happens before the dialog renders, so the dialog is not in its own screenshot."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "29",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "The screenshot is attached by default and can be removed."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "30",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Tutorial controls stay visible and grey instead of disappearing."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "anchors": {},
+  "anchorContents": {},
+  "softwareModels": []
+}

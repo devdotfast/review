@@ -33,6 +33,7 @@ const TARGET_LABELS: Readonly<Record<ReviewCliInstallTarget, string>> = {
 	claude: 'Claude Code',
 	codex: 'Codex',
 	cursor: 'Cursor',
+	opencode: 'OpenCode',
 	pi: 'Pi',
 };
 

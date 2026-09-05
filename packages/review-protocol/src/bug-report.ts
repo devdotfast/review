@@ -64,7 +64,9 @@ export const ReviewBugReportMetaV2Schema = z
     has_diff: z.boolean(),
     has_screenshot: z.boolean(),
     has_trace: z.boolean(),
-    trace_harness: z.enum(["claude-code", "codex", "pi"]).optional(),
+    trace_harness: z
+      .enum(["claude-code", "codex", "opencode", "pi"])
+      .optional(),
     payload_bytes: z
       .number()
       .int()

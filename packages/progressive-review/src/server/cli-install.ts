@@ -56,6 +56,7 @@ const AGENT_HOME_DIR: Record<InstallTarget, string> = {
   claude: ".claude",
   codex: ".codex",
   cursor: ".cursor",
+  opencode: ".config/opencode",
   pi: ".pi",
 };
 const SHIM_MARKER = "Managed by Review Desktop";
@@ -430,8 +431,9 @@ export async function removeCliInstall(input: {
 
 /**
  * Fingerprint of everything the app distributes: the package version, the
- * built CLI, and the skill sources. Content-based so it works identically in
- * a dev checkout and a packaged review-runtime, with no build-time stamping.
+ * built CLI, skill sources, and agent integrations. Content-based so it works
+ * identically in a dev checkout and a packaged review-runtime, with no
+ * build-time stamping.
  */
 export async function installFingerprint(packageRoot: string): Promise<string> {
   const hash = createHash("sha256");
@@ -441,6 +443,13 @@ export async function installFingerprint(packageRoot: string): Promise<string> {
   hash.update(await readTextIfExists(cliPath));
   for (const file of await listFilesRecursive(
     path.join(packageRoot, "skills"),
+  )) {
+    hash.update(`${file.relPath}\0`);
+    hash.update(await readFile(file.absPath));
+    hash.update("\0");
+  }
+  for (const file of await listFilesRecursive(
+    path.join(packageRoot, "plugins"),
   )) {
     hash.update(`${file.relPath}\0`);
     hash.update(await readFile(file.absPath));

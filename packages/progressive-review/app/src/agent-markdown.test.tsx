@@ -99,4 +99,126 @@ describe("agent markdown", () => {
 
     expect(html).toContain("a &amp; b &gt; c");
   });
+
+  it("renders reference-style links as clickable anchors", () => {
+    const full = renderToStaticMarkup(
+      createElement(AgentMarkdown, {
+        source: "[see docs][1]\n\n[1]: https://example.com/docs",
+      }),
+    );
+    expect(full).toContain('href="https://example.com/docs"');
+    expect(full).toContain('target="_blank"');
+    expect(full).toContain('rel="noopener noreferrer"');
+    expect(full).toContain(">see docs</a>");
+
+    const collapsed = renderToStaticMarkup(
+      createElement(AgentMarkdown, {
+        source: "[see docs]\n\n[see docs]: https://example.com/collapsed",
+      }),
+    );
+    expect(collapsed).toContain('href="https://example.com/collapsed"');
+    expect(collapsed).toContain(">see docs</a>");
+
+    const shortcut = renderToStaticMarkup(
+      createElement(AgentMarkdown, {
+        source: "[docs]\n\n[docs]: https://example.com/shortcut",
+      }),
+    );
+    expect(shortcut).toContain('href="https://example.com/shortcut"');
+    expect(shortcut).toContain(">docs</a>");
+  });
+
+  it("renders image references as italicized alt text like inline images", () => {
+    const html = renderToStaticMarkup(
+      createElement(AgentMarkdown, {
+        source: "![alt text][img]\n\n[img]: https://example.com/x.png",
+      }),
+    );
+    expect(html).toContain("<em>alt text</em>");
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain("https://example.com/x.png");
+  });
+
+  it("renders local filesystem reference links as non-clickable code references", () => {
+    const html = renderToStaticMarkup(
+      createElement(AgentMarkdown, {
+        source: [
+          "[App.test.ts:49][1]",
+          "",
+          "[1]: /Users/ketanagrawal/monorepo/App.test.ts:49",
+          "",
+          "[styles][2]",
+          "",
+          "[2]: file:///Users/k/styles.css",
+        ].join("\n"),
+      }),
+    );
+
+    expect(html).not.toContain("href=");
+    expect(html).not.toContain("file://");
+    expect(html).not.toContain("/Users/k");
+    expect(html).toContain(
+      '<code class="agent-markdown-code-reference">App.test.ts:49</code>',
+    );
+    expect(html).toContain(
+      '<code class="agent-markdown-code-reference">styles</code>',
+    );
+  });
+
+  it("does not emit unsafe reference link URLs as href", () => {
+    const html = renderToStaticMarkup(
+      createElement(AgentMarkdown, {
+        source: "[evil][1]\n\n[1]: javascript:alert(1)",
+      }),
+    );
+
+    expect(html).not.toContain("javascript:");
+    expect(html).not.toContain("href=");
+    expect(html).toContain("evil");
+  });
+
+  it("renders unresolved references as literal text without an href", () => {
+    const html = renderToStaticMarkup(
+      createElement(AgentMarkdown, {
+        source: "[nope][missing]\n\n[other]: https://example.com/other",
+      }),
+    );
+
+    expect(html).toContain("[nope][missing]");
+    expect(html).not.toContain("href=");
+  });
+
+  it("resolves reference links nested inside block quotes", () => {
+    const html = renderToStaticMarkup(
+      createElement(AgentMarkdown, {
+        source: "> [see docs][1]\n>\n> [1]: https://example.com/bq",
+      }),
+    );
+    expect(html).toContain('href="https://example.com/bq"');
+    expect(html).toContain(">see docs</a>");
+  });
+
+  it("resolves reference links inside table cells", () => {
+    const html = renderToStaticMarkup(
+      createElement(AgentMarkdown, {
+        source:
+          "| col |\n| --- |\n| [link][1] |\n\n[1]: https://example.com/table",
+      }),
+    );
+    expect(html).toContain('href="https://example.com/table"');
+    expect(html).toContain(">link</a>");
+  });
+
+  it("highlights quote spans inside reference link labels", () => {
+    const html = renderToStaticMarkup(
+      createElement(AgentMarkdown, {
+        source: "[see docs][1]\n\n[1]: https://example.com/docs",
+        highlightQuote: "see docs",
+      }),
+    );
+    expect(html).toContain(
+      '<mark class="review-trace-quote-mark">see docs</mark>',
+    );
+    expect(html).toContain('href="https://example.com/docs"');
+  });
 });

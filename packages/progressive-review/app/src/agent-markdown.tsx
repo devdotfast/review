@@ -30,7 +30,10 @@ interface MarkdownNode {
   title?: string | null;
   align?: Array<string | null>;
   alt?: string | null;
+  identifier?: string;
 }
+
+type DefinitionMap = Map<string, MarkdownNode>;
 
 function parseMarkdown(source: string): MarkdownNode {
   // SAFETY: fromMarkdown returns an mdast Root whose nodes carry the same
@@ -43,6 +46,20 @@ function parseMarkdown(source: string): MarkdownNode {
   }) as MarkdownNode;
 }
 
+function collectDefinitions(tree: MarkdownNode): DefinitionMap {
+  const definitions: DefinitionMap = new Map();
+  const walk = (node: MarkdownNode) => {
+    if (node.type === "definition" && node.identifier) {
+      if (!definitions.has(node.identifier)) {
+        definitions.set(node.identifier, node);
+      }
+    }
+    for (const child of node.children ?? []) walk(child);
+  };
+  walk(tree);
+  return definitions;
+}
+
 export function AgentMarkdown({
   source,
   className,
@@ -53,9 +70,15 @@ export function AgentMarkdown({
   highlightQuote?: string;
 }): ReactElement {
   const tree = parseMarkdown(source);
+  const definitions = collectDefinitions(tree);
   return (
     <div className={["agent-markdown", className].filter(Boolean).join(" ")}>
-      {renderMarkdownChildren(tree.children ?? [], "root", highlightQuote)}
+      {renderMarkdownChildren(
+        tree.children ?? [],
+        "root",
+        highlightQuote,
+        definitions,
+      )}
     </div>
   );
 }
@@ -86,29 +109,46 @@ export function markdownExcerpt(source: string): string {
 function renderMarkdownChildren(
   children: MarkdownNode[],
   keyPrefix: string,
-  highlightQuote?: string,
+  highlightQuote: string | undefined,
+  definitions: DefinitionMap,
 ): ReactNode {
   return children.map((child, index) =>
-    renderMarkdownNode(child, `${keyPrefix}:${index}`, highlightQuote),
+    renderMarkdownNode(
+      child,
+      `${keyPrefix}:${index}`,
+      highlightQuote,
+      definitions,
+    ),
   );
 }
 
 function renderMarkdownNode(
   node: MarkdownNode,
   key: string,
-  highlightQuote?: string,
+  highlightQuote: string | undefined,
+  definitions: DefinitionMap,
 ): ReactNode {
   switch (node.type) {
     case "root":
       return (
         <Fragment key={key}>
-          {renderMarkdownChildren(node.children ?? [], key, highlightQuote)}
+          {renderMarkdownChildren(
+            node.children ?? [],
+            key,
+            highlightQuote,
+            definitions,
+          )}
         </Fragment>
       );
     case "paragraph":
       return (
         <p key={key}>
-          {renderMarkdownChildren(node.children ?? [], key, highlightQuote)}
+          {renderMarkdownChildren(
+            node.children ?? [],
+            key,
+            highlightQuote,
+            definitions,
+          )}
         </p>
       );
     case "text":
@@ -125,19 +165,34 @@ function renderMarkdownNode(
     case "emphasis":
       return (
         <em key={key}>
-          {renderMarkdownChildren(node.children ?? [], key, highlightQuote)}
+          {renderMarkdownChildren(
+            node.children ?? [],
+            key,
+            highlightQuote,
+            definitions,
+          )}
         </em>
       );
     case "strong":
       return (
         <strong key={key}>
-          {renderMarkdownChildren(node.children ?? [], key, highlightQuote)}
+          {renderMarkdownChildren(
+            node.children ?? [],
+            key,
+            highlightQuote,
+            definitions,
+          )}
         </strong>
       );
     case "delete":
       return (
         <del key={key}>
-          {renderMarkdownChildren(node.children ?? [], key, highlightQuote)}
+          {renderMarkdownChildren(
+            node.children ?? [],
+            key,
+            highlightQuote,
+            definitions,
+          )}
         </del>
       );
     case "inlineCode":
@@ -166,12 +221,22 @@ function renderMarkdownNode(
       return createElement(
         headingTag(node.depth),
         { key },
-        renderMarkdownChildren(node.children ?? [], key, highlightQuote),
+        renderMarkdownChildren(
+          node.children ?? [],
+          key,
+          highlightQuote,
+          definitions,
+        ),
       );
     case "blockquote":
       return (
         <blockquote key={key}>
-          {renderMarkdownChildren(node.children ?? [], key, highlightQuote)}
+          {renderMarkdownChildren(
+            node.children ?? [],
+            key,
+            highlightQuote,
+            definitions,
+          )}
         </blockquote>
       );
     case "list": {
@@ -179,7 +244,12 @@ function renderMarkdownNode(
       return createElement(
         Tag,
         { key, start: node.ordered ? (node.start ?? undefined) : undefined },
-        renderMarkdownChildren(node.children ?? [], key, highlightQuote),
+        renderMarkdownChildren(
+          node.children ?? [],
+          key,
+          highlightQuote,
+          definitions,
+        ),
       );
     }
     case "listItem":
@@ -188,7 +258,12 @@ function renderMarkdownNode(
           {node.checked !== null && node.checked !== undefined && (
             <input type="checkbox" checked={node.checked} readOnly />
           )}
-          {renderMarkdownChildren(node.children ?? [], key, highlightQuote)}
+          {renderMarkdownChildren(
+            node.children ?? [],
+            key,
+            highlightQuote,
+            definitions,
+          )}
         </li>
       );
     case "link": {
@@ -196,6 +271,7 @@ function renderMarkdownNode(
         node.children ?? [],
         key,
         highlightQuote,
+        definitions,
       );
       if (isLocalFilesystemHref(node.url)) {
         return (
@@ -214,23 +290,77 @@ function renderMarkdownNode(
         </MarkdownLink>
       );
     }
+    case "linkReference": {
+      const children = renderMarkdownChildren(
+        node.children ?? [],
+        key,
+        highlightQuote,
+        definitions,
+      );
+      const def = node.identifier
+        ? definitions.get(node.identifier)
+        : undefined;
+      const url = def?.url;
+      if (!url) {
+        return <span key={key}>{children}</span>;
+      }
+      if (isLocalFilesystemHref(url)) {
+        return (
+          <code key={key} className="agent-markdown-code-reference">
+            {textFromChildren(children) ?? "local file"}
+          </code>
+        );
+      }
+      const href = safeMarkdownHref(url);
+      if (!href) {
+        return <span key={key}>{children}</span>;
+      }
+      return (
+        <MarkdownLink key={key} href={href} title={def?.title ?? undefined}>
+          {children}
+        </MarkdownLink>
+      );
+    }
     case "image":
       return node.alt ? <em key={key}>{node.alt}</em> : null;
+    case "imageReference":
+      return node.alt ? <em key={key}>{node.alt}</em> : null;
+    case "definition":
+      return null;
     case "table":
-      return renderTable(node, key);
+      return renderTable(node, key, highlightQuote, definitions);
     case "tableRow":
       return (
-        <tr key={key}>{renderMarkdownChildren(node.children ?? [], key)}</tr>
+        <tr key={key}>
+          {renderMarkdownChildren(
+            node.children ?? [],
+            key,
+            highlightQuote,
+            definitions,
+          )}
+        </tr>
       );
     case "tableCell":
       return (
-        <td key={key}>{renderMarkdownChildren(node.children ?? [], key)}</td>
+        <td key={key}>
+          {renderMarkdownChildren(
+            node.children ?? [],
+            key,
+            highlightQuote,
+            definitions,
+          )}
+        </td>
       );
     case "html":
       return node.value ?? "";
     default:
       return node.children
-        ? renderMarkdownChildren(node.children, key)
+        ? renderMarkdownChildren(
+            node.children,
+            key,
+            highlightQuote,
+            definitions,
+          )
         : (node.value ?? null);
   }
 }
@@ -242,15 +372,36 @@ function headingTag(depth: number | undefined): "h1" | "h2" | "h3" | "h4" {
   return "h4";
 }
 
-function renderTable(node: MarkdownNode, key: string): ReactElement {
+function renderTable(
+  node: MarkdownNode,
+  key: string,
+  highlightQuote: string | undefined,
+  definitions: DefinitionMap,
+): ReactElement {
   const rows = node.children ?? [];
   const [header, ...body] = rows;
   return (
     <table key={key}>
-      {header && <thead>{renderTableRow(header, `${key}:head`, true)}</thead>}
+      {header && (
+        <thead>
+          {renderTableRow(
+            header,
+            `${key}:head`,
+            true,
+            highlightQuote,
+            definitions,
+          )}
+        </thead>
+      )}
       <tbody>
         {body.map((row, index) =>
-          renderTableRow(row, `${key}:body:${index}`, false),
+          renderTableRow(
+            row,
+            `${key}:body:${index}`,
+            false,
+            highlightQuote,
+            definitions,
+          ),
         )}
       </tbody>
     </table>
@@ -261,6 +412,8 @@ function renderTableRow(
   node: MarkdownNode,
   key: string,
   isHeader: boolean,
+  highlightQuote: string | undefined,
+  definitions: DefinitionMap,
 ): ReactElement {
   const Cell = isHeader ? "th" : "td";
   return (
@@ -269,7 +422,12 @@ function renderTableRow(
         createElement(
           Cell,
           { key: `${key}:cell:${index}` },
-          renderMarkdownChildren(cell.children ?? [], `${key}:cell:${index}`),
+          renderMarkdownChildren(
+            cell.children ?? [],
+            `${key}:cell:${index}`,
+            highlightQuote,
+            definitions,
+          ),
         ),
       )}
     </tr>

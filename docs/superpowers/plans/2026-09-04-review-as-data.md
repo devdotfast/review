@@ -29,16 +29,61 @@ history entry. This amendment resolves the D2/B8 failure-recovery conflict.
 - Older pre-data history remains immutable/unavailable with an Open current
   review action, never a command that silently repairs another revision.
 
-**Resume state (verified 2026-09-04):** A1–A4 and B1–B8a are committed;
-B8 is `098d8c45` and B8a is `39fe8af9`. Do not redo their commits.
-B8b has preserved, uncommitted implementation and tests; it is not complete
-until all gates and live E2E pass. Resume **finish B8b → B9**, inspecting that
-work before adding more. B8a/B8b are the two added tasks; each requires
-red-first tests, its own green gates and the stated commit.
+**Resume state (verified 2026-09-04):** A1–A4 and B1–B8b are committed;
+B8 is `098d8c45`, B8a is `39fe8af9`, and B8b is `9be8756c`.
+Do not redo their implementation or commits. Resume **commit B9 → PR2 → final
+delivery audit**. B9's tutorial test, documentation and final audit fixes are
+verified but uncommitted; packaged-app checks and final gates have passed.
+B8a/B8b are the two
+approved added tasks, not a new request to implement historical recovery.
 B8b intentionally supersedes B7's initial publish-based recovery copy.
-This turn changes planning only; workers are paused and existing implementation
-is preserved. Resume implementation only when the user turns goal mode back on
-or otherwise explicitly requests it. Preserve the user's untracked `code-review.md`.
+Goal mode subsequently resumed. B9 implementation, packaged repeat QA, exact-base
+parity and final gates are now complete; commit B9 and publish the stacked PR2
+with the full evidence/deviation report. Preserve the user's untracked `code-review.md`.
+
+**Scope confirmed for the next resume:** keep the expansion limited to each
+review's current document pointer and independently presented map pointer,
+including terminal reviews. This is not limited to whichever historical entry
+is currently selected in the UI. Do not add bulk historical repair, reopen
+terminal reviews, fix unrelated shell/ResizeObserver errors, or execute Phase 3.
+The spec's §7 and B8a/B8b below are the authoritative recovery requirements.
+
+**Tracking convention:** unchecked steps in committed A/B tasks are retained
+historical instructions, not outstanding work; the verified resume state above
+controls execution. B9 remains outstanding. Report actual red-test evidence:
+its new tutorial test initially failed on a fixture-path issue, not a demonstrated
+production-renderer defect. Do not describe that as a functional red/green fix.
+
+**Remaining B9 handoff:**
+The QA portions below are verified; commit/PR delivery remains. Retain the
+checklist as the acceptance record rather than replaying completed tests.
+- User follow-up: keep the in-review migration/Copy prompt banner below the
+  Review/Commits/Diff/Map navigation, not above it. Preserve Home's warning,
+  add a red-first DOM-order regression, and verify packaged layout/scrolling.
+- Finish the fresh packaged review's typed peek/navigation and prose-thread
+  checks; publish its checked maps and verify the document pointer is unchanged.
+- Repeat failed-migration recovery with the packaged app/CLI for current active,
+  accepted and rejected reviews, plus independent map-only recovery. Verify
+  clipboard text, warning clearance without reload, metadata/history preservation,
+  validation/concurrency rejection, missing-input failure and healthy no-op.
+- Finish and verify the full phase gate. Retain the exact-base tutorial parity
+  evidence and actual unsigned/unnotarized macOS package evidence; do not
+  substitute a canvas-only build or infer packaged checks from development QA.
+- Audit the pending-agent-write requirement explicitly: unanswered agent input
+  and concurrent durable changes are detected; general author-session liveness
+  has no reliable existing API. Report this limitation rather than claiming
+  that every possible running author is detected.
+- Review the pending docs/test changes, commit B9 with its required subject,
+  and open PR2 on the Phase 1 branch if PR1 is still open. Do not merge.
+
+**Final B9 additions and gate:** the banner-order regression ran red/green and
+passed packaged layout/scrolling/removal checks. A final server-boundary audit
+found inherited strict note evaluation in map refresh; a named non-evaluating
+materializer now preserves note/cache copying there, leaving strict validation
+in the CLI. Refresh no longer emits that advisory warning. Actual endpoint and
+packaged side-effect regressions verify neither base nor head authored code runs
+in the server. Final gate passed 179 Review files/1,321 tests, typecheck, desktop
+scripts and 96 host tests/protocol sync, lint, format, tutorial and diff checks.
 
 ## Global Constraints
 
@@ -52,7 +97,7 @@ or otherwise explicitly requests it. Preserve the user's untracked `code-review.
 - Work in `../review-data-format` (branch `review-data-format`). pnpm only. Commit messages without `Co-Authored-By`. Every task ends green: `pnpm --filter @dev.fast/review test`, `pnpm --filter @dev.fast/review typecheck`; for host tasks `pnpm --filter @dev.fast/review-desktop test` (its `pretest` runs `protocol:sync`). `pnpm lint && pnpm format:check` clean at the end of each phase.
 - Delete the untracked spike directory `packages/progressive-review/spike-review-data/` in the first commit of Phase 2.
 - Console acceptance: no new errors from this change. Record the observed preexisting `ResizeObserver loop completed with undelivered notifications` caveat; do not suppress it or expand this task to fix it. An intentionally absent map's metadata 404 is an expected response, not a renderer failure. Report all other errors explicitly.
-- This console policy governs earlier task language saying "no errors" too; it does not waive unexplained errors. Expected stale-artifact 409 responses are recovery signals, not renderer failures. Record the observed missing webview/custom-editor actor errors separately: the registration gap is inherited at the source level, but earlier-runtime reproduction is unproven. Do not silently suppress or fix unrelated shell errors under this plan.
+- This console policy governs earlier task language saying "no errors" too; it does not waive unexplained errors. Expected stale-artifact 409 responses are recovery signals, not renderer failures. Record the observed missing webview/custom-editor/testing actor and unsupported terminal API errors separately: the mechanisms are inherited at the source level, but earlier-runtime reproduction and the exact extension caller are unproven. Do not silently suppress or fix unrelated shell errors under this plan.
 - Never mutate real review stores during migration/repair E2E. Use a disposable HOME and DEV_REVIEW_HOME, copy/clone source repositories too, and repoint only scratch records so prepared-worktree cleanup cannot affect real repositories. Remove only validated scratch paths after testing.
 
 ## Verified facts this plan relies on (origin/main 0ad9297b)

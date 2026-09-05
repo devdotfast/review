@@ -945,18 +945,17 @@ button {
 
 .review-session-content {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   height: 100%;
   min-height: 0;
   background: var(--bg);
 }
 
 .review-session-content > .review-app {
-  grid-row: 2;
   min-height: 0;
 }
 
-.review-session-content > .review-migration-warning {
+.review-navigation-header > .review-migration-warning {
   align-self: auto;
   width: auto;
   margin: 8px 12px;

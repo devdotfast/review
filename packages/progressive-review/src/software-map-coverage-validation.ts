@@ -440,7 +440,10 @@ function getTrackedFileLineCount(input: {
 
 function countLines(source: string) {
   if (source.length === 0) return 0;
-  return source.split(/\r\n|\r|\n/).length;
+  return source
+    .replace(/\r?\n$/, "")
+    .replace(/\r$/, "")
+    .split(/\r\n|\r|\n/).length;
 }
 
 function listTrackedFiles(rootPath: string) {

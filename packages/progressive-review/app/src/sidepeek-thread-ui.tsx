@@ -1080,7 +1080,9 @@ export function PanelCodeSurface({
       const element = elements.find(
         (candidate) =>
           Number(candidate.dataset.line) === badge.line &&
-          (!badge.side || candidate.dataset.lineSide === badge.side),
+          (!badge.side ||
+            !candidate.dataset.lineSide ||
+            candidate.dataset.lineSide === badge.side),
       );
       if (!element) return [];
       const rect = element.getBoundingClientRect();
@@ -1101,7 +1103,9 @@ export function PanelCodeSurface({
       ? elements.find(
           (candidate) =>
             Number(candidate.dataset.line) === injection.line &&
-            (!injection.side || candidate.dataset.lineSide === injection.side),
+            (!injection.side ||
+              !candidate.dataset.lineSide ||
+              candidate.dataset.lineSide === injection.side),
         )
       : undefined;
     if (!injectionElement) {
@@ -1331,7 +1335,8 @@ export function PanelThreadRail({
       {controller.lineBadges.map((badge) => {
         const row = rows.find(
           (candidate) =>
-            candidate.line === badge.line && candidate.side === badge.side,
+            candidate.line === badge.line &&
+            (!candidate.side || !badge.side || candidate.side === badge.side),
         );
         if (!row) return null;
         const active = controller.isBadgeActive(badge.line, badge.side);

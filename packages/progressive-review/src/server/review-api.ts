@@ -52,6 +52,7 @@ import {
   resolveReviewFileContent,
 } from "../review-diff-files";
 import { listReviews } from "../review-home";
+import { ReviewBusyError } from "../review-mutation-lock";
 import {
   normalizeReviewRoutePath,
   resolveReviewDocumentFilePath,
@@ -322,6 +323,13 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       try {
         return await handler(context);
       } catch (err) {
+        if (err instanceof ReviewBusyError)
+          return reviewApiJsonResponse(409, {
+            ok: false,
+            code: "review_busy",
+            retryable: true,
+            error: err.message,
+          });
         return reviewApiJsonResponse(requestJsonErrorStatus(err), {
           ok: false,
           error: err instanceof Error ? err.message : String(err),

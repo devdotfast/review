@@ -44,6 +44,7 @@ import {
 } from "./review-code-target-remap";
 import { resolveReviewDiffFiles } from "./review-diff-files";
 import {
+  ReviewBusyError,
   assertReviewUnchanged,
   withReviewMutationLock,
 } from "./review-mutation-lock";
@@ -743,6 +744,13 @@ export async function readStoredReview(
       try {
         await migrateLegacyStoredReview(dir);
       } catch (error) {
+        if (error instanceof ReviewBusyError)
+          return {
+            error: reviewHomeError(dir, jsonObject(value), {
+              code: error.code,
+              message: error.message,
+            }),
+          };
         return {
           error: reviewHomeError(dir, jsonObject(value), {
             code: "REPAIR_REQUIRED",

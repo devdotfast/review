@@ -84,7 +84,10 @@ import {
   touchReviewAgentSession,
 } from "../review-home";
 import type { RunReviewInfoInput } from "../review-info";
-import { withReviewMutationLock } from "../review-mutation-lock";
+import {
+  ReviewBusyError,
+  withReviewMutationLock,
+} from "../review-mutation-lock";
 import {
   readReviewPreferences,
   writeReviewPreferences,
@@ -515,6 +518,7 @@ export function createGlobalReviewServer(
     } catch (error) {
       if (error instanceof ReviewHomeScanError) {
         const first = error.errors[0];
+        if (first?.code === "REVIEW_BUSY") throw error;
         throw new ReviewServerError(
           first?.message ?? error.message,
           409,
@@ -970,6 +974,23 @@ export function createGlobalReviewServer(
   );
   app.notFound(() => globalJson(404, { ok: false, error: "Not found." }));
   app.onError((error) => {
+    const busyScan =
+      error instanceof ReviewHomeScanError
+        ? error.errors.find((failure) => failure.code === "REVIEW_BUSY")
+        : undefined;
+    const busyError =
+      error instanceof ReviewBusyError
+        ? error
+        : busyScan
+          ? new ReviewBusyError(busyScan.reviewDir)
+          : undefined;
+    if (busyError)
+      return globalJson(409, {
+        ok: false,
+        code: "review_busy",
+        retryable: true,
+        error: busyError.message,
+      });
     const serverError =
       error instanceof ReviewServerError ||
       error instanceof ReviewOpenThreadsError

@@ -245,13 +245,28 @@ export async function listCommitTreeFiles(
   rootPath: string,
   commit: string,
 ): Promise<string[]> {
-  const listed = await git(
-    rootPath,
-    ["ls-tree", "-r", "-z", "--name-only", commit],
-    { allowFailure: true },
-  );
+  // Parse the full `<mode> <type> <oid>\t<path>` records (i.e. WITHOUT
+  // `--name-only`) so mode-`160000` submodule gitlink entries can be skipped:
+  // `git ls-tree -r` lists them as directory paths, but the gitlink commit
+  // object lives only in the submodule's own object database, never the
+  // parent's, so `git cat-file --batch` on `<commit>:<submodule-dir>` emits a
+  // `missing` record whose header the batch parser cannot size. Filtering them
+  // here routes a directory-typed coverage claim back through the normal
+  // `treeFiles.includes()` membership check, which fails it and lets the
+  // structured coverage validator report the clean "missing from tree"
+  // diagnostic instead of throwing `Invalid git object header`.
+  const listed = await git(rootPath, ["ls-tree", "-r", "-z", commit], {
+    allowFailure: true,
+  });
   if (!listed.ok) return [];
-  return listed.stdout.split("\0").filter(Boolean);
+  const out: string[] = [];
+  for (const entry of listed.stdout.split("\0")) {
+    if (!entry) continue;
+    const mode = entry.slice(0, 6);
+    if (mode === "160000") continue; // submodule gitlink; not a fetchable blob
+    out.push(entry.slice(entry.indexOf("\t") + 1));
+  }
+  return out;
 }
 
 function readCommitTreeFilesSync(

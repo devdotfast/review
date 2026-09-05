@@ -41,6 +41,48 @@ afterEach(() => {
 });
 
 describe("desktop review document load states", () => {
+  it("keeps the migration copy prompt below review navigation", async () => {
+    const bridge = testReviewBridge(
+      { sessionId: "migration-banner-order" },
+      { request: requestStub, diffView: { create: createDiffView } },
+    );
+    const content = sessionContent(bridge, {
+      document: Promise.resolve({
+        state: "needs-republish",
+        reviewUuid: "11111111-1111-4111-8111-111111111111",
+        mapStale: false,
+        recovery: true,
+      }),
+      softwareMap: Promise.resolve(null),
+    });
+    content.reviewErrors = [
+      {
+        code: "MIGRATION_REQUIRED",
+        reviewDir: "/reviews/legacy",
+        reviewUuid: "11111111-1111-4111-8111-111111111111",
+        title: "Legacy review",
+        worktreePath: "/source",
+        lastPublishedAt: null,
+        message: "Review needs migration",
+      },
+    ];
+    const container = document.createElement("div");
+    document.body.append(container);
+    let handle: ReturnType<typeof mountReviewCanvas> | undefined;
+    await act(async () => {
+      handle = mountReviewCanvas(container, content);
+    });
+    const nav = container.querySelector(".review-topbar")!;
+    const warning = container.querySelector(".review-migration-warning")!;
+    expect(nav).not.toBeNull();
+    expect(warning).not.toBeNull();
+    expect(nav.nextElementSibling).toBe(warning);
+    expect(warning.textContent).toContain("Copy prompt");
+    expect(
+      container.querySelectorAll(".review-migration-warning"),
+    ).toHaveLength(1);
+    await act(async () => handle?.dispose());
+  });
   it("keeps a valid document visible and offers repair only inside a stale map", async () => {
     const reportDiagnostic =
       vi.fn<(diagnostic: ReviewCanvasDiagnostic) => void>();

@@ -950,6 +950,16 @@ button {
   min-height: 0;
 }
 
+.review-navigation-header > .review-migration-warning {
+  align-self: auto;
+  width: auto;
+  margin: 8px 12px;
+}
+
+.review-canvas-shell > .review-migration-warning {
+  margin: 8px 0 16px;
+}
+
 .review-home-page-header {
   display: flex;
   align-items: flex-start;

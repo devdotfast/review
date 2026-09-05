@@ -544,6 +544,21 @@ function readFileOrNull(filePath: string): string | null {
 // Materialization (derived cache for document-bundle static imports)
 // ---------------------------------------------------------------------------
 
+/** Copy note sources into the tolerant cache without importing authored code.
+ * Server refresh uses this path; strict-validation warnings belong to CLI
+ * materialization and publication, not to the serving process. */
+export async function materializeSoftwareMapAtRefWithoutEvaluation(input: {
+  repoRootPath: string;
+  ref: string;
+  role: SoftwareMapArtifactRole;
+}): Promise<string | null> {
+  const read = await readSoftwareMapSourceForRef(input);
+  if (!read) return null;
+  const gitDir = await gitCommonDir(input.repoRootPath);
+  if (!gitDir) return null;
+  return writeMaterializedArtifact({ gitDir, read }).outputPath;
+}
+
 export async function materializeSoftwareMapAtRef(input: {
   repoRootPath: string;
   ref: string;

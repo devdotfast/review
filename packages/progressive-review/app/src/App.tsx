@@ -113,6 +113,7 @@ const EMPTY_ANCHORS = new Map<string, AnchorRef>();
 const EMPTY_ANCHOR_CONTENTS = new Map<string, string>();
 
 export function App({
+  notice,
   documentState,
   softwareMapState,
   softwareMapEnabled,
@@ -120,6 +121,7 @@ export function App({
   commits,
   findHost,
 }: {
+  notice?: ReactNode;
   documentState: ReviewDocumentAppState;
   softwareMapState: ReviewSoftwareMapAppState;
   softwareMapEnabled: boolean;
@@ -130,6 +132,7 @@ export function App({
   useWindowErrorTelemetry();
   return (
     <ReviewDocumentApp
+      notice={notice}
       documentState={documentState}
       softwareMapState={softwareMapState}
       softwareMapEnabled={softwareMapEnabled}
@@ -164,6 +167,7 @@ export type ReviewSoftwareMapAppState =
   | { state: "unavailable"; message: string; currentReviewUuid?: string };
 
 function ReviewDocumentApp({
+  notice,
   documentState,
   softwareMapState,
   softwareMapEnabled,
@@ -171,6 +175,7 @@ function ReviewDocumentApp({
   commits,
   findHost,
 }: {
+  notice?: ReactNode;
   documentState: ReviewDocumentAppState;
   softwareMapState: ReviewSoftwareMapAppState;
   softwareMapEnabled: boolean;
@@ -187,6 +192,7 @@ function ReviewDocumentApp({
   return (
     <ReviewDiffFilesProvider documentKey={diffDocumentKey}>
       <ReviewLayout
+        notice={notice}
         documentState={documentState}
         softwareMapState={softwareMapState}
         softwareMapEnabled={softwareMapEnabled}
@@ -210,6 +216,7 @@ function useWindowErrorTelemetry(): void {
 }
 
 function ReviewLayout({
+  notice,
   documentState,
   softwareMapState,
   softwareMapEnabled,
@@ -217,6 +224,7 @@ function ReviewLayout({
   commits,
   findHost,
 }: {
+  notice?: ReactNode;
   documentState: ReviewDocumentAppState;
   softwareMapState: ReviewSoftwareMapAppState;
   softwareMapEnabled: boolean;
@@ -265,6 +273,7 @@ function ReviewLayout({
             >
               <ReviewPanelProvider detailRevision={documentRevision}>
                 <ReviewLayoutContent
+                  notice={notice}
                   appRef={appRef}
                   shellRef={shellRef}
                   scrollRegionRef={scrollRegionRef}
@@ -298,6 +307,7 @@ function ReviewLayout({
 }
 
 function ReviewLayoutContent({
+  notice,
   appRef,
   shellRef,
   scrollRegionRef,
@@ -314,6 +324,7 @@ function ReviewLayoutContent({
   commits,
   traceSelection,
 }: {
+  notice?: ReactNode;
   appRef: RefObject<HTMLDivElement | null>;
   shellRef: RefObject<HTMLElement | null>;
   scrollRegionRef: RefObject<HTMLElement | null>;
@@ -519,142 +530,148 @@ function ReviewLayoutContent({
           shellRef={shellRef}
           scrollRegionRef={scrollRegionRef}
         >
-          <header className="review-topbar">
-            <div className="review-topbar-left">
-              <div
-                className="review-segmented"
-                role="group"
-                aria-label="Review views"
-              >
-                {reviewViews.map((view) => (
+          <div className="review-navigation-header">
+            <header className="review-topbar">
+              <div className="review-topbar-left">
+                <div
+                  className="review-segmented"
+                  role="group"
+                  aria-label="Review views"
+                >
+                  {reviewViews.map((view) => (
+                    <button
+                      key={view}
+                      type="button"
+                      aria-label={
+                        view === "map"
+                          ? "Map (Experimental)"
+                          : reviewViewLabel(view)
+                      }
+                      aria-pressed={activeView === view}
+                      title={view === "map" ? "Map (Experimental)" : undefined}
+                      className={
+                        activeView === view
+                          ? "review-segment review-segment--active"
+                          : "review-segment"
+                      }
+                      onClick={() => applyReviewView(view)}
+                    >
+                      <span>{reviewViewLabel(view)}</span>
+                      {view === "diff" && filesTabFileCount !== null && (
+                        <span className="review-segment-count">
+                          {filesTabFileCount}
+                        </span>
+                      )}
+                      {view === "commits" && (
+                        <span className="review-segment-count">
+                          {commits.length}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="review-open-source-tree"
+                  title="Open the read-only source tree"
+                  onClick={() => {
+                    captureUiEvent(session, "source_tree_opened", {
+                      via: "topbar",
+                    });
+                    session.surface.post({ name: "openSourceTree", args: {} });
+                  }}
+                >
+                  Open source tree ↗
+                </button>
+              </div>
+              <div className="review-topbar-actions">
+                <ReviewHistoryControl />
+                <button
+                  type="button"
+                  className="review-open-source-tree"
+                  title="Join our Discord community"
+                  onClick={() =>
+                    session.surface.post({ name: "joinDiscord", args: {} })
+                  }
+                >
+                  Discord ↗
+                </button>
+                <BugReportControl />
+                <ReviewBatonChip outcome={review.submissionOutcome} />
+                <div
+                  className={
+                    threadsPanelOpen || askPanelOpen
+                      ? "topbar-threads-split topbar-threads-split--active"
+                      : "topbar-threads-split"
+                  }
+                  role="group"
+                  aria-label="Threads"
+                >
                   <button
-                    key={view}
                     type="button"
-                    aria-label={
-                      view === "map"
-                        ? "Map (Experimental)"
-                        : reviewViewLabel(view)
-                    }
-                    aria-pressed={activeView === view}
-                    title={view === "map" ? "Map (Experimental)" : undefined}
                     className={
-                      activeView === view
-                        ? "review-segment review-segment--active"
-                        : "review-segment"
+                      threadsPanelOpen
+                        ? "topbar-threads-button topbar-threads-button--active"
+                        : "topbar-threads-button"
                     }
-                    onClick={() => applyReviewView(view)}
+                    onClick={() => {
+                      captureUiEvent(session, "threads_opened", {
+                        thread_count: threadCount,
+                      });
+                      session.surface.showThreads();
+                      openThreadsWithDraftCleanup({
+                        draftTarget: review.draftTarget,
+                        closeCommentDraft: review.closeCommentDraft,
+                        openThreads,
+                      });
+                    }}
+                    aria-pressed={threadsPanelOpen}
                   >
-                    <span>{reviewViewLabel(view)}</span>
-                    {view === "diff" && filesTabFileCount !== null && (
-                      <span className="review-segment-count">
-                        {filesTabFileCount}
-                      </span>
-                    )}
-                    {view === "commits" && (
-                      <span className="review-segment-count">
-                        {commits.length}
+                    <ThreadsIcon />
+                    <span>Threads</span>
+                    {threadCount > 0 && (
+                      <span className="topbar-threads-count">
+                        {threadCount}
                       </span>
                     )}
                   </button>
-                ))}
+                  {!review.historicalRevision &&
+                    review.submissionOutcome !== "approved" &&
+                    review.submissionOutcome !== "dismissed" && (
+                      <button
+                        type="button"
+                        className={
+                          askPanelOpen
+                            ? "topbar-new-ask-button topbar-new-ask-button--active"
+                            : "topbar-new-ask-button"
+                        }
+                        aria-pressed={askPanelOpen}
+                        aria-label={askOrCommentLabel}
+                        title={askOrCommentLabel}
+                        onClick={() => {
+                          captureUiEvent(session, "new_ask_opened", {
+                            via: "topbar",
+                          });
+                          session.surface.showThreads();
+                          openThreads({ kind: "new-ask" });
+                        }}
+                      >
+                        <TerminalIcon />
+                      </button>
+                    )}
+                </div>
+                <DiffLayoutControl />
+                {!review.historicalRevision && !review.submissionOutcome && (
+                  <div className="topbar-actions-divider" />
+                )}
+                {!review.historicalRevision && !review.submissionOutcome ? (
+                  <ReviewCornerAction />
+                ) : null}
               </div>
-              <button
-                type="button"
-                className="review-open-source-tree"
-                title="Open the read-only source tree"
-                onClick={() => {
-                  captureUiEvent(session, "source_tree_opened", {
-                    via: "topbar",
-                  });
-                  session.surface.post({ name: "openSourceTree", args: {} });
-                }}
-              >
-                Open source tree ↗
-              </button>
-            </div>
-            <div className="review-topbar-actions">
-              <ReviewHistoryControl />
-              <button
-                type="button"
-                className="review-open-source-tree"
-                title="Join our Discord community"
-                onClick={() =>
-                  session.surface.post({ name: "joinDiscord", args: {} })
-                }
-              >
-                Discord ↗
-              </button>
-              <BugReportControl />
-              <ReviewBatonChip outcome={review.submissionOutcome} />
-              <div
-                className={
-                  threadsPanelOpen || askPanelOpen
-                    ? "topbar-threads-split topbar-threads-split--active"
-                    : "topbar-threads-split"
-                }
-                role="group"
-                aria-label="Threads"
-              >
-                <button
-                  type="button"
-                  className={
-                    threadsPanelOpen
-                      ? "topbar-threads-button topbar-threads-button--active"
-                      : "topbar-threads-button"
-                  }
-                  onClick={() => {
-                    captureUiEvent(session, "threads_opened", {
-                      thread_count: threadCount,
-                    });
-                    session.surface.showThreads();
-                    openThreadsWithDraftCleanup({
-                      draftTarget: review.draftTarget,
-                      closeCommentDraft: review.closeCommentDraft,
-                      openThreads,
-                    });
-                  }}
-                  aria-pressed={threadsPanelOpen}
-                >
-                  <ThreadsIcon />
-                  <span>Threads</span>
-                  {threadCount > 0 && (
-                    <span className="topbar-threads-count">{threadCount}</span>
-                  )}
-                </button>
-                {!review.historicalRevision &&
-                  review.submissionOutcome !== "approved" &&
-                  review.submissionOutcome !== "dismissed" && (
-                    <button
-                      type="button"
-                      className={
-                        askPanelOpen
-                          ? "topbar-new-ask-button topbar-new-ask-button--active"
-                          : "topbar-new-ask-button"
-                      }
-                      aria-pressed={askPanelOpen}
-                      aria-label={askOrCommentLabel}
-                      title={askOrCommentLabel}
-                      onClick={() => {
-                        captureUiEvent(session, "new_ask_opened", {
-                          via: "topbar",
-                        });
-                        session.surface.showThreads();
-                        openThreads({ kind: "new-ask" });
-                      }}
-                    >
-                      <TerminalIcon />
-                    </button>
-                  )}
-              </div>
-              <DiffLayoutControl />
-              {!review.historicalRevision && !review.submissionOutcome && (
-                <div className="topbar-actions-divider" />
-              )}
-              {!review.historicalRevision && !review.submissionOutcome ? (
-                <ReviewCornerAction />
-              ) : null}
-            </div>
-          </header>
+            </header>
+            {notice}
+          </div>
+
           {review.historicalRevision ? (
             <div className="review-history-banner" role="status">
               <span>You are viewing an older version of this review.</span>

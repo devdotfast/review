@@ -67,6 +67,7 @@ export interface ReviewSessionHandlerInput {
   historicalRevision?: string;
   isReadOnly?: () => boolean;
   readOnlyReview?: ReviewRecord;
+  readOnlyThreadsPath?: string;
   documentUnavailable?: string;
   softwareMapUnavailable?: string;
   sourceUnavailable?: string;
@@ -479,6 +480,7 @@ export async function createReviewSessionHandler(
   });
   const reviewApi = createReviewApi({
     readOnlyReview: input.readOnlyReview,
+    readOnlyThreadsPath: input.readOnlyThreadsPath,
     readOnly: () => Boolean(input.historicalRevision || input.isReadOnly?.()),
     sourceUnavailable: input.sourceUnavailable,
     reviewPath: input.reviewPath,

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { cp, lstat, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -16,6 +17,7 @@ import {
   readReviewDocumentBundle,
   writeReviewDocumentBundle,
 } from "./review-bundle";
+import { createLegacyCodeRecordMigrator } from "./review-code-target-migration";
 import {
   type StoredReviewRecord,
   materializeReviewRevision,
@@ -31,6 +33,13 @@ import {
   fingerprintReviewRepairInputs,
 } from "./review-repair-state";
 import { SOFTWARE_MAP_NOTES_REF } from "./review-storage";
+import {
+  type ReviewThreadDbMigrationOptions,
+  copyReviewThreadDatabaseSnapshot,
+  migrateReviewThreadDb,
+  readReviewThreadDatabaseFingerprint,
+  reviewThreadDbPath,
+} from "./review-thread-store-backend";
 import { writePrivateJsonAtomic } from "./server/desktop-paths";
 import {
   bundleReviewSoftwareMap,
@@ -98,9 +107,38 @@ export async function prepareReviewRepair(input: {
         throw new Error(
           "Review authoring changed while preparing repair. Retry after active writes finish.",
         );
-      return { review, expectedRecord, expectedFingerprint };
+      const threadDbFingerprint = existsSync(
+        reviewThreadDbPath(path.join(input.reviewDir, "review.mdx")),
+      )
+        ? copyReviewThreadDatabaseSnapshot(
+            path.join(input.reviewDir, "review.mdx"),
+            path.join(stagingDir, "review.mdx"),
+          )
+        : undefined;
+      return {
+        review,
+        expectedRecord,
+        expectedFingerprint,
+        threadDbFingerprint,
+      };
     });
     const { review } = snapshot;
+    const threadDbMigration: ReviewThreadDbMigrationOptions = {
+      preserveLegacyQuestions: true,
+    };
+    if (review.sourceCommit)
+      threadDbMigration.migrateLegacyCodeRecord =
+        createLegacyCodeRecordMigrator({
+          rootPath: review.worktreePath,
+          baseCommit: review.baseCommit,
+          headCommit: review.sourceCommit,
+        });
+    const threadDbUpgraded =
+      snapshot.threadDbFingerprint !== undefined &&
+      (await migrateReviewThreadDb(
+        path.join(stagingDir, "review.mdx"),
+        threadDbMigration,
+      )) === "upgraded";
     const documentDir = path.join(temporaryRoot, "document");
     const mapDir = path.join(temporaryRoot, "map");
     const sourceFallback = { document: false, map: false };
@@ -254,8 +292,18 @@ export async function prepareReviewRepair(input: {
       }
     }
     if (
+      snapshot.threadDbFingerprint !== undefined &&
+      readReviewThreadDatabaseFingerprint(
+        path.join(input.reviewDir, "review.mdx"),
+      ) !== snapshot.threadDbFingerprint
+    )
+      throw new Error(
+        "Review threads changed while preparing repair; retry after active writes finish.",
+      );
+    if (
       !documentChanged &&
       !mapChanged &&
+      !threadDbUpgraded &&
       mapRevision === review.presentedSoftwareMapRevision &&
       jsonObject(parseJsonText(snapshot.expectedRecord))?.schemaVersion ===
         REVIEW_SCHEMA_VERSION
@@ -305,20 +353,18 @@ export async function prepareReviewRepair(input: {
       presentedDocumentRevision: documentRevision,
       presentedSoftwareMapRevision: mapRevision,
     });
-    return {
-      kind: "prepared",
-      review,
-      cleanup,
-      request: {
-        reviewUuid: review.uuid,
-        stagingDir,
-        expectedRecord: snapshot.expectedRecord,
-        expectedFingerprint: snapshot.expectedFingerprint,
-        newDocumentRevision: documentRevision,
-        newMapRevision: mapRevision,
-        sourceFallback,
-      },
+    const request: ReviewRepairReadyRequest = {
+      reviewUuid: review.uuid,
+      stagingDir,
+      expectedRecord: snapshot.expectedRecord,
+      expectedFingerprint: snapshot.expectedFingerprint,
+      newDocumentRevision: documentRevision,
+      newMapRevision: mapRevision,
+      sourceFallback,
     };
+    if (threadDbUpgraded)
+      request.expectedThreadDbFingerprint = snapshot.threadDbFingerprint;
+    return { kind: "prepared", review, cleanup, request };
   } catch (error) {
     await cleanup();
     throw error;

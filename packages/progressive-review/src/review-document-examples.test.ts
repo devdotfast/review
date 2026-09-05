@@ -3,8 +3,12 @@ import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { hydrateReviewDocument } from "../app/src/review-document-hydrate";
+import { renderReviewNodes } from "../app/src/review-document-renderer";
+import { reviewDocumentComponents } from "../app/src/review-document-surface";
 import { patchChangedLines } from "./call-stack-diff";
 import {
   bundleReviewDocument,
@@ -98,6 +102,48 @@ async function fixture() {
 }
 
 describe("real authored document JSON conversion", () => {
+  it("preserves footnotes and accessible return links from Markdown through rendering", async () => {
+    const example = await fixture();
+    const result = await example.evaluate(
+      "# Footnotes\n\nSome claim.[^source] Another claim.[^source]\n\n[^source]: Source evidence.\n",
+    );
+    expect(result.errors).toEqual([]);
+    if (!result.document) throw new Error("Missing materialized document");
+    await writeReviewDocumentBundle(
+      example.dir,
+      bundleReviewDocument(result.document),
+    );
+    const bundle = await readReviewDocumentBundle(example.dir, "/");
+    if (!bundle) throw new Error("Missing stored document");
+    const hydrated = hydrateReviewDocument({
+      state: "ready",
+      contentHash: bundle.contentHash,
+      data: bundle.document,
+    });
+    const html = renderToStaticMarkup(
+      renderReviewNodes(hydrated.body, {
+        ...reviewDocumentComponents,
+        h1: undefined,
+      }),
+    );
+    expect(html).toContain("<sup>");
+    expect(html).toContain('href="#user-content-fn-source"');
+    expect(html).toContain('id="user-content-fnref-source"');
+    expect(html).toContain('id="user-content-fnref-source-2"');
+    expect(html).toContain('data-footnote-ref="true"');
+    expect(html).toContain('aria-describedby="footnote-label"');
+    expect(html).toContain('<section data-footnotes="true" class="footnotes">');
+    expect(html).toContain('id="footnote-label"');
+    expect(html).toContain('id="user-content-fn-source"');
+    expect(html).toContain("Source evidence.");
+    expect(html).toContain('href="#user-content-fnref-source"');
+    expect(html).toContain('href="#user-content-fnref-source-2"');
+    expect(html).toContain('data-footnote-backref=""');
+    expect(html).toContain('aria-label="Back to reference 1"');
+    expect(html).toContain('aria-label="Back to reference 1-2"');
+    expect(html).not.toContain('target="_blank"');
+  });
+
   it("preserves rich Markdown and component inputs through compilation, conversion, and disk round-trip", async () => {
     const example = await fixture();
     const result = await example.evaluate();

@@ -158,3 +158,42 @@ it("promotes fully prepared files and removes temporary state", async () => {
   ).toEqual(input.record);
   expect((await readdir(root)).sort()).toEqual(["candidate", "review"]);
 });
+
+async function databaseFixture() {
+  const input = await fixture();
+  for (const name of ["review.db", "review.db-wal", "review.db-shm"])
+    await writeFile(path.join(input.reviewDir, name), `original ${name}`);
+  await writeFile(
+    path.join(input.candidateDir, "review.db"),
+    "upgraded database",
+  );
+  return { ...input, upgradeThreadDatabase: true };
+}
+
+it("rolls back the database and its sidecars after promotion failure", async () => {
+  const input = await databaseFixture();
+  await expect(
+    promoteReviewArtifactFiles({
+      ...input,
+      renamePath: async (source, target) => {
+        if (String(source).endsWith("prepared/review.json"))
+          throw new Error("promotion failed");
+        return rename(source, target);
+      },
+    }),
+  ).rejects.toThrow("promotion failed");
+  for (const name of ["review.db", "review.db-wal", "review.db-shm"])
+    expect(await readFile(path.join(input.reviewDir, name), "utf8")).toBe(
+      `original ${name}`,
+    );
+});
+
+it("promotes the checkpointed database and retires original sidecars", async () => {
+  const input = await databaseFixture();
+  await promoteReviewArtifactFiles(input);
+  expect(await readFile(path.join(input.reviewDir, "review.db"), "utf8")).toBe(
+    "upgraded database",
+  );
+  expect(await readdir(input.reviewDir)).not.toContain("review.db-wal");
+  expect(await readdir(input.reviewDir)).not.toContain("review.db-shm");
+});

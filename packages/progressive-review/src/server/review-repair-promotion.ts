@@ -15,6 +15,10 @@ import {
   assertNoActiveReviewAgentWrites,
   fingerprintReviewRepairInputs,
 } from "../review-repair-state";
+import {
+  checkReviewThreadDbVersion,
+  readReviewThreadDatabaseFingerprint,
+} from "../review-thread-store-backend";
 import { reviewVcs } from "../review-vcs";
 import { writePrivateJsonAtomic } from "./desktop-paths";
 
@@ -106,6 +110,12 @@ export async function assertReviewRepairInputsUnchanged(
       "Review changed while preparing repair; retry without changing its pinned commits or review status.",
     );
   assertNoActiveReviewAgentWrites(dir);
+  if (
+    request.expectedThreadDbFingerprint &&
+    readReviewThreadDatabaseFingerprint(path.join(dir, "review.mdx")) !==
+      request.expectedThreadDbFingerprint
+  )
+    throw new Error("Review threads changed while preparing repair; retry.");
 }
 
 export async function readPreparedReviewRepairRecord(
@@ -153,11 +163,14 @@ export async function applyPreparedReviewRepair(
   return withReviewMutationLock(dir, async () => {
     await assertReviewRepairInputsUnchanged(dir, request);
     const next = await readPreparedReviewRepairRecord(request);
+    if (request.expectedThreadDbFingerprint)
+      checkReviewThreadDbVersion(path.join(request.stagingDir, "review.mdx"));
     await promoteReviewArtifactFiles({
       reviewDir: dir,
       candidateDir: request.stagingDir,
       record: next,
       writeRecord: dependencies.writeRecord,
+      upgradeThreadDatabase: Boolean(request.expectedThreadDbFingerprint),
     });
     return next;
   });

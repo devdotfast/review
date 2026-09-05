@@ -63,6 +63,8 @@ export const PROSE_TAGS = [
   "td",
   "input",
   "img",
+  "sup",
+  "section",
 ] as const;
 const PROSE_PROPS = new Set([
   "className",
@@ -76,6 +78,12 @@ const PROSE_PROPS = new Set([
   "type",
   "alt",
   "src",
+  // Footnote references and return links emitted by the Markdown compiler.
+  "data-footnote-ref",
+  "data-footnote-backref",
+  "data-footnotes",
+  "aria-describedby",
+  "aria-label",
 ]);
 const SAFE_URL = /^(?:https?:|mailto:|#|\/|\.{0,2}\/|[^:]*$)/i;
 

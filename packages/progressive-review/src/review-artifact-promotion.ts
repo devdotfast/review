@@ -12,6 +12,7 @@ export async function promoteReviewArtifactFiles(input: {
   record: ReviewRecord;
   writeRecord?: typeof writePrivateJsonAtomic;
   renamePath?: typeof rename;
+  upgradeThreadDatabase?: boolean;
 }): Promise<void> {
   const staging = await mkdtemp(
     path.join(
@@ -24,6 +25,9 @@ export async function promoteReviewArtifactFiles(input: {
   const renamePath = input.renamePath ?? rename;
   const replacements: Array<{ name: string; hadOriginal: boolean }> = [];
   let retainBackup = false;
+  const replacementNames = [".bundle", ".git"];
+  if (input.upgradeThreadDatabase)
+    replacementNames.push("review.db", "review.db-wal", "review.db-shm");
   try {
     await mkdir(prepared);
     await mkdir(backup);
@@ -32,6 +36,11 @@ export async function promoteReviewArtifactFiles(input: {
         recursive: true,
       });
     }
+    if (input.upgradeThreadDatabase)
+      await cp(
+        path.join(input.candidateDir, "review.db"),
+        path.join(prepared, "review.db"),
+      );
     await (input.writeRecord ?? writePrivateJsonAtomic)(
       path.join(prepared, "review.json"),
       input.record,
@@ -41,7 +50,7 @@ export async function promoteReviewArtifactFiles(input: {
       path.join(backup, "review.json"),
     );
     try {
-      for (const name of [".bundle", ".git"]) {
+      for (const name of replacementNames) {
         let hadOriginal = true;
         try {
           await renamePath(
@@ -53,10 +62,13 @@ export async function promoteReviewArtifactFiles(input: {
           hadOriginal = false;
         }
         replacements.push({ name, hadOriginal });
-        await renamePath(
-          path.join(prepared, name),
-          path.join(input.reviewDir, name),
-        );
+        // The upgraded database is checkpointed; retire its old WAL/SHM
+        // together with the database and restore all three on failure.
+        if (name !== "review.db-wal" && name !== "review.db-shm")
+          await renamePath(
+            path.join(prepared, name),
+            path.join(input.reviewDir, name),
+          );
       }
       await renamePath(
         path.join(prepared, "review.json"),

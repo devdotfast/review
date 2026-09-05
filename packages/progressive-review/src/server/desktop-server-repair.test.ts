@@ -9,6 +9,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -27,11 +28,16 @@ import {
   writeReviewDocumentBundle,
 } from "../review-bundle";
 import { createReviewDir } from "../review-home";
+import { prepareReviewRepair } from "../review-repair-preparation";
 import {
   type ReviewRepairReadyRequest,
   fingerprintReviewRepairInputs,
 } from "../review-repair-state";
-import { closeAllReviewThreadStores } from "../review-thread-store-backend";
+import { appendReviewCommentDraft } from "../review-state-store";
+import {
+  checkReviewThreadDbVersion,
+  closeAllReviewThreadStores,
+} from "../review-thread-store-backend";
 import { reviewVcs } from "../review-vcs";
 import { createGlobalReviewServer } from "./desktop-server";
 import { GlobalReviewDesktopVerbRelay } from "./global-verb-relay";
@@ -194,6 +200,118 @@ async function fixture(schemaVersion: 4 | 5 = 4) {
     fetch(`${server.url}${route}`, { headers: { "x-review-token": token } });
   return { stored, record, request, server, post, list, visible, get };
 }
+
+it.each(["success", "mount-failure", "live-change", "stage-change"])(
+  "repairs a legacy database with the document only after mount validation: %s",
+  async (outcome) => {
+    const { stored, server, post, get } = await fixture();
+    const reviewPath = path.join(stored.dir, "review.mdx");
+    appendReviewCommentDraft(reviewPath, {
+      threadId: "preserved-draft",
+      messageId: "preserved-message",
+      target: { kind: "document" },
+      body: "Keep this draft",
+      author: "Reviewer",
+    });
+    closeAllReviewThreadStores();
+    const db = new DatabaseSync(path.join(stored.dir, "review.db"));
+    db.prepare(
+      "UPDATE meta SET value = '5' WHERE key = 'schema_version'",
+    ).run();
+    db.close();
+    const before = await snapshotReviewTree(stored.dir);
+    let expectedAfterFailure = before;
+    const prepared = await prepareReviewRepair({ reviewDir: stored.dir });
+    if (prepared.kind !== "prepared") throw new Error("Expected legacy repair");
+    expect(prepared.request.expectedThreadDbFingerprint).toBeDefined();
+    expect(prepared.request.sourceFallback.document).toBe(true);
+    let validated = false;
+    vi.spyOn(
+      GlobalReviewDesktopVerbRelay.prototype,
+      "dispatch",
+    ).mockImplementation(async (sessionId, value) => {
+      if (jsonObject(value)?.name !== "validateCanvasMount")
+        return { ok: true };
+      const prefix = `/sessions/${sessionId}/__progressive-review`;
+      expect((await get(`${prefix}/session`)).status).toBe(200);
+      const response = await get(`${prefix}/comments`);
+      expect(response.status).toBe(200);
+      const snapshot = ReviewThreadsSnapshotResponseSchema.parse(
+        await response.json(),
+      );
+      if (!snapshot.ok) throw new Error(snapshot.error);
+      expect(Object.keys(snapshot.snapshot.drafts)).toEqual([
+        "preserved-draft",
+      ]);
+      const duringMount = await snapshotReviewTree(stored.dir);
+      expect(
+        Object.fromEntries(
+          Object.entries(duringMount).filter(
+            ([name]) => !name.startsWith(".build/"),
+          ),
+        ),
+      ).toEqual(before);
+      if (outcome === "live-change" || outcome === "stage-change") {
+        const changedDir =
+          outcome === "live-change" ? stored.dir : prepared.request.stagingDir;
+        const changed = new DatabaseSync(path.join(changedDir, "review.db"));
+        changed
+          .prepare(
+            "INSERT INTO meta (key, value) VALUES ('concurrent-change', 'keep')",
+          )
+          .run();
+        changed.close();
+        if (outcome === "live-change") {
+          const latest = await snapshotReviewTree(stored.dir);
+          expectedAfterFailure = Object.fromEntries(
+            Object.entries(latest).filter(
+              ([name]) => !name.startsWith(".build/"),
+            ),
+          );
+        }
+      }
+      validated = true;
+      return outcome === "mount-failure"
+        ? { ok: false, error: "test mount failure" }
+        : { ok: true };
+    });
+    try {
+      const response = await post("/repair-ready", prepared.request);
+      expect(validated).toBe(true);
+      expect(response.status).toBe(
+        outcome === "success" ? 201 : outcome === "mount-failure" ? 422 : 400,
+      );
+      if (outcome !== "success") {
+        await expectReviewTree(stored.dir, expectedAfterFailure);
+        return;
+      }
+      checkReviewThreadDbVersion(reviewPath);
+      const { sessionId } = await response.json();
+      const prefix = `/sessions/${sessionId}/__progressive-review`;
+      const snapshot = ReviewThreadsSnapshotResponseSchema.parse(
+        await (await get(`${prefix}/comments`)).json(),
+      );
+      if (!snapshot.ok) throw new Error(snapshot.error);
+      expect(Object.keys(snapshot.snapshot.drafts)).toEqual([
+        "preserved-draft",
+      ]);
+      const created = await post(`${prefix}/thread-commands`, {
+        command: "comment.create",
+        mutationId: "after-legacy-repair",
+        input: {
+          threadId: "new-thread",
+          messageId: "new-message",
+          target: { kind: "document" },
+          body: "Works after repair",
+        },
+      });
+      expect(created.status).toBe(200);
+    } finally {
+      await server.close();
+      await prepared.cleanup();
+    }
+  },
+);
 
 it("switches repaired comments to live snapshots for resynchronization after promotion", async () => {
   const { stored, record, request, server, post, get } = await fixture(5);
@@ -480,3 +598,10 @@ it.each([
     }
   },
 );
+
+async function expectReviewTree(
+  dir: string,
+  expected: Awaited<ReturnType<typeof snapshotReviewTree>>,
+) {
+  expect(await snapshotReviewTree(dir)).toEqual(expected);
+}

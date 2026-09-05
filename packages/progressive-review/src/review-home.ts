@@ -328,24 +328,15 @@ export async function updateReviewPins(
   ) {
     return review;
   }
-  const now = new Date().toISOString();
-  const sourceAttribution = parseAuthoringSessionKey(pins.sourceSession)
-    ? {
-        agentSessions: {
-          ...review.review.agentSessions,
-          [pins.sourceSession]: {
-            roles: ["updater" as const],
-            firstSeenAt:
-              review.review.agentSessions?.[pins.sourceSession]?.firstSeenAt ??
-              now,
-            lastSeenAt: now,
-          },
-        },
-      }
-    : {};
+  /* The git-remap below is long-running (O(1 + N) git invocations); it must
+     stay outside the cross-process `.agent-sessions.lock` so a CLI rebind never
+     holds that lock across git work. Only the read-modify-write of the
+     whole-record `review.json` is lock-protected — matching the sibling
+     writers — so a concurrent process writing `review.json` during the remap
+     window cannot be clobbered by a stale write, nor clobber ours. */
   const refreshed: StoredReview = {
     ...review,
-    review: { ...review.review, ...pins, ...sourceAttribution },
+    review: { ...review.review, ...pins },
   };
   const threadStore = reviewThreadStoreBackend(
     path.join(refreshed.dir, "review.mdx"),
@@ -371,12 +362,43 @@ export async function updateReviewPins(
       sourceCommit: refreshed.review.sourceCommit,
     },
   });
-  await writePrivateJsonAtomic(
-    path.join(refreshed.dir, "review.json"),
-    refreshed.review,
+  const recordPath = path.join(refreshed.dir, "review.json");
+  const outcome = await withFileLock(
+    path.join(refreshed.dir, ".agent-sessions.lock"),
+    AGENT_SESSION_LOCK_OPTIONS,
+    async () => {
+      const current = parseStoredReviewRecord(
+        JSON.parse(await readFile(recordPath, "utf8")),
+      );
+      const now = new Date().toISOString();
+      const sourceAttribution = parseAuthoringSessionKey(pins.sourceSession)
+        ? {
+            agentSessions: {
+              ...current.agentSessions,
+              [pins.sourceSession]: {
+                roles: ["updater" as const],
+                firstSeenAt:
+                  current.agentSessions?.[pins.sourceSession]?.firstSeenAt ??
+                  now,
+                lastSeenAt: now,
+              },
+            },
+          }
+        : {};
+      const updated: StoredReviewRecord = {
+        ...current,
+        ...pins,
+        ...sourceAttribution,
+      };
+      await writePrivateJsonAtomic(recordPath, updated);
+      return { dir: review.dir, review: updated };
+    },
   );
+  if (!outcome.acquired) {
+    throw new Error(`Timed out while re-pinning Review ${review.review.uuid}.`);
+  }
   threadStore.writeCommentState(comments, remappedDrafts);
-  return refreshed;
+  return outcome.result;
 }
 
 export function createReviewUuid(): string {

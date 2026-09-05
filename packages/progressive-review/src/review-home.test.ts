@@ -518,6 +518,152 @@ describe("review home", () => {
     }
   });
 
+  it("re-pins under the agent-session lock and records the updater session alongside the author session", async () => {
+    const root = await makeGitRepository();
+    const home = await mkdtemp(path.join(os.tmpdir(), "review-home-"));
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+
+    try {
+      const originalCommit = await git(root, ["rev-parse", "HEAD"]);
+      const created = await createReviewDir({
+        worktreePath: root,
+        baseRef: "main",
+        baseCommit: originalCommit,
+        sourceCommit: originalCommit,
+        sourceIdentity: { kind: "git-branch", name: "main" },
+        sourceSession: "codex:author-session",
+      });
+      await writeFile(path.join(root, "note.ts"), "export const n = 1;\n");
+      await git(root, ["add", "."]);
+      await git(root, ["commit", "-m", "next"]);
+      const newCommit = await git(root, ["rev-parse", "HEAD"]);
+
+      const updated = await updateReviewPins(created, {
+        baseRef: "main",
+        baseCommit: originalCommit,
+        sourceCommit: newCommit,
+        sourceIdentity: { kind: "git-branch", name: "main" },
+        sourceSession: "codex:updater-session",
+      });
+
+      expect(updated.review.sourceCommit).toBe(newCommit);
+      expect(updated.review.baseCommit).toBe(originalCommit);
+      expect(updated.review.agentSessions?.["codex:author-session"]).toEqual({
+        roles: ["author"],
+        firstSeenAt: created.review.createdAt,
+        lastSeenAt: created.review.createdAt,
+      });
+      expect(updated.review.agentSessions?.["codex:updater-session"]).toEqual({
+        roles: ["updater"],
+        firstSeenAt: expect.any(String),
+        lastSeenAt: expect.any(String),
+      });
+
+      const onDisk = parseStoredReviewRecord(
+        JSON.parse(
+          await readFile(path.join(created.dir, "review.json"), "utf8"),
+        ),
+      );
+      expect(onDisk.sourceCommit).toBe(newCommit);
+      expect(onDisk.agentSessions?.["codex:author-session"]).toMatchObject({
+        roles: ["author"],
+      });
+      expect(onDisk.agentSessions?.["codex:updater-session"]).toMatchObject({
+        roles: ["updater"],
+      });
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(home, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves a concurrent agent-session write made during the rebind remap window", async () => {
+    const root = await makeGitRepository();
+    const home = await mkdtemp(path.join(os.tmpdir(), "review-home-"));
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+
+    try {
+      const originalCommit = await git(root, ["rev-parse", "HEAD"]);
+      const created = await createReviewDir({
+        worktreePath: root,
+        baseRef: "main",
+        baseCommit: originalCommit,
+        sourceCommit: originalCommit,
+        sourceIdentity: { kind: "git-branch", name: "main" },
+        sourceSession: "codex:author-session",
+      });
+      await writeFile(path.join(root, "note.ts"), "export const n = 1;\n");
+      await git(root, ["add", "."]);
+      await git(root, ["commit", "-m", "next"]);
+      const newCommit = await git(root, ["rev-parse", "HEAD"]);
+
+      // Inject the long-lived desktop server's concurrent agent-session write
+      // into the rebind remap window — the interleaving the server produces on
+      // the open review while a CLI rebind is running.
+      const remap = await import("./review-code-target-remap");
+      const spy = vi
+        .spyOn(remap, "remapReviewCodeThreads")
+        .mockImplementation(async (input) => {
+          const touched = await findReview(created.review.uuid);
+          if (!touched) throw new Error("Review disappeared during rebind.");
+          await touchReviewAgentSession(
+            touched,
+            "claude-code:publisher-session",
+            "publisher",
+          );
+          return input.comments;
+        });
+      try {
+        const updated = await updateReviewPins(created, {
+          baseRef: "main",
+          baseCommit: originalCommit,
+          sourceCommit: newCommit,
+          sourceIdentity: { kind: "git-branch", name: "main" },
+          sourceSession: "codex:updater-session",
+        });
+
+        // The CLI's new pins survive ...
+        expect(updated.review.sourceCommit).toBe(newCommit);
+        // ... and the concurrent "publisher" attribution is merged from the
+        // re-read inside the lock instead of being silently clobbered.
+        expect(
+          updated.review.agentSessions?.["claude-code:publisher-session"],
+        ).toMatchObject({ roles: ["publisher"] });
+        expect(updated.review.agentSessions?.["codex:author-session"]).toEqual({
+          roles: ["author"],
+          firstSeenAt: created.review.createdAt,
+          lastSeenAt: created.review.createdAt,
+        });
+        expect(
+          updated.review.agentSessions?.["codex:updater-session"],
+        ).toMatchObject({ roles: ["updater"] });
+
+        const onDisk = parseStoredReviewRecord(
+          JSON.parse(
+            await readFile(path.join(created.dir, "review.json"), "utf8"),
+          ),
+        );
+        expect(onDisk.sourceCommit).toBe(newCommit);
+        expect(
+          onDisk.agentSessions?.["claude-code:publisher-session"],
+        ).toMatchObject({ roles: ["publisher"] });
+        expect(onDisk.agentSessions?.["codex:author-session"]).toMatchObject({
+          roles: ["author"],
+        });
+        expect(onDisk.agentSessions?.["codex:updater-session"]).toMatchObject({
+          roles: ["updater"],
+        });
+      } finally {
+        spy.mockRestore();
+      }
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(home, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("returns parse failures as explicit list errors", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "review-home-"));
     vi.stubEnv("DEV_REVIEW_HOME", home);

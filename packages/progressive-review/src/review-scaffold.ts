@@ -232,12 +232,13 @@ async function createReview(
 export async function repinReview(
   review: StoredReview,
   input: RunReviewScaffoldInput,
+  targetSourceIdentity?: ReviewSourceIdentity,
 ): Promise<ReviewScaffoldEvent> {
   const root = review.review.worktreePath;
   const uuid = review.review.uuid;
   const oldHeadCommit = review.review.sourceCommit;
   const oldBaseCommit = review.review.baseCommit;
-  let sourceIdentity = review.review.sourceIdentity;
+  let sourceIdentity = targetSourceIdentity ?? review.review.sourceIdentity;
   let sourceBranch = sourceIdentity?.name;
   if (
     !sourceIdentity ||

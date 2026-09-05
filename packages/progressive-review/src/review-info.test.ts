@@ -800,52 +800,84 @@ describe("review info", () => {
     }
   });
 
-  it("rebind re-pins the review from the new change immediately", async () => {
-    const root = await makeGitRepository();
-    const home = await mkdtemp(path.join(os.tmpdir(), "review-info-home-"));
-    vi.stubEnv("DEV_REVIEW_HOME", home);
+  it.each([false, true])(
+    "rebind re-pins the review unless its identity changes concurrently=%s",
+    async (concurrentChange) => {
+      const root = await makeGitRepository();
+      const home = await mkdtemp(path.join(os.tmpdir(), "review-info-home-"));
+      vi.stubEnv("DEV_REVIEW_HOME", home);
 
-    try {
-      await git(root, ["checkout", "-b", "feature"]);
-      await writeFile(path.join(root, "README.md"), "# Feature\n", "utf8");
-      await git(root, ["commit", "-am", "feature"]);
-      const created = await runReviewScaffold({
-        cwd: root,
-        baseRef: "main",
-        headRef: "feature",
-      });
-      await git(root, ["checkout", "main"]);
-      await git(root, ["checkout", "-b", "other"]);
-      await writeFile(path.join(root, "other.txt"), "other\n", "utf8");
-      await git(root, ["add", "."]);
-      await git(root, ["commit", "-m", "other"]);
-      const otherTip = await git(root, ["rev-parse", "HEAD"]);
-
-      await runReviewRebind({
-        cwd: root,
-        change: "other",
-        reviewUuid: created.reviews[0]!.uuid,
-        env: { CODEX_THREAD_ID: "rebind-1" },
-        stdout: nullStream(),
-      });
-      const reviewJson = JSON.parse(
-        await readFile(
-          path.join(created.reviews[0]!.dir, "review.json"),
-          "utf8",
-        ),
-      );
-      expect(reviewJson.sourceIdentity).toEqual({
-        kind: "git-branch",
-        name: "other",
-      });
-      expect(reviewJson.sourceCommit).toBe(otherTip);
-      expect(reviewJson.sourceSession).toBe("codex:rebind-1-fork");
-    } finally {
-      vi.unstubAllEnvs();
-      await rm(home, { recursive: true, force: true });
-      await rm(root, { recursive: true, force: true });
-    }
-  });
+      try {
+        await git(root, ["checkout", "-b", "feature"]);
+        await writeFile(path.join(root, "README.md"), "# Feature\n", "utf8");
+        await git(root, ["commit", "-am", "feature"]);
+        const created = await runReviewScaffold({
+          cwd: root,
+          baseRef: "main",
+          headRef: "feature",
+        });
+        await git(root, ["checkout", "main"]);
+        await git(root, ["checkout", "-b", "other"]);
+        await writeFile(path.join(root, "other.txt"), "other\n", "utf8");
+        await git(root, ["add", "."]);
+        await git(root, ["commit", "-m", "other"]);
+        const otherTip = await git(root, ["rev-parse", "HEAD"]);
+        const recordPath = path.join(created.reviews[0]!.dir, "review.json");
+        const original = JSON.parse(await readFile(recordPath, "utf8"));
+        if (concurrentChange) {
+          createSourceAgentSession.mockImplementationOnce(async ({ agent }) => {
+            await writeFile(
+              recordPath,
+              JSON.stringify({
+                ...original,
+                sourceIdentity: { kind: "git-branch", name: "competing" },
+              }),
+            );
+            return {
+              harness: agent.harness,
+              sessionId: `${agent.sessionId}-fork`,
+            };
+          });
+        }
+        const rebinding = runReviewRebind({
+          cwd: root,
+          change: "other",
+          reviewUuid: created.reviews[0]!.uuid,
+          env: { CODEX_THREAD_ID: "rebind-1" },
+          stdout: nullStream(),
+        });
+        const outcome = await rebinding.then(
+          () => "rebound",
+          (error) => String(error),
+        );
+        expect(outcome).toMatch(
+          concurrentChange
+            ? /Review changed while preparing publication/
+            : /^rebound$/,
+        );
+        const reviewJson = JSON.parse(
+          await readFile(
+            path.join(created.reviews[0]!.dir, "review.json"),
+            "utf8",
+          ),
+        );
+        expect(reviewJson.sourceIdentity).toEqual({
+          kind: "git-branch",
+          name: concurrentChange ? "competing" : "other",
+        });
+        expect(reviewJson.sourceCommit).toBe(
+          concurrentChange ? original.sourceCommit : otherTip,
+        );
+        expect(reviewJson.sourceSession).toBe(
+          concurrentChange ? original.sourceSession : "codex:rebind-1-fork",
+        );
+      } finally {
+        vi.unstubAllEnvs();
+        await rm(home, { recursive: true, force: true });
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("rebind failure leaves review.json untouched when the merge base is missing", async () => {
     const root = await makeGitRepository();

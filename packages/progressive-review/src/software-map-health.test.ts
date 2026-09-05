@@ -54,8 +54,11 @@ describe("checkSoftwareMapSource coverage path normalization", () => {
         path: "./src/app.ts",
         ranges: [{ fromLine: 1, toLine: 10 }],
       });
+      // The fixture's "line 1\nline 2\nline 3\n" is a newline-terminated file
+      // with 3 content lines, so the reported length is the true count (not
+      // the trailing-newline-inflated count the validator used to emit).
       expect(errors).toEqual([
-        'SoftwareMap coverage: "product.web.shell" range 1-10 exceeds "./src/app.ts" length (4 lines).',
+        'SoftwareMap coverage: "product.web.shell" range 1-10 exceeds "./src/app.ts" length (3 lines).',
       ]);
     } finally {
       await rm(fixture.rootPath, { recursive: true, force: true });

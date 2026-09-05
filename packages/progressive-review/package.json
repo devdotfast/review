@@ -65,6 +65,7 @@
     "fixtures:capture-legacy-review": "tsx scripts/capture-legacy-review-fixture.ts",
     "fixtures:legacy-review-goldens": "tsx scripts/generate-legacy-review-goldens.ts",
     "test": "vitest run --config vitest.config.ts",
+    "test:legacy-corpus": "vitest run --config vitest.config.ts src/legacy-review-corpus.test.ts",
     "test:telemetry-privacy": "vitest run --config vitest.config.ts src/ui-telemetry-events.test.ts src/error-telemetry.test.ts",
     "typecheck": "pnpm -w exec tsc --noEmit -p packages/progressive-review"
   },

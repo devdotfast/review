@@ -316,6 +316,7 @@ export interface StoredReviewMigrationOutcome {
 export async function migrateStoredReview(input: {
   reviewDir: string;
   log?: (message: string) => void;
+  createSourceSession?: typeof createReviewSourceAgentSession;
 }): Promise<StoredReviewMigrationOutcome> {
   const reviewPath = path.join(input.reviewDir, "review.mdx");
   const value = jsonObject(
@@ -334,6 +335,8 @@ export async function migrateStoredReview(input: {
   if (schemaVersion === 3 || schemaVersion === 2) {
     migrationValue = await migrateReviewSourceSession({
       onWarning: (message) => input.log?.(message),
+      createSourceSession:
+        input.createSourceSession ?? createReviewSourceAgentSession,
       value,
     });
   }
@@ -443,6 +446,7 @@ export async function migrateStoredReviewData(input: {
 
 async function migrateReviewSourceSession(input: {
   onWarning?: (message: string) => void;
+  createSourceSession: typeof createReviewSourceAgentSession;
   value: JsonObject;
 }): Promise<JsonObject> {
   const source = parseAuthoringSessionKey(jsonString(input.value.agentSession));
@@ -466,7 +470,7 @@ async function migrateReviewSourceSession(input: {
     if (!checkout) {
       throw new Error("the pinned head checkout is unavailable");
     }
-    const frozen = await createReviewSourceAgentSession({
+    const frozen = await input.createSourceSession({
       agent: source,
       reviewUuid: uuid,
       rootPath: checkout,

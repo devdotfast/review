@@ -1,99 +1,26 @@
-import {
-  type CodePeekProps,
-  type CodePeekResolution,
-  type ReviewDefinitionSession,
-  calls,
-  createReviewDefinitionSession,
-} from "../../src/authoring";
-
-export { calls };
-import { reviewFetch } from "./host/review-client";
-import type { NormalizedSoftwareModel } from "./software-map/model";
+import type { CodePeekProps, CodePeekResolution } from "../../src/authoring";
+import type { ReviewSession } from "./host/review-session";
 
 const REVIEW_CODE_PEEK_RESOLUTION_CONCURRENCY = 8;
 let activeCodePeekResolutions = 0;
 const pendingCodePeekResolutionSlots: Array<() => void> = [];
-
-export interface ReviewRequestContext {
-  origin?: string;
-  token?: string;
-}
-
-// Published bundles are origin-agnostic: the canvas sets this context after it
-// imports the runtime and before it imports the document module, so the same
-// bundle can be served from any session origin.
-let reviewRequestContext: ReviewRequestContext | null = null;
-
-export function setReviewRequestContext(context: ReviewRequestContext): void {
-  reviewRequestContext = context;
-}
 
 export const reviewDefinitionDiagnostics = {
   authoredCodePeekRequestCount: 0,
   authoredCodePeekDiffRequestCount: 0,
 };
 
-export function createBrowserReviewDefinitionSession(input: {
-  routePath: string;
-  softwareMap: NormalizedSoftwareModel | null;
-  baseSoftwareMap: NormalizedSoftwareModel | null;
-  mapDependentComponents?: readonly string[];
-  resolveCodePeeks?: boolean;
-  requestOrigin?: string;
-  requestToken?: string;
-}): ReviewDefinitionSession {
-  // Capture the canvas-provided context at session creation, which happens
-  // while the document module imports. Baked-in values still win so bundles
-  // produced before the origin-agnostic change keep working.
-  const requestOrigin = input.requestOrigin ?? reviewRequestContext?.origin;
-  const requestToken = input.requestToken ?? reviewRequestContext?.token;
-  return createReviewDefinitionSession({
-    softwareMap: input.softwareMap,
-    baseSoftwareMap: input.baseSoftwareMap,
-    mapDependentComponents: input.mapDependentComponents,
-    resolveCodePeek:
-      input.resolveCodePeeks === false
-        ? undefined
-        : (props) =>
-            resolveCodePeek(
-              input.routePath,
-              props,
-              requestOrigin,
-              requestToken,
-            ),
-  });
-}
-
-async function resolveCodePeek(
+export async function resolveCodePeekRequest(
   routePath: string,
   props: CodePeekProps,
-  requestOrigin: string | undefined,
-  requestToken: string | undefined,
-): Promise<CodePeekResolution> {
-  return runWithCodePeekResolutionSlot(() =>
-    resolveCodePeekRequest(routePath, props, requestOrigin, requestToken),
-  );
-}
-
-async function resolveCodePeekRequest(
-  routePath: string,
-  props: CodePeekProps,
-  requestOrigin: string | undefined,
-  requestToken: string | undefined,
+  session: ReviewSession,
 ): Promise<CodePeekResolution> {
   recordAuthoredCodePeekRequest(false);
-  const response = await reviewFetch(
-    {
-      sessionUrl: requestOrigin,
-      routePath,
-      token: requestToken,
-    },
+  const response = await session.fetch(
     "/code-peek/resolve",
     {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({
         root: codePeekRoot(props),
         graph: props.graph ?? "head",
@@ -101,10 +28,10 @@ async function resolveCodePeekRequest(
         includeDiffSummary: true,
       }),
     },
+    { routePath },
   );
-  // SAFETY: the review server's /code-peek/resolve route
-  // (src/server/review-api.ts) answers `{ ok: true, snapshot, diff? }` on
-  // success and `{ ok: false, error }` on failure.
+  // SAFETY: the authenticated review route returns CodePeekResolution on
+  // success and a human-readable error response otherwise.
   const json = (await response.json()) as
     | ({ ok: true } & CodePeekResolution)
     | { ok: false; error?: string };

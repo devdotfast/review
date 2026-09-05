@@ -20,7 +20,7 @@ import { errorMessage } from "./error-message";
 // mistakes: the app never sees an element the audit did not see first.
 
 const ELEMENT_MARKER = "__reviewPublishElement";
-const FRAGMENT = Symbol.for("react.fragment");
+export const FRAGMENT = Symbol.for("react.fragment");
 
 // What `jsx` receives as an element type: an intrinsic tag name, a React
 // marker symbol (Fragment, Suspense, ...), or a component function.
@@ -54,19 +54,19 @@ export type PublishAuditComponent = (
 // `label` is a string, and `components` is the stub map handed to the
 // document. Every other authored prop is opaque here; the component's zod
 // schema parses it.
-export type PublishValidationPropValue =
-  | PublishAuditNode
-  | Record<string, PublishAuditComponent>;
-
 export interface PublishValidationProps {
   children?: PublishAuditNode;
   key?: PublishAuditKey;
-  [prop: string]: PublishValidationPropValue;
+  components?: Record<string, PublishAuditComponent>;
+  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Authored component schemas own these deliberately opaque values.
+  [prop: string]: unknown;
 }
 
-type AuthoringComponentName = keyof typeof reviewAuthoringPropsSchemas;
+export type AuthoringComponentName = keyof typeof reviewAuthoringPropsSchemas;
 
-function isAuditElement(value: PublishAuditNode): value is PublishAuditElement {
+export function isAuditElement(
+  value: PublishAuditNode,
+): value is PublishAuditElement {
   if (!isObjectValue(value)) return false;
   return (
     (ELEMENT_MARKER in value && value[ELEMENT_MARKER] === true) ||
@@ -97,7 +97,9 @@ function makeElement(
 // arrays flatten recursively; null, undefined, and booleans disappear.
 // Fragments do NOT flatten — React.Children treats a fragment as one child,
 // and the lens parsers in the app rely on that.
-function flattenChildren(children: PublishAuditNode): PublishAuditNode[] {
+export function flattenChildren(
+  children: PublishAuditNode,
+): PublishAuditNode[] {
   if (
     children === null ||
     children === undefined ||
@@ -236,6 +238,11 @@ export interface PublishAuditTraceQuote {
   text: string;
 }
 
+export interface ReviewDocumentPublishAudit {
+  tree: PublishAuditNode;
+  componentNames: ReadonlyMap<PublishAuditElementType, AuthoringComponentName>;
+}
+
 export function extractAuditText(node: PublishAuditNode): string {
   if (node === null || node === undefined || node === true || node === false) {
     return "";
@@ -257,7 +264,7 @@ export function auditReviewDocumentComponent(input: {
   // element, so it hands the parsed props to the evaluation.
   collectCallStackDiff?: (props: CallStackDiffProps) => void;
   collectTraceQuote?: (quote: PublishAuditTraceQuote) => void;
-}): void {
+}): ReviewDocumentPublishAudit | null {
   const components = new Map<AuthoringComponentName, PublishAuditComponent>();
   const componentNames = new Map<
     PublishAuditElementType,
@@ -281,7 +288,7 @@ export function auditReviewDocumentComponent(input: {
     input.reportError(
       `Review document did not evaluate for validation: ${errorMessage(error)}`,
     );
-    return;
+    return null;
   }
 
   const walk = (
@@ -334,6 +341,7 @@ export function auditReviewDocumentComponent(input: {
     }
   };
   walk(tree, null);
+  return { tree, componentNames };
 }
 
 function auditElement(

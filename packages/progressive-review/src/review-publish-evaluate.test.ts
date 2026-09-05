@@ -79,6 +79,7 @@ describe("publish range evaluation", () => {
     expect(result.errors).toEqual([
       expect.stringContaining("Source range src/example.ts:1-4 exceeds"),
     ]);
+    expect(result.document).toBeNull();
   });
 
   it("does not prepare a worktree when the document has no peeks", async () => {
@@ -92,6 +93,130 @@ describe("publish range evaluation", () => {
 
     expect(result).toMatchObject({ peekCount: 0, rangePeeks: [], errors: [] });
     expect(prepareEvidence).not.toHaveBeenCalled();
+  });
+
+  it("recovers imported anchors omitted by old sealed document exports, including unused anchors", async () => {
+    const result = await evaluateReviewDocumentBundleForPublish({
+      reviewDir: fixtureDir("review"),
+      validateRanges: false,
+      bundleCode: `import { createBrowserReviewDefinitionSession, createActiveReviewDocument, jsx } from "review-doc-runtime";
+        const session = createBrowserReviewDefinitionSession({});
+        const anchors = session.defineAnchors({ shown: { title: "Shown", peek: { file: "x.ts", fromLine: 1, toLine: 1 } }, unused: { title: "Unused", peek: { file: "x.ts", fromLine: 2, toLine: 2 } } });
+        export default createActiveReviewDocument({ title: "Legacy", routePath: "/", filePath: "review.mdx", modelNames: [], models: {}, Component: ({ components }) => jsx(components.AnchorLink, { anchor: anchors.shown, children: "Shown" }), isDefault: true });`,
+    });
+    expect(result.errors).toEqual([]);
+    expect(Object.keys(result.document!.anchors).sort()).toEqual([
+      "shown",
+      "unused",
+    ]);
+  });
+
+  it("materializes document metadata, nodes, anchors, and ordered software models", async () => {
+    const reviewDir = fixtureDir("review");
+    const head = sourceFixture("one line");
+    const result = await evaluateReviewDocumentBundleForPublish({
+      reviewDir,
+      bundleCode: `
+        import React, {
+          createActiveReviewDocument,
+          createBrowserReviewDefinitionSession,
+          defineSoftwareModel,
+        } from "review-doc-runtime";
+        const session = createBrowserReviewDefinitionSession({
+          softwareMap: null,
+          baseSoftwareMap: null,
+        });
+        const anchors = session.defineAnchors({
+          request: {
+            title: "Request",
+            peek: { file: "src/example.ts", fromLine: 1, toLine: 1 },
+          },
+          unused: {
+            title: "Unused imported anchor",
+            peek: { file: "src/example.ts", fromLine: 1, toLine: 1 },
+          },
+        });
+        const first = defineSoftwareModel({
+          systems: { first: { label: "First" } },
+        });
+        const second = defineSoftwareModel({
+          systems: { second: { label: "Second" } },
+        });
+        await session.ready();
+        createActiveReviewDocument({
+          title: "Materialized",
+          routePath: "/guide",
+          filePath: "/repo/review.mdx",
+          modelNames: ["second"],
+          models: { anchors, importedModel: first, ignored: first, second },
+          Component: ({ components }) => React.createElement(
+            React.Fragment,
+            null,
+            React.createElement("h1", {
+              "data-review-block-index": 0,
+              "data-review-block-tag": "h1",
+            }, "Materialized"),
+            React.createElement(components.CodePeek, {
+              anchor: anchors.request,
+            }),
+          ),
+        });
+      `,
+      prepareEvidence: async () => ({ head: { sourceRootPath: head } }),
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.document).toMatchObject({
+      title: "Materialized",
+      routePath: "/guide",
+      sourcePath: "review.mdx",
+      body: [
+        {
+          type: "element",
+          tag: "h1",
+          children: [{ type: "text", value: "Materialized" }],
+        },
+        { type: "component", name: "CodePeek", children: [] },
+      ],
+    });
+    expect(result.document?.anchors.request?.peek?.resolution).toBeNull();
+    expect(result.document?.anchors.unused?.title).toBe(
+      "Unused imported anchor",
+    );
+    expect(
+      result.document?.softwareModels.map((model) => model.elements[0]?.label),
+    ).toEqual(["Second", "First"]);
+  });
+
+  it("returns no document after audit or document-schema failures", async () => {
+    const auditFailure = await evaluateReviewDocumentBundleForPublish({
+      reviewDir: fixtureDir("review"),
+      bundleCode: bundleWithDocumentBody(
+        `React.createElement(components.CodePeek, {})`,
+      ),
+    });
+    expect(auditFailure.errors.length).toBeGreaterThan(0);
+    expect(auditFailure.document).toBeNull();
+
+    const documentLocalComponent = await evaluateReviewDocumentBundleForPublish(
+      {
+        reviewDir: fixtureDir("review"),
+        bundleCode: bundleWithDocumentBody(
+          `React.createElement(() => React.createElement("p", null, "Local"))`,
+        ),
+      },
+    );
+    expect(documentLocalComponent.errors).toContain(
+      "Document-local components are not supported; use the Review components.",
+    );
+    expect(documentLocalComponent.document).toBeNull();
+
+    const schemaFailure = await evaluateReviewDocumentBundleForPublish({
+      reviewDir: fixtureDir("review"),
+      bundleCode: bundleWithDocumentBody(`React.createElement("video")`),
+    });
+    expect(schemaFailure.errors.length).toBeGreaterThan(0);
+    expect(schemaFailure.document).toBeNull();
   });
 
   describe("TraceQuote validation", () => {
@@ -171,6 +296,11 @@ describe("publish range evaluation", () => {
           });
           await session.ready();
           createActiveReviewDocument({
+            title: "Trace quote",
+            routePath: "/",
+            filePath: "/repo/review.mdx",
+            modelNames: [],
+            models: {},
             Component: ({ components }) => {
               const TraceQuote = components.TraceQuote;
               return React.createElement(
@@ -201,6 +331,11 @@ describe("publish range evaluation", () => {
           });
           await session.ready();
           createActiveReviewDocument({
+            title: "Trace quote",
+            routePath: "/",
+            filePath: "/repo/review.mdx",
+            modelNames: [],
+            models: {},
             Component: ({ components }) => {
               const TraceQuote = components.TraceQuote;
               return React.createElement(
@@ -232,6 +367,11 @@ describe("publish range evaluation", () => {
           });
           await session.ready();
           createActiveReviewDocument({
+            title: "Trace quote",
+            routePath: "/",
+            filePath: "/repo/review.mdx",
+            modelNames: [],
+            models: {},
             Component: ({ components }) => {
               const TraceQuote = components.TraceQuote;
               return React.createElement(
@@ -274,8 +414,37 @@ function bundleWithAnchors(anchors: string): string {
       softwareMap: null,
       baseSoftwareMap: null,
     });
-    session.defineAnchors({ ${anchors} });
+    const anchors = session.defineAnchors({ ${anchors} });
     await session.ready();
-    createActiveReviewDocument({ Component: () => null });
+    createActiveReviewDocument({
+      title: "Fixture",
+      routePath: "/",
+      filePath: "/repo/review.mdx",
+      modelNames: [],
+      models: { anchors },
+      Component: () => null,
+    });
+  `;
+}
+
+function bundleWithDocumentBody(body: string): string {
+  return `
+    import React, {
+      createActiveReviewDocument,
+      createBrowserReviewDefinitionSession,
+    } from "review-doc-runtime";
+    const session = createBrowserReviewDefinitionSession({
+      softwareMap: null,
+      baseSoftwareMap: null,
+    });
+    await session.ready();
+    createActiveReviewDocument({
+      title: "Fixture",
+      routePath: "/",
+      filePath: "/repo/review.mdx",
+      modelNames: [],
+      models: {},
+      Component: ({ components }) => ${body},
+    });
   `;
 }

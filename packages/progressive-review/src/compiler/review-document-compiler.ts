@@ -320,7 +320,15 @@ export async function compileReviewDocument(
   if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
     return { diagnostics, reviewDocument };
   }
-  const runtime = await emitReviewRuntime(input.filePath, mdxCode, runtimeMap);
+  const runtime = await emitReviewRuntime(
+    input.filePath,
+    authoredTypescript
+      .filter((region) => region.kind === "esm")
+      .map((region) => region.value)
+      .join("\n"),
+    mdxCode,
+    runtimeMap,
+  );
   return {
     runtimeCode: runtime.code,
     runtimeMap: runtime.map,
@@ -331,6 +339,7 @@ export async function compileReviewDocument(
 
 async function emitReviewRuntime(
   filePath: string,
+  authoredSource: string,
   mdxCode: string,
   mdxMap: RawSourceMap | undefined,
 ): Promise<{ code: string; map?: RawSourceMap }> {
@@ -354,7 +363,8 @@ async function emitReviewRuntime(
     "",
   );
   const prefix = `${reviewHelperImports(importedLocalBindings(emittedCode))}\n\n`;
-  const code = `${prefix}${emittedCode}\n\nawait __reviewDefinitionsReady();\n`;
+  const dataReexports = localDataReexports(authoredSource, emittedCode);
+  const code = `${prefix}${emittedCode}\n${dataReexports}\nawait __reviewDefinitionsReady();\n`;
   if (!emitted.sourceMapText || !mdxMap) return { code };
   return {
     code,
@@ -365,6 +375,102 @@ async function emitReviewRuntime(
       mdxMap,
     }),
   };
+}
+
+// MDX removes imports it does not reference while generating its module. The
+// publish materializer still needs the complete authored data namespace: an
+// imported anchors object can contain intentionally unused anchors, and an
+// imported software model belongs to the document even when no JSX prop reads
+// it. Re-export the local bindings directly from relative data modules so the
+// bundled document namespace retains those exact values and identities.
+function localDataReexports(source: string, emittedCode: string): string {
+  const sourceFile = ts.createSourceFile(
+    "review-document.mdx",
+    source,
+    ts.ScriptTarget.ESNext,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const alreadyExported = exportedNames(emittedCode);
+  const exports: string[] = [];
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement)) continue;
+    if (!ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    const specifier = statement.moduleSpecifier.text;
+    if (!specifier.startsWith("./") && !specifier.startsWith("../")) continue;
+    if (path.extname(specifier) === ".json") continue;
+    const clause = statement.importClause;
+    if (!clause || clause.isTypeOnly) continue;
+    const named: string[] = [];
+    if (clause.name && !alreadyExported.has(clause.name.text)) {
+      named.push(`default as ${clause.name.text}`);
+    }
+    if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
+      if (!alreadyExported.has(clause.namedBindings.name.text)) {
+        exports.push(
+          `export * as ${clause.namedBindings.name.text} from ${JSON.stringify(specifier)};`,
+        );
+      }
+    }
+    if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+      for (const element of clause.namedBindings.elements) {
+        if (element.isTypeOnly) continue;
+        if (alreadyExported.has(element.name.text)) continue;
+        named.push(
+          element.propertyName
+            ? `${element.propertyName.text} as ${element.name.text}`
+            : element.name.text,
+        );
+      }
+    }
+    if (named.length > 0) {
+      exports.push(
+        `export { ${named.join(", ")} } from ${JSON.stringify(specifier)};`,
+      );
+    }
+  }
+  return exports.length > 0 ? `\n${exports.join("\n")}\n` : "";
+}
+
+function exportedNames(source: string): Set<string> {
+  const names = new Set<string>();
+  const sourceFile = ts.createSourceFile(
+    "review-document-runtime.js",
+    source,
+    ts.ScriptTarget.ESNext,
+    true,
+    ts.ScriptKind.JS,
+  );
+  for (const statement of sourceFile.statements) {
+    if (
+      ts.isExportDeclaration(statement) &&
+      statement.exportClause &&
+      ts.isNamedExports(statement.exportClause)
+    ) {
+      for (const element of statement.exportClause.elements) {
+        names.add(element.name.text);
+      }
+      continue;
+    }
+    const modifiers = ts.canHaveModifiers(statement)
+      ? ts.getModifiers(statement)
+      : undefined;
+    if (!modifiers?.some((item) => item.kind === ts.SyntaxKind.ExportKeyword)) {
+      continue;
+    }
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name)) names.add(declaration.name.text);
+      }
+    } else if (
+      (ts.isFunctionDeclaration(statement) ||
+        ts.isClassDeclaration(statement)) &&
+      statement.name
+    ) {
+      names.add(statement.name.text);
+    }
+  }
+  return names;
 }
 
 function importedLocalBindings(source: string): Set<string> {

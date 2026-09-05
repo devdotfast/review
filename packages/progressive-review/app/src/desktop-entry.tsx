@@ -2,20 +2,27 @@ import type {
   ReviewCanvasContent,
   ReviewCanvasDiagnostic,
   ReviewCanvasHandle,
+  ReviewDocumentLoad,
+  ReviewSoftwareMapLoad,
 } from "@dev.fast/review-protocol";
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
-import { App, type PublishedSoftwareMap } from "./App";
+import {
+  App,
+  type ReviewDocumentAppState,
+  type ReviewSoftwareMapAppState,
+} from "./App";
 import {
   type ReviewSession,
   ReviewSessionProvider,
   createReviewSession,
   useReviewSession,
 } from "./host/review-session";
+import { hydratePublishedSoftwareMap } from "./hydrate-published-software-map";
 import { ReviewCanvasLoading } from "./review-canvas-loading";
 import { reviewDefinitionDiagnostics } from "./review-definition-runtime";
-import type { ReadyReviewDocumentEntry } from "./review-documents-runtime";
+import { prepareReviewDocument } from "./review-document-hydrate";
 import { type ReviewFindHost, createReviewFindHost } from "./review-find";
 import { ReviewHome, ReviewMigrationWarning } from "./review-home-view";
 import {
@@ -31,10 +38,6 @@ import "./styles.css";
 
 export { clearPersistedReviewViewState as clearReviewViewState } from "./review-view-state";
 
-interface ReviewDocumentBundle {
-  activeReviewDocument: ReadyReviewDocumentEntry;
-}
-
 function DesktopReviewApp({
   documentBundle,
   softwareMapBundle,
@@ -45,8 +48,8 @@ function DesktopReviewApp({
   tutorial,
   findHost,
 }: {
-  documentBundle: Promise<unknown>;
-  softwareMapBundle: Promise<unknown | null>;
+  documentBundle: Promise<ReviewDocumentLoad>;
+  softwareMapBundle: Promise<ReviewSoftwareMapLoad | null>;
   softwareMapEnabled: boolean;
   range: Extract<ReviewCanvasContent, { kind: "session" }>["range"];
   commits: Extract<ReviewCanvasContent, { kind: "session" }>["commits"];
@@ -61,59 +64,128 @@ function DesktopReviewApp({
   const sessionRef = useRef(session);
   sessionRef.current = session;
   const container = useReviewContainer();
-  const [document, setDocument] = useState<ReadyReviewDocumentEntry | null>(
-    null,
-  );
-  const [softwareMap, setSoftwareMap] = useState<PublishedSoftwareMap | null>(
-    null,
-  );
-  const [softwareMapLoaded, setSoftwareMapLoaded] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [documentState, setDocumentState] = useState<ReviewDocumentAppState>({
+    state: "loading",
+  });
+  const [softwareMapState, setSoftwareMapState] =
+    useState<ReviewSoftwareMapAppState>({ state: "loading" });
+  const documentLoadError = useRef<Error | null>(null);
+  const softwareMapLoadError = useRef<Error | null>(null);
+  const reportedLoadErrors = useRef(new Set<string>());
 
   useEffect(() => {
     let cancelled = false;
-    setDocument(null);
-    setSoftwareMap(null);
-    setSoftwareMapLoaded(false);
-    setError(null);
-    void Promise.all([documentBundle, softwareMapBundle]).then(
-      ([documentValue, softwareMapValue]) => {
+    setDocumentState({ state: "loading" });
+    setSoftwareMapState({ state: "loading" });
+    documentLoadError.current = null;
+    softwareMapLoadError.current = null;
+    reportedLoadErrors.current.clear();
+
+    void (async () => {
+      try {
+        const load = await documentBundle;
         if (cancelled) return;
-        // SAFETY: the desktop host resolves the session content's `document`
-        // promise with the loaded review-document module, whose exports are
-        // the ReviewDocumentBundle (`activeReviewDocument`).
-        const bundle = documentValue as ReviewDocumentBundle;
-        setDocument(bundle.activeReviewDocument);
-        // SAFETY: the host resolves `softwareMap` with the published software
-        // map module, or null when no map was published for the review.
-        setSoftwareMap(softwareMapValue as PublishedSoftwareMap | null);
-        setSoftwareMapLoaded(true);
-      },
-      (loadError) => {
-        if (cancelled) return;
-        captureClientError(sessionRef.current, "document", loadError);
-        const message =
-          loadError instanceof Error ? loadError.message : String(loadError);
-        const diagnostic: ReviewCanvasDiagnostic = {
-          level: "error",
-          source: "loader",
-          message,
-        };
-        if (loadError instanceof Error && loadError.stack) {
-          diagnostic.stack = loadError.stack;
+        if (load.state === "ready") {
+          const document = await prepareReviewDocument(
+            load,
+            sessionRef.current,
+          );
+          if (!cancelled) setDocumentState({ state: "ready", document });
+        } else if (load.state === "needs-republish") {
+          setDocumentState(load);
+        } else {
+          if (!load.currentReviewUuid)
+            documentLoadError.current = new Error(load.message);
+          setDocumentState(load);
         }
-        sessionRef.current.reportDiagnostic(diagnostic);
-        setError(message);
-      },
-    );
+      } catch (error) {
+        if (cancelled) return;
+        const cause = error instanceof Error ? error : new Error(String(error));
+        documentLoadError.current = cause;
+        setDocumentState({
+          state: "unavailable",
+          message: cause.message,
+        });
+      }
+    })();
+
+    void (async () => {
+      try {
+        const load = await softwareMapBundle;
+        if (cancelled) return;
+        if (load === null) {
+          setSoftwareMapState({ state: "absent" });
+        } else if (load.state === "ready") {
+          setSoftwareMapState({
+            state: "ready",
+            softwareMap: hydratePublishedSoftwareMap(load),
+          });
+        } else if (load.state === "needs-republish") {
+          setSoftwareMapState(load);
+        } else {
+          if (!load.currentReviewUuid)
+            softwareMapLoadError.current = new Error(load.message);
+          setSoftwareMapState(load);
+        }
+      } catch (error) {
+        if (cancelled) return;
+        const cause = error instanceof Error ? error : new Error(String(error));
+        softwareMapLoadError.current = cause;
+        setSoftwareMapState({
+          state: "unavailable",
+          message: cause.message,
+        });
+      }
+    })();
     return () => {
       cancelled = true;
     };
   }, [documentBundle, softwareMapBundle]);
 
   useEffect(() => {
-    if (document && softwareMapLoaded && !error) session.signalReady();
-  }, [document, softwareMapLoaded, error, session]);
+    if (
+      documentState.state !== "loading" &&
+      softwareMapState.state !== "loading"
+    ) {
+      session.signalReady();
+    }
+  }, [documentState.state, session, softwareMapState.state]);
+
+  // Ready is deliberately signalled before unavailable diagnostics. The
+  // visible host treats the first settlement as authoritative; diagnostics
+  // must not replace a usable shell with its whole-canvas error fallback.
+  useEffect(() => {
+    if (
+      documentState.state === "loading" ||
+      softwareMapState.state === "loading"
+    ) {
+      return;
+    }
+    if (
+      documentState.state === "unavailable" &&
+      !documentState.currentReviewUuid &&
+      !reportedLoadErrors.current.has("document")
+    ) {
+      reportedLoadErrors.current.add("document");
+      reportLoadError(
+        sessionRef.current,
+        "document",
+        documentLoadError.current ?? new Error(documentState.message),
+      );
+    }
+    if (
+      softwareMapState.state === "unavailable" &&
+      !softwareMapState.currentReviewUuid &&
+      !reportedLoadErrors.current.has("software-map")
+    ) {
+      reportedLoadErrors.current.add("software-map");
+      reportLoadError(
+        sessionRef.current,
+        "software-map",
+        softwareMapLoadError.current ?? new Error(softwareMapState.message),
+      );
+    }
+  }, [documentState, softwareMapState]);
 
   useEffect(() => {
     if (!container) return;
@@ -126,25 +198,15 @@ function DesktopReviewApp({
     container.dataset.reviewAuthoredCodePeekDiffRequestCount = String(
       authoredCodePeekDiffRequestCount,
     );
-  }, [container, document, error]);
+  }, [container, documentState]);
 
-  if (error) {
-    return (
-      <CanvasShell title="Review unavailable">
-        <p>{error}</p>
-      </CanvasShell>
-    );
-  }
-  if (!document || !softwareMapLoaded) {
-    return <ReviewCanvasLoading page note="Still loading this review…" />;
-  }
   return (
     <div className="review-session-content">
-      <ReviewMigrationWarning errors={reviewErrors} />
       <TutorialProvider tutorial={tutorial}>
         <App
-          document={document}
-          softwareMap={softwareMap}
+          notice={<ReviewMigrationWarning errors={reviewErrors} />}
+          documentState={documentState}
+          softwareMapState={softwareMapState}
           softwareMapEnabled={softwareMapEnabled}
           range={range}
           commits={commits}
@@ -153,6 +215,21 @@ function DesktopReviewApp({
       </TutorialProvider>
     </div>
   );
+}
+
+function reportLoadError(
+  session: ReviewSession,
+  source: "document" | "software-map",
+  cause: Error,
+): void {
+  captureClientError(session, source, cause);
+  const diagnostic: ReviewCanvasDiagnostic = {
+    level: "error",
+    source: "loader",
+    message: cause.message,
+  };
+  if (cause.stack) diagnostic.stack = cause.stack;
+  session.reportDiagnostic(diagnostic);
 }
 
 function ReviewCanvas({

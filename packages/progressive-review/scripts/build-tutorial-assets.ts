@@ -22,7 +22,10 @@ import { writeNote } from "@dev.fast/local-vcs";
 import { parseJsonText } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
-import { writeReviewDocumentBundle } from "../src/review-bundle";
+import {
+  bundleReviewDocument,
+  writeReviewDocumentBundle,
+} from "../src/review-bundle";
 import { createReviewDir } from "../src/review-home";
 import { evaluateReviewDocumentBundleForPublish } from "../src/review-publish-evaluate";
 import { SOFTWARE_MAP_NOTES_REF } from "../src/review-storage";
@@ -225,6 +228,9 @@ export async function buildTutorialAssets(
         `Tutorial document evaluation failed:\n${evaluation.errors.join("\n")}`,
       );
     }
+    if (!evaluation.document) {
+      throw new Error("Tutorial document did not materialize.");
+    }
     if (evaluation.peekCount === 0) {
       throw new Error(
         "The tutorial document did not resolve any code evidence.",
@@ -266,7 +272,10 @@ export async function buildTutorialAssets(
     });
 
     // 6. Write outputs only after everything validated.
-    await writeReviewDocumentBundle(outDir, compiled.bundle);
+    await writeReviewDocumentBundle(
+      outDir,
+      bundleReviewDocument(evaluation.document),
+    );
     await writeReviewSoftwareMapBundle(outDir, mapBundle);
     const gitStub = path.join(outDir, "git-stub");
     await rm(gitStub, { recursive: true, force: true });

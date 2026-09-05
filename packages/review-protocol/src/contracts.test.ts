@@ -16,7 +16,7 @@ import {
   ReviewDiffFileSchema,
   ReviewDiffFilesRequestSchema,
   ReviewDiffFilesResponseSchema,
-  ReviewDocModuleResponseSchema,
+  ReviewDocumentResponseSchema,
   ReviewEditorSelectionSchema,
   ReviewErrorResponseSchema,
   ReviewFileContentRequestSchema,
@@ -44,6 +44,7 @@ import {
   reviewViewSchema,
   summarizeReviewDiffFiles,
 } from "./contracts.js";
+import type { ReviewDocumentLoad, ReviewSoftwareMapLoad } from "./contracts.js";
 import type { JsonObject } from "./json.js";
 
 const repository = {
@@ -146,7 +147,6 @@ const contracts: Array<[string, ZodType, JsonObject]> = [
       sessionId: "session-1",
       token: "",
       wasmUrl: "http://127.0.0.1:5570/libavoid.wasm",
-      docRuntimeUrl: "vscode-file://review/doc-runtime.js",
       appVersion: "0.0.13",
       theme: "dark",
       host: "desktop",
@@ -275,15 +275,30 @@ const contracts: Array<[string, ZodType, JsonObject]> = [
     { ok: true, session, token: "token" },
   ],
   [
-    "document module response",
-    ReviewDocModuleResponseSchema,
+    "document response",
+    ReviewDocumentResponseSchema,
     {
       ok: true,
       contentHash: "hash",
-      moduleUrl: "http://127.0.0.1:5570/module.js",
+      documentUrl: "http://127.0.0.1:5570/documents/hash.json",
     },
   ],
-  ["error response", ReviewErrorResponseSchema, { ok: false, error: "bad" }],
+  [
+    "legacy error response",
+    ReviewErrorResponseSchema,
+    { ok: false, error: "bad" },
+  ],
+  [
+    "enriched error response",
+    ReviewErrorResponseSchema,
+    {
+      ok: false,
+      error: "Republish the Review",
+      code: "needs_republish",
+      reviewUuid: reviewRecord.uuid,
+      mapStale: true,
+    },
+  ],
   [
     "server event",
     ReviewServerEventSchema,
@@ -361,6 +376,41 @@ describe("Review protocol Zod contracts", () => {
     expect(schema.safeParse({ ...value, unexpected: true }).success).toBe(
       tolerantContracts.has(name),
     );
+  });
+});
+
+describe("review canvas load states", () => {
+  it("keeps document and software-map loads independent", () => {
+    const documentLoads = [
+      { state: "ready", contentHash: "document-hash", data: {} },
+      {
+        state: "needs-republish",
+        reviewUuid: reviewRecord.uuid,
+        mapStale: true,
+      },
+      { state: "unavailable", message: "Document unavailable" },
+    ] satisfies ReviewDocumentLoad[];
+    const softwareMapLoads = [
+      {
+        state: "ready",
+        contentHash: "map-hash",
+        head: {},
+        base: {},
+      },
+      { state: "needs-republish", reviewUuid: reviewRecord.uuid },
+      { state: "unavailable", message: "Software map unavailable" },
+    ] satisfies ReviewSoftwareMapLoad[];
+
+    expect(documentLoads.map((load) => load.state)).toEqual([
+      "ready",
+      "needs-republish",
+      "unavailable",
+    ]);
+    expect(softwareMapLoads.map((load) => load.state)).toEqual([
+      "ready",
+      "needs-republish",
+      "unavailable",
+    ]);
   });
 });
 

@@ -125,13 +125,12 @@ import { IReviewCanvasEditorTabsService } from "../../../services/reviewCanvasEd
 import { IReviewExplorerPartsService } from "../explorer/reviewExplorerPart.js";
 import { ReviewCanvasEditorInput } from "./reviewCanvasEditorInput.js";
 import {
-	loadReviewDocumentModule,
-	loadReviewSoftwareMapModules,
-} from "./reviewDocumentModule.js";
+	loadReviewDocumentData,
+	loadReviewSoftwareMaps,
+} from "./reviewDocumentData.js";
 
 interface ReviewCanvasAssetsModule extends ReviewCanvasModule {
 	readonly clearReviewViewState: (config: ReviewRuntimeConfig) => void;
-	readonly reviewDocRuntimeUrl: string;
 	readonly reviewWasmUrl: string;
 	readonly reviewStylesheetUrls: readonly string[];
 }
@@ -1206,23 +1205,10 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			if (generation !== this.loadGeneration) {
 				return new Error("Review canvas load was superseded.");
 			}
-			const document = model.resolveDocument((activeSession, moduleUrl) =>
-				loadReviewDocumentModule(
-					activeSession,
-					moduleUrl,
-					assets.reviewDocRuntimeUrl,
-				),
-			);
+			const document = model.resolveDocument(loadReviewDocumentData);
 			const softwareMapEnabled = this.currentSoftwareMapEnabled();
 			const softwareMap = softwareMapEnabled
-				? model.resolveSoftwareMap(
-						(activeSession, headModuleUrl, baseModuleUrl) =>
-							loadReviewSoftwareMapModules(
-								activeSession,
-								headModuleUrl,
-								baseModuleUrl,
-							),
-					)
+				? model.resolveSoftwareMap(loadReviewSoftwareMaps)
 				: Promise.resolve(null);
 			const bridge = this.createBridge(model, assets, generation, {
 				ready: () => {
@@ -1252,6 +1238,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					reviewErrors: this.sessionService.reviewErrors,
 					commits: model.session.review.commits ?? [],
 					range: {
+						sourceUnavailable: model.session.review.sourceUnavailable,
 						baseRef: model.session.review.baseRef ?? session.session.baseRef,
 						headRef: model.session.review.headRef ?? session.session.headRef ?? session.session.baseRef,
 						baseCommit: session.session.baseRef,
@@ -1452,7 +1439,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			sessionId: session.session.sessionId,
 			token: session.token,
 			wasmUrl: assets.reviewWasmUrl,
-			docRuntimeUrl: assets.reviewDocRuntimeUrl,
 			appVersion:
 				this.productService.reviewVersion ?? this.productService.version,
 			theme: this.colorScheme(),
@@ -1480,7 +1466,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	 * off-screen container and report whether it reaches its first React
 	 * commit and stays free of error diagnostics through the settle window.
 	 * The visible canvas and the active model stay untouched. A clean
-	 * validation also warms the document-module cache for the visible mount
+	 * validation also warms the document-data cache for the visible mount
 	 * that follows promotion.
 	 */
 	private async validateSessionMount(
@@ -1500,16 +1486,11 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			const session = await this.resolveValidationSession(sessionId);
 			const documentPromise = loadReviewSessionDocument(
 				session,
-				(draftSession, moduleUrl) =>
-					loadReviewDocumentModule(
-						draftSession,
-						moduleUrl,
-						assets.reviewDocRuntimeUrl,
-					),
+				loadReviewDocumentData,
 			);
 			const softwareMapPromise = loadReviewSessionSoftwareMap(
 				session,
-				loadReviewSoftwareMapModules,
+				loadReviewSoftwareMaps,
 			);
 			comments = new ReviewCommentStore({
 				request: (endpoint, init) =>
@@ -1578,6 +1559,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				reviewErrors: this.sessionService.reviewErrors,
 				commits: session.review.commits ?? [],
 				range: {
+					sourceUnavailable: session.review.sourceUnavailable,
 					baseRef: session.review.baseRef ?? session.session.baseRef,
 					headRef: session.review.headRef ?? session.session.headRef ?? session.session.baseRef,
 					baseCommit: session.session.baseRef,

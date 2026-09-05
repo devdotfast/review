@@ -2,6 +2,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { isObjectValue } from "@dev.fast/review-protocol";
 import { init as initModuleLexer, parse as parseModule } from "es-module-lexer";
 
 import { extractTraceEventText } from "./agent-trace-parser";
@@ -24,12 +25,29 @@ import {
 import { errorMessage } from "./error-message";
 import { loadReviewAgentTrace } from "./review-agent-traces";
 import {
+  REVIEW_DOCUMENT_FORMAT,
+  type ReviewDocumentData,
+  reviewDocumentDataSchema,
+  stripPeekResolutions,
+} from "./review-document-data";
+import {
+  type ReviewDocumentExport,
+  type ReviewDocumentModuleExports,
+  collectReviewAnchors,
+  materializeReviewDocument,
+} from "./review-document-materialize";
+import {
   type PublishAuditTraceQuote,
+  type ReviewDocumentPublishAudit,
   auditReviewDocumentComponent,
   createPublishValidationReact,
   isPublishAuditComponent,
 } from "./review-publish-element-audit";
-import { defineSoftwareMap } from "./software-map-model";
+import {
+  defineSoftwareMap,
+  isNormalizedSoftwareModel,
+  softwareModelData,
+} from "./software-map-model";
 import { resolveReviewSourceRange } from "./source-range-resolver";
 
 // Publish evaluates the exact bundle it ships: the document module runs under
@@ -79,6 +97,7 @@ export interface ReviewPublishRangePeek extends CodePeekProps {
 }
 
 export interface ReviewPublishEvaluationResult {
+  document: ReviewDocumentData | null;
   // Number of code peeks the document resolved. Zero means source preparation
   // never ran.
   peekCount: number;
@@ -106,6 +125,11 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
   let peekCount = 0;
   let evidencePromise: Promise<ReviewPublishEvidenceTargets> | null = null;
   const sessions: ReviewDefinitionSession[] = [];
+  const definedModels: ReviewDocumentModuleExports = {};
+  const documentCapture: PublishDocumentCapture = {
+    input: null,
+    audit: null,
+  };
 
   // Evidence prepares once, on the first peek. A document without code
   // references publishes without touching a pinned worktree.
@@ -167,6 +191,9 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
   };
 
   const runtimeExports = validationRuntimeExports({
+    captureDefinition: (value) => {
+      definedModels[`definition-${Object.keys(definedModels).length}`] = value;
+    },
     createSession: (session) => {
       sessions.push(session);
     },
@@ -180,6 +207,7 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
     collectTraceQuote: (quote) => {
       traceQuotes.push(quote);
     },
+    documentCapture,
   });
 
   const evaluationDir = path.join(
@@ -323,6 +351,59 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
     }
   }
 
+  let document: ReviewDocumentData | null = null;
+  if (
+    importErrorMessage === null &&
+    failures.length === 0 &&
+    documentCapture.audit &&
+    documentCapture.input
+  ) {
+    const materialized = materializeReviewDocument(documentCapture.audit);
+    failures.push(...materialized.errors);
+    let anchors: ReturnType<typeof collectReviewAnchors> | null = null;
+    try {
+      anchors = collectReviewAnchors({
+        ...documentCapture.input.models,
+        ...definedModels,
+      });
+    } catch (error) {
+      failures.push(errorMessage(error));
+    }
+
+    if (failures.length === 0 && anchors) {
+      try {
+        const softwareModels = collectDocumentSoftwareModels(
+          { ...documentCapture.input.models, ...definedModels },
+          documentCapture.input.modelNames,
+        ).map((model) => softwareModelData(model));
+        const candidate = stripPeekResolutions({
+          format: REVIEW_DOCUMENT_FORMAT,
+          title: documentCapture.input.title,
+          routePath: documentCapture.input.routePath,
+          sourcePath: path.basename(documentCapture.input.filePath),
+          body: materialized.body,
+          anchors: anchors.anchors,
+          anchorContents: anchors.anchorContents,
+          softwareModels,
+        });
+        const jsonValue = JSON.parse(JSON.stringify(candidate));
+        const parsed = reviewDocumentDataSchema.safeParse(jsonValue);
+        if (parsed.success) {
+          document = parsed.data;
+        } else {
+          failures.push(
+            ...parsed.error.issues.map(
+              (issue) =>
+                `Review document data: ${issue.path.join(".") || "document"}: ${issue.message}`,
+            ),
+          );
+        }
+      } catch (error) {
+        failures.push(`Review document data: ${errorMessage(error)}`);
+      }
+    }
+  }
+
   const errors =
     failures.length > 0
       ? failures
@@ -336,11 +417,54 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
     ...traceQuoteWarnings,
   ];
   return {
+    document,
     peekCount,
     rangePeeks,
     errors,
     warnings: [...new Set(warnings)],
   };
+}
+
+function collectDocumentSoftwareModels(
+  models: ReviewDocumentModuleExports,
+  preferredNames: readonly string[],
+) {
+  const result: ReturnType<typeof defineSoftwareMap>[] = [];
+  const seenModels = new Set<object>();
+  const visited = new Set<object>();
+  const add = (value: ReviewDocumentExport) => {
+    if (!isNormalizedSoftwareModel(value) || seenModels.has(value)) return;
+    seenModels.add(value);
+    result.push(value);
+  };
+  for (const name of preferredNames) add(models[name]);
+  const visit = (value: ReviewDocumentExport): void => {
+    if (!isObjectValue(value) || visited.has(value)) return;
+    visited.add(value);
+    if (isNormalizedSoftwareModel(value)) {
+      add(value);
+      return;
+    }
+    for (const child of Array.isArray(value) ? value : Object.values(value)) {
+      visit(child);
+    }
+  };
+  for (const value of Object.values(models)) visit(value);
+  return result;
+}
+
+interface PublishDocumentInput {
+  title: string;
+  routePath: string;
+  filePath: string;
+  modelNames: string[];
+  models: ReviewDocumentModuleExports;
+  Component?: unknown;
+}
+
+interface PublishDocumentCapture {
+  input: PublishDocumentInput | null;
+  audit: ReviewDocumentPublishAudit | null;
 }
 
 function rewriteRuntimeSpecifier(bundleCode: string): string {
@@ -397,6 +521,7 @@ function validationRuntimeModuleSource(exportNames: readonly string[]): string {
 }
 
 function validationRuntimeExports(input: {
+  captureDefinition: (value: ReviewDocumentExport) => void;
   createSession: (session: ReviewDefinitionSession) => void;
   resolveCodePeek: (
     props: CodePeekProps,
@@ -405,6 +530,7 @@ function validationRuntimeExports(input: {
   reportAuditError: (message: string) => void;
   collectCallStackDiff: (props: CallStackDiffProps) => void;
   collectTraceQuote: (quote: PublishAuditTraceQuote) => void;
+  documentCapture: PublishDocumentCapture;
 }) {
   const noop = () => undefined;
   // The React substitute is not inert: `jsx` builds element records so the
@@ -413,7 +539,11 @@ function validationRuntimeExports(input: {
   return {
     ...react,
     calls,
-    defineSoftwareModel: defineSoftwareMap,
+    defineSoftwareModel: (...args: Parameters<typeof defineSoftwareMap>) => {
+      const model = defineSoftwareMap(...args);
+      input.captureDefinition(model);
+      return model;
+    },
     setReviewRequestContext: noop,
     createBrowserReviewDefinitionSession: (sessionInput: {
       softwareMap?: Parameters<
@@ -431,18 +561,32 @@ function validationRuntimeExports(input: {
         resolveCodePeek: input.resolveCodePeek,
       });
       input.createSession(session);
-      return session;
+      // Older sealed bundles omitted imported data.ts exports from `models`.
+      // Capture definitions while that exact bundle executes, including unused
+      // anchors, without reading or recompiling editable authoring sources.
+      return {
+        ...session,
+        defineAnchors: (
+          anchors: Parameters<ReviewDefinitionSession["defineAnchors"]>[0],
+        ) => {
+          const defined = session.defineAnchors(anchors);
+          input.captureDefinition(defined);
+          return defined;
+        },
+      };
     },
-    createActiveReviewDocument: (document: { Component?: unknown }) => {
+    createActiveReviewDocument: (document: PublishDocumentInput) => {
       if (!isPublishAuditComponent(document.Component)) {
         throw new Error("Review document has no component export.");
       }
-      auditReviewDocumentComponent({
+      const audit = auditReviewDocumentComponent({
         Component: document.Component,
         reportError: input.reportAuditError,
         collectCallStackDiff: input.collectCallStackDiff,
         collectTraceQuote: input.collectTraceQuote,
       });
+      input.documentCapture.input = document;
+      input.documentCapture.audit = audit;
       return document;
     },
   };

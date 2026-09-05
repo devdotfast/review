@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
@@ -95,6 +103,10 @@ CREATE TABLE IF NOT EXISTS comment_drafts (
 const REVIEW_THREAD_DB_V2_TO_V3_DDL = "DROP TABLE IF EXISTS questions;";
 
 const openDatabases = new Map<string, DatabaseSync>();
+const StoredThreadRowSchema = z.object({
+  thread_id: z.string(),
+  record_json: z.string(),
+});
 
 function openThreadDb(
   dbPath: string,
@@ -163,9 +175,86 @@ export function checkReviewThreadDbVersion(reviewMdxPath: string): void {
   }
 }
 
+/** SQLite readOnly still changes WAL reader marks in SHM. Recovery therefore
+ * reads a verified DB+WAL copy and never opens SQLite on the original files. */
+export function readReviewThreadsReadOnly(reviewMdxPath: string) {
+  const dbPath = reviewThreadDbPath(reviewMdxPath);
+  if (!existsSync(dbPath))
+    throw new Error("The review thread database is unavailable.");
+  const snapshot = stableThreadDatabaseSnapshot(dbPath);
+  const snapshotDir = mkdtempSync(path.join(tmpdir(), "review-threads-read-"));
+  try {
+    const snapshotPath = path.join(snapshotDir, REVIEW_THREAD_DB_FILENAME);
+    writeFileSync(snapshotPath, snapshot.database);
+    if (snapshot.wal) writeFileSync(`${snapshotPath}-wal`, snapshot.wal);
+    return readThreadDatabaseSnapshot(snapshotPath, dbPath);
+  } finally {
+    rmSync(snapshotDir, { recursive: true, force: true });
+  }
+}
+
+function stableThreadDatabaseSnapshot(dbPath: string) {
+  const read = () => ({
+    database: readFileSync(dbPath),
+    wal: readThreadWal(`${dbPath}-wal`),
+  });
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const first = read();
+    const second = read();
+    if (
+      first.database.equals(second.database) &&
+      (first.wal === null
+        ? second.wal === null
+        : second.wal !== null && first.wal.equals(second.wal))
+    )
+      return second;
+  }
+  throw new Error(
+    "The review thread database changed while taking a read-only snapshot; retry.",
+  );
+}
+
+function readThreadWal(walPath: string): Buffer | null {
+  try {
+    return readFileSync(walPath);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT")
+      return null;
+    throw error;
+  }
+}
+
+function readThreadDatabaseSnapshot(snapshotPath: string, dbPath: string) {
+  const db = new DatabaseSync(snapshotPath, { readOnly: true });
+  try {
+    const version = readThreadDbSchemaVersion(db);
+    if (version !== String(REVIEW_THREAD_DB_SCHEMA_VERSION))
+      throw new ReviewThreadDbVersionError(dbPath, version);
+    const read = (table: "comments" | "comment_drafts"): JsonObject => {
+      const result: JsonObject = {};
+      for (const raw of db
+        .prepare(`SELECT thread_id, record_json FROM ${table}`)
+        .all()) {
+        const row = StoredThreadRowSchema.parse(raw);
+        result[row.thread_id] = parseJsonText(row.record_json);
+      }
+      return result;
+    };
+    return {
+      revision: 0,
+      comments: parseStoredReviewCommentThreadMap(read("comments")),
+      drafts: ReviewCommentDraftThreadMapSchema.parse(read("comment_drafts")),
+    };
+  } finally {
+    db.close();
+  }
+}
+
 export type ReviewThreadDbMigrationResult = "missing" | "current" | "upgraded";
 
 export interface ReviewThreadDbMigrationOptions {
+  /** Artifact migration retains historical questions even though current UI no longer reads them. */
+  preserveLegacyQuestions?: boolean;
   force?: boolean;
   migrateLegacyCodeRecord?: (
     record: JsonValue,
@@ -211,7 +300,10 @@ export async function migrateReviewThreadDb(
       throw new ReviewThreadDbVersionError(dbPath, version);
     }
     if (version === "1") db.exec(REVIEW_THREAD_DB_V1_TO_V2_DDL);
-    if (version === "1" || version === "2") {
+    if (
+      (version === "1" || version === "2") &&
+      !options.preserveLegacyQuestions
+    ) {
       db.exec(REVIEW_THREAD_DB_V2_TO_V3_DDL);
     }
     if (hasLegacyCodeTargets(db)) {

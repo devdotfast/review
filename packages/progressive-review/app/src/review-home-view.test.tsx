@@ -39,6 +39,41 @@ describe("ReviewHome", () => {
     vi.restoreAllMocks();
   });
 
+  it("keeps dismissed recovery entries openable alongside the migration warning", async () => {
+    const review = descriptor({
+      recovery: true,
+      dismissedAt: "2026-09-04T12:00:00Z",
+      status: "accepted",
+    });
+    const onOpen = vi.fn<(review: ReviewDescriptor) => void>();
+    await act(async () =>
+      root.render(
+        <ReviewHome
+          reviews={[review]}
+          onOpen={onOpen}
+          reviewErrors={[
+            {
+              reviewDir: "/reviews/recovery",
+              reviewUuid: review.uuid,
+              title: review.title,
+              worktreePath: review.worktreePath,
+              lastPublishedAt: review.lastPublishedAt,
+              code: "MIGRATION_REQUIRED",
+              message: "Needs migration",
+            },
+          ]}
+        />,
+      ),
+    );
+    expect(container.textContent).toContain("Review needs migration");
+    const button = [...container.querySelectorAll("button")].find(
+      (node) => node.textContent === "Open recovery",
+    );
+    expect(button).toBeDefined();
+    await act(async () => button!.click());
+    expect(onOpen).toHaveBeenCalledWith(review);
+  });
+
   it("groups reviews by worktree without changing their order", () => {
     const reviews = [
       descriptor({ uuid: uuid(1), worktreePath: "/repo/dev", title: "First" }),

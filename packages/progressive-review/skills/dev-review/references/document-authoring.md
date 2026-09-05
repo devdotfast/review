@@ -81,6 +81,8 @@ Do not use casts, `any`, `<Participant>`, or `<Message>`. Pass typed references 
 
 Review supplies these built-in components to MDX. Do not import them. Import only authored values from `./data.ts`.
 
+Document-local React components are unsupported: they cannot cross the published JSON data boundary. Use the built-in components below instead.
+
 Use these built-in components:
 
 | Component         | Use                                                    |

@@ -78,7 +78,7 @@ if needs_rebuild \
   "$MONOREPO_ROOT/packages/review-protocol/src"; then
   pnpm --dir "$MONOREPO_ROOT" --filter @dev.fast/review app:desktop:build
 fi
-TUTORIAL_OUTPUT="$REVIEW_PACKAGE/tutorial/.bundle/document/review-document.js"
+TUTORIAL_OUTPUT="$REVIEW_PACKAGE/tutorial/.bundle/document/review-document.json"
 if needs_rebuild \
   "$TUTORIAL_OUTPUT" \
   "$REVIEW_PACKAGE/scripts/build-tutorial-assets.ts" ||

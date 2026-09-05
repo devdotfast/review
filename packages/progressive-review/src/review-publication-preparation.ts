@@ -2,7 +2,10 @@ import path from "node:path";
 
 import { patchChangedLines } from "./call-stack-diff";
 import type { ReviewDocumentDiagnostic } from "./compiler/review-document-compiler";
-import { writeReviewDocumentBundle } from "./review-bundle";
+import {
+  bundleReviewDocument,
+  writeReviewDocumentBundle,
+} from "./review-bundle";
 import {
   type ReviewDiffFilesResult,
   resolveReviewDiffFiles,
@@ -108,12 +111,19 @@ export async function prepareReviewDocumentBundle(input: {
       return match?.patch ? patchChangedLines(match.patch) : null;
     },
   });
-  if (evaluation.errors.length > 0) {
-    throw new ReviewPublicationValidationError(evaluation.errors, undefined, [
-      ...new Set([...warnings, ...evaluation.warnings]),
-    ]);
+  if (!evaluation.document) {
+    throw new ReviewPublicationValidationError(
+      evaluation.errors.length > 0
+        ? evaluation.errors
+        : ["Review document did not materialize."],
+      undefined,
+      [...new Set([...warnings, ...evaluation.warnings])],
+    );
   }
-  await writeReviewDocumentBundle(input.review.dir, compiled.bundle);
+  await writeReviewDocumentBundle(
+    input.review.dir,
+    bundleReviewDocument(evaluation.document),
+  );
   return { warnings: [...new Set([...warnings, ...evaluation.warnings])] };
 }
 

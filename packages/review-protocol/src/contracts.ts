@@ -34,7 +34,8 @@ export type SessionMeta = z.infer<typeof sessionMetaSchema>;
 // desktop serves prebuilt revisions and exposes /publish-ready instead of the
 // removed /publish route. (Version 2 added the bundled-CLI discovery fields.)
 export const REVIEW_DESKTOP_DISCOVERY_VERSION = 3;
-export const REVIEW_SCHEMA_VERSION = 4;
+// Version 5: document and software-map bundles are JSON.
+export const REVIEW_SCHEMA_VERSION = 5;
 
 const requiredString = z
   .string({ error: "must be a string" })
@@ -120,7 +121,6 @@ export const ReviewRuntimeConfigSchema = z.strictObject({
   sessionId: requiredString,
   token: stringAllowEmpty,
   wasmUrl: absoluteUrlSchema,
-  docRuntimeUrl: absoluteUrlSchema,
   appVersion: requiredString.max(100),
   theme: reviewThemeSchema,
   host: z.literal("desktop"),
@@ -969,6 +969,21 @@ export interface ReviewCanvasSettingsContent {
   install?: ReviewCanvasInstallContent;
 }
 
+export type ReviewDocumentLoad =
+  | { state: "ready"; contentHash: string; data: unknown }
+  | {
+      state: "needs-republish";
+      reviewUuid: string;
+      mapStale: boolean;
+      recovery?: boolean;
+    }
+  | { state: "unavailable"; message: string; currentReviewUuid?: string };
+
+export type ReviewSoftwareMapLoad =
+  | { state: "ready"; contentHash: string; head: unknown; base: unknown }
+  | { state: "needs-republish"; reviewUuid: string; recovery?: boolean }
+  | { state: "unavailable"; message: string; currentReviewUuid?: string };
+
 export type ReviewCanvasContent =
   | { kind: "loading" }
   | {
@@ -1032,8 +1047,8 @@ export type ReviewCanvasContent =
   | {
       kind: "session";
       bridge: ReviewCanvasBridge;
-      document: Promise<unknown>;
-      softwareMap: Promise<unknown | null>;
+      document: Promise<ReviewDocumentLoad>;
+      softwareMap: Promise<ReviewSoftwareMapLoad | null>;
       softwareMapEnabled: boolean;
       reviewErrors: readonly ReviewListError[];
       range: ReviewCanvasRange;
@@ -1042,6 +1057,7 @@ export type ReviewCanvasContent =
     };
 
 export interface ReviewCanvasRange {
+  sourceUnavailable?: string;
   baseRef: string;
   headRef: string;
   baseCommit: string;
@@ -1184,6 +1200,8 @@ export const ReviewCommitSummarySchema = z.strictObject({
 export type ReviewCommitSummary = z.infer<typeof ReviewCommitSummarySchema>;
 
 export const ReviewDescriptorSchema = z.strictObject({
+  sourceUnavailable: requiredString.optional(),
+  recovery: z.boolean().optional(),
   uuid: z.uuid({ error: "must be a UUID" }),
   title: stringAllowEmpty,
   status: z.enum([
@@ -1258,8 +1276,12 @@ export type AuthoringAgentSessionWire = z.infer<
 >;
 
 export const ReviewErrorResponseSchema = z.strictObject({
+  recovery: z.boolean().optional(),
   ok: z.literal(false),
   error: requiredString,
+  code: requiredString.optional(),
+  reviewUuid: z.uuid({ error: "must be a UUID" }).optional(),
+  mapStale: z.boolean().optional(),
 });
 export type ReviewErrorResponse = z.infer<typeof ReviewErrorResponseSchema>;
 
@@ -1701,32 +1723,29 @@ export const ReviewSessionResponseSchema = z.discriminatedUnion("ok", [
 ]);
 export type ReviewSessionResponse = z.infer<typeof ReviewSessionResponseSchema>;
 
-export const ReviewDocModuleResponseSchema = z.discriminatedUnion("ok", [
+export const ReviewDocumentResponseSchema = z.discriminatedUnion("ok", [
   z.strictObject({
     ok: z.literal(true),
     contentHash: requiredString,
-    moduleUrl: absoluteUrlSchema,
+    documentUrl: absoluteUrlSchema,
   }),
   ReviewErrorResponseSchema,
 ]);
-export type ReviewDocModuleResponse = z.infer<
-  typeof ReviewDocModuleResponseSchema
+export type ReviewDocumentResponse = z.infer<
+  typeof ReviewDocumentResponseSchema
 >;
 
-export const ReviewSoftwareMapModuleResponseSchema = z.discriminatedUnion(
-  "ok",
-  [
-    z.strictObject({
-      ok: z.literal(true),
-      contentHash: requiredString,
-      headModuleUrl: absoluteUrlSchema,
-      baseModuleUrl: absoluteUrlSchema,
-    }),
-    ReviewErrorResponseSchema,
-  ],
-);
-export type ReviewSoftwareMapModuleResponse = z.infer<
-  typeof ReviewSoftwareMapModuleResponseSchema
+export const ReviewSoftwareMapResponseSchema = z.discriminatedUnion("ok", [
+  z.strictObject({
+    ok: z.literal(true),
+    contentHash: requiredString,
+    headMapUrl: absoluteUrlSchema,
+    baseMapUrl: absoluteUrlSchema,
+  }),
+  ReviewErrorResponseSchema,
+]);
+export type ReviewSoftwareMapResponse = z.infer<
+  typeof ReviewSoftwareMapResponseSchema
 >;
 
 export const ReviewServerEventSchema = z.discriminatedUnion("event", [

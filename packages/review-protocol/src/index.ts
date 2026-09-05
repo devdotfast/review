@@ -161,19 +161,6 @@ export function parseReviewAgentTraceResponse(
   return parseZod(ReviewAgentTraceResponseSchema, value);
 }
 
-export function rewriteReviewDocumentRuntime(
-  source: string,
-  runtimeUrl: string,
-): string {
-  const runtimeSpecifier = JSON.stringify("review-doc-runtime");
-  if (!source.includes(runtimeSpecifier)) {
-    throw new Error("Review document module has no runtime import.");
-  }
-  return source
-    .split(runtimeSpecifier)
-    .join(JSON.stringify(new URL(runtimeUrl).href));
-}
-
 export function parseZod<T>(
   schema: z.ZodType<T>,
   value: JsonValue,

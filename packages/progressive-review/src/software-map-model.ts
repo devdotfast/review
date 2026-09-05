@@ -964,3 +964,49 @@ export function isNormalizedSoftwareModel(
     Array.isArray(value.relationships)
   );
 }
+
+/** JSON projection of a normalized model. `elementsByPath` is derived and is
+    rebuilt on load by `hydrateSoftwareModel`. */
+export interface SoftwareModelData {
+  elements: NormalizedSoftwareElement[];
+  relationships: NormalizedSoftwareRelationship[];
+}
+
+export function softwareModelData(
+  model: NormalizedSoftwareModel,
+): SoftwareModelData {
+  return { elements: model.elements, relationships: model.relationships };
+}
+
+export function hydrateSoftwareModel(
+  data: SoftwareModelData,
+): NormalizedSoftwareModel {
+  return {
+    elements: data.elements,
+    relationships: data.relationships,
+    elementsByPath: new Map(
+      data.elements.map((element) => [element.path, element]),
+    ),
+  };
+}
+
+const SoftwareElementDataSchema = z.looseObject({ path: z.string() });
+const SoftwareRelationshipDataSchema = z.looseObject({
+  from: z.string(),
+  to: z.string(),
+});
+
+export const softwareModelDataSchema: z.ZodType<SoftwareModelData> = z.object({
+  elements: z.array(
+    z.custom<NormalizedSoftwareElement>(
+      (value) => SoftwareElementDataSchema.safeParse(value).success,
+      "software element",
+    ),
+  ),
+  relationships: z.array(
+    z.custom<NormalizedSoftwareRelationship>(
+      (value) => SoftwareRelationshipDataSchema.safeParse(value).success,
+      "software relationship",
+    ),
+  ),
+});

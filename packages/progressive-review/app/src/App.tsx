@@ -18,6 +18,7 @@ import {
   useState,
 } from "react";
 
+import type { AnchorRef } from "../../src/authoring";
 import {
   type SoftwareMapTopologyDiff,
   diffSoftwareMaps,
@@ -41,6 +42,7 @@ import {
   TerminalIcon,
   ThreadsIcon,
 } from "./icons";
+import { RepairReview } from "./republish-review";
 import { ReviewPanelHost } from "./review-components";
 import {
   ReviewProvider,
@@ -56,16 +58,9 @@ import {
   useReviewDiffFiles,
 } from "./review-diff-files-context";
 import { ReviewDocumentBoundary } from "./review-document-boundary";
-import {
-  ActiveReviewDocumentProvider,
-  useActiveReviewDocument,
-} from "./review-document-context";
 import { reportReviewDocumentRenderError } from "./review-document-error-report";
 import { ReviewDocumentContent } from "./review-document-surface";
-import type {
-  ReadyReviewDocumentEntry,
-  ReviewDocumentComponent,
-} from "./review-documents-runtime";
+import type { ReadyReviewDocumentEntry } from "./review-documents-runtime";
 import {
   type ReviewFindHost,
   ReviewFindProvider,
@@ -113,17 +108,21 @@ const DEFAULT_SIDE_PEEK_WIDTH = 560;
 const MIN_SIDE_PEEK_WIDTH = 360;
 const MAX_SIDE_PEEK_WIDTH = 920;
 const MIN_DOCUMENT_WIDTH = 560;
+const EMPTY_ANCHORS = new Map<string, AnchorRef>();
+const EMPTY_ANCHOR_CONTENTS = new Map<string, string>();
 
 export function App({
-  document,
-  softwareMap,
+  notice,
+  documentState,
+  softwareMapState,
   softwareMapEnabled,
   range,
   commits,
   findHost,
 }: {
-  document: ReadyReviewDocumentEntry;
-  softwareMap: PublishedSoftwareMap | null;
+  notice?: ReactNode;
+  documentState: ReviewDocumentAppState;
+  softwareMapState: ReviewSoftwareMapAppState;
   softwareMapEnabled: boolean;
   range: ReviewCanvasRange;
   commits: readonly ReviewCommitSummary[];
@@ -131,15 +130,15 @@ export function App({
 }): ReactElement {
   useWindowErrorTelemetry();
   return (
-    <ActiveReviewDocumentProvider document={document}>
-      <ReviewDocumentApp
-        softwareMap={softwareMap}
-        softwareMapEnabled={softwareMapEnabled}
-        range={range}
-        commits={commits}
-        findHost={findHost}
-      />
-    </ActiveReviewDocumentProvider>
+    <ReviewDocumentApp
+      notice={notice}
+      documentState={documentState}
+      softwareMapState={softwareMapState}
+      softwareMapEnabled={softwareMapEnabled}
+      range={range}
+      commits={commits}
+      findHost={findHost}
+    />
   );
 }
 
@@ -148,26 +147,53 @@ export interface PublishedSoftwareMap {
   base: NormalizedSoftwareModel;
 }
 
+export type ReviewDocumentAppState =
+  | { state: "loading" }
+  | { state: "ready"; document: ReadyReviewDocumentEntry }
+  | {
+      state: "needs-republish";
+      reviewUuid: string;
+      mapStale: boolean;
+      recovery?: boolean;
+    }
+  | { state: "unavailable"; message: string; currentReviewUuid?: string };
+
+export type ReviewSoftwareMapAppState =
+  | { state: "loading" }
+  | { state: "ready"; softwareMap: PublishedSoftwareMap }
+  | { state: "absent" }
+  | { state: "needs-republish"; reviewUuid: string; recovery?: boolean }
+  | { state: "unavailable"; message: string; currentReviewUuid?: string };
+
 function ReviewDocumentApp({
-  softwareMap,
+  notice,
+  documentState,
+  softwareMapState,
   softwareMapEnabled,
   range,
   commits,
   findHost,
 }: {
-  softwareMap: PublishedSoftwareMap | null;
+  notice?: ReactNode;
+  documentState: ReviewDocumentAppState;
+  softwareMapState: ReviewSoftwareMapAppState;
   softwareMapEnabled: boolean;
   range: ReviewCanvasRange;
   commits: readonly ReviewCommitSummary[];
   findHost?: ReviewFindHost;
 }): ReactElement {
-  const document = useActiveReviewDocument();
-  const diffDocumentKey = [document.routePath, document.filePath].join("\0");
+  const session = useReviewSession();
+  const document =
+    documentState.state === "ready" ? documentState.document : null;
+  const documentRoute = document?.routePath ?? session.config.routePath ?? "/";
+  const documentFile = document?.filePath ?? documentRoute;
+  const diffDocumentKey = [documentRoute, documentFile].join("\0");
   return (
     <ReviewDiffFilesProvider documentKey={diffDocumentKey}>
       <ReviewLayout
-        document={document}
-        softwareMap={softwareMap}
+        notice={notice}
+        documentState={documentState}
+        softwareMapState={softwareMapState}
         softwareMapEnabled={softwareMapEnabled}
         range={range}
         commits={commits}
@@ -189,20 +215,30 @@ function useWindowErrorTelemetry(): void {
 }
 
 function ReviewLayout({
-  document,
-  softwareMap,
+  notice,
+  documentState,
+  softwareMapState,
   softwareMapEnabled,
   range,
   commits,
   findHost,
 }: {
-  document: ReadyReviewDocumentEntry;
-  softwareMap: PublishedSoftwareMap | null;
+  notice?: ReactNode;
+  documentState: ReviewDocumentAppState;
+  softwareMapState: ReviewSoftwareMapAppState;
   softwareMapEnabled: boolean;
   range: ReviewCanvasRange;
   commits: readonly ReviewCommitSummary[];
   findHost?: ReviewFindHost;
 }): ReactElement {
+  const session = useReviewSession();
+  const document =
+    documentState.state === "ready" ? documentState.document : null;
+  const softwareMap =
+    softwareMapState.state === "ready" ? softwareMapState.softwareMap : null;
+  const documentRoute = document?.routePath ?? session.config.routePath ?? "/";
+  const documentRevision =
+    document?.contentHash ?? `${documentState.state}:${documentRoute}`;
   const articleRef = useRef<HTMLElement | null>(null);
   const appRef = useRef<HTMLDivElement | null>(null);
   const shellRef = useRef<HTMLElement | null>(null);
@@ -219,33 +255,35 @@ function ReviewLayout({
       <ReviewFindProvider
         articleRef={articleRef}
         scrollRegionRef={scrollRegionRef}
-        documentKey={`${document.routePath}\0${document.filePath}`}
+        documentKey={documentRevision}
         host={findHost}
       >
         <ThreadTargetModelProvider
-          anchors={document.anchors}
-          anchorContents={document.anchorContents}
-          documentRoute={document.routePath}
+          anchors={document?.anchors ?? EMPTY_ANCHORS}
+          anchorContents={document?.anchorContents ?? EMPTY_ANCHOR_CONTENTS}
+          documentRoute={documentRoute}
         >
           <ReviewDebugSettingsProvider>
             <ReviewProvider
-              key={document.routePath}
-              documentRoute={document.routePath}
+              key={documentRoute}
+              documentRoute={documentRoute}
               softwareMapEnabled={softwareMapEnabled}
               openTraceSession={setTraceSelection}
             >
-              <ReviewPanelProvider detailRevision={document.Component}>
+              <ReviewPanelProvider detailRevision={documentRevision}>
                 <ReviewLayoutContent
+                  notice={notice}
                   appRef={appRef}
                   shellRef={shellRef}
                   scrollRegionRef={scrollRegionRef}
                   articleRef={articleRef}
-                  ReviewDocument={document.Component}
-                  documentRevision={document.filePath}
+                  documentState={documentState}
+                  documentRevision={documentRevision}
                   softwareModels={[
                     ...(softwareMap ? [softwareMap.head] : []),
-                    ...document.documentSoftwareModels,
+                    ...(document?.documentSoftwareModels ?? []),
                   ]}
+                  softwareMapState={softwareMapState}
                   repoSoftwareMap={softwareMap?.head ?? null}
                   baseSoftwareMap={softwareMap?.base ?? null}
                   softwareMapTopologyDiff={
@@ -268,13 +306,15 @@ function ReviewLayout({
 }
 
 function ReviewLayoutContent({
+  notice,
   appRef,
   shellRef,
   scrollRegionRef,
   articleRef,
-  ReviewDocument,
+  documentState,
   documentRevision,
   softwareModels,
+  softwareMapState,
   repoSoftwareMap,
   baseSoftwareMap,
   softwareMapTopologyDiff,
@@ -283,13 +323,15 @@ function ReviewLayoutContent({
   commits,
   traceSelection,
 }: {
+  notice?: ReactNode;
   appRef: RefObject<HTMLDivElement | null>;
   shellRef: RefObject<HTMLElement | null>;
   scrollRegionRef: RefObject<HTMLElement | null>;
   articleRef: RefObject<HTMLElement | null>;
-  ReviewDocument: ReviewDocumentComponent;
+  documentState: ReviewDocumentAppState;
   documentRevision: string;
   softwareModels: NormalizedSoftwareModel[];
+  softwareMapState: ReviewSoftwareMapAppState;
   repoSoftwareMap: NormalizedSoftwareModel | null;
   baseSoftwareMap: NormalizedSoftwareModel | null;
   softwareMapTopologyDiff: SoftwareMapTopologyDiff | null;
@@ -487,131 +529,136 @@ function ReviewLayoutContent({
           shellRef={shellRef}
           scrollRegionRef={scrollRegionRef}
         >
-          <header className="review-topbar">
-            <div className="review-topbar-left">
-              <div
-                className="review-segmented"
-                role="group"
-                aria-label="Review views"
-              >
-                {reviewViews.map((view) => (
+          <div className="review-navigation-header">
+            <header className="review-topbar">
+              <div className="review-topbar-left">
+                <div
+                  className="review-segmented"
+                  role="group"
+                  aria-label="Review views"
+                >
+                  {reviewViews.map((view) => (
+                    <button
+                      key={view}
+                      type="button"
+                      aria-label={
+                        view === "map"
+                          ? "Map (Experimental)"
+                          : reviewViewLabel(view)
+                      }
+                      aria-pressed={activeView === view}
+                      title={view === "map" ? "Map (Experimental)" : undefined}
+                      className={
+                        activeView === view
+                          ? "review-segment review-segment--active"
+                          : "review-segment"
+                      }
+                      onClick={() => applyReviewView(view)}
+                    >
+                      <span>{reviewViewLabel(view)}</span>
+                      {view === "diff" && filesTabFileCount !== null && (
+                        <span className="review-segment-count">
+                          {filesTabFileCount}
+                        </span>
+                      )}
+                      {view === "commits" && (
+                        <span className="review-segment-count">
+                          {commits.length}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="review-open-source-tree"
+                  title="Open the read-only source tree"
+                  onClick={() => {
+                    captureUiEvent(session, "source_tree_opened", {
+                      via: "topbar",
+                    });
+                    session.surface.post({ name: "openSourceTree", args: {} });
+                  }}
+                >
+                  Open source tree ↗
+                </button>
+              </div>
+              <div className="review-topbar-actions">
+                <ReviewHistoryControl />
+                <BugReportControl />
+                <ReviewBatonChip outcome={review.submissionOutcome} />
+                <div
+                  className={
+                    threadsPanelOpen || askPanelOpen
+                      ? "topbar-threads-split topbar-threads-split--active"
+                      : "topbar-threads-split"
+                  }
+                  role="group"
+                  aria-label="Threads"
+                >
                   <button
-                    key={view}
                     type="button"
-                    aria-label={
-                      view === "map"
-                        ? "Map (Experimental)"
-                        : reviewViewLabel(view)
-                    }
-                    aria-pressed={activeView === view}
-                    title={view === "map" ? "Map (Experimental)" : undefined}
                     className={
-                      activeView === view
-                        ? "review-segment review-segment--active"
-                        : "review-segment"
+                      threadsPanelOpen
+                        ? "topbar-threads-button topbar-threads-button--active"
+                        : "topbar-threads-button"
                     }
-                    onClick={() => applyReviewView(view)}
+                    onClick={() => {
+                      captureUiEvent(session, "threads_opened", {
+                        thread_count: threadCount,
+                      });
+                      session.surface.showThreads();
+                      openThreadsWithDraftCleanup({
+                        draftTarget: review.draftTarget,
+                        closeCommentDraft: review.closeCommentDraft,
+                        openThreads,
+                      });
+                    }}
+                    aria-pressed={threadsPanelOpen}
                   >
-                    <span>{reviewViewLabel(view)}</span>
-                    {view === "diff" && filesTabFileCount !== null && (
-                      <span className="review-segment-count">
-                        {filesTabFileCount}
-                      </span>
-                    )}
-                    {view === "commits" && (
-                      <span className="review-segment-count">
-                        {commits.length}
+                    <ThreadsIcon />
+                    <span>Threads</span>
+                    {threadCount > 0 && (
+                      <span className="topbar-threads-count">
+                        {threadCount}
                       </span>
                     )}
                   </button>
-                ))}
+                  {!review.historicalRevision &&
+                    review.submissionOutcome !== "approved" &&
+                    review.submissionOutcome !== "dismissed" && (
+                      <button
+                        type="button"
+                        className={
+                          askPanelOpen
+                            ? "topbar-new-ask-button topbar-new-ask-button--active"
+                            : "topbar-new-ask-button"
+                        }
+                        aria-pressed={askPanelOpen}
+                        aria-label={askOrCommentLabel}
+                        title={askOrCommentLabel}
+                        onClick={() => {
+                          captureUiEvent(session, "new_ask_opened", {
+                            via: "topbar",
+                          });
+                          session.surface.showThreads();
+                          openThreads({ kind: "new-ask" });
+                        }}
+                      >
+                        <TerminalIcon />
+                      </button>
+                    )}
+                </div>
+                {!review.historicalRevision && !review.submissionOutcome && (
+                  <div className="topbar-actions-divider" />
+                )}
+                {!review.historicalRevision && !review.submissionOutcome ? (
+                  <ReviewCornerAction />
+                ) : null}
               </div>
-              <button
-                type="button"
-                className="review-open-source-tree"
-                title="Open the read-only source tree"
-                onClick={() => {
-                  captureUiEvent(session, "source_tree_opened", {
-                    via: "topbar",
-                  });
-                  session.surface.post({ name: "openSourceTree", args: {} });
-                }}
-              >
-                Open source tree ↗
-              </button>
-            </div>
-            <div className="review-topbar-actions">
-              <ReviewHistoryControl />
-              <BugReportControl />
-              <ReviewBatonChip outcome={review.submissionOutcome} />
-              <div
-                className={
-                  threadsPanelOpen || askPanelOpen
-                    ? "topbar-threads-split topbar-threads-split--active"
-                    : "topbar-threads-split"
-                }
-                role="group"
-                aria-label="Threads"
-              >
-                <button
-                  type="button"
-                  className={
-                    threadsPanelOpen
-                      ? "topbar-threads-button topbar-threads-button--active"
-                      : "topbar-threads-button"
-                  }
-                  onClick={() => {
-                    captureUiEvent(session, "threads_opened", {
-                      thread_count: threadCount,
-                    });
-                    session.surface.showThreads();
-                    openThreadsWithDraftCleanup({
-                      draftTarget: review.draftTarget,
-                      closeCommentDraft: review.closeCommentDraft,
-                      openThreads,
-                    });
-                  }}
-                  aria-pressed={threadsPanelOpen}
-                >
-                  <ThreadsIcon />
-                  <span>Threads</span>
-                  {threadCount > 0 && (
-                    <span className="topbar-threads-count">{threadCount}</span>
-                  )}
-                </button>
-                {!review.historicalRevision &&
-                  review.submissionOutcome !== "approved" &&
-                  review.submissionOutcome !== "dismissed" && (
-                    <button
-                      type="button"
-                      className={
-                        askPanelOpen
-                          ? "topbar-new-ask-button topbar-new-ask-button--active"
-                          : "topbar-new-ask-button"
-                      }
-                      aria-pressed={askPanelOpen}
-                      aria-label={askOrCommentLabel}
-                      title={askOrCommentLabel}
-                      onClick={() => {
-                        captureUiEvent(session, "new_ask_opened", {
-                          via: "topbar",
-                        });
-                        session.surface.showThreads();
-                        openThreads({ kind: "new-ask" });
-                      }}
-                    >
-                      <TerminalIcon />
-                    </button>
-                  )}
-              </div>
-              {!review.historicalRevision && !review.submissionOutcome && (
-                <div className="topbar-actions-divider" />
-              )}
-              {!review.historicalRevision && !review.submissionOutcome ? (
-                <ReviewCornerAction />
-              ) : null}
-            </div>
-          </header>
+            </header>
+            {notice}
+          </div>
           {review.historicalRevision ? (
             <div className="review-history-banner" role="status">
               <span>You are viewing an older version of this review.</span>
@@ -639,55 +686,78 @@ function ReviewLayoutContent({
               className="review-document-view"
               hidden={activeView !== "review"}
             >
-              <>
-                <ReviewToc />
-                <ReviewDocumentSelectionSurface articleRef={articleRef}>
-                  <ReviewDocumentBoundary
-                    key={documentRevision}
-                    session={session}
-                    revision={documentRevision}
-                    onError={(_revision, error) =>
-                      reportReviewDocumentRenderError(session, error)
-                    }
-                  >
-                    <ReviewViewStateProvider
-                      tourRestore={viewStateSync.tourRestore}
-                      persistOverlayTour={viewStateSync.persistOverlayTour}
+              {documentState.state === "ready" ? (
+                <>
+                  <ReviewToc />
+                  <ReviewDocumentSelectionSurface articleRef={articleRef}>
+                    <ReviewDocumentBoundary
+                      key={documentRevision}
+                      session={session}
+                      revision={documentRevision}
+                      onError={(_revision, error) =>
+                        reportReviewDocumentRenderError(session, error)
+                      }
                     >
-                      <ReviewDocumentContent ReviewDocument={ReviewDocument} />
-                    </ReviewViewStateProvider>
-                  </ReviewDocumentBoundary>
-                  <ThreadAnnotations
-                    articleRef={articleRef}
-                    onOpenInPanel={(thread) => {
-                      session.surface.showThreads();
-                      openThreads({
-                        kind: "comment",
-                        threadId: thread.threadId,
-                      });
-                    }}
-                  />
-                </ReviewDocumentSelectionSurface>
-              </>
+                      <ReviewViewStateProvider
+                        tourRestore={viewStateSync.tourRestore}
+                        persistOverlayTour={viewStateSync.persistOverlayTour}
+                      >
+                        <ReviewDocumentContent
+                          body={documentState.document.body}
+                        />
+                      </ReviewViewStateProvider>
+                    </ReviewDocumentBoundary>
+                    <ThreadAnnotations
+                      articleRef={articleRef}
+                      onOpenInPanel={(thread) => {
+                        session.surface.showThreads();
+                        openThreads({
+                          kind: "comment",
+                          threadId: thread.threadId,
+                        });
+                      }}
+                    />
+                  </ReviewDocumentSelectionSurface>
+                </>
+              ) : (
+                <ReviewDocumentLoadState state={documentState} />
+              )}
             </div>
             {softwareMapEnabled && activeView === "map" && (
               <div className="review-map-view">
                 <div className="review-map-canvas-shell">
-                  <SoftwareMapTopologyUnavailable
-                    repoSoftwareMap={repoSoftwareMap}
-                    baseSoftwareMap={baseSoftwareMap}
-                    baseRef={review.resolvedBaseRef ?? undefined}
-                    headRef={review.resolvedHeadRef ?? undefined}
-                  />
-                  <SoftwareMap
-                    model={activeSoftwareMap ?? undefined}
-                    focusRequest={review.softwareMapFocusRequest}
-                    height="100%"
-                    showChrome={false}
-                    showFloatingActions={!activePanel}
-                    registerTargets={false}
-                  />
-                  <MapSettingsControl />
+                  {softwareMapState.state === "loading" ? (
+                    <MapLoadState message="Loading software map…" />
+                  ) : softwareMapState.state === "needs-republish" ? (
+                    <RepairReview
+                      reviewUuid={softwareMapState.reviewUuid}
+                      mapStale
+                    />
+                  ) : softwareMapState.state === "unavailable" ? (
+                    <MapLoadState
+                      message={`Software map unavailable: ${softwareMapState.message}`}
+                      currentReviewUuid={softwareMapState.currentReviewUuid}
+                      alert
+                    />
+                  ) : (
+                    <>
+                      <SoftwareMapTopologyUnavailable
+                        repoSoftwareMap={repoSoftwareMap}
+                        baseSoftwareMap={baseSoftwareMap}
+                        baseRef={review.resolvedBaseRef ?? undefined}
+                        headRef={review.resolvedHeadRef ?? undefined}
+                      />
+                      <SoftwareMap
+                        model={activeSoftwareMap ?? undefined}
+                        focusRequest={review.softwareMapFocusRequest}
+                        height="100%"
+                        showChrome={false}
+                        showFloatingActions={!activePanel}
+                        registerTargets={false}
+                      />
+                      <MapSettingsControl />
+                    </>
+                  )}
                 </div>
               </div>
             )}
@@ -744,6 +814,77 @@ function ReviewLayoutContent({
           activeView !== "review" ||
           mapOverlayOpen) && <FloatingDraftHost />}
     </div>
+  );
+}
+
+function ReviewDocumentLoadState({
+  state,
+}: {
+  state: Exclude<ReviewDocumentAppState, { state: "ready" }>;
+}): ReactElement {
+  if (state.state === "loading") {
+    return (
+      <div className="review-document-load-state" role="status">
+        Still loading this review…
+      </div>
+    );
+  }
+  if (state.state === "needs-republish") {
+    return (
+      <RepairReview reviewUuid={state.reviewUuid} mapStale={state.mapStale} />
+    );
+  }
+  return (
+    <div className="review-document-load-state" role="alert">
+      <h2>Review unavailable</h2>
+      <p>{state.message}</p>
+      {state.currentReviewUuid ? (
+        <OpenCurrentReview reviewUuid={state.currentReviewUuid} />
+      ) : null}
+    </div>
+  );
+}
+
+function MapLoadState({
+  message,
+  alert = false,
+  currentReviewUuid,
+}: {
+  message: string;
+  alert?: boolean;
+  currentReviewUuid?: string;
+}): ReactElement {
+  return (
+    <div
+      className="review-document-load-state"
+      role={alert ? "alert" : "status"}
+    >
+      {message}
+      {currentReviewUuid ? (
+        <OpenCurrentReview reviewUuid={currentReviewUuid} />
+      ) : null}
+    </div>
+  );
+}
+
+function OpenCurrentReview({
+  reviewUuid,
+}: {
+  reviewUuid: string;
+}): ReactElement {
+  const session = useReviewSession();
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        void session.surface.post({
+          name: "openReview",
+          args: { reviewUuid, active: true },
+        })
+      }
+    >
+      Open current review
+    </button>
   );
 }
 

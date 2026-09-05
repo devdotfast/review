@@ -11,10 +11,14 @@ import {
 import { type CliJsonEvent, emitJsonEvent } from "./cli-output";
 import { readReviewDesktopDiscovery } from "./desktop-discovery";
 import {
-  parseStoredReviewRecord,
+  parseStoredReviewRecordForRecovery,
   sealReviewCandidate,
   touchReviewAgentSession,
 } from "./review-home";
+import {
+  assertReviewUnchanged,
+  withReviewMutationLock,
+} from "./review-mutation-lock";
 import {
   ReviewPublicationValidationError,
   prepareReviewSoftwareMapBundle,
@@ -56,7 +60,7 @@ export async function runReviewMapPublish(input: {
       review,
       revision: documentRevision,
     });
-    const presentedDocument = parseStoredReviewRecord(
+    const presentedDocument = parseStoredReviewRecordForRecovery(
       JSON.parse(
         await readFile(path.join(documentBuildDir, "review.json"), "utf8"),
       ),
@@ -105,11 +109,11 @@ export async function runReviewMapPublish(input: {
     }
 
     report.stage("revision", "running");
-    await writeReviewSoftwareMapBundle(review.dir, bundle);
-    const revision = await sealReviewCandidate(
-      review.dir,
-      "Publish Review software map",
-    );
+    const revision = await withReviewMutationLock(review.dir, async () => {
+      await assertReviewUnchanged(review.dir, review.review);
+      await writeReviewSoftwareMapBundle(review.dir, bundle);
+      return sealReviewCandidate(review.dir, "Publish Review software map");
+    });
     report.stage("revision", "complete", { revision });
 
     const discovery = await readReviewDesktopDiscovery();

@@ -1,0 +1,16 @@
+import { defineActors, defineAnchors, defineStores } from "virtual:progressive-review-authoring";
+
+export const actors = defineActors({ service: { label: "Order service" } });
+export const anchors = defineAnchors({
+  current: { title: "Queue order", peek: { file: "order.ts", fromLine: 1, toLine: 1 } },
+  previous: { title: "Previous status", peek: { file: "order.ts", fromLine: 1, toLine: 1, graph: "base" } },
+  unused: { title: "Unused but retained", peek: { file: "order.ts", fromLine: 1, toLine: 1 } },
+});
+export const stores = defineStores({
+  db: { kind: "relational", label: "Orders", tables: {
+    orders: { key: "id", schema: { id: { type: "text", pk: true }, status: { type: "text" } } },
+  } },
+});
+export const messages = [
+  { from: actors.service, to: actors.service, label: "Queue café order ☕", anchor: anchors.current },
+];

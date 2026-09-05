@@ -847,6 +847,9 @@ export class ReviewSessionService
 					return;
 				}
 				if (event.event === "session-registered") {
+					// Repair can resolve scan errors without restarting the host. Read
+					// them before registration renders a canvas with its warning snapshot.
+					if (this._reviewErrors.length > 0) await this.refreshLists();
 					this.upsertSession(event.session);
 					if (event.review) this.upsertReview(event.review);
 					this._onDidRegisterSession.fire({

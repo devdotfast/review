@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { existsSync } from "node:fs";
-import { readFile, readdir, rm, stat } from "node:fs/promises";
+import { readFile, readdir, realpath, rm, stat } from "node:fs/promises";
 import { type Server, createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
@@ -60,6 +60,7 @@ import {
   reviewReapsAt,
   selectReapableReviews,
 } from "../review-attention";
+import { readReviewDocumentBundle } from "../review-bundle";
 import { listReviewDocumentVersions } from "../review-document-versions";
 import {
   ensureReviewPinnedCheckout,
@@ -71,14 +72,18 @@ import {
   bindReviewAuthorSession,
   countReviewComments,
   findReview,
+  findReviewForRecovery,
   listReviews,
+  materializeReviewRevision,
   parseStoredReviewRecord,
+  parseStoredReviewRecordForRecovery,
   reviewDescriptor,
   reviewTitleFromDocument,
   reviewsHomeDir,
   touchReviewAgentSession,
 } from "../review-home";
 import type { RunReviewInfoInput } from "../review-info";
+import { withReviewMutationLock } from "../review-mutation-lock";
 import {
   readReviewPreferences,
   writeReviewPreferences,
@@ -88,6 +93,11 @@ import {
   requireClosedThreadsForRepublish,
 } from "../review-publish-thread-gate";
 import { clearReopenPending, markReopenPending } from "../review-reopen-marker";
+import {
+  type ReviewRepairReadyRequest,
+  ReviewRepairReadyRequestSchema,
+  fingerprintReviewRepairInputs,
+} from "../review-repair-state";
 import { devReviewHome } from "../review-storage";
 import { readReviewSoftwareMapBundle } from "../software-map-bundle";
 import { createTutorialAuthoringSession } from "../tutorial-authoring-session";
@@ -124,6 +134,12 @@ import { materializePublishRevision } from "./publish-stage";
 import { captureSanitizedUiTelemetry } from "./review-api";
 import { resolveReviewInfo } from "./review-info";
 import {
+  applyPreparedReviewRepair,
+  assertReviewRepairInputsUnchanged,
+  readPreparedReviewRepairRecord,
+  validateRepairStagingRepository,
+} from "./review-repair-promotion";
+import {
   type ReviewSessionHandler,
   createReviewSessionHandler,
 } from "./session-handler";
@@ -146,6 +162,7 @@ interface ActiveReviewSession {
   softwareMapRootPath?: string;
   revision?: string;
   historicalRevision?: string;
+  sourceUnavailable?: string;
   source?: {
     sourceCommit: string;
     sourceBranch: string;
@@ -169,6 +186,9 @@ interface RegisterSessionInput {
   softwareMapRootPath?: string;
   revision?: string;
   historicalRevision?: string;
+  documentUnavailable?: string;
+  softwareMapUnavailable?: string;
+  repairValidation?: boolean;
   source?: ActiveReviewSession["source"];
   appSessionId?: string;
   promoted: boolean;
@@ -412,7 +432,7 @@ export function createGlobalReviewServer(
   app.get("/reviews", async () => {
     const { dismissedRetentionDays } = await readReviewPreferences();
     await reapDismissedReviews(dismissedRetentionDays);
-    const listed = await listReviews();
+    const listed = await listReviews({ includeRecovery: true });
     const reviews = await Promise.all(
       listed.reviews.map((stored) =>
         reviewDescriptor(stored, dismissedRetentionDays),
@@ -489,7 +509,7 @@ export function createGlobalReviewServer(
       );
     }
     const view = parsedView.success ? parsedView.data : undefined;
-    const review = await findReview(uuid);
+    const review = await findReviewForRecovery(uuid);
     if (!review) {
       throw new ReviewServerError("Review not found.", 404);
     }
@@ -545,7 +565,9 @@ export function createGlobalReviewServer(
        render keeps the rule in one place and survives a canvas that never
        finishes loading. A dismissed review the reader reopens comes back. */
     const wasDismissed = Boolean(review.review.dismissedAt);
-    const viewed = await restoreReview(await markReviewViewed(review));
+    const viewed = review.recovery
+      ? review
+      : await restoreReview(await markReviewViewed(review));
     if (viewed.review !== review.review) {
       await broadcastReviewAttention(viewed, "viewed");
     }
@@ -553,9 +575,9 @@ export function createGlobalReviewServer(
       ...descriptor,
       viewedAt: viewed.review.viewedAt ?? null,
       dismissedAt: viewed.review.dismissedAt ?? null,
-      reapsAt: null,
+      reapsAt: review.recovery ? descriptor.reapsAt : null,
     };
-    if (wasDismissed) {
+    if (wasDismissed && !review.recovery) {
       await captureSanitizedUiTelemetry(
         telemetry,
         context.req.raw,
@@ -565,6 +587,7 @@ export function createGlobalReviewServer(
     }
     const existing = activeSessionForReview(review.review.uuid);
     if (existing) {
+      homeReview.sourceUnavailable = existing.sourceUnavailable;
       existing.appSessionId ??= appSessionId;
       if (!background) {
         void relay.dispatch(existing.descriptor.sessionId, revealVerb(view));
@@ -576,24 +599,40 @@ export function createGlobalReviewServer(
         review: homeReview,
       });
     }
-    const documentBuildDir = await publishRuntime.materializePublishRevision({
-      review: viewed,
-      revision: documentRevision,
-    });
-    const presentedReview = await reviewWithPresentedDocumentPins(
-      viewed,
-      documentBuildDir,
-    );
+    let documentUnavailable: string | undefined;
+    const documentBuildDir = await publishRuntime
+      .materializePublishRevision({
+        review: viewed,
+        revision: documentRevision,
+      })
+      .catch((error) => {
+        documentUnavailable = `The presented document revision ${documentRevision} is unavailable.`;
+        return path.join(review.dir, ".build", documentRevision);
+      });
+    const presentedReview = documentUnavailable
+      ? viewed
+      : await reviewWithPresentedDocumentPins(viewed, documentBuildDir);
+    let softwareMapUnavailable: string | undefined;
     const softwareMapRootPath = viewed.review.presentedSoftwareMapRevision
-      ? await publishRuntime.materializePublishRevision({
-          review: viewed,
-          revision: viewed.review.presentedSoftwareMapRevision,
-        })
+      ? await publishRuntime
+          .materializePublishRevision({
+            review: viewed,
+            revision: viewed.review.presentedSoftwareMapRevision,
+          })
+          .then((root) =>
+            presentedMapRoot(root, viewed.legacySchemaVersion === 2),
+          )
+          .catch(() => {
+            softwareMapUnavailable = `The presented software map revision ${viewed.review.presentedSoftwareMapRevision} is unavailable.`;
+            return undefined;
+          })
       : undefined;
     const active = await registerSerialized({
       review: presentedReview,
       documentPath: path.join(documentBuildDir, "review.mdx"),
       softwareMapRootPath,
+      documentUnavailable,
+      softwareMapUnavailable,
       promoted: true,
       announce: true,
       focusCanvas: !background,
@@ -601,6 +640,7 @@ export function createGlobalReviewServer(
       background,
       appSessionId,
     });
+    homeReview.sourceUnavailable = active.sourceUnavailable;
     return globalJson(201, {
       sessionId: active.descriptor.sessionId,
       url: active.descriptor.sessionUrl,
@@ -628,7 +668,10 @@ export function createGlobalReviewServer(
         sessionId: existing.descriptor.sessionId,
         url: existing.descriptor.sessionUrl,
         session: existing.descriptor,
-        review: homeReview,
+        review: {
+          ...homeReview,
+          sourceUnavailable: existing.sourceUnavailable,
+        },
       });
     }
     let documentBuildDir: string;
@@ -648,16 +691,24 @@ export function createGlobalReviewServer(
       review,
       documentBuildDir,
     );
-    const presentedRecord = parseStoredReviewRecord(
-      JSON.parse(
-        await readFile(path.join(documentBuildDir, "review.json"), "utf8"),
-      ),
+    const presentedValue = JSON.parse(
+      await readFile(path.join(documentBuildDir, "review.json"), "utf8"),
     );
+    const presentedRecord = parseStoredReviewRecordForRecovery(presentedValue);
+    let softwareMapUnavailable: string | undefined;
     const softwareMapRootPath = presentedRecord.presentedSoftwareMapRevision
-      ? await publishRuntime.materializePublishRevision({
-          review,
-          revision: presentedRecord.presentedSoftwareMapRevision,
-        })
+      ? await publishRuntime
+          .materializePublishRevision({
+            review,
+            revision: presentedRecord.presentedSoftwareMapRevision,
+          })
+          .then((root) =>
+            presentedMapRoot(root, presentedValue.schemaVersion === 2),
+          )
+          .catch(() => {
+            softwareMapUnavailable = `The historical software map revision ${presentedRecord.presentedSoftwareMapRevision} is unavailable.`;
+            return undefined;
+          })
       : undefined;
     const active = await registerSerialized({
       review: presentedReview,
@@ -665,6 +716,7 @@ export function createGlobalReviewServer(
       softwareMapRootPath,
       promoted: false,
       historicalRevision: revision,
+      softwareMapUnavailable,
       announce: true,
       focusCanvas: true,
       view,
@@ -674,7 +726,7 @@ export function createGlobalReviewServer(
       sessionId: active.descriptor.sessionId,
       url: active.descriptor.sessionUrl,
       session: active.descriptor,
-      review: homeReview,
+      review: { ...homeReview, sourceUnavailable: active.sourceUnavailable },
     });
   }
   app.post("/reviews/:uuid/dismiss", async (context) => {
@@ -841,6 +893,12 @@ export function createGlobalReviewServer(
       throw error;
     }
   });
+  app.post("/repair-ready", async (context) => {
+    const request = ReviewRepairReadyRequestSchema.parse(
+      await readBoundedRequestJson(context.req.raw),
+    );
+    return globalJson(201, await mountRepairedReview(request));
+  });
   app.post("/map-publish-ready", async (context) => {
     try {
       const request = parseReviewPublishReadyRequest(
@@ -992,6 +1050,196 @@ export function createGlobalReviewServer(
   // The CLI already validated, bundled, and sealed the revision; the server
   // materializes it, has the app mount it off-screen, and promotes it only
   // when that mount is clean.
+  async function mountRepairedReview(request: ReviewRepairReadyRequest) {
+    const review = await findReviewForRecovery(request.reviewUuid);
+    if (!review) throw new ReviewServerError("Review not found.", 404);
+    const stagingDir = await realpath(request.stagingDir);
+    const liveDir = await realpath(review.dir);
+    const relative = path.relative(liveDir, stagingDir);
+    if (
+      !relative ||
+      (!relative.startsWith(`..${path.sep}`) &&
+        relative !== ".." &&
+        !path.isAbsolute(relative))
+    )
+      throw new Error(
+        "Repair staging must be isolated from the stored review.",
+      );
+    await withReviewLock(request.reviewUuid, () =>
+      assertReviewRepairInputsUnchanged(review.dir, request),
+    );
+    await validateRepairStagingRepository(review.dir, stagingDir);
+    const next = await readPreparedReviewRepairRecord(request);
+    const stageFingerprint = await fingerprintReviewRepairInputs(stagingDir);
+    const createdBuilds: string[] = [];
+    let successor: ActiveReviewSession | undefined;
+    try {
+      const materialize = async (revision: string) => {
+        const destination = path.join(review.dir, ".build", revision);
+        if (!existsSync(destination)) {
+          createdBuilds.push(destination);
+          try {
+            await materializeReviewRevision(stagingDir, revision, destination);
+          } catch (error) {
+            await rm(destination, { recursive: true, force: true });
+            throw error;
+          }
+        }
+        return destination;
+      };
+      const documentDir = await materialize(request.newDocumentRevision);
+      const mapDir = request.newMapRevision
+        ? await materialize(request.newMapRevision)
+        : undefined;
+      if (!(await readReviewDocumentBundle(documentDir, "/")))
+        throw new ReviewServerError(
+          "Repaired document JSON is invalid.",
+          422,
+          "repair_document_invalid",
+        );
+      const presented = await reviewWithPresentedDocumentPins(
+        { dir: review.dir, review: next },
+        documentDir,
+      );
+      const previousDocument = review.review.presentedDocumentRevision
+        ? await materialize(review.review.presentedDocumentRevision)
+            .then(async (root) =>
+              parseStoredReviewRecordForRecovery(
+                JSON.parse(
+                  await readFile(path.join(root, "review.json"), "utf8"),
+                ),
+              ),
+            )
+            .catch(() => null)
+        : null;
+      const expectedDocumentPins = previousDocument ?? review.review;
+      if (
+        presented.review.baseCommit !== expectedDocumentPins.baseCommit ||
+        presented.review.sourceCommit !== expectedDocumentPins.sourceCommit ||
+        presented.review.baseRef !== expectedDocumentPins.baseRef ||
+        JSON.stringify(presented.review.sourceIdentity) !==
+          JSON.stringify(expectedDocumentPins.sourceIdentity)
+      )
+        throw new ReviewServerError(
+          "Repaired document must preserve its presentation's pinned commits.",
+          422,
+          "repair_document_pins",
+        );
+      if (mapDir) {
+        const map = await readReviewSoftwareMapBundle(mapDir);
+        if (!map)
+          throw new ReviewServerError(
+            "Repaired software map JSON is invalid.",
+            422,
+            "repair_map_invalid",
+          );
+        const previousMap = review.review.presentedSoftwareMapRevision
+          ? await materialize(review.review.presentedSoftwareMapRevision)
+              .then(async (root) =>
+                parseStoredReviewRecordForRecovery(
+                  JSON.parse(
+                    await readFile(path.join(root, "review.json"), "utf8"),
+                  ),
+                ),
+              )
+              .catch(() => null)
+          : null;
+        const expectedMapPins = previousMap ?? presented.review;
+        if (
+          map.baseCommit !== expectedMapPins.baseCommit ||
+          map.headCommit !== expectedMapPins.sourceCommit
+        )
+          throw new ReviewServerError(
+            "Repaired software map must preserve its presentation's pinned commits.",
+            422,
+            "repair_map_pins",
+          );
+      }
+      successor = await registerSerialized({
+        review: presented,
+        documentPath: path.join(documentDir, "review.mdx"),
+        softwareMapRootPath: mapDir,
+        revision: request.newDocumentRevision,
+        promoted: false,
+        repairValidation: true,
+      });
+      const validation = await relay.dispatch(successor.descriptor.sessionId, {
+        name: "validateCanvasMount",
+        args: {},
+      });
+      if (!validation.ok)
+        throw new ReviewServerError(
+          `Repaired Review failed to mount: ${validation.error ?? "unknown error"}`,
+          422,
+          "repair_mount_failed",
+        );
+      const mounted = successor;
+      await withReviewLock(request.reviewUuid, async () => {
+        if (
+          mounted.closing ||
+          sessions.get(mounted.descriptor.sessionId) !== mounted
+        )
+          throw new Error("Repair validation session closed before promotion.");
+        if (
+          (await fingerprintReviewRepairInputs(stagingDir)) !== stageFingerprint
+        )
+          throw new Error(
+            "Prepared repair changed after mount validation; retry.",
+          );
+        mounted.review = {
+          dir: review.dir,
+          review: await applyPreparedReviewRepair(review.dir, request),
+        };
+        mounted.promoted = true;
+      });
+      // Once promoted, UI refresh failures cannot turn a committed repair into a failed command.
+      await startSessionTelemetry(mounted).catch(() => undefined);
+      const descriptor = await reviewDescriptor(
+        mounted.review,
+        undefined,
+        true,
+      ).catch(() => undefined);
+      broadcastGlobal({
+        event: "session-registered",
+        session: mounted.descriptor,
+        review: descriptor,
+      });
+      await Promise.all(
+        [...sessions.values()]
+          .filter(
+            (session) =>
+              session !== mounted &&
+              session.promoted &&
+              session.review.review.uuid === request.reviewUuid,
+          )
+          .map((session) =>
+            closeSession(session, "replaced", false).catch(() => undefined),
+          ),
+      );
+      void relay.dispatch(mounted.descriptor.sessionId, {
+        name: "focusCanvas",
+        args: {},
+      });
+      return {
+        ok: true,
+        status: next.status,
+        oldDocumentRevision: review.review.presentedDocumentRevision,
+        oldMapRevision: review.review.presentedSoftwareMapRevision,
+        newDocumentRevision: request.newDocumentRevision,
+        newMapRevision: request.newMapRevision,
+        sessionId: mounted.descriptor.sessionId,
+        url: mounted.descriptor.sessionUrl,
+      };
+    } finally {
+      if (!successor?.promoted) {
+        if (successor)
+          await closeSession(successor, "closed", false).catch(() => undefined);
+        for (const build of createdBuilds)
+          await rm(build, { recursive: true, force: true });
+      }
+    }
+  }
+
   async function mountPublishedDocument(
     review: StoredReview,
     revision: string,
@@ -1016,6 +1264,13 @@ export function createGlobalReviewServer(
     const buildDir = await publishRuntime.materializePublishRevision({
       review,
       revision,
+    });
+    const preparedRecord = parseStoredReviewRecord(
+      JSON.parse(await readFile(path.join(buildDir, "review.json"), "utf8")),
+    );
+    rejectConcurrentPublication(review, {
+      dir: buildDir,
+      review: preparedRecord,
     });
     const softwareMapRootPath = review.review.presentedSoftwareMapRevision
       ? await publishRuntime.materializePublishRevision({
@@ -1140,6 +1395,15 @@ export function createGlobalReviewServer(
       }),
       publishRuntime.materializePublishRevision({ review, revision }),
     ]);
+    const preparedMapRecord = parseStoredReviewRecord(
+      JSON.parse(
+        await readFile(path.join(softwareMapRootPath, "review.json"), "utf8"),
+      ),
+    );
+    rejectConcurrentPublication(review, {
+      dir: softwareMapRootPath,
+      review: preparedMapRecord,
+    });
     const mapBundle = await readReviewSoftwareMapBundle(softwareMapRootPath);
     if (!mapBundle) {
       throw new ReviewServerError(
@@ -1692,9 +1956,17 @@ export function createGlobalReviewServer(
     const sourceCommit =
       registration.source?.sourceCommit ??
       registration.review.review.sourceCommit;
+    let sourceUnavailable: string | undefined;
     const { baseRootPath, headRootPath } =
       registration.checkoutRoots ??
-      (await ensureReviewCheckouts(registration.review, sourceCommit));
+      (await ensureReviewCheckouts(registration.review, sourceCommit).catch(
+        (error) => {
+          if (!registration.review.recovery && !registration.historicalRevision)
+            throw error;
+          sourceUnavailable = `The pinned source commits are unavailable: ${error instanceof Error ? error.message : String(error)}`;
+          return { baseRootPath: undefined, headRootPath: undefined };
+        },
+      ));
     const sessionWire = sessionWireFor(
       registration.review,
       descriptor,
@@ -1717,8 +1989,23 @@ export function createGlobalReviewServer(
       sessionId,
       reviewUuid: registration.review.review.uuid,
       historicalRevision: registration.historicalRevision,
+      recovery: registration.review.recovery,
+      isReadOnly: registration.repairValidation
+        ? () => !active.promoted
+        : undefined,
+      readOnlyReview:
+        registration.review.recovery ||
+        registration.historicalRevision ||
+        registration.repairValidation
+          ? registration.review.review
+          : undefined,
+      documentUnavailable: registration.documentUnavailable,
+      softwareMapUnavailable: registration.softwareMapUnavailable,
+      sourceUnavailable,
       listDocumentVersions: async () => {
-        const latest = await findReview(registration.review.review.uuid);
+        const latest = await findReviewForRecovery(
+          registration.review.review.uuid,
+        );
         return latest ? listReviewDocumentVersions(latest) : [];
       },
       session: sessionWire,
@@ -1771,6 +2058,7 @@ export function createGlobalReviewServer(
       revision: registration.revision,
       historicalRevision: registration.historicalRevision,
       source: registration.source,
+      sourceUnavailable,
       handler,
       promoted: registration.promoted,
       terminal: false,
@@ -2055,7 +2343,10 @@ export function createGlobalReviewServer(
     reviewLocks.set(reviewUuid, chain);
     await previous;
     try {
-      return await operation();
+      return await withReviewMutationLock(
+        path.join(reviewsHomeDir(), reviewUuid),
+        operation,
+      );
     } finally {
       release();
       if (reviewLocks.get(reviewUuid) === chain) reviewLocks.delete(reviewUuid);
@@ -2306,7 +2597,7 @@ function sessionWireFor(
   headRootPath?: string,
 ): ReviewSessionWire {
   const headRef = source?.sourceCommit ?? review.review.sourceCommit;
-  if (!headRef) {
+  if (!headRef && !review.recovery && !descriptor.historicalRevision) {
     throw new ReviewServerError(
       `Review ${review.review.uuid} is not bound to a source commit.`,
       409,
@@ -2323,7 +2614,7 @@ function sessionWireFor(
     baseRootPath,
     headRootPath,
     baseRef: review.review.baseCommit,
-    headRef,
+    headRef: headRef ?? undefined,
     pullRequestNumber: review.review.pullRequestNumber ?? undefined,
     pullRequestUrl: review.review.pullRequestUrl ?? undefined,
     routePath: descriptor.routePath,
@@ -2386,7 +2677,7 @@ async function reviewWithPresentedDocumentPins(
   stored: StoredReview,
   documentBuildDir: string,
 ): Promise<StoredReview> {
-  const presented = parseStoredReviewRecord(
+  const presented = parseStoredReviewRecordForRecovery(
     JSON.parse(
       await readFile(path.join(documentBuildDir, "review.json"), "utf8"),
     ),
@@ -2401,6 +2692,21 @@ async function reviewWithPresentedDocumentPins(
       sourceIdentity: presented.sourceIdentity,
     },
   };
+}
+
+async function presentedMapRoot(
+  root: string,
+  allowAbsent: boolean,
+): Promise<string | undefined> {
+  if (!allowAbsent) return root;
+  try {
+    await stat(path.join(root, ".bundle", "software-map"));
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT")
+      return undefined;
+    throw error;
+  }
+  return root;
 }
 
 function rejectTerminalPublication(review: StoredReview): void {
@@ -2421,6 +2727,9 @@ function rejectConcurrentPublication(
   startedFrom: StoredReview,
 ): void {
   if (
+    latest.review.status !== startedFrom.review.status ||
+    latest.review.sourceCommit !== startedFrom.review.sourceCommit ||
+    latest.review.baseCommit !== startedFrom.review.baseCommit ||
     latest.review.presentedDocumentRevision !==
       startedFrom.review.presentedDocumentRevision ||
     latest.review.presentedSoftwareMapRevision !==

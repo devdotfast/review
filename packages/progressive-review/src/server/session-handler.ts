@@ -17,7 +17,10 @@ import { streamSSE } from "hono/streaming";
 
 import type { ReviewAgentHarness, SessionRef } from "../authoring-session";
 import type { AgentServer } from "../native-agent/native-session";
-import { readReviewDocumentBundle } from "../review-bundle";
+import {
+  type ReviewDocumentBundle,
+  readReviewDocumentBundle,
+} from "../review-bundle";
 import { resolveReviewSessionBaseCommit } from "../review-worktree-target";
 import {
   type ReviewSoftwareMapBundle,
@@ -28,7 +31,6 @@ import type {
   ProgressiveReviewTelemetryContext,
 } from "../telemetry";
 import type { ReviewSubmissionEvent } from "../types";
-import type { ReviewDocumentBundle } from "./doc-bundler";
 import {
   type ReviewHonoEnv,
   applyCorsHeaders,
@@ -39,8 +41,10 @@ import {
 import { type ReviewApi, createReviewApi } from "./review-api";
 
 const API_PREFIX = "/__progressive-review";
-const MODULE_PATH_PREFIX = `${API_PREFIX}/doc-modules/`;
-const MAP_MODULE_PATH_PREFIX = `${API_PREFIX}/software-map-modules/`;
+const DOCUMENT_PATH_PREFIX = `${API_PREFIX}/documents/`;
+const MAP_PATH_PREFIX = `${API_PREFIX}/software-maps/`;
+const NEEDS_REPUBLISH_ERROR =
+  "This review was published by an earlier version of Review and its document must be regenerated.";
 
 interface ReviewEventClient {
   write(frame: string): void;
@@ -60,6 +64,12 @@ export interface ReviewSessionHandlerInput {
   reviewUuid?: string;
   submitHook?: string;
   historicalRevision?: string;
+  recovery?: boolean;
+  isReadOnly?: () => boolean;
+  readOnlyReview?: ReviewRecord;
+  documentUnavailable?: string;
+  softwareMapUnavailable?: string;
+  sourceUnavailable?: string;
   listDocumentVersions?: () => Promise<ReviewDocumentVersionWire[]>;
   session: ReviewSessionWire;
   stderr?: Writable;
@@ -113,7 +123,7 @@ export async function createReviewSessionHandler(
   const sessionUrl = (session.sessionUrl ?? session.appUrl).replace(/\/$/, "");
   const documentsDir = path.join(renderDir, ".review-documents");
   let currentBundle: ReviewDocumentBundle | null = null;
-  let bundlePromise: Promise<ReviewDocumentBundle> | null = null;
+  let bundlePromise: Promise<ReviewDocumentBundle | null> | null = null;
   let softwareMapBundlePromise: Promise<ReviewSoftwareMapBundle | null> | null =
     null;
   const eventClients = new Set<ReviewEventClient>();
@@ -158,17 +168,9 @@ export async function createReviewSessionHandler(
       }
     : undefined;
 
-  const getBundle = async (): Promise<ReviewDocumentBundle> => {
+  const getBundle = async (): Promise<ReviewDocumentBundle | null> => {
     if (currentBundle) return currentBundle;
-    bundlePromise ??= (async () => {
-      const bundle = await readReviewDocumentBundle(renderDir, input.routePath);
-      if (!bundle) {
-        throw new Error(
-          "The published Review document bundle is missing. Run `review migrate apply`.",
-        );
-      }
-      return bundle;
-    })();
+    bundlePromise ??= readReviewDocumentBundle(renderDir, input.routePath);
     try {
       currentBundle = await bundlePromise;
       return currentBundle;
@@ -190,8 +192,15 @@ export async function createReviewSessionHandler(
     for (const client of eventClients) client.write(frame);
   };
 
-  const moduleUrl = (bundle: ReviewDocumentBundle): string =>
-    `${sessionUrl}${MODULE_PATH_PREFIX}${bundle.contentHash}.js`;
+  const needsRepublishReviewUuid = (): string => {
+    if (!input.reviewUuid) {
+      throw new Error("A review UUID is required to report needs_republish.");
+    }
+    return input.reviewUuid;
+  };
+
+  const documentUrl = (bundle: ReviewDocumentBundle): string =>
+    `${sessionUrl}${DOCUMENT_PATH_PREFIX}${bundle.contentHash}.json`;
 
   const app = new Hono<ReviewHonoEnv>();
   app.use("*", async (context, next) => {
@@ -212,14 +221,28 @@ export async function createReviewSessionHandler(
     }
     await next();
   });
-  if (input.historicalRevision) {
+  if (input.historicalRevision || input.recovery || input.isReadOnly) {
     app.use(`${API_PREFIX}/*`, async (context, next) => {
+      if (
+        !input.historicalRevision &&
+        !input.recovery &&
+        !input.isReadOnly?.()
+      ) {
+        await next();
+        return;
+      }
       const method = context.req.method;
       if (
         method === "GET" ||
         method === "HEAD" ||
         method === "OPTIONS" ||
-        context.req.path.startsWith(`${API_PREFIX}/telemetry`)
+        context.req.path.startsWith(`${API_PREFIX}/telemetry`) ||
+        (method === "POST" &&
+          [
+            "/code-peek/resolve",
+            "/software-map/resolved-data",
+            "/diff-files",
+          ].some((route) => context.req.path === `${API_PREFIX}${route}`))
       ) {
         await next();
         return;
@@ -227,20 +250,28 @@ export async function createReviewSessionHandler(
       return jsonResponse(
         {
           ok: false,
-          error: "This historical version is read-only.",
-          code: "historical_revision",
+          error: input.historicalRevision
+            ? "This historical version is read-only."
+            : "This legacy review is open for read-only recovery.",
+          code: input.historicalRevision
+            ? "historical_revision"
+            : "review_recovery",
         },
         409,
       );
     });
   }
   app.get(`${API_PREFIX}/session`, async () => {
-    const resolvedBaseRef = await (
-      dependencies.resolveReviewSessionBaseCommit ??
-      resolveReviewSessionBaseCommit
-    )({
-      reviewRootPath,
-    });
+    const resolvedBaseRef = input.readOnlyReview
+      ? input.sourceUnavailable
+        ? null
+        : input.readOnlyReview.baseCommit
+      : await (
+          dependencies.resolveReviewSessionBaseCommit ??
+          resolveReviewSessionBaseCommit
+        )({
+          reviewRootPath,
+        });
     const sessionPayload: ReturnType<typeof reviewSessionPayload> & {
       resolvedBaseRef: typeof resolvedBaseRef;
       reviewStatus?: ReviewRecord["status"];
@@ -262,36 +293,129 @@ export async function createReviewSessionHandler(
       200,
     );
   });
-  app.get(`${API_PREFIX}/doc-module`, async () => {
+  app.get(`${API_PREFIX}/document`, async () => {
+    if (input.documentUnavailable)
+      return jsonResponse(
+        {
+          ok: false,
+          code: input.historicalRevision
+            ? "historical_revision_unavailable"
+            : "needs_republish",
+          error: input.documentUnavailable,
+          reviewUuid: needsRepublishReviewUuid(),
+          recovery: input.historicalRevision ? undefined : true,
+          mapStale: Boolean(
+            input.softwareMapUnavailable ||
+            (input.softwareMapRootPath && !(await getSoftwareMapBundle())),
+          ),
+        },
+        409,
+      );
     const bundle = await getBundle();
+    if (!bundle) {
+      if (input.historicalRevision)
+        return jsonResponse(
+          {
+            ok: false,
+            code: "historical_revision_unavailable",
+            error:
+              "This older revision is unavailable in this version of Review",
+            reviewUuid: needsRepublishReviewUuid(),
+          },
+          409,
+        );
+      const mapStale = Boolean(
+        input.softwareMapRootPath && !(await getSoftwareMapBundle()),
+      );
+      return jsonResponse(
+        {
+          ok: false,
+          code: "needs_republish",
+          error: NEEDS_REPUBLISH_ERROR,
+          reviewUuid: needsRepublishReviewUuid(),
+          mapStale,
+          recovery:
+            input.recovery ||
+            input.getReviewStatus?.() === "accepted" ||
+            input.getReviewStatus?.() === "rejected"
+              ? true
+              : undefined,
+        },
+        409,
+      );
+    }
     return jsonResponse(
       {
         ok: true,
         contentHash: bundle.contentHash,
-        moduleUrl: moduleUrl(bundle),
+        documentUrl: documentUrl(bundle),
       },
       200,
     );
   });
-  app.get(`${MODULE_PATH_PREFIX}:moduleName`, async (context) => {
+  app.get(`${DOCUMENT_PATH_PREFIX}:documentName`, async (context) => {
     const bundle = await getBundle();
-    if (context.req.param("moduleName") !== `${bundle.contentHash}.js`) {
+    if (
+      !bundle ||
+      context.req.param("documentName") !== `${bundle.contentHash}.json`
+    ) {
       return jsonResponse(
-        { ok: false, error: "Document module not found" },
+        { ok: false, error: "Review document not found" },
         404,
       );
     }
-    return new Response(bundle.code, {
+    return new Response(bundle.json, {
       status: 200,
       headers: {
         "cache-control": "no-store",
-        "content-type": "text/javascript; charset=utf-8",
+        "content-type": "application/json; charset=utf-8",
       },
     });
   });
-  app.get(`${API_PREFIX}/software-map-module`, async () => {
+  app.get(`${API_PREFIX}/software-map`, async () => {
+    if (input.softwareMapUnavailable)
+      return jsonResponse(
+        {
+          ok: false,
+          code: input.historicalRevision
+            ? "historical_revision_unavailable"
+            : "needs_republish",
+          error: input.softwareMapUnavailable,
+          reviewUuid: needsRepublishReviewUuid(),
+          recovery: input.historicalRevision ? undefined : true,
+        },
+        409,
+      );
     const bundle = await getSoftwareMapBundle();
     if (!bundle) {
+      if (input.softwareMapRootPath) {
+        if (input.historicalRevision)
+          return jsonResponse(
+            {
+              ok: false,
+              code: "historical_revision_unavailable",
+              error:
+                "This older revision is unavailable in this version of Review",
+              reviewUuid: needsRepublishReviewUuid(),
+            },
+            409,
+          );
+        return jsonResponse(
+          {
+            ok: false,
+            code: "needs_republish",
+            error: "This review's software map must be regenerated.",
+            reviewUuid: needsRepublishReviewUuid(),
+            recovery:
+              input.recovery ||
+              input.getReviewStatus?.() === "accepted" ||
+              input.getReviewStatus?.() === "rejected"
+                ? true
+                : undefined,
+          },
+          409,
+        );
+      }
       return jsonResponse(
         { ok: false, error: "Software map is not published" },
         404,
@@ -301,32 +425,29 @@ export async function createReviewSessionHandler(
       {
         ok: true,
         contentHash: bundle.contentHash,
-        headModuleUrl: `${sessionUrl}${MAP_MODULE_PATH_PREFIX}head-${bundle.contentHash}.js`,
-        baseModuleUrl: `${sessionUrl}${MAP_MODULE_PATH_PREFIX}base-${bundle.contentHash}.js`,
+        headMapUrl: `${sessionUrl}${MAP_PATH_PREFIX}head-${bundle.contentHash}.json`,
+        baseMapUrl: `${sessionUrl}${MAP_PATH_PREFIX}base-${bundle.contentHash}.json`,
       },
       200,
     );
   });
-  app.get(`${MAP_MODULE_PATH_PREFIX}:moduleName`, async (context) => {
+  app.get(`${MAP_PATH_PREFIX}:mapName`, async (context) => {
     const bundle = await getSoftwareMapBundle();
-    const moduleName = context.req.param("moduleName");
-    const code =
-      moduleName === `head-${bundle?.contentHash}.js`
-        ? bundle?.headCode
-        : moduleName === `base-${bundle?.contentHash}.js`
-          ? bundle?.baseCode
+    const mapName = context.req.param("mapName");
+    const json =
+      mapName === `head-${bundle?.contentHash}.json`
+        ? bundle?.headJson
+        : mapName === `base-${bundle?.contentHash}.json`
+          ? bundle?.baseJson
           : undefined;
-    if (!code) {
-      return jsonResponse(
-        { ok: false, error: "Software map module not found" },
-        404,
-      );
+    if (!json) {
+      return jsonResponse({ ok: false, error: "Software map not found" }, 404);
     }
-    return new Response(code, {
+    return new Response(json, {
       status: 200,
       headers: {
         "cache-control": "no-store",
-        "content-type": "text/javascript; charset=utf-8",
+        "content-type": "application/json; charset=utf-8",
       },
     });
   });
@@ -370,6 +491,12 @@ export async function createReviewSessionHandler(
     return response;
   });
   const reviewApi = createReviewApi({
+    readOnlyReview: input.readOnlyReview,
+    readOnly: () =>
+      Boolean(
+        input.recovery || input.historicalRevision || input.isReadOnly?.(),
+      ),
+    sourceUnavailable: input.sourceUnavailable,
     reviewPath: input.reviewPath,
     reviewDocumentsDir: documentsDir,
     rootPath: input.rootPath,

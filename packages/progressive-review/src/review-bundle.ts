@@ -5,7 +5,11 @@ import path from "node:path";
 import { type JsonValue, parseJsonText } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
-import type { ReviewDocumentBundle } from "./server/doc-bundler";
+import {
+  type ReviewDocumentData,
+  reviewDocumentDataSchema,
+} from "./review-document-data";
+import { withReviewMutationLock } from "./review-mutation-lock";
 
 // `review publish` writes the built document bundle into the review dir and
 // seals it with the revision. The desktop server serves these exact bytes from
@@ -15,9 +19,10 @@ export const REVIEW_DOCUMENT_BUNDLE_DIR = path.join(
   REVIEW_BUNDLE_DIR,
   "document",
 );
-const BUNDLE_CODE_FILE = "review-document.js";
+const BUNDLE_JSON_FILE = "review-document.json";
+const LEGACY_BUNDLE_CODE_FILE = "review-document.js";
 const BUNDLE_MANIFEST_FILE = "manifest.json";
-const BUNDLE_MANIFEST_VERSION = 1;
+const BUNDLE_MANIFEST_VERSION = 2;
 
 const reviewBundleManifestSchema = z.object({
   version: z.literal(BUNDLE_MANIFEST_VERSION),
@@ -26,31 +31,55 @@ const reviewBundleManifestSchema = z.object({
 });
 type ReviewBundleManifest = z.infer<typeof reviewBundleManifestSchema>;
 
+export interface ReviewDocumentBundle {
+  document: ReviewDocumentData;
+  json: string;
+  contentHash: string;
+  routePath: string;
+  sourcePath: string;
+}
+
+export function bundleReviewDocument(
+  document: ReviewDocumentData,
+): ReviewDocumentBundle {
+  const json = `${JSON.stringify(document)}\n`;
+  return {
+    document,
+    json,
+    contentHash: bundleHash(json),
+    routePath: document.routePath,
+    sourcePath: document.sourcePath,
+  };
+}
+
 export async function writeReviewDocumentBundle(
   reviewDir: string,
   bundle: ReviewDocumentBundle,
 ): Promise<void> {
-  const bundleDir = path.join(reviewDir, REVIEW_DOCUMENT_BUNDLE_DIR);
-  await mkdir(bundleDir, { recursive: true, mode: 0o700 });
-  const manifest: ReviewBundleManifest = {
-    version: BUNDLE_MANIFEST_VERSION,
-    routePath: bundle.routePath,
-    sourcePath: path.basename(bundle.sourcePath),
-  };
-  await Promise.all([
-    writeFile(path.join(bundleDir, BUNDLE_CODE_FILE), bundle.code, "utf8"),
-    writeFile(
-      path.join(bundleDir, BUNDLE_MANIFEST_FILE),
-      `${JSON.stringify(manifest, null, 2)}\n`,
-      "utf8",
-    ),
-    rm(path.join(reviewDir, REVIEW_BUNDLE_DIR, BUNDLE_CODE_FILE), {
-      force: true,
-    }),
-    rm(path.join(reviewDir, REVIEW_BUNDLE_DIR, BUNDLE_MANIFEST_FILE), {
-      force: true,
-    }),
-  ]);
+  return withReviewMutationLock(reviewDir, async () => {
+    const bundleDir = path.join(reviewDir, REVIEW_DOCUMENT_BUNDLE_DIR);
+    await mkdir(bundleDir, { recursive: true, mode: 0o700 });
+    const manifest: ReviewBundleManifest = {
+      version: BUNDLE_MANIFEST_VERSION,
+      routePath: bundle.routePath,
+      sourcePath: bundle.sourcePath,
+    };
+    await Promise.all([
+      writeFile(path.join(bundleDir, BUNDLE_JSON_FILE), bundle.json, "utf8"),
+      writeFile(
+        path.join(bundleDir, BUNDLE_MANIFEST_FILE),
+        `${JSON.stringify(manifest, null, 2)}\n`,
+        "utf8",
+      ),
+      rm(path.join(bundleDir, LEGACY_BUNDLE_CODE_FILE), { force: true }),
+      rm(path.join(reviewDir, REVIEW_BUNDLE_DIR, LEGACY_BUNDLE_CODE_FILE), {
+        force: true,
+      }),
+      rm(path.join(reviewDir, REVIEW_BUNDLE_DIR, BUNDLE_MANIFEST_FILE), {
+        force: true,
+      }),
+    ]);
+  });
 }
 
 export async function readReviewDocumentBundle(
@@ -59,12 +88,11 @@ export async function readReviewDocumentBundle(
 ): Promise<ReviewDocumentBundle | null> {
   const bundleDir = path.join(documentDir, REVIEW_DOCUMENT_BUNDLE_DIR);
   let manifestRaw: string;
-  let code: string;
   try {
-    [manifestRaw, code] = await Promise.all([
-      readFile(path.join(bundleDir, BUNDLE_MANIFEST_FILE), "utf8"),
-      readFile(path.join(bundleDir, BUNDLE_CODE_FILE), "utf8"),
-    ]);
+    manifestRaw = await readFile(
+      path.join(bundleDir, BUNDLE_MANIFEST_FILE),
+      "utf8",
+    );
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return null;
@@ -73,15 +101,23 @@ export async function readReviewDocumentBundle(
   }
   const manifest = parseManifest(manifestRaw);
   if (manifest === null || manifest.routePath !== routePath) return null;
+  let json: string;
+  try {
+    json = await readFile(path.join(bundleDir, BUNDLE_JSON_FILE), "utf8");
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+  const document = parseDocument(json);
+  if (document === null) return null;
   return {
-    code,
-    contentHash: crypto
-      .createHash("sha256")
-      .update(code)
-      .digest("hex")
-      .slice(0, 20),
+    document,
+    json,
+    contentHash: bundleHash(json),
     routePath: manifest.routePath,
-    sourcePath: path.join(documentDir, manifest.sourcePath),
+    sourcePath: manifest.sourcePath,
   };
 }
 
@@ -94,4 +130,19 @@ function parseManifest(raw: string): ReviewBundleManifest | null {
   }
   const manifest = reviewBundleManifestSchema.safeParse(value);
   return manifest.success ? manifest.data : null;
+}
+
+function parseDocument(raw: string): ReviewDocumentData | null {
+  let value: JsonValue;
+  try {
+    value = parseJsonText(raw);
+  } catch {
+    return null;
+  }
+  const document = reviewDocumentDataSchema.safeParse(value);
+  return document.success ? document.data : null;
+}
+
+function bundleHash(json: string): string {
+  return crypto.createHash("sha256").update(json).digest("hex").slice(0, 20);
 }

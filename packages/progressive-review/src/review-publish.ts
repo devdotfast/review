@@ -13,6 +13,10 @@ import { requireHealthyReviewDesktop } from "./desktop-discovery";
 import { REVIEW_PUBLISH_CANDIDATE_MESSAGE } from "./review-document-versions";
 import { sealReviewCandidate } from "./review-home";
 import {
+  assertReviewUnchanged,
+  withReviewMutationLock,
+} from "./review-mutation-lock";
+import {
   ReviewPublicationValidationError,
   prepareReviewDocumentBundle,
 } from "./review-publication-preparation";
@@ -87,9 +91,22 @@ async function publish(
   }
 
   reporter.stage("validate", "running");
-  let preparedDocument;
+  let revision: string;
   try {
-    preparedDocument = await prepareReviewDocumentBundle({ review });
+    const candidate = await withReviewMutationLock(review.dir, async () => {
+      await assertReviewUnchanged(review.dir, review.review);
+      const document = await prepareReviewDocumentBundle({ review });
+      if (document.warnings.length > 0)
+        reporter.warning("validate", document.warnings);
+      reporter.stage("validate", "complete");
+      reporter.stage("revision", "running");
+      const revision = await sealReviewCandidate(
+        review.dir,
+        REVIEW_PUBLISH_CANDIDATE_MESSAGE,
+      );
+      return { revision };
+    });
+    revision = candidate.revision;
   } catch (error) {
     if (error instanceof ReviewPublicationValidationError) {
       if (error.warnings.length > 0) {
@@ -107,16 +124,6 @@ async function publish(
     }
     return 1;
   }
-  if (preparedDocument.warnings.length > 0) {
-    reporter.warning("validate", preparedDocument.warnings);
-  }
-  reporter.stage("validate", "complete");
-
-  reporter.stage("revision", "running");
-  const revision = await sealReviewCandidate(
-    review.dir,
-    REVIEW_PUBLISH_CANDIDATE_MESSAGE,
-  );
   reporter.stage("revision", "complete", { revision });
 
   const discovery = await requireHealthyReviewDesktop("review publish");

@@ -13,6 +13,7 @@ import {
   type JsonObject,
   type JsonValue,
   type ReviewCommentThreadRecord,
+  type ReviewRecord,
   type ReviewSessionWire,
   type ReviewStackResponse,
   type ReviewThreadsCommit,
@@ -57,6 +58,7 @@ import {
 } from "../review-paths";
 import { resolveReviewStackLayers } from "../review-stack";
 import { saveReviewSubmissionAudit } from "../review-state-store";
+import { readReviewThreadsReadOnly } from "../review-thread-store-backend";
 import { ReviewThreadsService } from "../review-threads-service";
 import {
   readReviewStoreRecord,
@@ -64,7 +66,7 @@ import {
   resolveReviewSessionBaseCommit,
   resolveReviewSourceTarget,
 } from "../review-worktree-target";
-import { materializeSoftwareMapAtRef } from "../software-map-artifact";
+import { materializeSoftwareMapAtRefWithoutEvaluation } from "../software-map-artifact";
 import { resolveSoftwareMapDiffCounts } from "../software-map-diff-counts";
 import type { SourceSnapshot } from "../source-code-types";
 import { resolveReviewSourceRange } from "../source-range-resolver";
@@ -191,6 +193,9 @@ export async function captureSanitizedUiTelemetry(
 }
 
 interface ReviewApiOptions {
+  readOnlyReview?: ReviewRecord;
+  readOnly?: () => boolean;
+  sourceUnavailable?: string;
   reviewPath: string;
   reviewDocumentsDir: string;
   rootPath: string;
@@ -392,7 +397,8 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   );
 
   async function resolveTraceSessionDescriptors() {
-    const review = readReviewStoreRecord(reviewRootPath);
+    const review =
+      options.readOnlyReview ?? readReviewStoreRecord(reviewRootPath);
     const repoRootPath = resolveReviewRepoRootFromStore(reviewRootPath, review);
     const headCommit = review.sourceCommit ?? review.baseCommit;
     return listReviewTraceSessions({
@@ -562,7 +568,10 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   ): Response {
     return reviewApiJsonResponse(200, {
       ok: true,
-      snapshot: threadsFor(writableReviewPath).snapshot(),
+      snapshot:
+        options.readOnlyReview || options.readOnly?.()
+          ? readReviewThreadsReadOnly(writableReviewPath)
+          : threadsFor(writableReviewPath).snapshot(),
     });
   }
 
@@ -800,9 +809,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     context: Context<ReviewHonoEnv>,
   ): Promise<Response> {
     const body = await readJsonObject(context.req.raw);
-    const sourceTarget = await resolveRequestSourceTarget({
-      reviewRootPath,
-    });
+    const sourceTarget = await requestSourceTarget();
     const baseSourceTarget = sourceTarget.preparedBase;
     const graph = parseCodePeekGraph(body.graph);
     const includeDiff = body.includeDiff === true;
@@ -836,9 +843,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     const body = await readJsonObject(context.req.raw);
     const codeElements = parseSoftwareMapCodeElements(body.codeElements);
     const coverageClaims = parseSoftwareMapCoverageClaims(body.coverageClaims);
-    const sourceTarget = await resolveRequestSourceTarget({
-      reviewRootPath,
-    });
+    const sourceTarget = await requestSourceTarget();
     const result = await buildSoftwareMapResolvedData({
       sourceTarget,
       codeElements,
@@ -889,7 +894,8 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   }
 
   async function reviewStack(): Promise<Response> {
-    const current = readReviewStoreRecord(reviewRootPath);
+    const current =
+      options.readOnlyReview ?? readReviewStoreRecord(reviewRootPath);
     if (!current.pullRequestNumber) {
       return reviewApiJsonResponse(200, { layers: [] });
     }
@@ -992,14 +998,17 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   }
 
   async function resolveScopedDiffTarget(url: URL, commit?: string) {
+    if (options.sourceUnavailable) throw new Error(options.sourceUnavailable);
     const target = resolveRequestDiffTarget(url, {
       reviewPath,
       reviewDocumentsDir,
       rootPath: reviewRootPath,
       session,
+      record: options.readOnlyReview,
     });
     if (!commit) return target;
-    const review = readReviewStoreRecord(reviewRootPath);
+    const review =
+      options.readOnlyReview ?? readReviewStoreRecord(reviewRootPath);
     const headCommit = review.sourceCommit ?? review.baseCommit;
     const scope = resolveReviewCommitScope(
       await reviewCommits(target.rootPath, review.baseCommit, headCommit),
@@ -1008,6 +1017,25 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     return {
       rootPath: target.rootPath,
       ...scope,
+    };
+  }
+
+  async function requestSourceTarget() {
+    if (!options.readOnlyReview)
+      return resolveRequestSourceTarget({ reviewRootPath });
+    if (options.sourceUnavailable) throw new Error(options.sourceUnavailable);
+    if (!session.headRootPath || !session.baseRootPath)
+      throw new Error("The pinned source worktrees are unavailable.");
+    return {
+      repoRoot: rootPath,
+      sourceRootPath: session.headRootPath,
+      diffRootPath: rootPath,
+      headRef: options.readOnlyReview.sourceCommit ?? undefined,
+      baseRef: options.readOnlyReview.baseCommit,
+      preparedBase: {
+        ref: options.readOnlyReview.baseCommit,
+        sourceRootPath: session.baseRootPath,
+      },
     };
   }
 
@@ -1344,7 +1372,7 @@ async function rematerializeReviewSoftwareMapArtifacts(input: {
   if (!headCommit) return { status: "skipped" };
 
   const [artifactPath] = await Promise.all([
-    materializeSoftwareMapAtRef({
+    materializeSoftwareMapAtRefWithoutEvaluation({
       repoRootPath,
       ref: headCommit,
       role: "head",
@@ -1354,7 +1382,7 @@ async function rematerializeReviewSoftwareMapArtifacts(input: {
           .catch(() => null)
           .then((base) =>
             base?.commit
-              ? materializeSoftwareMapAtRef({
+              ? materializeSoftwareMapAtRefWithoutEvaluation({
                   repoRootPath,
                   ref: base.commit,
                   role: "base",
@@ -1523,13 +1551,14 @@ export function resolveRequestDiffTarget(
     reviewDocumentsDir: string;
     rootPath: string;
     session?: ReviewSessionWire;
+    record?: ReviewRecord;
   },
 ): ReviewRequestDiffTarget {
   const reviewDocumentPath = resolveReviewDocumentPath(url, input);
   if (!reviewDocumentPath) {
     throw new Error("Review document not found.");
   }
-  const review = readReviewStoreRecord(input.rootPath);
+  const review = input.record ?? readReviewStoreRecord(input.rootPath);
   return {
     rootPath: resolveReviewRepoRootFromStore(input.rootPath, review),
     baseRef: review.baseCommit,

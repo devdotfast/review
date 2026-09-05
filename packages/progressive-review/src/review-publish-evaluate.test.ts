@@ -390,6 +390,31 @@ describe("publish range evaluation", () => {
     });
   });
 
+  it("serializes concurrent evaluations that share the process-global runtime", async () => {
+    const reviewDir = fixtureDir("review");
+    const slow = bundleWithAnchors("").replace(
+      "await session.ready();",
+      "await new Promise((resolve) => setTimeout(resolve, 150)); await session.ready();",
+    );
+    const fast = bundleWithAnchors("");
+    const [first, second] = await Promise.all([
+      evaluateReviewDocumentBundleForPublish({
+        reviewDir,
+        bundleCode: slow,
+        validateRanges: false,
+      }),
+      evaluateReviewDocumentBundleForPublish({
+        reviewDir,
+        bundleCode: fast,
+        validateRanges: false,
+      }),
+    ]);
+    expect(first.errors).toEqual([]);
+    expect(second.errors).toEqual([]);
+    expect(first.document?.title).toBe("Fixture");
+    expect(second.document?.title).toBe("Fixture");
+  });
+
   function sourceFixture(source: string): string {
     const root = fixtureDir("source");
     fs.mkdirSync(path.join(root, "src"));

@@ -47,16 +47,9 @@ async function fixture(legacy = false) {
   await mkdir(source);
   for (const args of [
     ["init", "-b", "main"],
-    [
-      "-c",
-      "user.name=Test",
-      "-c",
-      "user.email=test@example.com",
-      "commit",
-      "--allow-empty",
-      "-m",
-      "Initial",
-    ],
+    ["config", "user.name", "Test"],
+    ["config", "user.email", "test@example.com"],
+    ["commit", "--allow-empty", "-m", "Initial"],
   ])
     execFileSync("git", args, { cwd: source, stdio: "ignore" });
   const commit = execFileSync("git", ["rev-parse", "HEAD"], {

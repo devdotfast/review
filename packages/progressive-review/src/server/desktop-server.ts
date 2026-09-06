@@ -2105,17 +2105,24 @@ export function createGlobalReviewServer(
       token,
       sessionId,
       reviewUuid: registration.review.review.uuid,
-      historicalRevision: registration.historicalRevision,
-      isReadOnly: registration.repairValidation
-        ? () => !active.promoted
-        : undefined,
-      readOnlyReview:
-        registration.historicalRevision || registration.repairValidation
-          ? registration.review.review
-          : undefined,
-      documentUnavailable: registration.documentUnavailable,
-      softwareMapUnavailable: registration.softwareMapUnavailable,
-      sourceUnavailable,
+      mode: registration.historicalRevision
+        ? {
+            kind: "historical",
+            revision: registration.historicalRevision,
+            record: registration.review.review,
+          }
+        : registration.repairValidation
+          ? {
+              kind: "repairValidation",
+              record: registration.review.review,
+              isPromoted: () => active.promoted,
+            }
+          : { kind: "live" },
+      artifacts: {
+        document: registration.documentUnavailable,
+        map: registration.softwareMapUnavailable,
+        source: sourceUnavailable,
+      },
       listDocumentVersions: async () => {
         const latest = await (
           registration.repairValidation && !active.promoted

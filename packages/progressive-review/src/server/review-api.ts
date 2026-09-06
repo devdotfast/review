@@ -99,6 +99,11 @@ import {
   parseUpdateReviewCommentInput,
   requestJsonErrorStatus,
 } from "./review-api-parsers";
+import {
+  type ReviewSessionMode,
+  reviewSessionModeIsReadOnly,
+  reviewSessionModeRecord,
+} from "./review-session-mode";
 
 const REVIEW_SUBMIT_HOOK_ENV = "DEV_FAST_REVIEW_SUBMIT_HOOK";
 export const TUTORIAL_QUESTION_SOURCE_WAIT_MS = 5_000;
@@ -195,9 +200,8 @@ export async function captureSanitizedUiTelemetry(
 }
 
 interface ReviewApiOptions {
-  readOnlyReview?: ReviewRecord;
+  mode: ReviewSessionMode;
   readOnlyThreadsPath?: string;
-  readOnly?: () => boolean;
   sourceUnavailable?: string;
   reviewPath: string;
   reviewDocumentsDir: string;
@@ -259,6 +263,7 @@ const AgentInterruptRequestSchema = z.strictObject({
 });
 
 export function createReviewApi(options: ReviewApiOptions): ReviewApi {
+  const readOnlyReview = reviewSessionModeRecord(options.mode);
   const reviewRootPath =
     options.reviewRootPath ??
     options.session.storageDir ??
@@ -413,8 +418,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   );
 
   async function resolveTraceSessionDescriptors() {
-    const review =
-      options.readOnlyReview ?? readReviewStoreRecord(reviewRootPath);
+    const review = readOnlyReview ?? readReviewStoreRecord(reviewRootPath);
     const repoRootPath = resolveReviewRepoRootFromStore(reviewRootPath, review);
     const headCommit = review.sourceCommit ?? review.baseCommit;
     return listReviewTraceSessions({
@@ -584,12 +588,11 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   ): Response {
     return reviewApiJsonResponse(200, {
       ok: true,
-      snapshot:
-        (options.readOnly?.() ?? Boolean(options.readOnlyReview))
-          ? readReviewThreadsReadOnly(
-              options.readOnlyThreadsPath ?? writableReviewPath,
-            )
-          : threadsFor(writableReviewPath).snapshot(),
+      snapshot: reviewSessionModeIsReadOnly(options.mode)
+        ? readReviewThreadsReadOnly(
+            options.readOnlyThreadsPath ?? writableReviewPath,
+          )
+        : threadsFor(writableReviewPath).snapshot(),
     });
   }
 
@@ -968,8 +971,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   }
 
   async function reviewStack(): Promise<Response> {
-    const current =
-      options.readOnlyReview ?? readReviewStoreRecord(reviewRootPath);
+    const current = readOnlyReview ?? readReviewStoreRecord(reviewRootPath);
     if (!current.pullRequestNumber) {
       return reviewApiJsonResponse(200, { layers: [] });
     }
@@ -1078,11 +1080,10 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       reviewDocumentsDir,
       rootPath: reviewRootPath,
       session,
-      record: options.readOnlyReview,
+      record: readOnlyReview,
     });
     if (!commit) return target;
-    const review =
-      options.readOnlyReview ?? readReviewStoreRecord(reviewRootPath);
+    const review = readOnlyReview ?? readReviewStoreRecord(reviewRootPath);
     const headCommit = review.sourceCommit ?? review.baseCommit;
     const scope = resolveReviewCommitScope(
       await reviewCommits(target.rootPath, review.baseCommit, headCommit),
@@ -1095,8 +1096,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   }
 
   async function requestSourceTarget() {
-    if (!options.readOnlyReview)
-      return resolveRequestSourceTarget({ reviewRootPath });
+    if (!readOnlyReview) return resolveRequestSourceTarget({ reviewRootPath });
     if (options.sourceUnavailable) throw new Error(options.sourceUnavailable);
     if (!session.headRootPath || !session.baseRootPath)
       throw new Error("The pinned source worktrees are unavailable.");
@@ -1104,10 +1104,10 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       repoRoot: rootPath,
       sourceRootPath: session.headRootPath,
       diffRootPath: rootPath,
-      headRef: options.readOnlyReview.sourceCommit ?? undefined,
-      baseRef: options.readOnlyReview.baseCommit,
+      headRef: readOnlyReview.sourceCommit ?? undefined,
+      baseRef: readOnlyReview.baseCommit,
       preparedBase: {
-        ref: options.readOnlyReview.baseCommit,
+        ref: readOnlyReview.baseCommit,
         sourceRootPath: session.baseRootPath,
       },
     };

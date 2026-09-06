@@ -2,10 +2,12 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import type {
-  CreateReviewCommentInput,
-  JsonObject,
-  ReviewThreadsCommit,
+import {
+  type CreateReviewCommentInput,
+  type JsonObject,
+  REVIEW_SCHEMA_VERSION,
+  type ReviewRecord,
+  type ReviewThreadsCommit,
 } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -30,6 +32,7 @@ import {
   writeReviewSoftwareMapBundle,
 } from "../software-map-bundle";
 import { defineSoftwareMap } from "../software-map-model";
+import type { ReviewSessionMode } from "./review-session-mode";
 import {
   type ReviewSessionHandlerInput,
   createReviewSessionHandler,
@@ -61,6 +64,24 @@ const reviewDocument: ReviewDocumentData = {
 const needsRepublishError =
   "This review was published by an earlier version of Review and its document must be regenerated.";
 
+const readOnlyRecord: ReviewRecord = {
+  schemaVersion: REVIEW_SCHEMA_VERSION,
+  uuid: "11111111-1111-4111-8111-111111111111",
+  repoKey: "repo",
+  worktreePath: "/repo",
+  baseRef: "main",
+  baseCommit: "b".repeat(40),
+  sourceCommit: "a".repeat(40),
+  sourceIdentity: null,
+  title: "Review",
+  sourceSession: "disabled:review",
+  status: "awaiting-review",
+  presentedDocumentRevision: "c".repeat(40),
+  presentedSoftwareMapRevision: null,
+  createdAt: "2024-01-01T00:00:00.000Z",
+  lastPublishedAt: null,
+};
+
 let rootPath: string | undefined;
 
 afterEach(async () => {
@@ -83,8 +104,10 @@ describe("createReviewSessionHandler", () => {
       routePath: "/",
       token: "secret",
       reviewUuid,
-      documentUnavailable: "Document revision is missing.",
-      softwareMapUnavailable: "Map revision is missing.",
+      artifacts: {
+        document: "Document revision is missing.",
+        map: "Map revision is missing.",
+      },
       session: {
         rootPath,
         baseRef: "HEAD",
@@ -125,7 +148,14 @@ describe("createReviewSessionHandler", () => {
         baseCommit: "b".repeat(40),
       }),
     );
-    for (const historicalRevision of [undefined, "c".repeat(40)]) {
+    for (const mode of [
+      {
+        kind: "repairValidation",
+        record: readOnlyRecord,
+        isPromoted: () => false,
+      },
+      { kind: "historical", revision: "c".repeat(40), record: readOnlyRecord },
+    ] satisfies ReviewSessionMode[]) {
       const handler = await createReviewSessionHandler({
         ...unusedAgentServices,
         rootPath,
@@ -134,8 +164,7 @@ describe("createReviewSessionHandler", () => {
         softwareMapRootPath: rootPath,
         routePath: "/",
         token: "secret",
-        isReadOnly: () => true,
-        historicalRevision,
+        mode,
         reviewUuid: "11111111-1111-4111-8111-111111111111",
         session: {
           rootPath,
@@ -156,7 +185,7 @@ describe("createReviewSessionHandler", () => {
         const doc = await request("document");
         expect(doc.status).toBe(409);
         expect(await doc.json()).toMatchObject(
-          historicalRevision
+          mode.kind === "historical"
             ? {
                 error:
                   "This older revision is unavailable in this version of Review",
@@ -171,7 +200,10 @@ describe("createReviewSessionHandler", () => {
         const dismissed = await request("dismiss", "POST");
         expect(dismissed.status).toBe(409);
         expect(await dismissed.json()).toMatchObject({
-          code: historicalRevision ? "historical_revision" : "review_read_only",
+          code:
+            mode.kind === "historical"
+              ? "historical_revision"
+              : "review_read_only",
         });
       } finally {
         await handler.close();
@@ -282,7 +314,11 @@ describe("createReviewSessionHandler", () => {
       reviewPath,
       routePath: "/",
       token,
-      historicalRevision: "a".repeat(40),
+      mode: {
+        kind: "historical",
+        revision: "a".repeat(40),
+        record: readOnlyRecord,
+      },
       session: {
         rootPath,
         baseRef: "HEAD",

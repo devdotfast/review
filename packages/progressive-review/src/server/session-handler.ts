@@ -40,6 +40,13 @@ import {
   jsonResponse,
 } from "./hono-http";
 import { type ReviewApi, createReviewApi } from "./review-api";
+import {
+  LIVE_REVIEW_SESSION_MODE,
+  type ReviewSessionArtifacts,
+  type ReviewSessionMode,
+  reviewSessionModeIsReadOnly,
+  reviewSessionModeRecord,
+} from "./review-session-mode";
 
 const API_PREFIX = "/__progressive-review";
 const DOCUMENT_PATH_PREFIX = `${API_PREFIX}/documents/`;
@@ -64,13 +71,9 @@ export interface ReviewSessionHandlerInput {
   sessionId?: string;
   reviewUuid?: string;
   submitHook?: string;
-  historicalRevision?: string;
-  isReadOnly?: () => boolean;
-  readOnlyReview?: ReviewRecord;
+  mode?: ReviewSessionMode;
+  artifacts?: ReviewSessionArtifacts;
   readOnlyThreadsPath?: string;
-  documentUnavailable?: string;
-  softwareMapUnavailable?: string;
-  sourceUnavailable?: string;
   listDocumentVersions?: () => Promise<ReviewDocumentVersionWire[]>;
   session: ReviewSessionWire;
   stderr?: Writable;
@@ -116,6 +119,8 @@ export async function createReviewSessionHandler(
   dependencies: ReviewSessionHandlerDependencies = {},
 ): Promise<ReviewSessionHandler> {
   const session = input.session;
+  const mode = input.mode ?? LIVE_REVIEW_SESSION_MODE;
+  const artifacts = input.artifacts ?? {};
   const renderDir = path.dirname(input.reviewPath);
   const storageDir =
     session.storageDir ??
@@ -227,9 +232,9 @@ export async function createReviewSessionHandler(
     }
     await next();
   });
-  if (input.historicalRevision || input.isReadOnly) {
+  if (mode.kind !== "live") {
     app.use(`${API_PREFIX}/*`, async (context, next) => {
-      if (!input.historicalRevision && !input.isReadOnly?.()) {
+      if (!reviewSessionModeIsReadOnly(mode)) {
         await next();
         return;
       }
@@ -252,22 +257,25 @@ export async function createReviewSessionHandler(
       return jsonResponse(
         {
           ok: false,
-          error: input.historicalRevision
-            ? "This historical version is read-only."
-            : "This review is read-only while repair is validated.",
-          code: input.historicalRevision
-            ? "historical_revision"
-            : "review_read_only",
+          error:
+            mode.kind === "historical"
+              ? "This historical version is read-only."
+              : "This review is read-only while repair is validated.",
+          code:
+            mode.kind === "historical"
+              ? "historical_revision"
+              : "review_read_only",
         },
         409,
       );
     });
   }
   app.get(`${API_PREFIX}/session`, async () => {
-    const resolvedBaseRef = input.readOnlyReview
-      ? input.sourceUnavailable
+    const presentedRecord = reviewSessionModeRecord(mode);
+    const resolvedBaseRef = presentedRecord
+      ? artifacts.source
         ? null
-        : input.readOnlyReview.baseCommit
+        : presentedRecord.baseCommit
       : await (
           dependencies.resolveReviewSessionBaseCommit ??
           resolveReviewSessionBaseCommit
@@ -296,31 +304,32 @@ export async function createReviewSessionHandler(
     );
   });
   app.get(`${API_PREFIX}/document`, async () => {
-    if (input.documentUnavailable)
+    if (artifacts.document)
       return jsonResponse(
         {
           ok: false,
-          error: input.documentUnavailable,
-          detail: input.historicalRevision
-            ? {
-                code: "historical_revision_unavailable",
-                reviewUuid: needsRepublishReviewUuid(),
-              }
-            : {
-                code: "needs_republish",
-                reviewUuid: needsRepublishReviewUuid(),
-                mapStale: Boolean(
-                  input.softwareMapUnavailable ||
-                  (input.softwareMapRootPath &&
-                    !(await getSoftwareMapBundle())),
-                ),
-              },
+          error: artifacts.document,
+          detail:
+            mode.kind === "historical"
+              ? {
+                  code: "historical_revision_unavailable",
+                  reviewUuid: needsRepublishReviewUuid(),
+                }
+              : {
+                  code: "needs_republish",
+                  reviewUuid: needsRepublishReviewUuid(),
+                  mapStale: Boolean(
+                    artifacts.map ||
+                    (input.softwareMapRootPath &&
+                      !(await getSoftwareMapBundle())),
+                  ),
+                },
         },
         409,
       );
     const bundle = await getBundle();
     if (!bundle) {
-      if (input.historicalRevision)
+      if (mode.kind === "historical")
         return jsonResponse(
           {
             ok: false,
@@ -378,28 +387,29 @@ export async function createReviewSessionHandler(
     });
   });
   app.get(`${API_PREFIX}/software-map`, async () => {
-    if (input.softwareMapUnavailable)
+    if (artifacts.map)
       return jsonResponse(
         {
           ok: false,
-          error: input.softwareMapUnavailable,
-          detail: input.historicalRevision
-            ? {
-                code: "historical_revision_unavailable",
-                reviewUuid: needsRepublishReviewUuid(),
-              }
-            : {
-                code: "needs_republish",
-                reviewUuid: needsRepublishReviewUuid(),
-                mapStale: true,
-              },
+          error: artifacts.map,
+          detail:
+            mode.kind === "historical"
+              ? {
+                  code: "historical_revision_unavailable",
+                  reviewUuid: needsRepublishReviewUuid(),
+                }
+              : {
+                  code: "needs_republish",
+                  reviewUuid: needsRepublishReviewUuid(),
+                  mapStale: true,
+                },
         },
         409,
       );
     const bundle = await getSoftwareMapBundle();
     if (!bundle) {
       if (input.softwareMapRootPath) {
-        if (input.historicalRevision)
+        if (mode.kind === "historical")
           return jsonResponse(
             {
               ok: false,
@@ -500,10 +510,9 @@ export async function createReviewSessionHandler(
     return response;
   });
   const reviewApi = createReviewApi({
-    readOnlyReview: input.readOnlyReview,
+    mode,
     readOnlyThreadsPath: input.readOnlyThreadsPath,
-    readOnly: () => Boolean(input.historicalRevision || input.isReadOnly?.()),
-    sourceUnavailable: input.sourceUnavailable,
+    sourceUnavailable: artifacts.source,
     reviewPath: input.reviewPath,
     reviewDocumentsDir: documentsDir,
     rootPath: input.rootPath,

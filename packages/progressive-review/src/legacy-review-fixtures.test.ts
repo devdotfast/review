@@ -38,7 +38,7 @@ import { reviewVcs } from "./review-vcs";
 import { readReviewSoftwareMapBundle } from "./software-map-bundle";
 
 const execFilePromise = promisify(execFile);
-const fixtures = await listLegacyReviewFixtures();
+const fixtures = listLegacyReviewFixtures();
 const tempRoots: string[] = [];
 
 afterEach(async () => {

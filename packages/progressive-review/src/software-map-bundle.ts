@@ -34,9 +34,9 @@ const SoftwareMapBundleManifestSchema = z.object({
 type SoftwareMapBundleManifest = z.infer<
   typeof SoftwareMapBundleManifestSchema
 >;
-const SoftwareMapDataFileSchema = z
-  .object({ format: z.literal(SOFTWARE_MAP_DATA_FORMAT) })
-  .and(softwareModelDataSchema);
+const SoftwareMapDataFileSchema = softwareModelDataSchema.extend({
+  format: z.literal(SOFTWARE_MAP_DATA_FORMAT),
+});
 
 export interface ReviewSoftwareMapBundle {
   head: SoftwareModelData;

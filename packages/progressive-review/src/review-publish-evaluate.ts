@@ -395,11 +395,15 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
   const headMap = documentCapture.input?.repoSoftwareMap;
   const baseMap = documentCapture.input?.baseSoftwareMap;
   if (headMap != null || baseMap != null) {
+    const asJson = (map: NormalizedSoftwareModel) =>
+      softwareModelDataSchema.safeParse(
+        JSON.parse(JSON.stringify(softwareModelData(map))),
+      ).success;
     if (
       isNormalizedSoftwareModel(headMap) &&
       isNormalizedSoftwareModel(baseMap) &&
-      softwareModelDataSchema.safeParse(softwareModelData(headMap)).success &&
-      softwareModelDataSchema.safeParse(softwareModelData(baseMap)).success
+      asJson(headMap) &&
+      asJson(baseMap)
     ) {
       legacySoftwareMap = { head: headMap, base: baseMap };
     } else {

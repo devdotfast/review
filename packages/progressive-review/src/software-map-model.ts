@@ -1,35 +1,43 @@
-import { isObjectValue } from "@dev.fast/review-protocol";
+import { isObjectValue, jsonValueSchema } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
-export type SoftwareElementType =
-  | "person"
-  | "softwareSystem"
-  | "container"
-  | "dataStore"
-  | "component"
-  | "codeElement";
+const softwareElementTypeSchema = z.enum([
+  "person",
+  "softwareSystem",
+  "container",
+  "dataStore",
+  "component",
+  "codeElement",
+]);
+export type SoftwareElementType = z.infer<typeof softwareElementTypeSchema>;
 
-export type SoftwareChangeStatus =
-  | "added"
-  | "removed"
-  | "modified"
-  | "unchanged";
+const softwareChangeStatusSchema = z.enum([
+  "added",
+  "removed",
+  "modified",
+  "unchanged",
+]);
+export type SoftwareChangeStatus = z.infer<typeof softwareChangeStatusSchema>;
 
-export type SoftwareDataStoreKind =
-  | "database"
-  | "objectStore"
-  | "bucket"
-  | "artifactStore"
-  | "fileStore";
+const softwareDataStoreKindSchema = z.enum([
+  "database",
+  "objectStore",
+  "bucket",
+  "artifactStore",
+  "fileStore",
+]);
+export type SoftwareDataStoreKind = z.infer<typeof softwareDataStoreKindSchema>;
 
-export interface SoftwareLineRange {
-  fromLine: number;
-  toLine: number;
-}
+export const softwareLineRangeSchema = z.strictObject({
+  fromLine: z.int().positive(),
+  toLine: z.int().positive(),
+});
+export type SoftwareLineRange = z.infer<typeof softwareLineRangeSchema>;
 
-export interface SoftwareSourceRange extends SoftwareLineRange {
-  file: string;
-}
+export const softwareSourceRangeSchema = softwareLineRangeSchema.extend({
+  file: z.string(),
+});
+export type SoftwareSourceRange = z.infer<typeof softwareSourceRangeSchema>;
 
 export interface SoftwareCoverageFileInput {
   path: string;
@@ -91,17 +99,6 @@ export interface DataStoreInput extends SoftwareElementBaseInput {
   components?: SoftwareElementCollection<ComponentInput>;
 }
 
-export type SoftwareDataStoreForeignKeyRef =
-  | string
-  | {
-      table: string;
-      field: string;
-      label?: string;
-      cardinality?: "one-to-one" | "many-to-one";
-      onDelete?: string;
-      onUpdate?: string;
-    };
-
 export interface SoftwareDataStoreFieldLeaf {
   type: string;
   example?: unknown;
@@ -118,18 +115,6 @@ export interface SoftwareDataStoreCollectionInput {
   label?: string;
   key?: string;
   schema: SoftwareDataStoreFieldSchema;
-}
-
-export interface NormalizedSoftwareDataStoreCollection {
-  id: string;
-  label: string;
-  key?: string;
-  schema: SoftwareDataStoreFieldSchema;
-}
-
-export interface NormalizedSoftwareDataStoreSchema {
-  tables: Record<string, NormalizedSoftwareDataStoreCollection>;
-  documents: Record<string, NormalizedSoftwareDataStoreCollection>;
 }
 
 export interface ComponentInput extends SoftwareElementBaseInput {
@@ -150,55 +135,130 @@ export interface SoftwareModelInput {
   relationships?: SoftwareRelationshipInput[];
 }
 
-export interface NormalizedSoftwareElement {
-  type: SoftwareElementType;
-  id: string;
-  path: string;
-  parentPath?: string;
-  label: string;
-  description?: string;
-  changeStatus?: SoftwareChangeStatus;
-  coverage?: NormalizedSoftwareCoverage;
-  external?: boolean;
-  dataStoreKind?: SoftwareDataStoreKind;
-  dataStoreSchema?: NormalizedSoftwareDataStoreSchema;
-  sourceRanges?: SoftwareSourceRange[];
-  children: string[];
-}
+const softwareDataStoreForeignKeyRefDataSchema = z.union([
+  z.string(),
+  z.strictObject({
+    table: z.string(),
+    field: z.string(),
+    label: z.string().optional(),
+    cardinality: z.enum(["one-to-one", "many-to-one"]).optional(),
+    onDelete: z.string().optional(),
+    onUpdate: z.string().optional(),
+  }),
+]);
+export type SoftwareDataStoreForeignKeyRef = z.infer<
+  typeof softwareDataStoreForeignKeyRefDataSchema
+>;
 
-export interface NormalizedSoftwareCoverageFile {
-  path: string;
-  ranges: SoftwareLineRange[];
-}
+// The recursive field schema keeps its hand-written type: zod cannot infer a
+// mutually recursive record. The data form pins `example` to JSON so a
+// published map is parseable, while the authored input type stays `unknown`.
+const softwareDataStoreFieldDataSchema: z.ZodType<SoftwareDataStoreFieldSchema> =
+  z.lazy(() =>
+    z.record(
+      z.string(),
+      z.union([
+        z.strictObject({
+          type: z.string(),
+          example: jsonValueSchema.optional(),
+          pk: z.boolean().optional(),
+          fk: softwareDataStoreForeignKeyRefDataSchema.optional(),
+          schema: softwareDataStoreFieldDataSchema.optional(),
+        }),
+        softwareDataStoreFieldDataSchema,
+      ]),
+    ),
+  );
 
-export interface NormalizedSoftwareCoverage {
-  files: NormalizedSoftwareCoverageFile[];
-  globs: string[];
-}
+export const normalizedSoftwareDataStoreCollectionSchema = z.strictObject({
+  id: z.string(),
+  label: z.string(),
+  key: z.string().optional(),
+  schema: softwareDataStoreFieldDataSchema,
+});
+export type NormalizedSoftwareDataStoreCollection = z.infer<
+  typeof normalizedSoftwareDataStoreCollectionSchema
+>;
 
-export interface NormalizedRelationshipBase {
-  id: string;
-  from: string;
-  to: string;
-  scopePath?: string;
-  label?: string;
-  description?: string;
-}
+export const normalizedSoftwareDataStoreSchemaSchema = z.strictObject({
+  tables: z.record(z.string(), normalizedSoftwareDataStoreCollectionSchema),
+  documents: z.record(z.string(), normalizedSoftwareDataStoreCollectionSchema),
+});
+export type NormalizedSoftwareDataStoreSchema = z.infer<
+  typeof normalizedSoftwareDataStoreSchemaSchema
+>;
 
-export interface NormalizedCallRelationship extends NormalizedRelationshipBase {
-  kind: "call";
-  nthCallSite: number;
-}
+export const normalizedSoftwareCoverageFileSchema = z.strictObject({
+  path: z.string(),
+  ranges: z.array(softwareLineRangeSchema),
+});
+export type NormalizedSoftwareCoverageFile = z.infer<
+  typeof normalizedSoftwareCoverageFileSchema
+>;
 
-export interface NormalizedSemanticRelationship extends NormalizedRelationshipBase {
-  kind: "semantic";
-  semanticKind?: string;
-  sourceRanges?: SoftwareLineRange[];
-}
+export const normalizedSoftwareCoverageSchema = z.strictObject({
+  files: z.array(normalizedSoftwareCoverageFileSchema),
+  globs: z.array(z.string()),
+});
+export type NormalizedSoftwareCoverage = z.infer<
+  typeof normalizedSoftwareCoverageSchema
+>;
 
-export type NormalizedSoftwareRelationship =
-  | NormalizedCallRelationship
-  | NormalizedSemanticRelationship;
+export const normalizedSoftwareElementSchema = z.strictObject({
+  type: softwareElementTypeSchema,
+  id: z.string(),
+  path: z.string(),
+  parentPath: z.string().optional(),
+  label: z.string(),
+  description: z.string().optional(),
+  changeStatus: softwareChangeStatusSchema.optional(),
+  coverage: normalizedSoftwareCoverageSchema.optional(),
+  external: z.boolean().optional(),
+  dataStoreKind: softwareDataStoreKindSchema.optional(),
+  dataStoreSchema: normalizedSoftwareDataStoreSchemaSchema.optional(),
+  sourceRanges: z.array(softwareSourceRangeSchema).optional(),
+  children: z.array(z.string()),
+});
+export type NormalizedSoftwareElement = z.infer<
+  typeof normalizedSoftwareElementSchema
+>;
+
+const normalizedRelationshipFields = {
+  id: z.string(),
+  from: z.string(),
+  to: z.string(),
+  scopePath: z.string().optional(),
+  label: z.string().optional(),
+  description: z.string().optional(),
+};
+
+export const normalizedSoftwareRelationshipSchema = z.discriminatedUnion(
+  "kind",
+  [
+    z.strictObject({
+      ...normalizedRelationshipFields,
+      kind: z.literal("call"),
+      nthCallSite: z.int().nonnegative(),
+    }),
+    z.strictObject({
+      ...normalizedRelationshipFields,
+      kind: z.literal("semantic"),
+      semanticKind: z.string().optional(),
+      sourceRanges: z.array(softwareLineRangeSchema).optional(),
+    }),
+  ],
+);
+export type NormalizedSoftwareRelationship = z.infer<
+  typeof normalizedSoftwareRelationshipSchema
+>;
+export type NormalizedCallRelationship = Extract<
+  NormalizedSoftwareRelationship,
+  { kind: "call" }
+>;
+export type NormalizedSemanticRelationship = Extract<
+  NormalizedSoftwareRelationship,
+  { kind: "semantic" }
+>;
 
 export interface NormalizedSoftwareModel {
   elements: NormalizedSoftwareElement[];
@@ -965,12 +1025,13 @@ export function isNormalizedSoftwareModel(
   );
 }
 
+export const softwareModelDataSchema = z.strictObject({
+  elements: z.array(normalizedSoftwareElementSchema),
+  relationships: z.array(normalizedSoftwareRelationshipSchema),
+});
 /** JSON projection of a normalized model. `elementsByPath` is derived and is
     rebuilt on load by `hydrateSoftwareModel`. */
-export interface SoftwareModelData {
-  elements: NormalizedSoftwareElement[];
-  relationships: NormalizedSoftwareRelationship[];
-}
+export type SoftwareModelData = z.infer<typeof softwareModelDataSchema>;
 
 export function softwareModelData(
   model: NormalizedSoftwareModel,
@@ -989,24 +1050,3 @@ export function hydrateSoftwareModel(
     ),
   };
 }
-
-const SoftwareElementDataSchema = z.looseObject({ path: z.string() });
-const SoftwareRelationshipDataSchema = z.looseObject({
-  from: z.string(),
-  to: z.string(),
-});
-
-export const softwareModelDataSchema: z.ZodType<SoftwareModelData> = z.object({
-  elements: z.array(
-    z.custom<NormalizedSoftwareElement>(
-      (value) => SoftwareElementDataSchema.safeParse(value).success,
-      "software element",
-    ),
-  ),
-  relationships: z.array(
-    z.custom<NormalizedSoftwareRelationship>(
-      (value) => SoftwareRelationshipDataSchema.safeParse(value).success,
-      "software relationship",
-    ),
-  ),
-});

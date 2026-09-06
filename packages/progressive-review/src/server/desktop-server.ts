@@ -76,8 +76,8 @@ import {
   findReview,
   findReviewForRepair,
   listReviews,
+  parseAnyStoredReviewRecord,
   parseStoredReviewRecord,
-  parseStoredReviewRecordForRecovery,
   reviewDescriptor,
   reviewTitleFromDocument,
   reviewsHomeDir,
@@ -726,7 +726,7 @@ export function createGlobalReviewServer(
     const presentedValue = JSON.parse(
       await readFile(path.join(documentBuildDir, "review.json"), "utf8"),
     );
-    const presentedRecord = parseStoredReviewRecordForRecovery(presentedValue);
+    const presentedRecord = parseAnyStoredReviewRecord(presentedValue);
     let softwareMapUnavailable: string | undefined;
     const softwareMapRootPath = presentedRecord.presentedSoftwareMapRevision
       ? await publishRuntime
@@ -1159,6 +1159,8 @@ export function createGlobalReviewServer(
     const buildDir = await timed("materialize document revision", () =>
       publishRuntime.materializePublishRevision({ review, revision }),
     );
+    // A revision this server sealed is current by construction; a legacy record here
+    // is a bug, not something to upgrade silently.
     const preparedRecord = parseStoredReviewRecord(
       JSON.parse(await readFile(path.join(buildDir, "review.json"), "utf8")),
     );
@@ -1304,6 +1306,8 @@ export function createGlobalReviewServer(
       }),
       publishRuntime.materializePublishRevision({ review, revision }),
     ]);
+    // A revision this server sealed is current by construction; a legacy record here
+    // is a bug, not something to upgrade silently.
     const preparedMapRecord = parseStoredReviewRecord(
       JSON.parse(
         await readFile(path.join(softwareMapRootPath, "review.json"), "utf8"),

@@ -14,6 +14,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import {
+  REVIEW_SCHEMA_VERSION,
   createGitLabTextDiffPosition,
   gitLabDiffPositionRows,
 } from "@dev.fast/review-protocol";
@@ -33,6 +34,7 @@ import {
   findReviewForRepair,
   listReviews,
   materializeReviewRevision,
+  parseAnyStoredReviewRecord,
   parseStoredReviewRecord,
   reviewDescriptor,
   reviewsHomeDir,
@@ -48,6 +50,103 @@ import { resolvePublishReview } from "./server/publish-preparation";
 const execFilePromise = promisify(execFile);
 
 describe("review home", () => {
+  it("accepts every stored schema version and rejects unknown or extended records", async () => {
+    const base = {
+      uuid: "11111111-1111-4111-8111-111111111111",
+      repoKey: "repo",
+      worktreePath: "/repo",
+      baseRef: "main",
+      baseCommit: "b".repeat(40),
+      sourceCommit: "a".repeat(40),
+      sourceIdentity: null,
+      title: "Review",
+      status: "awaiting-review",
+      createdAt: "2024-01-01T00:00:00.000Z",
+      lastPublishedAt: null,
+    };
+    expect(
+      parseAnyStoredReviewRecord({
+        ...base,
+        schemaVersion: 2,
+        agentSession: "disabled:review",
+        presentedRevision: "c".repeat(40),
+      }),
+    ).toMatchObject({
+      schemaVersion: REVIEW_SCHEMA_VERSION,
+      sourceSession: "disabled:review",
+      presentedDocumentRevision: "c".repeat(40),
+      presentedSoftwareMapRevision: "c".repeat(40),
+    });
+    expect(
+      parseAnyStoredReviewRecord({
+        ...base,
+        schemaVersion: 3,
+        agentSession: "disabled:review",
+        presentedDocumentRevision: null,
+        presentedSoftwareMapRevision: null,
+      }),
+    ).toMatchObject({
+      schemaVersion: REVIEW_SCHEMA_VERSION,
+      sourceSession: "disabled:review",
+    });
+    expect(
+      parseAnyStoredReviewRecord({
+        ...base,
+        schemaVersion: 4,
+        sourceSession: "disabled:review",
+        presentedDocumentRevision: null,
+        presentedSoftwareMapRevision: null,
+      }),
+    ).toMatchObject({ schemaVersion: REVIEW_SCHEMA_VERSION });
+    expect(
+      parseAnyStoredReviewRecord({
+        ...base,
+        schemaVersion: REVIEW_SCHEMA_VERSION,
+        sourceSession: "disabled:review",
+        presentedDocumentRevision: null,
+        presentedSoftwareMapRevision: null,
+      }),
+    ).toMatchObject({ schemaVersion: REVIEW_SCHEMA_VERSION });
+    expect(() =>
+      parseAnyStoredReviewRecord({
+        ...base,
+        schemaVersion: 2,
+        agentSession: "disabled:review",
+        presentedRevision: null,
+        presentedDocumentRevision: null,
+        presentedSoftwareMapRevision: null,
+      }),
+    ).toThrow(/presentedDocumentRevision/);
+    expect(() =>
+      parseAnyStoredReviewRecord({
+        ...base,
+        schemaVersion: 3,
+        agentSession: 42,
+        presentedDocumentRevision: null,
+        presentedSoftwareMapRevision: null,
+      }),
+    ).toThrow(/agentSession/);
+    expect(() =>
+      parseAnyStoredReviewRecord({
+        ...base,
+        schemaVersion: 1,
+        sourceSession: "disabled:review",
+        presentedDocumentRevision: null,
+        presentedSoftwareMapRevision: null,
+      }),
+    ).toThrow(/schemaVersion/);
+    expect(() =>
+      parseAnyStoredReviewRecord({
+        ...base,
+        schemaVersion: 4,
+        sourceSession: "disabled:review",
+        presentedDocumentRevision: null,
+        presentedSoftwareMapRevision: null,
+        unexpected: true,
+      }),
+    ).toThrow(/unexpected/);
+  });
+
   it("atomically replaces a fresh marker with the durable author session", async () => {
     const root = await makeGitRepository();
     const home = await mkdtemp(path.join(os.tmpdir(), "review-home-"));

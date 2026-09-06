@@ -34,7 +34,7 @@ import { snapshotReviewTree } from "./fixtures/legacy-reviews/legacy-review-fixt
 import { readReviewDocumentBundle } from "./review-bundle";
 import {
   materializeReviewRevision,
-  parseStoredReviewRecordForRecovery,
+  parseAnyStoredReviewRecord,
   readStoredReview,
 } from "./review-home";
 import {
@@ -229,7 +229,7 @@ describe.skipIf(!corpus)("legacy review corpus", () => {
           parseJsonText(await readFile(recordPath, "utf8")),
         );
         if (!original) throw new Error("Corpus record has no source checkout.");
-        const validated = parseStoredReviewRecordForRecovery(original);
+        const validated = parseAnyStoredReviewRecord(original);
         const commonDir = await realpath(
           await git(validated.worktreePath, [
             "rev-parse",

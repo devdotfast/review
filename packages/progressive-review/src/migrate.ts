@@ -32,8 +32,8 @@ import {
 } from "./review-head-checkout";
 import {
   type StoredReviewRecord,
+  parseAnyStoredReviewRecord,
   parseStoredReviewRecord,
-  parseStoredReviewRecordForMigration,
 } from "./review-home";
 import { devReviewHome } from "./review-storage";
 import { reviewVcs } from "./review-vcs";
@@ -375,9 +375,7 @@ export async function migrateJjReviewRepositories(input: {
         path.join(reviewDir, "review.json"),
         "utf8",
       );
-      const parsed = parseStoredReviewRecordForMigration(
-        JSON.parse(recordSource),
-      );
+      const parsed = parseAnyStoredReviewRecord(JSON.parse(recordSource));
       if (parsed.uuid !== entry.name) {
         throw new Error("review.json UUID does not match its directory");
       }

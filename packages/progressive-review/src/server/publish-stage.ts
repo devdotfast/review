@@ -4,7 +4,7 @@ import path from "node:path";
 import {
   type StoredReview,
   materializeReviewRevision,
-  parseStoredReviewRecordForRecovery,
+  parseAnyStoredReviewRecord,
 } from "../review-home";
 
 export async function materializePublishRevision(input: {
@@ -36,7 +36,7 @@ export async function reviewWithPresentedDocumentPins(
   stored: StoredReview,
   documentBuildDir: string,
 ): Promise<StoredReview> {
-  const presented = parseStoredReviewRecordForRecovery(
+  const presented = parseAnyStoredReviewRecord(
     JSON.parse(
       await readFile(path.join(documentBuildDir, "review.json"), "utf8"),
     ),

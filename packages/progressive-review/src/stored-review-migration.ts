@@ -35,8 +35,8 @@ import {
   type StoredReviewRecord,
   allowsAbsentSoftwareMap,
   materializeReviewRevision,
+  parseAnyStoredReviewRecord,
   parseStoredReviewRecord,
-  parseStoredReviewRecordForMigration,
   sealReviewCandidate,
 } from "./review-home";
 import { withReviewMutationLock } from "./review-mutation-lock";
@@ -122,7 +122,7 @@ async function migrateStoredReviewLocked(
     const { agentSession: _agentSession, ...record } = value;
     migrationValue = { ...record, sourceSession: "disabled:review" };
   }
-  const migratedRecord = parseStoredReviewRecordForMigration(migrationValue);
+  const migratedRecord = parseAnyStoredReviewRecord(migrationValue);
   if (migratedRecord.uuid !== path.basename(input.reviewDir))
     throw new Error("review.json UUID does not match its directory");
   const migrated =
@@ -351,15 +351,14 @@ async function migratePendingReviewSourceSession(input: {
       version: 1,
       key,
       state: "ready",
-      sourceSession:
-        parseStoredReviewRecordForMigration(migrated).sourceSession,
+      sourceSession: parseAnyStoredReviewRecord(migrated).sourceSession,
       boundAt: new Date().toISOString(),
     };
     await writePrivateJsonAtomic(statePath, pending);
   }
   const { agentSession: _agentSession, ...record } = input.value;
   const priorAgentSessions = jsonObject(record.agentSessions) ?? {};
-  return parseStoredReviewRecordForMigration({
+  return parseAnyStoredReviewRecord({
     ...record,
     sourceSession: pending.sourceSession,
     agentSessions:
@@ -435,7 +434,7 @@ async function migrateReviewSourceSession(input: {
 
 async function regeneratePresentedArtifacts(input: {
   reviewDir: string;
-  review: ReturnType<typeof parseStoredReviewRecordForMigration>;
+  review: ReturnType<typeof parseAnyStoredReviewRecord>;
   original: JsonObject;
   allowAbsentMap: boolean;
   log?: (message: string) => void;
@@ -662,7 +661,7 @@ async function withSealedSourcePins(
   record: StoredReviewRecord,
   sourceDir: string,
 ): Promise<StoredReviewRecord> {
-  const sealed = parseStoredReviewRecordForMigration(
+  const sealed = parseAnyStoredReviewRecord(
     parseJsonText(await readFile(path.join(sourceDir, "review.json"), "utf8")),
   );
   return {

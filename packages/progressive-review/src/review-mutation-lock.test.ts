@@ -26,7 +26,7 @@ afterEach(async () => {
 });
 
 it.each(["document", "map"])(
-  "makes the %s candidate writer wait for the same mutation lock",
+  "makes the %s candidate transaction wait for the mutation lock",
   async (kind) => {
     const root = await mkdtemp(path.join(tmpdir(), "review-writer-lock-"));
     roots.push(root);
@@ -39,7 +39,7 @@ it.each(["document", "map"])(
     await entered.promise;
     let finished = false;
     const model = defineSoftwareMap({ systems: { app: { label: "App" } } });
-    const writing = (
+    const writing = withReviewMutationLock(root, () =>
       kind === "document"
         ? writeReviewDocumentBundle(
             root,
@@ -62,7 +62,7 @@ it.each(["document", "map"])(
               headCommit: "a".repeat(40),
               baseCommit: "b".repeat(40),
             }),
-          )
+          ),
     ).then(() => {
       finished = true;
     });

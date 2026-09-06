@@ -13,6 +13,7 @@ import { patchChangedLines } from "./call-stack-diff";
 import {
   bundleReviewDocument,
   readReviewDocumentBundle,
+  reviewDocumentBundleData,
   writeReviewDocumentBundle,
 } from "./review-bundle";
 import {
@@ -118,7 +119,7 @@ describe("real authored document JSON conversion", () => {
     const hydrated = hydrateReviewDocument({
       state: "ready",
       contentHash: bundle.contentHash,
-      data: bundle.document,
+      data: reviewDocumentBundleData(bundle),
     });
     const html = renderToStaticMarkup(
       renderReviewNodes(hydrated.body, {

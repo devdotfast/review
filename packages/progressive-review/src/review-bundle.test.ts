@@ -17,6 +17,7 @@ import {
   REVIEW_DOCUMENT_BUNDLE_DIR,
   bundleReviewDocument,
   readReviewDocumentBundle,
+  reviewDocumentBundleData,
   writeReviewDocumentBundle,
 } from "./review-bundle";
 import {
@@ -48,6 +49,12 @@ const document: ReviewDocumentData = {
 };
 
 describe("review document bundle", () => {
+  it("exposes the parsed document through the bundle accessor", async () => {
+    const bundle = bundleReviewDocument(document);
+    expect(reviewDocumentBundleData(bundle)).toEqual(document);
+    expect(Object.keys(bundle).sort()).toEqual(["contentHash", "json"]);
+  });
+
   it("writes the document as JSON and reads it back", async () => {
     directory = await mkdtemp(path.join(tmpdir(), "review-document-bundle-"));
     const bundleDir = path.join(directory, REVIEW_DOCUMENT_BUNDLE_DIR);

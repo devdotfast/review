@@ -3,8 +3,8 @@ import path from "node:path";
 import { patchChangedLines } from "./call-stack-diff";
 import type { ReviewDocumentDiagnostic } from "./compiler/review-document-compiler";
 import {
+  type ReviewDocumentBundle,
   bundleReviewDocument,
-  writeReviewDocumentBundle,
 } from "./review-bundle";
 import {
   type ReviewDiffFilesResult,
@@ -56,7 +56,7 @@ export class ReviewPublicationValidationError extends Error {
 
 export async function prepareReviewDocumentBundle(input: {
   review: StoredReview;
-}): Promise<{ warnings: string[] }> {
+}): Promise<{ bundle: ReviewDocumentBundle; warnings: string[] }> {
   const warnings: string[] = [];
   const compiled = await span("publish: compile document bundle", () =>
     compileReviewDocumentBundle({
@@ -128,12 +128,10 @@ export async function prepareReviewDocumentBundle(input: {
       [...new Set([...warnings, ...evaluation.warnings])],
     );
   }
-  await writeReviewDocumentBundle(
-    input.review.dir,
-    bundleReviewDocument(evaluation.document),
-
-  );
-  return { warnings: [...new Set([...warnings, ...evaluation.warnings])] };
+  return {
+    bundle: bundleReviewDocument(evaluation.document),
+    warnings: [...new Set([...warnings, ...evaluation.warnings])],
+  };
 }
 
 /** Validates and bundles the software map. The caller decides when to

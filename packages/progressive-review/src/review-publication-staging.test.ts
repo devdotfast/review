@@ -14,7 +14,10 @@ import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { markReviewViewed } from "./review-attention";
-import { readReviewDocumentBundle } from "./review-bundle";
+import {
+  readReviewDocumentBundle,
+  reviewDocumentBundleData,
+} from "./review-bundle";
 import { createReviewDir, materializeReviewRevision } from "./review-home";
 import { withReviewMutationLock } from "./review-mutation-lock";
 import { prepareReviewDocumentBundle } from "./review-publication-preparation";
@@ -95,7 +98,7 @@ it("prepares outside the live lock while preserving viewed and comment updates",
   const document = await staging;
   expect(existsSync(stagingDir)).toBe(false);
   expect(existsSync(path.join(review.dir, ".bundle"))).toBe(false);
-  expect(JSON.stringify(document.bundle.document)).toContain(
+  expect(JSON.stringify(reviewDocumentBundleData(document.bundle))).toContain(
     "dependency label",
   );
   const revision = await sealReviewDocumentPublication({ review, document });
@@ -109,8 +112,10 @@ it("prepares outside the live lock while preserving viewed and comment updates",
     readReviewComments(path.join(review.dir, "review.mdx"))["during-compile"]
       .messages,
   ).toHaveLength(1);
-  expect((await readReviewDocumentBundle(materialized, "/"))?.document).toEqual(
-    document.bundle.document,
+  const materializedBundle = await readReviewDocumentBundle(materialized, "/");
+  if (!materializedBundle) throw new Error("Missing materialized bundle");
+  expect(reviewDocumentBundleData(materializedBundle)).toEqual(
+    reviewDocumentBundleData(document.bundle),
   );
 });
 
@@ -149,7 +154,7 @@ it("resolves Review-local pnpm dependencies without copying their symlinks", asy
     'export { label } from "review-local";',
   );
   const document = await stageReviewDocumentPublication({ review });
-  expect(JSON.stringify(document.bundle.document)).toContain(
+  expect(JSON.stringify(reviewDocumentBundleData(document.bundle))).toContain(
     "local pnpm dependency",
   );
   expect(await readFile(path.join(dependency, "index.js"), "utf8")).toContain(

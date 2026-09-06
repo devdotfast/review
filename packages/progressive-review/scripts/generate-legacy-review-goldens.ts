@@ -13,7 +13,10 @@ import {
   listLegacyReviewFixtures,
   normalizeMigratedRecord,
 } from "../src/fixtures/legacy-reviews/legacy-review-fixture";
-import { readReviewDocumentBundle } from "../src/review-bundle";
+import {
+  readReviewDocumentBundle,
+  reviewDocumentBundleData,
+} from "../src/review-bundle";
 import type { ReviewDocumentData } from "../src/review-document-data";
 import { materializeReviewRevision } from "../src/review-home";
 import { closeAllReviewThreadStores } from "../src/review-thread-store-backend";
@@ -58,7 +61,11 @@ for (const fixture of await listLegacyReviewFixtures()) {
     );
     const document = await readReviewDocumentBundle(documentDir, "/");
     if (!document) throw new Error(`${fixture.name} document did not convert`);
-    await writeGolden(fixture.name, "document", document.document);
+    await writeGolden(
+      fixture.name,
+      "document",
+      reviewDocumentBundleData(document),
+    );
     if (outcome.record.presentedSoftwareMapRevision) {
       const mapDir = path.join(home, "map");
       await materializeReviewRevision(

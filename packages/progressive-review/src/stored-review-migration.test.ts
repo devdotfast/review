@@ -18,6 +18,7 @@ import { snapshotReviewTree } from "./fixtures/legacy-reviews/legacy-review-fixt
 import {
   bundleReviewDocument,
   readReviewDocumentBundle,
+  reviewDocumentBundleData,
   writeReviewDocumentBundle,
 } from "./review-bundle";
 import {
@@ -33,7 +34,10 @@ import {
   readReviewSoftwareMapBundle,
   writeReviewSoftwareMapBundle,
 } from "./software-map-bundle";
-import { defineSoftwareMap } from "./software-map-model";
+import {
+  defineSoftwareMap,
+  softwareModelDataSchema,
+} from "./software-map-model";
 import {
   migrateStoredReview,
   migrateStoredReviewData,
@@ -647,10 +651,24 @@ describe("migrateStoredReviewData", () => {
       result.record.presentedSoftwareMapRevision!,
     );
     const bundle = await readReviewSoftwareMapBundle(materialized);
-    expect(bundle?.head.elements).toEqual(
+    expect(
+      bundle &&
+        softwareModelDataSchema.parse({
+          elements: jsonObject(parseJsonText(bundle.headJson))?.elements,
+          relationships: jsonObject(parseJsonText(bundle.headJson))
+            ?.relationships,
+        }).elements,
+    ).toEqual(
       defineSoftwareMap({ systems: { service: { label: "Head" } } }).elements,
     );
-    expect(bundle?.base.elements).toEqual(
+    expect(
+      bundle &&
+        softwareModelDataSchema.parse({
+          elements: jsonObject(parseJsonText(bundle.baseJson))?.elements,
+          relationships: jsonObject(parseJsonText(bundle.baseJson))
+            ?.relationships,
+        }).elements,
+    ).toEqual(
       defineSoftwareMap({ systems: { service: { label: "Base" } } }).elements,
     );
     expect(bundle?.headCommit).toBe(created.review.sourceCommit);
@@ -678,7 +696,9 @@ describe("migrateStoredReviewData", () => {
       result.record.presentedDocumentRevision!,
     );
     const bundle = await readReviewDocumentBundle(materialized, "/");
-    expect(bundle?.document.softwareModels).toHaveLength(2);
+    expect(
+      bundle && reviewDocumentBundleData(bundle).softwareModels,
+    ).toHaveLength(2);
   });
 
   it("migrates a schema-2 review with missing legacy maps without a blocker", async () => {
@@ -930,9 +950,8 @@ describe("migrateStoredReview", () => {
       record.presentedDocumentRevision!,
       materialized,
     );
-    expect(
-      (await readReviewDocumentBundle(materialized, "/"))?.document.title,
-    ).toBe("Sealed");
+    const bundle = await readReviewDocumentBundle(materialized, "/");
+    expect(bundle && reviewDocumentBundleData(bundle).title).toBe("Sealed");
 
     const before = await snapshotMigrationFiles(created.dir);
     const materialize = vi.spyOn(reviewVcs, "materialize");

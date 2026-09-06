@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { jsonObject, parseJsonText } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -11,7 +12,11 @@ import {
   sameReviewSoftwareMapBundle,
   writeReviewSoftwareMapBundle,
 } from "./software-map-bundle";
-import { defineSoftwareMap, hydrateSoftwareModel } from "./software-map-model";
+import {
+  defineSoftwareMap,
+  hydrateSoftwareModel,
+  softwareModelDataSchema,
+} from "./software-map-model";
 
 let directory: string | undefined;
 afterEach(async () => {
@@ -44,9 +49,15 @@ describe("software map bundle", () => {
     expect(headFile.elements.map((e: { path: string }) => e.path)).toEqual(
       head.elements.map((e) => e.path),
     );
-    expect(hydrateSoftwareModel(read!.head).elementsByPath.get("app")).toEqual(
-      head.elementsByPath.get("app"),
-    );
+    expect(
+      hydrateSoftwareModel(
+        softwareModelDataSchema.parse({
+          elements: jsonObject(parseJsonText(read!.headJson))?.elements,
+          relationships: jsonObject(parseJsonText(read!.headJson))
+            ?.relationships,
+        }),
+      ).elementsByPath.get("app"),
+    ).toEqual(head.elementsByPath.get("app"));
     expect(sameReviewSoftwareMapBundle(read!, bundle)).toBe(true);
   });
 

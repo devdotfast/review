@@ -13,7 +13,7 @@ import {
   defineSoftwareMap,
   softwareModelData,
 } from "../../src/software-map-model";
-import type { resolveCodePeekRequest } from "./review-definition-runtime";
+import type { resolveCodePeekRequest } from "./code-peek-resolution";
 import {
   type HydratedReviewComponentNode,
   hydrateReviewDocument,

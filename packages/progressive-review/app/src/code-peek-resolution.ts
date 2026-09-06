@@ -5,9 +5,8 @@ const REVIEW_CODE_PEEK_RESOLUTION_CONCURRENCY = 8;
 let activeCodePeekResolutions = 0;
 const pendingCodePeekResolutionSlots: Array<() => void> = [];
 
-export const reviewDefinitionDiagnostics = {
+export const codePeekDiagnostics = {
   authoredCodePeekRequestCount: 0,
-  authoredCodePeekDiffRequestCount: 0,
 };
 
 export async function resolveCodePeekRequest(
@@ -15,7 +14,7 @@ export async function resolveCodePeekRequest(
   props: CodePeekProps,
   session: ReviewSession,
 ): Promise<CodePeekResolution> {
-  recordAuthoredCodePeekRequest(false);
+  codePeekDiagnostics.authoredCodePeekRequestCount += 1;
   const response = await session.fetch(
     "/code-peek/resolve",
     {
@@ -43,13 +42,6 @@ export async function resolveCodePeekRequest(
     );
   }
   return { snapshot: json.snapshot, diff: json.diff };
-}
-
-function recordAuthoredCodePeekRequest(includeDiff: boolean): void {
-  reviewDefinitionDiagnostics.authoredCodePeekRequestCount += 1;
-  if (includeDiff) {
-    reviewDefinitionDiagnostics.authoredCodePeekDiffRequestCount += 1;
-  }
 }
 
 export async function runWithCodePeekResolutionSlot<T>(

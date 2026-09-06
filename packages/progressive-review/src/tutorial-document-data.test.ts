@@ -7,6 +7,7 @@ import {
   type JsonValue,
   isJsonObject,
   jsonString,
+  jsonValueSchema,
 } from "@dev.fast/review-protocol";
 import { describe, expect, it } from "vitest";
 
@@ -79,7 +80,10 @@ describe("tutorial review document data", () => {
       walkReviewNodes(evaluation.document!.body, (node) => {
         if (node.type !== "component") return;
         componentNames.add(node.name);
-        collectInlineAnchorIds(node.props, inlineAnchorIds);
+        collectInlineAnchorIds(
+          jsonValueSchema.parse(node.props),
+          inlineAnchorIds,
+        );
       });
       expect([...componentNames].sort()).toEqual(
         [

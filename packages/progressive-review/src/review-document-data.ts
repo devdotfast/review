@@ -3,10 +3,9 @@ import { z } from "zod";
 
 import {
   type AnchorRef,
-  anchorRefSchema,
-  codePeekRefSchema,
-  reviewAuthoringPropsSchemas,
-  storeRefDataSchema,
+  type ReviewAuthoringComponentName,
+  documentAnchorRefSchema,
+  reviewComponentDataSchemas,
 } from "./authoring";
 import {
   type SoftwareModelData,
@@ -15,25 +14,7 @@ import {
 
 export const REVIEW_DOCUMENT_FORMAT = "review-document/1";
 
-export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
-  z.union([
-    z.string(),
-    z.number(),
-    z.boolean(),
-    z.null(),
-    z.array(jsonValueSchema),
-    z.record(z.string(), jsonValueSchema),
-  ]),
-);
-
-export type ReviewAuthoringComponentName =
-  keyof typeof reviewAuthoringPropsSchemas;
-// SAFETY: reviewAuthoringPropsSchemas is a non-empty, statically keyed object,
-// and Object.keys returns exactly those runtime keys.
-const componentNames = Object.keys(reviewAuthoringPropsSchemas) as [
-  ReviewAuthoringComponentName,
-  ...ReviewAuthoringComponentName[],
-];
+export type { ReviewAuthoringComponentName } from "./authoring";
 
 export const PROSE_TAGS = [
   "p",
@@ -101,12 +82,16 @@ export interface ReviewElementNode {
   children: ReviewNode[];
 }
 
-export interface ReviewComponentNode {
+interface ReviewComponentNodeOf<Name extends ReviewAuthoringComponentName> {
   type: "component";
-  name: ReviewAuthoringComponentName;
-  props: Record<string, JsonValue>;
+  name: Name;
+  props: z.infer<(typeof reviewComponentDataSchemas)[Name]>;
   children: ReviewNode[];
 }
+
+export type ReviewComponentNode = {
+  [Name in ReviewAuthoringComponentName]: ReviewComponentNodeOf<Name>;
+}[ReviewAuthoringComponentName];
 
 export type ReviewNode =
   | ReviewTextNode
@@ -136,48 +121,75 @@ const elementPropsSchema = z
     }
   });
 
-const componentPropsSchema = (name: ReviewAuthoringComponentName): z.ZodType =>
-  name === "DatabaseLens"
-    ? z
-        .object({ stores: z.record(z.string(), storeRefDataSchema) })
-        .catchall(jsonValueSchema)
-    : z.record(z.string(), jsonValueSchema);
+const reviewElementNodeSchema = z.strictObject({
+  type: z.literal("element"),
+  tag: z.enum(PROSE_TAGS),
+  props: elementPropsSchema,
+  children: z.array(z.lazy(() => reviewNodeSchema)),
+});
+
+const componentNodeSchema = <
+  Name extends ReviewAuthoringComponentName,
+  Props extends z.ZodType,
+>(
+  name: Name,
+  props: Props,
+) =>
+  z.strictObject({
+    type: z.literal("component"),
+    name: z.literal(name),
+    props,
+    children: z.array(reviewNodeSchema),
+  });
 
 export const reviewNodeSchema: z.ZodType<ReviewNode> = z.lazy(() =>
   z.discriminatedUnion("type", [
     z.strictObject({ type: z.literal("text"), value: z.string() }),
-    z.strictObject({
-      type: z.literal("element"),
-      tag: z.enum(PROSE_TAGS),
-      props: elementPropsSchema,
-      children: z.array(reviewNodeSchema),
-    }),
-    z
-      .strictObject({
-        type: z.literal("component"),
-        name: z.enum(componentNames),
-        props: z.record(z.string(), jsonValueSchema),
-        children: z.array(reviewNodeSchema),
-      })
-      .superRefine((node, context) => {
-        const result = componentPropsSchema(node.name).safeParse(node.props);
-        for (const issue of result.success ? [] : result.error.issues) {
-          context.addIssue({
-            code: "custom",
-            path: ["props", ...issue.path],
-            message: issue.message,
-          });
-        }
-      }),
+    reviewElementNodeSchema,
+    reviewComponentNodeSchema,
   ]),
 );
 
-const documentCodePeekRefSchema = codePeekRefSchema.extend({
-  resolution: z.null(),
-});
-const documentAnchorRefSchema = anchorRefSchema.extend({
-  peek: documentCodePeekRefSchema.optional(),
-});
+// Unannotated on purpose: an annotated schema cannot be an option of a
+// discriminated union. `satisfies` still pins it to ReviewComponentNode, so a
+// registry component missing an entry below is a compile error.
+export const reviewComponentNodeSchema = z.discriminatedUnion("name", [
+  componentNodeSchema("AnchorLink", reviewComponentDataSchemas.AnchorLink),
+  componentNodeSchema(
+    "CallStackDiff",
+    reviewComponentDataSchemas.CallStackDiff,
+  ),
+  componentNodeSchema("CodePeek", reviewComponentDataSchemas.CodePeek),
+  componentNodeSchema("DatabaseLens", reviewComponentDataSchemas.DatabaseLens),
+  componentNodeSchema("DbRead", reviewComponentDataSchemas.DbRead),
+  componentNodeSchema("DbUseCase", reviewComponentDataSchemas.DbUseCase),
+  componentNodeSchema("DbWrite", reviewComponentDataSchemas.DbWrite),
+  componentNodeSchema(
+    "ReviewSection",
+    reviewComponentDataSchemas.ReviewSection,
+  ),
+  componentNodeSchema(
+    "SequenceDiagram",
+    reviewComponentDataSchemas.SequenceDiagram,
+  ),
+  componentNodeSchema("TraceQuote", reviewComponentDataSchemas.TraceQuote),
+  componentNodeSchema(
+    "TutorialAuthoringConversation",
+    reviewComponentDataSchemas.TutorialAuthoringConversation,
+  ),
+  componentNodeSchema(
+    "TutorialFeature",
+    reviewComponentDataSchemas.TutorialFeature,
+  ),
+  componentNodeSchema(
+    "TutorialKeymapPicker",
+    reviewComponentDataSchemas.TutorialKeymapPicker,
+  ),
+  componentNodeSchema(
+    "TutorialViewButton",
+    reviewComponentDataSchemas.TutorialViewButton,
+  ),
+]) satisfies z.ZodType<ReviewComponentNode>;
 
 export interface ReviewDocumentData {
   format: typeof REVIEW_DOCUMENT_FORMAT;

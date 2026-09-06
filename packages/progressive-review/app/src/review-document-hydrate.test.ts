@@ -70,7 +70,7 @@ function reviewDocumentData(): ReviewDocumentData {
       resolution: null,
     },
   };
-  const data: ReviewDocumentData = {
+  const data = {
     format: "review-document/1",
     title: "Orders",
     routePath: "/",

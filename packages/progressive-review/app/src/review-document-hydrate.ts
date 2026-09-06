@@ -39,13 +39,16 @@ export interface HydratedReviewElementNode extends Omit<
   children: HydratedReviewNode[];
 }
 
-export interface HydratedReviewComponentNode extends Omit<
-  ReviewComponentNode,
-  "props" | "children"
-> {
-  props: HydratedReviewComponentProps;
-  children: HydratedReviewNode[];
-}
+type HydratedReviewComponentNodeOf<Node extends ReviewComponentNode> =
+  Node extends ReviewComponentNode
+    ? Omit<Node, "props" | "children"> & {
+        props: HydratedReviewComponentProps;
+        children: HydratedReviewNode[];
+      }
+    : never;
+
+export type HydratedReviewComponentNode =
+  HydratedReviewComponentNodeOf<ReviewComponentNode>;
 
 export type HydratedReviewPropValue =
   | JsonPrimitive

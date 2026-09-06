@@ -137,6 +137,89 @@ describe("review document data", () => {
     }
   });
 
+  it("rejects registry component props that do not match their schema", () => {
+    for (const body of [
+      [
+        {
+          type: "component",
+          name: "ReviewSection",
+          props: { title: "" },
+          children: [],
+        },
+      ],
+      [
+        {
+          type: "component",
+          name: "ReviewSection",
+          props: { title: "T", surprise: 1 },
+          children: [],
+        },
+      ],
+      [
+        {
+          type: "component",
+          name: "TutorialViewButton",
+          props: { view: "banana" },
+          children: [],
+        },
+      ],
+      [
+        {
+          type: "component",
+          name: "TraceQuote",
+          props: { sessionId: "s", event: -1 },
+          children: [],
+        },
+      ],
+      [
+        {
+          type: "component",
+          name: "CodePeek",
+          props: { anchor: { ...anchor, peek: undefined } },
+          children: [],
+        },
+      ],
+    ]) {
+      expect(
+        reviewDocumentDataSchema.safeParse({ ...base, body }).success,
+      ).toBe(false);
+    }
+  });
+
+  it("reports the failing component prop by path", () => {
+    const parsed = reviewDocumentDataSchema.safeParse({
+      ...base,
+      body: [
+        {
+          type: "component",
+          name: "ReviewSection",
+          props: { title: 7 },
+          children: [],
+        },
+      ],
+    });
+    expect(parsed.success).toBe(false);
+    expect(
+      parsed.success ? [] : parsed.error.issues.map((issue) => issue.path),
+    ).toContainEqual(["body", 0, "props", "title"]);
+  });
+
+  it("keeps a valid registry component", () => {
+    expect(
+      reviewDocumentDataSchema.safeParse({
+        ...base,
+        body: [
+          {
+            type: "component",
+            name: "ReviewSection",
+            props: { title: "T", defaultCollapsed: true },
+            children: [],
+          },
+        ],
+      }).success,
+    ).toBe(true);
+  });
+
   it("rejects anchors whose peek resolution was not stripped", () => {
     const resolvedAnchor = {
       ...anchor,
@@ -172,12 +255,12 @@ describe("review document data", () => {
         {
           type: "component",
           name: "DatabaseLens",
-          props: {},
+          props: { stores: {} },
           children: [
             {
               type: "component",
               name: "DbUseCase",
-              props: {},
+              props: { id: "create", label: "Create" },
               children: [],
             },
           ],

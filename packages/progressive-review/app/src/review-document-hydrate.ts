@@ -10,9 +10,9 @@ import {
   type AnchorRef,
   type StoreRef,
   hydrateStoreRef,
-  storeRefDataSchema,
 } from "../../src/authoring";
 import {
+  type ReviewAuthoringComponentName,
   type ReviewComponentNode,
   type ReviewElementNode,
   type ReviewNode,
@@ -32,16 +32,12 @@ export interface HydratedReviewElementNode extends Omit<
   children: HydratedReviewNode[];
 }
 
-type HydratedReviewComponentNodeOf<Node extends ReviewComponentNode> =
-  Node extends ReviewComponentNode
-    ? Omit<Node, "props" | "children"> & {
-        props: HydratedReviewComponentProps;
-        children: HydratedReviewNode[];
-      }
-    : never;
-
-export type HydratedReviewComponentNode =
-  HydratedReviewComponentNodeOf<ReviewComponentNode>;
+export interface HydratedReviewComponentNode {
+  type: "component";
+  name: ReviewAuthoringComponentName;
+  props: HydratedReviewComponentProps;
+  children: HydratedReviewNode[];
+}
 
 export type HydratedReviewPropValue =
   | JsonPrimitive
@@ -92,6 +88,29 @@ export function hydrateReviewDocument(
   };
 }
 
+/**
+ * Component props that need more than anchor canonicalization, keyed like
+ * componentPropsSchema. A component with no entry keeps the walked props.
+ */
+type ComponentHydrators = {
+  [K in ReviewAuthoringComponentName]?: (
+    node: Extract<ReviewComponentNode, { name: K }>,
+    props: HydratedReviewComponentProps,
+  ) => HydratedReviewComponentProps;
+};
+
+const componentHydrators: ComponentHydrators = {
+  DatabaseLens: (node, props) => ({
+    ...props,
+    stores: Object.fromEntries(
+      Object.entries(node.props.stores).map(([id, store]) => [
+        id,
+        hydrateStoreRef(store),
+      ]),
+    ),
+  }),
+};
+
 function hydrateNode(
   node: ReviewNode,
   anchors: ReadonlyMap<string, AnchorRef>,
@@ -103,22 +122,19 @@ function hydrateNode(
       children: node.children.map((child) => hydrateNode(child, anchors)),
     };
   }
-  const props = hydrateComponentProps(node.props, anchors);
-  if (node.name === "DatabaseLens") {
-    const stores = node.props.stores;
-    if (!isJsonObject(stores)) {
-      throw new Error("Review document DatabaseLens stores are invalid.");
-    }
-    props.stores = Object.fromEntries(
-      Object.entries(stores).map(([id, store]) => [
-        id,
-        hydrateStoreRef(storeRefDataSchema.parse(store)),
-      ]),
-    );
-  }
+  return hydrateComponentNode(node, anchors);
+}
+
+function hydrateComponentNode<K extends ReviewAuthoringComponentName>(
+  node: Extract<ReviewComponentNode, { name: K }>,
+  anchors: ReadonlyMap<string, AnchorRef>,
+): HydratedReviewComponentNode {
+  const walked = hydrateComponentProps(node.props, anchors);
+  const hydrate = componentHydrators[node.name];
   return {
-    ...node,
-    props,
+    type: "component",
+    name: node.name,
+    props: hydrate ? hydrate(node, walked) : walked,
     children: node.children.map((child) => hydrateNode(child, anchors)),
   };
 }

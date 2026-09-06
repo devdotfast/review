@@ -115,4 +115,32 @@ describe("hydrateReviewDocument", () => {
       'Review document references missing anchor "create-order".',
     );
   });
+
+  it("rejects a DatabaseLens store that is not a store ref", () => {
+    const data = {
+      format: "review-document/1",
+      title: "Orders",
+      routePath: "/",
+      sourcePath: "review.mdx",
+      anchors: {},
+      anchorContents: {},
+      softwareModels: [],
+      body: [
+        {
+          type: "component",
+          name: "DatabaseLens",
+          props: { stores: { db: { kind: "relational" } } },
+          children: [],
+        },
+      ],
+    };
+
+    expect(() =>
+      hydrateReviewDocument({
+        state: "ready",
+        contentHash: "invalid-stores",
+        data,
+      }),
+    ).toThrow(/stores/);
+  });
 });

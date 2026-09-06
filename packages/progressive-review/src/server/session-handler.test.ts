@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   type JsonObject,
   REVIEW_SCHEMA_VERSION,
+  ReviewDocumentResponseSchema,
   type ReviewRecord,
 } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it } from "vitest";
@@ -137,7 +138,8 @@ describe("createReviewSessionHandler", () => {
       try {
         const doc = await request("document");
         expect(doc.status).toBe(409);
-        expect(await doc.json()).toMatchObject(
+        const docPayload = await doc.json();
+        expect(docPayload).toMatchObject(
           mode.kind === "historical"
             ? {
                 error:
@@ -149,6 +151,10 @@ describe("createReviewSessionHandler", () => {
               }
             : { detail: { code: "needs_republish", mapStale: false } },
         );
+        expect(
+          mode.kind !== "historical" ||
+            ReviewDocumentResponseSchema.safeParse(docPayload).success,
+        ).toBe(true);
         expect((await request("software-map")).status).toBe(200);
         const dismissed = await request("dismiss", "POST");
         expect(dismissed.status).toBe(409);
@@ -161,6 +167,50 @@ describe("createReviewSessionHandler", () => {
       } finally {
         await handler.close();
       }
+    }
+  });
+
+  it("emits a protocol-valid historical document error for a recorded missing artifact", async () => {
+    const rootPath = await tempDir("review-historical-artifact-");
+    const reviewPath = path.join(rootPath, "review.mdx");
+    const reviewUuid = readOnlyRecord.uuid;
+    const handler = await createReviewSessionHandler({
+      ...unusedAgentServices,
+      rootPath,
+      toolingRoot: rootPath,
+      reviewPath,
+      routePath: "/",
+      token: "secret",
+      reviewUuid,
+      artifacts: { document: "Document revision is missing." },
+      mode: {
+        kind: "historical",
+        revision: "c".repeat(40),
+        record: readOnlyRecord,
+      },
+      session: {
+        rootPath,
+        baseRef: "HEAD",
+        appUrl: "http://127.0.0.1:5570",
+        reviewPath,
+        startedAt: Date.now(),
+      },
+    });
+    try {
+      const response = await handler.handle(
+        new Request("http://127.0.0.1:5570/__progressive-review/document", {
+          headers: { "x-review-token": "secret" },
+        }),
+      );
+      const payload = await response.json();
+      expect(response.status).toBe(409);
+      expect(ReviewDocumentResponseSchema.parse(payload)).toEqual({
+        ok: false,
+        error: "Document revision is missing.",
+        detail: { code: "historical_revision_unavailable", reviewUuid },
+      });
+    } finally {
+      await handler.close();
     }
   });
   it("scopes routed UI telemetry and presents a session only once", async () => {

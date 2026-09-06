@@ -5,6 +5,7 @@ import type { Writable } from "node:stream";
 
 import {
   type ReviewDocumentVersionWire,
+  type ReviewErrorDetail,
   type ReviewRecord,
   type ReviewServerEvent,
   type ReviewSessionWire,
@@ -228,15 +229,9 @@ export async function createReviewSessionHandler(
     message: string,
   ): Promise<Response> => {
     const reviewUuid = needsRepublishReviewUuid();
-    const detail =
+    const detail: ReviewErrorDetail =
       mode.kind === "historical"
-        ? kind === "document"
-          ? {
-              code: "historical_revision_unavailable",
-              reviewUuid,
-              mapStale: await mapIsStale(),
-            }
-          : { code: "historical_revision_unavailable", reviewUuid }
+        ? { code: "historical_revision_unavailable", reviewUuid }
         : {
             code: "needs_republish",
             reviewUuid,

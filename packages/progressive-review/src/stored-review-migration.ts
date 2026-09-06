@@ -42,7 +42,7 @@ import {
 } from "./review-home";
 import { findCallExpressions, parseReviewMdxDocument } from "./review-mdx-ast";
 import { withReviewMutationLock } from "./review-mutation-lock";
-import { evaluateReviewDocumentBundleForPublish } from "./review-publish-evaluate";
+import { evaluateSealedReviewDocument } from "./review-sealed-document";
 import { createReviewSourceAgentSession } from "./review-source-agent-session";
 import {
   type ReviewThreadDbMigrationOptions,
@@ -665,47 +665,6 @@ async function migrateReviewSourceSession(input: {
   };
 }
 
-async function evaluateLegacyPresentedDocument(
-  reviewDir: string,
-  log?: (message: string) => void,
-) {
-  let legacyRoot = path.join(reviewDir, ".bundle/document");
-  let manifest: JsonObject | undefined;
-  try {
-    manifest = jsonObject(
-      parseJsonText(
-        await readFile(path.join(legacyRoot, "manifest.json"), "utf8"),
-      ),
-    );
-  } catch (error) {
-    if (!isMissingFileError(error)) throw error;
-    legacyRoot = path.join(reviewDir, ".bundle");
-    manifest = jsonObject(
-      parseJsonText(
-        await readFile(path.join(legacyRoot, "manifest.json"), "utf8"),
-      ),
-    );
-  }
-  if (manifest?.version !== 1)
-    throw new Error(
-      "The presented document manifest is invalid or unsupported.",
-    );
-  const evaluated = await evaluateReviewDocumentBundleForPublish({
-    bundleCode: await readFile(
-      path.join(legacyRoot, "review-document.js"),
-      "utf8",
-    ),
-    reviewDir,
-    ranges: "skip",
-  });
-  for (const warning of evaluated.warnings) log?.(warning);
-  if (!evaluated.document)
-    throw new Error(
-      evaluated.errors.join("; ") || "Review document did not materialize.",
-    );
-  return { ...evaluated, document: evaluated.document };
-}
-
 async function regeneratePresentedArtifacts(input: {
   reviewDir: string;
   review: ReturnType<typeof parseStoredReviewRecordForMigration>;
@@ -723,7 +682,7 @@ async function regeneratePresentedArtifacts(input: {
   try {
     let documentBundle: ReturnType<typeof bundleReviewDocument> | null = null;
     let evaluatedDocument:
-      | Awaited<ReturnType<typeof evaluateLegacyPresentedDocument>>
+      | Awaited<ReturnType<typeof evaluateSealedReviewDocument>>
       | undefined;
     let mapBundle: ReviewSoftwareMapBundle | null = null;
     let mapRevision = input.review.presentedSoftwareMapRevision;
@@ -735,7 +694,7 @@ async function regeneratePresentedArtifacts(input: {
         documentDir,
       );
       if (!(await readReviewDocumentBundle(documentDir, "/"))) {
-        evaluatedDocument = await evaluateLegacyPresentedDocument(
+        evaluatedDocument = await evaluateSealedReviewDocument(
           documentDir,
           input.log,
         );
@@ -752,7 +711,7 @@ async function regeneratePresentedArtifacts(input: {
           const evaluated =
             mapRevision === documentRevision && evaluatedDocument
               ? evaluatedDocument
-              : await evaluateLegacyPresentedDocument(mapDir, input.log);
+              : await evaluateSealedReviewDocument(mapDir, input.log);
           if (evaluated.legacySoftwareMap) {
             const sealed = await withSealedSourcePins(input.review, mapDir);
             if (!sealed.sourceCommit)

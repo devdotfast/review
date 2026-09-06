@@ -14,7 +14,6 @@ import {
 } from "../../src/authoring";
 import {
   type ReviewComponentNode,
-  type ReviewDocumentData,
   type ReviewElementNode,
   type ReviewNode,
   type ReviewTextNode,
@@ -24,12 +23,6 @@ import {
   type NormalizedSoftwareModel,
   hydrateSoftwareModel,
 } from "../../src/software-map-model";
-import {
-  resolveCodePeekRequest,
-  runWithCodePeekResolutionSlot,
-} from "./code-peek-resolution";
-import type { ReviewSession } from "./host/review-session";
-
 export type HydratedReviewTextNode = ReviewTextNode;
 
 export interface HydratedReviewElementNode extends Omit<
@@ -70,17 +63,18 @@ export type HydratedReviewNode =
 
 export interface HydratedReviewDocument {
   contentHash: string;
-  data: ReviewDocumentData;
   body: HydratedReviewNode[];
   anchors: ReadonlyMap<string, AnchorRef>;
   anchorContents: ReadonlyMap<string, string>;
   documentSoftwareModels: NormalizedSoftwareModel[];
-  title: string;
   routePath: string;
   filePath: string;
 }
 
-type ReadyReviewDocumentLoad = Extract<ReviewDocumentLoad, { state: "ready" }>;
+export type ReadyReviewDocumentLoad = Extract<
+  ReviewDocumentLoad,
+  { state: "ready" }
+>;
 
 export function hydrateReviewDocument(
   load: ReadyReviewDocumentLoad,
@@ -89,12 +83,10 @@ export function hydrateReviewDocument(
   const anchors = new Map(Object.entries(data.anchors));
   return {
     contentHash: load.contentHash,
-    data,
     body: data.body.map((node) => hydrateNode(node, anchors)),
     anchors,
     anchorContents: new Map(Object.entries(data.anchorContents)),
     documentSoftwareModels: data.softwareModels.map(hydrateSoftwareModel),
-    title: data.title,
     routePath: data.routePath,
     filePath: data.sourcePath,
   };
@@ -170,84 +162,4 @@ function canonicalizeAnchorRefs(
       canonicalizeAnchorRefs(child, anchors),
     ]),
   );
-}
-
-/** The resolver is a parameter so tests can drive it without module mocking. */
-export interface ResolveReviewDocumentPeeksOptions {
-  resolveCodePeek?: typeof resolveCodePeekRequest;
-}
-
-export async function resolveReviewDocumentPeeks(
-  document: HydratedReviewDocument,
-  session: ReviewSession,
-  options: ResolveReviewDocumentPeeksOptions = {},
-): Promise<void> {
-  const resolveCodePeek = options.resolveCodePeek ?? resolveCodePeekRequest;
-  const uniqueAnchors = new Set(document.anchors.values());
-  await Promise.all(
-    [...uniqueAnchors].flatMap((anchor) => {
-      if (!anchor.peek || anchor.peek.resolution) return [];
-      return [
-        runWithCodePeekResolutionSlot(async () => {
-          anchor.peek!.resolution = await resolveCodePeek(
-            document.routePath,
-            anchor.peek!.props,
-            session,
-          );
-        }),
-      ];
-    }),
-  );
-}
-
-const documentPromiseCache = new Map<
-  string,
-  Map<string, Promise<HydratedReviewDocument>>
->();
-const MAX_SESSION_NAMESPACES = 32;
-const MAX_DOCUMENTS_PER_SESSION = 4;
-
-export function prepareReviewDocument(
-  load: ReadyReviewDocumentLoad,
-  session: ReviewSession,
-  options: ResolveReviewDocumentPeeksOptions = {},
-): Promise<HydratedReviewDocument> {
-  const namespace = reviewSessionCacheNamespace(session);
-  let promises = documentPromiseCache.get(namespace);
-  if (!promises) {
-    while (documentPromiseCache.size >= MAX_SESSION_NAMESPACES) {
-      const staleNamespace = documentPromiseCache.keys().next().value;
-      if (staleNamespace === undefined) break;
-      documentPromiseCache.delete(staleNamespace);
-    }
-    promises = new Map();
-    documentPromiseCache.set(namespace, promises);
-  }
-  const cached = promises.get(load.contentHash);
-  if (cached) return cached;
-  while (promises.size >= MAX_DOCUMENTS_PER_SESSION) {
-    const staleHash = promises.keys().next().value;
-    if (staleHash === undefined) break;
-    promises.delete(staleHash);
-  }
-  const promise = (async () => {
-    const document = hydrateReviewDocument(load);
-    await resolveReviewDocumentPeeks(document, session, options);
-    return document;
-  })();
-  promises.set(load.contentHash, promise);
-  void promise.catch(() => {
-    if (promises?.get(load.contentHash) === promise) {
-      promises.delete(load.contentHash);
-    }
-  });
-  return promise;
-}
-
-function reviewSessionCacheNamespace(session: ReviewSession): string {
-  return JSON.stringify([
-    session.config.sessionUrl ?? "",
-    session.config.sessionId ?? "",
-    session.config.routePath ?? "/",
-  ]);
 }

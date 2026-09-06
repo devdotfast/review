@@ -169,7 +169,9 @@ function useSettledLoad<TLoad, TState>(
     let cancelled = false;
     void (async () => {
       try {
-        const settled = await settleRef.current(await bundle);
+        const load = await bundle;
+        if (cancelled) return;
+        const settled = await settleRef.current(load);
         if (!cancelled) setSettledLoad({ bundle, value: settled });
       } catch (error) {
         if (cancelled) return;

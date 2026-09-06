@@ -1,17 +1,33 @@
-import { lstat, readFile, readdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { lstat, readFile, readdir, realpath, rm } from "node:fs/promises";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
-import { jsonObject, parseJsonText } from "@dev.fast/review-protocol";
+import {
+  type JsonValue,
+  REVIEW_SCHEMA_VERSION,
+  type ReviewDesktopGlobalEvent,
+  type ReviewSessionDescriptor,
+  type ReviewVerbResponse,
+  jsonNumber,
+  jsonObject,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
 
 import { promoteReviewArtifactFiles } from "../review-artifact-promotion";
+import { readReviewDocumentBundle } from "../review-bundle";
 import {
+  type StoredReview,
+  allowsAbsentSoftwareMap,
+  materializeReviewRevision,
   parseStoredReviewRecord,
   parseStoredReviewRecordForRecovery,
+  reviewDescriptor,
 } from "../review-home";
 import { withReviewMutationLock } from "../review-mutation-lock";
 import {
   type ReviewRepairReadyRequest,
+  type ReviewRepairReadyResponse,
   assertNoActiveReviewAgentWrites,
   fingerprintReviewRepairInputs,
 } from "../review-repair-state";
@@ -20,6 +36,9 @@ import {
   readReviewThreadDatabaseFingerprint,
 } from "../review-thread-store-backend";
 import { reviewVcs } from "../review-vcs";
+import { readReviewSoftwareMapBundle } from "../software-map-bundle";
+import { ReviewServerError } from "./http-json";
+import { reviewWithPresentedDocumentPins } from "./publish-stage";
 
 /** A staged seal may extend private objects and advance main/index, but cannot
  * replace repository config, remove history, or redirect writes through links. */
@@ -129,10 +148,14 @@ export async function readPreparedReviewRepairRecord(
     throw new Error("A draft without a presentation must use review publish.");
   if (!previous.presentedSoftwareMapRevision && request.newMapRevision)
     throw new Error("Repair cannot invent an absent software map.");
+  const storedSchemaVersion =
+    jsonNumber(
+      jsonObject(parseJsonText(request.expectedRecord))?.schemaVersion,
+    ) ?? REVIEW_SCHEMA_VERSION;
   if (
     previous.presentedSoftwareMapRevision &&
     !request.newMapRevision &&
-    jsonObject(parseJsonText(request.expectedRecord))?.schemaVersion !== 2
+    !allowsAbsentSoftwareMap({ schemaVersion: storedSchemaVersion })
   )
     throw new Error("Repair cannot discard a presented software map.");
   const next = {
@@ -171,4 +194,233 @@ export async function applyPreparedReviewRepair(
     });
     return next;
   });
+}
+
+/** The subset of an active presentation session the promotion touches. */
+export interface RepairPromotionSession {
+  descriptor: { sessionId: string; sessionUrl: string };
+  review: StoredReview;
+  promoted: boolean;
+  closing: boolean;
+}
+
+/** The CLI already validated, bundled, and sealed the revision; the server
+ * materializes it, has the app mount it off-screen, and promotes it only
+ * when that mount is clean. */
+export async function promoteReviewRepair<
+  Session extends RepairPromotionSession & {
+    descriptor: ReviewSessionDescriptor;
+  },
+>(input: {
+  review: StoredReview;
+  request: ReviewRepairReadyRequest;
+  sessions: ReadonlyMap<string, Session>;
+  registerSerialized: (registration: {
+    review: StoredReview;
+    documentPath: string;
+    softwareMapRootPath?: string;
+    revision: string;
+    promoted: false;
+    repairValidation: true;
+    readOnlyThreadsPath?: string;
+  }) => Promise<Session>;
+  withReviewLock: <T>(
+    reviewUuid: string,
+    operation: () => Promise<T>,
+  ) => Promise<T>;
+  dispatch: (sessionId: string, verb: JsonValue) => Promise<ReviewVerbResponse>;
+  startSessionTelemetry: (session: Session) => Promise<void>;
+  closeSession: (
+    session: Session,
+    reason: "closed" | "replaced",
+  ) => Promise<void>;
+  broadcast: (event: ReviewDesktopGlobalEvent) => void;
+}): Promise<ReviewRepairReadyResponse> {
+  const { review, request } = input;
+  const stagingDir = await realpath(request.stagingDir);
+  const liveDir = await realpath(review.dir);
+  const relative = path.relative(liveDir, stagingDir);
+  if (
+    !relative ||
+    (!relative.startsWith(`..${path.sep}`) &&
+      relative !== ".." &&
+      !path.isAbsolute(relative))
+  )
+    throw new Error("Repair staging must be isolated from the stored review.");
+  await input.withReviewLock(request.reviewUuid, () =>
+    assertReviewRepairInputsUnchanged(review.dir, request),
+  );
+  await validateRepairStagingRepository(review.dir, stagingDir);
+  const next = await readPreparedReviewRepairRecord(request);
+  const stageFingerprint = await fingerprintReviewRepairInputs(stagingDir);
+  const stagedThreadDbFingerprint = request.expectedThreadDbFingerprint
+    ? readReviewThreadDatabaseFingerprint(path.join(stagingDir, "review.mdx"))
+    : undefined;
+  const createdBuilds: string[] = [];
+  let successor: Session | undefined;
+  try {
+    const materialize = async (revision: string) => {
+      const destination = path.join(review.dir, ".build", revision);
+      if (!existsSync(destination)) {
+        createdBuilds.push(destination);
+        try {
+          await materializeReviewRevision(stagingDir, revision, destination);
+        } catch (error) {
+          await rm(destination, { recursive: true, force: true });
+          throw error;
+        }
+      }
+      return destination;
+    };
+    const materializedRecord = async (revision: string) =>
+      materialize(revision)
+        .then(async (root) =>
+          parseStoredReviewRecordForRecovery(
+            JSON.parse(await readFile(path.join(root, "review.json"), "utf8")),
+          ),
+        )
+        .catch(() => null);
+    const documentDir = await materialize(request.newDocumentRevision);
+    const mapDir = request.newMapRevision
+      ? await materialize(request.newMapRevision)
+      : undefined;
+    if (!(await readReviewDocumentBundle(documentDir, "/")))
+      throw new ReviewServerError(
+        "Repaired document JSON is invalid.",
+        422,
+        "repair_document_invalid",
+      );
+    const presented = await reviewWithPresentedDocumentPins(
+      { dir: review.dir, review: next },
+      documentDir,
+    );
+    const expectedDocumentPins =
+      (review.review.presentedDocumentRevision
+        ? await materializedRecord(review.review.presentedDocumentRevision)
+        : null) ?? review.review;
+    if (
+      presented.review.baseCommit !== expectedDocumentPins.baseCommit ||
+      presented.review.sourceCommit !== expectedDocumentPins.sourceCommit ||
+      presented.review.baseRef !== expectedDocumentPins.baseRef ||
+      JSON.stringify(presented.review.sourceIdentity) !==
+        JSON.stringify(expectedDocumentPins.sourceIdentity)
+    )
+      throw new ReviewServerError(
+        "Repaired document must preserve its presentation's pinned commits.",
+        422,
+        "repair_document_pins",
+      );
+    if (mapDir) {
+      const map = await readReviewSoftwareMapBundle(mapDir);
+      if (!map)
+        throw new ReviewServerError(
+          "Repaired software map JSON is invalid.",
+          422,
+          "repair_map_invalid",
+        );
+      const expectedMapPins =
+        (review.review.presentedSoftwareMapRevision
+          ? await materializedRecord(review.review.presentedSoftwareMapRevision)
+          : null) ?? presented.review;
+      if (
+        map.baseCommit !== expectedMapPins.baseCommit ||
+        map.headCommit !== expectedMapPins.sourceCommit
+      )
+        throw new ReviewServerError(
+          "Repaired software map must preserve its presentation's pinned commits.",
+          422,
+          "repair_map_pins",
+        );
+    }
+    successor = await input.registerSerialized({
+      review: presented,
+      documentPath: path.join(documentDir, "review.mdx"),
+      softwareMapRootPath: mapDir,
+      revision: request.newDocumentRevision,
+      promoted: false,
+      repairValidation: true,
+      readOnlyThreadsPath: request.expectedThreadDbFingerprint
+        ? path.join(stagingDir, "review.mdx")
+        : undefined,
+    });
+    const validation = await input.dispatch(successor.descriptor.sessionId, {
+      name: "validateCanvasMount",
+      args: {},
+    });
+    if (!validation.ok)
+      throw new ReviewServerError(
+        `Repaired Review failed to mount: ${validation.error ?? "unknown error"}`,
+        422,
+        "repair_mount_failed",
+      );
+    const mounted = successor;
+    await input.withReviewLock(request.reviewUuid, async () => {
+      if (
+        mounted.closing ||
+        input.sessions.get(mounted.descriptor.sessionId) !== mounted
+      )
+        throw new Error("Repair validation session closed before promotion.");
+      if (
+        (await fingerprintReviewRepairInputs(stagingDir)) !==
+          stageFingerprint ||
+        (stagedThreadDbFingerprint !== undefined &&
+          readReviewThreadDatabaseFingerprint(
+            path.join(stagingDir, "review.mdx"),
+          ) !== stagedThreadDbFingerprint)
+      )
+        throw new Error(
+          "Prepared repair changed after mount validation; retry.",
+        );
+      mounted.review = {
+        dir: review.dir,
+        review: await applyPreparedReviewRepair(review.dir, request),
+      };
+      mounted.promoted = true;
+    });
+    // Once promoted, UI refresh failures cannot turn a committed repair into a failed command.
+    await input.startSessionTelemetry(mounted).catch(() => undefined);
+    const descriptor = await reviewDescriptor(
+      mounted.review,
+      undefined,
+      true,
+    ).catch(() => undefined);
+    input.broadcast({
+      event: "session-registered",
+      session: mounted.descriptor,
+      review: descriptor,
+    });
+    await Promise.all(
+      [...input.sessions.values()]
+        .filter(
+          (session) =>
+            session !== mounted &&
+            session.promoted &&
+            session.review.review.uuid === request.reviewUuid,
+        )
+        .map((session) =>
+          input.closeSession(session, "replaced").catch(() => undefined),
+        ),
+    );
+    void input.dispatch(mounted.descriptor.sessionId, {
+      name: "focusCanvas",
+      args: {},
+    });
+    return {
+      ok: true,
+      status: next.status,
+      oldDocumentRevision: review.review.presentedDocumentRevision,
+      oldMapRevision: review.review.presentedSoftwareMapRevision,
+      newDocumentRevision: request.newDocumentRevision,
+      newMapRevision: request.newMapRevision,
+      sessionId: mounted.descriptor.sessionId,
+      url: mounted.descriptor.sessionUrl,
+    };
+  } finally {
+    if (!successor?.promoted) {
+      if (successor)
+        await input.closeSession(successor, "closed").catch(() => undefined);
+      for (const build of createdBuilds)
+        await rm(build, { recursive: true, force: true });
+    }
+  }
 }

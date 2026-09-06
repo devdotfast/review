@@ -105,7 +105,11 @@ function reviewDocumentData(): ReviewDocumentData {
 }
 
 function ready(data = reviewDocumentData(), contentHash = "document-hash") {
-  return { state: "ready" as const, contentHash, data };
+  return {
+    state: "ready" as const,
+    contentHash,
+    data: parseJsonText(JSON.stringify(data)),
+  };
 }
 
 describe("hydrateReviewDocument", () => {

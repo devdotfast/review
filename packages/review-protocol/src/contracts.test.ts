@@ -45,6 +45,7 @@ import {
   summarizeReviewDiffFiles,
 } from "./contracts.js";
 import type { ReviewDocumentLoad, ReviewSoftwareMapLoad } from "./contracts.js";
+import { jsonValueSchema } from "./json.js";
 import type { JsonObject } from "./json.js";
 
 const repository = {
@@ -380,6 +381,31 @@ describe("Review protocol Zod contracts", () => {
 });
 
 describe("review canvas load states", () => {
+  it("carries review payloads as JSON values", () => {
+    const load = {
+      state: "ready",
+      contentHash: "h",
+      data: { format: "review-document/1", body: [] },
+    } satisfies ReviewDocumentLoad;
+    expect(jsonValueSchema.safeParse(load.data).success).toBe(true);
+
+    const maps = {
+      state: "ready",
+      contentHash: "h",
+      head: { elements: [], relationships: [] },
+      base: { elements: [], relationships: [] },
+    } satisfies ReviewSoftwareMapLoad;
+    expect(jsonValueSchema.safeParse(maps.head).success).toBe(true);
+
+    const bad = {
+      state: "ready",
+      contentHash: "h",
+      // @ts-expect-error data must be JSON
+      data: new Date(),
+    } satisfies ReviewDocumentLoad;
+    expect(bad.data).toBeInstanceOf(Date);
+  });
+
   it("keeps document and software-map loads independent", () => {
     const documentLoads = [
       { state: "ready", contentHash: "document-hash", data: {} },

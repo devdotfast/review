@@ -995,7 +995,7 @@ export interface ReviewCanvasSettingsContent {
 }
 
 export type ReviewDocumentLoad =
-  | { state: "ready"; contentHash: string; data: unknown }
+  | { state: "ready"; contentHash: string; data: JsonValue }
   | {
       state: "needs-republish";
       reviewUuid: string;
@@ -1004,7 +1004,7 @@ export type ReviewDocumentLoad =
   | { state: "unavailable"; message: string; currentReviewUuid?: string };
 
 export type ReviewSoftwareMapLoad =
-  | { state: "ready"; contentHash: string; head: unknown; base: unknown }
+  | { state: "ready"; contentHash: string; head: JsonValue; base: JsonValue }
   | { state: "needs-republish"; reviewUuid: string }
   | { state: "unavailable"; message: string; currentReviewUuid?: string };
 

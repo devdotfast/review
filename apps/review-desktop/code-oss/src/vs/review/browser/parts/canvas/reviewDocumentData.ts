@@ -7,6 +7,7 @@ import type {
 	ReviewDocumentLoad,
 	ReviewSoftwareMapLoad,
 } from "../../../common/reviewProtocol.js";
+import { parseJsonText, type JsonValue } from "../../../common/reviewProtocol.js";
 import type { ReviewDesktopSession } from "../../../services/reviewSessionModelService.js";
 
 export async function loadReviewDocumentData(
@@ -38,7 +39,7 @@ export async function fetchReviewJson(
 	session: ReviewDesktopSession,
 	url: string,
 	label: string,
-): Promise<unknown> {
+): Promise<JsonValue> {
 	const target = new URL(url, session.serverUrl);
 	const response = await fetch(target, {
 		headers: session.token
@@ -48,5 +49,5 @@ export async function fetchReviewJson(
 	if (!response.ok) {
 		throw new Error(`${label} returned ${response.status}.`);
 	}
-	return response.json();
+	return parseJsonText(await response.text());
 }

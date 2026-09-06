@@ -1,14 +1,6 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  readdir,
-  rm,
-  writeFile,
-} from "node:fs/promises";
-import os from "node:os";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Writable } from "node:stream";
 
@@ -26,9 +18,9 @@ import {
   runReviewMigration,
 } from "./migrate";
 import { createReviewDir, sealReviewCandidate } from "./review-home";
+import { cleanupTempDirs, gitRepository, tempDir } from "./review-test-utils";
 import { auditStoredReviewDocuments } from "./stored-review-document-audit";
 
-const tempRoots: string[] = [];
 type TestRunCommand = (
   command: string,
   args: string[],
@@ -41,12 +33,7 @@ type TestRunProcess = (input: {
   stderr: Writable;
 }) => Promise<number>;
 
-afterEach(async () => {
-  while (tempRoots.length > 0) {
-    const root = tempRoots.pop();
-    if (root) await rm(root, { recursive: true, force: true });
-  }
-});
+afterEach(cleanupTempDirs);
 
 describe("review migrate apply", () => {
   it("keeps a migrated terminal colocated-jj presentation and old history through every follow-on phase", async () => {
@@ -424,7 +411,7 @@ describe("jj Review repository migration", () => {
 
 describe("obsolete Desktop catalog cleanup", () => {
   it("removes only recognized direct catalog JSON files", async () => {
-    const reviewHome = await tempDir();
+    const reviewHome = await tempDir("review-migrate-");
     const desktopRoot = path.join(reviewHome, "review-desktop");
     const catalog = path.join(desktopRoot, "reviews");
     const key = "0123456789abcdef0123456789abcdef";
@@ -475,7 +462,7 @@ describe("obsolete Desktop catalog cleanup", () => {
   });
 
   it("keeps unrecognized JSON for agent review", async () => {
-    const reviewHome = await tempDir();
+    const reviewHome = await tempDir("review-migrate-");
     const catalog = path.join(reviewHome, "review-desktop", "reviews");
     await mkdir(catalog, { recursive: true });
     const unknown = path.join(catalog, "unknown.json");
@@ -493,8 +480,8 @@ describe("obsolete Desktop catalog cleanup", () => {
 
 describe("legacy skill cleanup", () => {
   it("removes positively identified obsolete skills and keeps ambiguous skills", async () => {
-    const homeDir = await tempDir();
-    const packageRoot = await tempDir();
+    const homeDir = await tempDir("review-migrate-");
+    const packageRoot = await tempDir("review-migrate-");
     const skillsRoot = path.join(homeDir, ".agents", "skills");
     const legacy = path.join(skillsRoot, "review");
     const ambiguous = path.join(skillsRoot, "review-map");
@@ -540,7 +527,7 @@ describe("legacy global CLI cleanup", () => {
     const runProcess = vi.fn<TestRunProcess>(async () => 0);
 
     const result = await removeLegacyGlobalReviewInstalls({
-      packageRoot: await tempDir(),
+      packageRoot: await tempDir("review-migrate-"),
       homeDir: fixture.homeDir,
       env: {},
       desktopManagedCli: true,
@@ -583,7 +570,7 @@ async function canonicalReview(): Promise<{
   reviewHome: string;
   reviewDir: string;
 }> {
-  const reviewHome = await tempDir();
+  const reviewHome = await tempDir("review-migrate-");
   const sourceRoot = await gitRepository();
   const created = await createReviewDir({
     reviewsHomePath: reviewHome,
@@ -594,19 +581,6 @@ async function canonicalReview(): Promise<{
     }).trim(),
   });
   return { reviewHome, reviewDir: created.dir };
-}
-
-async function gitRepository(): Promise<string> {
-  const root = await tempDir("review-migrate-source-");
-  execFileSync("git", ["init", root], { stdio: "ignore" });
-  execFileSync("git", ["-C", root, "config", "user.email", "test@example.com"]);
-  execFileSync("git", ["-C", root, "config", "user.name", "Review Test"]);
-  await writeFile(path.join(root, "README.md"), "# Source\n");
-  execFileSync("git", ["-C", root, "add", "."]);
-  execFileSync("git", ["-C", root, "commit", "-m", "initial"], {
-    stdio: "ignore",
-  });
-  return root;
 }
 
 async function globalPackage(manager: ReviewPackageManager): Promise<{
@@ -644,12 +618,6 @@ async function globalPackage(manager: ReviewPackageManager): Promise<{
     return { stdout: `${managerRoot}\n`, stderr: "" };
   });
   return { homeDir, packageRoot, runCommand };
-}
-
-async function tempDir(prefix = "review-migrate-"): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), prefix));
-  tempRoots.push(root);
-  return root;
 }
 
 function streams() {

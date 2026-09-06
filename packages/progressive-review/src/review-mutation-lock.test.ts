@@ -93,8 +93,8 @@ it("allows nested operations in the same transaction without deadlocking", async
 it("reports retryable contention and succeeds after the holder releases", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "review-busy-lock-"));
   roots.push(root);
-  const entered = deferred();
-  const release = deferred();
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
   const holding = withReviewMutationLock(root, async () => {
     entered.resolve();
     await release.promise;
@@ -159,11 +159,3 @@ process.stdin.once("data", async () => { await rm(lockPath, { recursive: true })
     withReviewMutationLock(root, async () => "retried"),
   ).resolves.toBe("retried");
 });
-
-function deferred() {
-  let resolve!: () => void;
-  const promise = new Promise<void>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-}

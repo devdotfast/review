@@ -49,8 +49,8 @@ it("takes the mutation lock around software-map write and seal", async () => {
     headCommit: commit,
     baseCommit: commit,
   });
-  const entered = deferred<void>();
-  const release = deferred<void>();
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
   const holding = withReviewMutationLock(review.dir, async () => {
     entered.resolve();
     await release.promise;
@@ -70,11 +70,3 @@ it("takes the mutation lock around software-map write and seal", async () => {
   await expect(sealing).resolves.toMatch(/^[a-f0-9]{40}$/);
   expect(bypassed).toBe(false);
 });
-
-function deferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  const promise = new Promise<T>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-}

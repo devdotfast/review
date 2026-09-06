@@ -67,10 +67,10 @@ it("prepares outside the live lock while preserving viewed and comment updates",
     path.join(review.dir, "data.ts"),
     'export { label } from "review-staging-dependency";',
   );
-  const holderReady = deferred<void>();
-  const beginUpdates = deferred<void>();
-  const updatesComplete = deferred<void>();
-  const releaseHolder = deferred<void>();
+  const holderReady = Promise.withResolvers<void>();
+  const beginUpdates = Promise.withResolvers<void>();
+  const updatesComplete = Promise.withResolvers<void>();
+  const releaseHolder = Promise.withResolvers<void>();
   let holderReleased = false;
   const holder = withReviewMutationLock(review.dir, async () => {
     holderReady.resolve();
@@ -191,8 +191,8 @@ it("resolves Review-local pnpm dependencies without copying their symlinks", asy
 it("takes the mutation lock around document write and seal", async () => {
   const { review } = await fixture();
   const document = await stageReviewDocumentPublication({ review });
-  const entered = deferred<void>();
-  const release = deferred<void>();
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
   const holding = withReviewMutationLock(review.dir, async () => {
     entered.resolve();
     await release.promise;
@@ -329,12 +329,4 @@ async function fixture() {
     'export const label = "original";',
   );
   return { home, review };
-}
-
-function deferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  const promise = new Promise<T>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
 }

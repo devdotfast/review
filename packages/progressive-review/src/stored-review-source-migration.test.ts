@@ -126,8 +126,8 @@ it("reuses a durable fork after record promotion fails", async () => {
 
 it("serializes concurrent direct migration and loader before creating a fork", async () => {
   const { review } = await fixture();
-  const entered = deferred();
-  const release = deferred();
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
   const createSourceSession = vi.fn<typeof createReviewSourceAgentSession>(
     async () => {
       entered.resolve();
@@ -283,14 +283,6 @@ async function fixture(broken = false) {
   });
   await writeFile(path.join(review.dir, "review.json"), original);
   return { review, original };
-}
-
-function deferred() {
-  let resolve!: () => void;
-  const promise = new Promise<void>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
 }
 
 const legacyDocument =

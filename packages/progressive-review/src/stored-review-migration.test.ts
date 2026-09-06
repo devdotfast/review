@@ -124,8 +124,8 @@ describe("migrateStoredReviewData", () => {
           presentedDocumentRevision: revision,
         }),
       );
-      const entered = deferred();
-      const release = deferred();
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
       const seal = reviewVcs.seal.bind(reviewVcs);
       vi.spyOn(reviewVcs, "seal").mockImplementation(async (dir, message) => {
         if (dir !== created.dir) {
@@ -1226,12 +1226,4 @@ async function tempDir(prefix = "review-migration-"): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), prefix));
   tempRoots.push(root);
   return root;
-}
-
-function deferred() {
-  let resolve!: () => void;
-  const promise = new Promise<void>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
 }

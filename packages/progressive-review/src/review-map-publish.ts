@@ -11,6 +11,7 @@ import {
 import { type CliJsonEvent, emitJsonEvent } from "./cli-output";
 import { readReviewDesktopDiscovery } from "./desktop-discovery";
 import {
+  type StoredReview,
   parseStoredReviewRecordForRecovery,
   sealReviewCandidate,
   touchReviewAgentSession,
@@ -27,6 +28,7 @@ import { resolveReviewRoot } from "./runtime";
 import { resolvePublishReview } from "./server/publish-preparation";
 import { materializePublishRevision } from "./server/publish-stage";
 import {
+  type ReviewSoftwareMapBundle,
   readReviewSoftwareMapBundle,
   sameReviewSoftwareMapBundle,
   writeReviewSoftwareMapBundle,
@@ -109,10 +111,9 @@ export async function runReviewMapPublish(input: {
     }
 
     report.stage("revision", "running");
-    const revision = await withReviewMutationLock(review.dir, async () => {
-      await assertReviewUnchanged(review.dir, review.review);
-      await writeReviewSoftwareMapBundle(review.dir, bundle);
-      return sealReviewCandidate(review.dir, "Publish Review software map");
+    const revision = await sealReviewSoftwareMapPublication({
+      review,
+      bundle,
     });
     report.stage("revision", "complete", { revision });
 
@@ -154,6 +155,17 @@ export async function runReviewMapPublish(input: {
     ]);
     return 1;
   }
+}
+
+export async function sealReviewSoftwareMapPublication(input: {
+  review: StoredReview;
+  bundle: ReviewSoftwareMapBundle;
+}): Promise<string> {
+  return withReviewMutationLock(input.review.dir, async () => {
+    await assertReviewUnchanged(input.review.dir, input.review.review);
+    await writeReviewSoftwareMapBundle(input.review.dir, input.bundle);
+    return sealReviewCandidate(input.review.dir, "Publish Review software map");
+  });
 }
 
 interface MapPublishStageDetails {

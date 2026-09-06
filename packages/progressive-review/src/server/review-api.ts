@@ -69,7 +69,7 @@ import {
   resolveReviewSessionBaseCommit,
   resolveReviewSourceTarget,
 } from "../review-worktree-target";
-import { materializeSoftwareMapAtRefWithoutEvaluation } from "../software-map-artifact";
+import { materializeSoftwareMapAtRef } from "../software-map-artifact";
 import { resolveSoftwareMapDiffCounts } from "../software-map-diff-counts";
 import type { SourceSnapshot } from "../source-code-types";
 import { resolveReviewSourceRange } from "../source-range-resolver";
@@ -1473,20 +1473,22 @@ async function rematerializeReviewSoftwareMapArtifacts(input: {
   if (!headCommit) return { status: "skipped" };
 
   const [artifactPath] = await Promise.all([
-    materializeSoftwareMapAtRefWithoutEvaluation({
+    materializeSoftwareMapAtRef({
       repoRootPath,
       ref: headCommit,
       role: "head",
+      validate: "skip",
     }),
     review.baseCommit
       ? resolveRevision(repoRootPath, review.baseCommit)
           .catch(() => null)
           .then((base) =>
             base?.commit
-              ? materializeSoftwareMapAtRefWithoutEvaluation({
+              ? materializeSoftwareMapAtRef({
                   repoRootPath,
                   ref: base.commit,
                   role: "base",
+                  validate: "skip",
                 })
               : null,
           )

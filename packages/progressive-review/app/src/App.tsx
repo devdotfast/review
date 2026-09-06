@@ -128,15 +128,19 @@ export function App({
   findHost?: ReviewFindHost;
 }): ReactElement {
   useWindowErrorTelemetry();
+  const resolved = useResolvedReviewDocument(documentState);
   return (
-    <ReviewDocumentApp
-      documentState={documentState}
-      softwareMapState={softwareMapState}
-      softwareMapEnabled={softwareMapEnabled}
-      range={range}
-      commits={commits}
-      findHost={findHost}
-    />
+    <ReviewDiffFilesProvider documentKey={resolved.diffDocumentKey}>
+      <ReviewLayout
+        resolved={resolved}
+        documentState={documentState}
+        softwareMapState={softwareMapState}
+        softwareMapEnabled={softwareMapEnabled}
+        range={range}
+        commits={commits}
+        findHost={findHost}
+      />
+    </ReviewDiffFilesProvider>
   );
 }
 
@@ -162,39 +166,32 @@ export type ReviewSoftwareMapAppState =
   | { state: "needs-republish"; reviewUuid: string }
   | { state: "unavailable"; message: string; currentReviewUuid?: string };
 
-function ReviewDocumentApp({
-  documentState,
-  softwareMapState,
-  softwareMapEnabled,
-  range,
-  commits,
-  findHost,
-}: {
-  documentState: ReviewDocumentAppState;
-  softwareMapState: ReviewSoftwareMapAppState;
-  softwareMapEnabled: boolean;
-  range: ReviewCanvasRange;
-  commits: readonly ReviewCommitSummary[];
-  findHost?: ReviewFindHost;
-}): ReactElement {
+interface ResolvedReviewDocument {
+  document: HydratedReviewDocument | null;
+  routePath: string;
+  filePath: string;
+  /** Identity of what the panes render: content hash, or the load state. */
+  revision: string;
+  diffDocumentKey: string;
+}
+
+function useResolvedReviewDocument(
+  documentState: ReviewDocumentAppState,
+): ResolvedReviewDocument {
   const session = useReviewSession();
-  const document =
-    documentState.state === "ready" ? documentState.document : null;
-  const documentRoute = document?.routePath ?? session.config.routePath ?? "/";
-  const documentFile = document?.filePath ?? documentRoute;
-  const diffDocumentKey = [documentRoute, documentFile].join("\0");
-  return (
-    <ReviewDiffFilesProvider documentKey={diffDocumentKey}>
-      <ReviewLayout
-        documentState={documentState}
-        softwareMapState={softwareMapState}
-        softwareMapEnabled={softwareMapEnabled}
-        range={range}
-        commits={commits}
-        findHost={findHost}
-      />
-    </ReviewDiffFilesProvider>
-  );
+  return useMemo(() => {
+    const document =
+      documentState.state === "ready" ? documentState.document : null;
+    const routePath = document?.routePath ?? session.config.routePath ?? "/";
+    const filePath = document?.filePath ?? routePath;
+    return {
+      document,
+      routePath,
+      filePath,
+      revision: document?.contentHash ?? `${documentState.state}:${routePath}`,
+      diffDocumentKey: [routePath, filePath].join("\0"),
+    };
+  }, [documentState, session]);
 }
 
 function useWindowErrorTelemetry(): void {
@@ -209,6 +206,7 @@ function useWindowErrorTelemetry(): void {
 }
 
 function ReviewLayout({
+  resolved,
   documentState,
   softwareMapState,
   softwareMapEnabled,
@@ -216,6 +214,7 @@ function ReviewLayout({
   commits,
   findHost,
 }: {
+  resolved: ResolvedReviewDocument;
   documentState: ReviewDocumentAppState;
   softwareMapState: ReviewSoftwareMapAppState;
   softwareMapEnabled: boolean;
@@ -223,14 +222,13 @@ function ReviewLayout({
   commits: readonly ReviewCommitSummary[];
   findHost?: ReviewFindHost;
 }): ReactElement {
-  const session = useReviewSession();
-  const document =
-    documentState.state === "ready" ? documentState.document : null;
+  const {
+    document,
+    routePath: documentRoute,
+    revision: documentRevision,
+  } = resolved;
   const softwareMap =
     softwareMapState.state === "ready" ? softwareMapState.softwareMap : null;
-  const documentRoute = document?.routePath ?? session.config.routePath ?? "/";
-  const documentRevision =
-    document?.contentHash ?? `${documentState.state}:${documentRoute}`;
   const articleRef = useRef<HTMLElement | null>(null);
   const appRef = useRef<HTMLDivElement | null>(null);
   const shellRef = useRef<HTMLElement | null>(null);

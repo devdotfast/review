@@ -14,7 +14,12 @@ import {
   REVIEW_AGENT_THREAD_URL_ENV,
 } from "./native-agent/terminal-command";
 import { reviewUuidForManagedCheckout } from "./review-head-checkout";
-import { type StoredReview, findReview, listReviews } from "./review-home";
+import {
+  type StoredReview,
+  findReview,
+  findScopedReview,
+  listReviews,
+} from "./review-home";
 import {
   appendReviewAgentMessage,
   readReviewComments,
@@ -228,10 +233,11 @@ async function reviewsForThreads(
     return review ? [review] : [];
   }
   if (reviewUuid) {
-    const selected = await findReview(reviewUuid);
-    return selected && selected.review.worktreePath === path.resolve(cwd)
-      ? [selected]
-      : [];
+    const selected = await findScopedReview(reviewUuid, {
+      worktreePath: cwd,
+      includeTerminal: true,
+    });
+    return selected ? [selected] : [];
   }
   const listed = await listReviews({ worktreePath: cwd });
   if (listed.errors.length > 0) {

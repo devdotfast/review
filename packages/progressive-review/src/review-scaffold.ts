@@ -31,7 +31,7 @@ import {
   type StoredReview,
   createReviewDir,
   createReviewUuid,
-  findReview,
+  findScopedReview,
   listReviews,
   updateReviewPins,
 } from "./review-home";
@@ -585,14 +585,10 @@ async function findUpdateTarget(
 ): Promise<StoredReview | null> {
   const reviewRoot = await resolveReviewRoot(cwd);
   if (reviewUuid) {
-    const selected = await findReview(reviewUuid);
-    if (
-      !selected ||
-      selected.review.worktreePath !== reviewRoot ||
-      selected.review.status === "accepted" ||
-      selected.review.status === "rejected"
-    )
-      throw new Error(`Active review not found: ${reviewUuid}`);
+    const selected = await findScopedReview(reviewUuid, {
+      worktreePath: reviewRoot,
+    });
+    if (!selected) throw new Error(`Active review not found: ${reviewUuid}`);
     return selected;
   }
   const listed = await listReviews({

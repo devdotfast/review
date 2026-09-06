@@ -62,7 +62,7 @@ import { writePrivateJsonAtomic } from "./server/desktop-paths";
 import { resolveReviewRepositoryIdentity } from "./server/repository-identity";
 import { withFileLock } from "./with-file-lock";
 
-const UUID_PATTERN =
+export const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface CreateReviewDirBinding {
@@ -508,6 +508,36 @@ export async function findReviewForRepair(
       }),
     ]);
   return { dir, review };
+}
+
+/**
+ * The one rule for "this UUID, in this checkout".
+ *
+ * Returns null for every out-of-scope answer — not found, bound elsewhere, already
+ * terminal — and lets each caller decide between throwing and an empty result.
+ */
+export async function findScopedReview(
+  uuid: string,
+  scope: {
+    worktreePath: string;
+    /** Accepted and rejected reviews are out of scope unless asked for. */
+    includeTerminal?: boolean;
+    /** Repair must reach reviews whose review.json predates the current schema. */
+    includeLegacySchema?: boolean;
+  },
+): Promise<StoredReview | null> {
+  const found = await (
+    scope.includeLegacySchema ? findReviewForRepair : findReview
+  )(uuid);
+  if (!found) return null;
+  if (found.review.worktreePath !== path.resolve(scope.worktreePath))
+    return null;
+  if (
+    !scope.includeTerminal &&
+    (found.review.status === "accepted" || found.review.status === "rejected")
+  )
+    return null;
+  return found;
 }
 
 async function findReviewRecord(uuid: string): Promise<StoredReview | null> {

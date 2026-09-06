@@ -11,14 +11,18 @@ import { readReviewDesktopDiscovery } from "./desktop-discovery";
 import { runReviewAppLaunch } from "./review-app-launcher";
 import { type ReviewPickerItem, pickReview } from "./review-app-picker";
 import { actionableReviewsForCheckout } from "./review-change-scope";
-import { type StoredReview, findReview, listReviews } from "./review-home";
+import {
+  type StoredReview,
+  findScopedReview,
+  listReviews,
+} from "./review-home";
 import { resolveReviewRoot } from "./runtime";
 
 interface ReviewAppRuntime {
   launch: typeof runReviewAppLaunch;
   readReviewDesktopDiscovery: typeof readReviewDesktopDiscovery;
   listReviews: typeof listReviews;
-  findReview: typeof findReview;
+  findScopedReview: typeof findScopedReview;
   resolveReviewRoot: typeof resolveReviewRoot;
   pickReview: typeof pickReview;
   fetch: typeof globalThis.fetch;
@@ -48,7 +52,7 @@ export async function runReviewAppPick(
     launch: runReviewAppLaunch,
     readReviewDesktopDiscovery,
     listReviews,
-    findReview,
+    findScopedReview,
     resolveReviewRoot,
     pickReview,
     fetch: globalThis.fetch,
@@ -95,10 +99,12 @@ async function selectAppReview(
   runtime: ReviewAppRuntime,
 ): Promise<StoredReview | null> {
   if (input.reviewUuid) {
-    const selected = await runtime.findReview(input.reviewUuid);
-    if (!selected || selected.review.worktreePath !== reviewRoot)
-      throw new Error(`Review not found: ${input.reviewUuid}`);
-    return resolveAppReview([selected], input.reviewUuid);
+    const selected = await runtime.findScopedReview(input.reviewUuid, {
+      worktreePath: reviewRoot,
+      includeTerminal: true,
+    });
+    if (!selected) throw new Error(`Review not found: ${input.reviewUuid}`);
+    return requirePublishedReview(selected);
   }
   const listed = await runtime.listReviews({ worktreePath: reviewRoot });
   if (listed.errors.length > 0)
@@ -112,15 +118,10 @@ async function selectAppReview(
   );
 }
 
-function resolveAppReview(
-  reviews: readonly StoredReview[],
-  reviewUuid: string,
-): StoredReview {
-  const selected = reviews.find((review) => review.review.uuid === reviewUuid);
-  if (!selected) throw new Error(`Review not found: ${reviewUuid}`);
+function requirePublishedReview(selected: StoredReview): StoredReview {
   if (selected.review.presentedDocumentRevision === null) {
     throw new Error(
-      `Review ${reviewUuid} is not published. Run \`review publish --review ${reviewUuid}\` first.`,
+      `Review ${selected.review.uuid} is not published. Run \`review publish --review ${selected.review.uuid}\` first.`,
     );
   }
   return selected;
@@ -159,7 +160,9 @@ async function pickAppReview(
     stdout: input.stdout,
   });
   if (!picked) return null;
-  return resolveAppReview(reviews, picked.uuid);
+  const selected = reviews.find((review) => review.review.uuid === picked.uuid);
+  if (!selected) throw new Error(`Review not found: ${picked.uuid}`);
+  return requirePublishedReview(selected);
 }
 
 function reviewAppResponseError(payload: JsonValue, status: number): string {

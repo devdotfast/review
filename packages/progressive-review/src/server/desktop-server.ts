@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { existsSync } from "node:fs";
-import { readFile, readdir, realpath, rm, stat } from "node:fs/promises";
+import { readFile, readdir, rm, stat } from "node:fs/promises";
 import { type Server, createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
@@ -62,7 +62,6 @@ import {
   reviewReapsAt,
   selectReapableReviews,
 } from "../review-attention";
-import { readReviewDocumentBundle } from "../review-bundle";
 import { listReviewDocumentVersions } from "../review-document-versions";
 import {
   ensureReviewPinnedCheckout,
@@ -77,7 +76,6 @@ import {
   findReview,
   findReviewForRepair,
   listReviews,
-  materializeReviewRevision,
   parseStoredReviewRecord,
   parseStoredReviewRecordForRecovery,
   reviewDescriptor,
@@ -99,13 +97,8 @@ import {
   requireClosedThreadsForRepublish,
 } from "../review-publish-thread-gate";
 import { clearReopenPending, markReopenPending } from "../review-reopen-marker";
-import {
-  type ReviewRepairReadyRequest,
-  ReviewRepairReadyRequestSchema,
-  fingerprintReviewRepairInputs,
-} from "../review-repair-state";
+import { ReviewRepairReadyRequestSchema } from "../review-repair-state";
 import { devReviewHome } from "../review-storage";
-import { readReviewThreadDatabaseFingerprint } from "../review-thread-store-backend";
 import { readReviewSoftwareMapBundle } from "../software-map-bundle";
 import { createTutorialAuthoringSession } from "../tutorial-authoring-session";
 import type { ReviewSubmissionEvent } from "../types";
@@ -137,16 +130,14 @@ import {
   jsonResponse,
   readBoundedRequestJson,
 } from "./hono-http";
-import { HttpJsonError } from "./http-json";
-import { materializePublishRevision } from "./publish-stage";
+import { HttpJsonError, ReviewServerError } from "./http-json";
+import {
+  materializePublishRevision,
+  reviewWithPresentedDocumentPins,
+} from "./publish-stage";
 import { captureSanitizedUiTelemetry } from "./review-api";
 import { resolveReviewInfo } from "./review-info";
-import {
-  applyPreparedReviewRepair,
-  assertReviewRepairInputsUnchanged,
-  readPreparedReviewRepairRecord,
-  validateRepairStagingRepository,
-} from "./review-repair-promotion";
+import { promoteReviewRepair } from "./review-repair-promotion";
 import {
   type ReviewSessionHandler,
   createReviewSessionHandler,
@@ -259,18 +250,6 @@ interface TutorialAuthoringState {
     controller: AbortController;
     promise: Promise<SessionRef | undefined>;
   };
-}
-
-class ReviewServerError extends Error {
-  override readonly name = "ReviewServerError";
-
-  constructor(
-    message: string,
-    readonly statusCode: number,
-    readonly code?: string,
-  ) {
-    super(message);
-  }
 }
 
 export interface GlobalReviewServerInput {
@@ -951,7 +930,22 @@ export function createGlobalReviewServer(
     const request = ReviewRepairReadyRequestSchema.parse(
       await readBoundedRequestJson(context.req.raw),
     );
-    return globalJson(201, await mountRepairedReview(request));
+    const review = await findReviewForRepair(request.reviewUuid);
+    if (!review) throw new ReviewServerError("Review not found.", 404);
+    return globalJson(
+      201,
+      await promoteReviewRepair({
+        review,
+        request,
+        sessions,
+        registerSerialized,
+        withReviewLock,
+        dispatch: (sessionId, verb) => relay.dispatch(sessionId, verb),
+        startSessionTelemetry,
+        closeSession: (session, reason) => closeSession(session, reason, false),
+        broadcast: broadcastGlobal,
+      }),
+    );
   });
   app.post("/map-publish-ready", async (context) => {
     try {
@@ -1127,207 +1121,6 @@ export function createGlobalReviewServer(
     if (!validation.ok) return [];
     const parsed = MountVerbResultSchema.safeParse(validation.result);
     return parsed.success ? (parsed.data.timings ?? []) : [];
-  }
-
-  async function mountRepairedReview(request: ReviewRepairReadyRequest) {
-    const review = await findReviewForRepair(request.reviewUuid);
-    if (!review) throw new ReviewServerError("Review not found.", 404);
-    const stagingDir = await realpath(request.stagingDir);
-    const liveDir = await realpath(review.dir);
-    const relative = path.relative(liveDir, stagingDir);
-    if (
-      !relative ||
-      (!relative.startsWith(`..${path.sep}`) &&
-        relative !== ".." &&
-        !path.isAbsolute(relative))
-    )
-      throw new Error(
-        "Repair staging must be isolated from the stored review.",
-      );
-    await withReviewLock(request.reviewUuid, () =>
-      assertReviewRepairInputsUnchanged(review.dir, request),
-    );
-    await validateRepairStagingRepository(review.dir, stagingDir);
-    const next = await readPreparedReviewRepairRecord(request);
-    const stageFingerprint = await fingerprintReviewRepairInputs(stagingDir);
-    const stagedThreadDbFingerprint = request.expectedThreadDbFingerprint
-      ? readReviewThreadDatabaseFingerprint(path.join(stagingDir, "review.mdx"))
-      : undefined;
-    const createdBuilds: string[] = [];
-    let successor: ActiveReviewSession | undefined;
-    try {
-      const materialize = async (revision: string) => {
-        const destination = path.join(review.dir, ".build", revision);
-        if (!existsSync(destination)) {
-          createdBuilds.push(destination);
-          try {
-            await materializeReviewRevision(stagingDir, revision, destination);
-          } catch (error) {
-            await rm(destination, { recursive: true, force: true });
-            throw error;
-          }
-        }
-        return destination;
-      };
-      const documentDir = await materialize(request.newDocumentRevision);
-      const mapDir = request.newMapRevision
-        ? await materialize(request.newMapRevision)
-        : undefined;
-      if (!(await readReviewDocumentBundle(documentDir, "/")))
-        throw new ReviewServerError(
-          "Repaired document JSON is invalid.",
-          422,
-          "repair_document_invalid",
-        );
-      const presented = await reviewWithPresentedDocumentPins(
-        { dir: review.dir, review: next },
-        documentDir,
-      );
-      const previousDocument = review.review.presentedDocumentRevision
-        ? await materialize(review.review.presentedDocumentRevision)
-            .then(async (root) =>
-              parseStoredReviewRecordForRecovery(
-                JSON.parse(
-                  await readFile(path.join(root, "review.json"), "utf8"),
-                ),
-              ),
-            )
-            .catch(() => null)
-        : null;
-      const expectedDocumentPins = previousDocument ?? review.review;
-      if (
-        presented.review.baseCommit !== expectedDocumentPins.baseCommit ||
-        presented.review.sourceCommit !== expectedDocumentPins.sourceCommit ||
-        presented.review.baseRef !== expectedDocumentPins.baseRef ||
-        JSON.stringify(presented.review.sourceIdentity) !==
-          JSON.stringify(expectedDocumentPins.sourceIdentity)
-      )
-        throw new ReviewServerError(
-          "Repaired document must preserve its presentation's pinned commits.",
-          422,
-          "repair_document_pins",
-        );
-      if (mapDir) {
-        const map = await readReviewSoftwareMapBundle(mapDir);
-        if (!map)
-          throw new ReviewServerError(
-            "Repaired software map JSON is invalid.",
-            422,
-            "repair_map_invalid",
-          );
-        const previousMap = review.review.presentedSoftwareMapRevision
-          ? await materialize(review.review.presentedSoftwareMapRevision)
-              .then(async (root) =>
-                parseStoredReviewRecordForRecovery(
-                  JSON.parse(
-                    await readFile(path.join(root, "review.json"), "utf8"),
-                  ),
-                ),
-              )
-              .catch(() => null)
-          : null;
-        const expectedMapPins = previousMap ?? presented.review;
-        if (
-          map.baseCommit !== expectedMapPins.baseCommit ||
-          map.headCommit !== expectedMapPins.sourceCommit
-        )
-          throw new ReviewServerError(
-            "Repaired software map must preserve its presentation's pinned commits.",
-            422,
-            "repair_map_pins",
-          );
-      }
-      successor = await registerSerialized({
-        review: presented,
-        documentPath: path.join(documentDir, "review.mdx"),
-        softwareMapRootPath: mapDir,
-        revision: request.newDocumentRevision,
-        promoted: false,
-        repairValidation: true,
-        readOnlyThreadsPath: request.expectedThreadDbFingerprint
-          ? path.join(stagingDir, "review.mdx")
-          : undefined,
-      });
-      const validation = await relay.dispatch(successor.descriptor.sessionId, {
-        name: "validateCanvasMount",
-        args: {},
-      });
-      if (!validation.ok)
-        throw new ReviewServerError(
-          `Repaired Review failed to mount: ${validation.error ?? "unknown error"}`,
-          422,
-          "repair_mount_failed",
-        );
-      const mounted = successor;
-      await withReviewLock(request.reviewUuid, async () => {
-        if (
-          mounted.closing ||
-          sessions.get(mounted.descriptor.sessionId) !== mounted
-        )
-          throw new Error("Repair validation session closed before promotion.");
-        if (
-          (await fingerprintReviewRepairInputs(stagingDir)) !==
-            stageFingerprint ||
-          (stagedThreadDbFingerprint !== undefined &&
-            readReviewThreadDatabaseFingerprint(
-              path.join(stagingDir, "review.mdx"),
-            ) !== stagedThreadDbFingerprint)
-        )
-          throw new Error(
-            "Prepared repair changed after mount validation; retry.",
-          );
-        mounted.review = {
-          dir: review.dir,
-          review: await applyPreparedReviewRepair(review.dir, request),
-        };
-        mounted.promoted = true;
-      });
-      // Once promoted, UI refresh failures cannot turn a committed repair into a failed command.
-      await startSessionTelemetry(mounted).catch(() => undefined);
-      const descriptor = await reviewDescriptor(
-        mounted.review,
-        undefined,
-        true,
-      ).catch(() => undefined);
-      broadcastGlobal({
-        event: "session-registered",
-        session: mounted.descriptor,
-        review: descriptor,
-      });
-      await Promise.all(
-        [...sessions.values()]
-          .filter(
-            (session) =>
-              session !== mounted &&
-              session.promoted &&
-              session.review.review.uuid === request.reviewUuid,
-          )
-          .map((session) =>
-            closeSession(session, "replaced", false).catch(() => undefined),
-          ),
-      );
-      void relay.dispatch(mounted.descriptor.sessionId, {
-        name: "focusCanvas",
-        args: {},
-      });
-      return {
-        ok: true,
-        status: next.status,
-        oldDocumentRevision: review.review.presentedDocumentRevision,
-        oldMapRevision: review.review.presentedSoftwareMapRevision,
-        newDocumentRevision: request.newDocumentRevision,
-        newMapRevision: request.newMapRevision,
-        sessionId: mounted.descriptor.sessionId,
-        url: mounted.descriptor.sessionUrl,
-      };
-    } finally {
-      if (!successor?.promoted) {
-        if (successor)
-          await closeSession(successor, "closed", false).catch(() => undefined);
-        for (const build of createdBuilds)
-          await rm(build, { recursive: true, force: true });
-      }
-    }
   }
 
   async function mountPublishedDocument(
@@ -2814,27 +2607,6 @@ async function promoteSoftwareMap(
   };
   await writePrivateJsonAtomic(path.join(stored.dir, "review.json"), review);
   return { ...stored, review };
-}
-
-async function reviewWithPresentedDocumentPins(
-  stored: StoredReview,
-  documentBuildDir: string,
-): Promise<StoredReview> {
-  const presented = parseStoredReviewRecordForRecovery(
-    JSON.parse(
-      await readFile(path.join(documentBuildDir, "review.json"), "utf8"),
-    ),
-  );
-  return {
-    ...stored,
-    review: {
-      ...stored.review,
-      baseRef: presented.baseRef,
-      baseCommit: presented.baseCommit,
-      sourceCommit: presented.sourceCommit,
-      sourceIdentity: presented.sourceIdentity,
-    },
-  };
 }
 
 async function presentedMapRoot(

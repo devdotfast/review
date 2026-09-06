@@ -1,7 +1,11 @@
-import { mkdir, stat } from "node:fs/promises";
+import { mkdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
-import { type StoredReview, materializeReviewRevision } from "../review-home";
+import {
+  type StoredReview,
+  materializeReviewRevision,
+  parseStoredReviewRecordForRecovery,
+} from "../review-home";
 
 export async function materializePublishRevision(input: {
   review: StoredReview;
@@ -24,4 +28,27 @@ export async function materializePublishRevision(input: {
     destinationPath,
   );
   return destinationPath;
+}
+
+/** A presentation is pinned by the revision it was sealed from, not by the
+ * review's current pins. */
+export async function reviewWithPresentedDocumentPins(
+  stored: StoredReview,
+  documentBuildDir: string,
+): Promise<StoredReview> {
+  const presented = parseStoredReviewRecordForRecovery(
+    JSON.parse(
+      await readFile(path.join(documentBuildDir, "review.json"), "utf8"),
+    ),
+  );
+  return {
+    ...stored,
+    review: {
+      ...stored.review,
+      baseRef: presented.baseRef,
+      baseCommit: presented.baseCommit,
+      sourceCommit: presented.sourceCommit,
+      sourceIdentity: presented.sourceIdentity,
+    },
+  };
 }

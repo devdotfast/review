@@ -22,6 +22,7 @@ import { createLegacyCodeRecordMigrator } from "./review-code-target-migration";
 import { isDerivedReviewPath } from "./review-derived-paths";
 import {
   type StoredReviewRecord,
+  allowsAbsentSoftwareMap,
   materializeReviewRevision,
   parseStoredReviewRecordForRecovery,
   sealReviewCandidate,
@@ -76,9 +77,9 @@ export async function prepareReviewRepair(input: {
         path.join(input.reviewDir, "review.json"),
         "utf8",
       );
-      const review = parseStoredReviewRecordForRecovery(
-        parseJsonText(expectedRecord),
-      );
+      const expectedValue = parseJsonText(expectedRecord);
+      const review = parseStoredReviewRecordForRecovery(expectedValue);
+      const schemaVersion = Number(jsonObject(expectedValue)?.schemaVersion);
       if (review.uuid !== path.basename(input.reviewDir))
         throw new Error("Review UUID does not match its storage directory.");
       if (!review.presentedDocumentRevision)
@@ -115,6 +116,7 @@ export async function prepareReviewRepair(input: {
         review,
         expectedRecord,
         expectedFingerprint,
+        schemaVersion,
         threadDbFingerprint,
       };
     });
@@ -254,11 +256,7 @@ export async function prepareReviewRepair(input: {
         if (!readyMap) {
           const bundle = await legacySoftwareMapBundle(mapDir);
           if (!bundle) {
-            if (
-              jsonObject(parseJsonText(snapshot.expectedRecord))
-                ?.schemaVersion === 2
-            )
-              mapRevision = null;
+            if (allowsAbsentSoftwareMap(snapshot)) mapRevision = null;
             else throw new Error("The presented software map is missing.");
           } else {
             await writeReviewSoftwareMapBundle(stagingDir, bundle);
@@ -304,8 +302,7 @@ export async function prepareReviewRepair(input: {
       !mapChanged &&
       !threadDbUpgraded &&
       mapRevision === review.presentedSoftwareMapRevision &&
-      jsonObject(parseJsonText(snapshot.expectedRecord))?.schemaVersion ===
-        REVIEW_SCHEMA_VERSION
+      snapshot.schemaVersion === REVIEW_SCHEMA_VERSION
     ) {
       await cleanup();
       return { kind: "noop", review };

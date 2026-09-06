@@ -853,6 +853,17 @@ export function parseStoredReviewRecord(value: JsonValue): StoredReviewRecord {
   return StoredReviewRecordSchema.parse(stripLegacySoftwareMap(value));
 }
 
+/** Schema 2 predates the required software map, so a schema-2 presentation may
+ * legitimately have a document and no map. Every later schema must keep the
+ * map it presents. */
+const ABSENT_SOFTWARE_MAP_SCHEMA_VERSION = 2;
+
+export function allowsAbsentSoftwareMap(record: {
+  schemaVersion: number;
+}): boolean {
+  return record.schemaVersion === ABSENT_SOFTWARE_MAP_SCHEMA_VERSION;
+}
+
 /** Strict metadata-only adapter. No files, artifacts, or stored schema are changed. */
 export function parseStoredReviewRecordForRecovery(
   value: JsonValue,

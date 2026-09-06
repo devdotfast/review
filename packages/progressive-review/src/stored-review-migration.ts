@@ -35,6 +35,7 @@ import {
 } from "./review-head-checkout";
 import {
   type StoredReviewRecord,
+  allowsAbsentSoftwareMap,
   materializeReviewRevision,
   parseStoredReviewRecord,
   parseStoredReviewRecordForMigration,
@@ -364,7 +365,9 @@ async function migrateStoredReviewLocked(
       reviewDir: input.reviewDir,
       review: migratedRecord,
       original: value,
-      allowAbsentMap: schemaVersion === 2,
+      allowAbsentMap: allowsAbsentSoftwareMap({
+        schemaVersion: Number(schemaVersion),
+      }),
       log: input.log,
       promoteArtifacts: input.promoteArtifacts,
       finalizeSource: async (record) => {

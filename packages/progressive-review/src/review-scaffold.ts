@@ -551,7 +551,7 @@ async function rejectDuplicateActiveReviews(
 ): Promise<void> {
   const listed = await listReviews({
     worktreePath: reviewRoot,
-    includeUnscopedErrors: true,
+    reportUnreadableReviews: true,
   });
   if (listed.errors.length > 0) {
     throw new Error(
@@ -593,7 +593,7 @@ async function findUpdateTarget(
   }
   const listed = await listReviews({
     worktreePath: reviewRoot,
-    includeUnscopedErrors: true,
+    reportUnreadableReviews: true,
   });
   if (listed.errors.length > 0) {
     throw new Error(

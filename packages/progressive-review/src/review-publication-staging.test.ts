@@ -67,12 +67,14 @@ it("prepares outside the live lock while preserving viewed and comment updates",
     path.join(review.dir, "data.ts"),
     'export { label } from "review-staging-dependency";',
   );
-  let staging!: ReturnType<typeof stageReviewDocumentPublication>;
-  let stagingDir!: string;
-  // Staging must make progress while another writer holds the live lock.
-  await withReviewMutationLock(review.dir, async () => {
-    staging = stageReviewDocumentPublication({ review });
-    stagingDir = await waitForStagingCopy(path.dirname(review.dir));
+  const holderReady = deferred<void>();
+  const beginUpdates = deferred<void>();
+  const updatesComplete = deferred<void>();
+  const releaseHolder = deferred<void>();
+  let holderReleased = false;
+  const holder = withReviewMutationLock(review.dir, async () => {
+    holderReady.resolve();
+    await beginUpdates.promise;
     await markReviewViewed(review, new Date("2026-09-05T12:00:00Z"));
     appendReviewComment(path.join(review.dir, "review.mdx"), {
       threadId: "during-compile",
@@ -81,8 +83,27 @@ it("prepares outside the live lock while preserving viewed and comment updates",
       body: "Preserve this",
       author: "Reviewer",
     });
+    updatesComplete.resolve();
+    await releaseHolder.promise;
+    holderReleased = true;
   });
-  const document = await staging;
+  let staging: ReturnType<typeof stageReviewDocumentPublication> | undefined;
+  let document!: Awaited<ReturnType<typeof stageReviewDocumentPublication>>;
+  let stagingDir!: string;
+  try {
+    await Promise.race([holderReady.promise, holder]);
+    staging = stageReviewDocumentPublication({ review });
+    stagingDir = await waitForStagingCopy(path.dirname(review.dir));
+    beginUpdates.resolve();
+    await Promise.race([updatesComplete.promise, holder]);
+    document = await staging;
+    expect(holderReleased).toBe(false);
+  } finally {
+    beginUpdates.resolve();
+    releaseHolder.resolve();
+    if (staging) await Promise.allSettled([staging]);
+    await holder;
+  }
   expect(existsSync(stagingDir)).toBe(false);
   expect(existsSync(path.join(review.dir, ".bundle"))).toBe(false);
   expect(JSON.stringify(reviewDocumentBundleData(document.bundle))).toContain(
@@ -104,7 +125,7 @@ it("prepares outside the live lock while preserving viewed and comment updates",
   expect(reviewDocumentBundleData(materializedBundle)).toEqual(
     reviewDocumentBundleData(document.bundle),
   );
-});
+}, 15_000);
 
 /** The staging copy lands in a `.review-publish-` sibling of the review dir. */
 async function waitForStagingCopy(reviewsDir: string): Promise<string> {

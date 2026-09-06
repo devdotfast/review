@@ -6,6 +6,7 @@ import {
 import { useMemo, useState } from "react";
 
 import { useReviewSession } from "./host/review-session";
+import { ReviewUnavailable } from "./review-empty-state";
 import { useReviewPanel } from "./review-panel";
 import { captureUiEvent } from "./ui-telemetry";
 
@@ -25,10 +26,11 @@ export function ReviewCommitsView({
 }) {
   if (range.sourceUnavailable) {
     return (
-      <div className="review-document-load-state" role="status">
-        <h2>Commits unavailable</h2>
-        <p>{range.sourceUnavailable}</p>
-      </div>
+      <ReviewUnavailable
+        role="status"
+        title="Commits unavailable"
+        message={range.sourceUnavailable}
+      />
     );
   }
   return (

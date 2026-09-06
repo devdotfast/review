@@ -67,8 +67,8 @@ it("reports loader, open, and CLI contention as busy and allows migration after 
     port: 0,
     discoveryPath: path.join(home, "desktop.json"),
   });
-  const entered = deferred();
-  const release = deferred();
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
   const holding = withReviewMutationLock(review.dir, async () => {
     entered.resolve();
     await release.promise;
@@ -213,11 +213,3 @@ it.each(["thread-commands", "revisions"])(
     }
   },
 );
-
-function deferred() {
-  let resolve!: () => void;
-  const promise = new Promise<void>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-}

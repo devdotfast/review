@@ -2,7 +2,9 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "jsx": "react-jsx",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    // ES2024 for Promise.withResolvers; the runtime floor is Node 24
+    // (package.json engines) and tsdown targets node24.
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "noEmit": true,
     "types": ["node"]
   },

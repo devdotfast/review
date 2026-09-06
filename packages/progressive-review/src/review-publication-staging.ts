@@ -35,7 +35,6 @@ interface StagedReviewDocument {
 
 export async function stageReviewDocumentPublication(input: {
   review: StoredReview;
-  prepareDocument?: typeof prepareReviewDocumentBundle;
 }): Promise<StagedReviewDocument> {
   const stagingDir = await mkdtemp(
     path.join(path.dirname(input.review.dir), ".review-publish-"),
@@ -63,9 +62,7 @@ export async function stageReviewDocumentPublication(input: {
       path.join(stagingDir, "review.json"),
       JSON.stringify(input.review.review),
     );
-    const prepared = await (
-      input.prepareDocument ?? prepareReviewDocumentBundle
-    )({
+    const prepared = await prepareReviewDocumentBundle({
       review: { ...input.review, dir: stagingDir },
     });
     return {

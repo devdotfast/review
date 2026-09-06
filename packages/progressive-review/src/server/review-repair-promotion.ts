@@ -20,7 +20,6 @@ import {
   readReviewThreadDatabaseFingerprint,
 } from "../review-thread-store-backend";
 import { reviewVcs } from "../review-vcs";
-import { writePrivateJsonAtomic } from "./desktop-paths";
 
 /** A staged seal may extend private objects and advance main/index, but cannot
  * replace repository config, remove history, or redirect writes through links. */
@@ -158,7 +157,6 @@ export async function readPreparedReviewRepairRecord(
 export async function applyPreparedReviewRepair(
   dir: string,
   request: ReviewRepairReadyRequest,
-  dependencies: { writeRecord?: typeof writePrivateJsonAtomic } = {},
 ) {
   return withReviewMutationLock(dir, async () => {
     await assertReviewRepairInputsUnchanged(dir, request);
@@ -169,7 +167,6 @@ export async function applyPreparedReviewRepair(
       reviewDir: dir,
       candidateDir: request.stagingDir,
       record: next,
-      writeRecord: dependencies.writeRecord,
       upgradeThreadDatabase: Boolean(request.expectedThreadDbFingerprint),
     });
     return next;

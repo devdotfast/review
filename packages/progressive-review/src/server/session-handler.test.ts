@@ -135,6 +135,48 @@ describe("createReviewSessionHandler", () => {
       await handler.close();
     }
   });
+
+  it("reports a stale map on a missing document even when only the map is unavailable", async () => {
+    rootPath = await mkdtemp(path.join(tmpdir(), "review-map-stale-"));
+    const reviewPath = path.join(rootPath, "review.mdx");
+    await writeFile(reviewPath, "# Review");
+    const handler = await createReviewSessionHandler({
+      ...unusedAgentServices,
+      rootPath,
+      toolingRoot: rootPath,
+      reviewPath,
+      routePath: "/",
+      token: "secret",
+      reviewUuid: "11111111-1111-4111-8111-111111111111",
+      artifacts: { map: "Map revision is missing." },
+      session: {
+        rootPath,
+        baseRef: "HEAD",
+        appUrl: "http://127.0.0.1:5570",
+        reviewPath,
+        startedAt: Date.now(),
+      },
+    });
+    try {
+      const response = await handler.handle(
+        new Request("http://127.0.0.1:5570/__progressive-review/document", {
+          headers: { "x-review-token": "secret" },
+        }),
+      );
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({
+        error: needsRepublishError,
+        detail: {
+          code: "needs_republish",
+          reviewUuid: "11111111-1111-4111-8111-111111111111",
+          mapStale: true,
+        },
+      });
+    } finally {
+      await handler.close();
+    }
+  });
+
   it("keeps repair validation and historical artifact states independent and read-only", async () => {
     rootPath = await mkdtemp(path.join(tmpdir(), "review-recovery-handler-"));
     const reviewPath = path.join(rootPath, "review.mdx");

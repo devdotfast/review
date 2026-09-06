@@ -1,32 +1,19 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { cleanupTempDirs, tempDir } from "./review-test-utils";
 import { reviewVcs } from "./review-vcs";
 
-const tempRoots: string[] = [];
-
-afterEach(async () => {
-  while (tempRoots.length > 0) {
-    const root = tempRoots.pop();
-    if (root) await rm(root, { recursive: true, force: true });
-  }
-});
-
-async function tempDir(): Promise<string> {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "review-vcs-"));
-  tempRoots.push(dir);
-  return dir;
-}
+afterEach(cleanupTempDirs);
 
 describe("reviewVcs seal", () => {
   it("excludes gitignored files from sealed revisions", async () => {
     // Regression: seals once captured review.db and stale .build/ copies,
     // re-embedding every previous materialization into each new revision.
-    const root = await tempDir();
+    const root = await tempDir("review-vcs-");
     const dir = path.join(root, "review");
     await mkdir(dir, { recursive: true });
     await reviewVcs.init(dir);
@@ -54,7 +41,7 @@ describe("reviewVcs seal", () => {
 
 describe("reviewVcs log", () => {
   it("returns sealed commits newest first and [] before the first seal", async () => {
-    const root = await tempDir();
+    const root = await tempDir("review-vcs-");
     const dir = path.join(root, "review");
     await mkdir(dir, { recursive: true });
     await reviewVcs.init(dir);

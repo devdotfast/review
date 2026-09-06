@@ -1,14 +1,12 @@
 import { execFileSync } from "node:child_process";
 import {
   mkdir,
-  mkdtemp,
   readFile,
   readdir,
   rm,
   stat,
   writeFile,
 } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 
 import { jsonObject, parseJsonText } from "@dev.fast/review-protocol";
@@ -28,6 +26,12 @@ import {
   sealReviewCandidate,
 } from "./review-home";
 import { withReviewMutationLock } from "./review-mutation-lock";
+import {
+  cleanupTempDirs,
+  gitRepository,
+  tempDir,
+  writeLegacyDocument,
+} from "./review-test-utils";
 import { reviewVcs } from "./review-vcs";
 import {
   bundleReviewSoftwareMap,
@@ -43,15 +47,9 @@ import {
   migrateStoredReviewData,
 } from "./stored-review-migration";
 
-const tempRoots: string[] = [];
-
 afterEach(async () => {
   vi.restoreAllMocks();
-  await Promise.all(
-    tempRoots
-      .splice(0)
-      .map((root) => rm(root, { recursive: true, force: true })),
-  );
+  await cleanupTempDirs();
 });
 
 describe("migrateStoredReviewData", () => {
@@ -383,7 +381,9 @@ describe("migrateStoredReviewData", () => {
 
   it("only upgrades an unpresented schema-4 draft and keeps its candidate bytes", async () => {
     const { created, reviewHome } = await storedReview();
-    await writeLegacyDocument(created.dir, "invalid unpresented candidate");
+    await writeLegacyDocument(created.dir, {
+      code: "invalid unpresented candidate",
+    });
     const candidate = await readFile(
       path.join(created.dir, ".bundle/document/review-document.js"),
       "utf8",
@@ -513,10 +513,9 @@ describe("migrateStoredReviewData", () => {
 
   it("leaves a failed sealed conversion unchanged even when sources would compile", async () => {
     const { created, reviewHome } = await storedReview();
-    await writeLegacyDocument(
-      created.dir,
-      'import { jsx } from "review-doc-runtime"; throw new Error("broken sealed document");',
-    );
+    await writeLegacyDocument(created.dir, {
+      code: 'import { jsx } from "review-doc-runtime"; throw new Error("broken sealed document");',
+    });
     const revision = await sealReviewCandidate(
       created.dir,
       "Broken sealed document",
@@ -540,7 +539,7 @@ describe("migrateStoredReviewData", () => {
     expect(await snapshotMigrationFiles(created.dir)).toEqual(before);
   });
   it("preserves unsupported reviews as explicit blockers", async () => {
-    const reviewHome = await tempDir();
+    const reviewHome = await tempDir("review-migration-");
     const uuid = "3b241101-e2bb-4255-8caf-4136c566a962";
     const reviewDir = path.join(reviewHome, "reviews", uuid);
     await mkdir(reviewDir, { recursive: true });
@@ -563,7 +562,7 @@ describe("migrateStoredReviewData", () => {
   });
 
   it("preserves a legacy draft and legacy thread files", async () => {
-    const reviewHome = await tempDir();
+    const reviewHome = await tempDir("review-migration-");
     const sourceRoot = await gitRepository();
     const sourceCommit = execFileSync(
       "git",
@@ -838,7 +837,7 @@ describe("migrateStoredReviewData", () => {
   });
 
   it("preserves current draft authoring with removed code peek fields", async () => {
-    const reviewHome = await tempDir();
+    const reviewHome = await tempDir("review-migration-");
     const sourceRoot = await gitRepository();
     const sourceCommit = execFileSync(
       "git",
@@ -888,7 +887,7 @@ describe("migrateStoredReviewData", () => {
   });
 
   it("keeps range Reviews that only mention removed field names", async () => {
-    const reviewHome = await tempDir();
+    const reviewHome = await tempDir("review-migration-");
     const sourceRoot = await gitRepository();
     const sourceCommit = execFileSync(
       "git",
@@ -963,7 +962,7 @@ describe("migrateStoredReview", () => {
     });
     expect(record.presentedDocumentRevision).not.toBe(revision);
     expect(first.record).toEqual(record);
-    const materialized = await tempDir();
+    const materialized = await tempDir("review-migration-");
     await materializeReviewRevision(
       created.dir,
       record.presentedDocumentRevision!,
@@ -984,10 +983,9 @@ describe("migrateStoredReview", () => {
 
   it("leaves a review untouched when its sealed document is broken", async () => {
     const { created } = await storedReview();
-    await writeLegacyDocument(
-      created.dir,
-      'import { jsx } from "review-doc-runtime"; throw new Error("broken sealed document");',
-    );
+    await writeLegacyDocument(created.dir, {
+      code: 'import { jsx } from "review-doc-runtime"; throw new Error("broken sealed document");',
+    });
     const revision = await sealReviewCandidate(created.dir, "Broken document");
     const legacy = JSON.stringify({
       ...created.review,
@@ -1037,7 +1035,7 @@ Component: () => jsx("p", { children: "Sealed flat document" }), isDefault: true
 }
 
 async function storedReview() {
-  const reviewHome = await tempDir();
+  const reviewHome = await tempDir("review-migration-");
   const sourceRoot = await gitRepository();
   const sourceCommit = execFileSync(
     "git",
@@ -1066,21 +1064,6 @@ async function storedReview() {
     }),
   );
   return { created, reviewHome, sourceCommit };
-}
-
-async function writeLegacyDocument(
-  dir: string,
-  code = `import { createActiveReviewDocument, jsx } from "review-doc-runtime";
-export default createActiveReviewDocument({ title: "Sealed", routePath: "/", filePath: "review.mdx", modelNames: [], models: {}, Component: () => jsx("h1", { children: "Exact sealed title" }), isDefault: true });`,
-) {
-  const target = path.join(dir, ".bundle/document");
-  await rm(target, { recursive: true, force: true });
-  await mkdir(target, { recursive: true });
-  await writeFile(
-    path.join(target, "manifest.json"),
-    JSON.stringify({ version: 1, routePath: "/", sourcePath: "review.mdx" }),
-  );
-  await writeFile(path.join(target, "review-document.js"), code);
 }
 
 async function snapshotMigrationFiles(
@@ -1201,29 +1184,4 @@ async function expectJsonMapRevision(
     format: "software-map/1",
     elements: [{ path: "service" }],
   });
-}
-
-async function gitRepository(): Promise<string> {
-  const root = await tempDir("review-migration-source-");
-  execFileSync("git", ["init", "-b", "main", root], { stdio: "ignore" });
-  execFileSync("git", [
-    "-C",
-    root,
-    "config",
-    "user.email",
-    "review@example.test",
-  ]);
-  execFileSync("git", ["-C", root, "config", "user.name", "Review Test"]);
-  await writeFile(path.join(root, "README.md"), "# Source\n");
-  execFileSync("git", ["-C", root, "add", "."]);
-  execFileSync("git", ["-C", root, "commit", "-m", "initial"], {
-    stdio: "ignore",
-  });
-  return root;
-}
-
-async function tempDir(prefix = "review-migration-"): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), prefix));
-  tempRoots.push(root);
-  return root;
 }

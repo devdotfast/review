@@ -38,9 +38,11 @@ export async function gitRepository(
   options: { initialBranch?: string } = {},
 ): Promise<string> {
   const root = await tempDir("review-test-source-");
-  execFileSync("git", ["init", "-b", options.initialBranch ?? "main", root], {
-    stdio: "pipe",
-  });
+  execFileSync(
+    "git",
+    ["-C", root, "init", "-b", options.initialBranch ?? "main"],
+    { stdio: "pipe" },
+  );
   const git = (...args: string[]) =>
     execFileSync("git", ["-C", root, ...args], { stdio: "pipe" });
   git("config", "user.email", "review@example.test");

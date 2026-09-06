@@ -450,6 +450,52 @@ describe("desktop review document load states", () => {
     await act(async () => handle?.dispose());
   });
 
+  it("does not report an unchanged peer failure after one bundle is replaced", async () => {
+    const reportDiagnostic =
+      vi.fn<(diagnostic: ReviewCanvasDiagnostic) => void>();
+    const bridge = testReviewBridge(
+      { sessionId: "single-replacement" },
+      {
+        request: requestStub,
+        reportDiagnostic,
+        diffView: { create: createDiffView },
+      },
+    );
+    const documentBundle = Promise.resolve<ReviewDocumentLoad>({
+      state: "unavailable",
+      message: "Document fetch failed",
+    });
+    const container = document.createElement("div");
+    document.body.append(container);
+    let handle: ReturnType<typeof mountReviewCanvas> | undefined;
+    await act(async () => {
+      handle = mountReviewCanvas(
+        container,
+        sessionContent(bridge, {
+          document: documentBundle,
+          softwareMap: Promise.resolve(null),
+        }),
+      );
+    });
+    expect(reportDiagnostic).toHaveBeenCalledTimes(1);
+
+    const replacementSoftwareMap =
+      Promise.withResolvers<ReviewSoftwareMapLoad | null>();
+    await act(async () => {
+      handle?.update(
+        sessionContent(bridge, {
+          document: documentBundle,
+          softwareMap: replacementSoftwareMap.promise,
+        }),
+      );
+    });
+    expect(reportDiagnostic).toHaveBeenCalledTimes(1);
+
+    await act(async () => replacementSoftwareMap.resolve(null));
+    expect(reportDiagnostic).toHaveBeenCalledTimes(1);
+    await act(async () => handle?.dispose());
+  });
+
   it.each([false, true])(
     "signals ready for needs-republish without reporting an error (mapStale=%s)",
     async (mapStale) => {

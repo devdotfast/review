@@ -61,6 +61,22 @@ export type PreparedReviewRepair =
       cleanup: () => Promise<void>;
     };
 
+interface ReviewRepairSnapshot {
+  review: StoredReviewRecord;
+  documentRevision: string;
+  expectedRecord: string;
+  expectedFingerprint: string;
+  schemaVersion: number;
+  threadDbFingerprint?: string;
+}
+
+interface RepairedDocument {
+  changed: boolean;
+  usedEditableSources: boolean;
+  /** The record sealed alongside the presented document. */
+  presentedRecord: StoredReviewRecord;
+}
+
 /** Only the isolated snapshot is writable. Promotion belongs to /repair-ready. */
 export async function prepareReviewRepair(input: {
   reviewDir: string;
@@ -70,56 +86,7 @@ export async function prepareReviewRepair(input: {
   const stagingDir = path.join(temporaryRoot, "candidate");
   const cleanup = () => rm(temporaryRoot, { recursive: true, force: true });
   try {
-    const snapshot = await withReviewMutationLock(input.reviewDir, async () => {
-      await assertIsolatedRepairInternals(input.reviewDir);
-      await assertNoActiveReviewAgentWrites(input.reviewDir);
-      const expectedRecord = await readFile(
-        path.join(input.reviewDir, "review.json"),
-        "utf8",
-      );
-      const expectedValue = parseJsonText(expectedRecord);
-      const review = parseStoredReviewRecordForRecovery(expectedValue);
-      const schemaVersion = Number(jsonObject(expectedValue)?.schemaVersion);
-      if (review.uuid !== path.basename(input.reviewDir))
-        throw new Error("Review UUID does not match its storage directory.");
-      if (!review.presentedDocumentRevision)
-        throw new Error(
-          "This Review has no current presentation. Run review publish instead.",
-        );
-      const expectedFingerprint = await fingerprintReviewRepairInputs(
-        input.reviewDir,
-      );
-      await cp(input.reviewDir, stagingDir, {
-        recursive: true,
-        filter: (source) =>
-          !isDerivedReviewPath(
-            path.relative(input.reviewDir, source).split(path.sep)[0] ?? "",
-          ),
-      });
-      await assertIsolatedRepairInternals(stagingDir);
-      if (
-        (await fingerprintReviewRepairInputs(input.reviewDir)) !==
-        expectedFingerprint
-      )
-        throw new Error(
-          "Review authoring changed while preparing repair. Retry after active writes finish.",
-        );
-      const threadDbFingerprint = existsSync(
-        reviewThreadDbPath(path.join(input.reviewDir, "review.mdx")),
-      )
-        ? copyReviewThreadDatabaseSnapshot(
-            path.join(input.reviewDir, "review.mdx"),
-            path.join(stagingDir, "review.mdx"),
-          )
-        : undefined;
-      return {
-        review,
-        expectedRecord,
-        expectedFingerprint,
-        schemaVersion,
-        threadDbFingerprint,
-      };
-    });
+    const snapshot = await snapshotReviewForRepair(input.reviewDir, stagingDir);
     const { review } = snapshot;
     const threadDbMigration: ReviewThreadDbMigrationOptions = {
       preserveLegacyQuestions: true,
@@ -137,77 +104,22 @@ export async function prepareReviewRepair(input: {
         path.join(stagingDir, "review.mdx"),
         threadDbMigration,
       )) === "upgraded";
-    const documentDir = path.join(temporaryRoot, "document");
     const mapDir = path.join(temporaryRoot, "map");
     const sourceFallback = { document: false, map: false };
-    let documentChanged = false;
+    const document = await repairPresentedDocument({
+      reviewDir: input.reviewDir,
+      stagingDir,
+      temporaryRoot,
+      review,
+      revision: snapshot.documentRevision,
+      warning: input.warning,
+    });
+    const documentChanged = document.changed;
+    sourceFallback.document = document.usedEditableSources;
+    const presentation = document.presentedRecord;
     let mapChanged = false;
     let mapRevision = review.presentedSoftwareMapRevision;
-    let documentRevision = review.presentedDocumentRevision!;
-    let presentation = review;
-    await writePrivateJsonAtomic(path.join(stagingDir, "review.json"), review);
-    try {
-      await materializeReviewRevision(
-        stagingDir,
-        documentRevision,
-        documentDir,
-      );
-      presentation = parseStoredReviewRecordForRecovery(
-        parseJsonText(
-          await readFile(path.join(documentDir, "review.json"), "utf8"),
-        ),
-      );
-      const readyDocument = await readReviewDocumentBundle(documentDir, "/");
-      if (!readyDocument) {
-        const evaluated = await evaluateSealedReviewDocument(
-          documentDir,
-          input.warning,
-        );
-        await writeReviewDocumentBundle(
-          stagingDir,
-          bundleReviewDocument(evaluated.document),
-        );
-        documentChanged = true;
-      } else await writeReviewDocumentBundle(stagingDir, readyDocument);
-    } catch (error) {
-      sourceFallback.document = true;
-      input.warning?.(
-        `Sealed document conversion failed: ${message(error)}. Using editable review.mdx/data.ts; reconcile unpublished edits without changing the Review's meaning. Validation does not prove semantic equivalence.`,
-      );
-      const sourceReview = {
-        ...review,
-        baseRef: presentation.baseRef,
-        baseCommit: presentation.baseCommit,
-        sourceCommit: presentation.sourceCommit,
-        sourceIdentity: presentation.sourceIdentity,
-      };
-      await writePrivateJsonAtomic(
-        path.join(stagingDir, "review.json"),
-        sourceReview,
-      );
-      try {
-        await readFile(path.join(stagingDir, "review.mdx"), "utf8").catch(
-          (error) => {
-            if (isMissingFileError(error)) {
-              throw new Error(
-                `Missing editable Review input: ${path.join(input.reviewDir, "review.mdx")}. Restore that source file before retrying repair.`,
-              );
-            }
-            throw error;
-          },
-        );
-        const prepared = await prepareReviewDocumentBundle({
-          review: { dir: stagingDir, review: sourceReview },
-        });
-        await writeReviewDocumentBundle(stagingDir, prepared.bundle);
-        for (const warning of prepared.warnings) input.warning?.(warning);
-      } catch (fallbackError) {
-        throw new Error(
-          `Document repair failed. Sealed input: ${message(error)}. Editable input: ${message(fallbackError).replaceAll(stagingDir, input.reviewDir)}`,
-        );
-      }
-      documentChanged = true;
-    }
+    let documentRevision = snapshot.documentRevision;
     let mapPresentation = presentation;
     let mapPins = {
       baseCommit: presentation.baseCommit,
@@ -364,6 +276,150 @@ export async function prepareReviewRepair(input: {
   } catch (error) {
     await cleanup();
     throw error;
+  }
+}
+
+/** Copies the review into an isolated candidate under the mutation lock and
+ * proves nothing moved while the copy ran. Only the copy is writable. */
+async function snapshotReviewForRepair(
+  reviewDir: string,
+  stagingDir: string,
+): Promise<ReviewRepairSnapshot> {
+  return withReviewMutationLock(reviewDir, async () => {
+    await assertIsolatedRepairInternals(reviewDir);
+    await assertNoActiveReviewAgentWrites(reviewDir);
+    const expectedRecord = await readFile(
+      path.join(reviewDir, "review.json"),
+      "utf8",
+    );
+    const expectedValue = parseJsonText(expectedRecord);
+    const review = parseStoredReviewRecordForRecovery(expectedValue);
+    if (review.uuid !== path.basename(reviewDir))
+      throw new Error("Review UUID does not match its storage directory.");
+    const documentRevision = review.presentedDocumentRevision;
+    if (!documentRevision)
+      throw new Error(
+        "This Review has no current presentation. Run review publish instead.",
+      );
+    const expectedFingerprint = await fingerprintReviewRepairInputs(reviewDir);
+    await cp(reviewDir, stagingDir, {
+      recursive: true,
+      filter: (source) =>
+        !isDerivedReviewPath(
+          path.relative(reviewDir, source).split(path.sep)[0] ?? "",
+        ),
+    });
+    await assertIsolatedRepairInternals(stagingDir);
+    if (
+      (await fingerprintReviewRepairInputs(reviewDir)) !== expectedFingerprint
+    )
+      throw new Error(
+        "Review authoring changed while preparing repair. Retry after active writes finish.",
+      );
+    const threadDbFingerprint = existsSync(
+      reviewThreadDbPath(path.join(reviewDir, "review.mdx")),
+    )
+      ? copyReviewThreadDatabaseSnapshot(
+          path.join(reviewDir, "review.mdx"),
+          path.join(stagingDir, "review.mdx"),
+        )
+      : undefined;
+    return {
+      review,
+      documentRevision,
+      expectedRecord,
+      expectedFingerprint,
+      schemaVersion: Number(jsonObject(expectedValue)?.schemaVersion),
+      threadDbFingerprint,
+    };
+  });
+}
+
+/** Sealed document metadata retains the presentation's pinned source, even
+ * when editable record pins have moved since its publication. */
+function sealedPins(record: StoredReviewRecord) {
+  return {
+    baseRef: record.baseRef,
+    baseCommit: record.baseCommit,
+    sourceCommit: record.sourceCommit,
+    sourceIdentity: record.sourceIdentity,
+  };
+}
+
+/** Writes the repaired document bundle into the candidate. Falls back to the
+ * editable review.mdx/data.ts only when the sealed bundle cannot be read. */
+async function repairPresentedDocument(input: {
+  reviewDir: string;
+  stagingDir: string;
+  temporaryRoot: string;
+  review: StoredReviewRecord;
+  revision: string;
+  warning?: (message: string) => void;
+}): Promise<RepairedDocument> {
+  const documentDir = path.join(input.temporaryRoot, "document");
+  let presentedRecord = input.review;
+  try {
+    await materializeReviewRevision(
+      input.stagingDir,
+      input.revision,
+      documentDir,
+    );
+    presentedRecord = parseStoredReviewRecordForRecovery(
+      parseJsonText(
+        await readFile(path.join(documentDir, "review.json"), "utf8"),
+      ),
+    );
+    const candidateBundle = await readReviewDocumentBundle(documentDir, "/");
+    if (candidateBundle) {
+      await writeReviewDocumentBundle(input.stagingDir, candidateBundle);
+      return { changed: false, usedEditableSources: false, presentedRecord };
+    }
+    const evaluated = await evaluateSealedReviewDocument(
+      documentDir,
+      input.warning,
+    );
+    await writeReviewDocumentBundle(
+      input.stagingDir,
+      bundleReviewDocument(evaluated.document),
+    );
+    return { changed: true, usedEditableSources: false, presentedRecord };
+  } catch (error) {
+    input.warning?.(
+      `Sealed document conversion failed: ${message(error)}. Using editable review.mdx/data.ts; reconcile unpublished edits without changing the Review's meaning. Validation does not prove semantic equivalence.`,
+    );
+    try {
+      await readFile(path.join(input.stagingDir, "review.mdx"), "utf8").catch(
+        (cause) => {
+          if (isMissingFileError(cause)) {
+            throw new Error(
+              `Missing editable Review input: ${path.join(input.reviewDir, "review.mdx")}. Restore that source file before retrying repair.`,
+            );
+          }
+          throw cause;
+        },
+      );
+      const sourceReview = {
+        ...input.review,
+        ...sealedPins(presentedRecord),
+      };
+      await writePrivateJsonAtomic(
+        path.join(input.stagingDir, "review.json"),
+        sourceReview,
+      );
+      const prepared = await prepareReviewDocumentBundle({
+        review: {
+          dir: input.stagingDir,
+          review: sourceReview,
+        },
+      });
+      await writeReviewDocumentBundle(input.stagingDir, prepared.bundle);
+      for (const warning of prepared.warnings) input.warning?.(warning);
+    } catch (fallbackError) {
+      throw new Error(
+        `Document repair failed. Sealed input: ${message(error)}. Editable input: ${message(fallbackError).replaceAll(input.stagingDir, input.reviewDir)}`,
+      );
+    }
+    return { changed: true, usedEditableSources: true, presentedRecord };
   }
 }
 

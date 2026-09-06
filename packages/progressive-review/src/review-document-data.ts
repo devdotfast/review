@@ -93,7 +93,7 @@ export interface ReviewTextNode {
 
 export interface ReviewElementNode {
   type: "element";
-  tag: string;
+  tag: ProseTag;
   props: ReviewElementProps;
   children: ReviewNode[];
 }

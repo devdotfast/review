@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
+import { readFileSync, readdirSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
@@ -33,23 +34,18 @@ export interface LegacyReviewFixtureMetadata {
 
 export const LEGACY_REVIEW_FIXTURES_ROOT = path.resolve(import.meta.dirname);
 
-export async function listLegacyReviewFixtures(): Promise<
-  LegacyReviewFixtureMetadata[]
-> {
-  const names = (await readdir(LEGACY_REVIEW_FIXTURES_ROOT))
+export function listLegacyReviewFixtures(): LegacyReviewFixtureMetadata[] {
+  return readdirSync(LEGACY_REVIEW_FIXTURES_ROOT)
     .filter((entry) => entry.endsWith(".tgz"))
-    .map((entry) => entry.slice(0, -4))
-    .sort();
-  return Promise.all(names.map(readMetadata));
+    .map((entry) => readMetadata(entry.slice(0, -4)))
+    .sort((left, right) => left.name.localeCompare(right.name));
 }
 
-async function readMetadata(
-  name: string,
-): Promise<LegacyReviewFixtureMetadata> {
+function readMetadata(name: string): LegacyReviewFixtureMetadata {
   if (!/^[a-z0-9-]+$/.test(name))
     throw new Error("Invalid legacy fixture name.");
   const metadata: LegacyReviewFixtureMetadata = JSON.parse(
-    await readFile(
+    readFileSync(
       path.join(LEGACY_REVIEW_FIXTURES_ROOT, `${name}.json`),
       "utf8",
     ),
@@ -69,7 +65,7 @@ export async function extractLegacyReviewFixture(
   metadata: LegacyReviewFixtureMetadata;
   originalRecord: JsonObject;
 }> {
-  const metadata = await readMetadata(name);
+  const metadata = readMetadata(name);
   const home = await mkdtemp(path.join(os.tmpdir(), `legacy-${name}-`));
   try {
     const dir = path.join(home, "reviews", metadata.sourceUuid);
@@ -122,7 +118,7 @@ export async function readLegacyReviewGolden(
   name: string,
   kind: "record" | "document" | "map",
 ): Promise<JsonValue> {
-  await readMetadata(name);
+  readMetadata(name);
   return parseJsonText(
     await readFile(
       path.join(LEGACY_REVIEW_FIXTURES_ROOT, `${name}.expected-${kind}.json`),

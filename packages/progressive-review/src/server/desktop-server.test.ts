@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { type JsonObject, jsonObject } from "@dev.fast/review-protocol";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   extractLegacyReviewFixture,
@@ -571,126 +571,131 @@ it("rejects a publication whose review moved its base ref during the command", a
   }
 });
 
-const legacyOpenFixtures = (await listLegacyReviewFixtures()).filter(
+const legacyOpenFixtures = listLegacyReviewFixtures().filter(
   (fixture) => fixture.sourceRepository === "devdotfast/review",
 );
 
 describe("real legacy fixtures open end to end", () => {
   const repositoryRoot = path.resolve(import.meta.dirname, "../../../..");
-  const hasCommit = (commit: string) => {
-    try {
-      execFileSync(
-        "git",
-        ["-C", repositoryRoot, "cat-file", "-e", `${commit}^{commit}`],
-        { stdio: "pipe" },
+
+  // A shallow or partial checkout used to skip these silently, so the suite
+  // reported green while testing nothing. Missing pins are now a failure.
+  beforeAll(() => {
+    const hasCommit = (commit: string) => {
+      try {
+        execFileSync(
+          "git",
+          ["-C", repositoryRoot, "cat-file", "-e", `${commit}^{commit}`],
+          { stdio: "pipe" },
+        );
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const missing = legacyOpenFixtures.flatMap((fixture) =>
+      [fixture.baseCommit, fixture.sourceCommit]
+        .filter((commit) => !hasCommit(commit))
+        .map((commit) => `${fixture.name} ${commit}`),
+    );
+    if (missing.length > 0)
+      throw new Error(
+        `Legacy fixture commits are missing from ${repositoryRoot}. Run \`git fetch --unshallow origin\` (or \`git fetch origin\`) and retry: ${missing.join(", ")}`,
       );
-      return true;
-    } catch {
-      return false;
-    }
-  };
+  });
 
   for (const fixture of legacyOpenFixtures) {
-    it.skipIf(
-      !hasCommit(fixture.baseCommit) || !hasCommit(fixture.sourceCommit),
-    )(
-      `opens ${fixture.name} as a current review`,
-      async () => {
-        const { home, uuid, originalRecord } = await extractLegacyReviewFixture(
-          fixture.name,
-        );
-        directory = home;
-        const sourcePath = String(originalRecord.worktreePath);
-        execFileSync(
-          "git",
-          [
-            "clone",
-            "--no-hardlinks",
-            "--no-checkout",
-            "--quiet",
-            repositoryRoot,
-            sourcePath,
-          ],
-          { stdio: "pipe" },
-        );
-        execFileSync(
-          "git",
-          [
-            "-C",
-            sourcePath,
-            "fetch",
-            "--quiet",
-            repositoryRoot,
-            fixture.baseCommit,
-            fixture.sourceCommit,
-          ],
-          { stdio: "pipe" },
-        );
-        vi.stubEnv("DEV_REVIEW_HOME", home);
-        const token = "fixture-secret";
-        const server = createGlobalReviewServer({
-          appPid: process.pid,
-          packageRoot,
-          toolingRoot: packageRoot,
-          port: 0,
-          token,
-          discoveryPath: path.join(home, "desktop.json"),
-        });
-        try {
-          await server.listen();
-          const request = (route: string, body?: JsonObject) =>
-            fetch(new URL(route, server.url), {
-              method: body ? "POST" : "GET",
-              headers: {
-                "x-review-token": token,
-                "content-type": "application/json",
-              },
-              body: body ? JSON.stringify(body) : undefined,
-            });
-          const opened = await request(`/reviews/${uuid}/open`, {});
-          expect(opened.status).toBe(201);
-          const session = await opened.json();
-          const prefix = `/sessions/${session.sessionId}/__progressive-review`;
-          const documentResponse = await request(`${prefix}/document`);
-          expect(documentResponse.status).toBe(200);
-          const document = await documentResponse.json();
-          const golden = reviewDocumentDataSchema.parse(
-            await readLegacyReviewGolden(fixture.name, "document"),
-          );
-          expect(document).toMatchObject({
-            ok: true,
-            contentHash: bundleReviewDocument(golden).contentHash,
+    it(`opens ${fixture.name} as a current review`, async () => {
+      const { home, uuid, originalRecord } = await extractLegacyReviewFixture(
+        fixture.name,
+      );
+      directory = home;
+      const sourcePath = String(originalRecord.worktreePath);
+      // Only the two pinned commits are needed. Cloning the monorepo copied
+      // ~100MB of unrelated history per fixture; fetching the exact commits
+      // into an empty repository copies ~23MB and still resolves their
+      // merge base. `--filter=blob:none` is not used: git's local transport
+      // ignores it and warns.
+      execFileSync("git", ["init", "--quiet", "-b", "main", sourcePath], {
+        stdio: "pipe",
+      });
+      execFileSync(
+        "git",
+        [
+          "-C",
+          sourcePath,
+          "fetch",
+          "--quiet",
+          "--no-tags",
+          repositoryRoot,
+          fixture.baseCommit,
+          fixture.sourceCommit,
+        ],
+        { stdio: "pipe" },
+      );
+      vi.stubEnv("DEV_REVIEW_HOME", home);
+      const token = "fixture-secret";
+      const server = createGlobalReviewServer({
+        appPid: process.pid,
+        packageRoot,
+        toolingRoot: packageRoot,
+        port: 0,
+        token,
+        discoveryPath: path.join(home, "desktop.json"),
+      });
+      try {
+        await server.listen();
+        const request = (route: string, body?: JsonObject) =>
+          fetch(new URL(route, server.url), {
+            method: body ? "POST" : "GET",
+            headers: {
+              "x-review-token": token,
+              "content-type": "application/json",
+            },
+            body: body ? JSON.stringify(body) : undefined,
           });
-          expect(await (await request(document.documentUrl)).json()).toEqual(
-            golden,
-          );
-          const mapResponse = await request(`${prefix}/software-map`);
-          expect(mapResponse.status).toBe(fixture.hasMap ? 200 : 404);
-          const map = await mapResponse.json();
-          const mapGolden = fixture.hasMap
-            ? await readLegacyReviewGolden(fixture.name, "map")
-            : null;
-          expect(map).toMatchObject(
-            fixture.hasMap
-              ? { ok: true, contentHash: (mapGolden as JsonObject).contentHash }
-              : { ok: false, error: "Software map is not published" },
-          );
-          expect((await request(`${prefix}/comments`)).status).toBe(200);
-          const diff = await request(`${prefix}/diff-files`, {});
-          expect(await diff.json()).toMatchObject({ ok: true });
-          const listed = await (await request("/reviews")).json();
-          expect(listed.errors).toEqual([]);
-          expect(listed.reviews).toHaveLength(1);
-          expect(listed.reviews[0]).toMatchObject({ uuid, available: true });
-          expect(listed.reviews[0]).not.toHaveProperty("recovery");
-        } finally {
-          await server.close();
-          closeAllReviewThreadStores();
-          vi.unstubAllEnvs();
-        }
-      },
-      60_000,
-    );
+        const opened = await request(`/reviews/${uuid}/open`, {});
+        expect(opened.status).toBe(201);
+        const session = await opened.json();
+        const prefix = `/sessions/${session.sessionId}/__progressive-review`;
+        const documentResponse = await request(`${prefix}/document`);
+        expect(documentResponse.status).toBe(200);
+        const document = await documentResponse.json();
+        const golden = reviewDocumentDataSchema.parse(
+          await readLegacyReviewGolden(fixture.name, "document"),
+        );
+        expect(document).toMatchObject({
+          ok: true,
+          contentHash: bundleReviewDocument(golden).contentHash,
+        });
+        expect(await (await request(document.documentUrl)).json()).toEqual(
+          golden,
+        );
+        const mapResponse = await request(`${prefix}/software-map`);
+        expect(mapResponse.status).toBe(fixture.hasMap ? 200 : 404);
+        const map = await mapResponse.json();
+        const mapGolden = fixture.hasMap
+          ? await readLegacyReviewGolden(fixture.name, "map")
+          : null;
+        expect(map).toMatchObject(
+          fixture.hasMap
+            ? { ok: true, contentHash: (mapGolden as JsonObject).contentHash }
+            : { ok: false, error: "Software map is not published" },
+        );
+        expect((await request(`${prefix}/comments`)).status).toBe(200);
+        const diff = await request(`${prefix}/diff-files`, {});
+        expect(await diff.json()).toMatchObject({ ok: true });
+        const listed = await (await request("/reviews")).json();
+        expect(listed.errors).toEqual([]);
+        expect(listed.reviews).toHaveLength(1);
+        expect(listed.reviews[0]).toMatchObject({ uuid, available: true });
+        expect(listed.reviews[0]).not.toHaveProperty("recovery");
+      } finally {
+        await server.close();
+        closeAllReviewThreadStores();
+        vi.unstubAllEnvs();
+      }
+    }, 60_000);
   }
 });
 

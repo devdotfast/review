@@ -40,7 +40,7 @@ async function writeGolden(
   );
 }
 
-for (const fixture of await listLegacyReviewFixtures()) {
+for (const fixture of listLegacyReviewFixtures()) {
   const { home, dir } = await extractLegacyReviewFixture(fixture.name);
   try {
     const outcome = await migrateStoredReview({

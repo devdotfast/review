@@ -6,12 +6,77 @@ import path from "node:path";
 
 import { afterEach, expect, it } from "vitest";
 
-import { withReviewMutationLock } from "./review-mutation-lock";
+import { parseStoredReviewRecord } from "./review-home";
+import {
+  GUARDED_REVIEW_FIELDS,
+  assertReviewUnchanged,
+  reviewMutationFingerprint,
+  withReviewMutationLock,
+} from "./review-mutation-lock";
 
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+  );
+});
+
+async function guardedFixture() {
+  const root = await mkdtemp(path.join(tmpdir(), "review-guarded-fields-"));
+  roots.push(root);
+  const record = parseStoredReviewRecord({
+    schemaVersion: 5,
+    uuid: "11111111-1111-4111-8111-111111111111",
+    repoKey: "repo",
+    worktreePath: "/source",
+    baseRef: "main",
+    baseCommit: "a".repeat(40),
+    sourceCommit: "b".repeat(40),
+    sourceIdentity: { kind: "git-branch", name: "main" },
+    title: "Guarded",
+    sourceSession: "disabled:review",
+    status: "draft",
+    presentedDocumentRevision: "c".repeat(40),
+    presentedSoftwareMapRevision: null,
+    createdAt: "created",
+    lastPublishedAt: "published",
+  });
+  await writeFile(path.join(root, "review.json"), JSON.stringify(record));
+  return { root, record };
+}
+
+it("accepts an unchanged record and rejects any guarded field change", async () => {
+  const { root, record } = await guardedFixture();
+  await expect(assertReviewUnchanged(root, record)).resolves.toBeUndefined();
+  for (const field of GUARDED_REVIEW_FIELDS) {
+    await writeFile(
+      path.join(root, "review.json"),
+      JSON.stringify({ ...record, [field]: "changed-by-someone-else" }),
+    );
+    await expect(assertReviewUnchanged(root, record)).rejects.toThrow(
+      "Review changed while preparing publication",
+    );
+  }
+});
+
+it("ignores unguarded metadata and source identity key order", async () => {
+  const { root, record } = await guardedFixture();
+  await writeFile(
+    path.join(root, "review.json"),
+    JSON.stringify({
+      ...record,
+      title: "Renamed",
+      viewedAt: "2026-09-05T12:00:00.000Z",
+      sourceIdentity: { name: "main", kind: "git-branch" },
+    }),
+  );
+  await expect(assertReviewUnchanged(root, record)).resolves.toBeUndefined();
+  expect(reviewMutationFingerprint(record)).toBe(
+    reviewMutationFingerprint({
+      ...record,
+      title: "Renamed",
+      sourceIdentity: { name: "main", kind: "git-branch" },
+    }),
   );
 });
 

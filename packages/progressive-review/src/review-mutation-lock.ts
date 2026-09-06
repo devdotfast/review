@@ -1,13 +1,35 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { isDeepStrictEqual } from "node:util";
 
-import { jsonObject, parseJsonText } from "@dev.fast/review-protocol";
+import {
+  type JsonObject,
+  type JsonValue,
+  isJsonObject,
+  jsonObject,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
 
+import type { StoredReviewRecord } from "./review-home";
 import { withFileLock } from "./with-file-lock";
 
 const heldLocks = new AsyncLocalStorage<ReadonlySet<string>>();
+
+/** Pins, lifecycle and presentation pointers. A publication or repair prepared
+ * against these values may only be written while they still hold. */
+export const GUARDED_REVIEW_FIELDS = [
+  "sourceCommit",
+  "baseCommit",
+  "baseRef",
+  "worktreePath",
+  "sourceIdentity",
+  "status",
+  "presentedDocumentRevision",
+  "presentedSoftwareMapRevision",
+] as const;
+
+export type GuardedReviewField = (typeof GUARDED_REVIEW_FIELDS)[number];
 
 export class ReviewBusyError extends Error {
   override readonly name = "ReviewBusyError";
@@ -24,38 +46,51 @@ export class ReviewBusyError extends Error {
   }
 }
 
+export function reviewMutationFingerprint<
+  Review extends Pick<StoredReviewRecord, GuardedReviewField>,
+>(record: Review): string {
+  return fingerprintGuardedValues(record);
+}
+
+function fingerprintGuardedValues(
+  values: JsonObject | Partial<Pick<StoredReviewRecord, GuardedReviewField>>,
+): string {
+  const digest = createHash("sha256");
+  for (const field of GUARDED_REVIEW_FIELDS) {
+    digest.update(`${field}\0`);
+    digest.update(field in values ? stableJson(values[field]) : "\0absent");
+    digest.update("\0");
+  }
+  return digest.digest("hex");
+}
+
+/** Key-order independent, so a rewritten record with reordered
+ * `sourceIdentity` keys still compares equal, as deep equality did. */
+function stableJson(value: JsonValue | undefined): string {
+  if (value === undefined) return "\0undefined";
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (!isJsonObject(value)) return JSON.stringify(value);
+  return `{${Object.entries(value)
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`)
+    .join(",")}}`;
+}
+
 /** Call under the mutation lock before writing a candidate prepared earlier. */
 export async function assertReviewUnchanged(
   reviewDir: string,
-  expected: {
-    sourceCommit: string | null;
-    baseCommit: string;
-    baseRef: string;
-    worktreePath: string;
-    sourceIdentity: unknown;
-    status: string;
-    presentedDocumentRevision: string | null;
-    presentedSoftwareMapRevision: string | null;
-  },
+  expected: Pick<StoredReviewRecord, GuardedReviewField>,
 ): Promise<void> {
   const actual = jsonObject(
     parseJsonText(await readFile(path.join(reviewDir, "review.json"), "utf8")),
   );
-  for (const key of [
-    "sourceCommit",
-    "baseCommit",
-    "baseRef",
-    "worktreePath",
-    "sourceIdentity",
-    "status",
-    "presentedDocumentRevision",
-    "presentedSoftwareMapRevision",
-  ] as const) {
-    if (!isDeepStrictEqual(actual?.[key], expected[key]))
-      throw new Error(
-        "Review changed while preparing publication; rerun the publish command.",
-      );
-  }
+  if (
+    fingerprintGuardedValues(actual ?? {}) !==
+    reviewMutationFingerprint(expected)
+  )
+    throw new Error(
+      "Review changed while preparing publication; rerun the publish command.",
+    );
 }
 
 /** Shared by the desktop and migration CLI; stored outside the sealed tree. */

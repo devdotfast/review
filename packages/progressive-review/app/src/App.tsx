@@ -158,14 +158,25 @@ export type ReviewDocumentAppState =
       reviewUuid: string;
       mapStale: boolean;
     }
-  | { state: "unavailable"; message: string; currentReviewUuid?: string };
+  | {
+      state: "unavailable";
+      message: string;
+      currentReviewUuid?: string;
+      /** The failure the loader raised, when the message came from one. */
+      cause?: Error;
+    };
 
 export type ReviewSoftwareMapAppState =
   | { state: "loading" }
   | { state: "ready"; softwareMap: PublishedSoftwareMap }
   | { state: "absent" }
   | { state: "needs-republish"; reviewUuid: string }
-  | { state: "unavailable"; message: string; currentReviewUuid?: string };
+  | {
+      state: "unavailable";
+      message: string;
+      currentReviewUuid?: string;
+      cause?: Error;
+    };
 
 interface ResolvedReviewDocument {
   document: HydratedReviewDocument | null;

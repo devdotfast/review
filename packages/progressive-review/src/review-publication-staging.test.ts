@@ -10,6 +10,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { setImmediate } from "node:timers/promises";
 
 import { afterEach, expect, it, vi } from "vitest";
 
@@ -162,6 +163,31 @@ it("resolves Review-local pnpm dependencies without copying their symlinks", asy
   );
   const revision = await sealReviewDocumentPublication({ review, document });
   expect(revision).toMatch(/^[a-f0-9]{40}$/);
+});
+
+it("takes the mutation lock around document write and seal", async () => {
+  const { review } = await fixture();
+  const document = await stageReviewDocumentPublication({ review });
+  const entered = deferred<void>();
+  const release = deferred<void>();
+  const holding = withReviewMutationLock(review.dir, async () => {
+    entered.resolve();
+    await release.promise;
+  });
+  await entered.promise;
+  let finished = false;
+  const sealing = sealReviewDocumentPublication({ review, document }).then(
+    (revision) => {
+      finished = true;
+      return revision;
+    },
+  );
+  for (let attempt = 0; attempt < 30; attempt++) await setImmediate();
+  const bypassed = finished;
+  release.resolve();
+  await holding;
+  await expect(sealing).resolves.toMatch(/^[a-f0-9]{40}$/);
+  expect(bypassed).toBe(false);
 });
 
 it("rejects changed authoring before writing bundles or sealing private history", async () => {

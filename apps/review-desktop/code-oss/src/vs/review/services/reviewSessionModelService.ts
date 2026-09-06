@@ -22,6 +22,7 @@ import {
 	type ReviewCommentStoreBridge,
 	type ReviewDescriptor,
 	type ReviewDocumentLoad,
+	type ReviewErrorResponse,
 	type ReviewSessionDescriptor,
 	type ReviewSessionWire,
 	type ReviewSoftwareMapLoad,
@@ -289,6 +290,64 @@ export function reviewSessionApiRequest(
 	return fetchImpl(url.href, { ...init, headers });
 }
 
+/** A review load that settled without a usable payload. */
+type ReviewLoadSettlement =
+	| { state: "unavailable"; message: string; currentReviewUuid?: string }
+	| { state: "needs-republish"; reviewUuid: string; mapStale: boolean };
+
+/**
+ * Runs one session-scoped review load request. A 404 is a shape, not a
+ * failure: the caller decides whether a missing module is `null` (an
+ * unpublished software map) or unavailable.
+ */
+async function fetchReviewEnvelope<TResponse>(
+	session: ReviewDesktopSession,
+	url: URL,
+	parse: (value: unknown) => TResponse,
+): Promise<{ response: Response; payload: TResponse | null }> {
+	const response = await fetch(url, {
+		headers: { "x-review-token": session.token },
+		signal: AbortSignal.timeout(30_000),
+	});
+	if (response.status === 404) {
+		return { response, payload: null };
+	}
+	return { response, payload: parse(await response.json()) };
+}
+
+/**
+ * Turns a failed review load response into the state the canvas renders.
+ * Republish and historical-revision responses are expected outcomes rather
+ * than errors, so only transport failures reach a caller's catch.
+ */
+function decodeReviewLoadEnvelope(
+	response: Response,
+	payload: { ok: true } | ReviewErrorResponse,
+	label: string,
+): ReviewLoadSettlement {
+	if (payload.ok) {
+		return {
+			state: "unavailable",
+			message: `${label} returned ${response.status}.`,
+		};
+	}
+	if (payload.detail?.code === "historical_revision_unavailable") {
+		return {
+			state: "unavailable",
+			message: payload.error,
+			currentReviewUuid: payload.detail.reviewUuid,
+		};
+	}
+	if (response.status === 409 && payload.detail?.code === "needs_republish") {
+		return {
+			state: "needs-republish",
+			reviewUuid: payload.detail.reviewUuid,
+			mapStale: payload.detail.mapStale,
+		};
+	}
+	return { state: "unavailable", message: payload.error };
+}
+
 export async function loadReviewSessionDocument(
 	session: ReviewDesktopSession,
 	loader: ReviewDocumentDataLoader,
@@ -299,44 +358,21 @@ export async function loadReviewSessionDocument(
 		if (routePath && routePath !== "/") {
 			url.searchParams.set("document", routePath);
 		}
-		const response = await fetch(url, {
-			headers: { "x-review-token": session.token },
-			signal: AbortSignal.timeout(30_000),
-		});
-		const payload = ReviewDocumentResponseSchema.parse(await response.json());
-		if (
-			!payload.ok &&
-			payload.detail?.code === "historical_revision_unavailable"
-		) {
+		const { response, payload } = await fetchReviewEnvelope(
+			session,
+			url,
+			(value) => ReviewDocumentResponseSchema.parse(value),
+		);
+		if (payload === null) {
 			return {
 				state: "unavailable",
-				message: payload.error,
-				currentReviewUuid: payload.detail.reviewUuid,
-			};
-		}
-		if (
-			response.status === 409 &&
-			!payload.ok &&
-			payload.detail?.code === "needs_republish"
-		) {
-			return {
-				state: "needs-republish",
-				reviewUuid: payload.detail.reviewUuid,
-				mapStale: payload.detail.mapStale,
+				message: `Review document returned ${response.status}.`,
 			};
 		}
 		if (!response.ok || !payload.ok) {
-			throw new Error(
-				payload.ok
-					? `Review document returned ${response.status}.`
-					: payload.error,
-			);
+			return decodeReviewLoadEnvelope(response, payload, "Review document");
 		}
-		return await loader(
-			session,
-			payload.documentUrl,
-			payload.contentHash,
-		);
+		return await loader(session, payload.documentUrl, payload.contentHash);
 	} catch (error) {
 		return { state: "unavailable", message: reviewLoadErrorMessage(error) };
 	}
@@ -350,38 +386,23 @@ export async function loadReviewSessionSoftwareMap(
 		const url = new URL(
 			`${session.sessionUrl}/__progressive-review/software-map`,
 		);
-		const response = await fetch(url, {
-			headers: { "x-review-token": session.token },
-			signal: AbortSignal.timeout(30_000),
-		});
-		if (response.status === 404) return null;
-		const payload = ReviewSoftwareMapResponseSchema.parse(await response.json());
-		if (
-			!payload.ok &&
-			payload.detail?.code === "historical_revision_unavailable"
-		) {
-			return {
-				state: "unavailable",
-				message: payload.error,
-				currentReviewUuid: payload.detail.reviewUuid,
-			};
-		}
-		if (
-			response.status === 409 &&
-			!payload.ok &&
-			payload.detail?.code === "needs_republish"
-		) {
-			return {
-				state: "needs-republish",
-				reviewUuid: payload.detail.reviewUuid,
-			};
-		}
+		const { response, payload } = await fetchReviewEnvelope(
+			session,
+			url,
+			(value) => ReviewSoftwareMapResponseSchema.parse(value),
+		);
+		// An unpublished software map is absent, not unavailable.
+		if (payload === null) return null;
 		if (!response.ok || !payload.ok) {
-			throw new Error(
-				payload.ok
-					? `Software map returned ${response.status}.`
-					: payload.error,
+			const settlement = decodeReviewLoadEnvelope(
+				response,
+				payload,
+				"Software map",
 			);
+			// The map load carries no mapStale: the document's state owns it.
+			return settlement.state === "needs-republish"
+				? { state: "needs-republish", reviewUuid: settlement.reviewUuid }
+				: settlement;
 		}
 		return await loader(
 			session,

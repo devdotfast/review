@@ -127,6 +127,19 @@ test("document loading never rejects and reports other failures as unavailable",
 	});
 });
 
+test("reports a missing document endpoint as unavailable", async (t) => {
+	mockFetch(t, async () => new Response(null, { status: 404 }));
+
+	const load = await loadReviewSessionDocument(session, async () => {
+		throw new Error("loader must not run");
+	});
+
+	assert.deepEqual(load, {
+		state: "unavailable",
+		message: "Review document returned 404.",
+	});
+});
+
 test("reports other document statuses as unavailable", async (t) => {
 	mockFetch(t, async () =>
 		Response.json(

@@ -35,7 +35,7 @@ export async function loadReviewSoftwareMaps(
 	return { state: "ready", contentHash, head, base };
 }
 
-export async function fetchReviewJson(
+async function fetchReviewJson(
 	session: ReviewDesktopSession,
 	url: string,
 	label: string,

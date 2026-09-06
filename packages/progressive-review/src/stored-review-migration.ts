@@ -27,6 +27,7 @@ import {
   writeReviewDocumentBundle,
 } from "./review-bundle";
 import { createLegacyCodeRecordMigrator } from "./review-code-target-migration";
+import { isAuthoringInput } from "./review-derived-paths";
 import { maskReviewFrontmatter } from "./review-frontmatter";
 import {
   ensureReviewPinnedCheckout,
@@ -924,13 +925,10 @@ async function replaceCandidateSources(
   }
   await cp(sourceDir, candidateDir, {
     recursive: true,
-    filter: (source) => {
-      const name = path.relative(sourceDir, source).split(path.sep)[0];
-      return (
-        ![".git", ".bundle", ".build"].includes(name) &&
-        !/^review\.db(?:-|$)/.test(name)
-      );
-    },
+    filter: (source) =>
+      isAuthoringInput(
+        path.relative(sourceDir, source).split(path.sep)[0] ?? "",
+      ),
   });
 }
 

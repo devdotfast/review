@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { z } from "zod";
 
+import { isDerivedReviewPath } from "./review-derived-paths";
 import {
   hasPendingReviewAgentWrites,
   reviewThreadDbPath,
@@ -28,17 +29,6 @@ export type ReviewRepairReadyRequest = z.infer<
   typeof ReviewRepairReadyRequestSchema
 >;
 
-/** Only durable authoring, candidates, and private history participate. */
-export function includeReviewRepairInput(relative: string): boolean {
-  const top = relative.split(path.sep)[0];
-  return (
-    top !== ".build" &&
-    top !== ".native-agent" &&
-    !/^review\.db(?:-|$)/.test(top ?? "") &&
-    top !== ".agent-sessions.lock"
-  );
-}
-
 export async function fingerprintReviewRepairInputs(
   dir: string,
 ): Promise<string> {
@@ -50,7 +40,7 @@ export async function fingerprintReviewRepairInputs(
     entries.sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {
       const name = path.join(relative, entry.name);
-      if (!includeReviewRepairInput(name)) continue;
+      if (isDerivedReviewPath(name.split(path.sep)[0] ?? "")) continue;
       digest.update(`${name}\0`);
       if (entry.isDirectory()) {
         digest.update("directory\0");

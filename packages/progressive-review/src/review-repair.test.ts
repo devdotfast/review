@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
@@ -487,6 +488,32 @@ describe("prepareReviewRepair", () => {
           ),
         ).schemaVersion,
       ).toBe(5);
+    } finally {
+      await result.cleanup();
+    }
+  });
+  it("stages authored lock files and omits the agent session lock", async () => {
+    const stored = await fixture();
+    await writeFile(path.join(stored.dir, "notes.lock"), "authored\n");
+    await writeFile(path.join(stored.dir, ".agent-sessions.lock"), "{}");
+    await writeFile(
+      path.join(stored.dir, "review.json"),
+      JSON.stringify({ ...stored.record, schemaVersion: 4 }),
+    );
+    const result = await prepareReviewRepair({ reviewDir: stored.dir });
+    if (result.kind !== "prepared") throw new Error("Expected metadata repair");
+    try {
+      expect(
+        await readFile(
+          path.join(result.request.stagingDir, "notes.lock"),
+          "utf8",
+        ),
+      ).toBe("authored\n");
+      expect(
+        existsSync(
+          path.join(result.request.stagingDir, ".agent-sessions.lock"),
+        ),
+      ).toBe(false);
     } finally {
       await result.cleanup();
     }

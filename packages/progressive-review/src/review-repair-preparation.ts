@@ -18,6 +18,7 @@ import {
   writeReviewDocumentBundle,
 } from "./review-bundle";
 import { createLegacyCodeRecordMigrator } from "./review-code-target-migration";
+import { isDerivedReviewPath } from "./review-derived-paths";
 import {
   type StoredReviewRecord,
   materializeReviewRevision,
@@ -88,16 +89,10 @@ export async function prepareReviewRepair(input: {
       );
       await cp(input.reviewDir, stagingDir, {
         recursive: true,
-        filter: (source) => {
-          const first = path
-            .relative(input.reviewDir, source)
-            .split(path.sep)[0];
-          return (
-            ![".build", ".native-agent"].includes(first) &&
-            !/^review\.db(?:-|$)/.test(first) &&
-            !first.endsWith(".lock")
-          );
-        },
+        filter: (source) =>
+          !isDerivedReviewPath(
+            path.relative(input.reviewDir, source).split(path.sep)[0] ?? "",
+          ),
       });
       await assertIsolatedRepairInternals(stagingDir);
       if (

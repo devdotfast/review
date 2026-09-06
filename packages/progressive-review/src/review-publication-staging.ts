@@ -16,6 +16,7 @@ import {
   type ReviewDocumentBundle,
   writeReviewDocumentBundle,
 } from "./review-bundle";
+import { isAuthoringInput } from "./review-derived-paths";
 import { REVIEW_PUBLISH_CANDIDATE_MESSAGE } from "./review-document-versions";
 import { type StoredReview, sealReviewCandidate } from "./review-home";
 import {
@@ -135,7 +136,7 @@ async function fingerprintAuthoring(
     });
     entries.sort((left, right) => left.name.localeCompare(right.name));
     for (const entry of entries) {
-      if (!relativeDir && excludedAuthoring.has(entry.name)) continue;
+      if (!relativeDir && !isAuthoringInput(entry.name)) continue;
       const relativePath = path.join(relativeDir, entry.name);
       if (entry.isSymbolicLink())
         throw new Error(
@@ -163,16 +164,3 @@ async function fingerprintAuthoring(
   await visit("");
   return hash.digest("hex");
 }
-
-const excludedAuthoring = new Set([
-  "node_modules",
-  "review.json",
-  ".git",
-  ".bundle",
-  ".build",
-  ".native-agent",
-  "review.db",
-  "review.db-wal",
-  "review.db-shm",
-  ".agent-sessions.lock",
-]);

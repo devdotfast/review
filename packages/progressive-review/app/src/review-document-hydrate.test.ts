@@ -13,6 +13,7 @@ import {
   defineSoftwareMap,
   softwareModelData,
 } from "../../src/software-map-model";
+import type { resolveCodePeekRequest } from "./review-definition-runtime";
 import {
   type HydratedReviewComponentNode,
   hydrateReviewDocument,
@@ -21,26 +22,15 @@ import {
 } from "./review-document-hydrate";
 import { testReviewSession } from "./review-session-test-utils";
 
-type ResolveCodePeekRequest =
-  (typeof import("./review-definition-runtime"))["resolveCodePeekRequest"];
-
-const { resolveCodePeekRequest } = vi.hoisted(() => ({
-  resolveCodePeekRequest: vi.fn<ResolveCodePeekRequest>(),
-}));
-
-// oxlint-disable-next-line anti-slop/no-module-mocking -- This focused test verifies pre-mount resolution and cache behavior at the exported resolver seam.
-vi.mock("./review-definition-runtime", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./review-definition-runtime")>()),
-  resolveCodePeekRequest,
-}));
-
 const resolution = {
   snapshot: { roots: [], resolved: {} },
 };
 
+const resolveCodePeek = vi.fn<typeof resolveCodePeekRequest>();
+
 beforeEach(() => {
-  resolveCodePeekRequest.mockReset();
-  resolveCodePeekRequest.mockResolvedValue(resolution);
+  resolveCodePeek.mockReset();
+  resolveCodePeek.mockResolvedValue(resolution);
 });
 
 function reviewDocumentData(): ReviewDocumentData {
@@ -147,10 +137,10 @@ describe("resolveReviewDocumentPeeks", () => {
     const session = testReviewSession();
     const document = hydrateReviewDocument(ready());
 
-    await resolveReviewDocumentPeeks(document, session);
+    await resolveReviewDocumentPeeks(document, session, { resolveCodePeek });
 
-    expect(resolveCodePeekRequest).toHaveBeenCalledTimes(1);
-    expect(resolveCodePeekRequest).toHaveBeenCalledWith(
+    expect(resolveCodePeek).toHaveBeenCalledTimes(1);
+    expect(resolveCodePeek).toHaveBeenCalledWith(
       "/",
       {
         file: "src/orders.ts",
@@ -182,12 +172,16 @@ describe("resolveReviewDocumentPeeks", () => {
     });
     const load = ready();
 
-    const first = await prepareReviewDocument(load, firstSession);
-    expect(await prepareReviewDocument(load, visibleSession)).toBe(first);
-    await prepareReviewDocument(load, isolatedSession);
+    const first = await prepareReviewDocument(load, firstSession, {
+      resolveCodePeek,
+    });
+    expect(
+      await prepareReviewDocument(load, visibleSession, { resolveCodePeek }),
+    ).toBe(first);
+    await prepareReviewDocument(load, isolatedSession, { resolveCodePeek });
 
-    expect(resolveCodePeekRequest).toHaveBeenCalledTimes(2);
-    expect(resolveCodePeekRequest.mock.calls.map((call) => call[2])).toEqual([
+    expect(resolveCodePeek).toHaveBeenCalledTimes(2);
+    expect(resolveCodePeek.mock.calls.map((call) => call[2])).toEqual([
       firstSession,
       isolatedSession,
     ]);
@@ -196,12 +190,14 @@ describe("resolveReviewDocumentPeeks", () => {
   it("evicts a rejected promise so a later load can retry", async () => {
     const session = testReviewSession();
     const load = ready(reviewDocumentData(), "retry-hash");
-    resolveCodePeekRequest.mockRejectedValueOnce(new Error("peek unavailable"));
+    resolveCodePeek.mockRejectedValueOnce(new Error("peek unavailable"));
 
-    await expect(prepareReviewDocument(load, session)).rejects.toThrow(
-      "peek unavailable",
-    );
-    await expect(prepareReviewDocument(load, session)).resolves.toBeDefined();
-    expect(resolveCodePeekRequest).toHaveBeenCalledTimes(2);
+    await expect(
+      prepareReviewDocument(load, session, { resolveCodePeek }),
+    ).rejects.toThrow("peek unavailable");
+    await expect(
+      prepareReviewDocument(load, session, { resolveCodePeek }),
+    ).resolves.toBeDefined();
+    expect(resolveCodePeek).toHaveBeenCalledTimes(2);
   });
 });

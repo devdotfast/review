@@ -172,17 +172,24 @@ function canonicalizeAnchorRefs(
   );
 }
 
+/** The resolver is a parameter so tests can drive it without module mocking. */
+export interface ResolveReviewDocumentPeeksOptions {
+  resolveCodePeek?: typeof resolveCodePeekRequest;
+}
+
 export async function resolveReviewDocumentPeeks(
   document: HydratedReviewDocument,
   session: ReviewSession,
+  options: ResolveReviewDocumentPeeksOptions = {},
 ): Promise<void> {
+  const resolveCodePeek = options.resolveCodePeek ?? resolveCodePeekRequest;
   const uniqueAnchors = new Set(document.anchors.values());
   await Promise.all(
     [...uniqueAnchors].flatMap((anchor) => {
       if (!anchor.peek || anchor.peek.resolution) return [];
       return [
         runWithCodePeekResolutionSlot(async () => {
-          anchor.peek!.resolution = await resolveCodePeekRequest(
+          anchor.peek!.resolution = await resolveCodePeek(
             document.routePath,
             anchor.peek!.props,
             session,
@@ -203,6 +210,7 @@ const MAX_DOCUMENTS_PER_SESSION = 4;
 export function prepareReviewDocument(
   load: ReadyReviewDocumentLoad,
   session: ReviewSession,
+  options: ResolveReviewDocumentPeeksOptions = {},
 ): Promise<HydratedReviewDocument> {
   const namespace = reviewSessionCacheNamespace(session);
   let promises = documentPromiseCache.get(namespace);
@@ -224,7 +232,7 @@ export function prepareReviewDocument(
   }
   const promise = (async () => {
     const document = hydrateReviewDocument(load);
-    await resolveReviewDocumentPeeks(document, session);
+    await resolveReviewDocumentPeeks(document, session, options);
     return document;
   })();
   promises.set(load.contentHash, promise);

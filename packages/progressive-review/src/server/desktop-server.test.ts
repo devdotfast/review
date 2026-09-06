@@ -522,17 +522,16 @@ it("rejects a publication whose review moved its base ref during the command", a
     }),
   );
   const revision = await reviewVcs.seal(stored.dir, "Review publish candidate");
-  const relayDispatch = vi
-    .spyOn(GlobalReviewDesktopVerbRelay.prototype, "dispatch")
-    .mockImplementation(async (_sessionId, verb) => {
-      if (jsonObject(verb)?.name === "validateCanvasMount") {
-        await writeFile(
-          path.join(stored.dir, "review.json"),
-          JSON.stringify({ ...stored.review, baseRef: "release" }),
-        );
-      }
-      return { ok: true };
-    });
+  const relay = new GlobalReviewDesktopVerbRelay();
+  relay.dispatch = async (_sessionId, verb) => {
+    if (jsonObject(verb)?.name === "validateCanvasMount") {
+      await writeFile(
+        path.join(stored.dir, "review.json"),
+        JSON.stringify({ ...stored.review, baseRef: "release" }),
+      );
+    }
+    return { ok: true };
+  };
   const token = "publication-race-secret";
   const server = createGlobalReviewServer({
     appPid: process.pid,
@@ -541,6 +540,7 @@ it("rejects a publication whose review moved its base ref during the command", a
     port: 0,
     token,
     discoveryPath: path.join(directory, "desktop.json"),
+    relay,
   });
   try {
     await server.listen();
@@ -566,7 +566,6 @@ it("rejects a publication whose review moved its base ref during the command", a
     });
   } finally {
     await server.close();
-    relayDispatch.mockRestore();
     vi.unstubAllEnvs();
   }
 });

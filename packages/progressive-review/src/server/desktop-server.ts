@@ -121,7 +121,10 @@ import {
   reviewDesktopDiscoveryPath,
   writePrivateJsonAtomic,
 } from "./desktop-paths";
-import { GlobalReviewDesktopVerbRelay } from "./global-verb-relay";
+import {
+  GlobalReviewDesktopVerbRelay,
+  type ReviewDesktopVerbRelay,
+} from "./global-verb-relay";
 import {
   type ReviewHonoEnv,
   applyCorsHeaders,
@@ -270,6 +273,9 @@ export interface GlobalReviewServerInput {
     materializePublishRevision: typeof materializePublishRevision;
   };
   telemetry?: ProgressiveReviewTelemetry;
+  /* Object seam, like publishRuntime: a test supplies a relay whose dispatch
+     it controls instead of reaching into the class. */
+  relay?: ReviewDesktopVerbRelay;
 }
 
 export interface GlobalReviewServer {
@@ -303,7 +309,7 @@ export function createGlobalReviewServer(
     materializePublishRevision,
   };
   const telemetry = input.telemetry ?? ProgressiveReviewTelemetry.fromEnv();
-  const relay = new GlobalReviewDesktopVerbRelay();
+  const relay = input.relay ?? new GlobalReviewDesktopVerbRelay();
   const sessions = new Map<string, ActiveReviewSession>();
   const reviewLocks = new Map<string, Promise<void>>();
   const globalClients = new Set<ReviewDesktopEventClient>();

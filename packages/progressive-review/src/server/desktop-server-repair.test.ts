@@ -226,6 +226,7 @@ it.each(["success", "mount-failure", "live-change", "stage-change"])(
     expect(prepared.request.expectedThreadDbFingerprint).toBeDefined();
     expect(prepared.request.sourceFallback.document).toBe(true);
     let validated = false;
+    let refreshedDraftIds: string[] | undefined;
     vi.spyOn(
       GlobalReviewDesktopVerbRelay.prototype,
       "dispatch",
@@ -254,13 +255,28 @@ it.each(["success", "mount-failure", "live-change", "stage-change"])(
       if (outcome === "live-change" || outcome === "stage-change") {
         const changedDir =
           outcome === "live-change" ? stored.dir : prepared.request.stagingDir;
-        const changed = new DatabaseSync(path.join(changedDir, "review.db"));
-        changed
-          .prepare(
-            "INSERT INTO meta (key, value) VALUES ('concurrent-change', 'keep')",
-          )
-          .run();
-        changed.close();
+        if (outcome === "stage-change") {
+          appendReviewCommentDraft(path.join(changedDir, "review.mdx"), {
+            threadId: "concurrent-draft",
+            messageId: "concurrent-message",
+            target: { kind: "document" },
+            body: "Concurrent staged draft",
+            author: "Reviewer",
+          });
+          const refreshed = ReviewThreadsSnapshotResponseSchema.parse(
+            await (await get(`${prefix}/comments`)).json(),
+          );
+          if (!refreshed.ok) throw new Error(refreshed.error);
+          refreshedDraftIds = Object.keys(refreshed.snapshot.drafts).sort();
+        } else {
+          const changed = new DatabaseSync(path.join(changedDir, "review.db"));
+          changed
+            .prepare(
+              "INSERT INTO meta (key, value) VALUES ('concurrent-change', 'keep')",
+            )
+            .run();
+          changed.close();
+        }
         if (outcome === "live-change") {
           const latest = await snapshotReviewTree(stored.dir);
           expectedAfterFailure = Object.fromEntries(
@@ -270,6 +286,11 @@ it.each(["success", "mount-failure", "live-change", "stage-change"])(
           );
         }
       }
+      expect(refreshedDraftIds).toEqual(
+        outcome === "stage-change"
+          ? ["concurrent-draft", "preserved-draft"]
+          : undefined,
+      );
       validated = true;
       return outcome === "mount-failure"
         ? { ok: false, error: "test mount failure" }

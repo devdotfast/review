@@ -23,6 +23,7 @@ import {
   migrateReviewThreadDb,
   readReviewThreadsReadOnly,
   reviewThreadDbPath,
+  reviewThreadDbSnapshotToken,
 } from "./review-thread-store-backend";
 
 const roots: string[] = [];
@@ -54,6 +55,27 @@ function seedComment(reviewPath: string): void {
 }
 
 describe("sqlite thread store", () => {
+  it("marks a read-only snapshot and moves its token only when threads change", () => {
+    const reviewPath = makeReviewPath();
+    seedComment(reviewPath);
+    const snapshot = readReviewThreadsReadOnly(reviewPath);
+    expect(snapshot.readOnly).toBe(true);
+    expect(snapshot.revision).toBe(0);
+    const token = reviewThreadDbSnapshotToken(reviewPath);
+    expect(reviewThreadDbSnapshotToken(reviewPath)).toBe(token);
+    appendReviewComment(reviewPath, {
+      threadId: "thread-2",
+      messageId: "message-2",
+      target: { kind: "document" },
+      body: "second",
+      author: "Reviewer",
+    });
+    expect(reviewThreadDbSnapshotToken(reviewPath)).not.toBe(token);
+    expect(
+      Object.keys(readReviewThreadsReadOnly(reviewPath).comments).sort(),
+    ).toEqual(["thread-1", "thread-2"]);
+  });
+
   it("reads committed WAL threads without changing original DB, WAL or SHM bytes", () => {
     const source = makeReviewPath();
     seedComment(source);

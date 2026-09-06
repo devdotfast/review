@@ -593,6 +593,8 @@ export function parseReviewCommentThreadMap(
 
 export const ReviewThreadsSnapshotSchema = z.strictObject({
   revision: threadTargetNonNegativeIntegerSchema,
+  /** Present only on a snapshot taken from a copy: it can be read, never advanced. */
+  readOnly: z.literal(true).optional(),
   comments: ReviewCommentThreadMapSchema,
   drafts: ReviewCommentDraftThreadMapSchema,
 });

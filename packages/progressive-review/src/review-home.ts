@@ -562,9 +562,17 @@ async function findReviewRecord(uuid: string): Promise<StoredReview | null> {
 
 export async function reviewDescriptor(
   stored: StoredReview,
-  retentionDays: DismissedRetentionDays = DEFAULT_DISMISSED_RETENTION_DAYS,
-  readOnlyThreads = false,
+  options: {
+    retentionDays?: DismissedRetentionDays;
+    /** "read-only" copies the thread database instead of opening it in place. */
+    threads?: "live" | "read-only";
+  } = {},
 ): Promise<ReviewDescriptor> {
+  // `null` is a real retention setting (never reap), so only an absent key defaults.
+  const retentionDays =
+    options.retentionDays === undefined
+      ? DEFAULT_DISMISSED_RETENTION_DAYS
+      : options.retentionDays;
   const documentPath = path.join(stored.dir, "review.mdx");
   const [reviewDirExists, worktreeExists, documentStats] = await Promise.all([
     pathExists(stored.dir),
@@ -598,18 +606,15 @@ export async function reviewDescriptor(
         }).catch(() => [])
       : [],
   ]);
-  const commentCount = readOnlyThreads
-    ? (() => {
-        try {
-          return Object.keys(readReviewThreadsReadOnly(documentPath).comments)
-            .length;
-        } catch {
-          return 0;
-        }
-      })()
-    : documentExists
-      ? countReviewComments(documentPath)
-      : 0;
+  /* A read-only count that cannot be taken is a real failure, not zero comments:
+     the caller decides whether to drop the descriptor. `countReviewComments` keeps
+     its own documented zero for the live path. */
+  const commentCount =
+    options.threads === "read-only"
+      ? Object.keys(readReviewThreadsReadOnly(documentPath).comments).length
+      : documentExists
+        ? countReviewComments(documentPath)
+        : 0;
   return {
     uuid: stored.review.uuid,
     title: stored.review.title,

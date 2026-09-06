@@ -379,11 +379,9 @@ export async function promoteReviewRepair<
     });
     // Once promoted, UI refresh failures cannot turn a committed repair into a failed command.
     await input.startSessionTelemetry(mounted).catch(() => undefined);
-    const descriptor = await reviewDescriptor(
-      mounted.review,
-      undefined,
-      true,
-    ).catch(() => undefined);
+    const descriptor = await reviewDescriptor(mounted.review, {
+      threads: "read-only",
+    }).catch(() => undefined);
     input.broadcast({
       event: "session-registered",
       session: mounted.descriptor,

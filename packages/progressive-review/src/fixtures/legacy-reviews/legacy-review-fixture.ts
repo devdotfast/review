@@ -20,6 +20,8 @@ import {
   parseJsonText,
 } from "@dev.fast/review-protocol";
 
+import { isDerivedReviewPath } from "../../review-derived-paths";
+
 const execFilePromise = promisify(execFile);
 
 export interface LegacyReviewFixtureMetadata {
@@ -92,22 +94,41 @@ export async function extractLegacyReviewFixture(
   }
 }
 
+function includeReviewTreeEntry(relative: string): boolean {
+  const name = path.basename(relative);
+  return (
+    name !== ".mutation-lock" &&
+    (!isDerivedReviewPath(name) || /^review\.db(?:-|$)/.test(name))
+  );
+}
+
+/** Content digests for every included file under `dir`, keyed by relative path. */
 export async function snapshotReviewTree(
   dir: string,
+  options: {
+    include?: (relative: string) => boolean;
+    refuseSpecialFiles?: boolean;
+  } = {},
 ): Promise<Record<string, string>> {
+  const include = options.include ?? includeReviewTreeEntry;
   const files: Record<string, string> = {};
   async function visit(relative: string) {
-    for (const entry of await readdir(path.join(dir, relative), {
+    const entries = await readdir(path.join(dir, relative), {
       withFileTypes: true,
-    })) {
-      if (entry.name.endsWith(".lock") || entry.name === ".mutation-lock")
-        continue;
+    });
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
       const name = path.join(relative, entry.name);
+      if (!include(name)) continue;
+      if (options.refuseSpecialFiles && entry.isSymbolicLink())
+        throw new Error("Review tree snapshot refuses symbolic links.");
       if (entry.isDirectory()) await visit(name);
-      else
+      else if (entry.isFile())
         files[name] = createHash("sha256")
           .update(await readFile(path.join(dir, name)))
           .digest("hex");
+      else if (options.refuseSpecialFiles)
+        throw new Error("Review tree snapshot refuses special files.");
     }
   }
   await visit("");

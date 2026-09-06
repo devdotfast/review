@@ -14,9 +14,11 @@ import { fileURLToPath } from "node:url";
 
 import {
   type JsonObject,
+  type JsonValue,
   type ReviewThreadsCommand,
   ReviewThreadsCommandResponseSchema,
   ReviewThreadsSnapshotResponseSchema,
+  type ReviewVerbResponse,
   jsonObject,
 } from "@dev.fast/review-protocol";
 import { afterEach, expect, it, vi } from "vitest";
@@ -39,13 +41,37 @@ import {
 } from "../review-thread-store-backend";
 import { reviewVcs } from "../review-vcs";
 import { createGlobalReviewServer } from "./desktop-server";
-import { GlobalReviewDesktopVerbRelay } from "./global-verb-relay";
+import {
+  GlobalReviewDesktopVerbRelay,
+  type ReviewDesktopVerbRelay,
+} from "./global-verb-relay";
 
 let root: string | undefined;
+type DispatchVerb = (
+  sessionId: string,
+  value: JsonValue,
+) => Promise<ReviewVerbResponse>;
+
+let dispatchVerb: DispatchVerb = async () => ({ ok: true });
+
+function recordingRelay(): ReviewDesktopVerbRelay {
+  const inner = new GlobalReviewDesktopVerbRelay();
+  return {
+    get attached() {
+      return inner.attached;
+    },
+    attach: (writer) => inner.attach(writer),
+    dispatch: (sessionId, value) => dispatchVerb(sessionId, value),
+    acceptResult: (value) => inner.acceptResult(value),
+    close: () => inner.close(),
+  };
+}
+
 afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
   closeAllReviewThreadStores();
+  dispatchVerb = async () => ({ ok: true });
   if (root) await rm(root, { recursive: true, force: true });
 });
 const packageRoot = path.resolve(
@@ -180,6 +206,7 @@ async function fixture(schemaVersion: 4 | 5 = 4) {
     port: 0,
     token,
     discoveryPath: path.join(root, "desktop.json"),
+    relay: recordingRelay(),
   });
   await server.listen();
   const post = (
@@ -226,10 +253,7 @@ it.each(["success", "mount-failure", "live-change", "stage-change"])(
     expect(prepared.request.sourceFallback.document).toBe(true);
     let validated = false;
     let refreshedDraftIds: string[] | undefined;
-    vi.spyOn(
-      GlobalReviewDesktopVerbRelay.prototype,
-      "dispatch",
-    ).mockImplementation(async (sessionId, value) => {
+    dispatchVerb = async (sessionId, value) => {
       if (jsonObject(value)?.name !== "validateCanvasMount")
         return { ok: true };
       const prefix = `/sessions/${sessionId}/__progressive-review`;
@@ -294,7 +318,7 @@ it.each(["success", "mount-failure", "live-change", "stage-change"])(
       return outcome === "mount-failure"
         ? { ok: false, error: "test mount failure" }
         : { ok: true };
-    });
+    };
     try {
       const response = await post("/repair-ready", prepared.request);
       expect(validated).toBe(true);
@@ -346,10 +370,7 @@ it("switches repaired comments to live snapshots for resynchronization after pro
     },
   });
   const validationReads: Array<{ writeStatus: number; revision: number }> = [];
-  vi.spyOn(
-    GlobalReviewDesktopVerbRelay.prototype,
-    "dispatch",
-  ).mockImplementation(async (sessionId, value) => {
+  dispatchVerb = async (sessionId, value) => {
     if (jsonObject(value)?.name !== "validateCanvasMount") return { ok: true };
     const before = await snapshotReviewTree(stored.dir);
     const prefix = `/sessions/${sessionId}/__progressive-review`;
@@ -364,7 +385,7 @@ it("switches repaired comments to live snapshots for resynchronization after pro
     });
     expect(await snapshotReviewTree(stored.dir)).toEqual(before);
     return { ok: true };
-  });
+  };
   try {
     const repaired = await post("/repair-ready", request);
     expect(repaired.status).toBe(201);
@@ -428,14 +449,10 @@ it.each([true, false])(
   async (mountSucceeds) => {
     const { stored, record, request, server, post, list, get } =
       await fixture(5);
-    vi.spyOn(
-      GlobalReviewDesktopVerbRelay.prototype,
-      "dispatch",
-    ).mockImplementation(async (_sessionId, value) =>
+    dispatchVerb = async (_sessionId, value) =>
       jsonObject(value)?.name === "validateCanvasMount" && !mountSucceeds
         ? { ok: false, error: "test mount failure" }
-        : { ok: true },
-    );
+        : { ok: true };
     try {
       const opened = await post(`/reviews/${record.uuid}/open`, {});
       expect(opened.status).toBe(201);
@@ -509,10 +526,7 @@ it.each([
       await symlink("HEAD", index);
     }
     const validationReads: Array<{ status: number; record: string }> = [];
-    vi.spyOn(
-      GlobalReviewDesktopVerbRelay.prototype,
-      "dispatch",
-    ).mockImplementation(async (sessionId, value) => {
+    dispatchVerb = async (sessionId, value) => {
       if (jsonObject(value)?.name === "validateCanvasMount") {
         const versions = await get(
           `/sessions/${sessionId}/__progressive-review/revisions`,
@@ -530,7 +544,7 @@ it.each([
           );
       }
       return { ok: true };
-    });
+    };
     try {
       const failedOpen = await post(`/reviews/${record.uuid}/open`, {});
       expect(failedOpen.status).toBe(409);

@@ -22,7 +22,16 @@ export interface GlobalReviewDesktopVerbWriter {
   close(): void | Promise<void>;
 }
 
-export class GlobalReviewDesktopVerbRelay {
+/** The server's view of the desktop relay, so tests can supply their own. */
+export interface ReviewDesktopVerbRelay {
+  readonly attached: boolean;
+  attach(writer: GlobalReviewDesktopVerbWriter): boolean;
+  dispatch(sessionId: string, value: JsonValue): Promise<ReviewVerbResponse>;
+  acceptResult(value: JsonValue): boolean;
+  close(): void;
+}
+
+export class GlobalReviewDesktopVerbRelay implements ReviewDesktopVerbRelay {
   private controlWriter: GlobalReviewDesktopVerbWriter | null = null;
   private controlAbortListener: (() => void) | null = null;
   private readonly pending = new Map<string, PendingVerb>();

@@ -21,7 +21,6 @@ import {
 } from "@dev.fast/review-protocol";
 import { afterEach, expect, it, vi } from "vitest";
 
-import { ReviewCommentStore } from "../../../../apps/review-desktop/code-oss/src/vs/review/services/reviewCommentStore";
 import { snapshotReviewTree } from "../fixtures/legacy-reviews/legacy-review-fixture";
 import {
   bundleReviewDocument,
@@ -366,63 +365,43 @@ it("switches repaired comments to live snapshots for resynchronization after pro
     expect(await snapshotReviewTree(stored.dir)).toEqual(before);
     return { ok: true };
   });
-  let client: ReviewCommentStore | undefined;
   try {
     const repaired = await post("/repair-ready", request);
     expect(repaired.status).toBe(201);
     expect(validationReads).toEqual([{ writeStatus: 409, revision: 0 }]);
     const { sessionId } = await repaired.json();
     const prefix = `/sessions/${sessionId}/__progressive-review`;
-    client = new ReviewCommentStore({
-      request: (endpoint) => get(`${prefix}${endpoint}`),
-    });
-    await client.refreshPersistedComments();
-    const commits = [];
-    for (const index of [1, 2]) {
+    const liveThreads = async () => {
+      const snapshot = ReviewThreadsSnapshotResponseSchema.parse(
+        await (await get(`${prefix}/comments`)).json(),
+      );
+      if (!snapshot.ok) throw new Error(snapshot.error);
+      return {
+        revision: snapshot.snapshot.revision,
+        threadIds: Object.keys(snapshot.snapshot.comments),
+      };
+    };
+    // The promoted session must own a fresh live store: revision 0, no
+    // carried-over threads, and one revision per accepted mutation.
+    expect(await liveThreads()).toEqual({ revision: 0, threadIds: [] });
+    const revisions: number[] = [];
+    for (const index of [1, 2, 3]) {
       const response = await post(`${prefix}/thread-commands`, comment(index));
       expect(response.status).toBe(200);
       const result = ReviewThreadsCommandResponseSchema.parse(
         await response.json(),
       );
       if (!result.ok) throw new Error(result.error);
-      commits.push(result.commit);
+      revisions.push(result.commit.revision);
+      expect(await liveThreads()).toEqual({
+        revision: result.commit.revision,
+        threadIds: Array.from(
+          { length: index },
+          (_unused, offset) => `repair-thread-${offset + 1}`,
+        ),
+      });
     }
-    expect(commits.map((commit) => commit.revision)).toEqual([1, 2]);
-    client.applyCommit(commits[0]!);
-    expect([...client.getSnapshot().commentThreads.keys()]).toEqual([
-      "repair-thread-1",
-    ]);
-    await client.refreshPersistedComments();
-    expect([...client.getSnapshot().commentThreads.keys()]).toEqual([
-      "repair-thread-1",
-      "repair-thread-2",
-    ]);
-    const resnapshot = ReviewThreadsSnapshotResponseSchema.parse(
-      await (await get(`${prefix}/comments`)).json(),
-    );
-    if (!resnapshot.ok) throw new Error(resnapshot.error);
-    expect(resnapshot.snapshot.revision).toBe(2);
-    expect(Object.keys(resnapshot.snapshot.comments)).toEqual([
-      "repair-thread-1",
-      "repair-thread-2",
-    ]);
-    const next = ReviewThreadsCommandResponseSchema.parse(
-      await (await post(`${prefix}/thread-commands`, comment(3))).json(),
-    );
-    if (!next.ok) throw new Error(next.error);
-    expect(next.commit.revision).toBe(resnapshot.snapshot.revision + 1);
-    client.applyCommit(next.commit);
-    expect([...client.getSnapshot().commentThreads.keys()]).toEqual([
-      "repair-thread-1",
-      "repair-thread-2",
-      "repair-thread-3",
-    ]);
-    const latest = ReviewThreadsSnapshotResponseSchema.parse(
-      await (await get(`${prefix}/comments`)).json(),
-    );
-    if (!latest.ok) throw new Error(latest.error);
-    expect(latest.snapshot.revision).toBe(next.commit.revision);
-    expect(Object.keys(latest.snapshot.comments)).toHaveLength(3);
+    expect(revisions).toEqual([1, 2, 3]);
 
     const historical = await post(`/reviews/${record.uuid}/open`, {
       revision: JSON.parse(request.expectedRecord).presentedDocumentRevision,
@@ -440,7 +419,6 @@ it("switches repaired comments to live snapshots for resynchronization after pro
     ).toBe(409);
     expect(await snapshotReviewTree(stored.dir)).toEqual(beforeHistoricalRead);
   } finally {
-    client?.dispose();
     await server.close();
   }
 });

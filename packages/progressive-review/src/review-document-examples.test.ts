@@ -125,7 +125,10 @@ describe("real authored document JSON conversion", () => {
     const html = renderToStaticMarkup(
       renderReviewNodes(hydrated.body, {
         ...reviewDocumentComponents,
-        h1: undefined,
+        elementOverrides: {
+          ...reviewDocumentComponents.elementOverrides,
+          h1: undefined,
+        },
       }),
     );
     expect(html).toContain("<sup>");

@@ -1,18 +1,33 @@
 import {
-  type ComponentType,
   Fragment,
+  type FunctionComponent,
   type ReactNode,
   createElement,
 } from "react";
 
-import type { reviewAuthoringComponents } from "./review-authoring-components";
+import {
+  type ProseTag,
+  type ReviewAuthoringComponentName,
+  type ReviewElementProps,
+  tableAlignSchema,
+} from "../../src/review-document-data";
 import type {
-  HydratedReviewComponentNode,
+  HydratedReviewComponentProps,
   HydratedReviewNode,
 } from "./review-document-hydrate";
 
-export type ReviewDocumentComponents = typeof reviewAuthoringComponents &
-  Record<string, ComponentType<never> | undefined>;
+/** A prose override renders the same validated props as its intrinsic tag. */
+export type ProseElementComponent = FunctionComponent<
+  ReviewElementProps & { children?: ReactNode }
+>;
+
+export interface ReviewDocumentComponents {
+  components: Record<
+    ReviewAuthoringComponentName,
+    FunctionComponent<HydratedReviewComponentProps>
+  >;
+  elementOverrides: Partial<Record<ProseTag, ProseElementComponent>>;
+}
 
 export function renderReviewNodes(
   nodes: HydratedReviewNode[],
@@ -32,35 +47,24 @@ function renderNode(
   if (node.type === "text") return node.value;
   const children = node.children.map((child) => renderNode(child, components));
   if (node.type === "component") {
-    const component = components[node.name];
-    if (!component) {
-      throw new Error(`Review document component ${node.name} is unavailable.`);
-    }
-    // SAFETY: component names passed the document schema; props were validated
-    // at publish and hydrated above. This cast reconnects the registry type.
-    const hydratedComponent = component as ComponentType<
-      HydratedReviewComponentNode["props"]
-    >;
-    return createElement(hydratedComponent, node.props, ...children);
-  }
-  // SAFETY: prose tags and scalar props passed reviewNodeSchema before
-  // hydration; an override consumes the same props as its intrinsic tag.
-  const override = components[node.tag] as
-    | ComponentType<(typeof node)["props"]>
-    | undefined;
-  const alignment = node.props.align;
-  // Restore only the validated table alignment, not arbitrary saved styles.
-  // Inline alignment retains MDX's precedence over the document's table CSS.
-  if (
-    !override &&
-    (node.tag === "th" || node.tag === "td") &&
-    (alignment === "left" || alignment === "center" || alignment === "right")
-  ) {
     return createElement(
-      node.tag,
-      { ...node.props, style: { textAlign: alignment } },
+      components.components[node.name],
+      node.props,
       ...children,
     );
   }
-  return createElement(override ?? node.tag, node.props, ...children);
+  const override = components.elementOverrides[node.tag];
+  if (override) return createElement(override, node.props, ...children);
+  // Alignment is the one saved style the renderer restores: the publish
+  // schema validates it, and the inline style keeps the document's table CSS
+  // from overriding an authored column alignment.
+  const align = tableAlignSchema.safeParse(node.props.align);
+  if (align.success) {
+    return createElement(
+      node.tag,
+      { ...node.props, style: { textAlign: align.data } },
+      ...children,
+    );
+  }
+  return createElement(node.tag, node.props, ...children);
 }

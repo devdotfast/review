@@ -695,7 +695,7 @@ async function evaluateLegacyPresentedDocument(
       "utf8",
     ),
     reviewDir,
-    validateRanges: false,
+    ranges: "skip",
   });
   for (const warning of evaluated.warnings) log?.(warning);
   if (!evaluated.document)

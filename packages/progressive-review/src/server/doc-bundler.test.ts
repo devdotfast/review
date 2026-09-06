@@ -109,7 +109,7 @@ describe("review document bundler", () => {
     const evaluated = await evaluateReviewDocumentBundleForPublish({
       reviewDir: reviewDir,
       bundleCode: bundle.code,
-      validateRanges: false,
+      ranges: "skip",
     });
     expect(evaluated.errors).toEqual([]);
     expect(Object.keys(evaluated.document?.anchors ?? {}).sort()).toEqual([

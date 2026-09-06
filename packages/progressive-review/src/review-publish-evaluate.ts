@@ -27,9 +27,11 @@ import {
   REVIEW_DOCUMENT_FORMAT,
   type ReviewDocumentData,
   reviewDocumentDataSchema,
-  stripPeekResolutions,
+  toReviewDocumentJson,
 } from "./review-document-data";
 import {
+  type CollectedReviewAnchors,
+  type MaterializedReviewNode,
   type ReviewDocumentExport,
   type ReviewDocumentModuleExports,
   collectDocumentSoftwareModels,
@@ -45,6 +47,7 @@ import {
 } from "./review-publish-element-audit";
 import {
   type NormalizedSoftwareModel,
+  type SoftwareModelData,
   defineSoftwareMap,
   isNormalizedSoftwareModel,
   softwareModelData,
@@ -134,8 +137,9 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
     file: string,
     side: CallStackSide,
   ) => Promise<CallStackChangedLines | null>;
-  validateRanges?: boolean;
+  ranges?: "validate" | "skip";
 }): Promise<ReviewPublishEvaluationResult> {
+  const ranges = input.ranges ?? "validate";
   const failures: string[] = [];
   const rangePeeks: ReviewPublishRangePeek[] = [];
   const callStackProps: CallStackDiffProps[] = [];
@@ -164,7 +168,7 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
   ): Promise<CodePeekResolution> => {
     peekCount += 1;
     rangePeeks.push({ ...props, anchorId: context?.anchorId });
-    if (input.validateRanges === false) {
+    if (ranges === "skip") {
       const sourceId = `source-range:${props.file}:${props.fromLine}-${props.toLine}`;
       return {
         snapshot: {
@@ -278,119 +282,27 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
     }
   });
 
-  // CallStackDiff evidence: the same gate as range resolution. Every "-"
-  // row must anchor deleted lines and every "+" row added lines, so a
-  // marker can never claim a change the diff does not contain.
-  const callStackSpan =
-    callStackProps.length > 0 && input.validateRanges !== false
-      ? startSpan("evaluate: call stack diffs", {
-          detail: `${callStackProps.length} diagrams`,
-        })
-      : null;
-  if (callStackProps.length > 0 && input.validateRanges !== false) {
-    if (!input.resolveChangedLines) {
-      failures.push(
-        "Document uses CallStackDiff but changed-line resolution is unavailable.",
-      );
-    } else {
-      const changedLines = new Map<string, CallStackChangedLines | null>();
-      for (const props of callStackProps) {
-        const rows = diffCallStacks(props.base, props.head);
-        for (const row of rows) {
-          if (row.change === "unchanged") continue;
-          const side: CallStackSide =
-            row.change === "removed" ? "base" : "head";
-          const file = callStackEntryAnchor(row.entry).peek.props.file;
-          const key = `${side}\0${file}`;
-          if (!changedLines.has(key)) {
-            changedLines.set(key, await input.resolveChangedLines(file, side));
-          }
-        }
-        const label = props.title
-          ? `<CallStackDiff "${props.title}">`
-          : "<CallStackDiff>";
-        const evidenceErrors = callStackEvidenceErrors(
-          rows,
-          (file, side) => changedLines.get(`${side}\0${file}`) ?? null,
-        );
-        for (const message of evidenceErrors) {
-          const entry = `${label} ${message}`;
-          if (!failures.includes(entry)) failures.push(entry);
-        }
-      }
-    }
+  if (ranges === "validate") {
+    failures.push(
+      ...(await span("evaluate: call stack diffs", () => validateCallStackEvidence({
+        props: callStackProps,
+        resolveChangedLines: input.resolveChangedLines,
+      }))),
+    );
   }
 
-  // TraceQuote resolution: every quoted string is matched against the target
-  // normalized trace. Text found nowhere is a hard error; multiple matches
-  // without a deciding event hint emit a warning with the event index.
-  callStackSpan?.end();
   const traceQuoteWarnings: string[] = [];
-  const traceQuoteSpan =
-    traceQuotes.length > 0 && input.validateRanges !== false
-      ? startSpan("evaluate: trace quotes", {
-          detail: `${traceQuotes.length} quotes`,
-        })
-      : null;
-  if (traceQuotes.length > 0 && input.validateRanges !== false) {
-    const traceCwd = input.prepareEvidence
-      ? (await evidence()).head.sourceRootPath
-      : undefined;
-    for (const quote of traceQuotes) {
-      const cleanQuote = quote.text.trim();
-      if (!cleanQuote) {
-        failures.push(
-          `<TraceQuote> in session ${quote.sessionId} has empty quote text.`,
-        );
-        continue;
-      }
-      const loaded = await loadReviewAgentTrace({
-        sessionId: quote.sessionId,
-        trace: quote.trace,
-        cwd: traceCwd,
-      });
-      if (!loaded) {
-        failures.push(
-          `<TraceQuote> session ${quote.sessionId}${quote.trace ? ` (trace ${quote.trace})` : ""} has no normalized transcript.`,
-        );
-        continue;
-      }
-      const normQuote = cleanQuote.replace(/\s+/g, " ");
-      const matchingIndices: number[] = [];
-      for (let i = 0; i < loaded.trace.events.length; i++) {
-        const ev = loaded.trace.events[i];
-        const text = extractTraceEventText(ev).replace(/\s+/g, " ");
-        if (text.includes(normQuote)) {
-          matchingIndices.push(i);
-        }
-      }
-      const quoteLabel =
-        cleanQuote.length > 40 ? `${cleanQuote.slice(0, 39)}…` : cleanQuote;
-      if (matchingIndices.length === 0) {
-        failures.push(
-          `<TraceQuote> text "${quoteLabel}" not found in session ${quote.sessionId}${quote.trace ? ` (trace ${quote.trace})` : ""}.`,
-        );
-      } else if (quote.event !== undefined) {
-        if (!matchingIndices.includes(quote.event)) {
-          if (matchingIndices.length === 1) {
-            traceQuoteWarnings.push(
-              `<TraceQuote> text "${quoteLabel}" hint event={${quote.event}} is stale; matched event ${matchingIndices[0]}.`,
-            );
-          } else {
-            traceQuoteWarnings.push(
-              `<TraceQuote> text "${quoteLabel}" matched multiple events (${matchingIndices.join(", ")}). Update hint to event={${matchingIndices[0]}} to disambiguate.`,
-            );
-          }
-        }
-      } else if (matchingIndices.length > 1) {
-        traceQuoteWarnings.push(
-          `<TraceQuote> text "${quoteLabel}" matched multiple events (${matchingIndices.join(", ")}). Add event={${matchingIndices[0]}} to disambiguate.`,
-        );
-      }
-    }
+  if (ranges === "validate" && traceQuotes.length > 0) {
+    const quoted = await span("evaluate: trace quotes", () => validateTraceQuotes({
+      quotes: traceQuotes,
+      cwd: input.prepareEvidence
+        ? (await evidence()).head.sourceRootPath
+        : undefined,
+    }));
+    failures.push(...quoted.errors);
+    traceQuoteWarnings.push(...quoted.warnings);
   }
 
-  traceQuoteSpan?.end();
   let legacySoftwareMap: ReviewPublishEvaluationResult["legacySoftwareMap"];
   const headMap = documentCapture.input?.repoSoftwareMap;
   const baseMap = documentCapture.input?.baseSoftwareMap;
@@ -438,27 +350,16 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
           moduleExports,
           documentCapture.input.modelNames,
         ).map((model) => softwareModelData(model));
-        const candidate = stripPeekResolutions({
-          format: REVIEW_DOCUMENT_FORMAT,
-          title: documentCapture.input.title,
-          routePath: documentCapture.input.routePath,
-          sourcePath: path.basename(documentCapture.input.filePath),
+        const assembled = assembleReviewDocument({
+          document: documentCapture.input,
           body: materialized.body,
-          anchors: anchors.anchors,
-          anchorContents: anchors.anchorContents,
+          anchors,
           softwareModels,
         });
-        const jsonValue = JSON.parse(JSON.stringify(candidate));
-        const parsed = reviewDocumentDataSchema.safeParse(jsonValue);
-        if (parsed.success) {
-          document = parsed.data;
+        if ("document" in assembled) {
+          document = assembled.document;
         } else {
-          failures.push(
-            ...parsed.error.issues.map(
-              (issue) =>
-                `Review document data: ${issue.path.join(".") || "document"}: ${issue.message}`,
-            ),
-          );
+          failures.push(...assembled.errors);
         }
       } catch (error) {
         failures.push(`Review document data: ${errorMessage(error)}`);
@@ -488,6 +389,133 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
   if (document && legacySoftwareMap)
     result.legacySoftwareMap = legacySoftwareMap;
   return result;
+}
+
+async function validateCallStackEvidence(input: {
+  props: readonly CallStackDiffProps[];
+  resolveChangedLines?: (
+    file: string,
+    side: CallStackSide,
+  ) => Promise<CallStackChangedLines | null>;
+}): Promise<string[]> {
+  const failures: string[] = [];
+  if (input.props.length === 0) return failures;
+  if (!input.resolveChangedLines) {
+    return [
+      "Document uses CallStackDiff but changed-line resolution is unavailable.",
+    ];
+  }
+  const changedLines = new Map<string, CallStackChangedLines | null>();
+  for (const props of input.props) {
+    const rows = diffCallStacks(props.base, props.head);
+    for (const row of rows) {
+      if (row.change === "unchanged") continue;
+      const side: CallStackSide = row.change === "removed" ? "base" : "head";
+      const file = callStackEntryAnchor(row.entry).peek.props.file;
+      const key = `${side}\0${file}`;
+      if (!changedLines.has(key)) {
+        changedLines.set(key, await input.resolveChangedLines(file, side));
+      }
+    }
+    const label = props.title
+      ? `<CallStackDiff "${props.title}">`
+      : "<CallStackDiff>";
+    for (const message of callStackEvidenceErrors(
+      rows,
+      (file, side) => changedLines.get(`${side}\0${file}`) ?? null,
+    )) {
+      const entry = `${label} ${message}`;
+      if (!failures.includes(entry)) failures.push(entry);
+    }
+  }
+  return failures;
+}
+
+async function validateTraceQuotes(input: {
+  quotes: readonly PublishAuditTraceQuote[];
+  cwd?: string;
+}): Promise<{ errors: string[]; warnings: string[] }> {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  for (const quote of input.quotes) {
+    const cleanQuote = quote.text.trim();
+    if (!cleanQuote) {
+      errors.push(
+        `<TraceQuote> in session ${quote.sessionId} has empty quote text.`,
+      );
+      continue;
+    }
+    const loaded = await loadReviewAgentTrace({
+      sessionId: quote.sessionId,
+      trace: quote.trace,
+      cwd: input.cwd,
+    });
+    if (!loaded) {
+      errors.push(
+        `<TraceQuote> session ${quote.sessionId}${quote.trace ? ` (trace ${quote.trace})` : ""} has no normalized transcript.`,
+      );
+      continue;
+    }
+    const normQuote = cleanQuote.replace(/\s+/g, " ");
+    const matchingIndices: number[] = [];
+    for (let i = 0; i < loaded.trace.events.length; i++) {
+      const event = loaded.trace.events[i];
+      const text = extractTraceEventText(event).replace(/\s+/g, " ");
+      if (text.includes(normQuote)) matchingIndices.push(i);
+    }
+    const quoteLabel =
+      cleanQuote.length > 40 ? `${cleanQuote.slice(0, 39)}…` : cleanQuote;
+    if (matchingIndices.length === 0) {
+      errors.push(
+        `<TraceQuote> text "${quoteLabel}" not found in session ${quote.sessionId}${quote.trace ? ` (trace ${quote.trace})` : ""}.`,
+      );
+    } else if (quote.event !== undefined) {
+      if (!matchingIndices.includes(quote.event)) {
+        if (matchingIndices.length === 1) {
+          warnings.push(
+            `<TraceQuote> text "${quoteLabel}" hint event={${quote.event}} is stale; matched event ${matchingIndices[0]}.`,
+          );
+        } else {
+          warnings.push(
+            `<TraceQuote> text "${quoteLabel}" matched multiple events (${matchingIndices.join(", ")}). Update hint to event={${matchingIndices[0]}} to disambiguate.`,
+          );
+        }
+      }
+    } else if (matchingIndices.length > 1) {
+      warnings.push(
+        `<TraceQuote> text "${quoteLabel}" matched multiple events (${matchingIndices.join(", ")}). Add event={${matchingIndices[0]}} to disambiguate.`,
+      );
+    }
+  }
+  return { errors, warnings };
+}
+
+function assembleReviewDocument(input: {
+  document: PublishDocumentInput;
+  body: MaterializedReviewNode[];
+  anchors: CollectedReviewAnchors;
+  softwareModels: SoftwareModelData[];
+}): { document: ReviewDocumentData } | { errors: string[] } {
+  const parsed = reviewDocumentDataSchema.safeParse(
+    toReviewDocumentJson({
+      format: REVIEW_DOCUMENT_FORMAT,
+      title: input.document.title,
+      routePath: input.document.routePath,
+      sourcePath: path.basename(input.document.filePath),
+      body: input.body,
+      anchors: input.anchors.anchors,
+      anchorContents: input.anchors.anchorContents,
+      softwareModels: input.softwareModels,
+    }),
+  );
+  return parsed.success
+    ? { document: parsed.data }
+    : {
+        errors: parsed.error.issues.map(
+          (issue) =>
+            `Review document data: ${issue.path.join(".") || "document"}: ${issue.message}`,
+        ),
+      };
 }
 
 interface PublishDocumentInput {

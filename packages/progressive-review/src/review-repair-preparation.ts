@@ -425,7 +425,7 @@ async function convertSealedDocument(
       path.join(bundleDir, "review-document.js"),
       "utf8",
     ),
-    validateRanges: false,
+    ranges: "skip",
   });
   for (const item of evaluated.warnings) warning?.(item);
   if (!evaluated.document)

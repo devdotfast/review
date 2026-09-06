@@ -729,7 +729,7 @@ async function reportRangeStaleness(input: {
     evaluateReviewDocumentBundleForPublish({
       bundleCode: bundle.code,
       reviewDir: input.review.dir,
-      validateRanges: false,
+      ranges: "skip",
     }),
   );
   if (evaluated.errors.length > 0) return;

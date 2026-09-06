@@ -5,40 +5,70 @@ import {
   isObjectValue,
   isStringValue,
 } from "@dev.fast/review-protocol";
-import { type ZodType } from "zod";
+import { z } from "zod";
 
 import {
   type AnchorRef,
-  databaseLensPropsSchema,
+  type ReviewAuthoringComponentName,
+  type StoreRefData,
   reviewAuthoringPropsSchemas,
   storeRefData,
 } from "./authoring";
 import {
-  type ReviewComponentNode,
   type ReviewElementProps,
-  type ReviewNode,
+  type ReviewTextNode,
   TABLE_CELL_TAGS,
   tableAlignSchema,
 } from "./review-document-data";
 import {
-  type AuthoringComponentName,
+  type AuditedComponentProps,
   FRAGMENT,
   type PublishAuditComponent,
-  type PublishAuditElementType,
   type PublishAuditNode,
+  type ReviewDocumentPublishAudit,
   flattenChildren,
   isAuditElement,
   isPublishAuditComponent,
 } from "./review-publish-element-audit";
 import { type NormalizedSoftwareModel } from "./software-map-model";
 
-interface ParsedComponentProps {
-  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Each value has already passed its registry component's zod schema.
-  [name: string]: unknown;
+type AuthoringProps<Name extends ReviewAuthoringComponentName> = z.infer<
+  (typeof reviewAuthoringPropsSchemas)[Name]
+>;
+
+export type MaterializedComponentProps =
+  | (Omit<AuthoringProps<"DatabaseLens">, "children" | "stores"> & {
+      stores: Record<string, StoreRefData>;
+    })
+  | {
+      [Name in Exclude<ReviewAuthoringComponentName, "DatabaseLens">]: Omit<
+        AuthoringProps<Name>,
+        "children"
+      >;
+    }[Exclude<ReviewAuthoringComponentName, "DatabaseLens">];
+
+export interface MaterializedComponentNode {
+  type: "component";
+  name: ReviewAuthoringComponentName;
+  props: MaterializedComponentProps;
+  children: MaterializedReviewNode[];
 }
 
+export interface MaterializedElementNode {
+  type: "element";
+  // The document schema is what pins this to PROSE_TAGS.
+  tag: string;
+  props: ReviewElementProps;
+  children: MaterializedReviewNode[];
+}
+
+export type MaterializedReviewNode =
+  | ReviewTextNode
+  | MaterializedElementNode
+  | MaterializedComponentNode;
+
 export interface MaterializedReviewDocument {
-  body: ReviewNode[];
+  body: MaterializedReviewNode[];
   errors: string[];
 }
 
@@ -46,21 +76,20 @@ export interface MaterializedReviewDocument {
 // This turns those records into JSON-shaped nodes. Prose keeps the React-named
 // props emitted by the MDX compiler, while registry props are zod-parsed and
 // normalized at the known non-JSON boundaries.
-export function materializeReviewDocument(input: {
-  tree: PublishAuditNode;
-  componentNames: ReadonlyMap<PublishAuditElementType, AuthoringComponentName>;
-}): MaterializedReviewDocument {
+export function materializeReviewDocument(
+  input: ReviewDocumentPublishAudit,
+): MaterializedReviewDocument {
   const errors: string[] = [];
-  const body = materializeChildren(input.tree, input.componentNames, errors);
+  const body = materializeChildren(input.tree, input, errors);
   return { body, errors };
 }
 
 function materializeChildren(
   node: PublishAuditNode,
-  componentNames: ReadonlyMap<PublishAuditElementType, AuthoringComponentName>,
+  input: ReviewDocumentPublishAudit,
   errors: string[],
-): ReviewNode[] {
-  const nodes: ReviewNode[] = [];
+): MaterializedReviewNode[] {
+  const nodes: MaterializedReviewNode[] = [];
   for (const child of flattenChildren(node)) {
     if (isStringValue(child) || isNumberValue(child)) {
       nodes.push({ type: "text", value: String(child) });
@@ -68,14 +97,13 @@ function materializeChildren(
     }
     if (!isAuditElement(child)) continue;
     if (child.type === FRAGMENT) {
-      nodes.push(
-        ...materializeChildren(child.props.children, componentNames, errors),
-      );
+      nodes.push(...materializeChildren(child.props.children, input, errors));
       continue;
     }
 
-    const { children, key: _key, ...props } = child.props;
+    const children = child.props.children;
     if (isStringValue(child.type)) {
+      const { children: _children, key: _key, ...props } = child.props;
       const elementProps: ReviewElementProps = {};
       for (const [name, value] of Object.entries(props)) {
         // MDX emits GFM table alignment as a style object. Keep that one
@@ -107,12 +135,12 @@ function materializeChildren(
         type: "element",
         tag: child.type,
         props: elementProps,
-        children: materializeChildren(children, componentNames, errors),
+        children: materializeChildren(children, input, errors),
       });
       continue;
     }
 
-    const name = componentNames.get(child.type);
+    const name = input.componentNames.get(child.type);
     if (!name) {
       errors.push(
         isPublishAuditComponent(child.type)
@@ -122,54 +150,32 @@ function materializeChildren(
       continue;
     }
 
-    const schema: ZodType = reviewAuthoringPropsSchemas[name];
-    const parsed = schema.safeParse(child.props);
-    if (!parsed.success) continue;
-    if (!isObjectValue(parsed.data)) continue;
-    const parsedData: ParsedComponentProps = Object.fromEntries(
-      Object.entries(parsed.data),
-    );
-    const parsedProps: ParsedComponentProps = Object.fromEntries(
-      Object.entries(parsed.data).filter(([key]) => key !== "children"),
-    );
-    const normalizedProps = normalizeComponentProps(
-      name,
-      parsedData,
-      parsedProps,
-    );
-    // SAFETY: props came from the named registry schema with children removed;
-    // the document schema enforces its JSON representation before publication.
+    const audited = input.componentProps.get(child);
+    // A component whose props failed the audit already reported its errors.
+    if (!audited) continue;
     nodes.push({
       type: "component",
       name,
-      props: normalizedProps,
-      children: materializeChildren(children, componentNames, errors),
-    } as ReviewComponentNode);
+      props: materializeComponentProps(audited),
+      children: materializeChildren(children, input, errors),
+    });
   }
   return nodes;
 }
 
-function normalizeComponentProps(
-  name: AuthoringComponentName,
-  parsedData: ParsedComponentProps,
-  props: ParsedComponentProps,
-): ParsedComponentProps {
-  if (name === "DatabaseLens") {
-    const parsed = databaseLensPropsSchema.parse(parsedData);
-    const normalized: ParsedComponentProps = {
+function materializeComponentProps(
+  audited: AuditedComponentProps,
+): MaterializedComponentProps {
+  if (audited.name === "DatabaseLens") {
+    const { children: _children, stores, ...props } = audited.props;
+    return {
       ...props,
       stores: Object.fromEntries(
-        Object.entries(parsed.stores).map(([id, store]) => [
-          id,
-          storeRefData(store),
-        ]),
+        Object.entries(stores).map(([id, store]) => [id, storeRefData(store)]),
       ),
     };
-    // SAFETY: DatabaseLens values passed its props schema, store handles were
-    // projected to their data form, and the document schema is the final JSON
-    // boundary before any materialized result can publish.
-    return normalized as ReviewComponentNode["props"];
   }
+  const { children: _children, ...props } = audited.props;
   return props;
 }
 

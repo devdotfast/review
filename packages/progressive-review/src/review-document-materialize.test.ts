@@ -1,34 +1,32 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  createReviewDefinitionSession,
-  reviewAuthoringPropsSchemas,
-} from "./authoring";
+import { createReviewDefinitionSession } from "./authoring";
 import {
   type ReviewDocumentModuleExports,
   collectReviewAnchors,
   materializeReviewDocument,
 } from "./review-document-materialize";
 import {
-  type AuthoringComponentName,
   FRAGMENT,
   type PublishAuditComponent,
-  type PublishAuditElementType,
+  type ReviewDocumentPublishAudit,
+  auditReviewDocumentComponent,
   createPublishValidationReact,
 } from "./review-publish-element-audit";
 
 const react = createPublishValidationReact();
-const componentNames = new Map<
-  PublishAuditElementType,
-  AuthoringComponentName
->();
-const stubs = {} as Record<AuthoringComponentName, PublishAuditComponent>;
-for (const name of Object.keys(
-  reviewAuthoringPropsSchemas,
-) as AuthoringComponentName[]) {
-  const stub = () => null;
-  stubs[name] = stub;
-  componentNames.set(stub, name);
+
+function auditDocument(
+  Component: PublishAuditComponent,
+): ReviewDocumentPublishAudit {
+  const audit = auditReviewDocumentComponent({
+    Component,
+    reportError: (message) => {
+      throw new Error(message);
+    },
+  });
+  if (!audit) throw new Error("Expected the document audit to succeed.");
+  return audit;
 }
 
 const anchor = {
@@ -43,17 +41,37 @@ const anchor = {
 } as const;
 
 describe("materializeReviewDocument", () => {
+  it("parses registry component props once during the publish audit", () => {
+    let titleReads = 0;
+    const Component: PublishAuditComponent = ({ components }) => {
+      if (!components) throw new Error("Expected Review components.");
+      return react.jsx(components.ReviewSection, {
+        get title() {
+          titleReads += 1;
+          return "Part";
+        },
+        children: "Body",
+      });
+    };
+    const audit = auditDocument(Component);
+    const titleReadsAfterAudit = titleReads;
+
+    expect(materializeReviewDocument(audit).errors).toEqual([]);
+    expect(titleReads).toBe(titleReadsAfterAudit);
+  });
+
   it.each(["left", "center", "right"])(
     "preserves GFM table alignment %s as scalar data",
     (alignment) => {
       for (const tag of ["th", "td"]) {
-        const result = materializeReviewDocument({
-          tree: react.jsx(tag, {
-            style: { textAlign: alignment },
-            children: "Cell",
-          }),
-          componentNames,
-        });
+        const result = materializeReviewDocument(
+          auditDocument(() =>
+            react.jsx(tag, {
+              style: { textAlign: alignment },
+              children: "Cell",
+            }),
+          ),
+        );
         expect(result).toEqual({
           body: [
             {
@@ -74,41 +92,40 @@ describe("materializeReviewDocument", () => {
     { textAlign: "left", color: "red" },
     { backgroundImage: "url(https://example.com/pixel)" },
   ])("does not admit arbitrary table styles: %j", (style) => {
-    const result = materializeReviewDocument({
-      tree: react.jsx("td", { style }),
-      componentNames,
-    });
+    const result = materializeReviewDocument(
+      auditDocument(() => react.jsx("td", { style })),
+    );
     expect(result.errors).toEqual([
       '<td> prop "style" must be a string, number, or boolean.',
     ]);
   });
 
   it("turns prose, fragments, and nested registry elements into nodes", () => {
-    const tree = react.jsx(FRAGMENT, {
-      children: [
-        react.jsx("h1", {
-          "data-review-block-index": 0,
-          "data-review-block-tag": "h1",
-          children: "Title",
-        }),
-        react.jsx(stubs.ReviewSection, {
-          title: "Part",
+    const { body, errors } = materializeReviewDocument(
+      auditDocument(({ components }) => {
+        if (!components) throw new Error("Expected Review components.");
+        return react.jsx(FRAGMENT, {
           children: [
-            react.jsx("h2", {
-              "data-review-block-index": 1,
-              "data-review-block-tag": "h2",
-              children: "Part",
+            react.jsx("h1", {
+              "data-review-block-index": 0,
+              "data-review-block-tag": "h1",
+              children: "Title",
             }),
-            react.jsx(stubs.CodePeek, { anchor }),
+            react.jsx(components.ReviewSection, {
+              title: "Part",
+              children: [
+                react.jsx("h2", {
+                  "data-review-block-index": 1,
+                  "data-review-block-tag": "h2",
+                  children: "Part",
+                }),
+                react.jsx(components.CodePeek, { anchor }),
+              ],
+            }),
           ],
-        }),
-      ],
-    });
-
-    const { body, errors } = materializeReviewDocument({
-      tree,
-      componentNames,
-    });
+        });
+      }),
+    );
 
     expect(errors).toEqual([]);
     expect(body[0]).toEqual({
@@ -151,24 +168,24 @@ describe("materializeReviewDocument", () => {
         },
       },
     });
-    const tree = react.jsx(stubs.DatabaseLens, {
-      stores,
-      children: react.jsx(stubs.DbUseCase, {
-        id: "u",
-        label: "U",
-        children: react.jsx(stubs.DbWrite, {
-          from: { __kind: "db-actor-ref", id: "svc", label: "S" },
-          to: stores.db.tables.orders.status,
-          label: "w",
-          anchor,
-        }),
+    const { body, errors } = materializeReviewDocument(
+      auditDocument(({ components }) => {
+        if (!components) throw new Error("Expected Review components.");
+        return react.jsx(components.DatabaseLens, {
+          stores,
+          children: react.jsx(components.DbUseCase, {
+            id: "u",
+            label: "U",
+            children: react.jsx(components.DbWrite, {
+              from: { __kind: "db-actor-ref", id: "svc", label: "S" },
+              to: stores.db.tables.orders.status,
+              label: "w",
+              anchor,
+            }),
+          }),
+        });
       }),
-    });
-
-    const { body, errors } = materializeReviewDocument({
-      tree,
-      componentNames,
-    });
+    );
 
     expect(errors).toEqual([]);
     expect(body[0]).toMatchObject({
@@ -194,16 +211,13 @@ describe("materializeReviewDocument", () => {
     const local = () => null;
 
     expect(
-      materializeReviewDocument({
-        tree: react.jsx(local, {}),
-        componentNames,
-      }).errors[0],
+      materializeReviewDocument(auditDocument(() => react.jsx(local, {})))
+        .errors[0],
     ).toMatch(/Document-local components/);
     expect(
-      materializeReviewDocument({
-        tree: react.jsx("p", { style: { color: "red" } }),
-        componentNames,
-      }).errors[0],
+      materializeReviewDocument(
+        auditDocument(() => react.jsx("p", { style: { color: "red" } })),
+      ).errors[0],
     ).toMatch(/style/);
   });
 });

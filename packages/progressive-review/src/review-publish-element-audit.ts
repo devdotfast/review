@@ -3,7 +3,9 @@ import { z } from "zod";
 
 import {
   type CallStackDiffProps,
+  type DatabaseLensProps,
   callStackDiffPropsSchema,
+  databaseLensPropsSchema,
   dbUseCasePropsSchema,
   reviewAuthoringPropsSchemas,
   traceQuotePropsSchema,
@@ -62,7 +64,30 @@ export interface PublishValidationProps {
   [prop: string]: unknown;
 }
 
-export type AuthoringComponentName = keyof typeof reviewAuthoringPropsSchemas;
+const authoringComponentNameSchema = z.keyof(
+  z.object(reviewAuthoringPropsSchemas),
+);
+export type AuthoringComponentName = z.infer<
+  typeof authoringComponentNameSchema
+>;
+
+type OtherAuthoringComponentProps = {
+  [Name in Exclude<AuthoringComponentName, "DatabaseLens">]: z.infer<
+    (typeof reviewAuthoringPropsSchemas)[Name]
+  >;
+}[Exclude<AuthoringComponentName, "DatabaseLens">];
+
+// The audit is the one walk that sees every authored element, so it parses
+// each component's props once and hands the typed result to materialization.
+// DatabaseLens is its own member because it is the only component whose
+// document form differs from its authored form (store handles project to
+// data), and narrowing on `name` must narrow `props` with it.
+export type AuditedComponentProps =
+  | { name: "DatabaseLens"; props: DatabaseLensProps }
+  | {
+      name: Exclude<AuthoringComponentName, "DatabaseLens">;
+      props: OtherAuthoringComponentProps;
+    };
 
 export function isAuditElement(
   value: PublishAuditNode,
@@ -241,6 +266,7 @@ export interface PublishAuditTraceQuote {
 export interface ReviewDocumentPublishAudit {
   tree: PublishAuditNode;
   componentNames: ReadonlyMap<PublishAuditElementType, AuthoringComponentName>;
+  componentProps: ReadonlyMap<PublishAuditElement, AuditedComponentProps>;
 }
 
 export function extractAuditText(node: PublishAuditNode): string {
@@ -270,11 +296,8 @@ export function auditReviewDocumentComponent(input: {
     PublishAuditElementType,
     AuthoringComponentName
   >();
-  // SAFETY: `reviewAuthoringPropsSchemas` is an object literal whose own keys
-  // are exactly the AuthoringComponentName members.
-  for (const name of Object.keys(
-    reviewAuthoringPropsSchemas,
-  ) as AuthoringComponentName[]) {
+  const componentProps = new Map<PublishAuditElement, AuditedComponentProps>();
+  for (const name of authoringComponentNameSchema.options) {
     const stub = () => null;
     Object.defineProperty(stub, "name", { value: name });
     components.set(name, stub);
@@ -299,13 +322,14 @@ export function auditReviewDocumentComponent(input: {
       if (!isAuditElement(child)) continue;
       const name = componentNames.get(child.type) ?? null;
       if (name) {
-        auditElement(
+        const audited = auditElement(
           child,
           name,
           parentName,
           componentNames,
           input.reportError,
         );
+        if (audited) componentProps.set(child, audited);
         if (name === "CallStackDiff" && input.collectCallStackDiff) {
           const parsed = callStackDiffPropsSchema.safeParse(child.props);
           if (parsed.success) input.collectCallStackDiff(parsed.data);
@@ -341,7 +365,7 @@ export function auditReviewDocumentComponent(input: {
     }
   };
   walk(tree, null);
-  return { tree, componentNames };
+  return { tree, componentNames, componentProps };
 }
 
 function auditElement(
@@ -350,14 +374,26 @@ function auditElement(
   parentName: AuthoringComponentName | null,
   componentNames: ReadonlyMap<PublishAuditElementType, AuthoringComponentName>,
   reportError: (message: string) => void,
-): void {
-  const schema: z.ZodType = reviewAuthoringPropsSchemas[name];
-  const parsed = schema.safeParse(element.props);
-  if (!parsed.success) {
-    for (const issue of parsed.error.issues) {
-      const path = issue.path.length > 0 ? issue.path.join(".") : "props";
-      reportError(`<${name}> ${path}: ${issue.message}`);
+): AuditedComponentProps | null {
+  let audited: AuditedComponentProps | null;
+  if (name === "DatabaseLens") {
+    const parsed = databaseLensPropsSchema.safeParse(element.props);
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        const path = issue.path.length > 0 ? issue.path.join(".") : "props";
+        reportError(`<${name}> ${path}: ${issue.message}`);
+      }
     }
+    audited = parsed.success ? { name, props: parsed.data } : null;
+  } else {
+    const parsed = reviewAuthoringPropsSchemas[name].safeParse(element.props);
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        const path = issue.path.length > 0 ? issue.path.join(".") : "props";
+        reportError(`<${name}> ${path}: ${issue.message}`);
+      }
+    }
+    audited = parsed.success ? { name, props: parsed.data } : null;
   }
 
   const childNames = flattenChildren(element.props.children).flatMap((child) =>
@@ -403,4 +439,5 @@ function auditElement(
   ) {
     reportError(`<DbUseCase> must contain at least one <DbRead> or <DbWrite>.`);
   }
+  return audited;
 }

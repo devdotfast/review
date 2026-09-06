@@ -137,16 +137,7 @@ export async function prepareReviewRepair(input: {
           allowAbsentMap: allowsAbsentSoftwareMap(snapshot),
           warning: input.warning,
         })
-      : {
-          changed: false,
-          usedEditableSources: false,
-          revision: null,
-          presentedRecord: document.presentedRecord,
-          pins: {
-            baseCommit: document.presentedRecord.baseCommit,
-            headCommit: document.presentedRecord.sourceCommit,
-          },
-        };
+      : unchangedPresentedMap(document);
     if (
       snapshot.threadDbFingerprint !== undefined &&
       readReviewThreadDatabaseFingerprint(
@@ -166,36 +157,13 @@ export async function prepareReviewRepair(input: {
       await cleanup();
       return { kind: "noop", review };
     }
-    let mapRevision = map.revision;
-    if (map.changed) {
-      await writePrivateJsonAtomic(path.join(stagingDir, "review.json"), {
-        ...review,
-        ...sealedPins(map.presentedRecord),
-        baseCommit: map.pins.baseCommit,
-        sourceCommit: map.pins.headCommit,
-        presentedSoftwareMapRevision: presentedMapRevision,
-      });
-      mapRevision = await sealReviewCandidate(
-        stagingDir,
-        "Repair current Review software map",
-      );
-    }
-    let documentRevision = snapshot.documentRevision;
-    if (document.changed) {
-      await writePrivateJsonAtomic(path.join(stagingDir, "review.json"), {
-        ...review,
-        ...sealedPins(document.presentedRecord),
-        presentedSoftwareMapRevision: mapRevision,
-      });
-      documentRevision = await sealReviewCandidate(
-        stagingDir,
-        "Repair current Review document",
-      );
-    }
-    await writePrivateJsonAtomic(path.join(stagingDir, "review.json"), {
-      ...review,
-      presentedDocumentRevision: documentRevision,
-      presentedSoftwareMapRevision: mapRevision,
+    const { documentRevision, mapRevision } = await sealRepairedPresentations({
+      stagingDir,
+      review,
+      documentRevision: snapshot.documentRevision,
+      presentedMapRevision,
+      document,
+      map,
     });
     const request: ReviewRepairReadyRequest = {
       reviewUuid: review.uuid,
@@ -216,6 +184,62 @@ export async function prepareReviewRepair(input: {
     await cleanup();
     throw error;
   }
+}
+
+function unchangedPresentedMap(document: RepairedDocument): RepairedMap {
+  return {
+    changed: false,
+    usedEditableSources: false,
+    revision: null,
+    presentedRecord: document.presentedRecord,
+    pins: {
+      baseCommit: document.presentedRecord.baseCommit,
+      headCommit: document.presentedRecord.sourceCommit,
+    },
+  };
+}
+
+/** Seals map first, document second, then leaves the final candidate record. */
+async function sealRepairedPresentations(input: {
+  stagingDir: string;
+  review: StoredReviewRecord;
+  documentRevision: string;
+  presentedMapRevision: string | null;
+  document: RepairedDocument;
+  map: RepairedMap;
+}): Promise<{ documentRevision: string; mapRevision: string | null }> {
+  let mapRevision = input.map.revision;
+  if (input.map.changed) {
+    await writePrivateJsonAtomic(path.join(input.stagingDir, "review.json"), {
+      ...input.review,
+      ...sealedPins(input.map.presentedRecord),
+      baseCommit: input.map.pins.baseCommit,
+      sourceCommit: input.map.pins.headCommit,
+      presentedSoftwareMapRevision: input.presentedMapRevision,
+    });
+    mapRevision = await sealReviewCandidate(
+      input.stagingDir,
+      "Repair current Review software map",
+    );
+  }
+  let documentRevision = input.documentRevision;
+  if (input.document.changed) {
+    await writePrivateJsonAtomic(path.join(input.stagingDir, "review.json"), {
+      ...input.review,
+      ...sealedPins(input.document.presentedRecord),
+      presentedSoftwareMapRevision: mapRevision,
+    });
+    documentRevision = await sealReviewCandidate(
+      input.stagingDir,
+      "Repair current Review document",
+    );
+  }
+  await writePrivateJsonAtomic(path.join(input.stagingDir, "review.json"), {
+    ...input.review,
+    presentedDocumentRevision: documentRevision,
+    presentedSoftwareMapRevision: mapRevision,
+  });
+  return { documentRevision, mapRevision };
 }
 
 /** Copies the review into an isolated candidate under the mutation lock and

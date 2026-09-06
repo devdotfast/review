@@ -79,7 +79,7 @@ export async function fingerprintReviewTree(
 export async function copyReviewTree(
   dir: string,
   destination: string,
-  options: ReviewTreeOptions,
+  options: ReviewTreeOptions & { symlink: "reject" },
 ): Promise<string> {
   const digest = createHash("sha256");
   await walkReviewTree(dir, options, digest, {

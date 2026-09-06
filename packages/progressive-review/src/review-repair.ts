@@ -1,5 +1,4 @@
 import os from "node:os";
-import path from "node:path";
 import type { Writable } from "node:stream";
 
 import {
@@ -8,12 +7,15 @@ import {
   parseJsonText,
 } from "@dev.fast/review-protocol";
 
-import { emitJsonEvent } from "./cli-output";
+import { emitJsonEvent, failWithJsonError, humanStream } from "./cli-output";
 import { requireHealthyReviewDesktop } from "./desktop-discovery";
+import { UUID_PATTERN, findScopedReview } from "./review-home";
 import { prepareReviewRepair } from "./review-repair-preparation";
+import { ReviewRepairReadyResponseSchema } from "./review-repair-state";
 import { devReviewHome } from "./review-storage";
 
 export async function runReviewRepair(input: {
+  cwd: string;
   reviewUuid?: string;
   json?: boolean;
   stdout: Writable;
@@ -21,25 +23,23 @@ export async function runReviewRepair(input: {
   env?: NodeJS.ProcessEnv;
 }): Promise<number> {
   try {
-    if (
-      !input.reviewUuid ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-        input.reviewUuid,
-      )
-    )
+    if (!input.reviewUuid || !UUID_PATTERN.test(input.reviewUuid))
       throw new Error(
         "Repair requires an explicit UUID: review repair --review <uuid>.",
       );
-    const reviewDir = path.join(
-      devReviewHome(input.env ?? process.env, os.homedir()),
-      "reviews",
-      input.reviewUuid,
-    );
+    const review = await findScopedReview(input.reviewUuid, {
+      worktreePath: input.cwd,
+      includeTerminal: true,
+      includeLegacySchema: true,
+      devHome: devReviewHome(input.env ?? process.env, os.homedir()),
+    });
+    if (!review)
+      throw new Error(`Review not found in this checkout: ${input.reviewUuid}`);
     const prepared = await prepareReviewRepair({
-      reviewDir,
+      reviewDir: review.dir,
       warning: (message) => {
         emitJsonEvent(input, { event: "warning", message });
-        if (!input.json) input.stderr.write(`warning: ${message}\n`);
+        input.stderr.write(`warning: ${message}\n`);
       },
     });
     if (prepared.kind === "noop") {
@@ -53,10 +53,9 @@ export async function runReviewRepair(input: {
         newDocumentRevision: prepared.review.presentedDocumentRevision,
         newMapRevision: prepared.review.presentedSoftwareMapRevision,
       });
-      if (!input.json)
-        input.stdout.write(
-          "Current Review artifacts are healthy; no repair needed.\n",
-        );
+      humanStream(input).write(
+        "Current Review artifacts are healthy; no repair needed.\n",
+      );
       return 0;
     }
     try {
@@ -69,30 +68,31 @@ export async function runReviewRepair(input: {
         },
         body: JSON.stringify(prepared.request),
       });
-      const result = jsonObject(parseJsonText(await response.text()));
-      if (!response.ok || result?.ok !== true)
+      const body = jsonObject(parseJsonText(await response.text()));
+      const parsed = ReviewRepairReadyResponseSchema.safeParse(body);
+      if (!response.ok || !parsed.success)
         throw new Error(
-          jsonString(result?.error) ??
+          jsonString(body?.error) ??
             `Review Desktop repair failed (${response.status}).`,
         );
       emitJsonEvent(input, {
-        ...result,
+        ...parsed.data,
         event: "repaired",
         noop: false,
         sourceFallback: prepared.request.sourceFallback,
       });
-      if (!input.json)
-        input.stdout.write(
-          `Review repaired: ${prepared.review.uuid}\nStatus preserved: ${prepared.review.status}\nDocument: ${prepared.review.presentedDocumentRevision} → ${prepared.request.newDocumentRevision}\nMap: ${prepared.review.presentedSoftwareMapRevision ?? "absent"} → ${prepared.request.newMapRevision ?? "absent"}\n`,
-        );
+      humanStream(input).write(
+        `Review repaired: ${prepared.review.uuid}\nStatus preserved: ${prepared.review.status}\nDocument: ${prepared.review.presentedDocumentRevision} → ${prepared.request.newDocumentRevision}\nMap: ${prepared.review.presentedSoftwareMapRevision ?? "absent"} → ${prepared.request.newMapRevision ?? "absent"}\n`,
+      );
       return 0;
     } finally {
       await prepared.cleanup();
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    emitJsonEvent(input, { event: "error", stage: "repair", message });
-    if (!input.json) input.stderr.write(`error: ${message}\n`);
-    return 1;
+    return failWithJsonError(
+      input,
+      "repair",
+      error instanceof Error ? error.message : String(error),
+    );
   }
 }

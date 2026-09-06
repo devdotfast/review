@@ -390,10 +390,78 @@ describe("prepareReviewRepair", () => {
         callback();
       },
     });
-    expect(await runReviewRepair({ stdout, stderr: stdout, json: true })).toBe(
-      1,
-    );
+    expect(
+      await runReviewRepair({
+        cwd: process.cwd(),
+        stdout,
+        stderr: stdout,
+        json: true,
+      }),
+    ).toBe(1);
     expect(output).toContain("explicit UUID");
+  });
+  it("keeps the human report on stderr under --json and refuses another checkout", async () => {
+    const stored = await fixture();
+    let out = "";
+    let err = "";
+    const stdout = new Writable({
+      write(chunk, _encoding, callback) {
+        out += chunk.toString();
+        callback();
+      },
+    });
+    const stderr = new Writable({
+      write(chunk, _encoding, callback) {
+        err += chunk.toString();
+        callback();
+      },
+    });
+    expect(
+      await runReviewRepair({
+        cwd: path.join(path.dirname(stored.dir), "elsewhere"),
+        reviewUuid: stored.review.uuid,
+        json: true,
+        stdout,
+        stderr,
+        env: { DEV_REVIEW_HOME: path.dirname(path.dirname(stored.dir)) },
+      }),
+    ).toBe(1);
+    expect(out).toContain('"event":"error"');
+    expect(err).toContain(stored.review.uuid);
+    expect(out).not.toContain("Review repaired:");
+  });
+  it("honors an explicit storage home without mutating process.env", async () => {
+    const stored = await fixture();
+    let out = "";
+    let err = "";
+    const stdout = new Writable({
+      write(chunk, _encoding, callback) {
+        out += chunk.toString();
+        callback();
+      },
+    });
+    const stderr = new Writable({
+      write(chunk, _encoding, callback) {
+        err += chunk.toString();
+        callback();
+      },
+    });
+    const originalDevReviewHome = process.env.DEV_REVIEW_HOME;
+    expect(
+      await runReviewRepair({
+        cwd: stored.review.worktreePath,
+        reviewUuid: stored.review.uuid,
+        json: true,
+        stdout,
+        stderr,
+        env: { DEV_REVIEW_HOME: path.dirname(path.dirname(stored.dir)) },
+      }),
+    ).toBe(0);
+    expect(out).toContain('"event":"repaired"');
+    expect(err).toContain(
+      "Current Review artifacts are healthy; no repair needed.",
+    );
+    expect(process.env.DEV_REVIEW_HOME).toBe(originalDevReviewHome);
   });
   it("repairs only a legacy map while preserving the healthy document pointer", async () => {
     const stored = await fixture();

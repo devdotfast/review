@@ -401,10 +401,11 @@ export async function runProgressiveReviewCli(
       .description(
         "Repair current Review artifacts without changing review status",
       )
-      .requiredOption("--review <uuid>", "explicit review UUID"),
+      .requiredOption("--review <uuid>", "review UUID"),
     "plain",
   ).action(async (options: { review: string; json?: boolean }) => {
     state.exitCode = await runtime.runReviewRepair({
+      cwd,
       reviewUuid: options.review,
       json: options.json,
       stdout: input.stdout,

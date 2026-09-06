@@ -464,16 +464,20 @@ export async function reviewTitleFromDocument(
   return undefined;
 }
 
-export async function findReview(uuid: string): Promise<StoredReview | null> {
-  return findReviewRecord(uuid);
+export async function findReview(
+  uuid: string,
+  devHome?: string,
+): Promise<StoredReview | null> {
+  return findReviewRecord(uuid, devHome);
 }
 
 export async function findReviewForRepair(
   uuid: string,
+  devHome?: string,
 ): Promise<StoredReview | null> {
   if (!UUID_PATTERN.test(uuid))
     throw new Error(`Review UUID is invalid: ${uuid}`);
-  const dir = path.join(reviewsHomeDir(), uuid);
+  const dir = path.join(reviewsHomeDir(devHome), uuid);
   let value: JsonValue;
   try {
     value = parseJsonText(
@@ -525,11 +529,13 @@ export async function findScopedReview(
     includeTerminal?: boolean;
     /** Repair must reach reviews whose review.json predates the current schema. */
     includeLegacySchema?: boolean;
+    /** Override the default Review storage home. */
+    devHome?: string;
   },
 ): Promise<StoredReview | null> {
   const found = await (
     scope.includeLegacySchema ? findReviewForRepair : findReview
-  )(uuid);
+  )(uuid, scope.devHome);
   if (!found) return null;
   if (found.review.worktreePath !== path.resolve(scope.worktreePath))
     return null;
@@ -541,11 +547,16 @@ export async function findScopedReview(
   return found;
 }
 
-async function findReviewRecord(uuid: string): Promise<StoredReview | null> {
+async function findReviewRecord(
+  uuid: string,
+  devHome?: string,
+): Promise<StoredReview | null> {
   if (!UUID_PATTERN.test(uuid)) {
     throw new Error(`Review UUID is invalid: ${uuid}`);
   }
-  const loaded = await readStoredReview(path.join(reviewsHomeDir(), uuid));
+  const loaded = await readStoredReview(
+    path.join(reviewsHomeDir(devHome), uuid),
+  );
   if ("error" in loaded) {
     if (loaded.error.code === "ENOENT") return null;
     throw new ReviewHomeScanError([loaded.error]);

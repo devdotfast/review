@@ -17,6 +17,8 @@ import {
   type ReviewComponentNode,
   type ReviewElementProps,
   type ReviewNode,
+  TABLE_CELL_TAGS,
+  tableAlignSchema,
 } from "./review-document-data";
 import {
   type AuthoringComponentName,
@@ -80,15 +82,13 @@ function materializeChildren(
         // semantic value as a scalar; arbitrary authored styles remain invalid.
         if (
           name === "style" &&
-          (child.type === "th" || child.type === "td") &&
+          TABLE_CELL_TAGS.some((tag) => tag === child.type) &&
           isObjectValue(value) &&
           "textAlign" in value &&
           Object.keys(value).length === 1 &&
-          (value.textAlign === "left" ||
-            value.textAlign === "right" ||
-            value.textAlign === "center")
+          tableAlignSchema.safeParse(value.textAlign).success
         ) {
-          elementProps.align = value.textAlign;
+          elementProps.align = tableAlignSchema.parse(value.textAlign);
           continue;
         }
         if (

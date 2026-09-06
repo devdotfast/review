@@ -1,4 +1,8 @@
-import { type JsonValue, isJsonObject } from "@dev.fast/review-protocol";
+import {
+  type JsonValue,
+  isJsonObject,
+  isStringValue,
+} from "@dev.fast/review-protocol";
 import { z } from "zod";
 
 import {
@@ -47,12 +51,23 @@ export const PROSE_TAGS = [
   "sup",
   "section",
 ] as const;
+export const proseTagSchema = z.enum(PROSE_TAGS);
+export type ProseTag = z.infer<typeof proseTagSchema>;
+
+// MDX emits GFM table alignment as a style object; the document keeps it as
+// this scalar, and the renderer turns it back into `style.textAlign`.
+export const tableAlignSchema = z.enum(["left", "center", "right"]);
+export type TableAlign = z.infer<typeof tableAlignSchema>;
+export const TABLE_CELL_TAGS = [
+  "th",
+  "td",
+] as const satisfies readonly ProseTag[];
+
 const PROSE_PROPS = new Set([
   "className",
   "href",
   "title",
   "id",
-  "align",
   "checked",
   "disabled",
   "start",
@@ -98,35 +113,51 @@ export type ReviewNode =
   | ReviewElementNode
   | ReviewComponentNode;
 
-const elementPropsSchema = z
-  .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
-  .superRefine((props, context) => {
-    for (const [key, value] of Object.entries(props)) {
+const reviewElementNodeSchema = z
+  .strictObject({
+    type: z.literal("element"),
+    tag: proseTagSchema,
+    props: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
+    children: z.array(z.lazy(() => reviewNodeSchema)),
+  })
+  .superRefine((node, context) => {
+    const isCell = TABLE_CELL_TAGS.some((tag) => tag === node.tag);
+    for (const [key, value] of Object.entries(node.props)) {
+      if (key === "align") {
+        if (!isCell) {
+          context.addIssue({
+            code: "custom",
+            path: ["props", "align"],
+            message: `align is only allowed on ${TABLE_CELL_TAGS.map((tag) => `<${tag}>`).join(" and ")}`,
+          });
+        } else if (!tableAlignSchema.safeParse(value).success) {
+          context.addIssue({
+            code: "custom",
+            path: ["props", "align"],
+            message: `align "${String(value)}" must be left, center, or right`,
+          });
+        }
+        continue;
+      }
       if (!PROSE_PROPS.has(key) && !key.startsWith("data-review-")) {
         context.addIssue({
           code: "custom",
+          path: ["props", key],
           message: `prop "${key}" is not allowed in review prose`,
         });
       }
-      const urlValue = z.string().safeParse(value);
       if (
         (key === "href" || key === "src") &&
-        !(urlValue.success && SAFE_URL.test(urlValue.data))
+        !(isStringValue(value) && SAFE_URL.test(value))
       ) {
         context.addIssue({
           code: "custom",
+          path: ["props", key],
           message: `${key} "${String(value)}" uses a disallowed protocol`,
         });
       }
     }
   });
-
-const reviewElementNodeSchema = z.strictObject({
-  type: z.literal("element"),
-  tag: z.enum(PROSE_TAGS),
-  props: elementPropsSchema,
-  children: z.array(z.lazy(() => reviewNodeSchema)),
-});
 
 const componentNodeSchema = <
   Name extends ReviewAuthoringComponentName,

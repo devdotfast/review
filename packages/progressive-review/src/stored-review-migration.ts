@@ -88,7 +88,6 @@ interface StoredReviewMigrationInput {
   createSourceSession?: typeof createReviewSourceAgentSession;
   force?: boolean;
   onDropLegacyCodeRecord?: ReviewThreadDbMigrationOptions["onDropLegacyCodeRecord"];
-  promoteArtifacts?: typeof promoteReviewArtifactFiles;
 }
 
 /** One review: record normalization, sealed artifact conversion, thread DB
@@ -136,7 +135,6 @@ async function migrateStoredReviewLocked(
         schemaVersion: Number(schemaVersion),
       }),
       log: input.log,
-      promoteArtifacts: input.promoteArtifacts,
       finalizeSource: async (record) => {
         if (schemaVersion !== 2 && schemaVersion !== 3) return record;
         const migrated = await migratePendingReviewSourceSession({
@@ -442,7 +440,6 @@ async function regeneratePresentedArtifacts(input: {
   allowAbsentMap: boolean;
   log?: (message: string) => void;
   finalizeSource: (record: StoredReviewRecord) => Promise<StoredReviewRecord>;
-  promoteArtifacts?: typeof promoteReviewArtifactFiles;
 }): Promise<boolean> {
   const staging = await mkdtemp(
     path.join(tmpdir(), "review-artifact-migration-"),
@@ -616,7 +613,7 @@ async function regeneratePresentedArtifacts(input: {
           );
         }
         next = await input.finalizeSource(next);
-        await (input.promoteArtifacts ?? promoteReviewArtifactFiles)({
+        await promoteReviewArtifactFiles({
           reviewDir: input.reviewDir,
           candidateDir,
           record: next,

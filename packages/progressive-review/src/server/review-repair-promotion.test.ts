@@ -92,12 +92,11 @@ it("rejects concurrent inputs and restores all transaction bytes after promotion
   );
   await rm(path.join(dir, "review.mdx"));
   const before = await fingerprintReviewRepairInputs(dir);
-  await expect(
-    applyPreparedReviewRepair(dir, request, {
-      writeRecord: async () => {
-        throw new Error("disk full");
-      },
-    }),
-  ).rejects.toThrow("disk full");
+  await rm(path.join(request.stagingDir, ".git"), { recursive: true });
+  await expect(applyPreparedReviewRepair(dir, request)).rejects.toMatchObject({
+    code: "ENOENT",
+    syscall: "lstat",
+    path: path.join(request.stagingDir, ".git"),
+  });
   expect(await fingerprintReviewRepairInputs(dir)).toBe(before);
 });

@@ -1,12 +1,18 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { afterEach, expect, it, vi } from "vitest";
 
-import { promoteReviewArtifactFiles } from "./review-artifact-promotion";
 import {
   createReviewDir,
   readStoredReview,
@@ -85,25 +91,23 @@ it.each(["document", "seal"])(
 
 it("reuses a durable fork after record promotion fails", async () => {
   const { review, original } = await fixture();
+  const displaced = `${review.dir}.displaced`;
   const createSourceSession = vi.fn<typeof createReviewSourceAgentSession>(
-    async () => ({
-      harness: "codex" as const,
-      sessionId: "frozen",
-    }),
+    async () => {
+      await rename(review.dir, displaced);
+      return {
+        harness: "codex" as const,
+        sessionId: "frozen",
+      };
+    },
   );
-  await expect(
-    migrateStoredReview({
-      reviewDir: review.dir,
-      createSourceSession,
-      promoteArtifacts: (input) =>
-        promoteReviewArtifactFiles({
-          ...input,
-          writeRecord: async () => {
-            throw new Error("record write failed");
-          },
-        }),
-    }),
-  ).rejects.toThrow("record write failed");
+  try {
+    await expect(
+      migrateStoredReview({ reviewDir: review.dir, createSourceSession }),
+    ).rejects.toThrow("ENOENT");
+  } finally {
+    await rename(displaced, review.dir);
+  }
   expect(createSourceSession).toHaveBeenCalledTimes(1);
   expect(await readFile(path.join(review.dir, "review.json"), "utf8")).toBe(
     original,
@@ -155,21 +159,23 @@ it.each(["started", "different pins"])(
   "fails closed for a pending binding with %s",
   async (state) => {
     const { review } = await fixture();
+    const displaced = `${review.dir}.displaced`;
     const createSourceSession = vi.fn<typeof createReviewSourceAgentSession>(
-      async () => ({
-        harness: "codex" as const,
-        sessionId: "frozen",
-      }),
+      async () => {
+        await rename(review.dir, displaced);
+        return {
+          harness: "codex" as const,
+          sessionId: "frozen",
+        };
+      },
     );
-    await expect(
-      migrateStoredReview({
-        reviewDir: review.dir,
-        createSourceSession,
-        promoteArtifacts: async () => {
-          throw new Error("promotion failed");
-        },
-      }),
-    ).rejects.toThrow("promotion failed");
+    try {
+      await expect(
+        migrateStoredReview({ reviewDir: review.dir, createSourceSession }),
+      ).rejects.toThrow("ENOENT");
+    } finally {
+      await rename(displaced, review.dir);
+    }
     const statePath = `${review.dir}.source-migration.json`;
     const pending = JSON.parse(await readFile(statePath, "utf8"));
     await writeFile(

@@ -4,13 +4,14 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rm,
   symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { setImmediate } from "node:timers/promises";
+import { setImmediate, setTimeout } from "node:timers/promises";
 
 import { afterEach, expect, it, vi } from "vitest";
 
@@ -21,7 +22,6 @@ import {
 } from "./review-bundle";
 import { createReviewDir, materializeReviewRevision } from "./review-home";
 import { withReviewMutationLock } from "./review-mutation-lock";
-import { prepareReviewDocumentBundle } from "./review-publication-preparation";
 import {
   sealReviewDocumentPublication,
   stageReviewDocumentPublication,
@@ -67,35 +67,21 @@ it("prepares outside the live lock while preserving viewed and comment updates",
     path.join(review.dir, "data.ts"),
     'export { label } from "review-staging-dependency";',
   );
-  const entered = deferred<string>();
-  const release = deferred<void>();
-  const staging = stageReviewDocumentPublication({
-    review,
-    prepareDocument: async (input) => {
-      entered.resolve(input.review.dir);
-      await release.promise;
-      return prepareReviewDocumentBundle(input);
-    },
-  });
-  const stagingDir = await entered.promise;
-  try {
+  let staging!: ReturnType<typeof stageReviewDocumentPublication>;
+  let stagingDir!: string;
+  // Staging must make progress while another writer holds the live lock.
+  await withReviewMutationLock(review.dir, async () => {
+    staging = stageReviewDocumentPublication({ review });
+    stagingDir = await waitForStagingCopy(path.dirname(review.dir));
     await markReviewViewed(review, new Date("2026-09-05T12:00:00Z"));
-    await withReviewMutationLock(
-      review.dir,
-      async () => {
-        appendReviewComment(path.join(review.dir, "review.mdx"), {
-          threadId: "during-compile",
-          messageId: "message",
-          target: { kind: "document" },
-          body: "Preserve this",
-          author: "Reviewer",
-        });
-      },
-      { timeoutMs: 100 },
-    );
-  } finally {
-    release.resolve();
-  }
+    appendReviewComment(path.join(review.dir, "review.mdx"), {
+      threadId: "during-compile",
+      messageId: "message",
+      target: { kind: "document" },
+      body: "Preserve this",
+      author: "Reviewer",
+    });
+  });
   const document = await staging;
   expect(existsSync(stagingDir)).toBe(false);
   expect(existsSync(path.join(review.dir, ".bundle"))).toBe(false);
@@ -119,6 +105,22 @@ it("prepares outside the live lock while preserving viewed and comment updates",
     reviewDocumentBundleData(document.bundle),
   );
 });
+
+/** The staging copy lands in a `.review-publish-` sibling of the review dir. */
+async function waitForStagingCopy(reviewsDir: string): Promise<string> {
+  for (let attempt = 0; attempt < 600; attempt++) {
+    for (const name of await readdir(reviewsDir)) {
+      const candidate = path.join(reviewsDir, name);
+      if (
+        name.startsWith(".review-publish-") &&
+        existsSync(path.join(candidate, "review.mdx"))
+      )
+        return candidate;
+    }
+    await setTimeout(10);
+  }
+  throw new Error("Publication staging never copied the review.");
+}
 
 it("resolves Review-local pnpm dependencies without copying their symlinks", async () => {
   const { review } = await fixture();

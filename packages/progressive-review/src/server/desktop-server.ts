@@ -460,7 +460,7 @@ export function createGlobalReviewServer(
     const listed = await listReviews();
     const reviews = await Promise.all(
       listed.reviews.map((stored) =>
-        reviewDescriptor(stored, dismissedRetentionDays),
+        reviewDescriptor(stored, { retentionDays: dismissedRetentionDays }),
       ),
     );
     reviews.sort(
@@ -1243,7 +1243,7 @@ export function createGlobalReviewServer(
             session: successor.descriptor,
             review: await reviewDescriptor(
               successor.review,
-              (await readReviewPreferences()).dismissedRetentionDays,
+              { retentionDays: (await readReviewPreferences()).dismissedRetentionDays },
             ),
           });
           const replaced = [...sessions.values()].filter(
@@ -1379,10 +1379,10 @@ export function createGlobalReviewServer(
         broadcastGlobal({
           event: "session-registered",
           session: successor.descriptor,
-          review: await reviewDescriptor(
-            successor.review,
-            (await readReviewPreferences()).dismissedRetentionDays,
-          ),
+          review: await reviewDescriptor(successor.review, {
+            retentionDays: (await readReviewPreferences())
+              .dismissedRetentionDays,
+          }),
         });
         const replaced = [...sessions.values()].filter(
           (session) =>

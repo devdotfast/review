@@ -44,6 +44,7 @@ import {
 } from "./review-home";
 import { withReviewMutationLock } from "./review-mutation-lock";
 import { appendReviewComment, readReviewComments } from "./review-state-store";
+import { reviewThreadDbPath } from "./review-thread-store-backend";
 import { reviewVcs } from "./review-vcs";
 import { resolvePublishReview } from "./server/publish-preparation";
 
@@ -432,6 +433,32 @@ describe("review home", () => {
         diffStats: { fileCount: 1, additions: 1, deletions: 0 },
         commentCount: 1,
         documentUpdatedAt,
+      });
+    } finally {
+      vi.unstubAllEnvs();
+      await rm(home, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a read-only descriptor when the review has no thread database", async () => {
+    const root = await makeGitRepository();
+    const home = await mkdtemp(path.join(os.tmpdir(), "review-home-"));
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+    try {
+      const baseCommit = await git(root, ["rev-parse", "HEAD"]);
+      const created = await createReviewDir({
+        worktreePath: root,
+        baseRef: baseCommit,
+        baseCommit,
+        sourceCommit: baseCommit,
+      });
+      await rm(reviewThreadDbPath(path.join(created.dir, "review.mdx")));
+      await expect(
+        reviewDescriptor(created, { threads: "read-only" }),
+      ).rejects.toThrow("thread database is unavailable");
+      await expect(reviewDescriptor(created)).resolves.toMatchObject({
+        commentCount: 0,
       });
     } finally {
       vi.unstubAllEnvs();

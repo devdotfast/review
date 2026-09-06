@@ -60,8 +60,8 @@ import {
 } from "./review-diff-files-context";
 import { ReviewDocumentBoundary } from "./review-document-boundary";
 import { reportReviewDocumentRenderError } from "./review-document-error-report";
+import type { HydratedReviewDocument } from "./review-document-hydrate";
 import { ReviewDocumentContent } from "./review-document-surface";
-import type { ReadyReviewDocumentEntry } from "./review-documents-runtime";
 import {
   type ReviewFindHost,
   ReviewFindProvider,
@@ -147,7 +147,7 @@ export interface PublishedSoftwareMap {
 
 export type ReviewDocumentAppState =
   | { state: "loading" }
-  | { state: "ready"; document: ReadyReviewDocumentEntry }
+  | { state: "ready"; document: HydratedReviewDocument }
   | {
       state: "needs-republish";
       reviewUuid: string;

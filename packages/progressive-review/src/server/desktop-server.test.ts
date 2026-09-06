@@ -264,9 +264,8 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
           )
         ).json(),
       ).toMatchObject({
-        code: "historical_revision_unavailable",
         error: "This older revision is unavailable in this version of Review",
-        reviewUuid: uuid,
+        detail: { code: "historical_revision_unavailable", reviewUuid: uuid },
       });
       const historicalJson = await request(`/reviews/${uuid}/open`, {
         revision: historicalJsonRevision,

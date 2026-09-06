@@ -2,6 +2,7 @@ import {
   type JsonValue,
   isJsonObject,
   isStringValue,
+  parseJsonText,
 } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
@@ -245,16 +246,16 @@ export const reviewDocumentDataSchema: z.ZodType<ReviewDocumentData> =
     softwareModels: z.array(softwareModelDataSchema),
   });
 
-export function stripPeekResolutions<T>(value: T): T {
-  // SAFETY: callers provide a materialized review value. JSON serialization
-  // deep-copies that data while the replacer changes only code-peek resolution.
-  return JSON.parse(
+/** The JSON a published document stores: one serialization pass that also
+ * drops code-peek resolutions, which are resolved again on load. */
+export function toReviewDocumentJson<Value>(value: Value): JsonValue {
+  return parseJsonText(
     JSON.stringify(value, (_key, current: JsonValue) =>
       isJsonObject(current) && current.__kind === "code-peek-ref"
         ? { ...current, resolution: null }
         : current,
     ),
-  ) as T;
+  );
 }
 
 export function walkReviewNodes(

@@ -96,7 +96,7 @@ describe("publish range evaluation", () => {
   it("recovers imported anchors omitted by old sealed document exports, including unused anchors", async () => {
     const result = await evaluateReviewDocumentBundleForPublish({
       reviewDir: fixtureDir("review"),
-      validateRanges: false,
+      ranges: "skip",
       bundleCode: `import { createBrowserReviewDefinitionSession, createActiveReviewDocument, jsx } from "review-doc-runtime";
         const session = createBrowserReviewDefinitionSession({});
         const anchors = session.defineAnchors({ shown: { title: "Shown", peek: { file: "x.ts", fromLine: 1, toLine: 1 } }, unused: { title: "Unused", peek: { file: "x.ts", fromLine: 2, toLine: 2 } } });
@@ -448,12 +448,12 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
         evaluateReviewDocumentBundleForPublish({
           reviewDir,
           bundleCode: slow,
-          validateRanges: false,
+          ranges: "skip",
         }),
         evaluateReviewDocumentBundleForPublish({
           reviewDir,
           bundleCode: fast,
-          validateRanges: false,
+          ranges: "skip",
         }),
       ]);
       expect(events).toEqual([
@@ -478,12 +478,12 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
     const failed = evaluateReviewDocumentBundleForPublish({
       reviewDir: invalidReviewDir,
       bundleCode: bundleWithAnchors(""),
-      validateRanges: false,
+      ranges: "skip",
     });
     const next = evaluateReviewDocumentBundleForPublish({
       reviewDir,
       bundleCode: bundleWithAnchors(""),
-      validateRanges: false,
+      ranges: "skip",
     });
 
     await expect(failed).rejects.toMatchObject({ code: "ENOTDIR" });

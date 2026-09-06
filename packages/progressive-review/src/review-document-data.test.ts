@@ -4,7 +4,7 @@ import {
   PROSE_TAGS,
   REVIEW_DOCUMENT_FORMAT,
   reviewDocumentDataSchema,
-  stripPeekResolutions,
+  toReviewDocumentJson,
   walkReviewNodes,
 } from "./review-document-data";
 
@@ -254,17 +254,31 @@ describe("review document data", () => {
     ).toBe(false);
   });
 
-  it("strips peek resolutions deeply without mutating the input", () => {
-    const peek = Object.freeze({
-      __kind: "code-peek-ref",
-      props: { file: "x.ts", fromLine: 1, toLine: 1 },
-      resolution: { snapshot: {} },
+  it("projects a materialized document to JSON with peek resolutions stripped", () => {
+    const input = {
+      body: [
+        {
+          peek: {
+            __kind: "code-peek-ref",
+            props: { file: "a.ts", fromLine: 1, toLine: 2 },
+            resolution: { snapshot: { roots: [], resolved: {} } },
+          },
+        },
+      ],
+    };
+    const json = toReviewDocumentJson(input);
+    expect(json).toEqual({
+      body: [
+        {
+          peek: {
+            __kind: "code-peek-ref",
+            props: { file: "a.ts", fromLine: 1, toLine: 2 },
+            resolution: null,
+          },
+        },
+      ],
     });
-    const input = { list: [{ anchor: { peek } }] };
-    const stripped = stripPeekResolutions(input);
-
-    expect(stripped.list[0]?.anchor.peek.resolution).toBeNull();
-    expect(input.list[0]?.anchor.peek.resolution).not.toBeNull();
+    expect(input.body[0]!.peek.resolution).not.toBeNull();
   });
 
   it("walks components with their parent", () => {

@@ -328,24 +328,10 @@ export function auditReviewDocumentComponent(input: {
           parentName,
           componentNames,
           input.reportError,
+          input.collectCallStackDiff,
+          input.collectTraceQuote,
         );
         if (audited) componentProps.set(child, audited);
-        if (name === "CallStackDiff" && input.collectCallStackDiff) {
-          const parsed = callStackDiffPropsSchema.safeParse(child.props);
-          if (parsed.success) input.collectCallStackDiff(parsed.data);
-        }
-        if (name === "TraceQuote" && input.collectTraceQuote) {
-          const parsed = traceQuotePropsSchema.safeParse(child.props);
-          if (parsed.success) {
-            const text = extractAuditText(child.props.children);
-            input.collectTraceQuote({
-              sessionId: parsed.data.sessionId,
-              trace: parsed.data.trace,
-              event: parsed.data.event,
-              text,
-            });
-          }
-        }
         walk(child.props.children, name);
         continue;
       }
@@ -374,25 +360,34 @@ function auditElement(
   parentName: AuthoringComponentName | null,
   componentNames: ReadonlyMap<PublishAuditElementType, AuthoringComponentName>,
   reportError: (message: string) => void,
+  collectCallStackDiff?: (props: CallStackDiffProps) => void,
+  collectTraceQuote?: (quote: PublishAuditTraceQuote) => void,
 ): AuditedComponentProps | null {
   let audited: AuditedComponentProps | null;
   if (name === "DatabaseLens") {
     const parsed = databaseLensPropsSchema.safeParse(element.props);
-    if (!parsed.success) {
-      for (const issue of parsed.error.issues) {
-        const path = issue.path.length > 0 ? issue.path.join(".") : "props";
-        reportError(`<${name}> ${path}: ${issue.message}`);
-      }
-    }
+    reportParseErrors(name, parsed, reportError);
     audited = parsed.success ? { name, props: parsed.data } : null;
+  } else if (name === "CallStackDiff") {
+    const parsed = callStackDiffPropsSchema.safeParse(element.props);
+    reportParseErrors(name, parsed, reportError);
+    audited = parsed.success ? { name, props: parsed.data } : null;
+    if (parsed.success) collectCallStackDiff?.(parsed.data);
+  } else if (name === "TraceQuote") {
+    const parsed = traceQuotePropsSchema.safeParse(element.props);
+    reportParseErrors(name, parsed, reportError);
+    audited = parsed.success ? { name, props: parsed.data } : null;
+    if (parsed.success && collectTraceQuote) {
+      collectTraceQuote({
+        sessionId: parsed.data.sessionId,
+        trace: parsed.data.trace,
+        event: parsed.data.event,
+        text: extractAuditText(element.props.children),
+      });
+    }
   } else {
     const parsed = reviewAuthoringPropsSchemas[name].safeParse(element.props);
-    if (!parsed.success) {
-      for (const issue of parsed.error.issues) {
-        const path = issue.path.length > 0 ? issue.path.join(".") : "props";
-        reportError(`<${name}> ${path}: ${issue.message}`);
-      }
-    }
+    reportParseErrors(name, parsed, reportError);
     audited = parsed.success ? { name, props: parsed.data } : null;
   }
 
@@ -440,4 +435,16 @@ function auditElement(
     reportError(`<DbUseCase> must contain at least one <DbRead> or <DbWrite>.`);
   }
   return audited;
+}
+
+function reportParseErrors(
+  name: AuthoringComponentName,
+  parsed: z.ZodSafeParseResult<unknown>,
+  reportError: (message: string) => void,
+): void {
+  if (parsed.success) return;
+  for (const issue of parsed.error.issues) {
+    const path = issue.path.length > 0 ? issue.path.join(".") : "props";
+    reportError(`<${name}> ${path}: ${issue.message}`);
+  }
 }

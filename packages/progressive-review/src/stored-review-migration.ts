@@ -32,6 +32,7 @@ import {
   removeLegacyReviewCheckouts,
 } from "./review-head-checkout";
 import {
+  DISABLED_REVIEW_SOURCE_SESSION,
   type StoredReviewRecord,
   allowsAbsentSoftwareMap,
   materializeReviewRevision,
@@ -117,12 +118,14 @@ async function migrateStoredReviewLocked(
   ) {
     throw new Error("Unsupported Review schema; the record was preserved.");
   }
-  let migrationValue = value;
-  if (schemaVersion === 3 || schemaVersion === 2) {
-    const { agentSession: _agentSession, ...record } = value;
-    migrationValue = { ...record, sourceSession: "disabled:review" };
-  }
-  const migratedRecord = parseAnyStoredReviewRecord(migrationValue);
+  const validatedRecord = parseAnyStoredReviewRecord(value);
+  const migratedRecord =
+    schemaVersion === 3 || schemaVersion === 2
+      ? parseStoredReviewRecord({
+          ...validatedRecord,
+          sourceSession: DISABLED_REVIEW_SOURCE_SESSION,
+        })
+      : validatedRecord;
   if (migratedRecord.uuid !== path.basename(input.reviewDir))
     throw new Error("review.json UUID does not match its directory");
   const migrated =

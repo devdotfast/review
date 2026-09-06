@@ -3,6 +3,8 @@
 import type {
   ReviewCanvasContent,
   ReviewCanvasDiagnostic,
+  ReviewDocumentLoad,
+  ReviewSoftwareMapLoad,
 } from "@dev.fast/review-protocol";
 import { parseJsonText } from "@dev.fast/review-protocol";
 import { act } from "react";
@@ -371,6 +373,80 @@ describe("desktop review document load states", () => {
       await Promise.resolve();
     });
     expect(container.textContent).toContain("Orders map");
+    await act(async () => handle?.dispose());
+  });
+
+  it("waits for replacement bundles before publishing ready or diagnostics", async () => {
+    const ready = vi.fn<() => void>();
+    const reportDiagnostic =
+      vi.fn<(diagnostic: ReviewCanvasDiagnostic) => void>();
+    const bridge = testReviewBridge(
+      { sessionId: "replacement-bundles" },
+      {
+        request: requestStub,
+        ready,
+        reportDiagnostic,
+        diffView: { create: createDiffView },
+      },
+    );
+    const container = document.createElement("div");
+    document.body.append(container);
+    let handle: ReturnType<typeof mountReviewCanvas> | undefined;
+    await act(async () => {
+      handle = mountReviewCanvas(
+        container,
+        sessionContent(bridge, {
+          document: Promise.resolve({
+            state: "unavailable",
+            message: "Old document failure",
+          }),
+          softwareMap: Promise.resolve(null),
+        }),
+      );
+    });
+    expect(ready).toHaveBeenCalledTimes(1);
+    expect(reportDiagnostic).toHaveBeenCalledTimes(1);
+    ready.mockClear();
+    reportDiagnostic.mockClear();
+    const replacementBridge = testReviewBridge(
+      { sessionId: "replacement-bundles" },
+      {
+        request: requestStub,
+        ready,
+        reportDiagnostic,
+        diffView: { create: createDiffView },
+      },
+    );
+
+    const replacementDocument = Promise.withResolvers<ReviewDocumentLoad>();
+    const replacementSoftwareMap =
+      Promise.withResolvers<ReviewSoftwareMapLoad | null>();
+    await act(async () => {
+      handle?.update(
+        sessionContent(replacementBridge, {
+          document: replacementDocument.promise,
+          softwareMap: replacementSoftwareMap.promise,
+        }),
+      );
+    });
+    expect(ready).not.toHaveBeenCalled();
+    expect(reportDiagnostic).not.toHaveBeenCalled();
+
+    await act(async () => {
+      replacementDocument.resolve({
+        state: "needs-republish",
+        reviewUuid: "11111111-1111-4111-8111-111111111111",
+        mapStale: false,
+      });
+    });
+    expect(ready).not.toHaveBeenCalled();
+    expect(reportDiagnostic).not.toHaveBeenCalled();
+
+    await act(async () => {
+      replacementSoftwareMap.resolve(null);
+    });
+    expect(ready).toHaveBeenCalledTimes(1);
+    expect(reportDiagnostic).not.toHaveBeenCalled();
     await act(async () => handle?.dispose());
   });
 

@@ -59,83 +59,27 @@ function DesktopReviewApp({
   const sessionRef = useRef(session);
   sessionRef.current = session;
   const container = useReviewContainer();
-  const [documentState, setDocumentState] = useState<ReviewDocumentAppState>({
-    state: "loading",
-  });
-  const [softwareMapState, setSoftwareMapState] =
-    useState<ReviewSoftwareMapAppState>({ state: "loading" });
-  const documentLoadError = useRef<Error | null>(null);
-  const softwareMapLoadError = useRef<Error | null>(null);
-  const reportedLoadErrors = useRef(new Set<string>());
-
-  useEffect(() => {
-    let cancelled = false;
-    setDocumentState({ state: "loading" });
-    setSoftwareMapState({ state: "loading" });
-    documentLoadError.current = null;
-    softwareMapLoadError.current = null;
-    reportedLoadErrors.current.clear();
-
-    void (async () => {
-      try {
-        const load = await documentBundle;
-        if (cancelled) return;
-        if (load.state === "ready") {
-          const document = await prepareReviewDocument(
-            load,
-            sessionRef.current,
-          );
-          if (!cancelled) setDocumentState({ state: "ready", document });
-        } else if (load.state === "needs-republish") {
-          setDocumentState(load);
-        } else {
-          if (!load.currentReviewUuid)
-            documentLoadError.current = new Error(load.message);
-          setDocumentState(load);
-        }
-      } catch (error) {
-        if (cancelled) return;
-        const cause = error instanceof Error ? error : new Error(String(error));
-        documentLoadError.current = cause;
-        setDocumentState({
-          state: "unavailable",
-          message: cause.message,
-        });
-      }
-    })();
-
-    void (async () => {
-      try {
-        const load = await softwareMapBundle;
-        if (cancelled) return;
-        if (load === null) {
-          setSoftwareMapState({ state: "absent" });
-        } else if (load.state === "ready") {
-          setSoftwareMapState({
-            state: "ready",
-            softwareMap: hydratePublishedSoftwareMap(load),
-          });
-        } else if (load.state === "needs-republish") {
-          setSoftwareMapState(load);
-        } else {
-          if (!load.currentReviewUuid)
-            softwareMapLoadError.current = new Error(load.message);
-          setSoftwareMapState(load);
-        }
-      } catch (error) {
-        if (cancelled) return;
-        const cause = error instanceof Error ? error : new Error(String(error));
-        softwareMapLoadError.current = cause;
-        setSoftwareMapState({
-          state: "unavailable",
-          message: cause.message,
-        });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [documentBundle, softwareMapBundle]);
+  const documentState = useSettledLoad(
+    documentBundle,
+    async (load): Promise<ReviewDocumentAppState> => {
+      if (load.state !== "ready") return load;
+      return {
+        state: "ready",
+        document: await prepareReviewDocument(load, sessionRef.current),
+      };
+    },
+  );
+  const softwareMapState = useSettledLoad(
+    softwareMapBundle,
+    (load): ReviewSoftwareMapAppState => {
+      if (load === null) return { state: "absent" };
+      if (load.state !== "ready") return load;
+      return {
+        state: "ready",
+        softwareMap: hydratePublishedSoftwareMap(load),
+      };
+    },
+  );
 
   useEffect(() => {
     if (
@@ -156,30 +100,8 @@ function DesktopReviewApp({
     ) {
       return;
     }
-    if (
-      documentState.state === "unavailable" &&
-      !documentState.currentReviewUuid &&
-      !reportedLoadErrors.current.has("document")
-    ) {
-      reportedLoadErrors.current.add("document");
-      reportLoadError(
-        sessionRef.current,
-        "document",
-        documentLoadError.current ?? new Error(documentState.message),
-      );
-    }
-    if (
-      softwareMapState.state === "unavailable" &&
-      !softwareMapState.currentReviewUuid &&
-      !reportedLoadErrors.current.has("software-map")
-    ) {
-      reportedLoadErrors.current.add("software-map");
-      reportLoadError(
-        sessionRef.current,
-        "software-map",
-        softwareMapLoadError.current ?? new Error(softwareMapState.message),
-      );
-    }
+    reportLoadFailure(sessionRef.current, "document", documentState);
+    reportLoadFailure(sessionRef.current, "software-map", softwareMapState);
   }, [documentState, softwareMapState]);
 
   useEffect(() => {
@@ -207,11 +129,56 @@ function DesktopReviewApp({
   );
 }
 
-function reportLoadError(
+type ReviewLoadFallback =
+  | { state: "loading" }
+  | { state: "unavailable"; message: string; cause: Error };
+
+const reviewLoadLoading: ReviewLoadFallback = { state: "loading" };
+
+/**
+ * Settles one canvas bundle into its app state. A load that rejects becomes
+ * the unavailable state carrying its cause, so nothing has to re-derive the
+ * failure from a ref afterwards.
+ */
+function useSettledLoad<TLoad, TState>(
+  bundle: Promise<TLoad>,
+  settle: (load: TLoad) => TState | Promise<TState>,
+): TState | ReviewLoadFallback {
+  const settleRef = useRef(settle);
+  settleRef.current = settle;
+  const [settledLoad, setSettledLoad] = useState<{
+    bundle: Promise<TLoad>;
+    value: TState | ReviewLoadFallback;
+  }>(() => ({ bundle, value: reviewLoadLoading }));
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const settled = await settleRef.current(await bundle);
+        if (!cancelled) setSettledLoad({ bundle, value: settled });
+      } catch (error) {
+        if (cancelled) return;
+        const cause = error instanceof Error ? error : new Error(String(error));
+        setSettledLoad({
+          bundle,
+          value: { state: "unavailable", message: cause.message, cause },
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [bundle]);
+  return settledLoad.bundle === bundle ? settledLoad.value : reviewLoadLoading;
+}
+
+function reportLoadFailure(
   session: ReviewSession,
   source: "document" | "software-map",
-  cause: Error,
+  state: ReviewDocumentAppState | ReviewSoftwareMapAppState,
 ): void {
+  if (state.state !== "unavailable" || state.currentReviewUuid) return;
+  const cause = state.cause ?? new Error(state.message);
   captureClientError(session, source, cause);
   const diagnostic: ReviewCanvasDiagnostic = {
     level: "error",

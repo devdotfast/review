@@ -59,6 +59,11 @@ function DesktopReviewApp({
   const sessionRef = useRef(session);
   sessionRef.current = session;
   const container = useReviewContainer();
+  const reportedDocumentBundle = useRef<Promise<ReviewDocumentLoad> | null>(
+    null,
+  );
+  const reportedSoftwareMapBundle =
+    useRef<Promise<ReviewSoftwareMapLoad | null> | null>(null);
   const documentState = useSettledLoad(
     documentBundle,
     async (load): Promise<ReviewDocumentAppState> => {
@@ -100,9 +105,19 @@ function DesktopReviewApp({
     ) {
       return;
     }
-    reportLoadFailure(sessionRef.current, "document", documentState);
-    reportLoadFailure(sessionRef.current, "software-map", softwareMapState);
-  }, [documentState, softwareMapState]);
+    if (
+      reportedDocumentBundle.current !== documentBundle &&
+      reportLoadFailure(sessionRef.current, "document", documentState)
+    ) {
+      reportedDocumentBundle.current = documentBundle;
+    }
+    if (
+      reportedSoftwareMapBundle.current !== softwareMapBundle &&
+      reportLoadFailure(sessionRef.current, "software-map", softwareMapState)
+    ) {
+      reportedSoftwareMapBundle.current = softwareMapBundle;
+    }
+  }, [documentBundle, documentState, softwareMapBundle, softwareMapState]);
 
   useEffect(() => {
     if (!container) return;
@@ -176,8 +191,8 @@ function reportLoadFailure(
   session: ReviewSession,
   source: "document" | "software-map",
   state: ReviewDocumentAppState | ReviewSoftwareMapAppState,
-): void {
-  if (state.state !== "unavailable" || state.currentReviewUuid) return;
+): boolean {
+  if (state.state !== "unavailable" || state.currentReviewUuid) return false;
   const cause = state.cause ?? new Error(state.message);
   captureClientError(session, source, cause);
   const diagnostic: ReviewCanvasDiagnostic = {
@@ -187,6 +202,7 @@ function reportLoadFailure(
   };
   if (cause.stack) diagnostic.stack = cause.stack;
   session.reportDiagnostic(diagnostic);
+  return true;
 }
 
 function ReviewCanvas({

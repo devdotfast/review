@@ -62,6 +62,7 @@ import { ReviewDocumentBoundary } from "./review-document-boundary";
 import { reportReviewDocumentRenderError } from "./review-document-error-report";
 import type { HydratedReviewDocument } from "./review-document-hydrate";
 import { ReviewDocumentContent } from "./review-document-surface";
+import { ReviewUnavailable } from "./review-empty-state";
 import {
   type ReviewFindHost,
   ReviewFindProvider,
@@ -717,23 +718,8 @@ function ReviewLayoutContent({
             {softwareMapEnabled && activeView === "map" && (
               <div className="review-map-view">
                 <div className="review-map-canvas-shell">
-                  {softwareMapState.state === "loading" ? (
-                    <MapLoadState message="Loading software map…" />
-                  ) : softwareMapState.state === "needs-republish" ? (
-                    <MapLoadState
-                      message={repairInstruction(
-                        softwareMapState.reviewUuid,
-                        true,
-                      )}
-                      alert
-                    />
-                  ) : softwareMapState.state === "unavailable" ? (
-                    <MapLoadState
-                      message={`Software map unavailable: ${softwareMapState.message}`}
-                      currentReviewUuid={softwareMapState.currentReviewUuid}
-                      alert
-                    />
-                  ) : (
+                  {softwareMapState.state === "ready" ||
+                  softwareMapState.state === "absent" ? (
                     <>
                       <SoftwareMapTopologyUnavailable
                         repoSoftwareMap={repoSoftwareMap}
@@ -751,6 +737,8 @@ function ReviewLayoutContent({
                       />
                       <MapSettingsControl />
                     </>
+                  ) : (
+                    <ReviewSoftwareMapLoadState state={softwareMapState} />
                   )}
                 </div>
               </div>
@@ -816,52 +804,79 @@ function ReviewDocumentLoadState({
 }: {
   state: Exclude<ReviewDocumentAppState, { state: "ready" }>;
 }): ReactElement {
-  if (state.state === "loading") {
-    return (
-      <div className="review-document-load-state" role="status">
-        Still loading this review…
-      </div>
-    );
+  switch (state.state) {
+    case "loading":
+      return (
+        <ReviewUnavailable role="status" message="Still loading this review…" />
+      );
+    case "needs-republish":
+      return (
+        <ReviewUnavailable
+          title="Review unavailable"
+          message={repairInstruction(state.reviewUuid, state.mapStale)}
+        />
+      );
+    case "unavailable":
+      return (
+        <ReviewUnavailable
+          title="Review unavailable"
+          message={state.message}
+          action={
+            state.currentReviewUuid ? (
+              <OpenCurrentReview reviewUuid={state.currentReviewUuid} />
+            ) : null
+          }
+        />
+      );
+    default: {
+      const unhandled: never = state;
+      throw new Error(
+        `Unhandled review document state ${JSON.stringify(unhandled)}.`,
+      );
+    }
   }
-  if (state.state === "needs-republish") {
-    return (
-      <div className="review-document-load-state" role="alert">
-        <h2>Review unavailable</h2>
-        <p>{repairInstruction(state.reviewUuid, state.mapStale)}</p>
-      </div>
-    );
-  }
-  return (
-    <div className="review-document-load-state" role="alert">
-      <h2>Review unavailable</h2>
-      <p>{state.message}</p>
-      {state.currentReviewUuid ? (
-        <OpenCurrentReview reviewUuid={state.currentReviewUuid} />
-      ) : null}
-    </div>
-  );
 }
 
-function MapLoadState({
-  message,
-  alert = false,
-  currentReviewUuid,
+function ReviewSoftwareMapLoadState({
+  state,
 }: {
-  message: string;
-  alert?: boolean;
-  currentReviewUuid?: string;
+  state: Exclude<
+    ReviewSoftwareMapAppState,
+    { state: "ready" } | { state: "absent" }
+  >;
 }): ReactElement {
-  return (
-    <div
-      className="review-document-load-state"
-      role={alert ? "alert" : "status"}
-    >
-      {message}
-      {currentReviewUuid ? (
-        <OpenCurrentReview reviewUuid={currentReviewUuid} />
-      ) : null}
-    </div>
-  );
+  switch (state.state) {
+    case "loading":
+      return (
+        <ReviewUnavailable role="status" message="Loading software map…" />
+      );
+    case "needs-republish":
+      return (
+        <ReviewUnavailable
+          message={repairInstruction(state.reviewUuid, true)}
+        />
+      );
+    case "unavailable":
+      return (
+        <ReviewUnavailable
+          message={`Software map unavailable: ${state.message}`}
+          action={
+            state.currentReviewUuid ? (
+              <OpenCurrentReview reviewUuid={state.currentReviewUuid} />
+            ) : null
+          }
+        />
+      );
+    default: {
+      // A new software-map state has to choose here: the map chrome renders
+      // for ready and absent (an absent map still shows document-authored
+      // models), everything else is a load state.
+      const unhandled: never = state;
+      throw new Error(
+        `Unhandled software map state ${JSON.stringify(unhandled)}.`,
+      );
+    }
+  }
 }
 
 function OpenCurrentReview({

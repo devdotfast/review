@@ -422,27 +422,27 @@ describe("desktop review document load states", () => {
       expect(container.textContent).toContain("Diff");
       expect(container.querySelector(".review-republish")).toBeNull();
       expect(
-        container.querySelector(".review-document-load-state h2")?.textContent,
+        container.querySelector(".review-empty-state h2")?.textContent,
       ).toBe("Review unavailable");
       expect(
-        container.querySelector(".review-document-load-state")?.textContent,
+        container.querySelector(".review-empty-state")?.textContent,
       ).toContain(
         "review repair --review 11111111-1111-4111-8111-111111111111",
       );
       expect(
-        container.querySelector(".review-document-load-state")?.textContent,
+        container.querySelector(".review-empty-state")?.textContent,
       ).toContain(
         "repair keeps the review status, pinned commits, and threads",
       );
       expect(
         container
-          .querySelector(".review-document-load-state")
+          .querySelector(".review-empty-state")
           ?.textContent?.includes(
             "The published software map also needs repair.",
           ),
       ).toBe(mapStale);
       expect(
-        container.querySelector(".review-document-load-state")?.textContent,
+        container.querySelector(".review-empty-state")?.textContent,
       ).not.toContain("review publish");
       expect(
         container.querySelector('button[aria-label="Copy command"]'),

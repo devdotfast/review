@@ -1,6 +1,4 @@
-import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { readFile, readdir, readlink } from "node:fs/promises";
 import path from "node:path";
 
 import { z } from "zod";
@@ -10,6 +8,7 @@ import {
   hasPendingReviewAgentWrites,
   reviewThreadDbPath,
 } from "./review-thread-store-backend";
+import { fingerprintReviewTree } from "./review-tree-fingerprint";
 
 const revisionSchema = z.string().regex(/^[0-9a-f]{40}$/);
 export const ReviewRepairReadyRequestSchema = z.strictObject({
@@ -32,30 +31,11 @@ export type ReviewRepairReadyRequest = z.infer<
 export async function fingerprintReviewRepairInputs(
   dir: string,
 ): Promise<string> {
-  const digest = createHash("sha256");
-  const walk = async (relative: string): Promise<void> => {
-    const entries = await readdir(path.join(dir, relative), {
-      withFileTypes: true,
-    });
-    entries.sort((a, b) => a.name.localeCompare(b.name));
-    for (const entry of entries) {
-      const name = path.join(relative, entry.name);
-      if (isDerivedReviewPath(name.split(path.sep)[0] ?? "")) continue;
-      digest.update(`${name}\0`);
-      if (entry.isDirectory()) {
-        digest.update("directory\0");
-        await walk(name);
-      } else if (entry.isSymbolicLink())
-        digest.update(`link\0${await readlink(path.join(dir, name))}\0`);
-      else {
-        digest.update("file\0");
-        digest.update(await readFile(path.join(dir, name)));
-        digest.update("\0");
-      }
-    }
-  };
-  await walk("");
-  return digest.digest("hex");
+  return fingerprintReviewTree(dir, {
+    include: (relativePath) =>
+      !isDerivedReviewPath(relativePath.split(path.sep)[0] ?? ""),
+    symlink: "hash-target",
+  });
 }
 
 /** Unanswered agent-directed inputs can still mutate authored files. Ordinary

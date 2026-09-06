@@ -1,14 +1,4 @@
-import { createHash } from "node:crypto";
-import {
-  lstat,
-  mkdir,
-  mkdtemp,
-  readFile,
-  readdir,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
+import { lstat, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { isMissingFileError } from "./native-agent/transcript-json";
@@ -31,6 +21,11 @@ import {
   requireClosedThreadsForRepublish,
   requireCompletedAgentResponsesForRepublish,
 } from "./review-publish-thread-gate";
+import {
+  type ReviewTreeOptions,
+  copyReviewTree,
+  fingerprintReviewTree,
+} from "./review-tree-fingerprint";
 
 interface StagedReviewDocument {
   bundle: ReviewDocumentBundle;
@@ -46,10 +41,7 @@ export async function stageReviewDocumentPublication(input: {
     path.join(path.dirname(input.review.dir), ".review-publish-"),
   );
   try {
-    const fingerprint = await fingerprintAuthoring(
-      input.review.dir,
-      stagingDir,
-    );
+    const fingerprint = await copyAuthoringTree(input.review.dir, stagingDir);
     if (fingerprint !== (await fingerprintAuthoring(input.review.dir)))
       throw authoringChanged();
     const dependencies = path.join(input.review.dir, "node_modules");
@@ -125,42 +117,19 @@ function authoringChanged(): Error {
   );
 }
 
-async function fingerprintAuthoring(
+const authoringTreeOptions = {
+  include: (relativePath: string) =>
+    relativePath.includes(path.sep) || isAuthoringInput(relativePath),
+  symlink: "reject",
+} satisfies ReviewTreeOptions;
+
+async function fingerprintAuthoring(reviewDir: string): Promise<string> {
+  return fingerprintReviewTree(reviewDir, authoringTreeOptions);
+}
+
+async function copyAuthoringTree(
   reviewDir: string,
-  destination?: string,
+  destination: string,
 ): Promise<string> {
-  const hash = createHash("sha256");
-  async function visit(relativeDir: string): Promise<void> {
-    const entries = await readdir(path.join(reviewDir, relativeDir), {
-      withFileTypes: true,
-    });
-    entries.sort((left, right) => left.name.localeCompare(right.name));
-    for (const entry of entries) {
-      if (!relativeDir && !isAuthoringInput(entry.name)) continue;
-      const relativePath = path.join(relativeDir, entry.name);
-      if (entry.isSymbolicLink())
-        throw new Error(
-          `Review authoring contains an unsupported symbolic link: ${relativePath}`,
-        );
-      if (entry.isDirectory()) {
-        if (destination)
-          await mkdir(path.join(destination, relativePath), {
-            recursive: true,
-          });
-        await visit(relativePath);
-      } else if (entry.isFile()) {
-        const contents = await readFile(path.join(reviewDir, relativePath));
-        hash.update(JSON.stringify([relativePath, contents.length]));
-        hash.update(contents);
-        if (destination)
-          await writeFile(path.join(destination, relativePath), contents);
-      } else {
-        throw new Error(
-          `Review authoring contains an unsupported file: ${relativePath}`,
-        );
-      }
-    }
-  }
-  await visit("");
-  return hash.digest("hex");
+  return copyReviewTree(reviewDir, destination, authoringTreeOptions);
 }

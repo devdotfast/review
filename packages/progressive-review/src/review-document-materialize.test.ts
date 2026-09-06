@@ -41,23 +41,72 @@ const anchor = {
 } as const;
 
 describe("materializeReviewDocument", () => {
-  it("parses registry component props once during the publish audit", () => {
+  it("parses component props once across materialization and audit collectors", () => {
     let titleReads = 0;
+    let callStackHeadReads = 0;
+    let traceSessionReads = 0;
+    let callStackCollections = 0;
+    let traceCollections = 0;
     const Component: PublishAuditComponent = ({ components }) => {
       if (!components) throw new Error("Expected Review components.");
-      return react.jsx(components.ReviewSection, {
-        get title() {
-          titleReads += 1;
-          return "Part";
-        },
-        children: "Body",
+      return react.jsx(FRAGMENT, {
+        children: [
+          react.jsx(components.ReviewSection, {
+            get title() {
+              titleReads += 1;
+              return "Part";
+            },
+            children: "Body",
+          }),
+          react.jsx(components.CallStackDiff, {
+            base: [],
+            get head() {
+              callStackHeadReads += 1;
+              return [anchor];
+            },
+          }),
+          react.jsx(components.TraceQuote, {
+            get sessionId() {
+              traceSessionReads += 1;
+              return "session-1";
+            },
+            children: "Quote",
+          }),
+        ],
       });
     };
-    const audit = auditDocument(Component);
-    const titleReadsAfterAudit = titleReads;
+    const audit = auditReviewDocumentComponent({
+      Component,
+      reportError: (message) => {
+        throw new Error(message);
+      },
+      collectCallStackDiff: () => {
+        callStackCollections += 1;
+      },
+      collectTraceQuote: () => {
+        traceCollections += 1;
+      },
+    });
+    if (!audit) throw new Error("Expected the document audit to succeed.");
+    const readsAfterAudit = {
+      title: titleReads,
+      callStackHead: callStackHeadReads,
+      traceSession: traceSessionReads,
+    };
 
+    expect(readsAfterAudit).toEqual({
+      title: 1,
+      callStackHead: 1,
+      traceSession: 1,
+    });
     expect(materializeReviewDocument(audit).errors).toEqual([]);
-    expect(titleReads).toBe(titleReadsAfterAudit);
+    expect({
+      title: titleReads,
+      callStackHead: callStackHeadReads,
+      traceSession: traceSessionReads,
+    }).toEqual(readsAfterAudit);
+    expect(callStackCollections).toBe(1);
+    expect(traceCollections).toBe(1);
   });
 
   it.each(["left", "center", "right"])(

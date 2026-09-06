@@ -13,6 +13,7 @@ import {
   type ReviewDocumentAppState,
   type ReviewSoftwareMapAppState,
 } from "./App";
+import { codePeekDiagnostics } from "./code-peek-resolution";
 import {
   type ReviewSession,
   ReviewSessionProvider,
@@ -21,7 +22,6 @@ import {
 } from "./host/review-session";
 import { hydratePublishedSoftwareMap } from "./hydrate-published-software-map";
 import { ReviewCanvasLoading } from "./review-canvas-loading";
-import { reviewDefinitionDiagnostics } from "./review-definition-runtime";
 import { prepareReviewDocument } from "./review-document-hydrate";
 import { type ReviewFindHost, createReviewFindHost } from "./review-find";
 import { ReviewHome } from "./review-home-view";
@@ -184,14 +184,10 @@ function DesktopReviewApp({
 
   useEffect(() => {
     if (!container) return;
-    const { authoredCodePeekRequestCount, authoredCodePeekDiffRequestCount } =
-      reviewDefinitionDiagnostics;
+    const { authoredCodePeekRequestCount } = codePeekDiagnostics;
     if (authoredCodePeekRequestCount === 0) return;
     container.dataset.reviewAuthoredCodePeekRequestCount = String(
       authoredCodePeekRequestCount,
-    );
-    container.dataset.reviewAuthoredCodePeekDiffRequestCount = String(
-      authoredCodePeekDiffRequestCount,
     );
   }, [container, documentState]);
 
@@ -457,10 +453,8 @@ export function mountReviewCanvas(
 }
 
 function resetSessionDiagnostics(container: HTMLElement): void {
-  reviewDefinitionDiagnostics.authoredCodePeekRequestCount = 0;
-  reviewDefinitionDiagnostics.authoredCodePeekDiffRequestCount = 0;
+  codePeekDiagnostics.authoredCodePeekRequestCount = 0;
   delete container.dataset.reviewAuthoredCodePeekRequestCount;
-  delete container.dataset.reviewAuthoredCodePeekDiffRequestCount;
   delete container.dataset.reviewDiffSummaryRequestCount;
   delete container.dataset.reviewDiffSummaryReadyCount;
   delete container.dataset.reviewDiffSummaryStartedAfterMount;

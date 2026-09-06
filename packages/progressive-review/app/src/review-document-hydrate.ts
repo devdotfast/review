@@ -24,11 +24,11 @@ import {
   type NormalizedSoftwareModel,
   hydrateSoftwareModel,
 } from "../../src/software-map-model";
-import type { ReviewSession } from "./host/review-session";
 import {
   resolveCodePeekRequest,
   runWithCodePeekResolutionSlot,
-} from "./review-definition-runtime";
+} from "./code-peek-resolution";
+import type { ReviewSession } from "./host/review-session";
 
 export type HydratedReviewTextNode = ReviewTextNode;
 

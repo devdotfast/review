@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import {
   resolveCodePeekRequest,
   runWithCodePeekResolutionSlot,
-} from "./review-definition-runtime";
+} from "./code-peek-resolution";
 import { testReviewSession } from "./review-session-test-utils";
 
 afterEach(() => {

@@ -37,6 +37,7 @@ import {
   ReviewSubmissionWireSchema,
   ReviewSurfaceEventSchema,
   ReviewThreadAnchorSchema,
+  ReviewThreadsSnapshotSchema,
   ReviewVerbRequestSchema,
   ReviewVerbResponseSchema,
   ThreadTargetSchema,
@@ -589,6 +590,18 @@ describe("canonical comment contracts", () => {
           messages: [],
         },
       }).success,
+    ).toBe(false);
+  });
+});
+
+describe("review thread snapshots", () => {
+  it("accepts only the read-only marker on copied snapshots", () => {
+    const snapshot = { revision: 0, readOnly: true, comments: {}, drafts: {} };
+
+    expect(ReviewThreadsSnapshotSchema.parse(snapshot)).toEqual(snapshot);
+    expect(
+      ReviewThreadsSnapshotSchema.safeParse({ ...snapshot, readOnly: false })
+        .success,
     ).toBe(false);
   });
 });

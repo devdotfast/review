@@ -61,7 +61,11 @@ import {
 } from "../review-paths";
 import { resolveReviewStackLayers } from "../review-stack";
 import { saveReviewSubmissionAudit } from "../review-state-store";
-import { readReviewThreadsReadOnly } from "../review-thread-store-backend";
+import {
+  type ReviewThreadsReadOnlySnapshot,
+  readReviewThreadsReadOnly,
+  reviewThreadDbSnapshotToken,
+} from "../review-thread-store-backend";
 import { ReviewThreadsService } from "../review-threads-service";
 import {
   readReviewStoreRecord,
@@ -293,6 +297,24 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   const canceledAgentMessageIds = new Set<string>();
   const activeRuns = new Map<string, ActiveAgentRun>();
   const diffCorpora = new Map<string, Promise<ReviewDiffFilesResult>>();
+  let readOnlyThreads: {
+    key: string;
+    snapshot: ReviewThreadsReadOnlySnapshot;
+  } | null = null;
+  const readOnlyThreadsSnapshot = (
+    writableReviewPath: string,
+  ): ReviewThreadsReadOnlySnapshot => {
+    const readOnlyThreadsPath =
+      options.readOnlyThreadsPath ?? writableReviewPath;
+    const key = `${readOnlyThreadsPath}|${reviewThreadDbSnapshotToken(readOnlyThreadsPath)}`;
+    if (readOnlyThreads?.key !== key) {
+      readOnlyThreads = {
+        key,
+        snapshot: readReviewThreadsReadOnly(readOnlyThreadsPath),
+      };
+    }
+    return readOnlyThreads.snapshot;
+  };
   const startMirror = (
     writableReviewPath: string,
     service: ReviewThreadsService,
@@ -589,9 +611,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     return reviewApiJsonResponse(200, {
       ok: true,
       snapshot: reviewSessionModeIsReadOnly(options.mode)
-        ? readReviewThreadsReadOnly(
-            options.readOnlyThreadsPath ?? writableReviewPath,
-          )
+        ? readOnlyThreadsSnapshot(writableReviewPath)
         : threadsFor(writableReviewPath).snapshot(),
     });
   }

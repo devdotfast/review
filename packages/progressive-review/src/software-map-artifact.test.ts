@@ -702,6 +702,38 @@ describe("materialization", () => {
       await rm(repo, { recursive: true, force: true });
     }
   });
+
+  it("skips strict validation when asked to", async () => {
+    const repo = await gitFixture("map-materialize-invalid-skip-");
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.map(String).join(" "));
+    };
+    try {
+      const commit = head(repo);
+      await writeNote({
+        rootPath: repo,
+        ref: SOFTWARE_MAP_NOTES_REF,
+        commit,
+        content: [
+          `import { defineSoftwareMap } from "${CANONICAL_SOFTWARE_MAP_MODEL_IMPORT}";`,
+          "export default defineSoftwareMap({ views: {} });",
+        ].join("\n"),
+      });
+      const artifactPath = await materializeSoftwareMapAtRef({
+        repoRootPath: repo,
+        ref: "HEAD",
+        role: "head",
+        validate: "skip",
+      });
+      expect(artifactPath).not.toBeNull();
+      expect(warnings).toEqual([]);
+    } finally {
+      console.warn = originalWarn;
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

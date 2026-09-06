@@ -12,6 +12,7 @@ import {
 } from "@dev.fast/review-protocol";
 
 import { errorMessage as message } from "./error-message";
+import { isMissingFileError } from "./native-agent/transcript-json";
 import {
   bundleReviewDocument,
   readReviewDocumentBundle,
@@ -27,12 +28,12 @@ import {
 } from "./review-home";
 import { withReviewMutationLock } from "./review-mutation-lock";
 import { prepareReviewDocumentBundle } from "./review-publication-preparation";
-import { evaluateReviewDocumentBundleForPublish } from "./review-publish-evaluate";
 import {
   type ReviewRepairReadyRequest,
   assertNoActiveReviewAgentWrites,
   fingerprintReviewRepairInputs,
 } from "./review-repair-state";
+import { evaluateSealedReviewDocument } from "./review-sealed-document";
 import { SOFTWARE_MAP_NOTES_REF } from "./review-storage";
 import {
   type ReviewThreadDbMigrationOptions,
@@ -156,8 +157,14 @@ export async function prepareReviewRepair(input: {
       );
       const readyDocument = await readReviewDocumentBundle(documentDir, "/");
       if (!readyDocument) {
-        const bundle = await convertSealedDocument(documentDir, input.warning);
-        await writeReviewDocumentBundle(stagingDir, bundle);
+        const evaluated = await evaluateSealedReviewDocument(
+          documentDir,
+          input.warning,
+        );
+        await writeReviewDocumentBundle(
+          stagingDir,
+          bundleReviewDocument(evaluated.document),
+        );
         documentChanged = true;
       } else await writeReviewDocumentBundle(stagingDir, readyDocument);
     } catch (error) {
@@ -179,11 +186,7 @@ export async function prepareReviewRepair(input: {
       try {
         await readFile(path.join(stagingDir, "review.mdx"), "utf8").catch(
           (error) => {
-            if (
-              error instanceof Error &&
-              "code" in error &&
-              error.code === "ENOENT"
-            ) {
+            if (isMissingFileError(error)) {
               throw new Error(
                 `Missing editable Review input: ${path.join(input.reviewDir, "review.mdx")}. Restore that source file before retrying repair.`,
               );
@@ -371,8 +374,7 @@ export async function prepareReviewRepair(input: {
 async function assertIsolatedRepairInternals(dir: string): Promise<void> {
   const inspect = async (relative: string): Promise<void> => {
     const metadata = await lstat(path.join(dir, relative)).catch((error) => {
-      if (error instanceof Error && "code" in error && error.code === "ENOENT")
-        return null;
+      if (isMissingFileError(error)) return null;
       throw error;
     });
     if (!metadata) return;
@@ -391,44 +393,6 @@ async function assertIsolatedRepairInternals(dir: string): Promise<void> {
   };
   await inspect(".bundle");
   await inspect(".git");
-}
-
-async function convertSealedDocument(
-  dir: string,
-  warning?: (message: string) => void,
-) {
-  let bundleDir = path.join(dir, ".bundle/document");
-  let manifestText: string;
-  try {
-    manifestText = await readFile(
-      path.join(bundleDir, "manifest.json"),
-      "utf8",
-    );
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
-      throw error;
-    bundleDir = path.join(dir, ".bundle");
-    manifestText = await readFile(
-      path.join(bundleDir, "manifest.json"),
-      "utf8",
-    );
-  }
-  if (jsonObject(parseJsonText(manifestText))?.version !== 1)
-    throw new Error("The sealed document manifest is invalid or unsupported.");
-  const evaluated = await evaluateReviewDocumentBundleForPublish({
-    reviewDir: dir,
-    bundleCode: await readFile(
-      path.join(bundleDir, "review-document.js"),
-      "utf8",
-    ),
-    ranges: "skip",
-  });
-  for (const item of evaluated.warnings) warning?.(item);
-  if (!evaluated.document)
-    throw new Error(
-      evaluated.errors.join("; ") || "Sealed document did not materialize.",
-    );
-  return bundleReviewDocument(evaluated.document);
 }
 
 async function prepareSavedMapNotes(input: {

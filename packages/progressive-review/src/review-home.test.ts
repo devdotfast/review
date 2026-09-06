@@ -19,7 +19,10 @@ import {
 } from "@dev.fast/review-protocol";
 import { describe, expect, it, vi } from "vitest";
 
-import { readReviewDocumentBundle } from "./review-bundle";
+import {
+  readReviewDocumentBundle,
+  reviewDocumentBundleData,
+} from "./review-bundle";
 import {
   ReviewHomeScanError,
   type StoredReview,
@@ -935,9 +938,8 @@ describe("legacy records on read", () => {
           stored!.review.presentedDocumentRevision!,
           materialized,
         );
-        expect(
-          (await readReviewDocumentBundle(materialized, "/"))?.document.title,
-        ).toBe("Sealed");
+        const bundle = await readReviewDocumentBundle(materialized, "/");
+        expect(bundle && reviewDocumentBundleData(bundle).title).toBe("Sealed");
         expect(await reviewDescriptor(stored!)).toMatchObject({
           available: true,
           status: "accepted",

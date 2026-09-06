@@ -14,7 +14,6 @@ import path from "node:path";
 import { isMissingFileError } from "./native-agent/transcript-json";
 import {
   type ReviewDocumentBundle,
-  readReviewDocumentBundle,
   writeReviewDocumentBundle,
 } from "./review-bundle";
 import { REVIEW_PUBLISH_CANDIDATE_MESSAGE } from "./review-document-versions";
@@ -76,9 +75,11 @@ export async function stageReviewDocumentPublication(input: {
     )({
       review: { ...input.review, dir: stagingDir },
     });
-    const bundle = await readReviewDocumentBundle(stagingDir, "/");
-    if (!bundle) throw new Error("Prepared Review document bundle is missing.");
-    return { bundle, warnings: prepared.warnings, fingerprint };
+    return {
+      bundle: prepared.bundle,
+      warnings: prepared.warnings,
+      fingerprint,
+    };
   } catch (error) {
     if (error instanceof ReviewPublicationValidationError) {
       throw new ReviewPublicationValidationError(

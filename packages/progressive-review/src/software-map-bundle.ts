@@ -5,7 +5,6 @@ import path from "node:path";
 import { type JsonValue, parseJsonText } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
-import { withReviewMutationLock } from "./review-mutation-lock";
 import {
   type NormalizedSoftwareModel,
   type SoftwareModelData,
@@ -39,8 +38,6 @@ const SoftwareMapDataFileSchema = softwareModelDataSchema.extend({
 });
 
 export interface ReviewSoftwareMapBundle {
-  head: SoftwareModelData;
-  base: SoftwareModelData;
   headJson: string;
   baseJson: string;
   contentHash: string;
@@ -59,8 +56,6 @@ export function bundleReviewSoftwareMap(input: {
   const headJson = softwareMapDataJson(head);
   const baseJson = softwareMapDataJson(base);
   return {
-    head,
-    base,
     headJson,
     baseJson,
     contentHash: bundleHash(headJson, baseJson),
@@ -73,24 +68,22 @@ export async function writeReviewSoftwareMapBundle(
   reviewDir: string,
   bundle: ReviewSoftwareMapBundle,
 ): Promise<void> {
-  return withReviewMutationLock(reviewDir, async () => {
-    const bundleDir = path.join(reviewDir, REVIEW_SOFTWARE_MAP_BUNDLE_DIR);
-    await mkdir(bundleDir, { recursive: true, mode: 0o700 });
-    const manifest: SoftwareMapBundleManifest = {
-      version: MANIFEST_VERSION,
-      headCommit: bundle.headCommit,
-      baseCommit: bundle.baseCommit,
-    };
-    await Promise.all([
-      writeFile(path.join(bundleDir, HEAD_MAP_FILE), bundle.headJson, "utf8"),
-      writeFile(path.join(bundleDir, BASE_MAP_FILE), bundle.baseJson, "utf8"),
-      writeFile(
-        path.join(bundleDir, MANIFEST_FILE),
-        `${JSON.stringify(manifest, null, 2)}\n`,
-        "utf8",
-      ),
-    ]);
-  });
+  const bundleDir = path.join(reviewDir, REVIEW_SOFTWARE_MAP_BUNDLE_DIR);
+  await mkdir(bundleDir, { recursive: true, mode: 0o700 });
+  const manifest: SoftwareMapBundleManifest = {
+    version: MANIFEST_VERSION,
+    headCommit: bundle.headCommit,
+    baseCommit: bundle.baseCommit,
+  };
+  await Promise.all([
+    writeFile(path.join(bundleDir, HEAD_MAP_FILE), bundle.headJson, "utf8"),
+    writeFile(path.join(bundleDir, BASE_MAP_FILE), bundle.baseJson, "utf8"),
+    writeFile(
+      path.join(bundleDir, MANIFEST_FILE),
+      `${JSON.stringify(manifest, null, 2)}\n`,
+      "utf8",
+    ),
+  ]);
 }
 
 export async function readReviewSoftwareMapBundle(
@@ -125,8 +118,6 @@ export async function readReviewSoftwareMapBundle(
   const base = parseJson(baseJson, SoftwareMapDataFileSchema);
   if (!head || !base) return null;
   return {
-    head: { elements: head.elements, relationships: head.relationships },
-    base: { elements: base.elements, relationships: base.relationships },
     headJson,
     baseJson,
     contentHash: bundleHash(headJson, baseJson),

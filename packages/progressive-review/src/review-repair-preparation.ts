@@ -199,6 +199,7 @@ export async function prepareReviewRepair(input: {
         const prepared = await prepareReviewDocumentBundle({
           review: { dir: stagingDir, review: sourceReview },
         });
+        await writeReviewDocumentBundle(stagingDir, prepared.bundle);
         for (const warning of prepared.warnings) input.warning?.(warning);
       } catch (fallbackError) {
         throw new Error(

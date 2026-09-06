@@ -55,6 +55,25 @@ afterEach(async () => {
 });
 
 describe("migrateStoredReviewData", () => {
+  it("rejects a malformed legacy session alias without changing the review", async () => {
+    const { created } = await storedReview();
+    const recordPath = path.join(created.dir, "review.json");
+    const malformed = `${JSON.stringify({
+      ...created.review,
+      schemaVersion: 3,
+      agentSession: 42,
+    })}\n`;
+    await writeFile(recordPath, malformed);
+    const before = await snapshotMigrationFiles(created.dir);
+
+    await expect(
+      migrateStoredReview({ reviewDir: created.dir }),
+    ).rejects.toThrow(/agentSession/);
+
+    expect(await snapshotMigrationFiles(created.dir)).toEqual(before);
+    await expect(readFile(recordPath, "utf8")).resolves.toBe(malformed);
+  });
+
   it("does not replace live files when sealing the isolated candidate fails", async () => {
     const { created } = await storedReview();
     await writeLegacyDocument(created.dir);

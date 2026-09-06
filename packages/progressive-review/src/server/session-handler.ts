@@ -53,6 +53,10 @@ const DOCUMENT_PATH_PREFIX = `${API_PREFIX}/documents/`;
 const MAP_PATH_PREFIX = `${API_PREFIX}/software-maps/`;
 const NEEDS_REPUBLISH_ERROR =
   "This review was published by an earlier version of Review and its document must be regenerated.";
+const NEEDS_REPUBLISH_MAP_ERROR =
+  "This review's software map must be regenerated.";
+const HISTORICAL_UNAVAILABLE_ERROR =
+  "This older revision is unavailable in this version of Review";
 
 interface ReviewEventClient {
   write(frame: string): void;
@@ -210,6 +214,52 @@ export async function createReviewSessionHandler(
     return input.reviewUuid;
   };
 
+  /** The map is stale when its own revision is gone, or when a published map
+   * root no longer yields a readable bundle. One expression, one answer. */
+  const mapIsStale = async (): Promise<boolean> =>
+    Boolean(
+      artifacts.map ||
+      (input.softwareMapRootPath && !(await getSoftwareMapBundle())),
+    );
+
+  /** The one 409 for an artifact the session cannot serve. */
+  const artifactUnavailable = async (
+    kind: "document" | "map",
+    message: string,
+  ): Promise<Response> => {
+    const reviewUuid = needsRepublishReviewUuid();
+    const detail =
+      mode.kind === "historical"
+        ? kind === "document"
+          ? {
+              code: "historical_revision_unavailable",
+              reviewUuid,
+              mapStale: await mapIsStale(),
+            }
+          : { code: "historical_revision_unavailable", reviewUuid }
+        : {
+            code: "needs_republish",
+            reviewUuid,
+            mapStale: kind === "document" ? await mapIsStale() : true,
+          };
+    return jsonResponse(
+      {
+        ok: false,
+        error: message,
+        detail,
+      },
+      409,
+    );
+  };
+
+  /** The message when the artifact itself is intact but its revision is not. */
+  const staleArtifactMessage = (kind: "document" | "map"): string =>
+    mode.kind === "historical"
+      ? HISTORICAL_UNAVAILABLE_ERROR
+      : kind === "document"
+        ? NEEDS_REPUBLISH_ERROR
+        : NEEDS_REPUBLISH_MAP_ERROR;
+
   const documentUrl = (bundle: ReviewDocumentBundle): string =>
     `${sessionUrl}${DOCUMENT_PATH_PREFIX}${bundle.contentHash}.json`;
 
@@ -305,59 +355,10 @@ export async function createReviewSessionHandler(
   });
   app.get(`${API_PREFIX}/document`, async () => {
     if (artifacts.document)
-      return jsonResponse(
-        {
-          ok: false,
-          error: artifacts.document,
-          detail:
-            mode.kind === "historical"
-              ? {
-                  code: "historical_revision_unavailable",
-                  reviewUuid: needsRepublishReviewUuid(),
-                }
-              : {
-                  code: "needs_republish",
-                  reviewUuid: needsRepublishReviewUuid(),
-                  mapStale: Boolean(
-                    artifacts.map ||
-                    (input.softwareMapRootPath &&
-                      !(await getSoftwareMapBundle())),
-                  ),
-                },
-        },
-        409,
-      );
+      return artifactUnavailable("document", artifacts.document);
     const bundle = await getBundle();
-    if (!bundle) {
-      if (mode.kind === "historical")
-        return jsonResponse(
-          {
-            ok: false,
-            error:
-              "This older revision is unavailable in this version of Review",
-            detail: {
-              code: "historical_revision_unavailable",
-              reviewUuid: needsRepublishReviewUuid(),
-            },
-          },
-          409,
-        );
-      const mapStale = Boolean(
-        input.softwareMapRootPath && !(await getSoftwareMapBundle()),
-      );
-      return jsonResponse(
-        {
-          ok: false,
-          error: NEEDS_REPUBLISH_ERROR,
-          detail: {
-            code: "needs_republish",
-            reviewUuid: needsRepublishReviewUuid(),
-            mapStale,
-          },
-        },
-        409,
-      );
-    }
+    if (!bundle)
+      return artifactUnavailable("document", staleArtifactMessage("document"));
     return jsonResponse(
       {
         ok: true,
@@ -387,54 +388,11 @@ export async function createReviewSessionHandler(
     });
   });
   app.get(`${API_PREFIX}/software-map`, async () => {
-    if (artifacts.map)
-      return jsonResponse(
-        {
-          ok: false,
-          error: artifacts.map,
-          detail:
-            mode.kind === "historical"
-              ? {
-                  code: "historical_revision_unavailable",
-                  reviewUuid: needsRepublishReviewUuid(),
-                }
-              : {
-                  code: "needs_republish",
-                  reviewUuid: needsRepublishReviewUuid(),
-                  mapStale: true,
-                },
-        },
-        409,
-      );
+    if (artifacts.map) return artifactUnavailable("map", artifacts.map);
     const bundle = await getSoftwareMapBundle();
     if (!bundle) {
-      if (input.softwareMapRootPath) {
-        if (mode.kind === "historical")
-          return jsonResponse(
-            {
-              ok: false,
-              error:
-                "This older revision is unavailable in this version of Review",
-              detail: {
-                code: "historical_revision_unavailable",
-                reviewUuid: needsRepublishReviewUuid(),
-              },
-            },
-            409,
-          );
-        return jsonResponse(
-          {
-            ok: false,
-            error: "This review's software map must be regenerated.",
-            detail: {
-              code: "needs_republish",
-              reviewUuid: needsRepublishReviewUuid(),
-              mapStale: true,
-            },
-          },
-          409,
-        );
-      }
+      if (input.softwareMapRootPath)
+        return artifactUnavailable("map", staleArtifactMessage("map"));
       return jsonResponse(
         { ok: false, error: "Software map is not published" },
         404,

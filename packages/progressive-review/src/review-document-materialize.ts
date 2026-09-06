@@ -132,12 +132,19 @@ function materializeChildren(
     const parsedProps: ParsedComponentProps = Object.fromEntries(
       Object.entries(parsed.data).filter(([key]) => key !== "children"),
     );
+    const normalizedProps = normalizeComponentProps(
+      name,
+      parsedData,
+      parsedProps,
+    );
+    // SAFETY: props came from the named registry schema with children removed;
+    // the document schema enforces its JSON representation before publication.
     nodes.push({
       type: "component",
       name,
-      props: normalizeComponentProps(name, parsedData, parsedProps),
+      props: normalizedProps,
       children: materializeChildren(children, componentNames, errors),
-    });
+    } as ReviewComponentNode);
   }
   return nodes;
 }
@@ -146,7 +153,7 @@ function normalizeComponentProps(
   name: AuthoringComponentName,
   parsedData: ParsedComponentProps,
   props: ParsedComponentProps,
-): ReviewComponentNode["props"] {
+): ParsedComponentProps {
   if (name === "DatabaseLens") {
     const parsed = databaseLensPropsSchema.parse(parsedData);
     const normalized: ParsedComponentProps = {
@@ -163,9 +170,7 @@ function normalizeComponentProps(
     // boundary before any materialized result can publish.
     return normalized as ReviewComponentNode["props"];
   }
-  // SAFETY: props came from the named registry schema with children removed;
-  // the document schema enforces its JSON representation before publication.
-  return props as ReviewComponentNode["props"];
+  return props;
 }
 
 interface SequenceRefExport {

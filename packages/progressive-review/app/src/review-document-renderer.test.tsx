@@ -2,8 +2,8 @@ import { Children, type ReactNode, isValidElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import type { ReviewNode } from "../../src/review-document-data";
 import { reviewAuthoringComponents } from "./review-authoring-components";
+import type { HydratedReviewNode } from "./review-document-hydrate";
 import { renderReviewNodes } from "./review-document-renderer";
 import { reviewDocumentComponents } from "./review-document-surface";
 
@@ -12,7 +12,7 @@ describe("renderReviewNodes", () => {
     "renders table alignment %s above the document CSS default",
     (align) => {
       for (const tag of ["th", "td"] as const) {
-        const nodes: ReviewNode[] = [
+        const nodes: HydratedReviewNode[] = [
           {
             type: "element",
             tag,
@@ -31,7 +31,7 @@ describe("renderReviewNodes", () => {
   );
 
   it("passes prose props through the registry overrides", () => {
-    const nodes: ReviewNode[] = [
+    const nodes: HydratedReviewNode[] = [
       {
         type: "element",
         tag: "a",
@@ -53,7 +53,7 @@ describe("renderReviewNodes", () => {
   });
 
   it("routes pre > code prose through MarkdownCodeBlock", () => {
-    const nodes: ReviewNode[] = [
+    const nodes: HydratedReviewNode[] = [
       {
         type: "element",
         tag: "pre",
@@ -79,7 +79,7 @@ describe("renderReviewNodes", () => {
   });
 
   it("preserves ReviewSection and DatabaseLens child function identity", () => {
-    const nodes: ReviewNode[] = [
+    const nodes: HydratedReviewNode[] = [
       {
         type: "component",
         name: "ReviewSection",

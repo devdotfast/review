@@ -104,8 +104,7 @@ describe("createReviewSessionHandler", () => {
         expect(response.status).toBe(409);
         const payload = await response.json();
         expect(payload).toMatchObject({
-          code: "needs_republish",
-          reviewUuid,
+          detail: { code: "needs_republish", reviewUuid },
         });
         expect(payload).not.toHaveProperty("recovery");
       }
@@ -159,12 +158,14 @@ describe("createReviewSessionHandler", () => {
         expect(await doc.json()).toMatchObject(
           historicalRevision
             ? {
-                code: "historical_revision_unavailable",
                 error:
                   "This older revision is unavailable in this version of Review",
-                reviewUuid: "11111111-1111-4111-8111-111111111111",
+                detail: {
+                  code: "historical_revision_unavailable",
+                  reviewUuid: "11111111-1111-4111-8111-111111111111",
+                },
               }
-            : { code: "needs_republish", mapStale: false },
+            : { detail: { code: "needs_republish", mapStale: false } },
         );
         expect((await request("software-map")).status).toBe(200);
         const dismissed = await request("dismiss", "POST");
@@ -526,10 +527,8 @@ describe("createReviewSessionHandler", () => {
         expect(response.status).toBe(409);
         await expect(response.json()).resolves.toEqual({
           ok: false,
-          code: "needs_republish",
           error: needsRepublishError,
-          reviewUuid,
-          mapStale,
+          detail: { code: "needs_republish", reviewUuid, mapStale },
         });
       } finally {
         await handler.close();
@@ -737,9 +736,8 @@ describe("createReviewSessionHandler", () => {
         expect(response.status).toBe(409);
         await expect(response.json()).resolves.toEqual({
           ok: false,
-          code: "needs_republish",
           error: "This review's software map must be regenerated.",
-          reviewUuid,
+          detail: { code: "needs_republish", reviewUuid, mapStale: true },
         });
       } finally {
         await handler.close();

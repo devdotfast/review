@@ -39,9 +39,8 @@ function mockFetch(
 test("preserves historical navigation metadata without loading code", async (t) => {
 	mockFetch(t, async () => Response.json({
 		ok: false,
-		code: "historical_revision_unavailable",
 		error: "This older revision is unavailable in this version of Review",
-		reviewUuid,
+		detail: { code: "historical_revision_unavailable", reviewUuid },
 	}, { status: 409 }));
 	const loader = async (): Promise<never> => {
 		throw new Error("loader must not run");
@@ -95,10 +94,8 @@ test("turns document republish metadata into a needs-republish state", async (t)
 		Response.json(
 			{
 				ok: false,
-				code: "needs_republish",
 				error: "republish",
-				reviewUuid,
-				mapStale: true,
+				detail: { code: "needs_republish", reviewUuid, mapStale: true },
 			},
 			{ status: 409 },
 		),
@@ -191,10 +188,8 @@ test("turns stale software-map metadata into a needs-republish state", async (t)
 		Response.json(
 			{
 				ok: false,
-				code: "needs_republish",
 				error: "republish",
-				reviewUuid,
-				mapStale: true,
+				detail: { code: "needs_republish", reviewUuid, mapStale: true },
 			},
 			{ status: 409 },
 		),

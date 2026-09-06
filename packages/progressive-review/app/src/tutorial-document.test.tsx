@@ -3,7 +3,10 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { ReviewCanvasTutorialBridge } from "@dev.fast/review-protocol";
+import {
+  type ReviewCanvasTutorialBridge,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
 import { Children, type ReactNode, isValidElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -60,7 +63,7 @@ describe("shipped tutorial JSON document", () => {
     const hydrated = hydrateReviewDocument({
       state: "ready",
       contentHash: "tutorial-fixture",
-      data,
+      data: parseJsonText(JSON.stringify(data)),
     });
     for (const anchor of hydrated.anchors.values()) {
       if (anchor.peek) anchor.peek.resolution = testCodePeekResolution();

@@ -4,6 +4,7 @@ import type {
   ReviewCanvasContent,
   ReviewCanvasDiagnostic,
 } from "@dev.fast/review-protocol";
+import { parseJsonText } from "@dev.fast/review-protocol";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -133,25 +134,27 @@ describe("desktop review document load states", () => {
           document: Promise.resolve({
             state: "ready",
             contentHash: "healthy-document",
-            data: {
-              format: "review-document/1",
-              title: "Healthy document",
-              routePath: "/",
-              sourcePath: "review.mdx",
-              anchors: {},
-              anchorContents: {},
-              softwareModels: [],
-              body: [
-                {
-                  type: "element",
-                  tag: "p",
-                  props: {},
-                  children: [
-                    { type: "text", value: "Keep this valid document" },
-                  ],
-                },
-              ],
-            },
+            data: parseJsonText(
+              JSON.stringify({
+                format: "review-document/1",
+                title: "Healthy document",
+                routePath: "/",
+                sourcePath: "review.mdx",
+                anchors: {},
+                anchorContents: {},
+                softwareModels: [],
+                body: [
+                  {
+                    type: "element",
+                    tag: "p",
+                    props: {},
+                    children: [
+                      { type: "text", value: "Keep this valid document" },
+                    ],
+                  },
+                ],
+              }),
+            ),
           }),
           softwareMap: Promise.resolve({
             state: "needs-republish",
@@ -232,49 +235,51 @@ describe("desktop review document load states", () => {
       document: Promise.resolve({
         state: "ready",
         contentHash: "rendered-data-behavior",
-        data: {
-          format: "review-document/1",
-          title: "Data review",
-          routePath: "/",
-          sourcePath: "review.mdx",
-          anchors: {},
-          anchorContents: {},
-          softwareModels: [],
-          body: [
-            {
-              type: "component",
-              name: "ReviewSection",
-              props: { title: "Orders" },
-              children: [
-                {
-                  type: "element",
-                  tag: "h2",
-                  props: { id: "authored-heading" },
-                  children: [{ type: "text", value: "Orders" }],
-                },
-                {
-                  type: "element",
-                  tag: "p",
-                  props: {},
-                  children: [{ type: "text", value: "Order details" }],
-                },
-                {
-                  type: "component",
-                  name: "DatabaseLens",
-                  props: { stores: {}, title: "Order database" },
-                  children: [
-                    {
-                      type: "component",
-                      name: "DbUseCase",
-                      props: { id: "create", label: "Create an order" },
-                      children: [{ type: "text", value: "Create order" }],
-                    },
-                  ],
-                },
-              ],
-            },
-          ],
-        },
+        data: parseJsonText(
+          JSON.stringify({
+            format: "review-document/1",
+            title: "Data review",
+            routePath: "/",
+            sourcePath: "review.mdx",
+            anchors: {},
+            anchorContents: {},
+            softwareModels: [],
+            body: [
+              {
+                type: "component",
+                name: "ReviewSection",
+                props: { title: "Orders" },
+                children: [
+                  {
+                    type: "element",
+                    tag: "h2",
+                    props: { id: "authored-heading" },
+                    children: [{ type: "text", value: "Orders" }],
+                  },
+                  {
+                    type: "element",
+                    tag: "p",
+                    props: {},
+                    children: [{ type: "text", value: "Order details" }],
+                  },
+                  {
+                    type: "component",
+                    name: "DatabaseLens",
+                    props: { stores: {}, title: "Order database" },
+                    children: [
+                      {
+                        type: "component",
+                        name: "DbUseCase",
+                        props: { id: "create", label: "Create an order" },
+                        children: [{ type: "text", value: "Create order" }],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          }),
+        ),
       }),
       softwareMap: Promise.resolve(null),
     });
@@ -335,8 +340,8 @@ describe("desktop review document load states", () => {
       softwareMap: Promise.resolve({
         state: "ready",
         contentHash: "map-hash",
-        head: model,
-        base: model,
+        head: parseJsonText(JSON.stringify(model)),
+        base: parseJsonText(JSON.stringify(model)),
       }),
     });
     const container = document.createElement("div");

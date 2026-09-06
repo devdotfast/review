@@ -1,12 +1,14 @@
-import path from "node:path";
-
 import { mergeBase, resolveRevision } from "@dev.fast/local-vcs";
 
 import {
   actionableReviewsForCheckout,
   isPositionalChangeIdentity,
 } from "../review-change-scope";
-import { type StoredReview, findReview, listReviews } from "../review-home";
+import {
+  type StoredReview,
+  findScopedReview,
+  listReviews,
+} from "../review-home";
 import {
   requireClosedThreadsForRepublish,
   requireCompletedAgentResponsesForRepublish,
@@ -93,15 +95,11 @@ export async function resolvePublishReview(
   options: { includeTerminal?: boolean } = {},
 ): Promise<StoredReview> {
   if (reviewUuid) {
-    const selected = await findReview(reviewUuid);
-    if (
-      !selected ||
-      selected.review.worktreePath !== path.resolve(cwd) ||
-      (!options.includeTerminal &&
-        (selected.review.status === "accepted" ||
-          selected.review.status === "rejected"))
-    )
-      throw new Error(`Active review not found: ${reviewUuid}`);
+    const selected = await findScopedReview(reviewUuid, {
+      worktreePath: cwd,
+      includeTerminal: options.includeTerminal,
+    });
+    if (!selected) throw new Error(`Active review not found: ${reviewUuid}`);
     return selected;
   }
   const listed = await listReviews({ worktreePath: cwd });

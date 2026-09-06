@@ -48,7 +48,7 @@ describe("review app", () => {
             instanceId: discovery.instanceId,
           }),
           resolveReviewRoot: async () => "/repo",
-          findReview: async () => selected,
+          findScopedReview: async () => selected,
           listReviews: async () => {
             throw new Error(
               "Explicit selection must not scan unrelated reviews",
@@ -100,7 +100,7 @@ describe("review app", () => {
             instanceId: discovery.instanceId,
           }),
           resolveReviewRoot: async () => "/repo",
-          findReview: async () => selected,
+          findScopedReview: async () => selected,
           readReviewDesktopDiscovery: async () => discovery,
           fetch,
         },
@@ -169,7 +169,7 @@ describe("review app", () => {
             instanceId: discovery.instanceId,
           }),
           resolveReviewRoot: async () => "/other",
-          findReview: async () => selected,
+          findScopedReview: async () => null,
         },
       ),
     ).rejects.toThrow(`Review not found: ${selected.review.uuid}`);

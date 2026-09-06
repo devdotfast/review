@@ -86,6 +86,7 @@ import {
 import type { RunReviewInfoInput } from "../review-info";
 import {
   ReviewBusyError,
+  reviewMutationFingerprint,
   withReviewMutationLock,
 } from "../review-mutation-lock";
 import {
@@ -643,7 +644,7 @@ export function createGlobalReviewServer(
         review: viewed,
         revision: documentRevision,
       })
-      .catch((error) => {
+      .catch(() => {
         documentUnavailable = `The presented document revision ${documentRevision} is unavailable.`;
         return path.join(review.dir, ".build", documentRevision);
       });
@@ -2645,14 +2646,10 @@ function rejectConcurrentPublication(
   latest: StoredReview,
   startedFrom: StoredReview,
 ): void {
+  // The same guarded fields assertReviewUnchanged compares; only the message differs.
   if (
-    latest.review.status !== startedFrom.review.status ||
-    latest.review.sourceCommit !== startedFrom.review.sourceCommit ||
-    latest.review.baseCommit !== startedFrom.review.baseCommit ||
-    latest.review.presentedDocumentRevision !==
-      startedFrom.review.presentedDocumentRevision ||
-    latest.review.presentedSoftwareMapRevision !==
-      startedFrom.review.presentedSoftwareMapRevision
+    reviewMutationFingerprint(latest.review) !==
+    reviewMutationFingerprint(startedFrom.review)
   ) {
     throw new ReviewServerError(
       "The presented Review artifacts changed during publication. Retry the command.",

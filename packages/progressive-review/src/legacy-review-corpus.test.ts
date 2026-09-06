@@ -32,6 +32,7 @@ import { z } from "zod";
 import { parseAuthoringSessionKey } from "./authoring-session";
 import { snapshotReviewTree } from "./fixtures/legacy-reviews/legacy-review-fixture";
 import { readReviewDocumentBundle } from "./review-bundle";
+import { isDerivedReviewPath } from "./review-derived-paths";
 import {
   materializeReviewRevision,
   parseAnyStoredReviewRecord,
@@ -59,38 +60,20 @@ function included(relative: string): boolean {
     .split(path.sep)
     .some(
       (part) =>
-        part === ".build" ||
-        part === ".native-agent" ||
-        part.endsWith(".lock") ||
-        part.endsWith("-shm"),
+        part === ".mutation-lock" ||
+        part.endsWith("-shm") ||
+        (isDerivedReviewPath(part) && !/^review\.db(?:-|$)/.test(part)),
     );
 }
 
 async function sourceSnapshot(root: string): Promise<string> {
-  const entries: Array<[string, string]> = [];
-  async function visit(relative: string): Promise<void> {
-    const absolute = path.join(root, relative);
-    const entry = await lstat(absolute);
-    if (entry.isSymbolicLink())
-      throw new Error("Corpus copy refuses symbolic links.");
-    if (entry.isDirectory()) {
-      for (const name of (await readdir(absolute)).sort()) {
-        const next = path.join(relative, name);
-        if (included(next)) await visit(next);
-      }
-    } else if (entry.isFile()) {
-      entries.push([
-        relative,
-        createHash("sha256")
-          .update(await readFile(absolute))
-          .digest("hex"),
-      ]);
-    } else {
-      throw new Error("Corpus copy refuses special files.");
-    }
-  }
-  await visit("");
-  return digest(entries);
+  const files = await snapshotReviewTree(root, {
+    include: included,
+    refuseSpecialFiles: true,
+  });
+  return digest(
+    Object.entries(files).sort(([left], [right]) => left.localeCompare(right)),
+  );
 }
 
 async function git(root: string, args: string[]): Promise<string> {

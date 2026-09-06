@@ -22,7 +22,7 @@ import {
 } from "./host/review-session";
 import { hydratePublishedSoftwareMap } from "./hydrate-published-software-map";
 import { ReviewCanvasLoading } from "./review-canvas-loading";
-import { prepareReviewDocument } from "./review-document-hydrate";
+import { prepareReviewDocument } from "./review-document-prepare";
 import { type ReviewFindHost, createReviewFindHost } from "./review-find";
 import { ReviewHome } from "./review-home-view";
 import {

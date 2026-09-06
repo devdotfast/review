@@ -1,5 +1,5 @@
 import { parseJsonText } from "@dev.fast/review-protocol";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
   collectionSchema,
@@ -13,25 +13,10 @@ import {
   defineSoftwareMap,
   softwareModelData,
 } from "../../src/software-map-model";
-import type { resolveCodePeekRequest } from "./code-peek-resolution";
 import {
   type HydratedReviewComponentNode,
   hydrateReviewDocument,
-  prepareReviewDocument,
-  resolveReviewDocumentPeeks,
 } from "./review-document-hydrate";
-import { testReviewSession } from "./review-session-test-utils";
-
-const resolution = {
-  snapshot: { roots: [], resolved: {} },
-};
-
-const resolveCodePeek = vi.fn<typeof resolveCodePeekRequest>();
-
-beforeEach(() => {
-  resolveCodePeek.mockReset();
-  resolveCodePeek.mockResolvedValue(resolution);
-});
 
 function reviewDocumentData(): ReviewDocumentData {
   const definition = createReviewDefinitionSession({
@@ -129,75 +114,5 @@ describe("hydrateReviewDocument", () => {
     expect(() => hydrateReviewDocument(ready(data))).toThrow(
       'Review document references missing anchor "create-order".',
     );
-  });
-});
-
-describe("resolveReviewDocumentPeeks", () => {
-  it("resolves every unique canonical peek once before returning", async () => {
-    const session = testReviewSession();
-    const document = hydrateReviewDocument(ready());
-
-    await resolveReviewDocumentPeeks(document, session, { resolveCodePeek });
-
-    expect(resolveCodePeek).toHaveBeenCalledTimes(1);
-    expect(resolveCodePeek).toHaveBeenCalledWith(
-      "/",
-      {
-        file: "src/orders.ts",
-        fromLine: 3,
-        toLine: 7,
-      },
-      session,
-    );
-    expect(document.anchors.get("create-order")?.peek?.resolution).toEqual(
-      resolution,
-    );
-  });
-
-  it("namespaces the content-hash promise cache by ReviewSession", async () => {
-    const firstSession = testReviewSession({
-      sessionId: "warm-session",
-      sessionUrl: "http://127.0.0.1:5570/sessions/warm-session",
-      routePath: "/warm",
-    });
-    const visibleSession = testReviewSession({
-      sessionId: "warm-session",
-      sessionUrl: "http://127.0.0.1:5570/sessions/warm-session",
-      routePath: "/warm",
-    });
-    const isolatedSession = testReviewSession({
-      sessionId: "isolated-session",
-      sessionUrl: "http://127.0.0.1:5571/sessions/isolated-session",
-      routePath: "/warm",
-    });
-    const load = ready();
-
-    const first = await prepareReviewDocument(load, firstSession, {
-      resolveCodePeek,
-    });
-    expect(
-      await prepareReviewDocument(load, visibleSession, { resolveCodePeek }),
-    ).toBe(first);
-    await prepareReviewDocument(load, isolatedSession, { resolveCodePeek });
-
-    expect(resolveCodePeek).toHaveBeenCalledTimes(2);
-    expect(resolveCodePeek.mock.calls.map((call) => call[2])).toEqual([
-      firstSession,
-      isolatedSession,
-    ]);
-  });
-
-  it("evicts a rejected promise so a later load can retry", async () => {
-    const session = testReviewSession();
-    const load = ready(reviewDocumentData(), "retry-hash");
-    resolveCodePeek.mockRejectedValueOnce(new Error("peek unavailable"));
-
-    await expect(
-      prepareReviewDocument(load, session, { resolveCodePeek }),
-    ).rejects.toThrow("peek unavailable");
-    await expect(
-      prepareReviewDocument(load, session, { resolveCodePeek }),
-    ).resolves.toBeDefined();
-    expect(resolveCodePeek).toHaveBeenCalledTimes(2);
   });
 });

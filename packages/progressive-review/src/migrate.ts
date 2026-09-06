@@ -4,7 +4,6 @@ import {
   lstat,
   mkdir,
   readFile,
-  readdir,
   realpath,
   rename,
   rm,
@@ -25,6 +24,7 @@ import {
 
 import { emitJsonEvent, humanStream } from "./cli-output";
 import { errorMessage } from "./error-message";
+import { readDirectory } from "./fs-utils";
 import { defaultPackageRoot } from "./install";
 import {
   ensureReviewPinnedCheckout,
@@ -38,10 +38,8 @@ import {
 import { devReviewHome } from "./review-storage";
 import { reviewVcs } from "./review-vcs";
 import { writePrivateJsonAtomic } from "./server/desktop-paths";
-import {
-  auditStoredReviewDocuments,
-  migrateStoredReviewData,
-} from "./stored-review-migration";
+import { auditStoredReviewDocuments } from "./stored-review-document-audit";
+import { migrateStoredReviewData } from "./stored-review-migration";
 
 const PACKAGE_NAME = "@dev.fast/review";
 const UUID_PATTERN =
@@ -798,17 +796,6 @@ function spawnProcess(input: {
       resolve(code ?? 1);
     });
   });
-}
-
-async function readDirectory(directory: string) {
-  try {
-    return await readdir(directory, { withFileTypes: true });
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return [];
-    }
-    throw error;
-  }
 }
 
 async function pathExists(targetPath: string): Promise<boolean> {

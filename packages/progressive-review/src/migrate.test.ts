@@ -26,7 +26,7 @@ import {
   runReviewMigration,
 } from "./migrate";
 import { createReviewDir, sealReviewCandidate } from "./review-home";
-import { auditStoredReviewDocuments } from "./stored-review-migration";
+import { auditStoredReviewDocuments } from "./stored-review-document-audit";
 
 const tempRoots: string[] = [];
 type TestRunCommand = (

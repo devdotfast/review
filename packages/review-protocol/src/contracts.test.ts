@@ -290,17 +290,6 @@ const contracts: Array<[string, ZodType, JsonObject]> = [
     { ok: false, error: "bad" },
   ],
   [
-    "enriched error response",
-    ReviewErrorResponseSchema,
-    {
-      ok: false,
-      error: "Republish the Review",
-      code: "needs_republish",
-      reviewUuid: reviewRecord.uuid,
-      mapStale: true,
-    },
-  ],
-  [
     "server event",
     ReviewServerEventSchema,
     { event: "session-updated", session },
@@ -367,6 +356,55 @@ const contracts: Array<[string, ZodType, JsonObject]> = [
 describe("Review protocol Zod contracts", () => {
   it.each(contracts)("accepts a valid %s", (_name, schema, value) => {
     expect(schema.safeParse(value).success).toBe(true);
+  });
+
+  it("types republish detail by its code", () => {
+    expect(
+      ReviewDocumentResponseSchema.safeParse({
+        ok: false,
+        error: "Republish required",
+        detail: {
+          code: "needs_republish",
+          reviewUuid: reviewRecord.uuid,
+          mapStale: true,
+        },
+      }).success,
+    ).toBe(true);
+
+    // mapStale is meaningless without needs_republish, so it cannot be sent.
+    expect(
+      ReviewDocumentResponseSchema.safeParse({
+        ok: false,
+        error: "Gone",
+        detail: {
+          code: "historical_revision_unavailable",
+          reviewUuid: reviewRecord.uuid,
+          mapStale: true,
+        },
+      }).success,
+    ).toBe(false);
+
+    // A bare code and a structured detail are alternatives, not a pair.
+    expect(
+      ReviewDocumentResponseSchema.safeParse({
+        ok: false,
+        error: "Busy",
+        code: "review_busy",
+        detail: {
+          code: "needs_republish",
+          reviewUuid: reviewRecord.uuid,
+          mapStale: false,
+        },
+      }).success,
+    ).toBe(false);
+
+    expect(
+      ReviewDocumentResponseSchema.safeParse({
+        ok: false,
+        error: "Busy",
+        code: "review_busy",
+      }).success,
+    ).toBe(true);
   });
 
   // Desktop discovery deliberately ignores unknown keys so future additive

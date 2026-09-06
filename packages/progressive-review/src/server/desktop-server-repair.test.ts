@@ -445,7 +445,9 @@ it.each([true, false])(
         `/sessions/${old.sessionId}/__progressive-review/document`,
       );
       expect(document.status).toBe(409);
-      expect(await document.json()).toMatchObject({ code: "needs_republish" });
+      expect(await document.json()).toMatchObject({
+        detail: { code: "needs_republish" },
+      });
       const response = await post("/repair-ready", request);
       const result = await response.json();
       expect(response.status).toBe(mountSucceeds ? 201 : 422);

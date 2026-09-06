@@ -1299,13 +1299,33 @@ export type AuthoringAgentSessionWire = z.infer<
   typeof AuthoringAgentSessionSchema
 >;
 
-export const ReviewErrorResponseSchema = z.strictObject({
-  ok: z.literal(false),
-  error: requiredString,
-  code: requiredString.optional(),
-  reviewUuid: z.uuid({ error: "must be a UUID" }).optional(),
-  mapStale: z.boolean().optional(),
-});
+// The two errors that carry more than a message. `mapStale` only means
+// something for needs_republish, so it lives in that variant and nowhere else.
+export const ReviewErrorDetailSchema = z.discriminatedUnion("code", [
+  z.strictObject({
+    code: z.literal("needs_republish"),
+    reviewUuid: z.uuid({ error: "must be a UUID" }),
+    mapStale: z.boolean(),
+  }),
+  z.strictObject({
+    code: z.literal("historical_revision_unavailable"),
+    reviewUuid: z.uuid({ error: "must be a UUID" }),
+  }),
+]);
+export type ReviewErrorDetail = z.infer<typeof ReviewErrorDetailSchema>;
+
+export const ReviewErrorResponseSchema = z
+  .strictObject({
+    ok: z.literal(false),
+    error: requiredString,
+    /** Machine-readable code for errors that carry no structured detail. */
+    code: requiredString.optional(),
+    detail: ReviewErrorDetailSchema.optional(),
+  })
+  .refine((value) => value.code === undefined || value.detail === undefined, {
+    path: ["detail"],
+    message: "An error reports either a bare code or a structured detail",
+  });
 export type ReviewErrorResponse = z.infer<typeof ReviewErrorResponseSchema>;
 
 export const ReviewThreadsSnapshotResponseSchema = z.discriminatedUnion("ok", [

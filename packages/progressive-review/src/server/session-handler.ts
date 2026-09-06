@@ -300,15 +300,21 @@ export async function createReviewSessionHandler(
       return jsonResponse(
         {
           ok: false,
-          code: input.historicalRevision
-            ? "historical_revision_unavailable"
-            : "needs_republish",
           error: input.documentUnavailable,
-          reviewUuid: needsRepublishReviewUuid(),
-          mapStale: Boolean(
-            input.softwareMapUnavailable ||
-            (input.softwareMapRootPath && !(await getSoftwareMapBundle())),
-          ),
+          detail: input.historicalRevision
+            ? {
+                code: "historical_revision_unavailable",
+                reviewUuid: needsRepublishReviewUuid(),
+              }
+            : {
+                code: "needs_republish",
+                reviewUuid: needsRepublishReviewUuid(),
+                mapStale: Boolean(
+                  input.softwareMapUnavailable ||
+                  (input.softwareMapRootPath &&
+                    !(await getSoftwareMapBundle())),
+                ),
+              },
         },
         409,
       );
@@ -318,10 +324,12 @@ export async function createReviewSessionHandler(
         return jsonResponse(
           {
             ok: false,
-            code: "historical_revision_unavailable",
             error:
               "This older revision is unavailable in this version of Review",
-            reviewUuid: needsRepublishReviewUuid(),
+            detail: {
+              code: "historical_revision_unavailable",
+              reviewUuid: needsRepublishReviewUuid(),
+            },
           },
           409,
         );
@@ -331,10 +339,12 @@ export async function createReviewSessionHandler(
       return jsonResponse(
         {
           ok: false,
-          code: "needs_republish",
           error: NEEDS_REPUBLISH_ERROR,
-          reviewUuid: needsRepublishReviewUuid(),
-          mapStale,
+          detail: {
+            code: "needs_republish",
+            reviewUuid: needsRepublishReviewUuid(),
+            mapStale,
+          },
         },
         409,
       );
@@ -372,11 +382,17 @@ export async function createReviewSessionHandler(
       return jsonResponse(
         {
           ok: false,
-          code: input.historicalRevision
-            ? "historical_revision_unavailable"
-            : "needs_republish",
           error: input.softwareMapUnavailable,
-          reviewUuid: needsRepublishReviewUuid(),
+          detail: input.historicalRevision
+            ? {
+                code: "historical_revision_unavailable",
+                reviewUuid: needsRepublishReviewUuid(),
+              }
+            : {
+                code: "needs_republish",
+                reviewUuid: needsRepublishReviewUuid(),
+                mapStale: true,
+              },
         },
         409,
       );
@@ -387,19 +403,24 @@ export async function createReviewSessionHandler(
           return jsonResponse(
             {
               ok: false,
-              code: "historical_revision_unavailable",
               error:
                 "This older revision is unavailable in this version of Review",
-              reviewUuid: needsRepublishReviewUuid(),
+              detail: {
+                code: "historical_revision_unavailable",
+                reviewUuid: needsRepublishReviewUuid(),
+              },
             },
             409,
           );
         return jsonResponse(
           {
             ok: false,
-            code: "needs_republish",
             error: "This review's software map must be regenerated.",
-            reviewUuid: needsRepublishReviewUuid(),
+            detail: {
+              code: "needs_republish",
+              reviewUuid: needsRepublishReviewUuid(),
+              mapStale: true,
+            },
           },
           409,
         );

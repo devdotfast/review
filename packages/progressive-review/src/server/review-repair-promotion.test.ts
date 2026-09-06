@@ -1,5 +1,4 @@
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { cp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { afterEach, expect, it } from "vitest";
@@ -8,40 +7,16 @@ import {
   type ReviewRepairReadyRequest,
   fingerprintReviewRepairInputs,
 } from "../review-repair-state";
+import { cleanupTempDirs, storedReviewFixture } from "../review-test-utils";
 import { applyPreparedReviewRepair } from "./review-repair-promotion";
 
-let root: string | undefined;
-afterEach(async () => {
-  if (root) await rm(root, { recursive: true, force: true });
-});
+afterEach(cleanupTempDirs);
+
 async function fixture() {
-  root = await mkdtemp(path.join(tmpdir(), "repair-promotion-"));
-  const dir = path.join(root, "review");
-  const stagingDir = path.join(root, "stage");
-  await mkdir(path.join(dir, ".git"), { recursive: true });
-  await mkdir(path.join(dir, ".bundle"));
-  const record = {
+  const { reviewDir: dir, record } = await storedReviewFixture({
     schemaVersion: 4,
-    uuid: "11111111-1111-4111-8111-111111111111",
-    repoKey: "repo",
-    worktreePath: "/source",
-    baseRef: "main",
-    baseCommit: "a".repeat(40),
-    sourceCommit: "b".repeat(40),
-    sourceIdentity: null,
-    title: "Keep title",
-    sourceSession: "disabled:review",
-    status: "accepted",
-    presentedDocumentRevision: "c".repeat(40),
-    presentedSoftwareMapRevision: null,
-    createdAt: "created",
-    lastPublishedAt: "published",
-    viewedAt: "viewed",
-    dismissedAt: "dismissed",
-  };
-  await writeFile(path.join(dir, "review.json"), JSON.stringify(record));
-  await writeFile(path.join(dir, ".git", "HEAD"), "old-ref");
-  await writeFile(path.join(dir, ".bundle", "old"), "old");
+  });
+  const stagingDir = path.join(path.dirname(dir), "stage");
   const expectedFingerprint = await fingerprintReviewRepairInputs(dir);
   await cp(dir, stagingDir, { recursive: true });
   const next = {
@@ -52,11 +27,11 @@ async function fixture() {
   await writeFile(path.join(stagingDir, "review.json"), JSON.stringify(next));
   await writeFile(path.join(stagingDir, ".git", "HEAD"), "new-ref");
   const request: ReviewRepairReadyRequest = {
-    reviewUuid: record.uuid,
+    reviewUuid: String(record.uuid),
     stagingDir,
     expectedRecord: JSON.stringify(record),
     expectedFingerprint,
-    newDocumentRevision: next.presentedDocumentRevision,
+    newDocumentRevision: String(next.presentedDocumentRevision),
     newMapRevision: null,
     sourceFallback: { document: false, map: false },
   };
@@ -74,7 +49,7 @@ it("promotes only schema and artifact fields for an accepted review", async () =
 });
 it("upgrades legacy metadata without moving healthy artifact pointers", async () => {
   const { dir, request, record } = await fixture();
-  request.newDocumentRevision = record.presentedDocumentRevision;
+  request.newDocumentRevision = String(record.presentedDocumentRevision);
   await writeFile(
     path.join(request.stagingDir, "review.json"),
     JSON.stringify({ ...record, schemaVersion: 5 }),

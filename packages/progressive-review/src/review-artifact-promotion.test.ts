@@ -10,7 +10,6 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 
 import { afterEach, expect, it } from "vitest";
@@ -21,39 +20,17 @@ import {
   rollbackReviewArtifactPromotion,
 } from "./review-artifact-promotion";
 import { parseStoredReviewRecord } from "./review-home";
+import { cleanupTempDirs, storedReviewFixture } from "./review-test-utils";
 
 let root: string;
 
-afterEach(async () => {
-  if (root) await rm(root, { recursive: true, force: true });
-});
+afterEach(cleanupTempDirs);
 
 async function fixture() {
-  root = await mkdtemp(path.join(os.tmpdir(), "artifact-promotion-"));
-  const reviewDir = path.join(root, "review");
+  const staged = await storedReviewFixture();
+  const reviewDir = staged.reviewDir;
+  root = path.dirname(reviewDir);
   const candidateDir = path.join(root, "candidate");
-  await mkdir(path.join(reviewDir, ".git"), { recursive: true });
-  await mkdir(path.join(reviewDir, ".bundle"));
-  const record = parseStoredReviewRecord({
-    schemaVersion: 5,
-    uuid: "11111111-1111-4111-8111-111111111111",
-    repoKey: "repo",
-    worktreePath: "/source",
-    baseRef: "main",
-    baseCommit: "a".repeat(40),
-    sourceCommit: "b".repeat(40),
-    sourceIdentity: null,
-    title: "Preserve",
-    sourceSession: "disabled:review",
-    status: "accepted",
-    presentedDocumentRevision: "c".repeat(40),
-    presentedSoftwareMapRevision: null,
-    createdAt: "created",
-    lastPublishedAt: "published",
-  });
-  await writeFile(path.join(reviewDir, "review.json"), JSON.stringify(record));
-  await writeFile(path.join(reviewDir, ".git", "HEAD"), "old-head");
-  await writeFile(path.join(reviewDir, ".bundle", "document"), "old-document");
   await cp(reviewDir, candidateDir, { recursive: true });
   await writeFile(path.join(candidateDir, ".git", "HEAD"), "new-head");
   await writeFile(
@@ -63,7 +40,10 @@ async function fixture() {
   return {
     reviewDir,
     candidateDir,
-    record: { ...record, presentedDocumentRevision: "d".repeat(40) },
+    record: {
+      ...parseStoredReviewRecord(staged.record),
+      presentedDocumentRevision: "d".repeat(40),
+    },
   };
 }
 

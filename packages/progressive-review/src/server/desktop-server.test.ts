@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { JsonObject } from "@dev.fast/review-protocol";
+import { type JsonObject, jsonObject } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -17,7 +17,7 @@ import {
   writeReviewDocumentBundle,
 } from "../review-bundle";
 import { reviewDocumentDataSchema } from "../review-document-data";
-import { reviewTitleFromDocument } from "../review-home";
+import { createReviewDir, reviewTitleFromDocument } from "../review-home";
 import { appendReviewComment } from "../review-state-store";
 import {
   closeAllReviewThreadStores,
@@ -29,6 +29,7 @@ import {
   createGlobalReviewServer,
   reviewAgentKind,
 } from "./desktop-server";
+import { GlobalReviewDesktopVerbRelay } from "./global-verb-relay";
 
 let directory: string | undefined;
 const packageRoot = path.resolve(
@@ -494,6 +495,80 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
       await server.close();
     }
   });
+});
+
+it("rejects a publication whose review moved its base ref during the command", async () => {
+  directory = await mkdtemp(path.join(tmpdir(), "review-publish-race-"));
+  vi.stubEnv("DEV_REVIEW_HOME", directory);
+  const source = await makeSourceRepository(directory);
+  const stored = await createReviewDir({
+    worktreePath: source.root,
+    baseRef: "main",
+    baseCommit: source.commit,
+    sourceCommit: source.commit,
+    sourceIdentity: { kind: "git-branch", name: "main" },
+  });
+  await writeReviewDocumentBundle(
+    stored.dir,
+    bundleReviewDocument({
+      format: "review-document/1",
+      title: "Concurrent publication",
+      routePath: "/",
+      sourcePath: "review.mdx",
+      body: [],
+      anchors: {},
+      anchorContents: {},
+      softwareModels: [],
+    }),
+  );
+  const revision = await reviewVcs.seal(stored.dir, "Review publish candidate");
+  const relayDispatch = vi
+    .spyOn(GlobalReviewDesktopVerbRelay.prototype, "dispatch")
+    .mockImplementation(async (_sessionId, verb) => {
+      if (jsonObject(verb)?.name === "validateCanvasMount") {
+        await writeFile(
+          path.join(stored.dir, "review.json"),
+          JSON.stringify({ ...stored.review, baseRef: "release" }),
+        );
+      }
+      return { ok: true };
+    });
+  const token = "publication-race-secret";
+  const server = createGlobalReviewServer({
+    appPid: process.pid,
+    packageRoot,
+    toolingRoot: packageRoot,
+    port: 0,
+    token,
+    discoveryPath: path.join(directory, "desktop.json"),
+  });
+  try {
+    await server.listen();
+    const response = await fetch(`${server.url}/publish-ready`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-review-token": token,
+      },
+      body: JSON.stringify({ reviewUuid: stored.review.uuid, revision }),
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      code: "review_publication_conflict",
+    });
+    await expect(
+      readFile(path.join(stored.dir, "review.json"), "utf8").then(JSON.parse),
+    ).resolves.toMatchObject({
+      baseRef: "release",
+      presentedDocumentRevision: null,
+    });
+  } finally {
+    await server.close();
+    relayDispatch.mockRestore();
+    vi.unstubAllEnvs();
+  }
 });
 
 const legacyOpenFixtures = (await listLegacyReviewFixtures()).filter(

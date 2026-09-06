@@ -67,6 +67,25 @@ describe("review document data", () => {
     }
   });
 
+  it("allows table alignment only on cells and only with the three values", () => {
+    const node = (tag: string, align: string) => ({
+      ...base,
+      body: [{ type: "element", tag, props: { align }, children: [] }],
+    });
+    expect(reviewDocumentDataSchema.safeParse(node("td", "left")).success).toBe(
+      true,
+    );
+    expect(
+      reviewDocumentDataSchema.safeParse(node("th", "center")).success,
+    ).toBe(true);
+    expect(
+      reviewDocumentDataSchema.safeParse(node("td", "banana")).success,
+    ).toBe(false);
+    expect(reviewDocumentDataSchema.safeParse(node("p", "left")).success).toBe(
+      false,
+    );
+  });
+
   it("rejects an unknown component, a non-prose tag, a stray prop, and unsafe URLs", () => {
     for (const body of [
       [{ type: "component", name: "Nope", props: {}, children: [] }],

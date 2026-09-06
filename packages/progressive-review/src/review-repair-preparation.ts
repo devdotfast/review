@@ -24,7 +24,7 @@ import {
   type StoredReviewRecord,
   allowsAbsentSoftwareMap,
   materializeReviewRevision,
-  parseStoredReviewRecordForRecovery,
+  parseAnyStoredReviewRecord,
   sealReviewCandidate,
 } from "./review-home";
 import { withReviewMutationLock } from "./review-mutation-lock";
@@ -256,7 +256,7 @@ async function snapshotReviewForRepair(
       "utf8",
     );
     const expectedValue = parseJsonText(expectedRecord);
-    const review = parseStoredReviewRecordForRecovery(expectedValue);
+    const review = parseAnyStoredReviewRecord(expectedValue);
     if (review.uuid !== path.basename(reviewDir))
       throw new Error("Review UUID does not match its storage directory.");
     const documentRevision = review.presentedDocumentRevision;
@@ -327,7 +327,7 @@ async function repairPresentedDocument(input: {
       input.revision,
       documentDir,
     );
-    presentedRecord = parseStoredReviewRecordForRecovery(
+    presentedRecord = parseAnyStoredReviewRecord(
       parseJsonText(
         await readFile(path.join(documentDir, "review.json"), "utf8"),
       ),
@@ -429,7 +429,7 @@ async function repairPresentedMap(input: {
   let materialized = false;
   try {
     await materializeReviewRevision(input.stagingDir, input.revision, mapDir);
-    presentedRecord = parseStoredReviewRecordForRecovery(
+    presentedRecord = parseAnyStoredReviewRecord(
       parseJsonText(await readFile(path.join(mapDir, "review.json"), "utf8")),
     );
     pins = {

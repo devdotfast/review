@@ -6,7 +6,7 @@ import type { Node as EstreeNode } from "estree";
 
 import { readDirectory } from "./fs-utils";
 import { maskReviewFrontmatter } from "./review-frontmatter";
-import { parseStoredReviewRecordForMigration } from "./review-home";
+import { parseAnyStoredReviewRecord } from "./review-home";
 import { findCallExpressions, parseReviewMdxDocument } from "./review-mdx-ast";
 
 const UUID_PATTERN =
@@ -254,7 +254,7 @@ async function listStoredReviewDocuments(
     if (!entry.isDirectory() || !UUID_PATTERN.test(entry.name)) continue;
     if (options.skipReviewUuids?.includes(entry.name)) continue;
     if (options.onlyUnpresented) {
-      const record = parseStoredReviewRecordForMigration(
+      const record = parseAnyStoredReviewRecord(
         parseJsonText(
           await readFile(
             path.join(reviewHome, "reviews", entry.name, "review.json"),

@@ -20,8 +20,8 @@ import {
   type StoredReview,
   allowsAbsentSoftwareMap,
   materializeReviewRevision,
+  parseAnyStoredReviewRecord,
   parseStoredReviewRecord,
-  parseStoredReviewRecordForRecovery,
   reviewDescriptor,
 } from "../review-home";
 import { withReviewMutationLock } from "../review-mutation-lock";
@@ -139,7 +139,7 @@ export async function assertReviewRepairInputsUnchanged(
 export async function readPreparedReviewRepairRecord(
   request: ReviewRepairReadyRequest,
 ) {
-  const previous = parseStoredReviewRecordForRecovery(
+  const previous = parseAnyStoredReviewRecord(
     parseJsonText(request.expectedRecord),
   );
   if (previous.uuid !== request.reviewUuid)
@@ -275,7 +275,7 @@ export async function promoteReviewRepair<
     const materializedRecord = async (revision: string) =>
       materialize(revision)
         .then(async (root) =>
-          parseStoredReviewRecordForRecovery(
+          parseAnyStoredReviewRecord(
             JSON.parse(await readFile(path.join(root, "review.json"), "utf8")),
           ),
         )

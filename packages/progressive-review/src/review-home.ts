@@ -85,29 +85,29 @@ export const DISABLED_REVIEW_SOURCE_SESSION = "disabled:review";
 export const StoredReviewRecordSchema = ReviewRecordSchema;
 export type StoredReviewRecord = ReviewRecord;
 
-const legacySourceSessionFields = {
+const legacyStoredSourceSessionFields = {
   sourceSession: z.string().min(1).optional(),
   agentSession: z.string().min(1).optional(),
 };
-const legacyRecordFields = StoredReviewRecordSchema.omit({
+const legacyStoredReviewRecordFields = StoredReviewRecordSchema.omit({
   schemaVersion: true,
   sourceSession: true,
 });
-const LegacyRecoveryRecordSchema = z
+const LegacyStoredReviewRecordSchema = z
   .union([
     StoredReviewRecordSchema.extend({ schemaVersion: z.literal(4) }),
-    legacyRecordFields.extend({
+    legacyStoredReviewRecordFields.extend({
       schemaVersion: z.literal(3),
-      ...legacySourceSessionFields,
+      ...legacyStoredSourceSessionFields,
     }),
-    legacyRecordFields
+    legacyStoredReviewRecordFields
       .omit({
         presentedDocumentRevision: true,
         presentedSoftwareMapRevision: true,
       })
       .extend({
         schemaVersion: z.literal(2),
-        ...legacySourceSessionFields,
+        ...legacyStoredSourceSessionFields,
         presentedRevision: z.string().min(1).nullable(),
       }),
   ])
@@ -493,7 +493,7 @@ export async function findReviewForRepair(
   }
   let review: StoredReviewRecord;
   try {
-    review = parseStoredReviewRecordForRecovery(value);
+    review = parseAnyStoredReviewRecord(value);
   } catch (error) {
     throw new ReviewHomeScanError([
       reviewHomeError(dir, jsonObject(value), {
@@ -849,9 +849,7 @@ function isLegacyStoredReviewRecord(value: JsonValue, dir: string): boolean {
   )
     return false;
   try {
-    return (
-      parseStoredReviewRecordForRecovery(value).uuid === path.basename(dir)
-    );
+    return parseAnyStoredReviewRecord(value).uuid === path.basename(dir);
   } catch {
     return false;
   }
@@ -921,44 +919,47 @@ export function allowsAbsentSoftwareMap(record: {
   return record.schemaVersion === ABSENT_SOFTWARE_MAP_SCHEMA_VERSION;
 }
 
-/** Strict metadata-only adapter. No files, artifacts, or stored schema are changed. */
-export function parseStoredReviewRecordForRecovery(
-  value: JsonValue,
-): StoredReviewRecord {
-  if (!isJsonObject(value)) return parseStoredReviewRecord(value);
-  if (value.schemaVersion === REVIEW_SCHEMA_VERSION)
-    return parseStoredReviewRecord(value);
-  return parseStoredReviewRecordForMigration(
-    LegacyRecoveryRecordSchema.parse(stripLegacySoftwareMap(value)),
-  );
-}
-
-export function parseStoredReviewRecordForMigration(
+/**
+ * Parses a stored review at any schema version this build understands, upgrading legacy
+ * records in memory. Nothing on disk changes. Every result is validated against the current
+ * strict schema, so an unknown version or an unexpected key still throws.
+ *
+ * Use this wherever a review.json may predate the current schema (recovery, repair,
+ * migration, historical revisions). Use `parseStoredReviewRecord` only where the record must
+ * already be current — the sealed records the server itself just wrote.
+ */
+export function parseAnyStoredReviewRecord(
   value: JsonValue,
 ): StoredReviewRecord {
   if (!isJsonObject(value)) return parseStoredReviewRecord(value);
   const record = stripLegacySoftwareMap(value);
-  if (record.schemaVersion === 4) {
+  if (record.schemaVersion === REVIEW_SCHEMA_VERSION)
+    return parseStoredReviewRecord(record);
+  const legacyRecord = LegacyStoredReviewRecordSchema.parse(record);
+  if (legacyRecord.schemaVersion === 4) {
     return StoredReviewRecordSchema.parse({
-      ...record,
+      ...legacyRecord,
       schemaVersion: REVIEW_SCHEMA_VERSION,
     });
   }
-  if (record.schemaVersion === 3) {
-    const { agentSession, schemaVersion: _schemaVersion, ...current } = record;
+  if (legacyRecord.schemaVersion === 3) {
+    const {
+      agentSession,
+      schemaVersion: _schemaVersion,
+      ...current
+    } = legacyRecord;
     return StoredReviewRecordSchema.parse({
       ...current,
       schemaVersion: REVIEW_SCHEMA_VERSION,
       sourceSession: current.sourceSession ?? agentSession,
     });
   }
-  if (record.schemaVersion !== 2) return parseStoredReviewRecord(record);
   const {
     agentSession,
     presentedRevision,
     schemaVersion: _schemaVersion,
     ...current
-  } = record;
+  } = legacyRecord;
   return StoredReviewRecordSchema.parse({
     ...current,
     schemaVersion: REVIEW_SCHEMA_VERSION,

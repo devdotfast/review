@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createReviewDefinitionSession } from "./authoring";
 import {
   type ReviewDocumentModuleExports,
+  collectDocumentSoftwareModels,
   collectReviewAnchors,
   materializeReviewDocument,
 } from "./review-document-materialize";
@@ -13,6 +14,7 @@ import {
   auditReviewDocumentComponent,
   createPublishValidationReact,
 } from "./review-publish-element-audit";
+import { defineSoftwareMap } from "./software-map-model";
 
 const react = createPublishValidationReact();
 
@@ -307,5 +309,24 @@ describe("collectReviewAnchors", () => {
     expect(() =>
       collectReviewAnchors({ anchor, duplicate: { ...anchor } }),
     ).toThrow('Review anchor id "a" is defined more than once.');
+  });
+});
+
+describe("collectDocumentSoftwareModels", () => {
+  it("finds nested models once, preferred names first, through cycles", () => {
+    const first = defineSoftwareMap({ people: { a: { label: "A" } } });
+    const second = defineSoftwareMap({ people: { b: { label: "B" } } });
+    interface CyclicModelExports extends ReviewDocumentModuleExports {
+      second: typeof second;
+      self?: CyclicModelExports;
+    }
+    const cyclic: CyclicModelExports = { second };
+    cyclic.self = cyclic;
+    const models = { nested: cyclic, first, alsoFirst: first };
+
+    expect(collectDocumentSoftwareModels(models, ["first"])).toEqual([
+      first,
+      second,
+    ]);
   });
 });

@@ -30,7 +30,10 @@ import {
   isAuditElement,
   isPublishAuditComponent,
 } from "./review-publish-element-audit";
-import { type NormalizedSoftwareModel } from "./software-map-model";
+import {
+  type NormalizedSoftwareModel,
+  isNormalizedSoftwareModel,
+} from "./software-map-model";
 
 type AuthoringProps<Name extends ReviewAuthoringComponentName> = z.infer<
   (typeof reviewAuthoringPropsSchemas)[Name]
@@ -187,17 +190,12 @@ interface SequenceRefExport {
   }[];
 }
 
-interface ReviewDocumentExportRecord {
-  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Review modules may export named authoring containers recursively.
-  readonly [name: string]: ReviewDocumentExport;
-}
-
-type ReviewDocumentExportContainer =
+export type ReviewDocumentExportContainer =
   | NormalizedSoftwareModel
   | SequenceRefExport
   | AnchorRef
   | readonly ReviewDocumentExport[]
-  | ReviewDocumentExportRecord;
+  | Readonly<ReviewDocumentModuleExports>;
 
 export type ReviewDocumentExport =
   | ReviewDocumentExportContainer
@@ -215,6 +213,27 @@ export interface CollectedReviewAnchors {
   anchorContents: Record<string, string>;
 }
 
+// Both collectors walk the same executable module namespace with the same
+// cycle guard; only the stopping rule differs. Anchor refs contain no
+// software models and models contain no anchors, so each visitor is free to
+// stop where the other would keep descending.
+export function walkModuleExports(
+  models: ReviewDocumentModuleExports,
+  visit: (value: ReviewDocumentExportContainer) => "descend" | "skip",
+): void {
+  const visited = new Set<object>();
+  const walk = (value: ReviewDocumentExport): void => {
+    if (!isReviewDocumentExportContainer(value)) return;
+    if (visited.has(value)) return;
+    visited.add(value);
+    if (visit(value) === "skip") return;
+    for (const entry of Array.isArray(value) ? value : Object.values(value)) {
+      walk(entry);
+    }
+  };
+  for (const value of Object.values(models)) walk(value);
+}
+
 // This intentionally mirrors the browser runtime's collection semantics so
 // moving anchor collection to publish does not change identity or duplicate
 // handling. The __kind checks stay structural because authored containers are
@@ -224,11 +243,7 @@ export function collectReviewAnchors(
 ): CollectedReviewAnchors {
   const anchors = new Map<string, AnchorRef>();
   const anchorContents = new Map<string, string>();
-  const visited = new Set<object>();
-  const visit = (value: ReviewDocumentExport): void => {
-    if (!isReviewDocumentExportContainer(value)) return;
-    if (visited.has(value)) return;
-    visited.add(value);
+  walkModuleExports(models, (value) => {
     if (isSequenceRefExport(value)) {
       for (const message of value.messages) {
         if (!message.code) continue;
@@ -249,19 +264,34 @@ export function collectReviewAnchors(
         );
       }
       anchors.set(value.id, value);
-      return;
+      return "skip";
     }
-    if (Array.isArray(value)) {
-      for (const entry of value) visit(entry);
-      return;
-    }
-    for (const entry of Object.values(value)) visit(entry);
-  };
-  for (const value of Object.values(models)) visit(value);
+    return "descend";
+  });
   return {
     anchors: Object.fromEntries(anchors),
     anchorContents: Object.fromEntries(anchorContents),
   };
+}
+
+export function collectDocumentSoftwareModels(
+  models: ReviewDocumentModuleExports,
+  preferredNames: readonly string[],
+): NormalizedSoftwareModel[] {
+  const result: NormalizedSoftwareModel[] = [];
+  const seen = new Set<object>();
+  const add = (value: ReviewDocumentExport) => {
+    if (!isNormalizedSoftwareModel(value) || seen.has(value)) return;
+    seen.add(value);
+    result.push(value);
+  };
+  for (const name of preferredNames) add(models[name]);
+  walkModuleExports(models, (value) => {
+    if (!isNormalizedSoftwareModel(value)) return "descend";
+    add(value);
+    return "skip";
+  });
+  return result;
 }
 
 function isReviewDocumentExportContainer(

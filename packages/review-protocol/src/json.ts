@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import {
   isBooleanValue,
   isNumberValue,
@@ -14,6 +16,18 @@ export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonArray | JsonObject;
 export type JsonArray = JsonValue[];
 export type JsonObject = { [key: string]: JsonValue };
+
+/** The zod counterpart of `JsonValue`; the one definition in the monorepo. */
+export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
+  z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.array(jsonValueSchema),
+    z.record(z.string(), jsonValueSchema),
+  ]),
+);
 
 export function isJsonObject(value: unknown): value is JsonObject {
   return isObjectValue(value) && !Array.isArray(value);

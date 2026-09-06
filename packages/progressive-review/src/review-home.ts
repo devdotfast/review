@@ -130,7 +130,8 @@ export interface ListReviewsFilter {
   repoKey?: string;
   status?: ReviewRecord["status"];
   includeSystem?: boolean;
-  includeUnscopedErrors?: boolean;
+  /** Surface a review whose review.json cannot be read, instead of skipping it. */
+  reportUnreadableReviews?: boolean;
 }
 
 export interface ReviewHomeError {
@@ -668,15 +669,7 @@ export async function listReviews(
       result.errors.push(entry.error);
       continue;
     }
-    if (
-      (!filter.includeSystem && entry.review.visibility === "system") ||
-      (filter.worktreePath &&
-        entry.review.worktreePath !== path.resolve(filter.worktreePath)) ||
-      (filter.repoKey && entry.review.repoKey !== filter.repoKey) ||
-      (filter.status && entry.review.status !== filter.status)
-    ) {
-      continue;
-    }
+    if (!reviewMatchesFilter(entry.review, filter)) continue;
     const migrationError = reviewThreadMigrationError(entry);
     if (migrationError) result.errors.push(migrationError);
     result.reviews.push(entry);
@@ -695,22 +688,56 @@ async function readReviewForList(
       parseJsonText(await readFile(path.join(dir, "review.json"), "utf8")),
     );
   } catch {
-    return filter.includeUnscopedErrors ? readStoredReview(dir) : null;
+    return unreadableReview(dir, filter);
   }
-  if (filter.worktreePath) {
-    const worktreePath = jsonString(record?.worktreePath);
-    if (!worktreePath)
-      return filter.includeUnscopedErrors ? readStoredReview(dir) : null;
-    if (path.resolve(worktreePath) !== path.resolve(filter.worktreePath))
-      return null;
-  }
-  if (filter.repoKey) {
-    const repoKey = jsonString(record?.repoKey);
-    if (!repoKey)
-      return filter.includeUnscopedErrors ? readStoredReview(dir) : null;
-    if (repoKey !== filter.repoKey) return null;
-  }
-  return readStoredReview(dir);
+  const scope = {
+    worktreePath: jsonString(record?.worktreePath),
+    repoKey: jsonString(record?.repoKey),
+  };
+  // A record that cannot answer the scope question is not out of scope; the
+  // strict read decides whether it becomes a list error.
+  if (
+    (filter.worktreePath && !scope.worktreePath) ||
+    (filter.repoKey && !scope.repoKey)
+  )
+    return unreadableReview(dir, filter);
+  return reviewMatchesFilter(scope, {
+    worktreePath: filter.worktreePath,
+    repoKey: filter.repoKey,
+    includeSystem: true,
+  })
+    ? readStoredReview(dir)
+    : null;
+}
+
+/** Every scope test in one place, so the cheap JSON pre-pass and the final
+ * pass answer the same question about the same fields. */
+function reviewMatchesFilter(
+  record: {
+    worktreePath?: string | undefined;
+    repoKey?: string | undefined;
+    status?: string | undefined;
+    visibility?: string | undefined;
+  },
+  filter: ListReviewsFilter,
+): boolean {
+  if (!filter.includeSystem && record.visibility === "system") return false;
+  if (
+    filter.worktreePath &&
+    (!record.worktreePath ||
+      path.resolve(record.worktreePath) !== path.resolve(filter.worktreePath))
+  )
+    return false;
+  if (filter.repoKey && record.repoKey !== filter.repoKey) return false;
+  if (filter.status && record.status !== filter.status) return false;
+  return true;
+}
+
+function unreadableReview(
+  dir: string,
+  filter: ListReviewsFilter,
+): Promise<StoredReview | { error: ReviewHomeError }> | null {
+  return filter.reportUnreadableReviews ? readStoredReview(dir) : null;
 }
 
 function reviewThreadMigrationError(

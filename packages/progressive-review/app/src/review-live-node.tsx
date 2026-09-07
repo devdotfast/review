@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
 
 /** The activity gutter participates in layout, including for one-line nodes. */
 export function ReviewLiveNode({
@@ -12,7 +12,7 @@ export function ReviewLiveNode({
 }) {
   const content = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState(false);
-  useEffect(() => {
+  useLayoutEffect(() => {
     setActive(true);
     const element = content.current;
     const reduced = element?.ownerDocument.defaultView?.matchMedia?.(

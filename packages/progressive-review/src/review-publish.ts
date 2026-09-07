@@ -101,12 +101,16 @@ async function publish(
   reporter.stage("validate", "running");
   let revision: string;
   try {
-    const document = await span("publish: validate document", () => stageReviewDocumentPublication({ review }));
+    const document = await span("publish: validate document", () =>
+      stageReviewDocumentPublication({ review }),
+    );
     if (document.warnings.length > 0)
       reporter.warning("validate", document.warnings);
     reporter.stage("validate", "complete");
     reporter.stage("revision", "running");
-    revision = await span("publish: seal revision", () => sealReviewDocumentPublication({ review, document }));
+    revision = await span("publish: seal revision", () =>
+      sealReviewDocumentPublication({ review, document }),
+    );
   } catch (error) {
     if (error instanceof ReviewPublicationValidationError) {
       if (error.warnings.length > 0) {

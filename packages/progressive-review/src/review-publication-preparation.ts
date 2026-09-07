@@ -94,31 +94,33 @@ export async function prepareReviewDocumentBundle(input: {
       }),
     ));
   };
-  const evaluation = await span("publish: evaluate document", () => evaluateReviewDocumentBundleForPublish({
-    bundleCode: compiled.bundle.code,
-    reviewDir: input.review.dir,
-    prepareEvidence: async () => {
-      const source = await sourceTarget();
-      return {
-        head: { sourceRootPath: source.sourceRootPath },
-        base: source.preparedBase
-          ? { sourceRootPath: source.preparedBase.sourceRootPath }
-          : undefined,
-      };
-    },
-    // A "-" frame must anchor lines the change deletes and a "+" frame
-    // lines it adds; the lines come from the same pinned-commit diff the
-    // rest of the review presents.
-    resolveChangedLines: async (file, side) => {
-      const { files } = await diffFiles();
-      const match = files.find((candidate) =>
-        side === "base"
-          ? (candidate.previousPath ?? candidate.path) === file
-          : candidate.path === file,
-      );
-      return match?.patch ? patchChangedLines(match.patch) : null;
-    },
-  }));
+  const evaluation = await span("publish: evaluate document", () =>
+    evaluateReviewDocumentBundleForPublish({
+      bundleCode: bundle.code,
+      reviewDir: input.review.dir,
+      prepareEvidence: async () => {
+        const source = await sourceTarget();
+        return {
+          head: { sourceRootPath: source.sourceRootPath },
+          base: source.preparedBase
+            ? { sourceRootPath: source.preparedBase.sourceRootPath }
+            : undefined,
+        };
+      },
+      // A "-" frame must anchor lines the change deletes and a "+" frame
+      // lines it adds; the lines come from the same pinned-commit diff the
+      // rest of the review presents.
+      resolveChangedLines: async (file, side) => {
+        const { files } = await diffFiles();
+        const match = files.find((candidate) =>
+          side === "base"
+            ? (candidate.previousPath ?? candidate.path) === file
+            : candidate.path === file,
+        );
+        return match?.patch ? patchChangedLines(match.patch) : null;
+      },
+    }),
+  );
   if (!evaluation.document) {
     throw new ReviewPublicationValidationError(
       evaluation.errors.length > 0

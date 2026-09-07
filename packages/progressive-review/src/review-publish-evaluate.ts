@@ -272,7 +272,10 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
       );
       moduleUrl.searchParams.set("t", String(Date.now()));
       try {
-        await span("evaluate: import document module", () => import(moduleUrl.href));
+        await span(
+          "evaluate: import document module",
+          () => import(moduleUrl.href),
+        );
       } catch (error) {
         importErrorMessage = errorMessage(error);
       }
@@ -284,21 +287,25 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
 
   if (ranges === "validate") {
     failures.push(
-      ...(await span("evaluate: call stack diffs", () => validateCallStackEvidence({
-        props: callStackProps,
-        resolveChangedLines: input.resolveChangedLines,
-      }))),
+      ...(await span("evaluate: call stack diffs", () =>
+        validateCallStackEvidence({
+          props: callStackProps,
+          resolveChangedLines: input.resolveChangedLines,
+        }),
+      )),
     );
   }
 
   const traceQuoteWarnings: string[] = [];
   if (ranges === "validate" && traceQuotes.length > 0) {
-    const quoted = await span("evaluate: trace quotes", () => validateTraceQuotes({
-      quotes: traceQuotes,
-      cwd: input.prepareEvidence
-        ? (await evidence()).head.sourceRootPath
-        : undefined,
-    }));
+    const quoted = await span("evaluate: trace quotes", async () =>
+      validateTraceQuotes({
+        quotes: traceQuotes,
+        cwd: input.prepareEvidence
+          ? (await evidence()).head.sourceRootPath
+          : undefined,
+      }),
+    );
     failures.push(...quoted.errors);
     traceQuoteWarnings.push(...quoted.warnings);
   }

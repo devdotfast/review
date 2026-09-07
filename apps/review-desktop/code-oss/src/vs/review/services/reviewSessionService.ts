@@ -889,6 +889,9 @@ export class ReviewSessionService
 					this.removeReview(event.uuid);
 					return;
 				}
+				if (event.event !== "session-closed") {
+					return;
+				}
 				const closed = this._sessionRecords.find(
 					(item) => item.sessionId === event.sessionId,
 				);

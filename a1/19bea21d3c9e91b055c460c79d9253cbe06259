@@ -1,0 +1,1969 @@
+import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
+
+export default defineSoftwareMap({
+  "people": {
+    "reviewer": {
+      "label": "Reviewer",
+      "description": "Developer reviewing agent-written changes in Review Desktop; asks per-thread questions and watches agent turns."
+    },
+    "authoringAgent": {
+      "label": "Coding agent",
+      "description": "Terminal coding agent that authors Reviews and answers questions, including Claude Code, Codex, Pi, and OpenCode."
+    }
+  },
+  "systems": {
+    "review": {
+      "label": "Review Desktop",
+      "description": "Local desktop app plus its CLI and local server that turn agent-authored changes into guided Reviews and relay reviewer questions back into agent terminals.",
+      "containers": {
+        "cliPackage": {
+          "label": "Review CLI and local server",
+          "description": "CLI, local server, and the native agent integration subsystem (install, launch, observe, attribute).",
+          "coverage": {
+            "files": [
+              {
+                "path": "packages/progressive-review/src/installed-review-agent.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/install.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/server/cli-install.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/agent-trace-hooks.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/agent-trace-parser.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/authoring-session.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/review-source-agent-session.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/tutorial-authoring-session.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/native-agent/native-session.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/native-agent/native-hook-client.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/native-agent/native-message-mirror.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/native-agent/codex-app-server.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/native-agent/claude-transcript.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/server/desktop-server.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/server/review-api.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/cli-runner.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/review-agent-traces.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/server/bug-report.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/server/bug-report-trace.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/trace-cli.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/trace-hook-runner.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/trace-git-hook-runner.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/trace-agent-sessions.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/trace-repository-hooks.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/review-stack.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/review-rebind.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/software-map-coverage-validation.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/software-map-health.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/software-map-diff-counts.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/store-auth.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/store-client.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/trace-store-transport.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/trace-user-config.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/native-agent/claude-code.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/native-agent/codex.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/native-agent/pi.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/native-agent/opencode.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/native-agent/loopback-ingress.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/native-agent/terminal-command.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/native-agent/pi-bridge-extension.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/authoring.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/review-publish.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/review-publish-evaluate.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/review-publish-element-audit.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/review-publication-preparation.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/review-bundle.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/review-home.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/stored-review-migration.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/migrate.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/review-thread-store-backend.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/review-attention.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/review-document-data.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/review-document-materialize.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/review-publication-staging.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/review-artifact-promotion.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/review-sealed-document.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/review-mutation-lock.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/review-derived-paths.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/stored-review-document-audit.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/review-tree-fingerprint.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/review-repair.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/review-repair-state.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/review-repair-preparation.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/server/review-repair-promotion.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/server/review-session-mode.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/software-map-model.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/software-map-bundle.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/software-map-artifact.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/review-map-publish.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/review-publication-audit.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/document/build.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/document/check.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/document/construct.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/document/diagnostics.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/document/mdx-parser.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/document/module-loader.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/document/syntax.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/document/worker-client.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/document/worker-protocol.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/document/worker.ts"
+              }
+            ]
+          },
+          "components": {
+            "harnessRegistry": {
+              "label": "Harness registry",
+              "description": "Maps install targets to launchable ReviewAgentHarness values and picks the preferred installed agent.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/installed-review-agent.ts"
+                  }
+                ]
+              },
+              "codeElements": {
+                "preferredInstalledReviewAgent": {
+                  "label": "preferredInstalledReviewAgent",
+                  "description": "Selects the first installed launchable agent, preserving onboarding order.",
+                  "relationships": [
+                    {
+                      "kind": "semantic",
+                      "from": ".",
+                      "to": "review.cliPackage.authoring.authoringSession",
+                      "semanticKind": "types",
+                      "label": "ReviewAgentHarness contract"
+                    }
+                  ]
+                }
+              }
+            },
+            "installer": {
+              "label": "Install surface",
+              "description": "Installs Review skills, CLI shim and optional trace hooks; trace state comes from the repository allowlist and disabling trace capture denies all entries.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/install.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/server/cli-install.ts"
+                  }
+                ]
+              },
+              "codeElements": {
+                "runInstall": {
+                  "label": "runInstall",
+                  "description": "Installs Review skills per target and configures agent lifecycle hooks for trace capture.",
+                  "relationships": [
+                    {
+                      "kind": "semantic",
+                      "from": ".",
+                      "to": "review.cliPackage.traceHooks.agentTraceHooks",
+                      "label": "install per-agent trace hooks",
+                      "semanticKind": "calls"
+                    }
+                  ]
+                },
+                "cliInstall": {
+                  "label": "CLI install service",
+                  "description": "Server-side install status, apply, and removal; skill installs now default to installing the review command, status reports shim ownership and profile configuration, and removal strips the managed PATH block.",
+                  "relationships": [
+                    {
+                      "kind": "semantic",
+                      "from": ".",
+                      "to": "review.cliPackage.traceHooks.agentTraceHooks",
+                      "label": "removeAgentTraceHook on uninstall",
+                      "semanticKind": "calls"
+                    },
+                    {
+                      "kind": "semantic",
+                      "from": ".",
+                      "to": "installReviewCommand",
+                      "label": "applyCliInstall installs shim by default",
+                      "semanticKind": "calls"
+                    }
+                  ]
+                },
+                "installReviewCommand": {
+                  "label": "installReviewCommand",
+                  "description": "Writes the owned review PATH shim, ensures a managed ~/.local/bin PATH block in the shell profile, and warns when another review command shadows the shim."
+                }
+              }
+            },
+            "traceHooks": {
+              "label": "Trace hook installation and parsing",
+              "description": "Installs session lifecycle hooks for Claude, Codex, and Pi, and parses agent trace formats for the trace subsystem.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/agent-trace-hooks.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/agent-trace-parser.ts"
+                  }
+                ]
+              },
+              "codeElements": {
+                "agentTraceHooks": {
+                  "label": "agent-trace-hooks",
+                  "description": "Idempotent installers for Claude settings hooks, Codex config hooks, and the Pi extension.",
+                  "relationships": [
+                    {
+                      "kind": "semantic",
+                      "from": ".",
+                      "to": "agentTraceParser",
+                      "semanticKind": "feeds",
+                      "label": "captured sessions feed transcript parsing"
+                    }
+                  ]
+                },
+                "agentTraceParser": {
+                  "label": "agent-trace-parser",
+                  "description": "Sniffs and parses agent transcript JSONL into trace events."
+                }
+              }
+            },
+            "traceStore": {
+              "label": "Review agent trace store",
+              "description": "Resolves commit/session associations through trailers, the hosted repository index and squash PR scans; discovers complete local transcripts; orchestrates hosted uploads and maintains normalized local trace caches.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/review-agent-traces.ts"
+                  }
+                ]
+              },
+              "codeElements": {
+                "sessionResolution": {
+                  "label": "listReviewTraceSessions",
+                  "description": "Resolves a change range from local Agent-Session trailers, then hosted commit-index requests for small ranges, then pull-request branch trailer scans."
+                },
+                "commitLookup": {
+                  "label": "lookupReviewTraceCommit",
+                  "description": "Looks up a commit through trailers, the hosted repository session index, and the squash-PR fallback."
+                },
+                "findLocalTrace": {
+                  "label": "findLocalTrace",
+                  "description": "Locates a session's raw trace JSONL and subagent files in the harness-local trace store."
+                },
+                "sync": {
+                  "label": "syncReviewTrace",
+                  "description": "Requires a repository allow entry, discovers the session globally, gzips main/subagent files, obtains presigned uploads, PUTs objects, and completes with up to 200 commits."
+                },
+                "corpus": {
+                  "label": "loadReviewAgentTrace / pullReviewTraceCorpus",
+                  "description": "Reads hosted repository session metadata, downloads changed-sized gzip objects, parses them into a per-slug corpus and retains local/offline fallback; metadata carries the source key and byte count."
+                }
+              }
+            },
+            "bugReport": {
+              "label": "Bug report pipeline",
+              "description": "Builds and submits Review Desktop bug reports: review source, map, diff, and the opt-in authoring trace attachment, under a size ladder that drops the trace first.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/server/bug-report.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/server/bug-report-trace.ts"
+                  }
+                ]
+              },
+              "codeElements": {
+                "submitReviewBugReport": {
+                  "label": "submitReviewBugReport",
+                  "description": "Gathers requested attachments concurrently, builds the gzip multipart request, and drops the trace first when the compressed report exceeds the upload cap.",
+                  "relationships": [
+                    {
+                      "kind": "semantic",
+                      "from": ".",
+                      "to": "readAuthoringTraceAttachment",
+                      "label": "attach authoring trace when include_trace",
+                      "semanticKind": "calls"
+                    }
+                  ]
+                },
+                "readAuthoringTraceAttachment": {
+                  "label": "readAuthoringTraceAttachment",
+                  "description": "Resolves the review's authoring session, reads its harness-local trace, tail-caps main and newest subagent files, and redacts recognizable secret formats.",
+                  "relationships": [
+                    {
+                      "kind": "semantic",
+                      "from": ".",
+                      "to": "review.cliPackage.authoring.authoringSession",
+                      "semanticKind": "types",
+                      "label": "parseAuthoringSessionKey resolves the source session"
+                    },
+                    {
+                      "kind": "semantic",
+                      "from": ".",
+                      "to": "review.cliPackage.traceStore.findLocalTrace",
+                      "label": "findLocalTrace",
+                      "semanticKind": "calls"
+                    }
+                  ]
+                }
+              }
+            },
+            "authoring": {
+              "label": "Authoring sessions",
+              "description": "Detects the invoking agent session from environment, freezes or forks it as the Review source session, and resolves fresh-harness fallbacks.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/authoring-session.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/review-source-agent-session.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/tutorial-authoring-session.ts"
+                  }
+                ]
+              },
+              "codeElements": {
+                "authoringSession": {
+                  "label": "authoring-session",
+                  "description": "ReviewAgentHarness type, session env detection (CODEX_THREAD_ID, CLAUDE_CODE_SESSION_ID, PI_SESSION_ID), and fresh-harness keys."
+                },
+                "reviewSourceAgentSession": {
+                  "label": "createReviewSourceAgentSession",
+                  "description": "Forks or freezes the invoking session per harness: native Codex fork, Claude transcript copy, Pi --fork.",
+                  "relationships": [
+                    {
+                      "kind": "semantic",
+                      "from": ".",
+                      "to": "review.cliPackage.nativeAgents.codexAppServer",
+                      "label": "forkCodexThread",
+                      "semanticKind": "calls"
+                    },
+                    {
+                      "kind": "semantic",
+                      "from": ".",
+                      "to": "review.cliPackage.nativeAgents.claudeTranscript",
+                      "label": "findClaudeTranscript",
+                      "semanticKind": "calls"
+                    }
+                  ]
+                },
+                "tutorialAuthoringSession": {
+                  "label": "createTutorialAuthoringSession",
+                  "description": "Runs one authoring turn per harness to seed the tutorial's genuine source session.",
+                  "relationships": [
+                    {
+                      "kind": "semantic",
+                      "from": ".",
+                      "to": "authoringSession",
+                      "semanticKind": "types",
+                      "label": "SessionRef harness"
+                    }
+                  ]
+                }
+              }
+            },
+            "nativeAgents": {
+              "label": "Native agent bridge",
+              "description": "Provides one AgentServer interface for Claude Code, Codex, Pi, and OpenCode, launching native terminals and streaming session updates into Review threads.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/native-agent/native-session.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/native-agent/native-hook-client.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/native-agent/native-message-mirror.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/native-agent/codex-app-server.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/native-agent/claude-transcript.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/native-agent/claude-code.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/native-agent/codex.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/native-agent/pi.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/native-agent/opencode.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/native-agent/loopback-ingress.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/native-agent/terminal-command.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/native-agent/pi-bridge-extension.ts"
+                  }
+                ]
+              },
+              "codeElements": {
+                "nativeSession": {
+                  "label": "AgentServer contract",
+                  "description": "Uniform launch, session snapshot and update pipe contract for native harness backends."
+                },
+                "nativeMessageMirror": {
+                  "label": "NativeMessageMirror",
+                  "description": "Mirrors AgentServer session messages into Review threads."
+                },
+                "codexAppServer": {
+                  "label": "Codex app-server client",
+                  "description": "JSON-RPC thread lifecycle and notification transport."
+                },
+                "claudeTranscript": {
+                  "label": "Claude transcript reader",
+                  "description": "Locates Claude Code transcripts and projects native messages."
+                },
+                "claudeCode": {
+                  "label": "ClaudeAgentServer",
+                  "description": "Loopback lifecycle hooks drive transcript reads and session updates."
+                },
+                "codex": {
+                  "label": "CodexAgentServer",
+                  "description": "Native Codex app-server thread operations and streamed messages."
+                },
+                "pi": {
+                  "label": "PiAgentServer",
+                  "description": "Pi bridge extension reports messages through loopback ingress."
+                },
+                "opencode": {
+                  "label": "OpenCodeAgentServer",
+                  "description": "OpenCode service session launch, event subscriptions and terminal attachment."
+                }
+              }
+            },
+            "serverSurface": {
+              "label": "Local server surface",
+              "description": "Desktop session server: creates sessions, wires the turn launcher and mirrors, and routes Review API verbs.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/server/desktop-server.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/server/review-api.ts"
+                  }
+                ]
+              },
+              "codeElements": {
+                "desktopServer": {
+                  "label": "desktop-server",
+                  "description": "Global server: session registry, terminal-open relay to the desktop app, install status resolution.",
+                  "relationships": [
+                    {
+                      "kind": "semantic",
+                      "from": ".",
+                      "to": "review.cliPackage.harnessRegistry.preferredInstalledReviewAgent",
+                      "label": "resolveInstalledReviewAgentStatus -> preferred agent",
+                      "semanticKind": "calls"
+                    }
+                  ]
+                },
+                "reviewApi": {
+                  "label": "review-api",
+                  "description": "Routes Review trace reads, agent turns and message mirroring; exposes bound native-agent thread snapshots and PR stack layers.",
+                  "relationships": [
+                    {
+                      "kind": "semantic",
+                      "from": ".",
+                      "to": "review.cliPackage.traceStore.sessionResolution",
+                      "label": "listReviewTraceSessions",
+                      "semanticKind": "calls"
+                    },
+                    {
+                      "kind": "semantic",
+                      "from": ".",
+                      "to": "review.cliPackage.nativeAgents.nativeSession",
+                      "label": "launchTurn",
+                      "semanticKind": "calls"
+                    },
+                    {
+                      "kind": "semantic",
+                      "from": ".",
+                      "to": "review.cliPackage.nativeAgents.nativeMessageMirror",
+                      "label": "watch via NativeMessageMirror",
+                      "semanticKind": "calls"
+                    }
+                  ]
+                }
+              }
+            },
+            "cliRunner": {
+              "label": "CLI runner",
+              "description": "Commander surface for review commands, including trace hook relays and runtime wiring.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/cli-runner.ts"
+                  }
+                ]
+              },
+              "codeElements": {
+                "cliRunner": {
+                  "label": "cli-runner",
+                  "description": "Registers all review commands and their runtime implementations; review install resolves a built CLI (desktop discovery or packaged dist) and installs the review command shim unless --no-shim.",
+                  "relationships": [
+                    {
+                      "kind": "semantic",
+                      "from": ".",
+                      "to": "review.cliPackage.installer.runInstall",
+                      "label": "review install",
+                      "semanticKind": "calls"
+                    },
+                    {
+                      "kind": "semantic",
+                      "from": ".",
+                      "to": "review.cliPackage.installer.installReviewCommand",
+                      "label": "install shim after skill install",
+                      "semanticKind": "calls"
+                    },
+                    {
+                      "kind": "semantic",
+                      "from": ".",
+                      "to": "review.cliPackage.traceStore.commitLookup",
+                      "semanticKind": "calls",
+                      "label": "review trace lookup commands"
+                    }
+                  ]
+                }
+              }
+            },
+            "traceCommands": {
+              "label": "Trace commands and lifecycle hooks",
+              "description": "Login/onboard/allow/deny/status/sync/pull command surfaces; allow entries gate session hooks and publication; active IDs become Git trailers and trigger pre-push or detached session-end sync.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/trace-cli.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/trace-hook-runner.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/trace-git-hook-runner.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/trace-agent-sessions.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/trace-repository-hooks.ts"
+                  }
+                ]
+              }
+            },
+            "reviewStack": {
+              "label": "Stack relationships",
+              "description": "Reads gh stack metadata, links PR stack layers to published local Reviews, and serves the stack through the local Review API.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/review-stack.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/review-rebind.ts"
+                  }
+                ]
+              }
+            },
+            "mapValidation": {
+              "label": "Software map validation",
+              "description": "Validates map coverage and health, computes base-head counts, and serializes normalized models into published JSON map artifacts.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/software-map-coverage-validation.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/software-map-health.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/software-map-diff-counts.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/software-map-model.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/software-map-bundle.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/software-map-artifact.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/review-map-publish.ts"
+                  }
+                ]
+              },
+              "codeElements": {
+                "jsonMapArtifact": {
+                  "label": "Published software map JSON",
+                  "description": "Stores normalized base and head models as data and validates artifacts before desktop hydration."
+                }
+              }
+            },
+            "storeAuth": {
+              "label": "Hosted store login",
+              "description": "OAuth device login against the selected origin, private auth.json persistence, identity checks and local logout; store-bound calls construct a client from the saved bearer token.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/store-auth.ts"
+                  }
+                ]
+              }
+            },
+            "storeClient": {
+              "label": "Typed store HTTP client",
+              "description": "Bearer-authenticated JSON requests for repository stores, upload begin/complete and session lookup; schema validation, stable error envelopes and 30-second API timeouts.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/store-client.ts"
+                  }
+                ]
+              }
+            },
+            "objectTransport": {
+              "label": "Trace object transport",
+              "description": "Gzips files and computes compressed SHA-256, sends presigned PUTs with signed headers, and downloads/gunzips objects; a memory transport supports isolated tests.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/trace-store-transport.ts"
+                  }
+                ]
+              }
+            },
+            "traceConsent": {
+              "label": "Repository allow configuration",
+              "description": "Private versioned per-user repository allowlist records numeric repository ID, display slug, store origin and allowedAt; repository resolution matches the current Git slug.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/trace-user-config.ts"
+                  }
+                ]
+              }
+            },
+            "publication": {
+              "label": "Document publication",
+              "description": "Constructs authored MDX and TypeScript definitions directly in a disposable worker, audits their elements and materializes validated JSON before staged publication and sealed revision promotion.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/authoring.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/review-publish.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/review-publish-evaluate.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/review-publish-element-audit.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/review-publication-preparation.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/review-bundle.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/review-document-data.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/review-document-materialize.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/review-publication-staging.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/review-artifact-promotion.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/review-sealed-document.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/review-publication-audit.ts"
+                  }
+                ]
+              },
+              "codeElements": {
+                "materializeDocument": {
+                  "label": "materializeReviewDocument",
+                  "description": "Converts audited elements and authored references to JSON nodes, anchors, and software models."
+                },
+                "documentSchema": {
+                  "label": "ReviewDocumentData",
+                  "description": "Validates the serializable prose/component tree and publication metadata at the document boundary."
+                },
+                "stagedPromotion": {
+                  "label": "Staged publication",
+                  "description": "Prepares immutable artifacts before committing the sealed revision and presentation pointers."
+                },
+                "publicationAudit": {
+                  "label": "Shared publication audit",
+                  "description": "Validates constructed element trees, evidence, targets, changed lines and anchors before materializing ReviewDocumentData; reused by native construction and sealed legacy bundle evaluation."
+                }
+              }
+            },
+            "storedReviews": {
+              "label": "Stored Reviews and migration",
+              "description": "Maintains schema-5 records and sealed JSON revisions; serializes mutations and migrates legacy executable bundles into persisted document data on first read.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/review-home.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/stored-review-migration.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/migrate.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/review-thread-store-backend.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/review-attention.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/review-mutation-lock.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/review-derived-paths.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/stored-review-document-audit.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/review-tree-fingerprint.ts"
+                  }
+                ]
+              },
+              "codeElements": {
+                "mutationLock": {
+                  "label": "withReviewMutationLock",
+                  "description": "Coordinates desktop and CLI writers and compares guarded record fields before promotion."
+                },
+                "legacyMigration": {
+                  "label": "Legacy migration",
+                  "description": "Evaluates existing sealed legacy bundles through the retained compatibility evaluator and shared publication audit; persists materialized document data without recompiling authoring sources."
+                }
+              }
+            },
+            "repair": {
+              "label": "Review repair",
+              "description": "Builds repair candidates separately, checks record and tree fingerprints, and promotes successful repairs while preserving the prior presentation on failure.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/review-repair.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/review-repair-state.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/review-repair-preparation.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/server/review-repair-promotion.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/server/review-session-mode.ts"
+                  }
+                ]
+              }
+            },
+            "documentAuthoring": {
+              "label": "Native document authoring",
+              "description": "Replaces MDX/esbuild document bundling with an injectable parser, syntax checks, disposable worker construction and Node module hooks. Executable authored TypeScript remains supported.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/document/build.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/document/check.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/document/construct.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/document/diagnostics.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/document/mdx-parser.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/document/module-loader.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/document/syntax.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/document/worker-client.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/document/worker-protocol.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/document/worker.ts"
+                  }
+                ]
+              },
+              "codeElements": {
+                "parser": {
+                  "label": "DocumentParser and DocumentSyntax",
+                  "description": "The MDX adapter normalizes prose, JSX, expressions, imports and source positions into an internal syntax contract; builder accepts another parser implementation."
+                },
+                "builder": {
+                  "label": "buildReviewDocument",
+                  "description": "Reads source, parses and checks syntax, then dispatches construction to a fresh worker and returns diagnostics with materialized document data."
+                },
+                "worker": {
+                  "label": "Disposable construction worker",
+                  "description": "One worker per build uses birpc for parent-owned evidence and changed-line callbacks; cancellation, deadline, errors and completion close RPC and terminate the worker."
+                },
+                "loader": {
+                  "label": "Authored module loader",
+                  "description": "Worker-local Node module hooks transform supported TypeScript and MDX imports and construct document elements, keeping caches and hooks isolated between publications."
+                }
+              }
+            }
+          }
+        },
+        "protocolPackage": {
+          "label": "review-protocol package",
+          "description": "Shared zod contracts between the CLI/server and the desktop app (verbs, sessions, install status).",
+          "coverage": {
+            "files": [
+              {
+                "path": "packages/review-protocol/src/contracts.ts"
+              },
+              {
+                "path": "packages/review-protocol/src/bug-report.ts"
+              }
+            ]
+          },
+          "components": {
+            "contracts": {
+              "label": "contracts",
+              "description": "Defines serializable document load and repair-state contracts alongside local Review/desktop verbs and sessions.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/review-protocol/src/contracts.ts"
+                  }
+                ]
+              }
+            },
+            "bugReportContracts": {
+              "label": "bug-report contracts",
+              "description": "Bug report request and metadata schemas; include_trace and the trace metadata (has_trace, trace_harness, truncated_trace) default off so legacy clients keep the old shape.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/review-protocol/src/bug-report.ts"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "reviewApp": {
+          "label": "Review SPA",
+          "description": "In-app review UI served to Review Desktop, including the trace reading view, the bug report dialog, and the side panel that hosts Threads.",
+          "coverage": {
+            "files": [
+              {
+                "path": "packages/progressive-review/app/src/bug-report-dialog.tsx"
+              },
+              {
+                "path": "packages/progressive-review/app/src/trace-document.tsx"
+              },
+              {
+                "path": "packages/progressive-review/app/src/review-panel-model.ts"
+              },
+              {
+                "path": "packages/progressive-review/app/src/review-panel-store.ts"
+              },
+              {
+                "path": "packages/progressive-review/app/src/review-panel.tsx"
+              },
+              {
+                "path": "packages/progressive-review/app/src/review-components.tsx"
+              },
+              {
+                "path": "packages/progressive-review/app/src/App.tsx"
+              },
+              {
+                "path": "packages/progressive-review/app/src/review-doc-meta.tsx"
+              },
+              {
+                "path": "packages/progressive-review/app/src/thread-annotations.tsx"
+              },
+              {
+                "path": "packages/progressive-review/app/src/software-map/c4-projection.ts"
+              },
+              {
+                "path": "packages/progressive-review/app/src/trace-capture-section.tsx"
+              },
+              {
+                "path": "packages/progressive-review/app/src/review-document-surface.tsx"
+              },
+              {
+                "path": "packages/progressive-review/app/src/desktop-entry.tsx"
+              },
+              {
+                "path": "packages/progressive-review/app/src/host/review-client.ts"
+              },
+              {
+                "path": "packages/progressive-review/app/src/review-document-hydrate.ts"
+              },
+              {
+                "path": "packages/progressive-review/app/src/review-document-prepare.ts"
+              },
+              {
+                "path": "packages/progressive-review/app/src/review-document-renderer.tsx"
+              },
+              {
+                "path": "packages/progressive-review/app/src/host/review-session.tsx"
+              },
+              {
+                "path": "packages/progressive-review/app/src/hydrate-published-software-map.ts"
+              },
+              {
+                "path": "packages/progressive-review/app/src/code-peek-resolution.ts"
+              }
+            ]
+          },
+          "components": {
+            "panelState": {
+              "label": "Side panel state",
+              "description": "Single active-panel zustand store behind the review side panel: one of peek, guided tour, commit diff, or Threads (list, new-ask, or comment page) plus a live/restored motion flag.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/app/src/review-panel-model.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/app/src/review-panel-store.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/app/src/review-panel.tsx"
+                  },
+                  {
+                    "path": "packages/progressive-review/app/src/App.tsx"
+                  }
+                ]
+              },
+              "codeElements": {
+                "reviewPanelModel": {
+                  "label": "review-panel-model",
+                  "description": "ReviewPanel union (PeekPanel, TourPanel, CommitDiffPanel, ThreadsPanel), ThreadsPage (list | new-ask | comment), and isDetailPanel."
+                },
+                "reviewPanelStore": {
+                  "label": "createReviewPanelStore",
+                  "description": "Panel actions: openPeek/openTour/openCommitDiff, openThreads(page) which always activates Threads, restore variants that suppress motion, close, closeForAgentTerminal (drops Threads only), and closeForDocumentChange (drops detail panels only).",
+                  "relationships": [
+                    {
+                      "kind": "semantic",
+                      "from": ".",
+                      "to": "reviewPanelModel",
+                      "semanticKind": "types"
+                    }
+                  ]
+                },
+                "reviewPanelProvider": {
+                  "label": "ReviewPanelProvider / useReviewPanel",
+                  "description": "Per-app store instance in React context; closes detail panels when the document revision changes.",
+                  "relationships": [
+                    {
+                      "kind": "semantic",
+                      "from": ".",
+                      "to": "reviewPanelStore",
+                      "label": "createReviewPanelStore",
+                      "semanticKind": "calls"
+                    }
+                  ]
+                },
+                "agentTerminalCloseWiring": {
+                  "label": "App agentTerminalOpening subscription",
+                  "description": "App shell subscribes to the session surface stream and calls closeForAgentTerminal when the desktop reports it is opening this session's native agent terminal.",
+                  "relationships": [
+                    {
+                      "kind": "semantic",
+                      "from": ".",
+                      "to": "reviewPanelStore",
+                      "label": "closeForAgentTerminal",
+                      "semanticKind": "calls"
+                    }
+                  ]
+                }
+              }
+            },
+            "threadPanel": {
+              "label": "Threads panel",
+              "description": "Side-panel UI for review threads: the thread list, a new document-level ask, or one comment thread; hands asks off to the agent and can resume a thread's agent terminal.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/app/src/review-components.tsx"
+                  }
+                ]
+              },
+              "codeElements": {
+                "threadPanelInner": {
+                  "label": "ThreadPanelInner",
+                  "description": "askNow sends the ask through review.askAgent and then reopens Threads on the comment page; addToReview saves a pending comment and reopens Threads on the list or comment page; resumeInTerminal POSTs /comments/:threadId/agent-terminal.",
+                  "relationships": [
+                    {
+                      "kind": "semantic",
+                      "from": ".",
+                      "to": "review.reviewApp.panelState.reviewPanelStore",
+                      "label": "openThreads after ask / add / select",
+                      "semanticKind": "calls"
+                    },
+                    {
+                      "kind": "semantic",
+                      "from": ".",
+                      "to": "review.cliPackage.serverSurface.reviewApi",
+                      "label": "POST /comments/:threadId/agent-terminal",
+                      "semanticKind": "calls"
+                    }
+                  ]
+                }
+              }
+            },
+            "traceView": {
+              "label": "Trace document view",
+              "description": "Renders an agent session trace as a turn-grouped document: lens picks keep the salient events and elide the rest behind expandable gap chips. Hosted by ReviewTraceView and the review canvas.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/app/src/trace-document.tsx"
+                  }
+                ]
+              },
+              "relationships": [
+                {
+                  "kind": "semantic",
+                  "from": ".",
+                  "to": "review.protocolPackage.contracts",
+                  "semanticKind": "types",
+                  "label": "renders ReviewAgentTraceEvent streams"
+                }
+              ],
+              "codeElements": {
+                "traceDocument": {
+                  "label": "TraceDocument",
+                  "description": "Stateful trace reader: computes lens-included events, tracks expanded gaps and expanded events, and renders one TraceTurn per turn.",
+                  "relationships": [
+                    {
+                      "kind": "semantic",
+                      "from": ".",
+                      "to": "traceTurn",
+                      "label": "renders turns with expansion callbacks",
+                      "semanticKind": "calls"
+                    }
+                  ]
+                },
+                "traceTurn": {
+                  "label": "TraceTurn",
+                  "description": "Renders a turn's user, work, and final events, coalescing tool runs and collapsing runs of elided events into gap chips.",
+                  "relationships": [
+                    {
+                      "kind": "semantic",
+                      "from": ".",
+                      "to": "gapElision",
+                      "label": "TraceGapChip for elided runs",
+                      "semanticKind": "calls"
+                    }
+                  ]
+                },
+                "gapElision": {
+                  "label": "Lens elision helpers",
+                  "description": "applyLensPicks/elideByKeep decide which events a lens keeps; TraceGapChip and ElidedMessage present the elided remainder with expand affordances."
+                }
+              }
+            },
+            "bugReportDialog": {
+              "label": "Bug report dialog",
+              "description": "Reviewer-facing bug report form with the opt-in Agent session trace checkbox and its privacy tooltip.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/app/src/bug-report-dialog.tsx"
+                  }
+                ]
+              },
+              "relationships": [
+                {
+                  "kind": "semantic",
+                  "from": ".",
+                  "to": "review.protocolPackage.bugReportContracts",
+                  "semanticKind": "types",
+                  "label": "sends ReviewBugReportRequest with include_trace"
+                }
+              ]
+            },
+            "stackMetadata": {
+              "label": "Document and stack metadata",
+              "description": "Review metadata bar displays source and stack relationships, and requests navigation to another published Review.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/app/src/review-doc-meta.tsx"
+                  }
+                ]
+              }
+            },
+            "threadAnnotations": {
+              "label": "Thread annotations",
+              "description": "Measures document selections and displays comment pins; navigates collapsed sections and coordinates highlights with inline draft/thread presentation.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/app/src/thread-annotations.tsx"
+                  }
+                ]
+              }
+            },
+            "mapProjection": {
+              "label": "Software map projection",
+              "description": "Projects the C4 hierarchy into visible nodes and retains expanded datastore collections in changes-only views.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/app/src/software-map/c4-projection.ts"
+                  }
+                ]
+              }
+            },
+            "traceCapture": {
+              "label": "Trace capture settings",
+              "description": "Experimental UI installs hooks and trace search integration, directs users to login/allow commands, and shows enabled state from the repository allowlist; disable removes integration and denies all repositories.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/app/src/trace-capture-section.tsx"
+                  }
+                ]
+              }
+            },
+            "documentRuntime": {
+              "label": "JSON document hydration and rendering",
+              "description": "Hydrates validated JSON into shared authoring references, resolves CodePeek anchors, caches preparation per live session and content hash, and renders an allowlisted document tree.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/app/src/review-document-hydrate.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/app/src/review-document-prepare.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/app/src/review-document-renderer.tsx"
+                  },
+                  {
+                    "path": "packages/progressive-review/app/src/review-document-surface.tsx"
+                  },
+                  {
+                    "path": "packages/progressive-review/app/src/desktop-entry.tsx"
+                  },
+                  {
+                    "path": "packages/progressive-review/app/src/host/review-client.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/app/src/host/review-session.tsx"
+                  },
+                  {
+                    "path": "packages/progressive-review/app/src/hydrate-published-software-map.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/app/src/code-peek-resolution.ts"
+                  }
+                ]
+              },
+              "codeElements": {
+                "hydrate": {
+                  "label": "hydrateReviewDocument",
+                  "description": "Reconstructs anchors, store references, and normalized models from document JSON."
+                },
+                "prepare": {
+                  "label": "prepareReviewDocument",
+                  "description": "Deduplicates in-flight preparation per session/content hash and evicts rejected work."
+                },
+                "render": {
+                  "label": "Review document renderer",
+                  "description": "Renders validated prose and registered Review components from the JSON body."
+                }
+              }
+            }
+          }
+        },
+        "desktopApp": {
+          "label": "Review Desktop shell",
+          "description": "VS Code fork hosting the review canvas, thread UI, and the terminals that run native agent turns.",
+          "coverage": {
+            "files": [
+              {
+                "path": "apps/review-desktop/code-oss/src/vs/review/contrib/verbs/reviewVerbs.ts"
+              },
+              {
+                "path": "apps/review-desktop/scripts/protocol-sync.mjs"
+              },
+              {
+                "path": "packages/review-protocol/scripts/generate-native-source.mjs"
+              },
+              {
+                "path": "apps/review-desktop/code-oss/src/vs/review/browser/parts/canvas/reviewCanvasPart.ts"
+              },
+              {
+                "path": "apps/review-desktop/code-oss/src/vs/review/browser/parts/canvas/reviewDocumentData.ts"
+              },
+              {
+                "path": "apps/review-desktop/code-oss/src/vs/review/services/reviewSessionModelService.ts"
+              },
+              {
+                "path": "apps/review-desktop/code-oss/src/vs/review/services/reviewSessionService.ts"
+              }
+            ]
+          },
+          "components": {
+            "terminalHost": {
+              "label": "Terminal host",
+              "description": "Executes openNativeAgentTerminal verbs by creating and focusing a real agent terminal.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "apps/review-desktop/code-oss/src/vs/review/contrib/verbs/reviewVerbs.ts"
+                  }
+                ]
+              },
+              "codeElements": {
+                "reviewVerbs": {
+                  "label": "reviewVerbs",
+                  "description": "Verb sink for the desktop app: opens native agent terminals and shows threads.",
+                  "relationships": [
+                    {
+                      "kind": "semantic",
+                      "from": ".",
+                      "to": "review.desktopApp.protocolMirror.reviewProtocol",
+                      "semanticKind": "types",
+                      "label": "verb schemas"
+                    }
+                  ]
+                }
+              }
+            },
+            "protocolMirror": {
+              "label": "Protocol overlay generator",
+              "description": "Regenerates the gitignored Code OSS protocol overlay (src/vs/review/common/reviewProtocol.ts) from review-protocol before every build, test, and typecheck.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "apps/review-desktop/scripts/protocol-sync.mjs"
+                  },
+                  {
+                    "path": "packages/review-protocol/scripts/generate-native-source.mjs"
+                  }
+                ]
+              },
+              "codeElements": {
+                "reviewProtocol": {
+                  "label": "protocol-sync",
+                  "description": "Runs generate-native-source into a temp file and byte-compares before writing so an unchanged protocol keeps its mtime for incremental builds.",
+                  "relationships": [
+                    {
+                      "kind": "semantic",
+                      "from": ".",
+                      "to": "review.protocolPackage.contracts",
+                      "semanticKind": "mirrors",
+                      "label": "generated schema overlay"
+                    }
+                  ]
+                }
+              }
+            },
+            "documentSession": {
+              "label": "Document session and canvas",
+              "description": "Loads document data through the session model, carries ready or repair state into the canvas, and resets session-owned preparation state when the source context changes.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "apps/review-desktop/code-oss/src/vs/review/browser/parts/canvas/reviewCanvasPart.ts"
+                  },
+                  {
+                    "path": "apps/review-desktop/code-oss/src/vs/review/browser/parts/canvas/reviewDocumentData.ts"
+                  },
+                  {
+                    "path": "apps/review-desktop/code-oss/src/vs/review/services/reviewSessionModelService.ts"
+                  },
+                  {
+                    "path": "apps/review-desktop/code-oss/src/vs/review/services/reviewSessionService.ts"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "traceShared": {
+          "label": "@dev.fast/trace-shared",
+          "description": "Public npm contract v0.1.0 shared by the Review client and hosted Dev service; versioned API paths, request/response schemas, object limits and object-key layout.",
+          "coverage": {
+            "files": [
+              {
+                "path": "packages/trace-shared/src/contracts.ts"
+              },
+              {
+                "path": "packages/trace-shared/src/store-api.ts"
+              },
+              {
+                "path": "packages/trace-shared/src/store-routes.ts"
+              },
+              {
+                "path": "packages/trace-shared/src/index.ts"
+              },
+              {
+                "path": "packages/trace-shared/package.json"
+              }
+            ]
+          },
+          "components": {
+            "schemas": {
+              "label": "Trace schemas and limits",
+              "description": "Session/commit identifiers, harnesses, bounded upload declarations, download descriptors with SHA-256, and stable error envelopes.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/trace-shared/src/contracts.ts"
+                  },
+                  {
+                    "path": "packages/trace-shared/src/store-api.ts",
+                    "ranges": [
+                      {
+                        "fromLine": 1,
+                        "toLine": 132
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            "routes": {
+              "label": "Shared routes and object keys",
+              "description": "Client URL builders and server route matchers for /api/trace/v1; immutable numeric repository prefixes r<id>/sessions/<session>/<name>.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/trace-shared/src/store-routes.ts"
+                  },
+                  {
+                    "path": "packages/trace-shared/src/store-api.ts",
+                    "ranges": [
+                      {
+                        "fromLine": 134,
+                        "toLine": 145
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "dataStores": {
+        "traceCorpus": {
+          "kind": "fileStore",
+          "label": "Normalized trace corpus",
+          "description": "~/.dev/trace-search/<owner>/<repo>/<session>/<trace>.jsonl; parsed metadata and searchable events retained for local/offline reads."
+        },
+        "traceSettings": {
+          "kind": "fileStore",
+          "label": "Repository trace consent",
+          "description": "~/.dev/trace/config.json version1 allowlist of repositoryId, display name, store origin and allowedAt. Used to gate publication."
+        },
+        "storeAuth": {
+          "kind": "fileStore",
+          "label": "Saved store login",
+          "description": "~/.dev/auth.json stores the selected origin and bearer session token with mode0600; logout deletes the local file."
+        }
+      }
+    },
+    "harnesses": {
+      "external": true,
+      "label": "Coding agent harnesses",
+      "description": "Claude Code, Codex and Pi own the raw session transcripts and emit lifecycle hooks.",
+      "dataStores": {
+        "sessions": {
+          "kind": "fileStore",
+          "label": "Raw harness transcripts",
+          "description": "Harness-local complete JSONL transcripts, main sessions and available child-agent files."
+        }
+      }
+    },
+    "traceStorage": {
+      "external": true,
+      "label": "Private trace object storage",
+      "description": "Private S3 object storage reached through service-issued presigned URLs. The client receives no long-lived bucket credentials.",
+      "dataStores": {
+        "objects": {
+          "kind": "objectStore",
+          "label": "Shared trace objects",
+          "description": "Repository-prefixed gzip main and subagent objects: r<repositoryId>/sessions/<session>/<name>; stored size and SHA-256 are described by the hosted API."
+        }
+      }
+    },
+    "traceService": {
+      "external": true,
+      "label": "Hosted trace service (Dev)",
+      "description": "Authenticates saved device-login sessions, checks repository access, maintains session/commit metadata, and issues upload/download URLs through /api/trace/v1."
+    },
+    "github": {
+      "external": true,
+      "label": "GitHub",
+      "description": "Identity and repository permission authority used by the hosted service."
+    }
+  },
+  "relationships": [
+    {
+      "kind": "semantic",
+      "from": "authoringAgent",
+      "to": "review.cliPackage.cliRunner.cliRunner",
+      "label": "runs review CLI inside agent sessions"
+    },
+    {
+      "kind": "semantic",
+      "from": "authoringAgent",
+      "to": "review.cliPackage.authoring.authoringSession",
+      "label": "identified from agent session env"
+    },
+    {
+      "kind": "semantic",
+      "from": "reviewer",
+      "to": "review.desktopApp.terminalHost.reviewVerbs",
+      "label": "asks questions and watches agent terminals"
+    },
+    {
+      "kind": "semantic",
+      "from": "reviewer",
+      "to": "review.cliPackage.bugReport.submitReviewBugReport",
+      "label": "files bug reports, optionally attaching the authoring trace"
+    },
+    {
+      "kind": "semantic",
+      "from": "reviewer",
+      "to": "review.reviewApp.traceView.traceDocument",
+      "label": "reads authoring session traces through the lens"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.serverSurface.desktopServer",
+      "to": "review.desktopApp.terminalHost.reviewVerbs",
+      "label": "dispatches openNativeAgentTerminal verb"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.desktopApp.terminalHost.reviewVerbs",
+      "to": "review.reviewApp.panelState.agentTerminalCloseWiring",
+      "label": "emits agentTerminalOpening surface event before focusing the terminal"
+    },
+    {
+      "kind": "semantic",
+      "from": "reviewer",
+      "to": "review.reviewApp.threadPanel.threadPanelInner",
+      "label": "asks questions and adds comments from the Threads panel"
+    },
+    {
+      "kind": "semantic",
+      "from": "harnesses",
+      "to": "review.cliPackage.traceCommands",
+      "label": "session start/end and prompt lifecycle events"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.traceCommands",
+      "to": "review.cliPackage.traceStore",
+      "label": "syncs session IDs and resolves trace commands"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.traceStore",
+      "to": "harnesses.sessions",
+      "label": "finds complete raw transcripts by session ID"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.traceStore",
+      "to": "review.traceCorpus",
+      "label": "normalizes downloaded transcripts"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.reviewApp.traceCapture",
+      "to": "review.cliPackage.installer",
+      "label": "installs/removes trace integration"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.reviewApp.stackMetadata",
+      "to": "review.cliPackage.reviewStack",
+      "label": "reads stack relationships"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.reviewApp.traceView",
+      "to": "review.cliPackage.traceStore",
+      "label": "loads the selected transcript through the local API"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.traceCommands",
+      "to": "review.cliPackage.traceStore.sync",
+      "label": "publishes selected sessions"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.reviewApp.traceView",
+      "to": "review.cliPackage.traceStore.corpus",
+      "label": "loads normalized transcript events"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.traceStore.corpus",
+      "to": "review.traceCorpus",
+      "label": "persists normalized events"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.mapValidation",
+      "to": "review.reviewApp.mapProjection",
+      "label": "validates maps rendered by the canvas"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.reviewApp.threadAnnotations",
+      "to": "review.reviewApp.threadPanel",
+      "label": "highlights and navigates selected thread targets"
+    },
+    {
+      "kind": "semantic",
+      "from": "reviewer",
+      "to": "review.cliPackage.storeAuth",
+      "label": "starts device login"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.storeAuth",
+      "to": "review.storeAuth",
+      "label": "writes/forgets saved login"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.storeAuth",
+      "to": "review.cliPackage.storeClient",
+      "label": "device flow and session identity"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.traceCommands",
+      "to": "review.cliPackage.traceConsent",
+      "label": "allows/denies repository publication"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.traceConsent",
+      "to": "review.traceSettings",
+      "label": "reads/writes private allow entries"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.traceStore.sync",
+      "to": "review.cliPackage.traceConsent",
+      "label": "checks current repository allow entry"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.traceStore",
+      "to": "review.cliPackage.storeAuth",
+      "label": "resolves a client from saved login"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.traceStore.sync",
+      "to": "review.cliPackage.objectTransport",
+      "label": "begin upload, PUT objects, complete"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.traceStore.corpus",
+      "to": "review.cliPackage.objectTransport",
+      "label": "lists/downloads trace objects"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.objectTransport",
+      "to": "review.cliPackage.storeClient",
+      "label": "delegates JSON metadata operations"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.storeClient",
+      "to": "traceService",
+      "label": "authenticated store API requests"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.objectTransport",
+      "to": "traceStorage.objects",
+      "label": "presigned gzip PUT and GET"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.storeClient",
+      "to": "review.traceShared.schemas",
+      "label": "validates API responses"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.storeClient",
+      "to": "review.traceShared.routes",
+      "label": "builds versioned URLs"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.objectTransport",
+      "to": "review.traceShared.schemas",
+      "label": "shares upload/download metadata types"
+    },
+    {
+      "kind": "semantic",
+      "from": "traceService",
+      "to": "review.traceShared",
+      "label": "consumes the published contract"
+    },
+    {
+      "kind": "semantic",
+      "from": "traceService",
+      "to": "traceStorage.objects",
+      "label": "issues scoped presigned object URLs"
+    },
+    {
+      "kind": "semantic",
+      "from": "traceService",
+      "to": "github",
+      "label": "checks login and repository authorization"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.installer",
+      "to": "review.cliPackage.traceConsent",
+      "label": "reports enablement and denies repositories on disable"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.publication",
+      "to": "review.cliPackage.storedReviews",
+      "label": "writes published artifacts",
+      "semanticKind": "uses"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.reviewApp.documentRuntime",
+      "to": "review.cliPackage.publication",
+      "label": "loads published document JSON",
+      "semanticKind": "uses"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.nativeAgents.claudeCode",
+      "to": "review.cliPackage.nativeAgents.nativeSession",
+      "label": "implements AgentServer",
+      "semanticKind": "uses"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.nativeAgents.codex",
+      "to": "review.cliPackage.nativeAgents.nativeSession",
+      "label": "implements AgentServer",
+      "semanticKind": "uses"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.nativeAgents.pi",
+      "to": "review.cliPackage.nativeAgents.nativeSession",
+      "label": "implements AgentServer",
+      "semanticKind": "uses"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.nativeAgents.opencode",
+      "to": "review.cliPackage.nativeAgents.nativeSession",
+      "label": "implements AgentServer",
+      "semanticKind": "uses"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.repair",
+      "to": "review.cliPackage.storedReviews",
+      "label": "checks guarded state under mutation lock",
+      "semanticKind": "uses"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.repair",
+      "to": "review.cliPackage.publication",
+      "label": "prepares and promotes validated artifacts",
+      "semanticKind": "uses"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.desktopApp.documentSession",
+      "to": "review.reviewApp.documentRuntime",
+      "label": "supplies document data and session lifecycle",
+      "semanticKind": "uses"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.desktopApp.documentSession",
+      "to": "review.cliPackage.repair",
+      "label": "exposes repair-required state",
+      "semanticKind": "uses"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.publication.materializeDocument",
+      "to": "review.cliPackage.publication.documentSchema",
+      "label": "validates materialized data"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.publication.documentSchema",
+      "to": "review.cliPackage.publication.stagedPromotion",
+      "label": "supplies validated document"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.publication.stagedPromotion",
+      "to": "review.cliPackage.storedReviews.mutationLock",
+      "label": "guards promotion"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.storedReviews.legacyMigration",
+      "to": "review.cliPackage.publication.materializeDocument",
+      "label": "materializes sealed legacy output"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.reviewApp.documentRuntime.prepare",
+      "to": "review.reviewApp.documentRuntime.hydrate",
+      "label": "hydrates once per content hash"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.reviewApp.documentRuntime.render",
+      "to": "review.reviewApp.documentRuntime.prepare",
+      "label": "renders prepared references"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.publication",
+      "to": "review.cliPackage.documentAuthoring.builder",
+      "label": "builds authoring sources directly"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.documentAuthoring.builder",
+      "to": "review.cliPackage.documentAuthoring.parser",
+      "label": "parses into internal syntax"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.documentAuthoring.builder",
+      "to": "review.cliPackage.documentAuthoring.worker",
+      "label": "dispatches checked syntax"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.documentAuthoring.worker",
+      "to": "review.cliPackage.documentAuthoring.loader",
+      "label": "loads authored modules"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.documentAuthoring.worker",
+      "to": "review.cliPackage.publication.publicationAudit",
+      "label": "audits constructed elements"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.storedReviews.legacyMigration",
+      "to": "review.cliPackage.publication.publicationAudit",
+      "label": "reuses element and evidence validation"
+    }
+  ]
+}
+);

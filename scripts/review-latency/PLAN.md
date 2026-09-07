@@ -246,3 +246,19 @@ Per-run detail (after):
 - Fork worktrees share the repo's stash stack. A "perf WIP (stashed by agent-server refactor)" entry, created by the review#83 session itself, cost one warm run 20s of "important finding" detours. Dropped; keep the stash stack empty during experiments.
 - The `review` shim broke whenever the agent's shell cwd was inside the fork worktree's `packages/progressive-review`: tsx reads tsconfig from the cwd, and the worktree's `paths` remapped `@dev.fast/local-vcs` onto the worktree's older source (no `setLocalVcsCommandObserver`). The agent then routed around the shim with the worktree's own `cli.ts`, silently changing the CLI under test (16:21 and 17:50 runs). Fixed: the shim pins `--tsconfig` to the instrumented checkout, and the runner aborts on any CLI load failure (`review-shim-stderr.log`).
 - Rule placement matters more than wording: the typecheck/test reflex fires at call ~4, before any `references/*.md` is opened. Rules about what not to do before authoring belong in SKILL.md (loaded at invocation); `document-authoring.md` is only in context once the agent is about to write.
+
+## code-search skill + effort experiments (2026-09-04, review-83-fork, traces off, warm)
+
+All runs same night, same prefix, `code-search` skill installed (except the 00:57 baseline).
+
+| variant | totals (s) | thinking tokens | thinking s | doc (KB / anchors / diagrams) |
+|---|---|---|---|---|
+| opus @ high, before code-search | 252 | 8.1k | 89 | 10.5 / 20 / 2 |
+| opus @ high, with code-search | 319, 325, 336, 367 | 12.3k–15.9k | 145–193 | 11–13 / 18–22 / 1–2 |
+| opus @ medium | 347, 412, 351 | 14.3k–16.5k | 172–199 | 11.5–13.9 / 21–26 / 1–2 |
+| opus @ low | 270, 263, 309 | 9.0k–12.4k | 107–150 | 10.6–13.5 / 15–26 / 1–2 |
+
+- code-search skill: every run loaded it unprompted, used `#name` and `inside:` rules, ran zero sed/cat after the scan, ran no tests. The scan→Write window did not shrink (95–120s either way): removing tool calls moved the thinking, it did not remove it. Wall-clock unchanged (median 330 vs 312).
+- Pre-scan reads (3–4 `cat` calls of the files the session wrote) survive every wording tried; stop editing text for that.
+- `--effort medium` produced the same thinking-token volume as high. `--effort low` cut thinking tokens ~30% and wall-clock ~60s (median 270 vs 330) with document shape unchanged. Effort is the first knob that moved time without moving shape. Next: low on the cold and traces-on variants, and on review-84/#24 to check it generalizes.
+- Harness: runs now wrapped in `caffeinate -i -s` (machine slept mid-run once); shim pins `--tsconfig`; aborts on CLI load failure.

@@ -393,7 +393,203 @@ describe("resolveReviewDiffFiles", () => {
       await rm(rootPath, { recursive: true, force: true });
     }
   });
+
+  test("parses a deleted file whose removed content begins with `-- `", async () => {
+    const fixture = await createDeletedHijackFixture();
+    try {
+      const result = await resolveReviewDiffFiles({
+        rootPath: fixture.rootPath,
+        baseRef: fixture.baseRef,
+        headRef: fixture.headRef,
+      });
+
+      expect(result.files).toEqual([
+        expect.objectContaining({
+          path: "src/schema.sql",
+          status: "deleted",
+          additions: 0,
+          deletions: 2,
+        }),
+      ]);
+      expect(result.files[0]?.patch).toContain(
+        "diff --git a/src/schema.sql b/src/schema.sql",
+      );
+    } finally {
+      await rm(fixture.rootPath, { recursive: true, force: true });
+    }
+  });
+
+  test("counts added lines whose content begins with `++ `", async () => {
+    const rootPath = await mkdtemp(
+      path.join(os.tmpdir(), "review-diff-hijack-add-"),
+    );
+    try {
+      execGit(rootPath, ["init"]);
+      execGit(rootPath, ["config", "user.email", "test@example.com"]);
+      execGit(rootPath, ["config", "user.name", "Test User"]);
+      await mkdir(path.join(rootPath, "src"), { recursive: true });
+      await writeFile(path.join(rootPath, "src/example.txt"), "line one\n");
+      execGit(rootPath, ["add", "src/example.txt"]);
+      execGit(rootPath, ["commit", "-m", "initial"]);
+      const baseRef = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
+      await writeFile(
+        path.join(rootPath, "src/example.txt"),
+        "++ sparkles line\nline two\n",
+      );
+      execGit(rootPath, ["add", "src/example.txt"]);
+      execGit(rootPath, ["commit", "-m", "change"]);
+      const headRef = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
+
+      const result = await resolveReviewDiffFiles({
+        rootPath,
+        baseRef,
+        headRef,
+      });
+
+      expect(result.files).toEqual([
+        expect.objectContaining({
+          path: "src/example.txt",
+          status: "modified",
+          additions: 2,
+          deletions: 1,
+        }),
+      ]);
+      expect(result.files[0]?.patch).toContain("+++ sparkles line");
+    } finally {
+      await rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  test("resolves content via a precomputed patch comparison for a deleted `-- ` file", async () => {
+    const fixture = await createDeletedHijackFixture();
+    try {
+      const comparison = await resolveReviewDiffFiles({
+        rootPath: fixture.rootPath,
+        baseRef: fixture.baseRef,
+        headRef: fixture.headRef,
+      });
+
+      expect(comparison.files.map((file) => file.path)).toEqual([
+        "src/schema.sql",
+      ]);
+      await expect(
+        resolveReviewFileContent({
+          rootPath: fixture.rootPath,
+          baseRef: fixture.baseRef,
+          headRef: fixture.headRef,
+          path: "src/schema.sql",
+          side: "base",
+          comparison,
+        }),
+      ).resolves.toEqual({
+        content: "-- a sql comment line\nSELECT 1;\n",
+      });
+      await expect(
+        resolveReviewFileContent({
+          rootPath: fixture.rootPath,
+          baseRef: fixture.baseRef,
+          headRef: fixture.headRef,
+          path: "src/schema.sql",
+          side: "head",
+          comparison,
+        }),
+      ).resolves.toEqual({ absent: true });
+    } finally {
+      await rm(fixture.rootPath, { recursive: true, force: true });
+    }
+  });
+
+  test("parses a mode-only change with no hunk header", async () => {
+    const rootPath = await mkdtemp(path.join(os.tmpdir(), "review-diff-mode-"));
+    try {
+      execGit(rootPath, ["init"]);
+      execGit(rootPath, ["config", "user.email", "test@example.com"]);
+      execGit(rootPath, ["config", "user.name", "Test User"]);
+      await writeFile(path.join(rootPath, "mode.txt"), "same content\n");
+      execGit(rootPath, ["add", "mode.txt"]);
+      execGit(rootPath, ["commit", "-m", "initial"]);
+      const baseRef = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
+      execGit(rootPath, ["update-index", "--chmod=+x", "mode.txt"]);
+      execGit(rootPath, ["commit", "-m", "make executable"]);
+      const headRef = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
+
+      const result = await resolveReviewDiffFiles({
+        rootPath,
+        baseRef,
+        headRef,
+      });
+
+      expect(result.files).toEqual([
+        expect.objectContaining({
+          path: "mode.txt",
+          status: "modified",
+          additions: 0,
+          deletions: 0,
+        }),
+      ]);
+    } finally {
+      await rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  test("parses a binary file change with no hunk header", async () => {
+    const rootPath = await mkdtemp(path.join(os.tmpdir(), "review-diff-bin-"));
+    try {
+      execGit(rootPath, ["init"]);
+      execGit(rootPath, ["config", "user.email", "test@example.com"]);
+      execGit(rootPath, ["config", "user.name", "Test User"]);
+      await writeFile(path.join(rootPath, "bin.dat"), Buffer.from([0, 1, 2]));
+      execGit(rootPath, ["add", "bin.dat"]);
+      execGit(rootPath, ["commit", "-m", "initial"]);
+      const baseRef = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
+      await writeFile(path.join(rootPath, "bin.dat"), Buffer.from([3, 4, 5]));
+      execGit(rootPath, ["add", "bin.dat"]);
+      execGit(rootPath, ["commit", "-m", "change"]);
+      const headRef = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
+
+      const result = await resolveReviewDiffFiles({
+        rootPath,
+        baseRef,
+        headRef,
+      });
+
+      expect(result.files).toEqual([
+        expect.objectContaining({
+          path: "bin.dat",
+          status: "modified",
+          additions: 0,
+          deletions: 0,
+        }),
+      ]);
+    } finally {
+      await rm(rootPath, { recursive: true, force: true });
+    }
+  });
 });
+
+async function createDeletedHijackFixture(): Promise<{
+  rootPath: string;
+  baseRef: string;
+  headRef: string;
+}> {
+  const rootPath = await mkdtemp(path.join(os.tmpdir(), "review-diff-hijack-"));
+  execGit(rootPath, ["init"]);
+  execGit(rootPath, ["config", "user.email", "test@example.com"]);
+  execGit(rootPath, ["config", "user.name", "Test User"]);
+  await mkdir(path.join(rootPath, "src"), { recursive: true });
+  await writeFile(
+    path.join(rootPath, "src/schema.sql"),
+    "-- a sql comment line\nSELECT 1;\n",
+  );
+  execGit(rootPath, ["add", "src/schema.sql"]);
+  execGit(rootPath, ["commit", "-m", "initial"]);
+  const baseRef = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
+  await unlink(path.join(rootPath, "src/schema.sql"));
+  execGit(rootPath, ["add", "src"]);
+  execGit(rootPath, ["commit", "-m", "remove schema"]);
+  const headRef = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
+  return { rootPath, baseRef, headRef };
+}
 
 async function createFileContentFixture(): Promise<{
   rootPath: string;

@@ -18,7 +18,6 @@ const isolatedTests = [
   "app/src/side-panel-resizer.test.tsx",
   "src/compiler/review-document-compiler.test.ts",
   "src/review-source-ref-errors.test.ts",
-  "src/map-cli-entry.test.ts",
 ];
 
 export default defineConfig({

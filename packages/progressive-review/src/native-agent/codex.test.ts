@@ -261,6 +261,12 @@ describe("CodexAgentServer", () => {
           id: "forked",
           turns: [
             {
+              status: "completed",
+              startedAt: 0,
+              completedAt: 1,
+              items: [userItem("old-u", "Prior task"), agentItem("old-a", "Prior answer")],
+            },
+            {
               status: "inProgress",
               startedAt: 1,
               completedAt: null,
@@ -308,10 +314,12 @@ describe("CodexAgentServer", () => {
     expect(command.env.DEV_FAST_REVIEW_AGENT_THREAD_URL).toBe(
       "http://127.0.0.1:4000/agent-threads",
     );
-    // The prompt arrived through the stream and again from thread/read;
-    // the snapshot has it once.
+    // The new question arrived live before hydration. Inherited history
+    // must precede it, or the mirror mistakes that history for new replies.
     const pipe = await server.updates("forked");
     expect(pipe.snapshot.messages.map((message) => message.body)).toEqual([
+      "Prior task",
+      "Prior answer",
       "Explain this",
     ]);
     await pipe.close();

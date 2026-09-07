@@ -30,6 +30,10 @@ export interface UpdatePipe<Snapshot, Update> {
 
 export interface SessionSnapshot {
   sessionId: string;
+  /** Conversation order, oldest first, including any inherited fork history.
+   * Live updates must continue this sequence, never append older history.
+   * The comment mirror starts at the matching Review question marker.
+   */
   messages: readonly NativeReviewMessage[];
 }
 

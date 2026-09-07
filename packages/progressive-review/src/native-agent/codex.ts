@@ -34,7 +34,7 @@ const MATERIALIZE_TIMEOUT_MS = 60_000;
 
 interface ThreadState {
   /** Messages seen so far, in order, with the item ids they came from. */
-  messages: NativeReviewMessage[];
+  messages: CodexMessage[];
   seenItems: Set<string>;
   /** The shared server streams this thread's events to our connection. */
   subscribed: boolean;
@@ -131,9 +131,16 @@ export class CodexAgentServer implements AgentServer {
     const state = this.#thread(sessionId);
     if (!state.subscribed) await this.#subscribe(client, sessionId, {});
     if (!state.loaded) {
-      for (const message of await this.#readThread(client, sessionId)) {
-        this.#append(state, message);
-      }
+      const history = await this.#readThread(client, sessionId);
+      const historyIds = new Set(history.map((message) => message.itemId));
+      // Live notifications can arrive before thread/read, including while
+      // that request is pending. History owns conversation order; retain
+      // only live items not yet included in that snapshot as its tail.
+      state.messages = [
+        ...history,
+        ...state.messages.filter((message) => !historyIds.has(message.itemId)),
+      ];
+      state.seenItems = new Set(state.messages.map((message) => message.itemId));
       state.loaded = true;
     }
     const queue = new AsyncQueue<SessionUpdate>();
@@ -242,10 +249,9 @@ export class CodexAgentServer implements AgentServer {
   #append(state: ThreadState, message: CodexMessage): void {
     if (state.seenItems.has(message.itemId)) return;
     state.seenItems.add(message.itemId);
-    const { itemId: _itemId, ...review } = message;
-    state.messages.push(review);
+    state.messages.push(message);
     for (const queue of state.subscribers) {
-      queue.push({ type: "message.updated", message: review });
+      queue.push({ type: "message.updated", message });
     }
   }
 

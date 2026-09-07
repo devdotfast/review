@@ -221,6 +221,18 @@ export default defineSoftwareMap({
               },
               {
                 "path": "packages/progressive-review/src/server/review-session-mode.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/software-map-model.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/software-map-bundle.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/software-map-artifact.ts"
+              },
+              {
+                "path": "packages/progressive-review/src/review-map-publish.ts"
               }
             ]
           },
@@ -688,7 +700,7 @@ export default defineSoftwareMap({
             },
             "mapValidation": {
               "label": "Software map validation",
-              "description": "Validates map coverage/health and computes base-head counts, retaining datastore collection visibility as a map concern.",
+              "description": "Validates map coverage and health, computes base-head counts, and serializes normalized models into published JSON map artifacts.",
               "coverage": {
                 "files": [
                   {
@@ -699,8 +711,26 @@ export default defineSoftwareMap({
                   },
                   {
                     "path": "packages/progressive-review/src/software-map-diff-counts.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/software-map-model.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/software-map-bundle.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/software-map-artifact.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/review-map-publish.ts"
                   }
                 ]
+              },
+              "codeElements": {
+                "jsonMapArtifact": {
+                  "label": "Published software map JSON",
+                  "description": "Stores normalized base and head models as data and validates artifacts before desktop hydration."
+                }
               }
             },
             "storeAuth": {

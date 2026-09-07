@@ -19,6 +19,7 @@ import {
   sealReviewCandidate,
 } from "./review-home";
 import type { createReviewSourceAgentSession } from "./review-source-agent-session";
+import { deleteReviewState } from "./review-state-db";
 import { closeAllReviewThreadStores } from "./review-thread-store-backend";
 import { reviewVcs } from "./review-vcs";
 import { migrateStoredReview } from "./stored-review-migration";
@@ -282,6 +283,7 @@ async function fixture(broken = false) {
     presentedDocumentRevision: revision,
   });
   await writeFile(path.join(review.dir, "review.json"), original);
+  deleteReviewState(review.dir);
   return { review, original };
 }
 

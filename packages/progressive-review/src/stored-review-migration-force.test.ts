@@ -10,7 +10,7 @@ import { createReviewDir } from "./review-home";
 import {
   REVIEW_THREAD_DB_SCHEMA_VERSION,
   closeAllReviewThreadStores,
-  createReviewThreadDb,
+  createLegacyReviewThreadDb,
 } from "./review-thread-store-backend";
 import {
   migrateStoredReview,
@@ -169,7 +169,7 @@ async function fixture(schemaVersion: number) {
     path.join(created.dir, "review.json"),
     JSON.stringify({ ...created.review, schemaVersion }),
   );
-  createReviewThreadDb(created.dir);
+  createLegacyReviewThreadDb(created.dir);
   closeAllReviewThreadStores();
   const dbPath = path.join(created.dir, "review.db");
   const db = new DatabaseSync(dbPath);

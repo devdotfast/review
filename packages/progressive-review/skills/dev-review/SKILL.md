@@ -59,7 +59,7 @@ Pass resolved commit ids to `--base` and `--head`. Parent suffixes like `<rev>^`
 
 If scaffold warns that `devfast.prepare` is not configured, set up that command according to [Prepared worktrees](references/prepared-worktrees.md).
 
-Read the scaffold JSON event and `<review-dir>/review.json`. Together they carry these values; record them:
+Read the scaffold JSON event; `review_get` through MCP provides additional metadata when needed. Record these values from the API responses:
 
 - Review UUID and directory
 - source worktree
@@ -107,6 +107,16 @@ Continue document work while the worker runs. Do not author the map in the main-
 If no sub-agent facility exists, publish the document. Report that the map is not published. Do not silently author it in the main-agent context.
 
 ### 4. Author the document
+
+Read and update Review source through the desktop API, never directly on disk.
+With MCP (`review mcp`), use `review_get_document_file` and
+`review_write_document_file` for `review.mdx` and `data.ts`. Pass the last read
+`sourceHash` as `expectedSourceHash`; on a conflict, read again and reconcile.
+Without MCP, `review document get <name> --review <uuid>` returns source and
+hash as JSON; pipe the replacement source into
+`review document write <name> --review <uuid> --expected-hash <hash>`.
+Use `null` only when the read reports an absent file. Repository source files
+and software-map scratch files are outside this document-storage boundary.
 
 Read [Document authoring](references/document-authoring.md) before you edit `review.mdx` or `data.ts`.
 

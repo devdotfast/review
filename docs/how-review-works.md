@@ -11,7 +11,7 @@ system views, and a structured feedback loop around that document.
 ```mermaid
 flowchart LR
   A[Branch, change, or PR] --> B[Agent authors a Review]
-  B --> C[CLI validates and publishes]
+  B --> C[Desktop API validates and publishes]
   C --> D[Reviewer reads in Review Desktop]
   D --> E{Decision}
   E -->|Request changes| B
@@ -45,10 +45,11 @@ checkout does not silently change the code being reviewed. Run
 
 `review publish` validates the Review document, checks its software-map
 relationship, and resolves every source range against the pinned checkout. The
-CLI seals a revision only after these checks pass. Review Desktop then mounts
+desktop server seals a revision only after these checks pass. Review Desktop then mounts
 the candidate before making it visible.
 
-Authoring remains `review.mdx` and `data.ts`. The CLI parses the document,
+Authoring remains `review.mdx` and `data.ts`, accessed through API calls rather
+than direct client filesystem access. The desktop server parses the document,
 checks authored TypeScript, and loads helpers in a disposable Node worker. It
 constructs and audits schema-checked JSON directly; it does not compile an MDX
 component or bundle authored modules. The installed runtime does not need
@@ -139,13 +140,15 @@ Authored Reviews are stored under:
 ${DEV_REVIEW_HOME:-~/.dev}/reviews/<uuid>/
 ```
 
-The directory contains the document, supporting TypeScript, pinned state,
-thread database, sealed revisions, and disposable build output. Review owns the
-infrastructure files; agents author `review.mdx` and `data.ts`, and use the CLI
-for publication and threads.
+The directory contains document source, supporting TypeScript, sealed revisions,
+and disposable build output. One `${DEV_REVIEW_HOME:-~/.dev}/review.db` holds
+metadata and comment state for all Reviews, scoped by Review UUID. Legacy
+per-Review databases are imported without deleting the original recovery files.
+The desktop owns this storage. Agents author `review.mdx` and `data.ts` through
+the document API and use API-backed CLI/MCP operations for publication and threads.
 
-`review.json` uses store schema 5 and records the independent document and map
-presentation pointers. Candidate JSON bundles live under `.bundle/`; private
+`review.json` remains a schema-5 compatibility mirror of metadata, including the
+independent document and map presentation pointers. Candidate JSON bundles live under `.bundle/`; private
 Git commits seal revisions and `.build/<revision>/` holds disposable
 materializations. Immutable old history or a failed migration may still contain
 legacy JavaScript. The local server can evaluate the exact sealed current

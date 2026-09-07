@@ -34,6 +34,7 @@ import {
   updateReviewPins,
 } from "./review-home";
 import { withReviewMutationLock } from "./review-mutation-lock";
+import { deleteReviewState } from "./review-state-db";
 import { appendReviewComment, readReviewComments } from "./review-state-store";
 import {
   cleanupTempDirs,
@@ -260,7 +261,7 @@ describe("review home", () => {
     await expect(
       readFile(path.join(created.dir, "package.json"), "utf8"),
     ).resolves.toContain('"test": "node review-test.mjs"');
-    expect(existsSync(path.join(created.dir, "review.db"))).toBe(true);
+    expect(existsSync(path.join(created.dir, "review.db"))).toBe(false);
     expect(existsSync(path.join(created.dir, "comments.json"))).toBe(false);
     expect(existsSync(path.join(created.dir, "questions.json"))).toBe(false);
     await expect(
@@ -1005,6 +1006,7 @@ async function legacyRecord(
   schemaVersion: 2 | 3 | 4,
   revision: string,
 ) {
+  deleteReviewState(created.dir);
   const {
     sourceSession,
     presentedDocumentRevision: _document,

@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import path from "node:path";
 import type { Writable } from "node:stream";
 
 import {
@@ -13,21 +12,12 @@ import {
   REVIEW_AGENT_THREAD_TOKEN_ENV,
   REVIEW_AGENT_THREAD_URL_ENV,
 } from "./native-agent/terminal-command";
-import { reviewUuidForManagedCheckout } from "./review-head-checkout";
 import {
-  type StoredReview,
-  findReview,
-  findScopedReview,
-  listReviews,
-} from "./review-home";
-import {
-  appendReviewAgentMessage,
-  readReviewComments,
-  updateReviewComment,
-} from "./review-state-store";
-
-// `review threads get` reads its attached Review server. Other commands can
-// still operate after that server closes, so they use review.db.
+  commandThreadsClient,
+  readThreadsClient,
+  replyThreadClient,
+  resolveThreadsReviewClient as resolveThreadsReview,
+} from "./review-lifecycle-client";
 
 export interface ReviewThreadsTarget {
   cwd: string;
@@ -38,10 +28,9 @@ export async function runReviewThreadsList(
   input: ReviewThreadsTarget & { json?: boolean; stdout: Writable },
 ): Promise<number> {
   const review = await resolveThreadsReview(input.cwd, input.reviewUuid);
-  const document = reviewDocumentPath(review);
   const payload = {
     review: review.review.uuid,
-    comments: readReviewComments(document),
+    comments: (await readThreadsClient(review.review.uuid)).comments,
   };
   // Indented output is easier for a human to read, but it breaks any reader
   // that takes one event per line. --json picks the line-oriented form.
@@ -141,10 +130,12 @@ export async function runReviewThreadsResolve(
   },
 ): Promise<number> {
   const review = await resolveThreadsReview(input.cwd, input.reviewUuid);
-  const document = reviewDocumentPath(review);
-  if (!updateReviewComment(document, input.threadId, { status: "resolved" })) {
-    throw new Error(`Comment thread not found: ${input.threadId}`);
-  }
+  await commandThreadsClient(review.review.uuid, {
+    command: "comment.update",
+    mutationId: randomUUID(),
+    threadId: input.threadId,
+    update: { status: "resolved" },
+  });
   input.stdout.write(
     `${JSON.stringify({
       event: "resolved",
@@ -166,21 +157,17 @@ export async function runReviewThreadsReply(
   const body = input.body.trim();
   if (!body) throw new Error("Reply body is required.");
   const review = await resolveThreadsReview(input.cwd, input.reviewUuid);
-  const document = reviewDocumentPath(review);
-  const thread = readReviewComments(document)[input.threadId];
-  if (!thread) {
-    throw new Error(`Comment thread not found: ${input.threadId}`);
-  }
   const messageId = randomUUID();
   // The republish gate requires a completed model response with role "agent"
   // on every current-round thread, so a CLI reply must not read as another
   // reviewer message.
-  appendReviewAgentMessage(document, input.threadId, {
-    id: messageId,
-    by: input.author?.trim() || "Agent",
-    at: new Date().toISOString(),
+  await replyThreadClient({
+    reviewUuid: review.review.uuid,
+    mutationId: randomUUID(),
+    threadId: input.threadId,
+    messageId,
+    author: input.author?.trim() || "Agent",
     body,
-    role: "agent",
     format: "plain",
   });
   input.stdout.write(
@@ -192,58 +179,4 @@ export async function runReviewThreadsReply(
     })}\n`,
   );
   return 0;
-}
-
-function reviewDocumentPath(review: StoredReview): string {
-  return path.join(review.dir, "review.mdx");
-}
-
-async function resolveThreadsReview(
-  cwd: string,
-  reviewUuid: string | undefined,
-): Promise<StoredReview> {
-  const candidates = (await reviewsForThreads(cwd, reviewUuid)).filter(
-    (review) => review.review.status !== "rejected",
-  );
-  if (candidates.length === 0) {
-    throw new Error(
-      reviewUuid
-        ? `Review not found: ${reviewUuid}`
-        : "No review found for this worktree.",
-    );
-  }
-  if (candidates.length > 1) {
-    throw new Error("Multiple reviews require --review <uuid>.");
-  }
-  return candidates[0]!;
-}
-
-async function reviewsForThreads(
-  cwd: string,
-  reviewUuid: string | undefined,
-): Promise<StoredReview[]> {
-  const managedReviewUuid = await reviewUuidForManagedCheckout(cwd);
-  if (managedReviewUuid) {
-    if (reviewUuid && reviewUuid !== managedReviewUuid) {
-      throw new Error(
-        `Managed checkout belongs to Review ${managedReviewUuid}, not ${reviewUuid}.`,
-      );
-    }
-    const review = await findReview(managedReviewUuid);
-    return review ? [review] : [];
-  }
-  if (reviewUuid) {
-    const selected = await findScopedReview(reviewUuid, {
-      worktreePath: cwd,
-      includeTerminal: true,
-    });
-    return selected ? [selected] : [];
-  }
-  const listed = await listReviews({ worktreePath: cwd });
-  if (listed.errors.length > 0) {
-    throw new Error(
-      `Could not read reviews:\n${listed.errors.map((error) => error.message).join("\n")}`,
-    );
-  }
-  return listed.reviews;
 }

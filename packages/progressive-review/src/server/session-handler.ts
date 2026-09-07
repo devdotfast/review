@@ -23,6 +23,7 @@ import {
   readReviewDocumentBundle,
 } from "../review-bundle";
 import { ReviewBusyError, reviewBusyResponse } from "../review-mutation-lock";
+import type { ReviewThreadsService } from "../review-threads-service";
 import { resolveReviewSessionBaseCommit } from "../review-worktree-target";
 import {
   type ReviewSoftwareMapBundle,
@@ -70,6 +71,7 @@ export interface ReviewSessionHandlerInput {
   reviewPath: string;
   softwareMapRootPath?: string;
   stateReviewPath?: string;
+  threadsService?: () => ReviewThreadsService;
   routePath: string;
   token?: string;
   sessionId?: string;
@@ -432,6 +434,7 @@ export async function createReviewSessionHandler(
     reviewRootPath,
     toolingRoot: input.toolingRoot,
     stateReviewPath: input.stateReviewPath,
+    threadsService: input.threadsService,
     telemetry: sessionTelemetry,
     onSubmission: async (event) => {
       broadcast({

@@ -11,6 +11,7 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { type StoredReview, createReviewDir } from "./review-home";
+import { startLifecycleTestServer } from "./review-lifecycle-test-utils";
 import { requireCompletedAgentResponsesForRepublish } from "./review-publish-thread-gate";
 import { appendReviewComment } from "./review-state-store";
 import { cleanupTempDirs, gitRepository } from "./review-test-utils";
@@ -28,8 +29,11 @@ import {
 const execFilePromise = promisify(execFile);
 
 const cleanups: string[] = [];
+let server: Awaited<ReturnType<typeof startLifecycleTestServer>> | undefined;
 
 afterEach(async () => {
+  await server?.close();
+  server = undefined;
   vi.unstubAllEnvs();
   closeAllReviewThreadStores();
   for (const dir of cleanups.splice(0)) {
@@ -195,6 +199,7 @@ async function makeReview(): Promise<{
   const home = await mkdtemp(path.join(os.tmpdir(), "review-threads-home-"));
   cleanups.push(home);
   vi.stubEnv("DEV_REVIEW_HOME", home);
+  server = await startLifecycleTestServer();
   const review = await createReviewDir({
     worktreePath: root,
     baseRef: "main",

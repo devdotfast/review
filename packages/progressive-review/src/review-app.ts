@@ -11,11 +11,11 @@ import { readReviewDesktopDiscovery } from "./desktop-discovery";
 import { runReviewAppLaunch } from "./review-app-launcher";
 import { type ReviewPickerItem, pickReview } from "./review-app-picker";
 import { actionableReviewsForCheckout } from "./review-change-scope";
+import type { StoredReview } from "./review-home";
 import {
-  type StoredReview,
-  findScopedReview,
-  listReviews,
-} from "./review-home";
+  findScopedReviewClient as findScopedReview,
+  listReviewsClient as listReviews,
+} from "./review-lifecycle-client";
 import { resolveReviewRoot } from "./runtime";
 
 interface ReviewAppRuntime {

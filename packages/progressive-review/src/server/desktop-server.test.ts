@@ -18,10 +18,11 @@ import {
 } from "../review-bundle";
 import { reviewDocumentDataSchema } from "../review-document-data";
 import { createReviewDir, reviewTitleFromDocument } from "../review-home";
+import { putReviewRecord } from "../review-state-db";
 import { appendReviewComment } from "../review-state-store";
 import {
   closeAllReviewThreadStores,
-  createReviewThreadDb,
+  createLegacyReviewThreadDb,
 } from "../review-thread-store-backend";
 import { reviewVcs } from "../review-vcs";
 import {
@@ -187,7 +188,7 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
       path.join(dir, "review.json"),
       JSON.stringify({ ...record, presentedDocumentRevision: currentRevision }),
     );
-    createReviewThreadDb(dir);
+    createLegacyReviewThreadDb(dir);
     appendReviewComment(path.join(dir, "review.mdx"), {
       threadId: "recovery-thread",
       messageId: "recovery-message",
@@ -402,7 +403,7 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
       path.join(dir, "review.json"),
       JSON.stringify({ ...record, presentedDocumentRevision: currentRevision }),
     );
-    createReviewThreadDb(dir);
+    createLegacyReviewThreadDb(dir);
     appendReviewComment(path.join(dir, "review.mdx"), {
       threadId: "recovery-thread",
       messageId: "recovery-message",
@@ -529,6 +530,7 @@ it("rejects a publication whose review moved its base ref during the command", a
         path.join(stored.dir, "review.json"),
         JSON.stringify({ ...stored.review, baseRef: "release" }),
       );
+      putReviewRecord(stored.dir, { ...stored.review, baseRef: "release" });
     }
     return { ok: true };
   };

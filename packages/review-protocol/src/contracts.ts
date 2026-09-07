@@ -1195,6 +1195,7 @@ export const ReviewRecordSchema = z.strictObject({
   pullRequestUrl: absoluteUrlSchema.nullable().optional(),
   title: stringAllowEmpty,
   sourceSession: requiredString,
+  titleOverride: z.string().optional(),
   agentSessions: z
     .record(requiredString, ReviewAgentSessionAttributionSchema)
     .optional(),
@@ -1609,6 +1610,11 @@ export type ReviewSessionLifecycleEvent = z.infer<
 >;
 
 export const ReviewDesktopGlobalEventSchema = z.discriminatedUnion("event", [
+  z.strictObject({
+    event: z.literal("review-metadata-changed"),
+    uuid: z.uuid(),
+    title: z.string(),
+  }),
   z.strictObject({
     event: z.literal("session-registered"),
     session: ReviewSessionDescriptorSchema,

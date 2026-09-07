@@ -48,14 +48,18 @@ import {
   runReviewAppLaunch,
 } from "./review-app-launcher";
 import { runReviewCodexWait } from "./review-codex-wait";
-import {
-  type StoredReview,
-  listReviews,
-  sealReviewCandidate,
-} from "./review-home";
+import type { StoredReview } from "./review-home";
 import { runReviewInfo } from "./review-info";
 import { runReviewInternalTest } from "./review-internal-test";
+import {
+  listReviewsClient as listReviews,
+  requestReviewLifecycle,
+  scaffoldReviewClient as runReviewScaffold,
+  checkpointReviewClient as sealReviewCandidate,
+} from "./review-lifecycle-client";
+import { ReviewDocumentFileNameSchema } from "./review-lifecycle-contracts";
 import { emitReviewEvent, serializeReviewError } from "./review-logger";
+import { runReviewMcp } from "./review-mcp";
 import { prepareReviewPinnedCheckout } from "./review-prepare";
 import { runReviewPublish } from "./review-publish";
 import { runReviewRebind } from "./review-rebind";
@@ -65,7 +69,6 @@ import {
   readReopenMarker,
 } from "./review-reopen-marker";
 import { runReviewRepair } from "./review-repair";
-import { runReviewScaffold } from "./review-scaffold";
 import { runReviewWait, validateReviewWait } from "./review-wait";
 import { installReviewCommand, pathShimPath } from "./server/cli-install";
 import { reviewDesktopDiscoveryPath } from "./server/desktop-paths";
@@ -268,6 +271,59 @@ export async function runProgressiveReviewCli(
   // over locals, so a default would clobber a subcommand's own true.
   program.addOption(new Option("--json").hideHelp());
   program.exitOverride();
+  const document = program
+    .command("document")
+    .description("Read or write Review source through the desktop API");
+  document
+    .command("get <name>")
+    .requiredOption("--review <uuid>")
+    .action(async (name: string, options: { review: string }) => {
+      const result = await requestReviewLifecycle("/lifecycle/document/read", {
+        reviewUuid: options.review,
+        name: ReviewDocumentFileNameSchema.parse(name),
+      });
+      input.stdout.write(`${JSON.stringify(result)}\n`);
+      state.exitCode = 0;
+    });
+  document
+    .command("write <name>")
+    .requiredOption("--review <uuid>")
+    .requiredOption(
+      "--expected-hash <hash>",
+      "Hash from get, or null for an absent file",
+    )
+    .action(
+      async (
+        name: string,
+        options: { review: string; expectedHash: string },
+      ) => {
+        const stream = input.stdin ?? process.stdin;
+        stream.setEncoding("utf8");
+        let source = "";
+        for await (const chunk of stream) source += chunk;
+        const result = await requestReviewLifecycle(
+          "/lifecycle/document/write",
+          {
+            reviewUuid: options.review,
+            name: ReviewDocumentFileNameSchema.parse(name),
+            source,
+            expectedSourceHash:
+              options.expectedHash === "null" ? null : options.expectedHash,
+          },
+        );
+        input.stdout.write(`${JSON.stringify(result)}\n`);
+        state.exitCode = 0;
+      },
+    );
+  program
+    .command("mcp")
+    .description("Connect an MCP client to Review Desktop over stdio")
+    .action(async () => {
+      state.exitCode = await runReviewMcp({
+        stdin: input.stdin ?? process.stdin,
+        stdout: input.stdout,
+      });
+    });
 
   configureJsonOutput(
     program.command("version").description("Print Review package version"),
@@ -1347,8 +1403,7 @@ function progressiveReviewTopLevelHelp(): string {
   return [
     "",
     "Use `review info` to discover Review documents for this checkout, or `review scaffold` to create one.",
-    "Edit the returned review.mdx and data.ts files, then use `review present` (alias of `review publish`). It validates in the CLI before contacting Review Desktop.",
-    "The CLI validates before publishing; Review Desktop promotes the revision before mounting it.",
+    "Author review.mdx and data.ts through the document API (`review mcp`), then use `review present` (alias of `review publish`). Review Desktop validates, seals, and presents the document.",
     "Use `review app launch` to start Review Desktop. Use `review app pick --review <uuid>` after publication.",
     "Use `--view <review|commits|diff|map|trace>` with `review publish` or `review app pick` to choose the opened tab.",
     "",

@@ -1,43 +1,9 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import type { Writable } from "node:stream";
 
-import { z } from "zod";
-
-import {
-  authoringSessionKey,
-  resolveAuthoringSessionRef,
-} from "./authoring-session";
+import { resolveAuthoringSessionRef } from "./authoring-session";
 import { type CliJsonEvent, emitJsonEvent } from "./cli-output";
-import { readReviewDesktopDiscovery } from "./desktop-discovery";
-import {
-  type StoredReview,
-  parseAnyStoredReviewRecord,
-  sealReviewCandidate,
-  touchReviewAgentSession,
-} from "./review-home";
-import {
-  assertReviewUnchanged,
-  withReviewMutationLock,
-} from "./review-mutation-lock";
-import {
-  ReviewPublicationValidationError,
-  prepareReviewSoftwareMapBundle,
-} from "./review-publication-preparation";
-import { resolveReviewRoot } from "./runtime";
-import { resolvePublishReview } from "./server/publish-preparation";
-import { materializePublishRevision } from "./server/publish-stage";
-import {
-  type ReviewSoftwareMapBundle,
-  readReviewSoftwareMapBundle,
-  sameReviewSoftwareMapBundle,
-  writeReviewSoftwareMapBundle,
-} from "./software-map-bundle";
-
-const MapPublishReadyResponseSchema = z.object({
-  ok: z.boolean().optional(),
-  error: z.string().optional(),
-});
+import { requestReviewLifecycle } from "./review-lifecycle-client";
+import { ReviewPublicationResultSchema } from "./review-lifecycle-contracts";
 
 export async function runReviewMapPublish(input: {
   cwd: string;
@@ -49,106 +15,34 @@ export async function runReviewMapPublish(input: {
 }): Promise<number> {
   const report = mapPublishReporter(input);
   try {
-    const reviewRoot = await resolveReviewRoot(input.cwd);
-    const review = await resolvePublishReview(reviewRoot, input.reviewUuid);
-    const agent = resolveAuthoringSessionRef(input.env ?? process.env);
-    const documentRevision = review.review.presentedDocumentRevision;
-    if (!documentRevision) {
-      throw new Error(
-        "The Review document is not published. Run `review publish` first.",
-      );
-    }
-    const documentBuildDir = await materializePublishRevision({
-      review,
-      revision: documentRevision,
-    });
-    const presentedDocument = parseAnyStoredReviewRecord(
-      JSON.parse(
-        await readFile(path.join(documentBuildDir, "review.json"), "utf8"),
-      ),
-    );
-    if (!presentedDocument.sourceCommit) {
-      throw new Error(
-        "The published Review document has no pinned head commit.",
-      );
-    }
-
-    report.stage("validate", "running");
-    let bundle;
-    try {
-      bundle = await prepareReviewSoftwareMapBundle({
-        review,
-        baseCommit: presentedDocument.baseCommit,
-        headCommit: presentedDocument.sourceCommit,
-      });
-    } catch (error) {
-      if (error instanceof ReviewPublicationValidationError) {
-        report.error("validate", error.errors);
-        return 1;
-      }
-      throw error;
-    }
-    report.stage("validate", "complete");
-
-    const existingRevision = review.review.presentedSoftwareMapRevision;
-    if (existingRevision) {
-      const existingDir = await materializePublishRevision({
-        review,
-        revision: existingRevision,
-      });
-      const existing = await readReviewSoftwareMapBundle(existingDir);
-      if (existing && sameReviewSoftwareMapBundle(existing, bundle)) {
-        if (agent) {
-          await touchReviewAgentSession(
-            review,
-            authoringSessionKey(agent),
-            "publisher",
-          );
-        }
-        report.published(existingRevision, documentRevision, true);
-        return 0;
-      }
-    }
-
-    report.stage("revision", "running");
-    const revision = await sealReviewSoftwareMapPublication({
-      review,
-      bundle,
-    });
-    report.stage("revision", "complete", { revision });
-
-    const discovery = await readReviewDesktopDiscovery();
-    if (!discovery) {
-      throw new Error(
-        "Review Desktop is not running. Run `review app launch`, then retry `review map publish`.",
-      );
-    }
-    report.stage("load", "running");
-    const response = await fetch(`${discovery.url}/map-publish-ready`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-review-token": discovery.token,
-      },
-      body: JSON.stringify({
-        reviewUuid: review.review.uuid,
-        revision,
-        agent,
+    const result = ReviewPublicationResultSchema.parse(
+      await requestReviewLifecycle("/lifecycle/map/publish", {
+        cwd: input.cwd,
+        reviewUuid: input.reviewUuid,
+        agent: resolveAuthoringSessionRef(input.env ?? process.env),
       }),
-    });
-    const result =
-      MapPublishReadyResponseSchema.safeParse(
-        await response.json().catch(() => null),
-      ).data ?? null;
-    if (!response.ok || !result?.ok) {
-      throw new Error(
-        result?.error ??
-          `Review Desktop returned ${response.status} for map-publish-ready.`,
-      );
+    );
+    for (const event of result.events) {
+      switch (event.event) {
+        case "stage":
+          report.stage(event.name, event.status, event);
+          break;
+        case "error":
+        case "warning":
+          report.error(event.stage, event.diagnostics);
+          break;
+        case "map-published":
+          report.published(
+            event.revision,
+            event.documentRevision,
+            event.unchanged,
+          );
+          break;
+        default:
+          throw new Error("Unexpected document publication result.");
+      }
     }
-    report.stage("load", "complete");
-    report.published(revision, documentRevision, false);
-    return 0;
+    return result.ok ? 0 : 1;
   } catch (error) {
     report.error("publish", [
       error instanceof Error ? error.message : String(error),
@@ -157,24 +51,13 @@ export async function runReviewMapPublish(input: {
   }
 }
 
-export async function sealReviewSoftwareMapPublication(input: {
-  review: StoredReview;
-  bundle: ReviewSoftwareMapBundle;
-}): Promise<string> {
-  return withReviewMutationLock(input.review.dir, async () => {
-    await assertReviewUnchanged(input.review.dir, input.review.review);
-    await writeReviewSoftwareMapBundle(input.review.dir, input.bundle);
-    return sealReviewCandidate(input.review.dir, "Publish Review software map");
-  });
-}
-
 interface MapPublishStageDetails {
   revision?: string;
 }
 
-interface MapPublishReporter {
+export interface MapPublishReporter {
   stage(
-    name: string,
+    name: "validate" | "revision" | "mount" | "load",
     status: "running" | "complete",
     details?: MapPublishStageDetails,
   ): void;

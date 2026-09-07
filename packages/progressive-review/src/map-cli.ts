@@ -26,7 +26,10 @@ import {
   humanStream,
   jsonRequestedInArgv,
 } from "./cli-output";
-import { touchReviewAgentSession } from "./review-home";
+import {
+  resolveReviewClient as resolvePublishReview,
+  touchReviewAgentSessionClient as touchReviewAgentSession,
+} from "./review-lifecycle-client";
 import { runReviewMapPublish } from "./review-map-publish";
 import {
   SOFTWARE_MAP_FILE_NAME,
@@ -35,7 +38,6 @@ import {
 } from "./review-storage";
 import { resolveReviewRepoRootFromStore } from "./review-worktree-target";
 import { resolveReviewRoot } from "./runtime";
-import { resolvePublishReview } from "./server/publish-preparation";
 import {
   type HydrateScratchResult,
   canonicalizeModelImport,

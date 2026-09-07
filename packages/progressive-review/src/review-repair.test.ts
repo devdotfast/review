@@ -14,7 +14,7 @@ import { DatabaseSync } from "node:sqlite";
 import { Writable } from "node:stream";
 
 import { remoteNotesRef, writeNote } from "@dev.fast/local-vcs";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   bundleReviewDocument,
@@ -25,13 +25,17 @@ import {
   materializeReviewRevision,
   sealReviewCandidate,
 } from "./review-home";
+import { startLifecycleTestServer } from "./review-lifecycle-test-utils";
 import { runReviewRepair } from "./review-repair";
 import { prepareReviewRepair } from "./review-repair-preparation";
 import { fingerprintReviewRepairInputs } from "./review-repair-state";
+import { deleteReviewState } from "./review-state-db";
 import { appendReviewComment } from "./review-state-store";
 import { SOFTWARE_MAP_NOTES_REF } from "./review-storage";
 import {
   closeAllReviewThreadStores,
+  copyReviewThreadDatabaseSnapshot,
+  createLegacyReviewThreadDb,
   readReviewThreadsReadOnly,
 } from "./review-thread-store-backend";
 import {
@@ -42,7 +46,11 @@ import { defineSoftwareMap } from "./software-map-model";
 import { migrateStoredReview } from "./stored-review-migration";
 
 const roots: string[] = [];
+let server: Awaited<ReturnType<typeof startLifecycleTestServer>> | undefined;
 afterEach(async () => {
+  await server?.close();
+  server = undefined;
+  vi.unstubAllEnvs();
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
@@ -402,6 +410,8 @@ describe("prepareReviewRepair", () => {
   });
   it("keeps the human report on stderr under --json and refuses another checkout", async () => {
     const stored = await fixture();
+    vi.stubEnv("DEV_REVIEW_HOME", path.dirname(path.dirname(stored.dir)));
+    server = await startLifecycleTestServer();
     let out = "";
     let err = "";
     const stdout = new Writable({
@@ -423,7 +433,7 @@ describe("prepareReviewRepair", () => {
         json: true,
         stdout,
         stderr,
-        env: { DEV_REVIEW_HOME: path.dirname(path.dirname(stored.dir)) },
+        env: { DEV_REVIEW_HOME: "/not-the-desktop-home" },
       }),
     ).toBe(1);
     expect(out).toContain('"event":"error"');
@@ -431,9 +441,11 @@ describe("prepareReviewRepair", () => {
     expect(out).not.toContain("Review repaired:");
   });
   it.each([".", "nested/package"])(
-    "repairs from %s with an explicit storage home",
+    "repairs from %s using desktop-owned storage",
     async (relativeCwd) => {
       const stored = await fixture();
+      vi.stubEnv("DEV_REVIEW_HOME", path.dirname(path.dirname(stored.dir)));
+      server = await startLifecycleTestServer();
       let out = "";
       let err = "";
       const stdout = new Writable({
@@ -451,18 +463,16 @@ describe("prepareReviewRepair", () => {
       const originalDevReviewHome = process.env.DEV_REVIEW_HOME;
       const cwd = path.join(stored.review.worktreePath, relativeCwd);
       await mkdir(cwd, { recursive: true });
-      const exitCode = await runReviewRepair({
-        cwd,
-        reviewUuid: stored.review.uuid,
-        json: true,
-        stdout,
-        stderr,
-        env: { DEV_REVIEW_HOME: path.dirname(path.dirname(stored.dir)) },
-      });
-      expect({ exitCode, err }).toMatchObject({
-        exitCode: 0,
-        err: expect.stringContaining("no repair needed"),
-      });
+      expect(
+        await runReviewRepair({
+          cwd,
+          reviewUuid: stored.review.uuid,
+          json: true,
+          stdout,
+          stderr,
+          env: { DEV_REVIEW_HOME: "/not-the-desktop-home" },
+        }),
+      ).toBe(0);
       expect(out).toContain('"event":"repaired"');
       expect(err).toContain(
         "Current Review artifacts are healthy; no repair needed.",
@@ -606,6 +616,9 @@ it("repairs broken sealed artifacts with a legacy DB by upgrading only the isola
   });
   closeAllReviewThreadStores();
   const dbPath = path.join(stored.dir, "review.db");
+  const document = path.join(stored.dir, "review.mdx");
+  copyReviewThreadDatabaseSnapshot(document, document);
+  deleteReviewState(stored.dir);
   const db = new DatabaseSync(dbPath);
   db.exec("UPDATE meta SET value = '5' WHERE key = 'schema_version'");
   db.close();
@@ -650,6 +663,8 @@ it("repairs broken sealed artifacts with a legacy DB by upgrading only the isola
 
 it("rejects changes to legacy threads while preparing artifact repair", async () => {
   const stored = await fixture(true);
+  createLegacyReviewThreadDb(stored.dir);
+  deleteReviewState(stored.dir);
   const dbPath = path.join(stored.dir, "review.db");
   const db = new DatabaseSync(dbPath);
   db.exec("UPDATE meta SET value = '5' WHERE key = 'schema_version'");

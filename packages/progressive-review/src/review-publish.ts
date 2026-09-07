@@ -1,41 +1,12 @@
 import type { Writable } from "node:stream";
 
-import type {
-  ReviewPublishReadyRequest,
-  ReviewView,
-} from "@dev.fast/review-protocol";
-import { z } from "zod";
+import type { ReviewView } from "@dev.fast/review-protocol";
 
 import { resolveAuthoringSessionRef } from "./authoring-session";
 import { type CliJsonEvent, emitJsonEvent } from "./cli-output";
-import { requireHealthyReviewDesktop } from "./desktop-discovery";
 import type { ReviewDocumentDiagnostic } from "./document/diagnostics";
-import { ReviewPublicationValidationError } from "./review-publication-preparation";
-import {
-  sealReviewDocumentPublication,
-  stageReviewDocumentPublication,
-} from "./review-publication-staging";
-import { resolveReviewRoot } from "./runtime";
-import { prepareReviewPublish } from "./server/publish-preparation";
-import { recordSpan, span, startSpan } from "./startup-trace";
-
-const PublishReadyResponseSchema = z.object({
-  ok: z.boolean().optional(),
-  sessionId: z.string().optional(),
-  url: z.string().optional(),
-  focusWarning: z.string().optional(),
-  error: z.string().optional(),
-  // Mount step timings the desktop measured, folded into the CLI spans.
-  timings: z
-    .array(
-      z.object({
-        name: z.string(),
-        startEpochMs: z.number(),
-        endEpochMs: z.number(),
-      }),
-    )
-    .optional(),
-});
+import { requestReviewLifecycle } from "./review-lifecycle-client";
+import { ReviewPublicationResultSchema } from "./review-lifecycle-contracts";
 
 interface PublishDiagnosticEvent extends CliJsonEvent {
   event: "error";
@@ -45,9 +16,7 @@ interface PublishDiagnosticEvent extends CliJsonEvent {
   message: string;
 }
 
-// The CLI owns the whole publish flow: it validates, bundles, resolves every
-// code reference, and seals the revision. The desktop is only notified via
-// /publish-ready and then serves the sealed bytes.
+// The CLI formats the desktop-owned publication result.
 export async function runReviewPublish(input: {
   cwd: string;
   reviewUuid?: string;
@@ -66,7 +35,44 @@ export async function runReviewPublish(input: {
   });
 
   try {
-    return await publish(input, reporter);
+    const result = ReviewPublicationResultSchema.parse(
+      await requestReviewLifecycle("/lifecycle/publish", {
+        cwd: input.cwd,
+        reviewUuid: input.reviewUuid,
+        view: input.view,
+        agent: resolveAuthoringSessionRef(input.env ?? process.env),
+      }),
+    );
+    for (const event of result.events) {
+      switch (event.event) {
+        case "review-bound":
+          await input.onReviewBound?.(event.reviewUuid);
+          break;
+        case "stage":
+          if (event.name !== "load")
+            reporter.stage(event.name, event.status, event);
+          break;
+        case "warning":
+          reporter.warning(event.stage, event.diagnostics);
+          break;
+        case "error":
+          reporter.error(event.stage, event.diagnostics);
+          break;
+        case "diagnostics":
+          reporter.validationErrors(event.diagnostics);
+          break;
+        case "document-published":
+          reporter.published(
+            event.revision,
+            event.sessionId,
+            event.softwareMapRevision,
+          );
+          break;
+        case "map-published":
+          throw new Error("Unexpected map publication result.");
+      }
+    }
+    return result.ok ? 0 : 1;
   } catch (error) {
     reporter.error("publish", [
       error instanceof Error ? error.message : String(error),
@@ -74,130 +80,6 @@ export async function runReviewPublish(input: {
 
     return 1;
   }
-}
-
-async function publish(
-  input: {
-    cwd: string;
-    reviewUuid?: string;
-    view?: ReviewView;
-    toolingRoot?: string;
-    env?: NodeJS.ProcessEnv;
-    onReviewBound?: (uuid: string) => void | Promise<void>;
-  },
-  reporter: PublishReporter,
-): Promise<number> {
-  const reviewRoot = await resolveReviewRoot(input.cwd);
-
-  const prepared = await span("publish: prepare", () =>
-    prepareReviewPublish({
-      cwd: reviewRoot,
-      reviewUuid: input.reviewUuid,
-      onReviewBound: input.onReviewBound,
-    }),
-  );
-
-  const review = prepared.review;
-
-  if (prepared.warnings?.length) {
-    reporter.warning("prepare", prepared.warnings);
-  }
-
-  reporter.stage("validate", "running");
-  let revision: string;
-
-  try {
-    const document = await span("publish: validate document", () =>
-      stageReviewDocumentPublication({ review }),
-    );
-
-    if (document.warnings.length > 0)
-      reporter.warning("validate", document.warnings);
-    reporter.stage("validate", "complete");
-    reporter.stage("revision", "running");
-    revision = await span("publish: seal revision", () =>
-      sealReviewDocumentPublication({ review, document }),
-    );
-  } catch (error) {
-    if (error instanceof ReviewPublicationValidationError) {
-      if (error.warnings.length > 0) {
-        reporter.warning("validate", error.warnings);
-      }
-
-      if (error.diagnostics) {
-        reporter.validationErrors(error.diagnostics);
-      } else {
-        reporter.error("validate", error.errors);
-      }
-    } else {
-      reporter.error("validate", [
-        error instanceof Error ? error.message : String(error),
-      ]);
-    }
-
-    return 1;
-  }
-
-  reporter.stage("revision", "complete", { revision });
-
-  const discovery = await span("publish: desktop health", () =>
-    requireHealthyReviewDesktop("review publish"),
-  );
-
-  reporter.stage("mount", "running");
-
-  const publishReady: ReviewPublishReadyRequest = {
-    reviewUuid: prepared.uuid,
-    revision,
-    agent: resolveAuthoringSessionRef(input.env ?? process.env),
-  };
-
-  if (input.view) publishReady.view = input.view;
-  const mountSpan = startSpan("publish: POST /publish-ready");
-
-  const response = await fetch(`${discovery.url}/publish-ready`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-review-token": discovery.token,
-    },
-    body: JSON.stringify(publishReady),
-  });
-
-  const result =
-    PublishReadyResponseSchema.safeParse(
-      await response.json().catch(() => null),
-    ).data ?? null;
-
-  if (response.ok) mountSpan.end();
-  else mountSpan.fail(`HTTP ${response.status}`);
-
-  for (const timing of result?.timings ?? []) {
-    recordSpan(`desktop: ${timing.name}`, timing, { parentId: mountSpan.id });
-  }
-
-  if (!response.ok || !result?.ok || !result.sessionId) {
-    throw new Error(
-      result?.error ??
-        `Review Desktop returned ${response.status} for publish-ready.`,
-    );
-  }
-
-  reporter.published(
-    revision,
-    result.sessionId,
-    review.review.presentedSoftwareMapRevision,
-  );
-
-  // The revision is promoted and on screen by now: a focus failure cannot
-  // make the publish a failure, so it reports as a warning with exit 0.
-  if (result.focusWarning) {
-    reporter.warning("mount", [result.focusWarning]);
-  }
-
-  reporter.stage("mount", "complete", { sessionId: result.sessionId });
-
-  return 0;
 }
 
 type PublishStage = "validate" | "revision" | "mount";
@@ -208,7 +90,7 @@ interface PublishStageDetails {
   skipped?: boolean;
 }
 
-interface PublishReporter {
+export interface PublishReporter {
   stage(
     name: PublishStage,
     status: "running" | "complete",

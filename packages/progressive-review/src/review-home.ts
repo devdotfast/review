@@ -49,6 +49,11 @@ import {
   assertReviewUnchanged,
   withReviewMutationLock,
 } from "./review-mutation-lock";
+import {
+  deleteReviewState,
+  putReviewRecord,
+  readReviewRecord,
+} from "./review-state-db";
 import { readReviewComments } from "./review-state-store";
 import { devReviewHome } from "./review-storage";
 import {
@@ -171,7 +176,8 @@ export async function createReviewDir(
   if (!UUID_PATTERN.test(uuid)) {
     throw new Error(`Review UUID is invalid: ${uuid}`);
   }
-  const dir = path.join(reviewsHomeDir(binding.reviewsHomePath), uuid);
+  const reviewHome = binding.reviewsHomePath ?? devReviewHome();
+  const dir = path.join(reviewsHomeDir(reviewHome), uuid);
   const worktreePath = path.resolve(binding.worktreePath);
   const repository = await resolveReviewRepositoryIdentity(worktreePath);
   const createdAt = new Date().toISOString();
@@ -223,9 +229,10 @@ export async function createReviewDir(
       writeFile(path.join(dir, "review-test.mjs"), reviewTestShim, "utf8"),
       writeFile(path.join(dir, ".gitignore"), reviewGitignore, "utf8"),
     ]);
-    createReviewThreadDb(dir);
-    await writePrivateJsonAtomic(path.join(dir, "review.json"), review);
+    createReviewThreadDb(dir, reviewHome);
+    await persistStoredReviewRecord(dir, review, reviewHome);
   } catch (error) {
+    deleteReviewState(dir, reviewHome);
     await rm(dir, { recursive: true, force: true });
     throw error;
   }
@@ -250,15 +257,12 @@ export async function touchReviewAgentSession(
   if (!parseAuthoringSessionKey(sessionKey)) {
     throw new Error(`Review agent session key is invalid: ${sessionKey}`);
   }
-  const recordPath = path.join(review.dir, "review.json");
   const outcome = await withReviewMutationLock(review.dir, () =>
     withFileLock(
       path.join(review.dir, ".agent-sessions.lock"),
       AGENT_SESSION_LOCK_OPTIONS,
       async () => {
-        const current = parseStoredReviewRecord(
-          JSON.parse(await readFile(recordPath, "utf8")),
-        );
+        const current = parseStoredReviewRecord(readReviewRecord(review.dir));
         const prior = current.agentSessions?.[sessionKey];
         const roles = prior?.roles.includes(role)
           ? prior.roles
@@ -274,7 +278,7 @@ export async function touchReviewAgentSession(
             },
           },
         };
-        await writePrivateJsonAtomic(recordPath, updated);
+        await persistStoredReviewRecord(review.dir, updated);
         return { dir: review.dir, review: updated };
       },
     ),
@@ -296,15 +300,12 @@ export async function bindReviewAuthorSession(
   now = new Date().toISOString(),
 ): Promise<StoredReview> {
   const sessionKey = authoringSessionKey(session);
-  const recordPath = path.join(review.dir, "review.json");
   const outcome = await withReviewMutationLock(review.dir, () =>
     withFileLock(
       path.join(review.dir, ".agent-sessions.lock"),
       AGENT_SESSION_LOCK_OPTIONS,
       async () => {
-        const current = parseStoredReviewRecord(
-          JSON.parse(await readFile(recordPath, "utf8")),
-        );
+        const current = parseStoredReviewRecord(readReviewRecord(review.dir));
         const freshHarness = parseFreshSourceSessionHarness(
           current.sourceSession,
         );
@@ -338,7 +339,7 @@ export async function bindReviewAuthorSession(
             },
           },
         };
-        await writePrivateJsonAtomic(recordPath, updated);
+        await persistStoredReviewRecord(review.dir, updated);
         return { dir: review.dir, review: updated };
       },
     ),
@@ -441,10 +442,7 @@ async function updateReviewPinsLocked(
       sourceCommit: refreshed.review.sourceCommit,
     },
   });
-  await writePrivateJsonAtomic(
-    path.join(refreshed.dir, "review.json"),
-    refreshed.review,
-  );
+  await persistStoredReviewRecord(refreshed.dir, refreshed.review);
   threadStore.writeCommentState(comments, remappedDrafts);
   return refreshed;
 }
@@ -814,9 +812,9 @@ export async function materializeReviewRevision(
 export async function readStoredReview(
   dir: string,
 ): Promise<StoredReview | { error: ReviewHomeError }> {
-  const reviewPath = path.join(dir, "review.json");
   try {
-    let value = parseJsonText(await readFile(reviewPath, "utf8"));
+    await access(dir);
+    let value = readReviewRecord(dir);
     let parsed = safeParseStoredReviewRecord(value);
     if (!parsed.success && isLegacyStoredReviewRecord(value, dir)) {
       try {
@@ -836,7 +834,7 @@ export async function readStoredReview(
           }),
         };
       }
-      value = parseJsonText(await readFile(reviewPath, "utf8"));
+      value = readReviewRecord(dir);
       parsed = safeParseStoredReviewRecord(value);
     }
     if (!parsed.success) {
@@ -859,6 +857,15 @@ export async function readStoredReview(
     if (code) detail.code = code;
     return { error: reviewHomeError(dir, undefined, detail) };
   }
+}
+
+export async function persistStoredReviewRecord(
+  dir: string,
+  review: StoredReviewRecord,
+  reviewHome?: string,
+): Promise<void> {
+  putReviewRecord(dir, review, reviewHome);
+  await writePrivateJsonAtomic(path.join(dir, "review.json"), review);
 }
 
 function isLegacyStoredReviewRecord(value: JsonValue, dir: string): boolean {

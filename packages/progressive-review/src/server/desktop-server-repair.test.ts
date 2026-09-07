@@ -34,10 +34,12 @@ import {
   type ReviewRepairReadyRequest,
   fingerprintReviewRepairInputs,
 } from "../review-repair-state";
+import { deleteReviewState, putReviewRecord } from "../review-state-db";
 import { appendReviewCommentDraft } from "../review-state-store";
 import {
   checkReviewThreadDbVersion,
   closeAllReviewThreadStores,
+  copyReviewThreadDatabaseSnapshot,
 } from "../review-thread-store-backend";
 import { reviewVcs } from "../review-vcs";
 import { createGlobalReviewServer } from "./desktop-server";
@@ -122,6 +124,7 @@ async function fixture(schemaVersion: 4 | 5 = 4) {
     presentedDocumentRevision: oldRevision,
   });
   await writeFile(path.join(stored.dir, "review.json"), expectedRecord);
+  deleteReviewState(stored.dir);
   const expectedFingerprint = await fingerprintReviewRepairInputs(stored.dir);
   const stagingDir = path.join(root, "stage");
   await cp(stored.dir, stagingDir, { recursive: true });
@@ -191,6 +194,10 @@ async function fixture(schemaVersion: 4 | 5 = 4) {
     visible.dir,
     "Review publish candidate",
   );
+  putReviewRecord(visible.dir, {
+    ...visible.review,
+    presentedDocumentRevision: visibleRevision,
+  });
   await writeFile(
     path.join(visible.dir, "review.json"),
     JSON.stringify({
@@ -240,6 +247,8 @@ it.each(["success", "mount-failure", "live-change", "stage-change"])(
       author: "Reviewer",
     });
     closeAllReviewThreadStores();
+    copyReviewThreadDatabaseSnapshot(reviewPath, reviewPath);
+    deleteReviewState(stored.dir);
     const db = new DatabaseSync(path.join(stored.dir, "review.db"));
     db.prepare(
       "UPDATE meta SET value = '5' WHERE key = 'schema_version'",

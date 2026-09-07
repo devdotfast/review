@@ -846,6 +846,10 @@ export class ReviewSessionService
 			response.body,
 			async (value) => {
 				const event = parseReviewDesktopGlobalEvent(value);
+				if (event.event === "review-metadata-changed") {
+					await this.refreshLists();
+					return;
+				}
 				if (event.event === "review-data-changed") {
 					this._onDidChangeReviewData.fire(event);
 					return;

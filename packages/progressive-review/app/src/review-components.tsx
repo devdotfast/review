@@ -1701,6 +1701,18 @@ function ThreadChat({
         <span>{quote}</span>
       </div>
       <div className="thread-chat-transcript">
+        {thread?.agentSession?.state === "pending" && (
+          <p role="status">
+            Waiting for the agent to record this question. If launch was
+            interrupted, ask again to start a new session.
+          </p>
+        )}
+        {thread?.agentSession?.state === "repair-required" && (
+          <p role="status">
+            This older session has no recorded conversation boundary. Your
+            messages are preserved; the next Ask will start a new session.
+          </p>
+        )}
         {thread?.messages.map((message) => {
           const caption = `${message.by} · ${threadRelativeTimeLabel(message.at)}`;
           const body = message.agentMarkdown ? (

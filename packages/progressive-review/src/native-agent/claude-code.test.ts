@@ -5,6 +5,10 @@ import path from "node:path";
 import type { JsonValue } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
+  forkSession: vi.fn(async () => ({ sessionId: "forked-session" })),
+}));
+
 import * as claudeCode from "./claude-code";
 import type {
   AgentServerOptions,
@@ -56,22 +60,23 @@ describe("launch", () => {
     await server.close();
   });
 
-  it("forks a Claude source session in the normal interactive terminal", async () => {
-    const server = claudeCode.server(await options());
+  it("forks a Claude source session before opening the interactive terminal", async () => {
+    const server = claudeCode.server({
+      ...(await options()),
+      readTranscript: async () => [],
+    });
     const { sessionId, command } = await server.launch({
       session: { forkOf: "tutorial-source" },
-      prompt: "Explain this Review",
+      prompt: {
+        text: "Explain this Review",
+        prepared: async () => {},
+        accepted: async () => {},
+      },
       cwd: "/tmp/tutorial",
     });
-    expect(sessionId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(sessionId).toBe("forked-session");
     expect(command.args).toEqual(
-      expect.arrayContaining([
-        "--resume",
-        "tutorial-source",
-        "--fork-session",
-        "--session-id",
-        sessionId,
-      ]),
+      expect.arrayContaining(["--resume", sessionId]),
     );
     expect(command.args.at(-1)).toBe("Explain this Review");
   });
@@ -79,7 +84,11 @@ describe("launch", () => {
   it("starts a fresh Claude session without resuming or forking", async () => {
     const server = claudeCode.server(await options());
     const { sessionId, command } = await server.launch({
-      prompt: "Explain this code",
+      prompt: {
+        text: "Explain this code",
+        prepared: async () => {},
+        accepted: async () => {},
+      },
       cwd: "/tmp/tutorial",
     });
     expect(command.args).toEqual(
@@ -103,7 +112,12 @@ describe("updates", () => {
   const message = (
     role: NativeReviewMessage["role"],
     body: string,
-  ): NativeReviewMessage => ({ role, body, createdAt: "2026-01-01T00:00:00Z" });
+  ): NativeReviewMessage => ({
+    id: `${role}-${body}`,
+    role,
+    body,
+    createdAt: "2026-01-01T00:00:00Z",
+  });
 
   async function nextUpdates(
     updates: AsyncIterable<SessionUpdate>,
@@ -155,6 +169,41 @@ describe("updates", () => {
       { type: "message.updated", message: message("assistant", "hi") },
     ]);
     await pipe.close();
+    await server.close();
+  });
+
+  it("accepts a new UUID after the inherited history, even when the Stop hook precedes disk flush", async () => {
+    const inherited = message("user", "Explain this");
+    const transcript = [inherited];
+    const server = await serverOver(transcript);
+    const accepted = vi.fn(async () => {});
+    const prepared = vi.fn(async () => {});
+    const { command } = await server.launch({
+      session: { forkOf: "source" },
+      cwd: "/tmp/tutorial",
+      prompt: { text: "Explain this", prepared, accepted },
+    });
+    expect(prepared).toHaveBeenCalledExactlyOnceWith("forked-session");
+    expect(accepted).not.toHaveBeenCalled();
+    await postHook(command.env, {
+      session_id: "forked-session",
+      hook_event_name: "Stop",
+    });
+    transcript.push({ ...inherited, id: "new-question-uuid" });
+    await expect
+      .poll(() => accepted.mock.calls)
+      .toEqual([["forked-session", "new-question-uuid"]]);
+    await Promise.all([
+      postHook(command.env, {
+        session_id: "forked-session",
+        hook_event_name: "UserPromptSubmit",
+      }),
+      postHook(command.env, {
+        session_id: "forked-session",
+        hook_event_name: "Stop",
+      }),
+    ]);
+    expect(accepted).toHaveBeenCalledOnce();
     await server.close();
   });
 

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 import {
   type LocalVcsCommitSummary,
@@ -12,6 +13,7 @@ import {
 import {
   type JsonObject,
   type JsonValue,
+  type ReviewCommentAgentSession,
   type ReviewCommentThreadRecord,
   type ReviewSessionWire,
   type ReviewStackResponse,
@@ -635,9 +637,10 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
         error: "This thread has no agent terminal.",
       });
     }
-    // SAFETY: thread records store agent sessions through the review
-    // protocol schema, whose harness enum is the ReviewAgentHarness union.
-    const binding = agentSession as SessionRef;
+    const binding: SessionRef = {
+      harness: agentSession.harness,
+      sessionId: agentSession.sessionId,
+    };
     const { command } = await agentServer(binding.harness).launch({
       session: { resume: binding.sessionId },
       cwd: agentRootPath,
@@ -1087,10 +1090,10 @@ function reviewApiJsonResponse<T extends ReviewApiResponseBody>(
   });
 }
 
-async function answerReviewComment(input: {
+export async function answerReviewComment(input: {
   comment: CreateReviewCommentInput;
   rootPath: string;
-  session: ReviewSessionWire;
+  session: Pick<ReviewSessionWire, "agent" | "freshQuestionHarness">;
   service: ReviewThreadsService;
   mirror: NativeMessageMirror;
   agentServer: (harness: ReviewAgentHarness) => AgentServer;
@@ -1101,9 +1104,33 @@ async function answerReviewComment(input: {
   onQuestionAgentSession?: (agent: SessionRef) => Promise<void>;
 }): Promise<void> {
   const snapshot = input.service.snapshot();
-  const storedSession =
-    snapshot.drafts[input.comment.threadId]?.thread.agentSession ??
-    snapshot.comments[input.comment.threadId]?.agentSession;
+  const storedThread =
+    snapshot.drafts[input.comment.threadId]?.thread ??
+    snapshot.comments[input.comment.threadId];
+  const storedSession = storedThread?.agentSession;
+  const submitted = storedThread?.messages.find(
+    (message) => message.id === input.comment.messageId,
+  );
+  if (
+    storedSession?.state === "ready" &&
+    submitted?.agentInput &&
+    submitted.agentMessage?.sessionId === storedSession.sessionId
+  ) {
+    // Acceptance is durable even if opening the terminal failed or the
+    // desktop restarted. Reopen it without submitting the same Ask again.
+    input.mirror.watch(input.comment.threadId, storedSession);
+    const binding: SessionRef = {
+      harness: storedSession.harness,
+      sessionId: storedSession.sessionId,
+    };
+    const { command } = await input.agentServer(binding.harness).launch({
+      cwd: input.rootPath,
+      session: { resume: binding.sessionId },
+    });
+    await input.openNativeAgentTerminal({ session: binding, command });
+    await input.onQuestionAgentSession?.(binding);
+    return;
+  }
   const launch = await resolveReviewQuestionLaunch({
     storedSession,
     agent: input.session.agent,
@@ -1114,8 +1141,83 @@ async function answerReviewComment(input: {
     throw new Error("This Review has no authoring agent session.");
   }
   const launchInput: LaunchInput = {
-    prompt: reviewCommentPrompt(input.comment),
     cwd: input.rootPath,
+    prompt: {
+      text: reviewCommentPrompt(input.comment),
+      prepared: async (sessionId) => {
+        const current = input.service.snapshot();
+        const currentSession =
+          current.drafts[input.comment.threadId]?.thread.agentSession ??
+          current.comments[input.comment.threadId]?.agentSession;
+        if (!isDeepStrictEqual(currentSession, storedSession)) {
+          throw new Error(
+            "Another Ask changed this comment's agent session during launch.",
+          );
+        }
+        const firstMessageId =
+          storedSession?.state === "ready" &&
+          storedSession.sessionId === sessionId
+            ? storedSession.firstMessageId
+            : null;
+        const commit = input.service.setAgentSession({
+          mutationId: randomUUID(),
+          threadId: input.comment.threadId,
+          agentSession: {
+            harness: launch.harness,
+            sessionId,
+            state: "pending",
+            firstMessageId,
+          },
+        });
+        if (!commit) throw new Error("The Review comment no longer exists.");
+        // Persist before yielding. The pending state also gates an existing
+        // mirror while its subscription is being closed.
+        await input.mirror.pause(input.comment.threadId);
+      },
+      accepted: async (sessionId, messageId) => {
+        if (!sessionId || !messageId) {
+          throw new Error(
+            "The agent accepted a message without a prepared session or native ID.",
+          );
+        }
+        const snapshot = input.service.snapshot();
+        const thread =
+          snapshot.drafts[input.comment.threadId]?.thread ??
+          snapshot.comments[input.comment.threadId];
+        const pending = thread?.agentSession;
+        if (
+          pending?.state !== "pending" ||
+          pending.harness !== launch.harness ||
+          pending.sessionId !== sessionId
+        ) {
+          throw new Error("The Review launch no longer owns this comment.");
+        }
+        const firstMessageId =
+          pending.firstMessageId === null ? messageId : pending.firstMessageId;
+        // Bind the existing reviewer message, rather than re-importing its prompt.
+        input.service.upsertAgentSessionMessage({
+          mutationId: randomUUID(),
+          threadId: input.comment.threadId,
+          messageId: input.comment.messageId,
+          role: "reviewer",
+          body: input.comment.body,
+          agentInput: true,
+          agentMessage: { sessionId, messageId },
+        });
+        const binding = {
+          harness: launch.harness,
+          sessionId,
+          state: "ready" as const,
+          firstMessageId,
+        };
+        input.service.setAgentSession({
+          mutationId: randomUUID(),
+          threadId: input.comment.threadId,
+          agentSession: binding,
+        });
+        input.mirror.watch(input.comment.threadId, binding);
+      },
+    },
   };
   if (launch.session) launchInput.session = launch.session;
   const { sessionId, command } = await input
@@ -1123,17 +1225,6 @@ async function answerReviewComment(input: {
     .launch(launchInput);
   const binding: SessionRef = { harness: launch.harness, sessionId };
   await input.openNativeAgentTerminal({ session: binding, command });
-  const commit = input.service.setAgentSession({
-    mutationId: randomUUID(),
-    threadId: input.comment.threadId,
-    agentSession: binding,
-  });
-  if (!commit) {
-    throw new Error(
-      `Review comment thread ${input.comment.threadId} no longer exists.`,
-    );
-  }
-  input.mirror.watch(input.comment.threadId, binding);
   await input.onQuestionAgentSession?.(binding);
 }
 
@@ -1143,14 +1234,14 @@ export interface ReviewQuestionLaunch {
 }
 
 export async function resolveReviewQuestionLaunch(input: {
-  storedSession?: SessionRef;
+  storedSession?: ReviewCommentAgentSession;
   agent?: SessionRef;
   freshQuestionHarness?: ReviewSessionWire["freshQuestionHarness"];
   resolveQuestionSourceSession?: (
     signal?: AbortSignal,
   ) => Promise<SessionRef | undefined>;
 }): Promise<ReviewQuestionLaunch | undefined> {
-  if (input.storedSession) {
+  if (input.storedSession?.state === "ready") {
     return {
       harness: input.storedSession.harness,
       session: { resume: input.storedSession.sessionId },

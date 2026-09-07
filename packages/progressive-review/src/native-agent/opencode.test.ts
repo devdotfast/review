@@ -10,7 +10,7 @@ import {
   jsonObject,
   parseJsonText,
 } from "@dev.fast/review-protocol";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentServerOptions, SessionUpdate } from "./native-session";
 import { OpencodeAgentServer, projectOpencodeMessages } from "./opencode";
@@ -179,13 +179,13 @@ describe("projectOpencodeMessages", () => {
         role: "user",
         body: "hello",
         createdAt: "1970-01-01T00:00:01.000Z",
-        messageId: "msg_1",
+        id: "msg_1",
       },
       {
         role: "assistant",
         body: "done",
         createdAt: "1970-01-01T00:00:02.000Z",
-        messageId: "msg_3",
+        id: "msg_3",
       },
     ]);
   });
@@ -195,9 +195,10 @@ describe("OpencodeAgentServer", () => {
   it("forks, prompts, and attaches the TUI to the shared server", async () => {
     const oc = await fakeOpencode();
     const server = new OpencodeAgentServer(await options(), oc.host);
+    const accepted = vi.fn(async () => {});
     const { sessionId, command } = await server.launch({
       session: { forkOf: "ses_src" },
-      prompt: "Explain this",
+      prompt: { text: "Explain this", prepared: async () => {}, accepted },
       cwd: "/tmp/tutorial",
     });
     expect(sessionId).toBe("ses_1");
@@ -219,8 +220,13 @@ describe("OpencodeAgentServer", () => {
       "POST /session/ses_1/prompt_async /repo/source",
     ]);
     expect(calls[4]?.body).toEqual({
+      messageID: expect.stringMatching(/^msg_/),
       parts: [{ type: "text", text: "Explain this" }],
     });
+    expect(accepted).toHaveBeenCalledExactlyOnceWith(
+      "ses_1",
+      (calls[4]?.body as JsonObject).messageID,
+    );
     expect(command.executable).toBe("opencode");
     expect(command.args).toEqual([
       "attach",

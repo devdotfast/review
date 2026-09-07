@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import type { JsonObject, JsonValue } from "@dev.fast/review-protocol";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   CodexAgentServer,
@@ -118,6 +118,7 @@ describe("projectCodexTurns", () => {
   it("keeps every user message and the final agent message of completed turns", () => {
     const messages = projectCodexTurns([
       {
+        id: "turn-1",
         status: "completed",
         startedAt: 1_700_000_000,
         completedAt: 1_700_000_010,
@@ -128,6 +129,7 @@ describe("projectCodexTurns", () => {
         ],
       },
       {
+        id: "turn-2",
         status: "inProgress",
         startedAt: 1_700_000_020,
         completedAt: null,
@@ -139,19 +141,22 @@ describe("projectCodexTurns", () => {
         role: "user",
         body: "hello",
         createdAt: "2023-11-14T22:13:20.000Z",
-        itemId: "u1",
+        id: "u1",
+        turnId: "turn-1",
       },
       {
         role: "assistant",
         body: "final answer",
         createdAt: "2023-11-14T22:13:30.000Z",
-        itemId: "a2",
+        id: "a2",
+        turnId: "turn-1",
       },
       {
         role: "user",
         body: "and?",
         createdAt: "2023-11-14T22:13:40.000Z",
-        itemId: "u2",
+        id: "u2",
+        turnId: "turn-2",
       },
     ]);
   });
@@ -162,6 +167,7 @@ describe("projectCodexTurns", () => {
         method: "item/completed",
         params: {
           threadId: "t",
+          turnId: "turn-1",
           item: userItem("u1", "hi"),
           completedAtMs: 1_000,
         },
@@ -171,7 +177,8 @@ describe("projectCodexTurns", () => {
         role: "user",
         body: "hi",
         createdAt: "1970-01-01T00:00:01.000Z",
-        itemId: "u1",
+        id: "u1",
+        turnId: "turn-1",
       },
     ]);
     expect(
@@ -179,6 +186,7 @@ describe("projectCodexTurns", () => {
         method: "item/completed",
         params: {
           threadId: "t",
+          turnId: "turn-1",
           item: agentItem("a1", "streamed"),
           completedAtMs: 1,
         },
@@ -189,7 +197,9 @@ describe("projectCodexTurns", () => {
         method: "turn/completed",
         params: {
           threadId: "t",
+          turnId: "turn-1",
           turn: {
+            id: "turn-1",
             status: "completed",
             completedAt: 2,
             items: [agentItem("a1", "done")],
@@ -201,7 +211,8 @@ describe("projectCodexTurns", () => {
         role: "assistant",
         body: "done",
         createdAt: "1970-01-01T00:00:02.000Z",
-        itemId: "a1",
+        id: "a1",
+        turnId: "turn-1",
       },
     ]);
   });
@@ -211,6 +222,8 @@ describe("CodexAgentServer", () => {
   it.each(["new", "fork", "resume"] as const)(
     "attaches shell tools before the first turn of a %s session",
     async (mode) => {
+      let prepared = false;
+      const accepted = vi.fn(async () => {});
       let executionEnv: JsonObject | undefined;
       const configure = (params: JsonObject) => {
         const config = params.config as JsonObject;
@@ -224,18 +237,33 @@ describe("CodexAgentServer", () => {
         "turn/start": () => {
           // This executes before launch returns a terminal command. The
           // original bug only configured that later terminal's environment.
+          expect(prepared).toBe(true);
           expect(executionEnv).toMatchObject({
-            DEV_FAST_REVIEW_AGENT_THREAD_URL: "http://127.0.0.1:4000/agent-threads",
+            DEV_FAST_REVIEW_AGENT_THREAD_URL:
+              "http://127.0.0.1:4000/agent-threads",
             DEV_FAST_REVIEW_AGENT_THREAD_TOKEN: "s",
           });
-          queueMicrotask(() => host.emit({
-            method: "item/completed",
-            params: {
-              threadId: "attached",
-              item: userItem("u1", "Read the comment"),
-              completedAtMs: 5,
-            },
-          }));
+          queueMicrotask(() =>
+            host.emit({
+              method: "item/completed",
+              params: {
+                threadId: "attached",
+                turnId: "unrelated-turn",
+                item: userItem("other", "Read the comment"),
+              },
+            }),
+          );
+          queueMicrotask(() =>
+            host.emit({
+              method: "item/completed",
+              params: {
+                threadId: "attached",
+                turnId: "turn-1",
+                item: userItem("u1", "Read the comment"),
+                completedAtMs: 5,
+              },
+            }),
+          );
           return { turn: { id: "turn-1" } };
         },
       });
@@ -243,10 +271,17 @@ describe("CodexAgentServer", () => {
       try {
         await server.launch({
           cwd: "/tmp/tutorial",
-          prompt: "Read the comment",
+          prompt: {
+            text: "Read the comment",
+            prepared: async () => {
+              prepared = true;
+            },
+            accepted,
+          },
           ...(mode === "fork" ? { session: { forkOf: "source" } } : {}),
           ...(mode === "resume" ? { session: { resume: "attached" } } : {}),
         });
+        expect(accepted).toHaveBeenCalledExactlyOnceWith("attached", "u1");
       } finally {
         await server.close();
       }
@@ -261,12 +296,17 @@ describe("CodexAgentServer", () => {
           id: "forked",
           turns: [
             {
+              id: "old-turn",
               status: "completed",
               startedAt: 0,
               completedAt: 1,
-              items: [userItem("old-u", "Prior task"), agentItem("old-a", "Prior answer")],
+              items: [
+                userItem("old-u", "Prior task"),
+                agentItem("old-a", "Prior answer"),
+              ],
             },
             {
+              id: "turn-1",
               status: "inProgress",
               startedAt: 1,
               completedAt: null,
@@ -281,6 +321,7 @@ describe("CodexAgentServer", () => {
             method: "item/completed",
             params: {
               threadId: params.threadId as string,
+              turnId: "turn-1",
               item: userItem("u1", "Explain this"),
               completedAtMs: 5,
             },
@@ -292,7 +333,11 @@ describe("CodexAgentServer", () => {
     const server = new CodexAgentServer(await options(), host);
     const { sessionId, command } = await server.launch({
       session: { forkOf: "source" },
-      prompt: "Explain this",
+      prompt: {
+        text: "Explain this",
+        prepared: async () => {},
+        accepted: async () => {},
+      },
       cwd: "/tmp/tutorial",
     });
     expect(sessionId).toBe("forked");
@@ -333,6 +378,7 @@ describe("CodexAgentServer", () => {
           id: "t",
           turns: [
             {
+              id: "turn-1",
               status: "completed",
               startedAt: 1,
               completedAt: 2,
@@ -356,6 +402,7 @@ describe("CodexAgentServer", () => {
       method: "item/completed",
       params: {
         threadId: "t",
+        turnId: "turn-1",
         item: userItem("u2", "second"),
         completedAtMs: 3,
       },
@@ -364,7 +411,9 @@ describe("CodexAgentServer", () => {
       method: "turn/completed",
       params: {
         threadId: "t",
+        turnId: "turn-1",
         turn: {
+          id: "turn-1",
           status: "completed",
           completedAt: 4,
           items: [agentItem("a2", "answer two")],
@@ -376,6 +425,7 @@ describe("CodexAgentServer", () => {
       method: "item/completed",
       params: {
         threadId: "t",
+        turnId: "turn-1",
         item: userItem("u2", "second"),
         completedAtMs: 3,
       },

@@ -26,7 +26,7 @@ import type {
 // await. See review-state-store.ts.
 
 export const REVIEW_THREAD_DB_FILENAME = "review.db";
-export const REVIEW_THREAD_DB_SCHEMA_VERSION = 6;
+export const REVIEW_THREAD_DB_SCHEMA_VERSION = 7;
 
 export function reviewStateDir(reviewMdxPath: string): string {
   return path.dirname(path.resolve(reviewMdxPath));
@@ -206,7 +206,8 @@ export async function migrateReviewThreadDb(
       version !== "2" &&
       version !== "3" &&
       version !== "4" &&
-      version !== "5"
+      version !== "5" &&
+      version !== "6"
     ) {
       throw new ReviewThreadDbVersionError(dbPath, version);
     }
@@ -251,7 +252,7 @@ export async function migrateReviewThreadDb(
   }
 }
 
-/** Normalize message markers and remove provider provenance before validation. */
+/** Preserve messages; bindings without a native boundary require a fresh Ask. */
 function migrateNativeAgentSessionRecords(db: DatabaseSync): void {
   for (const table of ["comments", "comment_drafts"] as const) {
     // SAFETY: both tables declare thread_id TEXT PRIMARY KEY and record_json
@@ -285,10 +286,11 @@ function migrateNativeAgentSessionRecord(
   return migrateNativeAgentSessionThread(value);
 }
 
-/** Pre-v6 records may carry extra agent-session keys; keep only the current ones. */
-const LegacyCommentAgentSessionSchema = z.object(
-  ReviewCommentAgentSessionSchema.shape,
-);
+/** Pre-v7 bindings cannot reliably identify the first Review message. */
+const LegacyCommentAgentSessionSchema = z.object({
+  harness: z.enum(["codex", "claude-code", "opencode", "pi"]),
+  sessionId: z.string().min(1),
+});
 
 function migrateNativeAgentSessionThread(thread: JsonObject): JsonObject {
   const originalMessages = Array.isArray(thread.messages)
@@ -316,9 +318,14 @@ function migrateNativeAgentSessionThread(thread: JsonObject): JsonObject {
     : thread;
   if (!("agentSession" in migratedThread)) return migratedThread;
   const { agentSession, ...preserved } = migratedThread;
+  const current = ReviewCommentAgentSessionSchema.safeParse(agentSession);
+  if (current.success) return { ...preserved, agentSession: current.data };
   const session = LegacyCommentAgentSessionSchema.safeParse(agentSession);
   if (!session.success) return preserved;
-  return { ...preserved, agentSession: session.data };
+  return {
+    ...preserved,
+    agentSession: { ...session.data, state: "repair-required" },
+  };
 }
 
 async function migrateLegacyCodeRecords(

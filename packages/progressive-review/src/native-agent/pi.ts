@@ -32,6 +32,11 @@ interface SessionState {
   /** The latest projection the extension posted. */
   messages: NativeReviewMessage[];
   subscribers: Set<{ queue: AsyncQueue<SessionUpdate>; delivered: number }>;
+  pendingPrompt?: {
+    phase: "awaiting-session-start" | "awaiting-message";
+    inheritedIds: Set<string>;
+    accepted: NonNullable<LaunchInput["prompt"]>["accepted"];
+  };
 }
 
 /**
@@ -80,8 +85,18 @@ export class PiAgentServer implements AgentServer {
     } else {
       args.push("--session-id", sessionId);
     }
-    if (input.prompt !== undefined) args.push(input.prompt);
-    this.#session(sessionId);
+    const state = this.#session(sessionId);
+    if (input.prompt) {
+      if (state.pendingPrompt)
+        throw new Error("Pi already has a pending Review prompt.");
+      await input.prompt.prepared(sessionId);
+      state.pendingPrompt = {
+        phase: "awaiting-session-start",
+        inheritedIds: new Set(),
+        accepted: input.prompt.accepted,
+      };
+      args.push(input.prompt.text);
+    }
     const env: NativeTerminalCommand["env"] = {
       [REVIEW_AGENT_BRIDGE_URL_ENV]: `${bridgeUrl}/${this.harness}/${encodedSession}`,
       [REVIEW_AGENT_BRIDGE_TOKEN_ENV]: this.#ingress.token,
@@ -127,24 +142,53 @@ export class PiAgentServer implements AgentServer {
     await this.#ingress.close();
   }
 
-  #receive(sessionId: string, payload: JsonValue): void {
+  async #receive(sessionId: string, payload: JsonValue): Promise<void> {
     const record = jsonObject(payload);
     if (!record) {
       throw new Error("The Pi bridge posted a non-object payload.");
     }
     const postedSession = jsonString(record.sessionId);
-    if (postedSession !== undefined && postedSession !== sessionId) {
+    if (postedSession !== sessionId) {
       throw new Error(
         `The Pi bridge for session "${postedSession}" posted to session "${sessionId}".`,
       );
     }
     const messages = bridgeMessages(record.messages);
     const state = this.#session(sessionId);
+    const previous = state.messages;
     state.messages = messages;
+    const pending = state.pendingPrompt;
+    if (pending) {
+      if (pending.phase === "awaiting-session-start") {
+        if (record.phase !== "session-start") {
+          throw new Error(
+            "Pi must report its inherited branch before accepting a Review prompt.",
+          );
+        }
+        pending.inheritedIds = new Set(messages.map((message) => message.id));
+        pending.phase = "awaiting-message";
+      } else {
+        const first = messages.find(
+          (message) =>
+            message.role === "user" && !pending.inheritedIds.has(message.id),
+        );
+        if (first) {
+          state.pendingPrompt = undefined;
+          await pending.accepted(sessionId, first.id);
+        }
+      }
+    }
     for (const subscriber of state.subscribers) {
-      // The branch can shrink after /tree navigation; deliver from the new end.
-      if (subscriber.delivered > messages.length) {
-        subscriber.delivered = messages.length;
+      // A branch switch is not an append. Reconnect from the persisted
+      // boundary instead of importing a different branch as new replies.
+      if (
+        previous
+          .slice(0, subscriber.delivered)
+          .some((message, index) => messages[index]?.id !== message.id)
+      ) {
+        subscriber.queue.close();
+        state.subscribers.delete(subscriber);
+        continue;
       }
       for (const message of messages.slice(subscriber.delivered)) {
         subscriber.delivered += 1;
@@ -170,17 +214,19 @@ function bridgeMessages(value: JsonValue | undefined): NativeReviewMessage[] {
   }
   return list.map((entry) => {
     const record = jsonObject(entry);
+    const id = jsonString(record?.id);
     const role = jsonString(record?.role);
     const body = jsonString(record?.body);
     const createdAt = jsonString(record?.createdAt);
     if (
+      !id ||
       (role !== "user" && role !== "assistant") ||
       body === undefined ||
       createdAt === undefined
     ) {
       throw new Error("The Pi bridge posted a malformed message.");
     }
-    return { role, body, createdAt };
+    return { id, role, body, createdAt };
   });
 }
 

@@ -78,7 +78,12 @@ describe("resolveReviewQuestionLaunch", () => {
     const resolver = vi.fn<QuestionSourceResolver>(async () => undefined);
     await expect(
       resolveReviewQuestionLaunch({
-        storedSession: { harness: "pi", sessionId: "thread" },
+        storedSession: {
+          harness: "pi",
+          sessionId: "thread",
+          state: "ready",
+          firstMessageId: "ask",
+        },
         resolveQuestionSourceSession: resolver,
       }),
     ).resolves.toEqual({ harness: "pi", session: { resume: "thread" } });
@@ -93,4 +98,23 @@ describe("resolveReviewQuestionLaunch", () => {
     });
     expect(resolver).not.toHaveBeenCalled();
   });
+  it.each([
+    { state: "pending", firstMessageId: null },
+    { state: "pending", firstMessageId: "earlier-ask" },
+    { state: "repair-required" },
+  ] as const)(
+    "starts a fresh fork when the previous binding is $state",
+    async (state) => {
+      await expect(
+        resolveReviewQuestionLaunch({
+          storedSession: {
+            harness: "codex",
+            sessionId: "uncertain-fork",
+            ...state,
+          },
+          agent: { harness: "codex", sessionId: "author" },
+        }),
+      ).resolves.toEqual({ harness: "codex", session: { forkOf: "author" } });
+    },
+  );
 });

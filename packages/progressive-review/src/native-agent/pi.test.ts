@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import type { JsonValue } from "@dev.fast/review-protocol";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentServerOptions, SessionUpdate } from "./native-session";
 import { PiAgentServer } from "./pi";
@@ -106,13 +106,21 @@ describe("projectBranch", () => {
       },
     ];
     const expected = [
-      { role: "user", body: "hi", createdAt: "2026-01-01T00:00:00Z" },
-      { role: "assistant", body: "final", createdAt: "2026-01-01T00:00:03Z" },
-      { role: "user", body: "again", createdAt: "2026-01-01T00:00:04Z" },
+      { id: "1", role: "user", body: "hi", createdAt: "2026-01-01T00:00:00Z" },
+      {
+        id: "4",
+        role: "assistant",
+        body: "final",
+        createdAt: "2026-01-01T00:00:03Z",
+      },
+      {
+        id: "5",
+        role: "user",
+        body: "again",
+        createdAt: "2026-01-01T00:00:04Z",
+      },
     ];
     expect(projectBranch(entries)).toEqual(expected);
-    // getBranch walks leaf to root; the projection accepts that order too.
-    expect(projectBranch([...entries].reverse())).toEqual(expected);
   });
 });
 
@@ -120,7 +128,11 @@ describe("PiAgentServer", () => {
   it("launches pi with the bridge extension and a generated session id", async () => {
     const server = new PiAgentServer(await options());
     const { sessionId, command } = await server.launch({
-      prompt: "Explain this code",
+      prompt: {
+        text: "Explain this code",
+        prepared: async () => {},
+        accepted: async () => {},
+      },
       cwd: "/tmp/tutorial",
     });
     expect(command.executable).toBe("pi");
@@ -163,6 +175,43 @@ describe("PiAgentServer", () => {
     await server.close();
   });
 
+  it("captures the inherited branch before accepting the new native entry", async () => {
+    const server = new PiAgentServer(await options());
+    const accepted = vi.fn(async () => {});
+    const prepared = vi.fn(async () => {});
+    const { sessionId, command } = await server.launch({
+      session: { forkOf: "source" },
+      cwd: "/tmp",
+      prompt: { text: "Explain this", prepared, accepted },
+    });
+    expect(prepared).toHaveBeenCalledExactlyOnceWith(sessionId);
+    const old = {
+      id: "old",
+      role: "user",
+      body: "Explain this",
+      createdAt: "2026-09-07T00:00:00Z",
+    };
+    expect(
+      (
+        await postBridge(command.env, {
+          sessionId,
+          phase: "session-start",
+          messages: [old],
+        })
+      ).status,
+    ).toBe(200);
+    expect(accepted).not.toHaveBeenCalled();
+    const messages = [old, { ...old, id: "ask" }];
+    expect(
+      (await postBridge(command.env, { sessionId, phase: "update", messages }))
+        .status,
+    ).toBe(200);
+    expect(accepted).toHaveBeenCalledExactlyOnceWith(sessionId, "ask");
+    await postBridge(command.env, { sessionId, phase: "update", messages });
+    expect(accepted).toHaveBeenCalledOnce();
+    await server.close();
+  });
+
   it("forwards the tail of each bridge post and snapshots the latest projection", async () => {
     const server = new PiAgentServer(await options());
     const { sessionId, command } = await server.launch({ cwd: "/tmp" });
@@ -170,11 +219,13 @@ describe("PiAgentServer", () => {
     expect(pipe.snapshot.messages).toEqual([]);
 
     const first = {
+      id: "1",
       role: "user",
       body: "hi",
       createdAt: "2026-01-01T00:00:00Z",
     };
     const second = {
+      id: "2",
       role: "assistant",
       body: "hello",
       createdAt: "2026-01-01T00:00:01Z",

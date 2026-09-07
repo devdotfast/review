@@ -81,23 +81,24 @@ export function projectClaudeReviewMessages(
     const contributing = completed.filter((entry) =>
       assistantText(entry).trim(),
     );
-    const body = contributing.map(assistantText).join("\n").trim();
-    if (!body) return;
-    messages.push({
-      role: "assistant",
-      body,
-      createdAt:
-        contributing.flatMap(entryTimestamp).at(-1) ?? step.user.createdAt,
-    });
+    for (const entry of contributing) {
+      messages.push({
+        id: requiredMessageId(entry),
+        role: "assistant",
+        body: assistantText(entry).trim(),
+        createdAt: entryTimestamp(entry)[0] ?? step.user.createdAt,
+      });
+    }
   };
 
   for (const entry of entries) {
-    if (entry.isSidechain === true) continue;
+    if (entry.isSidechain === true || entry.isMeta === true) continue;
     if (entry.type === "user") {
       const body = messageText(entry);
       if (!body) continue;
       flushAssistant();
       const user: NativeReviewMessage = {
+        id: requiredMessageId(entry),
         role: "user",
         body,
         createdAt: entryTimestamp(entry)[0] ?? new Date(0).toISOString(),
@@ -126,4 +127,10 @@ function assistantText(entry: JsonRecord): string {
 function entryTimestamp(entry: JsonRecord): string[] {
   const timestamp = jsonString(entry.timestamp);
   return timestamp ? [timestamp] : [];
+}
+
+function requiredMessageId(entry: JsonRecord): string {
+  const id = jsonString(entry.uuid);
+  if (!id) throw new Error("Claude transcript message has no UUID.");
+  return id;
 }

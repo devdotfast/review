@@ -472,10 +472,28 @@ export type CreateReviewCommentInput = z.infer<
   typeof CreateReviewCommentInputSchema
 >;
 
-export const ReviewCommentAgentSessionSchema = z.strictObject({
+const commentAgentSessionFields = {
   harness: z.enum(["codex", "claude-code", "opencode", "pi"]),
   sessionId: threadTargetNonEmptyStringSchema,
-});
+};
+
+export const ReviewCommentAgentSessionSchema = z.discriminatedUnion("state", [
+  z.strictObject({
+    ...commentAgentSessionFields,
+    state: z.literal("pending"),
+    // Retain a ready boundary while submitting a follow-up; null for a new fork.
+    firstMessageId: threadTargetNonEmptyStringSchema.nullable(),
+  }),
+  z.strictObject({
+    ...commentAgentSessionFields,
+    state: z.literal("ready"),
+    firstMessageId: threadTargetNonEmptyStringSchema,
+  }),
+  z.strictObject({
+    ...commentAgentSessionFields,
+    state: z.literal("repair-required"),
+  }),
+]);
 export type ReviewCommentAgentSession = z.infer<
   typeof ReviewCommentAgentSessionSchema
 >;
@@ -494,6 +512,12 @@ export const ReviewCommentThreadRecordSchema = z.strictObject({
       role: z.enum(["reviewer", "agent"]).optional(),
       format: z.enum(["plain", "markdown"]).optional(),
       agentInput: z.boolean().default(false),
+      agentMessage: z
+        .strictObject({
+          sessionId: threadTargetNonEmptyStringSchema,
+          messageId: threadTargetNonEmptyStringSchema,
+        })
+        .optional(),
     }),
   ),
 });

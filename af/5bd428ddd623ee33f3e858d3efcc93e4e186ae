@@ -1777,6 +1777,42 @@ export default defineSoftwareMap({
       "to": "review.cliPackage.repair",
       "label": "exposes repair-required state",
       "semanticKind": "uses"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.publication.materializeDocument",
+      "to": "review.cliPackage.publication.documentSchema",
+      "label": "validates materialized data"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.publication.documentSchema",
+      "to": "review.cliPackage.publication.stagedPromotion",
+      "label": "supplies validated document"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.publication.stagedPromotion",
+      "to": "review.cliPackage.storedReviews.mutationLock",
+      "label": "guards promotion"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.storedReviews.legacyMigration",
+      "to": "review.cliPackage.publication.materializeDocument",
+      "label": "materializes sealed legacy output"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.reviewApp.documentRuntime.prepare",
+      "to": "review.reviewApp.documentRuntime.hydrate",
+      "label": "hydrates once per content hash"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.reviewApp.documentRuntime.render",
+      "to": "review.reviewApp.documentRuntime.prepare",
+      "label": "renders prepared references"
     }
   ]
 });

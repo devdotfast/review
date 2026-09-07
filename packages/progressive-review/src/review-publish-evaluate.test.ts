@@ -59,6 +59,24 @@ describe("publish range evaluation", () => {
     expect(prepareEvidence).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects a corrupt legacy module before writing temporary files and permits the next evaluation", async () => {
+    const reviewDir = fixtureDir("corrupt");
+    await expect(
+      evaluateReviewDocumentBundleForPublish({
+        reviewDir,
+        bundleCode: 'throw new Error("corrupt sealed document");',
+        prepareEvidence: async () => ({ head: { sourceRootPath: reviewDir } }),
+      }),
+    ).rejects.toThrow("no runtime import");
+    expect(fs.existsSync(path.join(reviewDir, ".build"))).toBe(false);
+    const valid = await evaluateReviewDocumentBundleForPublish({
+      reviewDir,
+      bundleCode: bundleWithAnchors(""),
+      prepareEvidence: async () => ({ head: { sourceRootPath: reviewDir } }),
+    });
+    expect(valid.errors).toEqual([]);
+  });
+
   it("reports a range outside the selected pinned file", async () => {
     const reviewDir = fixtureDir("review");
     const head = sourceFixture("one line");

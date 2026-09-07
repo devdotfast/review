@@ -142,6 +142,9 @@ async function loadSealedReviewDocument(
       const runtimeImportNames = await collectRuntimeImportNames(
         input.bundleCode,
       );
+      // Validate before starting either write: a synchronous throw while
+      // constructing Promise.all's array otherwise leaves the first unhandled.
+      const documentModuleSource = rewriteRuntimeSpecifier(input.bundleCode);
       await mkdir(evaluationDir, { recursive: true, mode: 0o700 });
       await Promise.all([
         writeFile(
@@ -151,7 +154,7 @@ async function loadSealedReviewDocument(
         ),
         writeFile(
           path.join(evaluationDir, DOCUMENT_MODULE_FILE),
-          rewriteRuntimeSpecifier(input.bundleCode),
+          documentModuleSource,
           "utf8",
         ),
       ]);

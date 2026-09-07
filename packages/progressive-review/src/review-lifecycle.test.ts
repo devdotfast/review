@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFile, rm, symlink } from "node:fs/promises";
 import path from "node:path";
@@ -33,14 +34,62 @@ afterEach(async () => {
 async function fixture() {
   await reviewHome();
   const worktreePath = await gitRepository();
+  const commit = execFileSync(
+    "git",
+    ["-C", worktreePath, "rev-parse", "HEAD"],
+    { encoding: "utf8" },
+  ).trim();
   const review = await createReviewDir({
     worktreePath,
     baseRef: "main",
-    baseCommit: "a".repeat(40),
+    baseCommit: commit,
+    sourceCommit: commit,
   });
   server = await startLifecycleTestServer();
   return review;
 }
+
+it("authors rich live nodes through the desktop API and rejects competing edits", async () => {
+  const review = await fixture();
+  const reviewUuid = review.review.uuid;
+  const initial = ReviewDocumentFileResponseSchema.parse(
+    await requestReviewLifecycle("/lifecycle/document/read", {
+      reviewUuid,
+      name: "review.mdx",
+    }),
+  );
+  const request = {
+    reviewUuid,
+    mutationId: randomUUID(),
+    expectedSourceHash: initial.sourceHash,
+    operation: {
+      type: "replace",
+      nodes: [{ id: "title", source: "# API authored" }],
+    },
+  };
+  const accepted = await requestReviewLifecycle(
+    "/lifecycle/document/mutate",
+    request,
+  );
+  expect(accepted).toMatchObject({ revision: 1, mode: "incremental" });
+  expect(
+    await requestReviewLifecycle("/lifecycle/document/mutate", request),
+  ).toEqual(accepted);
+  await expect(
+    requestReviewLifecycle("/lifecycle/document/mutate", {
+      ...request,
+      mutationId: randomUUID(),
+    }),
+  ).rejects.toThrow("source changed");
+  expect(
+    await requestReviewLifecycle("/lifecycle/document/live", { reviewUuid }),
+  ).toEqual(accepted);
+  await server!.close();
+  server = await startLifecycleTestServer();
+  expect(
+    await requestReviewLifecycle("/lifecycle/document/live", { reviewUuid }),
+  ).toEqual(accepted);
+});
 
 it("serializes source edits, rejects stale writes and symlinks, and preserves accepted content", async () => {
   const review = await fixture();

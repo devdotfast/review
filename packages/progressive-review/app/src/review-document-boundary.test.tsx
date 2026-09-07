@@ -62,7 +62,6 @@ describe("ReviewDocumentBoundary", () => {
         <StrictMode>
           <div data-testid="shell">Files Map Threads</div>
           <ReviewDocumentBoundary
-            key="bad-1"
             revision="bad-1"
             onError={onError}
             session={session}
@@ -100,7 +99,6 @@ describe("ReviewDocumentBoundary", () => {
         <StrictMode>
           <div data-testid="shell">Files Map Threads</div>
           <ReviewDocumentBoundary
-            key="good-2"
             revision="good-2"
             onError={onError}
             session={session}

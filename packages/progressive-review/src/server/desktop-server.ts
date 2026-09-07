@@ -104,6 +104,7 @@ import {
   ReviewResolveRequestSchema,
   ReviewScaffoldRequestSchema,
 } from "../review-lifecycle-contracts";
+import { ReviewLiveMutationSchema } from "../review-live-document";
 import {
   ReviewBusyError,
   reviewMutationFingerprint,
@@ -172,6 +173,11 @@ import {
   rebindReview,
   repairReview,
 } from "./review-lifecycle";
+import {
+  mutateLiveDocument,
+  readLiveBundle,
+  readLiveSnapshot,
+} from "./review-live-authoring";
 import { promoteReviewRepair } from "./review-repair-promotion";
 import { resolveThreadsReview } from "./review-threads-target";
 import {
@@ -981,6 +987,41 @@ export function createGlobalReviewServer(
     const review = await findReview(request.reviewUuid);
     if (!review) throw new ReviewServerError("Review not found.", 404);
     return globalJson(200, await readReviewDocumentFile(review, request.name));
+  });
+  app.post("/lifecycle/document/live", async (context) => {
+    const request = z
+      .strictObject({ reviewUuid: z.uuid() })
+      .parse(await readBoundedRequestJson(context.req.raw));
+    return withReviewLock(request.reviewUuid, async () => {
+      const review = await findReview(request.reviewUuid);
+      if (!review) throw new ReviewServerError("Review not found.", 404);
+      return globalJson(200, await readLiveSnapshot(review));
+    });
+  });
+  app.post("/lifecycle/document/mutate", async (context) => {
+    const request = ReviewLiveMutationSchema.parse(
+      await readBoundedRequestJson(context.req.raw),
+    );
+    const snapshot = await withReviewLock(request.reviewUuid, async () => {
+      const review = await findReview(request.reviewUuid);
+      if (!review) throw new ReviewServerError("Review not found.", 404);
+      return mutateLiveDocument(review, request);
+    });
+    for (const session of sessions.values()) {
+      if (
+        session.review.review.uuid !== request.reviewUuid ||
+        session.historicalRevision ||
+        !session.promoted
+      )
+        continue;
+      broadcastGlobal({
+        event: "review-data-changed",
+        uuid: request.reviewUuid,
+        sessionId: session.descriptor.sessionId,
+        documentChanged: true,
+      });
+    }
+    return globalJson(200, snapshot);
   });
   app.post("/lifecycle/metadata", async (context) => {
     const request = ReviewMetadataUpdateSchema.extend({
@@ -2209,6 +2250,22 @@ export function createGlobalReviewServer(
       reviewPath: registration.documentPath,
       softwareMapRootPath: registration.softwareMapRootPath,
       stateReviewPath: path.join(registration.review.dir, "review.mdx"),
+      getLiveBundle: registration.historicalRevision
+        ? undefined
+        : async () => {
+            // Candidate mount validation may run while publication owns the lock.
+            if (!active.promoted) return null;
+            return withReviewLock(registration.review.review.uuid, async () => {
+              const latest = await findReview(registration.review.review.uuid);
+              if (
+                latest?.review.baseCommit !== active.review.review.baseCommit ||
+                latest?.review.sourceCommit !==
+                  active.review.review.sourceCommit
+              )
+                return null;
+              return latest ? readLiveBundle(latest) : null;
+            });
+          },
       threadsService: registration.historicalRevision
         ? undefined
         : () => threadsFor(active.review),

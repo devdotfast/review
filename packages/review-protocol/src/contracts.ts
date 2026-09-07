@@ -1629,6 +1629,7 @@ export const ReviewDesktopGlobalEventSchema = z.discriminatedUnion("event", [
   }),
   z.strictObject({
     event: z.literal("review-data-changed"),
+    documentChanged: z.boolean().optional(),
     uuid: z.uuid({ error: "must be a UUID" }),
     sessionId: requiredString,
   }),

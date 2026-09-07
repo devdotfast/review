@@ -31,10 +31,12 @@ interface StagedReviewDocument {
   bundle: ReviewDocumentBundle;
   warnings: string[];
   fingerprint: string;
+  sourceFingerprint: string;
 }
 
 export async function stageReviewDocumentPublication(input: {
   review: StoredReview;
+  source?: string;
 }): Promise<StagedReviewDocument> {
   const stagingDir = await mkdtemp(
     path.join(path.dirname(input.review.dir), ".review-publish-"),
@@ -43,6 +45,12 @@ export async function stageReviewDocumentPublication(input: {
     const fingerprint = await copyAuthoringTree(input.review.dir, stagingDir);
     if (fingerprint !== (await fingerprintAuthoring(input.review.dir)))
       throw authoringChanged();
+    if (input.source !== undefined)
+      await writeFile(path.join(stagingDir, "review.mdx"), input.source);
+    const sourceFingerprint =
+      input.source === undefined
+        ? fingerprint
+        : await fingerprintAuthoring(stagingDir);
     const dependencies = path.join(input.review.dir, "node_modules");
     let hasDependencies = true;
     try {
@@ -69,6 +77,7 @@ export async function stageReviewDocumentPublication(input: {
       bundle: prepared.bundle,
       warnings: prepared.warnings,
       fingerprint,
+      sourceFingerprint,
     };
   } catch (error) {
     if (error instanceof ReviewPublicationValidationError) {
@@ -120,7 +129,7 @@ const authoringTreeOptions = {
   symlink: "reject",
 } satisfies ReviewTreeOptions;
 
-async function fingerprintAuthoring(reviewDir: string): Promise<string> {
+export async function fingerprintAuthoring(reviewDir: string): Promise<string> {
   return fingerprintReviewTree(reviewDir, authoringTreeOptions);
 }
 

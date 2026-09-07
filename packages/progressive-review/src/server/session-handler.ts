@@ -72,6 +72,7 @@ export interface ReviewSessionHandlerInput {
   reviewPath: string;
   softwareMapRootPath?: string;
   stateReviewPath?: string;
+  getLiveBundle?: () => Promise<ReviewDocumentBundle | null>;
   threadsService?: () => ReviewThreadsService;
   routePath: string;
   token?: string;
@@ -186,7 +187,15 @@ export async function createReviewSessionHandler(
       }
     : undefined;
 
+  const liveBundles = new Map<string, ReviewDocumentBundle>();
   const getBundle = async (): Promise<ReviewDocumentBundle | null> => {
+    const live = await input.getLiveBundle?.();
+    if (live) {
+      liveBundles.set(`${live.contentHash}.json`, live);
+      if (liveBundles.size > 16)
+        liveBundles.delete(liveBundles.keys().next().value!);
+      return live;
+    }
     if (currentBundle) return currentBundle;
     bundlePromise ??= readReviewDocumentBundle(renderDir, input.routePath);
     try {
@@ -366,7 +375,8 @@ export async function createReviewSessionHandler(
     );
   });
   app.get(`${DOCUMENT_PATH_PREFIX}:documentName`, async (context) => {
-    const bundle = await getBundle();
+    const bundle =
+      liveBundles.get(context.req.param("documentName")) ?? (await getBundle());
     if (
       !bundle ||
       context.req.param("documentName") !== `${bundle.contentHash}.json`

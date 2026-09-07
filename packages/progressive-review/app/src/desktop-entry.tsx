@@ -73,6 +73,7 @@ function DesktopReviewApp({
         document: await prepareReviewDocument(load, sessionRef.current),
       };
     },
+    session,
   );
   const softwareMapState = useSettledLoad(
     softwareMapBundle,
@@ -84,6 +85,7 @@ function DesktopReviewApp({
         softwareMap: hydratePublishedSoftwareMap(load),
       };
     },
+    session,
   );
 
   useEffect(() => {
@@ -158,13 +160,15 @@ const reviewLoadLoading: ReviewLoadFallback = { state: "loading" };
 function useSettledLoad<TLoad, TState>(
   bundle: Promise<TLoad>,
   settle: (load: TLoad) => TState | Promise<TState>,
+  session: ReviewSession,
 ): TState | ReviewLoadFallback {
   const settleRef = useRef(settle);
   settleRef.current = settle;
   const [settledLoad, setSettledLoad] = useState<{
     bundle: Promise<TLoad>;
+    session: ReviewSession;
     value: TState | ReviewLoadFallback;
-  }>(() => ({ bundle, value: reviewLoadLoading }));
+  }>(() => ({ bundle, session, value: reviewLoadLoading }));
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -172,12 +176,13 @@ function useSettledLoad<TLoad, TState>(
         const load = await bundle;
         if (cancelled) return;
         const settled = await settleRef.current(load);
-        if (!cancelled) setSettledLoad({ bundle, value: settled });
+        if (!cancelled) setSettledLoad({ bundle, session, value: settled });
       } catch (error) {
         if (cancelled) return;
         const cause = error instanceof Error ? error : new Error(String(error));
         setSettledLoad({
           bundle,
+          session,
           value: { state: "unavailable", message: cause.message, cause },
         });
       }
@@ -185,8 +190,12 @@ function useSettledLoad<TLoad, TState>(
     return () => {
       cancelled = true;
     };
-  }, [bundle]);
-  return settledLoad.bundle === bundle ? settledLoad.value : reviewLoadLoading;
+  }, [bundle, session]);
+  // DesktopReviewApp is keyed by session ID. Keep this session's mounted
+  // document while its next validated live revision is being hydrated.
+  return settledLoad.session === session
+    ? settledLoad.value
+    : reviewLoadLoading;
 }
 
 function reportLoadFailure(

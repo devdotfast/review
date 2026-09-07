@@ -224,6 +224,9 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	private readonly modelSubscription = this._register(
 		new MutableDisposable(),
 	);
+	private readonly documentSubscription = this._register(
+		new MutableDisposable(),
+	);
 	private readonly inlineEditors: ReviewInlineEditorService;
 	private readonly diffViews: ReviewDiffViewService;
 
@@ -428,6 +431,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			this.inlineEditors.reset();
 			this.diffViews.reset();
 			this.modelSubscription.clear();
+			this.documentSubscription.clear();
 			// Not the full session reset the other branches run: the Source tab
 			// exists to browse the active review's worktree beside the tabs the
 			// tree opened. `verbs.resetSession()` would close those tabs, and
@@ -474,6 +478,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			return;
 		}
 		this.modelSubscription.clear();
+		this.documentSubscription.clear();
 		if (input.target.kind === "home") {
 			this.renderedInput = input;
 			this.renderedModel = null;
@@ -1201,7 +1206,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			if (generation !== this.loadGeneration) {
 				return new Error("Review canvas load was superseded.");
 			}
-			const document = model.resolveDocument(loadReviewDocumentData);
+			let document = model.resolveDocument(loadReviewDocumentData);
 			const softwareMapEnabled = this.currentSoftwareMapEnabled();
 			const softwareMap = softwareMapEnabled
 				? model.resolveSoftwareMap(loadReviewSoftwareMaps)
@@ -1223,7 +1228,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				assets.clearReviewViewState(bridge.config);
 			}
 			let tutorial: ReviewCanvasTutorialBridge | undefined;
-			const renderSession = () =>
+			const renderSession = (renderGeneration = generation) =>
 				this.render(
 					{
 					kind: "session",
@@ -1242,7 +1247,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					},
 					...(tutorial ? { tutorial } : {}),
 					},
-					generation,
+					renderGeneration,
 					assets,
 				);
 			if (input.target.kind === "review") {
@@ -1264,6 +1269,15 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					closeTutorial,
 				);
 			}
+			this.documentSubscription.value = model.onDidChangeDocument(() => {
+				if (this.renderedInput !== input || this.renderedModel !== model) {
+					return;
+				}
+				document = model.resolveDocument(loadReviewDocumentData);
+				void renderSession(this.loadGeneration).catch((error) =>
+					this.logService.error(error),
+				);
+			});
 			await renderSession();
 			loadTimeout = setTimeout(
 				() =>

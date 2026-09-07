@@ -696,7 +696,6 @@ function ReviewLayoutContent({
                   <ReviewToc />
                   <ReviewDocumentSelectionSurface articleRef={articleRef}>
                     <ReviewDocumentBoundary
-                      key={documentRevision}
                       session={session}
                       revision={documentRevision}
                       onError={(_revision, error) =>

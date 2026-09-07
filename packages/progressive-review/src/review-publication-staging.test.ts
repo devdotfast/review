@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
   mkdir,
@@ -29,8 +30,64 @@ import {
 import { appendReviewComment, readReviewComments } from "./review-state-store";
 import { closeAllReviewThreadStores } from "./review-thread-store-backend";
 import { reviewVcs } from "./review-vcs";
+import {
+  mutateLiveDocument,
+  readLiveBundle,
+  readLiveSnapshot,
+} from "./server/review-live-authoring";
 
 const roots: string[] = [];
+
+it("compiles rich live MDX with native data, rejects invalid edits, and recovers its projection", async () => {
+  const { review } = await fixture();
+  const initial = await readLiveSnapshot(review);
+  const snapshot = await withReviewMutationLock(review.dir, () =>
+    mutateLiveDocument(review, {
+      reviewUuid: review.review.uuid,
+      mutationId: randomUUID(),
+      expectedSourceHash: initial.sourceHash,
+      operation: {
+        type: "replace",
+        nodes: [
+          { id: "title", source: "# Native live review\n\n{data.label}" },
+          {
+            id: "diagram",
+            source:
+              '<SequenceDiagram label="Flow" messages={[{from: {label: "Agent"}, to: {label: "Desktop"}, label: "Author", code: "api.edit()"}]} />',
+          },
+        ],
+      },
+    }),
+  );
+  expect(snapshot).toMatchObject({ mode: "incremental", revision: 1 });
+  const bundle = await readLiveBundle(review);
+  expect(bundle).not.toBeNull();
+  const document = reviewDocumentBundleData(bundle!);
+  expect(JSON.stringify(document)).toContain('"name":"SequenceDiagram"');
+  expect(JSON.stringify(document)).toContain('"id":"review-node-diagram"');
+  expect(JSON.stringify(document)).toContain("original");
+  expect(await readReviewDocumentBundle(review.dir, "/")).toBeNull();
+  await expect(
+    withReviewMutationLock(review.dir, () =>
+      mutateLiveDocument(review, {
+        reviewUuid: review.review.uuid,
+        mutationId: randomUUID(),
+        expectedSourceHash: snapshot.sourceHash,
+        operation: {
+          type: "update",
+          node: { id: "diagram", source: '<SequenceDiagram typo="broken" />' },
+        },
+      }),
+    ),
+  ).rejects.toThrow("Property 'typo' does not exist");
+  expect(await readLiveSnapshot(review)).toEqual(snapshot);
+  // A raw data.ts edit invalidates the cached native projection.
+  await writeFile(
+    path.join(review.dir, "data.ts"),
+    'export const label = "updated data";',
+  );
+  expect((await readLiveBundle(review))?.json).toContain("updated data");
+}, 30_000);
 afterEach(async () => {
   vi.unstubAllEnvs();
   closeAllReviewThreadStores();

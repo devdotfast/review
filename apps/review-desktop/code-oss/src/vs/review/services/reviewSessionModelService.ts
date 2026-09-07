@@ -76,6 +76,8 @@ class ReviewSessionUnavailableError extends Error {}
 export class ReviewSessionModel extends Disposable {
 	private readonly _onDidChange = this._register(new Emitter<void>());
 	readonly onDidChange = this._onDidChange.event;
+	private readonly _onDidChangeDocument = this._register(new Emitter<void>());
+	readonly onDidChangeDocument = this._onDidChangeDocument.event;
 
 	private _session: ReviewDesktopSession;
 	get session(): ReviewDesktopSession {
@@ -130,6 +132,14 @@ export class ReviewSessionModel extends Disposable {
 		this._register(
 			onDidChangeReviewData((event) => {
 				if (event.uuid !== this.reviewUuid || this._state !== "active") {
+					return;
+				}
+				if (event.documentChanged) {
+					if (event.sessionId !== this._session.session.sessionId) {
+						return;
+					}
+					this.modules.delete("document");
+					this._onDidChangeDocument.fire();
 					return;
 				}
 				this._onDidChange.fire();

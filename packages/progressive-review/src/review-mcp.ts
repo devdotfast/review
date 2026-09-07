@@ -22,10 +22,25 @@ import {
   ReviewRebindRequestSchema,
   ReviewScaffoldRequestSchema,
 } from "./review-lifecycle-contracts";
+import { ReviewLiveMutationSchema } from "./review-live-document";
 
 const reviewTarget = z.strictObject({ reviewUuid: z.uuid() });
 
 const tools = [
+  {
+    name: "review_get_live_document",
+    description:
+      "Read stable MDX nodes and the source hash for incremental authoring.",
+    path: "/lifecycle/document/live",
+    schema: reviewTarget,
+  },
+  {
+    name: "review_mutate_document",
+    description:
+      "Replace, insert, update, move, or delete stable MDX nodes. Each edit is compiled and shown live; rich Review components and data.ts expressions are supported. Use replace to start, then the returned source hash for each edit. afterId null inserts at the beginning. Publish separately to seal a revision.",
+    path: "/lifecycle/document/mutate",
+    schema: ReviewLiveMutationSchema,
+  },
   {
     name: "review_create",
     description: "Create or update a Review bound to a source checkout.",

@@ -33,4 +33,8 @@ export class ReviewModuleCache {
 	clear(): void {
 		this.entries.clear();
 	}
+
+	delete(key: string): void {
+		this.entries.delete(key);
+	}
 }

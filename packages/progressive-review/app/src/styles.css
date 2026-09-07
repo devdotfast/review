@@ -10584,3 +10584,62 @@ button.review-stack-row:disabled .review-stack-relation {
 .review-trace-peek-open-full:hover {
   background: var(--accent-wash);
 }
+/* Live activity has its own in-flow gutter. No translated/scaled content,
+ * outward outlines, or negative-positioned particles can cover a sibling. */
+.review-live-node {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  column-gap: 12px;
+  align-items: start;
+}
+
+.review-live-node__content {
+  min-width: 0;
+  display: flow-root;
+}
+
+.review-live-node__activity {
+  display: grid;
+  grid-template-columns: repeat(3, 4px);
+  gap: 4px;
+  padding-block: 8px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.review-live-node[data-authoring] > .review-live-node__activity {
+  opacity: 1;
+}
+
+.review-live-node__activity i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: review-live-sparkle 1100ms ease-in-out infinite;
+}
+
+.review-live-node__activity i:nth-child(3n) {
+  animation-delay: -370ms;
+}
+.review-live-node__activity i:nth-child(3n + 1) {
+  animation-delay: -730ms;
+}
+
+@keyframes review-live-sparkle {
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: scale(0.65);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review-live-node__activity i {
+    animation: none;
+  }
+}

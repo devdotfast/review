@@ -57,3 +57,18 @@ test("clear forces the next load to run the loader again", async () => {
 	cache.clear();
 	assert.equal(await cache.load("a", loader), 2);
 });
+
+test("invalidating a live document leaves the map cached and ignores an older rejection", async () => {
+	const cache = new ReviewModuleCache();
+	let rejectOld!: (error: Error) => void;
+	const old = cache.load("document", () => new Promise<string>((_resolve, reject) => {
+		rejectOld = reject;
+	}));
+	assert.equal(await cache.load("map", async () => "original map"), "original map");
+	cache.delete("document");
+	assert.equal(await cache.load("document", async () => "new document"), "new document");
+	rejectOld(new Error("superseded"));
+	await assert.rejects(old, /superseded/);
+	assert.equal(await cache.load("document", async () => "wrong"), "new document");
+	assert.equal(await cache.load("map", async () => "wrong"), "original map");
+});

@@ -46,10 +46,9 @@ export async function resolveReviewDocumentPeeks(
 }
 
 /**
- * One hydration per content hash for the life of a session: the canvas
- * remounts the document on every view change, and peek resolution must not
- * re-run for a document the session already prepared. Failed peeks retry on
- * the same hydrated document, preserving successful resolutions and refs.
+ * Reuse hydration across remounts while a content hash remains in the
+ * session's bounded cache. Failed peeks retry on the same hydrated document,
+ * preserving successful resolutions and refs.
  */
 export function prepareReviewDocument(
   load: ReadyReviewDocumentLoad,
@@ -67,6 +66,9 @@ export function prepareReviewDocument(
     }
 
     session.documents.set(load.contentHash, cached);
+    // A live authoring session can produce thousands of native revisions.
+    if (session.documents.size > 16)
+      session.documents.delete(session.documents.keys().next().value!);
   }
 
   if (cached.preparation) return cached.preparation;

@@ -14,6 +14,10 @@ import {
   ProgressiveReviewTelemetry,
   type ProgressiveReviewTelemetryCaptureClient,
 } from "../progressive-review-telemetry";
+import {
+  bundleReviewDocument,
+  writeReviewDocumentBundle,
+} from "../review-bundle";
 import { cleanupTempDirs, tempDir } from "../review-test-utils";
 import {
   bundleReviewSoftwareMap,
@@ -23,6 +27,73 @@ import { defineSoftwareMap } from "../software-map-model";
 import type { ReviewSessionMode } from "./review-session-mode";
 import { createReviewSessionHandler } from "./session-handler";
 import { unusedAgentServices } from "./session-handler-test-utils";
+
+it("serves live previews without changing sealed bundles and keeps in-flight hash URLs valid", async () => {
+  const rootPath = await tempDir("review-live-session-");
+  const reviewPath = path.join(rootPath, "review.mdx");
+  const bundle = (title: string) =>
+    bundleReviewDocument({
+      format: "review-document/1",
+      title,
+      routePath: "/",
+      sourcePath: "review.mdx",
+      body: [{ type: "text", value: title }],
+      anchors: {},
+      anchorContents: {},
+      softwareModels: [],
+    });
+  const sealed = bundle("Sealed");
+  await writeReviewDocumentBundle(rootPath, sealed);
+  let live = bundle("First preview");
+  const input = {
+    ...unusedAgentServices,
+    rootPath,
+    toolingRoot: rootPath,
+    reviewPath,
+    routePath: "/",
+    token: "secret",
+    session: {
+      rootPath,
+      baseRef: "HEAD",
+      reviewPath,
+      appUrl: "http://localhost",
+      startedAt: Date.now(),
+    },
+  };
+  const handler = await createReviewSessionHandler({
+    ...input,
+    getLiveBundle: async () => live,
+  });
+  const historical = await createReviewSessionHandler(input);
+  const get = (target: typeof handler, pathname: string) =>
+    target.handle(
+      new Request(`http://localhost${pathname}`, {
+        headers: { "x-review-token": "secret" },
+      }),
+    );
+  try {
+    const first = ReviewDocumentResponseSchema.parse(
+      await (await get(handler, "/__progressive-review/document")).json(),
+    );
+    expect(first).toMatchObject({ ok: true, contentHash: live.contentHash });
+    const firstHash = live.contentHash;
+    live = bundle("Second preview");
+    expect(
+      await (await get(handler, "/__progressive-review/document")).json(),
+    ).toMatchObject({ contentHash: live.contentHash });
+    expect(
+      await (
+        await get(handler, `/__progressive-review/documents/${firstHash}.json`)
+      ).text(),
+    ).toBe(bundle("First preview").json);
+    expect(
+      await (await get(historical, "/__progressive-review/document")).json(),
+    ).toMatchObject({ contentHash: sealed.contentHash });
+  } finally {
+    await handler.close();
+    await historical.close();
+  }
+});
 
 const readOnlyRecord: ReviewRecord = {
   schemaVersion: REVIEW_SCHEMA_VERSION,

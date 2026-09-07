@@ -62,6 +62,40 @@ validates and presents the result. Do not read or edit Review source directly
 on disk. Source repository inspection and software-map scratch files remain
 separate from Review document storage.
 
+#### Live canvas edits
+
+`review_get_live_document({ reviewUuid })` returns `mode`, `revision`,
+`sourceHash`, and ordered `{ id, source }` nodes. `source` is an MDX fragment,
+not a second component format: all native Review components are supported.
+Use `data.*` for exports from `data.ts`; edit that file through the document API.
+
+`review_mutate_document` takes `reviewUuid`, a fresh UUID `mutationId`, the
+last read `expectedSourceHash`, and one `operation`:
+
+- `{ type: "replace", nodes }` explicitly starts live authoring, replacing the old document.
+- `{ type: "insert", node, afterId }` inserts a new stable node.
+- `{ type: "update", node }` replaces the source of an existing node.
+- `{ type: "move", id, afterId }` reorders a node without changing its identity.
+- `{ type: "delete", id }` removes a node.
+
+`afterId: null` means the beginning. IDs start with a letter and contain only
+letters, digits, `_`, or `-` (at most 80 characters). Keep IDs stable across
+updates. Each accepted edit returns the next snapshot. Retrying the most recent
+request with the same mutation ID and payload returns that snapshot; a stale
+source hash or a reused ID with different content is a conflict.
+
+The desktop compiles each candidate before changing the MDX source. Invalid
+edits leave the document unchanged. The open current canvas receives validated
+updates without remounting its sibling components. Activity particles have an
+in-flow gutter and honor reduced-motion preferences.
+
+Live editing does not seal a publication, bypass the comment-response gate,
+or change historical versions. Use `review_publish` to initially open a new
+Review and to seal completed work. The shared database caches native previews;
+the MDX document retains the stable nodes and can rebuild that cache after a
+restart. Raw document-file writes remain explicit whole-file replacements;
+use node operations to preserve the live document structure.
+
 `review_list_comments`, `review_comment_command`, and `review_reply_comment`
 use the same comment service as the canvas. Replies are stored as agent
 messages, not reviewer messages. The existing `review threads` commands use

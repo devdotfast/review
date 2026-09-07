@@ -10,6 +10,7 @@ import { parseJsonText } from "@dev.fast/review-protocol";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { ReviewNode } from "../../src/review-document-data";
 import { bundleReviewSoftwareMap } from "../../src/software-map-bundle";
 import { mountReviewCanvas } from "./desktop-entry";
 import { testReviewBridge } from "./review-session-test-utils";
@@ -771,6 +772,126 @@ describe("publication validation mounts", () => {
       await act(async () => handle?.dispose());
     }
   });
+});
+
+it("keeps keyed rich components mounted while a live revision loads, inserts, and reorders nodes", async () => {
+  const bridge = testReviewBridge(
+    { sessionId: "live-nodes" },
+    {
+      request: requestStub,
+      diffView: { create: createDiffView },
+    },
+  );
+  const section: ReviewNode = {
+    type: "element",
+    tag: "section",
+    props: { id: "review-node-orders", className: "review-live-orders" },
+    children: [
+      {
+        type: "component",
+        name: "ReviewSection",
+        props: { title: "Orders" },
+        children: [
+          {
+            type: "element",
+            tag: "h2",
+            props: {},
+            children: [{ type: "text", value: "Orders" }],
+          },
+          {
+            type: "element",
+            tag: "p",
+            props: {},
+            children: [{ type: "text", value: "Keep this state" }],
+          },
+        ],
+      },
+    ],
+  };
+  const intro: ReviewNode = {
+    type: "element",
+    tag: "section",
+    props: { id: "review-node-intro", className: "review-live-intro" },
+    children: [
+      {
+        type: "element",
+        tag: "p",
+        props: {},
+        children: [{ type: "text", value: "Inserted first" }],
+      },
+    ],
+  };
+  const load = (
+    contentHash: string,
+    body: ReviewNode[],
+  ): ReviewDocumentLoad => ({
+    state: "ready",
+    contentHash,
+    data: parseJsonText(
+      JSON.stringify({
+        format: "review-document/1",
+        title: "Live",
+        routePath: "/",
+        sourcePath: "review.mdx",
+        anchors: {},
+        anchorContents: {},
+        softwareModels: [],
+        body,
+      }),
+    ),
+  });
+  const container = document.createElement("div");
+  document.body.append(container);
+  const softwareMap = Promise.resolve(null);
+  let handle: ReturnType<typeof mountReviewCanvas> | undefined;
+  try {
+    await act(async () => {
+      handle = mountReviewCanvas(
+        container,
+        sessionContent(bridge, {
+          document: Promise.resolve(load("one", [section])),
+          softwareMap,
+        }),
+      );
+    });
+    const original = container.querySelector("#review-node-orders");
+    const body = container.querySelector<HTMLElement>(".review-section-body")!;
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Collapse Orders"]',
+        )!
+        .click(),
+    );
+    expect(body.hidden).toBe(true);
+    const pending = Promise.withResolvers<ReviewDocumentLoad>();
+    await act(async () =>
+      handle?.update(
+        sessionContent(bridge, { document: pending.promise, softwareMap }),
+      ),
+    );
+    expect(container.querySelector("#review-node-orders")).toBe(original);
+    await act(async () =>
+      pending.resolve(load("two", [intro, structuredClone(section)])),
+    );
+    expect(container.textContent).toContain("Inserted first");
+    expect(container.querySelector("#review-node-orders")).toBe(original);
+    expect(body.hidden).toBe(true);
+    await act(async () =>
+      handle?.update(
+        sessionContent(bridge, {
+          document: Promise.resolve(
+            load("three", [structuredClone(section), intro]),
+          ),
+          softwareMap,
+        }),
+      ),
+    );
+    expect(container.querySelector("#review-node-orders")).toBe(original);
+    expect(body.hidden).toBe(true);
+  } finally {
+    await act(async () => handle?.dispose());
+  }
 });
 
 function sessionContent(

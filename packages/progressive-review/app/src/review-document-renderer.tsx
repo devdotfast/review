@@ -1,3 +1,4 @@
+import { jsonString } from "@dev.fast/review-protocol";
 import {
   Fragment,
   type FunctionComponent,
@@ -15,6 +16,7 @@ import type {
   HydratedReviewComponentProps,
   HydratedReviewNode,
 } from "./review-document-hydrate";
+import { ReviewLiveNode } from "./review-live-node";
 
 /** A prose override renders the same validated props as its intrinsic tag. */
 export type ProseElementComponent = FunctionComponent<
@@ -50,6 +52,23 @@ function renderNode(
     return createElement(
       components.components[node.name],
       node.props,
+      ...children,
+    );
+  }
+  const liveId = jsonString(node.props.id);
+  const liveRevision = jsonString(node.props.className);
+  if (
+    node.tag === "section" &&
+    liveId?.startsWith("review-node-") &&
+    liveRevision?.startsWith("review-live-")
+  ) {
+    return createElement(
+      ReviewLiveNode,
+      {
+        key: liveId,
+        id: liveId,
+        revision: liveRevision,
+      },
       ...children,
     );
   }

@@ -66,7 +66,7 @@ Scaffold creates one pinned checkout per pinned commit and prints both paths in 
 
 1. **Load the change into your context window**:
    - *IMPORTANT*: THIS STEP IS OPTIONAL; SKIP to #2 IF THIS IS THE SAME SESSION THAT AUTHORED THE CHANGE
-   - Typically involves batched commands; utilize code mode + parallel subagents to minimize the number of tool calls.
+   - Typically involves batched commands; utilize code mode + parallel subagents to minimize the number of tool calls. If it's available, use ast-grep as per the code search section below.
    - infer if "this is the same session that authored the change" via the user's messages.
 2. **Decide on the evidence that you want to show**
 3. **For locations where you can't remember specific line numbers, search for code locations to match your chosen examples/anchors.**
@@ -74,6 +74,32 @@ Scaffold creates one pinned checkout per pinned commit and prints both paths in 
 Default to `AnchorLink` or `CodePeek` for source evidence (prefer `AnchorLink`, with `CodePeek` superior for examples which are best demonstrated via inline code, e.g. an API change).
 
 A path outside the pinned checkout blocks document publication.
+
+### Code Search
+   - Utilize batching to minimize tool calls / code-mode + parallelism (e.g. via subagents) to speed things up.
+   - *IMPORTANT*: when at all possible, use `ast-grep` (on PATH) vs. vanilla grep, reading files (e.g. via sed/cat), or counting line ranges. 'sed, grep, cat' are slow and ill-fitted to this use-case (finding starting/closing brackets of code snippets).
+      - Match declarations by **node kind + name** with `ast-grep scan`, not by a code pattern (`ast-grep run -p`): a pattern must parse as a complete program, and a bare method or signature does not, so method patterns return nothing.
+      - One call resolves every anchor on a checkout. List all the names in the regex; run it once for head and once for base:
+      ```sh
+      ast-grep scan --json=compact --inline-rules '
+      id: anchors
+      language: TypeScript
+      rule:
+        any: [{kind: function_declaration}, {kind: method_definition}, {kind: class_declaration},
+              {kind: interface_declaration}, {kind: type_alias_declaration}, {kind: variable_declarator}]
+        has: {field: name, regex: ^(nameA|nameB|nameC)$}
+      ' <checkout>/<dir> \
+        | jq -r '.[] | "\(.file) \(.range.start.line+1)-\(.range.end.line+1)\n\(.text)\n"'
+      ```
+      - The output is `file fromLine-toLine` followed by the full source of the match, already 1-based (`range.*.line` is 0-based; the `+1` is in the jq). That text is the code you will describe or peek at; do not re-read it with `sed`/`cat`.
+      - Private members match by their `#name` (`regex: ^#mirror$`).
+      - If a declaration shape is not matching, ask ast-grep which kind carries its `name:` field and use that kind:
+      ```sh
+      ast-grep run -l <lang> -p '<one complete, valid declaration of that shape>' --debug-query=ast
+      ```
+        e.g. `const f = (x: X): Y => { … }` shows `lexical_declaration > variable_declarator > name: identifier`, so the kind is `variable_declarator`. This is also how to get kinds for other languages.
+      - For a range inside a declaration (one call, one statement), add `inside: {kind: <declaration kind>, has: {field: name, regex: ^outer$}}` to the rule and match the inner node.
+      - The range from ast-grep is authorative & there's no need to second-guess it with 'sed' or 'cat' calls.
 
 Remember that a review has two pinned checkouts (base checkout, or `baseCommit`, and head checkout, or `sourceCommit`). Depending on the anchor/code ref you may need to be specific about one side or the other.
 

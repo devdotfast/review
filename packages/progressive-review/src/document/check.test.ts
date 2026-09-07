@@ -1,16 +1,13 @@
-import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import {
-  compileReviewDocument,
-  formatReviewDocumentDiagnostics,
-  reviewDocumentRevision,
-} from "./review-document-compiler";
+import { buildReviewDocument } from "./build";
+import { formatReviewDocumentDiagnostics } from "./diagnostics";
 
-describe("compileReviewDocument", () => {
+describe("native authoring diagnostics and exports", () => {
   it("re-exports local data bindings for publish materialization", async () => {
     const rootPath = await mkdtemp(
       path.join(os.tmpdir(), "review-document-data-exports-"),
@@ -40,16 +37,17 @@ describe("compileReviewDocument", () => {
       );
       await writeFile(filePath, source);
 
-      const result = await compileReviewDocument({
-        filePath,
-        reviewRootPath: rootPath,
-        source,
+      const result = await buildReviewDocument({
+        reviewPath: filePath,
+        ranges: "skip",
       });
 
       expect(result.diagnostics).toEqual([]);
-      expect(result.runtimeCode).toMatch(
-        /export\s*\{\s*anchors\s*,\s*importedModel\s*\}/,
-      );
+      expect(Object.keys(result.document?.anchors ?? {}).sort()).toEqual([
+        "unused",
+        "used",
+      ]);
+      expect(result.document?.softwareModels).toHaveLength(1);
     } finally {
       await rm(rootPath, { recursive: true, force: true });
     }
@@ -73,16 +71,14 @@ describe("compileReviewDocument", () => {
         "export const anchors = {};\n",
       );
       await writeFile(filePath, source);
-      const result = await compileReviewDocument({
-        filePath,
-        reviewRootPath: rootPath,
-        source,
+      const result = await buildReviewDocument({
+        reviewPath: filePath,
+        ranges: "skip",
       });
 
       expect(result.diagnostics).toEqual([]);
-      expect(
-        result.runtimeCode?.match(/export\s*\{\s*anchors\s*\}/g),
-      ).toHaveLength(1);
+      expect(result.document).not.toBeNull();
+      expect(result.document?.anchors).toEqual({});
     } finally {
       await rm(rootPath, { recursive: true, force: true });
     }
@@ -103,10 +99,9 @@ describe("compileReviewDocument", () => {
 
     try {
       await writeFile(filePath, source);
-      const result = await compileReviewDocument({
-        filePath,
-        reviewRootPath: rootPath,
-        source,
+      const result = await buildReviewDocument({
+        reviewPath: filePath,
+        ranges: "skip",
       });
 
       expect(result.diagnostics).toEqual(
@@ -189,13 +184,12 @@ describe("compileReviewDocument", () => {
 
     try {
       await writeFile(filePath, source);
-      const result = await compileReviewDocument({
-        filePath,
-        reviewRootPath: rootPath,
-        source,
+      const result = await buildReviewDocument({
+        reviewPath: filePath,
+        ranges: "skip",
       });
 
-      expect(result.runtimeCode).toBeUndefined();
+      expect(result.document).toBeNull();
       expect(result.diagnostics).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -272,36 +266,6 @@ describe("compileReviewDocument", () => {
       expect(formatted).toContain(`${heygenLine} |   from: actors.heygen,`);
       expect(formatted).toContain("   |                ^");
     } finally {
-      await rm(rootPath, { force: true, recursive: true });
-    }
-  });
-
-  it("gives filesystem aliases the same validated revision", async () => {
-    const rootPath = await mkdtemp(
-      path.join(os.tmpdir(), "review-document-revision-"),
-    );
-    const aliasPath = `${rootPath}-alias`;
-    const filePath = path.join(rootPath, "typed.mdx");
-    try {
-      await writeFile(filePath, "# Review\n");
-      await symlink(rootPath, aliasPath, "dir");
-      const source = "# Review\n";
-
-      expect(
-        reviewDocumentRevision({
-          filePath,
-          reviewRootPath: rootPath,
-          source,
-        }),
-      ).toBe(
-        reviewDocumentRevision({
-          filePath: path.join(aliasPath, "typed.mdx"),
-          reviewRootPath: aliasPath,
-          source,
-        }),
-      );
-    } finally {
-      await rm(aliasPath, { force: true });
       await rm(rootPath, { force: true, recursive: true });
     }
   });

@@ -16,6 +16,7 @@ import {
   CodePeek,
   CodePeekCard,
   CodePeekGroup,
+  CodePeekView,
   ReviewCodePeek,
   codePeekSubject,
   validatedCodePeekInputFromRef,
@@ -55,6 +56,33 @@ afterEach(async () => {
 });
 
 describe("CodePeek native editor", () => {
+  it("shows a local error for an unavailable published pointer without throwing during render", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ ok: false, error: "Pinned source unavailable" }),
+            { status: 503 },
+          ),
+      ),
+    );
+    const input = validatedCodePeekInputFromRef({
+      __kind: "code-peek-ref",
+      props: { file: "src/unavailable.ts", fromLine: 1, toLine: 1 },
+      resolution: null,
+    });
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => renderWithSession(<CodePeekView input={input} />));
+    await vi.waitFor(() =>
+      expect(container.querySelector(".peek-error")?.textContent).toBe(
+        "Pinned source unavailable",
+      ),
+    );
+    expect(created).toEqual([]);
+  });
   it("renders one native editor per resolved file in a grouped side peek", async () => {
     vi.stubGlobal(
       "fetch",

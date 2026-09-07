@@ -82,21 +82,19 @@ export function codePeekLoadState(input: {
 export function validatedCodePeekInputFromRef(
   ref: CodePeekRef,
 ): ValidatedCodePeekInput {
-  if (!ref.resolution) {
-    throw new Error(
-      "CodePeek received an unresolved pointer. defineAnchors must finish before React mounts.",
-    );
-  }
+  // Published data can outlive source availability. An unresolved display
+  // pointer uses the card's existing request/error path; publish validation
+  // remains strict in the server-side authoring audit.
   return {
     [validatedCodePeekInput]: true,
     props: ref.props,
-    resolution: ref.resolution,
+    resolution: ref.resolution ?? undefined,
   };
 }
 
 // Internal interactive surface used by the software-map inspector. Authored
 // Review documents receive ReviewCodePeek instead, which only accepts a
-// pointer resolved by defineAnchors.
+// validated pointer created by defineAnchors.
 export function CodePeek(props: CodePeekProps) {
   return (
     <CodePeekView

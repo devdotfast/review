@@ -96,17 +96,55 @@ it("keeps a second session's hydration separate", async () => {
   ]);
 });
 
-it("evicts a rejected hydration so a later load can retry", async () => {
+it("keeps available peeks visible and retries incomplete preparation on a later load", async () => {
   const session = testReviewSession();
+  const data = documentData();
+  data.anchors.other = {
+    __kind: "db-anchor-ref",
+    id: "other",
+    title: "Available",
+    peek: {
+      __kind: "code-peek-ref",
+      props: { file: "src/available.ts", fromLine: 1, toLine: 1 },
+      resolution: null,
+    },
+  };
+  load = { ...load, data: parseJsonText(JSON.stringify(data)) };
   resolveCodePeek.mockRejectedValueOnce(new Error("peek unavailable"));
 
-  await expect(
-    prepareReviewDocument(load, session, { resolveCodePeek }),
-  ).rejects.toThrow("peek unavailable");
+  const partial = await prepareReviewDocument(load, session, {
+    resolveCodePeek,
+  });
+  expect(partial.body).toHaveLength(1);
+  expect(partial.anchors.get("create-order")?.peek?.resolution).toBeNull();
+  expect(partial.anchors.get("other")?.peek?.resolution).toEqual({
+    snapshot: { roots: [], resolved: {} },
+  });
   expect(session.documents.has("document-hash")).toBe(false);
 
+  const recovered = await prepareReviewDocument(load, session, {
+    resolveCodePeek,
+  });
+  expect(recovered.anchors.get("create-order")?.peek?.resolution).toBeDefined();
+  expect(resolveCodePeek).toHaveBeenCalledTimes(4);
+});
+
+it("evicts rejected hydration without caching invalid document data", async () => {
+  const session = testReviewSession();
+  const invalid = { ...documentData(), anchors: {} };
+  await expect(
+    prepareReviewDocument(
+      {
+        ...load,
+        data: parseJsonText(JSON.stringify(invalid)),
+      },
+      session,
+      { resolveCodePeek },
+    ),
+  ).rejects.toThrow("missing anchor");
+  expect(session.documents.has("document-hash")).toBe(false);
   await expect(
     prepareReviewDocument(load, session, { resolveCodePeek }),
   ).resolves.toBeDefined();
-  expect(resolveCodePeek).toHaveBeenCalledTimes(2);
+  expect(resolveCodePeek).toHaveBeenCalledOnce();
 });

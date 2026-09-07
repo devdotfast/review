@@ -46,4 +46,11 @@ describe("hydratePublishedSoftwareMap", () => {
     expect(maps.head.elementsByPath.get("orders")).toEqual(headElement);
     expect(maps.base.elementsByPath.get("orders.api")).toEqual(baseElement);
   });
+
+  it("rejects an unsupported published map format", () => {
+    const data = { format: "software-map/2", elements: [], relationships: [] };
+    expect(() =>
+      hydratePublishedSoftwareMap({ head: data, base: data }),
+    ).toThrow(/software-map\/1/);
+  });
 });

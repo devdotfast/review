@@ -8,8 +8,8 @@ import { z } from "zod";
 
 import { resolveAuthoringSessionRef } from "./authoring-session";
 import { type CliJsonEvent, emitJsonEvent } from "./cli-output";
-import type { ReviewDocumentDiagnostic } from "./compiler/review-document-compiler";
 import { requireHealthyReviewDesktop } from "./desktop-discovery";
+import type { ReviewDocumentDiagnostic } from "./document/diagnostics";
 import { ReviewPublicationValidationError } from "./review-publication-preparation";
 import {
   sealReviewDocumentPublication,

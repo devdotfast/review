@@ -213,7 +213,7 @@ test("the packaged app carries its own Review runtime and is never written to at
     stagingScript,
     /RUNTIME_SERVER_ENTRY = "dist\/server\/desktop-host\.js"/,
   );
-  assert.match(stagingScript, /@esbuild\/\$\{platform\}\/bin\/esbuild/);
+  assert.match(stagingScript, /dist\/document\/worker\.js/);
   for (const packageScript of [packageLinuxScript, packageMacScript]) {
     assert.doesNotMatch(
       packageScript,

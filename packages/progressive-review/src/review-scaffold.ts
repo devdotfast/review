@@ -17,6 +17,7 @@ import {
   authoringSessionKey,
   resolveAuthoringSessionRef,
 } from "./authoring-session";
+import { buildReviewDocument } from "./document/build";
 import { errorMessage } from "./error-message";
 import {
   type ReviewTracePullSessionResult,
@@ -36,7 +37,6 @@ import {
   updateReviewPins,
 } from "./review-home";
 import type { ReviewInfoEvent } from "./review-info";
-import { evaluateReviewDocumentBundleForPublish } from "./review-publish-evaluate";
 import { createReviewSourceAgentSession } from "./review-source-agent-session";
 import {
   deleteReviewSourceHeadRef,
@@ -45,7 +45,6 @@ import {
 } from "./review-source-ref";
 import { ensurePinnedReviewWorktreeAtCommit } from "./review-worktree-target";
 import { resolveReviewRoot, resolveReviewSource } from "./runtime";
-import { compileReviewDocumentBundle } from "./server/doc-bundler";
 import { reviewInfoEvent } from "./server/review-info";
 import { span } from "./startup-trace";
 import { traceMachineEnabled } from "./trace-machine-setup";
@@ -711,23 +710,13 @@ async function reportRangeStaleness(input: {
   progress?: (message: string) => void;
 }): Promise<void> {
   if (!input.progress) return;
-  const compiled = await span("staleness: compile document bundle", () =>
-    compileReviewDocumentBundle({
+  const evaluated = await span("staleness: build document", () =>
+    buildReviewDocument({
       reviewPath: path.join(input.review.dir, "review.mdx"),
-      reviewDocumentsDir: path.join(input.review.dir, ".review-documents"),
-      reviewRootPath: input.review.dir,
-      routePath: "/",
-    }),
-  );
-  const bundle = compiled.bundle;
-  if (!bundle) return;
-  const evaluated = await span("staleness: evaluate document", () =>
-    evaluateReviewDocumentBundleForPublish({
-      bundleCode: bundle.code,
-      reviewDir: input.review.dir,
       ranges: "skip",
     }),
   );
+  if (!evaluated.document) return;
   if (evaluated.errors.length > 0) return;
 
   const changedBySide = new Map<"head" | "base", Set<string>>();

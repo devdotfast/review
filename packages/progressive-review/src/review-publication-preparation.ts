@@ -1,7 +1,8 @@
 import path from "node:path";
 
 import { patchChangedLines } from "./call-stack-diff";
-import type { ReviewDocumentDiagnostic } from "./compiler/review-document-compiler";
+import { buildReviewDocument } from "./document/build";
+import type { ReviewDocumentDiagnostic } from "./document/diagnostics";
 import {
   type ReviewDocumentBundle,
   bundleReviewDocument,
@@ -11,12 +12,10 @@ import {
   resolveReviewDiffFiles,
 } from "./review-diff-files";
 import type { StoredReview } from "./review-home";
-import { evaluateReviewDocumentBundleForPublish } from "./review-publish-evaluate";
 import {
   type ReviewSourceTarget,
   resolveReviewSourceTarget,
 } from "./review-worktree-target";
-import { compileReviewDocumentBundle } from "./server/doc-bundler";
 import {
   type ReviewSoftwareMapBundle,
   bundleReviewSoftwareMap,
@@ -58,22 +57,6 @@ export async function prepareReviewDocumentBundle(input: {
   review: StoredReview;
 }): Promise<{ bundle: ReviewDocumentBundle; warnings: string[] }> {
   const warnings: string[] = [];
-  const compiled = await span("publish: compile document bundle", () =>
-    compileReviewDocumentBundle({
-      reviewPath: path.join(input.review.dir, "review.mdx"),
-      reviewDocumentsDir: path.join(input.review.dir, ".review-documents"),
-      reviewRootPath: input.review.dir,
-      routePath: "/",
-    }),
-  );
-  const bundle = compiled.bundle;
-  if (!bundle) {
-    throw new ReviewPublicationValidationError(
-      [],
-      compiled.diagnostics,
-      warnings,
-    );
-  }
   let sourceTargetPromise: Promise<ReviewSourceTarget> | null = null;
   const sourceTarget = () =>
     (sourceTargetPromise ??= span("publish: resolve source target", () =>
@@ -94,10 +77,9 @@ export async function prepareReviewDocumentBundle(input: {
       }),
     ));
   };
-  const evaluation = await span("publish: evaluate document", () =>
-    evaluateReviewDocumentBundleForPublish({
-      bundleCode: bundle.code,
-      reviewDir: input.review.dir,
+  const evaluation = await span("publish: build document", () =>
+    buildReviewDocument({
+      reviewPath: path.join(input.review.dir, "review.mdx"),
       prepareEvidence: async () => {
         const source = await sourceTarget();
         return {
@@ -126,7 +108,7 @@ export async function prepareReviewDocumentBundle(input: {
       evaluation.errors.length > 0
         ? evaluation.errors
         : ["Review document did not materialize."],
-      undefined,
+      evaluation.diagnostics.length ? evaluation.diagnostics : undefined,
       [...new Set([...warnings, ...evaluation.warnings])],
     );
   }

@@ -49,8 +49,20 @@ export const PROSE_TAGS = [
   "td",
   "input",
   "img",
-  "sup",
   "section",
+  "sup",
+  "sub",
+  "b",
+  "i",
+  "kbd",
+  "span",
+  "s",
+  "u",
+  "small",
+  "mark",
+  "abbr",
+  "cite",
+  "q",
 ] as const;
 export const proseTagSchema = z.enum(PROSE_TAGS);
 export type ProseTag = z.infer<typeof proseTagSchema>;
@@ -75,12 +87,14 @@ const PROSE_PROPS = new Set([
   "type",
   "alt",
   "src",
-  // Footnote references and return links emitted by the Markdown compiler.
+  "role",
+  "tabIndex",
+  "aria-describedby",
+  "aria-label",
+  "aria-hidden",
   "data-footnote-ref",
   "data-footnote-backref",
   "data-footnotes",
-  "aria-describedby",
-  "aria-label",
 ]);
 const SAFE_URL = /^(?:https?:|mailto:|#|\/|\.{0,2}\/|[^:]*$)/i;
 

@@ -11,13 +11,12 @@ import {
 } from "@dev.fast/review-protocol";
 import { describe, expect, it } from "vitest";
 
+import { buildReviewDocument } from "./document/build";
 import {
   reviewDocumentDataSchema,
   walkReviewNodes,
 } from "./review-document-data";
 import { createReviewDir } from "./review-home";
-import { evaluateReviewDocumentBundleForPublish } from "./review-publish-evaluate";
-import { compileReviewDocumentBundle } from "./server/doc-bundler";
 
 describe("tutorial review document data", () => {
   it("compiles and materializes the real tutorial against its stub repository", async () => {
@@ -55,24 +54,15 @@ describe("tutorial review document data", () => {
         ),
       );
 
-      const compiled = await compileReviewDocumentBundle({
+      const evaluation = await buildReviewDocument({
         reviewPath: path.join(review.dir, "review.mdx"),
-        reviewDocumentsDir: path.join(review.dir, ".review-documents"),
-        reviewRootPath: review.dir,
-        routePath: "/",
-      });
-      expect(compiled.diagnostics).toEqual([]);
-      expect(compiled.bundle).not.toBeNull();
-
-      const evaluation = await evaluateReviewDocumentBundleForPublish({
-        bundleCode: compiled.bundle!.code,
-        reviewDir: review.dir,
         prepareEvidence: async () => ({
           head: { sourceRootPath },
           base: { sourceRootPath },
         }),
       });
 
+      expect(evaluation.diagnostics).toEqual([]);
       expect(evaluation.errors).toEqual([]);
       expect(evaluation.document).not.toBeNull();
       const componentNames = new Set<string>();

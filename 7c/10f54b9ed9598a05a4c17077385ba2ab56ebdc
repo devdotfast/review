@@ -1,0 +1,1004 @@
+import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
+
+/**
+ * Software map for 7c10f54b (head) — the native agent integration subsystem of
+ * Review: harness detection, skill/trace-hook install, native turn launching
+ * and observation, and authoring-session attribution, plus the SPA side-panel
+ * state that the terminal handoff drives. At this commit the Review source
+ * session is forked at publish time inside the desktop server (the publishing
+ * agent's transcript then holds the finished authoring context), so scaffold
+ * leaves a draft without a source session and repin only records the invoking
+ * agent as an updater; a failed fork fails the publish. The install surface bundles the review
+ * command shim with skill installs by default, bug reports can attach an
+ * opt-in authoring session trace, the trace store speaks to any
+ * S3-compatible backend, the Code OSS protocol overlay is generated at build
+ * time, stacked-PR Reviews expose a /stack layer list rendered as a selector
+ * in the document meta line (opening siblings through the openReview verb),
+ * resolved threads stay pinned in the document as quiet markers with a
+ * Resolve / Unresolve toggle in the Threads panel, and the SPA side panel is a
+ * single active-panel store whose in-Threads navigation (setThreadsPage) is a
+ * no-op once the native agent terminal has closed Threads.
+ */
+export default defineSoftwareMap({
+  people: {
+    reviewer: {
+      label: "Reviewer",
+      description:
+        "Developer reviewing agent-written changes in Review Desktop; asks per-thread questions and watches agent turns.",
+    },
+    authoringAgent: {
+      label: "Coding agent",
+      description:
+        "The user's terminal coding agent (Claude Code, Codex, Cursor agent, or Pi) that authors reviews and answers review questions.",
+    },
+  },
+  systems: {
+    review: {
+      label: "Review Desktop",
+      description:
+        "Local desktop app plus its CLI and local server that turn agent-authored changes into guided Reviews and relay reviewer questions back into agent terminals.",
+      containers: {
+        cliPackage: {
+          label: "progressive-review package",
+          description:
+            "CLI, local server, and the native agent integration subsystem (install, launch, observe, attribute).",
+          coverage: {
+            files: [
+              { path: "packages/progressive-review/src/installed-review-agent.ts" },
+              { path: "packages/progressive-review/src/install.ts" },
+              { path: "packages/progressive-review/src/server/cli-install.ts" },
+              { path: "packages/progressive-review/src/agent-trace-hooks.ts" },
+              { path: "packages/progressive-review/src/agent-trace-parser.ts" },
+              { path: "packages/progressive-review/src/authoring-session.ts" },
+              { path: "packages/progressive-review/src/review-source-agent-session.ts" },
+              { path: "packages/progressive-review/src/tutorial-authoring-session.ts" },
+              { path: "packages/progressive-review/src/native-agent/native-turn-launcher.ts" },
+              { path: "packages/progressive-review/src/native-agent/native-observer.ts" },
+              { path: "packages/progressive-review/src/native-agent/native-session.ts" },
+              { path: "packages/progressive-review/src/native-agent/native-hook-client.ts" },
+              { path: "packages/progressive-review/src/native-agent/native-message-mirror.ts" },
+              { path: "packages/progressive-review/src/native-agent/codex-app-server.ts" },
+              { path: "packages/progressive-review/src/native-agent/claude-transcript.ts" },
+              { path: "packages/progressive-review/src/native-agent/codex-transcript.ts" },
+              { path: "packages/progressive-review/src/native-agent/pi-transcript.ts" },
+              { path: "packages/progressive-review/src/server/desktop-server.ts" },
+              { path: "packages/progressive-review/src/server/review-api.ts" },
+              { path: "packages/progressive-review/src/cli-runner.ts" },
+              { path: "packages/progressive-review/src/review-agent-traces.ts" },
+              { path: "packages/progressive-review/src/server/bug-report.ts" },
+              { path: "packages/progressive-review/src/server/bug-report-trace.ts" },
+              { path: "packages/progressive-review/src/review-scaffold.ts" },
+              { path: "packages/progressive-review/src/review-home.ts" },
+              { path: "packages/progressive-review/src/review-rebind.ts" },
+              { path: "packages/progressive-review/src/review-stack.ts" },
+            ],
+          },
+          components: {
+            harnessRegistry: {
+              label: "Harness registry",
+              description:
+                "Maps install targets to launchable ReviewAgentHarness values and picks the preferred installed agent.",
+              coverage: {
+                files: [{ path: "packages/progressive-review/src/installed-review-agent.ts" }],
+              },
+              codeElements: {
+                preferredInstalledReviewAgent: {
+                  label: "preferredInstalledReviewAgent",
+                  description:
+                    "Selects the first installed launchable agent, preserving onboarding order.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.cliPackage.authoring.authoringSession",
+                      semanticKind: "types",
+                      label: "ReviewAgentHarness contract",
+                    },
+                  ],
+                },
+              },
+            },
+            installer: {
+              label: "Install surface",
+              description:
+                "Installs skills, per-agent trace hooks, and (by default) the review command shim with shell-profile PATH management; also the server-driven install status and removal path.",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/src/install.ts" },
+                  { path: "packages/progressive-review/src/server/cli-install.ts" },
+                ],
+              },
+              codeElements: {
+                runInstall: {
+                  label: "runInstall",
+                  description:
+                    "Installs Review skills per target and configures agent lifecycle hooks for trace capture.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.traceHooks.agentTraceHooks",
+                      label: "install per-agent trace hooks",
+                    },
+                  ],
+                },
+                cliInstall: {
+                  label: "CLI install service",
+                  description:
+                    "Server-side install status, apply, and removal; skill installs now default to installing the review command, status reports shim ownership and profile configuration, and removal strips the managed PATH block.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.traceHooks.agentTraceHooks",
+                      label: "removeAgentTraceHook on uninstall",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "installReviewCommand",
+                      label: "applyCliInstall installs shim by default",
+                    },
+                  ],
+                },
+                installReviewCommand: {
+                  label: "installReviewCommand",
+                  description:
+                    "Writes the owned review PATH shim, ensures a managed ~/.local/bin PATH block in the shell profile, and warns when another review command shadows the shim.",
+                },
+              },
+            },
+            traceHooks: {
+              label: "Trace hook installation and parsing",
+              description:
+                "Installs session lifecycle hooks for Claude, Codex, and Pi, and parses agent trace formats for the trace subsystem.",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/src/agent-trace-hooks.ts" },
+                  { path: "packages/progressive-review/src/agent-trace-parser.ts" },
+                ],
+              },
+              codeElements: {
+                agentTraceHooks: {
+                  label: "agent-trace-hooks",
+                  description:
+                    "Idempotent installers for Claude settings hooks, Codex config hooks, and the Pi extension.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "agentTraceParser",
+                      semanticKind: "feeds",
+                      label: "captured sessions feed transcript parsing",
+                    },
+                  ],
+                },
+                agentTraceParser: {
+                  label: "agent-trace-parser",
+                  description: "Sniffs and parses agent transcript JSONL into trace events.",
+                },
+              },
+            },
+            traceStore: {
+              label: "Review agent trace store",
+              description:
+                "Resolves the agent sessions behind a review's commits, locates harness-local trace files, and syncs traces to an S3-compatible store (R2 or AWS S3, with a configurable signing region).",
+              coverage: {
+                files: [{ path: "packages/progressive-review/src/review-agent-traces.ts" }],
+              },
+              codeElements: {
+                sessionResolution: {
+                  label: "listReviewTraceSessions",
+                  description:
+                    "Resolves the sessions behind a commit range from Agent-Session commit trailers, falling back to the R2 commit index, then to a PR-branch trailer scan for squash-merged commits.",
+                },
+                commitLookup: {
+                  label: "lookupReviewTraceCommit",
+                  description:
+                    "Per-commit session lookup: trailers, then the R2 index, then the shared prScanTrailerSessions scan of the commit's pull-request branch when the subject ends in a PR number.",
+                },
+                findLocalTrace: {
+                  label: "findLocalTrace",
+                  description:
+                    "Locates a session's raw trace JSONL and subagent files in the harness-local trace store.",
+                },
+              },
+            },
+            bugReport: {
+              label: "Bug report pipeline",
+              description:
+                "Builds and submits Review Desktop bug reports: review source, map, diff, and the opt-in authoring trace attachment, under a size ladder that drops the trace first.",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/src/server/bug-report.ts" },
+                  { path: "packages/progressive-review/src/server/bug-report-trace.ts" },
+                ],
+              },
+              codeElements: {
+                submitReviewBugReport: {
+                  label: "submitReviewBugReport",
+                  description:
+                    "Gathers requested attachments concurrently, builds the gzip multipart request, and drops the trace first when the compressed report exceeds the upload cap.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "readAuthoringTraceAttachment",
+                      label: "attach authoring trace when include_trace",
+                    },
+                  ],
+                },
+                readAuthoringTraceAttachment: {
+                  label: "readAuthoringTraceAttachment",
+                  description:
+                    "Resolves the review's authoring session, reads its harness-local trace, tail-caps main and newest subagent files, and redacts recognizable secret formats.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.cliPackage.authoring.authoringSession",
+                      semanticKind: "types",
+                      label: "parseAuthoringSessionKey resolves the source session",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.traceStore.findLocalTrace",
+                      label: "findLocalTrace",
+                    },
+                  ],
+                },
+              },
+            },
+            authoring: {
+              label: "Authoring sessions",
+              description:
+                "Detects the invoking agent session from environment, freezes or forks it as the Review source session when the desktop server publishes, binds the frozen key to the stored Review, records scaffold/repin agents as updaters, and resolves fresh-harness fallbacks.",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/src/authoring-session.ts" },
+                  { path: "packages/progressive-review/src/review-source-agent-session.ts" },
+                  { path: "packages/progressive-review/src/tutorial-authoring-session.ts" },
+                  { path: "packages/progressive-review/src/review-scaffold.ts" },
+                  { path: "packages/progressive-review/src/review-home.ts" },
+                  { path: "packages/progressive-review/src/review-rebind.ts" },
+                ],
+              },
+              codeElements: {
+                reviewScaffold: {
+                  label: "review-scaffold createReview / repinReview",
+                  description:
+                    "Scaffold no longer forks the invoking agent: a draft has no source session until publish. repinReview moves the pins (updateReviewPins without a session) and, when an agent invoked it, records that agent with the updater role via touchReviewAgentSession; the source session stays as it is until the next publish forks a fresh one. runReviewRebind (review-rebind.ts) delegates to repinReview and no longer threads a createSourceAgentSession override.",
+                  sourceRanges: [
+                    { file: "packages/progressive-review/src/review-scaffold.ts", fromLine: 111, toLine: 206 },
+                    { file: "packages/progressive-review/src/review-scaffold.ts", fromLine: 213, toLine: 313 },
+                  ],
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "reviewHomeSessionRecord",
+                      label: "updateReviewPins / touchReviewAgentSession(updater)",
+                    },
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "authoringSession",
+                      semanticKind: "calls",
+                      label: "resolveAuthoringSessionRef / authoringSessionKey",
+                    },
+                  ],
+                },
+                reviewHomeSessionRecord: {
+                  label: "review-home session record",
+                  description:
+                    "Stored Review record helpers: bindPublishedSourceSession binds a freshly frozen source session key to the record with the author role (validated by parseAuthoringSessionKey); updateReviewPins moves only the pinned range and leaves the source session alone; touchReviewAgentSession and bindReviewAuthorSession maintain agentSessions roles.",
+                  sourceRanges: [
+                    { file: "packages/progressive-review/src/review-home.ts", fromLine: 311, toLine: 392 },
+                  ],
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "authoringSession",
+                      semanticKind: "calls",
+                      label: "parseAuthoringSessionKey",
+                    },
+                  ],
+                },
+                authoringSession: {
+                  label: "authoring-session",
+                  description:
+                    "ReviewAgentHarness type, session env detection (CODEX_THREAD_ID, CLAUDE_CODE_SESSION_ID, PI_SESSION_ID), and fresh-harness keys.",
+                  sourceRanges: [
+                    { file: "packages/progressive-review/src/authoring-session.ts", fromLine: 41, toLine: 78 },
+                  ],
+                },
+                reviewSourceAgentSession: {
+                  label: "createReviewSourceAgentSession",
+                  description:
+                    "Forks or freezes the publishing session per harness at publish time (native Codex fork, Claude transcript copy, Pi --fork) so every new thread forks a copy that holds the finished authoring context: the change, the drafted document, and the publish.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.nativeAgents.codexAppServer",
+                      label: "forkCodexThread",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.nativeAgents.claudeTranscript",
+                      label: "findClaudeTranscript",
+                    },
+                  ],
+                },
+                tutorialAuthoringSession: {
+                  label: "createTutorialAuthoringSession",
+                  description:
+                    "Runs one authoring turn per harness to seed the tutorial's genuine source session.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "authoringSession",
+                      semanticKind: "types",
+                      label: "SessionRef harness",
+                    },
+                  ],
+                },
+              },
+            },
+            nativeAgents: {
+              label: "Native agent bridge",
+              description:
+                "Launches Review turns as real native agent terminals, observes their lifecycle through hooks, reads transcripts, and mirrors messages into review threads.",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/src/native-agent/native-turn-launcher.ts" },
+                  { path: "packages/progressive-review/src/native-agent/native-observer.ts" },
+                  { path: "packages/progressive-review/src/native-agent/native-session.ts" },
+                  { path: "packages/progressive-review/src/native-agent/native-hook-client.ts" },
+                  { path: "packages/progressive-review/src/native-agent/native-message-mirror.ts" },
+                  { path: "packages/progressive-review/src/native-agent/codex-app-server.ts" },
+                  { path: "packages/progressive-review/src/native-agent/claude-transcript.ts" },
+                  { path: "packages/progressive-review/src/native-agent/codex-transcript.ts" },
+                  { path: "packages/progressive-review/src/native-agent/pi-transcript.ts" },
+                ],
+              },
+              codeElements: {
+                nativeTurnLauncher: {
+                  label: "NativeReviewTurnLauncher",
+                  description:
+                    "Builds per-harness terminal inputs (executable, args, env) for new/resume/fork routes and opens the native terminal.",
+                  sourceRanges: [
+                    { file: "packages/progressive-review/src/native-agent/native-turn-launcher.ts", fromLine: 88, toLine: 168 },
+                  ],
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "codexAppServer",
+                      label: "startCodexThread / forkCodexThread",
+                    },
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "nativeHookClient",
+                      semanticKind: "installs",
+                      label: "native-hook-client as observer hook command",
+                    },
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "nativeObserver",
+                      semanticKind: "owns",
+                      label: "creates the observer registry",
+                    },
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "nativeSession",
+                      semanticKind: "types",
+                    },
+                  ],
+                },
+                nativeObserver: {
+                  label: "NativeSessionObserverRegistry",
+                  description:
+                    "Matches hook events to launches, binds sessions, and reads transcripts for message mirroring.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "claudeTranscript",
+                      label: "readClaudeReviewMessages",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "codexTranscript",
+                      label: "readCodexReviewMessages",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "piTranscript",
+                      label: "readPiReviewMessages",
+                    },
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "nativeSession",
+                      semanticKind: "types",
+                    },
+                  ],
+                },
+                nativeSession: {
+                  label: "native-session contracts",
+                  description:
+                    "Harness session refs, terminal handles, and message shapes shared by launcher, observer, and mirror.",
+                },
+                nativeHookClient: {
+                  label: "native-hook-client",
+                  description:
+                    "Standalone hook relay: posts the agent hook payload to the launch's hook URL. Env-gated and fail-open.",
+                },
+                nativeMessageMirror: {
+                  label: "NativeMessageMirror",
+                  description: "Watches observed sessions and mirrors messages into review thread storage.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "nativeSession",
+                      semanticKind: "types",
+                    },
+                  ],
+                },
+                codexAppServer: {
+                  label: "Codex app-server client",
+                  description: "Starts, forks, and resumes Codex threads over the Codex app-server protocol.",
+                },
+                claudeTranscript: {
+                  label: "Claude transcript reader",
+                  description: "Locates and projects Claude Code JSONL transcripts into review messages.",
+                },
+                codexTranscript: {
+                  label: "Codex transcript reader",
+                  description: "Locates and projects Codex rollout files into review messages.",
+                },
+                piTranscript: {
+                  label: "Pi transcript reader",
+                  description: "Projects Pi session JSONL into review messages.",
+                },
+              },
+            },
+            stackNavigation: {
+              label: "Stacked PR navigation",
+              description:
+                "Resolves the gh-stack layers around a pull-request Review and matches sibling branches to locally stored Reviews; any gh-stack failure yields an empty stack so the Review stays usable.",
+              coverage: {
+                files: [{ path: "packages/progressive-review/src/review-stack.ts" }],
+              },
+              codeElements: {
+                resolveReviewStackLayers: {
+                  label: "resolveReviewStackLayers",
+                  description:
+                    "Parses `gh stack view` JSON, orders branches as earlier / current / later relative to the Review's PR, and attaches the matching stored Review uuid and title per layer.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.protocolPackage.contracts",
+                      semanticKind: "types",
+                      label: "ReviewStackLayer",
+                    },
+                  ],
+                },
+              },
+            },
+            serverSurface: {
+              label: "Local server surface",
+              description:
+                "Desktop session server: creates sessions, wires the turn launcher and mirrors, and routes Review API verbs.",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/src/server/desktop-server.ts" },
+                  { path: "packages/progressive-review/src/server/review-api.ts" },
+                ],
+              },
+              codeElements: {
+                desktopServer: {
+                  label: "desktop-server",
+                  description:
+                    "Global server: session registry, terminal-open relay to the desktop app, install status resolution, and the publish path. mountPublishedDocument now forks the publishing agent's session through sourceAgentSessionFactory (default createReviewSourceAgentSession) against the ensured head checkout, registers the session under the frozen key so Ask Agent routes to it, and promoteReview persists that key with bindPublishedSourceSession alongside the promoted revision; a failed fork fails the publish with source_session_failed.",
+                  sourceRanges: [
+                    { file: "packages/progressive-review/src/server/desktop-server.ts", fromLine: 969, toLine: 1085 },
+                    { file: "packages/progressive-review/src/server/desktop-server.ts", fromLine: 2361, toLine: 2400 },
+                  ],
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.harnessRegistry.preferredInstalledReviewAgent",
+                      label: "resolveInstalledReviewAgentStatus -> preferred agent",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.authoring.reviewSourceAgentSession",
+                      label: "fork publishing session at publish (sourceAgentSessionFactory)",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.authoring.reviewHomeSessionRecord",
+                      label: "bindPublishedSourceSession on register and promote",
+                    },
+                  ],
+                },
+                reviewApi: {
+                  label: "review-api",
+                  description:
+                    "Per-session API: resolves question routes (fork/resume/new), launches turns, starts message mirrors, serves the native-agent thread GET (/native-agent-events/:launchId/thread/:threadId) that hook clients read, and answers GET /stack with the Review's stacked-PR layers.",
+                  sourceRanges: [
+                    { file: "packages/progressive-review/src/server/review-api.ts", fromLine: 1124, toLine: 1244 },
+                  ],
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.stackNavigation.resolveReviewStackLayers",
+                      label: "GET /stack",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.traceStore.sessionResolution",
+                      label: "listReviewTraceSessions",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.nativeAgents.nativeTurnLauncher",
+                      label: "launchTurn",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.nativeAgents.nativeMessageMirror",
+                      label: "watch via NativeMessageMirror",
+                    },
+                  ],
+                },
+              },
+            },
+            cliRunner: {
+              label: "CLI runner",
+              description:
+                "Commander surface for review commands, including trace hook relays and runtime wiring.",
+              coverage: {
+                files: [{ path: "packages/progressive-review/src/cli-runner.ts" }],
+              },
+              codeElements: {
+                cliRunner: {
+                  label: "cli-runner",
+                  description:
+                    "Registers all review commands and their runtime implementations; review install resolves a built CLI (desktop discovery or packaged dist) and installs the review command shim unless --no-shim.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.installer.runInstall",
+                      label: "review install",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.installer.installReviewCommand",
+                      label: "install shim after skill install",
+                    },
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.cliPackage.traceStore.commitLookup",
+                      semanticKind: "calls",
+                      label: "review trace lookup commands",
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        protocolPackage: {
+          label: "review-protocol package",
+          description: "Shared zod contracts between the CLI/server and the desktop app (verbs, sessions, install status).",
+          coverage: {
+            files: [
+              { path: "packages/review-protocol/src/contracts.ts" },
+              { path: "packages/review-protocol/src/bug-report.ts" },
+            ],
+          },
+          components: {
+            contracts: {
+              label: "contracts",
+              description:
+                "Canonical schemas: AuthoringAgentSession harness enum, ReviewVerbRequest (including the openReview verb), ReviewStackLayer / ReviewStackResponse, install targets, shim install status (installed, profileConfigured, onPath), and region-aware trace credential status.",
+              coverage: {
+                files: [{ path: "packages/review-protocol/src/contracts.ts" }],
+              },
+            },
+            bugReportContracts: {
+              label: "bug-report contracts",
+              description:
+                "Bug report request and metadata schemas; include_trace and the trace metadata (has_trace, trace_harness, truncated_trace) default off so legacy clients keep the old shape.",
+              coverage: {
+                files: [{ path: "packages/review-protocol/src/bug-report.ts" }],
+              },
+            },
+          },
+        },
+        reviewApp: {
+          label: "Review SPA",
+          description:
+            "In-app review UI served to Review Desktop, including the trace reading view, the bug report dialog, and the side panel that hosts Threads.",
+          coverage: {
+            files: [
+              { path: "packages/progressive-review/app/src/bug-report-dialog.tsx" },
+              { path: "packages/progressive-review/app/src/trace-document.tsx" },
+              { path: "packages/progressive-review/app/src/review-panel-model.ts" },
+              { path: "packages/progressive-review/app/src/review-panel-store.ts" },
+              { path: "packages/progressive-review/app/src/review-panel.tsx" },
+              { path: "packages/progressive-review/app/src/review-components.tsx" },
+              { path: "packages/progressive-review/app/src/App.tsx" },
+              { path: "packages/progressive-review/app/src/review-doc-meta.tsx" },
+              { path: "packages/progressive-review/app/src/thread-annotations.tsx" },
+            ],
+          },
+          components: {
+            panelState: {
+              label: "Side panel state",
+              description:
+                "Single active-panel zustand store behind the review side panel: one of peek, guided tour, commit diff, or Threads (list, new-ask, or comment page) plus a live/restored motion flag.",
+              coverage: {
+                files: [
+                  { path: "packages/progressive-review/app/src/review-panel-model.ts" },
+                  { path: "packages/progressive-review/app/src/review-panel-store.ts" },
+                  { path: "packages/progressive-review/app/src/review-panel.tsx" },
+                  { path: "packages/progressive-review/app/src/App.tsx" },
+                ],
+              },
+              codeElements: {
+                reviewPanelModel: {
+                  label: "review-panel-model",
+                  description:
+                    "ReviewPanel union (PeekPanel, TourPanel, CommitDiffPanel, ThreadsPanel), ThreadsPage (list | new-ask | comment), and isDetailPanel.",
+                },
+                reviewPanelStore: {
+                  label: "createReviewPanelStore",
+                  description:
+                    "Panel actions: openPeek/openTour/openCommitDiff, openThreads(page) which always activates Threads, setThreadsPage(page) which moves within Threads only while it is active (a no-op after the agent terminal closed it), restore variants that suppress motion, close, closeForAgentTerminal (drops Threads only), and closeForDocumentChange (drops detail panels only).",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "reviewPanelModel",
+                      semanticKind: "types",
+                    },
+                  ],
+                },
+                reviewPanelProvider: {
+                  label: "ReviewPanelProvider / useReviewPanel",
+                  description:
+                    "Per-app store instance in React context; closes detail panels when the document revision changes.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "reviewPanelStore",
+                      label: "createReviewPanelStore",
+                    },
+                  ],
+                },
+                agentTerminalCloseWiring: {
+                  label: "App agentTerminalOpening subscription",
+                  description:
+                    "App shell subscribes to the session surface stream and calls closeForAgentTerminal when the desktop reports it is opening this session's native agent terminal.",
+                  sourceRanges: [
+                    { file: "packages/progressive-review/app/src/App.tsx", fromLine: 404, toLine: 415 },
+                  ],
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "reviewPanelStore",
+                      label: "closeForAgentTerminal",
+                    },
+                  ],
+                },
+              },
+            },
+            threadPanel: {
+              label: "Threads panel",
+              description:
+                "Side-panel UI for review threads: the thread list, a new document-level ask, or one comment thread; hands asks off to the agent and can resume a thread's agent terminal.",
+              coverage: {
+                files: [{ path: "packages/progressive-review/app/src/review-components.tsx" }],
+              },
+              codeElements: {
+                threadPanelInner: {
+                  label: "ThreadPanelInner",
+                  description:
+                    "askNow sends the ask through review.askAgent and then moves to the comment page via setThreadsPage (so a terminal handoff that already closed Threads keeps it closed); addToReview saves a pending comment and moves to the list or comment page; the thread header offers a Resolve / Unresolve toggle (review.setCommentResolved) beside Resume in terminal, replies on a resolved thread reopen it, and an empty open list points at the Resolved section; resumeInTerminal POSTs /comments/:threadId/agent-terminal.",
+                  sourceRanges: [
+                    { file: "packages/progressive-review/app/src/review-components.tsx", fromLine: 1467, toLine: 1680 },
+                  ],
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.reviewApp.panelState.reviewPanelStore",
+                      label: "setThreadsPage after ask / add; openThreads on select",
+                    },
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.serverSurface.reviewApi",
+                      label: "POST /comments/:threadId/agent-terminal",
+                    },
+                  ],
+                },
+              },
+            },
+            threadAnnotations: {
+              label: "Document thread annotations",
+              description:
+                "Pins comment threads onto the review document: open threads as active markers and resolved threads as quiet markers that only respond to hit-testing when focused; scrolls Threads-panel focus to prose highlights once they have rendered.",
+              coverage: {
+                files: [{ path: "packages/progressive-review/app/src/thread-annotations.tsx" }],
+              },
+              codeElements: {
+                threadAnnotationsView: {
+                  label: "ThreadAnnotations",
+                  description:
+                    "Merges allCommentThreads and resolvedCommentThreads into one annotation list (resolved flag per annotation), defers a focus scroll by one measurement cycle for prose targets, and expands collapsed sections that hold the focused thread.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: "review.reviewApp.threadPanel.threadPanelInner",
+                      to: ".",
+                      semanticKind: "feeds",
+                      label: "selectListThread focus requests scroll and highlight the pinned marker",
+                    },
+                  ],
+                },
+              },
+            },
+            documentMeta: {
+              label: "Document meta line",
+              description:
+                "Header line under the review title: document state, diff stats, relative publish time, and, for stacked pull requests, a stack selector listing the earlier / current / later layers.",
+              coverage: {
+                files: [{ path: "packages/progressive-review/app/src/review-doc-meta.tsx" }],
+              },
+              codeElements: {
+                reviewStackSelector: {
+                  label: "ReviewDocumentMetaLine / ReviewStackSelector",
+                  description:
+                    "Fetches GET /stack on mount and renders the layer menu; picking a sibling layer with a Review dispatches the openReview verb to the desktop shell.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "review.cliPackage.serverSurface.reviewApi",
+                      label: "GET /stack",
+                    },
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.desktopApp.terminalHost.reviewVerbs",
+                      semanticKind: "calls",
+                      label: "openReview verb for a sibling layer",
+                    },
+                  ],
+                },
+              },
+            },
+            traceView: {
+              label: "Trace document view",
+              description:
+                "Renders an agent session trace as a turn-grouped document: lens picks keep the salient events and elide the rest behind expandable gap chips. Hosted by ReviewTraceView and the review canvas.",
+              coverage: {
+                files: [{ path: "packages/progressive-review/app/src/trace-document.tsx" }],
+              },
+              relationships: [
+                {
+                  kind: "semantic",
+                  from: ".",
+                  to: "review.protocolPackage.contracts",
+                  semanticKind: "types",
+                  label: "renders ReviewAgentTraceEvent streams",
+                },
+              ],
+              codeElements: {
+                traceDocument: {
+                  label: "TraceDocument",
+                  description:
+                    "Stateful trace reader: computes lens-included events, tracks expanded gaps and expanded events, and renders one TraceTurn per turn.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "traceTurn",
+                      label: "renders turns with expansion callbacks",
+                    },
+                  ],
+                },
+                traceTurn: {
+                  label: "TraceTurn",
+                  description:
+                    "Renders a turn's user, work, and final events, coalescing tool runs and collapsing runs of elided events into gap chips.",
+                  relationships: [
+                    {
+                      kind: "call",
+                      from: ".",
+                      to: "gapElision",
+                      label: "TraceGapChip for elided runs",
+                    },
+                  ],
+                },
+                gapElision: {
+                  label: "Lens elision helpers",
+                  description:
+                    "applyLensPicks/elideByKeep decide which events a lens keeps; TraceGapChip and ElidedMessage present the elided remainder with expand affordances.",
+                },
+              },
+            },
+            bugReportDialog: {
+              label: "Bug report dialog",
+              description:
+                "Reviewer-facing bug report form with the opt-in Agent session trace checkbox and its privacy tooltip.",
+              coverage: {
+                files: [{ path: "packages/progressive-review/app/src/bug-report-dialog.tsx" }],
+              },
+              relationships: [
+                {
+                  kind: "semantic",
+                  from: ".",
+                  to: "review.protocolPackage.bugReportContracts",
+                  semanticKind: "types",
+                  label: "sends ReviewBugReportRequest with include_trace",
+                },
+              ],
+            },
+          },
+        },
+        desktopApp: {
+          label: "Review Desktop shell",
+          description:
+            "VS Code fork hosting the review canvas, thread UI, and the terminals that run native agent turns.",
+          coverage: {
+            files: [
+              { path: "apps/review-desktop/code-oss/src/vs/review/contrib/verbs/reviewVerbs.ts" },
+              { path: "apps/review-desktop/scripts/protocol-sync.mjs" },
+              { path: "packages/review-protocol/scripts/generate-native-source.mjs" },
+            ],
+          },
+          components: {
+            terminalHost: {
+              label: "Terminal host",
+              description: "Executes openNativeAgentTerminal verbs by creating and focusing a real agent terminal.",
+              coverage: {
+                files: [{ path: "apps/review-desktop/code-oss/src/vs/review/contrib/verbs/reviewVerbs.ts" }],
+              },
+              codeElements: {
+                reviewVerbs: {
+                  label: "reviewVerbs",
+                  description:
+                    "Verb sink for the desktop app: opens native agent terminals, shows threads, and opens another Review tab (openReview) for stacked-PR navigation.",
+                  sourceRanges: [
+                    { file: "apps/review-desktop/code-oss/src/vs/review/contrib/verbs/reviewVerbs.ts", fromLine: 265, toLine: 329 },
+                  ],
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.desktopApp.protocolMirror.reviewProtocol",
+                      semanticKind: "types",
+                      label: "verb schemas",
+                    },
+                  ],
+                },
+              },
+            },
+            protocolMirror: {
+              label: "Protocol overlay generator",
+              description:
+                "Regenerates the gitignored Code OSS protocol overlay (src/vs/review/common/reviewProtocol.ts) from review-protocol before every build, test, and typecheck.",
+              coverage: {
+                files: [
+                  { path: "apps/review-desktop/scripts/protocol-sync.mjs" },
+                  { path: "packages/review-protocol/scripts/generate-native-source.mjs" },
+                ],
+              },
+              codeElements: {
+                reviewProtocol: {
+                  label: "protocol-sync",
+                  description:
+                    "Runs generate-native-source into a temp file and byte-compares before writing so an unchanged protocol keeps its mtime for incremental builds.",
+                  relationships: [
+                    {
+                      kind: "semantic",
+                      from: ".",
+                      to: "review.protocolPackage.contracts",
+                      semanticKind: "mirrors",
+                      label: "generated schema overlay",
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  relationships: [
+    {
+      kind: "semantic",
+      from: "authoringAgent",
+      to: "review.cliPackage.cliRunner.cliRunner",
+      label: "runs review CLI inside agent sessions",
+    },
+    {
+      kind: "semantic",
+      from: "authoringAgent",
+      to: "review.cliPackage.authoring.authoringSession",
+      label: "identified from agent session env",
+    },
+    {
+      kind: "semantic",
+      from: "reviewer",
+      to: "review.desktopApp.terminalHost.reviewVerbs",
+      label: "asks questions and watches agent terminals",
+    },
+    {
+      kind: "semantic",
+      from: "reviewer",
+      to: "review.cliPackage.bugReport.submitReviewBugReport",
+      label: "files bug reports, optionally attaching the authoring trace",
+    },
+    {
+      kind: "semantic",
+      from: "reviewer",
+      to: "review.reviewApp.traceView.traceDocument",
+      label: "reads authoring session traces through the lens",
+    },
+    {
+      kind: "semantic",
+      from: "review.cliPackage.serverSurface.desktopServer",
+      to: "review.desktopApp.terminalHost.reviewVerbs",
+      label: "dispatches openNativeAgentTerminal verb",
+    },
+    {
+      kind: "semantic",
+      from: "review.desktopApp.terminalHost.reviewVerbs",
+      to: "review.reviewApp.panelState.agentTerminalCloseWiring",
+      label: "emits agentTerminalOpening surface event before focusing the terminal",
+    },
+    {
+      kind: "semantic",
+      from: "reviewer",
+      to: "review.reviewApp.threadPanel.threadPanelInner",
+      label: "asks questions, adds comments, and resolves threads from the Threads panel",
+    },
+    {
+      kind: "semantic",
+      from: "reviewer",
+      to: "review.reviewApp.documentMeta.reviewStackSelector",
+      label: "moves between stacked PR Reviews",
+    },
+  ],
+});

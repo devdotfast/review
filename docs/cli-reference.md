@@ -39,6 +39,40 @@ review app pick --review <uuid>
 
 Most people let the installed Review skill drive this workflow.
 
+Review Desktop must be running for Review lifecycle, document, and comment
+operations. The CLI is an API client; it does not fall back to editing Review
+storage when the desktop is unavailable.
+
+### MCP authoring
+
+Configure an MCP client to run `review mcp` over stdio. This bridge discovers
+the running desktop and forwards requests to its authenticated local API.
+It does not start another database or own a separate Review lifecycle.
+
+Use `review_create` to scaffold a Review, `review_get` to read its metadata,
+and `review_update_metadata` to set its title. Metadata updates include the
+previous title as `expectedTitle`, preventing silent concurrent overwrites.
+An explicit title survives subsequent document publication.
+
+Use `review_get_document_file` to read `review.mdx` or `data.ts`, then
+`review_write_document_file` with the returned `sourceHash` as
+`expectedSourceHash`. A missing file has a null hash. Conflicts require a new
+read and reconciliation; an identical retry succeeds. `review_publish`
+validates and presents the result. Do not read or edit Review source directly
+on disk. Source repository inspection and software-map scratch files remain
+separate from Review document storage.
+
+`review_list_comments`, `review_comment_command`, and `review_reply_comment`
+use the same comment service as the canvas. Replies are stored as agent
+messages, not reviewer messages. The existing `review threads` commands use
+this API too.
+
+Without MCP, `review document get review.mdx --review <uuid>` returns the same
+source and hash as JSON. Pipe replacement source into
+`review document write review.mdx --review <uuid> --expected-hash <hash>`.
+Both commands also accept `data.ts`. Writes read source from stdin, not from
+the Review directory.
+
 ## Machine-readable output
 
 Commands that expose `--json` accept it after the complete command path:

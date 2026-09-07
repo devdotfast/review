@@ -10,6 +10,7 @@ import {
   type JsonObject,
   type JsonValue,
   REVIEW_DESKTOP_DISCOVERY_VERSION,
+  ReviewAgentSessionRoleSchema,
   type ReviewCliInstallApplyResponse,
   type ReviewDescriptor,
   type ReviewDesktopDiscovery,
@@ -17,6 +18,7 @@ import {
   type ReviewRecord,
   type ReviewSessionDescriptor,
   type ReviewSessionWire,
+  ReviewThreadsCommandSchema,
   type ReviewTutorialOpenResponse,
   type ReviewVerbRequest,
   type ReviewVerbResponse,
@@ -62,6 +64,10 @@ import {
   reviewReapsAt,
   selectReapableReviews,
 } from "../review-attention";
+import {
+  readReviewDocumentFile,
+  writeReviewDocumentFile,
+} from "../review-document-files";
 import { listReviewDocumentVersions } from "../review-document-versions";
 import {
   ensureReviewPinnedCheckout,
@@ -75,15 +81,29 @@ import {
   countReviewComments,
   findReview,
   findReviewForRepair,
+  findScopedReview,
   listReviews,
   parseAnyStoredReviewRecord,
   parseStoredReviewRecord,
+  persistStoredReviewRecord,
   reviewDescriptor,
   reviewTitleFromDocument,
   reviewsHomeDir,
+  sealReviewCandidate,
   touchReviewAgentSession,
 } from "../review-home";
 import type { RunReviewInfoInput } from "../review-info";
+import {
+  ReviewDocumentFileNameSchema,
+  ReviewDocumentFileWriteSchema,
+  ReviewLifecycleTargetSchema,
+  ReviewListRequestSchema,
+  ReviewMetadataUpdateSchema,
+  ReviewPublishRequestSchema,
+  ReviewRebindRequestSchema,
+  ReviewResolveRequestSchema,
+  ReviewScaffoldRequestSchema,
+} from "../review-lifecycle-contracts";
 import {
   ReviewBusyError,
   reviewMutationFingerprint,
@@ -99,7 +119,10 @@ import {
 } from "../review-publish-thread-gate";
 import { clearReopenPending, markReopenPending } from "../review-reopen-marker";
 import { ReviewRepairReadyRequestSchema } from "../review-repair-state";
-import { devReviewHome } from "../review-storage";
+import { runReviewScaffold } from "../review-scaffold";
+import { deleteReviewState } from "../review-state-db";
+import { devReviewHome, readOpenReviewThreadCount } from "../review-storage";
+import { ReviewThreadsService } from "../review-threads-service";
 import { readReviewSoftwareMapBundle } from "../software-map-bundle";
 import { createTutorialAuthoringSession } from "../tutorial-authoring-session";
 import type { ReviewSubmissionEvent } from "../types";
@@ -135,13 +158,22 @@ import {
   readBoundedRequestJson,
 } from "./hono-http";
 import { HttpJsonError, ReviewServerError } from "./http-json";
+import { resolvePublishReview } from "./publish-preparation";
 import {
   materializePublishRevision,
   reviewWithPresentedDocumentPins,
 } from "./publish-stage";
 import { captureSanitizedUiTelemetry } from "./review-api";
 import { resolveReviewInfo } from "./review-info";
+import {
+  agentEnvironment,
+  publishReview,
+  publishReviewSoftwareMap,
+  rebindReview,
+  repairReview,
+} from "./review-lifecycle";
 import { promoteReviewRepair } from "./review-repair-promotion";
+import { resolveThreadsReview } from "./review-threads-target";
 import {
   type ReviewSessionHandler,
   createReviewSessionHandler,
@@ -311,6 +343,18 @@ export function createGlobalReviewServer(
   const telemetry = input.telemetry ?? ProgressiveReviewTelemetry.fromEnv();
   const relay = input.relay ?? new GlobalReviewDesktopVerbRelay();
   const sessions = new Map<string, ActiveReviewSession>();
+  const threadServices = new Map<string, ReviewThreadsService>();
+  function threadsFor(review: StoredReview): ReviewThreadsService {
+    let service = threadServices.get(review.review.uuid);
+    if (!service) {
+      service = new ReviewThreadsService({
+        reviewPath: path.join(review.dir, "review.mdx"),
+        author: process.env.USER ?? "Reviewer",
+      });
+      threadServices.set(review.review.uuid, service);
+    }
+    return service;
+  }
   const reviewLocks = new Map<string, Promise<void>>();
   const globalClients = new Set<ReviewDesktopEventClient>();
   const tutorial = createTutorialService({
@@ -906,76 +950,282 @@ export function createGlobalReviewServer(
     await resetCliInstall();
     return globalJson(200, { ok: true });
   });
+  app.post("/lifecycle/scaffold", async (context) => {
+    const request = ReviewScaffoldRequestSchema.parse(
+      await readBoundedRequestJson(context.req.raw),
+    );
+    return globalJson(
+      200,
+      await runReviewScaffold({
+        ...request,
+        env: agentEnvironment(request.agent),
+        toolingRoot: input.toolingRoot,
+      }),
+    );
+  });
+  app.post("/lifecycle/open-thread-count", async (context) => {
+    const request = z
+      .strictObject({ reviewUuid: z.uuid() })
+      .parse(await readBoundedRequestJson(context.req.raw));
+    const review = await findReview(request.reviewUuid);
+    if (!review) throw new ReviewServerError("Review not found.", 404);
+    return globalJson(200, readOpenReviewThreadCount(review.dir));
+  });
+  app.post("/lifecycle/document/read", async (context) => {
+    const request = z
+      .strictObject({
+        reviewUuid: z.uuid(),
+        name: ReviewDocumentFileNameSchema,
+      })
+      .parse(await readBoundedRequestJson(context.req.raw));
+    const review = await findReview(request.reviewUuid);
+    if (!review) throw new ReviewServerError("Review not found.", 404);
+    return globalJson(200, await readReviewDocumentFile(review, request.name));
+  });
+  app.post("/lifecycle/metadata", async (context) => {
+    const request = ReviewMetadataUpdateSchema.extend({
+      reviewUuid: z.uuid(),
+    }).parse(await readBoundedRequestJson(context.req.raw));
+    const record = await withReviewLock(request.reviewUuid, async () => {
+      const stored = await findReview(request.reviewUuid);
+      if (!stored) throw new ReviewServerError("Review not found.", 404);
+      if (stored.review.title !== request.expectedTitle)
+        throw new ReviewServerError(
+          "Review title changed; read metadata again before updating.",
+          409,
+        );
+      const review = {
+        ...stored.review,
+        title: request.title,
+        titleOverride: request.title,
+      };
+      await persistStoredReviewRecord(stored.dir, review);
+      for (const session of sessions.values()) {
+        if (session.review.review.uuid === request.reviewUuid)
+          session.review = {
+            ...session.review,
+            review: {
+              ...session.review.review,
+              title: review.title,
+              titleOverride: review.titleOverride,
+            },
+          };
+      }
+      return review;
+    });
+    broadcastGlobal({
+      event: "review-metadata-changed",
+      uuid: request.reviewUuid,
+      title: record.title,
+    });
+    return globalJson(200, record);
+  });
+  app.post("/lifecycle/document/write", async (context) => {
+    const request = ReviewDocumentFileWriteSchema.extend({
+      reviewUuid: z.uuid(),
+    }).parse(await readBoundedRequestJson(context.req.raw));
+    return withReviewLock(request.reviewUuid, async () => {
+      const review = await findReview(request.reviewUuid);
+      if (!review) throw new ReviewServerError("Review not found.", 404);
+      return globalJson(200, await writeReviewDocumentFile(review, request));
+    });
+  });
+  app.post("/lifecycle/threads/resolve-target", async (context) => {
+    const request = ReviewLifecycleTargetSchema.parse(
+      await readBoundedRequestJson(context.req.raw),
+    );
+    return globalJson(
+      200,
+      await resolveThreadsReview(request.cwd, request.reviewUuid),
+    );
+  });
+  app.post("/lifecycle/threads/snapshot", async (context) => {
+    const request = z
+      .strictObject({ reviewUuid: z.uuid() })
+      .parse(await readBoundedRequestJson(context.req.raw));
+    const review = await findReview(request.reviewUuid);
+    if (!review) throw new ReviewServerError("Review not found.", 404);
+    return globalJson(200, {
+      ok: true,
+      snapshot: threadsFor(review).snapshot(),
+    });
+  });
+  app.post("/lifecycle/threads/command", async (context) => {
+    const request = z
+      .strictObject({
+        reviewUuid: z.uuid(),
+        command: ReviewThreadsCommandSchema,
+      })
+      .parse(await readBoundedRequestJson(context.req.raw));
+    return withReviewLock(request.reviewUuid, async () => {
+      const review = await findReview(request.reviewUuid);
+      if (!review) throw new ReviewServerError("Review not found.", 404);
+      const commit = threadsFor(review).dispatch(request.command);
+      if (!commit)
+        throw new ReviewServerError(
+          `Comment thread not found: ${"threadId" in request.command ? request.command.threadId : "unknown"}`,
+          404,
+        );
+      return globalJson(200, { ok: true, commit });
+    });
+  });
+  app.post("/lifecycle/threads/reply", async (context) => {
+    const request = z
+      .strictObject({
+        reviewUuid: z.uuid(),
+        mutationId: z.uuid(),
+        threadId: z.string().min(1),
+        messageId: z.uuid(),
+        author: z.string().trim().min(1),
+        body: z.string().trim().min(1),
+        format: z.enum(["plain", "markdown"]),
+      })
+      .parse(await readBoundedRequestJson(context.req.raw));
+    return withReviewLock(request.reviewUuid, async () => {
+      const review = await findReview(request.reviewUuid);
+      if (!review) throw new ReviewServerError("Review not found.", 404);
+      const commit = threadsFor(review).appendAgentMessage(request);
+      if (!commit)
+        throw new ReviewServerError(
+          `Comment thread not found: ${request.threadId}`,
+          404,
+        );
+      return globalJson(200, { ok: true, commit });
+    });
+  });
+  app.post("/lifecycle/rebind", async (context) => {
+    const request = ReviewRebindRequestSchema.parse(
+      await readBoundedRequestJson(context.req.raw),
+    );
+    return globalJson(
+      200,
+      await rebindReview({
+        ...request,
+        env: agentEnvironment(request.agent),
+        toolingRoot: input.toolingRoot,
+      }),
+    );
+  });
+  app.post("/lifecycle/resolve", async (context) => {
+    const request = ReviewResolveRequestSchema.parse(
+      await readBoundedRequestJson(context.req.raw),
+    );
+    return globalJson(
+      200,
+      await resolvePublishReview(request.cwd, request.reviewUuid, {
+        includeTerminal: request.includeTerminal,
+      }),
+    );
+  });
+  app.post("/lifecycle/find", async (context) => {
+    const request = z
+      .strictObject({
+        reviewUuid: z.uuid(),
+        worktreePath: z.string(),
+        includeTerminal: z.boolean().optional(),
+        includeLegacySchema: z.boolean().optional(),
+      })
+      .parse(await readBoundedRequestJson(context.req.raw));
+    return globalJson(200, await findScopedReview(request.reviewUuid, request));
+  });
+  app.post("/lifecycle/list", async (context) =>
+    globalJson(
+      200,
+      await listReviews(
+        ReviewListRequestSchema.parse(
+          await readBoundedRequestJson(context.req.raw),
+        ),
+      ),
+    ),
+  );
+  app.post("/lifecycle/checkpoint", async (context) => {
+    const request = z
+      .strictObject({ reviewUuid: z.uuid(), message: z.string().min(1) })
+      .parse(await readBoundedRequestJson(context.req.raw));
+    const review = await findReview(request.reviewUuid);
+    if (!review) throw new ReviewServerError("Review not found.", 404);
+    return globalJson(
+      200,
+      await withReviewLock(request.reviewUuid, () =>
+        sealReviewCandidate(review.dir, request.message),
+      ),
+    );
+  });
+  app.post("/lifecycle/agent-session", async (context) => {
+    const request = z
+      .strictObject({
+        reviewUuid: z.uuid(),
+        session: z.string(),
+        role: ReviewAgentSessionRoleSchema,
+      })
+      .parse(await readBoundedRequestJson(context.req.raw));
+    const review = await findReview(request.reviewUuid);
+    if (!review) throw new ReviewServerError("Review not found.", 404);
+    return globalJson(
+      200,
+      await withReviewLock(request.reviewUuid, () =>
+        touchReviewAgentSession(review, request.session, request.role),
+      ),
+    );
+  });
+  app.post("/lifecycle/publish", async (context) =>
+    globalJson(
+      200,
+      await publishReview(
+        ReviewPublishRequestSchema.parse(
+          await readBoundedRequestJson(context.req.raw),
+        ),
+        completeDocumentPublication,
+      ),
+    ),
+  );
+  app.post("/lifecycle/map/publish", async (context) =>
+    globalJson(
+      200,
+      await publishReviewSoftwareMap(
+        ReviewPublishRequestSchema.parse(
+          await readBoundedRequestJson(context.req.raw),
+        ),
+        async (request) => {
+          await completeMapPublication(request);
+        },
+      ),
+    ),
+  );
   app.post("/publish-ready", async (context) => {
     try {
       const request = parseReviewPublishReadyRequest(
         await readBoundedRequestJson(context.req.raw),
       );
-      let review = await findReview(request.reviewUuid);
-      if (!review) throw new ReviewServerError("Review not found.", 404);
-      const agent = request.agent;
-      if (agent) {
-        const found = review;
-        review = await withReviewLock(request.reviewUuid, () =>
-          touchReviewAgentSession(
-            found,
-            authoringSessionKey(agent),
-            "publisher",
-          ),
-        );
-      }
-      return globalJson(
-        201,
-        await mountPublishedDocument(review, request.revision, request.view),
-      );
+      return globalJson(201, await completeDocumentPublication(request));
     } catch (error) {
       await telemetry.capturePublishGateRejected({ gate: "publish_ready" });
       throw error;
     }
   });
+  app.post("/lifecycle/repair", async (context) =>
+    globalJson(
+      200,
+      await repairReview(
+        ReviewLifecycleTargetSchema.extend({ reviewUuid: z.uuid() }).parse(
+          await readBoundedRequestJson(context.req.raw),
+        ),
+        completeReviewRepair,
+      ),
+    ),
+  );
   app.post("/repair-ready", async (context) => {
     const request = ReviewRepairReadyRequestSchema.parse(
       await readBoundedRequestJson(context.req.raw),
     );
-    const review = await findReviewForRepair(request.reviewUuid);
-    if (!review) throw new ReviewServerError("Review not found.", 404);
-    return globalJson(
-      201,
-      await promoteReviewRepair({
-        review,
-        request,
-        sessions,
-        registerSerialized,
-        withReviewLock,
-        dispatch: (sessionId, verb) => relay.dispatch(sessionId, verb),
-        startSessionTelemetry,
-        closeSession: (session, reason) => closeSession(session, reason, false),
-        broadcast: broadcastGlobal,
-      }),
-    );
+    return globalJson(201, await completeReviewRepair(request));
   });
   app.post("/map-publish-ready", async (context) => {
     try {
       const request = parseReviewPublishReadyRequest(
         await readBoundedRequestJson(context.req.raw),
       );
-      let review = await findReview(request.reviewUuid);
-      if (!review) throw new ReviewServerError("Review not found.", 404);
-      const agent = request.agent;
-      if (agent) {
-        const found = review;
-        review = await withReviewLock(request.reviewUuid, () =>
-          touchReviewAgentSession(
-            found,
-            authoringSessionKey(agent),
-            "publisher",
-          ),
-        );
-      }
-      return globalJson(
-        201,
-        await mountPublishedSoftwareMap(review, request.revision),
-      );
+      return globalJson(201, await completeMapPublication(request));
     } catch (error) {
       await telemetry.capturePublishGateRejected({
         gate: "map_publish_ready",
@@ -1119,7 +1369,7 @@ export function createGlobalReviewServer(
     return response;
   }
 
-  // The CLI already validated, bundled, and sealed the revision; the server
+  // Publication preparation validated, bundled, and sealed the revision; the server
   // materializes it, has the app mount it off-screen, and promotes it only
   // when that mount is clean.
   function mountStepTimings(
@@ -1128,6 +1378,57 @@ export function createGlobalReviewServer(
     if (!validation.ok) return [];
     const parsed = MountVerbResultSchema.safeParse(validation.result);
     return parsed.success ? (parsed.data.timings ?? []) : [];
+  }
+
+  async function completeReviewRepair(
+    request: ReturnType<typeof ReviewRepairReadyRequestSchema.parse>,
+  ) {
+    const review = await findReviewForRepair(request.reviewUuid);
+    if (!review) throw new ReviewServerError("Review not found.", 404);
+    return promoteReviewRepair({
+      review,
+      request,
+      sessions,
+      registerSerialized,
+      withReviewLock,
+      dispatch: (sessionId, verb) => relay.dispatch(sessionId, verb),
+      startSessionTelemetry,
+      closeSession: (session, reason) => closeSession(session, reason, false),
+      broadcast: broadcastGlobal,
+      onPromoted: () => {
+        threadServices.delete(request.reviewUuid);
+      },
+    });
+  }
+
+  async function completeDocumentPublication(
+    request: ReturnType<typeof parseReviewPublishReadyRequest>,
+  ) {
+    let review = await findReview(request.reviewUuid);
+    if (!review) throw new ReviewServerError("Review not found.", 404);
+    const agent = request.agent;
+    if (agent) {
+      const found = review;
+      review = await withReviewLock(request.reviewUuid, () =>
+        touchReviewAgentSession(found, authoringSessionKey(agent), "publisher"),
+      );
+    }
+    return mountPublishedDocument(review, request.revision, request.view);
+  }
+
+  async function completeMapPublication(
+    request: ReturnType<typeof parseReviewPublishReadyRequest>,
+  ) {
+    let review = await findReview(request.reviewUuid);
+    if (!review) throw new ReviewServerError("Review not found.", 404);
+    const agent = request.agent;
+    if (agent) {
+      const found = review;
+      review = await withReviewLock(request.reviewUuid, () =>
+        touchReviewAgentSession(found, authoringSessionKey(agent), "publisher"),
+      );
+    }
+    return mountPublishedSoftwareMap(review, request.revision);
   }
 
   async function mountPublishedDocument(
@@ -1762,6 +2063,8 @@ export function createGlobalReviewServer(
         open.map((session) => closeSession(session, "closed", false)),
       );
       await rm(dir, { recursive: true, force: true });
+      deleteReviewState(dir);
+      threadServices.delete(uuid);
       const worktreePath = open[0]?.review.review.worktreePath;
       if (worktreePath) {
         await clearReopenPending(worktreePath).catch(() => undefined);
@@ -1790,6 +2093,8 @@ export function createGlobalReviewServer(
       reviewUuid: review.review.uuid,
     });
     await rm(review.dir, { recursive: true, force: true });
+    deleteReviewState(review.dir);
+    threadServices.delete(review.review.uuid);
     await clearReopenPending(review.review.worktreePath).catch(() => undefined);
     broadcastGlobal({ event: "review-deleted", uuid: review.review.uuid });
   }
@@ -1904,6 +2209,9 @@ export function createGlobalReviewServer(
       reviewPath: registration.documentPath,
       softwareMapRootPath: registration.softwareMapRootPath,
       stateReviewPath: path.join(registration.review.dir, "review.mdx"),
+      threadsService: registration.historicalRevision
+        ? undefined
+        : () => threadsFor(active.review),
       readOnlyThreadsPath: registration.readOnlyThreadsPath,
       routePath: "/",
       token,
@@ -2376,6 +2684,7 @@ export function createGlobalReviewServer(
         ),
       );
       relay.close();
+      threadServices.clear();
       for (const client of globalClients) client.close();
       globalClients.clear();
       await Promise.all(
@@ -2603,8 +2912,9 @@ async function promoteReview(
     viewedAt: null,
     dismissedAt: null,
   };
-  if (title) review.title = title;
-  await writePrivateJsonAtomic(path.join(stored.dir, "review.json"), review);
+  if (stored.review.titleOverride) review.title = stored.review.titleOverride;
+  else if (title) review.title = title;
+  await persistStoredReviewRecord(stored.dir, review);
   return { ...stored, review };
 }
 
@@ -2616,7 +2926,7 @@ async function promoteSoftwareMap(
     ...stored.review,
     presentedSoftwareMapRevision: revision,
   };
-  await writePrivateJsonAtomic(path.join(stored.dir, "review.json"), review);
+  await persistStoredReviewRecord(stored.dir, review);
   return { ...stored, review };
 }
 
@@ -2670,7 +2980,7 @@ async function setReviewStatus(
   status: ReviewRecord["status"],
 ): Promise<StoredReview> {
   const review: StoredReviewRecord = { ...stored.review, status };
-  await writePrivateJsonAtomic(path.join(stored.dir, "review.json"), review);
+  await persistStoredReviewRecord(stored.dir, review);
   return { ...stored, review };
 }
 

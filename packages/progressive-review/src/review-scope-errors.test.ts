@@ -23,7 +23,9 @@ import {
   listReviews,
   sealReviewCandidate,
 } from "./review-home";
+import { startLifecycleTestServer } from "./review-lifecycle-test-utils";
 import { runReviewScaffold } from "./review-scaffold";
+import { deleteReviewState } from "./review-state-db";
 import { closeAllReviewThreadStores } from "./review-thread-store-backend";
 import { resolvePublishReview } from "./server/publish-preparation";
 import { resolveReviewInfo } from "./server/review-info";
@@ -31,8 +33,11 @@ import { runReviewThreadsList } from "./threads-cli";
 
 const execFilePromise = promisify(execFile);
 const roots: string[] = [];
+let server: Awaited<ReturnType<typeof startLifecycleTestServer>> | undefined;
 
 afterEach(async () => {
+  await server?.close();
+  server = undefined;
   closeAllReviewThreadStores();
   vi.unstubAllEnvs();
   await Promise.all(
@@ -132,6 +137,7 @@ describe("scoped review diagnostics", () => {
         baseCommit: kind === "malformed" ? 42 : badRecord.baseCommit,
       });
       await writeFile(badPath, bytes);
+      deleteReviewState(other.stored.dir);
       const unknownUuid = "11111111-1111-4111-8111-111111111111";
       const unknownDir = path.join(home, "reviews", unknownUuid);
       await mkdir(unknownDir);
@@ -163,6 +169,7 @@ describe("scoped review diagnostics", () => {
       await expect(
         resolvePublishReview(other.root, healthy.stored.review.uuid),
       ).rejects.toThrow("Active review not found");
+      server = await startLifecycleTestServer();
       await expect(
         runReviewThreadsList({ cwd: healthy.root, stdout: new PassThrough() }),
       ).resolves.toBe(0);
@@ -223,7 +230,7 @@ describe("scoped review diagnostics", () => {
           reviewUuid: other.stored.review.uuid,
           stdout: new PassThrough(),
         }),
-      ).rejects.toBeInstanceOf(ReviewHomeScanError);
+      ).rejects.toThrow("Could not read reviews");
       await expect(findReview(unknownUuid)).rejects.toBeInstanceOf(
         ReviewHomeScanError,
       );

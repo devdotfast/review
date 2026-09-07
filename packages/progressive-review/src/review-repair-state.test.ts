@@ -9,7 +9,10 @@ import {
   fingerprintReviewRepairInputs,
 } from "./review-repair-state";
 import { appendReviewCommentDraft } from "./review-state-store";
-import { closeAllReviewThreadStores } from "./review-thread-store-backend";
+import {
+  closeAllReviewThreadStores,
+  reviewThreadDbPath,
+} from "./review-thread-store-backend";
 
 let root: string | undefined;
 afterEach(async () => {
@@ -32,7 +35,8 @@ it("fingerprints editable inputs and blocks pending agent writes without changin
     agentInput: true,
   });
   closeAllReviewThreadStores();
-  const bytes = await readFile(path.join(root, "review.db"));
+  const dbPath = reviewThreadDbPath(path.join(root, "review.mdx"));
+  const bytes = await readFile(dbPath);
   expect(() => assertNoActiveReviewAgentWrites(root!)).toThrow("pending agent");
-  expect(await readFile(path.join(root, "review.db"))).toEqual(bytes);
+  expect(await readFile(dbPath)).toEqual(bytes);
 });

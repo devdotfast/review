@@ -213,6 +213,7 @@ interface ReviewApiOptions {
   reviewRootPath?: string;
   toolingRoot: string;
   stateReviewPath?: string;
+  threadsService?: () => ReviewThreadsService;
   telemetry?: ReviewTelemetryCapture;
   onSubmission?: (event: ReviewSubmissionEvent) => void | Promise<void>;
   onReviewDismiss?: () => void | Promise<void>;
@@ -292,6 +293,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   } = options;
   const agentRootPath = session.headRootPath ?? rootPath;
   const threadServices = new Map<string, ReviewThreadsService>();
+  const threadSubscriptions: Array<() => void> = [];
   const agentMirrors = new Map<string, NativeMessageMirror>();
   const launchedAgentMessageIds = new Set<string>();
   const canceledAgentMessageIds = new Set<string>();
@@ -332,12 +334,15 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   const threadsFor = (writableReviewPath: string): ReviewThreadsService => {
     let service = threadServices.get(writableReviewPath);
     if (!service) {
-      service = new ReviewThreadsService({
-        reviewPath: writableReviewPath,
-        author: process.env.USER ?? "Reviewer",
-        onCommit: onReviewThreadsCommit,
-      });
+      service =
+        options.threadsService?.() ??
+        new ReviewThreadsService({
+          reviewPath: writableReviewPath,
+          author: process.env.USER ?? "Reviewer",
+        });
       threadServices.set(writableReviewPath, service);
+      if (onReviewThreadsCommit)
+        threadSubscriptions.push(service.subscribe(onReviewThreadsCommit));
     }
     return service;
   };
@@ -1148,6 +1153,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       };
     },
     close: async () => {
+      for (const unsubscribe of threadSubscriptions) unsubscribe();
       await Promise.allSettled(
         [...agentMirrors.values()].map((mirror) => mirror.close()),
       );
@@ -1398,7 +1404,7 @@ Repo root: ${input.rootPath}
 Review document: ${input.reviewPath}
 Review app: ${input.appUrl ?? "unknown"}
 
-Read the review document, inspect the submitted comments, and make the requested code or review changes. Use \`review threads list\` (run in the repo root) as canonical thread state, and mark addressed threads with \`review threads resolve <threadId>\`. Do not edit the thread storage beside the review document by hand.
+Read the review document through \`review document get review.mdx --review <uuid>\` or the Review MCP tools, inspect the submitted comments, and make the requested code or review changes. Update Review source through \`review document write\` or MCP using the hash from the last read, never directly on disk. Use \`review threads list\` (run in the repo root) as canonical thread state, save each answer with \`review threads reply <threadId> --body <answer>\`, and mark addressed threads with \`review threads resolve <threadId>\`.
 
 You must close every open comment thread before you re-publish. Run \`review threads list\` again after you resolve the addressed threads. Do not run \`review publish\` while any comment thread is open.
 

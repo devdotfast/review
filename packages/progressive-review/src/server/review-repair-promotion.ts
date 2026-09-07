@@ -31,6 +31,7 @@ import {
   assertNoActiveReviewAgentWrites,
   fingerprintReviewRepairInputs,
 } from "../review-repair-state";
+import { importLegacyReview, putReviewRecord } from "../review-state-db";
 import {
   checkReviewThreadDbVersion,
   readReviewThreadDatabaseFingerprint,
@@ -192,6 +193,8 @@ export async function applyPreparedReviewRepair(
       record: next,
       upgradeThreadDatabase: Boolean(request.expectedThreadDbFingerprint),
     });
+    importLegacyReview(dir);
+    putReviewRecord(dir, next);
     return next;
   });
 }
@@ -235,6 +238,7 @@ export async function promoteReviewRepair<
     reason: "closed" | "replaced",
   ) => Promise<void>;
   broadcast: (event: ReviewDesktopGlobalEvent) => void;
+  onPromoted?: () => void;
 }): Promise<ReviewRepairReadyResponse> {
   const { review, request } = input;
   const stagingDir = await realpath(request.stagingDir);
@@ -376,6 +380,7 @@ export async function promoteReviewRepair<
         review: await applyPreparedReviewRepair(review.dir, request),
       };
       mounted.promoted = true;
+      input.onPromoted?.();
     });
     // Once promoted, UI refresh failures cannot turn a committed repair into a failed command.
     await input.startSessionTelemetry(mounted).catch(() => undefined);

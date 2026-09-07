@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-import { ReviewStatusSchema } from "@dev.fast/review-protocol";
+import { ReviewRepairReadyResponseSchema } from "./review-lifecycle-contracts";
+export { ReviewRepairReadyResponseSchema } from "./review-lifecycle-contracts";
 import { z } from "zod";
 
 import { isDerivedReviewPath } from "./review-derived-paths";
@@ -29,16 +30,6 @@ export type ReviewRepairReadyRequest = z.infer<
   typeof ReviewRepairReadyRequestSchema
 >;
 
-export const ReviewRepairReadyResponseSchema = z.strictObject({
-  ok: z.literal(true),
-  status: ReviewStatusSchema,
-  oldDocumentRevision: z.string().min(1).nullable(),
-  oldMapRevision: z.string().min(1).nullable(),
-  newDocumentRevision: revisionSchema,
-  newMapRevision: revisionSchema.nullable(),
-  sessionId: z.string().min(1),
-  url: z.string().min(1),
-});
 export type ReviewRepairReadyResponse = z.infer<
   typeof ReviewRepairReadyResponseSchema
 >;

@@ -43,6 +43,7 @@ import {
 import { withReviewMutationLock } from "./review-mutation-lock";
 import { evaluateSealedReviewDocument } from "./review-sealed-document";
 import { createReviewSourceAgentSession } from "./review-source-agent-session";
+import { importLegacyReview, putReviewRecord } from "./review-state-db";
 import {
   type ReviewThreadDbMigrationOptions,
   migrateReviewThreadDb,
@@ -191,11 +192,13 @@ async function migrateStoredReviewLocked(
     upgradedThreadDb =
       (await migrateReviewThreadDb(reviewPath, threadDbMigration)) ===
       "upgraded";
+    importLegacyReview(input.reviewDir);
   } catch (error) {
     threadDbError = errorMessage(error);
   }
   if (upgradedThreadDb)
     for (const record of dropped) input.onDropLegacyCodeRecord?.(record);
+  putReviewRecord(input.reviewDir, record);
   return { record, migrated, upgradedThreadDb, threadDbError };
 }
 

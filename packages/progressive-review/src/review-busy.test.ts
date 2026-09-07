@@ -13,8 +13,10 @@ import {
   withReviewMutationLock,
 } from "./review-mutation-lock";
 import { runReviewPublish } from "./review-publish";
+import { deleteReviewState } from "./review-state-db";
 import { closeAllReviewThreadStores } from "./review-thread-store-backend";
 import { createGlobalReviewServer } from "./server/desktop-server";
+import { GlobalReviewDesktopVerbRelay } from "./server/global-verb-relay";
 import { createReviewSessionHandler } from "./server/session-handler";
 
 const roots: string[] = [];
@@ -55,17 +57,24 @@ it("reports loader, open, and CLI contention as busy and allows migration after 
   const recordPath = path.join(review.dir, "review.json");
   const recordBytes = JSON.stringify({ ...review.review, schemaVersion: 4 });
   await writeFile(recordPath, recordBytes);
+  deleteReviewState(review.dir);
   const packageRoot = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
     "..",
   );
+  const relay = new GlobalReviewDesktopVerbRelay();
+  relay.attach({
+    signal: new AbortController().signal,
+    write: () => {},
+    close: () => {},
+  });
   const server = createGlobalReviewServer({
     appPid: process.pid,
     packageRoot,
     toolingRoot: packageRoot,
     token: "busy-token",
     port: 0,
-    discoveryPath: path.join(home, "desktop.json"),
+    relay,
   });
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();

@@ -7,8 +7,8 @@ import { setImmediate } from "node:timers/promises";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { createReviewDir } from "./review-home";
-import { sealReviewSoftwareMapPublication } from "./review-map-publish";
 import { withReviewMutationLock } from "./review-mutation-lock";
+import { sealReviewSoftwareMapPublication } from "./server/review-lifecycle";
 import { bundleReviewSoftwareMap } from "./software-map-bundle";
 import { defineSoftwareMap } from "./software-map-model";
 

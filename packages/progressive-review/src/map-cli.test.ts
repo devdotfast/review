@@ -680,6 +680,7 @@ describe("review map check", () => {
     const rootPath = await realpath(rawRootPath);
     const previousReviewHome = process.env.DEV_REVIEW_HOME;
     process.env.DEV_REVIEW_HOME = path.join(rootPath, ".dev-home");
+    const server = await startLifecycleTestServer();
     try {
       execGit(rootPath, ["init"]);
       execGit(rootPath, ["config", "user.email", "review@example.com"]);
@@ -738,6 +739,7 @@ describe("review map check", () => {
         "map-worker",
       ]);
     } finally {
+      await server.close();
       if (previousReviewHome === undefined) {
         delete process.env.DEV_REVIEW_HOME;
       } else {
@@ -1377,3 +1379,4 @@ function execGitOutput(cwd: string, args: string[]): string {
     stdio: ["ignore", "pipe", "ignore"],
   }).trim();
 }
+import { startLifecycleTestServer } from "./review-lifecycle-test-utils";

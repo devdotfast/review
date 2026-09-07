@@ -1,13 +1,9 @@
 import type { Writable } from "node:stream";
 
-import {
-  changeIdentityForRevision,
-  resolveRevision,
-} from "@dev.fast/local-vcs";
-
-import { type RunReviewScaffoldInput, repinReview } from "./review-scaffold";
-import { resolveReviewRoot } from "./runtime";
-import { resolvePublishReview } from "./server/publish-preparation";
+import { resolveAuthoringSessionRef } from "./authoring-session";
+import { requestReviewLifecycle } from "./review-lifecycle-client";
+import { ReviewRebindResultSchema } from "./review-lifecycle-contracts";
+import type { RunReviewScaffoldInput } from "./review-scaffold";
 
 /**
  * Move a review to a different unit of change and re-pin from it
@@ -15,7 +11,7 @@ import { resolvePublishReview } from "./server/publish-preparation";
  * worktree and graph re-materialize. Publish never moves pins, so rebind
  * must finish the job itself.
  */
-interface ReviewRebindJsonOutput {
+export interface ReviewRebindJsonOutput {
   event: "rebound";
   uuid: string;
   change: string;
@@ -32,41 +28,14 @@ export async function runReviewRebind(input: {
   stdout: Writable;
   createSourceAgentSession?: RunReviewScaffoldInput["createSourceAgentSession"];
 }): Promise<number> {
-  const reviewRoot = await resolveReviewRoot(input.cwd);
-  const review = await resolvePublishReview(reviewRoot, input.reviewUuid);
-  const resolved = await resolveRevision(
-    review.review.worktreePath,
-    input.change,
+  const output = ReviewRebindResultSchema.parse(
+    await requestReviewLifecycle("/lifecycle/rebind", {
+      cwd: input.cwd,
+      reviewUuid: input.reviewUuid,
+      change: input.change,
+      agent: resolveAuthoringSessionRef(input.env ?? process.env),
+    }),
   );
-  if (!resolved) {
-    throw new Error(
-      `Change does not resolve in ${review.review.worktreePath}: ${input.change}`,
-    );
-  }
-  const sourceIdentity = await changeIdentityForRevision(
-    review.review.worktreePath,
-    input.change,
-  );
-  if (!sourceIdentity) {
-    throw new Error(`Change does not resolve to one identity: ${input.change}`);
-  }
-  const repinned = await repinReview(
-    review,
-    {
-      cwd: reviewRoot,
-      toolingRoot: input.toolingRoot,
-      progress: input.progress,
-      env: input.env,
-      createSourceAgentSession: input.createSourceAgentSession,
-    },
-    sourceIdentity,
-  );
-  const output: ReviewRebindJsonOutput = {
-    event: "rebound",
-    uuid: review.review.uuid,
-    change: input.change,
-  };
-  if (repinned.warnings) output.warnings = repinned.warnings;
   input.stdout.write(`${JSON.stringify(output)}\n`);
   return 0;
 }

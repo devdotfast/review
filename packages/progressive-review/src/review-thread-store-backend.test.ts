@@ -18,8 +18,10 @@ import {
   REVIEW_THREAD_DB_SCHEMA_VERSION,
   ReviewThreadDbVersionError,
   closeAllReviewThreadStores,
+  createLegacyReviewThreadDb,
   createReviewThreadDb,
   hasPendingReviewAgentWrites,
+  legacyReviewThreadDbPath,
   migrateReviewThreadDb,
   readReviewThreadsReadOnly,
   reviewThreadDbPath,
@@ -30,6 +32,7 @@ const roots: string[] = [];
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   closeAllReviewThreadStores();
   for (const root of roots.splice(0)) {
     rmSync(root, { recursive: true, force: true });
@@ -39,7 +42,8 @@ afterEach(() => {
 function makeReviewPath(): string {
   const root = mkdtempSync(path.join(tmpdir(), "review-thread-backend-"));
   roots.push(root);
-  const dir = path.join(root, "review");
+  vi.stubEnv("DEV_REVIEW_HOME", root);
+  const dir = path.join(root, "reviews", "review");
   mkdirSync(dir, { recursive: true });
   return path.join(dir, "review.mdx");
 }
@@ -52,6 +56,15 @@ function seedComment(reviewPath: string): void {
     body: "note",
     author: "Reviewer",
   });
+}
+
+function seedLegacyComment(reviewPath: string): void {
+  createLegacyReviewThreadDb(path.dirname(reviewPath));
+  const db = new DatabaseSync(legacyReviewThreadDbPath(reviewPath));
+  db.prepare(
+    "INSERT INTO comments (thread_id, record_json) VALUES ('thread-1', ?)",
+  ).run(JSON.stringify({ messages: [] }));
+  db.close();
 }
 
 describe("sqlite thread store", () => {
@@ -79,8 +92,8 @@ describe("sqlite thread store", () => {
   it("reads committed WAL threads without changing original DB, WAL or SHM bytes", () => {
     const source = makeReviewPath();
     seedComment(source);
-    const target = makeReviewPath();
     const sourceDb = reviewThreadDbPath(source);
+    const target = makeReviewPath();
     const targetDb = reviewThreadDbPath(target);
     const suffixes = ["", "-wal", "-shm"];
     for (const suffix of suffixes)
@@ -111,7 +124,7 @@ describe("sqlite thread store", () => {
     expect(readFileSync(dbPath)).toEqual(before);
     const db = new DatabaseSync(dbPath);
     db.prepare(
-      "INSERT INTO comments(thread_id, record_json) VALUES (?, ?)",
+      "INSERT INTO comments(review_id, route_path, thread_id, record_json) VALUES ('review', '/', ?, ?)",
     ).run("broken", "{}");
     db.close();
     const malformed = readFileSync(dbPath);
@@ -164,8 +177,8 @@ describe("sqlite thread store", () => {
 
   it("rejects a database with an unsupported schema version", () => {
     const reviewPath = makeReviewPath();
-    const dbPath = reviewThreadDbPath(reviewPath);
-    createReviewThreadDb(path.dirname(reviewPath));
+    const dbPath = legacyReviewThreadDbPath(reviewPath);
+    createLegacyReviewThreadDb(path.dirname(reviewPath));
     const db = new DatabaseSync(dbPath);
     db.prepare(
       "UPDATE meta SET value = '999' WHERE key = 'schema_version'",
@@ -178,8 +191,8 @@ describe("sqlite thread store", () => {
 
   it("drops the question table through the managed v2 upgrade", async () => {
     const reviewPath = makeReviewPath();
-    const dbPath = reviewThreadDbPath(reviewPath);
-    createReviewThreadDb(path.dirname(reviewPath));
+    const dbPath = legacyReviewThreadDbPath(reviewPath);
+    createLegacyReviewThreadDb(path.dirname(reviewPath));
     closeAllReviewThreadStores();
     const db = new DatabaseSync(dbPath);
     db.exec(`
@@ -211,8 +224,8 @@ describe("sqlite thread store", () => {
 
   it("normalizes message markers and removes native provenance", async () => {
     const reviewPath = makeReviewPath();
-    const dbPath = reviewThreadDbPath(reviewPath);
-    createReviewThreadDb(path.dirname(reviewPath));
+    const dbPath = legacyReviewThreadDbPath(reviewPath);
+    createLegacyReviewThreadDb(path.dirname(reviewPath));
     closeAllReviewThreadStores();
     const db = new DatabaseSync(dbPath);
     db.prepare(
@@ -464,8 +477,8 @@ describe("sqlite thread store", () => {
 
   it("drops a malformed database record and emits a diagnostic", () => {
     const reviewPath = makeReviewPath();
-    const dbPath = reviewThreadDbPath(reviewPath);
-    createReviewThreadDb(path.dirname(reviewPath));
+    const dbPath = legacyReviewThreadDbPath(reviewPath);
+    createLegacyReviewThreadDb(path.dirname(reviewPath));
     const db = new DatabaseSync(dbPath);
     db.prepare(
       "INSERT INTO comments (thread_id, record_json) VALUES (?, ?)",
@@ -479,11 +492,16 @@ describe("sqlite thread store", () => {
     );
 
     closeAllReviewThreadStores();
-    const reopened = new DatabaseSync(dbPath);
+    const reopened = new DatabaseSync(reviewThreadDbPath(reviewPath));
     expect(
       reopened.prepare("SELECT count(*) AS count FROM comments").get(),
     ).toEqual({ count: 0 });
     reopened.close();
+    const legacy = new DatabaseSync(dbPath, { readOnly: true });
+    expect(
+      legacy.prepare("SELECT count(*) AS count FROM comments").get(),
+    ).toEqual({ count: 1 });
+    legacy.close();
   });
 });
 
@@ -497,7 +515,7 @@ it.each(pendingWriteCases)(
   "inspects pending $table in schema $version without changing files",
   ({ version, table }) => {
     const reviewPath = makeReviewPath();
-    seedComment(reviewPath);
+    seedLegacyComment(reviewPath);
     closeAllReviewThreadStores();
     const dbPath = reviewThreadDbPath(reviewPath);
     const db = new DatabaseSync(dbPath);
@@ -552,21 +570,16 @@ it("detects pending WAL writes without changing source DB, WAL or SHM bytes", ()
     author: "Reviewer",
     agentInput: true,
   });
+  const sourceDb = reviewThreadDbPath(source);
   const target = makeReviewPath();
+  const targetDb = reviewThreadDbPath(target);
   const suffixes = ["", "-wal", "-shm"];
   for (const suffix of suffixes)
-    copyFileSync(
-      `${reviewThreadDbPath(source)}${suffix}`,
-      `${reviewThreadDbPath(target)}${suffix}`,
-    );
-  const before = suffixes.map((suffix) =>
-    readFileSync(`${reviewThreadDbPath(target)}${suffix}`),
-  );
+    copyFileSync(`${sourceDb}${suffix}`, `${targetDb}${suffix}`);
+  const before = suffixes.map((suffix) => readFileSync(`${targetDb}${suffix}`));
   expect(hasPendingReviewAgentWrites(target)).toBe(true);
   expect(
-    suffixes.map((suffix) =>
-      readFileSync(`${reviewThreadDbPath(target)}${suffix}`),
-    ),
+    suffixes.map((suffix) => readFileSync(`${targetDb}${suffix}`)),
   ).toEqual(before);
 });
 
@@ -574,9 +587,9 @@ it.each([null, "", "09", "invalid", "10", "999"])(
   "rejects unsupported schema %s without changing the database",
   (version) => {
     const reviewPath = makeReviewPath();
-    seedComment(reviewPath);
+    seedLegacyComment(reviewPath);
     closeAllReviewThreadStores();
-    const dbPath = reviewThreadDbPath(reviewPath);
+    const dbPath = legacyReviewThreadDbPath(reviewPath);
     const db = new DatabaseSync(dbPath);
     if (version === null)
       db.exec("DELETE FROM meta WHERE key = 'schema_version'");
@@ -595,7 +608,7 @@ it.each([null, "", "09", "invalid", "10", "999"])(
 
 it("rejects unknown database versions and malformed message arrays during pending-write inspection", () => {
   const reviewPath = makeReviewPath();
-  seedComment(reviewPath);
+  seedLegacyComment(reviewPath);
   closeAllReviewThreadStores();
   const db = new DatabaseSync(reviewThreadDbPath(reviewPath));
   db.exec("UPDATE meta SET value = '999' WHERE key = 'schema_version'");

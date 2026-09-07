@@ -31,7 +31,7 @@ export interface ReviewInfoEvent {
   }>;
 }
 
-const ReviewInfoEventSchema: z.ZodType<ReviewInfoEvent> = z.object({
+export const ReviewInfoEventSchema = z.object({
   event: z.literal("info"),
   warnings: z.array(z.string()).optional(),
   reviews: z.array(

@@ -879,7 +879,8 @@ function parseCodexRecords(
   let toolCalls = 0;
   let firstUserText: string | null = null;
 
-  let hasMessageEvents = false;
+  let hasUserMessageEvent = false;
+  let hasAgentMessageEvent = false;
   let hasPatchEvents = false;
   let hasMcpEvents = false;
   const codexRecords = records.flatMap((raw) =>
@@ -888,8 +889,10 @@ function parseCodexRecords(
   for (const record of codexRecords) {
     if (record.type !== "event_msg") continue;
     const eventType = record.payload?.type;
-    if (eventType === "user_message" || eventType === "agent_message") {
-      hasMessageEvents = true;
+    if (eventType === "user_message") {
+      hasUserMessageEvent = true;
+    } else if (eventType === "agent_message") {
+      hasAgentMessageEvent = true;
     } else if (eventType === "patch_apply_end") {
       hasPatchEvents = true;
     } else if (eventType === "mcp_tool_call_end") {
@@ -992,10 +995,10 @@ function parseCodexRecords(
     }
     switch (payload.type) {
       case "message": {
-        if (hasMessageEvents) break;
         const text = codexText(payload);
         if (!text) break;
         if (payload.role === "user") {
+          if (hasUserMessageEvent) break;
           const lowered = text.trimStart().toLowerCase();
           if (
             CODEX_USER_NOISE_PREFIXES.some((prefix) =>
@@ -1005,8 +1008,10 @@ function parseCodexRecords(
             break;
           }
           userTurns += 1;
+          firstUserText ??= text;
           events.push({ kind: "user", text, at });
         } else if (payload.role === "assistant") {
+          if (hasAgentMessageEvent) break;
           events.push({ kind: "assistant", markdown: text, at });
         }
         break;

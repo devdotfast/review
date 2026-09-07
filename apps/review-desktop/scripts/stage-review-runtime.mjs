@@ -3,6 +3,7 @@ import {
   access,
   chmod,
   cp,
+  open,
   readFile,
   readdir,
   realpath,
@@ -28,30 +29,12 @@ const monorepoRoot = path.resolve(appDirectory, "../..");
  * The installed application must not reach back into the build checkout, so the
  * Review server ships as a self-contained production dependency closure rather
  * than as a single bundled file: the runtime intentionally depends on native
- * binaries, TypeScript, esbuild, workspace libraries, and app source assets.
+ * binaries, TypeScript, workspace libraries, and app source assets.
  */
 export const RUNTIME_DIRECTORY_NAME = "review-runtime";
 export const RUNTIME_SERVER_ENTRY = "dist/server/desktop-host.js";
 
 export const RUNTIME_CLI_ENTRY = "dist/cli.js";
-
-/**
- * esbuild ships one native binary per platform; the staged closure carries the
- * one pnpm resolved for the packaging host.
- */
-function esbuildPlatformEntry() {
-  const platform = `${process.platform}-${process.arch}`;
-  const supported = new Set([
-    "darwin-arm64",
-    "darwin-x64",
-    "linux-x64",
-    "linux-arm64",
-  ]);
-  if (!supported.has(platform)) {
-    throw new Error(`Review runtime staging does not support ${platform}.`);
-  }
-  return `node_modules/@esbuild/${platform}/bin/esbuild`;
-}
 
 export const REQUIRED_RUNTIME_ENTRIES = [
   "package.json",
@@ -67,7 +50,7 @@ export const REQUIRED_RUNTIME_ENTRIES = [
   "tutorial/runtime-manifest.json",
   "node_modules",
   "node_modules/@dev.fast/local-vcs/dist/index.js",
-  esbuildPlatformEntry(),
+  "dist/document/worker.js",
 ];
 
 export function runtimeRootForPackagedRoot(packagedRoot) {
@@ -100,6 +83,7 @@ export function requiredPackagedArtifacts(packagedRoot) {
 }
 
 export async function assertPackagedArtifacts(packagedRoot) {
+  await assertNoRuntimeBundler(packagedRoot);
   for (const artifact of requiredPackagedArtifacts(packagedRoot)) {
     try {
       await access(artifact);
@@ -143,6 +127,7 @@ export async function stageReviewRuntime(packagedRoot) {
   await stampReviewSkills(runtimeRoot);
   await makeTreeOwnerWritable(path.join(runtimeRoot, "tutorial", "git-stub"));
   await assertRuntimeClosure(runtimeRoot);
+  await assertNoRuntimeBundler(packagedRoot);
   return runtimeRoot;
 }
 
@@ -285,6 +270,7 @@ export async function assertRuntimeClosure(runtimeRoot) {
     }
   }
   await assertNoCheckoutReferences(runtimeRoot);
+  await assertNoRuntimeBundler(runtimeRoot);
 }
 
 export async function readTutorialRuntimeManifest(tutorialRoot) {
@@ -321,11 +307,68 @@ function isSafeManifestPath(entry) {
   );
 }
 
-/**
- * A relocatable closure must not name the machine that produced it. Symlinks
- * escaping the runtime root break once the app is copied out of the build tree,
- * and manifests holding absolute checkout paths break just as silently.
- */
+/** Also used by installed-CLI E2E: a dependency declaration alone cannot
+ * prove that a transitive native bundler was removed from the shipped files. */
+export async function assertNoRuntimeBundler(runtimeRoot) {
+  const visit = async (directory) => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name);
+      if (entry.name === "esbuild" || entry.name === "esbuild.exe") {
+        throw new Error(
+          `The Review runtime must not ship esbuild: ${path.relative(runtimeRoot, absolute)}`,
+        );
+      }
+      if (entry.isDirectory()) await visit(absolute);
+      else if (entry.isFile() && entry.name.endsWith(".asar")) {
+        await assertNoArchivedBundler(absolute);
+      } else if (entry.isFile() && entry.name === "package.json") {
+        const manifest = JSON.parse(await readFile(absolute, "utf8"));
+        if (
+          manifest.name === "esbuild" ||
+          manifest.name?.startsWith("@esbuild/")
+        )
+          throw new Error(
+            `The Review runtime must not ship ${manifest.name}: ${path.relative(runtimeRoot, absolute)}`,
+          );
+      }
+    }
+  };
+  await visit(runtimeRoot);
+}
+
+// ASAR headers are two Chromium pickles: an 8-byte size pickle followed by
+// a string pickle containing the JSON tree. Inspect the directory without
+// extracting the app or requiring an archive tool in the installed runtime.
+async function assertNoArchivedBundler(archive) {
+  const file = await open(archive, "r");
+  try {
+    const prefix = Buffer.alloc(16);
+    if ((await file.read(prefix, 0, 16, 0)).bytesRead !== 16)
+      throw new Error(`Invalid ASAR header: ${archive}`);
+    const headerBytes = prefix.readUInt32LE(4);
+    const jsonBytes = prefix.readUInt32LE(12);
+    if (jsonBytes > headerBytes - 8 || headerBytes > 64 * 1024 * 1024)
+      throw new Error(`Invalid ASAR header size: ${archive}`);
+    const contents = Buffer.alloc(jsonBytes);
+    if ((await file.read(contents, 0, jsonBytes, 16)).bytesRead !== jsonBytes)
+      throw new Error(`Truncated ASAR header: ${archive}`);
+    const visit = (node, parent = "") => {
+      for (const [name, child] of Object.entries(node.files ?? {})) {
+        const relative = `${parent}/${name}`;
+        if (name === "esbuild" || name === "esbuild.exe" || name === "@esbuild")
+          throw new Error(
+            `The Review runtime must not ship esbuild: ${archive}:${relative}`,
+          );
+        visit(child, relative);
+      }
+    };
+    visit(JSON.parse(contents.toString("utf8")));
+  } finally {
+    await file.close();
+  }
+}
+
+/** A relocatable closure must not name its build machine or link outside it. */
 export async function assertNoCheckoutReferences(runtimeRoot) {
   const offenders = [];
   const manifests = [];

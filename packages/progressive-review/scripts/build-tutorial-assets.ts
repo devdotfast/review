@@ -22,14 +22,13 @@ import { writeNote } from "@dev.fast/local-vcs";
 import { parseJsonText } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
+import { buildReviewDocument } from "../src/document/build";
 import {
   bundleReviewDocument,
   writeReviewDocumentBundle,
 } from "../src/review-bundle";
 import { createReviewDir } from "../src/review-home";
-import { evaluateReviewDocumentBundleForPublish } from "../src/review-publish-evaluate";
 import { SOFTWARE_MAP_NOTES_REF } from "../src/review-storage";
-import { compileReviewDocumentBundle } from "../src/server/doc-bundler";
 import { canonicalizeModelImport } from "../src/software-map-artifact";
 import {
   bundleReviewSoftwareMap,
@@ -187,8 +186,7 @@ export async function buildTutorialAssets(
       content: canonicalizeModelImport(mapSource),
     });
 
-    // 3. Compile from a throwaway review dir bound to the stub repo — the
-    // compiler's software-map scan reads the store record beside the MDX.
+    // 3. Validate the authored document in a throwaway review directory.
     const review = await createReviewDir({
       reviewsHomePath: temporaryRoot,
       worktreePath: repo,
@@ -202,27 +200,18 @@ export async function buildTutorialAssets(
         cp(path.join(tutorialDir, entry), path.join(review.dir, entry)),
       ),
     );
-    const compiled = await compileReviewDocumentBundle({
+    const evaluation = await buildReviewDocument({
       reviewPath: path.join(review.dir, "review.mdx"),
-      reviewDocumentsDir: path.join(review.dir, ".review-documents"),
-      reviewRootPath: review.dir,
-      routePath: "/",
-    });
-    if (!compiled.bundle) {
-      throw new Error(
-        `Tutorial document compilation failed:\n${compiled.diagnostics.map((item) => item.message).join("\n")}`,
-      );
-    }
-
-    // 4. The same validation publish runs, against the stub repository.
-    const evaluation = await evaluateReviewDocumentBundleForPublish({
-      bundleCode: compiled.bundle.code,
-      reviewDir: review.dir,
       prepareEvidence: async () => ({
         head: { sourceRootPath: repo },
         base: { sourceRootPath: repo },
       }),
     });
+    if (evaluation.diagnostics.some((item) => item.severity === "error")) {
+      throw new Error(
+        `Tutorial document validation failed:\n${evaluation.diagnostics.map((item) => item.message).join("\n")}`,
+      );
+    }
     if (evaluation.errors.length > 0) {
       throw new Error(
         `Tutorial document evaluation failed:\n${evaluation.errors.join("\n")}`,

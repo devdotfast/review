@@ -1,10 +1,7 @@
 import ts from "typescript";
 
 import { reviewAuthoringPropsSchemas } from "../authoring";
-import type {
-  ReviewDocumentDiagnostic,
-  ReviewDocumentInput,
-} from "./review-document-compiler";
+import type { ReviewDocumentDiagnostic } from "./diagnostics";
 
 export interface AuthoredTypescriptRegion {
   kind: "esm" | "expression";
@@ -16,7 +13,7 @@ export interface AuthoredTypescriptRegion {
 }
 
 export function unsupportedTypescriptDiagnostics(
-  input: Pick<ReviewDocumentInput, "filePath">,
+  input: { filePath: string },
   regions: readonly AuthoredTypescriptRegion[],
 ): ReviewDocumentDiagnostic[] {
   const diagnostics: ReviewDocumentDiagnostic[] = [];

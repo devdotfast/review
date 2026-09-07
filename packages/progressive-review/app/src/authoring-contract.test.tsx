@@ -166,16 +166,17 @@ describe("review authoring contract", () => {
     });
   });
 
-  it("rejects an unresolved authored anchor before the definition barrier", () => {
+  it("allows an unresolved published anchor to use the local retry path", () => {
     const ref = {
       __kind: "code-peek-ref" as const,
       props: { file: "src/example.ts", fromLine: 1, toLine: 3 },
       resolution: null,
     };
 
-    expect(() => validatedCodePeekInputFromRef(ref)).toThrow(
-      "defineAnchors must finish before React mounts",
-    );
+    expect(validatedCodePeekInputFromRef(ref)).toMatchObject({
+      props: ref.props,
+      resolution: undefined,
+    });
   });
 
   it("is satisfied by the exact runtime component registry", () => {

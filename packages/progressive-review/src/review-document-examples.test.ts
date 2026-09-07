@@ -11,6 +11,7 @@ import { hydrateReviewDocument } from "../app/src/review-document-hydrate";
 import { renderReviewNodes } from "../app/src/review-document-renderer";
 import { reviewDocumentComponents } from "../app/src/review-document-surface";
 import { patchChangedLines } from "./call-stack-diff";
+import { buildReviewDocument } from "./document/build";
 import {
   bundleReviewDocument,
   readReviewDocumentBundle,
@@ -24,8 +25,6 @@ import {
   walkReviewNodes,
 } from "./review-document-data";
 import { createReviewDir } from "./review-home";
-import { evaluateReviewDocumentBundleForPublish } from "./review-publish-evaluate";
-import { compileReviewDocumentBundle } from "./server/doc-bundler";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -80,17 +79,8 @@ async function fixture() {
     source,
     async evaluate(mdx = source) {
       await writeFile(path.join(created.dir, "review.mdx"), mdx);
-      const compiled = await compileReviewDocumentBundle({
+      return buildReviewDocument({
         reviewPath: path.join(created.dir, "review.mdx"),
-        reviewDocumentsDir: path.join(created.dir, ".review-documents"),
-        reviewRootPath: created.dir,
-        routePath: "/",
-      });
-      expect(compiled.diagnostics).toEqual([]);
-      if (!compiled.bundle) throw new Error("Fixture did not compile");
-      return evaluateReviewDocumentBundleForPublish({
-        bundleCode: compiled.bundle.code,
-        reviewDir: created.dir,
         prepareEvidence: async () => ({
           head: { sourceRootPath: headRoot },
           base: { sourceRootPath: baseRoot },

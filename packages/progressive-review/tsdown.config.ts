@@ -16,6 +16,7 @@ const desktopHostPath = resolve(
 export default defineConfig({
   entry: {
     authoring: "src/authoring.ts",
+    "document/worker": "src/document/worker.ts",
     cli: "src/cli.ts",
     "native-agent/native-hook-client": "src/native-agent/native-hook-client.ts",
     "native-agent/pi-bridge-extension":

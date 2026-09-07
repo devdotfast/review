@@ -661,7 +661,8 @@ export interface StoreRef {
   documents?: Record<string, CollectionRef>;
 }
 
-type CollectionHandle = AuthoredTargetRef & {
+type CollectionHandle = {
+  readonly [authoredTargetRefKey]: TargetRef;
   readonly [collectionSchemaKey]: SoftwareDataStoreFieldSchema;
 };
 

@@ -40,9 +40,7 @@ describe("compiler resource paths", () => {
   // tsdown collapses the compiler into a top-level dist chunk, so a resolver
   // that hops relative to its own module escapes the package once bundled.
   const moduleUrls = [
-    pathToFileURL(
-      path.join(packageRoot, "src", "compiler", "review-document-compiler.ts"),
-    ).href,
+    pathToFileURL(path.join(packageRoot, "src", "document", "check.ts")).href,
     pathToFileURL(path.join(packageRoot, "dist", "index.js")).href,
     pathToFileURL(path.join(packageRoot, "dist", "server", "desktop-host.js"))
       .href,

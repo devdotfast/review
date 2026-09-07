@@ -18,10 +18,10 @@ export async function resolveReviewDocumentPeeks(
   document: HydratedReviewDocument,
   session: ReviewSession,
   options: ResolveReviewDocumentPeeksOptions = {},
-): Promise<void> {
+): Promise<boolean> {
   const resolveCodePeek = options.resolveCodePeek ?? resolveCodePeekRequest;
   const uniqueAnchors = new Set(document.anchors.values());
-  await Promise.all(
+  const results = await Promise.allSettled(
     [...uniqueAnchors].flatMap((anchor) => {
       if (!anchor.peek || anchor.peek.resolution) return [];
       return [
@@ -35,6 +35,8 @@ export async function resolveReviewDocumentPeeks(
       ];
     }),
   );
+  // A missing source must fail only its peek card, not the whole document.
+  return results.every((result) => result.status === "fulfilled");
 }
 
 /**
@@ -49,13 +51,20 @@ export function prepareReviewDocument(
 ): Promise<HydratedReviewDocument> {
   const cached = session.documents.get(load.contentHash);
   if (cached) return cached;
-  const prepared = hydrateAndResolve(load, session, options);
-  session.documents.set(load.contentHash, prepared);
-  void prepared.catch(() => {
+  const prepared = hydrateAndResolve(load, session, options).then(
+    ({ document, complete }) => {
+      if (!complete) forget();
+      return document;
+    },
+  );
+  const forget = () => {
     if (session.documents.get(load.contentHash) === prepared) {
       session.documents.delete(load.contentHash);
     }
-  });
+  };
+  session.documents.set(load.contentHash, prepared);
+  void prepared.catch(forget);
+
   return prepared;
 }
 
@@ -63,8 +72,8 @@ async function hydrateAndResolve(
   load: ReadyReviewDocumentLoad,
   session: ReviewSession,
   options: ResolveReviewDocumentPeeksOptions,
-): Promise<HydratedReviewDocument> {
+): Promise<{ document: HydratedReviewDocument; complete: boolean }> {
   const document = hydrateReviewDocument(load);
-  await resolveReviewDocumentPeeks(document, session, options);
-  return document;
+  const complete = await resolveReviewDocumentPeeks(document, session, options);
+  return { document, complete };
 }

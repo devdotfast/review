@@ -43,14 +43,16 @@ checkout does not silently change the code being reviewed. Run
 
 ## Publishing is a validation boundary
 
-`review publish` compiles the Review document, checks its software-map
+`review publish` validates the Review document, checks its software-map
 relationship, and resolves every source range against the pinned checkout. The
 CLI seals a revision only after these checks pass. Review Desktop then mounts
 the candidate before making it visible.
 
-Authoring remains `review.mdx` and `data.ts`. The CLI keeps the MDX compiler,
-TypeScript checks, esbuild, and Node-side validation runtime. It materializes
-the validated document into schema-checked JSON before sealing it.
+Authoring remains `review.mdx` and `data.ts`. The CLI parses the document,
+checks authored TypeScript, and loads helpers in a disposable Node worker. It
+constructs and audits schema-checked JSON directly; it does not compile an MDX
+component or bundle authored modules. The installed runtime does not need
+esbuild. Release-time tools still build the CLI, worker, and app assets.
 
 The published document is `.bundle/document/review-document.json`, with format
 `review-document/1` and a version-2 manifest. Software-map bundles contain

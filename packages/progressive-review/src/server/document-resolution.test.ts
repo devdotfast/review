@@ -5,10 +5,9 @@ import path from "node:path";
 import { REVIEW_SCHEMA_VERSION } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { evaluateReviewDocumentBundleForPublish } from "../review-publish-evaluate";
-import { bundleReviewDocument } from "./doc-bundler";
+import { buildReviewDocument } from "../document/build";
 
-describe("review document bundler", () => {
+describe("review document native module resolution", () => {
   const roots: string[] = [];
 
   afterEach(async () => {
@@ -17,7 +16,7 @@ describe("review document bundler", () => {
     );
   });
 
-  it("bundles explicit authoring imports into the active browser ESM document", async () => {
+  it("loads explicit authoring imports into audited JSON", async () => {
     const rootPath = await mkdtemp(path.join(tmpdir(), "review-doc-bundle-"));
     roots.push(rootPath);
     await writeReviewStore(rootPath);
@@ -49,24 +48,21 @@ describe("review document bundler", () => {
       "utf8",
     );
 
-    const bundle = await bundleReviewDocument({
+    const evaluated = await buildReviewDocument({
       reviewPath,
-      reviewDocumentsDir: documentsDir,
-      reviewRootPath: rootPath,
-      routePath: "/",
+      ranges: "skip",
     });
 
-    expect(bundle.routePath).toBe("/");
-    expect(bundle.sourcePath).toBe(reviewPath);
-    expect(bundle.contentHash).toMatch(/^[a-f0-9]{20}$/);
-    expect(bundle.code).toContain("activeReviewDocument");
-    expect(bundle.code).toMatch(/export\s*\{[^}]*activeReviewDocument/);
-    expect(bundle.code).toContain("review-doc-runtime");
-    expect(bundle.code).toContain("Inspect the evidence");
-    expect(bundle.code).toContain("activeReviewDocument");
+    expect(evaluated.diagnostics).toEqual([]);
+    expect(evaluated.errors).toEqual([]);
+    expect(evaluated.document?.routePath).toBe("/");
+    expect(evaluated.document?.sourcePath).toBe("review.mdx");
+    expect(JSON.stringify(evaluated.document)).toContain(
+      "Inspect the evidence",
+    );
   });
 
-  it("bundles colocated data.ts definitions into the document", async () => {
+  it("loads colocated data.ts definitions into the document", async () => {
     const rootPath = await mkdtemp(path.join(tmpdir(), "review-doc-bundle-"));
     roots.push(rootPath);
     await writeReviewStore(rootPath);
@@ -98,19 +94,12 @@ describe("review document bundler", () => {
       "utf8",
     );
 
-    const bundle = await bundleReviewDocument({
+    const evaluated = await buildReviewDocument({
       reviewPath,
-      reviewDocumentsDir: documentsDir,
-      reviewRootPath: rootPath,
-      routePath: "/",
-    });
-
-    expect(bundle.code).not.toContain('from "./data.ts"');
-    const evaluated = await evaluateReviewDocumentBundleForPublish({
-      reviewDir: reviewDir,
-      bundleCode: bundle.code,
       ranges: "skip",
     });
+
+    expect(evaluated.diagnostics).toEqual([]);
     expect(evaluated.errors).toEqual([]);
     expect(Object.keys(evaluated.document?.anchors ?? {}).sort()).toEqual([
       "unused",

@@ -10442,6 +10442,23 @@ button.review-stack-row:disabled .review-stack-relation {
   background: var(--link-open-wash);
 }
 
+/* Faint curly quotes hug each trace quote so the reader can tell someone's
+   words from a code peek or file link without the link color changing.
+   inline-block keeps the hover underline off the marks themselves. */
+.review-trace-quote::before,
+.review-trace-quote::after {
+  display: inline-block;
+  color: var(--ink-faint);
+}
+
+.review-trace-quote::before {
+  content: "\201C";
+}
+
+.review-trace-quote::after {
+  content: "\201D";
+}
+
 .review-trace-quote--inert {
   color: var(--ink-faint);
   text-decoration: none;

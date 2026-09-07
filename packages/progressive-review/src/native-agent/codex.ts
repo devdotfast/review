@@ -26,10 +26,8 @@ import type {
   UpdatePipe,
 } from "./native-session";
 import {
-  REVIEW_AGENT_THREAD_TOKEN_ENV,
-  REVIEW_AGENT_THREAD_URL_ENV,
   ReviewCommandPath,
-  tomlInline,
+  reviewThreadEnvironment,
 } from "./terminal-command";
 
 const MATERIALIZE_TIMEOUT_MS = 60_000;
@@ -61,17 +59,14 @@ export interface CodexHost {
 export class CodexAgentServer implements AgentServer {
   readonly harness = "codex" as const;
   readonly #host: CodexHost;
-  readonly #desktop: AgentServerOptions["desktopEndpoint"];
+  readonly #threadEnvironment: Record<string, string>;
   readonly #commandPath: ReviewCommandPath;
   readonly #threads = new Map<string, ThreadState>();
   #listening: CodexAppServerClient | undefined;
 
   constructor(options: AgentServerOptions, host: CodexHost) {
     this.#host = host;
-    this.#desktop = {
-      baseUrl: options.desktopEndpoint.baseUrl.replace(/\/$/u, ""),
-      token: options.desktopEndpoint.token,
-    };
+    this.#threadEnvironment = reviewThreadEnvironment(options.desktopEndpoint);
     this.#commandPath = new ReviewCommandPath(options);
   }
 
@@ -79,17 +74,28 @@ export class CodexAgentServer implements AgentServer {
     input: LaunchInput,
   ): Promise<{ sessionId: string; command: NativeTerminalCommand }> {
     const client = await this.#connect();
+    const pathValue = await this.#commandPath.resolve();
+    const reviewHome = devReviewHome();
+    const env: NativeTerminalCommand["env"] = {
+      ...this.#threadEnvironment,
+      [DEV_REVIEW_HOME_ENV]: reviewHome,
+    };
+    if (pathValue) env.PATH = pathValue;
+    // Tools execute in app-server, not in the remote TUI. Set this before
+    // the first turn, including when forking or resuming an existing thread.
+    const config = { "shell_environment_policy.set": env };
     let threadId: string;
     if (!input.session) {
-      threadId = await startThread(client, { cwd: input.cwd });
+      threadId = await startThread(client, { cwd: input.cwd, config });
     } else if ("forkOf" in input.session) {
       threadId = await forkThread(client, {
         sourceThreadId: input.session.forkOf,
         cwd: input.cwd,
+        config,
       });
     } else {
       threadId = input.session.resume;
-      await this.#subscribe(client, threadId);
+      await this.#subscribe(client, threadId, config);
     }
     // Threads created on this connection already stream to it.
     const state = this.#thread(threadId);
@@ -106,27 +112,7 @@ export class CodexAgentServer implements AgentServer {
       await materialized;
     }
     const url = await this.#host.url();
-    const pathValue = await this.#commandPath.resolve();
-    const reviewHome = devReviewHome();
-    const args = ["--remote", url];
-    if (pathValue) {
-      args.push(
-        "-c",
-        `shell_environment_policy.set.PATH=${tomlInline(pathValue)}`,
-      );
-    }
-    args.push(
-      "-c",
-      `shell_environment_policy.set.${DEV_REVIEW_HOME_ENV}=${tomlInline(reviewHome)}`,
-      "resume",
-      threadId,
-    );
-    const env: NativeTerminalCommand["env"] = {
-      [REVIEW_AGENT_THREAD_URL_ENV]: `${this.#desktop.baseUrl}/native-agent-events/codex/${encodeURIComponent(threadId)}/thread`,
-      [REVIEW_AGENT_THREAD_TOKEN_ENV]: this.#desktop.token,
-      [DEV_REVIEW_HOME_ENV]: reviewHome,
-    };
-    if (pathValue) env.PATH = pathValue;
+    const args = ["--remote", url, "resume", threadId];
     return {
       sessionId: threadId,
       command: {
@@ -143,7 +129,7 @@ export class CodexAgentServer implements AgentServer {
   ): Promise<UpdatePipe<SessionSnapshot, SessionUpdate>> {
     const client = await this.#connect();
     const state = this.#thread(sessionId);
-    if (!state.subscribed) await this.#subscribe(client, sessionId);
+    if (!state.subscribed) await this.#subscribe(client, sessionId, {});
     if (!state.loaded) {
       for (const message of await this.#readThread(client, sessionId)) {
         this.#append(state, message);
@@ -185,10 +171,14 @@ export class CodexAgentServer implements AgentServer {
   async #subscribe(
     client: CodexAppServerClient,
     threadId: string,
+    config: Record<string, JsonValue>,
   ): Promise<void> {
     const state = this.#thread(threadId);
     try {
-      await client.request("thread/resume", { threadId });
+      await client.request("thread/resume", {
+        threadId,
+        config,
+      });
       state.subscribed = true;
     } catch (error) {
       if (!isUnmaterialized(error)) throw error;

@@ -25,9 +25,8 @@ import type {
   UpdatePipe,
 } from "./native-session";
 import {
-  REVIEW_AGENT_THREAD_TOKEN_ENV,
-  REVIEW_AGENT_THREAD_URL_ENV,
   ReviewCommandPath,
+  reviewThreadEnvironment,
 } from "./terminal-command";
 
 const HOST = "127.0.0.1";
@@ -59,17 +58,14 @@ interface SessionState {
 export class OpencodeAgentServer implements AgentServer {
   readonly harness = "opencode" as const;
   readonly #host: OpencodeHost;
-  readonly #desktop: AgentServerOptions["desktopEndpoint"];
+  readonly #threadEnvironment: Record<string, string>;
   readonly #commandPath: ReviewCommandPath;
   readonly #sessions = new Map<string, SessionState>();
   #events: { abort: AbortController; baseUrl: string } | undefined;
 
   constructor(options: AgentServerOptions, host: OpencodeHost) {
     this.#host = host;
-    this.#desktop = {
-      baseUrl: options.desktopEndpoint.baseUrl.replace(/\/$/u, ""),
-      token: options.desktopEndpoint.token,
-    };
+    this.#threadEnvironment = reviewThreadEnvironment(options.desktopEndpoint);
     this.#commandPath = new ReviewCommandPath(options);
   }
 
@@ -114,8 +110,7 @@ export class OpencodeAgentServer implements AgentServer {
     const pathValue = await this.#commandPath.resolve();
     const env: NativeTerminalCommand["env"] = {
       OPENCODE_SERVER_PASSWORD: client.password,
-      [REVIEW_AGENT_THREAD_URL_ENV]: `${this.#desktop.baseUrl}/native-agent-events/opencode/${encodeURIComponent(sessionId)}/thread`,
-      [REVIEW_AGENT_THREAD_TOKEN_ENV]: this.#desktop.token,
+      ...this.#threadEnvironment,
       [DEV_REVIEW_HOME_ENV]: devReviewHome(),
     };
     if (pathValue) env.PATH = pathValue;
@@ -459,6 +454,10 @@ export class OpencodeClient {
 
 /** Owns one `opencode serve` process on a reserved loopback port. */
 export class OpencodeServeHost implements OpencodeHost {
+  constructor(
+    private readonly environment: () => Promise<NodeJS.ProcessEnv>,
+  ) {}
+
   #started:
     | Promise<{ child: ChildProcess; baseUrl: string; password: string }>
     | undefined;
@@ -491,7 +490,10 @@ export class OpencodeServeHost implements OpencodeHost {
         ["serve", "--hostname", HOST, "--port", String(port)],
         {
           cwd: "/",
-          env: { ...process.env, OPENCODE_SERVER_PASSWORD: password },
+          env: {
+            ...(await this.environment()),
+            OPENCODE_SERVER_PASSWORD: password,
+          },
           stdio: ["ignore", "ignore", "pipe"],
           windowsHide: true,
         },
@@ -551,7 +553,7 @@ export async function forkOpencodeSession(input: {
   sourceSessionId: string;
   cwd: string;
 }): Promise<string> {
-  const host = new OpencodeServeHost();
+  const host = new OpencodeServeHost(async () => process.env);
   try {
     const { baseUrl, password } = await host.endpoint();
     const client = new OpencodeClient(baseUrl, password);
@@ -586,7 +588,7 @@ export async function createOpencodeSession(input: {
   title: string;
   signal?: AbortSignal;
 }): Promise<string> {
-  const host = new OpencodeServeHost();
+  const host = new OpencodeServeHost(async () => process.env);
   try {
     const { baseUrl, password } = await host.endpoint();
     const client = new OpencodeClient(baseUrl, password);
@@ -644,6 +646,16 @@ export function server(
 ): AgentServer {
   return new OpencodeAgentServer(
     options,
-    options.host ?? new OpencodeServeHost(),
+    options.host ??
+      new OpencodeServeHost(async () => {
+        const pathValue = await new ReviewCommandPath(options).resolve();
+        if (!pathValue) throw new Error("OpenCode requires a command PATH.");
+        return {
+          ...process.env,
+          ...reviewThreadEnvironment(options.desktopEndpoint),
+          [DEV_REVIEW_HOME_ENV]: devReviewHome(),
+          PATH: pathValue,
+        };
+      }),
   );
 }

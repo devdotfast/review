@@ -231,11 +231,8 @@ export interface AgentThreadLookup {
 
 export interface ReviewApi {
   app: Hono<ReviewHonoEnv>;
-  /** The comment thread bound to a native agent session, if this review owns it. */
-  findAgentThread(
-    binding: SessionRef,
-    threadId: string,
-  ): AgentThreadLookup | undefined;
+  /** Find an owned comment, including drafts whose agent has not launched yet. */
+  findAgentThread(threadId: string): AgentThreadLookup | undefined;
   close(): Promise<void>;
 }
 
@@ -1013,17 +1010,12 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
 
   return {
     app,
-    findAgentThread: (binding, threadId) => {
+    findAgentThread: (threadId) => {
       if (!stateReviewPath) return undefined;
       const snapshot = threadsFor(stateReviewPath).snapshot();
       const draft = snapshot.drafts[threadId];
       const thread = draft?.thread ?? snapshot.comments[threadId];
-      if (
-        thread?.agentSession?.harness !== binding.harness ||
-        thread.agentSession.sessionId !== binding.sessionId
-      ) {
-        return undefined;
-      }
+      if (!thread) return undefined;
       return {
         review: path.basename(path.dirname(stateReviewPath)),
         state: draft ? "draft" : "submitted",

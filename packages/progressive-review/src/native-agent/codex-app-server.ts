@@ -364,7 +364,7 @@ export async function forkCodexThread(input: {
 }): Promise<string> {
   const client = await CodexAppServerClient.connect();
   try {
-    return await forkThread(client, input);
+    return await forkThread(client, { ...input, config: {} });
   } finally {
     await client.close();
   }
@@ -375,7 +375,7 @@ export async function startCodexThread(input: {
 }): Promise<string> {
   const client = await CodexAppServerClient.connect();
   try {
-    return await startThread(client, input);
+    return await startThread(client, { ...input, config: {} });
   } finally {
     await client.close();
   }
@@ -383,7 +383,11 @@ export async function startCodexThread(input: {
 
 export async function forkThread(
   client: CodexAppServerClient,
-  input: { sourceThreadId: string; cwd: string },
+  input: {
+    sourceThreadId: string;
+    cwd: string;
+    config: Record<string, JsonValue>;
+  },
 ): Promise<string> {
   return threadId(
     await client.request("thread/fork", {
@@ -391,6 +395,7 @@ export async function forkThread(
       cwd: input.cwd,
       ephemeral: false,
       excludeTurns: true,
+      config: input.config,
     }),
     "forked",
   );
@@ -398,10 +403,14 @@ export async function forkThread(
 
 export async function startThread(
   client: CodexAppServerClient,
-  input: { cwd: string },
+  input: { cwd: string; config: Record<string, JsonValue> },
 ): Promise<string> {
   return threadId(
-    await client.request("thread/start", { cwd: input.cwd, ephemeral: false }),
+    await client.request("thread/start", {
+      cwd: input.cwd,
+      ephemeral: false,
+      config: input.config,
+    }),
     "new",
   );
 }

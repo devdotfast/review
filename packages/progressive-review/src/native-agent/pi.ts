@@ -23,9 +23,8 @@ import type {
 import {
   REVIEW_AGENT_BRIDGE_TOKEN_ENV,
   REVIEW_AGENT_BRIDGE_URL_ENV,
-  REVIEW_AGENT_THREAD_TOKEN_ENV,
-  REVIEW_AGENT_THREAD_URL_ENV,
   ReviewCommandPath,
+  reviewThreadEnvironment,
   companionModulePath,
 } from "./terminal-command";
 
@@ -42,16 +41,13 @@ interface SessionState {
  */
 export class PiAgentServer implements AgentServer {
   readonly harness = "pi" as const;
-  readonly #desktop: AgentServerOptions["desktopEndpoint"];
+  readonly #threadEnvironment: Record<string, string>;
   readonly #commandPath: ReviewCommandPath;
   readonly #sessions = new Map<string, SessionState>();
   readonly #ingress: LoopbackIngress;
 
   constructor(options: AgentServerOptions) {
-    this.#desktop = {
-      baseUrl: options.desktopEndpoint.baseUrl.replace(/\/$/u, ""),
-      token: options.desktopEndpoint.token,
-    };
+    this.#threadEnvironment = reviewThreadEnvironment(options.desktopEndpoint);
     this.#commandPath = new ReviewCommandPath(options);
     this.#ingress = new LoopbackIngress({
       scope: this.harness,
@@ -89,8 +85,7 @@ export class PiAgentServer implements AgentServer {
     const env: NativeTerminalCommand["env"] = {
       [REVIEW_AGENT_BRIDGE_URL_ENV]: `${bridgeUrl}/${this.harness}/${encodedSession}`,
       [REVIEW_AGENT_BRIDGE_TOKEN_ENV]: this.#ingress.token,
-      [REVIEW_AGENT_THREAD_URL_ENV]: `${this.#desktop.baseUrl}/native-agent-events/${this.harness}/${encodedSession}/thread`,
-      [REVIEW_AGENT_THREAD_TOKEN_ENV]: this.#desktop.token,
+      ...this.#threadEnvironment,
       [DEV_REVIEW_HOME_ENV]: devReviewHome(),
     };
     if (pathValue) env.PATH = pathValue;

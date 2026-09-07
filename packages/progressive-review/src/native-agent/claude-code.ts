@@ -26,9 +26,8 @@ import type {
 import {
   REVIEW_AGENT_HOOK_TOKEN_ENV,
   REVIEW_AGENT_HOOK_URL_ENV,
-  REVIEW_AGENT_THREAD_TOKEN_ENV,
-  REVIEW_AGENT_THREAD_URL_ENV,
   ReviewCommandPath,
+  reviewThreadEnvironment,
   nativeHookCommand,
 } from "./terminal-command";
 
@@ -67,7 +66,7 @@ export type ClaudeAgentServerOptions = AgentServerOptions & {
 export class ClaudeAgentServer implements AgentServer {
   readonly harness = "claude-code" as const;
   readonly #runtimeDirectory: string;
-  readonly #desktop: AgentServerOptions["desktopEndpoint"];
+  readonly #threadEnvironment: Record<string, string>;
   readonly #commandPath: ReviewCommandPath;
   readonly #readTranscript: typeof readClaudeReviewMessages;
   readonly #sessions = new Map<string, SessionState>();
@@ -75,10 +74,7 @@ export class ClaudeAgentServer implements AgentServer {
 
   constructor(options: ClaudeAgentServerOptions) {
     this.#runtimeDirectory = options.runtimeDirectory;
-    this.#desktop = {
-      baseUrl: options.desktopEndpoint.baseUrl.replace(/\/$/u, ""),
-      token: options.desktopEndpoint.token,
-    };
+    this.#threadEnvironment = reviewThreadEnvironment(options.desktopEndpoint);
     this.#commandPath = new ReviewCommandPath(options);
     this.#readTranscript = options.readTranscript ?? readClaudeReviewMessages;
     this.#ingress = new LoopbackIngress({
@@ -131,8 +127,7 @@ export class ClaudeAgentServer implements AgentServer {
     const env: NativeTerminalCommand["env"] = {
       [REVIEW_AGENT_HOOK_URL_ENV]: `${hookBaseUrl}/${sessionPath}`,
       [REVIEW_AGENT_HOOK_TOKEN_ENV]: this.#ingress.token,
-      [REVIEW_AGENT_THREAD_URL_ENV]: `${this.#desktop.baseUrl}/native-agent-events/${sessionPath}/thread`,
-      [REVIEW_AGENT_THREAD_TOKEN_ENV]: this.#desktop.token,
+      ...this.#threadEnvironment,
       [DEV_REVIEW_HOME_ENV]: devReviewHome(),
       CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: "1",
     };

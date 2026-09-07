@@ -232,7 +232,7 @@ describe("OpencodeAgentServer", () => {
     ]);
     expect(command.env.OPENCODE_SERVER_PASSWORD).toBe("pw");
     expect(command.env.DEV_FAST_REVIEW_AGENT_THREAD_URL).toBe(
-      "http://127.0.0.1:4000/native-agent-events/opencode/ses_1/thread",
+      "http://127.0.0.1:4000/agent-threads",
     );
     await server.close();
   });

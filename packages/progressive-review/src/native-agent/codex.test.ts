@@ -208,6 +208,51 @@ describe("projectCodexTurns", () => {
 });
 
 describe("CodexAgentServer", () => {
+  it.each(["new", "fork", "resume"] as const)(
+    "attaches shell tools before the first turn of a %s session",
+    async (mode) => {
+      let executionEnv: JsonObject | undefined;
+      const configure = (params: JsonObject) => {
+        const config = params.config as JsonObject;
+        executionEnv = config["shell_environment_policy.set"] as JsonObject;
+        return { thread: { id: "attached" } };
+      };
+      const host = fakeHost({
+        "thread/start": configure,
+        "thread/fork": configure,
+        "thread/resume": configure,
+        "turn/start": () => {
+          // This executes before launch returns a terminal command. The
+          // original bug only configured that later terminal's environment.
+          expect(executionEnv).toMatchObject({
+            DEV_FAST_REVIEW_AGENT_THREAD_URL: "http://127.0.0.1:4000/agent-threads",
+            DEV_FAST_REVIEW_AGENT_THREAD_TOKEN: "s",
+          });
+          queueMicrotask(() => host.emit({
+            method: "item/completed",
+            params: {
+              threadId: "attached",
+              item: userItem("u1", "Read the comment"),
+              completedAtMs: 5,
+            },
+          }));
+          return { turn: { id: "turn-1" } };
+        },
+      });
+      const server = new CodexAgentServer(await options(), host);
+      try {
+        await server.launch({
+          cwd: "/tmp/tutorial",
+          prompt: "Read the comment",
+          ...(mode === "fork" ? { session: { forkOf: "source" } } : {}),
+          ...(mode === "resume" ? { session: { resume: "attached" } } : {}),
+        });
+      } finally {
+        await server.close();
+      }
+    },
+  );
+
   it("forks the thread, starts the turn, waits for the user message, then attaches the TUI", async () => {
     const host = fakeHost({
       "thread/fork": () => ({ thread: { id: "forked" } }),
@@ -261,7 +306,7 @@ describe("CodexAgentServer", () => {
     expect(command.args).not.toContain("--enable");
     expect(command.args).not.toContain("--dangerously-bypass-hook-trust");
     expect(command.env.DEV_FAST_REVIEW_AGENT_THREAD_URL).toBe(
-      "http://127.0.0.1:4000/native-agent-events/codex/forked/thread",
+      "http://127.0.0.1:4000/agent-threads",
     );
     // The prompt arrived through the stream and again from thread/read;
     // the snapshot has it once.

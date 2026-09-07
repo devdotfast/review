@@ -50,7 +50,7 @@ describe("launch", () => {
       /^http:\/\/127\.0\.0\.1:\d+\/claude-code\/tutorial-thread$/,
     );
     expect(command.env.DEV_FAST_REVIEW_AGENT_THREAD_URL).toBe(
-      "http://127.0.0.1:4000/native-agent-events/claude-code/tutorial-thread/thread",
+      "http://127.0.0.1:4000/agent-threads",
     );
     expect(command.env.DEV_FAST_REVIEW_AGENT_THREAD_TOKEN).toBe("s");
     await server.close();

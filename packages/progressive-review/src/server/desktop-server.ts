@@ -1248,10 +1248,10 @@ export function createGlobalReviewServer(
           broadcastGlobal({
             event: "session-registered",
             session: successor.descriptor,
-            review: await reviewDescriptor(
-              successor.review,
-              { retentionDays: (await readReviewPreferences()).dismissedRetentionDays },
-            ),
+            review: await reviewDescriptor(successor.review, {
+              retentionDays: (await readReviewPreferences())
+                .dismissedRetentionDays,
+            }),
           });
           const replaced = [...sessions.values()].filter(
             (session) =>

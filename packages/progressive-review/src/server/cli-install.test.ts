@@ -6,10 +6,6 @@ import type { ReviewCliInstallStamp } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  allowTraceRepository,
-  readTraceUserConfig,
-} from "../trace-user-config";
-import {
   applyCliInstall,
   cliInstallStampPath,
   ensureShellProfilePath,
@@ -67,44 +63,71 @@ describe("skipCliInstall", () => {
 });
 
 describe("trace capture installation", () => {
-  it("reports capture as enabled only while a repository is allowed", async () => {
+  it("recognizes an existing bucket install at its original paths without migration or login", async () => {
+    const homeDir = await temporaryHome("review-legacy-trace-");
+    const configDir = path.join(homeDir, ".config", "dev-trace");
+    await mkdir(configDir, { recursive: true });
+    const credentials =
+      'TRACE_R2_ENDPOINT="https://storage.example.invalid"\nTRACE_R2_BUCKET="existing-traces"\nTRACE_R2_ACCESS_KEY_ID="fixture-key"\nTRACE_R2_SECRET_ACCESS_KEY="fixture-secret"\n';
+    const settings = JSON.stringify({
+      version: 1,
+      enabled: true,
+      autoActivateRepositories: true,
+    });
+    await writeFile(path.join(configDir, "env"), credentials, { mode: 0o600 });
+    await writeFile(path.join(configDir, "settings.json"), settings);
+    const status = await resolveCliInstallStatus({
+      packageRoot,
+      homeDir,
+      env: { DEV_REVIEW_HOME: path.join(homeDir, ".dev") },
+    });
+    expect(status.trace).toMatchObject({
+      enabled: true,
+      configured: true,
+      bucket: "existing-traces",
+      autoActivateRepositories: true,
+    });
+    expect(JSON.stringify(status)).not.toContain("fixture-secret");
+    expect(await readFile(path.join(configDir, "env"), "utf8")).toBe(
+      credentials,
+    );
+    expect(await readFile(path.join(configDir, "settings.json"), "utf8")).toBe(
+      settings,
+    );
+  });
+
+  it("uses the shared installer and keeps credentials when disabled", async () => {
     const homeDir = await mkdtemp(path.join(tmpdir(), "review-trace-install-"));
     temporaryDirectories.push(homeDir);
-    const devHome = path.join(homeDir, ".dev");
-    const env: NodeJS.ProcessEnv = { DEV_REVIEW_HOME: devHome };
+    const env: NodeJS.ProcessEnv = {
+      DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
+      TRACE_ENV_FILE: path.join(homeDir, "trace.env"),
+      TRACE_SETTINGS_FILE: path.join(homeDir, "trace-settings.json"),
+      TRACE_R2_MODE: "mock",
+    };
     const applied = await applyCliInstall({
       packageRoot,
       targets: [],
       homeDir,
       env,
-      trace: true,
+      trace: {
+        endpoint: "mock://endpoint",
+        bucket: "mock-bucket",
+        key: "mock-key-id",
+        secret: "mock-secret-value",
+      },
     });
 
     expect(applied.code).toBe(0);
-    // The hooks are installed, but no repository may publish traces yet.
-    const installed = await resolveCliInstallStatus({
-      packageRoot,
-      homeDir,
-      env,
+    const status = await resolveCliInstallStatus({ packageRoot, homeDir, env });
+    expect(status.trace).toMatchObject({
+      enabled: true,
+      configured: true,
+      autoActivateRepositories: true,
+      accessKeyIdPrefix: "mock-k",
     });
-    expect(installed.trace).toEqual({ enabled: false });
-    expect(installed.stamp?.traceManaged).toBe(true);
-
-    await allowTraceRepository(
-      {
-        repositoryId: 7,
-        name: "acme/app",
-        store: "https://app.dev.fast",
-      },
-      devHome,
-    );
-
-    const allowed = await resolveCliInstallStatus({
-      packageRoot,
-      homeDir,
-      env,
-    });
-    expect(allowed.trace).toEqual({ enabled: true });
+    expect(JSON.stringify(status)).not.toContain("mock-secret-value");
+    expect(status.stamp?.traceManaged).toBe(true);
 
     await removeCliInstall({ targets: [], trace: true, homeDir, env });
 
@@ -113,8 +136,11 @@ describe("trace capture installation", () => {
       homeDir,
       env,
     });
-    expect(disabled.trace).toEqual({ enabled: false });
-    expect((await readTraceUserConfig(devHome)).repositories).toEqual([]);
+    expect(disabled.trace.enabled).toBe(false);
+    expect(disabled.trace.configured).toBe(true);
+    expect(await readFile(env.TRACE_ENV_FILE!, "utf8")).toContain(
+      "mock-secret-value",
+    );
   });
 });
 

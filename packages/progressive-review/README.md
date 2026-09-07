@@ -104,13 +104,10 @@ Pi. The MCP registration points FFF at `$DEV_REVIEW_HOME/trace-search`
 without changes. Silent app-update synchronization never runs an FFF
 installer.
 
-The experimental setup installs the trace hooks and skill for the machine. It
-needs no local credentials: run `review login` to sign in with GitHub, then
-`review trace allow .` in each repository that may publish traces. Each agent
-session then activates its current repository. Git receives a managed hook
-dispatcher that chains the repository's prior hooks. Jujutsu receives a
-repository commit-trailer template. A target repository needs no Review
-files.
+The experimental setup configures S3/R2 and enables trace capture for the machine.
+Each agent session activates its current repository. Git receives a managed
+hook dispatcher that chains the repository's prior hooks. Jujutsu receives a
+repository commit-trailer template. A target repository needs no Review files.
 
 Trace capture hooks each agent's session lifecycle: Claude Code and Codex
 through their hook settings, Pi through a managed extension, and OpenCode
@@ -118,8 +115,8 @@ through a managed `~/.config/opencode/plugins/review-trace.ts` plugin. OpenCode
 keeps sessions in its own database, so `review trace sync` renders one with
 `opencode export` before upload.
 
-Use `review trace status` to inspect the login and the allowed repositories.
-Use `review trace allow`, `review trace deny`, or `review trace repair` only
+Use `review trace status` to inspect the machine and current repository. Use
+`review trace enable`, `review trace disable`, or `review trace repair` only
 when you need to manage the current repository manually.
 
 For a missing registration, setup runs the equivalent commands:
@@ -134,7 +131,7 @@ pi install npm:@ff-labs/pi-fff
 Trace search uses this local flow:
 
 ```text
-Hosted trace store object
+S3/R2 raw trace
   → temporary download
   → normalized JSONL in ~/.dev/trace-search
   → FFF, review trace show, Review UI, and quote validation

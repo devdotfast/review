@@ -34,7 +34,13 @@ function status(
       binary: { path: "/tmp/fff-bin", installed: true },
       registrations: [],
     },
-    trace: { enabled: false },
+    trace: {
+      enabled: false,
+      configured: false,
+      autoActivateRepositories: false,
+      envPath: "/tmp/env",
+      settingsPath: "/tmp/settings",
+    },
     cli: null,
   };
 }

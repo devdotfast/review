@@ -11,6 +11,7 @@ import {
 } from "@dev.fast/review-protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { clearTraceEnvCache } from "../review-agent-traces";
 import {
   type BugReportPayload,
   buildBugReportRequest,
@@ -37,12 +38,14 @@ describe("submitReviewBugReport", () => {
     process.env.TRACE_LOCAL_TRACE_ROOT = claudeRoot;
     process.env.TRACE_CODEX_SESSIONS_ROOT = codexRoot;
     process.env.TRACE_PI_SESSIONS_ROOT = piRoot;
+    clearTraceEnvCache();
   });
 
   afterEach(() => {
     delete process.env.TRACE_LOCAL_TRACE_ROOT;
     delete process.env.TRACE_CODEX_SESSIONS_ROOT;
     delete process.env.TRACE_PI_SESSIONS_ROOT;
+    clearTraceEnvCache();
     rmSync(tempDir, { recursive: true, force: true });
   });
 

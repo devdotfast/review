@@ -18,6 +18,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { ReviewAgentHarness } from "../authoring-session";
+import { clearTraceEnvCache } from "../review-agent-traces";
 import {
   type AuthoringTraceAttachment,
   MAX_AUTHORING_TRACE_BYTES,
@@ -47,6 +48,7 @@ describe("readAuthoringTraceAttachment", () => {
     process.env.TRACE_LOCAL_TRACE_ROOT = claudeRoot;
     process.env.TRACE_CODEX_SESSIONS_ROOT = codexRoot;
     process.env.TRACE_PI_SESSIONS_ROOT = piRoot;
+    clearTraceEnvCache();
   });
 
   afterEach(() => {
@@ -55,6 +57,7 @@ describe("readAuthoringTraceAttachment", () => {
     delete process.env.TRACE_PI_SESSIONS_ROOT;
     if (originalCodexHome === undefined) delete process.env.CODEX_HOME;
     else process.env.CODEX_HOME = originalCodexHome;
+    clearTraceEnvCache();
     rmSync(tempDir, { recursive: true, force: true });
   });
 
@@ -144,6 +147,7 @@ describe("readAuthoringTraceAttachment", () => {
     delete process.env.TRACE_CODEX_SESSIONS_ROOT;
     process.env.CODEX_HOME = path.join(tempDir, "custom-codex-home");
     codexRoot = path.join(process.env.CODEX_HOME, "sessions");
+    clearTraceEnvCache();
     writeCodexTrace(id, source);
     writeReview("codex:" + id);
 

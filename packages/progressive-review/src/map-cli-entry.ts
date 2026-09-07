@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 
 import { runProgressiveReviewCli } from "./cli-runner";
 import { runSoftwareMapCli } from "./map-cli";
+import type { ProgressiveReviewCommandTelemetry } from "./progressive-review-telemetry";
 
 export interface SoftwareMapCliEntryInput {
   args: string[];
@@ -13,6 +14,7 @@ export interface SoftwareMapCliEntryInput {
   stdout: Writable;
   stderr: Writable;
   runSoftwareMapCli?: typeof runSoftwareMapCli;
+  telemetry?: ProgressiveReviewCommandTelemetry;
 }
 
 export async function runSoftwareMapCliEntry(
@@ -24,6 +26,7 @@ export async function runSoftwareMapCliEntry(
     env: input.env,
     stdout: input.stdout,
     stderr: input.stderr,
+    telemetry: input.telemetry,
     runtime: input.runSoftwareMapCli
       ? { runSoftwareMapCli: input.runSoftwareMapCli }
       : undefined,

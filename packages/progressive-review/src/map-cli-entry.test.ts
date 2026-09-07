@@ -4,11 +4,11 @@ import path from "node:path";
 import type { Writable } from "node:stream";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 
 import { collectingWritable } from "./cli-output";
 import type { runSoftwareMapCli } from "./map-cli";
 import { runSoftwareMapCliEntry } from "./map-cli-entry";
+import type { ProgressiveReviewCommandTelemetry } from "./progressive-review-telemetry";
 
 const mapMocks = {
   runSoftwareMapCli: vi.fn<typeof runSoftwareMapCli>(),
@@ -30,7 +30,7 @@ describe("runSoftwareMapCliEntry telemetry", () => {
     "emits completion telemetry for map %s",
     async (mode) => {
       mapMocks.runSoftwareMapCli.mockResolvedValue(0);
-      const fetchMock = stubPostHog();
+      const telemetry = telemetrySpy();
 
       const exitCode = await runSoftwareMapCliEntry({
         args: [mode],
@@ -39,15 +39,20 @@ describe("runSoftwareMapCliEntry telemetry", () => {
         stdout: writableOutput([]),
         stderr: writableOutput([]),
         runSoftwareMapCli: mapMocks.runSoftwareMapCli,
+        telemetry,
       });
 
       expect(exitCode).toBe(0);
-      expect(lastCaptureBody(fetchMock).properties).toMatchObject({
-        command: "map",
-        command_path: mode === "check" ? "map.check" : "invalid",
-        subcommand: mode,
-        mode,
-      });
+      expect(telemetry.captureCommandSucceeded).toHaveBeenCalledWith(
+        expect.objectContaining({
+          command: mode === "check" ? "map.check" : "invalid",
+          properties: expect.objectContaining({
+            command: "map",
+            subcommand: mode,
+            mode,
+          }),
+        }),
+      );
     },
   );
 
@@ -55,7 +60,7 @@ describe("runSoftwareMapCliEntry telemetry", () => {
     // update's --base/--head are a parse error now; telemetry falls back to
     // check-shaped metadata and must still never carry the ref strings.
     mapMocks.runSoftwareMapCli.mockResolvedValue(0);
-    const fetchMock = stubPostHog();
+    const telemetry = telemetrySpy();
 
     const exitCode = await runSoftwareMapCliEntry({
       args: [
@@ -70,25 +75,33 @@ describe("runSoftwareMapCliEntry telemetry", () => {
       stdout: writableOutput([]),
       stderr: writableOutput([]),
       runSoftwareMapCli: mapMocks.runSoftwareMapCli,
+      telemetry,
     });
 
-    const body = lastCaptureBody(fetchMock);
     expect(exitCode).toBe(0);
-    expect(body.properties).toMatchObject({
-      command: "map",
-      subcommand: "update",
-      mode: "check",
-      has_base_ref: false,
-      has_head_ref: false,
-      force: false,
-    });
-    expect(JSON.stringify(body)).not.toContain("secret-base-ref");
-    expect(JSON.stringify(body)).not.toContain("secret-head-ref");
+    expect(telemetry.captureCommandSucceeded).toHaveBeenCalledWith(
+      expect.objectContaining({
+        properties: expect.objectContaining({
+          command: "map",
+          subcommand: "update",
+          mode: "check",
+          has_base_ref: false,
+          has_head_ref: false,
+          force: false,
+        }),
+      }),
+    );
+    expect(
+      JSON.stringify(telemetry.captureCommandSucceeded.mock.calls),
+    ).not.toContain("secret-base-ref");
+    expect(
+      JSON.stringify(telemetry.captureCommandSucceeded.mock.calls),
+    ).not.toContain("secret-head-ref");
   });
 
   it("emits failure telemetry for map command failures", async () => {
     mapMocks.runSoftwareMapCli.mockResolvedValue(1);
-    const fetchMock = stubPostHog();
+    const telemetry = telemetrySpy();
 
     const exitCode = await runSoftwareMapCliEntry({
       args: ["check"],
@@ -97,19 +110,22 @@ describe("runSoftwareMapCliEntry telemetry", () => {
       stdout: writableOutput([]),
       stderr: writableOutput([]),
       runSoftwareMapCli: mapMocks.runSoftwareMapCli,
+      telemetry,
     });
 
     expect(exitCode).toBe(1);
-    expect(lastCaptureBody(fetchMock)).toMatchObject({
-      event: "review_command_failed",
-      properties: {
-        command: "map",
-        mode: "check",
-        exit_code: 1,
-        error_name: "repository_error",
-        error_category: "local_state",
-      },
-    });
+    expect(telemetry.captureCommandFailed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: "map.check",
+        exitCode: 1,
+        errorName: "repository_error",
+        errorCategory: "local_state",
+        properties: expect.objectContaining({
+          command: "map",
+          mode: "check",
+        }),
+      }),
+    );
   });
 });
 
@@ -126,28 +142,32 @@ async function tempDir(tempDirs: string[], prefix: string): Promise<string> {
   return dir;
 }
 
-function stubPostHog() {
-  const fetchMock = vi.fn<typeof fetch>(async () => new Response("ok"));
-  vi.stubGlobal("fetch", fetchMock);
-  return fetchMock;
-}
-
 function writableOutput(output: string[]): Writable {
   return collectingWritable(output);
 }
 
-function lastCaptureBody(fetchMock: {
-  mock: { calls: Array<Parameters<typeof fetch>> };
-}) {
-  const body = z.string().safeParse(fetchMock.mock.calls.at(-1)?.[1]?.body);
-  if (!body.success) throw new Error("Expected JSON string body");
-  const parsed = JSON.parse(body.data) as {
-    batch: Array<{
-      event: string;
-      properties: Record<string, string | number | boolean | undefined>;
-    }>;
-  };
-  const event = parsed.batch.at(-1);
-  if (!event) throw new Error("Expected a PostHog batch event");
-  return event;
+function telemetrySpy() {
+  return {
+    createCommandRunId: vi.fn<
+      ProgressiveReviewCommandTelemetry["createCommandRunId"]
+    >(() => "run-12345678"),
+    captureInstallationCreated: vi.fn<
+      ProgressiveReviewCommandTelemetry["captureInstallationCreated"]
+    >(async () => undefined),
+    captureCommandStarted: vi.fn<
+      ProgressiveReviewCommandTelemetry["captureCommandStarted"]
+    >(async () => undefined),
+    captureCommandBound: vi.fn<
+      ProgressiveReviewCommandTelemetry["captureCommandBound"]
+    >(async () => undefined),
+    captureCommandSucceeded: vi.fn<
+      ProgressiveReviewCommandTelemetry["captureCommandSucceeded"]
+    >(async () => undefined),
+    captureCommandFailed: vi.fn<
+      ProgressiveReviewCommandTelemetry["captureCommandFailed"]
+    >(async () => undefined),
+    shutdown: vi.fn<ProgressiveReviewCommandTelemetry["shutdown"]>(
+      async () => undefined,
+    ),
+  } satisfies ProgressiveReviewCommandTelemetry;
 }

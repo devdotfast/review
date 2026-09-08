@@ -1,8 +1,6 @@
-import { execFile } from "node:child_process";
-import { readFile, readdir } from "node:fs/promises";
-import { homedir } from "node:os";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { promisify } from "node:util";
 
 import {
   type JsonObject,
@@ -11,6 +9,7 @@ import {
   parseJsonText,
 } from "@dev.fast/review-protocol";
 
+import { runOpenCodeExport } from "../opencode-trace-export";
 import { reviewCommentPromptPrefix } from "../review-comment-agent";
 import {
   findClaudeTranscript,
@@ -49,18 +48,25 @@ export async function readLegacyConversation(
     case "pi":
       return readPiConversation(binding.sessionId);
     case "opencode": {
-      const { stdout } = await promisify(execFile)(
-        "opencode",
-        ["export", binding.sessionId],
-        { maxBuffer: 64 * 1024 * 1024 },
+      const directory = await mkdtemp(
+        join(tmpdir(), "review-opencode-migration-"),
       );
-      const exported = jsonObject(parseJsonText(stdout));
-      if (
-        jsonObject(exported?.info)?.id !== binding.sessionId ||
-        !Array.isArray(exported?.messages)
-      )
-        throw new Error("OpenCode returned no matching transcript.");
-      return projectOpencodeMessages(exported.messages);
+      try {
+        const raw = await runOpenCodeExport(
+          binding.sessionId,
+          join(directory, "export.json"),
+        );
+        if (raw === null) throw new Error("OpenCode session was not found.");
+        const exported = jsonObject(parseJsonText(raw));
+        if (
+          jsonObject(exported?.info)?.id !== binding.sessionId ||
+          !Array.isArray(exported?.messages)
+        )
+          throw new Error("OpenCode returned no matching transcript.");
+        return projectOpencodeMessages(exported.messages);
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
     }
   }
 }

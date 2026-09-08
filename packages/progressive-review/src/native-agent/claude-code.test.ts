@@ -5,11 +5,11 @@ import path from "node:path";
 import type { JsonValue } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
-  forkSession: vi.fn(async () => ({ sessionId: "forked-session" })),
-}));
-
 import * as claudeCode from "./claude-code";
+import {
+  type ClaudeReviewMessage,
+  projectClaudeReviewMessages,
+} from "./claude-transcript";
 import type {
   AgentServerOptions,
   NativeReviewMessage,
@@ -38,7 +38,7 @@ async function options(): Promise<AgentServerOptions> {
 
 describe("updates", () => {
   /** A server whose transcript reader returns the given messages. */
-  async function serverOver(transcript: NativeReviewMessage[]) {
+  async function serverOver(transcript: ClaudeReviewMessage[]) {
     return claudeCode.server({
       ...(await options()),
       readTranscript: async () => [...transcript],
@@ -99,6 +99,7 @@ describe("updates", () => {
     const response = await postHook(command.env, {
       hook_event_name: "Stop",
       session_id: "session",
+      transcript_path: "/tmp/session.jsonl",
     });
     expect(response.status).toBe(200);
     expect(await nextUpdates(pipe.updates, 1)).toEqual([
@@ -108,35 +109,59 @@ describe("updates", () => {
     await server.close();
   });
 
-  it("accepts a new UUID after the inherited history, even when the Stop hook precedes disk flush", async () => {
-    const inherited = message("user", "Explain this");
+  it("accepts only the submitted prompt's UUID, including when its transcript write is delayed", async () => {
+    const inherited = {
+      type: "user",
+      uuid: "inherited-user",
+      timestamp: "2026-09-07T00:00:00Z",
+      promptId: "old-prompt",
+      message: { role: "user", content: "Explain this" },
+    };
     const transcript = [inherited];
-    const server = await serverOver(transcript);
+    const server = claudeCode.server({
+      ...(await options()),
+      readTranscript: async () => projectClaudeReviewMessages(transcript),
+    });
     const accepted = vi.fn(async () => {});
     const prepared = vi.fn(async () => {});
-    const { command } = await server.launch({
+    const { sessionId, command } = await server.launch({
       session: { forkOf: "source" },
       cwd: "/tmp/tutorial",
       prompt: { text: "Explain this", prepared, accepted },
     });
-    expect(prepared).toHaveBeenCalledExactlyOnceWith("forked-session");
+    const hook = { session_id: sessionId, transcript_path: "/tmp/fork.jsonl" };
+    expect(prepared).toHaveBeenCalledExactlyOnceWith(sessionId);
+    await postHook(command.env, { ...hook, hook_event_name: "SessionStart" });
     expect(accepted).not.toHaveBeenCalled();
     await postHook(command.env, {
-      session_id: "forked-session",
-      hook_event_name: "Stop",
+      ...hook,
+      hook_event_name: "UserPromptSubmit",
+      prompt_id: "ask-prompt",
     });
-    transcript.push({ ...inherited, id: "new-question-uuid" });
+    expect(accepted).not.toHaveBeenCalled();
+    await postHook(command.env, {
+      ...hook,
+      hook_event_name: "Stop",
+      prompt_id: "ask-prompt",
+    });
+    transcript.push({
+      ...inherited,
+      uuid: "new-question-uuid",
+      promptId: "ask-prompt",
+    });
     await expect
       .poll(() => accepted.mock.calls)
-      .toEqual([["forked-session", "new-question-uuid"]]);
+      .toEqual([[sessionId, "new-question-uuid"]]);
     await Promise.all([
       postHook(command.env, {
-        session_id: "forked-session",
+        ...hook,
         hook_event_name: "UserPromptSubmit",
+        prompt_id: "ask-prompt",
       }),
       postHook(command.env, {
-        session_id: "forked-session",
+        ...hook,
         hook_event_name: "Stop",
+        prompt_id: "ask-prompt",
       }),
     ]);
     expect(accepted).toHaveBeenCalledOnce();
@@ -149,7 +174,11 @@ describe("updates", () => {
       session: { resume: "session" },
       cwd: "/tmp/tutorial",
     });
-    const response = await postHook(command.env, { session_id: "other" });
+    const response = await postHook(command.env, {
+      session_id: "other",
+      transcript_path: "/tmp/other.jsonl",
+      hook_event_name: "Stop",
+    });
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({
       error: expect.stringContaining('posted to session "session"'),

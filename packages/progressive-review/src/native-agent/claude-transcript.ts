@@ -18,10 +18,15 @@ interface ClaudeStep {
   assistantEntries: JsonRecord[];
 }
 
+export interface ClaudeReviewMessage extends NativeReviewMessage {
+  /** Claude's prompt correlation ID, present on current user records. */
+  promptId?: string;
+}
+
 export async function readClaudeReviewMessages(input: {
   sessionId: string;
   transcriptPath?: string;
-}): Promise<NativeReviewMessage[]> {
+}): Promise<ClaudeReviewMessage[]> {
   return projectClaudeReviewMessages(
     await readJsonLines(
       input.transcriptPath ?? (await findClaudeTranscript(input.sessionId)),
@@ -68,8 +73,8 @@ async function findTranscript(
 
 export function projectClaudeReviewMessages(
   entries: readonly JsonRecord[],
-): NativeReviewMessage[] {
-  const messages: NativeReviewMessage[] = [];
+): ClaudeReviewMessage[] {
+  const messages: ClaudeReviewMessage[] = [];
   let step: ClaudeStep | undefined;
   const flushAssistant = (): void => {
     if (!step) return;
@@ -96,12 +101,14 @@ export function projectClaudeReviewMessages(
       const body = messageText(entry);
       if (!body) continue;
       flushAssistant();
-      const user: NativeReviewMessage = {
+      const user: ClaudeReviewMessage = {
         id: requiredMessageId(entry),
         role: "user",
         body,
         createdAt: entryTimestamp(entry),
       };
+      const promptId = jsonString(entry.promptId);
+      if (promptId) user.promptId = promptId;
       messages.push(user);
       step = { assistantEntries: [] };
       continue;

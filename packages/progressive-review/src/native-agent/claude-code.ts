@@ -11,13 +11,15 @@ import {
 
 import { DEV_REVIEW_HOME_ENV, devReviewHome } from "../review-storage";
 import { AsyncQueue } from "./async-queue";
-import { readClaudeReviewMessages } from "./claude-transcript";
+import {
+  type ClaudeReviewMessage,
+  readClaudeReviewMessages,
+} from "./claude-transcript";
 import { LoopbackIngress } from "./loopback-ingress";
 import type {
   AgentServer,
   AgentServerOptions,
   LaunchInput,
-  NativeReviewMessage,
   NativeTerminalCommand,
   SessionSnapshot,
   SessionUpdate,
@@ -43,7 +45,7 @@ interface SessionState {
   subscribers: Set<Subscriber>;
   refresh: Promise<void>;
   pendingPrompt?: {
-    inheritedIds: Set<string>;
+    promptId: string | null;
     accepted: NonNullable<LaunchInput["prompt"]>["accepted"];
   };
 }
@@ -92,17 +94,10 @@ export class ClaudeAgentServer implements AgentServer {
   async launch(
     input: LaunchInput,
   ): Promise<{ sessionId: string; command: NativeTerminalCommand }> {
-    // Materialize forks before launch so their remapped UUIDs form the baseline.
-    let sessionId: string;
-    if (input.session && "forkOf" in input.session) {
-      // Fork on disk first so the new UUID namespace is known before launch.
-      const { forkSession } = await import("@anthropic-ai/claude-agent-sdk");
-      sessionId = (await forkSession(input.session.forkOf)).sessionId;
-    } else if (input.session) {
-      sessionId = input.session.resume;
-    } else {
-      sessionId = randomUUID();
-    }
+    const sessionId =
+      input.session && "resume" in input.session
+        ? input.session.resume
+        : randomUUID();
     const sessionPath = `${this.harness}/${encodeURIComponent(sessionId)}`;
     const hookBaseUrl = await this.#ingress.url();
     const pathValue = await this.#commandPath.resolve();
@@ -120,7 +115,15 @@ export class ClaudeAgentServer implements AgentServer {
       "Grep",
       "Read",
     ];
-    if (input.session) {
+    if (input.session && "forkOf" in input.session) {
+      args.push(
+        "--resume",
+        input.session.forkOf,
+        "--fork-session",
+        "--session-id",
+        sessionId,
+      );
+    } else if (input.session) {
       args.push("--resume", sessionId);
     } else {
       args.push("--session-id", sessionId);
@@ -129,12 +132,9 @@ export class ClaudeAgentServer implements AgentServer {
     if (input.prompt) {
       if (state.pendingPrompt)
         throw new Error("Claude already has a pending Review prompt.");
-      const history = input.session
-        ? await this.#readTranscript({ sessionId })
-        : [];
       await input.prompt.prepared(sessionId);
       state.pendingPrompt = {
-        inheritedIds: new Set(history.map((message) => message.id)),
+        promptId: null,
         accepted: input.prompt.accepted,
       };
       args.push(input.prompt.text);
@@ -211,17 +211,23 @@ export class ClaudeAgentServer implements AgentServer {
 
   async #receiveHook(sessionId: string, payload: JsonValue): Promise<void> {
     const record = jsonObject(payload);
-    if (!record) return;
+    if (!record) throw new Error("Claude posted a non-object hook payload.");
     const event = hookEvent(record);
-    if (event.sessionId && event.sessionId !== sessionId) {
+    if (event.sessionId !== sessionId) {
       throw new Error(
         `A native hook for session "${event.sessionId}" was posted to session "${sessionId}".`,
       );
     }
     const state = this.#session(sessionId);
-    if (event.transcriptPath) state.transcriptPath = event.transcriptPath;
+    state.transcriptPath = event.transcriptPath;
+    if (
+      event.type === "UserPromptSubmit" &&
+      state.pendingPrompt?.promptId === null
+    ) {
+      state.pendingPrompt.promptId = event.promptId;
+    }
     await this.#refresh(sessionId, state);
-    if (event.completesTurn) {
+    if (event.type === "Stop" || event.type === "SessionEnd") {
       // Hooks can fire before Claude flushes the transcript, including the
       // initial user record. Retry acceptance as well as subscriber delivery.
       for (const delay of [250, 1_000]) {
@@ -238,14 +244,19 @@ export class ClaudeAgentServer implements AgentServer {
   #refresh(sessionId: string, state: SessionState): Promise<void> {
     const refresh = state.refresh.then(async () => {
       const pending = state.pendingPrompt;
-      if (pending) {
+      if (pending && pending.promptId !== null) {
         const messages = await this.#read(sessionId, state);
-        const first = messages.find(
+        const matching = messages.filter(
           (message) =>
-            message.role === "user" && !pending.inheritedIds.has(message.id),
+            message.role === "user" && message.promptId === pending.promptId,
         );
-        if (first) {
-          await pending.accepted(sessionId, first.id);
+        if (matching.length > 1)
+          throw new Error(
+            "Claude recorded multiple user messages for the submitted prompt ID.",
+          );
+        const submitted = matching[0];
+        if (submitted) {
+          await pending.accepted(sessionId, submitted.id);
           state.pendingPrompt = undefined;
         }
       }
@@ -299,7 +310,7 @@ export class ClaudeAgentServer implements AgentServer {
   async #read(
     sessionId: string,
     state: SessionState,
-  ): Promise<NativeReviewMessage[]> {
+  ): Promise<ClaudeReviewMessage[]> {
     try {
       return await this.#readTranscript({
         sessionId,
@@ -319,36 +330,32 @@ function isMissingTranscript(cause: unknown): boolean {
   return / has no transcript file\.$/u.test(cause.message);
 }
 
-interface NativeHookEvent {
-  sessionId?: string;
-  transcriptPath?: string;
-  completesTurn: boolean;
-}
+type NativeHookEvent = {
+  sessionId: string;
+  transcriptPath: string;
+} & (
+  | { type: "SessionStart" | "Stop" | "SessionEnd" }
+  | { type: "UserPromptSubmit"; promptId: string }
+);
 
 function hookEvent(payload: JsonObject): NativeHookEvent {
-  const sessionId = firstString(payload.session_id, payload.sessionId);
-  const transcriptPath = firstString(
-    payload.transcript_path,
-    payload.transcriptPath,
-  );
-  const name = firstString(
-    payload.hook_event_name,
-    payload.hookEventName,
-  )?.toLowerCase();
-  const event: NativeHookEvent = {
-    completesTurn: name === "stop" || name === "sessionend",
-  };
-  if (sessionId) event.sessionId = sessionId;
-  if (transcriptPath) event.transcriptPath = transcriptPath;
-  return event;
-}
-
-function firstString(...values: (JsonValue | undefined)[]): string | undefined {
-  for (const value of values) {
-    const text = jsonString(value);
-    if (text) return text;
+  const sessionId = jsonString(payload.session_id);
+  const transcriptPath = jsonString(payload.transcript_path);
+  const type = jsonString(payload.hook_event_name);
+  if (!sessionId || !transcriptPath)
+    throw new Error("Claude hook requires session_id and transcript_path.");
+  if (type === "UserPromptSubmit") {
+    const promptId = jsonString(payload.prompt_id);
+    if (!promptId)
+      throw new Error(
+        "Claude UserPromptSubmit requires prompt_id (Claude Code 2.1.196 or later).",
+      );
+    return { sessionId, transcriptPath, type, promptId };
   }
-  return undefined;
+  if (type === "SessionStart" || type === "Stop" || type === "SessionEnd") {
+    return { sessionId, transcriptPath, type };
+  }
+  throw new Error("Claude posted an unsupported hook event.");
 }
 
 export function server(options: ClaudeAgentServerOptions): AgentServer {

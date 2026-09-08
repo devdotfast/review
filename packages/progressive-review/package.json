@@ -67,7 +67,6 @@
     "typecheck": "pnpm -w exec tsc --noEmit -p packages/progressive-review"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "0.3.220",
     "@babel/parser": "7.29.7",
     "@dev.fast/local-vcs": "^0.1.0",
     "@hono/node-server": "2.0.12",

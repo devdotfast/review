@@ -29,8 +29,8 @@ import {
   REVIEW_AGENT_HOOK_TOKEN_ENV,
   REVIEW_AGENT_HOOK_URL_ENV,
   ReviewCommandPath,
-  reviewThreadEnvironment,
   nativeHookCommand,
+  reviewThreadEnvironment,
 } from "./terminal-command";
 
 const OBSERVER_EVENTS = [

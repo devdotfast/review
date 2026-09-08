@@ -24,8 +24,8 @@ import {
   REVIEW_AGENT_BRIDGE_TOKEN_ENV,
   REVIEW_AGENT_BRIDGE_URL_ENV,
   ReviewCommandPath,
-  reviewThreadEnvironment,
   companionModulePath,
+  reviewThreadEnvironment,
 } from "./terminal-command";
 
 interface SessionState {

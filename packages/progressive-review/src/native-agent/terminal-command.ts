@@ -23,7 +23,7 @@ export const REVIEW_AGENT_THREAD_TOKEN_ENV =
 export function reviewThreadEnvironment(desktop: {
   baseUrl: string;
   token: string;
-}): Record<string, string> {
+}) {
   const url = new URL(desktop.baseUrl);
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new Error("Review Desktop requires an HTTP endpoint.");

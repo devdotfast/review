@@ -4,7 +4,11 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { type JsonValue, jsonObject } from "@dev.fast/review-protocol";
+import {
+  type JsonObject,
+  type JsonValue,
+  jsonObject,
+} from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { AgentServerOptions, SessionUpdate } from "./native-session";

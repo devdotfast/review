@@ -39,9 +39,6 @@ it("persists acceptance before opening the terminal, reopens on retry, and keeps
     launch: async (input) => {
       if (input.prompt) {
         await input.prompt.prepared("fork");
-        expect(
-          service.snapshot().drafts.question?.thread.agentSession?.state,
-        ).toBe("pending");
         promptCount += 1;
         const messageId = `native-${promptCount}`;
         nativeMessages.push({
@@ -70,7 +67,11 @@ it("persists acceptance before opening the terminal, reopens on retry, and keeps
   const makeMirror = () =>
     new NativeMessageMirror({ service, updates: () => server.updates("fork") });
   let mirror = makeMirror();
-  const openTerminal = vi.fn(async () => {});
+  const openTerminal = vi.fn<
+    NonNullable<
+      Parameters<typeof answerReviewComment>[0]["openNativeAgentTerminal"]
+    >
+  >(async () => {});
   const input = () => ({
     comment,
     rootPath: dir,

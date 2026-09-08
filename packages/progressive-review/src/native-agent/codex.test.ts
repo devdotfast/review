@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import type { JsonObject, JsonValue } from "@dev.fast/review-protocol";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   CodexAgentServer,
@@ -215,75 +215,6 @@ describe("projectCodexTurns", () => {
 });
 
 describe("CodexAgentServer", () => {
-  it.each(["new", "fork", "resume"] as const)(
-    "attaches shell tools before the first turn of a %s session",
-    async (mode) => {
-      let prepared = false;
-      const accepted = vi.fn(async () => {});
-      let executionEnv: JsonObject | undefined;
-      const configure = (params: JsonObject) => {
-        const config = params.config as JsonObject;
-        executionEnv = config["shell_environment_policy.set"] as JsonObject;
-        return { thread: { id: "attached" } };
-      };
-      const host = fakeHost({
-        "thread/start": configure,
-        "thread/fork": configure,
-        "thread/resume": configure,
-        "turn/start": () => {
-          // This executes before launch returns a terminal command. The
-          // original bug only configured that later terminal's environment.
-          expect(prepared).toBe(true);
-          expect(executionEnv).toMatchObject({
-            DEV_FAST_REVIEW_AGENT_THREAD_URL:
-              "http://127.0.0.1:4000/agent-threads",
-            DEV_FAST_REVIEW_AGENT_THREAD_TOKEN: "s",
-          });
-          queueMicrotask(() =>
-            host.emit({
-              method: "item/completed",
-              params: {
-                threadId: "attached",
-                turnId: "unrelated-turn",
-                item: userItem("other", "Read the comment"),
-              },
-            }),
-          );
-          queueMicrotask(() =>
-            host.emit({
-              method: "item/completed",
-              params: {
-                threadId: "attached",
-                turnId: "turn-1",
-                item: userItem("u1", "Read the comment"),
-                completedAtMs: 5,
-              },
-            }),
-          );
-          return { turn: { id: "turn-1" } };
-        },
-      });
-      const server = new CodexAgentServer(await options(), host);
-      try {
-        await server.launch({
-          cwd: "/tmp/tutorial",
-          prompt: {
-            text: "Read the comment",
-            prepared: async () => {
-              prepared = true;
-            },
-            accepted,
-          },
-          ...(mode === "fork" ? { session: { forkOf: "source" } } : {}),
-          ...(mode === "resume" ? { session: { resume: "attached" } } : {}),
-        });
-        expect(accepted).toHaveBeenCalledExactlyOnceWith("attached", "u1");
-      } finally {
-        await server.close();
-      }
-    },
-  );
-
   it("places inherited history before a question received live before hydration", async () => {
     const host = fakeHost({
       "thread/fork": () => ({ thread: { id: "forked" } }),

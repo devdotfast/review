@@ -13,8 +13,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   appendReviewComment,
-  readReviewComments,
   readReviewCommentDrafts,
+  readReviewComments,
 } from "./review-state-store";
 import {
   REVIEW_THREAD_DB_SCHEMA_VERSION,
@@ -298,7 +298,9 @@ describe("sqlite thread store", () => {
     ).run();
     const before = db.prepare("SELECT record_json FROM comments").all();
     db.close();
-    await expect(migrateReviewThreadDb(reviewPath)).rejects.toThrow();
+    await expect(migrateReviewThreadDb(reviewPath)).rejects.toThrow(
+      /sessionId/,
+    );
     const unchanged = new DatabaseSync(reviewThreadDbPath(reviewPath));
     expect(unchanged.prepare("SELECT record_json FROM comments").all()).toEqual(
       before,

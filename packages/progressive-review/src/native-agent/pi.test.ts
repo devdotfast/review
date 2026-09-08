@@ -127,8 +127,12 @@ describe("projectBranch", () => {
 describe("PiAgentServer", () => {
   it("captures the inherited branch before accepting the new native entry", async () => {
     const server = new PiAgentServer(await options());
-    const accepted = vi.fn(async () => {});
-    const prepared = vi.fn(async () => {});
+    const accepted = vi.fn<
+      (sessionId: string, messageId: string) => Promise<void>
+    >(async () => {});
+    const prepared = vi.fn<(sessionId: string) => Promise<void>>(
+      async () => {},
+    );
     const { sessionId, command } = await server.launch({
       session: { forkOf: "source" },
       cwd: "/tmp",

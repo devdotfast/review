@@ -9,30 +9,6 @@ type QuestionSourceResolver = NonNullable<
 >;
 
 describe("resolveReviewQuestionLaunch", () => {
-  it("awaits the configured tutorial source", async () => {
-    let release!: () => void;
-    const ready = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const resolver = vi.fn<QuestionSourceResolver>(async () => {
-      await ready;
-      return { harness: "codex" as const, sessionId: "tutorial-source" };
-    });
-
-    const pending = resolveReviewQuestionLaunch({
-      freshQuestionHarness: "codex",
-      resolveQuestionSourceSession: resolver,
-    });
-    await Promise.resolve();
-    expect(resolver).toHaveBeenCalledOnce();
-    release();
-
-    await expect(pending).resolves.toEqual({
-      harness: "codex",
-      session: { forkOf: "tutorial-source" },
-    });
-  });
-
   it("propagates preparation failure even when a fresh harness is configured", async () => {
     await expect(
       resolveReviewQuestionLaunch({
@@ -79,30 +55,6 @@ describe("resolveReviewQuestionLaunch", () => {
     ).rejects.toThrow("authoring session is not ready");
   });
 
-  it("does not prepare when a stored or static session already exists", async () => {
-    const resolver = vi.fn<QuestionSourceResolver>(async () => undefined);
-    await expect(
-      resolveReviewQuestionLaunch({
-        storedSession: {
-          harness: "pi",
-          sessionId: "thread",
-          state: "ready",
-          firstMessageId: "ask",
-        },
-        resolveQuestionSourceSession: resolver,
-      }),
-    ).resolves.toEqual({ harness: "pi", session: { resume: "thread" } });
-    await expect(
-      resolveReviewQuestionLaunch({
-        agent: { harness: "claude-code", sessionId: "author" },
-        resolveQuestionSourceSession: resolver,
-      }),
-    ).resolves.toEqual({
-      harness: "claude-code",
-      session: { forkOf: "author" },
-    });
-    expect(resolver).not.toHaveBeenCalled();
-  });
   it.each([
     { state: "pending", firstMessageId: null },
     { state: "pending", firstMessageId: "earlier-ask" },

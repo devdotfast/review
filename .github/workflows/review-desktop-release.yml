@@ -49,6 +49,9 @@ jobs:
       version: ${{ steps.bump.outputs.version || steps.dryrun.outputs.version }}
       tag: ${{ steps.bump.outputs.tag }}
       commit: ${{ steps.bump.outputs.commit || steps.dryrun.outputs.commit }}
+      # A promotion builds the commit the preview was built from, which is
+      # normally behind main by then. A release from main builds its tip.
+      ref: ${{ steps.bump.outputs.tag || steps.resolve.outputs.preview_commit || github.sha }}
     steps:
       # The `main` ruleset requires a pull request and the "Review Desktop"
       # check, and lists DeployKey as its only non-admin bypass actor. Checking
@@ -69,6 +72,7 @@ jobs:
           RELEASE_SOURCE: ${{ inputs.release_source }}
           PREVIEW_TAG_INPUT: ${{ inputs.preview_tag }}
           DRY_RUN: ${{ inputs.dry_run }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           # A dispatch form field left with stale text arrives as a non-empty
           # string, so trim before testing for emptiness.
@@ -127,11 +131,19 @@ jobs:
             git fetch --no-tags origin "+refs/tags/${PREVIEW_TAG}:refs/tags/${PREVIEW_TAG}"
             PREVIEW_COMMIT=$(git rev-parse "refs/tags/${PREVIEW_TAG}^{commit}")
 
-            HEAD_SHA=$(git rev-parse HEAD)
-            if [ "$PREVIEW_COMMIT" != "$HEAD_SHA" ]; then
-              echo "::error::${PREVIEW_TAG} was built from ${PREVIEW_COMMIT}, but ${GITHUB_REF_NAME} is at ${HEAD_SHA}. Only the preview built from the current tip can be promoted: run review-desktop-preview.yml against ${GITHUB_REF_NAME} and promote the tag it pushes."
-              exit 1
-            fi
+            # Whatever merged since the preview published stays out of this
+            # release: promotion ships the commit that was actually tested. It
+            # must still be on ${GITHUB_REF_NAME}, so a branch that never landed
+            # cannot be released. Asked over the API because this checkout is
+            # shallow and has no history to walk.
+            STATUS=$(gh api "repos/${GITHUB_REPOSITORY}/compare/${GITHUB_REF_NAME}...${PREVIEW_COMMIT}" --jq .status)
+            case "$STATUS" in
+              identical | behind) ;;
+              *)
+                echo "::error::${PREVIEW_TAG} was built from ${PREVIEW_COMMIT}, which is not on ${GITHUB_REF_NAME} (${STATUS}). Only a preview built from a commit that landed can be promoted."
+                exit 1
+                ;;
+            esac
             # Load-bearing: a preview computes its version from the package.json
             # it was built against, so this is what catches a preview that
             # straddled another release and now targets a version already cut.
@@ -163,6 +175,7 @@ jobs:
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "preview_commit=$PREVIEW_COMMIT" >> "$GITHUB_OUTPUT"
 
       - name: Bump version and create tag
         if: ${{ !inputs.dry_run }}
@@ -171,6 +184,7 @@ jobs:
         env:
           VERSION: ${{ steps.resolve.outputs.version }}
           TAG: ${{ steps.resolve.outputs.tag }}
+          PREVIEW_COMMIT: ${{ steps.resolve.outputs.preview_commit }}
         run: |
           # product.json carries the same number to the running app, which shows
           # it in the About panel, alongside the stable channel identity.
@@ -183,14 +197,21 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add apps/review-desktop/package.json apps/review-desktop/code-oss/product.json
           git commit -m "chore(review-desktop): bump version to ${VERSION} [skip ci]"
-          git tag "$TAG"
+
+          # The tag marks what shipped, which for a promotion is the commit the
+          # preview was built from rather than this bump. The build jobs stamp
+          # the version onto that tree, the way the preview run stamped its own.
+          # The bump still lands on ${GITHUB_REF_NAME} because the next release
+          # derives its version from there.
+          TARGET="${PREVIEW_COMMIT:-$(git rev-parse HEAD)}"
+          git tag "$TAG" "$TARGET"
           # Atomic: the previous release left an orphan tag on origin because
           # the branch push was rejected after the tag push had already landed.
           git push --atomic origin "HEAD:${GITHUB_REF_NAME}" "$TAG"
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "commit=$TARGET" >> "$GITHUB_OUTPUT"
 
       - name: Dry-run version
         if: ${{ inputs.dry_run }}
@@ -199,6 +220,7 @@ jobs:
         env:
           RELEASE_SOURCE: ${{ inputs.release_source }}
           RESOLVED_VERSION: ${{ steps.resolve.outputs.version }}
+          PREVIEW_COMMIT: ${{ steps.resolve.outputs.preview_commit }}
         run: |
           if [ "$RELEASE_SOURCE" = "preview" ]; then
             # The build jobs stamp the promoted version into this same commit,
@@ -210,7 +232,7 @@ jobs:
             VERSION=$(node -p "require('./apps/review-desktop/package.json').version")
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "commit=${PREVIEW_COMMIT:-$(git rev-parse HEAD)}" >> "$GITHUB_OUTPUT"
 
       - name: Create draft GitHub Release
         if: ${{ !inputs.dry_run }}
@@ -232,13 +254,14 @@ jobs:
       - name: Checkout release tag
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ needs.tag.outputs.tag || github.sha }}
+          ref: ${{ needs.tag.outputs.ref }}
 
-      # A promotion dry run checks out the preview commit, whose tree still
-      # carries the version released before it. Stamp the version the promotion
-      # would ship so the packaged artifacts and the feed manifest carry it too.
-      - name: Stamp the promoted version for a dry run
-        if: ${{ inputs.dry_run && inputs.release_source == 'preview' }}
+      # A promotion checks out the commit the preview was built from, whose tree
+      # still carries the version released before it. Stamp the promoted version
+      # so the packaged artifacts and the feed manifest carry it, the way the
+      # preview run stamped its own version onto this same tree.
+      - name: Stamp the promoted version
+        if: ${{ inputs.release_source == 'preview' }}
         run: |
           node apps/review-desktop/scripts/stamp-release-channel.mjs \
             --version "${{ needs.tag.outputs.version }}" \
@@ -348,13 +371,14 @@ jobs:
       - name: Checkout release tag
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ needs.tag.outputs.tag || github.sha }}
+          ref: ${{ needs.tag.outputs.ref }}
 
-      # A promotion dry run checks out the preview commit, whose tree still
-      # carries the version released before it. Stamp the version the promotion
-      # would ship so the packaged artifacts and the feed manifest carry it too.
-      - name: Stamp the promoted version for a dry run
-        if: ${{ inputs.dry_run && inputs.release_source == 'preview' }}
+      # A promotion checks out the commit the preview was built from, whose tree
+      # still carries the version released before it. Stamp the promoted version
+      # so the packaged artifacts and the feed manifest carry it, the way the
+      # preview run stamped its own version onto this same tree.
+      - name: Stamp the promoted version
+        if: ${{ inputs.release_source == 'preview' }}
         run: |
           node apps/review-desktop/scripts/stamp-release-channel.mjs \
             --version "${{ needs.tag.outputs.version }}" \

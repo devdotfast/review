@@ -448,9 +448,8 @@ jobs:
           TAG: v${{ needs.version.outputs.version }}
           COMMIT: ${{ needs.version.outputs.commit }}
         run: |
-          # Promotion requires the preview commit to be main's tip, so a preview
-          # off any other line of development can never be promoted. Tagging one
-          # would only litter the namespace with dead handles.
+          # Tag previews on main's history, including older commits that can
+          # still be promoted after main advances.
           STATUS=$(gh api "repos/${GITHUB_REPOSITORY}/compare/main...${COMMIT}" --jq .status)
           case "$STATUS" in
             identical | behind) ;;

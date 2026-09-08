@@ -49,9 +49,6 @@ jobs:
       version: ${{ steps.bump.outputs.version || steps.dryrun.outputs.version }}
       tag: ${{ steps.bump.outputs.tag }}
       commit: ${{ steps.bump.outputs.commit || steps.dryrun.outputs.commit }}
-      # A promotion builds the commit the preview was built from, which is
-      # normally behind main by then. A release from main builds its tip.
-      ref: ${{ steps.bump.outputs.tag || steps.resolve.outputs.preview_commit || github.sha }}
     steps:
       # The `main` ruleset requires a pull request and the "Review Desktop"
       # check, and lists DeployKey as its only non-admin bypass actor. Checking
@@ -251,10 +248,10 @@ jobs:
     runs-on: review_big_boy
     timeout-minutes: 45
     steps:
-      - name: Checkout release tag
+      - name: Checkout resolved release commit
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ needs.tag.outputs.ref }}
+          ref: ${{ needs.tag.outputs.commit }}
 
       # A promotion checks out the commit the preview was built from, whose tree
       # still carries the version released before it. Stamp the promoted version
@@ -368,10 +365,10 @@ jobs:
       RELEASE_COMMIT: ${{ needs.tag.outputs.commit }}
       RELEASE_TAG: ${{ needs.tag.outputs.tag }}
     steps:
-      - name: Checkout release tag
+      - name: Checkout resolved release commit
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ needs.tag.outputs.ref }}
+          ref: ${{ needs.tag.outputs.commit }}
 
       # A promotion checks out the commit the preview was built from, whose tree
       # still carries the version released before it. Stamp the promoted version

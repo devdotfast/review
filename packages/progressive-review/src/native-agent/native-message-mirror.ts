@@ -13,7 +13,7 @@ import type {
 
 interface NativeMessageMirrorOptions {
   updates(
-    binding: ReadyBinding,
+    binding: ReviewCommentAgentSession,
   ): Promise<UpdatePipe<SessionSnapshot, SessionUpdate>>;
   service: ReviewThreadsService;
   onError?: (cause: unknown) => void;
@@ -43,18 +43,18 @@ export class NativeMessageMirror {
   start(): void {
     const snapshot = this.#service.snapshot();
     for (const [threadId, comment] of Object.entries(snapshot.comments)) {
-      if (isReadyBinding(comment.agentSession)) {
+      if (comment.agentSession) {
         this.watch(threadId, comment.agentSession);
       }
     }
     for (const [threadId, draft] of Object.entries(snapshot.drafts)) {
-      if (isReadyBinding(draft.thread.agentSession)) {
+      if (draft.thread.agentSession) {
         this.watch(threadId, draft.thread.agentSession);
       }
     }
   }
 
-  watch(threadId: string, binding: ReadyBinding): void {
+  watch(threadId: string, binding: ReviewCommentAgentSession): void {
     if (this.#closed) return;
     const key = `${binding.harness}:${binding.sessionId}:${binding.firstMessageId}`;
     if (this.#watchers.get(threadId)?.key === key) return;
@@ -87,7 +87,7 @@ export class NativeMessageMirror {
 
   async #mirror(
     threadId: string,
-    binding: ReadyBinding,
+    binding: ReviewCommentAgentSession,
     watcher: SessionWatcher,
   ): Promise<void> {
     const pipe = await this.#updates(binding);
@@ -123,7 +123,7 @@ export class NativeMessageMirror {
 
   #apply(
     threadId: string,
-    binding: ReadyBinding,
+    binding: ReviewCommentAgentSession,
     message: NativeReviewMessage,
     watcher: SessionWatcher,
   ): void {
@@ -138,7 +138,7 @@ export class NativeMessageMirror {
     }
     const thread = this.#currentThread(threadId);
     if (
-      thread?.agentSession?.state !== "ready" ||
+      !thread?.agentSession ||
       thread.agentSession.harness !== binding.harness ||
       thread.agentSession.sessionId !== binding.sessionId ||
       thread.agentSession.firstMessageId !== binding.firstMessageId
@@ -177,14 +177,6 @@ export class NativeMessageMirror {
     await watcher.pipe?.close();
     await watcher.task;
   }
-}
-
-type ReadyBinding = Extract<ReviewCommentAgentSession, { state: "ready" }>;
-
-function isReadyBinding(
-  session: ReviewCommentAgentSession | undefined,
-): session is ReadyBinding {
-  return session?.state === "ready";
 }
 
 function agentLabel(harness: SessionRef["harness"]): string {

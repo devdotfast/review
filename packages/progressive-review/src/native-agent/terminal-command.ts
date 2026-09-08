@@ -24,13 +24,6 @@ export function reviewThreadEnvironment(desktop: {
   baseUrl: string;
   token: string;
 }) {
-  const url = new URL(desktop.baseUrl);
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error("Review Desktop requires an HTTP endpoint.");
-  }
-  if (!desktop.token.trim()) {
-    throw new Error("Review Desktop requires a thread access token.");
-  }
   return {
     [REVIEW_AGENT_THREAD_URL_ENV]: `${desktop.baseUrl.replace(/\/$/u, "")}/agent-threads`,
     [REVIEW_AGENT_THREAD_TOKEN_ENV]: desktop.token,

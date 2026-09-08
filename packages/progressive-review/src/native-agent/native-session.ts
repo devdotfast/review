@@ -58,7 +58,7 @@ export interface LaunchInput {
   /** Submitted when the terminal starts. Absent opens the session silently. */
   prompt?: {
     text: string;
-    /** Persist pending state before any execution or terminal launch. */
+    /** Pause mirroring before prompt execution. Review supplies these callbacks. */
     prepared(sessionId: string): Promise<void>;
     /** Persist the accepted native identity before starting the mirror. */
     accepted(sessionId: string, messageId: string): Promise<void>;

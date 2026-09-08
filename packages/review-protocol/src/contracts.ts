@@ -477,23 +477,10 @@ const commentAgentSessionFields = {
   sessionId: threadTargetNonEmptyStringSchema,
 };
 
-export const ReviewCommentAgentSessionSchema = z.discriminatedUnion("state", [
-  z.strictObject({
-    ...commentAgentSessionFields,
-    state: z.literal("pending"),
-    // Retain a ready boundary while submitting a follow-up; null for a new fork.
-    firstMessageId: threadTargetNonEmptyStringSchema.nullable(),
-  }),
-  z.strictObject({
-    ...commentAgentSessionFields,
-    state: z.literal("ready"),
-    firstMessageId: threadTargetNonEmptyStringSchema,
-  }),
-  z.strictObject({
-    ...commentAgentSessionFields,
-    state: z.literal("repair-required"),
-  }),
-]);
+export const ReviewCommentAgentSessionSchema = z.strictObject({
+  ...commentAgentSessionFields,
+  firstMessageId: threadTargetNonEmptyStringSchema,
+});
 export type ReviewCommentAgentSession = z.infer<
   typeof ReviewCommentAgentSessionSchema
 >;

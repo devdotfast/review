@@ -23,9 +23,7 @@ afterEach(async () => {
   );
 });
 
-async function thread(
-  binding: Extract<ReviewCommentAgentSession, { state: "ready" }>,
-) {
+async function thread(binding: ReviewCommentAgentSession) {
   const directory = await mkdtemp(path.join(tmpdir(), "review-mirror-"));
   directories.push(directory);
   const service = new ReviewThreadsService({
@@ -95,7 +93,6 @@ it("ignores inherited prompts, preserves identical replies, and deduplicates on 
   const service = await thread({
     harness: "codex",
     sessionId: "fork",
-    state: "ready",
     firstMessageId: "ask",
   });
   const history = [
@@ -130,7 +127,6 @@ it("waits for the exact boundary when the native prompt has not materialized yet
   const service = await thread({
     harness: "opencode",
     sessionId: "fork",
-    state: "ready",
     firstMessageId: "ask",
   });
   const { updates } = connect(service, []);

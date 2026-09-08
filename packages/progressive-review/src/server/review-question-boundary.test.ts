@@ -34,11 +34,15 @@ it("persists acceptance before opening the terminal, reopens on retry, and keeps
   });
   const nativeMessages: NativeReviewMessage[] = [];
   let promptCount = 0;
+  const bindingsDuringSubmission: unknown[] = [];
   const server: AgentServer = {
     harness: "codex",
     launch: async (input) => {
       if (input.prompt) {
         await input.prompt.prepared("fork");
+        bindingsDuringSubmission.push(
+          service.snapshot().drafts.question?.thread.agentSession,
+        );
         promptCount += 1;
         const messageId = `native-${promptCount}`;
         nativeMessages.push({
@@ -87,7 +91,7 @@ it("persists acceptance before opening the terminal, reopens on retry, and keeps
       "terminal failed",
     );
     expect(service.snapshot().drafts.question?.thread).toMatchObject({
-      agentSession: { state: "ready", firstMessageId: "native-1" },
+      agentSession: { firstMessageId: "native-1" },
       messages: [
         {
           id: "local-ask",
@@ -100,6 +104,7 @@ it("persists acceptance before opening the terminal, reopens on retry, and keeps
     mirror = makeMirror();
     await answerReviewComment(input());
     expect(promptCount).toBe(1);
+    expect(bindingsDuringSubmission).toEqual([undefined]);
     expect(openTerminal).toHaveBeenCalledTimes(2);
 
     const followup = {
@@ -115,7 +120,7 @@ it("persists acceptance before opening the terminal, reopens on retry, and keeps
     await answerReviewComment({ ...input(), comment: followup });
     expect(promptCount).toBe(2);
     expect(service.snapshot().drafts.question?.thread).toMatchObject({
-      agentSession: { state: "ready", firstMessageId: "native-1" },
+      agentSession: { firstMessageId: "native-1" },
       messages: [
         {
           id: "local-ask",

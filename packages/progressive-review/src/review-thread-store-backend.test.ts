@@ -219,11 +219,6 @@ describe("sqlite thread store", () => {
       threadId: "thread-without-source",
       target: { kind: "document" },
       status: "open",
-      agentSession: {
-        harness: "codex",
-        sessionId: "ambiguous-child",
-        state: "repair-required",
-      },
       messages: [
         {
           id: "preserved-message",
@@ -236,7 +231,7 @@ describe("sqlite thread store", () => {
     });
   });
 
-  it("marks v6 comment and draft bindings for repair without changing their messages", async () => {
+  it("preserves v6 comments and drafts while removing bindings without a boundary", async () => {
     const reviewPath = makeReviewPath();
     createReviewThreadDb(path.dirname(reviewPath));
     closeAllReviewThreadStores();
@@ -273,16 +268,53 @@ describe("sqlite thread store", () => {
     ).run();
     db.close();
     await expect(migrateReviewThreadDb(reviewPath)).resolves.toBe("upgraded");
-    const expected = {
-      ...thread,
-      agentSession: { ...thread.agentSession, state: "repair-required" },
-    };
+    const { agentSession: _binding, ...expected } = thread;
     expect(readReviewComments(reviewPath).question).toEqual(expected);
     expect(readReviewCommentDrafts(reviewPath).question).toEqual({
       thread: expected,
       inputs: [input],
     });
     await expect(migrateReviewThreadDb(reviewPath)).resolves.toBe("current");
+  });
+
+  it("preserves accepted v7 boundaries while removing an unaccepted fork binding", async () => {
+    const reviewPath = makeReviewPath();
+    seedComment(reviewPath);
+    closeAllReviewThreadStores();
+    const db = new DatabaseSync(reviewThreadDbPath(reviewPath));
+    const original = db.prepare("SELECT record_json FROM comments").get() as {
+      record_json: string;
+    };
+    for (const [id, binding] of Object.entries({
+      ready: { state: "ready", firstMessageId: "first" },
+      followup: { state: "pending", firstMessageId: "first" },
+      unaccepted: { state: "pending", firstMessageId: null },
+    })) {
+      db.prepare(
+        "INSERT INTO comments (thread_id, record_json) VALUES (?, json_set(?, '$.threadId', ?, '$.agentSession', json(?)))",
+      ).run(
+        id,
+        original.record_json,
+        id,
+        JSON.stringify({ harness: "codex", sessionId: "fork", ...binding }),
+      );
+    }
+    db.prepare(
+      "UPDATE meta SET value = '7' WHERE key = 'schema_version'",
+    ).run();
+    db.close();
+    await migrateReviewThreadDb(reviewPath);
+    const comments = readReviewComments(reviewPath);
+    const accepted = {
+      harness: "codex",
+      sessionId: "fork",
+      firstMessageId: "first",
+    };
+    expect(comments.ready?.agentSession).toEqual(accepted);
+    expect(comments.followup?.agentSession).toEqual(accepted);
+    expect(comments.unaccepted?.agentSession).toBeUndefined();
+    expect(comments.unaccepted?.messages).toEqual(comments.ready?.messages);
+    expect(comments.followup?.messages).toEqual(comments.ready?.messages);
   });
 
   it("aborts migration instead of dropping a malformed agent binding", async () => {

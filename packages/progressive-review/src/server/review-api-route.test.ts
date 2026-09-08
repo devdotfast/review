@@ -54,24 +54,4 @@ describe("resolveReviewQuestionLaunch", () => {
       }),
     ).rejects.toThrow("authoring session is not ready");
   });
-
-  it.each([
-    { state: "pending", firstMessageId: null },
-    { state: "pending", firstMessageId: "earlier-ask" },
-    { state: "repair-required" },
-  ] as const)(
-    "rejects an incomplete $state binding without selecting another session",
-    async (state) => {
-      await expect(
-        resolveReviewQuestionLaunch({
-          storedSession: {
-            harness: "codex",
-            sessionId: "uncertain-fork",
-            ...state,
-          },
-          agent: { harness: "codex", sessionId: "author" },
-        }),
-      ).rejects.toThrow(/unconfirmed Ask|no native message boundary/);
-    },
-  );
 });

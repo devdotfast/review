@@ -25,7 +25,7 @@ import type {
 // await. See review-state-store.ts.
 
 export const REVIEW_THREAD_DB_FILENAME = "review.db";
-export const REVIEW_THREAD_DB_SCHEMA_VERSION = 7;
+export const REVIEW_THREAD_DB_SCHEMA_VERSION = 8;
 
 export function reviewStateDir(reviewMdxPath: string): string {
   return path.dirname(path.resolve(reviewMdxPath));
@@ -206,7 +206,8 @@ export async function migrateReviewThreadDb(
       version !== "3" &&
       version !== "4" &&
       version !== "5" &&
-      version !== "6"
+      version !== "6" &&
+      version !== "7"
     ) {
       throw new ReviewThreadDbVersionError(dbPath, version);
     }
@@ -231,7 +232,7 @@ export async function migrateReviewThreadDb(
         );
       }
     }
-    migrateNativeAgentSessionRecords(db);
+    migrateNativeAgentSessionRecords(db, version);
     const updated = db
       .prepare(
         "UPDATE meta SET value = ? WHERE key = 'schema_version' AND value = ?",
@@ -251,8 +252,11 @@ export async function migrateReviewThreadDb(
   }
 }
 
-/** Preserve messages; bindings without a native boundary require explicit repair. */
-function migrateNativeAgentSessionRecords(db: DatabaseSync): void {
+/** Preserve messages and retain only complete native conversation bindings. */
+function migrateNativeAgentSessionRecords(
+  db: DatabaseSync,
+  version: string,
+): void {
   for (const table of ["comments", "comment_drafts"] as const) {
     // SAFETY: both tables declare thread_id TEXT PRIMARY KEY and record_json
     // TEXT NOT NULL, and every insert binds strings for them.
@@ -264,7 +268,7 @@ function migrateNativeAgentSessionRecords(db: DatabaseSync): void {
     );
     for (const row of rows) {
       const value = parseJsonText(row.record_json);
-      const migrated = migrateNativeAgentSessionRecord(value, table);
+      const migrated = migrateNativeAgentSessionRecord(value, table, version);
       if (migrated !== value) {
         update.run(JSON.stringify(migrated), row.thread_id);
       }
@@ -275,14 +279,15 @@ function migrateNativeAgentSessionRecords(db: DatabaseSync): void {
 function migrateNativeAgentSessionRecord(
   value: JsonValue,
   table: "comments" | "comment_drafts",
+  version: string,
 ): JsonValue {
   if (!isJsonObject(value)) return value;
   if (table === "comment_drafts") {
     if (!isJsonObject(value.thread)) return value;
-    const thread = migrateNativeAgentSessionThread(value.thread);
+    const thread = migrateNativeAgentSessionThread(value.thread, version);
     return thread === value.thread ? value : { ...value, thread };
   }
-  return migrateNativeAgentSessionThread(value);
+  return migrateNativeAgentSessionThread(value, version);
 }
 
 /** Pre-v7 bindings cannot reliably identify the first Review message. */
@@ -291,7 +296,24 @@ const LegacyCommentAgentSessionSchema = z.object({
   sessionId: z.string().min(1),
 });
 
-function migrateNativeAgentSessionThread(thread: JsonObject): JsonObject {
+const V7CommentAgentSessionSchema = z.discriminatedUnion("state", [
+  LegacyCommentAgentSessionSchema.extend({
+    state: z.literal("ready"),
+    firstMessageId: z.string().min(1),
+  }),
+  LegacyCommentAgentSessionSchema.extend({
+    state: z.literal("pending"),
+    firstMessageId: z.string().min(1).nullable(),
+  }),
+  LegacyCommentAgentSessionSchema.extend({
+    state: z.literal("repair-required"),
+  }),
+]);
+
+function migrateNativeAgentSessionThread(
+  thread: JsonObject,
+  version: string,
+): JsonObject {
   const originalMessages = Array.isArray(thread.messages)
     ? thread.messages
     : undefined;
@@ -317,13 +339,25 @@ function migrateNativeAgentSessionThread(thread: JsonObject): JsonObject {
     : thread;
   if (!("agentSession" in migratedThread)) return migratedThread;
   const { agentSession, ...preserved } = migratedThread;
-  // This migration only runs on pre-v7 databases. Validate that version's
-  // binding once; malformed records abort the transaction.
-  const session = LegacyCommentAgentSessionSchema.parse(agentSession);
-  return {
-    ...preserved,
-    agentSession: { ...session, state: "repair-required" },
-  };
+  if (version === "7") {
+    const session = V7CommentAgentSessionSchema.parse(agentSession);
+    if (
+      session.state !== "repair-required" &&
+      session.firstMessageId !== null
+    ) {
+      return {
+        ...preserved,
+        agentSession: {
+          harness: session.harness,
+          sessionId: session.sessionId,
+          firstMessageId: session.firstMessageId,
+        },
+      };
+    }
+  } else {
+    LegacyCommentAgentSessionSchema.parse(agentSession);
+  }
+  return preserved;
 }
 
 async function migrateLegacyCodeRecords(

@@ -1115,7 +1115,7 @@ export async function answerReviewComment(input: {
     throw new Error("The submitted Ask is not in the Review comment store.");
   }
   if (
-    storedSession?.state === "ready" &&
+    storedSession &&
     submitted?.agentInput &&
     submitted.agentMessage?.sessionId === storedSession.sessionId
   ) {
@@ -1155,31 +1155,15 @@ export async function answerReviewComment(input: {
             "Another Ask changed this comment's agent session during launch.",
           );
         }
-        let firstMessageId: string | null = null;
-        if (launch.session && "resume" in launch.session) {
-          if (
-            storedSession?.state !== "ready" ||
-            storedSession.sessionId !== sessionId
-          ) {
-            throw new Error(
-              "The resumed session does not match the stored Review conversation.",
-            );
-          }
-          firstMessageId = storedSession.firstMessageId;
+        if (
+          launch.session &&
+          "resume" in launch.session &&
+          storedSession?.sessionId !== sessionId
+        ) {
+          throw new Error(
+            "The resumed session does not match the stored Review conversation.",
+          );
         }
-        const commit = input.service.setAgentSession({
-          mutationId: randomUUID(),
-          threadId: input.comment.threadId,
-          agentSession: {
-            harness: launch.harness,
-            sessionId,
-            state: "pending",
-            firstMessageId,
-          },
-        });
-        if (!commit) throw new Error("The Review comment no longer exists.");
-        // Persist before yielding. The pending state also gates an existing
-        // mirror while its subscription is being closed.
         await input.mirror.pause(input.comment.threadId);
       },
       accepted: async (sessionId, messageId) => {
@@ -1192,16 +1176,14 @@ export async function answerReviewComment(input: {
         const thread =
           snapshot.drafts[input.comment.threadId]?.thread ??
           snapshot.comments[input.comment.threadId];
-        const pending = thread?.agentSession;
-        if (
-          pending?.state !== "pending" ||
-          pending.harness !== launch.harness ||
-          pending.sessionId !== sessionId
-        ) {
-          throw new Error("The Review launch no longer owns this comment.");
+        if (!thread || !isDeepStrictEqual(thread.agentSession, storedSession)) {
+          throw new Error(
+            "Another Ask changed this comment's agent session during launch.",
+          );
         }
-        const firstMessageId =
-          pending.firstMessageId === null ? messageId : pending.firstMessageId;
+        const firstMessageId = storedSession
+          ? storedSession.firstMessageId
+          : messageId;
         // Bind the existing reviewer message, rather than re-importing its prompt.
         input.service.upsertAgentSessionMessage({
           mutationId: randomUUID(),
@@ -1215,7 +1197,6 @@ export async function answerReviewComment(input: {
         const binding = {
           harness: launch.harness,
           sessionId,
-          state: "ready" as const,
           firstMessageId,
         };
         input.service.setAgentSession({
@@ -1250,21 +1231,10 @@ export async function resolveReviewQuestionLaunch(input: {
   ) => Promise<SessionRef | undefined>;
 }): Promise<ReviewQuestionLaunch> {
   if (input.storedSession) {
-    switch (input.storedSession.state) {
-      case "pending":
-        throw new Error(
-          "This comment has an unconfirmed Ask. Wait for acceptance, or start a new comment thread if launch was interrupted.",
-        );
-      case "repair-required":
-        throw new Error(
-          "This comment's legacy session has no native message boundary. Start a new comment thread.",
-        );
-      case "ready":
-        return {
-          harness: input.storedSession.harness,
-          session: { resume: input.storedSession.sessionId },
-        };
-    }
+    return {
+      harness: input.storedSession.harness,
+      session: { resume: input.storedSession.sessionId },
+    };
   }
   if (input.agent) {
     return {

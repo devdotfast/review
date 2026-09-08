@@ -472,9 +472,14 @@ export type CreateReviewCommentInput = z.infer<
   typeof CreateReviewCommentInputSchema
 >;
 
-export const ReviewCommentAgentSessionSchema = z.strictObject({
+const commentAgentSessionFields = {
   harness: z.enum(["codex", "claude-code", "opencode", "pi"]),
   sessionId: threadTargetNonEmptyStringSchema,
+};
+
+export const ReviewCommentAgentSessionSchema = z.strictObject({
+  ...commentAgentSessionFields,
+  firstMessageId: threadTargetNonEmptyStringSchema,
 });
 export type ReviewCommentAgentSession = z.infer<
   typeof ReviewCommentAgentSessionSchema
@@ -494,6 +499,12 @@ export const ReviewCommentThreadRecordSchema = z.strictObject({
       role: z.enum(["reviewer", "agent"]).optional(),
       format: z.enum(["plain", "markdown"]).optional(),
       agentInput: z.boolean().default(false),
+      agentMessage: z
+        .strictObject({
+          sessionId: threadTargetNonEmptyStringSchema,
+          messageId: threadTargetNonEmptyStringSchema,
+        })
+        .optional(),
     }),
   ),
 });

@@ -25,18 +25,13 @@ import type {
   SessionUpdate,
   UpdatePipe,
 } from "./native-session";
-import {
-  REVIEW_AGENT_THREAD_TOKEN_ENV,
-  REVIEW_AGENT_THREAD_URL_ENV,
-  ReviewCommandPath,
-  tomlInline,
-} from "./terminal-command";
+import { ReviewCommandPath, reviewThreadEnvironment } from "./terminal-command";
 
 const MATERIALIZE_TIMEOUT_MS = 60_000;
 
 interface ThreadState {
   /** Messages seen so far, in order, with the item ids they came from. */
-  messages: NativeReviewMessage[];
+  messages: CodexMessage[];
   seenItems: Set<string>;
   /** The shared server streams this thread's events to our connection. */
   subscribed: boolean;
@@ -61,17 +56,14 @@ export interface CodexHost {
 export class CodexAgentServer implements AgentServer {
   readonly harness = "codex" as const;
   readonly #host: CodexHost;
-  readonly #desktop: AgentServerOptions["desktopEndpoint"];
+  readonly #threadEnvironment: Record<string, string>;
   readonly #commandPath: ReviewCommandPath;
   readonly #threads = new Map<string, ThreadState>();
   #listening: CodexAppServerClient | undefined;
 
   constructor(options: AgentServerOptions, host: CodexHost) {
     this.#host = host;
-    this.#desktop = {
-      baseUrl: options.desktopEndpoint.baseUrl.replace(/\/$/u, ""),
-      token: options.desktopEndpoint.token,
-    };
+    this.#threadEnvironment = reviewThreadEnvironment(options.desktopEndpoint);
     this.#commandPath = new ReviewCommandPath(options);
   }
 
@@ -79,54 +71,65 @@ export class CodexAgentServer implements AgentServer {
     input: LaunchInput,
   ): Promise<{ sessionId: string; command: NativeTerminalCommand }> {
     const client = await this.#connect();
+    const pathValue = await this.#commandPath.resolve();
+    const reviewHome = devReviewHome();
+    const env: NativeTerminalCommand["env"] = {
+      ...this.#threadEnvironment,
+      [DEV_REVIEW_HOME_ENV]: reviewHome,
+    };
+    if (pathValue) env.PATH = pathValue;
+    // Tools execute in app-server, not in the remote TUI. Set this before
+    // the first turn, including when forking or resuming an existing thread.
+    const config = { "shell_environment_policy.set": env };
     let threadId: string;
     if (!input.session) {
-      threadId = await startThread(client, { cwd: input.cwd });
+      threadId = await startThread(client, { cwd: input.cwd, config });
     } else if ("forkOf" in input.session) {
       threadId = await forkThread(client, {
         sourceThreadId: input.session.forkOf,
         cwd: input.cwd,
+        config,
       });
     } else {
       threadId = input.session.resume;
-      await this.#subscribe(client, threadId);
+      await this.#subscribe(client, threadId, config);
     }
     // Threads created on this connection already stream to it.
     const state = this.#thread(threadId);
     if (!input.session || "forkOf" in input.session) state.subscribed = true;
     if (input.prompt !== undefined) {
-      // Review drives the turn; the TUI joins a running thread. Codex only
-      // materializes a thread on its first user message, so wait for it.
-      const materialized = this.#materialized(threadId);
-      await client.request("turn/start", {
-        threadId,
-        cwd: input.cwd,
-        input: [{ type: "text", text: input.prompt, text_elements: [] }],
-      });
-      await materialized;
+      await input.prompt.prepared(threadId);
+      const queue = new AsyncQueue<SessionUpdate>();
+      state.subscribers.add(queue);
+      const timer = setTimeout(() => queue.close(), MATERIALIZE_TIMEOUT_MS);
+      try {
+        const result = await client.request("turn/start", {
+          threadId,
+          cwd: input.cwd,
+          input: [{ type: "text", text: input.prompt.text, text_elements: [] }],
+        });
+        const turnId = jsonString(jsonObject(jsonObject(result)?.turn)?.id);
+        if (!turnId) throw new Error("Codex returned a turn without an ID.");
+        let accepted = false;
+        for await (const update of queue) {
+          const message = state.messages.find(
+            (item) => item.id === update.message.id,
+          );
+          if (message?.role !== "user" || message.turnId !== turnId) continue;
+          await input.prompt.accepted(threadId, message.id);
+          accepted = true;
+          break;
+        }
+        if (!accepted)
+          throw new Error("Codex did not report the submitted user message.");
+      } finally {
+        clearTimeout(timer);
+        state.subscribers.delete(queue);
+        queue.close();
+      }
     }
     const url = await this.#host.url();
-    const pathValue = await this.#commandPath.resolve();
-    const reviewHome = devReviewHome();
-    const args = ["--remote", url];
-    if (pathValue) {
-      args.push(
-        "-c",
-        `shell_environment_policy.set.PATH=${tomlInline(pathValue)}`,
-      );
-    }
-    args.push(
-      "-c",
-      `shell_environment_policy.set.${DEV_REVIEW_HOME_ENV}=${tomlInline(reviewHome)}`,
-      "resume",
-      threadId,
-    );
-    const env: NativeTerminalCommand["env"] = {
-      [REVIEW_AGENT_THREAD_URL_ENV]: `${this.#desktop.baseUrl}/native-agent-events/codex/${encodeURIComponent(threadId)}/thread`,
-      [REVIEW_AGENT_THREAD_TOKEN_ENV]: this.#desktop.token,
-      [DEV_REVIEW_HOME_ENV]: reviewHome,
-    };
-    if (pathValue) env.PATH = pathValue;
+    const args = ["--remote", url, "resume", threadId];
     return {
       sessionId: threadId,
       command: {
@@ -143,11 +146,18 @@ export class CodexAgentServer implements AgentServer {
   ): Promise<UpdatePipe<SessionSnapshot, SessionUpdate>> {
     const client = await this.#connect();
     const state = this.#thread(sessionId);
-    if (!state.subscribed) await this.#subscribe(client, sessionId);
+    if (!state.subscribed) await this.#subscribe(client, sessionId, {});
     if (!state.loaded) {
-      for (const message of await this.#readThread(client, sessionId)) {
-        this.#append(state, message);
-      }
+      const history = await this.#readThread(client, sessionId);
+      const historyIds = new Set(history.map((message) => message.id));
+      // Live notifications can arrive before thread/read, including while
+      // that request is pending. History owns conversation order; retain
+      // only live items not yet included in that snapshot as its tail.
+      state.messages = [
+        ...history,
+        ...state.messages.filter((message) => !historyIds.has(message.id)),
+      ];
+      state.seenItems = new Set(state.messages.map((message) => message.id));
       state.loaded = true;
     }
     const queue = new AsyncQueue<SessionUpdate>();
@@ -185,10 +195,14 @@ export class CodexAgentServer implements AgentServer {
   async #subscribe(
     client: CodexAppServerClient,
     threadId: string,
+    config: Record<string, JsonValue>,
   ): Promise<void> {
     const state = this.#thread(threadId);
     try {
-      await client.request("thread/resume", { threadId });
+      await client.request("thread/resume", {
+        threadId,
+        config,
+      });
       state.subscribed = true;
     } catch (error) {
       if (!isUnmaterialized(error)) throw error;
@@ -216,29 +230,6 @@ export class CodexAgentServer implements AgentServer {
     return projectCodexTurns(thread.turns);
   }
 
-  #materialized(threadId: string): Promise<void> {
-    const state = this.#thread(threadId);
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        state.subscribers.delete(queue);
-        reject(
-          new Error(`Codex did not accept the prompt for thread ${threadId}.`),
-        );
-      }, MATERIALIZE_TIMEOUT_MS);
-      timer.unref();
-      const queue = new AsyncQueue<SessionUpdate>();
-      state.subscribers.add(queue);
-      void (async () => {
-        for await (const update of queue) {
-          if (update.message.role === "user") break;
-        }
-        clearTimeout(timer);
-        state.subscribers.delete(queue);
-        resolve();
-      })();
-    });
-  }
-
   #receive(notification: CodexNotification): void {
     const threadId = jsonString(notification.params.threadId);
     if (threadId === undefined) return;
@@ -250,12 +241,11 @@ export class CodexAgentServer implements AgentServer {
   }
 
   #append(state: ThreadState, message: CodexMessage): void {
-    if (state.seenItems.has(message.itemId)) return;
-    state.seenItems.add(message.itemId);
-    const { itemId: _itemId, ...review } = message;
-    state.messages.push(review);
+    if (state.seenItems.has(message.id)) return;
+    state.seenItems.add(message.id);
+    state.messages.push(message);
     for (const queue of state.subscribers) {
-      queue.push({ type: "message.updated", message: review });
+      queue.push({ type: "message.updated", message });
     }
   }
 
@@ -276,8 +266,8 @@ export class CodexAgentServer implements AgentServer {
 }
 
 export interface CodexMessage extends NativeReviewMessage {
-  /** The app-server item this message came from; dedupes read vs stream. */
-  itemId: string;
+  /** Correlates the submitted prompt with turn/start, not its body text. */
+  turnId: string;
 }
 
 /** Review-visible messages from `thread/read` turns: every user message, and the final agent message of each completed turn. */
@@ -294,11 +284,11 @@ export function projectCodexTurns(
     const startedAt = secondsToIso(turn.startedAt);
     const completedAt = secondsToIso(turn.completedAt);
     for (const item of items) {
-      const user = userMessage(item, startedAt);
+      const user = userMessage(item, startedAt, jsonString(turn.id));
       if (user) messages.push(user);
     }
     if (turn.status === "completed") {
-      const final = finalAgentMessage(items, completedAt);
+      const final = finalAgentMessage(items, completedAt, jsonString(turn.id));
       if (final) messages.push(final);
     }
   }
@@ -311,14 +301,22 @@ export function projectCodexNotification(
 ): CodexMessage[] {
   const { method, params } = notification;
   if (method === "item/completed") {
-    const user = userMessage(params.item, millisToIso(params.completedAtMs));
+    const user = userMessage(
+      params.item,
+      millisToIso(params.completedAtMs),
+      jsonString(params.turnId),
+    );
     return user ? [user] : [];
   }
   const turn = jsonObject(params.turn);
   if (method === "turn/completed" && turn) {
     const items = jsonArray(turn.items);
     if (turn.status !== "completed" || !items) return [];
-    const final = finalAgentMessage(items, secondsToIso(turn.completedAt));
+    const final = finalAgentMessage(
+      items,
+      secondsToIso(turn.completedAt),
+      jsonString(turn.id),
+    );
     return final ? [final] : [];
   }
   return [];
@@ -327,6 +325,7 @@ export function projectCodexNotification(
 function userMessage(
   item: JsonValue | undefined,
   createdAt: string,
+  turnId: string | undefined,
 ): CodexMessage | undefined {
   const record = jsonObject(item);
   const itemId = jsonString(record?.id);
@@ -348,19 +347,22 @@ function userMessage(
     .join("\n")
     .trim();
   if (!body) return undefined;
-  return { role: "user", body, createdAt, itemId };
+  if (!turnId) throw new Error("Codex user message has no turn ID.");
+  return { id: itemId, turnId, role: "user", body, createdAt };
 }
 
 function finalAgentMessage(
   items: readonly JsonValue[],
   createdAt: string,
+  turnId: string | undefined,
 ): CodexMessage | undefined {
   for (let index = items.length - 1; index >= 0; index -= 1) {
     const item = jsonObject(items[index]);
     const itemId = jsonString(item?.id);
     const text = jsonString(item?.text)?.trim();
     if (item?.type === "agentMessage" && itemId !== undefined && text) {
-      return { role: "assistant", body: text, createdAt, itemId };
+      if (!turnId) throw new Error("Codex assistant message has no turn ID.");
+      return { id: itemId, turnId, role: "assistant", body: text, createdAt };
     }
   }
   return undefined;

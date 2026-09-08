@@ -24,11 +24,7 @@ import type {
   SessionUpdate,
   UpdatePipe,
 } from "./native-session";
-import {
-  REVIEW_AGENT_THREAD_TOKEN_ENV,
-  REVIEW_AGENT_THREAD_URL_ENV,
-  ReviewCommandPath,
-} from "./terminal-command";
+import { ReviewCommandPath, reviewThreadEnvironment } from "./terminal-command";
 
 const HOST = "127.0.0.1";
 const STARTUP_TIMEOUT_MS = 15_000;
@@ -59,17 +55,14 @@ interface SessionState {
 export class OpencodeAgentServer implements AgentServer {
   readonly harness = "opencode" as const;
   readonly #host: OpencodeHost;
-  readonly #desktop: AgentServerOptions["desktopEndpoint"];
+  readonly #threadEnvironment: Record<string, string>;
   readonly #commandPath: ReviewCommandPath;
   readonly #sessions = new Map<string, SessionState>();
   #events: { abort: AbortController; baseUrl: string } | undefined;
 
   constructor(options: AgentServerOptions, host: OpencodeHost) {
     this.#host = host;
-    this.#desktop = {
-      baseUrl: options.desktopEndpoint.baseUrl.replace(/\/$/u, ""),
-      token: options.desktopEndpoint.token,
-    };
+    this.#threadEnvironment = reviewThreadEnvironment(options.desktopEndpoint);
     this.#commandPath = new ReviewCommandPath(options);
   }
 
@@ -103,19 +96,24 @@ export class OpencodeAgentServer implements AgentServer {
     const sessionId = session.id;
     this.#session(sessionId, session.directory);
     if (input.prompt !== undefined) {
-      // Review drives the turn; the TUI attaches to a session already at work.
+      await input.prompt.prepared(sessionId);
+      // OpenCode accepts caller-selected IDs with the msg_ prefix.
+      const messageId = `msg_${randomBytes(16).toString("hex")}`;
       await client.json(
         "POST",
         `/session/${encodeURIComponent(sessionId)}/prompt_async`,
         session.directory,
-        { parts: [{ type: "text", text: input.prompt }] },
+        {
+          messageID: messageId,
+          parts: [{ type: "text", text: input.prompt.text }],
+        },
       );
+      await input.prompt.accepted(sessionId, messageId);
     }
     const pathValue = await this.#commandPath.resolve();
     const env: NativeTerminalCommand["env"] = {
       OPENCODE_SERVER_PASSWORD: client.password,
-      [REVIEW_AGENT_THREAD_URL_ENV]: `${this.#desktop.baseUrl}/native-agent-events/opencode/${encodeURIComponent(sessionId)}/thread`,
-      [REVIEW_AGENT_THREAD_TOKEN_ENV]: this.#desktop.token,
+      ...this.#threadEnvironment,
       [DEV_REVIEW_HOME_ENV]: devReviewHome(),
     };
     if (pathValue) env.PATH = pathValue;
@@ -214,12 +212,11 @@ export class OpencodeAgentServer implements AgentServer {
       ),
     );
     for (const message of messages) {
-      if (state.seen.has(message.messageId)) continue;
-      state.seen.add(message.messageId);
-      const { messageId: _messageId, ...review } = message;
-      state.messages.push(review);
+      if (state.seen.has(message.id)) continue;
+      state.seen.add(message.id);
+      state.messages.push(message);
       for (const queue of state.subscribers) {
-        queue.push({ type: "message.updated", message: review });
+        queue.push({ type: "message.updated", message });
       }
     }
   }
@@ -242,9 +239,7 @@ export class OpencodeAgentServer implements AgentServer {
   }
 }
 
-export interface OpencodeMessage extends NativeReviewMessage {
-  messageId: string;
-}
+export type OpencodeMessage = NativeReviewMessage;
 
 /** Every user message, and every assistant message that completed without error. */
 export function projectOpencodeMessages(
@@ -279,7 +274,7 @@ export function projectOpencodeMessages(
         role: "user",
         body,
         createdAt: millisToIso(time.created),
-        messageId,
+        id: messageId,
       });
       continue;
     }
@@ -293,7 +288,7 @@ export function projectOpencodeMessages(
         role: "assistant",
         body,
         createdAt: millisToIso(completed),
-        messageId,
+        id: messageId,
       });
     }
   }
@@ -459,6 +454,8 @@ export class OpencodeClient {
 
 /** Owns one `opencode serve` process on a reserved loopback port. */
 export class OpencodeServeHost implements OpencodeHost {
+  constructor(private readonly environment: () => Promise<NodeJS.ProcessEnv>) {}
+
   #started:
     | Promise<{ child: ChildProcess; baseUrl: string; password: string }>
     | undefined;
@@ -491,7 +488,10 @@ export class OpencodeServeHost implements OpencodeHost {
         ["serve", "--hostname", HOST, "--port", String(port)],
         {
           cwd: "/",
-          env: { ...process.env, OPENCODE_SERVER_PASSWORD: password },
+          env: {
+            ...(await this.environment()),
+            OPENCODE_SERVER_PASSWORD: password,
+          },
           stdio: ["ignore", "ignore", "pipe"],
           windowsHide: true,
         },
@@ -551,7 +551,7 @@ export async function forkOpencodeSession(input: {
   sourceSessionId: string;
   cwd: string;
 }): Promise<string> {
-  const host = new OpencodeServeHost();
+  const host = new OpencodeServeHost(async () => process.env);
   try {
     const { baseUrl, password } = await host.endpoint();
     const client = new OpencodeClient(baseUrl, password);
@@ -586,7 +586,7 @@ export async function createOpencodeSession(input: {
   title: string;
   signal?: AbortSignal;
 }): Promise<string> {
-  const host = new OpencodeServeHost();
+  const host = new OpencodeServeHost(async () => process.env);
   try {
     const { baseUrl, password } = await host.endpoint();
     const client = new OpencodeClient(baseUrl, password);
@@ -644,6 +644,16 @@ export function server(
 ): AgentServer {
   return new OpencodeAgentServer(
     options,
-    options.host ?? new OpencodeServeHost(),
+    options.host ??
+      new OpencodeServeHost(async () => {
+        const pathValue = await new ReviewCommandPath(options).resolve();
+        if (!pathValue) throw new Error("OpenCode requires a command PATH.");
+        return {
+          ...process.env,
+          ...reviewThreadEnvironment(options.desktopEndpoint),
+          [DEV_REVIEW_HOME_ENV]: devReviewHome(),
+          PATH: pathValue,
+        };
+      }),
   );
 }

@@ -9,13 +9,16 @@ import {
   parseJsonText,
 } from "@dev.fast/review-protocol";
 import {
-  ReviewCommentAgentSessionSchema,
   ReviewCommentDraftThreadMapSchema,
   parseReviewCommentThreadMap,
   parseStoredReviewCommentThreadMap,
 } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
+import {
+  readLegacyConversation,
+  recoverLegacyConversation,
+} from "./native-agent/legacy-conversation";
 import type {
   ReviewCommentDraftThreadMap,
   ReviewCommentThreadMap,
@@ -26,7 +29,7 @@ import type {
 // await. See review-state-store.ts.
 
 export const REVIEW_THREAD_DB_FILENAME = "review.db";
-export const REVIEW_THREAD_DB_SCHEMA_VERSION = 6;
+export const REVIEW_THREAD_DB_SCHEMA_VERSION = 8;
 
 export function reviewStateDir(reviewMdxPath: string): string {
   return path.dirname(path.resolve(reviewMdxPath));
@@ -167,6 +170,8 @@ export type ReviewThreadDbMigrationResult = "missing" | "current" | "upgraded";
 
 export interface ReviewThreadDbMigrationOptions {
   force?: boolean;
+  readLegacyConversation?: typeof readLegacyConversation;
+  onDropNativeThread?: (threadId: string) => void;
   migrateLegacyCodeRecord?: (
     record: JsonValue,
     kind: "comment" | "comment-draft",
@@ -206,7 +211,9 @@ export async function migrateReviewThreadDb(
       version !== "2" &&
       version !== "3" &&
       version !== "4" &&
-      version !== "5"
+      version !== "5" &&
+      version !== "6" &&
+      version !== "7"
     ) {
       throw new ReviewThreadDbVersionError(dbPath, version);
     }
@@ -231,7 +238,7 @@ export async function migrateReviewThreadDb(
         );
       }
     }
-    migrateNativeAgentSessionRecords(db);
+    await migrateNativeAgentSessionRecords(db, version, options);
     const updated = db
       .prepare(
         "UPDATE meta SET value = ? WHERE key = 'schema_version' AND value = ?",
@@ -251,46 +258,94 @@ export async function migrateReviewThreadDb(
   }
 }
 
-/** Normalize message markers and remove provider provenance before validation. */
-function migrateNativeAgentSessionRecords(db: DatabaseSync): void {
+/** Preserve messages and retain only complete native conversation bindings. */
+async function migrateNativeAgentSessionRecords(
+  db: DatabaseSync,
+  version: string,
+  options: ReviewThreadDbMigrationOptions,
+): Promise<void> {
+  const changes: Array<{
+    table: "comments" | "comment_drafts";
+    id: string;
+    value: JsonValue | null;
+  }> = [];
+  const read = options.readLegacyConversation ?? readLegacyConversation;
   for (const table of ["comments", "comment_drafts"] as const) {
-    // SAFETY: both tables declare thread_id TEXT PRIMARY KEY and record_json
-    // TEXT NOT NULL, and every insert binds strings for them.
+    // SAFETY: these tables store a string primary key and JSON text.
     const rows = db
       .prepare(`SELECT thread_id, record_json FROM ${table}`)
       .all() as Array<{ thread_id: string; record_json: string }>;
-    const update = db.prepare(
-      `UPDATE ${table} SET record_json = ? WHERE thread_id = ?`,
-    );
     for (const row of rows) {
       const value = parseJsonText(row.record_json);
-      const migrated = migrateNativeAgentSessionRecord(value, table);
-      if (migrated !== value) {
-        update.run(JSON.stringify(migrated), row.thread_id);
+      if (!isJsonObject(value)) continue;
+      const thread = table === "comment_drafts" ? value.thread : value;
+      if (!isJsonObject(thread)) continue;
+      let migrated = migrateNativeAgentSessionThread(thread, version);
+      if ("agentSession" in thread && !("agentSession" in migrated)) {
+        const binding = LegacyCommentAgentSessionSchema.parse(
+          thread.agentSession,
+        );
+        const recovered = recoverLegacyConversation(
+          migrated,
+          binding,
+          await read(binding),
+        );
+        if (!recovered) {
+          changes.push({ table, id: row.thread_id, value: null });
+          continue;
+        }
+        migrated = recovered;
       }
+      if (migrated !== thread)
+        changes.push({
+          table,
+          id: row.thread_id,
+          value:
+            table === "comment_drafts"
+              ? { ...value, thread: migrated }
+              : migrated,
+        });
+    }
+  }
+  // All reads and matching must succeed before changing any thread records.
+  for (const change of changes) {
+    if (change.value === null) {
+      db.prepare(`DELETE FROM ${change.table} WHERE thread_id = ?`).run(
+        change.id,
+      );
+      options.onDropNativeThread?.(change.id);
+    } else {
+      db.prepare(
+        `UPDATE ${change.table} SET record_json = ? WHERE thread_id = ?`,
+      ).run(JSON.stringify(change.value), change.id);
     }
   }
 }
 
-function migrateNativeAgentSessionRecord(
-  value: JsonValue,
-  table: "comments" | "comment_drafts",
-): JsonValue {
-  if (!isJsonObject(value)) return value;
-  if (table === "comment_drafts") {
-    if (!isJsonObject(value.thread)) return value;
-    const thread = migrateNativeAgentSessionThread(value.thread);
-    return thread === value.thread ? value : { ...value, thread };
-  }
-  return migrateNativeAgentSessionThread(value);
-}
+/** Pre-v7 bindings cannot reliably identify the first Review message. */
+const LegacyCommentAgentSessionSchema = z.object({
+  harness: z.enum(["codex", "claude-code", "opencode", "pi"]),
+  sessionId: z.string().min(1),
+});
 
-/** Pre-v6 records may carry extra agent-session keys; keep only the current ones. */
-const LegacyCommentAgentSessionSchema = z.object(
-  ReviewCommentAgentSessionSchema.shape,
-);
+const V7CommentAgentSessionSchema = z.discriminatedUnion("state", [
+  LegacyCommentAgentSessionSchema.extend({
+    state: z.literal("ready"),
+    firstMessageId: z.string().min(1),
+  }),
+  LegacyCommentAgentSessionSchema.extend({
+    state: z.literal("pending"),
+    firstMessageId: z.string().min(1).nullable(),
+  }),
+  LegacyCommentAgentSessionSchema.extend({
+    state: z.literal("repair-required"),
+  }),
+]);
 
-function migrateNativeAgentSessionThread(thread: JsonObject): JsonObject {
+function migrateNativeAgentSessionThread(
+  thread: JsonObject,
+  version: string,
+): JsonObject {
   const originalMessages = Array.isArray(thread.messages)
     ? thread.messages
     : undefined;
@@ -316,9 +371,25 @@ function migrateNativeAgentSessionThread(thread: JsonObject): JsonObject {
     : thread;
   if (!("agentSession" in migratedThread)) return migratedThread;
   const { agentSession, ...preserved } = migratedThread;
-  const session = LegacyCommentAgentSessionSchema.safeParse(agentSession);
-  if (!session.success) return preserved;
-  return { ...preserved, agentSession: session.data };
+  if (version === "7") {
+    const session = V7CommentAgentSessionSchema.parse(agentSession);
+    if (
+      session.state !== "repair-required" &&
+      session.firstMessageId !== null
+    ) {
+      return {
+        ...preserved,
+        agentSession: {
+          harness: session.harness,
+          sessionId: session.sessionId,
+          firstMessageId: session.firstMessageId,
+        },
+      };
+    }
+  } else {
+    LegacyCommentAgentSessionSchema.parse(agentSession);
+  }
+  return preserved;
 }
 
 async function migrateLegacyCodeRecords(

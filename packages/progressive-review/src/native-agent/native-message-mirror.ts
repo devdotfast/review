@@ -1,11 +1,7 @@
 import { randomUUID } from "node:crypto";
 
-import type {
-  ReviewCommentAgentSession,
-  ReviewCommentMessage,
-} from "@dev.fast/review-protocol";
+import type { ReviewCommentAgentSession } from "@dev.fast/review-protocol";
 
-import { reviewCommentPromptPrefix } from "../review-comment-agent";
 import type { ReviewThreadsService } from "../review-threads-service";
 import type {
   NativeReviewMessage,
@@ -17,7 +13,7 @@ import type {
 
 interface NativeMessageMirrorOptions {
   updates(
-    binding: SessionRef,
+    binding: ReviewCommentAgentSession,
   ): Promise<UpdatePipe<SessionSnapshot, SessionUpdate>>;
   service: ReviewThreadsService;
   onError?: (cause: unknown) => void;
@@ -26,7 +22,6 @@ interface NativeMessageMirrorOptions {
 interface SessionWatcher {
   key: string;
   inReviewConversation: boolean;
-  threadCursor: number;
   pipe?: UpdatePipe<SessionSnapshot, SessionUpdate>;
   task: Promise<void>;
 }
@@ -48,32 +43,38 @@ export class NativeMessageMirror {
   start(): void {
     const snapshot = this.#service.snapshot();
     for (const [threadId, comment] of Object.entries(snapshot.comments)) {
-      if (isNativeBinding(comment.agentSession)) {
+      if (comment.agentSession) {
         this.watch(threadId, comment.agentSession);
       }
     }
     for (const [threadId, draft] of Object.entries(snapshot.drafts)) {
-      if (isNativeBinding(draft.thread.agentSession)) {
+      if (draft.thread.agentSession) {
         this.watch(threadId, draft.thread.agentSession);
       }
     }
   }
 
-  watch(threadId: string, binding: SessionRef): void {
+  watch(threadId: string, binding: ReviewCommentAgentSession): void {
     if (this.#closed) return;
-    const key = `${binding.harness}:${binding.sessionId}`;
+    const key = `${binding.harness}:${binding.sessionId}:${binding.firstMessageId}`;
     if (this.#watchers.get(threadId)?.key === key) return;
     void this.#stopWatcher(threadId);
     const watcher = {
       key,
       inReviewConversation: false,
-      threadCursor: 0,
       task: Promise.resolve(),
     } satisfies SessionWatcher;
-    watcher.task = this.#mirror(threadId, binding, watcher).catch(
-      this.#onError,
-    );
+    watcher.task = this.#mirror(threadId, binding, watcher)
+      .catch(this.#onError)
+      .finally(() => {
+        if (this.#watchers.get(threadId) === watcher)
+          this.#watchers.delete(threadId);
+      });
     this.#watchers.set(threadId, watcher);
+  }
+
+  async pause(threadId: string): Promise<void> {
+    await this.#stopWatcher(threadId);
   }
 
   async close(): Promise<void> {
@@ -86,12 +87,18 @@ export class NativeMessageMirror {
 
   async #mirror(
     threadId: string,
-    binding: SessionRef,
+    binding: ReviewCommentAgentSession,
     watcher: SessionWatcher,
   ): Promise<void> {
     const pipe = await this.#updates(binding);
     watcher.pipe = pipe;
     try {
+      if (this.#watchers.get(threadId) !== watcher) return;
+      if (pipe.snapshot.sessionId !== binding.sessionId) {
+        throw new Error(
+          "The agent returned a different session for this Review conversation.",
+        );
+      }
       for (const message of pipe.snapshot.messages) {
         if (this.#watchers.get(threadId) !== watcher) return;
         this.#apply(threadId, binding, message, watcher);
@@ -101,6 +108,14 @@ export class NativeMessageMirror {
         if (update.type !== "message.updated") continue;
         this.#apply(threadId, binding, update.message, watcher);
       }
+      if (
+        this.#watchers.get(threadId) === watcher &&
+        !watcher.inReviewConversation
+      ) {
+        throw new Error(
+          `The agent stream ended without the Review message ${binding.firstMessageId}.`,
+        );
+      }
     } finally {
       await pipe.close();
     }
@@ -108,56 +123,46 @@ export class NativeMessageMirror {
 
   #apply(
     threadId: string,
-    binding: SessionRef,
+    binding: ReviewCommentAgentSession,
     message: NativeReviewMessage,
     watcher: SessionWatcher,
   ): void {
     if (!watcher.inReviewConversation) {
-      if (
-        message.role !== "user" ||
-        !message.body.startsWith(reviewCommentPromptPrefix(threadId))
-      ) {
-        return;
+      if (message.id !== binding.firstMessageId) return;
+      if (message.role !== "user") {
+        throw new Error(
+          "The Review conversation boundary must identify a user message.",
+        );
       }
       watcher.inReviewConversation = true;
     }
     const thread = this.#currentThread(threadId);
-    if (thread?.agentSession?.sessionId !== binding.sessionId) return;
-    const body =
-      message.role === "user"
-        ? reviewQuestionBody(threadId, message.body)
-        : message.body;
-    const match = findConversationMessage(
-      thread.messages,
-      watcher.threadCursor,
-      message.role === "assistant" ? "agent" : "reviewer",
-      body,
-      message.role === "user" &&
-        message.body.startsWith(reviewCommentPromptPrefix(threadId)),
+    if (
+      !thread?.agentSession ||
+      thread.agentSession.harness !== binding.harness ||
+      thread.agentSession.sessionId !== binding.sessionId ||
+      thread.agentSession.firstMessageId !== binding.firstMessageId
+    )
+      return;
+    const existing = thread.messages.find(
+      (candidate) =>
+        candidate.agentMessage?.sessionId === binding.sessionId &&
+        candidate.agentMessage.messageId === message.id,
     );
-    if (match) watcher.threadCursor = match.index + 1;
-    const messageId = match?.message.id ?? randomUUID();
-    const upsert: Parameters<
-      ReviewThreadsService["upsertAgentSessionMessage"]
-    >[0] = {
+    // Ask messages already exist in Review. Their native IDs are bound on
+    // acceptance, so the instruction-bearing prompt is never copied back.
+    if (existing?.agentInput) return;
+    this.#service.upsertAgentSessionMessage({
       mutationId: randomUUID(),
       threadId,
-      messageId,
+      messageId: existing ? existing.id : randomUUID(),
       role: message.role === "assistant" ? "agent" : "reviewer",
-      body: match?.message.body ?? body,
+      author: agentLabel(binding.harness),
+      body: message.body,
       createdAt: message.createdAt,
-      agentInput: match?.message.agentInput ?? false,
-    };
-    if (message.role === "assistant")
-      upsert.author = agentLabel(binding.harness);
-    this.#service.upsertAgentSessionMessage(upsert);
-    if (!match) {
-      const updated = this.#currentThread(threadId);
-      const index = updated?.messages.findIndex(
-        (candidate) => candidate.id === messageId,
-      );
-      if (index !== undefined && index >= 0) watcher.threadCursor = index + 1;
-    }
+      agentInput: false,
+      agentMessage: { sessionId: binding.sessionId, messageId: message.id },
+    });
   }
 
   #currentThread(threadId: string) {
@@ -172,43 +177,6 @@ export class NativeMessageMirror {
     await watcher.pipe?.close();
     await watcher.task;
   }
-}
-
-function isNativeBinding(
-  session: ReviewCommentAgentSession | undefined,
-): session is SessionRef {
-  return Boolean(session?.harness && session.sessionId);
-}
-
-function findConversationMessage(
-  messages: readonly ReviewCommentMessage[],
-  fromIndex: number,
-  role: "reviewer" | "agent",
-  body: string,
-  preferAgentInput: boolean,
-): { index: number; message: ReviewCommentMessage } | undefined {
-  const matches = (message: ReviewCommentMessage): boolean =>
-    (message.role ?? "reviewer") === role &&
-    message.body.trim() === body.trim();
-  if (preferAgentInput) {
-    const index = messages.findIndex(
-      (message, candidateIndex) =>
-        candidateIndex >= fromIndex &&
-        message.agentInput === true &&
-        matches(message),
-    );
-    if (index >= 0) return { index, message: messages[index]! };
-  }
-  const index = messages.findIndex(
-    (message, candidateIndex) =>
-      candidateIndex >= fromIndex && matches(message),
-  );
-  return index >= 0 ? { index, message: messages[index]! } : undefined;
-}
-
-function reviewQuestionBody(threadId: string, body: string): string {
-  const prefix = reviewCommentPromptPrefix(threadId);
-  return body.startsWith(prefix) ? body.slice(prefix.length) : body;
 }
 
 function agentLabel(harness: SessionRef["harness"]): string {

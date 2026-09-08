@@ -160,6 +160,7 @@ describe("requireCompletedAgentResponsesForRepublish", () => {
     setReviewCommentAgentSession(document, "thread-1", {
       harness: "codex",
       sessionId: "session-1",
+      firstMessageId: "native-ask",
     });
 
     expect(() =>

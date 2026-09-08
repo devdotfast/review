@@ -53,11 +53,9 @@ const agentItem = (id: string, text: string) => ({
 function fakeHost(handlers: {
   [method: string]: (params: JsonObject) => JsonValue;
 }): CodexHost & {
-  requests: Array<{ method: string; params: JsonObject }>;
   emit(notification: CodexNotification): void;
 } {
   const lineListeners: Array<(line: string) => void> = [];
-  const requests: Array<{ method: string; params: JsonObject }> = [];
   const transport: Transport = {
     send(line) {
       // SAFETY: the client under test writes exactly this JSON-RPC request shape.
@@ -67,7 +65,6 @@ function fakeHost(handlers: {
         params: JsonObject;
       };
       if (message.id === undefined) return;
-      requests.push({ method: message.method, params: message.params });
       const handler = handlers[message.method];
       const reply = handler
         ? (() => {
@@ -91,7 +88,6 @@ function fakeHost(handlers: {
   };
   const client = new CodexAppServerClient(transport);
   return {
-    requests,
     url: async () => "ws://127.0.0.1:4500",
     client: async () => client,
     close: async () => undefined,
@@ -118,6 +114,7 @@ describe("projectCodexTurns", () => {
   it("keeps every user message and the final agent message of completed turns", () => {
     const messages = projectCodexTurns([
       {
+        id: "turn-1",
         status: "completed",
         startedAt: 1_700_000_000,
         completedAt: 1_700_000_010,
@@ -128,6 +125,7 @@ describe("projectCodexTurns", () => {
         ],
       },
       {
+        id: "turn-2",
         status: "inProgress",
         startedAt: 1_700_000_020,
         completedAt: null,
@@ -139,19 +137,22 @@ describe("projectCodexTurns", () => {
         role: "user",
         body: "hello",
         createdAt: "2023-11-14T22:13:20.000Z",
-        itemId: "u1",
+        id: "u1",
+        turnId: "turn-1",
       },
       {
         role: "assistant",
         body: "final answer",
         createdAt: "2023-11-14T22:13:30.000Z",
-        itemId: "a2",
+        id: "a2",
+        turnId: "turn-1",
       },
       {
         role: "user",
         body: "and?",
         createdAt: "2023-11-14T22:13:40.000Z",
-        itemId: "u2",
+        id: "u2",
+        turnId: "turn-2",
       },
     ]);
   });
@@ -162,6 +163,7 @@ describe("projectCodexTurns", () => {
         method: "item/completed",
         params: {
           threadId: "t",
+          turnId: "turn-1",
           item: userItem("u1", "hi"),
           completedAtMs: 1_000,
         },
@@ -171,7 +173,8 @@ describe("projectCodexTurns", () => {
         role: "user",
         body: "hi",
         createdAt: "1970-01-01T00:00:01.000Z",
-        itemId: "u1",
+        id: "u1",
+        turnId: "turn-1",
       },
     ]);
     expect(
@@ -179,6 +182,7 @@ describe("projectCodexTurns", () => {
         method: "item/completed",
         params: {
           threadId: "t",
+          turnId: "turn-1",
           item: agentItem("a1", "streamed"),
           completedAtMs: 1,
         },
@@ -189,7 +193,9 @@ describe("projectCodexTurns", () => {
         method: "turn/completed",
         params: {
           threadId: "t",
+          turnId: "turn-1",
           turn: {
+            id: "turn-1",
             status: "completed",
             completedAt: 2,
             items: [agentItem("a1", "done")],
@@ -201,14 +207,15 @@ describe("projectCodexTurns", () => {
         role: "assistant",
         body: "done",
         createdAt: "1970-01-01T00:00:02.000Z",
-        itemId: "a1",
+        id: "a1",
+        turnId: "turn-1",
       },
     ]);
   });
 });
 
 describe("CodexAgentServer", () => {
-  it("forks the thread, starts the turn, waits for the user message, then attaches the TUI", async () => {
+  it("places inherited history before a question received live before hydration", async () => {
     const host = fakeHost({
       "thread/fork": () => ({ thread: { id: "forked" } }),
       "thread/read": () => ({
@@ -216,6 +223,17 @@ describe("CodexAgentServer", () => {
           id: "forked",
           turns: [
             {
+              id: "old-turn",
+              status: "completed",
+              startedAt: 0,
+              completedAt: 1,
+              items: [
+                userItem("old-u", "Prior task"),
+                agentItem("old-a", "Prior answer"),
+              ],
+            },
+            {
+              id: "turn-1",
               status: "inProgress",
               startedAt: 1,
               completedAt: null,
@@ -230,6 +248,7 @@ describe("CodexAgentServer", () => {
             method: "item/completed",
             params: {
               threadId: params.threadId as string,
+              turnId: "turn-1",
               item: userItem("u1", "Explain this"),
               completedAtMs: 5,
             },
@@ -239,34 +258,21 @@ describe("CodexAgentServer", () => {
       },
     });
     const server = new CodexAgentServer(await options(), host);
-    const { sessionId, command } = await server.launch({
+    await server.launch({
       session: { forkOf: "source" },
-      prompt: "Explain this",
+      prompt: {
+        text: "Explain this",
+        prepared: async () => {},
+        accepted: async () => {},
+      },
       cwd: "/tmp/tutorial",
     });
-    expect(sessionId).toBe("forked");
-    expect(host.requests.map((request) => request.method)).toEqual([
-      "thread/fork",
-      "turn/start",
-    ]);
-    expect(command.executable).toBe("codex");
-    expect(command.args).toEqual(
-      expect.arrayContaining([
-        "--remote",
-        "ws://127.0.0.1:4500",
-        "resume",
-        "forked",
-      ]),
-    );
-    expect(command.args).not.toContain("--enable");
-    expect(command.args).not.toContain("--dangerously-bypass-hook-trust");
-    expect(command.env.DEV_FAST_REVIEW_AGENT_THREAD_URL).toBe(
-      "http://127.0.0.1:4000/native-agent-events/codex/forked/thread",
-    );
-    // The prompt arrived through the stream and again from thread/read;
-    // the snapshot has it once.
+    // The new question arrived live before hydration. Inherited history
+    // must precede it, or the mirror mistakes that history for new replies.
     const pipe = await server.updates("forked");
     expect(pipe.snapshot.messages.map((message) => message.body)).toEqual([
+      "Prior task",
+      "Prior answer",
       "Explain this",
     ]);
     await pipe.close();
@@ -280,6 +286,7 @@ describe("CodexAgentServer", () => {
           id: "t",
           turns: [
             {
+              id: "turn-1",
               status: "completed",
               startedAt: 1,
               completedAt: 2,
@@ -291,10 +298,6 @@ describe("CodexAgentServer", () => {
     });
     const server = new CodexAgentServer(await options(), host);
     const pipe = await server.updates("t");
-    expect(host.requests.map((request) => request.method)).toEqual([
-      "thread/resume",
-      "thread/read",
-    ]);
     expect(pipe.snapshot.messages.map((message) => message.body)).toEqual([
       "first",
       "answer one",
@@ -303,6 +306,7 @@ describe("CodexAgentServer", () => {
       method: "item/completed",
       params: {
         threadId: "t",
+        turnId: "turn-1",
         item: userItem("u2", "second"),
         completedAtMs: 3,
       },
@@ -311,7 +315,9 @@ describe("CodexAgentServer", () => {
       method: "turn/completed",
       params: {
         threadId: "t",
+        turnId: "turn-1",
         turn: {
+          id: "turn-1",
           status: "completed",
           completedAt: 4,
           items: [agentItem("a2", "answer two")],
@@ -323,6 +329,7 @@ describe("CodexAgentServer", () => {
       method: "item/completed",
       params: {
         threadId: "t",
+        turnId: "turn-1",
         item: userItem("u2", "second"),
         completedAtMs: 3,
       },

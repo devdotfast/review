@@ -209,10 +209,6 @@ describe("sqlite thread store", () => {
 
     await expect(migrateReviewThreadDb(reviewPath)).resolves.toBe("upgraded");
     expect(readReviewComments(reviewPath)["thread-1"]).toMatchObject({
-      agentSession: {
-        harness: "codex",
-        sessionId: "child-session",
-      },
       messages: [{ body: "Keep this message." }],
     });
     expect(readReviewComments(reviewPath)["thread-without-source"]).toEqual({

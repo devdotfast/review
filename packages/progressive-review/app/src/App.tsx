@@ -542,6 +542,16 @@ function ReviewLayoutContent({
             </div>
             <div className="review-topbar-actions">
               <ReviewHistoryControl />
+              <button
+                type="button"
+                className="review-open-source-tree"
+                title="Join our Discord community"
+                onClick={() =>
+                  session.surface.post({ name: "joinDiscord", args: {} })
+                }
+              >
+                Discord ↗
+              </button>
               <BugReportControl />
               <ReviewBatonChip outcome={review.submissionOutcome} />
               <div

@@ -1859,7 +1859,10 @@ const revealArgsSchema = z
     }
   });
 
+export const REVIEW_DISCORD_URL = "https://discord.gg/wYvd2cpMQg";
+
 export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
+  z.strictObject({ name: z.literal("joinDiscord"), args: z.strictObject({}) }),
   z.strictObject({ name: z.literal("openFile"), args: openFileArgsSchema }),
   z.strictObject({
     name: z.literal("showReviewView"),

@@ -271,6 +271,7 @@ registerSingleton(
 import "../workbench/contrib/logs/common/logs.contribution.js";
 import "./contrib/quickaccess/reviewQuickAccess.contribution.js";
 import "./browser/reviewTheme.contribution.js";
+import "./browser/reviewCommunity.contribution.js";
 import "./contrib/extensions/reviewCuratedExtensions.contribution.js";
 import "./contrib/install/reviewCliInstall.contribution.js";
 import "./contrib/telemetry/reviewLspTelemetry.contribution.js";

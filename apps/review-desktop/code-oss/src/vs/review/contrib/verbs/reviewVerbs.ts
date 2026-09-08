@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { IOpenerService } from "../../../platform/opener/common/opener.js";
 import { encodeBase64 } from "../../../base/common/buffer.js";
 import { Emitter, Event } from "../../../base/common/event.js";
 import { Disposable, DisposableStore } from "../../../base/common/lifecycle.js";
@@ -50,6 +51,7 @@ import {
   type ReviewVerbResponse,
   type ReviewView,
   parseReviewVerbRequest,
+  REVIEW_DISCORD_URL,
 } from "../../common/reviewProtocol.js";
 import {
   ReviewDecorationAnchors,
@@ -138,6 +140,7 @@ export class ReviewVerbsService
     @IReviewExplorerPartsService
     private readonly explorerParts: IReviewExplorerPartsService,
     @IHostService private readonly hostService: IHostService,
+    @IOpenerService private readonly openerService: IOpenerService,
   ) {
     super();
     for (const editor of codeEditorService.listCodeEditors())
@@ -164,6 +167,9 @@ export class ReviewVerbsService
     try {
       const request = parseReviewVerbRequest(value);
       switch (request.name) {
+        case "joinDiscord":
+          await this.openerService.open(REVIEW_DISCORD_URL, { openExternal: true });
+          break;
         case "openFile":
           await this.openFile(request.args);
           break;

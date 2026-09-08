@@ -1,4 +1,5 @@
 .review-canvas-root {
+  --review-header-height: 35px;
   --font-serif: "Newsreader", Georgia, serif;
   --font-mono: "Geist Mono", ui-monospace, monospace;
   --font-display: var(--font-mono);
@@ -2429,7 +2430,7 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  height: 35px;
+  height: var(--review-header-height);
   padding: 0 8px;
   border-bottom: 1px solid var(--chrome-border);
   background: var(--surface);
@@ -4138,7 +4139,7 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 44px;
+  min-height: var(--review-header-height);
   padding: 0 10px 0 16px;
   border-bottom: 1px solid var(--rule);
   background: var(--surface);
@@ -7299,6 +7300,7 @@ button.review-stack-row:disabled .review-stack-relation {
 .review-document > blockquote,
 .review-document > pre,
 .review-document > .code-peek,
+.review-document > .review-trace-quote-container,
 .review-section-header,
 .review-section-body > p,
 .review-section-body > h3,
@@ -7306,13 +7308,20 @@ button.review-stack-row:disabled .review-stack-relation {
 .review-section-body > ol,
 .review-section-body > blockquote,
 .review-section-body > pre,
-.review-section-body > .code-peek {
+.review-section-body > .code-peek,
+.review-section-body > .review-trace-quote-container {
   width: min(100%, var(--review-prose-max-width));
   max-width: calc(
     100cqi - var(--review-document-padding-inline) -
       var(--review-document-padding-inline)
   );
   margin-inline: auto;
+}
+
+/* Standalone quotes share the prose column; quotes inside prose stay inline. */
+.review-document > .review-trace-quote-container,
+.review-section-body > .review-trace-quote-container {
+  display: block;
 }
 
 /* Code peeks are sections, so unlike prose they have no browser block margin. */

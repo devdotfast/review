@@ -51,6 +51,7 @@ import {
   RefreshIcon,
   ResolveIcon,
   TerminalIcon,
+  TrashIcon,
 } from "./icons";
 import { newTabLinkProps } from "./link-props";
 import { createClientId, useReview, useReviewActions } from "./review-context";
@@ -1613,6 +1614,21 @@ function ThreadPanelInner({
               {thread.resolved ? <RefreshIcon /> : <ResolveIcon />}
               <span>{thread.resolved ? "Unresolve" : "Resolve"}</span>
             </button>
+            {thread.clientStatus === "draft" && (
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Delete thread"
+                title="Delete thread"
+                onClick={async () => {
+                  await review.deleteComment(thread.threadId);
+                  review.blurThread();
+                  setThreadsPage({ kind: "list" });
+                }}
+              >
+                <TrashIcon />
+              </button>
+            )}
             {thread.agentSession && (
               <button
                 type="button"

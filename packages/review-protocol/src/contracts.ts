@@ -1945,6 +1945,8 @@ export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
     args: z.strictObject({
       /** The native session the terminal runs; the app keys terminals by it. */
       session: AuthoringAgentSessionSchema,
+      /** Null for a manual resume; otherwise replaces this Ask’s local loading pane. */
+      askMessageId: requiredString.nullable(),
       command: z.strictObject({
         cwd: requiredString,
         executable: requiredString,

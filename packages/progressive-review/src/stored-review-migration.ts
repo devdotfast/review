@@ -446,6 +446,12 @@ export async function migrateStoredReviewData(input: {
       }
       const threadDbMigration: ReviewThreadDbMigrationOptions = {
         force: input.force,
+        onDropNativeThread: (threadId) => {
+          total.droppedComments += 1;
+          input.log?.(
+            `Dropped comment thread ${threadId} from Review ${entry.name}: no unambiguous native conversation match.`,
+          );
+        },
         onDropLegacyCodeRecord: ({ threadId, kind, error }) => {
           total.droppedComments += 1;
           input.log?.(

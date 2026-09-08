@@ -11,6 +11,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { reviewCommentPromptPrefix } from "./review-comment-agent";
 import {
   appendReviewComment,
   readReviewCommentDrafts,
@@ -143,91 +144,7 @@ describe("sqlite thread store", () => {
     migrated.close();
   });
 
-  it("normalizes message markers and removes native provenance", async () => {
-    const reviewPath = makeReviewPath();
-    const dbPath = reviewThreadDbPath(reviewPath);
-    createReviewThreadDb(path.dirname(reviewPath));
-    closeAllReviewThreadStores();
-    const db = new DatabaseSync(dbPath);
-    db.prepare(
-      "INSERT INTO comments (thread_id, record_json) VALUES (?, ?)",
-    ).run(
-      "thread-1",
-      JSON.stringify({
-        threadId: "thread-1",
-        target: { kind: "document" },
-        status: "open",
-        agentSession: {
-          harness: "codex",
-          sessionId: "child-session",
-          sourceSessionId: "source-session",
-          cursor: 12,
-          turns: [{ operationId: "operation-1" }],
-        },
-        messages: [
-          {
-            id: "message-1",
-            by: "Reviewer",
-            at: "2026-08-16T00:00:00.000Z",
-            body: "Keep this message.",
-            native: {
-              sessionId: "child-session",
-              entryIds: ["provider-message-1"],
-            },
-          },
-        ],
-      }),
-    );
-    db.prepare(
-      "INSERT INTO comments (thread_id, record_json) VALUES (?, ?)",
-    ).run(
-      "thread-without-source",
-      JSON.stringify({
-        threadId: "thread-without-source",
-        target: { kind: "document" },
-        status: "open",
-        agentSession: {
-          harness: "codex",
-          sessionId: "ambiguous-child",
-          cursor: 2,
-          turns: [],
-        },
-        messages: [
-          {
-            id: "preserved-message",
-            by: "Reviewer",
-            at: "2026-08-16T00:00:00.000Z",
-            body: "Preserve this too.",
-          },
-        ],
-      }),
-    );
-    db.prepare(
-      "UPDATE meta SET value = '4' WHERE key = 'schema_version'",
-    ).run();
-    db.close();
-
-    await expect(migrateReviewThreadDb(reviewPath)).resolves.toBe("upgraded");
-    expect(readReviewComments(reviewPath)["thread-1"]).toMatchObject({
-      messages: [{ body: "Keep this message." }],
-    });
-    expect(readReviewComments(reviewPath)["thread-without-source"]).toEqual({
-      threadId: "thread-without-source",
-      target: { kind: "document" },
-      status: "open",
-      messages: [
-        {
-          id: "preserved-message",
-          by: "Reviewer",
-          at: "2026-08-16T00:00:00.000Z",
-          body: "Preserve this too.",
-          agentInput: false,
-        },
-      ],
-    });
-  });
-
-  it("preserves v6 comments and drafts while removing bindings without a boundary", async () => {
+  it("recovers v6 bindings and message identities without changing comment text or draft inputs", async () => {
     const reviewPath = makeReviewPath();
     createReviewThreadDb(path.dirname(reviewPath));
     closeAllReviewThreadStores();
@@ -263,8 +180,26 @@ describe("sqlite thread store", () => {
       "UPDATE meta SET value = '6' WHERE key = 'schema_version'",
     ).run();
     db.close();
-    await expect(migrateReviewThreadDb(reviewPath)).resolves.toBe("upgraded");
-    const { agentSession: _binding, ...expected } = thread;
+    await expect(
+      migrateReviewThreadDb(reviewPath, {
+        readLegacyConversation: async () => [
+          {
+            id: "native-ask",
+            role: "user",
+            body: reviewCommentPromptPrefix("question") + "Question",
+            createdAt: "2026-09-07T00:00:00Z",
+          },
+        ],
+      }),
+    ).resolves.toBe("upgraded");
+    const expected = {
+      ...thread,
+      agentSession: { ...thread.agentSession, firstMessageId: "native-ask" },
+      messages: thread.messages.map((message) => ({
+        ...message,
+        agentMessage: { sessionId: "old-fork", messageId: "native-ask" },
+      })),
+    };
     expect(readReviewComments(reviewPath).question).toEqual(expected);
     expect(readReviewCommentDrafts(reviewPath).question).toEqual({
       thread: expected,
@@ -299,7 +234,9 @@ describe("sqlite thread store", () => {
       "UPDATE meta SET value = '7' WHERE key = 'schema_version'",
     ).run();
     db.close();
-    await migrateReviewThreadDb(reviewPath);
+    await migrateReviewThreadDb(reviewPath, {
+      readLegacyConversation: async () => [],
+    });
     const comments = readReviewComments(reviewPath);
     const accepted = {
       harness: "codex",
@@ -309,8 +246,40 @@ describe("sqlite thread store", () => {
     expect(comments.ready?.agentSession).toEqual(accepted);
     expect(comments.followup?.agentSession).toEqual(accepted);
     expect(comments.unaccepted?.agentSession).toBeUndefined();
-    expect(comments.unaccepted?.messages).toEqual(comments.ready?.messages);
+    expect(comments.unaccepted).toBeUndefined();
     expect(comments.followup?.messages).toEqual(comments.ready?.messages);
+  });
+
+  it("rolls back when the native transcript cannot be read", async () => {
+    const reviewPath = makeReviewPath();
+    seedComment(reviewPath);
+    closeAllReviewThreadStores();
+    const db = new DatabaseSync(reviewThreadDbPath(reviewPath));
+    db.prepare(
+      "UPDATE comments SET record_json = json_set(record_json, '$.agentSession', json(?))",
+    ).run(JSON.stringify({ harness: "codex", sessionId: "unavailable" }));
+    db.prepare(
+      "UPDATE meta SET value = '6' WHERE key = 'schema_version'",
+    ).run();
+    const before = db.prepare("SELECT record_json FROM comments").all();
+    db.close();
+    await expect(
+      migrateReviewThreadDb(reviewPath, {
+        readLegacyConversation: async () => {
+          throw new Error("transcript unavailable");
+        },
+      }),
+    ).rejects.toThrow("transcript unavailable");
+    const unchanged = new DatabaseSync(reviewThreadDbPath(reviewPath));
+    expect(unchanged.prepare("SELECT record_json FROM comments").all()).toEqual(
+      before,
+    );
+    expect(
+      unchanged
+        .prepare("SELECT value FROM meta WHERE key = 'schema_version'")
+        .get(),
+    ).toEqual({ value: "6" });
+    unchanged.close();
   });
 
   it("aborts migration instead of dropping a malformed agent binding", async () => {

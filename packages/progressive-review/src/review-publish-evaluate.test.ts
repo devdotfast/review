@@ -1,16 +1,14 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import zlib from "node:zlib";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { pullReviewTraceCorpus } from "./review-agent-traces";
+import { clearTraceEnvCache } from "./review-agent-traces";
 import {
   type ReviewPublishEvidenceTargets,
   evaluateReviewDocumentBundleForPublish,
 } from "./review-publish-evaluate";
-import { createMemoryTraceStoreTransport } from "./trace-store-transport";
 
 describe("publish range evaluation", () => {
   const roots: string[] = [];
@@ -96,64 +94,60 @@ describe("publish range evaluation", () => {
 
   describe("TraceQuote validation", () => {
     const sessionId = "72b3d130-2e72-41b6-8686-527a93d16647";
-    const repositoryId = 7;
+    let mockR2Dir: string;
 
-    beforeEach(async () => {
+    beforeEach(() => {
+      mockR2Dir = fixtureDir("mock-r2");
+      process.env.TRACE_R2_MODE = "mock";
+      process.env.TRACE_R2_MOCK_DIR = mockR2Dir;
       process.env.REVIEW_TEST_TRACE_SEARCH_DIR = fixtureDir("trace-search");
+      clearTraceEnvCache();
 
-      // The corpus is what publish reads. Fill it the way `trace pull` does.
-      const transport = createMemoryTraceStoreTransport();
-      const trace = [
+      const sessionDir = path.join(mockR2Dir, "by-session", sessionId);
+      fs.mkdirSync(sessionDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(sessionDir, "meta.json"),
         JSON.stringify({
-          type: "session",
-          id: sessionId,
-          cwd: "/repo",
-          timestamp: "2026-08-16T12:00:00Z",
+          session: sessionId,
+          repo: "acme/widgets",
+          branch: "main",
+          pr: null,
+          commits: [],
+          author: null,
+          ts: "2026-08-16T12:00:00Z",
         }),
-        JSON.stringify({
-          type: "message",
-          timestamp: "2026-08-16T12:00:05Z",
-          message: { role: "user", content: "Optimize database queries" },
-        }),
-        JSON.stringify({
-          type: "message",
-          timestamp: "2026-08-16T12:01:00Z",
-          message: {
-            role: "assistant",
-            content: "I will rewrite the queries with batching.",
-          },
-        }),
-      ].join("\n");
-      const compressed = zlib.gzipSync(Buffer.from(`${trace}\n`, "utf8"));
-      transport.objects.set(
-        `r${repositoryId}/sessions/${sessionId}/main.jsonl.gz`,
-        compressed,
       );
-      transport.sessions.set(`r${repositoryId}/sessions/${sessionId}`, {
-        repositoryId,
-        sessionId,
-        harness: "claude",
-        updatedAt: "2026-08-16T12:01:05Z",
-        commits: [],
-        objects: [
-          {
-            name: "main.jsonl.gz",
-            size: compressed.byteLength,
-            sha256: "0".repeat(64),
-          },
-        ],
-        complete: true,
-      });
-      await pullReviewTraceCorpus({
-        repo: { owner: "acme", repo: "widgets" },
-        sessions: [{ id: sessionId }],
-        transport,
-        repositoryId,
-      });
+      fs.writeFileSync(
+        path.join(sessionDir, "trace.jsonl"),
+        [
+          JSON.stringify({
+            type: "session",
+            id: sessionId,
+            cwd: "/repo",
+            timestamp: "2026-08-16T12:00:00Z",
+          }),
+          JSON.stringify({
+            type: "message",
+            timestamp: "2026-08-16T12:00:05Z",
+            message: { role: "user", content: "Optimize database queries" },
+          }),
+          JSON.stringify({
+            type: "message",
+            timestamp: "2026-08-16T12:01:00Z",
+            message: {
+              role: "assistant",
+              content: "I will rewrite the queries with batching.",
+            },
+          }),
+        ].join("\n"),
+      );
     });
 
     afterEach(() => {
+      delete process.env.TRACE_R2_MODE;
+      delete process.env.TRACE_R2_MOCK_DIR;
       delete process.env.REVIEW_TEST_TRACE_SEARCH_DIR;
+      clearTraceEnvCache();
     });
 
     it("passes when quote text matches trace", async () => {

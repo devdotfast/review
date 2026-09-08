@@ -126,19 +126,43 @@ describe("Review CLI", () => {
     expect(installReviewCommand).not.toHaveBeenCalled();
   });
 
-  it("does not accept the removed R2 credential options", async () => {
-    const stderr = outputStream();
-    let output = "";
-    stderr.on("data", (chunk) => (output += String(chunk)));
+  it("routes trace configuration through the shared installer", async () => {
+    const runInstall = vi.fn<typeof runInstallActual>(async () => 0);
 
     await expect(
       runProgressiveReviewCli({
-        argv: ["install", "codex", "--trace-endpoint", "mock://endpoint"],
+        argv: [
+          "install",
+          "codex",
+          "--trace-endpoint",
+          "mock://endpoint",
+          "--trace-bucket",
+          "mock-bucket",
+          "--trace-key",
+          "mock-key",
+          "--trace-secret",
+          "mock-value",
+        ],
         stdout: outputStream(),
-        stderr,
+        stderr: outputStream(),
+        runtime: { runInstall },
       }),
-    ).resolves.toBe(1);
-    expect(output).toContain("unknown option '--trace-endpoint'");
+    ).resolves.toBe(0);
+
+    expect(runInstall).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targets: ["codex"],
+        fff: true,
+        trace: {
+          credentials: {
+            endpoint: "mock://endpoint",
+            bucket: "mock-bucket",
+            key: "mock-key",
+            secret: "mock-value",
+          },
+        },
+      }),
+    );
   });
 
   it("does not expose the removed trace setup command", async () => {
@@ -170,38 +194,6 @@ describe("Review CLI", () => {
       }),
     ).resolves.toBe(0);
     expect(output).toBe("1.2.3\n");
-  });
-
-  it("prints login help without running it", async () => {
-    await expect(
-      runProgressiveReviewCli({
-        argv: ["login", "--help"],
-        stdout: outputStream(),
-        stderr: outputStream(),
-      }),
-    ).resolves.toBe(0);
-  });
-
-  it("requires a login before whoami", async () => {
-    const home = await mkdtemp(path.join(os.tmpdir(), "review-cli-whoami-"));
-    vi.stubEnv("DEV_REVIEW_HOME", home);
-    const stderr = outputStream();
-    let output = "";
-    stderr.on("data", (chunk) => (output += String(chunk)));
-
-    try {
-      await expect(
-        runProgressiveReviewCli({
-          argv: ["whoami"],
-          stdout: outputStream(),
-          stderr,
-        }),
-      ).resolves.toBe(1);
-      expect(output).toContain("Run `review login` first.");
-    } finally {
-      vi.unstubAllEnvs();
-      await rm(home, { recursive: true, force: true });
-    }
   });
 
   it("reports when a Codex Review wait reuses the active process", async () => {
@@ -343,9 +335,6 @@ describe("Review CLI", () => {
     ["app pick", ["app", "pick", "--review", "review-uuid"], "app.pick"],
     ["app pick alias", ["app", "--review", "review-uuid"], "app.pick"],
     ["app pick equals alias", ["app", "--review=review-uuid"], "app.pick"],
-    ["login", ["login"], "login"],
-    ["logout", ["logout"], "logout"],
-    ["whoami", ["whoami"], "whoami"],
   ])("tracks %s as %s", async (_label, argv, command) => {
     const captureCommandSucceeded = vi.fn<() => Promise<undefined>>(
       async () => undefined,
@@ -389,9 +378,6 @@ describe("Review CLI", () => {
             reviewUuid: "review-uuid",
             title: "Review",
           }),
-          runReviewLogin: async () => 0,
-          runReviewLogout: async () => 0,
-          runReviewWhoami: async () => 0,
         },
       }),
     ).resolves.toBe(0);

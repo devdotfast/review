@@ -135,6 +135,36 @@ patch/minor/major bump. The workflow:
 6. curls the live feed to confirm the new release is served, attaches the dmg
    to the GitHub release, and publishes it.
 
+### Promoting a preview to stable
+
+A preview that has been running well can be released as the stable build
+instead of cutting a fresh one from whatever `main` now holds:
+
+```sh
+gh workflow run review-desktop-preview.yml -f ref=main
+# ...then, with the tag that run pushed:
+gh workflow run review-desktop-release.yml \
+  -f bump=patch -f release_source=preview \
+  -f preview_tag=v0.0.32-preview.20260907.7
+```
+
+`release_source: preview` requires `preview_tag`, accepts only a `patch` bump,
+and requires the tag to point at the **exact commit `main` is on**. Anything
+merged in between invalidates the tag, so promote before you merge, or publish
+a new preview. The stable version is derived from the tag (`v0.0.32` above) and
+must be the next patch, which is what rejects a preview that straddled another
+release.
+
+Promotion rebuilds from source. Preview and stable are different applications —
+separate bundle identifier, application name, data folders, URL scheme, and
+update feed — so the stable run stamps stable identity onto that commit and
+takes the same build, sign, notarize, upload, and publish path as any release.
+No preview binary is relabelled.
+
+A dry run makes no remote change: it stamps the promoted version onto the
+preview commit and builds it, so the artifacts and the feed manifest carry the
+version the real promotion would ship.
+
 ### Preview builds
 
 Run the **Review Desktop Preview** workflow from `main`, and pass the branch,
@@ -144,9 +174,13 @@ tag, or commit to build as its `ref` input:
 gh workflow run review-desktop-preview.yml -f ref=<branch>
 ```
 
-The workflow makes no commit, tag, or GitHub release. It stamps the working
+The workflow makes no commit and no GitHub release. It stamps the working
 tree with the next patch version plus
 `-preview.<yyyymmdd>.<run-number>`, then publishes only to preview R2 keys.
+Once the upload, the update feed, and the installer landing all check out, it
+pushes a lightweight `v<version>` tag at the commit it built — but only when
+that commit is on `main`, since nothing else can be promoted. That tag is what
+"Promoting a preview to stable" above takes as its `preview_tag`.
 The ref must include the preview tooling, so branch it from a `main` that
 already contains this workflow and its scripts. Updates are keyed by commit;
 publishing an older commit intentionally rolls preview installations back to

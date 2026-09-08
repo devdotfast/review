@@ -12,6 +12,19 @@ on:
           - minor
           - major
         default: patch
+      release_source:
+        description: "Release main's tip, or promote a published preview tag."
+        required: true
+        type: choice
+        options:
+          - main
+          - preview
+        default: main
+      preview_tag:
+        description: "Preview tag to promote, e.g. v0.0.32-preview.20260907.7. Required when release_source is preview."
+        required: false
+        type: string
+        default: ""
       dry_run:
         description: "Build and validate only. Do not tag, upload, or publish."
         required: false
@@ -46,60 +59,125 @@ jobs:
         with:
           ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
 
-      - name: Bump version and create tag
-        if: ${{ !inputs.dry_run }}
-        id: bump
+      # Every read-only gate lives here so a dry run rehearses the same checks a
+      # real run must pass, and so the write step below re-derives nothing.
+      - name: Resolve release version
+        id: resolve
         shell: bash
+        env:
+          BUMP: ${{ inputs.bump }}
+          RELEASE_SOURCE: ${{ inputs.release_source }}
+          PREVIEW_TAG_INPUT: ${{ inputs.preview_tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          BUMP="${{ inputs.bump }}"
+          # A dispatch form field left with stale text arrives as a non-empty
+          # string, so trim before testing for emptiness.
+          PREVIEW_TAG="$(printf '%s' "$PREVIEW_TAG_INPUT" | tr -d '[:space:]')"
+
+          if [ "$RELEASE_SOURCE" != "preview" ] && [ -n "$PREVIEW_TAG" ]; then
+            echo "::error::preview_tag only applies when release_source is 'preview'. Clear the field, or set release_source to 'preview'."
+            exit 1
+          fi
+
           CURRENT=$(node -p "require('./apps/review-desktop/package.json').version")
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          # The pattern must stay an unquoted variable: bash matches a quoted
+          # right-hand side as a literal string, not as a regex.
+          version_re='^([0-9]+)\.([0-9]+)\.([0-9]+)$'
+          if [[ ! $CURRENT =~ $version_re ]]; then
+            echo "::error::apps/review-desktop/package.json is at '${CURRENT}', which is not X.Y.Z. ${GITHUB_REF_NAME} must never carry a prerelease version."
+            exit 1
+          fi
+          MAJOR="${BASH_REMATCH[1]}"
+          MINOR="${BASH_REMATCH[2]}"
+          PATCH="${BASH_REMATCH[3]}"
 
           case "$BUMP" in
             major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
             minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
             patch) PATCH=$((PATCH + 1)) ;;
+            *) echo "::error::unknown bump type '${BUMP}'"; exit 1 ;;
           esac
 
           VERSION="${MAJOR}.${MINOR}.${PATCH}"
           TAG="v${VERSION}"
-          echo "Releasing Review Desktop v${VERSION} (tag: $TAG)"
 
-          # Both checks below run before anything is written, so a doomed run
-          # stops without leaving a tag or a commit behind.
-          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
-            echo "::error::${TAG} already exists on origin. Delete it before re-running."
-            exit 1
+          if [ "$RELEASE_SOURCE" = "preview" ]; then
+            if [ -z "$PREVIEW_TAG" ]; then
+              echo "::error::release_source 'preview' requires preview_tag, e.g. v${VERSION}-preview.$(date -u +%Y%m%d).1 — take it from the preview run that published the build you are promoting."
+              exit 1
+            fi
+            if [ "$BUMP" != "patch" ]; then
+              echo "::error::a preview always targets the next patch, so promoting one requires bump 'patch' (got '${BUMP}'). Release from ${GITHUB_REF_NAME} for a minor or major."
+              exit 1
+            fi
+
+            preview_re='^v([0-9]+\.[0-9]+\.[0-9]+)-preview\.[0-9]{8}\.[0-9]+$'
+            if [[ ! $PREVIEW_TAG =~ $preview_re ]]; then
+              echo "::error::preview_tag '${PREVIEW_TAG}' is not a preview tag. Expected vX.Y.Z-preview.YYYYMMDD.N, as pushed by review-desktop-preview.yml."
+              exit 1
+            fi
+            PREVIEW_VERSION="${BASH_REMATCH[1]}"
+
+            if ! git ls-remote --exit-code --tags origin "refs/tags/${PREVIEW_TAG}" >/dev/null 2>&1; then
+              echo "::error::${PREVIEW_TAG} does not exist on origin. Only a preview that finished publishing from ${GITHUB_REF_NAME} is tagged."
+              exit 1
+            fi
+            # `+` so a tag already in this checkout cannot block the fetch, and
+            # `^{commit}` peels a lightweight and an annotated tag alike.
+            git fetch --no-tags origin "+refs/tags/${PREVIEW_TAG}:refs/tags/${PREVIEW_TAG}"
+            PREVIEW_COMMIT=$(git rev-parse "refs/tags/${PREVIEW_TAG}^{commit}")
+
+            HEAD_SHA=$(git rev-parse HEAD)
+            if [ "$PREVIEW_COMMIT" != "$HEAD_SHA" ]; then
+              echo "::error::${PREVIEW_TAG} was built from ${PREVIEW_COMMIT}, but ${GITHUB_REF_NAME} is at ${HEAD_SHA}. Only the preview built from the current tip can be promoted: run review-desktop-preview.yml against ${GITHUB_REF_NAME} and promote the tag it pushes."
+              exit 1
+            fi
+            # Load-bearing: a preview computes its version from the package.json
+            # it was built against, so this is what catches a preview that
+            # straddled another release and now targets a version already cut.
+            if [ "$PREVIEW_VERSION" != "$VERSION" ]; then
+              echo "::error::${PREVIEW_TAG} targets ${PREVIEW_VERSION}, but the next patch from ${CURRENT} is ${VERSION}. That preview predates a release; publish a new one."
+              exit 1
+            fi
+
+            echo "Promoting ${PREVIEW_TAG} (${PREVIEW_COMMIT}) to Review Desktop ${TAG}."
+          else
+            echo "Releasing Review Desktop ${TAG} from ${GITHUB_REF_NAME}."
           fi
 
-          git fetch origin "${GITHUB_REF_NAME}"
-          if [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
-            echo "::error::${GITHUB_REF_NAME} moved since this run started. Re-run the workflow."
-            exit 1
+          # Remote write-state, checked only where a push actually follows. Both
+          # run before anything is written, so a doomed run stops without
+          # leaving a tag or a commit behind.
+          if [ "$DRY_RUN" != "true" ]; then
+            if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+              echo "::error::${TAG} already exists on origin. Delete it before re-running."
+              exit 1
+            fi
+
+            git fetch origin "${GITHUB_REF_NAME}"
+            if [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
+              echo "::error::${GITHUB_REF_NAME} moved since this run started. Re-run the workflow."
+              exit 1
+            fi
           fi
 
-          cd apps/review-desktop
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Bump version and create tag
+        if: ${{ !inputs.dry_run }}
+        id: bump
+        shell: bash
+        env:
+          VERSION: ${{ steps.resolve.outputs.version }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
           # product.json carries the same number to the running app, which shows
-          # it in the About panel. `scripts/product-hardening.test.mjs` fails if
-          # these two drift apart.
-          VERSION="$VERSION" node --input-type=module -e '
-            import fs from "node:fs";
-            const pkg = JSON.parse(fs.readFileSync("./package.json", "utf8"));
-            pkg.version = process.env.VERSION;
-            fs.writeFileSync("./package.json", `${JSON.stringify(pkg, null, 2)}\n`);
-
-            const productPath = "./code-oss/product.json";
-            const product = fs.readFileSync(productPath, "utf8");
-            const updated = product.replace(
-              /("reviewVersion":\s*")[^"]*(")/,
-              `$1${process.env.VERSION}$2`,
-            );
-            if (updated === product) {
-              throw new Error(`reviewVersion not found in ${productPath}`);
-            }
-            fs.writeFileSync(productPath, updated);
-          '
-          cd ../..
+          # it in the About panel, alongside the stable channel identity.
+          # `scripts/product-hardening.test.mjs` fails if these drift apart.
+          node apps/review-desktop/scripts/stamp-release-channel.mjs \
+            --version "$VERSION" \
+            --quality stable
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -117,8 +195,20 @@ jobs:
       - name: Dry-run version
         if: ${{ inputs.dry_run }}
         id: dryrun
+        shell: bash
+        env:
+          RELEASE_SOURCE: ${{ inputs.release_source }}
+          RESOLVED_VERSION: ${{ steps.resolve.outputs.version }}
         run: |
-          VERSION=$(node -p "require('./apps/review-desktop/package.json').version")
+          if [ "$RELEASE_SOURCE" = "preview" ]; then
+            # The build jobs stamp the promoted version into this same commit,
+            # so the artifacts a promotion dry run validates carry it too.
+            VERSION="$RESOLVED_VERSION"
+          else
+            # Nothing stamps a release-from-main dry run, so the artifacts carry
+            # the version already committed here.
+            VERSION=$(node -p "require('./apps/review-desktop/package.json').version")
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
@@ -143,6 +233,16 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.tag.outputs.tag || github.sha }}
+
+      # A promotion dry run checks out the preview commit, whose tree still
+      # carries the version released before it. Stamp the version the promotion
+      # would ship so the packaged artifacts and the feed manifest carry it too.
+      - name: Stamp the promoted version for a dry run
+        if: ${{ inputs.dry_run && inputs.release_source == 'preview' }}
+        run: |
+          node apps/review-desktop/scripts/stamp-release-channel.mjs \
+            --version "${{ needs.tag.outputs.version }}" \
+            --quality stable
 
       - name: Setup pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
@@ -249,6 +349,16 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ needs.tag.outputs.tag || github.sha }}
+
+      # A promotion dry run checks out the preview commit, whose tree still
+      # carries the version released before it. Stamp the version the promotion
+      # would ship so the packaged artifacts and the feed manifest carry it too.
+      - name: Stamp the promoted version for a dry run
+        if: ${{ inputs.dry_run && inputs.release_source == 'preview' }}
+        run: |
+          node apps/review-desktop/scripts/stamp-release-channel.mjs \
+            --version "${{ needs.tag.outputs.version }}" \
+            --quality stable
 
       - name: Setup pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6

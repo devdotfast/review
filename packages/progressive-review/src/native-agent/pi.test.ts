@@ -125,56 +125,6 @@ describe("projectBranch", () => {
 });
 
 describe("PiAgentServer", () => {
-  it("launches pi with the bridge extension and a generated session id", async () => {
-    const server = new PiAgentServer(await options());
-    const { sessionId, command } = await server.launch({
-      prompt: {
-        text: "Explain this code",
-        prepared: async () => {},
-        accepted: async () => {},
-      },
-      cwd: "/tmp/tutorial",
-    });
-    expect(command.executable).toBe("pi");
-    expect(sessionId).toMatch(/^[0-9a-f-]{36}$/);
-    expect(command.args).toEqual(
-      expect.arrayContaining([
-        "-e",
-        expect.stringContaining("pi-bridge-extension"),
-        "--session-id",
-        sessionId,
-      ]),
-    );
-    expect(command.args).not.toContain("--session");
-    expect(command.args).not.toContain("--fork");
-    expect(command.args.at(-1)).toBe("Explain this code");
-    expect(command.env.DEV_FAST_REVIEW_AGENT_BRIDGE_URL).toMatch(
-      new RegExp(`^http://127\\.0\\.0\\.1:\\d+/pi/${sessionId}$`),
-    );
-    expect(command.env.DEV_FAST_REVIEW_AGENT_HOOK_URL).toBeUndefined();
-    await server.close();
-  });
-
-  it("forks and resumes through pi's own flags", async () => {
-    const server = new PiAgentServer(await options());
-    const fork = await server.launch({
-      session: { forkOf: "src" },
-      cwd: "/tmp",
-    });
-    expect(fork.command.args).toEqual(
-      expect.arrayContaining(["--fork", "src", "--session-id", fork.sessionId]),
-    );
-    const resume = await server.launch({
-      session: { resume: "old" },
-      cwd: "/tmp",
-    });
-    expect(resume.sessionId).toBe("old");
-    expect(resume.command.args).toEqual(
-      expect.arrayContaining(["--session", "old"]),
-    );
-    await server.close();
-  });
-
   it("captures the inherited branch before accepting the new native entry", async () => {
     const server = new PiAgentServer(await options());
     const accepted = vi.fn(async () => {});

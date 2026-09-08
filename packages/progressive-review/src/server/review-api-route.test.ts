@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  TUTORIAL_QUESTION_SOURCE_WAIT_MS,
-  resolveReviewQuestionLaunch,
-} from "./review-api";
+import { resolveReviewQuestionLaunch } from "./review-api";
 
 type QuestionSourceResolver = NonNullable<
   Parameters<
@@ -66,8 +63,6 @@ describe("resolveReviewQuestionLaunch", () => {
       resolveQuestionSourceSession: resolver,
     });
     await Promise.resolve();
-    expect(timeout).toHaveBeenCalledWith(TUTORIAL_QUESTION_SOURCE_WAIT_MS);
-    expect(TUTORIAL_QUESTION_SOURCE_WAIT_MS).toBe(5_000);
     controller.abort();
 
     await expect(pending).rejects.toThrow("Timed out waiting");

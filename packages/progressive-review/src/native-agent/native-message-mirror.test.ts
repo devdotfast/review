@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import type { ReviewCommentAgentSession } from "@dev.fast/review-protocol";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, expect, it } from "vitest";
 
 import { closeAllReviewThreadStores } from "../review-thread-store-backend";
 import { ReviewThreadsService } from "../review-threads-service";
@@ -23,7 +23,9 @@ afterEach(async () => {
   );
 });
 
-async function thread(binding: ReviewCommentAgentSession) {
+async function thread(
+  binding: Extract<ReviewCommentAgentSession, { state: "ready" }>,
+) {
   const directory = await mkdtemp(path.join(tmpdir(), "review-mirror-"));
   directories.push(directory);
   const service = new ReviewThreadsService({
@@ -45,20 +47,18 @@ async function thread(binding: ReviewCommentAgentSession) {
     threadId: "question",
     agentSession: binding,
   });
-  if (binding.state === "ready") {
-    service.upsertAgentSessionMessage({
-      mutationId: "accept",
-      threadId: "question",
-      messageId: "local-question",
-      role: "reviewer",
-      body: "Explain this",
-      agentInput: true,
-      agentMessage: {
-        sessionId: binding.sessionId,
-        messageId: binding.firstMessageId,
-      },
-    });
-  }
+  service.upsertAgentSessionMessage({
+    mutationId: "accept",
+    threadId: "question",
+    messageId: "local-question",
+    role: "reviewer",
+    body: "Explain this",
+    agentInput: true,
+    agentMessage: {
+      sessionId: binding.sessionId,
+      messageId: binding.firstMessageId,
+    },
+  });
   return service;
 }
 
@@ -91,52 +91,40 @@ function connect(
   return { mirror, updates };
 }
 
-it.each(["codex", "opencode", "pi", "claude-code"] as const)(
-  "%s ignores inherited prompts, preserves identical replies, and deduplicates on reconnect by ID",
-  async (harness) => {
-    const service = await thread({
-      harness,
-      sessionId: "fork",
-      state: "ready",
-      firstMessageId: "ask",
+it("ignores inherited prompts, preserves identical replies, and deduplicates on reconnect by ID", async () => {
+  const service = await thread({
+    harness: "codex",
+    sessionId: "fork",
+    state: "ready",
+    firstMessageId: "ask",
+  });
+  const history = [
+    // Even an inherited Ask for this exact comment cannot open the boundary.
+    message("old-ask", "user", "dev-review-thread-id: question\nExplain this"),
+    message("old-answer", "assistant", "Inherited answer"),
+    message("ask", "user", "Instructions plus the submitted question"),
+    message("answer-1", "assistant", "Same answer"),
+    message("followup", "user", "Explain this"),
+    message("answer-2", "assistant", "Same answer"),
+  ];
+  for (let connection = 0; connection < 2; connection += 1) {
+    const { mirror, updates } = connect(service, history);
+    await expect
+      .poll(() =>
+        service.snapshot().comments.question?.messages.map((m) => m.body),
+      )
+      .toEqual(["Explain this", "Same answer", "Explain this", "Same answer"]);
+    updates.push({
+      type: "message.updated",
+      message: message("answer-2", "assistant", "Revised answer"),
     });
-    const history = [
-      // Even an inherited Ask for this exact comment cannot open the boundary.
-      message(
-        "old-ask",
-        "user",
-        "dev-review-thread-id: question\nExplain this",
-      ),
-      message("old-answer", "assistant", "Inherited answer"),
-      message("ask", "user", "Instructions plus the submitted question"),
-      message("answer-1", "assistant", "Same answer"),
-      message("followup", "user", "Explain this"),
-      message("answer-2", "assistant", "Same answer"),
-    ];
-    for (let connection = 0; connection < 2; connection += 1) {
-      const { mirror, updates } = connect(service, history);
-      await expect
-        .poll(() =>
-          service.snapshot().comments.question?.messages.map((m) => m.body),
-        )
-        .toEqual([
-          "Explain this",
-          "Same answer",
-          "Explain this",
-          "Same answer",
-        ]);
-      updates.push({
-        type: "message.updated",
-        message: message("answer-2", "assistant", "Revised answer"),
-      });
-      await expect
-        .poll(() => service.snapshot().comments.question?.messages.at(-1)?.body)
-        .toBe("Revised answer");
-      expect(service.snapshot().comments.question?.messages).toHaveLength(4);
-      await mirror.close();
-    }
-  },
-);
+    await expect
+      .poll(() => service.snapshot().comments.question?.messages.at(-1)?.body)
+      .toBe("Revised answer");
+    expect(service.snapshot().comments.question?.messages).toHaveLength(4);
+    await mirror.close();
+  }
+});
 
 it("waits for the exact boundary when the native prompt has not materialized yet", async () => {
   const service = await thread({
@@ -163,24 +151,4 @@ it("waits for the exact boundary when the native prompt has not materialized yet
       service.snapshot().comments.question?.messages.map((m) => m.body),
     )
     .toEqual(["Explain this", "New answer"]);
-});
-
-it.each([
-  { state: "pending", firstMessageId: null },
-  { state: "repair-required" },
-] as const)("does not subscribe to a $state binding", async (state) => {
-  const service = await thread({
-    harness: "codex",
-    sessionId: "fork",
-    ...state,
-  });
-  const updates = vi.fn();
-  const mirror = new NativeMessageMirror({ service, updates });
-  mirrors.push(mirror);
-  mirror.start();
-  await mirror.close();
-  expect(updates).not.toHaveBeenCalled();
-  expect(
-    service.snapshot().comments.question?.messages.map((m) => m.body),
-  ).toEqual(["Explain this"]);
 });

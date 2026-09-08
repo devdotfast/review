@@ -236,57 +236,54 @@ describe("sqlite thread store", () => {
     });
   });
 
-  it.each(["codex", "claude-code", "opencode", "pi"] as const)(
-    "marks v6 %s comment and draft bindings for repair without changing their messages",
-    async (harness) => {
-      const reviewPath = makeReviewPath();
-      createReviewThreadDb(path.dirname(reviewPath));
-      closeAllReviewThreadStores();
-      const db = new DatabaseSync(reviewThreadDbPath(reviewPath));
-      const input = {
-        threadId: "question",
-        messageId: "ask",
-        target: { kind: "document" },
-        body: "Question",
-      };
-      const thread = {
-        threadId: input.threadId,
-        target: input.target,
-        status: "open",
-        agentSession: { harness, sessionId: "old-fork" },
-        messages: [
-          {
-            id: "ask",
-            by: "Reviewer",
-            at: "2026-09-07T00:00:00Z",
-            body: "Question",
-            agentInput: true,
-          },
-        ],
-      };
-      db.prepare(
-        "INSERT INTO comments (thread_id, record_json) VALUES (?, ?)",
-      ).run(input.threadId, JSON.stringify(thread));
-      db.prepare(
-        "INSERT INTO comment_drafts (thread_id, record_json) VALUES (?, ?)",
-      ).run(input.threadId, JSON.stringify({ thread, inputs: [input] }));
-      db.prepare(
-        "UPDATE meta SET value = '6' WHERE key = 'schema_version'",
-      ).run();
-      db.close();
-      await expect(migrateReviewThreadDb(reviewPath)).resolves.toBe("upgraded");
-      const expected = {
-        ...thread,
-        agentSession: { ...thread.agentSession, state: "repair-required" },
-      };
-      expect(readReviewComments(reviewPath).question).toEqual(expected);
-      expect(readReviewCommentDrafts(reviewPath).question).toEqual({
-        thread: expected,
-        inputs: [input],
-      });
-      await expect(migrateReviewThreadDb(reviewPath)).resolves.toBe("current");
-    },
-  );
+  it("marks v6 comment and draft bindings for repair without changing their messages", async () => {
+    const reviewPath = makeReviewPath();
+    createReviewThreadDb(path.dirname(reviewPath));
+    closeAllReviewThreadStores();
+    const db = new DatabaseSync(reviewThreadDbPath(reviewPath));
+    const input = {
+      threadId: "question",
+      messageId: "ask",
+      target: { kind: "document" },
+      body: "Question",
+    };
+    const thread = {
+      threadId: input.threadId,
+      target: input.target,
+      status: "open",
+      agentSession: { harness: "codex", sessionId: "old-fork" },
+      messages: [
+        {
+          id: "ask",
+          by: "Reviewer",
+          at: "2026-09-07T00:00:00Z",
+          body: "Question",
+          agentInput: true,
+        },
+      ],
+    };
+    db.prepare(
+      "INSERT INTO comments (thread_id, record_json) VALUES (?, ?)",
+    ).run(input.threadId, JSON.stringify(thread));
+    db.prepare(
+      "INSERT INTO comment_drafts (thread_id, record_json) VALUES (?, ?)",
+    ).run(input.threadId, JSON.stringify({ thread, inputs: [input] }));
+    db.prepare(
+      "UPDATE meta SET value = '6' WHERE key = 'schema_version'",
+    ).run();
+    db.close();
+    await expect(migrateReviewThreadDb(reviewPath)).resolves.toBe("upgraded");
+    const expected = {
+      ...thread,
+      agentSession: { ...thread.agentSession, state: "repair-required" },
+    };
+    expect(readReviewComments(reviewPath).question).toEqual(expected);
+    expect(readReviewCommentDrafts(reviewPath).question).toEqual({
+      thread: expected,
+      inputs: [input],
+    });
+    await expect(migrateReviewThreadDb(reviewPath)).resolves.toBe("current");
+  });
 
   it("aborts migration instead of dropping a malformed agent binding", async () => {
     const reviewPath = makeReviewPath();

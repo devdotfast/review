@@ -33,7 +33,7 @@ class ReviewCommunityContribution implements IWorkbenchContribution {
 			cancelButton: 'Not now',
 			checkbox: { label: "Don't show again" },
 		}).then(async result => {
-			if (result.checkboxChecked) {
+			if (result.confirmed || result.checkboxChecked) {
 				storageService.store(DISMISSED_KEY, true, StorageScope.APPLICATION, StorageTarget.MACHINE);
 			}
 			if (result.confirmed) {

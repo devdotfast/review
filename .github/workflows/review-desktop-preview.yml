@@ -58,6 +58,31 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
 
+      # A re-run reuses GITHUB_RUN_NUMBER, so it recomputes the same version
+      # string while re-resolving the mutable ref, which may have moved on. Left
+      # to the tag push at the end, that collision would surface only after
+      # signing, notarization, and an R2 upload that already overwrote the keys
+      # for this version.
+      - name: Check the preview tag is free
+        shell: bash
+        env:
+          TAG: v${{ steps.version.outputs.version }}
+          COMMIT: ${{ steps.version.outputs.commit }}
+        run: |
+          # Prefer the peeled line so an annotated tag resolves to its commit.
+          EXISTING=$(git ls-remote origin "refs/tags/${TAG}" "refs/tags/${TAG}^{}" \
+            | awk '{ if (index($2, "^{}")) peeled = $1; else plain = $1 }
+                   END { print (peeled != "" ? peeled : plain) }')
+
+          if [ -z "$EXISTING" ]; then
+            echo "${TAG} is free."
+          elif [ "$EXISTING" = "$COMMIT" ]; then
+            echo "${TAG} already points at ${COMMIT}; this run republishes it."
+          else
+            echo "::error::${TAG} already exists on origin at ${EXISTING}, but this run builds ${COMMIT}. Delete the tag, or start a fresh run so a new run number produces a new version."
+            exit 1
+          fi
+
   compile:
     name: Compile Darwin payload on Linux
     needs: version
@@ -401,3 +426,53 @@ jobs:
         run: |
           security delete-keychain "$RUNNER_TEMP/buildagent.keychain" || true
           rm -f "$RUNNER_TEMP/notary-key.p8"
+
+  # The one job here that can write to the repository, and it holds no signing
+  # or R2 credentials. `needs: version` carries the review-release environment
+  # gate transitively, and `needs: build` means a tag only ever names a preview
+  # that uploaded, answered its update feed, and served its installer.
+  tag-preview:
+    name: Tag published preview
+    needs: [version, build]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # A promotion handle: review-desktop-release.yml resolves this tag back to
+      # the commit the preview was built from.
+      - name: Push the preview tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ needs.version.outputs.version }}
+          COMMIT: ${{ needs.version.outputs.commit }}
+        run: |
+          # Tag previews on main's history, including older commits that can
+          # still be promoted after main advances.
+          STATUS=$(gh api "repos/${GITHUB_REPOSITORY}/compare/main...${COMMIT}" --jq .status)
+          case "$STATUS" in
+            identical | behind) ;;
+            *)
+              echo "${COMMIT} is not on main (${STATUS}); a preview off main is not promotable, so it stays untagged."
+              exit 0
+              ;;
+          esac
+
+          SHA=""
+          TYPE=""
+          if RESPONSE=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" 2>/dev/null); then
+            SHA=$(printf '%s' "$RESPONSE" | jq -r .object.sha)
+            TYPE=$(printf '%s' "$RESPONSE" | jq -r .object.type)
+          fi
+
+          if [ -z "$SHA" ]; then
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f "ref=refs/tags/${TAG}" -f "sha=${COMMIT}" >/dev/null
+            echo "Tagged ${COMMIT} as ${TAG}."
+          elif [ "$TYPE" = "commit" ] && [ "$SHA" = "$COMMIT" ]; then
+            echo "${TAG} already points at ${COMMIT}; nothing to do."
+          else
+            echo "::error::${TAG} exists on origin as ${TYPE} ${SHA}, but this run built ${COMMIT}. Delete the tag before re-running, or start a fresh run so a new run number produces a new version."
+            exit 1
+          fi

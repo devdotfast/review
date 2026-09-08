@@ -15,7 +15,6 @@ import {
 } from "./transcript-json";
 
 interface ClaudeStep {
-  user: NativeReviewMessage;
   assistantEntries: JsonRecord[];
 }
 
@@ -86,7 +85,7 @@ export function projectClaudeReviewMessages(
         id: requiredMessageId(entry),
         role: "assistant",
         body: assistantText(entry).trim(),
-        createdAt: entryTimestamp(entry)[0] ?? step.user.createdAt,
+        createdAt: entryTimestamp(entry),
       });
     }
   };
@@ -101,10 +100,10 @@ export function projectClaudeReviewMessages(
         id: requiredMessageId(entry),
         role: "user",
         body,
-        createdAt: entryTimestamp(entry)[0] ?? new Date(0).toISOString(),
+        createdAt: entryTimestamp(entry),
       };
       messages.push(user);
-      step = { user, assistantEntries: [] };
+      step = { assistantEntries: [] };
       continue;
     }
     if (step && entry.type === "assistant") {
@@ -124,9 +123,11 @@ function assistantText(entry: JsonRecord): string {
   return messageText(entry);
 }
 
-function entryTimestamp(entry: JsonRecord): string[] {
+function entryTimestamp(entry: JsonRecord): string {
   const timestamp = jsonString(entry.timestamp);
-  return timestamp ? [timestamp] : [];
+  if (!timestamp)
+    throw new Error("Claude transcript message has no timestamp.");
+  return timestamp;
 }
 
 function requiredMessageId(entry: JsonRecord): string {

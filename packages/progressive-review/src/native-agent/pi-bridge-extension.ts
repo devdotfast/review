@@ -57,6 +57,9 @@ const BRIDGE_URL_ENV = "DEV_FAST_REVIEW_AGENT_BRIDGE_URL";
 const BRIDGE_TOKEN_ENV = "DEV_FAST_REVIEW_AGENT_BRIDGE_TOKEN";
 
 export default function piBridgeExtension(pi: PiBridgeApi): void {
+  const url = process.env[BRIDGE_URL_ENV];
+  const token = process.env[BRIDGE_TOKEN_ENV];
+  if (!url || !token) throw new Error("Pi has no Review bridge attachment.");
   let delivery = Promise.resolve();
   const post = (
     context: PiBridgeContext,
@@ -69,28 +72,20 @@ export default function piBridgeExtension(pi: PiBridgeApi): void {
       sessionId: context.sessionManager.getSessionId(),
       messages: projectBranch(context.sessionManager.getBranch()),
     };
-    delivery = delivery
-      .then(async () => {
-        const url = process.env[BRIDGE_URL_ENV];
-        const token = process.env[BRIDGE_TOKEN_ENV];
-        if (!url || !token)
-          throw new Error("Pi has no Review bridge attachment.");
-        const response = await fetch(url, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-review-token": token,
-          },
-          body: JSON.stringify(payload),
-        });
-        if (!response.ok)
-          throw new Error(
-            `Review bridge rejected Pi snapshot (${response.status}).`,
-          );
-      })
-      .catch((error) => {
-        console.error(error);
+    delivery = delivery.then(async () => {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-review-token": token,
+        },
+        body: JSON.stringify(payload),
       });
+      if (!response.ok)
+        throw new Error(
+          `Review bridge rejected Pi snapshot (${response.status}).`,
+        );
+    });
     return delivery;
   };
 

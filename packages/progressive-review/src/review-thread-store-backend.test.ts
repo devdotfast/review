@@ -288,6 +288,32 @@ describe("sqlite thread store", () => {
     },
   );
 
+  it("aborts migration instead of dropping a malformed agent binding", async () => {
+    const reviewPath = makeReviewPath();
+    seedComment(reviewPath);
+    closeAllReviewThreadStores();
+    const db = new DatabaseSync(reviewThreadDbPath(reviewPath));
+    db.prepare(
+      "UPDATE comments SET record_json = json_set(record_json, '$.agentSession', json(?))",
+    ).run(JSON.stringify({ harness: "codex", sessionId: "" }));
+    db.prepare(
+      "UPDATE meta SET value = '6' WHERE key = 'schema_version'",
+    ).run();
+    const before = db.prepare("SELECT record_json FROM comments").all();
+    db.close();
+    await expect(migrateReviewThreadDb(reviewPath)).rejects.toThrow();
+    const unchanged = new DatabaseSync(reviewThreadDbPath(reviewPath));
+    expect(unchanged.prepare("SELECT record_json FROM comments").all()).toEqual(
+      before,
+    );
+    expect(
+      unchanged
+        .prepare("SELECT value FROM meta WHERE key = 'schema_version'")
+        .get(),
+    ).toEqual({ value: "6" });
+    unchanged.close();
+  });
+
   it("does not select legacy JSON files at runtime", () => {
     const reviewPath = makeReviewPath();
     writeFileSync(

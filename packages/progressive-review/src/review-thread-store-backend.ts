@@ -9,7 +9,6 @@ import {
   parseJsonText,
 } from "@dev.fast/review-protocol";
 import {
-  ReviewCommentAgentSessionSchema,
   ReviewCommentDraftThreadMapSchema,
   parseReviewCommentThreadMap,
   parseStoredReviewCommentThreadMap,
@@ -252,7 +251,7 @@ export async function migrateReviewThreadDb(
   }
 }
 
-/** Preserve messages; bindings without a native boundary require a fresh Ask. */
+/** Preserve messages; bindings without a native boundary require explicit repair. */
 function migrateNativeAgentSessionRecords(db: DatabaseSync): void {
   for (const table of ["comments", "comment_drafts"] as const) {
     // SAFETY: both tables declare thread_id TEXT PRIMARY KEY and record_json
@@ -318,13 +317,12 @@ function migrateNativeAgentSessionThread(thread: JsonObject): JsonObject {
     : thread;
   if (!("agentSession" in migratedThread)) return migratedThread;
   const { agentSession, ...preserved } = migratedThread;
-  const current = ReviewCommentAgentSessionSchema.safeParse(agentSession);
-  if (current.success) return { ...preserved, agentSession: current.data };
-  const session = LegacyCommentAgentSessionSchema.safeParse(agentSession);
-  if (!session.success) return preserved;
+  // This migration only runs on pre-v7 databases. Validate that version's
+  // binding once; malformed records abort the transaction.
+  const session = LegacyCommentAgentSessionSchema.parse(agentSession);
   return {
     ...preserved,
-    agentSession: { ...session.data, state: "repair-required" },
+    agentSession: { ...session, state: "repair-required" },
   };
 }
 

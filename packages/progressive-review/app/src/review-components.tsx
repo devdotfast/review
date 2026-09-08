@@ -1704,13 +1704,13 @@ function ThreadChat({
         {thread?.agentSession?.state === "pending" && (
           <p role="status">
             Waiting for the agent to record this question. If launch was
-            interrupted, ask again to start a new session.
+            interrupted, start a new comment thread.
           </p>
         )}
         {thread?.agentSession?.state === "repair-required" && (
           <p role="status">
             This older session has no recorded conversation boundary. Your
-            messages are preserved; the next Ask will start a new session.
+            messages are preserved. Start a new comment thread to ask again.
           </p>
         )}
         {thread?.messages.map((message) => {

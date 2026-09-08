@@ -12,7 +12,7 @@ type QuestionSourceResolver = NonNullable<
 >;
 
 describe("resolveReviewQuestionLaunch", () => {
-  it("awaits the prepared tutorial source before falling back to fresh", async () => {
+  it("awaits the configured tutorial source", async () => {
     let release!: () => void;
     const ready = new Promise<void>((resolve) => {
       release = resolve;
@@ -36,7 +36,7 @@ describe("resolveReviewQuestionLaunch", () => {
     });
   });
 
-  it("uses the fresh route when preparation fails", async () => {
+  it("propagates preparation failure even when a fresh harness is configured", async () => {
     await expect(
       resolveReviewQuestionLaunch({
         freshQuestionHarness: "pi",
@@ -44,10 +44,10 @@ describe("resolveReviewQuestionLaunch", () => {
           throw new Error("handoff failed");
         },
       }),
-    ).resolves.toEqual({ harness: "pi" });
+    ).rejects.toThrow("handoff failed");
   });
 
-  it("falls back after the bounded tutorial wait and aborts the waiter", async () => {
+  it("rejects after the bounded tutorial wait and aborts the waiter", async () => {
     const controller = new AbortController();
     const timeout = vi
       .spyOn(AbortSignal, "timeout")
@@ -70,8 +70,18 @@ describe("resolveReviewQuestionLaunch", () => {
     expect(TUTORIAL_QUESTION_SOURCE_WAIT_MS).toBe(5_000);
     controller.abort();
 
-    await expect(pending).resolves.toEqual({ harness: "codex" });
+    await expect(pending).rejects.toThrow("Timed out waiting");
+    timeout.mockRestore();
     expect(resolver).toHaveBeenCalledWith(controller.signal);
+  });
+
+  it("rejects a configured source that reports no session", async () => {
+    await expect(
+      resolveReviewQuestionLaunch({
+        freshQuestionHarness: "pi",
+        resolveQuestionSourceSession: async () => undefined,
+      }),
+    ).rejects.toThrow("authoring session is not ready");
   });
 
   it("does not prepare when a stored or static session already exists", async () => {
@@ -103,7 +113,7 @@ describe("resolveReviewQuestionLaunch", () => {
     { state: "pending", firstMessageId: "earlier-ask" },
     { state: "repair-required" },
   ] as const)(
-    "starts a fresh fork when the previous binding is $state",
+    "rejects an incomplete $state binding without selecting another session",
     async (state) => {
       await expect(
         resolveReviewQuestionLaunch({
@@ -114,7 +124,7 @@ describe("resolveReviewQuestionLaunch", () => {
           },
           agent: { harness: "codex", sessionId: "author" },
         }),
-      ).resolves.toEqual({ harness: "codex", session: { forkOf: "author" } });
+      ).rejects.toThrow(/unconfirmed Ask|no native message boundary/);
     },
   );
 });

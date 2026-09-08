@@ -43,4 +43,4 @@ class ReviewCommunityContribution implements IWorkbenchContribution {
 	}
 }
 
-registerWorkbenchContribution2(ReviewCommunityContribution.ID, ReviewCommunityContribution, WorkbenchPhase.Restored);
+registerWorkbenchContribution2(ReviewCommunityContribution.ID, ReviewCommunityContribution, WorkbenchPhase.AfterRestored);

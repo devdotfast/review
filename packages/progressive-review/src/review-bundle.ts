@@ -136,6 +136,8 @@ function parseDocument(raw: string): ReviewDocumentData | null {
   return document.success ? document.data : null;
 }
 
-function bundleHash(json: string): string {
+/** Public document `contentHash`: the 20-hex prefix of sha256(json). */
+export function reviewDocumentContentHash(json: string): string {
   return crypto.createHash("sha256").update(json).digest("hex").slice(0, 20);
 }
+const bundleHash = reviewDocumentContentHash;

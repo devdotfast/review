@@ -7,9 +7,12 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   REVIEW_SOFTWARE_MAP_BUNDLE_DIR,
+  SOFTWARE_MAP_ARTIFACT_FORMAT,
   bundleReviewSoftwareMap,
   readReviewSoftwareMapBundle,
   sameReviewSoftwareMapBundle,
+  softwareMapArtifactBytes,
+  softwareMapBundleFromArtifact,
   writeReviewSoftwareMapBundle,
 } from "./software-map-bundle";
 import {
@@ -77,5 +80,50 @@ describe("software map bundle", () => {
     await writeFile(path.join(bundleDir, "base-map.js"), "export default {}");
 
     await expect(readReviewSoftwareMapBundle(directory)).resolves.toBeNull();
+  });
+});
+
+describe("software map artifact envelope", () => {
+  it("round trips headJson/baseJson byte-for-byte and matches the bundle's contentHash", async () => {
+    directory = await mkdtemp(path.join(tmpdir(), "review-map-artifact-"));
+    const head = defineSoftwareMap({ systems: { app: { label: "App" } } });
+    const base = defineSoftwareMap({ systems: { api: { label: "API" } } });
+    const bundle = bundleReviewSoftwareMap({
+      head,
+      base,
+      headCommit: "a".repeat(40),
+      baseCommit: "b".repeat(40),
+    });
+    await writeReviewSoftwareMapBundle(directory, bundle);
+    const fromDisk = await readReviewSoftwareMapBundle(directory);
+
+    const bytes = softwareMapArtifactBytes(bundle);
+    expect(bytes.endsWith("\n")).toBe(true);
+    expect(JSON.parse(bytes).format).toBe(SOFTWARE_MAP_ARTIFACT_FORMAT);
+
+    const roundTripped = softwareMapBundleFromArtifact(bytes);
+    expect(roundTripped?.headJson).toBe(bundle.headJson);
+    expect(roundTripped?.baseJson).toBe(bundle.baseJson);
+    expect(roundTripped?.headCommit).toBe(bundle.headCommit);
+    expect(roundTripped?.baseCommit).toBe(bundle.baseCommit);
+    expect(roundTripped?.contentHash).toBe(fromDisk?.contentHash);
+  });
+
+  it("returns null for malformed or incompatible envelope bytes", () => {
+    expect(softwareMapBundleFromArtifact("not json")).toBeNull();
+    expect(
+      softwareMapBundleFromArtifact(JSON.stringify({ format: "other/1" })),
+    ).toBeNull();
+    expect(
+      softwareMapBundleFromArtifact(
+        JSON.stringify({
+          format: SOFTWARE_MAP_ARTIFACT_FORMAT,
+          headCommit: "a".repeat(40),
+          baseCommit: "b".repeat(40),
+          headJson: "not json",
+          baseJson: "{}",
+        }),
+      ),
+    ).toBeNull();
   });
 });

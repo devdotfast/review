@@ -5,6 +5,7 @@ import { ReviewRepairReadyResponseSchema } from "./review-lifecycle-contracts";
 export { ReviewRepairReadyResponseSchema } from "./review-lifecycle-contracts";
 import { z } from "zod";
 
+import { REVIEW_ARTIFACTS_DIR } from "./review-artifact-store";
 import { isDerivedReviewPath } from "./review-derived-paths";
 import {
   hasPendingReviewAgentWrites,
@@ -38,8 +39,10 @@ export async function fingerprintReviewRepairInputs(
   dir: string,
 ): Promise<string> {
   return fingerprintReviewTree(dir, {
-    include: (relativePath) =>
-      !isDerivedReviewPath(relativePath.split(path.sep)[0] ?? ""),
+    include: (relativePath) => {
+      const top = relativePath.split(path.sep)[0] ?? "";
+      return top !== REVIEW_ARTIFACTS_DIR && !isDerivedReviewPath(top);
+    },
     symlink: "hash-target",
   });
 }

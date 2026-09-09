@@ -66,7 +66,7 @@ function fingerprintGuardedValues(
 
 /** Key-order independent, so a rewritten record with reordered
  * `sourceIdentity` keys still compares equal, as deep equality did. */
-function stableJson(value: JsonValue | undefined): string {
+export function stableJson(value: JsonValue | undefined): string {
   if (value === undefined) return "\0undefined";
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
   if (!isJsonObject(value)) return JSON.stringify(value);

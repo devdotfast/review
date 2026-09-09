@@ -13,6 +13,7 @@ import {
 
 import { errorMessage as message } from "./error-message";
 import { isMissingFileError } from "./native-agent/transcript-json";
+import { REVIEW_ARTIFACTS_DIR } from "./review-artifact-store";
 import {
   bundleReviewDocument,
   readReviewDocumentBundle,
@@ -267,10 +268,10 @@ async function snapshotReviewForRepair(
     const expectedFingerprint = await fingerprintReviewRepairInputs(reviewDir);
     await cp(reviewDir, stagingDir, {
       recursive: true,
-      filter: (source) =>
-        !isDerivedReviewPath(
-          path.relative(reviewDir, source).split(path.sep)[0] ?? "",
-        ),
+      filter: (source) => {
+        const top = path.relative(reviewDir, source).split(path.sep)[0] ?? "";
+        return top !== REVIEW_ARTIFACTS_DIR && !isDerivedReviewPath(top);
+      },
     });
     await assertIsolatedRepairInternals(stagingDir);
     if (

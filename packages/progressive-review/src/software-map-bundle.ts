@@ -126,6 +126,54 @@ export async function readReviewSoftwareMapBundle(
   };
 }
 
+export const SOFTWARE_MAP_ARTIFACT_FORMAT = "review-map-artifact/1";
+
+const SoftwareMapArtifactEnvelopeSchema = z.strictObject({
+  format: z.literal(SOFTWARE_MAP_ARTIFACT_FORMAT),
+  headCommit: z.string().regex(COMMIT_SHA_PATTERN),
+  baseCommit: z.string().regex(COMMIT_SHA_PATTERN),
+  headJson: z.string(),
+  baseJson: z.string(),
+});
+type SoftwareMapArtifactEnvelope = z.infer<
+  typeof SoftwareMapArtifactEnvelopeSchema
+>;
+
+/** The on-disk bytes for a map artifact file: head/base JSON plus the
+ * commits they were compared against, in one content-addressed envelope. */
+export function softwareMapArtifactBytes(
+  bundle: ReviewSoftwareMapBundle,
+): string {
+  const envelope: SoftwareMapArtifactEnvelope = {
+    format: SOFTWARE_MAP_ARTIFACT_FORMAT,
+    headCommit: bundle.headCommit,
+    baseCommit: bundle.baseCommit,
+    headJson: bundle.headJson,
+    baseJson: bundle.baseJson,
+  };
+  return `${JSON.stringify(envelope)}\n`;
+}
+
+/** The inverse of `softwareMapArtifactBytes`; `null` on malformed or
+ * incompatible bytes. `contentHash` is recomputed identically to
+ * `readReviewSoftwareMapBundle`'s, so the two agree for the same maps. */
+export function softwareMapBundleFromArtifact(
+  bytes: string,
+): ReviewSoftwareMapBundle | null {
+  const envelope = parseJson(bytes, SoftwareMapArtifactEnvelopeSchema);
+  if (!envelope) return null;
+  const head = parseJson(envelope.headJson, SoftwareMapDataFileSchema);
+  const base = parseJson(envelope.baseJson, SoftwareMapDataFileSchema);
+  if (!head || !base) return null;
+  return {
+    headJson: envelope.headJson,
+    baseJson: envelope.baseJson,
+    contentHash: bundleHash(envelope.headJson, envelope.baseJson),
+    headCommit: envelope.headCommit,
+    baseCommit: envelope.baseCommit,
+  };
+}
+
 export function sameReviewSoftwareMapBundle(
   left: ReviewSoftwareMapBundle,
   right: ReviewSoftwareMapBundle,

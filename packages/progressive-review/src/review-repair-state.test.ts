@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -39,4 +39,16 @@ it("fingerprints editable inputs and blocks pending agent writes without changin
   const bytes = await readFile(dbPath);
   expect(() => assertNoActiveReviewAgentWrites(root!)).toThrow("pending agent");
   expect(await readFile(dbPath)).toEqual(bytes);
+});
+
+it("ignores the artifacts directory when fingerprinting repair inputs", async () => {
+  root = await mkdtemp(path.join(tmpdir(), "review-repair-state-"));
+  await writeFile(path.join(root, "review.mdx"), "# One");
+  const before = await fingerprintReviewRepairInputs(root);
+  await mkdir(path.join(root, "artifacts", "documents"), { recursive: true });
+  await writeFile(
+    path.join(root, "artifacts", "documents", "a".repeat(64) + ".json"),
+    "{}",
+  );
+  expect(await fingerprintReviewRepairInputs(root)).toBe(before);
 });

@@ -14,6 +14,7 @@ const MANAGED_REVIEW_NAMES = new Set([
   "review.json",
   ".git",
   ".bundle",
+  "artifacts",
 ]);
 
 /** Durable authored bytes: the inputs a publication or repair candidate is

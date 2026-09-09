@@ -61,13 +61,14 @@ enabled repository.
 
 `review trace config migrate --dry-run --json` wrote nothing and printed the
 key prefix only. `review trace config migrate --json` wrote
-`~/.dev/trace/config.json` with mode `0600`, left the legacy files
-byte-identical, and never printed the secret. With the legacy `env` and
-`settings.json` moved away, `trace status` named the config profile as the
-credential source and the bucket stayed reachable; `trace list`, `trace show`
-of the pre-upgrade session, and a fourth captured, pushed, and synced session
-all worked. Restoring the legacy files and deleting `config.json` returned
-status to the legacy configuration.
+`~/.dev/trace/config.json` with mode `0600`, retired the legacy `env` and
+`settings.json` to `legacy_env` and `legacy_settings.json` byte-identical,
+and never printed the secret. With only the new file active, `trace status`
+named the config profile as the credential source and the bucket stayed
+reachable; `trace list`, `trace show` of the pre-upgrade session, and a
+fourth captured, pushed, and synced session all worked. Renaming the retired
+files back and deleting `config.json` returned status to the legacy
+configuration.
 
 The first run of this phase found a defect: the doctor still required the
 legacy env file to exist and reported "No trace configuration found" on a
@@ -305,9 +306,11 @@ stat -f '%Sp %N' "$DEV_REVIEW_HOME/trace/config.json" | tee -a "$LOG"
 # Command output must never carry the secret; only the echoed install
 # command line does, by construction.
 if grep -v '^\$ ' "$LOG" | grep -q gateadminsecret; then fail "secret leaked into command output"; fi
-diff "$GATE/hashes-before.txt" <(hashes) >> "$LOG" || fail "legacy files changed by migrate"
+# Migrate retires the legacy files beside their originals, unchanged.
+[ ! -e "$HOME/.config/dev-trace/env" ] || fail "env file still active after migrate"
+[ ! -e "$HOME/.config/dev-trace/settings.json" ] || fail "settings file still active after migrate"
+[ "$(shasum -a 256 "$HOME/.config/dev-trace/legacy_env" | cut -d' ' -f1)" = "$(head -1 "$GATE/hashes-before.txt" | cut -d' ' -f1)" ] || fail "retired env differs"
 run review trace status || fail "status after migrate"
-mkdir -p "$GATE/legacy-backup" && mv "$HOME/.config/dev-trace/env" "$HOME/.config/dev-trace/settings.json" "$GATE/legacy-backup/"
 run review trace status || fail "status with new config only"
 # HEAD~2 is the traced commit; HEAD and HEAD~1 were made with capture off.
 run review trace list --commit HEAD~2 --json || fail "list with new config only"
@@ -320,8 +323,8 @@ sleep 1
 run review trace sync "$S4" --json || fail "sync 5"
 bucket_ls | grep -q "by-session/$S4/trace.jsonl" || fail "trace object 5"
 run review trace show "$S4" --json || fail "show 5"
-say "Rollback: restore legacy files, remove config.json"
-mv "$GATE/legacy-backup/env" "$GATE/legacy-backup/settings.json" "$HOME/.config/dev-trace/" && rm "$DEV_REVIEW_HOME/trace/config.json"
+say "Rollback: rename the retired files back, remove config.json"
+mv "$HOME/.config/dev-trace/legacy_env" "$HOME/.config/dev-trace/env" && mv "$HOME/.config/dev-trace/legacy_settings.json" "$HOME/.config/dev-trace/settings.json" && rm "$DEV_REVIEW_HOME/trace/config.json"
 run review trace status || fail "status after rollback"
 run review trace list --commit HEAD --json || fail "list after rollback"
 [ ! -s "$GATE/network.log" ] || fail "non-loopback network attempt (late)"

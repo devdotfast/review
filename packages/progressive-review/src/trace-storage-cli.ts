@@ -1,4 +1,6 @@
+import { existsSync, renameSync } from "node:fs";
 import os from "node:os";
+import path from "node:path";
 
 import {
   type CliJsonOutput,
@@ -244,6 +246,13 @@ async function useHosted(
 export interface RunReviewTraceConfigMigrateInput
   extends CliJsonOutput, TraceStorageCommandScope {
   dryRun?: boolean;
+  /** Leave the legacy env and settings files in place after migrating. */
+  keepLegacy?: boolean;
+}
+
+/** Where a migrated legacy file goes: `legacy_<name>` beside the original. */
+export function legacyRetiredPath(filePath: string): string {
+  return path.join(path.dirname(filePath), `legacy_${path.basename(filePath)}`);
 }
 
 /**
@@ -336,14 +345,36 @@ export async function runReviewTraceConfigMigrate(
       status = "written";
       human.write(`Wrote ${configFile.path} (mode 0600).\n`);
     }
-    // 5. Legacy inputs stay as they are.
-    human.write(
-      "Legacy env and settings files were left unchanged; exported TRACE_R2_* variables still take precedence. Removing them is optional.\n",
-    );
+    // 5. The legacy files are retired beside their originals so the new
+    //    file is the only active source. Renaming, not deleting, keeps the
+    //    rollback a rename away. Exported variables are the user's own.
+    const retired: Array<{ from: string; to: string }> = [];
+    if (status !== "preview" && !input.keepLegacy) {
+      for (const filePath of [legacy.envPath, settingsPath]) {
+        if (!existsSync(filePath)) continue;
+        const to = legacyRetiredPath(filePath);
+        renameSync(filePath, to);
+        retired.push({ from: filePath, to });
+      }
+      clearTraceEnvCache();
+    }
+    if (retired.length > 0) {
+      for (const move of retired) {
+        human.write(`Retired ${move.from} -> ${move.to}\n`);
+      }
+      human.write(
+        `To roll back, rename the retired files back and delete ${configFile.path}. Exported TRACE_R2_* variables still take precedence.\n`,
+      );
+    } else {
+      human.write(
+        "Legacy env and settings files were left unchanged; exported TRACE_R2_* variables still take precedence.\n",
+      );
+    }
     emitJsonEvent(input, {
       event: stage,
       status,
       dryRun: Boolean(input.dryRun),
+      retired,
       configPath: configFile.path,
       credentialsSource: legacy.source,
       overrides: legacy.overrides,

@@ -211,8 +211,12 @@ precedence over any saved profile.
 config file after checking the bucket is reachable. `review trace config
 migrate` copies an existing legacy setup into that profile, refusing to
 overwrite a different profile or to switch away from a hosted selection;
-`--dry-run` previews without writing and never prints secrets. The legacy
-files stay untouched either way.
+`--dry-run` previews without writing and never prints secrets. After a
+successful migration the legacy `env` and `settings.json` are renamed to
+`legacy_env` and `legacy_settings.json` beside their originals so the new
+file is the only active source; pass `--keep-legacy` to leave them in place.
+To roll back, rename them back and delete the config file. Exported
+`TRACE_R2_*` variables keep their precedence either way.
 
 `review trace storage use hosted` requires `review login` for the origin,
 a store that answers the current contract, and `review trace allow` for the

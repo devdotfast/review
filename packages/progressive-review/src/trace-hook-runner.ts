@@ -56,16 +56,15 @@ export async function runReviewTraceHook(
   if (process.env.TRACE_DISABLE === "1") {
     return 0;
   }
-  // Storage mode and capture eligibility come first. Direct capture keeps
-  // its machine gate; hosted capture is gated per repository below, after
-  // the session is known, because provenance must be recorded either way.
+  // The machine switch comes first and has one owner. Hosted capture is
+  // gated again per repository below, after the session is known, because
+  // provenance must be recorded either way.
   const selection = selectTraceStorage({
     homeDir: input.homeDir,
     env: input.env,
   });
   if (selection.error || selection.mode === "none") return 0;
   if (
-    selection.mode === "direct" &&
     !(await traceMachineEnabled({
       homeDir: input.homeDir,
       env: input.env,

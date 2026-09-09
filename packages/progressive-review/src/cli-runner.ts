@@ -1017,16 +1017,27 @@ export async function runProgressiveReviewCli(
       .description(
         "Copy the legacy S3/R2 setup into $DEV_REVIEW_HOME/trace/config.json",
       )
-      .option("--dry-run", "preview without writing"),
+      .option("--dry-run", "preview without writing")
+      .option(
+        "--keep-legacy",
+        "leave the legacy env and settings files in place instead of renaming them to legacy_*",
+      ),
     "plain",
-  ).action(async (options: { dryRun?: boolean; json?: boolean }) => {
-    state.exitCode = await runtime.runReviewTraceConfigMigrate({
-      dryRun: options.dryRun,
-      json: options.json,
-      stdout: input.stdout,
-      stderr: input.stderr,
-    });
-  });
+  ).action(
+    async (options: {
+      dryRun?: boolean;
+      keepLegacy?: boolean;
+      json?: boolean;
+    }) => {
+      state.exitCode = await runtime.runReviewTraceConfigMigrate({
+        dryRun: options.dryRun,
+        keepLegacy: options.keepLegacy,
+        json: options.json,
+        stdout: input.stdout,
+        stderr: input.stderr,
+      });
+    },
+  );
 
   configureOutput(
     trace

@@ -23,6 +23,7 @@ import { writeStoreAuth } from "./store-auth";
 import { StoreClient } from "./store-client";
 import { traceMachineStatus } from "./trace-machine-setup";
 import {
+  legacyRetiredPath,
   runReviewTraceConfigMigrate,
   runReviewTraceStorageUse,
 } from "./trace-storage-cli";
@@ -99,7 +100,9 @@ describe("trace storage commands", () => {
     });
   }
 
-  async function migrate(options: { dryRun?: boolean; json?: boolean } = {}) {
+  async function migrate(
+    options: { dryRun?: boolean; keepLegacy?: boolean; json?: boolean } = {},
+  ) {
     const out: string[] = [];
     const err: string[] = [];
     const code = await runReviewTraceConfigMigrate({
@@ -131,12 +134,14 @@ describe("trace storage commands", () => {
     expect(result.stderr).toContain("Dry run: nothing was written.");
   });
 
-  it("migrates once, leaves the legacy files intact, and is idempotent", async () => {
+  it("migrates once, retires the legacy files beside their originals, and is idempotent", async () => {
     writeLegacy();
     const before = readFileSync(envPath, "utf8");
+    const settingsBefore = readFileSync(settingsPath, "utf8");
     const first = await migrate();
     expect(first.code).toBe(0);
     expect(first.stdout).toContain("Wrote ");
+    expect(first.stdout).toContain("Retired ");
 
     const configPath = traceConfigPath({ env, homeDir: home });
     expect(statSync(configPath).mode & 0o777).toBe(0o600);
@@ -157,12 +162,16 @@ describe("trace storage commands", () => {
         },
       },
     });
-    expect(readFileSync(envPath, "utf8")).toBe(before);
-    expect(statSync(envPath).mode & 0o777).toBe(0o600);
+    // The legacy files moved aside unchanged; the originals are gone.
+    const retiredEnv = legacyRetiredPath(envPath);
+    const retiredSettings = legacyRetiredPath(settingsPath);
+    expect(existsSync(envPath)).toBe(false);
+    expect(existsSync(settingsPath)).toBe(false);
+    expect(readFileSync(retiredEnv, "utf8")).toBe(before);
+    expect(readFileSync(retiredSettings, "utf8")).toBe(settingsBefore);
+    expect(statSync(retiredEnv).mode & 0o777).toBe(0o600);
 
     // Migration acceptance: the new file alone yields the same setup.
-    rmSync(envPath);
-    rmSync(settingsPath);
     clearTraceEnvCache();
     const setup = resolveDirectSetup({ env, homeDir: home });
     expect(setup.source).toBe("profile");
@@ -201,6 +210,17 @@ describe("trace storage commands", () => {
     const second = await migrate({ json: true });
     expect(second.code).toBe(0);
     expect(JSON.parse(second.stdout.trim()).status).toBe("unchanged");
+  });
+
+  it("leaves the legacy files in place with --keep-legacy", async () => {
+    writeLegacy();
+    const before = readFileSync(envPath, "utf8");
+    const result = await migrate({ keepLegacy: true, json: true });
+    expect(result.code).toBe(0);
+    expect(readFileSync(envPath, "utf8")).toBe(before);
+    expect(existsSync(legacyRetiredPath(envPath))).toBe(false);
+    expect(JSON.parse(result.stdout.trim()).retired).toEqual([]);
+    expect(result.stderr).toContain("left unchanged");
   });
 
   it("keeps disabled capture disabled", async () => {

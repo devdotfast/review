@@ -145,11 +145,18 @@ export async function traceMachineStatus(
   const setup = selection.direct;
   const credentials = setup.credentials;
   const { settings, source } = await readCaptureSettings(setup, settingsPath);
+  // Capture eligibility has one owner. Direct storage keeps the legacy
+  // machine switch (settings file or profile capture flag). An explicit
+  // hosted selection is the machine-level opt-in; per-repository consent
+  // and session provenance gate every hosted publication after that.
+  const hosted = selection.mode === "hosted";
   const status: TraceMachineStatus = {
-    enabled: settings?.enabled === true,
-    configured: credentials !== null,
+    enabled: hosted || settings?.enabled === true,
+    configured: hosted || credentials !== null,
     autoActivateRepositories:
-      settings?.enabled === true && settings.autoActivateRepositories === true,
+      hosted ||
+      (settings?.enabled === true &&
+        settings.autoActivateRepositories === true),
     envPath,
     settingsPath,
     configPath: setup.configPath,
@@ -169,6 +176,11 @@ export async function traceMachineStatus(
   return status;
 }
 
+/**
+ * Whether this machine captures agent sessions at all. Every gate (session
+ * hook, scaffold discovery, hook installation, repository enable/repair)
+ * asks this instead of reading the settings file itself.
+ */
 export async function traceMachineEnabled(
   input: {
     homeDir?: string;

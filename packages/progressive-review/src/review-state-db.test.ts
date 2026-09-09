@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -6,14 +7,24 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  REVIEW_STATE_DB_V1_DDL,
+  ReviewPublicationConflictError,
   ReviewStateDbVersionError,
   closeAllReviewStateDatabases,
   deleteReviewState,
   importLegacyReview,
+  insertLegacyArtifactImportInTransaction,
+  insertPublicationInTransaction,
+  listPublications,
   openReviewStateDb,
   putReviewRecord,
+  putReviewRecordInTransaction,
+  readPublication,
   readReviewRecord,
+  readReviewStateDbSchemaVersion,
+  resolveLegacyMapPublicationId,
   reviewStateDbPath,
+  withReviewStateTransaction,
 } from "./review-state-db";
 import {
   appendReviewComment,
@@ -304,5 +315,283 @@ describe("global review state database", () => {
     ).run();
     closeAllReviewStateDatabases();
     expect(() => openReviewStateDb(home)).toThrow(ReviewStateDbVersionError);
+  });
+
+  it("upgrades a v1 database to v2 on open, adding the publication tables", () => {
+    const home = setupHome();
+    const dbPath = reviewStateDbPath(home);
+    mkdirSync(path.dirname(dbPath), { recursive: true });
+    const legacy = new DatabaseSync(dbPath);
+    legacy.exec(REVIEW_STATE_DB_V1_DDL);
+    legacy
+      .prepare(
+        "INSERT INTO review_state_meta (key, value) VALUES ('schema_version', '1')",
+      )
+      .run();
+    legacy.close();
+
+    const db = openReviewStateDb(home);
+
+    expect(readReviewStateDbSchemaVersion(db)).toBe("2");
+    expect(
+      db
+        .prepare(
+          "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'publications'",
+        )
+        .get(),
+    ).toBeTruthy();
+    expect(
+      db
+        .prepare(
+          "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'legacy_artifact_imports'",
+        )
+        .get(),
+    ).toBeTruthy();
+  });
+
+  it("rejects a database written by a newer Review with a message naming it", () => {
+    const home = setupHome();
+    openReviewStateDb(home);
+    closeAllReviewStateDatabases();
+    const db = new DatabaseSync(reviewStateDbPath(home));
+    db.exec(
+      "UPDATE review_state_meta SET value = '3' WHERE key = 'schema_version'",
+    );
+    db.close();
+    expect(() => openReviewStateDb(home)).toThrow(/newer/);
+  });
+
+  it("throws on nested reentry and rolls back the outer transaction", () => {
+    const home = setupHome();
+    const document = reviewPath(home, "review-a");
+    const dir = path.dirname(document);
+    expect(() =>
+      withReviewStateTransaction(home, (tx) => {
+        putReviewRecordInTransaction(tx, dir, { uuid: "review-a" });
+        withReviewStateTransaction(home, (innerTx) => {
+          putReviewRecordInTransaction(innerTx, dir, {
+            uuid: "review-a-2",
+          });
+        });
+      }),
+    ).toThrow(/nested/);
+    expect(readReviewRecord(dir, home, { importMirror: false })).toBeNull();
+  });
+
+  it("rejects a callback that returns a thenable and rolls back", () => {
+    const home = setupHome();
+    const document = reviewPath(home, "review-a");
+    const dir = path.dirname(document);
+    expect(() =>
+      withReviewStateTransaction(home, (tx) => {
+        putReviewRecordInTransaction(tx, dir, { uuid: "review-a" });
+        return Promise.resolve("nope");
+      }),
+    ).toThrow(TypeError);
+    expect(readReviewRecord(dir, home, { importMirror: false })).toBeNull();
+  });
+
+  it("rolls back the transaction when beforeCommit throws", () => {
+    const home = setupHome();
+    const document = reviewPath(home, "review-a");
+    const dir = path.dirname(document);
+    expect(() =>
+      withReviewStateTransaction(
+        home,
+        (tx) => {
+          putReviewRecordInTransaction(tx, dir, { uuid: "review-a" });
+        },
+        {
+          beforeCommit: () => {
+            throw new Error("fault injection");
+          },
+        },
+      ),
+    ).toThrow("fault injection");
+    expect(readReviewRecord(dir, home, { importMirror: false })).toBeNull();
+  });
+
+  it("does not back-fill the reviews table when importMirror is false", () => {
+    const home = setupHome();
+    const document = reviewPath(home, "review-a");
+    const dir = path.dirname(document);
+    writeFileSync(
+      path.join(dir, "review.json"),
+      JSON.stringify({ uuid: "review-a", title: "Legacy" }),
+    );
+
+    expect(readReviewRecord(dir, home, { importMirror: false })).toEqual({
+      uuid: "review-a",
+      title: "Legacy",
+    });
+    expect(
+      openReviewStateDb(home)
+        .prepare("SELECT count(*) AS count FROM reviews")
+        .get(),
+    ).toEqual({ count: 0 });
+  });
+
+  it("returns existing:true for a byte-identical publication insert and throws on a conflicting record", () => {
+    const home = setupHome();
+    const document = reviewPath(home, "review-a");
+    const dir = path.dirname(document);
+    putReviewRecord(dir, { uuid: "review-a" });
+    const publicationId = createHash("sha1").update("pub-1").digest("hex");
+
+    const first = withReviewStateTransaction(home, (tx) =>
+      insertPublicationInTransaction(tx, dir, {
+        publicationId,
+        kind: "document",
+        record: { title: "v1" },
+        createdAt: "2026-01-01T00:00:00.000Z",
+        operation: "publish",
+        artifactHash: null,
+        previousPublicationId: null,
+      }),
+    );
+    expect(first).toEqual({ seq: 1, existing: false });
+
+    const second = withReviewStateTransaction(home, (tx) =>
+      insertPublicationInTransaction(tx, dir, {
+        publicationId,
+        kind: "document",
+        record: { title: "v1" },
+        createdAt: "2026-01-02T00:00:00.000Z",
+        operation: "publish",
+        artifactHash: null,
+        previousPublicationId: null,
+      }),
+    );
+    expect(second).toEqual({ seq: 1, existing: true });
+
+    expect(() =>
+      withReviewStateTransaction(home, (tx) =>
+        insertPublicationInTransaction(tx, dir, {
+          publicationId,
+          kind: "document",
+          record: { title: "v2" },
+          createdAt: "2026-01-03T00:00:00.000Z",
+          operation: "publish",
+          artifactHash: null,
+          previousPublicationId: null,
+        }),
+      ),
+    ).toThrow(ReviewPublicationConflictError);
+  });
+
+  it("auto-increments seq per review and lists publications by seq descending", () => {
+    const home = setupHome();
+    const document = reviewPath(home, "review-a");
+    const dir = path.dirname(document);
+    putReviewRecord(dir, { uuid: "review-a" });
+    const createdAt = "2026-01-01T00:00:00.000Z";
+    const ids = [1, 2, 3].map((n) =>
+      createHash("sha1").update(`pub-${n}`).digest("hex"),
+    );
+    for (const publicationId of ids) {
+      withReviewStateTransaction(home, (tx) =>
+        insertPublicationInTransaction(tx, dir, {
+          publicationId,
+          kind: "document",
+          record: { publicationId },
+          createdAt,
+          operation: "publish",
+          artifactHash: null,
+          previousPublicationId: null,
+        }),
+      );
+    }
+
+    const rows = listPublications(dir, "document", home);
+    expect(rows.map((row) => row.seq)).toEqual([3, 2, 1]);
+    expect(rows.map((row) => row.publicationId)).toEqual([...ids].reverse());
+  });
+
+  it("returns null from readPublication when the kind does not match", () => {
+    const home = setupHome();
+    const document = reviewPath(home, "review-a");
+    const dir = path.dirname(document);
+    putReviewRecord(dir, { uuid: "review-a" });
+    const publicationId = createHash("sha1").update("pub-map").digest("hex");
+    withReviewStateTransaction(home, (tx) =>
+      insertPublicationInTransaction(tx, dir, {
+        publicationId,
+        kind: "map",
+        record: { ok: true },
+        createdAt: "2026-01-01T00:00:00.000Z",
+        operation: "publish",
+        artifactHash: null,
+        previousPublicationId: null,
+      }),
+    );
+
+    expect(readPublication(dir, publicationId, "document", home)).toBeNull();
+    expect(readPublication(dir, publicationId, "map", home)?.record).toEqual({
+      ok: true,
+    });
+  });
+
+  it("resolves a legacy map publication id by commit", () => {
+    const home = setupHome();
+    const document = reviewPath(home, "review-a");
+    const dir = path.dirname(document);
+    putReviewRecord(dir, { uuid: "review-a" });
+    const publicationId = createHash("sha1")
+      .update("pub-map-legacy")
+      .digest("hex");
+    withReviewStateTransaction(home, (tx) =>
+      insertPublicationInTransaction(tx, dir, {
+        publicationId,
+        kind: "map",
+        record: { ok: true },
+        createdAt: "2026-01-01T00:00:00.000Z",
+        operation: "import",
+        artifactHash: null,
+        previousPublicationId: null,
+        legacyCommit: "abc123",
+      }),
+    );
+
+    expect(resolveLegacyMapPublicationId(dir, "abc123", home)).toBe(
+      publicationId,
+    );
+    expect(resolveLegacyMapPublicationId(dir, "missing", home)).toBeNull();
+  });
+
+  it("cascades publications and the legacy artifact import marker when a review is deleted", () => {
+    const home = setupHome();
+    const document = reviewPath(home, "review-a");
+    const dir = path.dirname(document);
+    putReviewRecord(dir, { uuid: "review-a" });
+    const publicationId = createHash("sha1")
+      .update("pub-cascade")
+      .digest("hex");
+    withReviewStateTransaction(home, (tx) => {
+      insertPublicationInTransaction(tx, dir, {
+        publicationId,
+        kind: "document",
+        record: { ok: true },
+        createdAt: "2026-01-01T00:00:00.000Z",
+        operation: "publish",
+        artifactHash: null,
+        previousPublicationId: null,
+      });
+      insertLegacyArtifactImportInTransaction(tx, dir, {
+        importedAt: "2026-01-01T00:00:00.000Z",
+        sourceHead: "main",
+        versions: 3,
+        unavailable: 0,
+      });
+    });
+
+    deleteReviewState(dir);
+
+    const db = openReviewStateDb(home);
+    expect(
+      db.prepare("SELECT count(*) AS count FROM publications").get(),
+    ).toEqual({ count: 0 });
+    expect(
+      db.prepare("SELECT count(*) AS count FROM legacy_artifact_imports").get(),
+    ).toEqual({ count: 0 });
   });
 });

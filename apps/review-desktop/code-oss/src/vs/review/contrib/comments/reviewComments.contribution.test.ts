@@ -82,6 +82,8 @@ test("keeps one stable comment projection per diff resource", async () => {
   let snapshotListener = (_change: { threadIds: ReadonlySet<string> }) => {};
   let currentSnapshot = snapshot;
   const savedComments: unknown[] = [];
+  let rejectAsk!: (error: Error) => void;
+  const pendingAsk = new Promise<void>((_resolve, reject) => { rejectAsk = reject; });
   let commentingRangeUpdates = 0;
   const commentService = {
     registerCommentController() {},
@@ -108,6 +110,9 @@ test("keeps one stable comment projection per diff resource", async () => {
     },
     async saveComment(input: unknown) {
       savedComments.push(input);
+    },
+    askAgent() {
+      return pendingAsk;
     },
   };
   const model = {
@@ -247,6 +252,20 @@ test("keeps one stable comment projection per diff resource", async () => {
   assert.equal(unified.threads[0].label, "L3\u20139 \u00b7 diff");
   assert.deepEqual(base.threads[0].range, new Range(267, 1, 270, Number.MAX_SAFE_INTEGER));
   assert.deepEqual(head.threads[0].range, new Range(320, 1, 322, Number.MAX_SAFE_INTEGER));
+  const replyThread = unified.threads[0];
+  replyThread.input = { uri: URI.parse("comment-input:/ask"), value: "Question" };
+  const inputChanges: string[] = [];
+  const inputListener = replyThread.onDidChangeInput(input => { if (input) inputChanges.push(input.value); });
+  const asking = controller.askNow({ thread: replyThread, text: "Question" });
+  // Clear before launch resolves, rather than displaying the question twice.
+  assert.equal(replyThread.input.value, "");
+  assert.deepEqual(inputChanges, [""]);
+  const rejected = assert.rejects(asking, /Could not save/);
+  rejectAsk(new Error("Could not save"));
+  await rejected;
+  assert.equal(replyThread.input.value, "Question");
+  assert.deepEqual(inputChanges, ["", "Question"]);
+  inputListener.dispose();
   currentSnapshot = {
     ...snapshot,
     agentActivities: new Map([

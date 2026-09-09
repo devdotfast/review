@@ -6,7 +6,6 @@ import {
   devfastPrepareCommands,
   resolveRevision,
 } from "@dev.fast/local-vcs";
-import { parseJsonText } from "@dev.fast/review-protocol";
 
 import { ensureReviewPinnedCheckout } from "./review-head-checkout";
 import {
@@ -20,6 +19,7 @@ import {
   reviewPrepareMarkerPath,
   spawnReviewPrepareBackground,
 } from "./review-prepare";
+import { readReviewRecord } from "./review-state-db";
 import { type ReviewCheckoutRole } from "./review-storage";
 
 export interface PreparedReviewSourceTarget {
@@ -195,9 +195,10 @@ export function readReviewStoreRecord(
 ): StoredReviewRecord {
   const storePath = path.resolve(reviewRootPath);
   try {
-    const value = parseJsonText(
-      fs.readFileSync(path.join(storePath, "review.json"), "utf8"),
-    );
+    const value = readReviewRecord(storePath, undefined, {
+      importMirror: false,
+    });
+    if (value === null) throw new Error("No Review record.");
     const parsed = safeParseStoredReviewRecord(value);
     if (!parsed.success) throw parsed.error;
     return parsed.data;

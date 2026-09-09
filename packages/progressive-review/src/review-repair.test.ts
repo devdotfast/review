@@ -114,6 +114,9 @@ async function fixture(legacy = false) {
     dismissedAt: "2026-09-01T00:00:00.000Z",
   };
   await writeFile(path.join(stored.dir, "review.json"), JSON.stringify(record));
+  // The database row from createReviewDir predates the presentation this
+  // fixture writes directly to the mirror; drop it so repair reads the file.
+  deleteReviewState(stored.dir);
   return { ...stored, record, revision };
 }
 

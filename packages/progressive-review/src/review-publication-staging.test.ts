@@ -27,6 +27,7 @@ import {
   sealReviewDocumentPublication,
   stageReviewDocumentPublication,
 } from "./review-publication-staging";
+import { putReviewRecord } from "./review-state-db";
 import { appendReviewComment, readReviewComments } from "./review-state-store";
 import { closeAllReviewThreadStores } from "./review-thread-store-backend";
 import { reviewVcs } from "./review-vcs";
@@ -297,10 +298,9 @@ it.each([
   async (changed) => {
     const { review } = await fixture();
     const document = await stageReviewDocumentPublication({ review });
-    await writeFile(
-      path.join(review.dir, "review.json"),
-      JSON.stringify({ ...review.review, ...changed }),
-    );
+    // The database is authoritative for the guard: a concurrent pin change
+    // lands there, not in the review.json mirror.
+    putReviewRecord(review.dir, { ...review.review, ...changed });
     await expect(
       sealReviewDocumentPublication({ review, document }),
     ).rejects.toThrow("Review changed while preparing publication");
@@ -318,10 +318,7 @@ it("rechecks new open threads before sealing a prepared republication", async ()
       presentedDocumentRevision: "a".repeat(40),
     },
   };
-  await writeFile(
-    path.join(review.dir, "review.json"),
-    JSON.stringify(review.review),
-  );
+  putReviewRecord(review.dir, review.review);
   const document = await stageReviewDocumentPublication({ review });
   appendReviewComment(path.join(review.dir, "review.mdx"), {
     threadId: "new-thread",

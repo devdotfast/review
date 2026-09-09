@@ -1,6 +1,14 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  readFile,
+  rm,
+  stat,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -27,6 +35,8 @@ import {
   materializeReviewRevision,
   parseAnyStoredReviewRecord,
   parseStoredReviewRecord,
+  refreshReviewMirror,
+  repairReviewMirror,
   reviewDescriptor,
   reviewsHomeDir,
   sealReviewCandidate,
@@ -789,6 +799,84 @@ describe("review home", () => {
     await expect(computeSync(review.review, root)).rejects.toThrow(
       `Could not resolve the current source head at ${root}.`,
     );
+  });
+
+  it("reports a mirror write failure as a warning and keeps the database row intact", async () => {
+    const root = await gitRepository();
+    await reviewHome();
+    const created = await createReviewDir({
+      worktreePath: root,
+      baseRef: "main",
+      baseCommit: await git(root, ["rev-parse", "HEAD"]),
+    });
+    await chmod(created.dir, 0o500);
+    try {
+      await expect(
+        refreshReviewMirror(created.dir, created.review),
+      ).resolves.toMatch(/review\.json/);
+    } finally {
+      await chmod(created.dir, 0o700);
+    }
+    await expect(findReview(created.review.uuid)).resolves.toMatchObject({
+      dir: created.dir,
+      review: { uuid: created.review.uuid },
+    });
+  });
+
+  it("rewrites a corrupt mirror from the database row", async () => {
+    const root = await gitRepository();
+    await reviewHome();
+    const created = await createReviewDir({
+      worktreePath: root,
+      baseRef: "main",
+      baseCommit: await git(root, ["rev-parse", "HEAD"]),
+    });
+    const recordPath = path.join(created.dir, "review.json");
+    await writeFile(recordPath, "{not valid json");
+
+    await repairReviewMirror(created.dir);
+
+    expect(JSON.parse(await readFile(recordPath, "utf8"))).toEqual(
+      created.review,
+    );
+  });
+
+  it("rejects repairing a mirror when the database has no row", async () => {
+    const root = await gitRepository();
+    await reviewHome();
+    const created = await createReviewDir({
+      worktreePath: root,
+      baseRef: "main",
+      baseCommit: await git(root, ["rev-parse", "HEAD"]),
+    });
+    deleteReviewState(created.dir);
+    await rm(path.join(created.dir, "review.json"));
+
+    await expect(repairReviewMirror(created.dir)).rejects.toThrow(
+      "No Review record in the database",
+    );
+  });
+
+  it("finds a review with a corrupt or missing review.json when the database row exists", async () => {
+    const root = await gitRepository();
+    await reviewHome();
+    const created = await createReviewDir({
+      worktreePath: root,
+      baseRef: "main",
+      baseCommit: await git(root, ["rev-parse", "HEAD"]),
+    });
+    const recordPath = path.join(created.dir, "review.json");
+    await writeFile(recordPath, "{not valid json");
+    await expect(findReview(created.review.uuid)).resolves.toMatchObject({
+      dir: created.dir,
+      review: { uuid: created.review.uuid },
+    });
+
+    await rm(recordPath);
+    await expect(findReview(created.review.uuid)).resolves.toMatchObject({
+      dir: created.dir,
+      review: { uuid: created.review.uuid },
+    });
   });
 });
 

@@ -35,7 +35,7 @@ import {
   parseAnyStoredReviewRecord,
   parseStoredReviewRecord,
 } from "./review-home";
-import { putReviewRecord } from "./review-state-db";
+import { putReviewRecord, readReviewRecord } from "./review-state-db";
 import { devReviewHome } from "./review-storage";
 import { reviewVcs } from "./review-vcs";
 import { writePrivateJsonAtomic } from "./server/desktop-paths";
@@ -289,9 +289,7 @@ export async function migrateReviewManagedCheckouts(input: {
     const reviewDir = path.join(reviewsRoot, entry.name);
     result.checked += 1;
     try {
-      const review = parseStoredReviewRecord(
-        JSON.parse(await readFile(path.join(reviewDir, "review.json"), "utf8")),
-      );
+      const review = parseStoredReviewRecord(readReviewRecord(reviewDir));
       if (review.uuid !== entry.name) {
         throw new Error("review.json UUID does not match its directory");
       }

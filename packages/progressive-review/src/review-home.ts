@@ -24,7 +24,6 @@ import {
   isJsonObject,
   jsonObject,
   jsonString,
-  parseJsonText,
   summarizeReviewDiffFiles,
 } from "@dev.fast/review-protocol";
 import { z } from "zod";
@@ -50,8 +49,11 @@ import {
 } from "./review-mutation-lock";
 import {
   deleteReviewState,
+  openReviewStateDb,
   putReviewRecord,
   readReviewRecord,
+  readReviewRecordInTransaction,
+  reviewHomeForDir,
 } from "./review-state-db";
 import { readReviewComments } from "./review-state-store";
 import { devReviewHome } from "./review-storage";
@@ -367,11 +369,7 @@ export async function updateReviewPins(
     return updateReviewPinsLocked(
       {
         ...review,
-        review: parseStoredReviewRecord(
-          parseJsonText(
-            await readFile(path.join(review.dir, "review.json"), "utf8"),
-          ),
-        ),
+        review: parseStoredReviewRecord(readReviewRecord(review.dir)),
       },
       pins,
     );
@@ -476,13 +474,13 @@ export async function findReviewForRepair(
   if (!UUID_PATTERN.test(uuid))
     throw new Error(`Review UUID is invalid: ${uuid}`);
   const dir = path.join(reviewsHomeDir(devHome), uuid);
-  let value: JsonValue;
+  let value: JsonValue | null;
   try {
-    value = parseJsonText(
-      await readFile(path.join(dir, "review.json"), "utf8"),
-    );
+    // Read-only: repair discovery must not import a not-yet-migrated legacy
+    // record into the database, or a later re-read of a corrected file would
+    // see the stale imported row instead.
+    value = readReviewRecord(dir, undefined, { importMirror: false });
   } catch (error) {
-    if (isMissingFileError(error)) return null;
     const detail: ReviewHomeErrorDetail = {
       message: `Could not read review.json: ${errorMessage(error)}`,
     };
@@ -493,6 +491,7 @@ export async function findReviewForRepair(
     if (code?.success) detail.code = code.data;
     throw new ReviewHomeScanError([reviewHomeError(dir, undefined, detail)]);
   }
+  if (value === null) return null;
   let review: StoredReviewRecord;
   try {
     review = parseAnyStoredReviewRecord(value);
@@ -696,14 +695,13 @@ async function readReviewForList(
   filter: ListReviewsFilter,
 ): Promise<StoredReview | { error: ReviewHomeError } | null> {
   if (!filter.worktreePath && !filter.repoKey) return readStoredReview(dir);
-  let record: JsonObject | undefined;
+  let value: JsonValue | null;
   try {
-    record = jsonObject(
-      parseJsonText(await readFile(path.join(dir, "review.json"), "utf8")),
-    );
+    value = readReviewRecord(dir);
   } catch {
     return unreadableReview(dir, filter);
   }
+  const record = value === null ? undefined : jsonObject(value);
   const scope = {
     worktreePath: jsonString(record?.worktreePath),
     repoKey: jsonString(record?.repoKey),
@@ -860,7 +858,38 @@ export async function persistStoredReviewRecord(
   reviewHome?: string,
 ): Promise<void> {
   putReviewRecord(dir, review, reviewHome);
-  await writePrivateJsonAtomic(path.join(dir, "review.json"), review);
+  const warning = await refreshReviewMirror(dir, review);
+  if (warning) console.warn(warning);
+}
+
+/** The database row is authoritative; `review.json` is a best-effort mirror
+ * for tools that still read it directly off disk. A write failure here must
+ * never fail the caller's mutation, so it reports a warning instead. */
+export async function refreshReviewMirror(
+  dir: string,
+  review: StoredReviewRecord,
+): Promise<string | undefined> {
+  try {
+    await writePrivateJsonAtomic(path.join(dir, "review.json"), review);
+    return undefined;
+  } catch (error) {
+    return `Could not refresh the review.json mirror at ${dir}: ${errorMessage(error)}`;
+  }
+}
+
+/** Rewrites `review.json` from the database row. Throws when the database has
+ * no row for this Review; there is nothing to mirror from. */
+export async function repairReviewMirror(
+  dir: string,
+  home = reviewHomeForDir(dir),
+): Promise<void> {
+  const record = readReviewRecordInTransaction(
+    { db: openReviewStateDb(home), home },
+    dir,
+  );
+  if (record === null)
+    throw new Error(`No Review record in the database for ${dir}.`);
+  await writePrivateJsonAtomic(path.join(dir, "review.json"), record);
 }
 
 function isLegacyStoredReviewRecord(value: JsonValue, dir: string): boolean {
@@ -880,9 +909,7 @@ function isLegacyStoredReviewRecord(value: JsonValue, dir: string): boolean {
 
 async function migrateLegacyStoredReview(dir: string): Promise<void> {
   await withReviewMutationLock(dir, async () => {
-    const current = parseJsonText(
-      await readFile(path.join(dir, "review.json"), "utf8"),
-    );
+    const current = readReviewRecord(dir);
     if (!isLegacyStoredReviewRecord(current, dir)) return;
     const { migrateStoredReview } = await import("./stored-review-migration");
     const uuid = path.basename(dir);

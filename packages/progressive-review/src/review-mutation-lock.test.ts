@@ -13,6 +13,7 @@ import {
   reviewMutationFingerprint,
   withReviewMutationLock,
 } from "./review-mutation-lock";
+import { putReviewRecord } from "./review-state-db";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -45,17 +46,29 @@ async function guardedFixture() {
   return { root, record };
 }
 
-it("accepts an unchanged record and rejects any guarded field change", async () => {
+it("accepts an unchanged record and ignores a guarded field changed only in the review.json mirror", async () => {
   const { root, record } = await guardedFixture();
   await expect(assertReviewUnchanged(root, record)).resolves.toBeUndefined();
   for (const field of GUARDED_REVIEW_FIELDS) {
+    // The guard reads the database record, not the mirror file: a
+    // file-only edit must not trip it.
     await writeFile(
       path.join(root, "review.json"),
       JSON.stringify({ ...record, [field]: "changed-by-someone-else" }),
     );
+    await expect(assertReviewUnchanged(root, record)).resolves.toBeUndefined();
+  }
+});
+
+it("rejects a guarded field changed in the database", async () => {
+  const { root, record } = await guardedFixture();
+  await expect(assertReviewUnchanged(root, record)).resolves.toBeUndefined();
+  for (const field of GUARDED_REVIEW_FIELDS) {
+    putReviewRecord(root, { ...record, [field]: "changed-by-someone-else" });
     await expect(assertReviewUnchanged(root, record)).rejects.toThrow(
       "Review changed while preparing publication",
     );
+    putReviewRecord(root, record);
   }
 });
 

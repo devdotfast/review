@@ -1,17 +1,15 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
   type JsonObject,
   type JsonValue,
   isJsonObject,
-  jsonObject,
-  parseJsonText,
 } from "@dev.fast/review-protocol";
 
 import type { StoredReviewRecord } from "./review-home";
+import { readReviewRecord } from "./review-state-db";
 import { withFileLock } from "./with-file-lock";
 
 const heldLocks = new AsyncLocalStorage<ReadonlySet<string>>();
@@ -30,6 +28,17 @@ export const GUARDED_REVIEW_FIELDS = [
 ] as const;
 
 export type GuardedReviewField = (typeof GUARDED_REVIEW_FIELDS)[number];
+
+export class ReviewChangedError extends Error {
+  override readonly name = "ReviewChangedError";
+  readonly code = "review_publication_conflict";
+
+  constructor() {
+    super(
+      "Review changed while preparing publication; rerun the publish command.",
+    );
+  }
+}
 
 export class ReviewBusyError extends Error {
   override readonly name = "ReviewBusyError";
@@ -76,21 +85,25 @@ export function stableJson(value: JsonValue | undefined): string {
     .join(",")}}`;
 }
 
+/** Pure comparison against an already-read record; throws `ReviewChangedError`. */
+export function assertGuardedRecordUnchanged(
+  actual: JsonValue | null,
+  expected: Pick<StoredReviewRecord, GuardedReviewField>,
+): void {
+  const actualObject = isJsonObject(actual) ? actual : {};
+  if (
+    fingerprintGuardedValues(actualObject) !==
+    reviewMutationFingerprint(expected)
+  )
+    throw new ReviewChangedError();
+}
+
 /** Call under the mutation lock before writing a candidate prepared earlier. */
 export async function assertReviewUnchanged(
   reviewDir: string,
   expected: Pick<StoredReviewRecord, GuardedReviewField>,
 ): Promise<void> {
-  const actual = jsonObject(
-    parseJsonText(await readFile(path.join(reviewDir, "review.json"), "utf8")),
-  );
-  if (
-    fingerprintGuardedValues(actual ?? {}) !==
-    reviewMutationFingerprint(expected)
-  )
-    throw new Error(
-      "Review changed while preparing publication; rerun the publish command.",
-    );
+  assertGuardedRecordUnchanged(readReviewRecord(reviewDir), expected);
 }
 
 /** Shared by the desktop and migration CLI; stored outside the sealed tree. */

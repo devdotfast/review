@@ -22,16 +22,21 @@ import {
   materializeReviewRevision,
   parseAnyStoredReviewRecord,
   parseStoredReviewRecord,
+  refreshReviewMirror,
   reviewDescriptor,
 } from "../review-home";
-import { withReviewMutationLock } from "../review-mutation-lock";
+import { stableJson, withReviewMutationLock } from "../review-mutation-lock";
 import {
   type ReviewRepairReadyRequest,
   type ReviewRepairReadyResponse,
   assertNoActiveReviewAgentWrites,
   fingerprintReviewRepairInputs,
 } from "../review-repair-state";
-import { importLegacyReview, putReviewRecord } from "../review-state-db";
+import {
+  importLegacyReview,
+  putReviewRecord,
+  readReviewRecord,
+} from "../review-state-db";
 import {
   checkReviewThreadDbVersion,
   readReviewThreadDatabaseFingerprint,
@@ -121,8 +126,8 @@ export async function assertReviewRepairInputsUnchanged(
   request: ReviewRepairReadyRequest,
 ): Promise<void> {
   if (
-    (await readFile(path.join(dir, "review.json"), "utf8")) !==
-      request.expectedRecord ||
+    stableJson(readReviewRecord(dir)) !==
+      stableJson(parseJsonText(request.expectedRecord)) ||
     (await fingerprintReviewRepairInputs(dir)) !== request.expectedFingerprint
   )
     throw new Error(
@@ -190,11 +195,11 @@ export async function applyPreparedReviewRepair(
     await promoteReviewArtifactFiles({
       reviewDir: dir,
       candidateDir: request.stagingDir,
-      record: next,
       upgradeThreadDatabase: Boolean(request.expectedThreadDbFingerprint),
     });
     importLegacyReview(dir);
     putReviewRecord(dir, next);
+    await refreshReviewMirror(dir, next);
     return next;
   });
 }

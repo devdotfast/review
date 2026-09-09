@@ -7,6 +7,7 @@ import {
   CodeThreadTargetSchema,
   type GitLabDiffPosition,
   type JsonObject,
+  type JsonValue,
   ReviewRecordSchema,
   gitLabDiffPositionRows,
   isJsonObject,
@@ -14,6 +15,7 @@ import {
 
 import { writeFileAtomic } from "./atomic-write";
 import { isMissingFileError } from "./native-agent/transcript-json";
+import { readReviewRecord } from "./review-state-db";
 import {
   reviewStateDir,
   reviewThreadStoreBackend,
@@ -107,21 +109,22 @@ function validatePositionAtStoredCommits(
 function readReviewCodeTargetContext(
   reviewMdxPath: string,
 ): ReviewCodeTargetContext | null {
-  const recordPath = path.join(reviewStateDir(reviewMdxPath), "review.json");
+  const dir = reviewStateDir(reviewMdxPath);
+  let value: JsonValue | null;
   try {
-    const parsed = ReviewRecordSchema.safeParse(
-      JSON.parse(readFileSync(recordPath, "utf8")),
-    );
-    if (!parsed.success) return null;
-    return {
-      rootPath: parsed.data.worktreePath,
-      baseCommit: parsed.data.baseCommit,
-      headCommit: parsed.data.sourceCommit,
-    };
+    value = readReviewRecord(dir, undefined, { importMirror: false });
   } catch (error) {
     if (isMissingFileError(error)) return null;
     throw error;
   }
+  if (value === null) return null;
+  const parsed = ReviewRecordSchema.safeParse(value);
+  if (!parsed.success) return null;
+  return {
+    rootPath: parsed.data.worktreePath,
+    baseCommit: parsed.data.baseCommit,
+    headCommit: parsed.data.sourceCommit,
+  };
 }
 
 function requireValidCodeTarget(

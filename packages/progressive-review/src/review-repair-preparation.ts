@@ -28,7 +28,7 @@ import {
   parseAnyStoredReviewRecord,
   sealReviewCandidate,
 } from "./review-home";
-import { withReviewMutationLock } from "./review-mutation-lock";
+import { stableJson, withReviewMutationLock } from "./review-mutation-lock";
 import { prepareReviewDocumentBundle } from "./review-publication-preparation";
 import {
   type ReviewRepairReadyRequest,
@@ -36,6 +36,7 @@ import {
   fingerprintReviewRepairInputs,
 } from "./review-repair-state";
 import { evaluateSealedReviewDocument } from "./review-sealed-document";
+import { readReviewRecord } from "./review-state-db";
 import { SOFTWARE_MAP_NOTES_REF } from "./review-storage";
 import {
   type ReviewThreadDbMigrationOptions,
@@ -252,11 +253,10 @@ async function snapshotReviewForRepair(
   return withReviewMutationLock(reviewDir, async () => {
     await assertIsolatedRepairInternals(reviewDir);
     await assertNoActiveReviewAgentWrites(reviewDir);
-    const expectedRecord = await readFile(
-      path.join(reviewDir, "review.json"),
-      "utf8",
-    );
-    const expectedValue = parseJsonText(expectedRecord);
+    const expectedValue = readReviewRecord(reviewDir);
+    if (expectedValue === null)
+      throw new Error(`No Review record found for ${reviewDir}.`);
+    const expectedRecord = stableJson(expectedValue);
     const review = parseAnyStoredReviewRecord(expectedValue);
     if (review.uuid !== path.basename(reviewDir))
       throw new Error("Review UUID does not match its storage directory.");

@@ -4,6 +4,7 @@ import path from "node:path";
 import { Writable } from "node:stream";
 import { promisify } from "node:util";
 
+import { jsonObject } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createReviewDir, persistStoredReviewRecord } from "./review-home";
@@ -13,6 +14,7 @@ import {
 } from "./review-scaffold";
 import type { createReviewSourceAgentSession } from "./review-source-agent-session";
 import { reviewSourceHeadRef } from "./review-source-ref";
+import { putReviewRecord, readReviewRecord } from "./review-state-db";
 import { appendReviewComment, updateReviewComment } from "./review-state-store";
 import {
   cleanupTempDirs,
@@ -664,13 +666,10 @@ describe("review info", () => {
       const original = JSON.parse(await readFile(recordPath, "utf8"));
       if (concurrentChange) {
         createSourceAgentSession.mockImplementationOnce(async ({ agent }) => {
-          await writeFile(
-            recordPath,
-            JSON.stringify({
-              ...original,
-              sourceIdentity: { kind: "git-branch", name: "competing" },
-            }),
-          );
+          putReviewRecord(created.reviews[0]!.dir, {
+            ...original,
+            sourceIdentity: { kind: "git-branch", name: "competing" },
+          });
           return {
             harness: agent.harness,
             sessionId: `${agent.sessionId}-fork`,
@@ -693,20 +692,19 @@ describe("review info", () => {
           ? /Review changed while preparing publication/
           : /^rebound$/,
       );
-      const reviewJson = JSON.parse(
-        await readFile(
-          path.join(created.reviews[0]!.dir, "review.json"),
-          "utf8",
-        ),
-      );
-      expect(reviewJson.sourceIdentity).toEqual({
+      // The database is authoritative: a concurrent writer's committed
+      // change survives even though the aborted rebind never touches the
+      // review.json mirror for it.
+      const record =
+        jsonObject(readReviewRecord(created.reviews[0]!.dir)) ?? {};
+      expect(record.sourceIdentity).toEqual({
         kind: "git-branch",
         name: concurrentChange ? "competing" : "other",
       });
-      expect(reviewJson.sourceCommit).toBe(
+      expect(record.sourceCommit).toBe(
         concurrentChange ? original.sourceCommit : otherTip,
       );
-      expect(reviewJson.sourceSession).toBe(
+      expect(record.sourceSession).toBe(
         concurrentChange ? original.sourceSession : "codex:rebind-1-fork",
       );
     },

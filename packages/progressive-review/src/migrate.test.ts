@@ -18,6 +18,7 @@ import {
   runReviewMigration,
 } from "./migrate";
 import { createReviewDir, sealReviewCandidate } from "./review-home";
+import { deleteReviewState } from "./review-state-db";
 import { cleanupTempDirs, gitRepository, tempDir } from "./review-test-utils";
 import { auditStoredReviewDocuments } from "./stored-review-document-audit";
 
@@ -580,6 +581,9 @@ async function canonicalReview(): Promise<{
       encoding: "utf8",
     }).trim(),
   });
+  // Callers overwrite review.json directly to simulate a legacy presentation;
+  // drop the draft row createReviewDir wrote so reads fall back to the file.
+  deleteReviewState(created.dir);
   return { reviewHome, reviewDir: created.dir };
 }
 

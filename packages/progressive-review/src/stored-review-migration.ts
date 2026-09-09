@@ -38,12 +38,17 @@ import {
   materializeReviewRevision,
   parseAnyStoredReviewRecord,
   parseStoredReviewRecord,
+  refreshReviewMirror,
   sealReviewCandidate,
 } from "./review-home";
-import { withReviewMutationLock } from "./review-mutation-lock";
+import { stableJson, withReviewMutationLock } from "./review-mutation-lock";
 import { evaluateSealedReviewDocument } from "./review-sealed-document";
 import { createReviewSourceAgentSession } from "./review-source-agent-session";
-import { importLegacyReview, putReviewRecord } from "./review-state-db";
+import {
+  importLegacyReview,
+  putReviewRecord,
+  readReviewRecord,
+} from "./review-state-db";
 import {
   type ReviewThreadDbMigrationOptions,
   migrateReviewThreadDb,
@@ -107,10 +112,10 @@ async function migrateStoredReviewLocked(
   input: StoredReviewMigrationInput,
 ): Promise<StoredReviewMigrationOutcome> {
   const reviewPath = path.join(input.reviewDir, "review.mdx");
+  // Read-only: a not-yet-migrated legacy record must not be imported into
+  // the database until migration actually commits a result for it.
   const value = jsonObject(
-    parseJsonText(
-      await readFile(path.join(input.reviewDir, "review.json"), "utf8"),
-    ),
+    readReviewRecord(input.reviewDir, undefined, { importMirror: false }),
   );
   const schemaVersion = value?.schemaVersion;
   if (
@@ -164,11 +169,7 @@ async function migrateStoredReviewLocked(
       );
     }
   }
-  const record = parseStoredReviewRecord(
-    parseJsonText(
-      await readFile(path.join(input.reviewDir, "review.json"), "utf8"),
-    ),
-  );
+  const record = parseStoredReviewRecord(readReviewRecord(input.reviewDir));
   const dropped: Array<
     Parameters<
       NonNullable<ReviewThreadDbMigrationOptions["onDropLegacyCodeRecord"]>
@@ -503,11 +504,9 @@ async function regeneratePresentedArtifacts(input: {
     }
     // Source migration and schema normalization must not race a lifecycle or pin change.
     return await withReviewMutationLock(input.reviewDir, async () => {
-      const recordPath = path.join(input.reviewDir, "review.json");
-      const currentText = await readFile(recordPath, "utf8");
       if (
-        JSON.stringify(parseJsonText(currentText)) !==
-        JSON.stringify(input.original)
+        stableJson(readReviewRecord(input.reviewDir)) !==
+        stableJson(input.original)
       ) {
         throw new Error(
           "Review changed while preparing migration; rerun review migrate apply.",
@@ -518,13 +517,13 @@ async function regeneratePresentedArtifacts(input: {
           input.original.schemaVersion !== REVIEW_SCHEMA_VERSION ||
           mapRevision !== input.review.presentedSoftwareMapRevision
         ) {
-          await writePrivateJsonAtomic(
-            recordPath,
-            await input.finalizeSource({
-              ...input.review,
-              presentedSoftwareMapRevision: mapRevision,
-            }),
-          );
+          const finalized = await input.finalizeSource({
+            ...input.review,
+            presentedSoftwareMapRevision: mapRevision,
+          });
+          putReviewRecord(input.reviewDir, finalized);
+          const warning = await refreshReviewMirror(input.reviewDir, finalized);
+          if (warning) input.log?.(warning);
           input.log?.("Migrated Review " + input.review.uuid + " to schema 5.");
           return true;
         }
@@ -621,8 +620,10 @@ async function regeneratePresentedArtifacts(input: {
         await promoteReviewArtifactFiles({
           reviewDir: input.reviewDir,
           candidateDir,
-          record: next,
         });
+        putReviewRecord(input.reviewDir, next);
+        const warning = await refreshReviewMirror(input.reviewDir, next);
+        if (warning) input.log?.(warning);
         completed = true;
         input.log?.(
           "Migrated current presentation for Review " +

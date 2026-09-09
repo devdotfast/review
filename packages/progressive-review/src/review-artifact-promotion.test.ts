@@ -37,14 +37,7 @@ async function fixture() {
     path.join(candidateDir, ".bundle", "document"),
     "new-document",
   );
-  return {
-    reviewDir,
-    candidateDir,
-    record: {
-      ...parseStoredReviewRecord(staged.record),
-      presentedDocumentRevision: "d".repeat(40),
-    },
-  };
+  return { reviewDir, candidateDir };
 }
 
 it("stages every replacement before touching live files", async () => {
@@ -68,7 +61,9 @@ it("restores original directories by rename after replacement failure", async ()
     path.join(input.reviewDir, "review.json"),
     "utf8",
   );
-  const { stagingDir, prepared } = await preparedCommitFixture(input);
+  const { stagingDir, prepared } = await preparedCommitFixture(input, {
+    omit: ".git",
+  });
   await expect(
     commitReviewArtifactPromotion({
       reviewDir: input.reviewDir,
@@ -77,7 +72,7 @@ it("restores original directories by rename after replacement failure", async ()
   ).rejects.toMatchObject({
     code: "ENOENT",
     syscall: "rename",
-    path: path.join(prepared, "review.json"),
+    path: path.join(prepared, ".git"),
   });
   expect((await stat(path.join(input.reviewDir, ".git"))).ino).toBe(
     originalInode,
@@ -140,6 +135,10 @@ it("retains remaining backups when an original artifact is missing during rollba
 
 it("promotes fully prepared files and removes temporary state", async () => {
   const input = await fixture();
+  const originalRecord = await readFile(
+    path.join(input.reviewDir, "review.json"),
+    "utf8",
+  );
   await promoteReviewArtifactFiles(input);
   expect(
     await readFile(path.join(input.reviewDir, ".git", "HEAD"), "utf8"),
@@ -147,11 +146,11 @@ it("promotes fully prepared files and removes temporary state", async () => {
   expect(
     await readFile(path.join(input.reviewDir, ".bundle", "document"), "utf8"),
   ).toBe("new-document");
+  // review.json is a mirror this function no longer writes; the caller
+  // persists the new record to the database and refreshes the mirror.
   expect(
-    JSON.parse(
-      await readFile(path.join(input.reviewDir, "review.json"), "utf8"),
-    ),
-  ).toEqual(input.record);
+    await readFile(path.join(input.reviewDir, "review.json"), "utf8"),
+  ).toBe(originalRecord);
   expect((await readdir(root)).sort()).toEqual(["candidate", "review"]);
 });
 
@@ -168,32 +167,33 @@ async function databaseFixture() {
 
 async function preparedCommitFixture(
   input: Awaited<ReturnType<typeof fixture>>,
-  upgradeThreadDatabase = false,
+  options: { upgradeThreadDatabase?: boolean; omit?: string } = {},
 ) {
   const stagingDir = await mkdtemp(path.join(root, ".review-promotion-"));
   const prepared = path.join(stagingDir, "prepared");
   const backup = path.join(stagingDir, "backup");
   await mkdir(prepared);
   await mkdir(backup);
-  for (const name of [".bundle", ".git"])
+  for (const name of [".bundle", ".git"]) {
+    if (name === options.omit) continue;
     await cp(path.join(input.candidateDir, name), path.join(prepared, name), {
       recursive: true,
     });
-  if (upgradeThreadDatabase)
+  }
+  if (options.upgradeThreadDatabase && options.omit !== "review.db")
     await cp(
       path.join(input.candidateDir, "review.db"),
       path.join(prepared, "review.db"),
     );
-  await cp(
-    path.join(input.reviewDir, "review.json"),
-    path.join(backup, "review.json"),
-  );
   return { stagingDir, prepared };
 }
 
 it("rolls back the database and its sidecars after promotion failure", async () => {
   const input = await databaseFixture();
-  const { stagingDir, prepared } = await preparedCommitFixture(input, true);
+  const { stagingDir, prepared } = await preparedCommitFixture(input, {
+    upgradeThreadDatabase: true,
+    omit: "review.db",
+  });
   const names = ["review.db", "review.db-wal", "review.db-shm"];
   const originalInodes = new Map(
     await Promise.all(
@@ -217,7 +217,7 @@ it("rolls back the database and its sidecars after promotion failure", async () 
   ).rejects.toMatchObject({
     code: "ENOENT",
     syscall: "rename",
-    path: path.join(prepared, "review.json"),
+    path: path.join(prepared, "review.db"),
   });
 
   for (const name of names) {

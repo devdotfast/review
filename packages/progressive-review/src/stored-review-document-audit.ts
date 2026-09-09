@@ -1,13 +1,13 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { parseJsonText } from "@dev.fast/review-protocol";
 import type { Node as EstreeNode } from "estree";
 
 import { readDirectory } from "./fs-utils";
 import { maskReviewFrontmatter } from "./review-frontmatter";
 import { parseAnyStoredReviewRecord } from "./review-home";
 import { findCallExpressions, parseReviewMdxDocument } from "./review-mdx-ast";
+import { readReviewRecord } from "./review-state-db";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -255,12 +255,7 @@ async function listStoredReviewDocuments(
     if (options.skipReviewUuids?.includes(entry.name)) continue;
     if (options.onlyUnpresented) {
       const record = parseAnyStoredReviewRecord(
-        parseJsonText(
-          await readFile(
-            path.join(reviewHome, "reviews", entry.name, "review.json"),
-            "utf8",
-          ),
-        ),
+        readReviewRecord(path.join(reviewHome, "reviews", entry.name)),
       );
       if (record.presentedDocumentRevision) continue;
     }

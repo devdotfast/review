@@ -27,6 +27,11 @@ import {
 } from "./review-home";
 import { withReviewMutationLock } from "./review-mutation-lock";
 import {
+  deleteReviewState,
+  putReviewRecord as putReviewRecordFromDb,
+  readReviewRecord as readReviewRecordFromDb,
+} from "./review-state-db";
+import {
   cleanupTempDirs,
   gitRepository,
   tempDir,
@@ -358,13 +363,12 @@ describe("migrateStoredReviewData", () => {
       path.join(created.dir, "review.json"),
       JSON.stringify(original),
     );
+    // The database is authoritative for the live record: a concurrent
+    // lifecycle change lands there, not in the review.json mirror.
     const materialize = reviewVcs.materialize.bind(reviewVcs);
     vi.spyOn(reviewVcs, "materialize").mockImplementation(async (...args) => {
       await materialize(...args);
-      await writeFile(
-        path.join(created.dir, "review.json"),
-        JSON.stringify({ ...original, status: "accepted" }),
-      );
+      putReviewRecordFromDb(created.dir, { ...original, status: "accepted" });
     });
     const blockers: string[] = [];
     await migrateStoredReviewData({
@@ -373,9 +377,10 @@ describe("migrateStoredReviewData", () => {
     });
     expect(blockers).toHaveLength(1);
     expect(blockers[0]).toContain("changed while preparing");
-    expect(
-      JSON.parse(await readFile(path.join(created.dir, "review.json"), "utf8")),
-    ).toEqual({ ...original, status: "accepted" });
+    expect(readReviewRecordFromDb(created.dir)).toEqual({
+      ...original,
+      status: "accepted",
+    });
     expect(await reviewVcs.resolve(created.dir, "HEAD")).toBe(revision);
   });
 
@@ -587,6 +592,8 @@ describe("migrateStoredReviewData", () => {
       presentedSoftwareMapRevision: _softwareMapRevision,
       ...legacy
     } = current;
+    // A schema-2 draft predates the database; simulate that with no row.
+    deleteReviewState(created.dir);
     await writeFile(
       path.join(created.dir, "review.json"),
       `${JSON.stringify({
@@ -1063,6 +1070,10 @@ async function storedReview() {
       softwareModels: [],
     }),
   );
+  // Every caller overwrites review.json with a legacy record next; a legacy
+  // record predates the database, so its read must fall back to the file
+  // rather than resolve the current-schema row `createReviewDir` just wrote.
+  deleteReviewState(created.dir);
   return { created, reviewHome, sourceCommit };
 }
 

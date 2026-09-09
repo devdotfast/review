@@ -1,15 +1,11 @@
 import { cp, mkdir, mkdtemp, rename, rm } from "node:fs/promises";
 import path from "node:path";
 
-import type { ReviewRecord } from "@dev.fast/review-protocol";
-
 import { isMissingFileError } from "./native-agent/transcript-json";
-import { writePrivateJsonAtomic } from "./server/desktop-paths";
 
 export async function promoteReviewArtifactFiles(input: {
   reviewDir: string;
   candidateDir: string;
-  record: ReviewRecord;
   upgradeThreadDatabase?: boolean;
 }): Promise<void> {
   const staging = await mkdtemp(
@@ -33,14 +29,6 @@ export async function promoteReviewArtifactFiles(input: {
         path.join(input.candidateDir, "review.db"),
         path.join(prepared, "review.db"),
       );
-    await writePrivateJsonAtomic(
-      path.join(prepared, "review.json"),
-      input.record,
-    );
-    await cp(
-      path.join(input.reviewDir, "review.json"),
-      path.join(backup, "review.json"),
-    );
   } catch (error) {
     await rm(staging, { recursive: true, force: true });
     throw error;
@@ -81,10 +69,6 @@ export async function commitReviewArtifactPromotion(input: {
           path.join(input.reviewDir, name),
         );
     }
-    await rename(
-      path.join(prepared, "review.json"),
-      path.join(input.reviewDir, "review.json"),
-    );
   } catch (error) {
     await rollbackReviewArtifactPromotion({
       reviewDir: input.reviewDir,

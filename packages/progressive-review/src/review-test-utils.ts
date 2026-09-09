@@ -6,6 +6,8 @@ import path from "node:path";
 import type { JsonObject } from "@dev.fast/review-protocol";
 import { vi } from "vitest";
 
+import { deleteReviewState } from "./review-state-db";
+
 /**
  * One place for the filesystem scaffolding every Review test needs. Vitest runs
  * this package with `isolate: false` and `maxWorkers: 1`, so a stubbed env
@@ -89,6 +91,10 @@ export async function storedReviewFixture(
   await writeFile(path.join(reviewDir, "review.json"), JSON.stringify(record));
   await writeFile(path.join(reviewDir, ".git", "HEAD"), "old-head");
   await writeFile(path.join(reviewDir, ".bundle", "document"), "old-document");
+  // Every fixture directory is named "review", so two fixtures in the same
+  // test run share a database row unless it is cleared: drop any stray row
+  // (from an earlier fixture, or this dir's own past life) before returning.
+  deleteReviewState(reviewDir);
   return { reviewDir, record };
 }
 

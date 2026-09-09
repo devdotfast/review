@@ -59,6 +59,18 @@ jobs:
         with:
           ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
 
+      - name: Verify Linux release prerequisites
+        if: ${{ !inputs.dry_run }}
+        env:
+          SIGNING_KEY: ${{ secrets.LINUX_REPOSITORY_SIGNING_KEY }}
+          SIGNING_FINGERPRINT: ${{ vars.LINUX_REPOSITORY_SIGNING_FINGERPRINT }}
+          R2_BUCKET: ${{ vars.R2_RELEASE_BUCKET }}
+        run: |
+          test -n "$SIGNING_KEY"
+          test -n "$R2_BUCKET"
+          [[ "$SIGNING_FINGERPRINT" =~ ^[A-F0-9]{40}$ ]]
+          curl -fsS https://install.dev.fast/repos/health | python3 -c 'import json,sys; assert json.load(sys.stdin) == {"schemaVersion": 1}'
+
       # Every read-only gate lives here so a dry run rehearses the same checks a
       # real run must pass, and so the write step below re-derives nothing.
       - name: Resolve release version
@@ -355,9 +367,18 @@ jobs:
             ~/.cache/node-gyp
           key: ${{ runner.os }}-code-oss-deps-v2-${{ hashFiles('apps/review-desktop/code-oss/**/package-lock.json') }}
 
+  linux:
+    needs: tag
+    uses: ./.github/workflows/review-linux-build.yml
+    with:
+      commit: ${{ needs.tag.outputs.commit }}
+      version: ${{ needs.tag.outputs.version }}
+      release_signing: ${{ !inputs.dry_run }}
+    secrets: inherit
+
   build:
     name: Build, sign, publish
-    needs: [tag, compile]
+    needs: [tag, compile, linux]
     runs-on: macos-15-xlarge
     timeout-minutes: 90
     env:
@@ -599,9 +620,40 @@ jobs:
           security delete-keychain "$RUNNER_TEMP/buildagent.keychain" || true
           rm -f "$RUNNER_TEMP/notary-key.p8"
 
+  publish-linux:
+    name: Publish Linux repositories
+    environment: review-release
+    needs: [tag, build, linux]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.tag.outputs.commit }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: linux-packages
+          path: linux-packages
+      - name: Publish verified snapshot
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_ENDPOINT_URL: ${{ vars.R2_ENDPOINT_URL }}
+          AWS_REGION: auto
+          R2_BUCKET: ${{ vars.R2_RELEASE_BUCKET }}
+        run: |
+          mkdir linux-repository
+          tar --zstd -xf linux-packages/linux-publication.tar.zst -C linux-repository
+          python3 apps/review-desktop/scripts/publish-linux-repository.py --directory linux-repository --bucket "$R2_BUCKET"
+      - name: Attach Linux packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.tag.outputs.tag }}
+        run: gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" linux-packages/*.deb linux-packages/*.pkg.tar.zst
+
   finalize-release:
     name: Publish release
-    needs: [tag, build]
+    needs: [tag, build, publish-linux]
     if: ${{ !inputs.dry_run }}
     runs-on: review_big_boy
     steps:

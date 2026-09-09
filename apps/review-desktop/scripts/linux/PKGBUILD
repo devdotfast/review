@@ -1,0 +1,23 @@
+# Packages the verified Review Linux payload. No network access is needed by makepkg.
+pkgname=dev-fast-review
+pkgver=@VERSION@
+pkgrel=@REVISION@
+pkgdesc='Guided code reviews with your coding agents'
+arch=('x86_64')
+url='https://dev.fast/'
+license=('MIT')
+depends=('alsa-lib' 'at-spi2-core' 'cairo' 'cups' 'curl' 'dbus' 'expat'
+         'gcc-libs' 'glibc' 'gtk3' 'libdrm' 'libx11' 'libxcb' 'libxcomposite'
+         'libxdamage' 'libxext' 'libxfixes' 'libxkbcommon' 'libxkbfile' 'libxrandr'
+         'mesa' 'nspr' 'nss' 'pango' 'systemd-libs' 'xdg-utils' 'git'
+         'libsecret' 'krb5' 'libnotify')
+optdepends=('vulkan-icd-loader: Vulkan support' 'bubblewrap: agent command sandboxing' 'socat: agent command sandboxing')
+options=('!strip' '!debug' '!purge' '!zipman' 'staticlibs' 'libtool' 'docs' 'emptydirs')
+source=('review-root.tar.zst')
+sha256sums=('@ROOT_SHA@')
+
+package() {
+  cp -a "$srcdir/usr" "$pkgdir/"
+  chmod 4755 "$pkgdir/usr/share/review/chrome-sandbox"
+  install -Dm644 "$pkgdir/usr/share/review/resources/app/LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

@@ -20,6 +20,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  linux-packages:
+    uses: ./.github/workflows/review-linux-build.yml
+    with:
+      commit: ${{ github.sha }}
+
   review-desktop:
     name: Review Desktop
     runs-on: ubuntu-latest

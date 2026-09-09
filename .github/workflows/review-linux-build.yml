@@ -1,0 +1,139 @@
+name: Review Linux packages
+
+on:
+  workflow_call:
+    inputs:
+      commit:
+        type: string
+        required: true
+      version:
+        type: string
+        default: ""
+      release_signing:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Build and validate Linux packages
+    environment: ${{ inputs.release_signing && 'review-release' || 'review-linux-ci' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      BUILD_SOURCEVERSION: ${{ inputs.commit }}
+      REVIEW_LINUX_PACKAGE_REVISION: "1"
+      GNUPGHOME: ${{ github.workspace }}/.linux-signing
+      REVIEW_SIGNING_PASSPHRASE_FILE: ${{ github.workspace }}/.linux-signing/passphrase
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.commit }}
+      - name: Stamp release identity
+        if: inputs.version != ''
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          QUALITY=stable
+          if [[ "$VERSION" == *-preview.* ]]; then QUALITY=preview; fi
+          node apps/review-desktop/scripts/stamp-release-channel.mjs --version "$VERSION" --quality "$QUALITY"
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: apps/review-desktop/code-oss/.nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Test publication failure boundaries
+        run: python3 apps/review-desktop/scripts/linux/test-publication.py
+      - name: Install native build and package tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libx11-dev libxkbfile-dev libkrb5-dev libsecret-1-dev \
+            libgtk-3-0 libnss3 libasound2 libgbm1 libnotify4 \
+            dpkg-dev fakeroot zstd gnupg xvfb dbus-x11 unzip openbox
+          docker pull --platform linux/amd64 archlinux:base-devel@sha256:61f7de2dd88cc4ba1fe36c24cfe1a503c3936984492d6405eeab013ce6ac68c5
+      - name: Build and assemble Linux app
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REVIEW_DESKTOP_CI_FAST: "1"
+          REVIEW_POSTHOG_KEY: ${{ vars.REVIEW_POSTHOG_KEY }}
+        run: |
+          pnpm desktop:build
+          pnpm desktop:package:linux
+      - name: Smoke test the packaged app
+        run: xvfb-run -a node apps/review-desktop/scripts/smoke-launch-packaged.mjs --app apps/review-desktop/VSCode-linux-x64
+      - name: Check Linux titlebar behavior
+        run: xvfb-run -a sh -c 'openbox >/tmp/review-openbox.log 2>&1 & node apps/review-desktop/scripts/smoke-linux-ui.mjs'
+      - name: Save Linux UI screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-ui
+          path: apps/review-desktop/dist/linux-ui
+          if-no-files-found: ignore
+      - name: Archive preview build
+        if: contains(inputs.version, '-preview.')
+        run: |
+          mkdir -p apps/review-desktop/dist/linux
+          tar --zstd -cf apps/review-desktop/dist/linux/Review-linux-x64-preview.tar.zst -C apps/review-desktop VSCode-linux-x64
+      - name: Create native packages
+        if: ${{ !contains(inputs.version, '-preview.') }}
+        run: |
+          pnpm --filter @dev.fast/review-desktop app:package:linux:distributions
+          bash apps/review-desktop/scripts/package-linux-arch.sh
+          sudo apt-get install -y ./apps/review-desktop/dist/linux/dev-fast-review_*.deb
+          review --help
+          xvfb-run -a node apps/review-desktop/scripts/smoke-launch-packaged.mjs --app /usr/share/review
+      - name: Prepare repository signing key
+        if: ${{ !contains(inputs.version, '-preview.') }}
+        id: signing
+        env:
+          RELEASE_SIGNING: ${{ inputs.release_signing }}
+          SIGNING_KEY: ${{ secrets.LINUX_REPOSITORY_SIGNING_KEY }}
+          SIGNING_PASSPHRASE: ${{ secrets.LINUX_REPOSITORY_SIGNING_PASSPHRASE }}
+          SIGNING_FINGERPRINT: ${{ vars.LINUX_REPOSITORY_SIGNING_FINGERPRINT }}
+        run: |
+          install -d -m 0700 "$GNUPGHOME"
+          umask 077
+          printf '%s' "$SIGNING_PASSPHRASE" > "$REVIEW_SIGNING_PASSPHRASE_FILE"
+          if [ "$RELEASE_SIGNING" = true ]; then
+            test -n "$SIGNING_KEY"
+            [[ "$SIGNING_FINGERPRINT" =~ ^[A-F0-9]{40}$ ]]
+            printf '%s' "$SIGNING_KEY" | base64 --decode | gpg --batch --import
+          else
+            gpg --batch --pinentry-mode loopback --passphrase '' --quick-generate-key 'Review package CI <ci@dev.fast>' rsa3072 sign 1d
+            SIGNING_FINGERPRINT=$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" {print $10; exit}')
+          fi
+          echo "fingerprint=$SIGNING_FINGERPRINT" >> "$GITHUB_OUTPUT"
+      - name: Build signed repository snapshot
+        if: ${{ !contains(inputs.version, '-preview.') }}
+        env:
+          FINGERPRINT: ${{ steps.signing.outputs.fingerprint }}
+        run: |
+          VERSION=$(node -p "require('./apps/review-desktop/package.json').version")
+          python3 apps/review-desktop/scripts/build-linux-repository.py \
+            --packages apps/review-desktop/dist/linux \
+            --output apps/review-desktop/dist/linux-repository \
+            --version "$VERSION" --commit "$BUILD_SOURCEVERSION" --fingerprint "$FINGERPRINT"
+          tar --zstd -cf apps/review-desktop/dist/linux/linux-publication.tar.zst -C apps/review-desktop/dist/linux-repository .
+      - name: Validate clean installs and rejected signatures
+        if: ${{ !contains(inputs.version, '-preview.') }}
+        run: bash apps/review-desktop/scripts/linux/verify-repository.sh apps/review-desktop/dist/linux-repository
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-packages
+          path: |
+            apps/review-desktop/dist/linux/*.deb
+            apps/review-desktop/dist/linux/*.pkg.tar.zst
+            apps/review-desktop/dist/linux/*.tar.zst
+          retention-days: 7
+          compression-level: 0
+      - name: Remove signing credentials
+        if: always()
+        run: |
+          gpgconf --kill gpg-agent || true
+          rm -rf "$GNUPGHOME"

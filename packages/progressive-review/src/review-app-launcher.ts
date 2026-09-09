@@ -164,12 +164,12 @@ export function launchDesktopApplication(
   input: LaunchDesktopApplicationInput = {},
 ): DesktopLaunchAttempt {
   const platform = input.platform ?? process.platform;
-  if (platform !== "darwin") {
+  if (platform !== "darwin" && platform !== "linux") {
     return {
-      method: `the macOS bundle identifier "${REVIEW_DESKTOP_BUNDLE_ID}"`,
+      method: `the ${platform} application launcher`,
       successfulExitIsExpected: false,
       completion: Promise.reject(
-        new Error("automatic launch is available only on macOS"),
+        new Error("automatic launch is available only on macOS and Linux"),
       ),
     };
   }
@@ -177,21 +177,30 @@ export function launchDesktopApplication(
   const electron = input.electron ?? Boolean(process.versions.electron);
   const command = electron
     ? (input.execPath ?? process.execPath)
-    : "/usr/bin/open";
+    : platform === "linux"
+      ? "/usr/bin/review-desktop"
+      : "/usr/bin/open";
   const env = { ...(input.env ?? process.env) };
-  if (electron) delete env.ELECTRON_RUN_AS_NODE;
+  if (electron || platform === "linux") delete env.ELECTRON_RUN_AS_NODE;
+  if (platform === "linux") {
+    delete env.VSCODE_DEV;
+    delete env.VSCODE_CLI;
+  }
   const stateRoot = env.DEV_FAST_REVIEW_DESKTOP_STATE_ROOT?.trim();
-  const args = electron
-    ? stateRoot
-      ? [
-          `--user-data-dir=${path.resolve(stateRoot, "user-data")}`,
-          `--extensions-dir=${path.resolve(stateRoot, "extensions")}`,
-        ]
-      : []
-    : ["-b", REVIEW_DESKTOP_BUNDLE_ID];
+  const args =
+    electron || platform === "linux"
+      ? stateRoot
+        ? [
+            `--user-data-dir=${path.resolve(stateRoot, "user-data")}`,
+            `--extensions-dir=${path.resolve(stateRoot, "extensions")}`,
+          ]
+        : []
+      : ["-b", REVIEW_DESKTOP_BUNDLE_ID];
   const method = electron
     ? `the Desktop-managed bundle at "${command}"`
-    : `the macOS bundle identifier "${REVIEW_DESKTOP_BUNDLE_ID}"`;
+    : platform === "linux"
+      ? `the installed Linux launcher at "${command}"`
+      : `the macOS bundle identifier "${REVIEW_DESKTOP_BUNDLE_ID}"`;
 
   let resolveCompletion: (result: DesktopLaunchCompletion) => void = () =>
     undefined;
@@ -215,7 +224,11 @@ export function launchDesktopApplication(
   } catch (error) {
     rejectCompletion(error instanceof Error ? error : new Error(String(error)));
   }
-  return { method, successfulExitIsExpected: !electron, completion };
+  return {
+    method,
+    successfulExitIsExpected: !electron && platform === "darwin",
+    completion,
+  };
 }
 
 function launchEvent(

@@ -17,6 +17,7 @@ import { recommendedDeps as rpmRecommendedDependencies } from './linux/rpm/dep-l
 import * as path from 'path';
 import * as cp from 'child_process';
 import { promisify } from 'util';
+import { prepareReviewDebPackage } from './linux/review-package.ts';
 
 const exec = promisify(cp.exec);
 const root = path.dirname(import.meta.dirname);
@@ -39,6 +40,9 @@ function prepareDebPackage(arch: string) {
 	const destination = '.build/linux/deb/' + debArch + '/' + product.applicationName + '-' + debArch;
 
 	return async function () {
+		if (product.applicationName === 'review') {
+			return prepareReviewDebPackage(root, debArch);
+		}
 		const dependencies = await getDependencies('deb', binaryDir, product.applicationName, debArch);
 
 		const desktop = gulp.src('resources/linux/code.desktop', { base: '.' })

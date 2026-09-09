@@ -18,7 +18,6 @@ import { reviewDefinitionDiagnostics } from "./review-definition-runtime";
 import type { ReadyReviewDocumentEntry } from "./review-documents-runtime";
 import { type ReviewFindHost, createReviewFindHost } from "./review-find";
 import { ReviewHome } from "./review-home-view";
-import { ReviewMigrationToast } from "./review-migration-toast";
 import {
   ReviewContainerProvider,
   useReviewContainer,
@@ -42,7 +41,6 @@ function DesktopReviewApp({
   softwareMapEnabled,
   range,
   commits,
-  reviewErrors,
   tutorial,
   findHost,
 }: {
@@ -51,10 +49,6 @@ function DesktopReviewApp({
   softwareMapEnabled: boolean;
   range: Extract<ReviewCanvasContent, { kind: "session" }>["range"];
   commits: Extract<ReviewCanvasContent, { kind: "session" }>["commits"];
-  reviewErrors: Extract<
-    ReviewCanvasContent,
-    { kind: "session" }
-  >["reviewErrors"];
   tutorial?: Extract<ReviewCanvasContent, { kind: "session" }>["tutorial"];
   findHost: ReviewFindHost;
 }) {
@@ -141,10 +135,6 @@ function DesktopReviewApp({
   }
   return (
     <div className="review-session-content">
-      <ReviewMigrationToast
-        errors={reviewErrors}
-        appVersion={session.config.appVersion}
-      />
       <TutorialProvider tutorial={tutorial}>
         <App
           document={document}
@@ -175,7 +165,6 @@ function ReviewCanvas({
         softwareMapEnabled={content.softwareMapEnabled}
         range={content.range}
         commits={content.commits}
-        reviewErrors={content.reviewErrors}
         tutorial={content.tutorial}
         findHost={findHost}
       />
@@ -230,10 +219,6 @@ function ReviewCanvas({
   if (content.kind === "error") {
     return (
       <CanvasShell title="Review unavailable">
-        <ReviewMigrationToast
-          errors={content.reviewErrors ?? []}
-          appVersion={content.appVersion}
-        />
         <p>{content.message}</p>
       </CanvasShell>
     );
@@ -252,7 +237,6 @@ function Home({
   const openSourceTree = content.openSourceTree;
   return (
     <ReviewHome
-      appVersion={content.appVersion}
       reviews={content.reviews}
       reviewErrors={content.reviewErrors}
       onOpen={(review) => content.openReview(review.uuid)}

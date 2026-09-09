@@ -30,7 +30,6 @@ import {
 import { fuzzyMatches, fuzzySegments } from "../../src/fuzzy-match";
 import { TARGET_LABELS } from "./agent-setup-card";
 import { ArchiveIcon } from "./review-corner-action";
-import { ReviewMigrationToast } from "./review-migration-toast";
 import { WelcomePage } from "./welcome-page";
 
 export type ReviewHomeView = "cards" | "list";
@@ -38,7 +37,6 @@ export type ReviewHomeView = "cards" | "list";
 export const REVIEW_HOME_VIEW_STORAGE_KEY = "dev.fast.review.homeView";
 
 interface ReviewHomeProps {
-  appVersion: string;
   reviews: readonly ReviewDescriptor[];
   reviewErrors?: readonly ReviewListError[];
   onOpen(review: ReviewDescriptor): void;
@@ -122,7 +120,6 @@ interface ReviewStatusDisplay {
 }
 
 export function ReviewHome({
-  appVersion,
   reviews,
   reviewErrors = [],
   onOpen,
@@ -169,8 +166,8 @@ export function ReviewHome({
 
   /* With nothing to list, Home is the Welcome rail rather than a zero state
      of its own: the same three steps, in the place the reader already is.
-     Scan errors keep the list shell: its warning banner is the only pointer
-     to broken reviews, and the Welcome rail would hide it. */
+     Scan errors keep the list shell so broken reviews do not look like
+     a fresh installation. */
   if (reviews.length === 0 && reviewErrors.length === 0) {
     return (
       <WelcomePage
@@ -187,7 +184,7 @@ export function ReviewHome({
         <div className="review-home-content">
           {setup ? <SetupBanner setup={setup} /> : null}
           {reviewErrors.length > 0 ? (
-            <ReviewScanWarning errors={reviewErrors} appVersion={appVersion} />
+            <ReviewScanWarning errors={reviewErrors} />
           ) : null}
           <div className="review-home-page-header">
             <h1>Reviews</h1>
@@ -230,21 +227,15 @@ export function ReviewHome({
   );
 }
 
-function ReviewScanWarning({
-  errors,
-  appVersion,
-}: {
-  errors: readonly ReviewListError[];
-  appVersion: string;
-}) {
-  const hasMigration = errors.some(
-    (error) => error.code === "MIGRATION_REQUIRED",
-  );
-  if (hasMigration)
-    return <ReviewMigrationToast errors={errors} appVersion={appVersion} />;
+function ReviewScanWarning({ errors }: { errors: readonly ReviewListError[] }) {
+  // Migration reminders are owned by the native workbench notification.
+  const issueCount = errors.filter(
+    (error) => error.code !== "MIGRATION_REQUIRED",
+  ).length;
+  if (issueCount === 0) return null;
   return (
     <section className="review-scan-warning" aria-label="Review warnings">
-      <span>{`${errors.length} ${errors.length === 1 ? "Review has" : "Reviews have"} issues.`}</span>
+      <span>{`${issueCount} ${issueCount === 1 ? "Review has" : "Reviews have"} issues.`}</span>
     </section>
   );
 }

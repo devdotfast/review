@@ -154,6 +154,8 @@ export class ReviewCommentStore implements ReviewCommentStoreBridge {
 	}
 
 	async askAgent(input: CreateReviewCommentInput): Promise<void> {
+		const timing = (stage: string) => console.warn("[Review Ask timing]", JSON.stringify({ at: Date.now(), messageId: input.messageId, stage }));
+		timing("ask.clicked");
 		if (this.agentActivities.get(input.threadId)?.activity.status === "interrupting") {
 			throw new Error("Waiting for confirmation that the previous agent stopped.");
 		}
@@ -185,6 +187,7 @@ export class ReviewCommentStore implements ReviewCommentStoreBridge {
 		this.agentActivities.set(normalized.threadId, pending);
 		try {
 			await this.saveComment(normalized);
+			timing("ask.draft-saved");
 			const response = await this.requestReview("/agent-runs", {
 				method: "POST",
 				headers: { "content-type": "application/json" },
@@ -193,6 +196,7 @@ export class ReviewCommentStore implements ReviewCommentStoreBridge {
 			if (!response.ok) {
 				throw new Error(await reviewRequestError(response));
 			}
+			timing("ask.request-returned");
 			const active = this.agentActivities.get(normalized.threadId);
 			if (active === pending && active.activity.status === "starting") {
 				this.agentActivities.set(normalized.threadId, {

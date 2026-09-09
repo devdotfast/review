@@ -71,10 +71,26 @@ export class OpencodeAgentServer implements AgentServer {
     this.#commandPath = new ReviewCommandPath(options);
   }
 
+  async prepare(): Promise<void> {
+    await this.#client();
+  }
+
   async launch(
     input: LaunchInput,
   ): Promise<{ sessionId: string; command: NativeTerminalCommand }> {
+    const timing = (stage: string) =>
+      console.warn(
+        "[Review Ask timing]",
+        JSON.stringify({
+          at: Date.now(),
+          messageId: input.prompt?.id,
+          harness: "opencode",
+          stage,
+        }),
+      );
+    timing("opencode.launch-start");
     const client = await this.#client();
+    timing("opencode.server-events-ready");
     // OpenCode sessions belong to a project keyed by directory. A fork stays
     // in its source's project, so the session's own directory scopes every
     // request and the terminal, not the review's checkout.
@@ -87,6 +103,7 @@ export class OpencodeAgentServer implements AgentServer {
       );
     } else if ("forkOf" in input.session) {
       const source = await client.session(input.session.forkOf);
+      timing("opencode.source-found");
       session = sessionOf(
         await client.json(
           "POST",
@@ -98,6 +115,7 @@ export class OpencodeAgentServer implements AgentServer {
     } else {
       session = await client.session(input.session.resume);
     }
+    timing("opencode.session-ready");
     const sessionId = session.id;
     const state = this.#session(sessionId, session.directory);
     if (state.queue.isClosed) {
@@ -116,7 +134,9 @@ export class OpencodeAgentServer implements AgentServer {
         { messageID, parts: [{ type: "text", text: input.prompt.text }] },
       );
     }
+    timing("opencode.prompt-accepted");
     const pathValue = await this.#commandPath.resolve();
+    timing("opencode.command-ready");
     const env: NativeTerminalCommand["env"] = {
       OPENCODE_SERVER_PASSWORD: client.password,
       ...reviewThreadEnvironment(this.#desktop),

@@ -77,6 +77,10 @@ export class CodexAgentServer implements AgentServer {
     this.#commandPath = new ReviewCommandPath(options);
   }
 
+  async prepare(): Promise<void> {
+    await this.#connect();
+  }
+
   async launch(
     input: LaunchInput,
   ): Promise<{ sessionId: string; command: NativeTerminalCommand }> {

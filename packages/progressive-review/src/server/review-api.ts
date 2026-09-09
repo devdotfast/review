@@ -1167,6 +1167,16 @@ async function answerReviewComment(input: {
   ) => Promise<SessionRef | undefined>;
   onQuestionAgentSession?: (agent: SessionRef) => Promise<void>;
 }): Promise<void> {
+  const timing = (stage: string) =>
+    console.warn(
+      "[Review Ask timing]",
+      JSON.stringify({
+        at: Date.now(),
+        messageId: input.comment.messageId,
+        stage,
+      }),
+    );
+  timing("backend.answer-start");
   const snapshot = input.service.snapshot();
   const storedSession =
     snapshot.drafts[input.comment.threadId]?.thread.agentSession ??
@@ -1180,6 +1190,7 @@ async function answerReviewComment(input: {
   if (!launch) {
     throw new Error("This Review has no authoring agent session.");
   }
+  timing("backend.source-resolved");
   const launchInput: LaunchInput = {
     prompt: {
       id: input.comment.messageId,
@@ -1191,6 +1202,7 @@ async function answerReviewComment(input: {
   const { sessionId, command } = await input
     .agentServer(launch.harness)
     .launch(launchInput);
+  timing("backend.adapter-returned");
   const binding: SessionRef = { harness: launch.harness, sessionId };
   const commit = input.service.setAgentSession({
     mutationId: randomUUID(),
@@ -1203,13 +1215,16 @@ async function answerReviewComment(input: {
     );
   }
   await input.mirror.watch(input.comment.threadId, binding);
+  timing("backend.mirror-attached");
   if (!(await input.onLaunched(binding))) return;
+  timing("backend.terminal-dispatch");
   await input.openNativeAgentTerminal({
     session: binding,
     threadId: input.comment.threadId,
     command,
     askMessageId: input.comment.messageId,
   });
+  timing("backend.terminal-returned");
   await input.onQuestionAgentSession?.(binding);
 }
 

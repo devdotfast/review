@@ -48,6 +48,8 @@ export interface LaunchInput {
 
 export interface AgentServer {
   readonly harness: ReviewAgentHarness;
+  /** Start the shared backing server without creating or prompting a session. */
+  prepare?(): Promise<void>;
   launch(input: LaunchInput): Promise<{
     sessionId: string;
     command: NativeTerminalCommand;

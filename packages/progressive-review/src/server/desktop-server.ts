@@ -101,6 +101,7 @@ import {
 import {
   applyCliInstall,
   declineCliInstall,
+  executableOnPath,
   removeCliInstall,
   resetCliInstall,
   resolveCliInstallStatus,
@@ -309,6 +310,7 @@ export function createGlobalReviewServer(
   const tutorialAuthoringStates = new Map<string, TutorialAuthoringState>();
   let reviewReaper: ReturnType<typeof setInterval> | undefined;
   let closing = false;
+  let agentPreparation: Promise<void> | undefined;
   const harnesses = { "claude-code": claudeCode, codex, opencode, pi } as const;
   const agentServers = new Map<ReviewAgentHarness, AgentServer>();
   const agentServerFor = (harness: ReviewAgentHarness): AgentServer => {
@@ -324,6 +326,31 @@ export function createGlobalReviewServer(
     }
     return server;
   };
+  async function prepareAgentServers(): Promise<void> {
+    const status = await resolveInstalledReviewAgentStatus();
+    await Promise.all(
+      (["codex", "opencode"] as const).map(async (harness) => {
+        // Installed here means the Review integration is enabled for this harness.
+        if (
+          !status.agents.some(
+            (agent) => agent.target === harness && agent.installed,
+          )
+        )
+          return;
+        if (!(await executableOnPath(harness)) || closing) return;
+        const startedAt = Date.now();
+        try {
+          await agentServerFor(harness).prepare?.();
+          console.info(
+            "[Review agent ready]",
+            JSON.stringify({ harness, elapsedMs: Date.now() - startedAt }),
+          );
+        } catch (error) {
+          console.error(`[Review] Could not prepare ${harness}`, error);
+        }
+      }),
+    );
+  }
   const openNativeAgentTerminal = async (
     reviewSessionId: string,
     terminal: Extract<
@@ -2178,6 +2205,12 @@ export function createGlobalReviewServer(
       boundPort = await listen(httpServer, input.port);
       discovery.url = urlForBoundPort();
       await writePrivateJsonAtomic(discoveryPath, discovery);
+      agentPreparation = prepareAgentServers().catch((error) =>
+        console.error(
+          "[Review] Could not inspect enabled agent integrations",
+          error,
+        ),
+      );
       void runReviewReaper().catch((error) =>
         console.error("Could not run Review cleanup:", error),
       );
@@ -2194,6 +2227,7 @@ export function createGlobalReviewServer(
       reviewReaper = undefined;
       await removeMatchingDiscovery(discoveryPath, discovery);
       await abortTutorialAuthoringStates();
+      await agentPreparation;
       await Promise.all(
         [...sessions.values()].map((session) =>
           closeSession(session, "app-exit", false).catch(() => undefined),

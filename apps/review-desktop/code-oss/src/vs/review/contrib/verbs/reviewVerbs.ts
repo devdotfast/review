@@ -175,7 +175,9 @@ export class ReviewVerbsService
               if (input.replaced) return;
               void comments.terminalClosed(threadId, activity.messageId).catch(error => console.error("[Review] Could not interrupt Ask", error));
             }));
+            console.warn("[Review Ask timing]", JSON.stringify({ at: Date.now(), messageId: activity.messageId, stage: "loading.open-requested" }));
             const opened = this.editorService.openEditor(input, { pinned: true }, SIDE_GROUP);
+            void opened.then(() => console.warn("[Review Ask timing]", JSON.stringify({ at: Date.now(), messageId: activity.messageId, stage: "loading.opened" })), () => {});
             this.askPanes.set(activity.messageId, { input, opened, startedAt: activity.startedAt });
             void opened.catch(error => input.fail(String(error)));
           }
@@ -336,6 +338,8 @@ export class ReviewVerbsService
   private async openNativeAgentTerminal(
     input: Extract<ReviewVerbRequest, { name: "openNativeAgentTerminal" }>["args"],
   ): Promise<void> {
+    const timing = (stage: string) => console.warn("[Review Ask timing]", JSON.stringify({ at: Date.now(), messageId: input.askMessageId, harness: input.session.harness, stage }));
+    timing("terminal.verb-received");
     this._onDidEmitSurfaceEvent.fire({
       event: "agentTerminalOpening",
       sessionId: this.requireSession().session.sessionId,
@@ -344,6 +348,7 @@ export class ReviewVerbsService
     if (!comments) throw new Error("No active Review comment store.");
     const pending = input.askMessageId === null ? undefined : this.askPanes.get(input.askMessageId);
     const pane = pending ? await pending.opened : undefined;
+    timing("terminal.loading-pane-ready");
     // A closed loading tab is an explicit dismissal of this Ask's terminal.
     if (pending?.input.isDisposed()) return;
     const group = pane ? pane.group.id : SIDE_GROUP;
@@ -367,6 +372,7 @@ export class ReviewVerbsService
       await finish();
       return;
     }
+    timing("terminal.create-start");
     const instance = await this.terminalService.createTerminal({
       config: {
         executable: input.command.executable,
@@ -388,9 +394,15 @@ export class ReviewVerbsService
       // Terminal creation expects a visual column, while openEditor expects a group ID.
       location: { viewColumn: pane ? editorGroupToColumn(this.editorGroupsService, pane.group) : SIDE_GROUP },
     });
+    timing("terminal.created");
+    const firstData = instance.onData(() => {
+      timing("terminal.first-output");
+      firstData.dispose();
+    });
+    this._register(firstData);
     this.agentSessionTerminals.set(key, instance);
     let processId = instance.processId;
-    this._register(instance.onProcessIdReady(ready => { processId = ready.processId; }));
+    this._register(instance.onProcessIdReady(ready => { processId = ready.processId; timing("terminal.process-ready"); }));
     let processExited = false;
     this._register(instance.onExit(exit => {
       // dispose() also emits an undefined synthetic exit before the process dies.
@@ -419,15 +431,19 @@ export class ReviewVerbsService
       instance.dispose();
       return;
     }
+    timing("terminal.editor-open-start");
     await this.terminalEditorService.openEditor(instance, {
       viewColumn: group,
     });
+    timing("terminal.editor-opened");
     // Review owns cancellation; this input's revert disables only its close prompt.
     await this.terminalEditorService.getInputFromResource(instance.resource).revert();
     comments.terminalOpened(input.threadId);
     this.terminalService.setActiveInstance(instance);
     await instance.focusWhenReady(true);
+    timing("terminal.focus-ready");
     await finish();
+    timing("terminal.loading-replaced");
   }
 
   private async showThreads(): Promise<void> {

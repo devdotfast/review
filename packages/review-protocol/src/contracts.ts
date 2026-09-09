@@ -987,6 +987,7 @@ export type ReviewCanvasContent =
   | { kind: "loading" }
   | {
       kind: "error";
+      appVersion: string;
       message: string;
       reviewErrors?: readonly ReviewListError[];
     }
@@ -997,6 +998,7 @@ export type ReviewCanvasContent =
   | { kind: "source"; error?: string }
   | {
       kind: "home";
+      appVersion: string;
       reviews: readonly ReviewDescriptor[];
       reviewErrors: readonly ReviewListError[];
       openReview(uuid: string): void;

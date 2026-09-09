@@ -29,18 +29,16 @@ import {
 
 import { fuzzyMatches, fuzzySegments } from "../../src/fuzzy-match";
 import { TARGET_LABELS } from "./agent-setup-card";
-import { CopyPromptButton } from "./copy-prompt-button";
 import { ArchiveIcon } from "./review-corner-action";
+import { ReviewMigrationToast } from "./review-migration-toast";
 import { WelcomePage } from "./welcome-page";
 
 export type ReviewHomeView = "cards" | "list";
 
 export const REVIEW_HOME_VIEW_STORAGE_KEY = "dev.fast.review.homeView";
 
-export const REVIEW_MIGRATION_PROMPT =
-  "Use the local `review` CLI to migrate my Review data. Run `review migrate apply`. If a code comment position cannot be recovered, rerun `review migrate apply --force` to drop only the unrecoverable threads. Then restart Review and confirm that the Reviews and comments load.";
-
 interface ReviewHomeProps {
+  appVersion: string;
   reviews: readonly ReviewDescriptor[];
   reviewErrors?: readonly ReviewListError[];
   onOpen(review: ReviewDescriptor): void;
@@ -124,6 +122,7 @@ interface ReviewStatusDisplay {
 }
 
 export function ReviewHome({
+  appVersion,
   reviews,
   reviewErrors = [],
   onOpen,
@@ -188,7 +187,7 @@ export function ReviewHome({
         <div className="review-home-content">
           {setup ? <SetupBanner setup={setup} /> : null}
           {reviewErrors.length > 0 ? (
-            <ReviewScanWarning errors={reviewErrors} />
+            <ReviewScanWarning errors={reviewErrors} appVersion={appVersion} />
           ) : null}
           <div className="review-home-page-header">
             <h1>Reviews</h1>
@@ -231,33 +230,18 @@ export function ReviewHome({
   );
 }
 
-export function ReviewMigrationWarning({
+function ReviewScanWarning({
   errors,
+  appVersion,
 }: {
   errors: readonly ReviewListError[];
+  appVersion: string;
 }) {
-  const migrationCount = errors.filter(
-    (error) => error.code === "MIGRATION_REQUIRED",
-  ).length;
-  if (migrationCount === 0) return null;
-  return (
-    <section
-      className="review-migration-warning"
-      aria-label="Review migration required"
-    >
-      <span>
-        {`${migrationCount} ${migrationCount === 1 ? "Review needs" : "Reviews need"} migration.`}
-      </span>
-      <CopyPromptButton prompt={REVIEW_MIGRATION_PROMPT} />
-    </section>
-  );
-}
-
-function ReviewScanWarning({ errors }: { errors: readonly ReviewListError[] }) {
   const hasMigration = errors.some(
     (error) => error.code === "MIGRATION_REQUIRED",
   );
-  if (hasMigration) return <ReviewMigrationWarning errors={errors} />;
+  if (hasMigration)
+    return <ReviewMigrationToast errors={errors} appVersion={appVersion} />;
   return (
     <section className="review-scan-warning" aria-label="Review warnings">
       <span>{`${errors.length} ${errors.length === 1 ? "Review has" : "Reviews have"} issues.`}</span>

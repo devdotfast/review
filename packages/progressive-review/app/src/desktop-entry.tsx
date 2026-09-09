@@ -17,7 +17,8 @@ import { ReviewCanvasLoading } from "./review-canvas-loading";
 import { reviewDefinitionDiagnostics } from "./review-definition-runtime";
 import type { ReadyReviewDocumentEntry } from "./review-documents-runtime";
 import { type ReviewFindHost, createReviewFindHost } from "./review-find";
-import { ReviewHome, ReviewMigrationWarning } from "./review-home-view";
+import { ReviewHome } from "./review-home-view";
+import { ReviewMigrationToast } from "./review-migration-toast";
 import {
   ReviewContainerProvider,
   useReviewContainer,
@@ -140,7 +141,10 @@ function DesktopReviewApp({
   }
   return (
     <div className="review-session-content">
-      <ReviewMigrationWarning errors={reviewErrors} />
+      <ReviewMigrationToast
+        errors={reviewErrors}
+        appVersion={session.config.appVersion}
+      />
       <TutorialProvider tutorial={tutorial}>
         <App
           document={document}
@@ -226,7 +230,10 @@ function ReviewCanvas({
   if (content.kind === "error") {
     return (
       <CanvasShell title="Review unavailable">
-        <ReviewMigrationWarning errors={content.reviewErrors ?? []} />
+        <ReviewMigrationToast
+          errors={content.reviewErrors ?? []}
+          appVersion={content.appVersion}
+        />
         <p>{content.message}</p>
       </CanvasShell>
     );
@@ -245,6 +252,7 @@ function Home({
   const openSourceTree = content.openSourceTree;
   return (
     <ReviewHome
+      appVersion={content.appVersion}
       reviews={content.reviews}
       reviewErrors={content.reviewErrors}
       onOpen={(review) => content.openReview(review.uuid)}

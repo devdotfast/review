@@ -244,7 +244,7 @@ registerAction2(UninstallReviewDesktopAction);
  * - no stamp: open no tab; empty Home renders the Welcome rail, and
  *   Preferences > Getting Started reaches the same pane when Home has
  *   reviews to list instead;
- * - granted + stale fingerprint: re-sync silently after an app update;
+ * - granted + stale CLI fingerprint or skill version: re-sync silently after an app update;
  * - declined or skipped: never open automatically (the menu action stays available).
  *
  * Dev sessions (`pnpm dev`, isBuilt false) never auto-open.
@@ -258,9 +258,9 @@ class ReviewCliInstallStartup implements IWorkbenchContribution {
 		if (!environmentService.isBuilt) {
 			return;
 		}
-		// Startup must never surface install errors; the Welcome rail reports
-		// them interactively instead.
-		void this.check().catch(() => undefined);
+		void this.check().catch(error => {
+			this.notificationService.warn(localize('review.cliInstall.updateFailed', "Review could not update its agent skills or CLI: {0}. Retry from Getting Started, or restart Review.", String(error)));
+		});
 	}
 
 	private async check(): Promise<void> {

@@ -115,6 +115,7 @@ export interface IReviewSessionService {
 	deleteTutorial(): Promise<void>;
 	getCliInstallStatus(): Promise<ReviewCliInstallStatus>;
 	applyCliInstall(request: {
+		autoUpdate?: boolean;
 		targets: readonly ReviewCliInstallTarget[];
 		shim?: boolean;
 		fff?: boolean;
@@ -581,6 +582,7 @@ export class ReviewSessionService
 	}
 
 	async applyCliInstall(request: {
+		autoUpdate?: boolean;
 		targets: readonly ReviewCliInstallTarget[];
 		shim?: boolean;
 		fff?: boolean;
@@ -595,6 +597,7 @@ export class ReviewSessionService
 			},
 			body: JSON.stringify({
 				targets: request.targets,
+				...(request.autoUpdate ? { autoUpdate: true } : {}),
 				...(request.shim !== undefined ? { shim: request.shim } : {}),
 				...(request.fff ? { fff: true } : {}),
 				...(request.trace !== undefined ? { trace: request.trace } : {}),
@@ -602,6 +605,7 @@ export class ReviewSessionService
 			signal: AbortSignal.timeout(120_000),
 		});
 		const payload: JsonValue = await response.json().catch(() => ({}));
+		this.cliInstallStatus = undefined;
 		if (!response.ok) {
 			const detail = payload as { output?: unknown; error?: unknown };
 			throw new Error(
@@ -612,7 +616,6 @@ export class ReviewSessionService
 						: `Review install returned ${response.status}.`,
 			);
 		}
-		this.cliInstallStatus = undefined;
 		return parseReviewCliInstallApplyResponse(payload);
 	}
 

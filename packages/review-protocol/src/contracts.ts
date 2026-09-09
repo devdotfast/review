@@ -1402,6 +1402,19 @@ export const ReviewCliInstallStatusSchema = z.strictObject({
   fingerprint: requiredString,
   stamp: ReviewCliInstallStampSchema.nullable(),
   stale: z.boolean(),
+  skills: z
+    .array(
+      z.strictObject({
+        target: ReviewCliInstallTargetSchema,
+        name: requiredString,
+        installedVersion: requiredString.nullable(),
+        bundledVersion: requiredString.nullable(),
+        stale: z.boolean(),
+        error: requiredString.optional(),
+      }),
+    )
+    .optional(),
+  error: requiredString.optional(),
   shim: z.strictObject({
     path: requiredString,
     installed: z.boolean(),
@@ -1450,6 +1463,7 @@ export const ReviewCliInstallApplyRequestSchema = z
   .strictObject({
     targets: z.array(ReviewCliInstallTargetSchema),
     shim: z.boolean().optional(),
+    autoUpdate: z.boolean().optional(),
     fff: z.boolean().optional(),
     trace: z
       .union([

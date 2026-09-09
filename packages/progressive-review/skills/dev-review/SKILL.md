@@ -1,6 +1,10 @@
 ---
 name: dev-review
 description: Answer product questions about Review Desktop, or author and publish a progressive Review for a branch, jj change, or pull request. Use for Review capabilities, setup, CLI, privacy, telemetry, troubleshooting, and code-change or architecture reviews.
+metadata:
+  review-managed-by: "Review Desktop"
+  review-generated: "Do not edit. Review automatically replaces this skill directory on updates."
+  review-version: "development"
 ---
 
 # dev.fast Review

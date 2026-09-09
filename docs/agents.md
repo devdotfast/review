@@ -25,7 +25,12 @@ same Review skills from `~/.agents/skills`.
 
 Review Desktop is the recommended installation path. On first launch it detects
 installed agents, asks which integrations to enable, and keeps their skills in
-sync with app updates. You can manage the integrations later from Review
+sync with app updates. Generated skills carry the Review Desktop release version in
+`SKILL.md` frontmatter. On the first launch after an update, Desktop replaces
+older skills for enabled integrations automatically, including local edits.
+Skills already at the bundled version are left alone. Start a new agent session
+to load refreshed skills. Reinstall from settings to repair same-version edits
+or missing supporting files; terminal-only installs are not automatically enrolled. You can manage the integrations later from Review
 settings.
 
 ## Installed skills

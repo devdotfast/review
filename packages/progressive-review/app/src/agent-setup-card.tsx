@@ -59,6 +59,16 @@ export function AgentSetupCard({
       <ul className="review-agent-setup-agents">
         {status.agents.map((agent) => {
           const Logo = AGENT_LOGOS[agent.target];
+          const skills =
+            status.skills?.filter((skill) => skill.target === agent.target) ??
+            [];
+          const needsUpdate = skills.some((skill) => skill.stale);
+          const versions = skills
+            .map(
+              (skill) =>
+                `${skill.name}: installed ${skill.installedVersion ?? "unversioned"}; bundled ${skill.bundledVersion ?? "unversioned"}`,
+            )
+            .join("\n");
           const request: InstallRequest = { targets: [agent.target] };
           if (status.trace.enabled && supportsFff(agent.target)) {
             request.fff = true;
@@ -77,12 +87,15 @@ export function AgentSetupCard({
               <span
                 className="review-agent-setup-state"
                 data-installed={agent.installed}
+                title={versions || undefined}
               >
-                {agent.installed
-                  ? "installed"
-                  : agent.present
-                    ? "detected"
-                    : "not detected"}
+                {needsUpdate
+                  ? "update needed"
+                  : agent.installed
+                    ? "installed"
+                    : agent.present
+                      ? "detected"
+                      : "not detected"}
               </span>
               {agent.installed ? (
                 <button
@@ -119,9 +132,23 @@ export function AgentSetupCard({
       </ul>
       <p className="review-agent-setup-disclosure">
         Installing skills will also install <code>review</code> to your shell
-        PATH.
+        PATH. Review automatically replaces these generated skills after app
+        updates. Local edits are overwritten; start a new agent session to load
+        updated skills.
       </p>
-      {error ? <p className="review-agent-setup-error">{error}</p> : null}
+      {error || status.error ? (
+        <p className="review-agent-setup-error">{error ?? status.error}</p>
+      ) : null}
+      {status.skills
+        ?.filter((skill) => skill.error)
+        .map((skill) => (
+          <p
+            className="review-agent-setup-error"
+            key={`${skill.target}-${skill.name}`}
+          >
+            {skill.error}
+          </p>
+        ))}
     </section>
   );
 }

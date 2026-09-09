@@ -1,6 +1,10 @@
 ---
 name: dev-review-map
 description: Author and save the pinned base and head software maps for a Review.
+metadata:
+  review-managed-by: "Review Desktop"
+  review-generated: "Do not edit. Review automatically replaces this skill directory on updates."
+  review-version: "development"
 ---
 
 # Review software-map worker

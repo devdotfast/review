@@ -8,10 +8,13 @@ import {
   realpath,
   rm,
   stat,
+  writeFile,
 } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+
+import { valid as validVersion } from "semver";
 
 const execFileAsync = promisify(execFile);
 
@@ -137,9 +140,43 @@ export async function stageReviewRuntime(packagedRoot) {
   );
 
   await stageReviewDocs(runtimeRoot);
+  await stampReviewSkills(runtimeRoot);
   await makeTreeOwnerWritable(path.join(runtimeRoot, "tutorial", "git-stub"));
   await assertRuntimeClosure(runtimeRoot);
   return runtimeRoot;
+}
+
+/** Stamp only deployed copies, before signing; source skills remain editable. */
+export async function stampReviewSkills(runtimeRoot, version) {
+  const releaseVersion =
+    version ??
+    JSON.parse(await readFile(path.join(appDirectory, "package.json"), "utf8"))
+      .version;
+  if (!validVersion(releaseVersion)) {
+    throw new Error(
+      "A Review Desktop release version is required to stamp skills.",
+    );
+  }
+  const skillsRoot = path.join(runtimeRoot, "skills");
+  for (const entry of await readdir(skillsRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const skillPath = path.join(skillsRoot, entry.name, "SKILL.md");
+    const source = await readFile(skillPath, "utf8");
+    const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(source);
+    if (
+      !frontmatter ||
+      !/^  review-version: "[^"\n]+"$/m.test(frontmatter[1])
+    ) {
+      throw new Error(`Missing generated skill metadata: ${skillPath}`);
+    }
+    const stamped = frontmatter[0].replace(
+      /^  review-version: "[^"\n]+"$/m,
+      `  review-version: ${JSON.stringify(releaseVersion)}`,
+    );
+    // pnpm deploy may hardlink files from its store. Never modify that inode.
+    await rm(skillPath);
+    await writeFile(skillPath, stamped + source.slice(frontmatter[0].length));
+  }
 }
 
 export async function stageReviewDocs(
@@ -242,7 +279,9 @@ export async function assertRuntimeClosure(runtimeRoot) {
     try {
       await access(path.join(tutorialRoot, entry));
     } catch {
-      throw new Error(`The staged Review runtime is missing tutorial/${entry}.`);
+      throw new Error(
+        `The staged Review runtime is missing tutorial/${entry}.`,
+      );
     }
   }
   await assertNoCheckoutReferences(runtimeRoot);

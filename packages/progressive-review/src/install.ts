@@ -1,6 +1,5 @@
 import {
   copyFile,
-  cp,
   lstat,
   mkdir,
   readFile,
@@ -15,6 +14,7 @@ import type { Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 
 import { ensureNotesConfig, gitCommonDir } from "@dev.fast/local-vcs";
+import { valid as validVersion } from "semver";
 
 import { installFffForTargets, isFffTarget } from "./agent-fff";
 import {
@@ -25,6 +25,8 @@ import {
 } from "./agent-trace-hooks";
 import { emitJsonEvent, failWithJsonError, humanStream } from "./cli-output";
 import { isDirectory, isFile } from "./fs-utils";
+import { installDirectory } from "./install-directory";
+import { withSkillInstallLock } from "./skill-install-lock";
 import {
   type TraceCredentialsInput,
   configureTraceMachine,
@@ -72,6 +74,8 @@ export interface RunInstallInput {
   packageRoot?: string;
   env?: NodeJS.ProcessEnv;
   fff?: boolean;
+  /** Desktop reconciliation skips skills already at the bundled release. */
+  skipCurrentSkills?: boolean;
   reviewCommand?: string;
   trace?: {
     credentials?: TraceCredentialsInput;
@@ -83,6 +87,10 @@ export interface RunInstallInput {
 }
 
 export async function runInstall(input: RunInstallInput): Promise<number> {
+  return withSkillInstallLock(input.homeDir, () => runInstallUnlocked(input));
+}
+
+async function runInstallUnlocked(input: RunInstallInput): Promise<number> {
   const homeDir = input.homeDir ?? os.homedir();
   const packageRoot = input.packageRoot ?? defaultPackageRoot();
   const env = input.env ?? process.env;
@@ -160,17 +168,38 @@ export async function runInstall(input: RunInstallInput): Promise<number> {
     traceEnabled || (await traceMachineEnabled({ homeDir, env }));
 
   const installed: InstalledItem[] = [];
+  const visitedRoots = new Set<string>();
   for (const target of input.targets) {
     const destRoot = skillsDestRoot(homeDir, target);
-    await removeStaleSkills(destRoot);
-    for (const skillDir of skillDirs) {
-      const skillDest = path.join(destRoot, skillDir.name);
-      if (isTraceSkill(skillDir.name) && !installTraceHooks) {
-        await rm(skillDest, { recursive: true, force: true });
-        continue;
+    if (!visitedRoots.has(destRoot)) {
+      visitedRoots.add(destRoot);
+      await removeStaleSkills(destRoot);
+      for (const skillDir of skillDirs) {
+        const skillDest = path.join(destRoot, skillDir.name);
+        if (isTraceSkill(skillDir.name) && !installTraceHooks) {
+          await rm(skillDest, { recursive: true, force: true });
+          continue;
+        }
+        if (input.skipCurrentSkills) {
+          const bundled = await readSkillVersion(
+            path.join(skillDir.src, "SKILL.md"),
+            skillDir.name,
+          );
+          if (!bundled)
+            throw new Error(
+              `Bundled skill ${skillDir.name} has no release version. Reinstall Review Desktop.`,
+            );
+          if (
+            (await readSkillVersion(
+              path.join(skillDest, "SKILL.md"),
+              skillDir.name,
+            )) === bundled
+          )
+            continue;
+        }
+        await installDirectory(skillDir.src, skillDest);
+        installed.push({ kind: "skill", dest: skillDest });
       }
-      await installDirectory(skillDir.src, skillDest);
-      installed.push({ kind: "skill", dest: skillDest });
     }
     if (target === "opencode") {
       const pluginDest = openCodePluginPath(homeDir);
@@ -259,6 +288,15 @@ export async function removeInstalledSkills(
   target: InstallTarget,
   homeDir = os.homedir(),
 ): Promise<void> {
+  return withSkillInstallLock(homeDir, () =>
+    removeInstalledSkillsUnlocked(target, homeDir),
+  );
+}
+
+async function removeInstalledSkillsUnlocked(
+  target: InstallTarget,
+  homeDir: string,
+): Promise<void> {
   const destRoot = skillsDestRoot(homeDir, target);
   for (const name of [
     ...REQUIRED_SKILL_NAMES,
@@ -278,6 +316,15 @@ export async function removeInstalledSkills(
 export async function removeTraceSkills(
   target: InstallTarget,
   homeDir = os.homedir(),
+): Promise<void> {
+  return withSkillInstallLock(homeDir, () =>
+    removeTraceSkillsUnlocked(target, homeDir),
+  );
+}
+
+async function removeTraceSkillsUnlocked(
+  target: InstallTarget,
+  homeDir: string,
 ): Promise<void> {
   const destRoot = skillsDestRoot(homeDir, target);
   for (const name of TRACE_SKILL_NAMES) {
@@ -322,6 +369,82 @@ export async function detectInstalledTargets(
   return installed;
 }
 
+export interface InstalledSkillStatus {
+  target: InstallTarget;
+  name: string;
+  installedVersion: string | null;
+  bundledVersion: string | null;
+  stale: boolean;
+  error?: string;
+}
+
+/** Missing or malformed generated metadata is an unstamped legacy install. */
+export async function readSkillVersion(
+  file: string,
+  name: string,
+): Promise<string | null> {
+  try {
+    if (!(await hasValidSkillFile(file, name))) return null;
+    const source = await readFile(file, "utf8");
+    const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(source)?.[1];
+    const metadata = frontmatter?.match(
+      /^metadata:\r?\n((?:[ \t]+[^\n]*(?:\n|$))*)/m,
+    )?.[1];
+    if (
+      !metadata ||
+      !/^  review-managed-by: "Review Desktop"\r?$/m.test(metadata) ||
+      !/^  review-generated: "[^"\r\n]+"\r?$/m.test(metadata)
+    )
+      return null;
+    const version = metadata.match(
+      /^  review-version: "([^"\r\n]+)"\r?$/m,
+    )?.[1];
+    return version && (version === "development" || validVersion(version))
+      ? version
+      : null;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT")
+      return null;
+    throw error;
+  }
+}
+
+export async function resolveInstalledSkills(input: {
+  packageRoot: string;
+  homeDir: string;
+  targets: InstallTarget[];
+  traceEnabled: boolean;
+}): Promise<InstalledSkillStatus[]> {
+  const names: readonly string[] = input.traceEnabled
+    ? [...REQUIRED_SKILL_NAMES, ...TRACE_SKILL_NAMES]
+    : REQUIRED_SKILL_NAMES;
+  return Promise.all(
+    input.targets.flatMap((target) =>
+      names.map(async (name) => {
+        const bundledVersion = await readSkillVersion(
+          path.join(input.packageRoot, "skills", name, "SKILL.md"),
+          name,
+        );
+        const installedVersion = await readSkillVersion(
+          path.join(skillsDestRoot(input.homeDir, target), name, "SKILL.md"),
+          name,
+        );
+        const status: InstalledSkillStatus = {
+          target,
+          name,
+          bundledVersion,
+          installedVersion,
+          stale: !bundledVersion || installedVersion !== bundledVersion,
+        };
+        if (!bundledVersion) {
+          status.error = `Bundled skill ${name} has no release version. Reinstall Review Desktop.`;
+        }
+        return status;
+      }),
+    ),
+  );
+}
+
 function skillsDestRoot(homeDir: string, target: InstallTarget): string {
   if (target === "claude") return path.join(homeDir, ".claude", "skills");
   if (target === "cursor") return path.join(homeDir, ".cursor", "skills");
@@ -358,36 +481,6 @@ async function listSkillDirs(
     .filter((entry) => entry.hasSkillFile)
     .map(({ name, src }) => ({ name, src }))
     .sort((a, b) => a.name.localeCompare(b.name));
-}
-
-async function installDirectory(src: string, dest: string): Promise<void> {
-  await mkdir(path.dirname(dest), { recursive: true });
-  // Stage into a sibling temp dir, then swap into place with renames so an
-  // interruption mid-install never leaves the user with a half-removed skill.
-  // The temp dirs are siblings of dest, so the renames stay on one filesystem.
-  const staging = `${dest}.tmp-${process.pid}`;
-  const backup = `${dest}.bak-${process.pid}`;
-  await rm(staging, { recursive: true, force: true });
-  await rm(backup, { recursive: true, force: true });
-  await cp(src, staging, { recursive: true });
-  let movedExisting = false;
-  try {
-    await rename(dest, backup);
-    movedExisting = true;
-  } catch (error) {
-    if (
-      !(error instanceof Error && "code" in error && error.code === "ENOENT")
-    ) {
-      throw error;
-    }
-  }
-  try {
-    await rename(staging, dest);
-  } catch (error) {
-    if (movedExisting) await rename(backup, dest).catch(() => {});
-    throw error;
-  }
-  if (movedExisting) await rm(backup, { recursive: true, force: true });
 }
 
 async function installFile(src: string, dest: string): Promise<void> {

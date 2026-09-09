@@ -15,7 +15,10 @@ import type { JsonValue } from "@dev.fast/review-protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { collectingWritable } from "./cli-output";
-import { clearTraceEnvCache } from "./review-agent-traces";
+import {
+  checkReviewTraceDoctor,
+  clearTraceEnvCache,
+} from "./review-agent-traces";
 import { writeStoreAuth } from "./store-auth";
 import { StoreClient } from "./store-client";
 import { traceMachineStatus } from "./trace-machine-setup";
@@ -28,6 +31,24 @@ import { DirectTraceStorage } from "./trace-storage/direct";
 import { resolveDirectSetup } from "./trace-storage/direct-config";
 import { selectTraceStorage } from "./trace-storage/resolve";
 import { allowTraceRepository } from "./trace-user-config";
+
+/** Runs `action` with process.env and HOME temporarily replaced by `env`. */
+async function withProcessEnv<T>(
+  env: NodeJS.ProcessEnv,
+  action: () => Promise<T>,
+): Promise<T> {
+  const previous = { ...process.env };
+  for (const key of Object.keys(process.env)) delete process.env[key];
+  Object.assign(process.env, env, { HOME: env.HOME ?? previous.HOME });
+  clearTraceEnvCache();
+  try {
+    return await action();
+  } finally {
+    for (const key of Object.keys(process.env)) delete process.env[key];
+    Object.assign(process.env, previous);
+    clearTraceEnvCache();
+  }
+}
 
 const legacyEnv = [
   'export TRACE_R2_ENDPOINT="https://legacy.example.invalid"',
@@ -160,6 +181,20 @@ describe("trace storage commands", () => {
       credentialsSource: "profile",
       storageMode: "direct",
     });
+    // The doctor reports the profile as its source once the legacy files
+    // are gone, instead of demanding the env file.
+    delete env.TRACE_R2_MODE;
+    vi.spyOn(DirectTraceStorage.prototype, "doctor").mockResolvedValue({
+      reachable: true,
+    });
+    const doctor = await withProcessEnv(env, () => checkReviewTraceDoctor());
+    expect(doctor).toMatchObject({
+      ok: true,
+      reachable: true,
+      envPath: configPath,
+      config: { bucket: "legacy-traces" },
+    });
+    env.TRACE_R2_MODE = "mock";
 
     writeLegacy();
     clearTraceEnvCache();

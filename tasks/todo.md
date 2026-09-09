@@ -36,7 +36,7 @@ Design: /Users/aiansiti/workable/trace-storage-design.md
 - [x] Docs, skill, telemetry vocabulary, protocol mirror
 
 ## Commit 5: validation evidence
-- [ ] MinIO upgrade gate (pre-upgrade CLI → new CLI, unchanged config, zero hosted requests)
-- [ ] Migration acceptance
-- [ ] Dev alpha-branch trace-api unit tests vs 0.2.0 tarball
-- [ ] Evidence doc; pnpm ci
+- [x] MinIO upgrade gate (pre-upgrade CLI → new CLI, unchanged config, zero hosted requests)
+- [x] Migration acceptance
+- [x] Dev alpha-branch trace-api unit tests vs 0.2.0 tarball
+- [x] Evidence doc; Review tests (1280), typecheck, lint, format, tutorial check pass. Desktop typecheck/tests need Code OSS node_modules (absent in this worktree); hosted CI covers them.

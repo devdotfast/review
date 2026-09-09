@@ -46,8 +46,7 @@ import { DirectTraceStorage } from "./trace-storage/direct";
 import {
   clearTraceEnvCache as clearDirectEnvCache,
   traceEnvValue as directEnvValue,
-  resolveDirectCredentials,
-  traceEnvPath,
+  resolveDirectSetup,
 } from "./trace-storage/direct-config";
 import {
   isTraceStorageConfigured,
@@ -1329,21 +1328,10 @@ export async function checkReviewTraceDoctor(input?: {
   cwd?: string;
 }): Promise<ReviewTraceDoctorResult> {
   void input;
-  const envPath = traceEnvPath();
-
-  if (
-    !existsSync(envPath) &&
-    !process.env.TRACE_R2_BUCKET &&
-    process.env.TRACE_R2_MODE !== "mock"
-  ) {
-    return {
-      ok: false,
-      envPath,
-      reachable: false,
-      error:
-        "No trace configuration found. Use Review Agent Setup to configure trace capture.",
-    };
-  }
+  const setup = resolveDirectSetup();
+  // The path reported is the source the credentials came from: the
+  // version-2 profile when it supplies them, otherwise the legacy env file.
+  const envPath = setup.source === "profile" ? setup.configPath : setup.envPath;
 
   if (process.env.TRACE_R2_MODE === "mock") {
     return {
@@ -1358,13 +1346,19 @@ export async function checkReviewTraceDoctor(input?: {
     };
   }
 
-  const config = resolveDirectCredentials();
+  const config = setup.credentials;
   if (!config) {
+    const anyInput =
+      setup.profile !== null ||
+      existsSync(setup.envPath) ||
+      Boolean(process.env.TRACE_R2_BUCKET);
     return {
       ok: false,
       envPath,
       reachable: false,
-      error: "Configuration is missing one or more required S3/R2 values.",
+      error: anyInput
+        ? "Configuration is missing one or more required S3/R2 values."
+        : "No trace configuration found. Use Review Agent Setup to configure trace capture.",
     };
   }
 

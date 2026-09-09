@@ -62,6 +62,35 @@ describe("TraceCaptureSection", () => {
     });
   });
 
+  it("names the hosted store when capture runs on it", async () => {
+    const hostedStatus: ReviewCliInstallStatus = {
+      ...traceStatus,
+      trace: {
+        ...traceStatus.trace,
+        enabled: true,
+        configured: true,
+        storageMode: "hosted",
+      },
+    };
+    const install: ReviewCanvasInstallContent = {
+      status: hostedStatus,
+      apply: vi.fn<ReviewCanvasInstallContent["apply"]>(),
+      remove: vi.fn<ReviewCanvasInstallContent["remove"]>(),
+      decline: vi.fn<ReviewCanvasInstallContent["decline"]>(),
+      skip: vi.fn<ReviewCanvasInstallContent["skip"]>(),
+      enablePrompts: vi.fn<ReviewCanvasInstallContent["enablePrompts"]>(),
+    };
+    await act(async () =>
+      root.render(<TraceCaptureSection install={install} />),
+    );
+    expect(
+      container.querySelector(".review-agent-setup-state")?.textContent,
+    ).toBe("enabled (hosted)");
+    expect(
+      container.querySelector('[data-testid="trace-storage"]')?.textContent,
+    ).toContain("hosted trace store selected");
+  });
+
   it("disables capture through the shared remove action", async () => {
     const enabledStatus: ReviewCliInstallStatus = {
       ...traceStatus,

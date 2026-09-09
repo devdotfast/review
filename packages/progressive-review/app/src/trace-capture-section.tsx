@@ -116,7 +116,9 @@ export function TraceCaptureSection({
           {status.trace.enabled
             ? status.trace.error
               ? "enabled, storage check failed"
-              : "enabled"
+              : status.trace.storageMode === "hosted"
+                ? "enabled (hosted)"
+                : "enabled"
             : status.trace.configured
               ? "ready to enable"
               : "off"}

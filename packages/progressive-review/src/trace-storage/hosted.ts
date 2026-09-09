@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import { git } from "@dev.fast/local-vcs";
-import { commitShaSchema } from "@dev.fast/review-protocol";
+import { type SessionMeta, commitShaSchema } from "@dev.fast/review-protocol";
 import {
   MAX_TRACE_COMMITS,
   MAX_TRACE_OBJECTS,
@@ -189,6 +189,11 @@ export class HostedTraceStorage implements TraceStorage {
     if (!client) {
       // No usable login. The saved target still names the copies this
       // checkout may read while it is offline; the transport is never asked.
+      if (auth && auth.origin !== origin) {
+        report(
+          `You are logged in to ${auth.origin}, not the selected store ${origin}. Run \`review login --origin ${origin}\`; using saved copies until then.`,
+        );
+      }
       const cached = await readCachedTraceRepositoryTarget({
         cwd: input.cwd,
         origin,
@@ -298,8 +303,23 @@ export class HostedTraceStorage implements TraceStorage {
       .sort();
   }
 
-  async sessionMeta(): Promise<null> {
-    return null;
+  /**
+   * The store's record of one session, in the shape the bucket's meta.json
+   * has: repository, commits, and last update. The store keeps no branch,
+   * pull request, or author, so those stay null.
+   */
+  async sessionMeta(sessionId: string): Promise<SessionMeta | null> {
+    const stored = await reachableSession(() => this.requireSession(sessionId));
+    if (!stored) return null;
+    return {
+      session: stored.sessionId,
+      repo: this.repositoryTarget.name,
+      branch: null,
+      pr: null,
+      commits: [...stored.commits],
+      author: null,
+      ts: stored.updatedAt,
+    };
   }
 
   async sessionsForCommit(commit: string): Promise<TraceCommitSessions | null> {
@@ -521,6 +541,18 @@ export class HostedTraceStorage implements TraceStorage {
   private reportFailure(cause: Error): void {
     const message = storeReadWarning(cause);
     if (message) this.warn(message);
+  }
+}
+
+/** A session lookup, or null when the store could not be reached. */
+async function reachableSession<T>(
+  lookup: () => Promise<T | null>,
+): Promise<T | null> {
+  try {
+    return await lookup();
+  } catch (error) {
+    if (error instanceof TraceStorageUnavailableError) return null;
+    throw error;
   }
 }
 

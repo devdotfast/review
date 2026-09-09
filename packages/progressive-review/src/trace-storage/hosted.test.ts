@@ -13,10 +13,15 @@ import path from "node:path";
 import type { JsonValue } from "@dev.fast/review-protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { loadReviewAgentTrace, syncReviewTrace } from "../review-agent-traces";
+import {
+  loadReviewAgentTrace,
+  lookupReviewTraceSession,
+  syncReviewTrace,
+} from "../review-agent-traces";
 import { writeStoreAuth } from "../store-auth";
 import {
   type TraceRepositoryTarget,
+  rememberTraceRepositoryTarget,
   traceTargetKey,
 } from "../trace-repository-target";
 import {
@@ -163,6 +168,70 @@ describe("hosted trace storage", () => {
         status: "uploaded",
       },
     ]);
+  });
+
+  it("reports session metadata from the store listing", async () => {
+    const sessionId = "hosted-session-0005";
+    const transport = createMemoryTraceStoreTransport();
+    const storage = HostedTraceStorage.fromParts({
+      target: target(transport.storeId),
+      transport,
+      devHome,
+    });
+    seedMemoryTraceSession(transport, {
+      repositoryId: REPOSITORY_ID,
+      sessionId,
+      commits: ["a".repeat(40)],
+      traces: { "main.jsonl.gz": `${sessionRecord(sessionId, "meta")}\n` },
+    });
+    const lookup = await lookupReviewTraceSession({ sessionId, storage });
+    expect(lookup.meta).toMatchObject({
+      session: sessionId,
+      repo: "acme/app",
+      commits: ["a".repeat(40)],
+      branch: null,
+      pr: null,
+      author: null,
+    });
+    expect(lookup.meta?.ts).toEqual(expect.any(String));
+    expect(lookup.has_raw_trace).toBe(true);
+  });
+
+  it("warns when the login is for another origin and serves saved copies", async () => {
+    const sessionId = "hosted-session-0006";
+    const transport = createMemoryTraceStoreTransport();
+    await rememberTraceRepositoryTarget({
+      cwd: repoDir,
+      target: target(transport.storeId),
+      checkout: "acme/app",
+      devHome,
+    });
+    await writeStoreAuth(
+      {
+        origin: "https://other.dev.fast",
+        token: "t",
+        login: "dev",
+        savedAt: "2026-09-02T00:00:00Z",
+      },
+      process.env,
+    );
+    const warnings: string[] = [];
+    const storage = await HostedTraceStorage.resolve({
+      cwd: repoDir,
+      origin: ORIGIN,
+      write: false,
+      transport,
+      onWarning: (message) => warnings.push(message),
+    });
+    expect(storage?.offline).toBe(true);
+    expect(warnings).toEqual([
+      expect.stringContaining(
+        "logged in to https://other.dev.fast, not the selected store https://app.dev.fast",
+      ),
+    ]);
+    expect(
+      await loadReviewAgentTrace({ sessionId, cwd: repoDir, storage }),
+    ).toBeNull();
   });
 
   it("refreshes a saved copy when the content changes at the same size", async () => {

@@ -102,6 +102,7 @@ describe("hosted trace storage", () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
     clearTraceEnvCache();
     rmSync(tempDir, { recursive: true, force: true });

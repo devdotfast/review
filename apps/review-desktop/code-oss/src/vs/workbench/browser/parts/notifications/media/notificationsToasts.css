@@ -69,6 +69,12 @@
 	transition: none;
 }
 
+.monaco-workbench > .notifications-toasts .notification-toast-container > .notification-toast.notification-fade-out {
+	opacity: 0;
+	transform: none;
+	transition: opacity 150ms ease-out;
+}
+
 /* Icons */
 
 .monaco-workbench > .notifications-toasts .codicon.codicon-error {

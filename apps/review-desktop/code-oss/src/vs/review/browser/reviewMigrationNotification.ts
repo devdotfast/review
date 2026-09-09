@@ -31,7 +31,7 @@ export class ReviewMigrationNotification extends Disposable {
 
 	private updateCopyLabel(label: string): void {
 		this.copyAction.label = label;
-		this.notification?.updateActions({ primary: [this.dismissAction, this.copyAction] });
+		this.notification?.updateActions({ primary: [this.copyAction, this.dismissAction] });
 	}
 
 	constructor(
@@ -80,7 +80,7 @@ export class ReviewMigrationNotification extends Disposable {
 		}
 		const notification = this.notificationService.notify({
 			severity: Severity.Warning, message, sticky: true,
-			actions: { primary: [this.dismissAction, this.copyAction] },
+			actions: { primary: [this.copyAction, this.dismissAction] },
 		});
 		this.notification = notification;
 		// Every user close, including successful copy, dismisses this app version.

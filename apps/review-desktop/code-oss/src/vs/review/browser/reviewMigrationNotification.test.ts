@@ -85,8 +85,8 @@ test('updates one native notification and closes it after migration without dism
 	const first = f.prompts[0];
 	assert.equal(first.notification.message, '1 Review needs migration.');
 	assert.equal(first.options?.sticky, true);
-	assert.equal(first.choices[1].label, 'Copy prompt');
-	assert.equal(first.choices[1].keepOpen, true);
+	assert.equal(first.choices[0].label, 'Copy prompt');
+	assert.equal(first.choices[0].keepOpen, true);
 	f.setErrors(20);
 	assert.equal(f.prompts.length, 1);
 	assert.equal(first.notification.message, '20 Reviews need migration.');
@@ -103,10 +103,10 @@ test('copying confirms then dismisses across windows and restarts until an updat
 	const f = fixture('0.0.31', storage); t.after(() => f.dispose());
 	const other = fixture('0.0.31', storage); t.after(() => other.dispose());
 	f.setErrors(20); other.setErrors(20);
-	f.prompts[0].choices[1].run();
+	f.prompts[0].choices[0].run();
 	await new Promise(resolve => setImmediate(resolve));
 	assert.equal(f.clipboard.text, REVIEW_MIGRATION_PROMPT);
-	assert.equal(f.prompts[0].notification.actions?.primary?.[1].label, '✓ Copied');
+	assert.equal(f.prompts[0].notification.actions?.primary?.[0].label, '✓ Copied');
 	assert.equal(f.prompts[0].notification.message, '20 Reviews need migration.');
 	assert.equal(f.prompts[0].notification.isClosed, false);
 	t.mock.timers.tick(499);
@@ -140,7 +140,7 @@ test('a clipboard failure keeps the migration action available', async t => {
 	const f = fixture(); t.after(() => f.dispose());
 	f.clipboard.writeText = async () => { throw new Error('Clipboard unavailable'); };
 	f.setErrors(1);
-	f.prompts[0].choices[1].run();
+	f.prompts[0].choices[0].run();
 	await new Promise(resolve => setImmediate(resolve));
 	assert.equal(f.prompts[0].notification.isClosed, false);
 	assert.equal(f.prompts[0].notification.message, '1 Review needs migration.');
@@ -167,8 +167,8 @@ test('preserves dismissal from the former canvas toast', t => {
 test('the visible Dismiss action saves dismissal for the current app version', t => {
 	const f = fixture(); t.after(() => f.dispose());
 	f.setErrors(20);
-	assert.equal(f.prompts[0].choices[0].label, 'Dismiss');
-	f.prompts[0].choices[0].run();
+	assert.equal(f.prompts[0].choices[1].label, 'Dismiss');
+	f.prompts[0].choices[1].run();
 	assert.equal(f.prompts[0].notification.isClosed, true);
 	assert.equal(f.storage.get(REVIEW_MIGRATION_DISMISSED_VERSION_KEY), '0.0.31');
 	f.setErrors(21);

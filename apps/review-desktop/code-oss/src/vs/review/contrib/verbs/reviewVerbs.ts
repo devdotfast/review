@@ -71,6 +71,7 @@ import {
 import { IReviewCanvasEditorTabsService } from "../../services/reviewCanvasEditorTabsService.js";
 import {
   IReviewSessionModelService,
+  reviewSessionApiRequest,
   type ReviewDesktopSession,
 } from "../../services/reviewSessionModelService.js";
 import { IReviewSessionService } from "../../services/reviewSessionService.js";
@@ -328,7 +329,7 @@ export class ReviewVerbsService
       await existing.focusWhenReady(true);
       return;
     }
-    const response = await model.request(`/comments/${encodeURIComponent(threadId)}/agent-terminal`, { method: "POST" });
+    const response = await reviewSessionApiRequest(model.session, `/comments/${encodeURIComponent(threadId)}/agent-terminal`, { method: "POST" }, (url, init) => model.request(url, init));
     if (!response.ok) throw new Error(await response.text());
   }
 

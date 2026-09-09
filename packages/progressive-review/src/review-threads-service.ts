@@ -215,7 +215,6 @@ export class ReviewThreadsService {
     body: string;
     createdAt?: string;
     agentInput: boolean;
-    agentMessage: { sessionId: string; messageId: string };
   }): ReviewThreadsCommit | null {
     const current =
       this.drafts[input.threadId]?.thread ?? this.comments[input.threadId];
@@ -236,7 +235,6 @@ export class ReviewThreadsService {
         role: input.role,
         format: "markdown",
         agentInput: input.agentInput,
-        agentMessage: input.agentMessage,
       },
     );
     if (!result?.changed) return null;

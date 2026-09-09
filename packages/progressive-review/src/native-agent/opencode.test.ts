@@ -8,6 +8,7 @@ import {
   type JsonObject,
   type JsonValue,
   jsonObject,
+  parseJsonText,
 } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -61,14 +62,28 @@ const assistant = (id: string, text: string, completed?: number) => {
   return message;
 };
 
-/** A fake `opencode serve`: session history and an event stream. */
+/** A fake `opencode serve`: sessions, prompts, messages, and an event stream. */
 async function fakeOpencode() {
+  const requests: Array<{
+    method: string;
+    path: string;
+    directory: string | null;
+    body: JsonValue;
+  }> = [];
   const messages: JsonValue[] = [];
   const listeners = new Set<ServerResponse>();
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://localhost");
-    request.resume();
+    let raw = "";
+    request.on("data", (chunk) => (raw += String(chunk)));
     request.on("end", () => {
+      const body = raw ? parseJsonText(raw) : null;
+      requests.push({
+        method: request.method ?? "",
+        path: url.pathname,
+        directory: url.searchParams.get("directory"),
+        body,
+      });
       if (
         request.headers.authorization !==
         `Basic ${Buffer.from("opencode:pw").toString("base64")}`
@@ -89,19 +104,31 @@ async function fakeOpencode() {
         response.writeHead(200, { "content-type": "application/json" });
         response.end(JSON.stringify(value));
       };
+      if (url.pathname === "/session" && request.method === "POST")
+        return reply({
+          id: "ses_new",
+          directory: url.searchParams.get("directory"),
+        });
       // Sessions live in a project; a lookup only finds them in that directory.
       if (url.pathname === "/project")
         return reply([
           { id: "p-other", worktree: "/repo/other" },
           { id: "p-source", worktree: "/repo/source" },
         ]);
-      if (url.pathname === "/session/ses_1" && request.method === "GET") {
+      if (
+        (url.pathname === "/session/ses_src" ||
+          url.pathname === "/session/ses_1") &&
+        request.method === "GET"
+      ) {
         if (url.searchParams.get("directory") !== "/repo/source") {
           response.writeHead(404).end();
           return;
         }
         return reply({ id: url.pathname.slice(9), directory: "/repo/source" });
       }
+      if (url.pathname === "/session/ses_src/fork")
+        return reply({ id: "ses_1", directory: "/repo/source" });
+      if (url.pathname === "/session/ses_1/prompt_async") return reply({});
       if (url.pathname === "/session/ses_1/message") return reply(messages);
       response.writeHead(404).end();
     });
@@ -110,6 +137,7 @@ async function fakeOpencode() {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as AddressInfo;
   return {
+    requests,
     messages,
     host: {
       endpoint: async () => ({
@@ -151,19 +179,64 @@ describe("projectOpencodeMessages", () => {
         role: "user",
         body: "hello",
         createdAt: "1970-01-01T00:00:01.000Z",
-        id: "msg_1",
+        messageId: "msg_1",
       },
       {
         role: "assistant",
         body: "done",
         createdAt: "1970-01-01T00:00:02.000Z",
-        id: "msg_3",
+        messageId: "msg_3",
       },
     ]);
   });
 });
 
 describe("OpencodeAgentServer", () => {
+  it("forks, prompts, and attaches the TUI to the shared server", async () => {
+    const oc = await fakeOpencode();
+    const server = new OpencodeAgentServer(await options(), oc.host);
+    const { sessionId, command } = await server.launch({
+      session: { forkOf: "ses_src" },
+      prompt: "Explain this",
+      cwd: "/tmp/tutorial",
+    });
+    expect(sessionId).toBe("ses_1");
+    const calls = oc.requests.filter(
+      (request) => request.path !== "/global/event",
+    );
+    // The fork and the prompt are scoped to the source session's project,
+    // not to the review's checkout.
+    expect(
+      calls.map(
+        (request) =>
+          `${request.method} ${request.path} ${request.directory ?? ""}`,
+      ),
+    ).toEqual([
+      "GET /project ",
+      "GET /session/ses_src /repo/other",
+      "GET /session/ses_src /repo/source",
+      "POST /session/ses_src/fork /repo/source",
+      "POST /session/ses_1/prompt_async /repo/source",
+    ]);
+    expect(calls[4]?.body).toEqual({
+      parts: [{ type: "text", text: "Explain this" }],
+    });
+    expect(command.executable).toBe("opencode");
+    expect(command.args).toEqual([
+      "attach",
+      expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+$/),
+      "--session",
+      "ses_1",
+      "--dir",
+      "/repo/source",
+    ]);
+    expect(command.env.OPENCODE_SERVER_PASSWORD).toBe("pw");
+    expect(command.env.DEV_FAST_REVIEW_AGENT_THREAD_URL).toBe(
+      "http://127.0.0.1:4000/native-agent-events/opencode/ses_1/thread",
+    );
+    await server.close();
+  });
+
   it("snapshots the session, then re-reads it when the event stream names it", async () => {
     const oc = await fakeOpencode();
     oc.messages.push(

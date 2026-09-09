@@ -47,7 +47,6 @@ interface PiBridgeApi {
 }
 
 interface BridgeMessage {
-  id: string;
   role: "user" | "assistant";
   body: string;
   createdAt: string;
@@ -57,47 +56,37 @@ const BRIDGE_URL_ENV = "DEV_FAST_REVIEW_AGENT_BRIDGE_URL";
 const BRIDGE_TOKEN_ENV = "DEV_FAST_REVIEW_AGENT_BRIDGE_TOKEN";
 
 export default function piBridgeExtension(pi: PiBridgeApi): void {
-  const url = process.env[BRIDGE_URL_ENV];
-  const token = process.env[BRIDGE_TOKEN_ENV];
-  if (!url || !token) throw new Error("Pi has no Review bridge attachment.");
-  let delivery = Promise.resolve();
-  const post = (
-    context: PiBridgeContext,
-    phase: "session-start" | "update",
-  ) => {
-    // Capture now, deliver in order. A late startup snapshot must not replace
-    // a newer branch after the first Review question has been accepted.
-    const payload = {
-      phase,
-      sessionId: context.sessionManager.getSessionId(),
-      messages: projectBranch(context.sessionManager.getBranch()),
-    };
-    delivery = delivery.then(async () => {
-      const response = await fetch(url, {
+  const post = async (context: PiBridgeContext): Promise<void> => {
+    const url = process.env[BRIDGE_URL_ENV];
+    const token = process.env[BRIDGE_TOKEN_ENV];
+    if (!url || !token) return;
+    try {
+      await fetch(url, {
         method: "POST",
         headers: {
           "content-type": "application/json",
           "x-review-token": token,
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          sessionId: context.sessionManager.getSessionId(),
+          messages: projectBranch(context.sessionManager.getBranch()),
+        }),
       });
-      if (!response.ok)
-        throw new Error(
-          `Review bridge rejected Pi snapshot (${response.status}).`,
-        );
-    });
-    return delivery;
+    } catch {
+      // The bridge is fail-open. Native agent work must continue.
+    }
   };
 
-  pi.on("session_start", (_event, context) => post(context, "session-start"));
-  pi.on("message_end", (_event, context) => post(context, "update"));
-  pi.on("agent_settled", (_event, context) => post(context, "update"));
+  pi.on("session_start", (_event, context) => post(context));
+  pi.on("message_end", (_event, context) => post(context));
+  pi.on("agent_settled", (_event, context) => post(context));
 }
 
 /** Review-visible messages on the active branch: every user message, and the final assistant message before the next user message. */
 export function projectBranch(branch: readonly PiEntry[]): BridgeMessage[] {
-  // SessionManager.getBranch() returns root-to-leaf order.
-  const ordered = branch;
+  // getBranch walks leaf to root; present root first.
+  const ordered =
+    branch.length > 0 && branch[0]?.parentId ? [...branch].reverse() : branch;
   const messages: BridgeMessage[] = [];
   let pendingAssistant: BridgeMessage | undefined;
   const flushAssistant = (): void => {
@@ -110,12 +99,7 @@ export function projectBranch(branch: readonly PiEntry[]): BridgeMessage[] {
     if (entry.message.role === "user") {
       flushAssistant();
       if (body)
-        messages.push({
-          id: requiredEntryId(entry),
-          role: "user",
-          body,
-          createdAt: timestamp(entry),
-        });
+        messages.push({ role: "user", body, createdAt: timestamp(entry) });
       continue;
     }
     if (
@@ -124,7 +108,6 @@ export function projectBranch(branch: readonly PiEntry[]): BridgeMessage[] {
       body
     ) {
       pendingAssistant = {
-        id: requiredEntryId(entry),
         role: "assistant",
         body,
         createdAt: timestamp(entry),
@@ -148,9 +131,4 @@ function timestamp(entry: PiEntry): string {
   const millis = entry.message?.timestamp;
   if (millis !== undefined) return new Date(millis).toISOString();
   return new Date(0).toISOString();
-}
-
-function requiredEntryId(entry: PiEntry): string {
-  if (!entry.id) throw new Error("Pi message entry has no ID.");
-  return entry.id;
 }

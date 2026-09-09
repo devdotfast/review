@@ -14,21 +14,20 @@ async function readStdin(): Promise<string> {
 export async function sendNativeAgentHook(): Promise<void> {
   const url = process.env[HOOK_URL_ENV];
   const token = process.env[HOOK_TOKEN_ENV];
-  if (!url || !token)
-    throw new Error("Native agent hook has no Review attachment.");
-  const body = await readStdin();
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-review-token": token,
-    },
-    body,
-  });
-  if (!response.ok)
-    throw new Error(
-      `Review rejected the native hook (${response.status}): ${await response.text()}`,
-    );
+  if (!url || !token) return;
+  try {
+    const body = await readStdin();
+    await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-review-token": token,
+      },
+      body,
+    });
+  } catch {
+    // Observation is fail-open. Native agent work must continue.
+  }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

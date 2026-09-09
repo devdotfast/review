@@ -1,4 +1,5 @@
 import {
+  type JsonObject,
   type JsonValue,
   jsonArray,
   jsonNumber,
@@ -30,6 +31,7 @@ import {
 } from "./terminal-command";
 
 const MATERIALIZE_TIMEOUT_MS = 60_000;
+const ASK_PERMISSIONS = "review-ask";
 
 interface NativeToolEnvironment {
   [name: string]: string;
@@ -91,19 +93,45 @@ export class CodexAgentServer implements AgentServer {
       [DEV_REVIEW_HOME_ENV]: devReviewHome(),
     };
     if (pathValue) env.PATH = pathValue;
-    const config = { "shell_environment_policy.set": env };
+    // Ask sessions read a frozen checkout and fetch their thread from Desktop.
+    // Enable the proxy as well as networking: domain rules alone do not prevent
+    // unrestricted direct connections. Ephemeral ports avoid proxy collisions
+    // between simultaneous Ask sessions.
+    const config: JsonObject = {
+      "shell_environment_policy.set": env,
+      default_permissions: ASK_PERMISSIONS,
+      "features.network_proxy": true,
+      [`permissions.${ASK_PERMISSIONS}.extends`]: ":read-only",
+      [`permissions.${ASK_PERMISSIONS}.network.enabled`]: true,
+      [`permissions.${ASK_PERMISSIONS}.network.domains`]: {
+        [new URL(this.#desktop.baseUrl).hostname]: "allow",
+      },
+      [`permissions.${ASK_PERMISSIONS}.network.proxy_url`]:
+        "http://127.0.0.1:0",
+      [`permissions.${ASK_PERMISSIONS}.network.socks_url`]:
+        "http://127.0.0.1:0",
+    };
     let threadId: string;
     if (!input.session) {
-      threadId = await startThread(client, { cwd: input.cwd, config });
+      threadId = await startThread(client, {
+        cwd: input.cwd,
+        config,
+        permissions: ASK_PERMISSIONS,
+      });
     } else if ("forkOf" in input.session) {
       threadId = await forkThread(client, {
         config,
+        permissions: ASK_PERMISSIONS,
         sourceThreadId: input.session.forkOf,
         cwd: input.cwd,
       });
     } else {
       threadId = input.session.resume;
-      await client.request("thread/resume", { threadId, config });
+      await client.request("thread/resume", {
+        threadId,
+        config,
+        permissions: ASK_PERMISSIONS,
+      });
       this.#thread(threadId).subscribed = true;
     }
     // Threads created on this connection already stream to it.
@@ -124,6 +152,7 @@ export class CodexAgentServer implements AgentServer {
         result = await client.request("turn/start", {
           threadId,
           cwd: input.cwd,
+          permissions: ASK_PERMISSIONS,
           input: [{ type: "text", text: input.prompt.text, text_elements: [] }],
         });
       } catch (error) {
@@ -152,6 +181,10 @@ export class CodexAgentServer implements AgentServer {
     }
     const url = await this.#host.url();
     const args = ["--remote", url];
+    for (const [name, value] of Object.entries(config)) {
+      if (name === "shell_environment_policy.set") continue;
+      args.push("-c", `${name}=${tomlInline(value)}`);
+    }
     for (const [name, value] of Object.entries(env)) {
       args.push(
         "-c",

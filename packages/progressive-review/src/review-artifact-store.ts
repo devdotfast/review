@@ -2,13 +2,15 @@ import crypto from "node:crypto";
 import { lstat, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { type JsonValue, parseJsonText } from "@dev.fast/review-protocol";
+
 import { writeFileAtomicAsync } from "./atomic-write";
 import { isMissingFileError } from "./native-agent/transcript-json";
 import {
   type ReviewDocumentBundle,
-  reviewDocumentBundleData,
   reviewDocumentContentHash,
 } from "./review-bundle";
+import { reviewDocumentDataSchema } from "./review-document-data";
 import {
   type ReviewSoftwareMapBundle,
   softwareMapBundleFromArtifact,
@@ -110,18 +112,23 @@ export async function readReviewArtifactBytes(
   return bytes;
 }
 
+/** `null` on missing bytes and, mirroring `readReviewDocumentBundle`'s
+ * `safeParse`-based read, on hash-valid bytes that are not valid JSON or do
+ * not satisfy the document schema. */
 export async function readReviewDocumentArtifact(
   reviewDir: string,
   hash: string,
 ): Promise<ReviewDocumentBundle | null> {
   const json = await readReviewArtifactBytes(reviewDir, "document", hash);
   if (json === null) return null;
-  const bundle: ReviewDocumentBundle = {
-    json,
-    contentHash: reviewDocumentContentHash(json),
-  };
-  reviewDocumentBundleData(bundle);
-  return bundle;
+  let value: JsonValue;
+  try {
+    value = parseJsonText(json);
+  } catch {
+    return null;
+  }
+  if (!reviewDocumentDataSchema.safeParse(value).success) return null;
+  return { json, contentHash: reviewDocumentContentHash(json) };
 }
 
 export async function readReviewSoftwareMapArtifact(

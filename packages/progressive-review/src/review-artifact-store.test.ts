@@ -186,6 +186,18 @@ describe("readReviewDocumentArtifact", () => {
       readReviewDocumentArtifact(directory, "a".repeat(64)),
     ).resolves.toBeNull();
   });
+
+  it("returns null for hash-valid bytes that fail document schema validation", async () => {
+    directory = await mkdtemp(path.join(tmpdir(), "review-artifact-store-"));
+    const installed = await installReviewArtifact(
+      directory,
+      "document",
+      `${JSON.stringify({ not: "a document" })}\n`,
+    );
+    await expect(
+      readReviewDocumentArtifact(directory, installed.hash),
+    ).resolves.toBeNull();
+  });
 });
 
 describe("readReviewSoftwareMapArtifact", () => {

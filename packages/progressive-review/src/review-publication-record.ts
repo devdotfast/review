@@ -100,6 +100,9 @@ export type DocumentPublicationRecord = z.infer<
   typeof DocumentPublicationRecordSchema
 >;
 
+/** `headCommit`/`baseCommit` are the map's own diff pins (both strict
+ * 40-hex), not the review's `SourceContext` pins: `baseCommit` intentionally
+ * shadows the looser shared field of the same name spread in below. */
 export const MapPublicationRecordSchema = z.strictObject({
   kind: z.literal("map"),
   ...sharedPublicationFields,

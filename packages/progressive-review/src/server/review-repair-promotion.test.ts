@@ -1,12 +1,14 @@
 import { cp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 
+import * as reviewHome from "../review-home";
 import {
   type ReviewRepairReadyRequest,
   fingerprintReviewRepairInputs,
 } from "../review-repair-state";
+import { readReviewRecord } from "../review-state-db";
 import { cleanupTempDirs, storedReviewFixture } from "../review-test-utils";
 import { applyPreparedReviewRepair } from "./review-repair-promotion";
 
@@ -58,6 +60,23 @@ it("upgrades legacy metadata without moving healthy artifact pointers", async ()
   expect(
     JSON.parse(await readFile(path.join(dir, "review.json"), "utf8")),
   ).toEqual({ ...record, schemaVersion: 5 });
+});
+it("surfaces a mirror-refresh failure as a warning but still commits the database row", async () => {
+  const { dir, request, next } = await fixture();
+  const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const mirror = vi
+    .spyOn(reviewHome, "refreshReviewMirror")
+    .mockResolvedValue("mirror refresh failed: disk full");
+  try {
+    const result = await applyPreparedReviewRepair(dir, request);
+    expect(result).toEqual(next);
+    expect(mirror).toHaveBeenCalledWith(dir, next);
+    expect(warned).toHaveBeenCalledWith("mirror refresh failed: disk full");
+    expect(readReviewRecord(dir)).toEqual(next);
+  } finally {
+    mirror.mockRestore();
+    warned.mockRestore();
+  }
 });
 it("rejects concurrent inputs and restores all transaction bytes after promotion failure", async () => {
   const { dir, request } = await fixture();

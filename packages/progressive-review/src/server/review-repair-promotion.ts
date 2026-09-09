@@ -199,7 +199,8 @@ export async function applyPreparedReviewRepair(
     });
     importLegacyReview(dir);
     putReviewRecord(dir, next);
-    await refreshReviewMirror(dir, next);
+    const warning = await refreshReviewMirror(dir, next);
+    if (warning) console.warn(warning);
     return next;
   });
 }

@@ -645,7 +645,11 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       session: { resume: binding.sessionId },
       cwd: agentRootPath,
     });
-    await openNativeAgentTerminal({ session: binding, command });
+    await openNativeAgentTerminal({
+      session: binding,
+      command,
+      askMessageId: null,
+    });
     return reviewApiJsonResponse(200, { ok: true });
   }
 
@@ -1130,7 +1134,11 @@ export async function answerReviewComment(input: {
       cwd: input.rootPath,
       session: { resume: binding.sessionId },
     });
-    await input.openNativeAgentTerminal({ session: binding, command });
+    await input.openNativeAgentTerminal({
+      session: binding,
+      command,
+      askMessageId: input.comment.messageId,
+    });
     await input.onQuestionAgentSession?.(binding);
     return;
   }
@@ -1213,7 +1221,11 @@ export async function answerReviewComment(input: {
     .agentServer(launch.harness)
     .launch(launchInput);
   const binding: SessionRef = { harness: launch.harness, sessionId };
-  await input.openNativeAgentTerminal({ session: binding, command });
+  await input.openNativeAgentTerminal({
+    session: binding,
+    command,
+    askMessageId: input.comment.messageId,
+  });
   await input.onQuestionAgentSession?.(binding);
 }
 

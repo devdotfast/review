@@ -3,10 +3,11 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { ReviewAskLoadingInput } from "./reviewAskLoadingEditor.js";
 import { IOpenerService } from "../../../platform/opener/common/opener.js";
 import { encodeBase64 } from "../../../base/common/buffer.js";
 import { Emitter, Event } from "../../../base/common/event.js";
-import { Disposable, DisposableStore } from "../../../base/common/lifecycle.js";
+import { Disposable, DisposableStore, MutableDisposable, toDisposable } from "../../../base/common/lifecycle.js";
 import {
   type ICodeEditor,
   MouseTargetType,
@@ -115,6 +116,12 @@ export class ReviewVerbsService
   private readonly decorationIdsByModel = new Map<string, string[]>();
   private readonly editorStores = new Map<string, DisposableStore>();
   private readonly agentSessionTerminals = new Map<string, ITerminalInstance>();
+  private readonly askPanes = new Map<string, {
+    input: ReviewAskLoadingInput;
+    startedAt: string;
+    opened: Promise<IEditorPane | undefined>;
+  }>();
+  private readonly commentSubscription = this._register(new MutableDisposable());
   private revealDecoration: IEditorDecorationsCollection | undefined;
 
   constructor(
@@ -143,6 +150,34 @@ export class ReviewVerbsService
     @IOpenerService private readonly openerService: IOpenerService,
   ) {
     super();
+    const watchAsks = () => {
+      const model = this.sessionModelService.activeModel;
+      this.commentSubscription.clear();
+      if (!model) return;
+      const comments = model.comments;
+      this.commentSubscription.value = toDisposable(comments.subscribe(() => {
+        for (const activity of comments.getSnapshot().agentActivities.values()) {
+          const pending = this.askPanes.get(activity.messageId);
+          if (activity.status === "failed") {
+            pending?.input.fail(activity.error);
+          } else if (activity.status === "running") {
+            this.askPanes.delete(activity.messageId);
+          } else if (activity.status === "starting" && pending?.startedAt !== activity.startedAt) {
+            pending?.input.dispose();
+            this._onDidEmitSurfaceEvent.fire({
+              event: "agentTerminalOpening",
+              sessionId: model.session.session.sessionId,
+            });
+            const input = new ReviewAskLoadingInput(activity.messageId);
+            const opened = this.editorService.openEditor(input, { pinned: true }, SIDE_GROUP);
+            this.askPanes.set(activity.messageId, { input, opened, startedAt: activity.startedAt });
+            void opened.catch(error => input.fail(String(error)));
+          }
+        }
+      }));
+    };
+    this._register(this.sessionModelService.onDidChangeActiveModel(watchAsks));
+    watchAsks();
     for (const editor of codeEditorService.listCodeEditors())
       this.trackEditor(editor);
     this._register(
@@ -275,15 +310,26 @@ export class ReviewVerbsService
       event: "agentTerminalOpening",
       sessionId: this.requireSession().session.sessionId,
     });
+    const pending = input.askMessageId === null ? undefined : this.askPanes.get(input.askMessageId);
+    const pane = pending ? await pending.opened : undefined;
+    // A closed loading tab is an explicit dismissal of this Ask's terminal.
+    if (pending?.input.isDisposed()) return;
+    const group = pane ? pane.group.id : SIDE_GROUP;
+    const finish = async () => {
+      if (!pending || !pane) return;
+      await pane.group.closeEditor(pending.input);
+      pending.input.dispose();
+    };
     const key = `native:${input.session.harness}:${input.session.sessionId}`;
     const existing = this.agentSessionTerminals.get(key);
     if (existing && this.terminalEditorService.instances.includes(existing)) {
       // The session already has a live terminal: bring it forward.
       await this.terminalEditorService.openEditor(existing, {
-        viewColumn: SIDE_GROUP,
+        viewColumn: group,
       });
       this.terminalService.setActiveInstance(existing);
       await existing.focusWhenReady(true);
+      await finish();
       return;
     }
     const instance = await this.terminalService.createTerminal({
@@ -304,7 +350,7 @@ export class ReviewVerbsService
         name: `${input.session.harness} · ${input.session.sessionId.slice(0, 8)}`,
         useShellEnvironment: true,
       },
-      location: { viewColumn: SIDE_GROUP },
+      location: { viewColumn: group },
     });
     this.agentSessionTerminals.set(key, instance);
     this._register(instance.onDisposed(() => {
@@ -313,10 +359,11 @@ export class ReviewVerbsService
       }
     }));
     await this.terminalEditorService.openEditor(instance, {
-      viewColumn: SIDE_GROUP,
+      viewColumn: group,
     });
     this.terminalService.setActiveInstance(instance);
     await instance.focusWhenReady(true);
+    await finish();
   }
 
   private async showThreads(): Promise<void> {

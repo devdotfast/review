@@ -159,6 +159,9 @@ const reviewCanvasPolicy = createTrustedTypesPolicy("reviewCanvas", {
 });
 
 const detachedScrollRestoreDeadlineMs = 30_000;
+// Canvas content loading is keyed by promise identity. Metadata-only refreshes
+// must not remount the document and its native diff when maps are disabled.
+const disabledSoftwareMap = Promise.resolve(null);
 
 // The tutorial step list as it first shipped. Stored progress payloads
 // without a `steps` field date from this era.
@@ -1216,7 +1219,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 								baseModuleUrl,
 							),
 					)
-				: Promise.resolve(null);
+				: disabledSoftwareMap;
 			const bridge = this.createBridge(model, assets, generation, {
 				ready: () => {
 					if (this.renderedInput === input && this.renderedModel === model) {

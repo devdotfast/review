@@ -170,8 +170,10 @@ export function ThreadAnnotations({
     clearThreadFocusRequest,
     askAgent: askAgentAction,
     saveComment,
+    deleteComment,
   } = useReviewActions();
   const {
+    historicalRevision,
     allCommentThreads,
     resolvedCommentThreads,
     draftTarget: contextDraftTarget,
@@ -446,7 +448,9 @@ export function ThreadAnnotations({
   useLayoutEffect(() => {
     if (gutter?.mode !== "cards") return;
     const entries = annotations
-      .filter((annotation) => annotation.anchorY !== null)
+      .filter(
+        (annotation) => annotation.anchorY !== null && !annotation.resolved,
+      )
       .sort((left, right) => (left.anchorY ?? 0) - (right.anchorY ?? 0));
     if (entries.length === 0) {
       setCardTops((current) => (current.size === 0 ? current : new Map()));
@@ -827,13 +831,32 @@ export function ThreadAnnotations({
                   thread={thread}
                   variant="margin"
                   compact
+                  onDelete={
+                    thread.clientStatus === "draft" && !historicalRevision
+                      ? async () => {
+                          await deleteComment(thread.threadId);
+                          if (isActive) blurThread();
+                        }
+                      : undefined
+                  }
                   onActivate={() => activate(annotation)}
                 />
               </div>
             );
           })}
           {draftTarget && (
-            <div style={{ top: Math.max(0, draftAnchorY ?? 0) }}>
+            <div
+              ref={(node) => {
+                const key = `draft:${draftTarget.threadId}`;
+                if (node) cardRefs.current.set(key, node);
+                else cardRefs.current.delete(key);
+              }}
+              style={{
+                top:
+                  cardTops.get(`draft:${draftTarget.threadId}`) ??
+                  Math.max(0, draftAnchorY ?? 0),
+              }}
+            >
               <ThreadDraftCard
                 quote={draftQuote}
                 variant="margin"

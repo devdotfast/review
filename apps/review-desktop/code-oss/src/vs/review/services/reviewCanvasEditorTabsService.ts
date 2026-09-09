@@ -119,10 +119,16 @@ export class ReviewCanvasEditorTabsService
 			this.inputs.set(target.kind, input);
 		}
 		configure?.(input);
+		// A control command may arrive while an Ask's loading pane has focus.
+		// Reuse the review's group instead of mounting a second canvas there.
+		const existingGroup = this.editorGroupsService.groups.find(group => group.contains(input));
+		const targetGroup = existingGroup === undefined
+			? this.editorGroupsService.mainPart.activeGroup
+			: existingGroup;
 		await this.editorService.openEditor(
 			input,
 			{ pinned: true, inactive: !active, revealIfVisible: true },
-			this.editorGroupsService.mainPart.activeGroup,
+			targetGroup,
 		);
 		return input;
 	}
@@ -206,10 +212,16 @@ export class ReviewCanvasEditorTabsService
 		input: ReviewCanvasEditorInput,
 		active: boolean,
 	): Promise<void> {
+		// A control command may arrive while an Ask's loading pane has focus.
+		// Reuse the review's group instead of mounting a second canvas there.
+		const existingGroup = this.editorGroupsService.groups.find(group => group.contains(input));
+		const targetGroup = existingGroup === undefined
+			? this.editorGroupsService.mainPart.activeGroup
+			: existingGroup;
 		await this.editorService.openEditor(
 			input,
 			{ pinned: true, inactive: !active, revealIfVisible: true },
-			this.editorGroupsService.mainPart.activeGroup,
+			targetGroup,
 		);
 	}
 

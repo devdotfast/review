@@ -174,6 +174,7 @@ export function ThreadAnnotations({
   } = useReviewActions();
   const {
     historicalRevision,
+    terminalThreadIds,
     allCommentThreads,
     resolvedCommentThreads,
     draftTarget: contextDraftTarget,
@@ -448,9 +449,14 @@ export function ThreadAnnotations({
   useLayoutEffect(() => {
     if (gutter?.mode !== "cards") return;
     const entries = annotations
-      .filter(
-        (annotation) => annotation.anchorY !== null && !annotation.resolved,
-      )
+      .filter((annotation) => {
+        const thread = displayThreads.get(annotation.key);
+        return (
+          annotation.anchorY !== null &&
+          !annotation.resolved &&
+          (!thread || !terminalThreadIds.has(thread.threadId))
+        );
+      })
       .sort((left, right) => (left.anchorY ?? 0) - (right.anchorY ?? 0));
     if (entries.length === 0) {
       setCardTops((current) => (current.size === 0 ? current : new Map()));
@@ -504,7 +510,14 @@ export function ThreadAnnotations({
       }
       return tops;
     });
-  }, [annotations, activeKey, cardHeightsNonce, displayThreads, gutter]);
+  }, [
+    annotations,
+    activeKey,
+    cardHeightsNonce,
+    displayThreads,
+    gutter,
+    terminalThreadIds,
+  ]);
 
   useEffect(() => {
     const request = threadFocusRequest;
@@ -707,9 +720,14 @@ export function ThreadAnnotations({
   // line edge in every layout.
   const marginCards =
     gutter?.mode === "cards"
-      ? annotations.filter(
-          (annotation) => annotation.anchorY !== null && !annotation.resolved,
-        )
+      ? annotations.filter((annotation) => {
+          const thread = displayThreads.get(annotation.key);
+          return (
+            annotation.anchorY !== null &&
+            !annotation.resolved &&
+            (!thread || !terminalThreadIds.has(thread.threadId))
+          );
+        })
       : [];
   const popoverHost = reviewRoots?.appRef.current ?? null;
 
@@ -811,7 +829,7 @@ export function ThreadAnnotations({
         >
           {marginCards.map((annotation) => {
             const thread = displayThreads.get(annotation.key);
-            if (!thread) return null;
+            if (!thread || terminalThreadIds.has(thread.threadId)) return null;
             const isActive = annotation.key === activeKey;
             return (
               <div

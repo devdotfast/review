@@ -2,13 +2,12 @@ import { randomUUID } from "node:crypto";
 
 import {
   type JsonValue,
-  jsonArray,
   jsonObject,
   jsonString,
 } from "@dev.fast/review-protocol";
 
 import { DEV_REVIEW_HOME_ENV, devReviewHome } from "../review-storage";
-import { AsyncQueue } from "./async-queue";
+import { LiveCapture } from "./live-capture";
 import { LoopbackIngress } from "./loopback-ingress";
 import type {
   AgentServer,
@@ -16,35 +15,21 @@ import type {
   LaunchInput,
   NativeReviewMessage,
   NativeTerminalCommand,
-  SessionSnapshot,
-  SessionUpdate,
-  UpdatePipe,
+  SessionUpdateStream,
 } from "./native-session";
 import {
   REVIEW_AGENT_BRIDGE_TOKEN_ENV,
   REVIEW_AGENT_BRIDGE_URL_ENV,
-  REVIEW_AGENT_THREAD_TOKEN_ENV,
-  REVIEW_AGENT_THREAD_URL_ENV,
   ReviewCommandPath,
   companionModulePath,
+  reviewThreadEnvironment,
 } from "./terminal-command";
 
-interface SessionState {
-  /** The latest projection the extension posted. */
-  messages: NativeReviewMessage[];
-  subscribers: Set<{ queue: AsyncQueue<SessionUpdate>; delivered: number }>;
-}
-
-/**
- * Pi is programmable in-process, so its "server" is an extension: the
- * terminal loads pi-bridge-extension, which posts the projected conversation
- * to this server's ingress on every session event. No transcript is read.
- */
 export class PiAgentServer implements AgentServer {
   readonly harness = "pi" as const;
   readonly #desktop: AgentServerOptions["desktopEndpoint"];
   readonly #commandPath: ReviewCommandPath;
-  readonly #sessions = new Map<string, SessionState>();
+  readonly #sessions = new Map<string, LiveCapture>();
   readonly #ingress: LoopbackIngress;
 
   constructor(options: AgentServerOptions) {
@@ -84,13 +69,15 @@ export class PiAgentServer implements AgentServer {
     } else {
       args.push("--session-id", sessionId);
     }
-    if (input.prompt !== undefined) args.push(input.prompt);
-    this.#session(sessionId);
+    if (input.prompt !== undefined) args.push(input.prompt.text);
+    const capture = this.#sessions.get(sessionId) ?? new LiveCapture();
+    const launchId = capture.launch(input.prompt);
+    this.#sessions.set(sessionId, capture);
     const env: NativeTerminalCommand["env"] = {
+      DEV_FAST_REVIEW_AGENT_LAUNCH_ID: launchId,
       [REVIEW_AGENT_BRIDGE_URL_ENV]: `${bridgeUrl}/${this.harness}/${encodedSession}`,
       [REVIEW_AGENT_BRIDGE_TOKEN_ENV]: this.#ingress.token,
-      [REVIEW_AGENT_THREAD_URL_ENV]: `${this.#desktop.baseUrl}/native-agent-events/${this.harness}/${encodedSession}/thread`,
-      [REVIEW_AGENT_THREAD_TOKEN_ENV]: this.#desktop.token,
+      ...reviewThreadEnvironment(this.#desktop),
       [DEV_REVIEW_HOME_ENV]: devReviewHome(),
     };
     if (pathValue) env.PATH = pathValue;
@@ -105,88 +92,69 @@ export class PiAgentServer implements AgentServer {
     };
   }
 
-  async updates(
-    sessionId: string,
-  ): Promise<UpdatePipe<SessionSnapshot, SessionUpdate>> {
-    const state = this.#session(sessionId);
-    const subscriber = {
-      queue: new AsyncQueue<SessionUpdate>(),
-      delivered: state.messages.length,
-    };
-    state.subscribers.add(subscriber);
-    return {
-      snapshot: { sessionId, messages: [...state.messages] },
-      updates: subscriber.queue,
-      close: async () => {
-        state.subscribers.delete(subscriber);
-        subscriber.queue.close();
-      },
-    };
+  async updates(sessionId: string): Promise<SessionUpdateStream> {
+    return this.#session(sessionId).subscribe();
+  }
+
+  async interrupt(sessionId: string): Promise<void> {
+    this.#session(sessionId).interrupt();
   }
 
   async close(): Promise<void> {
-    for (const state of this.#sessions.values()) {
-      for (const subscriber of state.subscribers) subscriber.queue.close();
-      state.subscribers.clear();
-    }
+    for (const capture of this.#sessions.values()) capture.queue.close();
     await this.#ingress.close();
   }
 
   #receive(sessionId: string, payload: JsonValue): void {
     const record = jsonObject(payload);
-    if (!record) {
-      throw new Error("The Pi bridge posted a non-object payload.");
+    if (!record || jsonString(record.sessionId) !== sessionId) {
+      throw new Error(`The Pi bridge must name session "${sessionId}".`);
     }
-    const postedSession = jsonString(record.sessionId);
-    if (postedSession !== undefined && postedSession !== sessionId) {
-      throw new Error(
-        `The Pi bridge for session "${postedSession}" posted to session "${sessionId}".`,
-      );
-    }
-    const messages = bridgeMessages(record.messages);
-    const state = this.#session(sessionId);
-    state.messages = messages;
-    for (const subscriber of state.subscribers) {
-      // The branch can shrink after /tree navigation; deliver from the new end.
-      if (subscriber.delivered > messages.length) {
-        subscriber.delivered = messages.length;
+    const capture = this.#session(sessionId);
+    const launchId = jsonString(record.review_launch_id);
+    if (!launchId) throw new Error("The observer event has no launch ID.");
+    if (!capture.accepts(launchId)) return;
+    if (record.type === "message.updated") {
+      capture.message(bridgeMessage(record.message));
+    } else if (record.type === "status.changed") {
+      const status = record.status;
+      if (
+        status !== "running" &&
+        status !== "idle" &&
+        status !== "failed" &&
+        status !== "interrupted"
+      ) {
+        throw new Error("The Pi bridge posted an invalid status.");
       }
-      for (const message of messages.slice(subscriber.delivered)) {
-        subscriber.delivered += 1;
-        subscriber.queue.push({ type: "message.updated", message });
-      }
+      capture.status(status, jsonString(record.error));
+    } else {
+      throw new Error("The Pi bridge posted an unsupported event.");
     }
   }
 
-  #session(sessionId: string): SessionState {
-    let state = this.#sessions.get(sessionId);
-    if (!state) {
-      state = { messages: [], subscribers: new Set() };
-      this.#sessions.set(sessionId, state);
-    }
-    return state;
+  #session(sessionId: string): LiveCapture {
+    const capture = this.#sessions.get(sessionId);
+    if (!capture)
+      throw new Error(`Pi session "${sessionId}" has not been launched.`);
+    return capture;
   }
 }
 
-function bridgeMessages(value: JsonValue | undefined): NativeReviewMessage[] {
-  const list = jsonArray(value);
-  if (!list) {
-    throw new Error("The Pi bridge posted no message list.");
+function bridgeMessage(value: JsonValue | undefined): NativeReviewMessage {
+  const record = jsonObject(value);
+  const id = jsonString(record?.id);
+  const role = jsonString(record?.role);
+  const body = jsonString(record?.body);
+  const createdAt = jsonString(record?.createdAt);
+  if (
+    !id ||
+    (role !== "user" && role !== "assistant") ||
+    body === undefined ||
+    !createdAt
+  ) {
+    throw new Error("The Pi bridge posted a malformed message.");
   }
-  return list.map((entry) => {
-    const record = jsonObject(entry);
-    const role = jsonString(record?.role);
-    const body = jsonString(record?.body);
-    const createdAt = jsonString(record?.createdAt);
-    if (
-      (role !== "user" && role !== "assistant") ||
-      body === undefined ||
-      createdAt === undefined
-    ) {
-      throw new Error("The Pi bridge posted a malformed message.");
-    }
-    return { role, body, createdAt };
-  });
+  return { id, role, body, createdAt };
 }
 
 export function server(options: AgentServerOptions): AgentServer {

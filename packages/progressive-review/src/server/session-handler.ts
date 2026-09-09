@@ -68,6 +68,11 @@ export interface ReviewSessionHandlerInput {
   onReviewDismiss?: () => void | Promise<void>;
   onReviewDataChange?: () => void;
   onReviewThreadsCommit?: (commit: ReviewThreadsCommit) => void;
+  onAgentStatus?: (
+    threadId: string,
+    status: "running" | "idle" | "interrupted" | "failed",
+    error?: string,
+  ) => void;
   runReviewThreadMutation?: <T>(operation: () => T | Promise<T>) => Promise<T>;
   agentServer: (harness: ReviewAgentHarness) => AgentServer;
   openNativeAgentTerminal: (
@@ -387,6 +392,7 @@ export async function createReviewSessionHandler(
     },
     onReviewDismiss: input.onReviewDismiss,
     onReviewDataChange: input.onReviewDataChange,
+    onAgentStatus: input.onAgentStatus,
     onReviewThreadsCommit: (commit) => {
       broadcast({ event: "review-threads-committed", commit });
       input.onReviewThreadsCommit?.(commit);

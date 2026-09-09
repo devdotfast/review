@@ -3,84 +3,52 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
-  type JsonObject,
   type JsonValue,
   jsonObject,
   jsonString,
 } from "@dev.fast/review-protocol";
 
 import { DEV_REVIEW_HOME_ENV, devReviewHome } from "../review-storage";
-import { AsyncQueue } from "./async-queue";
-import { readClaudeReviewMessages } from "./claude-transcript";
+import { LiveCapture } from "./live-capture";
 import { LoopbackIngress } from "./loopback-ingress";
 import type {
   AgentServer,
   AgentServerOptions,
   LaunchInput,
-  NativeReviewMessage,
   NativeTerminalCommand,
-  SessionSnapshot,
-  SessionUpdate,
-  UpdatePipe,
+  SessionUpdateStream,
 } from "./native-session";
 import {
   REVIEW_AGENT_HOOK_TOKEN_ENV,
   REVIEW_AGENT_HOOK_URL_ENV,
-  REVIEW_AGENT_THREAD_TOKEN_ENV,
-  REVIEW_AGENT_THREAD_URL_ENV,
   ReviewCommandPath,
   nativeHookCommand,
+  reviewThreadEnvironment,
 } from "./terminal-command";
 
 const OBSERVER_EVENTS = [
   "SessionStart",
   "UserPromptSubmit",
   "Stop",
+  "StopFailure",
   "SessionEnd",
 ] as const;
 
-interface SessionState {
-  transcriptPath?: string;
-  subscribers: Set<Subscriber>;
-}
-
-interface Subscriber {
-  queue: AsyncQueue<SessionUpdate>;
-  /** Messages already delivered, so re-reads only emit the tail. */
-  delivered: number;
-  /** Serializes transcript re-reads per subscriber; wakes coalesce. */
-  reading: Promise<void>;
-  wakePending: boolean;
-}
-
-export type ClaudeAgentServerOptions = AgentServerOptions & {
-  /** Test seam for the transcript reader. */
-  readTranscript?: typeof readClaudeReviewMessages;
-};
-
-/**
- * Claude Code has no server of its own, so this one is simulated: the
- * terminal runs with a settings file that posts every lifecycle hook to
- * this server's loopback ingress, and each hook is a signal to re-read the
- * transcript on disk and forward whatever is new.
- */
 export class ClaudeAgentServer implements AgentServer {
   readonly harness = "claude-code" as const;
   readonly #runtimeDirectory: string;
   readonly #desktop: AgentServerOptions["desktopEndpoint"];
   readonly #commandPath: ReviewCommandPath;
-  readonly #readTranscript: typeof readClaudeReviewMessages;
-  readonly #sessions = new Map<string, SessionState>();
+  readonly #sessions = new Map<string, LiveCapture>();
   readonly #ingress: LoopbackIngress;
 
-  constructor(options: ClaudeAgentServerOptions) {
+  constructor(options: AgentServerOptions) {
     this.#runtimeDirectory = options.runtimeDirectory;
     this.#desktop = {
       baseUrl: options.desktopEndpoint.baseUrl.replace(/\/$/u, ""),
       token: options.desktopEndpoint.token,
     };
     this.#commandPath = new ReviewCommandPath(options);
-    this.#readTranscript = options.readTranscript ?? readClaudeReviewMessages;
     this.#ingress = new LoopbackIngress({
       scope: this.harness,
       onPost: (sessionId, payload) => this.#receiveHook(sessionId, payload),
@@ -126,13 +94,15 @@ export class ClaudeAgentServer implements AgentServer {
     } else {
       args.push("--session-id", sessionId);
     }
-    if (input.prompt !== undefined) args.push(input.prompt);
-    this.#session(sessionId);
+    if (input.prompt !== undefined) args.push(input.prompt.text);
+    const capture = this.#sessions.get(sessionId) ?? new LiveCapture();
+    const launchId = capture.launch(input.prompt);
+    this.#sessions.set(sessionId, capture);
     const env: NativeTerminalCommand["env"] = {
+      DEV_FAST_REVIEW_AGENT_LAUNCH_ID: launchId,
       [REVIEW_AGENT_HOOK_URL_ENV]: `${hookBaseUrl}/${sessionPath}`,
       [REVIEW_AGENT_HOOK_TOKEN_ENV]: this.#ingress.token,
-      [REVIEW_AGENT_THREAD_URL_ENV]: `${this.#desktop.baseUrl}/native-agent-events/${sessionPath}/thread`,
-      [REVIEW_AGENT_THREAD_TOKEN_ENV]: this.#desktop.token,
+      ...reviewThreadEnvironment(this.#desktop),
       [DEV_REVIEW_HOME_ENV]: devReviewHome(),
       CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: "1",
     };
@@ -148,39 +118,16 @@ export class ClaudeAgentServer implements AgentServer {
     };
   }
 
-  async updates(
-    sessionId: string,
-  ): Promise<UpdatePipe<SessionSnapshot, SessionUpdate>> {
-    const state = this.#session(sessionId);
-    const messages = await this.#read(sessionId, state);
-    const subscriber: Subscriber = {
-      queue: new AsyncQueue<SessionUpdate>(),
-      delivered: messages.length,
-      reading: Promise.resolve(),
-      wakePending: false,
-    };
-    state.subscribers.add(subscriber);
-    return {
-      snapshot: { sessionId, messages },
-      updates: subscriber.queue,
-      close: async () => {
-        state.subscribers.delete(subscriber);
-        subscriber.queue.close();
-        await subscriber.reading;
-      },
-    };
+  async updates(sessionId: string): Promise<SessionUpdateStream> {
+    return this.#session(sessionId).subscribe();
+  }
+
+  async interrupt(sessionId: string): Promise<void> {
+    this.#session(sessionId).interrupt();
   }
 
   async close(): Promise<void> {
-    const pending: Promise<void>[] = [];
-    for (const state of this.#sessions.values()) {
-      for (const subscriber of state.subscribers) {
-        subscriber.queue.close();
-        pending.push(subscriber.reading);
-      }
-      state.subscribers.clear();
-    }
-    await Promise.all(pending);
+    for (const capture of this.#sessions.values()) capture.queue.close();
     await this.#ingress.close();
   }
 
@@ -198,105 +145,50 @@ export class ClaudeAgentServer implements AgentServer {
 
   #receiveHook(sessionId: string, payload: JsonValue): void {
     const record = jsonObject(payload);
-    if (!record) return;
-    const event = hookEvent(record);
-    if (event.sessionId && event.sessionId !== sessionId) {
-      throw new Error(
-        `A native hook for session "${event.sessionId}" was posted to session "${sessionId}".`,
+    if (!record || jsonString(record.session_id) !== sessionId) {
+      throw new Error(`The Claude hook must name session "${sessionId}".`);
+    }
+    const event = jsonString(record.hook_event_name);
+    const eventId = jsonString(record.review_event_id);
+    if (!eventId) throw new Error("The Claude hook has no observer event ID.");
+    const capture = this.#session(sessionId);
+    const launchId = jsonString(record.review_launch_id);
+    if (!launchId) throw new Error("The observer event has no launch ID.");
+    if (!capture.accepts(launchId)) return;
+    if (event === "UserPromptSubmit" || event === "Stop") {
+      const body = jsonString(
+        event === "UserPromptSubmit"
+          ? record.prompt
+          : record.last_assistant_message,
       );
-    }
-    const state = this.#session(sessionId);
-    if (event.transcriptPath) state.transcriptPath = event.transcriptPath;
-    this.#wake(sessionId, state);
-    if (event.completesTurn) {
-      // Hooks can fire before Claude flushes the transcript.
-      for (const delay of [250, 1_000]) {
-        const timer = setTimeout(() => this.#wake(sessionId, state), delay);
-        timer.unref();
-      }
-    }
-  }
-
-  #session(sessionId: string): SessionState {
-    let state = this.#sessions.get(sessionId);
-    if (!state) {
-      state = { subscribers: new Set() };
-      this.#sessions.set(sessionId, state);
-    }
-    return state;
-  }
-
-  #wake(sessionId: string, state: SessionState): void {
-    for (const subscriber of state.subscribers) {
-      if (subscriber.wakePending) continue;
-      subscriber.wakePending = true;
-      subscriber.reading = subscriber.reading.then(async () => {
-        subscriber.wakePending = false;
-        if (!state.subscribers.has(subscriber)) return;
-        const messages = await this.#read(sessionId, state);
-        for (const message of messages.slice(subscriber.delivered)) {
-          subscriber.delivered += 1;
-          subscriber.queue.push({ type: "message.updated", message });
-        }
+      if (body === undefined)
+        throw new Error("The Claude hook has no message text.");
+      capture.message({
+        id: eventId,
+        role: event === "UserPromptSubmit" ? "user" : "assistant",
+        body,
+        createdAt: new Date().toISOString(),
       });
+      capture.status(event === "UserPromptSubmit" ? "running" : "idle");
+    } else if (event === "StopFailure") {
+      const error = jsonString(record.error);
+      if (!error) throw new Error("Claude StopFailure has no error.");
+      capture.status("failed", error);
+    } else if (event === "SessionEnd") {
+      capture.interrupt();
+    } else if (event !== "SessionStart") {
+      throw new Error("Unsupported Claude hook event.");
     }
   }
 
-  async #read(
-    sessionId: string,
-    state: SessionState,
-  ): Promise<NativeReviewMessage[]> {
-    try {
-      return await this.#readTranscript({
-        sessionId,
-        transcriptPath: state.transcriptPath,
-      });
-    } catch (error) {
-      // The first hooks can fire before Claude creates its transcript.
-      if (isMissingTranscript(error)) return [];
-      throw error;
-    }
+  #session(sessionId: string): LiveCapture {
+    const capture = this.#sessions.get(sessionId);
+    if (!capture)
+      throw new Error(`Claude session "${sessionId}" has not been launched.`);
+    return capture;
   }
 }
 
-function isMissingTranscript(cause: unknown): boolean {
-  if (!(cause instanceof Error)) return false;
-  if ("code" in cause && cause.code === "ENOENT") return true;
-  return / has no transcript file\.$/u.test(cause.message);
-}
-
-interface NativeHookEvent {
-  sessionId?: string;
-  transcriptPath?: string;
-  completesTurn: boolean;
-}
-
-function hookEvent(payload: JsonObject): NativeHookEvent {
-  const sessionId = firstString(payload.session_id, payload.sessionId);
-  const transcriptPath = firstString(
-    payload.transcript_path,
-    payload.transcriptPath,
-  );
-  const name = firstString(
-    payload.hook_event_name,
-    payload.hookEventName,
-  )?.toLowerCase();
-  const event: NativeHookEvent = {
-    completesTurn: name === "stop" || name === "sessionend",
-  };
-  if (sessionId) event.sessionId = sessionId;
-  if (transcriptPath) event.transcriptPath = transcriptPath;
-  return event;
-}
-
-function firstString(...values: (JsonValue | undefined)[]): string | undefined {
-  for (const value of values) {
-    const text = jsonString(value);
-    if (text) return text;
-  }
-  return undefined;
-}
-
-export function server(options: ClaudeAgentServerOptions): AgentServer {
+export function server(options: AgentServerOptions): AgentServer {
   return new ClaudeAgentServer(options);
 }

@@ -394,8 +394,11 @@ export function usePanelThreadController({
     deleteCommentMessage,
     deleteComment,
   } = useReviewActions();
-  const { commentsForAnchor, draftTarget: draftTargetFromContext } =
-    useReviewState();
+  const {
+    terminalThreadIds,
+    commentsForAnchor,
+    draftTarget: draftTargetFromContext,
+  } = useReviewState();
   const comments = commentsForAnchor(anchor).filter(
     (thread) =>
       threadHost === "all" ||
@@ -744,7 +747,8 @@ export function usePanelThreadController({
   };
 
   const renderActiveThreadCard = (): ReactElement | null => {
-    if (!activeThread) return null;
+    if (!activeThread || terminalThreadIds.has(activeThread.threadId))
+      return null;
     return (
       <div ref={activeCardRef} className="panel-thread-active-card">
         <ThreadCard

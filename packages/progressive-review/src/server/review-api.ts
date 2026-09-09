@@ -23,6 +23,7 @@ import {
 } from "@dev.fast/review-protocol";
 import { type Context, Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { z } from "zod";
 
 import {
   type ReviewAgentHarness,
@@ -202,6 +203,11 @@ interface ReviewApiOptions {
   onReviewDismiss?: () => void | Promise<void>;
   onReviewDataChange?: () => void;
   onReviewThreadsCommit?: (commit: ReviewThreadsCommit) => void;
+  onAgentStatus?: (
+    threadId: string,
+    status: "running" | "idle" | "interrupted" | "failed",
+    error?: string,
+  ) => void;
   runReviewThreadMutation?: <T>(operation: () => T | Promise<T>) => Promise<T>;
   reviewToken: string;
   agentServer: (harness: ReviewAgentHarness) => AgentServer;
@@ -231,13 +237,19 @@ export interface AgentThreadLookup {
 
 export interface ReviewApi {
   app: Hono<ReviewHonoEnv>;
-  /** The comment thread bound to a native agent session, if this review owns it. */
-  findAgentThread(
-    binding: SessionRef,
-    threadId: string,
-  ): AgentThreadLookup | undefined;
+  /** An existing comment or draft, available before a native session is bound. */
+  findAgentThread(threadId: string): AgentThreadLookup | undefined;
   close(): Promise<void>;
 }
+
+interface ActiveAgentRun {
+  messageId: string;
+  canceled: boolean;
+  binding?: SessionRef;
+}
+const AgentInterruptRequestSchema = z.strictObject({
+  messageId: z.string().min(1).nullable(),
+});
 
 export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   const reviewRootPath =
@@ -266,6 +278,8 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   const threadServices = new Map<string, ReviewThreadsService>();
   const agentMirrors = new Map<string, NativeMessageMirror>();
   const launchedAgentMessageIds = new Set<string>();
+  const canceledAgentMessageIds = new Set<string>();
+  const activeRuns = new Map<string, ActiveAgentRun>();
   const diffCorpora = new Map<string, Promise<ReviewDiffFilesResult>>();
   const startMirror = (
     writableReviewPath: string,
@@ -275,9 +289,10 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       updates: (binding) =>
         agentServer(binding.harness).updates(binding.sessionId),
       service,
+      onStatus: (threadId, update) =>
+        options.onAgentStatus?.(threadId, update.status, update.error),
     });
     agentMirrors.set(writableReviewPath, mirror);
-    mirror.start();
     return mirror;
   };
   const threadsFor = (writableReviewPath: string): ReviewThreadsService => {
@@ -289,15 +304,6 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
         onCommit: onReviewThreadsCommit,
       });
       threadServices.set(writableReviewPath, service);
-      const snapshot = service.snapshot();
-      const hasAgentSession =
-        Object.values(snapshot.comments).some(
-          (comment) => comment.agentSession !== undefined,
-        ) ||
-        Object.values(snapshot.drafts).some(
-          (draft) => draft.thread.agentSession !== undefined,
-        );
-      if (hasAgentSession) startMirror(writableReviewPath, service);
     }
     return service;
   };
@@ -365,6 +371,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   app.get("/comments", writable(commentsList));
   app.post("/thread-commands", threadMutation(threadCommand));
   app.post("/agent-runs", writable(agentRunCreate));
+  app.post("/comments/:threadId/agent-interrupt", writable(agentRunInterrupt));
   app.post("/comments/:threadId/agent-terminal", writable(agentTerminalOpen));
   app.post("/submissions", writable(submissionCreate));
   app.post("/dismiss", route(reviewDismiss));
@@ -596,7 +603,19 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     if (launchedAgentMessageIds.has(comment.messageId)) {
       return reviewApiJsonResponse(202, { ok: true });
     }
+    if (canceledAgentMessageIds.has(comment.messageId))
+      return reviewApiJsonResponse(202, { ok: true });
+    if (activeRuns.has(comment.threadId))
+      return reviewApiJsonResponse(409, {
+        ok: false,
+        error: "Close the current terminal before asking again.",
+      });
     launchedAgentMessageIds.add(comment.messageId);
+    const run: ActiveAgentRun = {
+      messageId: comment.messageId,
+      canceled: false,
+    };
+    activeRuns.set(comment.threadId, run);
     const mirror = mirrorFor(writableReviewPath);
     try {
       await answerReviewComment({
@@ -609,12 +628,50 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
         openNativeAgentTerminal,
         resolveQuestionSourceSession,
         onQuestionAgentSession,
+        onLaunched: async (binding) => {
+          run.binding = binding;
+          if (!run.canceled) return true;
+          await agentServer(binding.harness).interrupt(binding.sessionId);
+          activeRuns.delete(comment.threadId);
+          return false;
+        },
       });
     } catch (error) {
       launchedAgentMessageIds.delete(comment.messageId);
+      activeRuns.delete(comment.threadId);
+      options.onAgentStatus?.(comment.threadId, "failed", String(error));
       throw error;
     }
     return reviewApiJsonResponse(202, { ok: true });
+  }
+
+  async function agentRunInterrupt(
+    context: Context<ReviewHonoEnv>,
+    writableReviewPath: string,
+  ): Promise<Response> {
+    const threadId = context.req.param("threadId");
+    if (!threadId) throw new Error("A comment thread ID is required.");
+    const body = AgentInterruptRequestSchema.parse(
+      await readJson(context.req.raw),
+    );
+    if (body.messageId !== null) canceledAgentMessageIds.add(body.messageId);
+    const run = activeRuns.get(threadId);
+    if (run && body.messageId !== null && run.messageId !== body.messageId)
+      return reviewApiJsonResponse(409, {
+        ok: false,
+        error: "This terminal belongs to another Ask.",
+      });
+    if (run) run.canceled = true;
+    const snapshot = threadsFor(writableReviewPath).snapshot();
+    const thread =
+      snapshot.drafts[threadId]?.thread ?? snapshot.comments[threadId];
+    const binding = run ? run.binding : thread?.agentSession;
+    if (binding) {
+      await agentServer(binding.harness).interrupt(binding.sessionId);
+      activeRuns.delete(threadId);
+    }
+    options.onAgentStatus?.(threadId, "interrupted");
+    return reviewApiJsonResponse(200, { ok: true });
   }
 
   async function agentTerminalOpen(
@@ -647,6 +704,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     });
     await openNativeAgentTerminal({
       session: binding,
+      threadId,
       command,
       askMessageId: null,
     });
@@ -1017,17 +1075,12 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
 
   return {
     app,
-    findAgentThread: (binding, threadId) => {
+    findAgentThread: (threadId) => {
       if (!stateReviewPath) return undefined;
       const snapshot = threadsFor(stateReviewPath).snapshot();
       const draft = snapshot.drafts[threadId];
       const thread = draft?.thread ?? snapshot.comments[threadId];
-      if (
-        thread?.agentSession?.harness !== binding.harness ||
-        thread.agentSession.sessionId !== binding.sessionId
-      ) {
-        return undefined;
-      }
+      if (!thread) return undefined;
       return {
         review: path.basename(path.dirname(stateReviewPath)),
         state: draft ? "draft" : "submitted",
@@ -1100,6 +1153,7 @@ function reviewApiJsonResponse<T extends ReviewApiResponseBody>(
 }
 
 async function answerReviewComment(input: {
+  onLaunched(binding: SessionRef): Promise<boolean>;
   comment: CreateReviewCommentInput;
   rootPath: string;
   session: ReviewSessionWire;
@@ -1126,7 +1180,10 @@ async function answerReviewComment(input: {
     throw new Error("This Review has no authoring agent session.");
   }
   const launchInput: LaunchInput = {
-    prompt: reviewCommentPrompt(input.comment),
+    prompt: {
+      id: input.comment.messageId,
+      text: reviewCommentPrompt(input.comment),
+    },
     cwd: input.rootPath,
   };
   if (launch.session) launchInput.session = launch.session;
@@ -1134,11 +1191,6 @@ async function answerReviewComment(input: {
     .agentServer(launch.harness)
     .launch(launchInput);
   const binding: SessionRef = { harness: launch.harness, sessionId };
-  await input.openNativeAgentTerminal({
-    session: binding,
-    command,
-    askMessageId: input.comment.messageId,
-  });
   const commit = input.service.setAgentSession({
     mutationId: randomUUID(),
     threadId: input.comment.threadId,
@@ -1149,7 +1201,14 @@ async function answerReviewComment(input: {
       `Review comment thread ${input.comment.threadId} no longer exists.`,
     );
   }
-  input.mirror.watch(input.comment.threadId, binding);
+  await input.mirror.watch(input.comment.threadId, binding);
+  if (!(await input.onLaunched(binding))) return;
+  await input.openNativeAgentTerminal({
+    session: binding,
+    threadId: input.comment.threadId,
+    command,
+    askMessageId: input.comment.messageId,
+  });
   await input.onQuestionAgentSession?.(binding);
 }
 
@@ -1165,7 +1224,7 @@ export async function resolveReviewQuestionLaunch(input: {
   resolveQuestionSourceSession?: (
     signal?: AbortSignal,
   ) => Promise<SessionRef | undefined>;
-}): Promise<ReviewQuestionLaunch | undefined> {
+}): Promise<ReviewQuestionLaunch> {
   if (input.storedSession) {
     return {
       harness: input.storedSession.harness,
@@ -1178,30 +1237,37 @@ export async function resolveReviewQuestionLaunch(input: {
       session: { forkOf: input.agent.sessionId },
     };
   }
-  const preparedSource = input.resolveQuestionSourceSession
-    ? await resolveQuestionSourceWithinBudget(
-        input.resolveQuestionSourceSession,
-      )
-    : undefined;
-  if (preparedSource) {
+  if (input.resolveQuestionSourceSession) {
+    const preparedSource = await resolveQuestionSourceWithinBudget(
+      input.resolveQuestionSourceSession,
+    );
     return {
       harness: preparedSource.harness,
       session: { forkOf: preparedSource.sessionId },
     };
   }
-  return input.freshQuestionHarness
-    ? { harness: input.freshQuestionHarness }
-    : undefined;
+  if (input.freshQuestionHarness)
+    return { harness: input.freshQuestionHarness };
+  throw new Error("This Review has no authoring agent session.");
 }
 
 async function resolveQuestionSourceWithinBudget(
   resolveSource: (signal?: AbortSignal) => Promise<SessionRef | undefined>,
-): Promise<SessionRef | undefined> {
+): Promise<SessionRef> {
   const signal = AbortSignal.timeout(TUTORIAL_QUESTION_SOURCE_WAIT_MS);
-  const timedOut = new Promise<undefined>((resolve) => {
-    signal.addEventListener("abort", () => resolve(undefined), { once: true });
+  const timedOut = new Promise<never>((_resolve, reject) => {
+    signal.addEventListener(
+      "abort",
+      () =>
+        reject(
+          new Error("Timed out waiting for the Review authoring session."),
+        ),
+      { once: true },
+    );
   });
-  return Promise.race([resolveSource(signal).catch(() => undefined), timedOut]);
+  const source = await Promise.race([resolveSource(signal), timedOut]);
+  if (!source) throw new Error("The Review authoring session is not ready.");
+  return source;
 }
 
 function buildReviewSubmissionEvent(input: {

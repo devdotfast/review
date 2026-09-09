@@ -5,18 +5,13 @@ import path from "node:path";
 import type { JsonObject, JsonValue } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  CodexAgentServer,
-  type CodexHost,
-  projectCodexNotification,
-  projectCodexTurns,
-} from "./codex";
+import { CodexAgentServer, type CodexHost } from "./codex";
 import {
   CodexAppServerClient,
   type CodexNotification,
   type Transport,
 } from "./codex-app-server";
-import type { AgentServerOptions, SessionUpdate } from "./native-session";
+import type { AgentServerOptions } from "./native-session";
 
 const temporaryDirectories: string[] = [];
 
@@ -102,251 +97,105 @@ function fakeHost(handlers: {
   };
 }
 
-async function nextUpdates(
-  updates: AsyncIterable<SessionUpdate>,
-  count: number,
-): Promise<SessionUpdate[]> {
-  const collected: SessionUpdate[] = [];
-  for await (const update of updates) {
-    collected.push(update);
-    if (collected.length === count) break;
-  }
-  return collected;
-}
-
-describe("projectCodexTurns", () => {
-  it("keeps every user message and the final agent message of completed turns", () => {
-    const messages = projectCodexTurns([
-      {
-        status: "completed",
-        startedAt: 1_700_000_000,
-        completedAt: 1_700_000_010,
-        items: [
-          userItem("u1", "hello"),
-          agentItem("a1", "thinking…"),
-          agentItem("a2", "final answer"),
-        ],
-      },
-      {
-        status: "inProgress",
-        startedAt: 1_700_000_020,
-        completedAt: null,
-        items: [userItem("u2", "and?"), agentItem("a3", "partial")],
-      },
-    ]);
-    expect(messages).toEqual([
-      {
-        role: "user",
-        body: "hello",
-        createdAt: "2023-11-14T22:13:20.000Z",
-        itemId: "u1",
-      },
-      {
-        role: "assistant",
-        body: "final answer",
-        createdAt: "2023-11-14T22:13:30.000Z",
-        itemId: "a2",
-      },
-      {
-        role: "user",
-        body: "and?",
-        createdAt: "2023-11-14T22:13:40.000Z",
-        itemId: "u2",
-      },
-    ]);
-  });
-
-  it("projects live notifications the same way", () => {
-    expect(
-      projectCodexNotification({
-        method: "item/completed",
-        params: {
-          threadId: "t",
-          item: userItem("u1", "hi"),
-          completedAtMs: 1_000,
-        },
-      }),
-    ).toEqual([
-      {
-        role: "user",
-        body: "hi",
-        createdAt: "1970-01-01T00:00:01.000Z",
-        itemId: "u1",
-      },
-    ]);
-    expect(
-      projectCodexNotification({
-        method: "item/completed",
-        params: {
-          threadId: "t",
-          item: agentItem("a1", "streamed"),
-          completedAtMs: 1,
-        },
-      }),
-    ).toEqual([]);
-    expect(
-      projectCodexNotification({
-        method: "turn/completed",
-        params: {
-          threadId: "t",
-          turn: {
-            status: "completed",
-            completedAt: 2,
-            items: [agentItem("a1", "done")],
-          },
-        },
-      }),
-    ).toEqual([
-      {
-        role: "assistant",
-        body: "done",
-        createdAt: "1970-01-01T00:00:02.000Z",
-        itemId: "a1",
-      },
-    ]);
-  });
-});
-
-describe("CodexAgentServer", () => {
-  it("forks the thread, starts the turn, waits for the user message, then attaches the TUI", async () => {
+describe("Codex live capture", () => {
+  it("buffers a fast reply before subscription and keeps a resumed follow-up on the same stream", async () => {
+    let turn = 0;
     const host = fakeHost({
       "thread/fork": () => ({ thread: { id: "forked" } }),
-      "thread/read": () => ({
-        thread: {
-          id: "forked",
-          turns: [
-            {
-              status: "inProgress",
-              startedAt: 1,
-              completedAt: null,
-              items: [userItem("u1", "Explain this")],
+      "turn/start": () => {
+        const id = `turn-${++turn}`;
+        host.emit({
+          method: "item/completed",
+          params: {
+            threadId: "forked",
+            turnId: id,
+            item: userItem(`u${turn}`, "question"),
+            completedAtMs: 1000,
+          },
+        });
+        host.emit({
+          method: "turn/completed",
+          params: {
+            threadId: "forked",
+            turn: {
+              id,
+              status: "completed",
+              completedAt: 2,
+              items: [agentItem(`a${turn}`, "answer")],
             },
-          ],
-        },
-      }),
-      "turn/start": (params) => {
-        queueMicrotask(() =>
-          host.emit({
-            method: "item/completed",
-            params: {
-              threadId: params.threadId as string,
-              item: userItem("u1", "Explain this"),
-              completedAtMs: 5,
-            },
-          }),
-        );
-        return { turn: { id: "turn-1" } };
+          },
+        });
+        return { turn: { id } };
       },
     });
     const server = new CodexAgentServer(await options(), host);
-    const { sessionId, command } = await server.launch({
+    await server.launch({
       session: { forkOf: "source" },
-      prompt: "Explain this",
-      cwd: "/tmp/tutorial",
+      cwd: "/tmp",
+      prompt: { id: "review-ask", text: "question" },
     });
-    expect(sessionId).toBe("forked");
-    expect(host.requests.map((request) => request.method)).toEqual([
-      "thread/fork",
-      "turn/start",
-    ]);
-    expect(command.executable).toBe("codex");
-    expect(command.args).toEqual(
-      expect.arrayContaining([
-        "--remote",
-        "ws://127.0.0.1:4500",
-        "resume",
-        "forked",
-      ]),
-    );
-    expect(command.args).not.toContain("--enable");
-    expect(command.args).not.toContain("--dangerously-bypass-hook-trust");
-    expect(command.env.DEV_FAST_REVIEW_AGENT_THREAD_URL).toBe(
-      "http://127.0.0.1:4000/native-agent-events/codex/forked/thread",
-    );
-    // The prompt arrived through the stream and again from thread/read;
-    // the snapshot has it once.
     const pipe = await server.updates("forked");
-    expect(pipe.snapshot.messages.map((message) => message.body)).toEqual([
-      "Explain this",
-    ]);
-    await pipe.close();
+    const iterator = pipe.updates[Symbol.asyncIterator]();
+    expect((await iterator.next()).value).toMatchObject({
+      type: "message.updated",
+      message: { id: "review-ask", role: "user" },
+    });
+    expect((await iterator.next()).value).toMatchObject({
+      type: "message.updated",
+      message: { id: "a1", body: "answer" },
+    });
+    expect((await iterator.next()).value).toEqual({
+      type: "status.changed",
+      status: "idle",
+    });
+    await server.launch({
+      session: { resume: "forked" },
+      cwd: "/tmp",
+      prompt: { id: "follow-up", text: "question" },
+    });
+    expect((await iterator.next()).value).toMatchObject({
+      type: "message.updated",
+      message: { id: "follow-up" },
+    });
+    expect(
+      host.requests.some((request) => request.method === "thread/read"),
+    ).toBe(false);
+    await server.close();
   });
 
-  it("reads history on subscribe and streams the final agent message per turn", async () => {
+  it("does not finish interrupt until the active turn settles", async () => {
     const host = fakeHost({
-      "thread/resume": () => ({ thread: { id: "t" } }),
-      "thread/read": () => ({
-        thread: {
-          id: "t",
-          turns: [
-            {
-              status: "completed",
-              startedAt: 1,
-              completedAt: 2,
-              items: [userItem("u1", "first"), agentItem("a1", "answer one")],
-            },
-          ],
-        },
-      }),
-    });
-    const server = new CodexAgentServer(await options(), host);
-    const pipe = await server.updates("t");
-    expect(host.requests.map((request) => request.method)).toEqual([
-      "thread/resume",
-      "thread/read",
-    ]);
-    expect(pipe.snapshot.messages.map((message) => message.body)).toEqual([
-      "first",
-      "answer one",
-    ]);
-    host.emit({
-      method: "item/completed",
-      params: {
-        threadId: "t",
-        item: userItem("u2", "second"),
-        completedAtMs: 3,
+      "thread/start": () => ({ thread: { id: "t" } }),
+      "turn/start": () => {
+        host.emit({
+          method: "item/completed",
+          params: {
+            threadId: "t",
+            turnId: "run",
+            item: userItem("u", "work"),
+            completedAtMs: 1000,
+          },
+        });
+        return { turn: { id: "run" } };
       },
     });
+    const server = new CodexAgentServer(await options(), host);
+    await server.launch({ cwd: "/tmp", prompt: { id: "ask", text: "work" } });
+    let finished = false;
+    const stop = server.interrupt("t").then(() => {
+      finished = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(finished).toBe(false);
     host.emit({
       method: "turn/completed",
       params: {
         threadId: "t",
-        turn: {
-          status: "completed",
-          completedAt: 4,
-          items: [agentItem("a2", "answer two")],
-        },
+        turn: { id: "run", status: "interrupted", items: [] },
       },
     });
-    // A re-read of the same items must not duplicate them.
-    host.emit({
-      method: "item/completed",
-      params: {
-        threadId: "t",
-        item: userItem("u2", "second"),
-        completedAtMs: 3,
-      },
-    });
-    expect(
-      (await nextUpdates(pipe.updates, 2)).map((update) => update.message.body),
-    ).toEqual(["second", "answer two"]);
-    await pipe.close();
-  });
-
-  it("treats a thread without a rollout as empty until it materializes", async () => {
-    const host = fakeHost({
-      "thread/resume": () => {
-        throw new Error("no rollout found for thread id t");
-      },
-      "thread/read": () => {
-        throw new Error(
-          "thread t is not materialized yet; includeTurns is unavailable before first user message",
-        );
-      },
-    });
-    const server = new CodexAgentServer(await options(), host);
-    const pipe = await server.updates("t");
-    expect(pipe.snapshot.messages).toEqual([]);
-    await pipe.close();
+    await stop;
+    expect(finished).toBe(true);
+    await server.close();
   });
 });

@@ -383,27 +383,25 @@ export async function startCodexThread(input: {
 
 export async function forkThread(
   client: CodexAppServerClient,
-  input: { sourceThreadId: string; cwd: string },
+  input: { sourceThreadId: string; cwd: string; config?: JsonObject },
 ): Promise<string> {
-  return threadId(
-    await client.request("thread/fork", {
-      threadId: input.sourceThreadId,
-      cwd: input.cwd,
-      ephemeral: false,
-      excludeTurns: true,
-    }),
-    "forked",
-  );
+  const params: JsonObject = {
+    threadId: input.sourceThreadId,
+    cwd: input.cwd,
+    ephemeral: false,
+    excludeTurns: true,
+  };
+  if (input.config !== undefined) params.config = input.config;
+  return threadId(await client.request("thread/fork", params), "forked");
 }
 
 export async function startThread(
   client: CodexAppServerClient,
-  input: { cwd: string },
+  input: { cwd: string; config?: JsonObject },
 ): Promise<string> {
-  return threadId(
-    await client.request("thread/start", { cwd: input.cwd, ephemeral: false }),
-    "new",
-  );
+  const params: JsonObject = { cwd: input.cwd, ephemeral: false };
+  if (input.config !== undefined) params.config = input.config;
+  return threadId(await client.request("thread/start", params), "new");
 }
 
 function threadId(result: JsonValue | undefined, kind: string): string {

@@ -21,28 +21,30 @@ import type {
   LaunchInput,
   NativeReviewMessage,
   NativeTerminalCommand,
-  SessionSnapshot,
   SessionUpdate,
-  UpdatePipe,
 } from "./native-session";
 import {
-  REVIEW_AGENT_THREAD_TOKEN_ENV,
-  REVIEW_AGENT_THREAD_URL_ENV,
   ReviewCommandPath,
+  reviewThreadEnvironment,
   tomlInline,
 } from "./terminal-command";
 
 const MATERIALIZE_TIMEOUT_MS = 60_000;
 
+interface NativeToolEnvironment {
+  [name: string]: string;
+}
+
 interface ThreadState {
-  /** Messages seen so far, in order, with the item ids they came from. */
-  messages: NativeReviewMessage[];
   seenItems: Set<string>;
-  /** The shared server streams this thread's events to our connection. */
   subscribed: boolean;
-  /** thread/read has seeded `messages` once. */
-  loaded: boolean;
-  subscribers: Set<AsyncQueue<SessionUpdate>>;
+  queue: AsyncQueue<SessionUpdate>;
+  attached: boolean;
+  activeTurn?: string;
+  pending?: { id: string; notifications: CodexNotification[] };
+  promptIds: Map<string, string>;
+  accepted: Map<string, () => void>;
+  interrupted: Set<() => void>;
 }
 
 /** Something that hands out the shared app-server connection. */
@@ -79,17 +81,26 @@ export class CodexAgentServer implements AgentServer {
     input: LaunchInput,
   ): Promise<{ sessionId: string; command: NativeTerminalCommand }> {
     const client = await this.#connect();
+    const pathValue = await this.#commandPath.resolve();
+    const env: NativeToolEnvironment = {
+      ...reviewThreadEnvironment(this.#desktop),
+      [DEV_REVIEW_HOME_ENV]: devReviewHome(),
+    };
+    if (pathValue) env.PATH = pathValue;
+    const config = { "shell_environment_policy.set": env };
     let threadId: string;
     if (!input.session) {
-      threadId = await startThread(client, { cwd: input.cwd });
+      threadId = await startThread(client, { cwd: input.cwd, config });
     } else if ("forkOf" in input.session) {
       threadId = await forkThread(client, {
+        config,
         sourceThreadId: input.session.forkOf,
         cwd: input.cwd,
       });
     } else {
       threadId = input.session.resume;
-      await this.#subscribe(client, threadId);
+      await client.request("thread/resume", { threadId, config });
+      this.#thread(threadId).subscribed = true;
     }
     // Threads created on this connection already stream to it.
     const state = this.#thread(threadId);
@@ -97,36 +108,49 @@ export class CodexAgentServer implements AgentServer {
     if (input.prompt !== undefined) {
       // Review drives the turn; the TUI joins a running thread. Codex only
       // materializes a thread on its first user message, so wait for it.
-      const materialized = this.#materialized(threadId);
-      await client.request("turn/start", {
-        threadId,
-        cwd: input.cwd,
-        input: [{ type: "text", text: input.prompt, text_elements: [] }],
+      if (state.pending)
+        throw new Error("Codex prompt submission is already pending.");
+      state.pending = { id: input.prompt.id, notifications: [] };
+      let result;
+      try {
+        result = await client.request("turn/start", {
+          threadId,
+          cwd: input.cwd,
+          input: [{ type: "text", text: input.prompt.text, text_elements: [] }],
+        });
+      } catch (error) {
+        state.pending = undefined;
+        throw error;
+      }
+      const turnId = jsonString(jsonObject(jsonObject(result)?.turn)?.id);
+      if (!turnId) throw new Error("Codex returned no submitted turn ID.");
+      state.promptIds.set(turnId, input.prompt.id);
+      state.activeTurn = turnId;
+      const accepted = new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          state.accepted.delete(turnId);
+          reject(new Error("Codex did not emit the submitted user message."));
+        }, MATERIALIZE_TIMEOUT_MS);
+        state.accepted.set(turnId, () => {
+          clearTimeout(timer);
+          resolve();
+        });
       });
-      await materialized;
+      const pending = state.pending;
+      state.pending = undefined;
+      for (const notification of pending.notifications)
+        this.#receive(notification);
+      await accepted;
     }
     const url = await this.#host.url();
-    const pathValue = await this.#commandPath.resolve();
-    const reviewHome = devReviewHome();
     const args = ["--remote", url];
-    if (pathValue) {
+    for (const [name, value] of Object.entries(env)) {
       args.push(
         "-c",
-        `shell_environment_policy.set.PATH=${tomlInline(pathValue)}`,
+        `shell_environment_policy.set.${name}=${tomlInline(value)}`,
       );
     }
-    args.push(
-      "-c",
-      `shell_environment_policy.set.${DEV_REVIEW_HOME_ENV}=${tomlInline(reviewHome)}`,
-      "resume",
-      threadId,
-    );
-    const env: NativeTerminalCommand["env"] = {
-      [REVIEW_AGENT_THREAD_URL_ENV]: `${this.#desktop.baseUrl}/native-agent-events/codex/${encodeURIComponent(threadId)}/thread`,
-      [REVIEW_AGENT_THREAD_TOKEN_ENV]: this.#desktop.token,
-      [DEV_REVIEW_HOME_ENV]: reviewHome,
-    };
-    if (pathValue) env.PATH = pathValue;
+    args.push("resume", threadId);
     return {
       sessionId: threadId,
       command: {
@@ -138,35 +162,48 @@ export class CodexAgentServer implements AgentServer {
     };
   }
 
-  async updates(
-    sessionId: string,
-  ): Promise<UpdatePipe<SessionSnapshot, SessionUpdate>> {
+  async updates(sessionId: string): Promise<{
+    updates: AsyncIterable<SessionUpdate>;
+    close(): Promise<void>;
+  }> {
+    const state = this.#threads.get(sessionId);
+    if (!state)
+      throw new Error("Launch the Codex session before observing it.");
+    if (state.attached)
+      throw new Error("Codex session already has an observer.");
+    state.attached = true;
+    return { updates: state.queue, close: async () => state.queue.close() };
+  }
+
+  async interrupt(sessionId: string): Promise<void> {
+    const state = this.#threads.get(sessionId);
+    if (!state?.activeTurn) return;
+    const turnId = state.activeTurn;
     const client = await this.#connect();
-    const state = this.#thread(sessionId);
-    if (!state.subscribed) await this.#subscribe(client, sessionId);
-    if (!state.loaded) {
-      for (const message of await this.#readThread(client, sessionId)) {
-        this.#append(state, message);
-      }
-      state.loaded = true;
+    let finish!: () => void;
+    const done = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        state.interrupted.delete(finish);
+        reject(new Error("Codex did not confirm interruption."));
+      }, MATERIALIZE_TIMEOUT_MS);
+      finish = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      state.interrupted.add(finish);
+    });
+    try {
+      await client.request("turn/interrupt", { threadId: sessionId, turnId });
+    } catch (error) {
+      state.interrupted.delete(finish);
+      finish();
+      throw error;
     }
-    const queue = new AsyncQueue<SessionUpdate>();
-    state.subscribers.add(queue);
-    return {
-      snapshot: { sessionId, messages: [...state.messages] },
-      updates: queue,
-      close: async () => {
-        state.subscribers.delete(queue);
-        queue.close();
-      },
-    };
+    await done;
   }
 
   async close(): Promise<void> {
-    for (const state of this.#threads.values()) {
-      for (const queue of state.subscribers) queue.close();
-      state.subscribers.clear();
-    }
+    for (const state of this.#threads.values()) state.queue.close();
     await this.#host.close();
   }
 
@@ -181,81 +218,61 @@ export class CodexAgentServer implements AgentServer {
     return client;
   }
 
-  /** Rejoin a thread this connection did not create, if it exists on disk. */
-  async #subscribe(
-    client: CodexAppServerClient,
-    threadId: string,
-  ): Promise<void> {
-    const state = this.#thread(threadId);
-    try {
-      await client.request("thread/resume", { threadId });
-      state.subscribed = true;
-    } catch (error) {
-      if (!isUnmaterialized(error)) throw error;
-    }
-  }
-
-  async #readThread(
-    client: CodexAppServerClient,
-    threadId: string,
-  ): Promise<CodexMessage[]> {
-    let result: JsonValue | undefined;
-    try {
-      result = await client.request("thread/read", {
-        threadId,
-        includeTurns: true,
-      });
-    } catch (error) {
-      if (isUnmaterialized(error)) return [];
-      throw error;
-    }
-    const thread = jsonObject(jsonObject(result)?.thread);
-    if (!thread) {
-      throw new Error("Codex returned an invalid thread.");
-    }
-    return projectCodexTurns(thread.turns);
-  }
-
-  #materialized(threadId: string): Promise<void> {
-    const state = this.#thread(threadId);
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        state.subscribers.delete(queue);
-        reject(
-          new Error(`Codex did not accept the prompt for thread ${threadId}.`),
-        );
-      }, MATERIALIZE_TIMEOUT_MS);
-      timer.unref();
-      const queue = new AsyncQueue<SessionUpdate>();
-      state.subscribers.add(queue);
-      void (async () => {
-        for await (const update of queue) {
-          if (update.message.role === "user") break;
-        }
-        clearTimeout(timer);
-        state.subscribers.delete(queue);
-        resolve();
-      })();
-    });
-  }
-
   #receive(notification: CodexNotification): void {
     const threadId = jsonString(notification.params.threadId);
     if (threadId === undefined) return;
     const state = this.#threads.get(threadId);
     if (!state) return;
-    for (const message of projectCodexNotification(notification)) {
-      this.#append(state, message);
+    if (state.pending) {
+      state.pending.notifications.push(notification);
+      return;
     }
-  }
-
-  #append(state: ThreadState, message: CodexMessage): void {
-    if (state.seenItems.has(message.itemId)) return;
-    state.seenItems.add(message.itemId);
-    const { itemId: _itemId, ...review } = message;
-    state.messages.push(review);
-    for (const queue of state.subscribers) {
-      queue.push({ type: "message.updated", message: review });
+    const turn = jsonObject(notification.params.turn);
+    const turnId =
+      notification.method === "turn/started" ||
+      notification.method === "turn/completed"
+        ? jsonString(turn?.id)
+        : jsonString(notification.params.turnId);
+    if (notification.method === "turn/started" && turnId) {
+      state.activeTurn = turnId;
+      state.queue.push({ type: "status.changed", status: "running" });
+    }
+    for (const message of projectCodexNotification(notification)) {
+      if (state.seenItems.has(message.itemId)) continue;
+      state.seenItems.add(message.itemId);
+      if (message.role === "user" && turnId) {
+        state.accepted.get(turnId)?.();
+        state.accepted.delete(turnId);
+      }
+      const submitted =
+        message.role === "user" && turnId
+          ? state.promptIds.get(turnId)
+          : undefined;
+      if (submitted && turnId) state.promptIds.delete(turnId);
+      state.queue.push({
+        type: "message.updated",
+        message: {
+          id: submitted ?? message.itemId,
+          role: message.role,
+          body: message.body,
+          createdAt: message.createdAt,
+        },
+      });
+    }
+    if (
+      notification.method === "turn/completed" &&
+      turnId === state.activeTurn
+    ) {
+      state.activeTurn = undefined;
+      const status =
+        turn?.status === "interrupted"
+          ? "interrupted"
+          : turn?.status === "failed"
+            ? "failed"
+            : "idle";
+      state.queue.push({ type: "status.changed", status });
+      for (const finish of state.interrupted) finish();
+      state.interrupted.clear();
     }
   }
 
@@ -263,11 +280,13 @@ export class CodexAgentServer implements AgentServer {
     let state = this.#threads.get(threadId);
     if (!state) {
       state = {
-        messages: [],
         seenItems: new Set(),
         subscribed: false,
-        loaded: false,
-        subscribers: new Set(),
+        queue: new AsyncQueue(),
+        attached: false,
+        promptIds: new Map(),
+        accepted: new Map(),
+        interrupted: new Set(),
       };
       this.#threads.set(threadId, state);
     }
@@ -278,31 +297,6 @@ export class CodexAgentServer implements AgentServer {
 export interface CodexMessage extends NativeReviewMessage {
   /** The app-server item this message came from; dedupes read vs stream. */
   itemId: string;
-}
-
-/** Review-visible messages from `thread/read` turns: every user message, and the final agent message of each completed turn. */
-export function projectCodexTurns(
-  turns: JsonValue | undefined,
-): CodexMessage[] {
-  const list = jsonArray(turns);
-  if (!list) return [];
-  const messages: CodexMessage[] = [];
-  for (const entry of list) {
-    const turn = jsonObject(entry);
-    const items = jsonArray(turn?.items);
-    if (!turn || !items) continue;
-    const startedAt = secondsToIso(turn.startedAt);
-    const completedAt = secondsToIso(turn.completedAt);
-    for (const item of items) {
-      const user = userMessage(item, startedAt);
-      if (user) messages.push(user);
-    }
-    if (turn.status === "completed") {
-      const final = finalAgentMessage(items, completedAt);
-      if (final) messages.push(final);
-    }
-  }
-  return messages;
 }
 
 /** The same projection applied to one live notification. */
@@ -348,7 +342,7 @@ function userMessage(
     .join("\n")
     .trim();
   if (!body) return undefined;
-  return { role: "user", body, createdAt, itemId };
+  return { id: itemId, role: "user", body, createdAt, itemId };
 }
 
 function finalAgentMessage(
@@ -360,18 +354,10 @@ function finalAgentMessage(
     const itemId = jsonString(item?.id);
     const text = jsonString(item?.text)?.trim();
     if (item?.type === "agentMessage" && itemId !== undefined && text) {
-      return { role: "assistant", body: text, createdAt, itemId };
+      return { id: itemId, role: "assistant", body: text, createdAt, itemId };
     }
   }
   return undefined;
-}
-
-function isUnmaterialized(cause: unknown): boolean {
-  return (
-    cause instanceof Error &&
-    (/no rollout found/u.test(cause.message) ||
-      /not materialized/u.test(cause.message))
-  );
 }
 
 function secondsToIso(value: JsonValue | undefined): string {

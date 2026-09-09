@@ -27,6 +27,7 @@ export class ReviewAskLoadingInput extends EditorInput {
   private readonly changed = this._register(new Emitter<void>());
   readonly onDidChangeStatus = this.changed.event;
   status = 'Waiting for agent…';
+  replaced = false;
 
   constructor(messageId: string) {
     super();

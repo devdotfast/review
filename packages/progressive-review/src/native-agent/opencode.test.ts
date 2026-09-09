@@ -12,8 +12,8 @@ import {
 } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { AgentServerOptions, SessionUpdate } from "./native-session";
-import { OpencodeAgentServer, projectOpencodeMessages } from "./opencode";
+import type { AgentServerOptions } from "./native-session";
+import { OpencodeAgentServer } from "./opencode";
 
 const temporaryDirectories: string[] = [];
 const servers: Server[] = [];
@@ -43,15 +43,6 @@ const user = (id: string, text: string, created = 1_000) => ({
   info: { id, sessionID: "ses_1", role: "user", time: { created } },
   parts: [{ id: `${id}-p`, type: "text", text }],
 });
-const failedAssistant = (id: string, text: string, completed: number) => {
-  const message = assistant(id, text, completed);
-  const info: JsonObject = {
-    ...jsonObject(message.info),
-    error: { name: "UnknownError" },
-  };
-  return { ...message, info };
-};
-
 const assistant = (id: string, text: string, completed?: number) => {
   const time: JsonObject = { created: 1_500 };
   if (completed !== undefined) time.completed = completed;
@@ -94,7 +85,7 @@ async function fakeOpencode() {
       if (url.pathname === "/global/event") {
         response.writeHead(200, { "content-type": "text/event-stream" });
         response.write(
-          `data: ${JSON.stringify({ type: "server.connected", properties: {} })}\n\n`,
+          `data: ${JSON.stringify({ payload: { type: "server.connected", properties: {} } })}\n\n`,
         );
         listeners.add(response);
         response.on("close", () => listeners.delete(response));
@@ -128,7 +119,24 @@ async function fakeOpencode() {
       }
       if (url.pathname === "/session/ses_src/fork")
         return reply({ id: "ses_1", directory: "/repo/source" });
-      if (url.pathname === "/session/ses_1/prompt_async") return reply({});
+      if (url.pathname === "/session/ses_1/prompt_async") {
+        const id = String(jsonObject(body)?.messageID);
+        const message = user(id, "question");
+        messages.push(message);
+        for (const listener of listeners)
+          listener.write(
+            `data: ${JSON.stringify({ payload: { type: "message.updated", properties: { sessionID: "ses_1", info: message.info } } })}\n\n`,
+          );
+        return reply({});
+      }
+      if (url.pathname === "/session/ses_1/abort") return reply(true);
+      if (url.pathname.startsWith("/session/ses_1/message/")) {
+        const id = url.pathname.split("/").at(-1);
+        const message = messages.find(
+          (message) => jsonObject(jsonObject(message)?.info)?.id === id,
+        );
+        if (message) return reply(message);
+      }
       if (url.pathname === "/session/ses_1/message") return reply(messages);
       response.writeHead(404).end();
     });
@@ -148,125 +156,55 @@ async function fakeOpencode() {
     },
     emit(event: JsonValue) {
       for (const listener of listeners)
-        listener.write(`data: ${JSON.stringify(event)}\n\n`);
+        listener.write(`data: ${JSON.stringify({ payload: event })}\n\n`);
     },
   };
 }
 
-async function nextUpdates(
-  updates: AsyncIterable<SessionUpdate>,
-  count: number,
-) {
-  const collected: SessionUpdate[] = [];
-  for await (const update of updates) {
-    collected.push(update);
-    if (collected.length === count) break;
-  }
-  return collected;
-}
-
-describe("projectOpencodeMessages", () => {
-  it("keeps user messages and completed, error-free assistant messages", () => {
-    expect(
-      projectOpencodeMessages([
-        user("msg_1", "hello"),
-        assistant("msg_2", "still streaming"),
-        assistant("msg_3", "done", 2_000),
-        failedAssistant("msg_4", "broken", 2_500),
-      ]),
-    ).toEqual([
-      {
-        role: "user",
-        body: "hello",
-        createdAt: "1970-01-01T00:00:01.000Z",
-        messageId: "msg_1",
-      },
-      {
-        role: "assistant",
-        body: "done",
-        createdAt: "1970-01-01T00:00:02.000Z",
-        messageId: "msg_3",
-      },
-    ]);
-  });
-});
-
-describe("OpencodeAgentServer", () => {
-  it("forks, prompts, and attaches the TUI to the shared server", async () => {
+describe("OpenCode live capture", () => {
+  it("captures submitted and completed messages without reading inherited history, then waits for idle on interrupt", async () => {
     const oc = await fakeOpencode();
+    oc.messages.push(user("inherited", "old question"));
     const server = new OpencodeAgentServer(await options(), oc.host);
-    const { sessionId, command } = await server.launch({
+    await server.launch({
       session: { forkOf: "ses_src" },
-      prompt: "Explain this",
-      cwd: "/tmp/tutorial",
+      cwd: "/repo/source",
+      prompt: { id: "review-ask", text: "question" },
     });
-    expect(sessionId).toBe("ses_1");
-    const calls = oc.requests.filter(
-      (request) => request.path !== "/global/event",
-    );
-    // The fork and the prompt are scoped to the source session's project,
-    // not to the review's checkout.
-    expect(
-      calls.map(
-        (request) =>
-          `${request.method} ${request.path} ${request.directory ?? ""}`,
-      ),
-    ).toEqual([
-      "GET /project ",
-      "GET /session/ses_src /repo/other",
-      "GET /session/ses_src /repo/source",
-      "POST /session/ses_src/fork /repo/source",
-      "POST /session/ses_1/prompt_async /repo/source",
-    ]);
-    expect(calls[4]?.body).toEqual({
-      parts: [{ type: "text", text: "Explain this" }],
-    });
-    expect(command.executable).toBe("opencode");
-    expect(command.args).toEqual([
-      "attach",
-      expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+$/),
-      "--session",
-      "ses_1",
-      "--dir",
-      "/repo/source",
-    ]);
-    expect(command.env.OPENCODE_SERVER_PASSWORD).toBe("pw");
-    expect(command.env.DEV_FAST_REVIEW_AGENT_THREAD_URL).toBe(
-      "http://127.0.0.1:4000/native-agent-events/opencode/ses_1/thread",
-    );
-    await server.close();
-  });
-
-  it("snapshots the session, then re-reads it when the event stream names it", async () => {
-    const oc = await fakeOpencode();
-    oc.messages.push(
-      user("msg_1", "first"),
-      assistant("msg_2", "answer one", 2_000),
-    );
-    const server = new OpencodeAgentServer(await options(), oc.host);
-    await server.launch({ session: { resume: "ses_1" }, cwd: "/tmp/tutorial" });
     const pipe = await server.updates("ses_1");
-    expect(pipe.snapshot.messages.map((message) => message.body)).toEqual([
-      "first",
-      "answer one",
-    ]);
-
-    oc.messages.push(
-      user("msg_3", "second", 3_000),
-      assistant("msg_4", "streaming"),
-    );
+    const iterator = pipe.updates[Symbol.asyncIterator]();
+    expect((await iterator.next()).value).toMatchObject({ status: "running" });
+    expect((await iterator.next()).value).toMatchObject({
+      message: { id: "review-ask", role: "user" },
+    });
+    oc.emit({ type: "sync", syncEvent: { type: "session.updated.1" } });
+    const reply = assistant("answer", "done", 2000);
+    oc.messages.push(reply);
     oc.emit({
       type: "message.updated",
-      properties: { info: { id: "msg_3", sessionID: "ses_1", role: "user" } },
+      properties: { sessionID: "ses_1", info: jsonObject(reply)?.info ?? null },
     });
-    oc.messages.pop();
-    oc.messages.push(assistant("msg_4", "answer two", 4_000));
+    expect((await iterator.next()).value).toMatchObject({
+      message: { id: "answer", body: "done" },
+    });
+    let stopped = false;
+    const stopping = server.interrupt("ses_1").then(() => {
+      stopped = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(stopped).toBe(false);
+    oc.emit({
+      type: "session.error",
+      properties: {
+        sessionID: "ses_1",
+        error: { name: "MessageAbortedError" },
+      },
+    });
     oc.emit({ type: "session.idle", properties: { sessionID: "ses_1" } });
-    // One pass over the pipe: iterating it twice would close the queue.
+    await stopping;
     expect(
-      (await nextUpdates(pipe.updates, 2)).map((update) => update.message.body),
-    ).toEqual(["second", "answer two"]);
-    await pipe.close();
+      oc.requests.some((request) => request.path === "/session/ses_1/message"),
+    ).toBe(false);
     await server.close();
   });
 });

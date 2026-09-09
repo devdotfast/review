@@ -19,6 +19,16 @@ export const REVIEW_AGENT_BRIDGE_TOKEN_ENV =
 export const REVIEW_AGENT_THREAD_TOKEN_ENV =
   "DEV_FAST_REVIEW_AGENT_THREAD_TOKEN";
 
+export function reviewThreadEnvironment(desktop: {
+  baseUrl: string;
+  token: string;
+}) {
+  return {
+    [REVIEW_AGENT_THREAD_URL_ENV]: `${desktop.baseUrl.replace(/\/$/u, "")}/agent-threads`,
+    [REVIEW_AGENT_THREAD_TOKEN_ENV]: desktop.token,
+  };
+}
+
 /**
  * Exposes the `review` CLI to native agent terminals through a PATH shim.
  * The shim is written once per runtime directory and reused for every launch.

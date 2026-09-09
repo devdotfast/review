@@ -5,6 +5,7 @@ import type { ReviewAgentHarness } from "../authoring-session";
 export type { ReviewAgentHarness, SessionRef } from "../authoring-session";
 
 export interface NativeReviewMessage {
+  id: string;
   role: "user" | "assistant";
   body: string;
   createdAt: string;
@@ -16,27 +17,18 @@ export type NativeTerminalCommand = Extract<
   { name: "openNativeAgentTerminal" }
 >["args"]["command"];
 
-export interface UpdatePipe<Snapshot, Update> {
-  snapshot: Snapshot;
-  updates: AsyncIterable<Update>;
+export interface SessionUpdateStream {
+  updates: AsyncIterable<SessionUpdate>;
   close(): Promise<void>;
 }
 
-// ---- AgentServer ----------------------------------------------------------
-//
-// Review's model of a harness, as if every harness ran an app-server that can
-// launch terminals into sessions and report what happens in them. Codex has a
-// real one; the other backends emulate it. Callers never see the difference.
-
-export interface SessionSnapshot {
-  sessionId: string;
-  messages: readonly NativeReviewMessage[];
-}
-
-export type SessionUpdate = {
-  type: "message.updated";
-  message: NativeReviewMessage;
-};
+export type SessionUpdate =
+  | { type: "message.updated"; message: NativeReviewMessage }
+  | {
+      type: "status.changed";
+      status: "running" | "idle" | "interrupted" | "failed";
+      error?: string;
+    };
 
 export interface AgentServerOptions {
   runtimeDirectory: string;
@@ -50,7 +42,7 @@ export interface LaunchInput {
   /** Which session the terminal lands in. Absent starts a fresh one. */
   session?: { resume: string } | { forkOf: string };
   /** Submitted when the terminal starts. Absent opens the session silently. */
-  prompt?: string;
+  prompt?: { id: string; text: string };
   cwd: string;
 }
 
@@ -60,8 +52,7 @@ export interface AgentServer {
     sessionId: string;
     command: NativeTerminalCommand;
   }>;
-  updates(
-    sessionId: string,
-  ): Promise<UpdatePipe<SessionSnapshot, SessionUpdate>>;
+  updates(sessionId: string): Promise<SessionUpdateStream>;
+  interrupt(sessionId: string): Promise<void>;
   close(): Promise<void>;
 }

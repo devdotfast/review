@@ -379,27 +379,19 @@ export function createGlobalReviewServer(
     }
     await next();
   });
-  // `review threads get` inside a native agent terminal reads its thread
-  // here; the owning review is found through the session binding.
-  app.get(
-    "/native-agent-events/:harness/:sessionId/thread/:threadId",
-    (context) => {
-      const ref = parseAuthoringSessionKey(
-        `${context.req.param("harness")}:${context.req.param("sessionId")}`,
-      );
-      const threadId = context.req.param("threadId");
-      if (ref && threadId) {
-        for (const session of sessions.values()) {
-          const found = session.handler.findAgentThread(ref, threadId);
-          if (found) return globalJson(200, found);
-        }
-      }
-      return globalJson(404, {
-        ok: false,
-        error: `Comment thread not found: ${threadId ?? ""}`,
-      });
-    },
-  );
+  // Native agents can read their draft before launch returns and a session is bound.
+  // Every lookup is authenticated by the desktop token above.
+  app.get("/agent-threads/:threadId", (context) => {
+    const threadId = context.req.param("threadId");
+    for (const session of sessions.values()) {
+      const found = session.handler.findAgentThread(threadId);
+      if (found) return globalJson(200, found);
+    }
+    return globalJson(404, {
+      ok: false,
+      error: `Comment thread not found: ${threadId}`,
+    });
+  });
   app.post("/app/focus", async () => {
     const result = await relay.dispatch("review-desktop", {
       name: "focusWindow",
@@ -1787,6 +1779,20 @@ export function createGlobalReviewServer(
           uuid: registration.review.review.uuid,
           sessionId,
         });
+      },
+      onAgentStatus: (threadId, status, error) => {
+        const event: Extract<
+          ReviewDesktopGlobalEvent,
+          { event: "review-agent-status" }
+        > = {
+          event: "review-agent-status",
+          uuid: registration.review.review.uuid,
+          sessionId,
+          threadId,
+          status,
+        };
+        if (error !== undefined) event.error = error;
+        broadcastGlobal(event);
       },
       onReviewThreadsCommit: (commit) => {
         broadcastGlobal({

@@ -674,6 +674,12 @@ export type ReviewCommentAgentActivity =
   | {
       messageId: string;
       startedAt: string;
+      status: "interrupting";
+      error?: string;
+    }
+  | {
+      messageId: string;
+      startedAt: string;
       status: "starting" | "running";
     }
   | {
@@ -687,6 +693,7 @@ export interface ReviewCommentStoreSnapshot {
   commentThreads: ReadonlyMap<string, ReviewCommentThreadRecord>;
   localComments: ReadonlyMap<string, ReviewLocalCommentThread>;
   agentActivities: ReadonlyMap<string, ReviewCommentAgentActivity>;
+  terminalThreadIds: ReadonlySet<string>;
   pendingCommentCount: number;
 }
 
@@ -695,6 +702,13 @@ export interface ReviewCommentStoreChange {
 }
 
 export interface ReviewCommentStoreBridge {
+  terminalOpened(threadId: string): void;
+  terminalClosed(threadId: string, messageId: string | null): Promise<void>;
+  applyAgentStatus(
+    threadId: string,
+    status: "running" | "idle" | "interrupted" | "failed",
+    error?: string,
+  ): void;
   subscribe(listener: (change: ReviewCommentStoreChange) => void): () => void;
   getSnapshot(): ReviewCommentStoreSnapshot;
   saveComment(input: CreateReviewCommentInput): Promise<void>;
@@ -1546,6 +1560,14 @@ export const ReviewDesktopGlobalEventSchema = z.discriminatedUnion("event", [
     sessionId: requiredString,
   }),
   z.strictObject({
+    event: z.literal("review-agent-status"),
+    uuid: z.uuid(),
+    sessionId: requiredString,
+    threadId: requiredString,
+    status: z.enum(["running", "idle", "interrupted", "failed"]),
+    error: z.string().optional(),
+  }),
+  z.strictObject({
     event: z.literal("review-threads-committed"),
     uuid: z.uuid({ error: "must be a UUID" }),
     sessionId: requiredString,
@@ -1932,6 +1954,7 @@ export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
   z.strictObject({
     name: z.literal("openNativeAgentTerminal"),
     args: z.strictObject({
+      threadId: requiredString,
       /** The native session the terminal runs; the app keys terminals by it. */
       session: AuthoringAgentSessionSchema,
       /** Null for a manual resume; otherwise replaces this Ask’s local loading pane. */

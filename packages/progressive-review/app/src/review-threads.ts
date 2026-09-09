@@ -31,6 +31,7 @@ export interface ThreadView {
   messages: ThreadMessage[];
   latestAt: string;
   targetState?: ThreadTargetState;
+  askDisabled?: boolean;
 }
 
 export type ThreadListStatus = "open" | "pending" | "resolved";
@@ -69,14 +70,18 @@ export function commentThreadView(thread: CommentThreadView): ThreadView {
           ? "Starting\u2026"
           : activity.status === "running"
             ? "Running\u2026"
-            : "Failed",
+            : activity.status === "interrupting"
+              ? "Stopping agent…"
+              : "Failed",
       userAuthored: false,
     };
-    if (activity.status === "failed") activityMessage.error = activity.error;
+    if (activity.status === "failed" || activity.status === "interrupting")
+      activityMessage.error = activity.error;
     else activityMessage.running = true;
     messages.push(activityMessage);
   }
   return {
+    askDisabled: thread.agentActivity?.status === "interrupting",
     key: thread.threadId,
     threadId: thread.threadId,
     target: thread.target,

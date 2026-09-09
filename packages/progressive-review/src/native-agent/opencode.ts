@@ -20,15 +20,9 @@ import type {
   LaunchInput,
   NativeReviewMessage,
   NativeTerminalCommand,
-  SessionSnapshot,
   SessionUpdate,
-  UpdatePipe,
 } from "./native-session";
-import {
-  REVIEW_AGENT_THREAD_TOKEN_ENV,
-  REVIEW_AGENT_THREAD_URL_ENV,
-  ReviewCommandPath,
-} from "./terminal-command";
+import { ReviewCommandPath, reviewThreadEnvironment } from "./terminal-command";
 
 const HOST = "127.0.0.1";
 const STARTUP_TIMEOUT_MS = 15_000;
@@ -42,12 +36,14 @@ export interface OpencodeHost {
 }
 
 interface SessionState {
-  /** Directory the session runs in; every request is scoped to it. */
   directory: string;
-  messages: NativeReviewMessage[];
   seen: Set<string>;
-  loaded: boolean;
-  subscribers: Set<AsyncQueue<SessionUpdate>>;
+  queue: AsyncQueue<SessionUpdate>;
+  attached: boolean;
+  promptIds: Map<string, string>;
+  running: boolean;
+  stopping: boolean;
+  settled: Set<() => void>;
 }
 
 /**
@@ -62,7 +58,9 @@ export class OpencodeAgentServer implements AgentServer {
   readonly #desktop: AgentServerOptions["desktopEndpoint"];
   readonly #commandPath: ReviewCommandPath;
   readonly #sessions = new Map<string, SessionState>();
-  #events: { abort: AbortController; baseUrl: string } | undefined;
+  #events:
+    | { abort: AbortController; baseUrl: string; ready: Promise<void> }
+    | undefined;
 
   constructor(options: AgentServerOptions, host: OpencodeHost) {
     this.#host = host;
@@ -101,21 +99,23 @@ export class OpencodeAgentServer implements AgentServer {
       session = await client.session(input.session.resume);
     }
     const sessionId = session.id;
-    this.#session(sessionId, session.directory);
+    const state = this.#session(sessionId, session.directory);
     if (input.prompt !== undefined) {
-      // Review drives the turn; the TUI attaches to a session already at work.
+      const messageID = `msg_${randomBytes(12).toString("hex")}`;
+      state.promptIds.set(messageID, input.prompt.id);
+      state.running = true;
+      state.queue.push({ type: "status.changed", status: "running" });
       await client.json(
         "POST",
         `/session/${encodeURIComponent(sessionId)}/prompt_async`,
         session.directory,
-        { parts: [{ type: "text", text: input.prompt }] },
+        { messageID, parts: [{ type: "text", text: input.prompt.text }] },
       );
     }
     const pathValue = await this.#commandPath.resolve();
     const env: NativeTerminalCommand["env"] = {
       OPENCODE_SERVER_PASSWORD: client.password,
-      [REVIEW_AGENT_THREAD_URL_ENV]: `${this.#desktop.baseUrl}/native-agent-events/opencode/${encodeURIComponent(sessionId)}/thread`,
-      [REVIEW_AGENT_THREAD_TOKEN_ENV]: this.#desktop.token,
+      ...reviewThreadEnvironment(this.#desktop),
       [DEV_REVIEW_HOME_ENV]: devReviewHome(),
     };
     if (pathValue) env.PATH = pathValue;
@@ -137,35 +137,52 @@ export class OpencodeAgentServer implements AgentServer {
     };
   }
 
-  async updates(
-    sessionId: string,
-  ): Promise<UpdatePipe<SessionSnapshot, SessionUpdate>> {
+  async updates(sessionId: string): Promise<{
+    updates: AsyncIterable<SessionUpdate>;
+    close(): Promise<void>;
+  }> {
+    const state = this.#sessions.get(sessionId);
+    if (!state)
+      throw new Error("Launch the OpenCode session before observing it.");
+    if (state.attached)
+      throw new Error("OpenCode session already has an observer.");
+    state.attached = true;
+    return { updates: state.queue, close: async () => state.queue.close() };
+  }
+
+  async interrupt(sessionId: string): Promise<void> {
+    const state = this.#sessions.get(sessionId);
+    if (!state?.running) return;
     const client = await this.#client();
-    const state = this.#session(sessionId);
-    if (!state.directory) {
-      state.directory = (await client.session(sessionId)).directory;
+    state.stopping = true;
+    let finish!: () => void;
+    const done = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        state.settled.delete(finish);
+        reject(new Error("OpenCode did not confirm interruption."));
+      }, REQUEST_TIMEOUT_MS);
+      finish = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      state.settled.add(finish);
+    });
+    try {
+      await client.json(
+        "POST",
+        `/session/${encodeURIComponent(sessionId)}/abort`,
+        state.directory,
+      );
+    } catch (error) {
+      state.settled.delete(finish);
+      finish();
+      throw error;
     }
-    if (!state.loaded) {
-      await this.#refresh(client, sessionId, state);
-      state.loaded = true;
-    }
-    const queue = new AsyncQueue<SessionUpdate>();
-    state.subscribers.add(queue);
-    return {
-      snapshot: { sessionId, messages: [...state.messages] },
-      updates: queue,
-      close: async () => {
-        state.subscribers.delete(queue);
-        queue.close();
-      },
-    };
+    await done;
   }
 
   async close(): Promise<void> {
-    for (const state of this.#sessions.values()) {
-      for (const queue of state.subscribers) queue.close();
-      state.subscribers.clear();
-    }
+    for (const state of this.#sessions.values()) state.queue.close();
     this.#events?.abort.abort();
     this.#events = undefined;
     await this.#host.close();
@@ -177,51 +194,113 @@ export class OpencodeAgentServer implements AgentServer {
     if (this.#events?.baseUrl !== baseUrl) {
       this.#events?.abort.abort();
       const abort = new AbortController();
-      this.#events = { abort, baseUrl };
-      void this.#follow(client, abort.signal);
+      let ready!: () => void;
+      let failed!: (error: Error) => void;
+      const readiness = new Promise<void>((resolve, reject) => {
+        ready = resolve;
+        failed = reject;
+      });
+      this.#events = { abort, baseUrl, ready: readiness };
+      void this.#follow(client, abort.signal, ready).catch(failed);
     }
+    await this.#events.ready;
     return client;
   }
 
-  /** The event stream names sessions that changed; each is re-read and diffed. */
-  async #follow(client: OpencodeClient, signal: AbortSignal): Promise<void> {
+  async #follow(
+    client: OpencodeClient,
+    signal: AbortSignal,
+    ready: () => void,
+  ): Promise<void> {
     try {
       for await (const event of client.events(signal)) {
-        const sessionId = eventSessionId(event);
+        const record = jsonObject(event);
+        if (record?.type === "server.connected") {
+          ready();
+          continue;
+        }
+        const properties = jsonObject(record?.properties);
+        const info = jsonObject(properties?.info);
+        const part = jsonObject(properties?.part);
+        const sessionId = jsonString(properties?.sessionID);
         if (!sessionId) continue;
         const state = this.#sessions.get(sessionId);
-        if (!state || !state.loaded) continue;
-        await this.#refresh(client, sessionId, state);
+        if (!state) continue;
+        if (
+          record?.type === "message.updated" ||
+          record?.type === "message.part.updated"
+        ) {
+          const messageId =
+            record.type === "message.updated"
+              ? jsonString(info?.id)
+              : jsonString(part?.messageID);
+          if (!messageId || state.seen.has(messageId)) continue;
+          const value = await client.json(
+            "GET",
+            `/session/${encodeURIComponent(sessionId)}/message/${encodeURIComponent(messageId)}`,
+            state.directory,
+          );
+          for (const message of projectOpencodeMessages([value ?? null])) {
+            state.seen.add(message.messageId);
+            state.queue.push({
+              type: "message.updated",
+              message: {
+                id: state.promptIds.get(message.messageId) ?? message.messageId,
+                role: message.role,
+                body: message.body,
+                createdAt: message.createdAt,
+              },
+            });
+          }
+        }
+        if (record?.type === "session.status") {
+          const status = jsonObject(properties?.status);
+          if (status?.type === "busy" || status?.type === "retry") {
+            state.running = true;
+            state.queue.push({ type: "status.changed", status: "running" });
+          }
+          if (status?.type === "idle") this.#idle(state);
+        }
+        if (record?.type === "session.idle") this.#idle(state);
+        if (record?.type === "session.error") {
+          const error = jsonObject(properties?.error);
+          if (error?.name === "MessageAbortedError") {
+            state.stopping = true;
+            continue;
+          }
+          state.queue.push({
+            type: "status.changed",
+            status: "failed",
+            error: "OpenCode session failed.",
+          });
+        }
       }
+      if (!signal.aborted) throw new Error("OpenCode event stream closed.");
     } catch (error) {
       if (signal.aborted) return;
-      // The stream dropped; the next request reconnects it.
+      console.error("OpenCode capture failed", error);
       if (this.#events?.abort.signal === signal) this.#events = undefined;
-      console.error("OpenCode event stream failed:", error);
+      for (const state of this.#sessions.values()) {
+        state.queue.push({
+          type: "status.changed",
+          status: "failed",
+          error: "OpenCode event stream disconnected.",
+        });
+      }
+      throw error;
     }
   }
 
-  async #refresh(
-    client: OpencodeClient,
-    sessionId: string,
-    state: SessionState,
-  ): Promise<void> {
-    const messages = projectOpencodeMessages(
-      await client.json(
-        "GET",
-        `/session/${encodeURIComponent(sessionId)}/message`,
-        state.directory,
-      ),
-    );
-    for (const message of messages) {
-      if (state.seen.has(message.messageId)) continue;
-      state.seen.add(message.messageId);
-      const { messageId: _messageId, ...review } = message;
-      state.messages.push(review);
-      for (const queue of state.subscribers) {
-        queue.push({ type: "message.updated", message: review });
-      }
-    }
+  #idle(state: SessionState): void {
+    if (!state.running) return;
+    state.running = false;
+    state.queue.push({
+      type: "status.changed",
+      status: state.stopping ? "interrupted" : "idle",
+    });
+    state.stopping = false;
+    for (const finish of state.settled) finish();
+    state.settled.clear();
   }
 
   #session(sessionId: string, directory?: string): SessionState {
@@ -229,10 +308,13 @@ export class OpencodeAgentServer implements AgentServer {
     if (!state) {
       state = {
         directory: directory ?? "",
-        messages: [],
         seen: new Set(),
-        loaded: false,
-        subscribers: new Set(),
+        queue: new AsyncQueue(),
+        attached: false,
+        promptIds: new Map(),
+        running: false,
+        stopping: false,
+        settled: new Set(),
       };
       this.#sessions.set(sessionId, state);
     } else if (directory) {
@@ -276,6 +358,7 @@ export function projectOpencodeMessages(
     if (!body) continue;
     if (info.role === "user") {
       messages.push({
+        id: messageId,
         role: "user",
         body,
         createdAt: millisToIso(time.created),
@@ -290,6 +373,7 @@ export function projectOpencodeMessages(
       info.error === undefined
     ) {
       messages.push({
+        id: messageId,
         role: "assistant",
         body,
         createdAt: millisToIso(completed),
@@ -298,19 +382,6 @@ export function projectOpencodeMessages(
     }
   }
   return messages;
-}
-
-function eventSessionId(event: JsonValue): string | undefined {
-  const record = jsonObject(event);
-  const properties = jsonObject(record?.properties);
-  if (!record || !properties) return undefined;
-  const info = jsonObject(properties.info);
-  if (record.type === "message.updated") return jsonString(info?.sessionID);
-  if (record.type === "session.idle") return jsonString(properties.sessionID);
-  if (record.type === "session.updated") {
-    return jsonString(properties.sessionID) ?? jsonString(info?.id);
-  }
-  return undefined;
 }
 
 interface OpencodeSession {
@@ -446,7 +517,16 @@ export class OpencodeClient {
             .filter((line) => line.startsWith("data:"))
             .map((line) => line.slice(5).trimStart())
             .join("\n");
-          if (data) yield parseJsonText(data);
+          if (data) {
+            const envelope = jsonObject(parseJsonText(data));
+            const payload = jsonObject(envelope?.payload);
+            if (!payload || jsonString(payload.type) === undefined) {
+              throw new Error(
+                "OpenCode returned an invalid global event envelope.",
+              );
+            }
+            yield payload;
+          }
           boundary = buffer.indexOf("\n\n");
         }
       }
@@ -459,6 +539,11 @@ export class OpencodeClient {
 
 /** Owns one `opencode serve` process on a reserved loopback port. */
 export class OpencodeServeHost implements OpencodeHost {
+  constructor(
+    private readonly environment: () => Promise<NodeJS.ProcessEnv> = async () =>
+      process.env,
+  ) {}
+
   #started:
     | Promise<{ child: ChildProcess; baseUrl: string; password: string }>
     | undefined;
@@ -491,7 +576,10 @@ export class OpencodeServeHost implements OpencodeHost {
         ["serve", "--hostname", HOST, "--port", String(port)],
         {
           cwd: "/",
-          env: { ...process.env, OPENCODE_SERVER_PASSWORD: password },
+          env: {
+            ...(await this.environment()),
+            OPENCODE_SERVER_PASSWORD: password,
+          },
           stdio: ["ignore", "ignore", "pipe"],
           windowsHide: true,
         },
@@ -644,6 +732,16 @@ export function server(
 ): AgentServer {
   return new OpencodeAgentServer(
     options,
-    options.host ?? new OpencodeServeHost(),
+    options.host ??
+      new OpencodeServeHost(async () => {
+        const pathValue = await new ReviewCommandPath(options).resolve();
+        const env: NodeJS.ProcessEnv = {
+          ...process.env,
+          ...reviewThreadEnvironment(options.desktopEndpoint),
+          [DEV_REVIEW_HOME_ENV]: devReviewHome(),
+        };
+        if (pathValue) env.PATH = pathValue;
+        return env;
+      }),
   );
 }

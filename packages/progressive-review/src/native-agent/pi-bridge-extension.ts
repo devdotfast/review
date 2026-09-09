@@ -1,65 +1,48 @@
-/**
- * Pi extension that mirrors the live session into Review. Pi runs this
- * in-process, so the conversation is projected from the session manager's
- * own state and posted to the PiAgentServer that launched this terminal.
- * Every post carries the whole projection; the server forwards the tail.
- */
+import { randomUUID } from "node:crypto";
 
-interface PiContentBlock {
-  type?: string;
-  text?: string;
-}
+import type { SessionUpdate } from "./native-session";
 
-interface PiEntry {
-  id?: string;
-  parentId?: string | null;
-  type?: string;
-  timestamp?: string;
-  message?: {
-    role?: string;
-    /** Plain text, or Pi's content blocks. */
-    content?: string | PiContentBlock[];
-    stopReason?: string;
-    timestamp?: number;
-  };
+interface PiMessage {
+  role: string;
+  content: string | { type: string; text?: string }[];
+  stopReason?: string;
+  errorMessage?: string;
+  timestamp: number;
 }
 
 interface PiBridgeContext {
-  sessionManager: {
-    getBranch(): PiEntry[];
-    getSessionId(): string;
-  };
-}
-
-/** Pi's event object; the bridge re-projects the session instead of reading it. */
-interface PiBridgeEvent {
-  type?: string;
+  sessionManager: { getSessionId(): string };
 }
 
 interface PiBridgeApi {
   on(
-    event: "agent_settled" | "message_end" | "session_start",
+    event: "message_end",
     listener: (
-      event: PiBridgeEvent,
+      event: { message: PiMessage },
       context: PiBridgeContext,
-    ) => void | Promise<void>,
+    ) => Promise<void>,
+  ): void;
+  on(
+    event: "agent_start" | "agent_settled" | "session_shutdown",
+    listener: (
+      event: { type: "agent_start" | "agent_settled" | "session_shutdown" },
+      context: PiBridgeContext,
+    ) => Promise<void>,
   ): void;
 }
 
-interface BridgeMessage {
-  role: "user" | "assistant";
-  body: string;
-  createdAt: string;
-}
-
-const BRIDGE_URL_ENV = "DEV_FAST_REVIEW_AGENT_BRIDGE_URL";
-const BRIDGE_TOKEN_ENV = "DEV_FAST_REVIEW_AGENT_BRIDGE_TOKEN";
-
+/** Forward newly completed messages, never the session manager's inherited branch. */
 export default function piBridgeExtension(pi: PiBridgeApi): void {
-  const post = async (context: PiBridgeContext): Promise<void> => {
-    const url = process.env[BRIDGE_URL_ENV];
-    const token = process.env[BRIDGE_TOKEN_ENV];
-    if (!url || !token) return;
+  const url = process.env.DEV_FAST_REVIEW_AGENT_BRIDGE_URL;
+  const token = process.env.DEV_FAST_REVIEW_AGENT_BRIDGE_TOKEN;
+  const launchId = process.env.DEV_FAST_REVIEW_AGENT_LAUNCH_ID;
+  if (!url || !token || !launchId)
+    throw new Error("Review's Pi bridge requires its URL and token.");
+  let failed = false;
+  const post = async (
+    context: PiBridgeContext,
+    update: SessionUpdate,
+  ): Promise<void> => {
     try {
       await fetch(url, {
         method: "POST",
@@ -69,66 +52,58 @@ export default function piBridgeExtension(pi: PiBridgeApi): void {
         },
         body: JSON.stringify({
           sessionId: context.sessionManager.getSessionId(),
-          messages: projectBranch(context.sessionManager.getBranch()),
+          review_launch_id: launchId,
+          ...update,
         }),
       });
     } catch {
-      // The bridge is fail-open. Native agent work must continue.
+      // Observation failure must not abort native work.
     }
   };
-
-  pi.on("session_start", (_event, context) => post(context));
-  pi.on("message_end", (_event, context) => post(context));
-  pi.on("agent_settled", (_event, context) => post(context));
-}
-
-/** Review-visible messages on the active branch: every user message, and the final assistant message before the next user message. */
-export function projectBranch(branch: readonly PiEntry[]): BridgeMessage[] {
-  // getBranch walks leaf to root; present root first.
-  const ordered =
-    branch.length > 0 && branch[0]?.parentId ? [...branch].reverse() : branch;
-  const messages: BridgeMessage[] = [];
-  let pendingAssistant: BridgeMessage | undefined;
-  const flushAssistant = (): void => {
-    if (pendingAssistant) messages.push(pendingAssistant);
-    pendingAssistant = undefined;
-  };
-  for (const entry of ordered) {
-    if (entry.type !== "message" || !entry.message) continue;
-    const body = textBlocks(entry.message.content).join("\n").trim();
-    if (entry.message.role === "user") {
-      flushAssistant();
-      if (body)
-        messages.push({ role: "user", body, createdAt: timestamp(entry) });
-      continue;
+  pi.on("agent_start", async (_event, context) => {
+    failed = false;
+    await post(context, { type: "status.changed", status: "running" });
+  });
+  pi.on("message_end", async ({ message }, context) => {
+    if (
+      message.role === "assistant" &&
+      (message.stopReason === "error" || message.stopReason === "aborted")
+    ) {
+      failed = true;
+      await post(context, {
+        type: "status.changed",
+        status: message.stopReason === "aborted" ? "interrupted" : "failed",
+        error: message.errorMessage,
+      });
+      return;
     }
     if (
-      entry.message.role === "assistant" &&
-      entry.message.stopReason === "stop" &&
-      body
-    ) {
-      pendingAssistant = {
-        role: "assistant",
+      message.role !== "user" &&
+      !(message.role === "assistant" && message.stopReason === "stop")
+    )
+      return;
+    const body = !Array.isArray(message.content)
+      ? message.content
+      : message.content
+          .filter((block) => block.type === "text")
+          .map((block) => block.text)
+          .join("\n");
+    if (!body.trim()) return;
+    await post(context, {
+      type: "message.updated",
+      message: {
+        id: randomUUID(),
+        role: message.role,
         body,
-        createdAt: timestamp(entry),
-      };
-    }
-  }
-  flushAssistant();
-  return messages;
-}
-
-function textBlocks(value: string | PiContentBlock[] | undefined): string[] {
-  if (value === undefined) return [];
-  if (!Array.isArray(value)) return value.trim() ? [value] : [];
-  return value.flatMap((block) =>
-    block.type === "text" && block.text?.trim() ? [block.text] : [],
-  );
-}
-
-function timestamp(entry: PiEntry): string {
-  if (entry.timestamp !== undefined) return entry.timestamp;
-  const millis = entry.message?.timestamp;
-  if (millis !== undefined) return new Date(millis).toISOString();
-  return new Date(0).toISOString();
+        createdAt: new Date(message.timestamp).toISOString(),
+      },
+    });
+  });
+  pi.on("agent_settled", async (_event, context) => {
+    if (!failed)
+      await post(context, { type: "status.changed", status: "idle" });
+  });
+  pi.on("session_shutdown", async (_event, context) => {
+    await post(context, { type: "status.changed", status: "interrupted" });
+  });
 }

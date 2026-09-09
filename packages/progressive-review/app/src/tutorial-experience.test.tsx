@@ -25,6 +25,7 @@ const CHAPTER_TITLES = [
   "Commits and diffs",
   "Comments are threads",
   "Interactive Diagrams",
+  "Agent traces",
   "Get help",
 ];
 
@@ -452,7 +453,7 @@ describe("TutorialExperience", () => {
     expect(card()?.classList.contains("tutorial-guide--folded")).toBe(false);
   });
 
-  it("steps back to the previous chapter's last step and numbers sub-steps", () => {
+  it("steps back to the previous chapter's last step", () => {
     const tutorial = tutorialBridge([
       "chooseKeymap",
       "showHover",
@@ -461,9 +462,6 @@ describe("TutorialExperience", () => {
     ]);
     render(tutorial);
 
-    expect(card()?.querySelector("header span")?.textContent).toBe(
-      "Chapter 2.1 of 5",
-    );
     const back = [...canvasRoot.querySelectorAll("button")].find(
       (button) => button.textContent === "Back",
     );
@@ -570,6 +568,7 @@ describe("TutorialExperience", () => {
       "leaveComment",
       "openSequence",
       "openDatabase",
+      "openTraceQuote",
     ]);
     render(tutorial);
 

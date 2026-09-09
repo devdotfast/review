@@ -44,6 +44,7 @@ import {
   detectInstalledTargets,
   removeInstalledSkills,
   removeTraceSkills,
+  resolveInstalledSkills,
   runInstall,
 } from "../install";
 import { readProgressiveReviewPackageVersion } from "../package-paths";
@@ -53,7 +54,10 @@ import {
   traceMachineStatus,
 } from "../trace-machine-setup";
 import { disableAllTraceRepositories } from "../trace-repository-hooks";
+import { withFileLock } from "../with-file-lock";
 import { reviewDesktopStateDir, writePrivateJsonAtomic } from "./desktop-paths";
+
+const installErrors = new Map<string, string>();
 
 const AGENT_HOME_DIR: Record<InstallTarget, string> = {
   claude: ".claude",
@@ -119,6 +123,17 @@ export async function resolveCliInstallStatus(input: {
     traceMachineStatus({ homeDir, env }),
   ]);
   const { agents, stamp } = agentStatus;
+  const managedTargets =
+    stamp?.consent === "granted"
+      ? (stamp.targets ??
+        agents.filter((agent) => agent.installed).map((agent) => agent.target))
+      : [];
+  const skills = await resolveInstalledSkills({
+    packageRoot: input.packageRoot,
+    homeDir,
+    targets: managedTargets,
+    traceEnabled: trace.enabled,
+  });
   const shimPath = pathShimPath(homeDir);
   const cliPath = path.join(input.packageRoot, "dist", "cli.js");
   const fffBinary = fffBinaryPath(homeDir);
@@ -140,11 +155,15 @@ export async function resolveCliInstallStatus(input: {
       };
     }),
   );
-  return {
+  const status: ReviewCliInstallStatus = {
     agents,
     fingerprint,
     stamp,
-    stale: stamp?.consent === "granted" && stamp.fingerprint !== fingerprint,
+    stale:
+      stamp?.consent === "granted" &&
+      (stamp.fingerprint !== fingerprint ||
+        skills.some((skill) => skill.stale)),
+    skills,
     shim: {
       path: shimPath,
       installed: await isOwnedShim(shimPath),
@@ -167,19 +186,83 @@ export async function resolveCliInstallStatus(input: {
         }
       : null,
   };
+  const error = installErrors.get(homeDir);
+  if (error) status.error = error;
+  return status;
 }
 
-export async function applyCliInstall(input: {
+interface ApplyCliInstallInput {
   packageRoot: string;
   targets: InstallTarget[];
   shim?: boolean;
   fff?: boolean;
+  autoUpdate?: boolean;
   trace?: true | TraceCredentialsInput;
   cliPath?: string;
   cliRuntimePath?: string;
   homeDir?: string;
   env?: NodeJS.ProcessEnv;
-}): Promise<{ code: number; output: string; shimPath?: string }> {
+}
+
+export async function applyCliInstall(
+  input: ApplyCliInstallInput,
+): Promise<{ code: number; output: string; shimPath?: string }> {
+  const homeDir = input.homeDir ?? os.homedir();
+  try {
+    const result = await withDesktopInstallLock(input.env, async () => {
+      if (input.autoUpdate) {
+        // Re-read consent under the mutation lock: a stale UI snapshot must
+        // never reinstall a target the user has since removed or declined.
+        const status = await resolveCliInstallStatus(input);
+        const stamp = status.stamp;
+        if (stamp?.consent !== "granted" || !status.stale)
+          return { code: 0, output: "" };
+        const targets =
+          stamp.targets ??
+          status.agents
+            .filter((agent) => agent.installed)
+            .map((agent) => agent.target);
+        if (targets.length === 0 && !stamp.shimPath)
+          return { code: 0, output: "" };
+        return applyCliInstallUnlocked({
+          ...input,
+          targets,
+          shim: Boolean(stamp.shimPath),
+          fff: false,
+          trace: undefined,
+        });
+      }
+      return applyCliInstallUnlocked(input);
+    });
+    if (result.code === 0) installErrors.delete(homeDir);
+    else installErrors.set(homeDir, result.output);
+    return result;
+  } catch (error) {
+    const output = error instanceof Error ? error.message : String(error);
+    installErrors.set(homeDir, output);
+    return { code: 1, output };
+  }
+}
+
+async function withDesktopInstallLock<T>(
+  env: NodeJS.ProcessEnv = process.env,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const outcome = await withFileLock(
+    `${cliInstallStampPath(env)}.lock`,
+    { retryMs: 50, timeoutMs: 30_000, staleMs: 300_000, unownedGraceMs: 5_000 },
+    operation,
+  );
+  if (!outcome.acquired)
+    throw new Error(
+      "Another Review setup operation is running. Retry shortly.",
+    );
+  return outcome.result;
+}
+
+async function applyCliInstallUnlocked(
+  input: ApplyCliInstallInput,
+): Promise<{ code: number; output: string; shimPath?: string }> {
   const homeDir = input.homeDir ?? os.homedir();
   const env = input.env ?? process.env;
   const wantShim = input.shim ?? input.targets.length > 0;
@@ -204,6 +287,7 @@ export async function applyCliInstall(input: {
       packageRoot: input.packageRoot,
       env,
       fff: input.fff,
+      skipCurrentSkills: input.autoUpdate,
       reviewCommand:
         wantShim || (await isFile(pathShimPath(homeDir)))
           ? pathShimPath(homeDir)
@@ -297,38 +381,56 @@ export async function applyCliInstall(input: {
 export async function declineCliInstall(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
-  await writePrivateJsonAtomic(cliInstallStampPath(env), {
-    consent: "declined",
-    updatedAt: new Date().toISOString(),
-  } satisfies ReviewCliInstallStamp);
+  await withDesktopInstallLock(env, () =>
+    writePrivateJsonAtomic(cliInstallStampPath(env), {
+      consent: "declined",
+      updatedAt: new Date().toISOString(),
+    } satisfies ReviewCliInstallStamp),
+  );
 }
 
 export async function skipCliInstall(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
-  const stampPath = cliInstallStampPath(env);
-  if (await readCliInstallStamp(stampPath)) return;
-  await writePrivateJsonAtomic(stampPath, {
-    consent: "skipped",
-    updatedAt: new Date().toISOString(),
-  } satisfies ReviewCliInstallStamp);
+  await withDesktopInstallLock(env, async () => {
+    const stampPath = cliInstallStampPath(env);
+    if (await readCliInstallStamp(stampPath)) return;
+    await writePrivateJsonAtomic(stampPath, {
+      consent: "skipped",
+      updatedAt: new Date().toISOString(),
+    } satisfies ReviewCliInstallStamp);
+  });
 }
 
 /** Removes the stamp entirely, so the next app launch prompts again. */
 export async function resetCliInstall(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
-  await rm(cliInstallStampPath(env), { force: true });
+  await withDesktopInstallLock(env, () =>
+    rm(cliInstallStampPath(env), { force: true }),
+  );
 }
 
-export async function removeCliInstall(input: {
+interface RemoveCliInstallInput {
   targets: InstallTarget[];
   shim?: boolean;
   fff?: boolean;
   trace?: boolean;
   homeDir?: string;
   env?: NodeJS.ProcessEnv;
-}): Promise<{ output: string }> {
+}
+
+export async function removeCliInstall(
+  input: RemoveCliInstallInput,
+): Promise<{ output: string }> {
+  return withDesktopInstallLock(input.env, () =>
+    removeCliInstallUnlocked(input),
+  );
+}
+
+async function removeCliInstallUnlocked(
+  input: RemoveCliInstallInput,
+): Promise<{ output: string }> {
   const homeDir = input.homeDir ?? os.homedir();
   const env = input.env ?? process.env;
   const chunks: string[] = [];
@@ -430,8 +532,8 @@ export async function removeCliInstall(input: {
 }
 
 /**
- * Fingerprint of everything the app distributes: the package version, the
- * built CLI, skill sources, and agent integrations. Content-based so it works
+ * Fingerprint of the CLI and agent integrations. Skills are compared
+ * independently through their release versions. Content-based so it works
  * identically in a dev checkout and a packaged review-runtime, with no
  * build-time stamping.
  */
@@ -441,13 +543,6 @@ export async function installFingerprint(packageRoot: string): Promise<string> {
   const cliPath = path.join(packageRoot, "dist", "cli.js");
   hash.update("dist/cli.js\0");
   hash.update(await readTextIfExists(cliPath));
-  for (const file of await listFilesRecursive(
-    path.join(packageRoot, "skills"),
-  )) {
-    hash.update(`${file.relPath}\0`);
-    hash.update(await readFile(file.absPath));
-    hash.update("\0");
-  }
   for (const file of await listFilesRecursive(
     path.join(packageRoot, "plugins"),
   )) {

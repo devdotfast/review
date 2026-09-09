@@ -1,6 +1,10 @@
 ---
 name: trace-archaeology
 description: Find the agent sessions behind existing code and search past traces. Use when asked "why does this code exist", "what was the agent thinking here", "who/what wrote this", "has an agent solved X before", or when debugging agent-produced code where the original reasoning would help.
+metadata:
+  review-managed-by: "Review Desktop"
+  review-generated: "Do not edit. Review automatically replaces this skill directory on updates."
+  review-version: "development"
 ---
 
 # Trace archaeology

@@ -37,36 +37,42 @@ export function TraceQuote({
   const href = `#trace-${sessionId}${trace ? `-${trace}` : ""}${event !== undefined ? `-event-${event}` : ""}`;
 
   return (
-    <ProsePeekAnchor
-      href={href}
-      className="review-trace-quote"
-      isOpen={isOpen}
-      inertFallback={
-        <span className="review-trace-quote review-trace-quote--inert">
-          {children}
-        </span>
-      }
-      onOpen={() => {
-        openPeek?.({
-          kind: "peek",
-          content: {
-            kind: "trace-quote",
-            sessionId,
-            trace,
-            event,
-            quote,
-          },
-        });
-      }}
-      onAlreadyOpen={() => {
-        const targetTurn = document.getElementById("review-trace-target-event");
-        const quoteMark = targetTurn?.querySelector(".review-trace-quote-mark");
-        const el = quoteMark ?? targetTurn;
-        // jsdom has no scrollIntoView, so the call stays optional.
-        el?.scrollIntoView?.({ block: "center", behavior: "auto" });
-      }}
-    >
-      {children}
-    </ProsePeekAnchor>
+    <span className="review-trace-quote-container">
+      <ProsePeekAnchor
+        href={href}
+        className="review-trace-quote"
+        isOpen={isOpen}
+        inertFallback={
+          <span className="review-trace-quote review-trace-quote--inert">
+            {children}
+          </span>
+        }
+        onOpen={() => {
+          openPeek?.({
+            kind: "peek",
+            content: {
+              kind: "trace-quote",
+              sessionId,
+              trace,
+              event,
+              quote,
+            },
+          });
+        }}
+        onAlreadyOpen={() => {
+          const targetTurn = document.getElementById(
+            "review-trace-target-event",
+          );
+          const quoteMark = targetTurn?.querySelector(
+            ".review-trace-quote-mark",
+          );
+          const el = quoteMark ?? targetTurn;
+          // jsdom has no scrollIntoView, so the call stays optional.
+          el?.scrollIntoView?.({ block: "center", behavior: "auto" });
+        }}
+      >
+        {children}
+      </ProsePeekAnchor>
+    </span>
   );
 }

@@ -816,6 +816,7 @@ export function createGlobalReviewServer(
       targets: request.targets,
     };
     if (request.shim !== undefined) applyInput.shim = request.shim;
+    if (request.autoUpdate) applyInput.autoUpdate = true;
     if (request.fff) applyInput.fff = true;
     if (request.trace !== undefined) applyInput.trace = request.trace;
     if (discovery.cliPath) applyInput.cliPath = discovery.cliPath;

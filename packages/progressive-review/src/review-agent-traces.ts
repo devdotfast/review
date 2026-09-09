@@ -44,6 +44,7 @@ import {
   isOpenCodeSessionId,
 } from "./opencode-trace-export";
 import { devReviewHome } from "./review-storage";
+import { TUTORIAL_TRACE_SESSION_ID, loadTutorialTrace } from "./tutorial-trace";
 
 /**
  * Resolves the agent sessions behind a review's change range, loads their
@@ -206,6 +207,9 @@ export async function loadReviewAgentTrace(input: {
   refresh?: boolean;
 }): Promise<LoadedReviewAgentTrace | null> {
   const { sessionId, trace } = input;
+  if (sessionId === TUTORIAL_TRACE_SESSION_ID) {
+    return !trace || trace === "main" ? loadTutorialTrace() : null;
+  }
   if (!sessionIdSchema.safeParse(sessionId).success) return null;
   const traceName = trace ?? "main";
   const traceKey =

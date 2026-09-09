@@ -918,6 +918,7 @@ export const REVIEW_TUTORIAL_STEP_IDS = [
   "openDatabase",
   "getHelp",
   "chooseKeymap",
+  "openTraceQuote",
 ] as const;
 export type TutorialStepId = (typeof REVIEW_TUTORIAL_STEP_IDS)[number];
 export const REVIEW_TUTORIAL_PROGRESS_STORAGE_KEY =
@@ -987,7 +988,6 @@ export type ReviewCanvasContent =
   | { kind: "loading" }
   | {
       kind: "error";
-      appVersion: string;
       message: string;
       reviewErrors?: readonly ReviewListError[];
     }
@@ -998,7 +998,6 @@ export type ReviewCanvasContent =
   | { kind: "source"; error?: string }
   | {
       kind: "home";
-      appVersion: string;
       reviews: readonly ReviewDescriptor[];
       reviewErrors: readonly ReviewListError[];
       openReview(uuid: string): void;
@@ -1403,6 +1402,19 @@ export const ReviewCliInstallStatusSchema = z.strictObject({
   fingerprint: requiredString,
   stamp: ReviewCliInstallStampSchema.nullable(),
   stale: z.boolean(),
+  skills: z
+    .array(
+      z.strictObject({
+        target: ReviewCliInstallTargetSchema,
+        name: requiredString,
+        installedVersion: requiredString.nullable(),
+        bundledVersion: requiredString.nullable(),
+        stale: z.boolean(),
+        error: requiredString.optional(),
+      }),
+    )
+    .optional(),
+  error: requiredString.optional(),
   shim: z.strictObject({
     path: requiredString,
     installed: z.boolean(),
@@ -1451,6 +1463,7 @@ export const ReviewCliInstallApplyRequestSchema = z
   .strictObject({
     targets: z.array(ReviewCliInstallTargetSchema),
     shim: z.boolean().optional(),
+    autoUpdate: z.boolean().optional(),
     fff: z.boolean().optional(),
     trace: z
       .union([

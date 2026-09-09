@@ -132,7 +132,7 @@ export function ReviewTraceView({
           status: "loaded",
           configured: result.configured !== false,
           storage:
-            result.storage === "direct" || result.storage === "hosted"
+            result.storage === "s3" || result.storage === "hosted"
               ? result.storage
               : null,
           sources: result.sources ?? [],
@@ -241,13 +241,13 @@ export function ReviewTraceView({
               onChange={(event) => {
                 const value = event.currentTarget.value;
                 setStorageOverride(
-                  value === "direct" || value === "hosted" ? value : null,
+                  value === "s3" || value === "hosted" ? value : null,
                 );
               }}
             >
               {sourceChoices.map((source) => (
                 <option key={source} value={source}>
-                  {source === "direct" ? "Direct S3/R2 bucket" : "Hosted store"}
+                  {source === "s3" ? "Direct S3/R2 bucket" : "Hosted store"}
                 </option>
               ))}
             </select>

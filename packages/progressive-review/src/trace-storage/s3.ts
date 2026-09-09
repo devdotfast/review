@@ -28,14 +28,14 @@ import {
 } from "@dev.fast/review-protocol";
 
 import {
-  type DirectConfigScope,
-  type DirectCredentials,
-  directMockRoot,
-  isDirectMockMode,
-  resolveDirectCredentials,
-} from "./direct-config";
+  type S3ConfigScope,
+  type S3Credentials,
+  isS3MockMode,
+  resolveS3Credentials,
+  s3MockRoot,
+} from "./s3-config";
 import type {
-  DirectStorageTarget,
+  S3StorageTarget,
   TraceCommitAssociation,
   TraceCommitSessions,
   TraceObjectInfo,
@@ -60,29 +60,29 @@ import type {
 
 const execFileAsync = promisify(execFile);
 
-export interface DirectDoctorResult {
+export interface S3DoctorResult {
   reachable: boolean;
   error?: string;
 }
 
-export class DirectTraceStorage implements TraceStorage {
-  readonly kind = "direct" as const;
-  readonly target: DirectStorageTarget;
+export class S3TraceStorage implements TraceStorage {
+  readonly kind = "s3" as const;
+  readonly target: S3StorageTarget;
 
   private constructor(
-    private readonly config: DirectCredentials | null,
+    private readonly config: S3Credentials | null,
     private readonly mockRoot: string | null,
     private readonly env: NodeJS.ProcessEnv,
   ) {
     this.target = config
       ? {
-          kind: "direct",
+          kind: "s3",
           endpoint: config.endpoint,
           bucket: config.bucket,
           region: config.region,
         }
       : {
-          kind: "direct",
+          kind: "s3",
           endpoint: "mock://endpoint",
           bucket: "mock-bucket",
           region: "auto",
@@ -94,34 +94,32 @@ export class DirectTraceStorage implements TraceStorage {
    * The bucket named by the legacy configuration, or null when none is
    * configured. Mock mode yields a storage backed by a directory.
    */
-  static fromEnvironment(
-    scope: DirectConfigScope = {},
-  ): DirectTraceStorage | null {
+  static fromEnvironment(scope: S3ConfigScope = {}): S3TraceStorage | null {
     const env = scope.env ?? process.env;
-    if (isDirectMockMode(env)) {
-      return new DirectTraceStorage(null, directMockRoot(env), env);
+    if (isS3MockMode(env)) {
+      return new S3TraceStorage(null, s3MockRoot(env), env);
     }
-    const config = resolveDirectCredentials(scope);
-    return config ? new DirectTraceStorage(config, null, env) : null;
+    const config = resolveS3Credentials(scope);
+    return config ? new S3TraceStorage(config, null, env) : null;
   }
 
   static fromCredentials(
-    config: DirectCredentials,
+    config: S3Credentials,
     env: NodeJS.ProcessEnv = process.env,
-  ): DirectTraceStorage {
-    return new DirectTraceStorage(config, null, env);
+  ): S3TraceStorage {
+    return new S3TraceStorage(config, null, env);
   }
 
   /** Secret-free identity of the destination; the same bucket keys the same cache. */
   cacheIdentity(): string {
-    if (!this.config) return "direct:mock";
+    if (!this.config) return "s3:mock";
     const digest = createHash("sha256")
       .update(
         `${normalizeEndpoint(this.config.endpoint)}\n${this.config.bucket}`,
       )
       .digest("hex")
       .slice(0, 16);
-    return `direct:${digest}`;
+    return `s3:${digest}`;
   }
 
   cacheScope(
@@ -293,7 +291,7 @@ export class DirectTraceStorage implements TraceStorage {
   }
 
   /** A non-mutating reachability check of the configured bucket. */
-  async doctor(): Promise<DirectDoctorResult> {
+  async doctor(): Promise<S3DoctorResult> {
     if (!this.config) return { reachable: true };
     try {
       await this.aws(["s3api", "head-bucket", "--bucket", this.config.bucket], {
@@ -447,7 +445,7 @@ export class DirectTraceStorage implements TraceStorage {
     options: { timeout: number; maxBuffer?: number },
   ): Promise<{ stdout: string; stderr: string }> {
     const config = this.config;
-    if (!config) throw new Error("Direct trace storage is not configured.");
+    if (!config) throw new Error("S3 trace storage is not configured.");
     return execFileAsync(
       "aws",
       ["--region", config.region, "--endpoint-url", config.endpoint, ...args],

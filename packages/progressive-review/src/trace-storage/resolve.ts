@@ -1,17 +1,21 @@
 import {
   type TraceConfigFile,
   TraceConfigurationError,
+  currentStore,
+  hasHostedStore,
+  hostedOrigin,
   readTraceConfigFile,
+  s3Store,
 } from "./config";
-import { DirectTraceStorage } from "./direct";
-import {
-  type DirectConfigScope,
-  type DirectSetup,
-  clearTraceEnvCache,
-  isDirectMockMode,
-  resolveDirectSetup,
-} from "./direct-config";
 import { HostedTraceStorage } from "./hosted";
+import { S3TraceStorage } from "./s3";
+import {
+  type S3ConfigScope,
+  type S3Setup,
+  clearTraceEnvCache,
+  isS3MockMode,
+  resolveS3Setup,
+} from "./s3-config";
 import type { TraceStorage, TraceStorageKind } from "./types";
 
 /**
@@ -19,9 +23,9 @@ import type { TraceStorage, TraceStorageKind } from "./types";
  *
  * | Configuration                                  | Selection                     |
  * | ---------------------------------------------- | ----------------------------- |
- * | No explicit mode; bucket credentials resolve    | direct (legacy behavior)      |
+ * | No explicit mode; bucket credentials resolve    | s3 (legacy behavior)      |
  * | No explicit mode; nothing configured           | none                          |
- * | Explicit direct                                | direct; missing creds = error |
+ * | Explicit s3                                | s3; missing creds = error |
  * | Explicit hosted                                | hosted; needs login + consent |
  * | Hosted selected; bucket credentials also saved  | hosted; credentials inert     |
  * | Malformed or unsupported config                | error; no fallback            |
@@ -34,15 +38,16 @@ export interface TraceStorageSelection {
   /** True when config.json names the mode; false when inferred. */
   explicit: boolean;
   config: TraceConfigFile;
-  /** The direct setup, resolved even when hosted is selected (inert then). */
-  direct: DirectSetup | null;
+  /** The s3 setup, resolved even when hosted is selected (inert then). */
+  s3: S3Setup | null;
+  /** The hosted store in effect, present whenever the file names one. */
   hosted: { origin: string } | null;
   /** A configuration error. The selection must not be used for transfers. */
   error?: string;
 }
 
 export function selectTraceStorage(
-  scope: DirectConfigScope = {},
+  scope: S3ConfigScope = {},
 ): TraceStorageSelection {
   const env = scope.env ?? process.env;
   const config = readTraceConfigFile(scope);
@@ -51,57 +56,63 @@ export function selectTraceStorage(
       mode: "none",
       explicit: false,
       config,
-      direct: null,
+      s3: null,
       hosted: null,
       error: config.error,
     };
   }
-  let direct: DirectSetup | null;
+  let s3: S3Setup | null;
   try {
-    direct = resolveDirectSetup(scope);
+    s3 = resolveS3Setup(scope);
   } catch (error) {
     return {
       mode: "none",
       explicit: false,
       config,
-      direct: null,
+      s3: null,
       hosted: null,
       error: error instanceof Error ? error.message : String(error),
     };
   }
-  const mock = isDirectMockMode(env);
-  const selection = config.config?.storage;
+  const mock = isS3MockMode(env);
+  const file = config.config;
+  const pointer = currentStore(file);
+  const hosted = hasHostedStore(file) ? { origin: hostedOrigin(file) } : null;
+  const hasS3 = s3Store(file) !== null || s3.credentials !== null || mock;
 
-  if (selection?.mode === "hosted") {
+  // Explicit pointer.
+  if (pointer === "hosted") {
     return {
       mode: "hosted",
       explicit: true,
       config,
-      direct,
-      hosted: { origin: selection.origin },
+      s3,
+      hosted: hosted ?? { origin: hostedOrigin(file) },
     };
   }
-  if (selection?.mode === "direct") {
-    if (!direct.credentials && !mock) {
+  if (pointer === "s3") {
+    if (!hasS3) {
       return {
-        mode: "direct",
+        mode: "s3",
         explicit: true,
         config,
-        direct,
-        hosted: null,
+        s3,
+        hosted,
         error:
-          "Direct trace storage is selected but no bucket credentials are configured. Run `review trace storage use direct --endpoint <url> --bucket <name> --key <id> --secret <secret>` or Review Agent Setup.",
+          "S3 trace storage is selected but no bucket credentials are configured. Run `review trace storage use s3 --endpoint <url> --bucket <name> --key <id> --secret <secret>` or Review Agent Setup.",
       };
     }
-    return { mode: "direct", explicit: true, config, direct, hosted: null };
+    return { mode: "s3", explicit: true, config, s3, hosted };
   }
-  if (direct.credentials || mock) {
-    return { mode: "direct", explicit: false, config, direct, hosted: null };
-  }
-  return { mode: "none", explicit: false, config, direct, hosted: null };
+
+  // Inferred: a bucket outranks hosted, so a consent entry alone never
+  // redirects an existing bucket install; hosted alone needs only consent.
+  if (hasS3) return { mode: "s3", explicit: false, config, s3, hosted };
+  if (hosted) return { mode: "hosted", explicit: false, config, s3, hosted };
+  return { mode: "none", explicit: false, config, s3, hosted };
 }
 
-export interface ResolveTraceStorageInput extends DirectConfigScope {
+export interface ResolveTraceStorageInput extends S3ConfigScope {
   /**
    * Read-only source override for one operation. It never changes the
    * persisted selection, capture settings, or consent.
@@ -127,7 +138,7 @@ export async function resolveTraceStorage(
   if (selection.error) throw new TraceConfigurationError(selection.error);
   const mode = input.override ?? selection.mode;
   if (mode === "none") return null;
-  if (mode === "direct") return directStorage(selection, input);
+  if (mode === "s3") return s3Storage(selection, input);
   return hostedStorage(selection, input);
 }
 
@@ -135,29 +146,29 @@ export async function resolveTraceStorage(
  * Names the destination a capture attempt was started for, so a detached
  * `review trace sync` can refuse to run once the selection changed.
  */
-export function traceStorageExpectation(scope: DirectConfigScope = {}): string {
+export function traceStorageExpectation(scope: S3ConfigScope = {}): string {
   const selection = selectTraceStorage(scope);
   if (selection.error || selection.mode === "none") return "none";
   if (selection.mode === "hosted") {
     return `hosted:${selection.hosted?.origin ?? ""}`;
   }
-  const storage = directStorage(selection, scope);
-  return `direct:${storage?.cacheIdentity() ?? ""}`;
+  const storage = s3Storage(selection, scope);
+  return `s3:${storage?.cacheIdentity() ?? ""}`;
 }
 
-function directStorage(
+function s3Storage(
   selection: TraceStorageSelection,
-  scope: DirectConfigScope,
+  scope: S3ConfigScope,
 ): TraceStorage | null {
   const env = scope.env ?? process.env;
-  if (isDirectMockMode(env)) return DirectTraceStorage.fromEnvironment(scope);
-  const credentials = selection.direct?.credentials;
+  if (isS3MockMode(env)) return S3TraceStorage.fromEnvironment(scope);
+  const credentials = selection.s3?.credentials;
   if (!credentials) {
     throw new TraceConfigurationError(
-      "Direct trace storage was requested but no bucket credentials are configured.",
+      "S3 trace storage was requested but no bucket credentials are configured.",
     );
   }
-  return DirectTraceStorage.fromCredentials(credentials, env);
+  return S3TraceStorage.fromCredentials(credentials, env);
 }
 
 async function hostedStorage(
@@ -167,7 +178,7 @@ async function hostedStorage(
   const origin = selection.hosted?.origin;
   if (!origin) {
     throw new TraceConfigurationError(
-      "Hosted trace storage is not configured. Run `review trace storage use hosted`.",
+      "Hosted trace storage is not configured. Run `review trace allow .` or `review trace storage use hosted`.",
     );
   }
   const write = input.purpose === "write";
@@ -188,9 +199,7 @@ async function hostedStorage(
 }
 
 /** Whether the selected store can be used; a configuration error counts as no. */
-export function isTraceStorageConfigured(
-  scope: DirectConfigScope = {},
-): boolean {
+export function isTraceStorageConfigured(scope: S3ConfigScope = {}): boolean {
   const selection = selectTraceStorage(scope);
   return !selection.error && selection.mode !== "none";
 }

@@ -14,7 +14,7 @@ export type AgentTraceState =
   | { status: "error"; error: string; trace?: undefined }
   | { status: "loaded"; trace: LoadedAgentTrace; error?: undefined };
 
-export type AgentTraceStorage = "direct" | "hosted";
+export type AgentTraceStorage = "s3" | "hosted";
 
 export function makeAgentTraceKey(
   sessionId: string,

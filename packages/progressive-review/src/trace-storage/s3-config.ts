@@ -5,9 +5,10 @@ import path from "node:path";
 import { jsonString, parseJsonText } from "@dev.fast/review-protocol";
 
 import {
-  type DirectProfile,
+  type S3Profile,
   TraceConfigurationError,
   readTraceConfigFile,
+  s3Store,
 } from "./config";
 
 /**
@@ -20,7 +21,7 @@ import {
  * access key and secret also accept the plain AWS names as a fallback.
  */
 
-export interface DirectCredentials {
+export interface S3Credentials {
   endpoint: string;
   bucket: string;
   accessKeyId: string;
@@ -30,12 +31,12 @@ export interface DirectCredentials {
   region: string;
 }
 
-export interface DirectConfigScope {
+export interface S3ConfigScope {
   homeDir?: string;
   env?: NodeJS.ProcessEnv;
 }
 
-export const DIRECT_DEFAULT_REGION = "auto";
+export const S3_DEFAULT_REGION = "auto";
 
 export function traceEnvPath(
   homeDir = os.homedir(),
@@ -95,7 +96,7 @@ function unquoteEnvValue(raw: string): string {
 
 export function traceEnvValue(
   name: string,
-  scope: DirectConfigScope = {},
+  scope: S3ConfigScope = {},
 ): string | undefined {
   const env = scope.env ?? process.env;
   return (
@@ -103,17 +104,17 @@ export function traceEnvValue(
   );
 }
 
-const DIRECT_FIELDS = [
+const S3_FIELDS = [
   "endpoint",
   "bucket",
   "accessKeyId",
   "secretAccessKey",
   "region",
 ] as const;
-type DirectField = (typeof DIRECT_FIELDS)[number];
+type S3Field = (typeof S3_FIELDS)[number];
 
 /** The variables that supply each field, in precedence order. */
-const DIRECT_FIELD_VARIABLES: Record<DirectField, readonly string[]> = {
+const S3_FIELD_VARIABLES: Record<S3Field, readonly string[]> = {
   endpoint: ["TRACE_R2_ENDPOINT"],
   bucket: ["TRACE_R2_BUCKET"],
   accessKeyId: ["TRACE_R2_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID"],
@@ -121,21 +122,21 @@ const DIRECT_FIELD_VARIABLES: Record<DirectField, readonly string[]> = {
   region: ["TRACE_R2_REGION"],
 };
 
-export type DirectCredentialsSource =
+export type S3CredentialsSource =
   | "profile"
   | "legacy-file"
   | "process-env"
   | "none";
 
-export interface DirectSetup {
-  credentials: DirectCredentials | null;
+export interface S3Setup {
+  credentials: S3Credentials | null;
   /** Where the base values came from before environment overrides. */
-  source: DirectCredentialsSource;
+  source: S3CredentialsSource;
   /** Variables the process environment supplied, in precedence order. */
   overrides: string[];
   envPath: string;
   configPath: string;
-  profile: DirectProfile | null;
+  profile: S3Profile | null;
 }
 
 /**
@@ -145,30 +146,28 @@ export interface DirectSetup {
  * patched from the legacy file. `ignoreProfile` reads the legacy inputs
  * only, which migration needs to describe what it would persist.
  */
-export function resolveDirectSetup(
-  scope: DirectConfigScope & { ignoreProfile?: boolean } = {},
-): DirectSetup {
+export function resolveS3Setup(
+  scope: S3ConfigScope & { ignoreProfile?: boolean } = {},
+): S3Setup {
   const env = scope.env ?? process.env;
   const envPath = traceEnvPath(scope.homeDir, env);
   const configFile = readTraceConfigFile(scope);
   if (configFile.error) throw new TraceConfigurationError(configFile.error);
   const configPath = configFile.path;
-  const profile = scope.ignoreProfile
-    ? null
-    : (configFile.config?.direct ?? null);
+  const profile = scope.ignoreProfile ? null : s3Store(configFile.config);
   const legacy = readTraceEnvFile(envPath);
 
   const overrides: string[] = [];
-  const resolved: Record<DirectField, string | undefined> = {
+  const resolved: Record<S3Field, string | undefined> = {
     endpoint: undefined,
     bucket: undefined,
     accessKeyId: undefined,
     secretAccessKey: undefined,
     region: undefined,
   };
-  let source: DirectCredentialsSource = profile ? "profile" : "none";
-  for (const field of DIRECT_FIELDS) {
-    const names = DIRECT_FIELD_VARIABLES[field];
+  let source: S3CredentialsSource = profile ? "profile" : "none";
+  for (const field of S3_FIELDS) {
+    const names = S3_FIELD_VARIABLES[field];
     const fromEnv = names.find((name) => env[name] !== undefined);
     if (fromEnv !== undefined) {
       overrides.push(fromEnv);
@@ -195,7 +194,7 @@ export function resolveDirectSetup(
           bucket,
           accessKeyId,
           secretAccessKey,
-          region: resolved.region ?? DIRECT_DEFAULT_REGION,
+          region: resolved.region ?? S3_DEFAULT_REGION,
         }
       : null;
   return {
@@ -208,22 +207,20 @@ export function resolveDirectSetup(
   };
 }
 
-export function resolveDirectCredentials(
-  scope: DirectConfigScope = {},
-): DirectCredentials | null {
-  return resolveDirectSetup(scope).credentials;
+export function resolveS3Credentials(
+  scope: S3ConfigScope = {},
+): S3Credentials | null {
+  return resolveS3Setup(scope).credentials;
 }
 
 /** The bucket test double: object keys become files under this directory. */
-export function directMockRoot(
+export function s3MockRoot(
   env: NodeJS.ProcessEnv = process.env,
 ): string | null {
   if (env.TRACE_R2_MODE !== "mock") return null;
   return env.TRACE_R2_MOCK_DIR || null;
 }
 
-export function isDirectMockMode(
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
+export function isS3MockMode(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.TRACE_R2_MODE === "mock";
 }

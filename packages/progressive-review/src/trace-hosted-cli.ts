@@ -158,7 +158,7 @@ export async function runReviewTraceAllow(
     {
       repositoryId: store.repositoryId,
       name: store.displayName,
-      store: storeOrigin,
+      origin: storeOrigin,
     },
     devReviewHome(input.env, input.homeDir),
   );
@@ -223,7 +223,7 @@ export async function writeHostedTraceStatus(
   } else {
     for (const repository of config.repositories) {
       stream.write(
-        `Allowed repository: ${repository.name} (id ${repository.repositoryId}) -> ${repository.store}\n`,
+        `Allowed repository: ${repository.name} (id ${repository.repositoryId}) -> ${repository.enabledOrigins.join(", ")}\n`,
       );
     }
   }
@@ -241,13 +241,13 @@ export async function writeHostedTraceStatus(
       stream.write(
         `This repository (${name}) is not allowed. Run \`review trace allow .\`.\n`,
       );
-    } else if (entry.store !== input.origin) {
+    } else if (!entry.enabledOrigins.includes(input.origin)) {
       stream.write(
-        `This repository (${name}) is allowed at ${entry.store}, not the selected ${input.origin}. Run \`review trace allow .\` again.\n`,
+        `This repository (${name}) is allowed at ${entry.enabledOrigins.join(", ")}, not the selected ${input.origin}. Run \`review trace allow .\` while logged in there.\n`,
       );
     } else {
       stream.write(
-        `This repository (${name}) is allowed to publish traces to ${entry.store}.\n`,
+        `This repository (${name}) is allowed to publish traces to ${input.origin}.\n`,
       );
     }
   }

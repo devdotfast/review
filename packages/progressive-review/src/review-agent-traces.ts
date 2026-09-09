@@ -42,16 +42,16 @@ import {
   parseRepo,
   traceRepoName,
 } from "./trace-repo";
-import { DirectTraceStorage } from "./trace-storage/direct";
-import {
-  clearTraceEnvCache as clearDirectEnvCache,
-  traceEnvValue as directEnvValue,
-  resolveDirectSetup,
-} from "./trace-storage/direct-config";
 import {
   isTraceStorageConfigured,
   resolveTraceStorage,
 } from "./trace-storage/resolve";
+import { S3TraceStorage } from "./trace-storage/s3";
+import {
+  clearTraceEnvCache as clearS3EnvCache,
+  resolveS3Setup,
+  traceEnvValue as s3EnvValue,
+} from "./trace-storage/s3-config";
 import {
   type HostedPublishDetails,
   type TraceStorage,
@@ -364,7 +364,7 @@ function cacheIsCurrent(
   normalized: NormalizedTrace,
   remote: { size: number; contentId: string },
 ): boolean {
-  if (storage.kind === "direct") {
+  if (storage.kind === "s3") {
     return remote.size <= normalized.metadata.source.bytes;
   }
   return normalized.metadata.source.contentId === remote.contentId;
@@ -570,7 +570,7 @@ function readNormalizedTrace(
     if (storage) {
       const owner = metadata.source.storage;
       if (owner !== undefined && owner !== storage.cacheIdentity()) return null;
-      if (owner === undefined && storage.kind !== "direct") return null;
+      if (owner === undefined && storage.kind !== "s3") return null;
     }
     // SAFETY: same file provenance as the metadata record above; each event
     // record's type, index, kind, and text are re-checked against its event.
@@ -1328,7 +1328,7 @@ export async function checkReviewTraceDoctor(input?: {
   cwd?: string;
 }): Promise<ReviewTraceDoctorResult> {
   void input;
-  const setup = resolveDirectSetup();
+  const setup = resolveS3Setup();
   // The path reported is the source the credentials came from: the
   // version-2 profile when it supplies them, otherwise the legacy env file.
   const envPath = setup.source === "profile" ? setup.configPath : setup.envPath;
@@ -1367,7 +1367,7 @@ export async function checkReviewTraceDoctor(input?: {
     bucket: config.bucket,
     accessKeyId: config.accessKeyId,
   };
-  const doctor = await DirectTraceStorage.fromCredentials(config).doctor();
+  const doctor = await S3TraceStorage.fromCredentials(config).doctor();
   if (doctor.reachable) {
     return { ok: true, envPath, config: summary, reachable: true };
   }
@@ -1526,12 +1526,12 @@ async function commitsWithTrailers(input: {
 // --- R2 trace store and local materialization -------------------------------
 
 export function clearTraceEnvCache(): void {
-  clearDirectEnvCache();
+  clearS3EnvCache();
   lastCheckedTimes.clear();
 }
 
 export function traceEnvValue(name: string): string | undefined {
-  return directEnvValue(name);
+  return s3EnvValue(name);
 }
 
 // Codex reads CODEX_HOME from its own environment only, so this does not

@@ -30,13 +30,13 @@ export async function runSoftwareMapCliEntry(
   });
 }
 
-function isDirectEntrypoint(metaUrl: string): boolean {
+function isS3Entrypoint(metaUrl: string): boolean {
   const entrypoint = process.argv[1];
   if (!entrypoint) return false;
   return pathToFileURL(path.resolve(entrypoint)).href === metaUrl;
 }
 
-if (isDirectEntrypoint(import.meta.url)) {
+if (isS3Entrypoint(import.meta.url)) {
   process.exitCode = await runSoftwareMapCliEntry({
     args: process.argv.slice(2),
     cwd: process.cwd(),

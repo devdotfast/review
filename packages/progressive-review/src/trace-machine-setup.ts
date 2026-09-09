@@ -9,26 +9,27 @@ import { z } from "zod";
 import { writeFileAtomicAsync } from "./atomic-write";
 import { clearTraceEnvCache } from "./review-agent-traces";
 import {
-  type DirectCaptureSettings,
-  type DirectProfile,
+  type S3CaptureSettings,
+  type S3Profile,
   type TraceConfigFile,
   TraceConfigurationError,
+  emptyTraceConfig,
   readTraceConfigFile,
   writeTraceConfigFile,
 } from "./trace-storage/config";
-import { DirectTraceStorage } from "./trace-storage/direct";
-import {
-  DIRECT_DEFAULT_REGION,
-  type DirectCredentialsSource,
-  type DirectSetup,
-  resolveDirectSetup,
-  traceEnvPath,
-  traceSettingsPath,
-} from "./trace-storage/direct-config";
 import {
   type TraceStorageMode,
   selectTraceStorage,
 } from "./trace-storage/resolve";
+import { S3TraceStorage } from "./trace-storage/s3";
+import {
+  type S3CredentialsSource,
+  type S3Setup,
+  S3_DEFAULT_REGION,
+  resolveS3Setup,
+  traceEnvPath,
+  traceSettingsPath,
+} from "./trace-storage/s3-config";
 
 export { traceEnvPath, traceSettingsPath };
 
@@ -61,7 +62,7 @@ export interface TraceMachineStatus {
   /** The selected trace store after applying the selection rules. */
   storageMode?: TraceStorageMode;
   /** Where the bucket credentials came from before environment overrides. */
-  credentialsSource?: DirectCredentialsSource;
+  credentialsSource?: S3CredentialsSource;
   /** Which file holds the capture settings that are in effect. */
   captureSource?: TraceCaptureSource;
 }
@@ -80,7 +81,7 @@ export async function readTraceCredentials(
   homeDir = os.homedir(),
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<Required<TraceCredentialsInput> | null> {
-  const credentials = resolveDirectSetup({ homeDir, env }).credentials;
+  const credentials = resolveS3Setup({ homeDir, env }).credentials;
   if (!credentials) return null;
   return {
     endpoint: credentials.endpoint,
@@ -96,10 +97,10 @@ export async function readTraceCredentials(
  * carries them, otherwise the legacy settings file.
  */
 async function readCaptureSettings(
-  setup: DirectSetup,
+  setup: S3Setup,
   settingsPath: string,
 ): Promise<{
-  settings: DirectCaptureSettings | null;
+  settings: S3CaptureSettings | null;
   source: TraceCaptureSource;
 }> {
   if (setup.profile?.capture) {
@@ -130,7 +131,7 @@ export async function traceMachineStatus(
   const envPath = traceEnvPath(homeDir, env);
   const settingsPath = traceSettingsPath(homeDir, env);
   const selection = selectTraceStorage({ homeDir, env });
-  if (!selection.direct) {
+  if (!selection.s3) {
     return {
       enabled: false,
       configured: false,
@@ -142,7 +143,7 @@ export async function traceMachineStatus(
       error: selection.error,
     };
   }
-  const setup = selection.direct;
+  const setup = selection.s3;
   const credentials = setup.credentials;
   const { settings, source } = await readCaptureSettings(setup, settingsPath);
   // Capture eligibility has one owner. Direct storage keeps the legacy
@@ -211,9 +212,7 @@ export async function configureTraceMachine(input: {
     );
   }
   const region =
-    input.credentials?.region?.trim() ||
-    existing?.region ||
-    DIRECT_DEFAULT_REGION;
+    input.credentials?.region?.trim() || existing?.region || S3_DEFAULT_REGION;
 
   // Setup updates whichever configuration source is active: the version-2
   // profile when one exists, the legacy files when only those exist or when
@@ -225,7 +224,8 @@ export async function configureTraceMachine(input: {
   const legacyPathsRequested =
     env.TRACE_ENV_FILE !== undefined || env.TRACE_SETTINGS_FILE !== undefined;
   const target: "profile" | "legacy" =
-    configFile.config?.direct || (!existsSync(envPath) && !legacyPathsRequested)
+    configFile.config?.stores?.s3 ||
+    (!existsSync(envPath) && !legacyPathsRequested)
       ? "profile"
       : "legacy";
 
@@ -253,7 +253,7 @@ export async function configureTraceMachine(input: {
     if (env.TRACE_R2_MODE === "mock") {
       verifiedAt = new Date().toISOString();
     } else {
-      const doctor = await DirectTraceStorage.fromCredentials(
+      const doctor = await S3TraceStorage.fromCredentials(
         {
           endpoint: credentials.endpoint,
           bucket: credentials.bucket,
@@ -281,13 +281,13 @@ export async function configureTraceMachine(input: {
     if (error) settings.error = error;
     await writeSettings(traceSettingsPath(homeDir, env), settings);
   } else {
-    const capture: DirectCaptureSettings = {
+    const capture: S3CaptureSettings = {
       enabled: true,
       autoActivateRepositories: true,
     };
     if (verifiedAt) capture.verifiedAt = verifiedAt;
     if (error) capture.error = error;
-    const profile: DirectProfile = {
+    const profile: S3Profile = {
       endpoint: credentials.endpoint,
       bucket: credentials.bucket,
       accessKeyId: credentials.key,
@@ -295,7 +295,7 @@ export async function configureTraceMachine(input: {
       region,
       capture,
     };
-    await writeDirectProfile(configFile, profile);
+    await writeS3Profile(configFile, profile);
     clearTraceEnvCache();
   }
   return traceMachineStatus({ homeDir, env });
@@ -306,15 +306,15 @@ export async function configureTraceMachine(input: {
  * storage explicitly. An explicit hosted selection is left alone: setup
  * never silently redirects uploads.
  */
-async function writeDirectProfile(
+async function writeS3Profile(
   configFile: TraceConfigFile,
-  profile: DirectProfile,
+  profile: S3Profile,
 ): Promise<void> {
-  const current = configFile.config ?? { version: 2 as const };
+  const current = configFile.config ?? emptyTraceConfig();
   await writeTraceConfigFile(configFile, {
     ...current,
-    storage: current.storage ?? { mode: "direct" },
-    direct: profile,
+    "current-store": current["current-store"] ?? "s3",
+    stores: { ...current.stores, s3: profile },
   });
 }
 
@@ -328,10 +328,10 @@ export async function disableTraceMachine(
   const homeDir = input.homeDir ?? os.homedir();
   const env = input.env ?? process.env;
   const configFile = readTraceConfigFile({ homeDir, env });
-  const profile = configFile.config?.direct;
+  const profile = configFile.config?.stores?.s3;
   if (profile?.capture) {
     // Credentials stay; only capture turns off.
-    await writeDirectProfile(configFile, {
+    await writeS3Profile(configFile, {
       ...profile,
       capture: { ...profile.capture, enabled: false },
     });
@@ -352,10 +352,10 @@ export async function disableTraceMachine(
 /** The legacy settings file alone, as `config migrate` reports it. */
 export async function readLegacyCaptureSettings(
   filePath: string,
-): Promise<DirectCaptureSettings | null> {
+): Promise<S3CaptureSettings | null> {
   const legacy = await readSettings(filePath);
   if (!legacy) return null;
-  const capture: DirectCaptureSettings = {
+  const capture: S3CaptureSettings = {
     enabled: legacy.enabled,
     autoActivateRepositories: legacy.autoActivateRepositories,
   };

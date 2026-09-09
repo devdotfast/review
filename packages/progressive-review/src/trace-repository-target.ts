@@ -219,30 +219,22 @@ export async function resolveTraceRepositoryTarget(input: {
 }
 
 /**
- * The allow entry that covers this target: same repository id and same store
- * origin. An entry for the same name at another origin means the login moved
- * since the user allowed the repository.
+ * The consent entry that covers this target: the repository, allowed at the
+ * target's origin. An entry allowed only elsewhere names where.
  */
 export async function requireTraceConsent(
   target: TraceRepositoryTarget,
   devHome?: string,
 ): Promise<TraceRepositoryEntry> {
   const config = await readTraceUserConfig(devHome);
-  const entry = config.repositories.find(
-    (candidate) =>
-      candidate.repositoryId === target.repositoryId &&
-      candidate.store === target.origin,
-  );
-  if (entry) return entry;
-  const named =
-    findTraceRepository(config, target.name) ??
+  const entry =
     config.repositories.find(
       (candidate) => candidate.repositoryId === target.repositoryId,
-    ) ??
-    null;
-  if (named && named.store !== target.origin) {
+    ) ?? findTraceRepository(config, target.name);
+  if (entry?.enabledOrigins.includes(target.origin)) return entry;
+  if (entry) {
     throw new Error(
-      `The trace store origin changed since you allowed ${named.name}. Run \`review trace allow .\` again.`,
+      `${entry.name} is allowed to publish traces to ${entry.enabledOrigins.join(", ")}, not ${target.origin}. Run \`review trace allow .\` while logged in there.`,
     );
   }
   throw new Error(

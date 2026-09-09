@@ -23,7 +23,7 @@ function traceStorageSummary(trace: ReviewCliInstallStatus["trace"]): string {
       : trace.credentialsSource === "process-env"
         ? "environment variables"
         : "the legacy env file";
-  return `Storage: direct S3/R2 bucket "${trace.bucket ?? ""}" (credentials from ${source}).`;
+  return `Storage: S3/R2 bucket "${trace.bucket ?? ""}" (credentials from ${source}).`;
 }
 
 /**

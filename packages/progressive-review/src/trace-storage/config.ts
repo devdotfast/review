@@ -15,59 +15,118 @@ import { writePrivateJsonAtomic } from "../server/desktop-paths";
 /**
  * The shared trace configuration at `$DEV_REVIEW_HOME/trace/config.json`.
  *
- * Version 2 holds the machine's storage selection, an optional first-class
- * direct bucket profile, and hosted repository consent records. It never
- * holds hosted tokens (those live in the auth file) and it never replaces
- * the legacy `~/.config/dev-trace` files, which stay valid on their own.
+ * Version 2 names the machine's current store, holds one entry per store
+ * under `stores`, and lists hosted publication consent under
+ * `repositories`. It never holds hosted tokens (those live in the auth
+ * file) and it never replaces the legacy `~/.config/dev-trace` files, which
+ * stay valid on their own. A hosted-only machine needs nothing beyond the
+ * consent list; every other field has a default or is inferred.
  */
 
 export const TRACE_CONFIG_VERSION = 2;
 
-export const traceRepositoryEntrySchema = z.object({
-  repositoryId: z.number().int().positive(),
-  name: z.string().min(1),
-  store: z.string().min(1),
-  allowedAt: z.string().optional(),
-});
-export type TraceRepositoryEntry = z.infer<typeof traceRepositoryEntrySchema>;
+/** The two stores a machine can name. */
+export const traceStoreNameSchema = z.enum(["s3", "hosted"]);
+export type TraceStoreName = z.infer<typeof traceStoreNameSchema>;
 
-export const directCaptureSchema = z.object({
+/** The hosted origin used when a file names none. */
+export const DEFAULT_HOSTED_ORIGIN = "https://app.dev.fast";
+
+export const s3CaptureSchema = z.object({
   enabled: z.boolean(),
   autoActivateRepositories: z.boolean(),
   verifiedAt: z.string().optional(),
   error: z.string().optional(),
 });
-export type DirectCaptureSettings = z.infer<typeof directCaptureSchema>;
+export type S3CaptureSettings = z.infer<typeof s3CaptureSchema>;
 
-export const directProfileSchema = z.object({
+/** Your own S3-compatible bucket. Complete or rejected; never patched from legacy files. */
+export const s3ProfileSchema = z.object({
   endpoint: z.string().min(1),
   bucket: z.string().min(1),
   accessKeyId: z.string().min(1),
   secretAccessKey: z.string().min(1),
   region: z.string().min(1).optional(),
-  capture: directCaptureSchema.optional(),
+  capture: s3CaptureSchema.optional(),
 });
-export type DirectProfile = z.infer<typeof directProfileSchema>;
+export type S3Profile = z.infer<typeof s3ProfileSchema>;
 
-export const traceStorageSelectionSchema = z.discriminatedUnion("mode", [
-  z.object({ mode: z.literal("direct") }),
-  z.object({ mode: z.literal("hosted"), origin: z.string().min(1) }),
-]);
-export type TraceStorageSelection = z.infer<typeof traceStorageSelectionSchema>;
+/** The hosted store in use. The login token lives in the auth file. */
+export const hostedStoreSchema = z.object({
+  origin: z.string().min(1).optional(),
+});
+
+/**
+ * Hosted-only consent: one repository the user allowed to publish complete
+ * session transcripts, and the hosted origins it may publish to. Bucket
+ * uploads never read this list.
+ */
+export const traceRepositoryEntrySchema = z.object({
+  repositoryId: z.number().int().positive(),
+  name: z.string().min(1),
+  enabledOrigins: z.array(z.string().min(1)).optional(),
+  allowedAt: z.string().optional(),
+});
+export type TraceRepositoryEntry = z.infer<typeof traceRepositoryEntrySchema>;
 
 export const traceConfigSchema = z.object({
   version: z.literal(TRACE_CONFIG_VERSION),
-  storage: traceStorageSelectionSchema.optional(),
-  direct: directProfileSchema.optional(),
+  "current-store": traceStoreNameSchema.optional(),
+  stores: z
+    .object({
+      s3: s3ProfileSchema.optional(),
+      hosted: hostedStoreSchema.optional(),
+    })
+    .optional(),
   repositories: z.array(traceRepositoryEntrySchema).optional(),
 });
 export type TraceConfig = z.infer<typeof traceConfigSchema>;
 
-// The unshipped hosted alpha wrote version 1 with consent entries only. It
-// is readable for status and consent, but selects nothing by itself.
+/** The empty configuration every writer starts from. */
+export function emptyTraceConfig(): TraceConfig {
+  return { version: TRACE_CONFIG_VERSION };
+}
+
+export function currentStore(
+  config: TraceConfig | null,
+): TraceStoreName | undefined {
+  return config?.["current-store"];
+}
+
+export function s3Store(config: TraceConfig | null): S3Profile | null {
+  return config?.stores?.s3 ?? null;
+}
+
+/** The hosted origin in effect: the store entry's, or the default. */
+export function hostedOrigin(config: TraceConfig | null): string {
+  return config?.stores?.hosted?.origin ?? DEFAULT_HOSTED_ORIGIN;
+}
+
+/** Whether the file names a hosted store at all, explicitly or through consent. */
+export function hasHostedStore(config: TraceConfig | null): boolean {
+  return (
+    config?.stores?.hosted !== undefined ||
+    (config?.repositories?.length ?? 0) > 0
+  );
+}
+
+/** The origins one consent entry allows; absent means the default origin. */
+export function enabledOriginsOf(entry: TraceRepositoryEntry): string[] {
+  return entry.enabledOrigins ?? [DEFAULT_HOSTED_ORIGIN];
+}
+
+// The unshipped hosted alpha wrote version 1: a flat consent list whose
+// entries each named one store origin. Each becomes an entry enabled at
+// that origin. It selects nothing by itself beyond the rules above.
 const traceConfigV1Schema = z.object({
   version: z.literal(1),
   repositories: z.array(z.unknown()).optional(),
+});
+const v1RepositorySchema = z.object({
+  repositoryId: z.number().int().positive(),
+  name: z.string().min(1),
+  store: z.string().min(1),
+  allowedAt: z.string().optional(),
 });
 
 export type TraceConfigSource = "v2" | "v1" | "absent";
@@ -144,14 +203,21 @@ export function readTraceConfigFile(
 
   const v2 = traceConfigSchema.safeParse(raw);
   if (v2.success) {
+    const both =
+      v2.data.stores?.s3 !== undefined && v2.data.stores?.hosted !== undefined;
+    if (both && v2.data["current-store"] === undefined) {
+      return malformed(
+        'both stores are configured; set "current-store" to "s3" or "hosted".',
+      );
+    }
     return {
       path: filePath,
       source: "v2",
       config: v2.data,
       extra: unknownFields(raw, [
         "version",
-        "storage",
-        "direct",
+        "current-store",
+        "stores",
         "repositories",
       ]),
       fingerprint,
@@ -160,8 +226,10 @@ export function readTraceConfigFile(
   const v1 = traceConfigV1Schema.safeParse(raw);
   if (v1.success) {
     const repositories = (v1.data.repositories ?? []).flatMap((entry) => {
-      const parsed = traceRepositoryEntrySchema.safeParse(entry);
-      return parsed.success ? [parsed.data] : [];
+      const parsed = v1RepositorySchema.safeParse(entry);
+      if (!parsed.success) return [];
+      const { store, ...rest } = parsed.data;
+      return [{ ...rest, enabledOrigins: [store] }];
     });
     return {
       path: filePath,
@@ -195,8 +263,8 @@ export async function writeTraceConfigFile(
   const document = {
     ...file.extra,
     version: TRACE_CONFIG_VERSION,
-    storage: config.storage,
-    direct: config.direct,
+    "current-store": config["current-store"],
+    stores: config.stores,
     repositories: config.repositories,
   };
   await writePrivateJsonAtomic(file.path, document);
@@ -221,7 +289,7 @@ function unknownFields(
 }
 
 /** Direct profiles compare on destination, credentials, and capture settings. */
-export function sameDirectProfile(a: DirectProfile, b: DirectProfile): boolean {
+export function sameS3Profile(a: S3Profile, b: S3Profile): boolean {
   return (
     a.endpoint === b.endpoint &&
     a.bucket === b.bucket &&

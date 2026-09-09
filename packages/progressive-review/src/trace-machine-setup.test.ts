@@ -58,7 +58,7 @@ describe("trace machine capture switch", () => {
       enabled: true,
       configured: true,
       autoActivateRepositories: true,
-      storageMode: "direct",
+      storageMode: "s3",
       captureSource: "settings",
     });
   });
@@ -67,7 +67,7 @@ describe("trace machine capture switch", () => {
     writeConfig(
       JSON.stringify({
         version: 2,
-        storage: { mode: "hosted", origin: "https://app.dev.fast" },
+        "current-store": "hosted",
       }),
     );
     // No bucket, no legacy settings file: hosted alone switches capture on;
@@ -81,7 +81,7 @@ describe("trace machine capture switch", () => {
     });
   });
 
-  it("does not switch capture on from a consent entry alone", async () => {
+  it("infers hosted from a consent list when no bucket exists", async () => {
     writeConfig(
       JSON.stringify({
         version: 2,
@@ -89,12 +89,14 @@ describe("trace machine capture switch", () => {
           {
             repositoryId: 1,
             name: "acme/app",
-            store: "https://app.dev.fast",
             allowedAt: "2026-09-01T00:00:00Z",
           },
         ],
       }),
     );
-    expect(await traceMachineEnabled({ homeDir: home, env })).toBe(false);
+    expect(await traceMachineStatus({ homeDir: home, env })).toMatchObject({
+      enabled: true,
+      storageMode: "hosted",
+    });
   });
 });

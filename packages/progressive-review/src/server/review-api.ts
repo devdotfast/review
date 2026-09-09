@@ -72,11 +72,11 @@ import type { SourceSnapshot } from "../source-code-types";
 import { resolveReviewSourceRange } from "../source-range-resolver";
 import { ProgressiveReviewTelemetry } from "../telemetry";
 import type { ReviewTabTelemetryEvent } from "../telemetry";
-import { isDirectMockMode } from "../trace-storage/direct-config";
 import {
   resolveTraceStorage,
   selectTraceStorage,
 } from "../trace-storage/resolve";
+import { isS3MockMode } from "../trace-storage/s3-config";
 import type { TraceStorage, TraceStorageKind } from "../trace-storage/types";
 import type { CreateReviewCommentInput, ReviewSubmissionEvent } from "../types";
 import {
@@ -409,7 +409,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     context: Context<ReviewHonoEnv>,
   ): TraceStorageKind | undefined {
     const value = new URL(context.req.url).searchParams.get("storage");
-    return value === "direct" || value === "hosted" ? value : undefined;
+    return value === "s3" || value === "hosted" ? value : undefined;
   }
 
   async function resolveTraceStorageFor(
@@ -428,8 +428,8 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     const headCommit = review.sourceCommit ?? review.baseCommit;
     const selection = selectTraceStorage();
     const sources: TraceStorageKind[] = [];
-    if (selection.direct?.credentials || isDirectMockMode()) {
-      sources.push("direct");
+    if (selection.s3?.credentials || isS3MockMode()) {
+      sources.push("s3");
     }
     if (selection.hosted) sources.push("hosted");
     const sessions = await listReviewTraceSessions({

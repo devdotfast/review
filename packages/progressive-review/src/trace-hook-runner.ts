@@ -125,7 +125,7 @@ export async function runReviewTraceHook(
       env: input.env,
       homeDir: input.homeDir,
     }).catch(() => undefined);
-    if (!entry || entry.store !== origin) return 0;
+    if (!entry || !entry.enabledOrigins.includes(origin)) return 0;
   }
 
   if (isStart) {
@@ -280,13 +280,13 @@ async function recordCaptureProvenance(input: {
   let identity: TraceCaptureIdentity;
   if (
     input.entry &&
-    input.entry.store === input.origin &&
+    input.entry.enabledOrigins.includes(input.origin) &&
     auth &&
-    auth.origin === input.entry.store
+    auth.origin === input.origin
   ) {
     identity = traceCaptureIdentity({
       target: {
-        origin: input.entry.store,
+        origin: input.origin,
         repositoryId: input.entry.repositoryId,
       },
     });

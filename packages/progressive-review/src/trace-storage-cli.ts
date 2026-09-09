@@ -10,7 +10,7 @@ import {
 } from "./cli-output";
 import { clearTraceEnvCache } from "./review-agent-traces";
 import { devReviewHome } from "./review-storage";
-import { DEFAULT_STORE_ORIGIN, readStoreAuth } from "./store-auth";
+import { readStoreAuth } from "./store-auth";
 import { StoreApiError, StoreClient } from "./store-client";
 import { normalizeStoreOrigin } from "./store-origin";
 import {
@@ -24,27 +24,31 @@ import {
   resolveTraceRepositoryTarget,
 } from "./trace-repository-target";
 import {
-  type DirectCaptureSettings,
-  type DirectProfile,
+  DEFAULT_HOSTED_ORIGIN,
+  type S3CaptureSettings,
+  type S3Profile,
   type TraceConfig,
   TraceConfigurationError,
-  directProfileSchema,
+  currentStore,
+  emptyTraceConfig,
   readTraceConfigFile,
-  sameDirectProfile,
+  s3ProfileSchema,
+  s3Store,
+  sameS3Profile,
   writeTraceConfigFile,
 } from "./trace-storage/config";
-import { DirectTraceStorage } from "./trace-storage/direct";
-import {
-  DIRECT_DEFAULT_REGION,
-  type DirectCredentials,
-  isDirectMockMode,
-  resolveDirectSetup,
-  traceSettingsPath,
-} from "./trace-storage/direct-config";
 import {
   type TraceStorageSelection,
   selectTraceStorage,
 } from "./trace-storage/resolve";
+import { S3TraceStorage } from "./trace-storage/s3";
+import {
+  type S3Credentials,
+  S3_DEFAULT_REGION,
+  isS3MockMode,
+  resolveS3Setup,
+  traceSettingsPath,
+} from "./trace-storage/s3-config";
 import { readTraceUserConfig } from "./trace-user-config";
 
 /**
@@ -79,18 +83,18 @@ export async function runReviewTraceStorageUse(
   const stage = "trace.storage.use";
   const scope = commandScope(input);
   if (input.mode === "hosted") return useHosted(input, scope, stage);
-  if (input.mode !== "direct") {
+  if (input.mode !== "s3") {
     return failWithJsonError(
       input,
       stage,
-      `Unknown storage mode "${input.mode}". Use "direct" or "hosted".`,
+      `Unknown storage mode "${input.mode}". Use "s3" or "hosted".`,
     );
   }
 
   try {
     const configFile = readTraceConfigFile(scope);
     if (configFile.error) throw new TraceConfigurationError(configFile.error);
-    const current = configFile.config ?? { version: 2 as const };
+    const current = configFile.config ?? emptyTraceConfig();
     const flags = [input.endpoint, input.bucket, input.key, input.secret];
     let next: TraceConfig;
     if (flags.some(Boolean)) {
@@ -99,30 +103,34 @@ export async function runReviewTraceStorageUse(
           "Direct storage needs --endpoint, --bucket, --key, and --secret together.",
         );
       }
-      const profile = directProfileSchema.parse({
+      const profile = s3ProfileSchema.parse({
         endpoint: input.endpoint,
         bucket: input.bucket,
         accessKeyId: input.key,
         secretAccessKey: input.secret,
         region:
           input.region?.trim() ||
-          current.direct?.region ||
-          DIRECT_DEFAULT_REGION,
-        capture: current.direct?.capture ?? {
+          current.stores?.s3?.region ||
+          S3_DEFAULT_REGION,
+        capture: current.stores?.s3?.capture ?? {
           enabled: true,
           autoActivateRepositories: true,
         },
       });
       await requireReachable(profile, scope);
-      next = { ...current, storage: { mode: "direct" }, direct: profile };
+      next = {
+        ...current,
+        "current-store": "s3",
+        stores: { ...current.stores, s3: profile },
+      };
     } else {
-      const setup = resolveDirectSetup(scope);
-      if (!setup.credentials && !isDirectMockMode(scope.env)) {
+      const setup = resolveS3Setup(scope);
+      if (!setup.credentials && !isS3MockMode(scope.env)) {
         throw new TraceConfigurationError(
           "No S3/R2 credentials are configured. Pass --endpoint, --bucket, --key, and --secret, or use Review Agent Setup.",
         );
       }
-      next = { ...current, storage: { mode: "direct" } };
+      next = { ...current, "current-store": "s3" };
     }
     await writeTraceConfigFile(configFile, next);
     clearTraceEnvCache();
@@ -136,7 +144,7 @@ export async function runReviewTraceStorageUse(
     human.write(`Repository: ${repository.message}\n`);
     emitJsonEvent(input, {
       event: stage,
-      mode: "direct",
+      mode: "s3",
       configPath: configFile.path,
       endpoint: machine.endpoint ?? null,
       bucket: machine.bucket ?? null,
@@ -168,7 +176,7 @@ async function useHosted(
   try {
     const auth = await readStoreAuth(scope.env);
     const origin = normalizeStoreOrigin(
-      input.origin ?? auth?.origin ?? DEFAULT_STORE_ORIGIN,
+      input.origin ?? auth?.origin ?? DEFAULT_HOSTED_ORIGIN,
     );
     if (!auth || auth.origin !== origin) {
       throw new TraceConfigurationError(
@@ -199,10 +207,15 @@ async function useHosted(
 
     const configFile = readTraceConfigFile(scope);
     if (configFile.error) throw new TraceConfigurationError(configFile.error);
-    const current = configFile.config ?? { version: 2 as const };
+    const current = configFile.config ?? emptyTraceConfig();
+    // The default origin needs no entry; any other origin is written down.
+    const stores = { ...current.stores };
+    if (origin === DEFAULT_HOSTED_ORIGIN) delete stores.hosted;
+    else stores.hosted = { origin };
     await writeTraceConfigFile(configFile, {
       ...current,
-      storage: { mode: "hosted", origin },
+      "current-store": "hosted",
+      stores,
     });
     clearTraceEnvCache();
 
@@ -214,13 +227,13 @@ async function useHosted(
     );
     human.write(
       `Publication scope: ${config.repositories
-        .filter((entry) => entry.store === origin)
+        .filter((entry) => entry.enabledOrigins.includes(origin))
         .map((entry) => entry.name)
         .join(", ")}\n`,
     );
-    if (selectTraceStorage(scope).direct?.credentials) {
+    if (selectTraceStorage(scope).s3?.credentials) {
       human.write(
-        "Bucket credentials stay saved and inactive; `review trace storage use direct` switches back.\n",
+        "Bucket credentials stay saved and inactive; `review trace storage use s3` switches back.\n",
       );
     }
     emitJsonEvent(input, {
@@ -267,7 +280,7 @@ export async function runReviewTraceConfigMigrate(
   const human = humanStream(input);
   try {
     // 1. The effective legacy inputs, overrides and custom paths included.
-    const legacy = resolveDirectSetup({ ...scope, ignoreProfile: true });
+    const legacy = resolveS3Setup({ ...scope, ignoreProfile: true });
     if (!legacy.credentials) {
       throw new TraceConfigurationError(
         `No legacy S3/R2 configuration to migrate (checked ${legacy.envPath} and the environment).`,
@@ -278,36 +291,36 @@ export async function runReviewTraceConfigMigrate(
 
     // 2. The candidate profile and explicit selection. Disabled or absent
     // capture settings stay disabled; migration never enables capture.
-    const capture: DirectCaptureSettings = {
+    const capture: S3CaptureSettings = {
       enabled: settings?.enabled === true,
       autoActivateRepositories:
         settings?.enabled === true &&
         settings.autoActivateRepositories === true,
     };
     if (settings?.verifiedAt) capture.verifiedAt = settings.verifiedAt;
-    const candidate = directProfileSchema.parse({
+    const candidate = s3ProfileSchema.parse({
       ...legacy.credentials,
       capture,
     });
     const configFile = readTraceConfigFile(scope);
     if (configFile.error) throw new TraceConfigurationError(configFile.error);
-    const current = configFile.config ?? { version: 2 as const };
-    if (current.storage?.mode === "hosted") {
+    const current = configFile.config ?? emptyTraceConfig();
+    if (currentStore(current) === "hosted") {
       throw new TraceConfigurationError(
-        `Hosted storage is selected in ${configFile.path}. Run \`review trace storage use direct\` first; migration never switches destinations.`,
+        `Hosted storage is selected in ${configFile.path}. Run \`review trace storage use s3\` first; migration never switches destinations.`,
       );
     }
+    const existingProfile = s3Store(current);
     const unchanged =
-      current.direct !== undefined &&
-      sameDirectProfile(current.direct, candidate);
-    if (current.direct && !unchanged) {
+      existingProfile !== null && sameS3Profile(existingProfile, candidate);
+    if (existingProfile && !unchanged) {
       throw new TraceConfigurationError(
-        `${configFile.path} already holds a different direct profile. Remove it or update it with \`review trace storage use direct --endpoint ...\`; migration does not overwrite it.`,
+        `${configFile.path} already holds a different direct profile. Remove it or update it with \`review trace storage use s3 --endpoint ...\`; migration does not overwrite it.`,
       );
     }
 
     human.write(
-      `${input.dryRun ? "Previewing" : "Migrating"} direct trace configuration into ${configFile.path}\n`,
+      `${input.dryRun ? "Previewing" : "Migrating"} S3 trace configuration into ${configFile.path}\n`,
     );
     human.write(
       `  Credentials: ${legacy.source === "process-env" ? "process environment" : legacy.envPath}${
@@ -320,7 +333,7 @@ export async function runReviewTraceConfigMigrate(
       `  Capture: ${candidate.capture?.enabled ? "enabled" : "disabled"} (from ${settingsPath})\n`,
     );
     human.write(
-      `  Destination: ${candidate.endpoint} bucket "${candidate.bucket}" region ${candidate.region ?? DIRECT_DEFAULT_REGION}, key ${candidate.accessKeyId.slice(0, 6)}…\n`,
+      `  Destination: ${candidate.endpoint} bucket "${candidate.bucket}" region ${candidate.region ?? S3_DEFAULT_REGION}, key ${candidate.accessKeyId.slice(0, 6)}…\n`,
     );
 
     // 3. Validate independently of overrides and check reachability.
@@ -328,7 +341,7 @@ export async function runReviewTraceConfigMigrate(
     human.write("  Reachability: ok\n");
 
     let status: "unchanged" | "written" | "preview";
-    if (unchanged && current.storage?.mode === "direct") {
+    if (unchanged && currentStore(current) === "s3") {
       status = "unchanged";
       human.write("Nothing to do: the config already holds this profile.\n");
     } else if (input.dryRun) {
@@ -338,8 +351,8 @@ export async function runReviewTraceConfigMigrate(
       // 4. Atomic private write; concurrent edits are refused.
       await writeTraceConfigFile(configFile, {
         ...current,
-        storage: { mode: "direct" },
-        direct: candidate,
+        "current-store": "s3",
+        stores: { ...current.stores, s3: candidate },
       });
       clearTraceEnvCache();
       status = "written";
@@ -381,7 +394,7 @@ export async function runReviewTraceConfigMigrate(
       settingsPath,
       endpoint: candidate.endpoint,
       bucket: candidate.bucket,
-      region: candidate.region ?? DIRECT_DEFAULT_REGION,
+      region: candidate.region ?? S3_DEFAULT_REGION,
       accessKeyIdPrefix: candidate.accessKeyId.slice(0, 6),
       capture: candidate.capture ?? null,
     });
@@ -401,7 +414,7 @@ export function describeSelection(selection: TraceStorageSelection): string {
     return `hosted (${selection.hosted?.origin ?? "unknown origin"})`;
   }
   if (selection.mode === "none") return "none configured";
-  const setup = selection.direct;
+  const setup = selection.s3;
   const credentials = setup?.credentials;
   const where = credentials
     ? `bucket "${credentials.bucket}" at ${credentials.endpoint}`
@@ -418,23 +431,23 @@ export function describeSelection(selection: TraceStorageSelection): string {
     setup && setup.overrides.length > 0 && setup.source !== "process-env"
       ? `; environment overrides: ${setup.overrides.join(", ")}`
       : "";
-  return `direct S3/R2 ${where} (${selection.explicit ? "selected" : "legacy configuration"}; credentials from ${source}${overrides})`;
+  return `S3/R2 ${where} (${selection.explicit ? "selected" : "legacy configuration"}; credentials from ${source}${overrides})`;
 }
 
 async function requireReachable(
-  profile: DirectProfile,
+  profile: S3Profile,
   scope: TraceStorageCommandScope,
 ): Promise<void> {
   const env = scope.env ?? process.env;
-  if (isDirectMockMode(env)) return;
-  const credentials: DirectCredentials = {
+  if (isS3MockMode(env)) return;
+  const credentials: S3Credentials = {
     endpoint: profile.endpoint,
     bucket: profile.bucket,
     accessKeyId: profile.accessKeyId,
     secretAccessKey: profile.secretAccessKey,
-    region: profile.region ?? DIRECT_DEFAULT_REGION,
+    region: profile.region ?? S3_DEFAULT_REGION,
   };
-  const doctor = await DirectTraceStorage.fromCredentials(
+  const doctor = await S3TraceStorage.fromCredentials(
     credentials,
     env,
   ).doctor();

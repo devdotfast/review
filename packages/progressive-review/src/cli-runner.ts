@@ -263,7 +263,7 @@ export async function runProgressiveReviewCli(
     new Option(
       "--storage <mode>",
       "read from direct (S3/R2) or hosted storage instead of the selected store",
-    ).choices(["direct", "hosted"]);
+    ).choices(["s3", "hosted"]);
   const viewOption = () =>
     new Option("--view <view>", "view to show after opening").choices([
       "review",
@@ -1089,7 +1089,7 @@ export async function runProgressiveReviewCli(
     async (options: {
       review?: string;
       commit?: string;
-      storage?: "direct" | "hosted";
+      storage?: "s3" | "hosted";
       json?: boolean;
     }) => {
       if (options.review && options.commit) {
@@ -1126,7 +1126,7 @@ export async function runProgressiveReviewCli(
         trace?: string;
         event?: number;
         kind?: string;
-        storage?: "direct" | "hosted";
+        storage?: "s3" | "hosted";
         json?: boolean;
       },
     ) => {
@@ -1162,7 +1162,7 @@ export async function runProgressiveReviewCli(
       commit?: string;
       session?: string;
       mainOnly?: boolean;
-      storage?: "direct" | "hosted";
+      storage?: "s3" | "hosted";
       json?: boolean;
     }) => {
       const selectors = [
@@ -1205,7 +1205,7 @@ export async function runProgressiveReviewCli(
       options: {
         lines?: string;
         history?: boolean;
-        storage?: "direct" | "hosted";
+        storage?: "s3" | "hosted";
         json?: boolean;
       },
     ) => {

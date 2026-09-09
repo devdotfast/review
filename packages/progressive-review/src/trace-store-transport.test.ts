@@ -131,7 +131,7 @@ describe("trace-store-transport", () => {
     await allowTraceRepository({
       repositoryId: REPOSITORY_ID,
       name: "acme/app",
-      store: "https://app.dev.fast",
+      origin: "https://app.dev.fast",
     });
   });
 

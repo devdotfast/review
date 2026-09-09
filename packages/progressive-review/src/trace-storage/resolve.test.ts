@@ -5,9 +5,9 @@ import path from "node:path";
 import type { JsonValue } from "@dev.fast/review-protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { traceConfigPath } from "./config";
-import { clearTraceEnvCache, resolveDirectSetup } from "./direct-config";
+import { DEFAULT_HOSTED_ORIGIN, traceConfigPath } from "./config";
 import { resolveTraceStorage, selectTraceStorage } from "./resolve";
+import { clearTraceEnvCache, resolveS3Setup } from "./s3-config";
 
 const bucketProfile = {
   endpoint: "https://s3.example.invalid",
@@ -17,6 +17,10 @@ const bucketProfile = {
   region: "us-east-1",
   capture: { enabled: true, autoActivateRepositories: true },
 };
+
+const consent = [
+  { repositoryId: 7, name: "acme/widgets", allowedAt: "2026-09-01T00:00:00Z" },
+];
 
 describe("trace storage selection", () => {
   let home: string;
@@ -56,16 +60,16 @@ describe("trace storage selection", () => {
     return envPath;
   }
 
-  it("selects direct implicitly from an existing bucket configuration", async () => {
+  it("selects s3 implicitly from an existing bucket configuration", async () => {
     writeLegacyEnv();
     const selection = selectTraceStorage({ env, homeDir: home });
-    expect(selection).toMatchObject({ mode: "direct", explicit: false });
-    expect(selection.direct?.source).toBe("legacy-file");
-    expect(selection.direct?.credentials?.bucket).toBe("legacy-traces");
+    expect(selection).toMatchObject({ mode: "s3", explicit: false });
+    expect(selection.s3?.source).toBe("legacy-file");
+    expect(selection.s3?.credentials?.bucket).toBe("legacy-traces");
     const storage = await resolveTraceStorage({ env, homeDir: home });
-    expect(storage?.kind).toBe("direct");
+    expect(storage?.kind).toBe("s3");
     expect(storage?.target).toEqual({
-      kind: "direct",
+      kind: "s3",
       endpoint: "https://legacy.example.invalid",
       bucket: "legacy-traces",
       region: "auto",
@@ -79,20 +83,67 @@ describe("trace storage selection", () => {
     expect(await resolveTraceStorage({ env, homeDir: home })).toBeNull();
   });
 
-  it("treats explicit direct without credentials as a configuration error", async () => {
-    writeConfig({ version: 2, storage: { mode: "direct" } });
+  it("selects s3 from a profile alone and hosted from a hosted entry alone", () => {
+    writeConfig({ version: 2, stores: { s3: bucketProfile } });
+    expect(selectTraceStorage({ env, homeDir: home })).toMatchObject({
+      mode: "s3",
+      explicit: false,
+    });
+    writeConfig({
+      version: 2,
+      stores: { hosted: { origin: "https://staging.dev.fast" } },
+    });
+    expect(selectTraceStorage({ env, homeDir: home })).toMatchObject({
+      mode: "hosted",
+      explicit: false,
+      hosted: { origin: "https://staging.dev.fast" },
+    });
+  });
+
+  it("infers hosted at the default origin from consent alone", () => {
+    writeConfig({ version: 2, repositories: consent });
+    expect(selectTraceStorage({ env, homeDir: home })).toMatchObject({
+      mode: "hosted",
+      explicit: false,
+      hosted: { origin: DEFAULT_HOSTED_ORIGIN },
+    });
+  });
+
+  it("lets an existing bucket outrank consent, so nothing is redirected", () => {
+    writeLegacyEnv();
+    writeConfig({ version: 2, repositories: consent });
     const selection = selectTraceStorage({ env, homeDir: home });
-    expect(selection.mode).toBe("direct");
+    expect(selection.mode).toBe("s3");
+    expect(selection.hosted).toEqual({ origin: DEFAULT_HOSTED_ORIGIN });
+  });
+
+  it("requires the pointer when both stores exist", async () => {
+    writeConfig({
+      version: 2,
+      stores: { s3: bucketProfile, hosted: { origin: DEFAULT_HOSTED_ORIGIN } },
+    });
+    const selection = selectTraceStorage({ env, homeDir: home });
+    expect(selection.mode).toBe("none");
+    expect(selection.error).toContain("current-store");
+    await expect(resolveTraceStorage({ env, homeDir: home })).rejects.toThrow(
+      /current-store/,
+    );
+  });
+
+  it("treats explicit s3 without credentials as a configuration error", async () => {
+    writeConfig({ version: 2, "current-store": "s3" });
+    const selection = selectTraceStorage({ env, homeDir: home });
+    expect(selection.mode).toBe("s3");
     expect(selection.error).toContain("no bucket credentials");
     await expect(resolveTraceStorage({ env, homeDir: home })).rejects.toThrow(
       /no bucket credentials/,
     );
   });
 
-  it("uses the version-2 profile before the legacy file, with environment overrides on top", () => {
+  it("uses the profile before the legacy file, with environment overrides on top", () => {
     writeLegacyEnv();
-    writeConfig({ version: 2, direct: bucketProfile });
-    const fromProfile = resolveDirectSetup({ env, homeDir: home });
+    writeConfig({ version: 2, stores: { s3: bucketProfile } });
+    const fromProfile = resolveS3Setup({ env, homeDir: home });
     expect(fromProfile.source).toBe("profile");
     expect(fromProfile.credentials).toEqual({
       endpoint: "https://s3.example.invalid",
@@ -102,7 +153,7 @@ describe("trace storage selection", () => {
       region: "us-east-1",
     });
 
-    const overridden = resolveDirectSetup({
+    const overridden = resolveS3Setup({
       env: { ...env, TRACE_R2_BUCKET: "override-traces" },
       homeDir: home,
     });
@@ -115,39 +166,41 @@ describe("trace storage selection", () => {
     writeLegacyEnv();
     writeConfig({
       version: 2,
-      direct: { endpoint: "https://s3.example.invalid", bucket: "half" },
+      stores: {
+        s3: { endpoint: "https://s3.example.invalid", bucket: "half" },
+      },
     });
     const selection = selectTraceStorage({ env, homeDir: home });
     expect(selection.mode).toBe("none");
     expect(selection.error).toContain("invalid");
-    expect(() => resolveDirectSetup({ env, homeDir: home })).toThrow(/invalid/);
+    expect(() => resolveS3Setup({ env, homeDir: home })).toThrow(/invalid/);
   });
 
   it("keeps bucket credentials inert when hosted is selected", async () => {
     writeLegacyEnv();
     writeConfig({
       version: 2,
-      storage: { mode: "hosted", origin: "https://app.dev.fast" },
-      direct: bucketProfile,
+      "current-store": "hosted",
+      stores: { s3: bucketProfile },
     });
     const selection = selectTraceStorage({ env, homeDir: home });
     expect(selection).toMatchObject({
       mode: "hosted",
       explicit: true,
-      hosted: { origin: "https://app.dev.fast" },
+      hosted: { origin: DEFAULT_HOSTED_ORIGIN },
     });
-    expect(selection.direct?.credentials?.bucket).toBe("profile-traces");
+    expect(selection.s3?.credentials?.bucket).toBe("profile-traces");
     // A read-only override reaches the bucket without changing the selection.
-    const direct = await resolveTraceStorage({
+    const s3 = await resolveTraceStorage({
       env,
       homeDir: home,
-      override: "direct",
+      override: "s3",
     });
-    expect(direct?.kind).toBe("direct");
+    expect(s3?.kind).toBe("s3");
     expect(selectTraceStorage({ env, homeDir: home }).mode).toBe("hosted");
   });
 
-  it("does not let a consent entry or version-1 file select hosted storage", () => {
+  it("reads the version-1 file as consent and still prefers an existing bucket", () => {
     writeLegacyEnv();
     writeConfig({
       version: 1,
@@ -156,18 +209,19 @@ describe("trace storage selection", () => {
           repositoryId: 7,
           name: "acme/widgets",
           store: "https://app.dev.fast",
+          allowedAt: "2026-09-01T00:00:00Z",
         },
       ],
     });
     const selection = selectTraceStorage({ env, homeDir: home });
-    expect(selection.mode).toBe("direct");
+    expect(selection.mode).toBe("s3");
     expect(selection.config.source).toBe("v1");
     expect(selection.config.config?.repositories).toHaveLength(1);
   });
 
   it("reports a malformed file instead of selecting another destination", async () => {
     writeLegacyEnv();
-    writeConfig({ version: 2, storage: { mode: "sideways" } });
+    writeConfig({ version: 2, "current-store": "sideways" });
     const selection = selectTraceStorage({ env, homeDir: home });
     expect(selection.mode).toBe("none");
     expect(selection.error).toContain("invalid");

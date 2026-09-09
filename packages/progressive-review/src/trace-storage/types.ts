@@ -6,11 +6,11 @@ import type { SessionMeta } from "@dev.fast/review-protocol";
  * a backend owns its object layout, transport, and completion semantics.
  */
 
-export type TraceStorageKind = "direct" | "hosted";
+export type TraceStorageKind = "s3" | "hosted";
 
 /** One S3-compatible bucket, identified without its secret. */
-export interface DirectStorageTarget {
-  kind: "direct";
+export interface S3StorageTarget {
+  kind: "s3";
   endpoint: string;
   bucket: string;
   region: string;
@@ -27,7 +27,7 @@ export interface HostedStorageTarget {
   name: string;
 }
 
-export type TraceStorageTarget = DirectStorageTarget | HostedStorageTarget;
+export type TraceStorageTarget = S3StorageTarget | HostedStorageTarget;
 
 export interface TraceObjectInfo {
   size: number;

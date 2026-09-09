@@ -134,8 +134,8 @@ describe("ReviewTraceView", () => {
         if (url.includes("/agent-traces")) {
           const list = {
             ...mockListResponse,
-            storage: url.includes("storage=hosted") ? "hosted" : "direct",
-            sources: ["direct", "hosted"],
+            storage: url.includes("storage=hosted") ? "hosted" : "s3",
+            sources: ["s3", "hosted"],
           };
           return Promise.resolve(
             new Response(JSON.stringify(list), { status: 200 }),
@@ -160,7 +160,7 @@ describe("ReviewTraceView", () => {
       'select[aria-label="Trace source"]',
     );
     expect(select).not.toBeNull();
-    expect(select?.value).toBe("direct");
+    expect(select?.value).toBe("s3");
     expect(container.textContent).not.toContain("Showing a saved copy");
 
     await act(async () => {

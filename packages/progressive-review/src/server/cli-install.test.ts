@@ -118,11 +118,13 @@ describe("trace capture installation", () => {
     const configPath = path.join(homeDir, ".dev", "trace", "config.json");
     expect(JSON.parse(await readFile(configPath, "utf8"))).toMatchObject({
       version: 2,
-      storage: { mode: "direct" },
-      direct: {
-        bucket: "fresh-bucket",
-        accessKeyId: "fresh-key-id",
-        capture: { enabled: true, autoActivateRepositories: true },
+      "current-store": "s3",
+      stores: {
+        s3: {
+          bucket: "fresh-bucket",
+          accessKeyId: "fresh-key-id",
+          capture: { enabled: true, autoActivateRepositories: true },
+        },
       },
     });
     expect(
@@ -137,7 +139,7 @@ describe("trace capture installation", () => {
       bucket: "fresh-bucket",
       credentialsSource: "profile",
       captureSource: "profile",
-      storageMode: "direct",
+      storageMode: "s3",
     });
     expect(JSON.stringify(status)).not.toContain("fresh-secret-value");
 
@@ -149,7 +151,7 @@ describe("trace capture installation", () => {
     });
     expect(disabled.trace).toMatchObject({ enabled: false, configured: true });
     expect(
-      JSON.parse(await readFile(configPath, "utf8")).direct.secretAccessKey,
+      JSON.parse(await readFile(configPath, "utf8")).stores.s3.secretAccessKey,
     ).toBe("fresh-secret-value");
   });
 

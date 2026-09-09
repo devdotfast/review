@@ -368,7 +368,7 @@ describe("trace-cli", () => {
       const code = await runReviewTraceShow({
         cwd: tempDir,
         sessionId,
-        storage: "direct",
+        storage: "s3",
         json: true,
         stdout: collectingWritable(out),
         stderr: collectingWritable([]),

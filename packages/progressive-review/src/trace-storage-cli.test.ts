@@ -28,9 +28,9 @@ import {
   runReviewTraceStorageUse,
 } from "./trace-storage-cli";
 import { readTraceConfigFile, traceConfigPath } from "./trace-storage/config";
-import { DirectTraceStorage } from "./trace-storage/direct";
-import { resolveDirectSetup } from "./trace-storage/direct-config";
 import { selectTraceStorage } from "./trace-storage/resolve";
+import { S3TraceStorage } from "./trace-storage/s3";
+import { resolveS3Setup } from "./trace-storage/s3-config";
 import { allowTraceRepository } from "./trace-user-config";
 
 /** Runs `action` with process.env and HOME temporarily replaced by `env`. */
@@ -148,17 +148,19 @@ describe("trace storage commands", () => {
     const written = JSON.parse(readFileSync(configPath, "utf8"));
     expect(written).toMatchObject({
       version: 2,
-      storage: { mode: "direct" },
-      direct: {
-        endpoint: "https://legacy.example.invalid",
-        bucket: "legacy-traces",
-        accessKeyId: "legacy-key-id",
-        secretAccessKey: "legacy-secret-value",
-        region: "auto",
-        capture: {
-          enabled: true,
-          autoActivateRepositories: true,
-          verifiedAt: "2026-08-31T20:35:02.159Z",
+      "current-store": "s3",
+      stores: {
+        s3: {
+          endpoint: "https://legacy.example.invalid",
+          bucket: "legacy-traces",
+          accessKeyId: "legacy-key-id",
+          secretAccessKey: "legacy-secret-value",
+          region: "auto",
+          capture: {
+            enabled: true,
+            autoActivateRepositories: true,
+            verifiedAt: "2026-08-31T20:35:02.159Z",
+          },
         },
       },
     });
@@ -173,7 +175,7 @@ describe("trace storage commands", () => {
 
     // Migration acceptance: the new file alone yields the same setup.
     clearTraceEnvCache();
-    const setup = resolveDirectSetup({ env, homeDir: home });
+    const setup = resolveS3Setup({ env, homeDir: home });
     expect(setup.source).toBe("profile");
     expect(setup.credentials).toEqual({
       endpoint: "https://legacy.example.invalid",
@@ -188,12 +190,12 @@ describe("trace storage commands", () => {
       autoActivateRepositories: true,
       captureSource: "profile",
       credentialsSource: "profile",
-      storageMode: "direct",
+      storageMode: "s3",
     });
     // The doctor reports the profile as its source once the legacy files
     // are gone, instead of demanding the env file.
     delete env.TRACE_R2_MODE;
-    vi.spyOn(DirectTraceStorage.prototype, "doctor").mockResolvedValue({
+    vi.spyOn(S3TraceStorage.prototype, "doctor").mockResolvedValue({
       reachable: true,
     });
     const doctor = await withProcessEnv(env, () => checkReviewTraceDoctor());
@@ -227,7 +229,7 @@ describe("trace storage commands", () => {
     writeLegacy({ version: 1, enabled: false, autoActivateRepositories: true });
     expect((await migrate()).code).toBe(0);
     const file = readTraceConfigFile({ env, homeDir: home });
-    expect(file.config?.direct?.capture).toEqual({
+    expect(file.config?.stores?.s3?.capture).toEqual({
       enabled: false,
       autoActivateRepositories: false,
     });
@@ -253,11 +255,13 @@ describe("trace storage commands", () => {
     mkdirSync(path.dirname(configPath), { recursive: true });
     const other = {
       version: 2,
-      direct: {
-        endpoint: "https://other.example.invalid",
-        bucket: "other",
-        accessKeyId: "k",
-        secretAccessKey: "s",
+      stores: {
+        s3: {
+          endpoint: "https://other.example.invalid",
+          bucket: "other",
+          accessKeyId: "k",
+          secretAccessKey: "s",
+        },
       },
     };
     writeFileSync(configPath, JSON.stringify(other));
@@ -266,10 +270,7 @@ describe("trace storage commands", () => {
     expect(conflict.stderr).toContain("different direct profile");
     expect(JSON.parse(readFileSync(configPath, "utf8"))).toEqual(other);
 
-    const hosted = {
-      version: 2,
-      storage: { mode: "hosted", origin: "https://app.dev.fast" },
-    };
+    const hosted = { version: 2, "current-store": "hosted" };
     writeFileSync(configPath, JSON.stringify(hosted));
     const hostedResult = await migrate();
     expect(hostedResult.code).toBe(1);
@@ -280,7 +281,7 @@ describe("trace storage commands", () => {
   it("writes nothing when the bucket is unreachable", async () => {
     writeLegacy();
     delete env.TRACE_R2_MODE;
-    vi.spyOn(DirectTraceStorage.prototype, "doctor").mockResolvedValue({
+    vi.spyOn(S3TraceStorage.prototype, "doctor").mockResolvedValue({
       reachable: false,
       error: "head-bucket failed",
     });
@@ -324,20 +325,18 @@ describe("trace storage commands", () => {
 
     it("selects direct from an existing legacy setup without copying it", async () => {
       writeLegacy();
-      const result = await use({ mode: "direct" });
+      const result = await use({ mode: "s3" });
       expect(result.code).toBe(0);
-      expect(result.stdout).toContain(
-        'Storage: direct S3/R2 bucket "legacy-traces"',
-      );
+      expect(result.stdout).toContain('Storage: S3/R2 bucket "legacy-traces"');
       expect(result.stdout).toContain("Capture: enabled");
       const file = readTraceConfigFile({ env, homeDir: home });
-      expect(file.config).toEqual({ version: 2, storage: { mode: "direct" } });
+      expect(file.config).toEqual({ version: 2, "current-store": "s3" });
       expect(readFileSync(envPath, "utf8")).toBe(legacyEnv);
     });
 
     it("writes a complete profile from flags and selects direct", async () => {
       const result = await use({
-        mode: "direct",
+        mode: "s3",
         endpoint: "https://s3.example.invalid",
         bucket: "flag-traces",
         key: "flag-key-id",
@@ -349,14 +348,14 @@ describe("trace storage commands", () => {
       expect(result.stdout).not.toContain("flag-secret-value");
       expect(JSON.parse(result.stdout.trim())).toMatchObject({
         event: "trace.storage.use",
-        mode: "direct",
+        mode: "s3",
         bucket: "flag-traces",
         region: "eu-west-1",
         captureEnabled: true,
       });
       const file = readTraceConfigFile({ env, homeDir: home });
-      expect(file.config?.storage).toEqual({ mode: "direct" });
-      expect(file.config?.direct).toEqual({
+      expect(file.config?.["current-store"]).toBe("s3");
+      expect(file.config?.stores?.s3).toEqual({
         endpoint: "https://s3.example.invalid",
         bucket: "flag-traces",
         accessKeyId: "flag-key-id",
@@ -365,19 +364,19 @@ describe("trace storage commands", () => {
         capture: { enabled: true, autoActivateRepositories: true },
       });
       expect(selectTraceStorage({ env, homeDir: home })).toMatchObject({
-        mode: "direct",
+        mode: "s3",
         explicit: true,
       });
     });
 
     it("rejects partial flags and missing credentials", async () => {
-      const partial = await use({ mode: "direct", bucket: "only-bucket" });
+      const partial = await use({ mode: "s3", bucket: "only-bucket" });
       expect(partial.code).toBe(1);
       expect(partial.stderr).toContain(
         "--endpoint, --bucket, --key, and --secret",
       );
       delete env.TRACE_R2_MODE;
-      const missing = await use({ mode: "direct" });
+      const missing = await use({ mode: "s3" });
       expect(missing.code).toBe(1);
       expect(missing.stderr).toContain("No S3/R2 credentials are configured");
       expect(existsSync(traceConfigPath({ env, homeDir: home }))).toBe(false);
@@ -443,11 +442,11 @@ describe("trace storage commands", () => {
         expect(noConsent.code).toBe(1);
         expect(noConsent.stderr).toContain("not allowed for trace publication");
         expect(
-          readTraceConfigFile({ env, homeDir: home }).config?.storage,
+          readTraceConfigFile({ env, homeDir: home }).config?.["current-store"],
         ).toBeUndefined();
 
         await allowTraceRepository(
-          { repositoryId: 42, name: "acme/app", store: origin },
+          { repositoryId: 42, name: "acme/app", origin },
           path.join(home, ".dev"),
         );
         const olderContractStore = {
@@ -461,7 +460,7 @@ describe("trace storage commands", () => {
         expect(old.code).toBe(1);
         expect(old.stderr).toContain("does not serve the trace store contract");
         expect(
-          readTraceConfigFile({ env, homeDir: home }).config?.storage,
+          readTraceConfigFile({ env, homeDir: home }).config?.["current-store"],
         ).toBeUndefined();
 
         writeLegacy();
@@ -482,15 +481,17 @@ describe("trace storage commands", () => {
           "Bucket credentials stay saved and inactive",
         );
         const file = readTraceConfigFile({ env, homeDir: home });
-        expect(file.config?.storage).toEqual({ mode: "hosted", origin });
+        expect(file.config?.["current-store"]).toBe("hosted");
+        // The default origin needs no store entry.
+        expect(file.config?.stores?.hosted).toBeUndefined();
         expect(file.config?.repositories).toHaveLength(1);
         expect(readFileSync(envPath, "utf8")).toBe(legacyEnv);
 
         // Switching back keeps the consent entry and selects direct again.
-        const back = await use({ mode: "direct" });
+        const back = await use({ mode: "s3" });
         expect(back.code).toBe(0);
         const after = readTraceConfigFile({ env, homeDir: home });
-        expect(after.config?.storage).toEqual({ mode: "direct" });
+        expect(after.config?.["current-store"]).toBe("s3");
         expect(after.config?.repositories).toHaveLength(1);
       });
     });
@@ -503,7 +504,7 @@ describe("trace storage commands", () => {
       });
       expect((await migrate()).code).toBe(0);
       const result = await use({
-        mode: "direct",
+        mode: "s3",
         endpoint: "https://s3.example.invalid",
         bucket: "rotated",
         key: "new-key",
@@ -511,8 +512,8 @@ describe("trace storage commands", () => {
       });
       expect(result.code).toBe(0);
       const file = readTraceConfigFile({ env, homeDir: home });
-      expect(file.config?.direct?.bucket).toBe("rotated");
-      expect(file.config?.direct?.capture?.enabled).toBe(false);
+      expect(file.config?.stores?.s3?.bucket).toBe("rotated");
+      expect(file.config?.stores?.s3?.capture?.enabled).toBe(false);
       expect(result.stdout).toContain("Capture: disabled");
     });
   });

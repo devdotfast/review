@@ -359,11 +359,11 @@ describe("runReviewTraceHook with hosted storage", () => {
     const config =
       input.selectHosted === false
         ? { version: 2 }
-        : { version: 2, storage: { mode: "hosted", origin } };
+        : { version: 2, "current-store": "hosted" };
     await writeFile(configPath, JSON.stringify(config));
     if (input.allow) {
       await allowTraceRepository(
-        { repositoryId: 1, name: "acme/hook-test", store: origin },
+        { repositoryId: 1, name: "acme/hook-test", origin },
         devHome,
       );
     }
@@ -442,7 +442,9 @@ describe("runReviewTraceHook with hosted storage", () => {
     ]);
   });
 
-  it("captures nothing from consent alone when no storage is selected", async () => {
+  it("captures with consent alone when no bucket is configured", async () => {
+    // A hosted-only machine needs nothing beyond the consent list: the
+    // hosted store at the default origin is inferred.
     const { repo, env, devHome } = await hostedRepo({
       remote: "git@github.com:acme/hook-test.git",
       allow: true,
@@ -461,7 +463,9 @@ describe("runReviewTraceHook with hosted storage", () => {
       env,
     });
     expect(code).toBe(0);
-    expect(existsSync(path.join(repo, ".git", "agent-session"))).toBe(false);
-    expect(await readTraceSessionProvenance(sessionId, devHome)).toEqual([]);
+    expect(existsSync(path.join(repo, ".git", "agent-session"))).toBe(true);
+    expect(await readTraceSessionProvenance(sessionId, devHome)).toEqual([
+      expect.objectContaining({ allowed: true }),
+    ]);
   });
 });

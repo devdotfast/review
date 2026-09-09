@@ -1447,7 +1447,7 @@ export const ReviewCliInstallStatusSchema = z.strictObject({
     error: requiredString.optional(),
     // Trace storage selection (version-2 config); absent from older CLIs.
     configPath: requiredString.optional(),
-    storageMode: z.enum(["direct", "hosted", "none"]).optional(),
+    storageMode: z.enum(["s3", "hosted", "none"]).optional(),
     credentialsSource: z
       .enum(["profile", "legacy-file", "process-env", "none"])
       .optional(),
@@ -2113,7 +2113,7 @@ export type ReviewAgentTraceSession = z.infer<
   typeof ReviewAgentTraceSessionSchema
 >;
 
-export const ReviewTraceStorageKindSchema = z.enum(["direct", "hosted"]);
+export const ReviewTraceStorageKindSchema = z.enum(["s3", "hosted"]);
 export type ReviewTraceStorageKind = z.infer<
   typeof ReviewTraceStorageKindSchema
 >;
@@ -2124,7 +2124,7 @@ export const ReviewAgentTraceListResponseSchema = z.discriminatedUnion("ok", [
     configured: z.boolean().default(true),
     // The store these sessions came from, and every store the machine can
     // read; absent from older CLIs.
-    storage: z.enum(["direct", "hosted", "none"]).optional(),
+    storage: z.enum(["s3", "hosted", "none"]).optional(),
     sources: z.array(ReviewTraceStorageKindSchema).optional(),
     sessions: z.array(ReviewAgentTraceSessionSchema),
   }),

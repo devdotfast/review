@@ -23,7 +23,7 @@ The `review map` command group is experimental. Its verbs, Git-notes storage
 model, and JSON events may change without a migration period before 1.0.
 
 The `review trace` command group and trace capture are experimental and off
-by default. `review install` configures direct S3/R2 capture only when
+by default. `review install` configures S3/R2 capture only when
 `--trace-*` credentials are given; Review Desktop exposes it under Settings ▸
 Experimental Features. See [Trace storage](#trace-storage) for the hosted
 store and the storage selection commands.
@@ -183,10 +183,10 @@ and exact verb syntax.
 
 ```sh
 review trace status
-review trace storage use direct [--endpoint <url> --bucket <name> --key <id> --secret <secret> [--region <region>]]
+review trace storage use s3 [--endpoint <url> --bucket <name> --key <id> --secret <secret> [--region <region>]]
 review trace storage use hosted [--origin <url>]
 review trace config migrate [--dry-run]
-review trace list|show|pull|blame ... [--storage direct|hosted]
+review trace list|show|pull|blame ... [--storage s3|hosted]
 review login [--origin <url>] [--no-browser]
 review logout
 review whoami
@@ -195,38 +195,70 @@ review trace allow [path] [--no-harness-hooks]
 review trace deny [path]
 ```
 
-Review stores traces in one selected place per machine: a **direct** S3/R2
-bucket you own, or the **hosted** store at `https://app.dev.fast`. The
-selection lives in `$DEV_REVIEW_HOME/trace/config.json` (version 2), next to
-an optional direct bucket profile and the hosted repository consent records.
+Review stores traces in one selected place per machine: an **s3** store (an
+S3-compatible bucket you own, R2 included) or the **hosted** store at
+`https://app.dev.fast`. The configuration lives in
+`$DEV_REVIEW_HOME/trace/config.json`:
 
-An existing bucket setup keeps working unchanged. Without an explicit
-selection, `~/.config/dev-trace/env` and `settings.json` (or exported
-`TRACE_R2_*` variables) select direct storage exactly as before; no login,
-migration, or new configuration is required. Exported variables still take
-precedence over any saved profile.
+```json
+{
+  "version": 2,
+  "current-store": "s3",
+  "stores": {
+    "s3": {
+      "endpoint": "https://<account>.r2.cloudflarestorage.com",
+      "bucket": "dev-traces",
+      "accessKeyId": "…",
+      "secretAccessKey": "…",
+      "region": "auto",
+      "capture": { "enabled": true, "autoActivateRepositories": true }
+    },
+    "hosted": { "origin": "https://app.dev.fast" }
+  },
+  "repositories": [
+    { "repositoryId": 123456789, "name": "owner/repo", "enabledOrigins": ["https://app.dev.fast"], "allowedAt": "…" }
+  ]
+}
+```
 
-`review trace storage use direct` selects the bucket. With `--endpoint`,
-`--bucket`, `--key`, and `--secret` it also saves a complete profile in the
-config file after checking the bucket is reachable. `review trace config
-migrate` copies an existing legacy setup into that profile, refusing to
-overwrite a different profile or to switch away from a hosted selection;
-`--dry-run` previews without writing and never prints secrets. After a
-successful migration the legacy `env` and `settings.json` are renamed to
-`legacy_env` and `legacy_settings.json` beside their originals so the new
-file is the only active source; pass `--keep-legacy` to leave them in place.
-To roll back, rename them back and delete the config file. Exported
-`TRACE_R2_*` variables keep their precedence either way.
+- `current-store` names the store that receives uploads and serves reads.
+  When absent, an `s3` store (or a legacy bucket setup) selects `s3`; a
+  `hosted` store or a non-empty `repositories` list selects `hosted`; with
+  both stores present the pointer is required.
+- `stores.s3` must be complete or the file is rejected; exported
+  `TRACE_R2_*` variables still override individual fields.
+- `stores.hosted.origin` defaults to `https://app.dev.fast`, so a hosted-only
+  machine needs no `stores` at all.
+- `repositories` is hosted-only consent: the repositories you allowed to
+  publish complete session transcripts, and the hosted origins each may
+  publish to (`enabledOrigins` defaults to `https://app.dev.fast`). Written by
+  `review trace allow` and `review trace deny`. Bucket uploads never read it.
+
+An existing bucket setup keeps working unchanged. Without a config file,
+`~/.config/dev-trace/env` and `settings.json` (or exported `TRACE_R2_*`
+variables) select the bucket exactly as before; no login, migration, or new
+configuration is required.
+
+`review trace storage use s3` selects the bucket. With `--endpoint`,
+`--bucket`, `--key`, and `--secret` it also saves `stores.s3` after checking
+the bucket is reachable. `review trace config migrate` copies an existing
+legacy setup into `stores.s3`, refusing to overwrite a different entry or to
+switch away from a hosted selection; `--dry-run` previews without writing
+and never prints secrets. After a successful migration the legacy `env` and
+`settings.json` are renamed to `legacy_env` and `legacy_settings.json` beside
+their originals so the new file is the only active source; pass
+`--keep-legacy` to leave them in place. To roll back, rename them back and
+delete the config file.
 
 `review trace storage use hosted` requires `review login` for the origin,
 a store that answers the current contract, and `review trace allow` for the
-checkout's repository; only then does it persist the selection. Bucket
-credentials stay saved and inactive. Logging in, onboarding, or allowing a
-repository never selects hosted storage by itself, and a commit trailer
-alone never authorizes a publication. Hosted uploads that fail never fall
-back to the bucket.
+checkout's repository at that origin; only then does it persist the
+selection. Bucket credentials stay saved and inactive. Logging in or
+onboarding never selects hosted storage by itself, a legacy bucket always
+outranks consent, and a commit trailer alone never authorizes a publication.
+Hosted uploads that fail never fall back to the bucket.
 
-Read commands accept `--storage direct|hosted` to inspect the other store
+Read commands accept `--storage s3|hosted` to inspect the other store
 for one operation. The override never changes the selection, capture
 settings, or consent. `review trace status` names the effective store, the
 configuration sources in use, and the config file, without revealing

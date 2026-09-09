@@ -6,7 +6,7 @@ doctor fix committed with this document. Governing design:
 
 ## Mandatory criterion: an existing direct setup works unchanged
 
-Result: **passed**. A direct S3/R2 installation made with the pre-upgrade
+Result: **passed**. A S3/R2 installation made with the pre-upgrade
 CLI kept capturing, uploading, indexing, discovering, and reading traces
 after only the CLI was replaced. No configuration file changed, no login,
 consent, credential change, or object migration happened, and the guarded
@@ -61,11 +61,11 @@ enabled repository.
 
 `review trace config migrate --dry-run --json` wrote nothing and printed the
 key prefix only. `review trace config migrate --json` wrote
-`~/.dev/trace/config.json` with mode `0600`, retired the legacy `env` and
-`settings.json` to `legacy_env` and `legacy_settings.json` byte-identical,
-and never printed the secret. With only the new file active, `trace status`
-named the config profile as the credential source and the bucket stayed
-reachable; `trace list`, `trace show` of the pre-upgrade session, and a
+`~/.dev/trace/config.json` (`current-store: "s3"` plus `stores.s3`) with
+mode `0600`, retired the legacy `env` and `settings.json` to `legacy_env`
+and `legacy_settings.json` byte-identical, and never printed the secret.
+With only the new file active, `trace status` named the config profile as
+the credential source and the bucket stayed reachable; `trace list`, `trace show` of the pre-upgrade session, and a
 fourth captured, pushed, and synced session all worked. Renaming the retired
 files back and deleting `config.json` returned status to the legacy
 configuration.
@@ -85,7 +85,8 @@ client/server agreement on the revised contract, not deployment.
 
 ## Real installation check
 
-Result: **passed**. The same comparison was repeated on a developer machine
+Result: **passed** (repeated after the `current-store`/`stores` schema
+revision with the same outcome). The same comparison was repeated on a developer machine
 with a real, pre-existing direct setup (`~/.config/dev-trace/env` and
 `settings.json` from the original setup flow, a Cloudflare R2 bucket, this
 repository registered for capture) and two sessions already in the bucket.
@@ -100,7 +101,7 @@ delegation behavior and worth knowing when testing.
 | `trace show <s1>`, `trace show <s2>` | both sessions read from the bucket; `show --json` identical to the pre-upgrade CLI apart from the new `cache` field |
 | `trace pull --session <s1>` | materialized into the existing corpus |
 | `trace sync <s2>` | main and two subagent objects reported `unchanged` |
-| `trace show <s2> --storage direct` | works |
+| `trace show <s2> --storage s3` | works |
 | `trace show <s2> --storage hosted` | refused: hosted not configured, no fallback |
 | `trace config migrate --dry-run` | preview only, no file written, key prefix only |
 | Config files | `env`, `settings.json`, `repositories.json` hash-identical before and after; no `config.json` created |

@@ -29,9 +29,9 @@ import {
 } from "../trace-store-transport";
 import { allowTraceRepository } from "../trace-user-config";
 import { traceConfigPath } from "./config";
-import { clearTraceEnvCache } from "./direct-config";
 import { HostedTraceStorage } from "./hosted";
 import { resolveTraceStorage } from "./resolve";
+import { clearTraceEnvCache } from "./s3-config";
 
 const REPOSITORY_ID = 321;
 const ORIGIN = "https://app.dev.fast";
@@ -136,7 +136,7 @@ describe("hosted trace storage", () => {
     expect(transport.uploads.size).toBe(0);
 
     await allowTraceRepository(
-      { repositoryId: REPOSITORY_ID, name: "acme/app", store: ORIGIN },
+      { repositoryId: REPOSITORY_ID, name: "acme/app", origin: ORIGIN },
       devHome,
     );
     await expect(
@@ -214,7 +214,7 @@ describe("hosted trace storage", () => {
     ).toEqual(["later"]);
   });
 
-  it("never serves a hosted copy through direct storage or a direct copy as hosted", async () => {
+  it("never serves a hosted copy through s3 storage or a s3 copy as hosted", async () => {
     const sessionId = "hosted-session-0003";
     const transport = createMemoryTraceStoreTransport();
     const hosted = HostedTraceStorage.fromParts({
@@ -256,15 +256,15 @@ describe("hosted trace storage", () => {
     vi.stubEnv("TRACE_R2_MODE", "mock");
     vi.stubEnv("TRACE_R2_MOCK_DIR", mockBucket);
     clearTraceEnvCache();
-    const direct = await resolveTraceStorage({ cwd: repoDir });
-    expect(direct?.kind).toBe("direct");
+    const s3 = await resolveTraceStorage({ cwd: repoDir });
+    expect(s3?.kind).toBe("s3");
     const viaDirect = await loadReviewAgentTrace({
       sessionId,
       cwd: repoDir,
       repo: "acme/app",
-      storage: direct,
+      storage: s3,
     });
-    // The legacy copy is direct's own and stays readable.
+    // The legacy copy is s3's own and stays readable.
     expect(viaDirect?.descriptor.sessionId).toBe(sessionId);
 
     // The offline hosted storage sees only its own scope, not the legacy copy.
@@ -290,12 +290,14 @@ describe("hosted trace storage", () => {
     vi.stubEnv("TRACE_R2_MOCK_DIR", mockBucket);
     writeConfig({
       version: 2,
-      storage: { mode: "hosted", origin: ORIGIN },
-      direct: {
-        endpoint: "https://s3.example.invalid",
-        bucket: "legacy",
-        accessKeyId: "k",
-        secretAccessKey: "s",
+      "current-store": "hosted",
+      stores: {
+        s3: {
+          endpoint: "https://s3.example.invalid",
+          bucket: "legacy",
+          accessKeyId: "k",
+          secretAccessKey: "s",
+        },
       },
     });
     clearTraceEnvCache();

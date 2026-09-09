@@ -45,12 +45,12 @@ import { writePrivateJsonAtomic } from "./desktop-paths";
 
 const execFilePromise = promisify(execFile);
 const TUTORIAL_STATUS_VERSION = 1;
-/* Version 8 adds the representative authoring conversation and its lazy
-   source-session handoff. Older records are re-materialized on first open. */
-const TUTORIAL_STAMP_VERSION = 8;
+/* Version 9 adds the interactive trace quote chapter. Older records are
+   re-materialized on first open to pick up the updated document. */
+const TUTORIAL_STAMP_VERSION = 9;
 
 export interface TutorialStamp {
-  version: 8;
+  version: 9;
   reviewUuid: string;
 }
 
@@ -117,6 +117,16 @@ export function createTutorialService(input: {
     ) {
       return null;
     }
+    // Copy-only edits leave the sample repository's commits unchanged.
+    // Refresh the saved tutorial when its compiled document has changed too.
+    const documentPath = path.join(".bundle", "document", "review-document.js");
+    const documentMatches = await Promise.all([
+      readFile(path.join(assetsRoot, documentPath)),
+      readFile(path.join(review.dir, documentPath)),
+    ])
+      .then(([shipped, saved]) => shipped.equals(saved))
+      .catch(() => false);
+    if (!documentMatches) return null;
     return { stamp, review };
   };
 

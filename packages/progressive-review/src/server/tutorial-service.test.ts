@@ -1,5 +1,12 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rename, rm } from "node:fs/promises";
+import {
+  appendFile,
+  cp,
+  mkdtemp,
+  readFile,
+  rename,
+  rm,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,6 +27,46 @@ const execFilePromise = promisify(execFile);
 afterEach(() => vi.unstubAllEnvs());
 
 describe("tutorial service", () => {
+  it("refreshes the saved document after a tutorial edit without changing sample commits", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "review-tutorial-copy-"));
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+    const assets = path.join(home, "package");
+    await cp(
+      path.join(packageRoot, "tutorial"),
+      path.join(assets, "tutorial"),
+      {
+        recursive: true,
+      },
+    );
+    const service = createTutorialService({
+      packageRoot: assets,
+      deleteReview: async (review) => {
+        await rm(review.dir, { recursive: true, force: true });
+      },
+    });
+    try {
+      const before = await service.prepare("claude-code");
+      const documentPath = path.join(
+        ".bundle",
+        "document",
+        "review-document.js",
+      );
+      await appendFile(
+        path.join(assets, "tutorial", documentPath),
+        "\n// Updated tutorial copy\n",
+      );
+      expect((await service.status()).reviewUuid).toBeNull();
+      const after = await service.prepare("claude-code");
+      expect(after.review.uuid).not.toBe(before.review.uuid);
+      expect(after.review.sourceCommit).toBe(before.review.sourceCommit);
+      expect(await readFile(path.join(after.dir, documentPath), "utf8")).toBe(
+        await readFile(path.join(assets, "tutorial", documentPath), "utf8"),
+      );
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   it("materializes a hidden published Review with shipped bundles", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "review-tutorial-"));
     vi.stubEnv("DEV_REVIEW_HOME", home);

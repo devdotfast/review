@@ -433,7 +433,13 @@ describe("setupBannerMessage", () => {
         binary: { path: "/tmp/fff-mcp", installed: false },
         registrations: [{ target: "codex", present: false, managed: false }],
       },
-      trace: { enabled: false },
+      trace: {
+        enabled: false,
+        configured: false,
+        autoActivateRepositories: false,
+        envPath: "/tmp/trace-env",
+        settingsPath: "/tmp/trace-settings.json",
+      },
       cli: { path: "/tmp/cli.js", version: "0.0.1" },
     };
 

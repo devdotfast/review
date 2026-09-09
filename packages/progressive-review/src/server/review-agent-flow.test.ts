@@ -120,6 +120,7 @@ async function fixture(
     });
   }
   const api = createReviewApi({
+    mode: { kind: "live" },
     reviewPath,
     stateReviewPath: reviewPath,
     reviewDocumentsDir: directory,

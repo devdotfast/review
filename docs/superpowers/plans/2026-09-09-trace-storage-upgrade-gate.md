@@ -82,6 +82,34 @@ tarball packed from this branch. Its `trace-api` unit tests (22 passed,
 4 live-S3 tests skipped) and worker tests (27 passed) pass. This establishes
 client/server agreement on the revised contract, not deployment.
 
+## Real installation check
+
+Result: **passed**. The same comparison was repeated on a developer machine
+with a real, pre-existing direct setup (`~/.config/dev-trace/env` and
+`settings.json` from the original setup flow, a Cloudflare R2 bucket, this
+repository registered for capture) and two sessions already in the bucket.
+Review Desktop was running, so `DEV_FAST_REVIEW_CLI_NO_DELEGATE=1` kept the
+standalone builds from deferring to the app's bundled CLI; without it every
+"new CLI" command silently ran the bundled older CLI, which is the intended
+delegation behavior and worth knowing when testing.
+
+| Step (new CLI, network guard on) | Result |
+| --- | --- |
+| `trace status` | legacy env file named as the credential source, `config.json (not present)`, bucket reachable |
+| `trace show <s1>`, `trace show <s2>` | both sessions read from the bucket; `show --json` identical to the pre-upgrade CLI apart from the new `cache` field |
+| `trace pull --session <s1>` | materialized into the existing corpus |
+| `trace sync <s2>` | main and two subagent objects reported `unchanged` |
+| `trace show <s2> --storage direct` | works |
+| `trace show <s2> --storage hosted` | refused: hosted not configured, no fallback |
+| `trace config migrate --dry-run` | preview only, no file written, key prefix only |
+| Config files | `env`, `settings.json`, `repositories.json` hash-identical before and after; no `config.json` created |
+| Non-loopback requests from Node | none |
+
+Note: the machine's `repositories.json` already contained many
+`trace-cli-test-*` temporary paths before this branch. The existing test
+suite registers scratch repositories through the real home; that is a
+pre-existing test hygiene issue, not a behavior of this change.
+
 ## Limitations
 
 - The packaged Desktop application was not exercised end to end. Desktop's

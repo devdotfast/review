@@ -274,6 +274,7 @@ import "./browser/reviewTheme.contribution.js";
 import "./browser/reviewCommunity.contribution.js";
 import "./contrib/extensions/reviewCuratedExtensions.contribution.js";
 import "./contrib/install/reviewCliInstall.contribution.js";
+import "./contrib/migration/reviewMigration.contribution.js";
 import "./contrib/telemetry/reviewLspTelemetry.contribution.js";
 import "./contrib/telemetry/reviewTelemetry.contribution.js";
 import "./contrib/settings/reviewSettings.contribution.js";

@@ -39,7 +39,7 @@ describe("ReviewHome", () => {
     vi.restoreAllMocks();
   });
 
-  it("shows each non-repair scan error without offering repair commands", async () => {
+  it("leaves migration notices to the workbench and shows other scan errors", async () => {
     const errors: ReviewListError[] = [
       {
         reviewDir: "/reviews/unsupported",
@@ -66,13 +66,12 @@ describe("ReviewHome", () => {
       ),
     );
     const attention = [...container.querySelectorAll(".review-home-attention")];
-    expect(attention).toHaveLength(2);
+    expect(attention).toHaveLength(1);
     expect(attention.map((entry) => entry.getAttribute("aria-label"))).toEqual([
-      "Attention for Unsupported review",
       "Attention for /reviews/unreadable",
     ]);
-    expect(attention[0]?.textContent).toContain(errors[0]!.message);
-    expect(attention[1]?.textContent).toContain(errors[1]!.message);
+    expect(container.textContent).not.toContain(errors[0]!.message);
+    expect(attention[0]?.textContent).toContain(errors[1]!.message);
     expect(container.querySelector(".review-home-attention code")).toBeNull();
     expect(
       container.querySelector('button[aria-label="Copy command"]'),

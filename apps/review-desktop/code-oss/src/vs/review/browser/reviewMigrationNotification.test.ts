@@ -109,7 +109,9 @@ test('copying confirms then dismisses across windows and restarts until an updat
 	assert.equal(f.prompts[0].notification.actions?.primary?.[1].label, '✓ Copied');
 	assert.equal(f.prompts[0].notification.message, '20 Reviews need migration.');
 	assert.equal(f.prompts[0].notification.isClosed, false);
-	t.mock.timers.tick(1000);
+	t.mock.timers.tick(499);
+	assert.equal(f.prompts[0].notification.isClosed, false);
+	t.mock.timers.tick(1);
 	assert.equal(f.prompts[0].notification.isClosed, true);
 	assert.equal(storage.get(REVIEW_MIGRATION_DISMISSED_VERSION_KEY), '0.0.31');
 	assert.equal(other.prompts[0].notification.isClosed, true);

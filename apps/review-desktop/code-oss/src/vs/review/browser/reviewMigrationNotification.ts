@@ -27,7 +27,7 @@ export class ReviewMigrationNotification extends Disposable {
 
 	private readonly dismissAction = this._register(new ChoiceAction('review.migration.dismiss', { label: 'Dismiss', run: () => this.notification?.close() }));
 	private readonly copyAction = this._register(new ChoiceAction('review.migration.copy', { label: 'Copy prompt', keepOpen: true, run: () => void this.copyPrompt() }));
-	private readonly dismissAfterCopy = this._register(new RunOnceScheduler(() => this.notification?.close(), 1000));
+	private readonly dismissAfterCopy = this._register(new RunOnceScheduler(() => this.notification?.close(), 500));
 
 	private updateCopyLabel(label: string): void {
 		this.copyAction.label = label;

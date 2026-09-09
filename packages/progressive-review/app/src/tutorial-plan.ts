@@ -5,6 +5,7 @@ export type TutorialChapterId =
   | "commits"
   | "comments"
   | "diagrams"
+  | "traces"
   | "finish";
 
 export type TutorialStepCompletion =
@@ -43,6 +44,7 @@ export const TUTORIAL_CHAPTERS: readonly TutorialChapterDefinition[] = [
   { id: "commits", title: "Commits and diffs" },
   { id: "comments", title: "Comments are threads" },
   { id: "diagrams", title: "Interactive Diagrams" },
+  { id: "traces", title: "Agent traces" },
   { id: "finish", title: "Get help" },
 ];
 
@@ -148,6 +150,16 @@ const tutorialSteps: readonly TutorialStepDefinition[] = [
     completion: "external",
     targetSelector:
       '[data-review-section="Interactive Diagrams"] .database-lens .diagram-tour-button',
+  },
+  {
+    id: "openTraceQuote",
+    chapter: "traces",
+    title: "Read the agent conversation",
+    instruction:
+      "Select the trace quote to read it in context. Enable capture for your own sessions in Settings → Experimental Features → Trace capture.",
+    completion: "click",
+    targetSelector:
+      '[data-review-section="Agent traces"] .review-trace-quote',
   },
   {
     id: "getHelp",

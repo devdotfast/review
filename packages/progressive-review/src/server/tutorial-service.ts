@@ -45,12 +45,12 @@ import { writePrivateJsonAtomic } from "./desktop-paths";
 
 const execFilePromise = promisify(execFile);
 const TUTORIAL_STATUS_VERSION = 1;
-/* Version 8 adds the representative authoring conversation and its lazy
-   source-session handoff. Older records are re-materialized on first open. */
-const TUTORIAL_STAMP_VERSION = 8;
+/* Version 9 adds the interactive trace quote chapter. Older records are
+   re-materialized on first open to pick up the updated document. */
+const TUTORIAL_STAMP_VERSION = 9;
 
 export interface TutorialStamp {
-  version: 8;
+  version: 9;
   reviewUuid: string;
 }
 

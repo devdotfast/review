@@ -904,6 +904,7 @@ export const REVIEW_TUTORIAL_STEP_IDS = [
   "openDatabase",
   "getHelp",
   "chooseKeymap",
+  "openTraceQuote",
 ] as const;
 export type TutorialStepId = (typeof REVIEW_TUTORIAL_STEP_IDS)[number];
 export const REVIEW_TUTORIAL_PROGRESS_STORAGE_KEY =

@@ -90,6 +90,17 @@ The database view groups writes by use case. Its operations open code too.
   <TutorialViewButton view="map">Open the software map</TutorialViewButton>
 </TutorialFeature>
 
+## Agent traces
+
+Trace quotes connect a Review to the agent conversation behind a change.
+Select this quote from an illustrative session to read it in context:
+
+<TraceQuote sessionId="review-tutorial-checkout" event={1}>Validate inventory before charging the customer.</TraceQuote>
+
+To capture your own sessions, open **Preferences → Settings → Experimental
+Features → Trace capture**. Enter your S3/R2 bucket credentials and choose
+**Enable**. Capture is off by default; this sample works without setup.
+
 ## Get help
 
 To manage the Review skills installed for your agents, open **Preferences →

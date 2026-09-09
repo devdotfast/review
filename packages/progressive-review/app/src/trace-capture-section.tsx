@@ -11,8 +11,8 @@ type TraceCredentials = Exclude<InstallApplyRequest["trace"], true | undefined>;
 
 /**
  * Experimental trace capture controls. Lives under Settings ▸ Experimental
- * Features only: onboarding never mentions it, and nothing else in the app
- * depends on it being enabled.
+ * Features. The tutorial demonstrates a bundled trace without requiring
+ * capture to be enabled.
  *
  * The on/off state is the machine-level trace setting the review server owns,
  * read back through the install status. Enabling installs the agent hooks and

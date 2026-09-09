@@ -710,6 +710,17 @@ async function readTextIfExists(filePath: string): Promise<string> {
   }
 }
 
+/** Whether this server process can launch the named CLI through its PATH. */
+export async function executableOnPath(command: string): Promise<boolean> {
+  const directories = (process.env.PATH ?? "").split(path.delimiter);
+  const candidates = await Promise.all(
+    directories.map((directory) =>
+      isExecutableFile(path.join(directory, command)),
+    ),
+  );
+  return candidates.some(Boolean);
+}
+
 async function isExecutableFile(target: string): Promise<boolean> {
   if (!(await isFile(target))) return false;
   try {

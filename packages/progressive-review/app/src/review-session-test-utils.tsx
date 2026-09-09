@@ -74,6 +74,7 @@ function createTestCommentStore(): ReviewCommentStoreBridge {
       commentThreads,
       localComments: new Map(local),
       agentActivities: new Map(),
+      terminalThreadIds: new Set(),
       pendingCommentCount: local.size,
     };
   }
@@ -89,6 +90,9 @@ function createTestCommentStore(): ReviewCommentStoreBridge {
   }
 
   return {
+    terminalOpened() {},
+    async terminalClosed() {},
+    applyAgentStatus() {},
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);

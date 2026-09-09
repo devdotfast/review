@@ -64,6 +64,7 @@ const snapshot: ReviewCommentStoreSnapshot = {
   ]),
   localComments: new Map(),
   agentActivities: new Map(),
+  terminalThreadIds: new Set(),
   pendingCommentCount: 0,
 };
 
@@ -324,6 +325,7 @@ test("keeps one stable comment projection per diff resource", async () => {
     ]),
     localComments: new Map(),
     agentActivities: new Map(),
+  terminalThreadIds: new Set(),
     pendingCommentCount: 0,
   };
   snapshotListener({ threadIds: new Set([templateThread.threadId]) });

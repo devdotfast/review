@@ -256,6 +256,7 @@ export function ThreadCard({
           kind="new-thread"
           placeholder="Ask or add to review..."
           onAskNow={onAskNow}
+          askDisabled={thread.askDisabled}
           onAddToReview={onAddToReview}
         />
       ) : onReply && !thread.resolved ? (
@@ -662,6 +663,7 @@ const COMPOSE_VERB_DETAILS: Record<
 
 interface ThreadComposerCommonProps {
   placeholder: string;
+  askDisabled?: boolean;
   autoFocus?: boolean;
   preventFocusScroll?: boolean;
   initialDraft?: string;
@@ -803,7 +805,12 @@ export function ThreadComposer(props: ThreadComposerProps): ReactElement {
    */
   const submitWithVerb = async (chosen: ComposeVerb) => {
     const body = draft.trim();
-    if (!body || props.kind !== "new-thread") return;
+    if (
+      !body ||
+      props.kind !== "new-thread" ||
+      (chosen === "ask-now" && props.askDisabled)
+    )
+      return;
     flushSync(() => {
       setDraftValue("");
       setVerbMenuOpen(false);
@@ -825,7 +832,11 @@ export function ThreadComposer(props: ThreadComposerProps): ReactElement {
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
     const body = draft.trim();
-    if (!body) return;
+    if (
+      !body ||
+      (props.kind === "new-thread" && verb === "ask-now" && props.askDisabled)
+    )
+      return;
     // Commit the controlled input first. A parent update must not retain it.
     flushSync(() => {
       setDraftValue("");
@@ -929,7 +940,10 @@ export function ThreadComposer(props: ThreadComposerProps): ReactElement {
               type="submit"
               className="thread-compose-verb-primary"
               aria-describedby={tooltipId}
-              disabled={!draft.trim()}
+              disabled={
+                !draft.trim() ||
+                (isNewThread && verb === "ask-now" && props.askDisabled)
+              }
               onMouseDown={(event) => event.preventDefault()}
             >
               <span>{COMPOSE_VERB_DETAILS[verb].label}</span>
@@ -971,7 +985,12 @@ export function ThreadComposer(props: ThreadComposerProps): ReactElement {
                   type="button"
                   role="menuitem"
                   className="thread-compose-verb-option"
-                  disabled={!draft.trim()}
+                  disabled={
+                    !draft.trim() ||
+                    (isNewThread &&
+                      candidate === "ask-now" &&
+                      props.askDisabled)
+                  }
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => {
                     setVerbMenuOpen(false);

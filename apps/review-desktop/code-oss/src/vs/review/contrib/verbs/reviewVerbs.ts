@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { ReviewAskLoadingInput } from "./reviewAskLoadingEditor.js";
+import { INativeHostService } from "../../../platform/native/common/native.js";
 import { IOpenerService } from "../../../platform/opener/common/opener.js";
 import { encodeBase64 } from "../../../base/common/buffer.js";
 import { Emitter, Event } from "../../../base/common/event.js";
@@ -32,6 +33,7 @@ import {
   ITerminalEditorService,
   ITerminalService,
 } from "../../../workbench/contrib/terminal/browser/terminal.js";
+import { editorGroupToColumn } from "../../../workbench/services/editor/common/editorGroupColumn.js";
 import { IEditorGroupsService } from "../../../workbench/services/editor/common/editorGroupsService.js";
 import {
   IEditorService,
@@ -69,6 +71,7 @@ import {
 import { IReviewCanvasEditorTabsService } from "../../services/reviewCanvasEditorTabsService.js";
 import {
   IReviewSessionModelService,
+  reviewSessionApiRequest,
   type ReviewDesktopSession,
 } from "../../services/reviewSessionModelService.js";
 import { IReviewSessionService } from "../../services/reviewSessionService.js";
@@ -147,6 +150,7 @@ export class ReviewVerbsService
     @IReviewExplorerPartsService
     private readonly explorerParts: IReviewExplorerPartsService,
     @IHostService private readonly hostService: IHostService,
+    @INativeHostService private readonly nativeHostService: INativeHostService,
     @IOpenerService private readonly openerService: IOpenerService,
   ) {
     super();
@@ -156,12 +160,10 @@ export class ReviewVerbsService
       if (!model) return;
       const comments = model.comments;
       this.commentSubscription.value = toDisposable(comments.subscribe(() => {
-        for (const activity of comments.getSnapshot().agentActivities.values()) {
+        for (const [threadId, activity] of comments.getSnapshot().agentActivities) {
           const pending = this.askPanes.get(activity.messageId);
           if (activity.status === "failed") {
             pending?.input.fail(activity.error);
-          } else if (activity.status === "running") {
-            this.askPanes.delete(activity.messageId);
           } else if (activity.status === "starting" && pending?.startedAt !== activity.startedAt) {
             pending?.input.dispose();
             this._onDidEmitSurfaceEvent.fire({
@@ -169,7 +171,13 @@ export class ReviewVerbsService
               sessionId: model.session.session.sessionId,
             });
             const input = new ReviewAskLoadingInput(activity.messageId);
+            this._register(input.onWillDispose(() => {
+              if (input.replaced) return;
+              void comments.terminalClosed(threadId, activity.messageId).catch(error => console.error("[Review] Could not interrupt Ask", error));
+            }));
+            console.warn("[Review Ask timing]", JSON.stringify({ at: Date.now(), messageId: activity.messageId, stage: "loading.open-requested" }));
             const opened = this.editorService.openEditor(input, { pinned: true }, SIDE_GROUP);
+            void opened.then(() => console.warn("[Review Ask timing]", JSON.stringify({ at: Date.now(), messageId: activity.messageId, stage: "loading.opened" })), () => {});
             this.askPanes.set(activity.messageId, { input, opened, startedAt: activity.startedAt });
             void opened.catch(error => input.fail(String(error)));
           }
@@ -274,6 +282,9 @@ export class ReviewVerbsService
         case "showThreads":
           await this.showThreads();
           break;
+        case "resumeAgentTerminal":
+          await this.resumeAgentTerminal(sessionId, request.args.threadId);
+          break;
         case "openNativeAgentTerminal":
           await this.openNativeAgentTerminal(request.args);
           break;
@@ -303,35 +314,65 @@ export class ReviewVerbsService
     }
   }
 
+  private async resumeAgentTerminal(sessionId: string, threadId: string): Promise<void> {
+    const model = this.sessionModelService.activeModel;
+    if (!model || model.session.session.sessionId !== sessionId) throw new Error("The requested Review is not active.");
+    const thread = model.comments.getSnapshot().commentThreads.get(threadId);
+    const binding = thread?.agentSession;
+    if (!binding) throw new Error("This thread has no agent terminal.");
+    const key = `native:${binding.harness}:${binding.sessionId}`;
+    const existing = this.agentSessionTerminals.get(key);
+    if (existing && !existing.isDisposed) {
+      this._onDidEmitSurfaceEvent.fire({ event: "agentTerminalOpening", sessionId });
+      await this.terminalEditorService.openEditor(existing);
+      await this.terminalEditorService.getInputFromResource(existing.resource).revert();
+      model.comments.terminalOpened(threadId);
+      this.terminalService.setActiveInstance(existing);
+      await existing.focusWhenReady(true);
+      return;
+    }
+    const response = await reviewSessionApiRequest(model.session, `/comments/${encodeURIComponent(threadId)}/agent-terminal`, { method: "POST" }, (url, init) => model.request(url, init));
+    if (!response.ok) throw new Error(await response.text());
+  }
+
   private async openNativeAgentTerminal(
     input: Extract<ReviewVerbRequest, { name: "openNativeAgentTerminal" }>["args"],
   ): Promise<void> {
+    const timing = (stage: string) => console.warn("[Review Ask timing]", JSON.stringify({ at: Date.now(), messageId: input.askMessageId, harness: input.session.harness, stage }));
+    timing("terminal.verb-received");
     this._onDidEmitSurfaceEvent.fire({
       event: "agentTerminalOpening",
       sessionId: this.requireSession().session.sessionId,
     });
+    const comments = this.sessionModelService.activeModel?.comments;
+    if (!comments) throw new Error("No active Review comment store.");
     const pending = input.askMessageId === null ? undefined : this.askPanes.get(input.askMessageId);
     const pane = pending ? await pending.opened : undefined;
+    timing("terminal.loading-pane-ready");
     // A closed loading tab is an explicit dismissal of this Ask's terminal.
     if (pending?.input.isDisposed()) return;
     const group = pane ? pane.group.id : SIDE_GROUP;
     const finish = async () => {
       if (!pending || !pane) return;
+      pending.input.replaced = true;
       await pane.group.closeEditor(pending.input);
       pending.input.dispose();
     };
     const key = `native:${input.session.harness}:${input.session.sessionId}`;
     const existing = this.agentSessionTerminals.get(key);
-    if (existing && this.terminalEditorService.instances.includes(existing)) {
+    if (existing && !existing.isDisposed) {
       // The session already has a live terminal: bring it forward.
       await this.terminalEditorService.openEditor(existing, {
         viewColumn: group,
       });
+      await this.terminalEditorService.getInputFromResource(existing.resource).revert();
+      comments.terminalOpened(input.threadId);
       this.terminalService.setActiveInstance(existing);
       await existing.focusWhenReady(true);
       await finish();
       return;
     }
+    timing("terminal.create-start");
     const instance = await this.terminalService.createTerminal({
       config: {
         executable: input.command.executable,
@@ -350,36 +391,74 @@ export class ReviewVerbsService
         name: `${input.session.harness} · ${input.session.sessionId.slice(0, 8)}`,
         useShellEnvironment: true,
       },
-      location: { viewColumn: group },
+      // Terminal creation expects a visual column, while openEditor expects a group ID.
+      location: { viewColumn: pane ? editorGroupToColumn(this.editorGroupsService, pane.group) : SIDE_GROUP },
     });
+    timing("terminal.created");
+    const firstData = instance.onData(() => {
+      timing("terminal.first-output");
+      firstData.dispose();
+    });
+    this._register(firstData);
     this.agentSessionTerminals.set(key, instance);
+    let processId = instance.processId;
+    this._register(instance.onProcessIdReady(ready => { processId = ready.processId; timing("terminal.process-ready"); }));
+    let processExited = false;
+    this._register(instance.onExit(exit => {
+      // dispose() also emits an undefined synthetic exit before the process dies.
+      if (exit !== undefined) processExited = true;
+    }));
     this._register(instance.onDisposed(() => {
       if (this.agentSessionTerminals.get(key) === instance) {
         this.agentSessionTerminals.delete(key);
+        void (async () => {
+          if (input.session.harness === "claude-code" || input.session.harness === "pi") {
+            const pid = processId;
+            if (pid !== undefined && !processExited) {
+              try {
+                await this.nativeHostService.killProcess(pid, "SIGKILL");
+              } catch (error) {
+                // The runner may have exited after the terminal requested shutdown.
+                if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) throw error;
+              }
+            }
+          }
+          await comments.terminalClosed(input.threadId, null);
+        })().catch(error => console.error("[Review] Could not interrupt agent", error));
       }
     }));
+    if (pending?.input.isDisposed()) {
+      instance.dispose();
+      return;
+    }
+    timing("terminal.editor-open-start");
     await this.terminalEditorService.openEditor(instance, {
       viewColumn: group,
     });
+    timing("terminal.editor-opened");
+    // Review owns cancellation; this input's revert disables only its close prompt.
+    await this.terminalEditorService.getInputFromResource(instance.resource).revert();
+    comments.terminalOpened(input.threadId);
     this.terminalService.setActiveInstance(instance);
     await instance.focusWhenReady(true);
+    timing("terminal.focus-ready");
     await finish();
+    timing("terminal.loading-replaced");
   }
 
   private async showThreads(): Promise<void> {
-    const attachedTerminals = [...this.agentSessionTerminals.values()].filter(
-      (instance) => this.terminalEditorService.instances.includes(instance),
-    );
+    const terminals = [...this.agentSessionTerminals.values()].filter(instance => !instance.isDisposed);
     const terminalGroups = new Set(
-      attachedTerminals
+      terminals
+        .filter(instance => this.terminalEditorService.instances.includes(instance))
         .map((instance) =>
           this.terminalEditorService.getInputFromResource(instance.resource),
         )
         .map((input) => input.group)
         .filter((group) => group !== undefined),
     );
-    for (const instance of attachedTerminals) {
-      this.terminalEditorService.detachInstance(instance);
+    for (const instance of terminals) {
+      instance.dispose();
     }
     await Promise.resolve();
     for (const group of terminalGroups) {

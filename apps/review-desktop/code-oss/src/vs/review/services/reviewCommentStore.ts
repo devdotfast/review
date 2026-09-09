@@ -48,6 +48,7 @@ export class ReviewCommentStore implements ReviewCommentStoreBridge {
 	private persisted = new Map<string, ReviewCommentThreadRecord>();
 	private overrides = new Map<string, ReviewCommentThreadRecord | null>();
 	private local = new Map<string, ReviewLocalCommentThread>();
+	private terminalThreadIds = new Set<string>();
 	private agentActivities = new Map<string, PendingAgentActivity>();
 	private snapshot: ReviewCommentStoreSnapshot;
 	private revision = -1;
@@ -153,6 +154,11 @@ export class ReviewCommentStore implements ReviewCommentStoreBridge {
 	}
 
 	async askAgent(input: CreateReviewCommentInput): Promise<void> {
+		const timing = (stage: string) => console.warn("[Review Ask timing]", JSON.stringify({ at: Date.now(), messageId: input.messageId, stage }));
+		timing("ask.clicked");
+		if (this.agentActivities.get(input.threadId)?.activity.status === "interrupting") {
+			throw new Error("Waiting for confirmation that the previous agent stopped.");
+		}
 		const parsed = CreateReviewCommentInputSchema.parse(input);
 		const body = parsed.body.trim();
 		if (!body) return;
@@ -181,6 +187,7 @@ export class ReviewCommentStore implements ReviewCommentStoreBridge {
 		this.agentActivities.set(normalized.threadId, pending);
 		try {
 			await this.saveComment(normalized);
+			timing("ask.draft-saved");
 			const response = await this.requestReview("/agent-runs", {
 				method: "POST",
 				headers: { "content-type": "application/json" },
@@ -189,6 +196,7 @@ export class ReviewCommentStore implements ReviewCommentStoreBridge {
 			if (!response.ok) {
 				throw new Error(await reviewRequestError(response));
 			}
+			timing("ask.request-returned");
 			const active = this.agentActivities.get(normalized.threadId);
 			if (active === pending && active.activity.status === "starting") {
 				this.agentActivities.set(normalized.threadId, {
@@ -219,6 +227,60 @@ export class ReviewCommentStore implements ReviewCommentStoreBridge {
 			this.publish();
 			throw error;
 		}
+	}
+
+	terminalOpened(threadId: string): void {
+		this.terminalThreadIds.add(threadId);
+		this.publish();
+	}
+
+	async terminalClosed(threadId: string, messageId: string | null): Promise<void> {
+		this.agentActivities.get(threadId)?.resolveStarted();
+		const pending: PendingAgentActivity = {
+			activity: { messageId: createMutationId(), startedAt: new Date().toISOString(), status: "interrupting" },
+			priorAgentMessageIds: new Set(),
+			started: Promise.resolve(),
+			resolveStarted: () => {},
+		};
+		this.agentActivities.set(threadId, pending);
+		this.publish();
+		try {
+			const response = await this.requestReview(`/comments/${encodeURIComponent(threadId)}/agent-interrupt`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ messageId }),
+			});
+			if (!response.ok) throw new Error(await reviewRequestError(response));
+			if (this.agentActivities.get(threadId) === pending) this.agentActivities.delete(threadId);
+		} catch (error) {
+			if (this.agentActivities.get(threadId) === pending) {
+				this.agentActivities.set(threadId, { ...pending, activity: {
+					...pending.activity,
+					status: "interrupting",
+					error: error instanceof Error ? error.message : String(error),
+				} });
+			}
+			this.onError(error);
+			throw error;
+		} finally {
+			this.terminalThreadIds.delete(threadId);
+			this.publish();
+		}
+	}
+
+	applyAgentStatus(threadId: string, status: "running" | "idle" | "interrupted" | "failed", error?: string): void {
+		const pending = this.agentActivities.get(threadId);
+		if (!pending) return;
+		pending.resolveStarted();
+		if (pending.activity.status === "interrupting" && (status === "running" || status === "failed")) return;
+		if (status === "running") {
+			this.agentActivities.set(threadId, { ...pending, activity: { ...pending.activity, status } });
+		} else if (status === "failed") {
+			this.agentActivities.set(threadId, { ...pending, activity: { ...pending.activity, status, error: error ?? "Agent failed." } });
+		} else {
+			this.agentActivities.delete(threadId);
+		}
+		this.publish();
 	}
 
 	async deleteLocalComment(threadId: string): Promise<void> {
@@ -477,6 +539,7 @@ export class ReviewCommentStore implements ReviewCommentStoreBridge {
 		this.overrides.clear();
 		this.local.clear();
 		this.agentActivities.clear();
+		this.terminalThreadIds.clear();
 		this.revision = -1;
 		this.pendingCommits = [];
 		this.snapshot = this.buildSnapshot();
@@ -602,6 +665,7 @@ export class ReviewCommentStore implements ReviewCommentStoreBridge {
 		return {
 			commentThreads,
 			localComments: new Map(this.local),
+			terminalThreadIds: new Set(this.terminalThreadIds),
 			agentActivities: new Map(
 				[...this.agentActivities].map(([threadId, pending]) => [
 					threadId,
@@ -614,6 +678,7 @@ export class ReviewCommentStore implements ReviewCommentStoreBridge {
 
 	private reconcileAgentActivities(): void {
 		for (const [threadId, pending] of this.agentActivities) {
+			if (pending.activity.status === "interrupting") continue;
 			const thread =
 				this.local.get(threadId)?.thread ?? this.persisted.get(threadId);
 			if (!thread) {
@@ -664,6 +729,8 @@ function changedCommentThreadIds(
 		...next.localComments.keys(),
 		...previous.agentActivities.keys(),
 		...next.agentActivities.keys(),
+		...previous.terminalThreadIds,
+		...next.terminalThreadIds,
 	]);
 	for (const threadId of [...threadIds]) {
 		if (
@@ -672,7 +739,8 @@ function changedCommentThreadIds(
 			previous.localComments.get(threadId) ===
 				next.localComments.get(threadId) &&
 			previous.agentActivities.get(threadId) ===
-				next.agentActivities.get(threadId)
+				next.agentActivities.get(threadId) &&
+			previous.terminalThreadIds.has(threadId) === next.terminalThreadIds.has(threadId)
 		) {
 			threadIds.delete(threadId);
 		}

@@ -31,6 +31,7 @@ import {
 	type ReviewSessionConnection,
 	type ReviewSessionClosedEvent,
 	type ReviewThreadsCommittedEvent,
+	type ReviewAgentStatusEvent,
 } from "./reviewSessionService.js";
 import { ReviewCommentStore } from "./reviewCommentStore.js";
 
@@ -102,6 +103,7 @@ export class ReviewSessionModel extends Disposable {
 		onDidCloseSession: Event<ReviewSessionClosedEvent> = Event.None,
 		private readonly shouldRefresh: ReviewSessionRefreshPredicate = () => true,
 		onDidCommitReviewThreads: Event<ReviewThreadsCommittedEvent> = Event.None,
+		onDidChangeAgentStatus: Event<ReviewAgentStatusEvent> = Event.None,
 	) {
 		super();
 		this._session = session;
@@ -128,6 +130,11 @@ export class ReviewSessionModel extends Disposable {
 				this._onDidChange.fire();
 			}),
 		);
+		this._register(onDidChangeAgentStatus(event => {
+			if (event.uuid !== this.reviewUuid || event.sessionId !== this._session.session.sessionId || this._state !== "active") return;
+			this._comments.applyAgentStatus(event.threadId, event.status, event.error);
+		}));
+
 		this._register(
 			onDidCommitReviewThreads((event) => {
 				if (
@@ -534,7 +541,8 @@ export class ReviewSessionModelService
 			this.sessionService.onDidChangeReviewData,
 			this.sessionService.onDidCloseSession,
 			(current) => this.shouldRefreshModel(current),
-			this.sessionService.onDidCommitReviewThreads ?? Event.None,
+			this.sessionService.onDidCommitReviewThreads,
+			this.sessionService.onDidChangeAgentStatus,
 		);
 		this.models.set(key, model);
 		return model;

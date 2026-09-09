@@ -101,6 +101,7 @@ import {
 import {
   applyCliInstall,
   declineCliInstall,
+  executableOnPath,
   removeCliInstall,
   resetCliInstall,
   resolveCliInstallStatus,
@@ -309,6 +310,7 @@ export function createGlobalReviewServer(
   const tutorialAuthoringStates = new Map<string, TutorialAuthoringState>();
   let reviewReaper: ReturnType<typeof setInterval> | undefined;
   let closing = false;
+  let agentPreparation: Promise<void> | undefined;
   const harnesses = { "claude-code": claudeCode, codex, opencode, pi } as const;
   const agentServers = new Map<ReviewAgentHarness, AgentServer>();
   const agentServerFor = (harness: ReviewAgentHarness): AgentServer => {
@@ -324,6 +326,31 @@ export function createGlobalReviewServer(
     }
     return server;
   };
+  async function prepareAgentServers(): Promise<void> {
+    const status = await resolveInstalledReviewAgentStatus();
+    await Promise.all(
+      (["codex", "opencode"] as const).map(async (harness) => {
+        // Installed here means the Review integration is enabled for this harness.
+        if (
+          !status.agents.some(
+            (agent) => agent.target === harness && agent.installed,
+          )
+        )
+          return;
+        if (!(await executableOnPath(harness)) || closing) return;
+        const startedAt = Date.now();
+        try {
+          await agentServerFor(harness).prepare?.();
+          console.info(
+            "[Review agent ready]",
+            JSON.stringify({ harness, elapsedMs: Date.now() - startedAt }),
+          );
+        } catch (error) {
+          console.error(`[Review] Could not prepare ${harness}`, error);
+        }
+      }),
+    );
+  }
   const openNativeAgentTerminal = async (
     reviewSessionId: string,
     terminal: Extract<
@@ -379,27 +406,19 @@ export function createGlobalReviewServer(
     }
     await next();
   });
-  // `review threads get` inside a native agent terminal reads its thread
-  // here; the owning review is found through the session binding.
-  app.get(
-    "/native-agent-events/:harness/:sessionId/thread/:threadId",
-    (context) => {
-      const ref = parseAuthoringSessionKey(
-        `${context.req.param("harness")}:${context.req.param("sessionId")}`,
-      );
-      const threadId = context.req.param("threadId");
-      if (ref && threadId) {
-        for (const session of sessions.values()) {
-          const found = session.handler.findAgentThread(ref, threadId);
-          if (found) return globalJson(200, found);
-        }
-      }
-      return globalJson(404, {
-        ok: false,
-        error: `Comment thread not found: ${threadId ?? ""}`,
-      });
-    },
-  );
+  // Native agents can read their draft before launch returns and a session is bound.
+  // Every lookup is authenticated by the desktop token above.
+  app.get("/agent-threads/:threadId", (context) => {
+    const threadId = context.req.param("threadId");
+    for (const session of sessions.values()) {
+      const found = session.handler.findAgentThread(threadId);
+      if (found) return globalJson(200, found);
+    }
+    return globalJson(404, {
+      ok: false,
+      error: `Comment thread not found: ${threadId}`,
+    });
+  });
   app.post("/app/focus", async () => {
     const result = await relay.dispatch("review-desktop", {
       name: "focusWindow",
@@ -1788,6 +1807,20 @@ export function createGlobalReviewServer(
           sessionId,
         });
       },
+      onAgentStatus: (threadId, status, error) => {
+        const event: Extract<
+          ReviewDesktopGlobalEvent,
+          { event: "review-agent-status" }
+        > = {
+          event: "review-agent-status",
+          uuid: registration.review.review.uuid,
+          sessionId,
+          threadId,
+          status,
+        };
+        if (error !== undefined) event.error = error;
+        broadcastGlobal(event);
+      },
       onReviewThreadsCommit: (commit) => {
         broadcastGlobal({
           event: "review-threads-committed",
@@ -2172,6 +2205,12 @@ export function createGlobalReviewServer(
       boundPort = await listen(httpServer, input.port);
       discovery.url = urlForBoundPort();
       await writePrivateJsonAtomic(discoveryPath, discovery);
+      agentPreparation = prepareAgentServers().catch((error) =>
+        console.error(
+          "[Review] Could not inspect enabled agent integrations",
+          error,
+        ),
+      );
       void runReviewReaper().catch((error) =>
         console.error("Could not run Review cleanup:", error),
       );
@@ -2188,6 +2227,7 @@ export function createGlobalReviewServer(
       reviewReaper = undefined;
       await removeMatchingDiscovery(discoveryPath, discovery);
       await abortTutorialAuthoringStates();
+      await agentPreparation;
       await Promise.all(
         [...sessions.values()].map((session) =>
           closeSession(session, "app-exit", false).catch(() => undefined),

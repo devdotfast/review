@@ -177,6 +177,7 @@ export interface ReviewStateValue {
   focusedThreadId: string | null;
   threadFocusRequest: ThreadFocusRequest | null;
   commentThreads: ReadonlyMap<string, ReviewCommentThreadRecord>;
+  terminalThreadIds: ReadonlySet<string>;
   allCommentThreads: () => CommentThreadView[];
   /** Resolved comment threads, for the Threads sidebar's Resolved section. */
   resolvedCommentThreads: () => CommentThreadView[];
@@ -274,6 +275,7 @@ function ReviewCoordinator({
   const threadFocusNonceRef = useRef(0);
 
   const commentThreads = commentSnapshot.commentThreads;
+  const terminalThreadIds = commentSnapshot.terminalThreadIds;
   const localComments = commentSnapshot.localComments;
   const agentActivities = commentSnapshot.agentActivities;
   const pendingCommentCount = commentSnapshot.pendingCommentCount;
@@ -653,6 +655,7 @@ function ReviewCoordinator({
       focusedThreadId,
       threadFocusRequest,
       commentThreads,
+      terminalThreadIds,
       allCommentThreads,
       resolvedCommentThreads,
       pendingCommentCount,
@@ -667,6 +670,7 @@ function ReviewCoordinator({
     [
       allCommentThreads,
       commentThreads,
+      terminalThreadIds,
       commentsForAnchor,
       commentsForTarget,
       createAstLineCommentTargetBound,

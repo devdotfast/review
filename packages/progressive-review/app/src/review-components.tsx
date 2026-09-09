@@ -1524,16 +1524,11 @@ function ThreadPanelInner({
       setThreadsPage({ kind: "comment", threadId: destination.threadId });
     }
   };
-  const resumeInTerminal = async (item: ThreadView) => {
-    const response = await session.fetch(
-      `/comments/${encodeURIComponent(item.threadId)}/agent-terminal`,
-      { method: "POST" },
-    );
-    if (!response.ok) {
-      const result: JsonValue | null = await response.json().catch(() => null);
-      const error = isJsonObject(result) ? jsonString(result.error) : undefined;
-      throw new Error(error ?? "Unable to resume the agent terminal.");
-    }
+  const resumeInTerminal = (item: ThreadView) => {
+    return session.surface.post({
+      name: "resumeAgentTerminal",
+      args: { threadId: item.threadId },
+    });
   };
   const addToReview = async (body: string) => {
     const destination = commentThread ?? target;

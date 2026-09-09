@@ -231,6 +231,155 @@ describe("sqlite thread store", () => {
     });
   });
 
+  it.each([
+    { version: "6", boundary: {} },
+    { version: "7", boundary: { state: "ready", firstMessageId: "ask" } },
+    { version: "7", boundary: { state: "pending", firstMessageId: null } },
+    { version: "7", boundary: { state: "repair-required" } },
+    { version: "8", boundary: { firstMessageId: "ask" } },
+  ])(
+    "preserves saved and draft conversations upgrading $version $boundary",
+    async ({ version, boundary }) => {
+      const reviewPath = makeReviewPath();
+      createReviewThreadDb(path.dirname(reviewPath));
+      closeAllReviewThreadStores();
+      const db = new DatabaseSync(reviewThreadDbPath(reviewPath));
+      const records = ["codex", "claude-code", "pi", "opencode"].map(
+        (harness) => ({
+          threadId: harness,
+          target: { kind: "document" },
+          status: "resolved",
+          agentSession: {
+            harness,
+            sessionId: `session-${harness}`,
+            ...boundary,
+          },
+          messages: [
+            {
+              id: "ask",
+              by: "Reviewer",
+              at: "2026-09-08T00:00:00Z",
+              body: "Keep my question",
+              agentInput: true,
+            },
+            {
+              id: "reply",
+              by: "Agent",
+              at: "2026-09-08T00:00:01Z",
+              body: "Keep the answer\nwith formatting",
+              role: "agent",
+              format: "markdown",
+              agentInput: false,
+              agentMessage:
+                version === "6"
+                  ? undefined
+                  : {
+                      sessionId: `session-${harness}`,
+                      messageId: "native-reply",
+                    },
+            },
+          ],
+        }),
+      );
+      const drafts = records.map((thread) => ({
+        thread,
+        inputs: [
+          {
+            threadId: thread.threadId,
+            messageId: "next",
+            target: thread.target,
+            body: "Unsent follow-up",
+            agentInput: true,
+          },
+        ],
+      }));
+      for (const record of records)
+        db.prepare(
+          "INSERT INTO comments (thread_id, record_json) VALUES (?, ?)",
+        ).run(record.threadId, JSON.stringify(record));
+      for (const draft of drafts)
+        db.prepare(
+          "INSERT INTO comment_drafts (thread_id, record_json) VALUES (?, ?)",
+        ).run(draft.thread.threadId, JSON.stringify(draft));
+      db.prepare("UPDATE meta SET value = ? WHERE key = 'schema_version'").run(
+        version,
+      );
+      db.close();
+
+      await migrateReviewThreadDb(reviewPath);
+      const comments = readReviewComments(reviewPath);
+      const upgraded = new DatabaseSync(reviewThreadDbPath(reviewPath));
+      for (const original of records) {
+        const comment = comments[original.threadId];
+        expect(comment).toEqual({
+          ...original,
+          agentSession: {
+            harness: original.agentSession.harness,
+            sessionId: original.agentSession.sessionId,
+          },
+          messages: original.messages.map(
+            ({ agentMessage: _obsolete, ...message }) => message,
+          ),
+        });
+        const row = upgraded
+          .prepare("SELECT record_json FROM comment_drafts WHERE thread_id = ?")
+          .get(original.threadId) as { record_json: string };
+        expect(JSON.parse(row.record_json)).toEqual({
+          thread: comment,
+          inputs: drafts.find(
+            (draft) => draft.thread.threadId === original.threadId,
+          )!.inputs,
+        });
+      }
+      upgraded.close();
+      await expect(migrateReviewThreadDb(reviewPath)).resolves.toBe("current");
+    },
+  );
+
+  it("leaves every record and version unchanged if a binding is invalid", async () => {
+    const reviewPath = makeReviewPath();
+    seedComment(reviewPath);
+    closeAllReviewThreadStores();
+    const db = new DatabaseSync(reviewThreadDbPath(reviewPath));
+    const original = db
+      .prepare("SELECT record_json FROM comments WHERE thread_id = 'thread-1'")
+      .get() as { record_json: string };
+    const broken = {
+      ...JSON.parse(original.record_json),
+      threadId: "broken",
+      agentSession: { harness: "pi", sessionId: "", firstMessageId: "ask" },
+    };
+    db.prepare(
+      "INSERT INTO comments (thread_id, record_json) VALUES (?, ?)",
+    ).run("broken", JSON.stringify(broken));
+    db.prepare(
+      "UPDATE meta SET value = '8' WHERE key = 'schema_version'",
+    ).run();
+    db.close();
+    await expect(migrateReviewThreadDb(reviewPath)).rejects.toThrow(
+      "sessionId",
+    );
+    const unchanged = new DatabaseSync(reviewThreadDbPath(reviewPath));
+    expect(
+      unchanged
+        .prepare(
+          "SELECT record_json FROM comments WHERE thread_id = 'thread-1'",
+        )
+        .get(),
+    ).toEqual(original);
+    expect(
+      unchanged
+        .prepare("SELECT record_json FROM comments WHERE thread_id = 'broken'")
+        .get(),
+    ).toEqual({ record_json: JSON.stringify(broken) });
+    expect(
+      unchanged
+        .prepare("SELECT value FROM meta WHERE key = 'schema_version'")
+        .get(),
+    ).toEqual({ value: "8" });
+    unchanged.close();
+  });
+
   it("does not select legacy JSON files at runtime", () => {
     const reviewPath = makeReviewPath();
     writeFileSync(

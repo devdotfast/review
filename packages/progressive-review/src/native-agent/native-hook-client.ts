@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const HOOK_URL_ENV = "DEV_FAST_REVIEW_AGENT_HOOK_URL";
@@ -14,9 +15,16 @@ async function readStdin(): Promise<string> {
 export async function sendNativeAgentHook(): Promise<void> {
   const url = process.env[HOOK_URL_ENV];
   const token = process.env[HOOK_TOKEN_ENV];
-  if (!url || !token) return;
+  const launchId = process.env.DEV_FAST_REVIEW_AGENT_LAUNCH_ID;
+  if (!url || !token || !launchId)
+    throw new Error("Review hook requires URL, token, and launch ID.");
   try {
-    const body = await readStdin();
+    const payload = JSON.parse(await readStdin());
+    const body = JSON.stringify({
+      ...payload,
+      review_event_id: randomUUID(),
+      review_launch_id: launchId,
+    });
     await fetch(url, {
       method: "POST",
       headers: {

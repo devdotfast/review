@@ -3,32 +3,7 @@ import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { jsonString } from "@dev.fast/review-protocol";
-
-import type { NativeReviewMessage } from "./native-session";
-import {
-  type JsonRecord,
-  isJsonRecord,
-  isMissingFileError,
-  readJsonLines,
-  textBlocks,
-} from "./transcript-json";
-
-interface ClaudeStep {
-  user: NativeReviewMessage;
-  assistantEntries: JsonRecord[];
-}
-
-export async function readClaudeReviewMessages(input: {
-  sessionId: string;
-  transcriptPath?: string;
-}): Promise<NativeReviewMessage[]> {
-  return projectClaudeReviewMessages(
-    await readJsonLines(
-      input.transcriptPath ?? (await findClaudeTranscript(input.sessionId)),
-    ),
-  );
-}
+import { isMissingFileError } from "./transcript-json";
 
 export async function findClaudeTranscript(sessionId: string): Promise<string> {
   const configDir = process.env.CLAUDE_CONFIG_DIR
@@ -65,65 +40,4 @@ async function findTranscript(
     }
   }
   return undefined;
-}
-
-export function projectClaudeReviewMessages(
-  entries: readonly JsonRecord[],
-): NativeReviewMessage[] {
-  const messages: NativeReviewMessage[] = [];
-  let step: ClaudeStep | undefined;
-  const flushAssistant = (): void => {
-    if (!step) return;
-    const completed = step.assistantEntries.filter((entry) => {
-      const message = isJsonRecord(entry.message) ? entry.message : undefined;
-      return message?.stop_reason === "end_turn";
-    });
-    const contributing = completed.filter((entry) =>
-      assistantText(entry).trim(),
-    );
-    const body = contributing.map(assistantText).join("\n").trim();
-    if (!body) return;
-    messages.push({
-      role: "assistant",
-      body,
-      createdAt:
-        contributing.flatMap(entryTimestamp).at(-1) ?? step.user.createdAt,
-    });
-  };
-
-  for (const entry of entries) {
-    if (entry.isSidechain === true) continue;
-    if (entry.type === "user") {
-      const body = messageText(entry);
-      if (!body) continue;
-      flushAssistant();
-      const user: NativeReviewMessage = {
-        role: "user",
-        body,
-        createdAt: entryTimestamp(entry)[0] ?? new Date(0).toISOString(),
-      };
-      messages.push(user);
-      step = { user, assistantEntries: [] };
-      continue;
-    }
-    if (step && entry.type === "assistant") {
-      step.assistantEntries.push(entry);
-    }
-  }
-  flushAssistant();
-  return messages;
-}
-
-function messageText(entry: JsonRecord): string {
-  const message = isJsonRecord(entry.message) ? entry.message : undefined;
-  return textBlocks(message?.content).join("\n").trim();
-}
-
-function assistantText(entry: JsonRecord): string {
-  return messageText(entry);
-}
-
-function entryTimestamp(entry: JsonRecord): string[] {
-  const timestamp = jsonString(entry.timestamp);
-  return timestamp ? [timestamp] : [];
 }

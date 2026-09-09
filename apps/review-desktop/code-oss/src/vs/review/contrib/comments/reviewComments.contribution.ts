@@ -133,6 +133,7 @@ interface CommentThreadProjection extends BaseThreadProjection {
   readonly record: ReviewCommentThreadRecord;
   readonly draft: boolean;
   readonly agentActivity: ReviewCommentAgentActivity | undefined;
+  readonly terminalOpen: boolean;
 }
 
 type ThreadProjection = CommentThreadProjection;
@@ -182,6 +183,8 @@ function codeResourceRangeLabel(
 }
 
 function agentActivityLabel(activity: ReviewCommentAgentActivity): string {
+  if (activity.status === "starting") return "Starting\u2026";
+  if (activity.status === "interrupting") return activity.error === undefined ? "Stopping agent…" : `Could not confirm the agent stopped: ${activity.error}`;
   if (activity.status === "running") return "Running\u2026";
   return `Failed: ${"error" in activity ? activity.error : "Unknown error"}`;
 }
@@ -219,6 +222,7 @@ class ReviewCommentThread extends Disposable implements CommentThread<IRange> {
     return this._collapsibleState;
   }
   set collapsibleState(state: CommentThreadCollapsibleState) {
+    if (this.projection?.terminalOpen && state === CommentThreadCollapsibleState.Expanded) return;
     if (state === this._collapsibleState) return;
     this._collapsibleState = state;
     this._onDidChangeCollapsibleState.fire(state);
@@ -267,12 +271,15 @@ class ReviewCommentThread extends Disposable implements CommentThread<IRange> {
   }
 
   apply(projection: ThreadProjection): void {
+    const wasTerminalOpen = this.projection?.terminalOpen === true;
     this.projection = projection;
+    if (projection.terminalOpen) this.collapsibleState = CommentThreadCollapsibleState.Collapsed;
+    else if (wasTerminalOpen) this.collapsibleState = CommentThreadCollapsibleState.Expanded;
     this.resource = projection.resource.toString();
     this.range = projection.range;
     this.isTemplate = false;
     this.editorId = undefined;
-    this.canReply = projection.record.status !== "resolved";
+    this.canReply = !projection.terminalOpen && projection.agentActivity?.status !== "interrupting" && projection.record.status !== "resolved";
     this.label =
       projection.label ?? codeRangeLabel(projection.target, projection.draft);
     this.state =
@@ -829,7 +836,6 @@ export class ReviewCommentController
     for (const record of snapshot.commentThreads.values()) {
       if (record.target.kind !== "code") continue;
       const agentActivity = snapshot.agentActivities.get(record.threadId);
-      if (agentActivity?.status === "starting") continue;
       const target = record.target;
       const rows = gitLabDiffPositionRows(target.position);
       const outdated =
@@ -847,6 +853,7 @@ export class ReviewCommentController
         outdated,
         draft: snapshot.localComments.has(record.threadId),
         agentActivity,
+        terminalOpen: snapshot.terminalThreadIds.has(record.threadId),
       });
     }
     return projections;

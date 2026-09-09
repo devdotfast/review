@@ -88,6 +88,10 @@ import {
   runReviewTraceStatus,
   runReviewTraceSync,
 } from "./trace-cli";
+import {
+  runReviewTraceConfigMigrate,
+  runReviewTraceStorageUse,
+} from "./trace-storage-cli";
 
 interface ProgressiveReviewCliRuntime {
   runReviewAppLaunch: typeof runReviewAppLaunch;
@@ -125,6 +129,8 @@ interface ProgressiveReviewCliRuntime {
   runReviewTraceHook: typeof runReviewTraceHook;
   runReviewTraceGitHook: typeof runReviewTraceGitHook;
   runReviewTraceSync: typeof runReviewTraceSync;
+  runReviewTraceStorageUse: typeof runReviewTraceStorageUse;
+  runReviewTraceConfigMigrate: typeof runReviewTraceConfigMigrate;
   listReviews: typeof listReviews;
   sealReviewCandidate: typeof sealReviewCandidate;
   prepareReviewPinnedCheckout: typeof prepareReviewPinnedCheckout;
@@ -829,6 +835,73 @@ export async function runProgressiveReviewCli(
     });
   });
 
+  // Storage selection and configuration migration write only the shared
+  // trace config; legacy files and remote objects are never touched.
+  const traceStorage = configureOutput(
+    trace.command("storage").description("Select the trace store"),
+    "plain",
+  );
+  configureJsonOutput(
+    traceStorage
+      .command("use <mode>")
+      .description("Select direct (S3/R2) or hosted trace storage")
+      .option("--origin <url>", "hosted store origin")
+      .option("--endpoint <url>", "S3/R2 endpoint URL (direct)")
+      .option("--bucket <name>", "S3/R2 bucket name (direct)")
+      .option("--key <id>", "S3/R2 access key ID (direct)")
+      .option("--secret <key>", "S3/R2 secret access key (direct)")
+      .option("--region <region>", "S3/R2 signing region (direct)"),
+    "plain",
+  ).action(
+    async (
+      mode: string,
+      options: {
+        origin?: string;
+        endpoint?: string;
+        bucket?: string;
+        key?: string;
+        secret?: string;
+        region?: string;
+        json?: boolean;
+      },
+    ) => {
+      state.exitCode = await runtime.runReviewTraceStorageUse({
+        cwd,
+        mode,
+        origin: options.origin,
+        endpoint: options.endpoint,
+        bucket: options.bucket,
+        key: options.key,
+        secret: options.secret,
+        region: options.region,
+        json: options.json,
+        stdout: input.stdout,
+        stderr: input.stderr,
+      });
+    },
+  );
+
+  const traceConfig = configureOutput(
+    trace.command("config").description("Manage trace storage configuration"),
+    "plain",
+  );
+  configureJsonOutput(
+    traceConfig
+      .command("migrate")
+      .description(
+        "Copy the legacy S3/R2 setup into $DEV_REVIEW_HOME/trace/config.json",
+      )
+      .option("--dry-run", "preview without writing"),
+    "plain",
+  ).action(async (options: { dryRun?: boolean; json?: boolean }) => {
+    state.exitCode = await runtime.runReviewTraceConfigMigrate({
+      dryRun: options.dryRun,
+      json: options.json,
+      stdout: input.stdout,
+      stderr: input.stderr,
+    });
+  });
+
   configureOutput(
     trace
       .command("enable [path]")
@@ -1284,6 +1357,8 @@ function progressiveReviewCliRuntime(
     runReviewTraceHook,
     runReviewTraceGitHook,
     runReviewTraceSync,
+    runReviewTraceStorageUse,
+    runReviewTraceConfigMigrate,
     listReviews,
     sealReviewCandidate,
     prepareReviewPinnedCheckout,

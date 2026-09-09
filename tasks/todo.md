@@ -1,14 +1,42 @@
-# Simplification pass
+# Trace storage rewrite (feat/trace-storage-rewrite)
 
-- [x] A. Remove dead files, exports, routes, styles, and dependencies.
-- [ ] B. Consolidate duplicate helpers and implementations. The shared app and backend helpers are complete. The wider Code OSS refactors remain.
-- [x] C. Improve measured hot paths without behavior changes.
-- [x] D. Simplify build, test, and packaging tools.
-- [x] E. Move the checker and emitter toolchain to TypeScript 7.
-- [ ] F. Replace or remove source-text contract tests case by case. Keep this test-strategy change separate from the dead-code pass.
-- [x] G. Move live trace contracts into `review-protocol` and remove `trace-shared`.
-- [x] Run the plan's automated checks.
-- [ ] Run the plan's manual desktop checks. The app launch and Review render passed. Custom-surface automation blocked the remaining interactions.
-- [x] Review the final diff against `origin/main`.
+Plan: /Users/aiansiti/.claude/plans/witty-zooming-engelbart.md
+Design: /Users/aiansiti/workable/trace-storage-design.md
 
-Deferred items remain out of scope. See the source plan for the complete list.
+## Commit 1: extract direct storage behind the interface
+- [x] trace-storage/types.ts (TraceStorage interface, targets, publish input/result)
+- [x] trace-storage/direct-config.ts (unified legacy resolver: env → file, AWS_* fallback, mock mode)
+- [x] trace-storage/direct.ts (AWS CLI transport, by-session/by-commit layout, meta merge, doctor)
+- [x] trace-storage/resolve.ts (direct-or-null resolver)
+- [x] Rewire review-agent-traces.ts, trace-git-hook-runner.ts, trace-machine-setup.ts, review-api.ts
+- [x] Existing suites pass; typecheck/lint/format clean
+
+## Commit 2: v2 config, selection, migrate, storage commands
+- [x] config.ts v2 schema + v1 consent read + atomic private write + concurrent-edit check
+- [x] resolve.ts selection table
+- [x] `review trace config migrate [--dry-run] [--json]`
+- [x] `review trace storage use direct [--endpoint …]` (hosted branch lands in Commit 3)
+- [x] `review trace status` mode/destination/sources
+- [x] Setup writes to active source (v2 when fresh)
+- [x] Tests per selection row, migrate cases, precedence
+
+## Commit 3: hosted backend
+- [ ] Restore packages/trace-shared 0.2.0
+- [ ] Copy store-origin/store-client/transport/sync-status/provenance/repository-target
+- [ ] Split store-auth; consent into config.ts
+- [ ] hosted.ts TraceStorage
+- [ ] Hook gates (consent + provenance), detached sync re-check
+- [ ] login/logout/whoami, onboard/allow/deny; hosted contract validation on switch
+- [ ] Tests
+
+## Commit 4: reads, --storage override, product surfaces
+- [ ] cache.ts source identity; direct v1 + destination; hosted v2
+- [ ] --storage flag on list/show/pull/blame; /agent-traces?storage=
+- [ ] Desktop trace-source control + Agent Setup mode display
+- [ ] Docs, skill, telemetry vocabulary, protocol mirror
+
+## Commit 5: validation evidence
+- [ ] MinIO upgrade gate (pre-upgrade CLI → new CLI, unchanged config, zero hosted requests)
+- [ ] Migration acceptance
+- [ ] Dev alpha-branch trace-api unit tests vs 0.2.0 tarball
+- [ ] Evidence doc; pnpm ci

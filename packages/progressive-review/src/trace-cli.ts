@@ -34,6 +34,8 @@ import {
   repairTraceRepository,
   traceRepositoryStatus,
 } from "./trace-repository-hooks";
+import { describeSelection } from "./trace-storage-cli";
+import { selectTraceStorage } from "./trace-storage/resolve";
 
 export { runReviewTraceGitHook, runReviewTraceHook };
 
@@ -44,10 +46,29 @@ export async function runReviewTraceStatus(input: {
 }): Promise<number> {
   const machine = await traceMachineStatus();
   const repository = await traceRepositoryStatus(input.cwd);
+  const selection = selectTraceStorage();
   input.stdout.write(
     `Trace capture: ${machine.enabled ? "enabled" : "disabled"}\n`,
   );
   input.stdout.write(`Repository: ${repository.message}\n`);
+  input.stdout.write(`Storage: ${describeSelection(selection)}\n`);
+  input.stdout.write(
+    `Config: ${selection.config.path} (${
+      selection.config.source === "absent"
+        ? "not present"
+        : `version ${selection.config.source === "v1" ? "1, consent only" : "2"}`
+    })\n`,
+  );
+  if (selection.error) {
+    input.stderr.write(`trace status: ${selection.error}\n`);
+    return 1;
+  }
+  if (selection.mode === "hosted") {
+    input.stderr.write(
+      "trace status: hosted trace storage is not available in this build.\n",
+    );
+    return 1;
+  }
   const doctor = await checkReviewTraceDoctor({ cwd: input.cwd });
   input.stdout.write(`Checking trace configuration (${doctor.envPath})…\n`);
 

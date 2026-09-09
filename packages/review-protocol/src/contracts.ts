@@ -1445,6 +1445,13 @@ export const ReviewCliInstallStatusSchema = z.strictObject({
     accessKeyIdPrefix: requiredString.optional(),
     verifiedAt: requiredString.optional(),
     error: requiredString.optional(),
+    // Trace storage selection (version-2 config); absent from older CLIs.
+    configPath: requiredString.optional(),
+    storageMode: z.enum(["direct", "hosted", "none"]).optional(),
+    credentialsSource: z
+      .enum(["profile", "legacy-file", "process-env", "none"])
+      .optional(),
+    captureSource: z.enum(["profile", "settings"]).optional(),
   }),
   // Null when the serving package has no built CLI (a source-run dev server).
   cli: z

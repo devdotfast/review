@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -7,13 +8,27 @@ import { z } from "zod";
 
 import { writeFileAtomicAsync } from "./atomic-write";
 import { clearTraceEnvCache } from "./review-agent-traces";
+import {
+  type DirectCaptureSettings,
+  type DirectProfile,
+  type TraceConfigFile,
+  TraceConfigurationError,
+  readTraceConfigFile,
+  writeTraceConfigFile,
+} from "./trace-storage/config";
 import { DirectTraceStorage } from "./trace-storage/direct";
 import {
   DIRECT_DEFAULT_REGION,
-  resolveDirectCredentials,
+  type DirectCredentialsSource,
+  type DirectSetup,
+  resolveDirectSetup,
   traceEnvPath,
   traceSettingsPath,
 } from "./trace-storage/direct-config";
+import {
+  type TraceStorageMode,
+  selectTraceStorage,
+} from "./trace-storage/resolve";
 
 export { traceEnvPath, traceSettingsPath };
 
@@ -27,6 +42,8 @@ export interface TraceCredentialsInput {
   region?: string;
 }
 
+export type TraceCaptureSource = "profile" | "settings";
+
 export interface TraceMachineStatus {
   enabled: boolean;
   configured: boolean;
@@ -39,6 +56,14 @@ export interface TraceMachineStatus {
   accessKeyIdPrefix?: string;
   verifiedAt?: string;
   error?: string;
+  /** The shared trace configuration file, present or not. */
+  configPath?: string;
+  /** The selected trace store after applying the selection rules. */
+  storageMode?: TraceStorageMode;
+  /** Where the bucket credentials came from before environment overrides. */
+  credentialsSource?: DirectCredentialsSource;
+  /** Which file holds the capture settings that are in effect. */
+  captureSource?: TraceCaptureSource;
 }
 
 const traceMachineSettingsSchema = z.object({
@@ -50,12 +75,12 @@ const traceMachineSettingsSchema = z.object({
 });
 type TraceMachineSettings = z.infer<typeof traceMachineSettingsSchema>;
 
-/** The legacy bucket credentials in the setup flow's field names. */
+/** The bucket credentials in the setup flow's field names. */
 export async function readTraceCredentials(
   homeDir = os.homedir(),
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<Required<TraceCredentialsInput> | null> {
-  const credentials = resolveDirectCredentials({ homeDir, env });
+  const credentials = resolveDirectSetup({ homeDir, env }).credentials;
   if (!credentials) return null;
   return {
     endpoint: credentials.endpoint,
@@ -63,6 +88,34 @@ export async function readTraceCredentials(
     key: credentials.accessKeyId,
     secret: credentials.secretAccessKey,
     region: credentials.region,
+  };
+}
+
+/**
+ * The capture settings in effect: the profile's when the version-2 profile
+ * carries them, otherwise the legacy settings file.
+ */
+async function readCaptureSettings(
+  setup: DirectSetup,
+  settingsPath: string,
+): Promise<{
+  settings: DirectCaptureSettings | null;
+  source: TraceCaptureSource;
+}> {
+  if (setup.profile?.capture) {
+    return { settings: setup.profile.capture, source: "profile" };
+  }
+  const legacy = await readSettings(settingsPath);
+  return {
+    settings: legacy
+      ? {
+          enabled: legacy.enabled,
+          autoActivateRepositories: legacy.autoActivateRepositories,
+          verifiedAt: legacy.verifiedAt,
+          error: legacy.error,
+        }
+      : null,
+    source: "settings",
   };
 }
 
@@ -76,8 +129,22 @@ export async function traceMachineStatus(
   const env = input.env ?? process.env;
   const envPath = traceEnvPath(homeDir, env);
   const settingsPath = traceSettingsPath(homeDir, env);
-  const credentials = await readTraceCredentials(homeDir, env);
-  const settings = await readSettings(settingsPath);
+  const selection = selectTraceStorage({ homeDir, env });
+  if (!selection.direct) {
+    return {
+      enabled: false,
+      configured: false,
+      autoActivateRepositories: false,
+      envPath,
+      settingsPath,
+      configPath: selection.config.path,
+      storageMode: selection.mode,
+      error: selection.error,
+    };
+  }
+  const setup = selection.direct;
+  const credentials = setup.credentials;
+  const { settings, source } = await readCaptureSettings(setup, settingsPath);
   const status: TraceMachineStatus = {
     enabled: settings?.enabled === true,
     configured: credentials !== null,
@@ -85,15 +152,20 @@ export async function traceMachineStatus(
       settings?.enabled === true && settings.autoActivateRepositories === true,
     envPath,
     settingsPath,
+    configPath: setup.configPath,
+    storageMode: selection.mode,
+    credentialsSource: setup.source,
+    captureSource: source,
   };
   if (credentials) {
     status.endpoint = credentials.endpoint;
     status.bucket = credentials.bucket;
     status.region = credentials.region;
-    status.accessKeyIdPrefix = credentials.key.slice(0, 6);
+    status.accessKeyIdPrefix = credentials.accessKeyId.slice(0, 6);
   }
   if (settings?.verifiedAt) status.verifiedAt = settings.verifiedAt;
   if (settings?.error) status.error = settings.error;
+  if (selection.error) status.error = selection.error;
   return status;
 }
 
@@ -131,22 +203,37 @@ export async function configureTraceMachine(input: {
     existing?.region ||
     DIRECT_DEFAULT_REGION;
 
+  // Setup updates whichever configuration source is active: the version-2
+  // profile when one exists, the legacy files when only those exist or when
+  // TRACE_ENV_FILE/TRACE_SETTINGS_FILE name them explicitly, and a new
+  // version-2 profile on a machine that has neither.
+  const configFile = readTraceConfigFile({ homeDir, env });
+  if (configFile.error) throw new TraceConfigurationError(configFile.error);
   const envPath = traceEnvPath(homeDir, env);
-  await mkdir(path.dirname(envPath), { recursive: true });
-  await writeFile(
-    envPath,
-    [
-      `export TRACE_R2_ENDPOINT=${JSON.stringify(credentials.endpoint)}`,
-      `export TRACE_R2_BUCKET=${JSON.stringify(credentials.bucket)}`,
-      `export TRACE_R2_ACCESS_KEY_ID=${JSON.stringify(credentials.key)}`,
-      `export TRACE_R2_SECRET_ACCESS_KEY=${JSON.stringify(credentials.secret)}`,
-      `export TRACE_R2_REGION=${JSON.stringify(region)}`,
-      "",
-    ].join("\n"),
-    { mode: 0o600 },
-  );
-  await chmod(envPath, 0o600);
-  clearTraceEnvCache();
+  const legacyPathsRequested =
+    env.TRACE_ENV_FILE !== undefined || env.TRACE_SETTINGS_FILE !== undefined;
+  const target: "profile" | "legacy" =
+    configFile.config?.direct || (!existsSync(envPath) && !legacyPathsRequested)
+      ? "profile"
+      : "legacy";
+
+  if (target === "legacy") {
+    await mkdir(path.dirname(envPath), { recursive: true });
+    await writeFile(
+      envPath,
+      [
+        `export TRACE_R2_ENDPOINT=${JSON.stringify(credentials.endpoint)}`,
+        `export TRACE_R2_BUCKET=${JSON.stringify(credentials.bucket)}`,
+        `export TRACE_R2_ACCESS_KEY_ID=${JSON.stringify(credentials.key)}`,
+        `export TRACE_R2_SECRET_ACCESS_KEY=${JSON.stringify(credentials.secret)}`,
+        `export TRACE_R2_REGION=${JSON.stringify(region)}`,
+        "",
+      ].join("\n"),
+      { mode: 0o600 },
+    );
+    await chmod(envPath, 0o600);
+    clearTraceEnvCache();
+  }
 
   let error: string | undefined;
   let verifiedAt: string | undefined;
@@ -172,15 +259,51 @@ export async function configureTraceMachine(input: {
     }
   }
 
-  const settings: TraceMachineSettings = {
-    version: 1,
-    enabled: true,
-    autoActivateRepositories: true,
-  };
-  if (verifiedAt) settings.verifiedAt = verifiedAt;
-  if (error) settings.error = error;
-  await writeSettings(traceSettingsPath(homeDir, env), settings);
+  if (target === "legacy") {
+    const settings: TraceMachineSettings = {
+      version: 1,
+      enabled: true,
+      autoActivateRepositories: true,
+    };
+    if (verifiedAt) settings.verifiedAt = verifiedAt;
+    if (error) settings.error = error;
+    await writeSettings(traceSettingsPath(homeDir, env), settings);
+  } else {
+    const capture: DirectCaptureSettings = {
+      enabled: true,
+      autoActivateRepositories: true,
+    };
+    if (verifiedAt) capture.verifiedAt = verifiedAt;
+    if (error) capture.error = error;
+    const profile: DirectProfile = {
+      endpoint: credentials.endpoint,
+      bucket: credentials.bucket,
+      accessKeyId: credentials.key,
+      secretAccessKey: credentials.secret,
+      region,
+      capture,
+    };
+    await writeDirectProfile(configFile, profile);
+    clearTraceEnvCache();
+  }
   return traceMachineStatus({ homeDir, env });
+}
+
+/**
+ * Stores the profile and, when nothing is selected yet, selects direct
+ * storage explicitly. An explicit hosted selection is left alone: setup
+ * never silently redirects uploads.
+ */
+async function writeDirectProfile(
+  configFile: TraceConfigFile,
+  profile: DirectProfile,
+): Promise<void> {
+  const current = configFile.config ?? { version: 2 as const };
+  await writeTraceConfigFile(configFile, {
+    ...current,
+    storage: current.storage ?? { mode: "direct" },
+    direct: profile,
+  });
 }
 
 export async function disableTraceMachine(
@@ -192,6 +315,16 @@ export async function disableTraceMachine(
 ): Promise<void> {
   const homeDir = input.homeDir ?? os.homedir();
   const env = input.env ?? process.env;
+  const configFile = readTraceConfigFile({ homeDir, env });
+  const profile = configFile.config?.direct;
+  if (profile?.capture) {
+    // Credentials stay; only capture turns off.
+    await writeDirectProfile(configFile, {
+      ...profile,
+      capture: { ...profile.capture, enabled: false },
+    });
+    return;
+  }
   const settingsPath = traceSettingsPath(homeDir, env);
   if (input.removeSettings) {
     await rm(settingsPath, { force: true });
@@ -202,6 +335,21 @@ export async function disableTraceMachine(
     enabled: false,
     autoActivateRepositories: true,
   });
+}
+
+/** The legacy settings file alone, as `config migrate` reports it. */
+export async function readLegacyCaptureSettings(
+  filePath: string,
+): Promise<DirectCaptureSettings | null> {
+  const legacy = await readSettings(filePath);
+  if (!legacy) return null;
+  const capture: DirectCaptureSettings = {
+    enabled: legacy.enabled,
+    autoActivateRepositories: legacy.autoActivateRepositories,
+  };
+  if (legacy.verifiedAt) capture.verifiedAt = legacy.verifiedAt;
+  if (legacy.error) capture.error = legacy.error;
+  return capture;
 }
 
 async function readSettings(

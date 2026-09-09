@@ -4,6 +4,12 @@ import path from "node:path";
 
 import { jsonString, parseJsonText } from "@dev.fast/review-protocol";
 
+import {
+  type DirectProfile,
+  TraceConfigurationError,
+  readTraceConfigFile,
+} from "./config";
+
 /**
  * The legacy direct-bucket configuration: `TRACE_R2_*` variables from the
  * process environment or `~/.config/dev-trace/env`, and capture settings in
@@ -97,19 +103,115 @@ export function traceEnvValue(
   );
 }
 
+const DIRECT_FIELDS = [
+  "endpoint",
+  "bucket",
+  "accessKeyId",
+  "secretAccessKey",
+  "region",
+] as const;
+type DirectField = (typeof DIRECT_FIELDS)[number];
+
+/** The variables that supply each field, in precedence order. */
+const DIRECT_FIELD_VARIABLES: Record<DirectField, readonly string[]> = {
+  endpoint: ["TRACE_R2_ENDPOINT"],
+  bucket: ["TRACE_R2_BUCKET"],
+  accessKeyId: ["TRACE_R2_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID"],
+  secretAccessKey: ["TRACE_R2_SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY"],
+  region: ["TRACE_R2_REGION"],
+};
+
+export type DirectCredentialsSource =
+  | "profile"
+  | "legacy-file"
+  | "process-env"
+  | "none";
+
+export interface DirectSetup {
+  credentials: DirectCredentials | null;
+  /** Where the base values came from before environment overrides. */
+  source: DirectCredentialsSource;
+  /** Variables the process environment supplied, in precedence order. */
+  overrides: string[];
+  envPath: string;
+  configPath: string;
+  profile: DirectProfile | null;
+}
+
+/**
+ * Resolves the direct bucket setup. A complete version-2 profile is the
+ * base; otherwise the legacy env file is. Process environment variables
+ * override either. An incomplete profile is a configuration error, never
+ * patched from the legacy file. `ignoreProfile` reads the legacy inputs
+ * only, which migration needs to describe what it would persist.
+ */
+export function resolveDirectSetup(
+  scope: DirectConfigScope & { ignoreProfile?: boolean } = {},
+): DirectSetup {
+  const env = scope.env ?? process.env;
+  const envPath = traceEnvPath(scope.homeDir, env);
+  const configFile = readTraceConfigFile(scope);
+  if (configFile.error) throw new TraceConfigurationError(configFile.error);
+  const configPath = configFile.path;
+  const profile = scope.ignoreProfile
+    ? null
+    : (configFile.config?.direct ?? null);
+  const legacy = readTraceEnvFile(envPath);
+
+  const overrides: string[] = [];
+  const resolved: Record<DirectField, string | undefined> = {
+    endpoint: undefined,
+    bucket: undefined,
+    accessKeyId: undefined,
+    secretAccessKey: undefined,
+    region: undefined,
+  };
+  let source: DirectCredentialsSource = profile ? "profile" : "none";
+  for (const field of DIRECT_FIELDS) {
+    const names = DIRECT_FIELD_VARIABLES[field];
+    const fromEnv = names.find((name) => env[name] !== undefined);
+    if (fromEnv !== undefined) {
+      overrides.push(fromEnv);
+      resolved[field] = env[fromEnv];
+      continue;
+    }
+    if (profile) {
+      resolved[field] = profile[field];
+      continue;
+    }
+    const fromFile = names.find((name) => legacy.has(name));
+    if (fromFile !== undefined) {
+      resolved[field] = legacy.get(fromFile);
+      if (source === "none") source = "legacy-file";
+    }
+  }
+  if (source === "none" && overrides.length > 0) source = "process-env";
+
+  const { endpoint, bucket, accessKeyId, secretAccessKey } = resolved;
+  const credentials =
+    endpoint && bucket && accessKeyId && secretAccessKey
+      ? {
+          endpoint,
+          bucket,
+          accessKeyId,
+          secretAccessKey,
+          region: resolved.region ?? DIRECT_DEFAULT_REGION,
+        }
+      : null;
+  return {
+    credentials,
+    source: credentials ? source : "none",
+    overrides,
+    envPath,
+    configPath,
+    profile,
+  };
+}
+
 export function resolveDirectCredentials(
   scope: DirectConfigScope = {},
 ): DirectCredentials | null {
-  const value = (name: string) => traceEnvValue(name, scope);
-  const bucket = value("TRACE_R2_BUCKET");
-  const endpoint = value("TRACE_R2_ENDPOINT");
-  const accessKeyId =
-    value("TRACE_R2_ACCESS_KEY_ID") ?? value("AWS_ACCESS_KEY_ID");
-  const secretAccessKey =
-    value("TRACE_R2_SECRET_ACCESS_KEY") ?? value("AWS_SECRET_ACCESS_KEY");
-  if (!bucket || !endpoint || !accessKeyId || !secretAccessKey) return null;
-  const region = value("TRACE_R2_REGION") ?? DIRECT_DEFAULT_REGION;
-  return { bucket, endpoint, accessKeyId, secretAccessKey, region };
+  return resolveDirectSetup(scope).credentials;
 }
 
 /** The bucket test double: object keys become files under this directory. */

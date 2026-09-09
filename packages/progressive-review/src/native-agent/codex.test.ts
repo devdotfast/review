@@ -157,6 +157,30 @@ describe("Codex live capture", () => {
       type: "message.updated",
       message: { id: "follow-up" },
     });
+    await pipe.close();
+    host.emit({
+      method: "item/completed",
+      params: {
+        threadId: "forked",
+        turnId: "offline",
+        item: userItem("offline", "not captured"),
+        completedAtMs: 3000,
+      },
+    });
+    await server.launch({
+      session: { resume: "forked" },
+      cwd: "/tmp",
+      prompt: { id: "after-reopen", text: "question" },
+    });
+    const reopened = await server.updates("forked");
+    await pipe.close(); // A late disposal of the old view must not close the new queue.
+    const resumed = reopened.updates[Symbol.asyncIterator]();
+    expect((await resumed.next()).value).toMatchObject({
+      message: { id: "after-reopen" },
+    });
+    expect((await resumed.next()).value).toMatchObject({
+      message: { id: "a3", body: "answer" },
+    });
     expect(
       host.requests.some((request) => request.method === "thread/read"),
     ).toBe(false);

@@ -42,9 +42,8 @@ it("buffers new Pi messages, deduplicates delivery, and binds each resumed Ask w
     ).toBe(200);
     await post(launch.command, "native-event-1", "user", "question");
     await post(launch.command, "native-event-2", "assistant", "answer");
-    const iterator = (await server.updates(launch.sessionId)).updates[
-      Symbol.asyncIterator
-    ]();
+    const stream = await server.updates(launch.sessionId);
+    const iterator = stream.updates[Symbol.asyncIterator]();
     expect((await iterator.next()).value).toMatchObject({
       message: { id: "ask", body: "question" },
     });
@@ -65,6 +64,20 @@ it("buffers new Pi messages, deduplicates delivery, and binds each resumed Ask w
     expect((await iterator.next()).value).toMatchObject({
       message: { id: "ask2", body: "again" },
     });
+    await stream.close();
+    await post(resumed.command, "offline", "assistant", "offline answer");
+    const reopened = await server.launch({
+      session: { resume: launch.sessionId },
+      prompt: { id: "reopened", text: "new question" },
+      cwd: directory,
+    });
+    const replacement = await server.updates(launch.sessionId);
+    await stream.close();
+    await post(resumed.command, "old-generation", "assistant", "stale answer");
+    await post(reopened.command, "new-observer", "user", "new question");
+    expect(
+      (await replacement.updates[Symbol.asyncIterator]().next()).value,
+    ).toMatchObject({ message: { id: "reopened", body: "new question" } });
   } finally {
     await server.close();
     await rm(directory, { recursive: true, force: true });

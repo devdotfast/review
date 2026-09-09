@@ -5,6 +5,10 @@ export class AsyncQueue<Value> implements AsyncIterable<Value> {
   }> = [];
   #closed = false;
 
+  get isClosed(): boolean {
+    return this.#closed;
+  }
+
   push(value: Value): void {
     if (this.#closed) return;
     const waiter = this.#waiters.shift();

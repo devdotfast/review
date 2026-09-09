@@ -10,7 +10,11 @@ import type {
 
 /** One live observer, shared across terminal launches for the same conversation. */
 export class LiveCapture {
-  readonly queue = new AsyncQueue<SessionUpdate>();
+  #queue = new AsyncQueue<SessionUpdate>();
+
+  get queue(): AsyncQueue<SessionUpdate> {
+    return this.#queue;
+  }
   #promptId: string | undefined;
   #launchId: string | undefined;
   #interrupted = false;
@@ -18,6 +22,11 @@ export class LiveCapture {
   #seen = new Set<string>();
 
   launch(prompt: LaunchInput["prompt"]): string {
+    if (this.#queue.isClosed) {
+      this.#queue = new AsyncQueue<SessionUpdate>();
+      this.#subscribed = false;
+      this.#seen.clear();
+    }
     this.#launchId = randomUUID();
     this.#promptId = prompt?.id;
     this.#interrupted = false;
@@ -25,11 +34,14 @@ export class LiveCapture {
   }
 
   accepts(launchId: string): boolean {
-    return !this.#interrupted && launchId === this.#launchId;
+    return (
+      !this.#queue.isClosed && !this.#interrupted && launchId === this.#launchId
+    );
   }
 
   message(message: NativeReviewMessage): void {
-    if (this.#interrupted || this.#seen.has(message.id)) return;
+    if (this.#queue.isClosed || this.#interrupted || this.#seen.has(message.id))
+      return;
     this.#seen.add(message.id);
     const id =
       message.role === "user" && this.#promptId ? this.#promptId : message.id;
@@ -41,7 +53,7 @@ export class LiveCapture {
     status: "running" | "idle" | "interrupted" | "failed",
     error?: string,
   ): void {
-    if (this.#interrupted) return;
+    if (this.#queue.isClosed || this.#interrupted) return;
     const update: SessionUpdate = { type: "status.changed", status };
     if (error !== undefined) update.error = error;
     this.queue.push(update);
@@ -57,10 +69,12 @@ export class LiveCapture {
     if (this.#subscribed)
       throw new Error("This session already has a message subscriber.");
     this.#subscribed = true;
+    const queue = this.#queue;
     return {
-      updates: this.queue,
+      updates: queue,
       close: async () => {
-        this.queue.close();
+        queue.close();
+        if (this.#queue === queue) this.#subscribed = false;
       },
     };
   }

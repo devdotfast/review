@@ -202,6 +202,26 @@ describe("OpenCode live capture", () => {
     });
     oc.emit({ type: "session.idle", properties: { sessionID: "ses_1" } });
     await stopping;
+    await pipe.close();
+    const offline = user("offline", "not captured");
+    oc.messages.push(offline);
+    oc.emit({
+      type: "message.updated",
+      properties: { sessionID: "ses_1", info: offline.info },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await server.launch({
+      session: { resume: "ses_1" },
+      cwd: "/repo/source",
+      prompt: { id: "after-reopen", text: "question" },
+    });
+    const reopened = await server.updates("ses_1");
+    await pipe.close();
+    const resumed = reopened.updates[Symbol.asyncIterator]();
+    expect((await resumed.next()).value).toMatchObject({ status: "running" });
+    expect((await resumed.next()).value).toMatchObject({
+      message: { id: "after-reopen" },
+    });
     expect(
       oc.requests.some((request) => request.path === "/session/ses_1/message"),
     ).toBe(false);

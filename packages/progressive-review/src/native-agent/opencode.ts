@@ -100,6 +100,10 @@ export class OpencodeAgentServer implements AgentServer {
     }
     const sessionId = session.id;
     const state = this.#session(sessionId, session.directory);
+    if (state.queue.isClosed) {
+      state.queue = new AsyncQueue();
+      state.attached = false;
+    }
     if (input.prompt !== undefined) {
       const messageID = `msg_${randomBytes(12).toString("hex")}`;
       state.promptIds.set(messageID, input.prompt.id);
@@ -147,7 +151,14 @@ export class OpencodeAgentServer implements AgentServer {
     if (state.attached)
       throw new Error("OpenCode session already has an observer.");
     state.attached = true;
-    return { updates: state.queue, close: async () => state.queue.close() };
+    const queue = state.queue;
+    return {
+      updates: queue,
+      close: async () => {
+        queue.close();
+        if (state.queue === queue) state.attached = false;
+      },
+    };
   }
 
   async interrupt(sessionId: string): Promise<void> {
@@ -230,6 +241,8 @@ export class OpencodeAgentServer implements AgentServer {
           record?.type === "message.updated" ||
           record?.type === "message.part.updated"
         ) {
+          const queue = state.queue;
+          if (queue.isClosed) continue;
           const messageId =
             record.type === "message.updated"
               ? jsonString(info?.id)
@@ -242,7 +255,7 @@ export class OpencodeAgentServer implements AgentServer {
           );
           for (const message of projectOpencodeMessages([value ?? null])) {
             state.seen.add(message.messageId);
-            state.queue.push({
+            queue.push({
               type: "message.updated",
               message: {
                 id: state.promptIds.get(message.messageId) ?? message.messageId,

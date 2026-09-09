@@ -104,6 +104,10 @@ export class CodexAgentServer implements AgentServer {
     }
     // Threads created on this connection already stream to it.
     const state = this.#thread(threadId);
+    if (state.queue.isClosed) {
+      state.queue = new AsyncQueue();
+      state.attached = false;
+    }
     if (!input.session || "forkOf" in input.session) state.subscribed = true;
     if (input.prompt !== undefined) {
       // Review drives the turn; the TUI joins a running thread. Codex only
@@ -172,7 +176,14 @@ export class CodexAgentServer implements AgentServer {
     if (state.attached)
       throw new Error("Codex session already has an observer.");
     state.attached = true;
-    return { updates: state.queue, close: async () => state.queue.close() };
+    const queue = state.queue;
+    return {
+      updates: queue,
+      close: async () => {
+        queue.close();
+        if (state.queue === queue) state.attached = false;
+      },
+    };
   }
 
   async interrupt(sessionId: string): Promise<void> {

@@ -106,6 +106,30 @@ it("captures prompt and final hooks before subscription, continues after resume,
     expect(followup).toMatchObject({
       message: { id: expect.not.stringMatching(/^followup$/) },
     });
+    await stream.close();
+    await post(resumed.command, {
+      hook_event_name: "Stop",
+      last_assistant_message: "offline answer",
+    });
+    const reopened = await server.launch({
+      session: { resume: launch.sessionId },
+      prompt: { id: "reopened", text: "new question" },
+      cwd: directory,
+    });
+    const replacement = await server.updates(launch.sessionId);
+    await stream.close(); // A late disposal cannot close the replacement observer.
+    await post(resumed.command, {
+      hook_event_name: "Stop",
+      last_assistant_message: "old generation",
+    });
+    await post(reopened.command, {
+      hook_event_name: "UserPromptSubmit",
+      prompt: "new question",
+    });
+    const received = await replacement.updates[Symbol.asyncIterator]().next();
+    expect(received.value).toMatchObject({
+      message: { id: "reopened", body: "new question" },
+    });
   } finally {
     await server.close();
     await rm(directory, { recursive: true, force: true });

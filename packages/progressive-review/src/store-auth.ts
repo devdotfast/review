@@ -20,8 +20,9 @@ import { devReviewHome } from "./review-storage";
 import { writePrivateJsonAtomic } from "./server/desktop-paths";
 import { StoreApiError, StoreClient } from "./store-client";
 import { normalizeStoreOrigin } from "./store-origin";
+import { DEFAULT_HOSTED_ORIGIN } from "./trace-storage/config";
 
-export const DEFAULT_STORE_ORIGIN = "https://app.dev.fast";
+export const DEFAULT_STORE_ORIGIN = DEFAULT_HOSTED_ORIGIN;
 
 const storeAuthSchema = z.object({
   origin: z.string().min(1),

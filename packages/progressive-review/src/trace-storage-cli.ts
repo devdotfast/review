@@ -100,7 +100,7 @@ export async function runReviewTraceStorageUse(
     if (flags.some(Boolean)) {
       if (!flags.every(Boolean)) {
         throw new TraceConfigurationError(
-          "Direct storage needs --endpoint, --bucket, --key, and --secret together.",
+          "The s3 store needs --endpoint, --bucket, --key, and --secret together.",
         );
       }
       const profile = s3ProfileSchema.parse({
@@ -315,7 +315,7 @@ export async function runReviewTraceConfigMigrate(
       existingProfile !== null && sameS3Profile(existingProfile, candidate);
     if (existingProfile && !unchanged) {
       throw new TraceConfigurationError(
-        `${configFile.path} already holds a different direct profile. Remove it or update it with \`review trace storage use s3 --endpoint ...\`; migration does not overwrite it.`,
+        `${configFile.path} already holds a different s3 store. Remove it or update it with \`review trace storage use s3 --endpoint ...\`; migration does not overwrite it.`,
       );
     }
 
@@ -341,12 +341,17 @@ export async function runReviewTraceConfigMigrate(
     human.write("  Reachability: ok\n");
 
     let status: "unchanged" | "written" | "preview";
-    if (unchanged && currentStore(current) === "s3") {
+    if (input.dryRun) {
+      // A dry run touches nothing, whatever the config already holds.
+      status = "preview";
+      human.write(
+        unchanged && currentStore(current) === "s3"
+          ? "Dry run: the config already holds this profile; nothing would be written.\n"
+          : "Dry run: nothing was written.\n",
+      );
+    } else if (unchanged && currentStore(current) === "s3") {
       status = "unchanged";
       human.write("Nothing to do: the config already holds this profile.\n");
-    } else if (input.dryRun) {
-      status = "preview";
-      human.write("Dry run: nothing was written.\n");
     } else {
       // 4. Atomic private write; concurrent edits are refused.
       await writeTraceConfigFile(configFile, {
@@ -362,7 +367,7 @@ export async function runReviewTraceConfigMigrate(
     //    file is the only active source. Renaming, not deleting, keeps the
     //    rollback a rename away. Exported variables are the user's own.
     const retired: Array<{ from: string; to: string }> = [];
-    if (status !== "preview" && !input.keepLegacy) {
+    if (!input.dryRun && !input.keepLegacy) {
       for (const filePath of [legacy.envPath, settingsPath]) {
         if (!existsSync(filePath)) continue;
         const to = legacyRetiredPath(filePath);

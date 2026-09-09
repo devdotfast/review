@@ -262,7 +262,7 @@ export async function runProgressiveReviewCli(
   const storageOption = () =>
     new Option(
       "--storage <mode>",
-      "read from direct (S3/R2) or hosted storage instead of the selected store",
+      "read from the s3 or hosted store instead of the selected one",
     ).choices(["s3", "hosted"]);
   const viewOption = () =>
     new Option("--view <view>", "view to show after opening").choices([
@@ -912,13 +912,13 @@ export async function runProgressiveReviewCli(
   configureJsonOutput(
     traceStorage
       .command("use <mode>")
-      .description("Select direct (S3/R2) or hosted trace storage")
+      .description("Select the s3 (S3/R2 bucket) or hosted trace store")
       .option("--origin <url>", "hosted store origin")
-      .option("--endpoint <url>", "S3/R2 endpoint URL (direct)")
-      .option("--bucket <name>", "S3/R2 bucket name (direct)")
-      .option("--key <id>", "S3/R2 access key ID (direct)")
-      .option("--secret <key>", "S3/R2 secret access key (direct)")
-      .option("--region <region>", "S3/R2 signing region (direct)"),
+      .option("--endpoint <url>", "S3/R2 endpoint URL (s3)")
+      .option("--bucket <name>", "S3/R2 bucket name (s3)")
+      .option("--key <id>", "S3/R2 access key ID (s3)")
+      .option("--secret <key>", "S3/R2 secret access key (s3)")
+      .option("--region <region>", "S3/R2 signing region (s3)"),
     "plain",
   ).action(
     async (

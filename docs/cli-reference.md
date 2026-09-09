@@ -185,7 +185,7 @@ and exact verb syntax.
 review trace status
 review trace storage use s3 [--endpoint <url> --bucket <name> --key <id> --secret <secret> [--region <region>]]
 review trace storage use hosted [--origin <url>]
-review trace config migrate [--dry-run]
+review trace config migrate [--dry-run] [--keep-legacy]
 review trace list|show|pull|blame ... [--storage s3|hosted]
 review login [--origin <url>] [--no-browser]
 review logout

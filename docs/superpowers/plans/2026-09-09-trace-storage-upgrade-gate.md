@@ -30,7 +30,7 @@ process made no non-loopback network request.
 4. **Upgrade in place**: the `review` wrapper's target was switched to the new build. Nothing else changed.
 5. **Post-upgrade reads with the network guard on**: `trace status` names the legacy env file as the credential source and `config.json (not present)`; `trace list --commit HEAD`, `trace pull --commit HEAD` (forced refresh from the bucket), and `trace show` returned the pre-upgrade session with `cache: "current"`.
 6. **Post-upgrade capture**: a second session, commit, and push wrote `by-commit/<sha2>.json`, `by-session/<id2>/trace.jsonl`, and `meta.json`; `trace sync`, `trace list`, `trace show`, and `review scaffold --new` read it back.
-7. **Checks**: the three configuration files hashed identically before and after; `~/.dev/trace/config.json` was not created; the network log stayed empty.
+7. **Checks**: the three configuration files hashed identically before and after; `~/.dev/trace/config.json` was not created; the network log stayed empty. The script asserts exit codes, file hashes, bucket objects, the absence of `config.json`, and the network log; the status lines quoted above are observations from `evidence.log`, not script assertions.
 
 Bucket contents after step 6:
 
@@ -236,8 +236,8 @@ S2=bbbb2222-0000-4000-8000-000000000002
 S3=cccc3333-0000-4000-8000-000000000003
 S4=dddd4444-0000-4000-8000-000000000004
 
-say "Phase A: pre-upgrade setup with $(cat "$GATE/bin/review.target")"
 echo "$GATE/pre-upgrade/packages/progressive-review/dist/cli.js" > "$GATE/bin/review.target"
+say "Phase A: pre-upgrade setup with $(cat "$GATE/bin/review.target")"
 run review --version || fail "pre-upgrade cli"
 run review install claude --trace-endpoint http://127.0.0.1:9000 --trace-bucket review-traces-gate --trace-key gateadmin --trace-secret gateadminsecret --trace-region us-east-1 || fail "install"
 git init -q -b main "$GATE/remote.git" --bare

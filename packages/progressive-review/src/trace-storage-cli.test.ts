@@ -214,6 +214,23 @@ describe("trace storage commands", () => {
     expect(JSON.parse(second.stdout.trim()).status).toBe("unchanged");
   });
 
+  it("never retires legacy files on a dry run, even when the profile already matches", async () => {
+    writeLegacy();
+    expect((await migrate({ keepLegacy: true })).code).toBe(0);
+    const before = readFileSync(envPath, "utf8");
+    const result = await migrate({ dryRun: true, json: true });
+    expect(result.code).toBe(0);
+    expect(existsSync(envPath)).toBe(true);
+    expect(readFileSync(envPath, "utf8")).toBe(before);
+    expect(existsSync(legacyRetiredPath(envPath))).toBe(false);
+    expect(JSON.parse(result.stdout.trim())).toMatchObject({
+      status: "preview",
+      dryRun: true,
+      retired: [],
+    });
+    expect(result.stderr).toContain("nothing would be written");
+  });
+
   it("leaves the legacy files in place with --keep-legacy", async () => {
     writeLegacy();
     const before = readFileSync(envPath, "utf8");
@@ -267,7 +284,7 @@ describe("trace storage commands", () => {
     writeFileSync(configPath, JSON.stringify(other));
     const conflict = await migrate();
     expect(conflict.code).toBe(1);
-    expect(conflict.stderr).toContain("different direct profile");
+    expect(conflict.stderr).toContain("different s3 store");
     expect(JSON.parse(readFileSync(configPath, "utf8"))).toEqual(other);
 
     const hosted = { version: 2, "current-store": "hosted" };

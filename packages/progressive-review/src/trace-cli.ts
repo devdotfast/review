@@ -42,7 +42,11 @@ import {
 } from "./trace-storage/resolve";
 import { resolveTraceStorage } from "./trace-storage/resolve";
 import type { TraceStorage, TraceStorageKind } from "./trace-storage/types";
-import { recordTraceSyncFailure } from "./trace-sync-status";
+import {
+  clearTraceSyncFailure,
+  listTraceSyncFailures,
+  recordTraceSyncFailure,
+} from "./trace-sync-status";
 
 /**
  * The store a read command uses: the explicit `--storage` override for this
@@ -93,6 +97,13 @@ export async function runReviewTraceStatus(input: {
   }
   const doctor = await checkReviewTraceDoctor({ cwd: input.cwd });
   input.stdout.write(`Checking trace configuration (${doctor.envPath})…\n`);
+  for (const failure of await listTraceSyncFailures()) {
+    input.stdout.write(
+      `Failed background sync: session ${failure.session}${
+        failure.repository ? ` of ${failure.repository}` : ""
+      } at ${failure.at}: ${failure.error} Retry with \`${failure.retry}\`.\n`,
+    );
+  }
 
   if (!doctor.ok && !doctor.config) {
     input.stderr.write(
@@ -625,6 +636,8 @@ export async function runReviewTraceSync(input: {
     }).catch(() => undefined);
     throw error;
   }
+  // A successful sync clears its own failure record in every store.
+  await clearTraceSyncFailure(input.sessionId.trim()).catch(() => undefined);
 
   if (input.json) {
     input.stdout.write(`${JSON.stringify(result)}\n`);

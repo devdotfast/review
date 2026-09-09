@@ -247,7 +247,7 @@ export function ReviewTraceView({
             >
               {sourceChoices.map((source) => (
                 <option key={source} value={source}>
-                  {source === "s3" ? "Direct S3/R2 bucket" : "Hosted store"}
+                  {source === "s3" ? "S3/R2 bucket" : "Hosted store"}
                 </option>
               ))}
             </select>

@@ -24,7 +24,10 @@ import {
   runReviewTraceSync,
 } from "./trace-cli";
 import { configureTraceMachine } from "./trace-machine-setup";
-import { listTraceSyncFailures } from "./trace-sync-status";
+import {
+  listTraceSyncFailures,
+  recordTraceSyncFailure,
+} from "./trace-sync-status";
 
 describe("trace-cli", () => {
   let tempDir: string;
@@ -392,6 +395,44 @@ describe("trace-cli", () => {
       ).rejects.toThrow(/Hosted trace storage is not configured/);
     } finally {
       delete process.env.REVIEW_TEST_TRACE_SEARCH_DIR;
+      delete process.env.DEV_REVIEW_HOME;
+    }
+  });
+
+  it("shows failed background syncs for the s3 store and clears them on success", async () => {
+    const sessionId = "11111111-aaaa-bbbb-cccc-000000000011";
+    const devHome = path.join(tempDir, "dev-home");
+    process.env.DEV_REVIEW_HOME = devHome;
+    try {
+      await recordTraceSyncFailure({
+        sessionId,
+        repository: "acme/widgets",
+        error: "upload failed earlier",
+      });
+      const status: string[] = [];
+      await runReviewTraceDoctor({
+        cwd: tempDir,
+        stdout: collectingWritable(status),
+        stderr: collectingWritable([]),
+      });
+      expect(status.join("")).toContain(
+        `Failed background sync: session ${sessionId} of acme/widgets`,
+      );
+
+      writeFileSync(
+        path.join(localTraceRoot, `${sessionId}.jsonl`),
+        JSON.stringify({ type: "session", id: sessionId }) + "\n",
+      );
+      const code = await runReviewTraceSync({
+        cwd: tempDir,
+        sessionId,
+        repo: "acme/widgets",
+        json: true,
+        stdout: collectingWritable([]),
+      });
+      expect(code).toBe(0);
+      expect(await listTraceSyncFailures(devHome)).toEqual([]);
+    } finally {
       delete process.env.DEV_REVIEW_HOME;
     }
   });

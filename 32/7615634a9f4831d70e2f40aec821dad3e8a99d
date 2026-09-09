@@ -1,0 +1,1002 @@
+import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
+
+export default defineSoftwareMap({
+  "people": {
+    "reviewer": {
+      "label": "Reviewer",
+      "description": "Developer reviewing agent-written changes in Review Desktop; asks per-thread questions and watches agent turns."
+    },
+    "authoringAgent": {
+      "label": "Coding agent",
+      "description": "The user\u2019s coding agent authors Review documents and answers review questions."
+    }
+  },
+  "systems": {
+    "review": {
+      "label": "Review Desktop",
+      "description": "Local desktop app, authoring CLI, and server that publish guided Reviews for pinned changes, render code with native editors, and link review explanations to agent traces.",
+      "containers": {
+        "cliPackage": {
+          "label": "progressive-review package",
+          "description": "Review authoring, publication validation, local server, and native agent integration.",
+          "coverage": {
+            "files": [
+              "packages/progressive-review/skills/dev-review/SKILL.md",
+              "packages/progressive-review/skills/dev-review/references/component-api.md",
+              "packages/progressive-review/src/agent-trace-hooks.ts",
+              "packages/progressive-review/src/agent-trace-parser.ts",
+              "packages/progressive-review/src/authoring-session.ts",
+              "packages/progressive-review/src/authoring.ts",
+              "packages/progressive-review/src/cli-runner.ts",
+              "packages/progressive-review/src/document/build.ts",
+              "packages/progressive-review/src/document/check.ts",
+              "packages/progressive-review/src/document/mdx-parser.ts",
+              "packages/progressive-review/src/document/module-loader.ts",
+              "packages/progressive-review/src/document/worker-client.ts",
+              "packages/progressive-review/src/document/worker.ts",
+              "packages/progressive-review/src/install.ts",
+              "packages/progressive-review/src/installed-review-agent.ts",
+              "packages/progressive-review/src/map-cli.ts",
+              "packages/progressive-review/src/native-agent/claude-code.ts",
+              "packages/progressive-review/src/native-agent/claude-transcript.ts",
+              "packages/progressive-review/src/native-agent/codex-app-server.ts",
+              "packages/progressive-review/src/native-agent/codex.ts",
+              "packages/progressive-review/src/native-agent/live-capture.ts",
+              "packages/progressive-review/src/native-agent/loopback-ingress.ts",
+              "packages/progressive-review/src/native-agent/native-hook-client.ts",
+              "packages/progressive-review/src/native-agent/native-message-mirror.ts",
+              "packages/progressive-review/src/native-agent/native-session.ts",
+              "packages/progressive-review/src/native-agent/opencode.ts",
+              "packages/progressive-review/src/native-agent/pi.ts",
+              "packages/progressive-review/src/native-agent/terminal-command.ts",
+              "packages/progressive-review/src/opencode-trace-export.ts",
+              "packages/progressive-review/src/review-agent-traces.ts",
+              "packages/progressive-review/src/review-artifact-promotion.ts",
+              "packages/progressive-review/src/review-bundle.ts",
+              "packages/progressive-review/src/review-document-files.ts",
+              "packages/progressive-review/src/review-home.ts",
+              "packages/progressive-review/src/review-lifecycle-client.ts",
+              "packages/progressive-review/src/review-lifecycle-contracts.ts",
+              "packages/progressive-review/src/review-live-document.ts",
+              "packages/progressive-review/src/review-mcp.ts",
+              "packages/progressive-review/src/review-mutation-lock.ts",
+              "packages/progressive-review/src/review-publication-audit.ts",
+              "packages/progressive-review/src/review-publication-preparation.ts",
+              "packages/progressive-review/src/review-publication-staging.ts",
+              "packages/progressive-review/src/review-publish-evaluate.ts",
+              "packages/progressive-review/src/review-repair-preparation.ts",
+              "packages/progressive-review/src/review-scaffold.ts",
+              "packages/progressive-review/src/review-source-agent-session.ts",
+              "packages/progressive-review/src/review-stack.ts",
+              "packages/progressive-review/src/server/bug-report-trace.ts",
+              "packages/progressive-review/src/server/bug-report.ts",
+              "packages/progressive-review/src/server/cli-install.ts",
+              "packages/progressive-review/src/server/desktop-server.ts",
+              "packages/progressive-review/src/server/review-api.ts",
+              "packages/progressive-review/src/server/review-lifecycle.ts",
+              "packages/progressive-review/src/server/review-live-authoring.ts",
+              "packages/progressive-review/src/server/review-repair-promotion.ts",
+              "packages/progressive-review/src/server/session-handler.ts",
+              "packages/progressive-review/src/software-map-bundle.ts",
+              "packages/progressive-review/src/software-map-health.ts",
+              "packages/progressive-review/src/software-map-model.ts",
+              "packages/progressive-review/src/trace-machine-setup.ts",
+              "packages/progressive-review/src/tutorial-authoring-session.ts"
+            ]
+          },
+          "components": {
+            "harnessRegistry": {
+              "label": "Harness registry",
+              "description": "Maps install targets to launchable ReviewAgentHarness values and picks the preferred installed agent.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/installed-review-agent.ts"
+                  }
+                ]
+              },
+              "codeElements": {
+                "preferredInstalledReviewAgent": {
+                  "label": "preferredInstalledReviewAgent",
+                  "description": "Selects the first installed launchable agent, preserving onboarding order."
+                }
+              }
+            },
+            "installer": {
+              "label": "Install surface",
+              "description": "Installs skills, per-agent trace hooks, and (by default) the review command shim with shell-profile PATH management; also the server-driven install status and removal path.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/install.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/server/cli-install.ts"
+                  }
+                ]
+              },
+              "codeElements": {
+                "runInstall": {
+                  "label": "runInstall",
+                  "description": "Installs Review skills per target and configures agent lifecycle hooks for trace capture."
+                },
+                "cliInstall": {
+                  "label": "CLI install service",
+                  "description": "Server-side install status, apply, and removal; skill installs now default to installing the review command, status reports shim ownership and profile configuration, and removal strips the managed PATH block."
+                },
+                "installReviewCommand": {
+                  "label": "installReviewCommand",
+                  "description": "Writes the owned review PATH shim, ensures a managed ~/.local/bin PATH block in the shell profile, and warns when another review command shadows the shim."
+                }
+              }
+            },
+            "traceHooks": {
+              "label": "Trace hook installation and parsing",
+              "description": "Installs lifecycle trace capture for supported agent harnesses and normalizes transcript formats.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/agent-trace-hooks.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/agent-trace-parser.ts"
+                  }
+                ]
+              },
+              "codeElements": {
+                "agentTraceHooks": {
+                  "label": "agent-trace-hooks",
+                  "description": "Idempotent installers for Claude settings hooks, Codex config hooks, and the Pi extension."
+                },
+                "agentTraceParser": {
+                  "label": "agent-trace-parser",
+                  "description": "Sniffs and parses agent transcript JSONL into trace events."
+                }
+              }
+            },
+            "traceStore": {
+              "label": "Review agent trace store",
+              "description": "Resolves sessions behind commits, parses local transcripts, syncs directly to R2, and materializes a searchable local corpus.",
+              "coverage": {
+                "files": [
+                  "packages/progressive-review/src/review-agent-traces.ts",
+                  "packages/progressive-review/src/opencode-trace-export.ts",
+                  "packages/progressive-review/src/trace-machine-setup.ts"
+                ]
+              }
+            },
+            "bugReport": {
+              "label": "Bug report pipeline",
+              "description": "Builds and submits Review Desktop bug reports: review source, map, diff, and the opt-in authoring trace attachment, under a size ladder that drops the trace first.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/server/bug-report.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/server/bug-report-trace.ts"
+                  }
+                ]
+              },
+              "codeElements": {
+                "submitReviewBugReport": {
+                  "label": "submitReviewBugReport",
+                  "description": "Gathers requested attachments concurrently, builds the gzip multipart request, and drops the trace first when the compressed report exceeds the upload cap."
+                },
+                "readAuthoringTraceAttachment": {
+                  "label": "readAuthoringTraceAttachment",
+                  "description": "Resolves the review's authoring session, reads its harness-local trace, tail-caps main and newest subagent files, and redacts recognizable secret formats."
+                }
+              }
+            },
+            "authoring": {
+              "label": "Authoring sessions",
+              "description": "Detects the invoking agent session from environment, freezes or forks it as the Review source session at scaffold and on every repin, records it on the stored Review, and resolves fresh-harness fallbacks.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/authoring-session.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/review-source-agent-session.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/tutorial-authoring-session.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/review-scaffold.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/review-home.ts"
+                  }
+                ]
+              },
+              "codeElements": {
+                "reviewScaffold": {
+                  "label": "review-scaffold createReview / repinReview",
+                  "description": "Scaffold forks the invoking session (createSourceAgentSession, default createReviewSourceAgentSession) against the managed head checkout and stores its key as the Review's sourceSession; repinReview forks again as part of every pin update, so a fork failure fails the update and leaves stored pins untouched."
+                },
+                "reviewHomeSessionRecord": {
+                  "label": "review-home session record",
+                  "description": "Stored Review record helpers: updateReviewPins takes the freshly forked sourceSession with the new pins and records that session with the updater role; DISABLED_REVIEW_SOURCE_SESSION marks a repin with no invoking agent; touchReviewAgentSession and bindReviewAuthorSession maintain agentSessions roles."
+                },
+                "authoringSession": {
+                  "label": "authoring-session",
+                  "description": "ReviewAgentHarness type, session env detection (CODEX_THREAD_ID, CLAUDE_CODE_SESSION_ID, PI_SESSION_ID), and fresh-harness keys."
+                },
+                "reviewSourceAgentSession": {
+                  "label": "createReviewSourceAgentSession",
+                  "description": "Forks or freezes the invoking session per harness: native Codex fork, Claude transcript copy, Pi --fork."
+                },
+                "tutorialAuthoringSession": {
+                  "label": "createTutorialAuthoringSession",
+                  "description": "Runs one authoring turn per harness to seed the tutorial's genuine source session."
+                }
+              }
+            },
+            "nativeAgents": {
+              "label": "Native agent servers",
+              "description": "AgentServer adapters launch and resume terminal sessions, stream message/status updates, and mirror messages into Review threads.",
+              "coverage": {
+                "files": [
+                  "packages/progressive-review/src/native-agent/native-session.ts",
+                  "packages/progressive-review/src/native-agent/claude-code.ts",
+                  "packages/progressive-review/src/native-agent/codex.ts",
+                  "packages/progressive-review/src/native-agent/codex-app-server.ts",
+                  "packages/progressive-review/src/native-agent/pi.ts",
+                  "packages/progressive-review/src/native-agent/opencode.ts",
+                  "packages/progressive-review/src/native-agent/native-message-mirror.ts",
+                  "packages/progressive-review/src/native-agent/terminal-command.ts",
+                  "packages/progressive-review/src/native-agent/live-capture.ts",
+                  "packages/progressive-review/src/native-agent/loopback-ingress.ts"
+                ]
+              }
+            },
+            "stackNavigation": {
+              "label": "Stacked PR navigation",
+              "description": "Resolves the gh-stack layers around a pull-request Review and matches sibling branches to locally stored Reviews; any gh-stack failure yields an empty stack so the Review stays usable.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/review-stack.ts"
+                  }
+                ]
+              },
+              "codeElements": {
+                "resolveReviewStackLayers": {
+                  "label": "resolveReviewStackLayers",
+                  "description": "Parses `gh stack view` JSON, orders branches as earlier / current / later relative to the Review's PR, and attaches the matching stored Review uuid and title per layer."
+                }
+              }
+            },
+            "serverSurface": {
+              "label": "Local server surface",
+              "description": "Desktop session server routes lifecycle requests, creates agent servers, serves sealed document data, and maintains active sessions. Serializes live edits under per-review locks and broadcasts documentChanged only to promoted non-historical sessions.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/server/desktop-server.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/src/server/review-api.ts"
+                  }
+                ]
+              },
+              "codeElements": {
+                "desktopServer": {
+                  "label": "desktop-server",
+                  "description": "Creates the global desktop HTTP server and wires lifecycle, native agents, and session handlers."
+                },
+                "reviewApi": {
+                  "label": "review-api",
+                  "description": "Per-session API: resolves question routes (fork/resume/new), launches turns, starts message mirrors, serves the native-agent thread GET (/native-agent-events/:launchId/thread/:threadId) that hook clients read, and answers GET /stack with the Review's stacked-PR layers."
+                }
+              }
+            },
+            "cliRunner": {
+              "label": "CLI runner",
+              "description": "Commander surface for review commands, including trace hook relays and runtime wiring.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/cli-runner.ts"
+                  }
+                ]
+              },
+              "codeElements": {
+                "cliRunner": {
+                  "label": "cli-runner",
+                  "description": "Registers all review commands and their runtime implementations; review install resolves a built CLI (desktop discovery or packaged dist) and installs the review command shim unless --no-shim."
+                }
+              }
+            },
+            "publication": {
+              "label": "Document build and publication",
+              "description": "Parses and checks MDX, evaluates typed authoring data in a worker into JSON document data, validates pinned references, and stages immutable publication artifacts.",
+              "coverage": {
+                "files": [
+                  "packages/progressive-review/src/document/build.ts",
+                  "packages/progressive-review/src/document/check.ts",
+                  "packages/progressive-review/src/document/mdx-parser.ts",
+                  "packages/progressive-review/src/document/module-loader.ts",
+                  "packages/progressive-review/src/document/worker-client.ts",
+                  "packages/progressive-review/src/document/worker.ts",
+                  "packages/progressive-review/src/review-publish-evaluate.ts",
+                  "packages/progressive-review/src/review-publication-audit.ts",
+                  "packages/progressive-review/src/review-publication-preparation.ts",
+                  "packages/progressive-review/src/review-publication-staging.ts",
+                  "packages/progressive-review/src/review-bundle.ts",
+                  "packages/progressive-review/src/review-artifact-promotion.ts"
+                ]
+              },
+              "codeElements": {
+                "compiler": {
+                  "label": "buildReviewDocument",
+                  "description": "Parses MDX, checks syntax, and dispatches worker evaluation.",
+                  "sourceRanges": [
+                    {
+                      "file": "packages/progressive-review/src/document/build.ts",
+                      "fromLine": 1,
+                      "toLine": 87
+                    }
+                  ]
+                },
+                "evaluator": {
+                  "label": "Document evaluation",
+                  "description": "Constructs JSON nodes and audits source references against pinned evidence.",
+                  "sourceRanges": [
+                    {
+                      "file": "packages/progressive-review/src/review-publish-evaluate.ts",
+                      "fromLine": 1,
+                      "toLine": 180
+                    },
+                    {
+                      "file": "packages/progressive-review/src/review-publication-audit.ts",
+                      "fromLine": 1,
+                      "toLine": 529
+                    }
+                  ]
+                },
+                "preparation": {
+                  "label": "prepareReviewDocumentBundle",
+                  "description": "Resolves source checkouts and changed lines before building document JSON.",
+                  "sourceRanges": [
+                    {
+                      "file": "packages/progressive-review/src/review-publication-preparation.ts",
+                      "fromLine": 1,
+                      "toLine": 155
+                    }
+                  ]
+                },
+                "staging": {
+                  "label": "stageReviewDocumentPublication",
+                  "description": "Stages copied authoring inputs with an optional proposed MDX source override; returns original and staged fingerprints for optimistic live edits and publication.",
+                  "sourceRanges": [
+                    {
+                      "file": "packages/progressive-review/src/review-publication-staging.ts",
+                      "fromLine": 1,
+                      "toLine": 141
+                    }
+                  ]
+                }
+              }
+            },
+            "authoringSdk": {
+              "label": "Review authoring API and skill",
+              "description": "Typed authoring exports and the dev-review workflow guide agents in writing review.mdx and data.ts, with independent commit-addressed software maps.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/src/authoring.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/skills/dev-review/SKILL.md"
+                  },
+                  {
+                    "path": "packages/progressive-review/skills/dev-review/references/component-api.md"
+                  }
+                ]
+              }
+            },
+            "lifecycle": {
+              "label": "Review lifecycle API",
+              "description": "MCP and CLI clients send typed lifecycle operations to the desktop; per-review mutation locks protect scaffold, source edits, publication and repair. MCP read_live_document and mutate_live_document expose incremental editing.",
+              "coverage": {
+                "files": [
+                  "packages/progressive-review/src/review-mcp.ts",
+                  "packages/progressive-review/src/review-lifecycle-client.ts",
+                  "packages/progressive-review/src/review-lifecycle-contracts.ts",
+                  "packages/progressive-review/src/server/review-lifecycle.ts",
+                  "packages/progressive-review/src/review-mutation-lock.ts",
+                  "packages/progressive-review/src/review-document-files.ts",
+                  "packages/progressive-review/src/review-repair-preparation.ts",
+                  "packages/progressive-review/src/server/review-repair-promotion.ts"
+                ]
+              }
+            },
+            "sessionHandler": {
+              "label": "Session document handler",
+              "description": "Serves live document projections for eligible current sessions with a 16-entry content-hash cache; falls back to sealed document bundles.",
+              "coverage": {
+                "files": [
+                  "packages/progressive-review/src/server/session-handler.ts"
+                ]
+              }
+            },
+            "softwareMaps": {
+              "label": "Software map artifacts",
+              "description": "Loads commit-addressed Git notes, validates software maps, and bundles base/head models for the desktop.",
+              "coverage": {
+                "files": [
+                  "packages/progressive-review/src/software-map-bundle.ts",
+                  "packages/progressive-review/src/software-map-model.ts",
+                  "packages/progressive-review/src/software-map-health.ts",
+                  "packages/progressive-review/src/map-cli.ts"
+                ]
+              }
+            },
+            "liveDocument": {
+              "label": "Live document mutations",
+              "description": "Plans replace/insert/update/delete/move operations with stable node IDs, optimistic source hashes and mutation receipts; serializes canonical MDX markers.",
+              "coverage": {
+                "files": [
+                  "packages/progressive-review/src/review-live-document.ts"
+                ]
+              }
+            },
+            "liveAuthoring": {
+              "label": "Live authoring projection service",
+              "description": "Stages and validates MDX before atomic source writes, caches document projections in SQLite with authoring and record fingerprints, and rebuilds stale projections for matching pins.",
+              "coverage": {
+                "files": [
+                  "packages/progressive-review/src/server/review-live-authoring.ts"
+                ]
+              }
+            }
+          }
+        },
+        "protocolPackage": {
+          "label": "review-protocol package",
+          "description": "Shared zod contracts between the CLI/server and the desktop app (verbs, sessions, install status).",
+          "coverage": {
+            "files": [
+              "packages/review-protocol/src/bug-report.ts",
+              "packages/review-protocol/src/contracts.ts"
+            ]
+          },
+          "components": {
+            "contracts": {
+              "label": "contracts",
+              "description": "Canonical JSON contracts for desktop sessions, verbs, document data, traces, stacks, and installation.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/review-protocol/src/contracts.ts"
+                  }
+                ]
+              }
+            },
+            "bugReportContracts": {
+              "label": "bug-report contracts",
+              "description": "Bug report request and metadata schemas; include_trace and the trace metadata (has_trace, trace_harness, truncated_trace) default off so legacy clients keep the old shape.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/review-protocol/src/bug-report.ts"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "reviewApp": {
+          "label": "Review SPA",
+          "description": "React review document, trace and thread UI, with bridges to native code and file diff editors.",
+          "coverage": {
+            "files": [
+              "packages/progressive-review/app/src/App.tsx",
+              "packages/progressive-review/app/src/DiffView.tsx",
+              "packages/progressive-review/app/src/InlineCodeEditor.tsx",
+              "packages/progressive-review/app/src/bug-report-dialog.tsx",
+              "packages/progressive-review/app/src/desktop-entry.tsx",
+              "packages/progressive-review/app/src/review-components.tsx",
+              "packages/progressive-review/app/src/review-doc-meta.tsx",
+              "packages/progressive-review/app/src/review-document-boundary.tsx",
+              "packages/progressive-review/app/src/review-document-hydrate.ts",
+              "packages/progressive-review/app/src/review-document-prepare.ts",
+              "packages/progressive-review/app/src/review-document-renderer.tsx",
+              "packages/progressive-review/app/src/review-live-node.tsx",
+              "packages/progressive-review/app/src/review-panel-model.ts",
+              "packages/progressive-review/app/src/review-panel-store.ts",
+              "packages/progressive-review/app/src/review-panel.tsx",
+              "packages/progressive-review/app/src/styles.css",
+              "packages/progressive-review/app/src/thread-annotations.tsx",
+              "packages/progressive-review/app/src/trace-document.tsx"
+            ]
+          },
+          "components": {
+            "panelState": {
+              "label": "Side panel state",
+              "description": "Single active-panel zustand store behind the review side panel: one of peek, guided tour, commit diff, or Threads (list, new-ask, or comment page) plus a live/restored motion flag.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/app/src/review-panel-model.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/app/src/review-panel-store.ts"
+                  },
+                  {
+                    "path": "packages/progressive-review/app/src/review-panel.tsx"
+                  },
+                  {
+                    "path": "packages/progressive-review/app/src/App.tsx"
+                  }
+                ]
+              },
+              "codeElements": {
+                "reviewPanelModel": {
+                  "label": "review-panel-model",
+                  "description": "ReviewPanel union (PeekPanel, TourPanel, CommitDiffPanel, ThreadsPanel), ThreadsPage (list | new-ask | comment), and isDetailPanel."
+                },
+                "reviewPanelStore": {
+                  "label": "createReviewPanelStore",
+                  "description": "Panel actions: openPeek/openTour/openCommitDiff, openThreads(page) which always activates Threads, setThreadsPage(page) which moves within Threads only while it is active (a no-op after the agent terminal closed it), restore variants that suppress motion, close, closeForAgentTerminal (drops Threads only), and closeForDocumentChange (drops detail panels only)."
+                },
+                "reviewPanelProvider": {
+                  "label": "ReviewPanelProvider / useReviewPanel",
+                  "description": "Per-app store instance in React context; closes detail panels when the document revision changes."
+                },
+                "agentTerminalCloseWiring": {
+                  "label": "App agentTerminalOpening subscription",
+                  "description": "App shell subscribes to the session surface stream and calls closeForAgentTerminal when the desktop reports it is opening this session's native agent terminal."
+                }
+              }
+            },
+            "threadPanel": {
+              "label": "Threads panel",
+              "description": "Side-panel UI for review threads: the thread list, a new document-level ask, or one comment thread; hands asks off to the agent and can resume a thread's agent terminal.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/app/src/review-components.tsx"
+                  }
+                ]
+              },
+              "codeElements": {
+                "threadPanelInner": {
+                  "label": "ThreadPanelInner",
+                  "description": "askNow sends the ask through review.askAgent and then moves to the comment page via setThreadsPage (so a terminal handoff that already closed Threads keeps it closed); addToReview saves a pending comment and moves to the list or comment page; the thread header offers a Resolve / Unresolve toggle (review.setCommentResolved) beside Resume in terminal, replies on a resolved thread reopen it, and an empty open list points at the Resolved section; resumeInTerminal POSTs /comments/:threadId/agent-terminal."
+                },
+                "traceQuote": {
+                  "label": "TraceQuote",
+                  "description": "Renders author-provided exact quote text as links that open the existing trace reader at the quoted event."
+                }
+              }
+            },
+            "threadAnnotations": {
+              "label": "Document thread annotations",
+              "description": "Pins comment threads onto the review document: open threads as active markers and resolved threads as quiet markers that only respond to hit-testing when focused; scrolls Threads-panel focus to prose highlights once they have rendered.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/app/src/thread-annotations.tsx"
+                  }
+                ]
+              },
+              "codeElements": {
+                "threadAnnotationsView": {
+                  "label": "ThreadAnnotations",
+                  "description": "Merges allCommentThreads and resolvedCommentThreads into one annotation list (resolved flag per annotation), defers a focus scroll by one measurement cycle for prose targets, and expands collapsed sections that hold the focused thread."
+                }
+              }
+            },
+            "documentMeta": {
+              "label": "Document meta line",
+              "description": "Header line under the review title: document state, diff stats, relative publish time, and, for stacked pull requests, a stack selector listing the earlier / current / later layers.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/app/src/review-doc-meta.tsx"
+                  }
+                ]
+              },
+              "codeElements": {
+                "reviewStackSelector": {
+                  "label": "ReviewDocumentMetaLine / ReviewStackSelector",
+                  "description": "Fetches GET /stack on mount and renders the layer menu; picking a sibling layer with a Review dispatches the openReview verb to the desktop shell."
+                }
+              }
+            },
+            "traceView": {
+              "label": "Trace document view",
+              "description": "Renders an agent session trace as a turn-grouped document: lens picks keep the salient events and elide the rest behind expandable gap chips. Hosted by ReviewTraceView and the review canvas.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/app/src/trace-document.tsx"
+                  }
+                ]
+              },
+              "codeElements": {
+                "traceDocument": {
+                  "label": "TraceDocument",
+                  "description": "Stateful trace reader: computes lens-included events, tracks expanded gaps and expanded events, and renders one TraceTurn per turn."
+                },
+                "traceTurn": {
+                  "label": "TraceTurn",
+                  "description": "Renders a turn's user, work, and final events, coalescing tool runs and collapsing runs of elided events into gap chips."
+                },
+                "gapElision": {
+                  "label": "Lens elision helpers",
+                  "description": "applyLensPicks/elideByKeep decide which events a lens keeps; TraceGapChip and ElidedMessage present the elided remainder with expand affordances."
+                }
+              }
+            },
+            "bugReportDialog": {
+              "label": "Bug report dialog",
+              "description": "Reviewer-facing bug report form with the opt-in Agent session trace checkbox and its privacy tooltip.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/app/src/bug-report-dialog.tsx"
+                  }
+                ]
+              }
+            },
+            "documentRuntime": {
+              "label": "JSON document runtime",
+              "description": "Hydrates document JSON per session and content hash, retains mounted content while next live revision resolves, and resets error boundaries by revision.",
+              "coverage": {
+                "files": [
+                  "packages/progressive-review/app/src/desktop-entry.tsx",
+                  "packages/progressive-review/app/src/review-document-hydrate.ts",
+                  "packages/progressive-review/app/src/review-document-prepare.ts",
+                  "packages/progressive-review/app/src/review-document-renderer.tsx",
+                  "packages/progressive-review/app/src/review-document-boundary.tsx"
+                ]
+              }
+            },
+            "diffWorkspace": {
+              "label": "Diff surface",
+              "description": "App hosts the full-review native file diff and separate commit-scoped diff peeks. Navigation within a full diff uses the native file tree.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/app/src/DiffView.tsx"
+                  }
+                ]
+              }
+            },
+            "inlineCode": {
+              "label": "Inline code bridge",
+              "description": "Mounts native inline code or diff handles for authored source ranges and relays size, comments, find, and reveal events.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "packages/progressive-review/app/src/InlineCodeEditor.tsx"
+                  }
+                ]
+              }
+            },
+            "liveNodes": {
+              "label": "Live document nodes",
+              "description": "Recognizes stable section IDs and source-hash revisions; renders activity gutters and reduced-motion-aware update animations while preserving node identity.",
+              "coverage": {
+                "files": [
+                  "packages/progressive-review/app/src/review-live-node.tsx",
+                  "packages/progressive-review/app/src/styles.css"
+                ]
+              }
+            }
+          }
+        },
+        "desktopApp": {
+          "label": "Review Desktop shell",
+          "description": "VS Code fork hosting the review canvas, thread UI, and the terminals that run native agent turns.",
+          "coverage": {
+            "files": [
+              "apps/review-desktop/code-oss/src/vs/editor/browser/widget/diffEditor/diffEditorViewModel.ts",
+              "apps/review-desktop/code-oss/src/vs/editor/browser/widget/diffEditor/diffEditorWidget.ts",
+              "apps/review-desktop/code-oss/src/vs/editor/browser/widget/multiDiffEditor/multiDiffEditorResourceHeader.ts",
+              "apps/review-desktop/code-oss/src/vs/editor/contrib/stickyScroll/browser/stickyScrollController.ts",
+              "apps/review-desktop/code-oss/src/vs/editor/contrib/stickyScroll/browser/stickyScrollWidget.ts",
+              "apps/review-desktop/code-oss/src/vs/review/browser/parts/canvas/reviewCanvasPart.ts",
+              "apps/review-desktop/code-oss/src/vs/review/browser/parts/canvas/reviewDocumentData.ts",
+              "apps/review-desktop/code-oss/src/vs/review/common/reviewModuleCache.ts",
+              "apps/review-desktop/code-oss/src/vs/review/common/reviewPeek.ts",
+              "apps/review-desktop/code-oss/src/vs/review/contrib/verbs/reviewVerbs.ts",
+              "apps/review-desktop/code-oss/src/vs/review/services/reviewCodeResourceService.ts",
+              "apps/review-desktop/code-oss/src/vs/review/services/reviewDiffViewService.ts",
+              "apps/review-desktop/code-oss/src/vs/review/services/reviewFilesDiffView.ts",
+              "apps/review-desktop/code-oss/src/vs/review/services/reviewInlineEditorService.ts",
+              "apps/review-desktop/code-oss/src/vs/review/services/reviewSessionModelService.ts",
+              "apps/review-desktop/scripts/protocol-sync.mjs",
+              "packages/review-protocol/scripts/generate-native-source.mjs"
+            ]
+          },
+          "components": {
+            "terminalHost": {
+              "label": "Terminal host",
+              "description": "Executes openNativeAgentTerminal verbs by creating and focusing a real agent terminal.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "apps/review-desktop/code-oss/src/vs/review/contrib/verbs/reviewVerbs.ts"
+                  }
+                ]
+              },
+              "codeElements": {
+                "reviewVerbs": {
+                  "label": "reviewVerbs",
+                  "description": "Verb sink for the desktop app: opens native agent terminals, shows threads, and opens another Review tab (openReview) for stacked-PR navigation."
+                }
+              }
+            },
+            "protocolMirror": {
+              "label": "Protocol overlay generator",
+              "description": "Regenerates the gitignored Code OSS protocol overlay (src/vs/review/common/reviewProtocol.ts) from review-protocol before every build, test, and typecheck.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "apps/review-desktop/scripts/protocol-sync.mjs"
+                  },
+                  {
+                    "path": "packages/review-protocol/scripts/generate-native-source.mjs"
+                  }
+                ]
+              },
+              "codeElements": {
+                "reviewProtocol": {
+                  "label": "protocol-sync",
+                  "description": "Runs generate-native-source into a temp file and byte-compares before writing so an unchanged protocol keeps its mtime for incremental builds."
+                }
+              }
+            },
+            "inlineEditors": {
+              "label": "Native inline editors",
+              "description": "Owns native CodeEditorWidget and MultiDiffEditorWidget instances for source snippets and ranges; acquires pinned source models and routes comments/find/reveal. Inline editors disable sticky scroll at the base.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "apps/review-desktop/code-oss/src/vs/review/services/reviewInlineEditorService.ts"
+                  }
+                ]
+              }
+            },
+            "codeResources": {
+              "label": "Pinned code resources",
+              "description": "Resolves base/head files, snippets, and paired diff windows against native full-source text models. Default context extends the authored range.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "apps/review-desktop/code-oss/src/vs/review/services/reviewCodeResourceService.ts"
+                  },
+                  {
+                    "path": "apps/review-desktop/code-oss/src/vs/review/common/reviewPeek.ts"
+                  }
+                ]
+              }
+            },
+            "fileDiff": {
+              "label": "Native file diff workspace",
+              "description": "Renders file trees and native multi-file diffs for the whole review or one commit.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "apps/review-desktop/code-oss/src/vs/review/services/reviewFilesDiffView.ts"
+                  },
+                  {
+                    "path": "apps/review-desktop/code-oss/src/vs/review/services/reviewDiffViewService.ts"
+                  }
+                ]
+              }
+            },
+            "monacoDiff": {
+              "label": "VS Code diff machinery",
+              "description": "Native diff models and widgets compute line mappings, alignment zones, and multi-diff resource headers from complete original and modified models.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "apps/review-desktop/code-oss/src/vs/editor/browser/widget/diffEditor/diffEditorViewModel.ts"
+                  },
+                  {
+                    "path": "apps/review-desktop/code-oss/src/vs/editor/browser/widget/diffEditor/diffEditorWidget.ts"
+                  },
+                  {
+                    "path": "apps/review-desktop/code-oss/src/vs/editor/browser/widget/multiDiffEditor/multiDiffEditorResourceHeader.ts"
+                  }
+                ]
+              }
+            },
+            "stickyScope": {
+              "label": "VS Code sticky scope",
+              "description": "Built-in StickyScrollController and StickyScrollWidget derive enclosing declarations from native outline/folding data and render pinned code lines.",
+              "coverage": {
+                "files": [
+                  {
+                    "path": "apps/review-desktop/code-oss/src/vs/editor/contrib/stickyScroll/browser/stickyScrollController.ts"
+                  },
+                  {
+                    "path": "apps/review-desktop/code-oss/src/vs/editor/contrib/stickyScroll/browser/stickyScrollWidget.ts"
+                  }
+                ]
+              }
+            },
+            "documentSession": {
+              "label": "Desktop document session",
+              "description": "Invalidates cached document loads on documentChanged, emits document events, and rerenders the active canvas while keeping the same session.",
+              "coverage": {
+                "files": [
+                  "apps/review-desktop/code-oss/src/vs/review/services/reviewSessionModelService.ts",
+                  "apps/review-desktop/code-oss/src/vs/review/common/reviewModuleCache.ts",
+                  "apps/review-desktop/code-oss/src/vs/review/browser/parts/canvas/reviewCanvasPart.ts",
+                  "apps/review-desktop/code-oss/src/vs/review/browser/parts/canvas/reviewDocumentData.ts"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "dataStores": {
+        "reviewState": {
+          "label": "Review state database",
+          "description": "SQLite review.db holds registered Reviews, document metadata/projections, comments, drafts, and mutation receipts. Live authoring uses the existing documents row for revision/source hash and a fingerprint-validated JSON projection.",
+          "kind": "database",
+          "coverage": {
+            "files": [
+              "packages/progressive-review/src/review-state-db.ts",
+              "packages/progressive-review/src/review-thread-store-backend.ts"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "relationships": [
+    {
+      "kind": "semantic",
+      "from": "authoringAgent",
+      "to": "review.cliPackage.lifecycle",
+      "label": "authors and publishes through MCP or CLI"
+    },
+    {
+      "kind": "semantic",
+      "from": "reviewer",
+      "to": "review.desktopApp.documentSession",
+      "label": "reads Review documents"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.lifecycle",
+      "to": "review.cliPackage.serverSurface",
+      "label": "sends desktop lifecycle requests"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.serverSurface",
+      "to": "review.cliPackage.nativeAgents",
+      "label": "launches sessions and mirrors replies"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.lifecycle",
+      "to": "review.cliPackage.publication.staging",
+      "label": "stages publication"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.publication.staging",
+      "to": "review.cliPackage.publication.preparation",
+      "label": "prepares document bundle"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.publication.preparation",
+      "to": "review.cliPackage.publication.compiler",
+      "label": "builds MDX into JSON"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.publication.compiler",
+      "to": "review.cliPackage.publication.evaluator",
+      "label": "evaluates data and validates evidence"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.sessionHandler",
+      "to": "review.desktopApp.documentSession",
+      "label": "serves sealed JSON document"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.desktopApp.documentSession",
+      "to": "review.reviewApp.documentRuntime",
+      "label": "provides cached document load"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.reviewApp.documentRuntime",
+      "to": "review.reviewApp.inlineCode",
+      "label": "renders pinned code peeks"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.reviewApp.inlineCode",
+      "to": "review.desktopApp.inlineEditors",
+      "label": "mounts native editors"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.desktopApp.inlineEditors",
+      "to": "review.desktopApp.codeResources",
+      "label": "acquires pinned source models"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.desktopApp.fileDiff",
+      "to": "review.desktopApp.monacoDiff",
+      "label": "hosts diff widgets"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.lifecycle",
+      "to": "review.reviewState",
+      "label": "persists records and mutation state"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.softwareMaps",
+      "to": "review.cliPackage.sessionHandler",
+      "label": "supplies software map bundles"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.nativeAgents",
+      "to": "review.cliPackage.traceStore",
+      "label": "supplies source session traces"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.lifecycle",
+      "to": "review.cliPackage.liveAuthoring",
+      "label": "routes live snapshot and mutation requests"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.liveAuthoring",
+      "to": "review.cliPackage.liveDocument",
+      "label": "plans canonical MDX edit"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.liveAuthoring",
+      "to": "review.cliPackage.publication.staging",
+      "label": "validates proposed source before writing"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.liveAuthoring",
+      "to": "review.reviewState",
+      "label": "caches validated projection and fingerprints"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.sessionHandler",
+      "to": "review.cliPackage.liveAuthoring",
+      "label": "loads current live bundle"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.cliPackage.serverSurface",
+      "to": "review.desktopApp.documentSession",
+      "label": "broadcasts documentChanged after successful edit"
+    },
+    {
+      "kind": "semantic",
+      "from": "review.reviewApp.documentRuntime",
+      "to": "review.reviewApp.liveNodes",
+      "label": "renders stable keyed live sections"
+    }
+  ]
+});

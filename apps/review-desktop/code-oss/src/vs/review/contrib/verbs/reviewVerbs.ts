@@ -330,7 +330,7 @@ export class ReviewVerbsService
     };
     const key = `native:${input.session.harness}:${input.session.sessionId}`;
     const existing = this.agentSessionTerminals.get(key);
-    if (existing && this.terminalEditorService.instances.includes(existing)) {
+    if (existing && !existing.isDisposed) {
       // The session already has a live terminal: bring it forward.
       await this.terminalEditorService.openEditor(existing, {
         viewColumn: group,
@@ -406,18 +406,17 @@ export class ReviewVerbsService
   }
 
   private async showThreads(): Promise<void> {
-    const attachedTerminals = [...this.agentSessionTerminals.values()].filter(
-      (instance) => this.terminalEditorService.instances.includes(instance),
-    );
+    const terminals = [...this.agentSessionTerminals.values()].filter(instance => !instance.isDisposed);
     const terminalGroups = new Set(
-      attachedTerminals
+      terminals
+        .filter(instance => this.terminalEditorService.instances.includes(instance))
         .map((instance) =>
           this.terminalEditorService.getInputFromResource(instance.resource),
         )
         .map((input) => input.group)
         .filter((group) => group !== undefined),
     );
-    for (const instance of attachedTerminals) {
+    for (const instance of terminals) {
       instance.dispose();
     }
     await Promise.resolve();

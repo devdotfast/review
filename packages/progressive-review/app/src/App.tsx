@@ -587,7 +587,9 @@ function ReviewLayoutContent({
                 type="button"
                 className="review-open-source-tree"
                 title="Join our Discord community"
-                onClick={() => session.surface.post({ name: "joinDiscord", args: {} })}
+                onClick={() =>
+                  session.surface.post({ name: "joinDiscord", args: {} })
+                }
               >
                 Discord ↗
               </button>

@@ -232,24 +232,26 @@ export function ReviewHome({
 function ReviewScanWarning({ errors }: { errors: readonly ReviewListError[] }) {
   return (
     <>
-      {errors.filter((error) => error.code !== "MIGRATION_REQUIRED").map((error) => (
-        <section
-          key={error.reviewDir}
-          className="review-home-attention"
-          aria-label={`Attention for ${error.title || error.reviewUuid || error.reviewDir}`}
-        >
-          <span className="review-home-attention-title">
-            {error.title || error.reviewUuid || error.reviewDir}
-          </span>
-          <span>{error.message}</span>
-          {error.code === "REPAIR_REQUIRED" && error.reviewUuid ? (
-            <span className="review-home-attention-command">
-              <code>{repairCommand(error.reviewUuid)}</code>
-              <CopyCommandButton command={repairCommand(error.reviewUuid)} />
+      {errors
+        .filter((error) => error.code !== "MIGRATION_REQUIRED")
+        .map((error) => (
+          <section
+            key={error.reviewDir}
+            className="review-home-attention"
+            aria-label={`Attention for ${error.title || error.reviewUuid || error.reviewDir}`}
+          >
+            <span className="review-home-attention-title">
+              {error.title || error.reviewUuid || error.reviewDir}
             </span>
-          ) : null}
-        </section>
-      ))}
+            <span>{error.message}</span>
+            {error.code === "REPAIR_REQUIRED" && error.reviewUuid ? (
+              <span className="review-home-attention-command">
+                <code>{repairCommand(error.reviewUuid)}</code>
+                <CopyCommandButton command={repairCommand(error.reviewUuid)} />
+              </span>
+            ) : null}
+          </section>
+        ))}
     </>
   );
 }

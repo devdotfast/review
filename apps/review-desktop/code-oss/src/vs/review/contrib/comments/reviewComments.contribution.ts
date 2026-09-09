@@ -194,7 +194,8 @@ class ReviewCommentThread extends Disposable implements CommentThread<IRange> {
     readonly Comment[] | undefined
   >());
   readonly onDidChangeComments = this._onDidChangeComments.event;
-  readonly onDidChangeInput = Event.None;
+  private readonly _onDidChangeInput = this._register(new Emitter<CommentInput | undefined>());
+  readonly onDidChangeInput = this._onDidChangeInput.event;
   private readonly _onDidChangeLabel = this._register(new Emitter<string | undefined>());
   readonly onDidChangeLabel = this._onDidChangeLabel.event;
   private readonly _onDidChangeCollapsibleState = this._register(new Emitter<
@@ -215,6 +216,11 @@ class ReviewCommentThread extends Disposable implements CommentThread<IRange> {
   contextValue = REVIEW_COMMENT_THREAD_OPEN;
   readonly initialCollapsibleState = CommentThreadCollapsibleState.Expanded;
   input: CommentInput | undefined;
+  setInputValue(value: string): void {
+    if (!this.input) return;
+    this.input = { ...this.input, value };
+    this._onDidChangeInput.fire(this.input);
+  }
   label: string | undefined;
   comments: readonly Comment[] | undefined;
   private _collapsibleState = CommentThreadCollapsibleState.Expanded;
@@ -597,7 +603,7 @@ export class ReviewCommentController
     });
   }
 
-  askNow(context: ReviewCommentReplyContext): Promise<void> {
+  async askNow(context: ReviewCommentReplyContext): Promise<void> {
     const body = context.text.trim();
     if (!body) return Promise.resolve();
     const model = this.model;
@@ -605,12 +611,26 @@ export class ReviewCommentController
     if (!model || model.state !== "active" || !target) {
       throw new Error("The active review no longer owns this comment.");
     }
-    return model.comments.askAgent({
-      messageId: generateUuid(),
-      threadId: context.thread.threadId,
+    const thread = context.thread as ReviewCommentThread;
+    const messageId = generateUuid();
+    const submitted = model.comments.askAgent({
+      messageId,
+      threadId: thread.threadId,
       target,
       body,
     });
+    // The question is now in the thread; don't leave a second copy in the editor
+    // while waiting for the native terminal to open.
+    thread.setInputValue("");
+    try {
+      await submitted;
+    } catch (error) {
+      const saved = model.comments.getSnapshot().commentThreads.get(thread.threadId);
+      if (!saved?.messages.some((message) => message.id === messageId) && thread.input?.value === "") {
+        thread.setInputValue(context.text);
+      }
+      throw error;
+    }
   }
 
   editComment(context: ReviewCommentNodeContext): void {

@@ -15,7 +15,7 @@ export interface ReviewSurface {
     range: ReviewRangeWire,
     side?: ReviewDiffSide,
   ): void;
-  post(request: ReviewVerbRequest): void;
+  post(request: ReviewVerbRequest): Promise<void>;
   subscribe(listener: (event: ReviewSurfaceEvent) => void): () => void;
 }
 
@@ -43,8 +43,9 @@ export function createReviewSurface(bridge: ReviewCanvasBridge): ReviewSurface {
         },
       });
     },
-    post(request) {
-      void bridge.post(request);
+    async post(request) {
+      const response = await bridge.post(request);
+      if (!response.ok) throw new Error(response.error);
     },
     subscribe(listener) {
       const subscription = bridge.subscribe(listener);

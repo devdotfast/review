@@ -279,6 +279,9 @@ export class ReviewVerbsService
         case "showThreads":
           await this.showThreads();
           break;
+        case "resumeAgentTerminal":
+          await this.resumeAgentTerminal(sessionId, request.args.threadId);
+          break;
         case "openNativeAgentTerminal":
           await this.openNativeAgentTerminal(request.args);
           break;
@@ -306,6 +309,27 @@ export class ReviewVerbsService
     } catch {
       return undefined;
     }
+  }
+
+  private async resumeAgentTerminal(sessionId: string, threadId: string): Promise<void> {
+    const model = this.sessionModelService.activeModel;
+    if (!model || model.session.session.sessionId !== sessionId) throw new Error("The requested Review is not active.");
+    const thread = model.comments.getSnapshot().commentThreads.get(threadId);
+    const binding = thread?.agentSession;
+    if (!binding) throw new Error("This thread has no agent terminal.");
+    const key = `native:${binding.harness}:${binding.sessionId}`;
+    const existing = this.agentSessionTerminals.get(key);
+    if (existing && !existing.isDisposed) {
+      this._onDidEmitSurfaceEvent.fire({ event: "agentTerminalOpening", sessionId });
+      await this.terminalEditorService.openEditor(existing);
+      await this.terminalEditorService.getInputFromResource(existing.resource).revert();
+      model.comments.terminalOpened(threadId);
+      this.terminalService.setActiveInstance(existing);
+      await existing.focusWhenReady(true);
+      return;
+    }
+    const response = await model.request(`/comments/${encodeURIComponent(threadId)}/agent-terminal`, { method: "POST" });
+    if (!response.ok) throw new Error(await response.text());
   }
 
   private async openNativeAgentTerminal(

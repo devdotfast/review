@@ -1952,6 +1952,10 @@ export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
   }),
   z.strictObject({ name: z.literal("showThreads"), args: z.strictObject({}) }),
   z.strictObject({
+    name: z.literal("resumeAgentTerminal"),
+    args: z.strictObject({ threadId: requiredString }),
+  }),
+  z.strictObject({
     name: z.literal("openNativeAgentTerminal"),
     args: z.strictObject({
       threadId: requiredString,

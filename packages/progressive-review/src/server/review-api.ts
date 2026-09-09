@@ -702,6 +702,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       session: { resume: binding.sessionId },
       cwd: agentRootPath,
     });
+    await mirrorFor(writableReviewPath).watch(threadId, binding);
     await openNativeAgentTerminal({
       session: binding,
       threadId,

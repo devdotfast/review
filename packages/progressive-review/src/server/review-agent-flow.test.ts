@@ -22,7 +22,9 @@ import { runReviewThreadsGet } from "../threads-cli";
 import { createGlobalReviewServer } from "./desktop-server";
 import { createReviewApi } from "./review-api";
 
-async function fixture(pauseLaunch = false) {
+async function fixture(
+  options: { pauseLaunch?: boolean; restoreSession?: boolean } = {},
+) {
   const directory = await mkdtemp(join(tmpdir(), "review-flow-"));
   const reviewPath = join(directory, "review.mdx");
   const queue = new AsyncQueue<SessionUpdate>();
@@ -40,30 +42,49 @@ async function fixture(pauseLaunch = false) {
     harness: "claude-code",
     async launch(input) {
       markStarted();
-      if (pauseLaunch) await released;
-      if (!input.prompt)
-        throw new Error("The test expects a submitted question.");
-      const user: SessionUpdate = {
-        type: "message.updated",
-        message: {
-          id: input.prompt.id,
-          role: "user",
-          body: input.prompt.text,
-          createdAt: "2026-09-09T00:00:00Z",
-        },
-      };
-      const reply: SessionUpdate = {
-        type: "message.updated",
-        message: {
-          id: `reply-${input.prompt.id}`,
-          role: "assistant",
-          body: `Answer for ${input.prompt.id}`,
-          createdAt: "2026-09-09T00:00:01Z",
-        },
-      };
-      queue.push(user);
-      queue.push(reply);
-      queue.push(reply);
+      if (options.pauseLaunch) await released;
+      if (input.prompt) {
+        const user: SessionUpdate = {
+          type: "message.updated",
+          message: {
+            id: input.prompt.id,
+            role: "user",
+            body: input.prompt.text,
+            createdAt: "2026-09-09T00:00:00Z",
+          },
+        };
+        const reply: SessionUpdate = {
+          type: "message.updated",
+          message: {
+            id: `reply-${input.prompt.id}`,
+            role: "assistant",
+            body: `Answer for ${input.prompt.id}`,
+            createdAt: "2026-09-09T00:00:01Z",
+          },
+        };
+        queue.push(user);
+        queue.push(reply);
+        queue.push(reply);
+      } else {
+        queue.push({
+          type: "message.updated",
+          message: {
+            id: "tui-question",
+            role: "user",
+            body: "Question from TUI",
+            createdAt: "2026-09-09T00:01:00Z",
+          },
+        });
+        queue.push({
+          type: "message.updated",
+          message: {
+            id: "tui-answer",
+            role: "assistant",
+            body: "Answer from TUI",
+            createdAt: "2026-09-09T00:01:01Z",
+          },
+        });
+      }
       return {
         sessionId: "conversation",
         command: { executable: "claude", args: [], env: {}, cwd: directory },
@@ -80,6 +101,24 @@ async function fixture(pauseLaunch = false) {
       queue.close();
     },
   };
+  if (options.restoreSession) {
+    const stored = new ReviewThreadsService({ reviewPath, author: "Reviewer" });
+    stored.dispatch({
+      command: "comment-draft.create",
+      mutationId: "saved-draft",
+      input: {
+        threadId: "thread",
+        messageId: "saved-question",
+        target: { kind: "document" },
+        body: "Question saved-question",
+      },
+    });
+    stored.setAgentSession({
+      mutationId: "saved-binding",
+      threadId: "thread",
+      agentSession: { harness: "claude-code", sessionId: "conversation" },
+    });
+  }
   const api = createReviewApi({
     reviewPath,
     stateReviewPath: reviewPath,
@@ -190,8 +229,31 @@ it("keeps captured replies in the draft exactly once across a resumed follow-up"
   }
 });
 
+it("captures TUI replies when manually reopening a stored session with no active observer", async () => {
+  const test = await fixture({ restoreSession: true });
+  try {
+    expect(
+      (await test.post("/comments/thread/agent-terminal", {})).status,
+    ).toBe(200);
+    await expect
+      .poll(() =>
+        test
+          .snapshot()
+          .drafts.thread?.thread.messages.map((message) => message.body),
+      )
+      .toEqual([
+        "Question saved-question",
+        "Question from TUI",
+        "Answer from TUI",
+      ]);
+    expect(test.terminalCount()).toBe(1);
+  } finally {
+    await test.close();
+  }
+});
+
 it("cancels a pending launch without opening a terminal or deleting the draft", async () => {
-  const test = await fixture(true);
+  const test = await fixture({ pauseLaunch: true });
   try {
     await test.draft("ask");
     const request = test.post("/agent-runs", test.comment("ask"));

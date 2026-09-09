@@ -12,13 +12,14 @@ Remember that the reader can ONLY see the 'user' prompts _before_ coding started
 
 If you have context on the change already in previous chat history, there's almost no reason to do extra exploration - go straight into authoring. Just make sure to attach examples to your claims.
 
-Open the document with a landing section after the H1 and before the first H2. Be concise; this section should just be *quotes from the prompt behind the change* (either through associated agent trace sessions, or your own context window, if you have the implementation session in context.)
+Open the document with a landing section after the H1 and before the first H2. Be concise.
 
-**Summary** - *What* behavior was changed
-- keep max ~5 bullet points. 1 is best and indicates a clean PR.
+**Summary** - *What* behavior was changed / What problem are you trying to solve?
+- This should be a couple bullet points; no more than 5
+- This section is best explained by quoting the developer's own prompts to capture the intent behind the PR (i.e. what needs to change), if those are available to you (either through associated agent trace sessions, or your own context window, if you have the implementation session in context.)
 
 **Why**
-A couple short sentences about: What problem does this change solve? (What problem(s) is this change not trying to solve?) For a bugfix, this can be what was wrong before; for a new feature, this can be what this adds. 
+A couple short sentences about: What problem does this change solve? (What problem(s) is this change not trying to solve?) For a bugfix, this can be what was wrong before; for a new feature, this can be what this adds. This section is best explained by quoting the developer's own prompts to capture the intent ("the why") behind the PR.
 
 After the landing section, use fewer than five further sections when practical. Choose the sections that fit this change. Good section choices are:
 

@@ -511,6 +511,8 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					return this.render(
 					{
 						kind: "home",
+						appVersion:
+							this.productService.reviewVersion ?? this.productService.version,
 						reviews: this.sessionService.reviews,
 						reviewErrors: this.sessionService.reviewErrors,
 						openReview: (uuid) => void openReview(uuid),
@@ -1338,6 +1340,8 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		await this.render(
 			{
 				kind: "error",
+				appVersion:
+					this.productService.reviewVersion ?? this.productService.version,
 				message: error instanceof Error ? error.message : String(error),
 				reviewErrors: this.sessionService.reviewErrors,
 			},

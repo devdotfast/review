@@ -11,12 +11,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   REVIEW_HOME_VIEW_STORAGE_KEY,
-  REVIEW_MIGRATION_PROMPT,
   ReviewHome,
   formatRelativeTime,
   groupReviewsByWorktree,
   setupBannerMessage,
 } from "./review-home-view";
+import {
+  REVIEW_MIGRATION_DISMISSED_VERSION_KEY,
+  REVIEW_MIGRATION_PROMPT,
+  ReviewMigrationToast,
+} from "./review-migration-toast";
 
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -81,7 +85,9 @@ describe("ReviewHome", () => {
     ];
 
     await act(async () =>
-      root.render(<ReviewHome reviews={reviews} onOpen={onOpen} />),
+      root.render(
+        <ReviewHome appVersion="0.0.31" reviews={reviews} onOpen={onOpen} />,
+      ),
     );
     expect(container.querySelector(".review-home-topbar")).toBeNull();
     expect(container.querySelector(".review-home-card")).not.toBeNull();
@@ -123,7 +129,9 @@ describe("ReviewHome", () => {
     ];
 
     await act(async () =>
-      root.render(<ReviewHome reviews={reviews} onOpen={() => {}} />),
+      root.render(
+        <ReviewHome appVersion="0.0.31" reviews={reviews} onOpen={() => {}} />,
+      ),
     );
 
     expect(container.querySelectorAll(".review-home-workspace")).toHaveLength(
@@ -156,7 +164,9 @@ describe("ReviewHome", () => {
     ];
 
     await act(async () =>
-      root.render(<ReviewHome reviews={reviews} onOpen={() => {}} />),
+      root.render(
+        <ReviewHome appVersion="0.0.31" reviews={reviews} onOpen={() => {}} />,
+      ),
     );
 
     expect(
@@ -209,7 +219,9 @@ describe("ReviewHome", () => {
     ];
 
     await act(async () =>
-      root.render(<ReviewHome reviews={reviews} onOpen={() => {}} />),
+      root.render(
+        <ReviewHome appVersion="0.0.31" reviews={reviews} onOpen={() => {}} />,
+      ),
     );
 
     const visibleTitles = () =>
@@ -256,7 +268,12 @@ describe("ReviewHome", () => {
 
     await act(async () =>
       root.render(
-        <ReviewHome reviews={reviews} onOpen={onOpen} onDelete={onDelete} />,
+        <ReviewHome
+          appVersion="0.0.31"
+          reviews={reviews}
+          onOpen={onOpen}
+          onDelete={onDelete}
+        />,
       ),
     );
 
@@ -281,9 +298,142 @@ describe("ReviewHome", () => {
 
   it("hides the delete action when the host does not support deletion", async () => {
     await act(async () =>
-      root.render(<ReviewHome reviews={[descriptor()]} onOpen={() => {}} />),
+      root.render(
+        <ReviewHome
+          appVersion="0.0.31"
+          reviews={[descriptor()]}
+          onOpen={() => {}}
+        />,
+      ),
     );
     expect(container.querySelector(".review-home-delete")).toBeNull();
+  });
+
+  it("dismisses across canvases and remounts until the app version changes", async () => {
+    const errors: ReviewListError[] = [
+      {
+        reviewDir: "/tmp/reviews/legacy",
+        code: "MIGRATION_REQUIRED",
+        message: "Migration required",
+        reviewUuid: null,
+        title: "Legacy Review",
+        worktreePath: "/repo/old",
+        lastPublishedAt: null,
+      },
+    ];
+    const renderToasts = (appVersion: string) =>
+      act(async () =>
+        root.render(
+          <>
+            <ReviewHome
+              appVersion={appVersion}
+              reviews={[descriptor()]}
+              reviewErrors={errors}
+              onOpen={() => {}}
+            />
+            <ReviewMigrationToast appVersion={appVersion} errors={errors} />
+          </>,
+        ),
+      );
+    await renderToasts("0.0.31");
+    expect(container.querySelectorAll(".review-migration-toast")).toHaveLength(
+      2,
+    );
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(".review-migration-toast-dismiss")
+        ?.click(),
+    );
+    expect(container.querySelector(".review-migration-toast")).toBeNull();
+    expect(localStorage.getItem(REVIEW_MIGRATION_DISMISSED_VERSION_KEY)).toBe(
+      "0.0.31",
+    );
+    await act(async () => root.render(null));
+    errors.push({ ...errors[0]!, reviewDir: "/tmp/reviews/another" });
+    await renderToasts("0.0.31");
+    expect(container.querySelector(".review-migration-toast")).toBeNull();
+    await renderToasts("0.0.32");
+    expect(container.querySelectorAll(".review-migration-toast")).toHaveLength(
+      2,
+    );
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "2 Reviews need migration.",
+    );
+    await act(async () =>
+      root.render(<ReviewMigrationToast appVersion="0.0.32" errors={[]} />),
+    );
+    expect(container.querySelector(".review-migration-toast")).toBeNull();
+  });
+
+  it("respects a persisted dismissal and changes from another window", async () => {
+    const errors: ReviewListError[] = [
+      {
+        reviewDir: "/tmp/legacy",
+        code: "MIGRATION_REQUIRED",
+        message: "Migration required",
+        reviewUuid: null,
+        title: "Legacy Review",
+        worktreePath: "/repo/old",
+        lastPublishedAt: null,
+      },
+    ];
+    localStorage.setItem(REVIEW_MIGRATION_DISMISSED_VERSION_KEY, "0.0.31");
+    await act(async () =>
+      root.render(<ReviewMigrationToast appVersion="0.0.31" errors={errors} />),
+    );
+    expect(container.querySelector(".review-migration-toast")).toBeNull();
+    await act(async () => {
+      localStorage.removeItem(REVIEW_MIGRATION_DISMISSED_VERSION_KEY);
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: REVIEW_MIGRATION_DISMISSED_VERSION_KEY,
+        }),
+      );
+    });
+    expect(container.querySelector(".review-migration-toast")).not.toBeNull();
+  });
+
+  it("can dismiss and navigate when storage is unavailable", async () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("Storage disabled");
+    });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("Storage disabled");
+    });
+    const errors: ReviewListError[] = [
+      {
+        reviewDir: "/tmp/legacy",
+        code: "MIGRATION_REQUIRED",
+        message: "Migration required",
+        reviewUuid: null,
+        title: "Legacy Review",
+        worktreePath: "/repo/old",
+        lastPublishedAt: null,
+      },
+    ];
+    const renderToast = () =>
+      act(async () =>
+        root.render(
+          <ReviewMigrationToast
+            appVersion="storage-disabled-test"
+            errors={errors}
+          />,
+        ),
+      );
+    await renderToast();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(".review-migration-toast-dismiss")
+        ?.click(),
+    );
+    expect(container.querySelector(".review-migration-toast")).toBeNull();
+    await act(async () => root.render(null));
+    await renderToast();
+    expect(container.querySelector(".review-migration-toast")).toBeNull();
+    vi.restoreAllMocks();
+    await act(async () =>
+      window.dispatchEvent(new StorageEvent("storage", { key: null })),
+    );
   });
 
   it("tells the user how to migrate incompatible reviews", async () => {
@@ -299,6 +449,7 @@ describe("ReviewHome", () => {
     await act(async () =>
       root.render(
         <ReviewHome
+          appVersion="0.0.31"
           reviews={[descriptor()]}
           reviewErrors={[error]}
           onOpen={() => {}}
@@ -307,11 +458,11 @@ describe("ReviewHome", () => {
     );
 
     expect(
-      container.querySelector(".review-migration-warning")?.textContent,
-    ).toBe("1 Review needs migration.Copy prompt");
+      container.querySelector(".review-migration-toast")?.textContent,
+    ).toBe("1 Review needs migration.Copy promptDismiss");
     expect(container.textContent).not.toContain("Review from schema 2");
     const copy = container.querySelector<HTMLButtonElement>(
-      '.review-migration-warning button[aria-label="Copy prompt"]',
+      '.review-migration-toast button[aria-label="Copy prompt"]',
     );
     expect(copy).not.toBeNull();
     const writeText = vi.fn<(text: string) => Promise<void>>(async () => {});
@@ -321,12 +472,20 @@ describe("ReviewHome", () => {
     });
     await act(async () => copy?.click());
     expect(writeText).toHaveBeenCalledWith(REVIEW_MIGRATION_PROMPT);
+    expect(copy?.textContent).toBe("Copied");
+    expect(container.querySelector(".review-migration-toast")).not.toBeNull();
   });
 
   it("restores list view from storage", async () => {
     localStorage.setItem(REVIEW_HOME_VIEW_STORAGE_KEY, "list");
     await act(async () =>
-      root.render(<ReviewHome reviews={[descriptor()]} onOpen={() => {}} />),
+      root.render(
+        <ReviewHome
+          appVersion="0.0.31"
+          reviews={[descriptor()]}
+          onOpen={() => {}}
+        />,
+      ),
     );
     expect(container.querySelector(".review-home-list-table")).not.toBeNull();
     expect(
@@ -346,7 +505,9 @@ describe("ReviewHome", () => {
     });
 
     await act(async () =>
-      root.render(<ReviewHome reviews={[review]} onOpen={() => {}} />),
+      root.render(
+        <ReviewHome appVersion="0.0.31" reviews={[review]} onOpen={() => {}} />,
+      ),
     );
     expect(container.textContent).toContain("updated 6 min ago");
     expect(container.textContent).not.toContain("updated not published");

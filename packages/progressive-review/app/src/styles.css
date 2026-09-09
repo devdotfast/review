@@ -877,7 +877,6 @@ button {
   margin: 0 auto;
 }
 
-.review-migration-warning,
 .review-scan-warning {
   display: flex;
   gap: 12px;
@@ -893,36 +892,20 @@ button {
   color: var(--ink-soft);
 }
 
-.review-migration-warning .review-home-prompt-copy {
-  flex: 0 0 auto;
-}
-
-.review-migration-warning code,
 .review-scan-warning code {
   color: var(--ink);
 }
 
 .review-session-content {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   height: 100%;
   min-height: 0;
   background: var(--bg);
 }
 
 .review-session-content > .review-app {
-  grid-row: 2;
   min-height: 0;
-}
-
-.review-session-content > .review-migration-warning {
-  align-self: auto;
-  width: auto;
-  margin: 8px 12px;
-}
-
-.review-canvas-shell > .review-migration-warning {
-  margin: 8px 0 16px;
 }
 
 .review-home-page-header {
@@ -10494,5 +10477,46 @@ button.review-stack-row:disabled .review-stack-relation {
 }
 
 .review-trace-peek-open-full:hover {
+  background: var(--accent-wash);
+}
+
+.review-migration-toast {
+  position: fixed;
+  z-index: 10000;
+  right: 18px;
+  bottom: 18px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  width: max-content;
+  max-width: min(440px, calc(100% - 36px));
+  padding: 10px 12px;
+  border: 1px solid var(--change-modified);
+  border-radius: 5px;
+  background: var(--bg-2);
+  box-shadow: 0 8px 28px var(--shadow-color);
+  color: var(--ink);
+  font: 12px/1.4 var(--font-mono);
+}
+
+.review-migration-toast-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.review-migration-toast-dismiss {
+  padding: 6px 8px;
+  border: 1px solid var(--chrome-border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.review-migration-toast-dismiss:hover {
   background: var(--accent-wash);
 }

@@ -6,10 +6,6 @@ import type { JsonValue } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import * as claudeCode from "./claude-code";
-import {
-  type ClaudeReviewMessage,
-  projectClaudeReviewMessages,
-} from "./claude-transcript";
 import type {
   AgentServerOptions,
   NativeReviewMessage,
@@ -36,9 +32,68 @@ async function options(): Promise<AgentServerOptions> {
   };
 }
 
+describe("launch", () => {
+  it("resumes Claude as a normal interactive terminal", async () => {
+    const server = claudeCode.server(await options());
+    const { sessionId, command } = await server.launch({
+      session: { resume: "tutorial-thread" },
+      cwd: "/tmp/tutorial",
+    });
+    expect(sessionId).toBe("tutorial-thread");
+    expect(command.executable).toBe("claude");
+    expect(command.args).not.toContain("--print");
+    expect(command.args).toEqual(
+      expect.arrayContaining(["--resume", "tutorial-thread"]),
+    );
+    expect(command.args.at(-1)).toBe("tutorial-thread");
+    expect(command.env.DEV_FAST_REVIEW_AGENT_HOOK_URL).toMatch(
+      /^http:\/\/127\.0\.0\.1:\d+\/claude-code\/tutorial-thread$/,
+    );
+    expect(command.env.DEV_FAST_REVIEW_AGENT_THREAD_URL).toBe(
+      "http://127.0.0.1:4000/native-agent-events/claude-code/tutorial-thread/thread",
+    );
+    expect(command.env.DEV_FAST_REVIEW_AGENT_THREAD_TOKEN).toBe("s");
+    await server.close();
+  });
+
+  it("forks a Claude source session in the normal interactive terminal", async () => {
+    const server = claudeCode.server(await options());
+    const { sessionId, command } = await server.launch({
+      session: { forkOf: "tutorial-source" },
+      prompt: "Explain this Review",
+      cwd: "/tmp/tutorial",
+    });
+    expect(sessionId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(command.args).toEqual(
+      expect.arrayContaining([
+        "--resume",
+        "tutorial-source",
+        "--fork-session",
+        "--session-id",
+        sessionId,
+      ]),
+    );
+    expect(command.args.at(-1)).toBe("Explain this Review");
+  });
+
+  it("starts a fresh Claude session without resuming or forking", async () => {
+    const server = claudeCode.server(await options());
+    const { sessionId, command } = await server.launch({
+      prompt: "Explain this code",
+      cwd: "/tmp/tutorial",
+    });
+    expect(command.args).toEqual(
+      expect.arrayContaining(["--session-id", sessionId]),
+    );
+    expect(command.args).not.toContain("--resume");
+    expect(command.args).not.toContain("--fork-session");
+    expect(command.args.at(-1)).toBe("Explain this code");
+  });
+});
+
 describe("updates", () => {
   /** A server whose transcript reader returns the given messages. */
-  async function serverOver(transcript: ClaudeReviewMessage[]) {
+  async function serverOver(transcript: NativeReviewMessage[]) {
     return claudeCode.server({
       ...(await options()),
       readTranscript: async () => [...transcript],
@@ -48,12 +103,7 @@ describe("updates", () => {
   const message = (
     role: NativeReviewMessage["role"],
     body: string,
-  ): NativeReviewMessage => ({
-    id: `${role}-${body}`,
-    role,
-    body,
-    createdAt: "2026-01-01T00:00:00Z",
-  });
+  ): NativeReviewMessage => ({ role, body, createdAt: "2026-01-01T00:00:00Z" });
 
   async function nextUpdates(
     updates: AsyncIterable<SessionUpdate>,
@@ -99,7 +149,6 @@ describe("updates", () => {
     const response = await postHook(command.env, {
       hook_event_name: "Stop",
       session_id: "session",
-      transcript_path: "/tmp/session.jsonl",
     });
     expect(response.status).toBe(200);
     expect(await nextUpdates(pipe.updates, 1)).toEqual([
@@ -109,80 +158,13 @@ describe("updates", () => {
     await server.close();
   });
 
-  it("accepts only the submitted prompt's UUID, including when its transcript write is delayed", async () => {
-    const inherited = {
-      type: "user",
-      uuid: "inherited-user",
-      timestamp: "2026-09-07T00:00:00Z",
-      promptId: "old-prompt",
-      message: { role: "user", content: "Explain this" },
-    };
-    const transcript = [inherited];
-    const server = claudeCode.server({
-      ...(await options()),
-      readTranscript: async () => projectClaudeReviewMessages(transcript),
-    });
-    const accepted = vi.fn<
-      (sessionId: string, messageId: string) => Promise<void>
-    >(async () => {});
-    const prepared = vi.fn<(sessionId: string) => Promise<void>>(
-      async () => {},
-    );
-    const { sessionId, command } = await server.launch({
-      session: { forkOf: "source" },
-      cwd: "/tmp/tutorial",
-      prompt: { text: "Explain this", prepared, accepted },
-    });
-    const hook = { session_id: sessionId, transcript_path: "/tmp/fork.jsonl" };
-    expect(prepared).toHaveBeenCalledExactlyOnceWith(sessionId);
-    await postHook(command.env, { ...hook, hook_event_name: "SessionStart" });
-    expect(accepted).not.toHaveBeenCalled();
-    await postHook(command.env, {
-      ...hook,
-      hook_event_name: "UserPromptSubmit",
-      prompt_id: "ask-prompt",
-    });
-    expect(accepted).not.toHaveBeenCalled();
-    await postHook(command.env, {
-      ...hook,
-      hook_event_name: "Stop",
-      prompt_id: "ask-prompt",
-    });
-    transcript.push({
-      ...inherited,
-      uuid: "new-question-uuid",
-      promptId: "ask-prompt",
-    });
-    await expect
-      .poll(() => accepted.mock.calls)
-      .toEqual([[sessionId, "new-question-uuid"]]);
-    await Promise.all([
-      postHook(command.env, {
-        ...hook,
-        hook_event_name: "UserPromptSubmit",
-        prompt_id: "ask-prompt",
-      }),
-      postHook(command.env, {
-        ...hook,
-        hook_event_name: "Stop",
-        prompt_id: "ask-prompt",
-      }),
-    ]);
-    expect(accepted).toHaveBeenCalledOnce();
-    await server.close();
-  });
-
   it("rejects a hook that names a different session", async () => {
     const server = await serverOver([]);
     const { command } = await server.launch({
       session: { resume: "session" },
       cwd: "/tmp/tutorial",
     });
-    const response = await postHook(command.env, {
-      session_id: "other",
-      transcript_path: "/tmp/other.jsonl",
-      hook_event_name: "Stop",
-    });
+    const response = await postHook(command.env, { session_id: "other" });
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({
       error: expect.stringContaining('posted to session "session"'),

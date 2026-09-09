@@ -2,7 +2,6 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
 import path from "node:path";
-import { isDeepStrictEqual } from "node:util";
 
 import {
   type LocalVcsCommitSummary,
@@ -13,7 +12,6 @@ import {
 import {
   type JsonObject,
   type JsonValue,
-  type ReviewCommentAgentSession,
   type ReviewCommentThreadRecord,
   type ReviewSessionWire,
   type ReviewStackResponse,
@@ -233,8 +231,11 @@ export interface AgentThreadLookup {
 
 export interface ReviewApi {
   app: Hono<ReviewHonoEnv>;
-  /** Find an owned comment, including drafts whose agent has not launched yet. */
-  findAgentThread(threadId: string): AgentThreadLookup | undefined;
+  /** The comment thread bound to a native agent session, if this review owns it. */
+  findAgentThread(
+    binding: SessionRef,
+    threadId: string,
+  ): AgentThreadLookup | undefined;
   close(): Promise<void>;
 }
 
@@ -637,10 +638,9 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
         error: "This thread has no agent terminal.",
       });
     }
-    const binding: SessionRef = {
-      harness: agentSession.harness,
-      sessionId: agentSession.sessionId,
-    };
+    // SAFETY: thread records store agent sessions through the review
+    // protocol schema, whose harness enum is the ReviewAgentHarness union.
+    const binding = agentSession as SessionRef;
     const { command } = await agentServer(binding.harness).launch({
       session: { resume: binding.sessionId },
       cwd: agentRootPath,
@@ -1017,12 +1017,17 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
 
   return {
     app,
-    findAgentThread: (threadId) => {
+    findAgentThread: (binding, threadId) => {
       if (!stateReviewPath) return undefined;
       const snapshot = threadsFor(stateReviewPath).snapshot();
       const draft = snapshot.drafts[threadId];
       const thread = draft?.thread ?? snapshot.comments[threadId];
-      if (!thread) return undefined;
+      if (
+        thread?.agentSession?.harness !== binding.harness ||
+        thread.agentSession.sessionId !== binding.sessionId
+      ) {
+        return undefined;
+      }
       return {
         review: path.basename(path.dirname(stateReviewPath)),
         state: draft ? "draft" : "submitted",
@@ -1094,10 +1099,10 @@ function reviewApiJsonResponse<T extends ReviewApiResponseBody>(
   });
 }
 
-export async function answerReviewComment(input: {
+async function answerReviewComment(input: {
   comment: CreateReviewCommentInput;
   rootPath: string;
-  session: Pick<ReviewSessionWire, "agent" | "freshQuestionHarness">;
+  session: ReviewSessionWire;
   service: ReviewThreadsService;
   mirror: NativeMessageMirror;
   agentServer: (harness: ReviewAgentHarness) => AgentServer;
@@ -1108,113 +1113,21 @@ export async function answerReviewComment(input: {
   onQuestionAgentSession?: (agent: SessionRef) => Promise<void>;
 }): Promise<void> {
   const snapshot = input.service.snapshot();
-  const storedThread =
-    snapshot.drafts[input.comment.threadId]?.thread ??
-    snapshot.comments[input.comment.threadId];
-  const storedSession = storedThread?.agentSession;
-  const submitted = storedThread?.messages.find(
-    (message) => message.id === input.comment.messageId,
-  );
-  if (!storedThread || !submitted) {
-    throw new Error("The submitted Ask is not in the Review comment store.");
-  }
-  if (
-    storedSession &&
-    submitted?.agentInput &&
-    submitted.agentMessage?.sessionId === storedSession.sessionId
-  ) {
-    // Acceptance is durable even if opening the terminal failed or the
-    // desktop restarted. Reopen it without submitting the same Ask again.
-    input.mirror.watch(input.comment.threadId, storedSession);
-    const binding: SessionRef = {
-      harness: storedSession.harness,
-      sessionId: storedSession.sessionId,
-    };
-    const { command } = await input.agentServer(binding.harness).launch({
-      cwd: input.rootPath,
-      session: { resume: binding.sessionId },
-    });
-    await input.openNativeAgentTerminal({
-      session: binding,
-      command,
-      askMessageId: input.comment.messageId,
-    });
-    await input.onQuestionAgentSession?.(binding);
-    return;
-  }
+  const storedSession =
+    snapshot.drafts[input.comment.threadId]?.thread.agentSession ??
+    snapshot.comments[input.comment.threadId]?.agentSession;
   const launch = await resolveReviewQuestionLaunch({
     storedSession,
     agent: input.session.agent,
     freshQuestionHarness: input.session.freshQuestionHarness,
     resolveQuestionSourceSession: input.resolveQuestionSourceSession,
   });
+  if (!launch) {
+    throw new Error("This Review has no authoring agent session.");
+  }
   const launchInput: LaunchInput = {
+    prompt: reviewCommentPrompt(input.comment),
     cwd: input.rootPath,
-    prompt: {
-      text: reviewCommentPrompt(input.comment),
-      prepared: async (sessionId) => {
-        const current = input.service.snapshot();
-        const currentThread =
-          current.drafts[input.comment.threadId]?.thread ??
-          current.comments[input.comment.threadId];
-        const currentSession = currentThread?.agentSession;
-        if (!isDeepStrictEqual(currentSession, storedSession)) {
-          throw new Error(
-            "Another Ask changed this comment's agent session during launch.",
-          );
-        }
-        if (
-          launch.session &&
-          "resume" in launch.session &&
-          storedSession?.sessionId !== sessionId
-        ) {
-          throw new Error(
-            "The resumed session does not match the stored Review conversation.",
-          );
-        }
-        await input.mirror.pause(input.comment.threadId);
-      },
-      accepted: async (sessionId, messageId) => {
-        if (!sessionId || !messageId) {
-          throw new Error(
-            "The agent accepted a message without a prepared session or native ID.",
-          );
-        }
-        const snapshot = input.service.snapshot();
-        const thread =
-          snapshot.drafts[input.comment.threadId]?.thread ??
-          snapshot.comments[input.comment.threadId];
-        if (!thread || !isDeepStrictEqual(thread.agentSession, storedSession)) {
-          throw new Error(
-            "Another Ask changed this comment's agent session during launch.",
-          );
-        }
-        const firstMessageId = storedSession
-          ? storedSession.firstMessageId
-          : messageId;
-        // Bind the existing reviewer message, rather than re-importing its prompt.
-        input.service.upsertAgentSessionMessage({
-          mutationId: randomUUID(),
-          threadId: input.comment.threadId,
-          messageId: input.comment.messageId,
-          role: "reviewer",
-          body: input.comment.body,
-          agentInput: true,
-          agentMessage: { sessionId, messageId },
-        });
-        const binding = {
-          harness: launch.harness,
-          sessionId,
-          firstMessageId,
-        };
-        input.service.setAgentSession({
-          mutationId: randomUUID(),
-          threadId: input.comment.threadId,
-          agentSession: binding,
-        });
-        input.mirror.watch(input.comment.threadId, binding);
-      },
-    },
   };
   if (launch.session) launchInput.session = launch.session;
   const { sessionId, command } = await input
@@ -1226,6 +1139,17 @@ export async function answerReviewComment(input: {
     command,
     askMessageId: input.comment.messageId,
   });
+  const commit = input.service.setAgentSession({
+    mutationId: randomUUID(),
+    threadId: input.comment.threadId,
+    agentSession: binding,
+  });
+  if (!commit) {
+    throw new Error(
+      `Review comment thread ${input.comment.threadId} no longer exists.`,
+    );
+  }
+  input.mirror.watch(input.comment.threadId, binding);
   await input.onQuestionAgentSession?.(binding);
 }
 
@@ -1235,13 +1159,13 @@ export interface ReviewQuestionLaunch {
 }
 
 export async function resolveReviewQuestionLaunch(input: {
-  storedSession?: ReviewCommentAgentSession;
+  storedSession?: SessionRef;
   agent?: SessionRef;
   freshQuestionHarness?: ReviewSessionWire["freshQuestionHarness"];
   resolveQuestionSourceSession?: (
     signal?: AbortSignal,
   ) => Promise<SessionRef | undefined>;
-}): Promise<ReviewQuestionLaunch> {
+}): Promise<ReviewQuestionLaunch | undefined> {
   if (input.storedSession) {
     return {
       harness: input.storedSession.harness,
@@ -1254,37 +1178,30 @@ export async function resolveReviewQuestionLaunch(input: {
       session: { forkOf: input.agent.sessionId },
     };
   }
-  if (input.resolveQuestionSourceSession) {
-    const preparedSource = await resolveQuestionSourceWithinBudget(
-      input.resolveQuestionSourceSession,
-    );
+  const preparedSource = input.resolveQuestionSourceSession
+    ? await resolveQuestionSourceWithinBudget(
+        input.resolveQuestionSourceSession,
+      )
+    : undefined;
+  if (preparedSource) {
     return {
       harness: preparedSource.harness,
       session: { forkOf: preparedSource.sessionId },
     };
   }
-  if (input.freshQuestionHarness)
-    return { harness: input.freshQuestionHarness };
-  throw new Error("This Review has no authoring agent session.");
+  return input.freshQuestionHarness
+    ? { harness: input.freshQuestionHarness }
+    : undefined;
 }
 
 async function resolveQuestionSourceWithinBudget(
   resolveSource: (signal?: AbortSignal) => Promise<SessionRef | undefined>,
-): Promise<SessionRef> {
+): Promise<SessionRef | undefined> {
   const signal = AbortSignal.timeout(TUTORIAL_QUESTION_SOURCE_WAIT_MS);
-  const timedOut = new Promise<never>((_resolve, reject) => {
-    signal.addEventListener(
-      "abort",
-      () =>
-        reject(
-          new Error("Timed out waiting for the Review authoring session."),
-        ),
-      { once: true },
-    );
+  const timedOut = new Promise<undefined>((resolve) => {
+    signal.addEventListener("abort", () => resolve(undefined), { once: true });
   });
-  const source = await Promise.race([resolveSource(signal), timedOut]);
-  if (!source) throw new Error("The Review authoring session is not ready.");
-  return source;
+  return Promise.race([resolveSource(signal).catch(() => undefined), timedOut]);
 }
 
 function buildReviewSubmissionEvent(input: {

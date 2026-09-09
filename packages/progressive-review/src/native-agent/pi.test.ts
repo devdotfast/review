@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import type { JsonValue } from "@dev.fast/review-protocol";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import type { AgentServerOptions, SessionUpdate } from "./native-session";
 import { PiAgentServer } from "./pi";
@@ -106,63 +106,60 @@ describe("projectBranch", () => {
       },
     ];
     const expected = [
-      { id: "1", role: "user", body: "hi", createdAt: "2026-01-01T00:00:00Z" },
-      {
-        id: "4",
-        role: "assistant",
-        body: "final",
-        createdAt: "2026-01-01T00:00:03Z",
-      },
-      {
-        id: "5",
-        role: "user",
-        body: "again",
-        createdAt: "2026-01-01T00:00:04Z",
-      },
+      { role: "user", body: "hi", createdAt: "2026-01-01T00:00:00Z" },
+      { role: "assistant", body: "final", createdAt: "2026-01-01T00:00:03Z" },
+      { role: "user", body: "again", createdAt: "2026-01-01T00:00:04Z" },
     ];
     expect(projectBranch(entries)).toEqual(expected);
+    // getBranch walks leaf to root; the projection accepts that order too.
+    expect(projectBranch([...entries].reverse())).toEqual(expected);
   });
 });
 
 describe("PiAgentServer", () => {
-  it("captures the inherited branch before accepting the new native entry", async () => {
+  it("launches pi with the bridge extension and a generated session id", async () => {
     const server = new PiAgentServer(await options());
-    const accepted = vi.fn<
-      (sessionId: string, messageId: string) => Promise<void>
-    >(async () => {});
-    const prepared = vi.fn<(sessionId: string) => Promise<void>>(
-      async () => {},
-    );
     const { sessionId, command } = await server.launch({
-      session: { forkOf: "source" },
-      cwd: "/tmp",
-      prompt: { text: "Explain this", prepared, accepted },
+      prompt: "Explain this code",
+      cwd: "/tmp/tutorial",
     });
-    expect(prepared).toHaveBeenCalledExactlyOnceWith(sessionId);
-    const old = {
-      id: "old",
-      role: "user",
-      body: "Explain this",
-      createdAt: "2026-09-07T00:00:00Z",
-    };
-    expect(
-      (
-        await postBridge(command.env, {
-          sessionId,
-          phase: "session-start",
-          messages: [old],
-        })
-      ).status,
-    ).toBe(200);
-    expect(accepted).not.toHaveBeenCalled();
-    const messages = [old, { ...old, id: "ask" }];
-    expect(
-      (await postBridge(command.env, { sessionId, phase: "update", messages }))
-        .status,
-    ).toBe(200);
-    expect(accepted).toHaveBeenCalledExactlyOnceWith(sessionId, "ask");
-    await postBridge(command.env, { sessionId, phase: "update", messages });
-    expect(accepted).toHaveBeenCalledOnce();
+    expect(command.executable).toBe("pi");
+    expect(sessionId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(command.args).toEqual(
+      expect.arrayContaining([
+        "-e",
+        expect.stringContaining("pi-bridge-extension"),
+        "--session-id",
+        sessionId,
+      ]),
+    );
+    expect(command.args).not.toContain("--session");
+    expect(command.args).not.toContain("--fork");
+    expect(command.args.at(-1)).toBe("Explain this code");
+    expect(command.env.DEV_FAST_REVIEW_AGENT_BRIDGE_URL).toMatch(
+      new RegExp(`^http://127\\.0\\.0\\.1:\\d+/pi/${sessionId}$`),
+    );
+    expect(command.env.DEV_FAST_REVIEW_AGENT_HOOK_URL).toBeUndefined();
+    await server.close();
+  });
+
+  it("forks and resumes through pi's own flags", async () => {
+    const server = new PiAgentServer(await options());
+    const fork = await server.launch({
+      session: { forkOf: "src" },
+      cwd: "/tmp",
+    });
+    expect(fork.command.args).toEqual(
+      expect.arrayContaining(["--fork", "src", "--session-id", fork.sessionId]),
+    );
+    const resume = await server.launch({
+      session: { resume: "old" },
+      cwd: "/tmp",
+    });
+    expect(resume.sessionId).toBe("old");
+    expect(resume.command.args).toEqual(
+      expect.arrayContaining(["--session", "old"]),
+    );
     await server.close();
   });
 
@@ -173,13 +170,11 @@ describe("PiAgentServer", () => {
     expect(pipe.snapshot.messages).toEqual([]);
 
     const first = {
-      id: "1",
       role: "user",
       body: "hi",
       createdAt: "2026-01-01T00:00:00Z",
     };
     const second = {
-      id: "2",
       role: "assistant",
       body: "hello",
       createdAt: "2026-01-01T00:00:01Z",

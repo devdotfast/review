@@ -5,8 +5,6 @@ import type { ReviewAgentHarness } from "../authoring-session";
 export type { ReviewAgentHarness, SessionRef } from "../authoring-session";
 
 export interface NativeReviewMessage {
-  /** Stable native identity within the agent session. */
-  id: string;
   role: "user" | "assistant";
   body: string;
   createdAt: string;
@@ -32,10 +30,6 @@ export interface UpdatePipe<Snapshot, Update> {
 
 export interface SessionSnapshot {
   sessionId: string;
-  /** Conversation order, oldest first, including any inherited fork history.
-   * Live updates must continue this sequence, never append older history.
-   * The comment mirror starts at its persisted firstMessageId.
-   */
   messages: readonly NativeReviewMessage[];
 }
 
@@ -56,13 +50,7 @@ export interface LaunchInput {
   /** Which session the terminal lands in. Absent starts a fresh one. */
   session?: { resume: string } | { forkOf: string };
   /** Submitted when the terminal starts. Absent opens the session silently. */
-  prompt?: {
-    text: string;
-    /** Pause mirroring before prompt execution. Review supplies these callbacks. */
-    prepared(sessionId: string): Promise<void>;
-    /** Persist the accepted native identity before starting the mirror. */
-    accepted(sessionId: string, messageId: string): Promise<void>;
-  };
+  prompt?: string;
   cwd: string;
 }
 

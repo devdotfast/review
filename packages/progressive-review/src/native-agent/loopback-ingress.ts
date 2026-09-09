@@ -10,7 +10,7 @@ export interface LoopbackIngressInput {
   /** First path segment every post must carry, e.g. the harness name. */
   scope: string;
   /** Handle one post for `/<scope>/<sessionId>`. Throw to answer 400. */
-  onPost(sessionId: string, payload: JsonValue): void | Promise<void>;
+  onPost(sessionId: string, payload: JsonValue): void;
 }
 
 /**
@@ -80,7 +80,7 @@ export class LoopbackIngress {
     }
     const payload = await readJsonBody(request);
     try {
-      await this.#input.onPost(decodeURIComponent(match[2]!), payload);
+      this.#input.onPost(decodeURIComponent(match[2]!), payload);
     } catch (error) {
       return {
         status: 400,

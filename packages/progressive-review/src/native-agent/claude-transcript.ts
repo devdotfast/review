@@ -15,18 +15,14 @@ import {
 } from "./transcript-json";
 
 interface ClaudeStep {
+  user: NativeReviewMessage;
   assistantEntries: JsonRecord[];
-}
-
-export interface ClaudeReviewMessage extends NativeReviewMessage {
-  /** Claude's prompt correlation ID, present on current user records. */
-  promptId?: string;
 }
 
 export async function readClaudeReviewMessages(input: {
   sessionId: string;
   transcriptPath?: string;
-}): Promise<ClaudeReviewMessage[]> {
+}): Promise<NativeReviewMessage[]> {
   return projectClaudeReviewMessages(
     await readJsonLines(
       input.transcriptPath ?? (await findClaudeTranscript(input.sessionId)),
@@ -73,8 +69,8 @@ async function findTranscript(
 
 export function projectClaudeReviewMessages(
   entries: readonly JsonRecord[],
-): ClaudeReviewMessage[] {
-  const messages: ClaudeReviewMessage[] = [];
+): NativeReviewMessage[] {
+  const messages: NativeReviewMessage[] = [];
   let step: ClaudeStep | undefined;
   const flushAssistant = (): void => {
     if (!step) return;
@@ -85,32 +81,29 @@ export function projectClaudeReviewMessages(
     const contributing = completed.filter((entry) =>
       assistantText(entry).trim(),
     );
-    for (const entry of contributing) {
-      messages.push({
-        id: requiredMessageId(entry),
-        role: "assistant",
-        body: assistantText(entry).trim(),
-        createdAt: entryTimestamp(entry),
-      });
-    }
+    const body = contributing.map(assistantText).join("\n").trim();
+    if (!body) return;
+    messages.push({
+      role: "assistant",
+      body,
+      createdAt:
+        contributing.flatMap(entryTimestamp).at(-1) ?? step.user.createdAt,
+    });
   };
 
   for (const entry of entries) {
-    if (entry.isSidechain === true || entry.isMeta === true) continue;
+    if (entry.isSidechain === true) continue;
     if (entry.type === "user") {
       const body = messageText(entry);
       if (!body) continue;
       flushAssistant();
-      const user: ClaudeReviewMessage = {
-        id: requiredMessageId(entry),
+      const user: NativeReviewMessage = {
         role: "user",
         body,
-        createdAt: entryTimestamp(entry),
+        createdAt: entryTimestamp(entry)[0] ?? new Date(0).toISOString(),
       };
-      const promptId = jsonString(entry.promptId);
-      if (promptId) user.promptId = promptId;
       messages.push(user);
-      step = { assistantEntries: [] };
+      step = { user, assistantEntries: [] };
       continue;
     }
     if (step && entry.type === "assistant") {
@@ -130,15 +123,7 @@ function assistantText(entry: JsonRecord): string {
   return messageText(entry);
 }
 
-function entryTimestamp(entry: JsonRecord): string {
+function entryTimestamp(entry: JsonRecord): string[] {
   const timestamp = jsonString(entry.timestamp);
-  if (!timestamp)
-    throw new Error("Claude transcript message has no timestamp.");
-  return timestamp;
-}
-
-function requiredMessageId(entry: JsonRecord): string {
-  const id = jsonString(entry.uuid);
-  if (!id) throw new Error("Claude transcript message has no UUID.");
-  return id;
+  return timestamp ? [timestamp] : [];
 }

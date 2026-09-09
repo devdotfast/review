@@ -73,7 +73,7 @@ export async function exportOpenCodeTrace(input: {
  * drains, so a piped export is cut off at 128 KiB; a file descriptor is not.
  * Resolves to the exported JSON, or null when OpenCode has no such session.
  */
-export function runOpenCodeExport(
+function runOpenCodeExport(
   sessionId: string,
   stdoutPath: string,
 ): Promise<string | null> {

@@ -2647,7 +2647,6 @@ packages:
       '@vitest/ui': 4.1.10
       happy-dom: '*'
       jsdom: '*'
-      vite: 8.0.16
     peerDependenciesMeta:
       '@edge-runtime/vm':
         optional: true

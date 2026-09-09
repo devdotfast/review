@@ -379,20 +379,27 @@ export function createGlobalReviewServer(
     }
     await next();
   });
-  // Server-driven agents can read the comment before launch returns and
-  // before its agent-session binding is saved. The desktop token above is
-  // required for every read.
-  app.get("/agent-threads/:threadId", (context) => {
-    const threadId = context.req.param("threadId");
-    for (const session of sessions.values()) {
-      const found = session.handler.findAgentThread(threadId);
-      if (found) return globalJson(200, found);
-    }
-    return globalJson(404, {
-      ok: false,
-      error: `Comment thread not found: ${threadId}`,
-    });
-  });
+  // `review threads get` inside a native agent terminal reads its thread
+  // here; the owning review is found through the session binding.
+  app.get(
+    "/native-agent-events/:harness/:sessionId/thread/:threadId",
+    (context) => {
+      const ref = parseAuthoringSessionKey(
+        `${context.req.param("harness")}:${context.req.param("sessionId")}`,
+      );
+      const threadId = context.req.param("threadId");
+      if (ref && threadId) {
+        for (const session of sessions.values()) {
+          const found = session.handler.findAgentThread(ref, threadId);
+          if (found) return globalJson(200, found);
+        }
+      }
+      return globalJson(404, {
+        ok: false,
+        error: `Comment thread not found: ${threadId ?? ""}`,
+      });
+    },
+  );
   app.post("/app/focus", async () => {
     const result = await relay.dispatch("review-desktop", {
       name: "focusWindow",

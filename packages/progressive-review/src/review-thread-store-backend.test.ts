@@ -11,12 +11,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { reviewCommentPromptPrefix } from "./review-comment-agent";
-import {
-  appendReviewComment,
-  readReviewCommentDrafts,
-  readReviewComments,
-} from "./review-state-store";
+import { appendReviewComment, readReviewComments } from "./review-state-store";
 import {
   REVIEW_THREAD_DB_SCHEMA_VERSION,
   ReviewThreadDbVersionError,
@@ -144,170 +139,96 @@ describe("sqlite thread store", () => {
     migrated.close();
   });
 
-  it("recovers v6 bindings and message identities without changing comment text or draft inputs", async () => {
+  it("normalizes message markers and removes native provenance", async () => {
     const reviewPath = makeReviewPath();
+    const dbPath = reviewThreadDbPath(reviewPath);
     createReviewThreadDb(path.dirname(reviewPath));
     closeAllReviewThreadStores();
-    const db = new DatabaseSync(reviewThreadDbPath(reviewPath));
-    const input = {
-      threadId: "question",
-      messageId: "ask",
-      target: { kind: "document" },
-      body: "Question",
-    };
-    const thread = {
-      threadId: input.threadId,
-      target: input.target,
-      status: "open",
-      agentSession: { harness: "codex", sessionId: "old-fork" },
-      messages: [
-        {
-          id: "ask",
-          by: "Reviewer",
-          at: "2026-09-07T00:00:00Z",
-          body: "Question",
-          agentInput: true,
-        },
-      ],
-    };
+    const db = new DatabaseSync(dbPath);
     db.prepare(
       "INSERT INTO comments (thread_id, record_json) VALUES (?, ?)",
-    ).run(input.threadId, JSON.stringify(thread));
-    db.prepare(
-      "INSERT INTO comment_drafts (thread_id, record_json) VALUES (?, ?)",
-    ).run(input.threadId, JSON.stringify({ thread, inputs: [input] }));
-    db.prepare(
-      "UPDATE meta SET value = '6' WHERE key = 'schema_version'",
-    ).run();
-    db.close();
-    await expect(
-      migrateReviewThreadDb(reviewPath, {
-        readLegacyConversation: async () => [
+    ).run(
+      "thread-1",
+      JSON.stringify({
+        threadId: "thread-1",
+        target: { kind: "document" },
+        status: "open",
+        agentSession: {
+          harness: "codex",
+          sessionId: "child-session",
+          sourceSessionId: "source-session",
+          cursor: 12,
+          turns: [{ operationId: "operation-1" }],
+        },
+        messages: [
           {
-            id: "native-ask",
-            role: "user",
-            body: reviewCommentPromptPrefix("question") + "Question",
-            createdAt: "2026-09-07T00:00:00Z",
+            id: "message-1",
+            by: "Reviewer",
+            at: "2026-08-16T00:00:00.000Z",
+            body: "Keep this message.",
+            native: {
+              sessionId: "child-session",
+              entryIds: ["provider-message-1"],
+            },
           },
         ],
       }),
-    ).resolves.toBe("upgraded");
-    const expected = {
-      ...thread,
-      agentSession: { ...thread.agentSession, firstMessageId: "native-ask" },
-      messages: thread.messages.map((message) => ({
-        ...message,
-        agentMessage: { sessionId: "old-fork", messageId: "native-ask" },
-      })),
-    };
-    expect(readReviewComments(reviewPath).question).toEqual(expected);
-    expect(readReviewCommentDrafts(reviewPath).question).toEqual({
-      thread: expected,
-      inputs: [input],
-    });
-    await expect(migrateReviewThreadDb(reviewPath)).resolves.toBe("current");
-  });
-
-  it("preserves accepted v7 boundaries while removing an unaccepted fork binding", async () => {
-    const reviewPath = makeReviewPath();
-    seedComment(reviewPath);
-    closeAllReviewThreadStores();
-    const db = new DatabaseSync(reviewThreadDbPath(reviewPath));
-    const original = db.prepare("SELECT record_json FROM comments").get() as {
-      record_json: string;
-    };
-    for (const [id, binding] of Object.entries({
-      ready: { state: "ready", firstMessageId: "first" },
-      followup: { state: "pending", firstMessageId: "first" },
-      unaccepted: { state: "pending", firstMessageId: null },
-    })) {
-      db.prepare(
-        "INSERT INTO comments (thread_id, record_json) VALUES (?, json_set(?, '$.threadId', ?, '$.agentSession', json(?)))",
-      ).run(
-        id,
-        original.record_json,
-        id,
-        JSON.stringify({ harness: "codex", sessionId: "fork", ...binding }),
-      );
-    }
+    );
     db.prepare(
-      "UPDATE meta SET value = '7' WHERE key = 'schema_version'",
-    ).run();
-    db.close();
-    await migrateReviewThreadDb(reviewPath, {
-      readLegacyConversation: async () => [],
-    });
-    const comments = readReviewComments(reviewPath);
-    const accepted = {
-      harness: "codex",
-      sessionId: "fork",
-      firstMessageId: "first",
-    };
-    expect(comments.ready?.agentSession).toEqual(accepted);
-    expect(comments.followup?.agentSession).toEqual(accepted);
-    expect(comments.unaccepted?.agentSession).toBeUndefined();
-    expect(comments.unaccepted).toBeUndefined();
-    expect(comments.followup?.messages).toEqual(comments.ready?.messages);
-  });
-
-  it("rolls back when the native transcript cannot be read", async () => {
-    const reviewPath = makeReviewPath();
-    seedComment(reviewPath);
-    closeAllReviewThreadStores();
-    const db = new DatabaseSync(reviewThreadDbPath(reviewPath));
-    db.prepare(
-      "UPDATE comments SET record_json = json_set(record_json, '$.agentSession', json(?))",
-    ).run(JSON.stringify({ harness: "codex", sessionId: "unavailable" }));
-    db.prepare(
-      "UPDATE meta SET value = '6' WHERE key = 'schema_version'",
-    ).run();
-    const before = db.prepare("SELECT record_json FROM comments").all();
-    db.close();
-    await expect(
-      migrateReviewThreadDb(reviewPath, {
-        readLegacyConversation: async () => {
-          throw new Error("transcript unavailable");
+      "INSERT INTO comments (thread_id, record_json) VALUES (?, ?)",
+    ).run(
+      "thread-without-source",
+      JSON.stringify({
+        threadId: "thread-without-source",
+        target: { kind: "document" },
+        status: "open",
+        agentSession: {
+          harness: "codex",
+          sessionId: "ambiguous-child",
+          cursor: 2,
+          turns: [],
         },
+        messages: [
+          {
+            id: "preserved-message",
+            by: "Reviewer",
+            at: "2026-08-16T00:00:00.000Z",
+            body: "Preserve this too.",
+          },
+        ],
       }),
-    ).rejects.toThrow("transcript unavailable");
-    const unchanged = new DatabaseSync(reviewThreadDbPath(reviewPath));
-    expect(unchanged.prepare("SELECT record_json FROM comments").all()).toEqual(
-      before,
     );
-    expect(
-      unchanged
-        .prepare("SELECT value FROM meta WHERE key = 'schema_version'")
-        .get(),
-    ).toEqual({ value: "6" });
-    unchanged.close();
-  });
-
-  it("aborts migration instead of dropping a malformed agent binding", async () => {
-    const reviewPath = makeReviewPath();
-    seedComment(reviewPath);
-    closeAllReviewThreadStores();
-    const db = new DatabaseSync(reviewThreadDbPath(reviewPath));
     db.prepare(
-      "UPDATE comments SET record_json = json_set(record_json, '$.agentSession', json(?))",
-    ).run(JSON.stringify({ harness: "codex", sessionId: "" }));
-    db.prepare(
-      "UPDATE meta SET value = '6' WHERE key = 'schema_version'",
+      "UPDATE meta SET value = '4' WHERE key = 'schema_version'",
     ).run();
-    const before = db.prepare("SELECT record_json FROM comments").all();
     db.close();
-    await expect(migrateReviewThreadDb(reviewPath)).rejects.toThrow(
-      /sessionId/,
-    );
-    const unchanged = new DatabaseSync(reviewThreadDbPath(reviewPath));
-    expect(unchanged.prepare("SELECT record_json FROM comments").all()).toEqual(
-      before,
-    );
-    expect(
-      unchanged
-        .prepare("SELECT value FROM meta WHERE key = 'schema_version'")
-        .get(),
-    ).toEqual({ value: "6" });
-    unchanged.close();
+
+    await expect(migrateReviewThreadDb(reviewPath)).resolves.toBe("upgraded");
+    expect(readReviewComments(reviewPath)["thread-1"]).toMatchObject({
+      agentSession: {
+        harness: "codex",
+        sessionId: "child-session",
+      },
+      messages: [{ body: "Keep this message." }],
+    });
+    expect(readReviewComments(reviewPath)["thread-without-source"]).toEqual({
+      threadId: "thread-without-source",
+      target: { kind: "document" },
+      status: "open",
+      agentSession: {
+        harness: "codex",
+        sessionId: "ambiguous-child",
+      },
+      messages: [
+        {
+          id: "preserved-message",
+          by: "Reviewer",
+          at: "2026-08-16T00:00:00.000Z",
+          body: "Preserve this too.",
+          agentInput: false,
+        },
+      ],
+    });
   });
 
   it("does not select legacy JSON files at runtime", () => {

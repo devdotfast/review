@@ -118,7 +118,9 @@ it("matches frozen tutorial and public authored fixtures independently of sealed
   const tutorial = await fixture("");
   for (const name of ["review.mdx", "data.ts", "authoring-conversation.json"])
     await cp(
-      path.join(packageRoot, "tutorial", name),
+      name === "review.mdx"
+        ? path.join(import.meta.dirname, "fixtures/tutorial.mdx")
+        : path.join(packageRoot, "tutorial", name),
       path.join(path.dirname(tutorial.reviewPath), name),
     );
   const result = await buildReviewDocument(tutorial);

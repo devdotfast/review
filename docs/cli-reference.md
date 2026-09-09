@@ -23,9 +23,10 @@ The `review map` command group is experimental. Its verbs, Git-notes storage
 model, and JSON events may change without a migration period before 1.0.
 
 The `review trace` command group and trace capture are experimental and off
-by default. `review install` configures capture only when `--trace-*`
-credentials are given; Review Desktop exposes it under Settings ▸
-Experimental Features.
+by default. `review install` configures direct S3/R2 capture only when
+`--trace-*` credentials are given; Review Desktop exposes it under Settings ▸
+Experimental Features. See [Trace storage](#trace-storage) for the hosted
+store and the storage selection commands.
 
 ## Common workflow
 
@@ -177,6 +178,55 @@ Maps are stored per commit in Git notes under `refs/notes/dev-fast/*`.
 
 Every map verb accepts `--json`. Run `review map --help` for the storage model
 and exact verb syntax.
+
+## Trace storage
+
+```sh
+review trace status
+review trace storage use direct [--endpoint <url> --bucket <name> --key <id> --secret <secret> [--region <region>]]
+review trace storage use hosted [--origin <url>]
+review trace config migrate [--dry-run]
+review trace list|show|pull|blame ... [--storage direct|hosted]
+review login [--origin <url>] [--no-browser]
+review logout
+review whoami
+review trace onboard [path]
+review trace allow [path] [--no-harness-hooks]
+review trace deny [path]
+```
+
+Review stores traces in one selected place per machine: a **direct** S3/R2
+bucket you own, or the **hosted** store at `https://app.dev.fast`. The
+selection lives in `$DEV_REVIEW_HOME/trace/config.json` (version 2), next to
+an optional direct bucket profile and the hosted repository consent records.
+
+An existing bucket setup keeps working unchanged. Without an explicit
+selection, `~/.config/dev-trace/env` and `settings.json` (or exported
+`TRACE_R2_*` variables) select direct storage exactly as before; no login,
+migration, or new configuration is required. Exported variables still take
+precedence over any saved profile.
+
+`review trace storage use direct` selects the bucket. With `--endpoint`,
+`--bucket`, `--key`, and `--secret` it also saves a complete profile in the
+config file after checking the bucket is reachable. `review trace config
+migrate` copies an existing legacy setup into that profile, refusing to
+overwrite a different profile or to switch away from a hosted selection;
+`--dry-run` previews without writing and never prints secrets. The legacy
+files stay untouched either way.
+
+`review trace storage use hosted` requires `review login` for the origin,
+a store that answers the current contract, and `review trace allow` for the
+checkout's repository; only then does it persist the selection. Bucket
+credentials stay saved and inactive. Logging in, onboarding, or allowing a
+repository never selects hosted storage by itself, and a commit trailer
+alone never authorizes a publication. Hosted uploads that fail never fall
+back to the bucket.
+
+Read commands accept `--storage direct|hosted` to inspect the other store
+for one operation. The override never changes the selection, capture
+settings, or consent. `review trace status` names the effective store, the
+configuration sources in use, and the config file, without revealing
+secrets.
 
 ## Agent integration and migration
 

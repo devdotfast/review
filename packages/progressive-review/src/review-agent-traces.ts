@@ -86,12 +86,20 @@ export interface ReviewTraceSessionRef {
 
 export type ReviewTraceSessionDescriptor = ReviewAgentTraceSession;
 
+/**
+ * How fresh a loaded trace is: `current` when the store confirmed it,
+ * `offline` when the store did not answer and a saved copy was served,
+ * `stale` when the store answered but the download failed.
+ */
+export type TraceCacheStatus = "current" | "offline" | "stale";
+
 export interface LoadedReviewAgentTrace {
   parserVersion: string;
   descriptor: ReviewTraceSessionDescriptor;
   trace: AgentTraceParseResult;
   subagents: string[];
   traceName: string | null;
+  cacheStatus: TraceCacheStatus;
 }
 
 export type ReviewTraceLookupSource = "trailer" | "index" | "pr-scan" | "none";
@@ -286,7 +294,7 @@ export async function loadReviewAgentTrace(input: {
       // The store did not answer: the saved copy, if any, is all there is.
       if (!(error instanceof TraceStorageUnavailableError)) throw error;
       return normalized
-        ? loadedNormalizedTrace(normalized, input.commits)
+        ? loadedNormalizedTrace(normalized, input.commits, "offline")
         : null;
     }
     lastCheckedTimes.set(checkKey, now);
@@ -312,12 +320,13 @@ export async function loadReviewAgentTrace(input: {
         scope = storage.cacheScope(repo);
       }
       if (!scope) {
+        // Nowhere to place a fresh copy; the saved one is all there is.
         return normalized
-          ? loadedNormalizedTrace(normalized, input.commits)
+          ? loadedNormalizedTrace(normalized, input.commits, "stale")
           : null;
       }
       normalizedPath = normalizedTracePath(scope, sessionId, traceName);
-      normalized = await materializeNormalizedTrace({
+      const fresh = await materializeNormalizedTrace({
         storage,
         sessionId,
         traceName,
@@ -326,11 +335,24 @@ export async function loadReviewAgentTrace(input: {
           ? traceRepoName(requestedRepo)
           : (normalized?.metadata.repository ?? traceRepoName(scope)),
       });
+      // A failed download leaves the last readable copy, marked stale.
+      if (!fresh) {
+        return normalized
+          ? loadedNormalizedTrace(normalized, input.commits, "stale")
+          : null;
+      }
+      normalized = fresh;
     }
   }
 
   if (!normalized) return null;
-  return loadedNormalizedTrace(normalized, input.commits);
+  return loadedNormalizedTrace(
+    normalized,
+    input.commits,
+    storage?.kind === "hosted" && (await storage.readiness()).ready === false
+      ? "offline"
+      : "current",
+  );
 }
 
 /**
@@ -352,6 +374,7 @@ function cacheIsCurrent(
 function loadedNormalizedTrace(
   normalized: NormalizedTrace,
   commits: ReviewTraceCommitRef[] | undefined,
+  cacheStatus: TraceCacheStatus,
 ): LoadedReviewAgentTrace {
   const metadata = normalized.metadata;
 
@@ -379,6 +402,7 @@ function loadedNormalizedTrace(
     },
     subagents: metadata.subagents,
     traceName: metadata.trace === "main" ? null : metadata.trace,
+    cacheStatus,
   };
 }
 
@@ -433,11 +457,23 @@ async function materializeNormalizedTrace(input: {
     `review-trace-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`,
   );
   try {
-    const downloaded = await input.storage.downloadObject(
-      input.sessionId,
-      input.traceName,
-      rawTempPath,
-    );
+    let downloaded: Awaited<ReturnType<TraceStorage["downloadObject"]>>;
+    try {
+      downloaded = await input.storage.downloadObject(
+        input.sessionId,
+        input.traceName,
+        rawTempPath,
+      );
+    } catch (error) {
+      // A failed or corrupt transfer leaves no file and no cache change.
+      if (error instanceof TraceStorageUnavailableError) return null;
+      process.stderr.write(
+        `Trace store download failed for ${input.traceName}: ${
+          error instanceof Error ? error.message : String(error)
+        }\n`,
+      );
+      return null;
+    }
     if (!downloaded) return null;
     const parsed = parseAgentTraceJsonl(readFileSync(rawTempPath, "utf8"), {
       isSubagent: input.traceName !== "main",
@@ -937,6 +973,7 @@ export async function lookupReviewTraceBlame(input: {
   file: string;
   lines?: string;
   history?: boolean;
+  storage?: TraceStorage | null;
 }): Promise<ReviewTraceBlameLookupResult> {
   if (!input.file) {
     throw new Error("File path is required.");
@@ -999,9 +1036,12 @@ export async function lookupReviewTraceBlame(input: {
     shas = collected;
   }
 
+  const storage = await storageFor(input.storage, input.cwd);
   const resolutions: ReviewTraceCommitLookupResult[] = [];
   for (const sha of shas) {
-    resolutions.push(await lookupReviewTraceCommit({ cwd: input.cwd, sha }));
+    resolutions.push(
+      await lookupReviewTraceCommit({ cwd: input.cwd, sha, storage }),
+    );
   }
 
   return {

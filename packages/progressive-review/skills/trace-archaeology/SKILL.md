@@ -18,6 +18,9 @@ Setup is human-owned. If a command reports missing trace configuration, ask the 
 FFF setup is human-owned. If FFF is unavailable, report the setup gap. Do not replace or reconfigure it.
 
 Local commit trailers and blame resolution work without trace storage access.
+Read commands use the machine's selected trace store. When both a direct
+bucket and the hosted store are configured, add `--storage direct|hosted` to
+read the other one; it changes nothing about capture or consent.
 
 ## Explain code provenance
 

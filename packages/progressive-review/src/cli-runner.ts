@@ -257,6 +257,13 @@ export async function runProgressiveReviewCli(
     configureOutput(command, surface).addOption(
       new Option("--json", "print machine-readable JSON events on stdout"),
     );
+  // A read-only source override for trace reads. It never changes the
+  // persisted selection, capture settings, or consent.
+  const storageOption = () =>
+    new Option(
+      "--storage <mode>",
+      "read from direct (S3/R2) or hosted storage instead of the selected store",
+    ).choices(["direct", "hosted"]);
   const viewOption = () =>
     new Option("--view <view>", "view to show after opening").choices([
       "review",
@@ -1064,10 +1071,16 @@ export async function runProgressiveReviewCli(
       .command("list")
       .description("List agent sessions for a Review or commit")
       .option("--review <uuid>", "review UUID")
-      .option("--commit <sha>", "commit or revision"),
+      .option("--commit <sha>", "commit or revision")
+      .addOption(storageOption()),
     "plain",
   ).action(
-    async (options: { review?: string; commit?: string; json?: boolean }) => {
+    async (options: {
+      review?: string;
+      commit?: string;
+      storage?: "direct" | "hosted";
+      json?: boolean;
+    }) => {
       if (options.review && options.commit) {
         throw new Error("Use either --review or --commit, not both.");
       }
@@ -1075,6 +1088,7 @@ export async function runProgressiveReviewCli(
         cwd,
         reviewUuid: options.review,
         commitSha: options.commit,
+        storage: options.storage,
         json: options.json,
         stdout: input.stdout,
       });
@@ -1091,7 +1105,8 @@ export async function runProgressiveReviewCli(
         "print the complete text of one event",
         (value: string) => Number.parseInt(value, 10),
       )
-      .option("--kind <kind>", "only list user|assistant|tool|separator rows"),
+      .option("--kind <kind>", "only list user|assistant|tool|separator rows")
+      .addOption(storageOption()),
     "plain",
   ).action(
     async (
@@ -1100,6 +1115,7 @@ export async function runProgressiveReviewCli(
         trace?: string;
         event?: number;
         kind?: string;
+        storage?: "direct" | "hosted";
         json?: boolean;
       },
     ) => {
@@ -1109,6 +1125,7 @@ export async function runProgressiveReviewCli(
         trace: options.trace,
         eventIndex: options.event,
         kind: options.kind,
+        storage: options.storage,
         json: options.json,
         stdout: input.stdout,
         stderr: input.stderr,
@@ -1124,7 +1141,8 @@ export async function runProgressiveReviewCli(
       .option("--review <uuid>", "pull sessions for one Review")
       .option("--commit <sha>", "pull sessions for one commit or revision")
       .option("--session <id>", "pull one session")
-      .option("--main-only", "exclude subagent traces"),
+      .option("--main-only", "exclude subagent traces")
+      .addOption(storageOption()),
     "plain",
   ).action(
     async (options: {
@@ -1133,6 +1151,7 @@ export async function runProgressiveReviewCli(
       commit?: string;
       session?: string;
       mainOnly?: boolean;
+      storage?: "direct" | "hosted";
       json?: boolean;
     }) => {
       const selectors = [
@@ -1150,6 +1169,7 @@ export async function runProgressiveReviewCli(
         commitSha: options.commit,
         session: options.session,
         mainOnly: options.mainOnly,
+        storage: options.storage,
         json: options.json,
         stdout: input.stdout,
         stderr: input.stderr,
@@ -1165,7 +1185,8 @@ export async function runProgressiveReviewCli(
       .option(
         "--history",
         "use git log -L to include every commit that shaped the lines",
-      ),
+      )
+      .addOption(storageOption()),
     "plain",
   ).action(
     async (
@@ -1173,6 +1194,7 @@ export async function runProgressiveReviewCli(
       options: {
         lines?: string;
         history?: boolean;
+        storage?: "direct" | "hosted";
         json?: boolean;
       },
     ) => {
@@ -1181,6 +1203,7 @@ export async function runProgressiveReviewCli(
         file,
         lines: options.lines,
         history: options.history,
+        storage: options.storage,
         json: options.json,
         stdout: input.stdout,
         stderr: input.stderr,
@@ -1786,6 +1809,14 @@ function telemetryCommandPath(
       : "invalid";
   }
   if (parent === "migrate" && name === "apply") return "migrate.apply";
+  if (parent === "trace") {
+    if (name === "onboard" || name === "allow" || name === "deny") {
+      return `trace.${name}`;
+    }
+  }
+  if (parent === "storage" && name === "use") return "trace.storage.use";
+  if (parent === "config" && name === "migrate") return "trace.config.migrate";
+  if (name === "login" || name === "logout" || name === "whoami") return name;
   if (parent === "app" && (name === "launch" || name === "pick")) {
     return `app.${name}`;
   }

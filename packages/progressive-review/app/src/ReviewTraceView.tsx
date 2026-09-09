@@ -8,6 +8,7 @@ import { useReviewSession } from "./host/review-session";
 import { ChevronIcon, TraceDocument, formatDuration } from "./trace-document";
 import { TraceRuler } from "./trace-ruler";
 import {
+  type AgentTraceStorage,
   type LoadedAgentTrace,
   makeTraceKey,
   useAgentTrace,
@@ -57,6 +58,10 @@ type TraceListState =
   | {
       status: "loaded";
       configured: boolean;
+      /** The store the list came from, when the CLI reports one. */
+      storage: AgentTraceStorage | null;
+      /** Every store this machine can read; a control appears for two. */
+      sources: AgentTraceStorage[];
       sessions: ReviewAgentTraceSession[];
     };
 
@@ -81,6 +86,9 @@ export function ReviewTraceView({
   );
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement | null>(null);
+  // A read-only source override. It never changes capture or consent.
+  const [storageOverride, setStorageOverride] =
+    useState<AgentTraceStorage | null>(null);
 
   useEffect(() => {
     if (!pickerOpen) return;
@@ -108,7 +116,10 @@ export function ReviewTraceView({
 
   useEffect(() => {
     const controller = new AbortController();
-    reviewFetch("/agent-traces", { signal: controller.signal })
+    const url: `/${string}` = storageOverride
+      ? `/agent-traces?storage=${storageOverride}`
+      : "/agent-traces";
+    reviewFetch(url, { signal: controller.signal })
       .then(async (response) => {
         const result = parseReviewAgentTraceListResponse(await response.json());
         if (!response.ok || !result.ok) {
@@ -120,6 +131,11 @@ export function ReviewTraceView({
         setList({
           status: "loaded",
           configured: result.configured !== false,
+          storage:
+            result.storage === "direct" || result.storage === "hosted"
+              ? result.storage
+              : null,
+          sources: result.sources ?? [],
           sessions: result.sessions,
         });
       })
@@ -131,7 +147,7 @@ export function ReviewTraceView({
         });
       });
     return () => controller.abort();
-  }, [reviewFetch]);
+  }, [reviewFetch, storageOverride]);
 
   const sessions = list.status === "loaded" ? list.sessions : [];
 
@@ -188,7 +204,14 @@ export function ReviewTraceView({
 
   const activeKey = activeTarget?.key ?? null;
 
-  const detail = useAgentTrace(activeTarget?.sessionId, activeTarget?.trace);
+  const detail = useAgentTrace(
+    activeTarget?.sessionId,
+    activeTarget?.trace,
+    storageOverride,
+  );
+  const sourceChoices = list.status === "loaded" ? list.sources : [];
+  const activeSource =
+    storageOverride ?? (list.status === "loaded" ? list.storage : null);
 
   const activeTrace = detail.status === "loaded" ? detail.trace : undefined;
   const activeHarness =
@@ -208,6 +231,27 @@ export function ReviewTraceView({
           <p className="review-trace-note review-trace-note--error">
             {list.error}
           </p>
+        )}
+        {sourceChoices.length > 1 && (
+          <label className="review-trace-source">
+            <span className="review-trace-kicker">Trace source</span>
+            <select
+              aria-label="Trace source"
+              value={activeSource ?? ""}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setStorageOverride(
+                  value === "direct" || value === "hosted" ? value : null,
+                );
+              }}
+            >
+              {sourceChoices.map((source) => (
+                <option key={source} value={source}>
+                  {source === "direct" ? "Direct S3/R2 bucket" : "Hosted store"}
+                </option>
+              ))}
+            </select>
+          </label>
         )}
         {list.status === "loaded" && !list.configured && (
           <div className="review-trace-unconfigured">
@@ -305,6 +349,15 @@ export function ReviewTraceView({
             {detail.error}
           </p>
         )}
+        {detail.status === "loaded" &&
+          detail.trace.cacheStatus &&
+          detail.trace.cacheStatus !== "current" && (
+            <p className="review-trace-note">
+              {detail.trace.cacheStatus === "offline"
+                ? "Showing a saved copy; the trace store did not answer."
+                : "Showing the last saved copy; the latest download failed."}
+            </p>
+          )}
         {detail.status === "loaded" && (
           <ReviewTraceDocument
             trace={detail.trace}

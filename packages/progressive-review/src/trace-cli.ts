@@ -40,7 +40,22 @@ import {
   selectTraceStorage,
   traceStorageExpectation,
 } from "./trace-storage/resolve";
+import { resolveTraceStorage } from "./trace-storage/resolve";
+import type { TraceStorage, TraceStorageKind } from "./trace-storage/types";
 import { recordTraceSyncFailure } from "./trace-sync-status";
+
+/**
+ * The store a read command uses: the explicit `--storage` override for this
+ * one operation, or the machine's selection when none is given. An override
+ * never changes the selection, capture settings, or consent.
+ */
+async function readStorage(
+  override: TraceStorageKind | undefined,
+  cwd: string,
+): Promise<TraceStorage | null | undefined> {
+  if (!override) return undefined;
+  return resolveTraceStorage({ cwd, override });
+}
 
 export { runReviewTraceGitHook, runReviewTraceHook };
 
@@ -152,7 +167,10 @@ export async function runReviewTraceRepair(input: {
 
 export const runReviewTraceDoctor = runReviewTraceStatus;
 
-async function listSessionsForReview(review: StoredReview) {
+async function listSessionsForReview(
+  review: StoredReview,
+  storage?: TraceStorage | null,
+) {
   const repoRootPath = resolveReviewRepoRootFromStore(review.dir);
   const record = review.review;
   const headCommit = record.sourceCommit ?? record.baseCommit;
@@ -160,6 +178,7 @@ async function listSessionsForReview(review: StoredReview) {
     rootPath: repoRootPath,
     baseCommit: record.baseCommit,
     headCommit,
+    storage,
   });
 }
 
@@ -167,9 +186,11 @@ export async function runReviewTraceList(input: {
   cwd: string;
   reviewUuid?: string;
   commitSha?: string;
+  storage?: TraceStorageKind;
   json?: boolean;
   stdout: Writable;
 }): Promise<number> {
+  const storage = await readStorage(input.storage, input.cwd);
   let scope: { review: string } | { commit: string };
   let sessions: ReviewTraceSessionDescriptor[];
   let emptyExitCode = 0;
@@ -177,21 +198,25 @@ export async function runReviewTraceList(input: {
     const resolution = await lookupReviewTraceCommit({
       cwd: input.cwd,
       sha: input.commitSha,
+      storage,
     });
     scope = { commit: resolution.commit };
     sessions = await Promise.all(
       resolution.sessions.map((sessionId) =>
-        describeTraceSession({
-          sessionId,
-          commits: [{ sha: resolution.commit, subject: "" }],
-        }),
+        describeTraceSession(
+          {
+            sessionId,
+            commits: [{ sha: resolution.commit, subject: "" }],
+          },
+          storage,
+        ),
       ),
     );
     emptyExitCode = 1;
   } else {
     const review = await resolveTraceReview(input.cwd, input.reviewUuid);
     scope = { review: review.review.uuid };
-    sessions = await listSessionsForReview(review);
+    sessions = await listSessionsForReview(review, storage);
   }
 
   const publicSessions = sessions.map((session) => ({
@@ -237,6 +262,7 @@ export async function runReviewTraceShow(input: {
   trace?: string;
   eventIndex?: number;
   kind?: string;
+  storage?: TraceStorageKind;
   json?: boolean;
   stdout: Writable;
   stderr: Writable;
@@ -246,6 +272,7 @@ export async function runReviewTraceShow(input: {
     sessionId: input.sessionId,
     trace: traceName,
     cwd: input.cwd,
+    storage: await readStorage(input.storage, input.cwd),
   });
   if (!loaded) {
     throw new Error(
@@ -292,6 +319,7 @@ export async function runReviewTraceShow(input: {
         trace: traceName ?? "main",
         harness: trace.harness,
         title: trace.title,
+        cache: loaded.cacheStatus,
         events: rows.map(({ event, index }) => ({
           event: index,
           kind: event.kind,
@@ -304,7 +332,9 @@ export async function runReviewTraceShow(input: {
   input.stdout.write(
     `# session ${input.sessionId}${traceName ? ` (trace ${traceName})` : ""} (${trace.harness}) — ${
       trace.title ?? "untitled"
-    }\n# ${trace.events.length} events${input.kind ? ` (${rows.length} shown, kind=${input.kind})` : ""}\n`,
+    }\n# ${trace.events.length} events${input.kind ? ` (${rows.length} shown, kind=${input.kind})` : ""}${
+      loaded.cacheStatus === "current" ? "" : ` (${loaded.cacheStatus} copy)`
+    }\n`,
   );
   for (const { event, index } of rows) {
     input.stdout.write(
@@ -328,11 +358,13 @@ export async function runReviewTracePull(input: {
   commitSha?: string;
   session?: string;
   mainOnly?: boolean;
+  storage?: TraceStorageKind;
   json?: boolean;
   stdout: Writable;
   stderr: Writable;
 }): Promise<number> {
   try {
+    const storage = await readStorage(input.storage, input.cwd);
     let scope: TracePullScope;
     let sessions: Array<{ id: string; traces?: string[] }>;
     let repoRoot = input.cwd;
@@ -340,7 +372,7 @@ export async function runReviewTracePull(input: {
     if (input.reviewUuid) {
       const review = await resolveTraceReview(input.cwd, input.reviewUuid);
       repoRoot = resolveReviewRepoRootFromStore(review.dir);
-      const refs = await listSessionsForReview(review);
+      const refs = await listSessionsForReview(review, storage);
       scope = { review: review.review.uuid };
       sessions = refs.map((ref) => ({
         id: ref.sessionId,
@@ -350,6 +382,7 @@ export async function runReviewTracePull(input: {
       const resolution = await lookupReviewTraceCommit({
         cwd: input.cwd,
         sha: input.commitSha,
+        storage,
       });
       scope = { commit: resolution.commit };
       sessions = resolution.sessions.map((id) => ({ id }));
@@ -370,6 +403,8 @@ export async function runReviewTracePull(input: {
       repo,
       sessions,
       mainOnly: input.mainOnly,
+      cwd: repoRoot,
+      storage,
     });
     const output = {
       scope,
@@ -412,12 +447,14 @@ export async function runReviewTracePull(input: {
 export async function runReviewTraceLookupCommit(input: {
   cwd: string;
   sha: string;
+  storage?: TraceStorageKind;
   json?: boolean;
   stdout: Writable;
 }): Promise<number> {
   const result = await lookupReviewTraceCommit({
     cwd: input.cwd,
     sha: input.sha,
+    storage: await readStorage(input.storage, input.cwd),
   });
 
   if (input.json) {
@@ -434,6 +471,7 @@ export async function runReviewTraceBlame(input: {
   file: string;
   lines?: string;
   history?: boolean;
+  storage?: TraceStorageKind;
   json?: boolean;
   stdout: Writable;
   stderr: Writable;
@@ -445,6 +483,7 @@ export async function runReviewTraceBlame(input: {
       file: input.file,
       lines: input.lines,
       history: input.history,
+      storage: await readStorage(input.storage, input.cwd),
     });
   } catch (err: unknown) {
     input.stderr.write(
@@ -479,11 +518,13 @@ export const runReviewTraceLookupBlame = runReviewTraceBlame;
 export async function runReviewTraceLookupSession(input: {
   cwd: string;
   sessionId: string;
+  storage?: TraceStorageKind;
   json?: boolean;
   stdout: Writable;
 }): Promise<number> {
   const result = await lookupReviewTraceSession({
     sessionId: input.sessionId,
+    storage: await readStorage(input.storage, input.cwd),
   });
 
   if (input.json) {

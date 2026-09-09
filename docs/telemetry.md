@@ -187,8 +187,10 @@ event includes only `reason`, `count`, and the random installation identifier.
 `version`, `app.launch`, `app.pick`, `rebind`, `publish`, `wait`, `info`,
 `scaffold`, `install`, `migrate.apply`, `threads.list`,
 `threads.resolve`, `threads.reply`, `map.open`, `map.check`, `map.prune`,
-`map.publish`, `map.push`, `map.fetch`, and `invalid`. Review sends no
-arguments or refs.
+`map.publish`, `map.push`, `map.fetch`, `login`, `logout`, `whoami`,
+`trace.onboard`, `trace.allow`, `trace.deny`, `trace.storage.use`,
+`trace.config.migrate`, and `invalid`. Review sends no arguments, refs,
+tokens, or storage credentials.
 
 The `command`, `subcommand`, `mode`, `has_base_ref`, `has_head_ref`, and
 `force` flags accompany only `map.*` commands.

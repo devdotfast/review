@@ -16,6 +16,8 @@ export function loadTutorialTrace(): LoadedReviewAgentTrace {
       commits: [],
     },
     traceName: null,
+    // Bundled with the app; there is no store to confirm it against.
+    cacheStatus: "current",
     subagents: [],
     trace: {
       harness: "codex",

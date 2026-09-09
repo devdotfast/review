@@ -105,6 +105,11 @@ without changes. Silent app-update synchronization never runs an FFF
 installer.
 
 The experimental setup configures S3/R2 and enables trace capture for the machine.
+Traces go to one selected store: a direct S3/R2 bucket, or the hosted store
+selected explicitly with `review trace storage use hosted` after `review
+login` and `review trace allow`. The selection and an optional bucket profile
+live in `$DEV_REVIEW_HOME/trace/config.json`; an existing
+`~/.config/dev-trace` setup keeps selecting the bucket without any change.
 Each agent session activates its current repository. Git receives a managed
 hook dispatcher that chains the repository's prior hooks. Jujutsu receives a
 repository commit-trailer template. A target repository needs no Review files.
@@ -131,9 +136,9 @@ pi install npm:@ff-labs/pi-fff
 Trace search uses this local flow:
 
 ```text
-S3/R2 raw trace
-  → temporary download
-  → normalized JSONL in ~/.dev/trace-search
+S3/R2 or hosted raw trace
+  → temporary download (hosted copies are checksum-verified)
+  → normalized JSONL in ~/.dev/trace-search, scoped per store
   → FFF, review trace show, Review UI, and quote validation
 ```
 

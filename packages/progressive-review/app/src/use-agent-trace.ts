@@ -14,11 +14,15 @@ export type AgentTraceState =
   | { status: "error"; error: string; trace?: undefined }
   | { status: "loaded"; trace: LoadedAgentTrace; error?: undefined };
 
+export type AgentTraceStorage = "direct" | "hosted";
+
 export function makeAgentTraceKey(
   sessionId: string,
   trace?: string | null,
+  storage?: AgentTraceStorage | null,
 ): string {
-  return trace ? `${sessionId}:${trace}` : sessionId;
+  const base = trace ? `${sessionId}:${trace}` : sessionId;
+  return storage ? `${base}@${storage}` : base;
 }
 
 export const makeTraceKey = makeAgentTraceKey;
@@ -26,8 +30,12 @@ export const makeTraceKey = makeAgentTraceKey;
 export function makeAgentTraceUrl(
   sessionId: string,
   trace?: string | null,
+  storage?: AgentTraceStorage | null,
 ): `/${string}` {
-  const query = trace ? `?trace=${encodeURIComponent(trace)}` : "";
+  const params = new URLSearchParams();
+  if (trace) params.set("trace", trace);
+  if (storage) params.set("storage", storage);
+  const query = params.size > 0 ? `?${params.toString()}` : "";
   return `/agent-traces/${encodeURIComponent(sessionId)}${query}`;
 }
 
@@ -35,9 +43,10 @@ export function makeAgentTraceUrl(
 export function useAgentTrace(
   sessionId?: string | null,
   trace?: string | null,
+  storage?: AgentTraceStorage | null,
 ): AgentTraceState {
   const session = useReviewSession();
-  const key = sessionId ? makeAgentTraceKey(sessionId, trace) : null;
+  const key = sessionId ? makeAgentTraceKey(sessionId, trace, storage) : null;
 
   const [state, setState] = useState<{
     key: string | null;
@@ -62,7 +71,7 @@ export function useAgentTrace(
 
     const controller = new AbortController();
     setState({ key, traceState: { status: "loading" } });
-    const url = makeAgentTraceUrl(sessionId, trace);
+    const url = makeAgentTraceUrl(sessionId, trace, storage);
     session
       .fetch(url, { signal: controller.signal })
       .then(async (response) => {
@@ -89,7 +98,7 @@ export function useAgentTrace(
     return () => {
       controller.abort();
     };
-  }, [key, session, sessionId, trace]);
+  }, [key, session, sessionId, trace, storage]);
 
   return activeState;
 }

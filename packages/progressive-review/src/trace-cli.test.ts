@@ -12,6 +12,7 @@ import { PassThrough } from "node:stream";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { collectingWritable } from "./cli-output";
 import { clearTraceEnvCache } from "./review-agent-traces";
 import {
   runReviewTraceDoctor,
@@ -19,6 +20,7 @@ import {
   runReviewTraceLookupBlame,
   runReviewTraceLookupCommit,
   runReviewTraceLookupSession,
+  runReviewTraceShow,
   runReviewTraceSync,
 } from "./trace-cli";
 import { configureTraceMachine } from "./trace-machine-setup";
@@ -336,6 +338,62 @@ describe("trace-cli", () => {
     expect(textOut).toContain("trace.jsonl");
     expect(textOut).toContain("bytes  unchanged");
     expect(textOut).not.toContain("indexed");
+  });
+
+  it("reads through an explicit --storage override without changing the selection", async () => {
+    const sessionId = "11111111-aaaa-bbbb-cccc-000000000010";
+    const key = path.join(mockR2Dir, "by-session", sessionId);
+    mkdirSync(key, { recursive: true });
+    writeFileSync(
+      path.join(key, "trace.jsonl"),
+      `${JSON.stringify({ type: "session", id: sessionId, cwd: "/repo", timestamp: "2026-09-02T12:00:00Z" })}\n`,
+    );
+    writeFileSync(
+      path.join(key, "meta.json"),
+      JSON.stringify({
+        session: sessionId,
+        repo: "acme/widgets",
+        branch: null,
+        pr: null,
+        commits: [],
+        author: null,
+        ts: "2026-09-02T12:00:00Z",
+      }),
+    );
+    const searchDir = path.join(tempDir, "trace-search");
+    process.env.REVIEW_TEST_TRACE_SEARCH_DIR = searchDir;
+    process.env.DEV_REVIEW_HOME = path.join(tempDir, "dev-home");
+    try {
+      const out: string[] = [];
+      const code = await runReviewTraceShow({
+        cwd: tempDir,
+        sessionId,
+        storage: "direct",
+        json: true,
+        stdout: collectingWritable(out),
+        stderr: collectingWritable([]),
+      });
+      expect(code).toBe(0);
+      expect(JSON.parse(out.join("").trim())).toMatchObject({
+        session: sessionId,
+        cache: "current",
+      });
+
+      // Hosted is not configured on this machine: the override is an error,
+      // not a silent fall back to the bucket.
+      await expect(
+        runReviewTraceShow({
+          cwd: tempDir,
+          sessionId,
+          storage: "hosted",
+          stdout: collectingWritable([]),
+          stderr: collectingWritable([]),
+        }),
+      ).rejects.toThrow(/Hosted trace storage is not configured/);
+    } finally {
+      delete process.env.REVIEW_TEST_TRACE_SEARCH_DIR;
+      delete process.env.DEV_REVIEW_HOME;
+    }
   });
 
   it("refuses a detached sync whose storage selection changed and records the failure", async () => {

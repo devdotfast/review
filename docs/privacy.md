@@ -124,6 +124,30 @@ An explicit bug report is separate from passive telemetry and is sent even when
 anonymous telemetry is disabled. Review shows the attachment choices before
 submission.
 
+## Hosted trace store
+
+Trace capture is off by default. When you select the hosted store with
+`review trace storage use hosted`, complete agent session transcripts for the
+repositories you allowed with `review trace allow` are uploaded to the /dev/fast
+hosted store at the origin you logged in to. One conversation can contain work
+from several repositories; Review publishes a session automatically only when
+its captured provenance places it in the allowed repository, and a commit
+trailer alone never authorizes an upload. Transcripts can contain prompts,
+model output, source code, file paths, URLs, and email addresses.
+
+Only GitHub users with current push access or higher to the repository can
+discover or read its traces, for public and private repositories alike.
+Read-only collaborators, former contributors, and the public cannot. Making a
+repository public does not widen access. Deleting a store is admin-only and is
+a logical deletion followed by operator cleanup; issued download links and
+retained object versions expire on a bounded schedule rather than instantly.
+`review trace deny` stops future publication and does not erase prior uploads.
+`review logout` forgets the local login only.
+
+Objects are encrypted with server-controlled keys, so /dev/fast can decrypt
+stored traces. The GitHub OAuth app requests the `repo` scope to check access.
+Direct S3/R2 storage sends nothing to /dev/fast.
+
 ## Turn telemetry off
 
 In Review Desktop, open **Preferences → Settings** and disable **Share anonymous

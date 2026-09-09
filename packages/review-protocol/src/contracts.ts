@@ -2113,10 +2113,19 @@ export type ReviewAgentTraceSession = z.infer<
   typeof ReviewAgentTraceSessionSchema
 >;
 
+export const ReviewTraceStorageKindSchema = z.enum(["direct", "hosted"]);
+export type ReviewTraceStorageKind = z.infer<
+  typeof ReviewTraceStorageKindSchema
+>;
+
 export const ReviewAgentTraceListResponseSchema = z.discriminatedUnion("ok", [
   z.strictObject({
     ok: z.literal(true),
     configured: z.boolean().default(true),
+    // The store these sessions came from, and every store the machine can
+    // read; absent from older CLIs.
+    storage: z.enum(["direct", "hosted", "none"]).optional(),
+    sources: z.array(ReviewTraceStorageKindSchema).optional(),
     sessions: z.array(ReviewAgentTraceSessionSchema),
   }),
   ReviewErrorResponseSchema,
@@ -2131,6 +2140,8 @@ export const ReviewAgentTraceResponseSchema = z.discriminatedUnion("ok", [
     parserVersion: requiredString,
     session: ReviewAgentTraceSessionSchema,
     trace: stringAllowEmpty.nullable().optional(),
+    // Whether the store confirmed this copy; absent from older CLIs.
+    cacheStatus: z.enum(["current", "offline", "stale"]).optional(),
     subagents: z.array(requiredString).default([]),
     title: z.string().nullable(),
     startedAt: z.string().nullable(),

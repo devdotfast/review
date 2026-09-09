@@ -30,10 +30,10 @@ Design: /Users/aiansiti/workable/trace-storage-design.md
 - [x] Tests
 
 ## Commit 4: reads, --storage override, product surfaces
-- [ ] cache.ts source identity; direct v1 + destination; hosted v2
-- [ ] --storage flag on list/show/pull/blame; /agent-traces?storage=
-- [ ] Desktop trace-source control + Agent Setup mode display
-- [ ] Docs, skill, telemetry vocabulary, protocol mirror
+- [x] Source identity in cache metadata (storage + contentId), per-store cache scope, offline/stale labels
+- [x] --storage flag on list/show/pull/blame; /agent-traces?storage=
+- [x] Desktop trace-source control + Agent Setup mode display
+- [x] Docs, skill, telemetry vocabulary, protocol mirror
 
 ## Commit 5: validation evidence
 - [ ] MinIO upgrade gate (pre-upgrade CLI → new CLI, unchanged config, zero hosted requests)

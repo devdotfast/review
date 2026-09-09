@@ -72,6 +72,12 @@ import type { SourceSnapshot } from "../source-code-types";
 import { resolveReviewSourceRange } from "../source-range-resolver";
 import { ProgressiveReviewTelemetry } from "../telemetry";
 import type { ReviewTabTelemetryEvent } from "../telemetry";
+import { isDirectMockMode } from "../trace-storage/direct-config";
+import {
+  resolveTraceStorage,
+  selectTraceStorage,
+} from "../trace-storage/resolve";
+import type { TraceStorage, TraceStorageKind } from "../trace-storage/types";
 import type { CreateReviewCommentInput, ReviewSubmissionEvent } from "../types";
 import {
   REVIEW_APP_SESSION_ID_HEADER,
@@ -398,22 +404,45 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     reviewApiJsonResponse(404, { ok: false, error: "not found" }),
   );
 
-  async function resolveTraceSessionDescriptors() {
+  /** The `?storage=` read override, or undefined for the machine's selection. */
+  function traceStorageOverride(
+    context: Context<ReviewHonoEnv>,
+  ): TraceStorageKind | undefined {
+    const value = new URL(context.req.url).searchParams.get("storage");
+    return value === "direct" || value === "hosted" ? value : undefined;
+  }
+
+  async function resolveTraceStorageFor(
+    context: Context<ReviewHonoEnv>,
+    cwd: string,
+  ): Promise<TraceStorage | null | undefined> {
+    const override = traceStorageOverride(context);
+    return override ? resolveTraceStorage({ cwd, override }) : undefined;
+  }
+
+  async function agentTraces(
+    context: Context<ReviewHonoEnv>,
+  ): Promise<Response> {
     const review = readReviewStoreRecord(reviewRootPath);
     const repoRootPath = resolveReviewRepoRootFromStore(reviewRootPath, review);
     const headCommit = review.sourceCommit ?? review.baseCommit;
-    return listReviewTraceSessions({
+    const selection = selectTraceStorage();
+    const sources: TraceStorageKind[] = [];
+    if (selection.direct?.credentials || isDirectMockMode()) {
+      sources.push("direct");
+    }
+    if (selection.hosted) sources.push("hosted");
+    const sessions = await listReviewTraceSessions({
       rootPath: repoRootPath,
       baseCommit: review.baseCommit,
       headCommit,
+      storage: await resolveTraceStorageFor(context, repoRootPath),
     });
-  }
-
-  async function agentTraces(): Promise<Response> {
-    const sessions = await resolveTraceSessionDescriptors();
     return reviewApiJsonResponse(200, {
       ok: true,
       configured: isTraceR2Configured(),
+      storage: traceStorageOverride(context) ?? selection.mode,
+      sources,
       sessions,
     });
   }
@@ -435,6 +464,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       sessionId,
       trace,
       cwd: repoRootPath,
+      storage: await resolveTraceStorageFor(context, repoRootPath),
     });
     if (!loaded) {
       return reviewApiJsonResponse(404, {
@@ -454,6 +484,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       parserVersion,
       session: descriptor,
       trace: traceName,
+      cacheStatus: loaded.cacheStatus,
       subagents,
       title: parsedTrace.title,
       startedAt: parsedTrace.startedAt,

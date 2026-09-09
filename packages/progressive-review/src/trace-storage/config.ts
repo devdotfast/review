@@ -95,14 +95,15 @@ export class TraceConfigurationError extends Error {
 export interface TraceConfigScope {
   env?: NodeJS.ProcessEnv;
   homeDir?: string;
+  /** The Review home itself, when a caller already resolved it. */
+  devHome?: string;
 }
 
 export function traceConfigPath(scope: TraceConfigScope = {}): string {
-  return path.join(
-    devReviewHome(scope.env ?? process.env, scope.homeDir ?? os.homedir()),
-    "trace",
-    "config.json",
-  );
+  const devHome =
+    scope.devHome ??
+    devReviewHome(scope.env ?? process.env, scope.homeDir ?? os.homedir());
+  return path.join(devHome, "trace", "config.json");
 }
 
 export function readTraceConfigFile(

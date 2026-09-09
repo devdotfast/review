@@ -124,6 +124,12 @@ export class DirectTraceStorage implements TraceStorage {
     return `direct:${digest}`;
   }
 
+  cacheScope(
+    repo: { owner: string; repo: string } | null,
+  ): { owner: string; repo: string } | null {
+    return repo;
+  }
+
   async readiness(): Promise<TraceStorageReadiness> {
     return { ready: true };
   }
@@ -243,7 +249,7 @@ export class DirectTraceStorage implements TraceStorage {
       pr: existing?.pr ?? null,
       commits: deduplicateStrings([
         ...(existing?.commits ?? []),
-        ...input.commits.filter(
+        ...(input.commits ?? []).filter(
           (commit) => commitShaSchema.safeParse(commit).success,
         ),
       ]),

@@ -54,8 +54,11 @@ export interface TracePublishInput {
   sessionId: string;
   cwd: string;
   repo: { owner: string; repo: string };
+  /** Which harness produced the transcript. */
+  harness: "claude" | "codex" | "opencode" | "pi";
   files: TracePublishFile[];
-  commits: string[];
+  /** Commits to associate. Undefined lets the backend discover them. */
+  commits?: string[];
   branch: string | null;
   author: string | null;
 }
@@ -66,8 +69,29 @@ export interface TracePublishUpload {
   status: "uploaded" | "unchanged";
 }
 
+/** Hosted publication details, additive to the direct result shape. */
+export interface HostedPublishDetails {
+  repositoryId: number;
+  storeId: string;
+  uploadId: string;
+  generation: number;
+  complete: boolean;
+  objects: string[];
+  commits: string[];
+  omitted: { subagents: string[]; commits: number };
+}
+
 export interface TracePublishResult {
   uploads: TracePublishUpload[];
+  hosted?: HostedPublishDetails;
+}
+
+/** The store did not answer; a saved copy may be served, labeled offline. */
+export class TraceStorageUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TraceStorageUnavailableError";
+  }
 }
 
 export interface TraceStorageReadiness {
@@ -82,6 +106,14 @@ export interface TraceStorage {
   readonly target: TraceStorageTarget;
   /** Scopes cache paths and freshness checks so two stores never share one. */
   cacheIdentity(): string;
+  /**
+   * The corpus directory pair for one repository's traces. Direct storage
+   * keeps `<owner>/<repo>`; hosted storage keys by origin and repository id.
+   * Null when the backend cannot place the cache without a repository.
+   */
+  cacheScope(
+    repo: { owner: string; repo: string } | null,
+  ): { owner: string; repo: string } | null;
   readiness(): Promise<TraceStorageReadiness>;
   describeObject(
     sessionId: string,

@@ -54,7 +54,7 @@
     "build": "tsdown",
     "build:tutorial-assets": "tsx scripts/build-tutorial-assets.ts",
     "check:tutorial": "tsx scripts/check-tutorial.ts",
-    "build:workspace-deps": "pnpm --filter @dev.fast/local-vcs --filter @dev.fast/review-protocol build",
+    "build:workspace-deps": "pnpm --filter @dev.fast/local-vcs --filter @dev.fast/review-protocol --filter @dev.fast/trace-shared build",
     "pretypecheck": "pnpm run build:workspace-deps",
     "pretest": "pnpm run build:workspace-deps",
     "prepack": "pnpm run build && pnpm run app:desktop:build",
@@ -69,6 +69,7 @@
   "dependencies": {
     "@babel/parser": "7.29.7",
     "@dev.fast/local-vcs": "^0.1.0",
+    "@dev.fast/trace-shared": "workspace:*",
     "@hono/node-server": "2.0.12",
     "@mdx-js/mdx": "3.1.1",
     "@mr_mint/elkjs-libavoid": "0.5.0",

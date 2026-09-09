@@ -1,5 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -16,6 +22,7 @@ import {
   runReviewTraceSync,
 } from "./trace-cli";
 import { configureTraceMachine } from "./trace-machine-setup";
+import { listTraceSyncFailures } from "./trace-sync-status";
 
 describe("trace-cli", () => {
   let tempDir: string;
@@ -329,6 +336,39 @@ describe("trace-cli", () => {
     expect(textOut).toContain("trace.jsonl");
     expect(textOut).toContain("bytes  unchanged");
     expect(textOut).not.toContain("indexed");
+  });
+
+  it("refuses a detached sync whose storage selection changed and records the failure", async () => {
+    const sessionId = "11111111-aaaa-bbbb-cccc-000000000009";
+    writeFileSync(
+      path.join(localTraceRoot, `${sessionId}.jsonl`),
+      JSON.stringify({ type: "session", id: sessionId }) + "\n",
+    );
+    const devHome = path.join(tempDir, "dev-home");
+    process.env.DEV_REVIEW_HOME = devHome;
+    try {
+      await expect(
+        runReviewTraceSync({
+          cwd: tempDir,
+          sessionId,
+          repo: "acme/widgets",
+          expectStorage: "hosted:https://app.dev.fast",
+          stdout: new PassThrough() as any,
+        }),
+      ).rejects.toThrow(/storage selection changed/);
+      expect(existsSync(path.join(mockR2Dir, "by-session", sessionId))).toBe(
+        false,
+      );
+      const failures = await listTraceSyncFailures(devHome);
+      expect(failures).toEqual([
+        expect.objectContaining({
+          session: sessionId,
+          retry: `review trace sync ${sessionId}`,
+        }),
+      ]);
+    } finally {
+      delete process.env.DEV_REVIEW_HOME;
+    }
   });
 
   it("runs blame lookup and formats JSON and text outputs", async () => {

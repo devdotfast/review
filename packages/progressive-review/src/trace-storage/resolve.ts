@@ -11,6 +11,7 @@ import {
   isDirectMockMode,
   resolveDirectSetup,
 } from "./direct-config";
+import { HostedTraceStorage } from "./hosted";
 import type { TraceStorage, TraceStorageKind } from "./types";
 
 /**
@@ -106,6 +107,12 @@ export interface ResolveTraceStorageInput extends DirectConfigScope {
    * persisted selection, capture settings, or consent.
    */
   override?: TraceStorageKind;
+  /** The checkout whose repository a hosted store is resolved for. */
+  cwd?: string;
+  /** A write resolves the hosted target live and needs a login; reads may go offline. */
+  purpose?: "read" | "write";
+  /** Where hosted store failures are reported; stderr by default. */
+  onWarning?: (message: string) => void;
 }
 
 /**
@@ -122,6 +129,20 @@ export async function resolveTraceStorage(
   if (mode === "none") return null;
   if (mode === "direct") return directStorage(selection, input);
   return hostedStorage(selection, input);
+}
+
+/**
+ * Names the destination a capture attempt was started for, so a detached
+ * `review trace sync` can refuse to run once the selection changed.
+ */
+export function traceStorageExpectation(scope: DirectConfigScope = {}): string {
+  const selection = selectTraceStorage(scope);
+  if (selection.error || selection.mode === "none") return "none";
+  if (selection.mode === "hosted") {
+    return `hosted:${selection.hosted?.origin ?? ""}`;
+  }
+  const storage = directStorage(selection, scope);
+  return `direct:${storage?.cacheIdentity() ?? ""}`;
 }
 
 function directStorage(
@@ -141,14 +162,29 @@ function directStorage(
 
 async function hostedStorage(
   selection: TraceStorageSelection,
-  _scope: DirectConfigScope,
+  input: ResolveTraceStorageInput,
 ): Promise<TraceStorage | null> {
   const origin = selection.hosted?.origin;
-  throw new TraceConfigurationError(
-    origin
-      ? `Hosted trace storage at ${origin} is not available in this build.`
-      : "Hosted trace storage is not configured.",
-  );
+  if (!origin) {
+    throw new TraceConfigurationError(
+      "Hosted trace storage is not configured. Run `review trace storage use hosted`.",
+    );
+  }
+  const write = input.purpose === "write";
+  const storage = await HostedTraceStorage.resolve({
+    cwd: input.cwd ?? process.cwd(),
+    origin,
+    write,
+    env: input.env,
+    homeDir: input.homeDir,
+    onWarning: input.onWarning,
+  });
+  if (!storage && write) {
+    throw new TraceConfigurationError(
+      "Hosted trace storage needs a GitHub checkout with an onboarded store. Run `review trace onboard` and `review trace allow .`.",
+    );
+  }
+  return storage;
 }
 
 /** Whether the selected store can be used; a configuration error counts as no. */

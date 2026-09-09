@@ -21,13 +21,13 @@ Design: /Users/aiansiti/workable/trace-storage-design.md
 - [x] Tests per selection row, migrate cases, precedence
 
 ## Commit 3: hosted backend
-- [ ] Restore packages/trace-shared 0.2.0
-- [ ] Copy store-origin/store-client/transport/sync-status/provenance/repository-target
-- [ ] Split store-auth; consent into config.ts
-- [ ] hosted.ts TraceStorage
-- [ ] Hook gates (consent + provenance), detached sync re-check
-- [ ] login/logout/whoami, onboard/allow/deny; hosted contract validation on switch
-- [ ] Tests
+- [x] Restore packages/trace-shared 0.2.0
+- [x] Copy store-origin/store-client/transport/sync-status/provenance/repository-target
+- [x] Consent module on the v2 file (trace-user-config.ts); store-auth kept whole
+- [x] hosted.ts TraceStorage
+- [x] Hook gates (consent + provenance), detached sync re-check
+- [x] login/logout/whoami, onboard/allow/deny; hosted contract validation on switch
+- [x] Tests
 
 ## Commit 4: reads, --storage override, product surfaces
 - [ ] cache.ts source identity; direct v1 + destination; hosted v2

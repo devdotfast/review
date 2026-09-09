@@ -70,6 +70,12 @@ import { installReviewCommand, pathShimPath } from "./server/cli-install";
 import { reviewDesktopDiscoveryPath } from "./server/desktop-paths";
 import { setTraceAttribute, span } from "./startup-trace";
 import {
+  DEFAULT_STORE_ORIGIN,
+  runReviewLogin,
+  runReviewLogout,
+  runReviewWhoami,
+} from "./store-auth";
+import {
   runReviewThreadsGet,
   runReviewThreadsList,
   runReviewThreadsReply,
@@ -88,6 +94,11 @@ import {
   runReviewTraceStatus,
   runReviewTraceSync,
 } from "./trace-cli";
+import {
+  runReviewTraceAllow,
+  runReviewTraceDeny,
+  runReviewTraceOnboard,
+} from "./trace-hosted-cli";
 import {
   runReviewTraceConfigMigrate,
   runReviewTraceStorageUse,
@@ -131,6 +142,12 @@ interface ProgressiveReviewCliRuntime {
   runReviewTraceSync: typeof runReviewTraceSync;
   runReviewTraceStorageUse: typeof runReviewTraceStorageUse;
   runReviewTraceConfigMigrate: typeof runReviewTraceConfigMigrate;
+  runReviewTraceOnboard: typeof runReviewTraceOnboard;
+  runReviewTraceAllow: typeof runReviewTraceAllow;
+  runReviewTraceDeny: typeof runReviewTraceDeny;
+  runReviewLogin: typeof runReviewLogin;
+  runReviewLogout: typeof runReviewLogout;
+  runReviewWhoami: typeof runReviewWhoami;
   listReviews: typeof listReviews;
   sealReviewCandidate: typeof sealReviewCandidate;
   prepareReviewPinnedCheckout: typeof prepareReviewPinnedCheckout;
@@ -817,6 +834,50 @@ export async function runProgressiveReviewCli(
     state.exitCode = 0;
   });
 
+  // Hosted trace store login. Logging in authenticates a user; it selects
+  // no storage by itself.
+  configureJsonOutput(
+    program
+      .command("login")
+      .description("Log in to the hosted trace store with GitHub"),
+    "plain",
+  )
+    .option("--origin <url>", "Store origin", DEFAULT_STORE_ORIGIN)
+    .option("--no-browser", "Print the URL instead of opening a browser")
+    .action(
+      async (options: {
+        origin?: string;
+        browser?: boolean;
+        json?: boolean;
+      }) => {
+        state.exitCode = await runtime.runReviewLogin({
+          origin: options.origin,
+          noBrowser: !options.browser,
+          json: options.json,
+          stdout: input.stdout,
+          stderr: input.stderr,
+        });
+      },
+    );
+
+  program
+    .command("logout")
+    .description("Forget the hosted trace store login")
+    .action(async () => {
+      state.exitCode = await runtime.runReviewLogout({ stdout: input.stdout });
+    });
+
+  configureJsonOutput(
+    program.command("whoami").description("Show the hosted trace store login"),
+    "plain",
+  ).action(async (options: { json?: boolean }) => {
+    state.exitCode = await runtime.runReviewWhoami({
+      json: options.json,
+      stdout: input.stdout,
+      stderr: input.stderr,
+    });
+  });
+
   // The trace surface: inspect storage, manage one repository, or read events.
   const trace = configureOutput(
     program.command("trace").description("Manage agent traces"),
@@ -874,6 +935,64 @@ export async function runProgressiveReviewCli(
         key: options.key,
         secret: options.secret,
         region: options.region,
+        json: options.json,
+        stdout: input.stdout,
+        stderr: input.stderr,
+      });
+    },
+  );
+
+  configureJsonOutput(
+    trace
+      .command("onboard [path]")
+      .description("Create the hosted trace store for one repository"),
+    "plain",
+  ).action(
+    async (repoPath: string | undefined, options: { json?: boolean }) => {
+      state.exitCode = await runtime.runReviewTraceOnboard({
+        cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
+        json: options.json,
+        stdout: input.stdout,
+        stderr: input.stderr,
+      });
+    },
+  );
+
+  configureJsonOutput(
+    trace
+      .command("allow [path]")
+      .description("Allow one repository to publish traces to the hosted store")
+      .option(
+        "--no-harness-hooks",
+        "skip the Claude, Codex, OpenCode, and pi hook installers",
+      ),
+    "plain",
+  ).action(
+    async (
+      repoPath: string | undefined,
+      options: { json?: boolean; harnessHooks?: boolean },
+    ) => {
+      state.exitCode = await runtime.runReviewTraceAllow({
+        cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
+        json: options.json,
+        harnessHooks: options.harnessHooks,
+        stdout: input.stdout,
+        stderr: input.stderr,
+      });
+    },
+  );
+
+  configureJsonOutput(
+    trace
+      .command("deny [path]")
+      .description(
+        "Stop publishing traces from one repository to the hosted store",
+      ),
+    "plain",
+  ).action(
+    async (repoPath: string | undefined, options: { json?: boolean }) => {
+      state.exitCode = await runtime.runReviewTraceDeny({
+        cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
         json: options.json,
         stdout: input.stdout,
         stderr: input.stderr,
@@ -1073,7 +1192,13 @@ export async function runProgressiveReviewCli(
     trace
       .command("sync <session-id>")
       .description("Upload a local session trace and its metadata")
-      .option("--repo <repo>", "GitHub owner/repo"),
+      .option("--repo <repo>", "GitHub owner/repo")
+      .addOption(
+        new Option(
+          "--expect-storage <selection>",
+          "abort when the storage selection changed since capture",
+        ).hideHelp(),
+      ),
     "plain",
   ).action(
     async (
@@ -1081,6 +1206,7 @@ export async function runProgressiveReviewCli(
       options: {
         repo?: string;
         json?: boolean;
+        expectStorage?: string;
       },
     ) => {
       state.exitCode = await runtime.runReviewTraceSync({
@@ -1088,7 +1214,9 @@ export async function runProgressiveReviewCli(
         sessionId,
         repo: options.repo,
         json: options.json,
+        expectStorage: options.expectStorage,
         stdout: input.stdout,
+        stderr: input.stderr,
       });
     },
   );
@@ -1359,6 +1487,12 @@ function progressiveReviewCliRuntime(
     runReviewTraceSync,
     runReviewTraceStorageUse,
     runReviewTraceConfigMigrate,
+    runReviewTraceOnboard,
+    runReviewTraceAllow,
+    runReviewTraceDeny,
+    runReviewLogin,
+    runReviewLogout,
+    runReviewWhoami,
     listReviews,
     sealReviewCandidate,
     prepareReviewPinnedCheckout,

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -10,10 +11,13 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import type { JsonValue } from "@dev.fast/review-protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { collectingWritable } from "./cli-output";
 import { clearTraceEnvCache } from "./review-agent-traces";
+import { writeStoreAuth } from "./store-auth";
+import { StoreClient } from "./store-client";
 import { traceMachineStatus } from "./trace-machine-setup";
 import {
   runReviewTraceConfigMigrate,
@@ -23,6 +27,7 @@ import { readTraceConfigFile, traceConfigPath } from "./trace-storage/config";
 import { DirectTraceStorage } from "./trace-storage/direct";
 import { resolveDirectSetup } from "./trace-storage/direct-config";
 import { selectTraceStorage } from "./trace-storage/resolve";
+import { allowTraceRepository } from "./trace-user-config";
 
 const legacyEnv = [
   'export TRACE_R2_ENDPOINT="https://legacy.example.invalid"',
@@ -241,6 +246,7 @@ describe("trace storage commands", () => {
     async function use(input: {
       mode: string;
       origin?: string;
+      client?: StoreClient;
       endpoint?: string;
       bucket?: string;
       key?: string;
@@ -320,6 +326,118 @@ describe("trace storage commands", () => {
       expect(missing.code).toBe(1);
       expect(missing.stderr).toContain("No S3/R2 credentials are configured");
       expect(existsSync(traceConfigPath({ env, homeDir: home }))).toBe(false);
+    });
+
+    describe("hosted", () => {
+      const origin = "https://app.dev.fast";
+      const storeId = "0123456789abcdef0123456789abcdef";
+
+      function storeClient(body: JsonValue) {
+        return new StoreClient({
+          origin,
+          token: "token",
+          fetch: vi.fn<typeof fetch>(
+            async () =>
+              new Response(JSON.stringify(body), {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              }),
+          ),
+        });
+      }
+
+      async function githubCheckout(): Promise<void> {
+        execFileSync("git", ["init", "--quiet"], { cwd: home });
+        execFileSync(
+          "git",
+          ["remote", "add", "origin", "git@github.com:acme/app.git"],
+          { cwd: home },
+        );
+      }
+
+      it("requires a login for the origin", async () => {
+        await githubCheckout();
+        const result = await use({ mode: "hosted" });
+        expect(result.code).toBe(1);
+        expect(result.stderr).toContain("review login --origin");
+        expect(existsSync(traceConfigPath({ env, homeDir: home }))).toBe(false);
+      });
+
+      it("refuses without consent and when the store speaks an older contract", async () => {
+        await githubCheckout();
+        await writeStoreAuth(
+          {
+            origin,
+            token: "token",
+            login: "dev",
+            savedAt: "2026-09-02T00:00:00Z",
+          },
+          env,
+        );
+        const active = {
+          repositoryId: 42,
+          storeId,
+          displayName: "acme/app",
+          status: "active",
+          createdAt: "2026-09-02T12:00:00Z",
+        };
+        const noConsent = await use({
+          mode: "hosted",
+          client: storeClient(active),
+        });
+        expect(noConsent.code).toBe(1);
+        expect(noConsent.stderr).toContain("not allowed for trace publication");
+        expect(
+          readTraceConfigFile({ env, homeDir: home }).config?.storage,
+        ).toBeUndefined();
+
+        await allowTraceRepository(
+          { repositoryId: 42, name: "acme/app", store: origin },
+          path.join(home, ".dev"),
+        );
+        const olderContractStore = {
+          repositoryId: 42,
+          displayName: "acme/app",
+        };
+        const old = await use({
+          mode: "hosted",
+          client: storeClient(olderContractStore),
+        });
+        expect(old.code).toBe(1);
+        expect(old.stderr).toContain("does not serve the trace store contract");
+        expect(
+          readTraceConfigFile({ env, homeDir: home }).config?.storage,
+        ).toBeUndefined();
+
+        writeLegacy();
+        const selected = await use({
+          mode: "hosted",
+          client: storeClient(active),
+          json: true,
+        });
+        expect(selected.code).toBe(0);
+        expect(JSON.parse(selected.stdout.trim())).toMatchObject({
+          event: "trace.storage.use",
+          mode: "hosted",
+          origin,
+          repositoryId: 42,
+          storeId,
+        });
+        expect(selected.stderr).toContain(
+          "Bucket credentials stay saved and inactive",
+        );
+        const file = readTraceConfigFile({ env, homeDir: home });
+        expect(file.config?.storage).toEqual({ mode: "hosted", origin });
+        expect(file.config?.repositories).toHaveLength(1);
+        expect(readFileSync(envPath, "utf8")).toBe(legacyEnv);
+
+        // Switching back keeps the consent entry and selects direct again.
+        const back = await use({ mode: "direct" });
+        expect(back.code).toBe(0);
+        const after = readTraceConfigFile({ env, homeDir: home });
+        expect(after.config?.storage).toEqual({ mode: "direct" });
+        expect(after.config?.repositories).toHaveLength(1);
+      });
     });
 
     it("keeps a saved profile's capture settings when re-selecting direct", async () => {

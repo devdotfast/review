@@ -27,6 +27,7 @@ import { type StoredReview, findReview, listReviews } from "./review-home";
 import { resolveReviewRepoRootFromStore } from "./review-worktree-target";
 import { runReviewTraceGitHook } from "./trace-git-hook-runner";
 import { runReviewTraceHook } from "./trace-hook-runner";
+import { writeHostedTraceStatus } from "./trace-hosted-cli";
 import { traceMachineStatus } from "./trace-machine-setup";
 import {
   disableTraceRepository,
@@ -35,7 +36,11 @@ import {
   traceRepositoryStatus,
 } from "./trace-repository-hooks";
 import { describeSelection } from "./trace-storage-cli";
-import { selectTraceStorage } from "./trace-storage/resolve";
+import {
+  selectTraceStorage,
+  traceStorageExpectation,
+} from "./trace-storage/resolve";
+import { recordTraceSyncFailure } from "./trace-sync-status";
 
 export { runReviewTraceGitHook, runReviewTraceHook };
 
@@ -64,10 +69,12 @@ export async function runReviewTraceStatus(input: {
     return 1;
   }
   if (selection.mode === "hosted") {
-    input.stderr.write(
-      "trace status: hosted trace storage is not available in this build.\n",
-    );
-    return 1;
+    await writeHostedTraceStatus({
+      cwd: input.cwd,
+      origin: selection.hosted?.origin ?? "",
+      stdout: input.stdout,
+    });
+    return 0;
   }
   const doctor = await checkReviewTraceDoctor({ cwd: input.cwd });
   input.stdout.write(`Checking trace configuration (${doctor.envPath})…\n`);
@@ -540,13 +547,43 @@ export async function runReviewTraceSync(input: {
   sessionId: string;
   repo?: string;
   json?: boolean;
+  /**
+   * The destination this attempt was started for. A detached sync passes
+   * it so a selection change since then stops the attempt instead of
+   * publishing to a store the user no longer selected.
+   */
+  expectStorage?: string;
   stdout: Writable;
+  stderr?: Writable;
 }): Promise<number> {
-  const result = await syncReviewTrace({
-    sessionId: input.sessionId,
-    cwd: input.cwd,
-    repo: input.repo,
-  });
+  let result: Awaited<ReturnType<typeof syncReviewTrace>>;
+  try {
+    if (input.expectStorage !== undefined) {
+      const current = traceStorageExpectation();
+      if (current !== input.expectStorage) {
+        throw new Error(
+          `The trace storage selection changed since this capture started (expected ${input.expectStorage}, now ${current}). Run \`review trace sync ${input.sessionId}\` to publish to the current selection.`,
+        );
+      }
+    }
+    result = await syncReviewTrace({
+      sessionId: input.sessionId,
+      cwd: input.cwd,
+      repo: input.repo,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    // The SessionEnd hook runs this command detached. The record is what
+    // `review trace status` shows, so the failure is not lost.
+    await recordTraceSyncFailure({
+      sessionId: input.sessionId.trim(),
+      repository: await inferRepoFromGit(input.cwd)
+        .then((repo) => `${repo.owner}/${repo.repo}`)
+        .catch(() => null),
+      error: message,
+    }).catch(() => undefined);
+    throw error;
+  }
 
   if (input.json) {
     input.stdout.write(`${JSON.stringify(result)}\n`);
@@ -557,6 +594,24 @@ export async function runReviewTraceSync(input: {
     input.stdout.write(
       `${upload.blob}  ${upload.bytes_stored} bytes  ${upload.status}\n`,
     );
+  }
+  if (result.hosted) {
+    for (const name of result.hosted.omitted.subagents) {
+      input.stdout.write(
+        `${name}  omitted (over the object limit or not a store name)\n`,
+      );
+    }
+    if (result.hosted.omitted.commits > 0) {
+      input.stdout.write(
+        `${result.hosted.omitted.commits} commit link(s) omitted (over the commit limit).\n`,
+      );
+    }
+    input.stdout.write(
+      result.hosted.complete
+        ? `Published session ${result.session} of ${result.repo} to the trace store (generation ${result.hosted.generation}).\n`
+        : `Published part of session ${result.session} of ${result.repo} to the trace store (generation ${result.hosted.generation}).\n`,
+    );
+    return 0;
   }
   input.stdout.write(
     `Updated meta for session ${result.session} in ${result.repo}.\n`,

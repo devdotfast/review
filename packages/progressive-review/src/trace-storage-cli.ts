@@ -7,11 +7,20 @@ import {
   humanStream,
 } from "./cli-output";
 import { clearTraceEnvCache } from "./review-agent-traces";
+import { devReviewHome } from "./review-storage";
+import { DEFAULT_STORE_ORIGIN, readStoreAuth } from "./store-auth";
+import { StoreApiError, StoreClient } from "./store-client";
+import { normalizeStoreOrigin } from "./store-origin";
 import {
   readLegacyCaptureSettings,
   traceMachineStatus,
 } from "./trace-machine-setup";
 import { traceRepositoryStatus } from "./trace-repository-hooks";
+import {
+  type TraceRepositoryTarget,
+  requireTraceConsent,
+  resolveTraceRepositoryTarget,
+} from "./trace-repository-target";
 import {
   type DirectCaptureSettings,
   type DirectProfile,
@@ -34,6 +43,7 @@ import {
   type TraceStorageSelection,
   selectTraceStorage,
 } from "./trace-storage/resolve";
+import { readTraceUserConfig } from "./trace-user-config";
 
 /**
  * `review trace storage use` and `review trace config migrate`: the explicit
@@ -52,6 +62,8 @@ export interface RunReviewTraceStorageUseInput
   cwd: string;
   mode: string;
   origin?: string;
+  /** The hosted API client; tests inject one that answers locally. */
+  client?: StoreClient;
   endpoint?: string;
   bucket?: string;
   key?: string;
@@ -64,13 +76,7 @@ export async function runReviewTraceStorageUse(
 ): Promise<number> {
   const stage = "trace.storage.use";
   const scope = commandScope(input);
-  if (input.mode === "hosted") {
-    return failWithJsonError(
-      input,
-      stage,
-      "Hosted trace storage is not available in this build.",
-    );
-  }
+  if (input.mode === "hosted") return useHosted(input, scope, stage);
   if (input.mode !== "direct") {
     return failWithJsonError(
       input,
@@ -135,6 +141,95 @@ export async function runReviewTraceStorageUse(
       region: machine.region ?? null,
       captureEnabled: machine.enabled,
       repository: repository.message,
+    });
+    return 0;
+  } catch (error) {
+    return failWithJsonError(
+      input,
+      stage,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+/**
+ * Selecting hosted storage validates everything a publication needs: a
+ * login for the origin, a store that answers the revised contract, and
+ * consent for this checkout's repository at that origin. Only then is the
+ * selection persisted. Bucket credentials stay where they are, inert.
+ */
+async function useHosted(
+  input: RunReviewTraceStorageUseInput,
+  scope: { homeDir: string; env: NodeJS.ProcessEnv },
+  stage: string,
+): Promise<number> {
+  try {
+    const auth = await readStoreAuth(scope.env);
+    const origin = normalizeStoreOrigin(
+      input.origin ?? auth?.origin ?? DEFAULT_STORE_ORIGIN,
+    );
+    if (!auth || auth.origin !== origin) {
+      throw new TraceConfigurationError(
+        `Log in to ${origin} first: \`review login --origin ${origin}\`.`,
+      );
+    }
+    const devHome = devReviewHome(scope.env, scope.homeDir);
+    const client =
+      input.client ?? new StoreClient({ origin, token: auth.token });
+    let target: TraceRepositoryTarget;
+    try {
+      ({ target } = await resolveTraceRepositoryTarget({
+        cwd: input.cwd,
+        origin,
+        client,
+        write: true,
+        devHome,
+      }));
+    } catch (error) {
+      if (error instanceof StoreApiError && error.code === "upgrade_required") {
+        throw new TraceConfigurationError(
+          `${origin} does not serve the trace store contract this Review needs. Hosted storage was not selected.`,
+        );
+      }
+      throw error;
+    }
+    const consent = await requireTraceConsent(target, devHome);
+
+    const configFile = readTraceConfigFile(scope);
+    if (configFile.error) throw new TraceConfigurationError(configFile.error);
+    const current = configFile.config ?? { version: 2 as const };
+    await writeTraceConfigFile(configFile, {
+      ...current,
+      storage: { mode: "hosted", origin },
+    });
+    clearTraceEnvCache();
+
+    const config = await readTraceUserConfig(devHome);
+    const human = humanStream(input);
+    human.write(`Storage: hosted (${origin})\n`);
+    human.write(
+      `Destination: ${target.name} (repository ${target.repositoryId}, store ${target.storeId})\n`,
+    );
+    human.write(
+      `Publication scope: ${config.repositories
+        .filter((entry) => entry.store === origin)
+        .map((entry) => entry.name)
+        .join(", ")}\n`,
+    );
+    if (selectTraceStorage(scope).direct?.credentials) {
+      human.write(
+        "Bucket credentials stay saved and inactive; `review trace storage use direct` switches back.\n",
+      );
+    }
+    emitJsonEvent(input, {
+      event: stage,
+      mode: "hosted",
+      configPath: configFile.path,
+      origin,
+      repositoryId: target.repositoryId,
+      storeId: target.storeId,
+      name: target.name,
+      allowedAt: consent.allowedAt,
     });
     return 0;
   } catch (error) {

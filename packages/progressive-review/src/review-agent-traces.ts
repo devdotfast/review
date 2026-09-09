@@ -13,7 +13,7 @@ import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { git, resolveRepoContext } from "@dev.fast/local-vcs";
+import { git } from "@dev.fast/local-vcs";
 import {
   type ReviewAgentTraceSession,
   type SessionMeta,
@@ -36,6 +36,12 @@ import {
   isOpenCodeSessionId,
 } from "./opencode-trace-export";
 import { devReviewHome } from "./review-storage";
+import {
+  type TraceRepo,
+  inferRepoFromGit,
+  parseRepo,
+  traceRepoName,
+} from "./trace-repo";
 import { DirectTraceStorage } from "./trace-storage/direct";
 import {
   clearTraceEnvCache as clearDirectEnvCache,
@@ -47,8 +53,14 @@ import {
   isTraceStorageConfigured,
   resolveTraceStorage,
 } from "./trace-storage/resolve";
-import type { TraceStorage } from "./trace-storage/types";
+import {
+  type HostedPublishDetails,
+  type TraceStorage,
+  TraceStorageUnavailableError,
+} from "./trace-storage/types";
 import { TUTORIAL_TRACE_SESSION_ID, loadTutorialTrace } from "./tutorial-trace";
+
+export { type TraceRepo, inferRepoFromGit, parseRepo, traceRepoName };
 
 /**
  * Resolves the agent sessions behind a review's change range, loads their
@@ -125,6 +137,8 @@ export interface ReviewTraceSyncResult {
   session: string;
   repo: string;
   uploads: ReviewTraceSyncUpload[];
+  /** Present after a hosted publication. */
+  hosted?: HostedPublishDetails;
 }
 
 export interface ReviewTraceDoctorResult {
@@ -147,8 +161,19 @@ export function isTraceR2Configured(): boolean {
  */
 async function storageFor(
   storage: TraceStorage | null | undefined,
+  cwd?: string,
 ): Promise<TraceStorage | null> {
-  return storage === undefined ? resolveTraceStorage() : storage;
+  return storage === undefined ? resolveTraceStorage({ cwd }) : storage;
+}
+
+/** A remote lookup, or null when the store could not be reached. */
+async function reachable<T>(lookup: () => Promise<T>): Promise<T | null> {
+  try {
+    return await lookup();
+  } catch (error) {
+    if (error instanceof TraceStorageUnavailableError) return null;
+    throw error;
+  }
 }
 
 function freshnessKey(
@@ -165,7 +190,7 @@ export async function listReviewTraceSessions(input: {
   headCommit: string;
   storage?: TraceStorage | null;
 }): Promise<ReviewTraceSessionDescriptor[]> {
-  const storage = await storageFor(input.storage);
+  const storage = await storageFor(input.storage, input.rootPath);
   const sessions = new Map<string, ReviewTraceSessionRef>();
   const commits = await commitsWithTrailers(input);
   for (const commit of commits) {
@@ -201,10 +226,10 @@ export async function describeTraceSession(
   storage?: TraceStorage | null,
 ): Promise<ReviewTraceSessionDescriptor> {
   const store = await storageFor(storage);
-  const local = findNormalizedTraceFile(ref.sessionId, "main");
-  const normalized = local ? readNormalizedTrace(local) : null;
+  const local = findNormalizedTraceFile(ref.sessionId, "main", store);
+  const normalized = local ? readNormalizedTrace(local, store) : null;
   const remote = store
-    ? await store.describeObject(ref.sessionId, "main")
+    ? await reachable(() => store.describeObject(ref.sessionId, "main"))
     : null;
   const available = normalized !== null || (remote !== null && remote.size > 0);
   const harness = normalized?.metadata.harness ?? "unknown";
@@ -237,12 +262,16 @@ export async function loadReviewAgentTrace(input: {
   }
   if (!sessionIdSchema.safeParse(sessionId).success) return null;
   const traceName = trace ?? "main";
-  const storage = await storageFor(input.storage);
+  const storage = await storageFor(input.storage, input.cwd);
+  const requestedRepo = input.repo ? normalizeRepo(input.repo) : null;
 
-  let normalizedPath = input.repo
-    ? normalizedTracePath(normalizeRepo(input.repo), sessionId, traceName)
-    : findNormalizedTraceFile(sessionId, traceName);
-  let normalized = normalizedPath ? readNormalizedTrace(normalizedPath) : null;
+  let scope = storage ? storage.cacheScope(requestedRepo) : requestedRepo;
+  let normalizedPath = scope
+    ? normalizedTracePath(scope, sessionId, traceName)
+    : findNormalizedTraceFile(sessionId, traceName, storage);
+  let normalized = normalizedPath
+    ? readNormalizedTrace(normalizedPath, storage)
+    : null;
   const now = Date.now();
   const checkKey = storage ? freshnessKey(storage, sessionId, traceName) : null;
   const lastChecked = checkKey ? (lastCheckedTimes.get(checkKey) ?? 0) : 0;
@@ -250,44 +279,74 @@ export async function loadReviewAgentTrace(input: {
     normalized && !input.refresh && now - lastChecked < REMOTE_HEAD_TTL_MS;
 
   if (storage && checkKey && !canUseWithoutCheck) {
-    const remote = await storage.describeObject(sessionId, traceName);
+    let remote: Awaited<ReturnType<TraceStorage["describeObject"]>>;
+    try {
+      remote = await storage.describeObject(sessionId, traceName);
+    } catch (error) {
+      // The store did not answer: the saved copy, if any, is all there is.
+      if (!(error instanceof TraceStorageUnavailableError)) throw error;
+      return normalized
+        ? loadedNormalizedTrace(normalized, input.commits)
+        : null;
+    }
     lastCheckedTimes.set(checkKey, now);
     const mustMaterialize =
       remote !== null &&
-      (!normalized || remote.size > normalized.metadata.source.bytes);
+      (!normalized || !cacheIsCurrent(storage, normalized, remote));
     if (mustMaterialize) {
-      let repo = input.repo ? normalizeRepo(input.repo) : null;
-      if (!repo && input.cwd) {
-        repo = await inferRepoFromGit(input.cwd).catch(() => null);
-      }
-      if (!repo) {
-        const meta = await storage.sessionMeta(sessionId);
-        if (meta?.repo) {
-          try {
-            repo = parseRepo(meta.repo);
-          } catch {
-            repo = null;
+      if (!scope) {
+        let repo = requestedRepo;
+        if (!repo && input.cwd) {
+          repo = await inferRepoFromGit(input.cwd).catch(() => null);
+        }
+        if (!repo) {
+          const meta = await storage.sessionMeta(sessionId);
+          if (meta?.repo) {
+            try {
+              repo = parseRepo(meta.repo);
+            } catch {
+              repo = null;
+            }
           }
         }
+        scope = storage.cacheScope(repo);
       }
-      if (!repo) {
+      if (!scope) {
         return normalized
           ? loadedNormalizedTrace(normalized, input.commits)
           : null;
       }
-      normalizedPath = normalizedTracePath(repo, sessionId, traceName);
+      normalizedPath = normalizedTracePath(scope, sessionId, traceName);
       normalized = await materializeNormalizedTrace({
         storage,
         sessionId,
         traceName,
         normalizedPath,
-        repo,
+        repository: requestedRepo
+          ? traceRepoName(requestedRepo)
+          : (normalized?.metadata.repository ?? traceRepoName(scope)),
       });
     }
   }
 
   if (!normalized) return null;
   return loadedNormalizedTrace(normalized, input.commits);
+}
+
+/**
+ * Whether a saved copy still matches the stored object. Direct storage can
+ * only compare sizes and objects only grow; hosted storage names content
+ * exactly, so an equal-size or smaller replacement is still seen.
+ */
+function cacheIsCurrent(
+  storage: TraceStorage,
+  normalized: NormalizedTrace,
+  remote: { size: number; contentId: string },
+): boolean {
+  if (storage.kind === "direct") {
+    return remote.size <= normalized.metadata.source.bytes;
+  }
+  return normalized.metadata.source.contentId === remote.contentId;
 }
 
 function loadedNormalizedTrace(
@@ -338,7 +397,15 @@ interface NormalizedTraceMetadata {
   userTurns: number;
   toolCalls: number;
   subagents: string[];
-  source: { r2Key: string; bytes: number; checkedAt: string };
+  source: {
+    r2Key: string;
+    bytes: number;
+    checkedAt: string;
+    /** What the backend verified about the content; absent in old caches. */
+    contentId?: string;
+    /** The store the copy came from; absent in caches older than this field. */
+    storage?: string;
+  };
 }
 
 interface NormalizedTraceEventRecord {
@@ -359,7 +426,7 @@ async function materializeNormalizedTrace(input: {
   sessionId: string;
   traceName: string;
   normalizedPath: string;
-  repo: { owner: string; repo: string };
+  repository: string;
 }): Promise<NormalizedTrace | null> {
   const rawTempPath = path.join(
     tmpdir(),
@@ -384,7 +451,7 @@ async function materializeNormalizedTrace(input: {
         type: "metadata",
         version: 1,
         parserVersion: AGENT_TRACE_PARSER_VERSION,
-        repository: `${input.repo.owner}/${input.repo.repo}`,
+        repository: input.repository,
         session: input.sessionId,
         trace: input.traceName,
         harness: parsed.harness,
@@ -399,6 +466,8 @@ async function materializeNormalizedTrace(input: {
           r2Key: legacyObjectKey(input.sessionId, input.traceName),
           bytes: downloaded.size,
           checkedAt: new Date().toISOString(),
+          contentId: downloaded.contentId,
+          storage: input.storage.cacheIdentity(),
         },
       },
       events: parsed.events.map((event, index) => ({
@@ -435,7 +504,16 @@ function writeNormalizedTraceAtomic(
   }
 }
 
-function readNormalizedTrace(filePath: string): NormalizedTrace | null {
+/**
+ * A saved copy, or null when the file is absent, written by another parser
+ * version, or made for another store. A copy that names its store is served
+ * only to that store; a copy from before the field is trusted only by direct
+ * storage, which wrote every such file.
+ */
+function readNormalizedTrace(
+  filePath: string,
+  storage?: TraceStorage | null,
+): NormalizedTrace | null {
   try {
     const records: unknown[] = readFileSync(filePath, "utf8")
       .split("\n")
@@ -453,6 +531,11 @@ function readNormalizedTrace(filePath: string): NormalizedTrace | null {
       !Number.isFinite(metadata.source?.bytes)
     ) {
       return null;
+    }
+    if (storage) {
+      const owner = metadata.source.storage;
+      if (owner !== undefined && owner !== storage.cacheIdentity()) return null;
+      if (owner === undefined && storage.kind !== "direct") return null;
     }
     // SAFETY: same file provenance as the metadata record above; each event
     // record's type, index, kind, and text are re-checked against its event.
@@ -508,9 +591,13 @@ export async function pullReviewTraceCorpus(input: {
   repo: { owner: string; repo: string };
   sessions: ReviewTracePullSession[];
   mainOnly?: boolean;
+  cwd?: string;
+  storage?: TraceStorage | null;
 }): Promise<ReviewTracePullResult> {
   const repository = `${input.repo.owner}/${input.repo.repo}`;
   const corpusRoot = traceSearchCorpusDir();
+  const storage = await storageFor(input.storage, input.cwd);
+  const scope = (storage ? storage.cacheScope(input.repo) : null) ?? input.repo;
 
   const sessions: ReviewTracePullSessionResult[] = [];
   const unavailableSessions: string[] = [];
@@ -520,12 +607,13 @@ export async function pullReviewTraceCorpus(input: {
       sessionId: sessionRef.id,
       repo: input.repo,
       refresh: true,
+      storage,
     });
     if (!main) {
       unavailableSessions.push(sessionRef.id);
       continue;
     }
-    paths.push(normalizedTracePath(input.repo, sessionRef.id, "main"));
+    paths.push(normalizedTracePath(scope, sessionRef.id, "main"));
     let traceCount = 1;
     let eventCount = main.trace.events.length;
     if (!input.mainOnly) {
@@ -535,9 +623,10 @@ export async function pullReviewTraceCorpus(input: {
           trace: traceName,
           repo: input.repo,
           refresh: true,
+          storage,
         });
         if (subagent) {
-          paths.push(normalizedTracePath(input.repo, sessionRef.id, traceName));
+          paths.push(normalizedTracePath(scope, sessionRef.id, traceName));
           traceCount += 1;
           eventCount += subagent.trace.events.length;
         }
@@ -591,8 +680,18 @@ function normalizedTracePath(
 function findNormalizedTraceFile(
   sessionId: string,
   traceName: string,
+  storage?: TraceStorage | null,
 ): string | null {
   const fileName = `${corpusPathSegment(traceName.replace(/\.jsonl$/, ""), "trace")}.jsonl`;
+  // A store that places its own cache never reads another store's files.
+  const own = storage?.cacheScope(null);
+  if (own) {
+    const candidate = path.join(
+      path.dirname(normalizedTracePath(own, sessionId, "main")),
+      fileName,
+    );
+    return isFile(candidate) ? candidate : null;
+  }
   for (const sessionDir of findNormalizedSessionDirs(sessionId)) {
     const candidate = path.join(sessionDir, fileName);
     if (isFile(candidate)) return candidate;
@@ -669,7 +768,7 @@ export async function lookupReviewTraceCommit(input: {
   sha: string;
   storage?: TraceStorage | null;
 }): Promise<ReviewTraceCommitLookupResult> {
-  const storage = await storageFor(input.storage);
+  const storage = await storageFor(input.storage, input.cwd);
   const commit = await resolveCommitSha(input.cwd, input.sha);
   const trailerSessions = await readTrailerSessions(input.cwd, commit);
   const pr = await readSubjectPullNumber(input.cwd, commit);
@@ -799,7 +898,10 @@ export async function lookupReviewTraceSession(input: {
     : null;
 
   let hasRawTrace = false;
-  if (storage && (await storage.describeObject(sessionId, "main")) !== null) {
+  if (
+    storage &&
+    (await reachable(() => storage.describeObject(sessionId, "main"))) !== null
+  ) {
     hasRawTrace = true;
   }
   if (!hasRawTrace) {
@@ -914,8 +1016,11 @@ export async function lookupReviewTraceBlame(input: {
 
 export interface LocalTraceDiscovery {
   tracePath: string;
+  harness: LocalTraceHarness;
   subagentPaths: Array<{ name: string; path: string }>;
 }
+
+export type LocalTraceHarness = "claude" | "codex" | "opencode" | "pi";
 
 export async function findLocalTrace(
   sessionId: string,
@@ -930,10 +1035,16 @@ export async function findLocalTrace(
     traceEnvValue("TRACE_PI_SESSIONS_ROOT") ||
     path.join(homedir(), ".pi", "agent", "sessions");
 
-  let tracePath =
-    findClaudeTrace(claudeRoot, sessionId) ||
-    findCodexTrace(codexRoot, sessionId) ||
-    findPiTrace(piRoot, sessionId);
+  let harness: LocalTraceHarness = "claude";
+  let tracePath = findClaudeTrace(claudeRoot, sessionId);
+  if (!tracePath) {
+    tracePath = findCodexTrace(codexRoot, sessionId);
+    if (tracePath) harness = "codex";
+  }
+  if (!tracePath) {
+    tracePath = findPiTrace(piRoot, sessionId);
+    if (tracePath) harness = "pi";
+  }
 
   if (!tracePath) {
     if (
@@ -941,6 +1052,7 @@ export async function findLocalTrace(
       isFile(path.join(claudeRoot, `${sessionId}.jsonl`))
     ) {
       tracePath = path.join(claudeRoot, `${sessionId}.jsonl`);
+      harness = "claude";
     }
   }
 
@@ -953,12 +1065,13 @@ export async function findLocalTrace(
         process.env.TRACE_OPENCODE_TRACES_ROOT ||
         path.join(devReviewHome(), "opencode-traces"),
     });
+    if (tracePath) harness = "opencode";
   }
 
   if (!tracePath) return null;
 
   const subagentPaths = findSubagentBlobs(tracePath);
-  return { tracePath, subagentPaths };
+  return { tracePath, harness, subagentPaths };
 }
 
 function findClaudeTrace(root: string, sessionId: string): string | null {
@@ -1104,42 +1217,49 @@ export async function syncReviewTrace(input: {
       "Session id must be 8-128 characters of letters, digits, dots, dashes, or underscores.",
     );
   }
-  const storage = await storageFor(input.storage);
+  const workDir = input.cwd ?? process.cwd();
+  const storage =
+    input.storage === undefined
+      ? await resolveTraceStorage({ cwd: workDir, purpose: "write" })
+      : input.storage;
   if (!storage) {
     throw new Error(
       "S3/R2 storage is not configured. Use Review Agent Setup to configure trace capture.",
     );
   }
+  const repo = input.repo
+    ? parseRepo(input.repo)
+    : await inferRepoFromGit(workDir);
 
   const local = await findLocalTrace(sessionId);
   if (!local) {
     throw new Error(`No local trace found for session ${sessionId}.`);
   }
-
-  const workDir = input.cwd ?? process.cwd();
-  const repo = input.repo
-    ? parseRepo(input.repo)
-    : await inferRepoFromGit(workDir);
   const { author, branch } = await readRepoMetaFields(workDir);
 
+  // A hosted publication settles consent and provenance before it reads a
+  // transcript; direct publication has no such gate.
   const published = await storage.publish({
     sessionId,
     cwd: workDir,
     repo,
+    harness: local.harness,
     files: [
       { name: "main", path: local.tracePath },
       ...local.subagentPaths.map((sub) => ({ name: sub.name, path: sub.path })),
     ],
-    commits: input.commits ?? [],
+    commits: input.commits,
     branch,
     author,
   });
 
-  return {
+  const result: ReviewTraceSyncResult = {
     session: sessionId,
     repo: `${repo.owner}/${repo.repo}`,
     uploads: published.uploads,
   };
+  if (published.hosted) result.hosted = published.hosted;
+  return result;
 }
 
 export async function writeReviewTraceCommitMapping(input: {
@@ -1150,7 +1270,7 @@ export async function writeReviewTraceCommitMapping(input: {
   storage?: TraceStorage | null;
 }): Promise<boolean> {
   const commit = commitShaSchema.parse(input.commit);
-  const storage = await storageFor(input.storage);
+  const storage = await storageFor(input.storage, input.cwd);
   if (!storage) {
     throw new Error(`Failed to write by-commit/${commit}.json.`);
   }
@@ -1331,40 +1451,6 @@ export async function readRepoMetaFields(
   return { author: author || null, branch: branch || null };
 }
 
-export interface TraceRepo {
-  owner: string;
-  repo: string;
-}
-
-export function parseRepo(value: string): TraceRepo {
-  const parts = value.split("/");
-  if (parts.length !== 2 || !parts[0] || !parts[1]) {
-    throw new Error("Repository must be OWNER/REPO.");
-  }
-  return { owner: parts[0], repo: parts[1] };
-}
-
-export async function inferRepoFromGit(cwd: string): Promise<TraceRepo> {
-  if (process.env.GITHUB_REPOSITORY) {
-    return parseRepo(process.env.GITHUB_REPOSITORY);
-  }
-  const slug = (await resolveRepoContext(cwd))?.githubSlug;
-  if (slug) {
-    return parseRepo(slug);
-  }
-  const result = await git(cwd, ["remote", "get-url", "origin"], {
-    allowFailure: true,
-  });
-  if (result.ok && result.stdout.trim()) {
-    const raw = result.stdout.trim();
-    const match = /[:/]([^/]+)\/([^/]+?)(?:\.git)?$/.exec(raw);
-    if (match && match[1] && match[2]) {
-      return parseRepo(`${match[1]}/${match[2]}`);
-    }
-  }
-  throw new Error("Could not infer GitHub repository from origin remote.");
-}
-
 async function commitsWithTrailers(input: {
   rootPath: string;
   baseCommit: string;
@@ -1450,9 +1536,8 @@ export async function listSessionSubagents(
 
   const store = await storageFor(storage);
   if (store) {
-    for (const name of await store.listSubagents(sessionId)) {
-      subagents.add(name);
-    }
+    const names = await reachable(() => store.listSubagents(sessionId));
+    for (const name of names ?? []) subagents.add(name);
   }
 
   return [...subagents].sort();

@@ -1,16 +1,21 @@
-import { execFile } from "node:child_process";
 import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
 
-import { jsonString, parseJsonText } from "@dev.fast/review-protocol";
+import { parseJsonText } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
 import { writeFileAtomicAsync } from "./atomic-write";
 import { clearTraceEnvCache } from "./review-agent-traces";
+import { DirectTraceStorage } from "./trace-storage/direct";
+import {
+  DIRECT_DEFAULT_REGION,
+  resolveDirectCredentials,
+  traceEnvPath,
+  traceSettingsPath,
+} from "./trace-storage/direct-config";
 
-const execFileAsync = promisify(execFile);
+export { traceEnvPath, traceSettingsPath };
 
 export interface TraceCredentialsInput {
   endpoint?: string;
@@ -45,56 +50,19 @@ const traceMachineSettingsSchema = z.object({
 });
 type TraceMachineSettings = z.infer<typeof traceMachineSettingsSchema>;
 
-export function traceEnvPath(
-  homeDir = os.homedir(),
-  env: NodeJS.ProcessEnv = process.env,
-): string {
-  return (
-    env.TRACE_ENV_FILE ?? path.join(homeDir, ".config", "dev-trace", "env")
-  );
-}
-
-export function traceSettingsPath(
-  homeDir = os.homedir(),
-  env: NodeJS.ProcessEnv = process.env,
-): string {
-  return (
-    env.TRACE_SETTINGS_FILE ??
-    path.join(homeDir, ".config", "dev-trace", "settings.json")
-  );
-}
-
+/** The legacy bucket credentials in the setup flow's field names. */
 export async function readTraceCredentials(
   homeDir = os.homedir(),
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<Required<TraceCredentialsInput> | null> {
-  const values: Record<string, string> = {};
-  const contents = await readFile(traceEnvPath(homeDir, env), "utf8").catch(
-    () => "",
-  );
-  for (const line of contents.split("\n")) {
-    const match = /^\s*(?:export\s+)?([A-Z0-9_]+)=(.*)$/.exec(line);
-    if (!match) continue;
-    const raw = match[2].trim();
-    let quoted: string | undefined;
-    try {
-      quoted = jsonString(parseJsonText(raw));
-    } catch {
-      quoted = undefined;
-    }
-    values[match[1]] = quoted ?? raw.replace(/^["']|["']$/g, "");
-  }
-  const credentials = {
-    endpoint: env.TRACE_R2_ENDPOINT ?? values.TRACE_R2_ENDPOINT ?? "",
-    bucket: env.TRACE_R2_BUCKET ?? values.TRACE_R2_BUCKET ?? "",
-    key: env.TRACE_R2_ACCESS_KEY_ID ?? values.TRACE_R2_ACCESS_KEY_ID ?? "",
-    secret:
-      env.TRACE_R2_SECRET_ACCESS_KEY ?? values.TRACE_R2_SECRET_ACCESS_KEY ?? "",
-  };
-  if (!Object.values(credentials).every(Boolean)) return null;
+  const credentials = resolveDirectCredentials({ homeDir, env });
+  if (!credentials) return null;
   return {
-    ...credentials,
-    region: env.TRACE_R2_REGION ?? values.TRACE_R2_REGION ?? "auto",
+    endpoint: credentials.endpoint,
+    bucket: credentials.bucket,
+    key: credentials.accessKeyId,
+    secret: credentials.secretAccessKey,
+    region: credentials.region,
   };
 }
 
@@ -159,7 +127,9 @@ export async function configureTraceMachine(input: {
     );
   }
   const region =
-    input.credentials?.region?.trim() || existing?.region || "auto";
+    input.credentials?.region?.trim() ||
+    existing?.region ||
+    DIRECT_DEFAULT_REGION;
 
   const envPath = traceEnvPath(homeDir, env);
   await mkdir(path.dirname(envPath), { recursive: true });
@@ -184,31 +154,20 @@ export async function configureTraceMachine(input: {
     if (env.TRACE_R2_MODE === "mock") {
       verifiedAt = new Date().toISOString();
     } else {
-      try {
-        await execFileAsync(
-          "aws",
-          [
-            "--region",
-            region,
-            "--endpoint-url",
-            credentials.endpoint,
-            "s3api",
-            "head-bucket",
-            "--bucket",
-            credentials.bucket,
-          ],
-          {
-            timeout: 15_000,
-            env: {
-              ...env,
-              AWS_ACCESS_KEY_ID: credentials.key,
-              AWS_SECRET_ACCESS_KEY: credentials.secret,
-            },
-          },
-        );
+      const doctor = await DirectTraceStorage.fromCredentials(
+        {
+          endpoint: credentials.endpoint,
+          bucket: credentials.bucket,
+          accessKeyId: credentials.key,
+          secretAccessKey: credentials.secret,
+          region,
+        },
+        env,
+      ).doctor();
+      if (doctor.reachable) {
         verifiedAt = new Date().toISOString();
-      } catch (cause) {
-        error = cause instanceof Error ? cause.message : String(cause);
+      } else {
+        error = doctor.error;
       }
     }
   }

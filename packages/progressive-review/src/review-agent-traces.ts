@@ -15,20 +15,12 @@ import { promisify } from "node:util";
 
 import { git, resolveRepoContext } from "@dev.fast/local-vcs";
 import {
-  type ByCommitEntry,
-  type JsonValue,
   type ReviewAgentTraceSession,
   type SessionMeta,
-  byCommitSchema,
   commitShaSchema,
   isStringValue,
-  jsonArray,
-  jsonNumber,
-  jsonObject,
-  jsonString,
   parseJsonText,
   sessionIdSchema,
-  sessionMetaSchema,
 } from "@dev.fast/review-protocol";
 
 import {
@@ -44,17 +36,30 @@ import {
   isOpenCodeSessionId,
 } from "./opencode-trace-export";
 import { devReviewHome } from "./review-storage";
+import { DirectTraceStorage } from "./trace-storage/direct";
+import {
+  clearTraceEnvCache as clearDirectEnvCache,
+  traceEnvValue as directEnvValue,
+  resolveDirectCredentials,
+  traceEnvPath,
+} from "./trace-storage/direct-config";
+import {
+  isTraceStorageConfigured,
+  resolveTraceStorage,
+} from "./trace-storage/resolve";
+import type { TraceStorage } from "./trace-storage/types";
 import { TUTORIAL_TRACE_SESSION_ID, loadTutorialTrace } from "./tutorial-trace";
 
 /**
  * Resolves the agent sessions behind a review's change range, loads their
- * transcripts, syncs local agent traces directly to R2, and materializes a
- * local corpus for FFF search.
+ * transcripts, publishes local agent traces to the selected trace store, and
+ * materializes a local corpus for FFF search. Bucket and hosted specifics
+ * live behind the TraceStorage boundary in ./trace-storage.
  */
 
 const RECORD_SEPARATOR = "\u001e";
 const FIELD_SEPARATOR = "\u001f";
-const R2_COMMIT_LOOKUP_LIMIT = 30;
+const STORE_COMMIT_LOOKUP_LIMIT = 30;
 const REMOTE_HEAD_TTL_MS = 15_000;
 
 export interface ReviewTraceCommitRef {
@@ -133,16 +138,34 @@ export interface ReviewTraceDoctorResult {
 const lastCheckedTimes = new Map<string, number>();
 
 export function isTraceR2Configured(): boolean {
-  if (process.env.TRACE_R2_MODE === "mock") return true;
-  const config = traceR2Config();
-  return config !== null;
+  return isTraceStorageConfigured();
+}
+
+/**
+ * The store to read from or publish to: an explicit override, or the
+ * machine's selected store. Null means no remote storage is configured.
+ */
+async function storageFor(
+  storage: TraceStorage | null | undefined,
+): Promise<TraceStorage | null> {
+  return storage === undefined ? resolveTraceStorage() : storage;
+}
+
+function freshnessKey(
+  storage: TraceStorage,
+  sessionId: string,
+  traceName: string,
+): string {
+  return `${storage.cacheIdentity()}/${sessionId}/${traceName}`;
 }
 
 export async function listReviewTraceSessions(input: {
   rootPath: string;
   baseCommit: string;
   headCommit: string;
+  storage?: TraceStorage | null;
 }): Promise<ReviewTraceSessionDescriptor[]> {
+  const storage = await storageFor(input.storage);
   const sessions = new Map<string, ReviewTraceSessionRef>();
   const commits = await commitsWithTrailers(input);
   for (const commit of commits) {
@@ -158,16 +181,16 @@ export async function listReviewTraceSessions(input: {
       }
     }
   }
-  if (sessions.size === 0 && commits.length <= R2_COMMIT_LOOKUP_LIMIT) {
-    await addSessionsFromR2Index(commits, sessions);
+  if (sessions.size === 0 && commits.length <= STORE_COMMIT_LOOKUP_LIMIT) {
+    await addSessionsFromStoreIndex(storage, commits, sessions);
   }
-  if (sessions.size === 0 && commits.length <= R2_COMMIT_LOOKUP_LIMIT) {
+  if (sessions.size === 0 && commits.length <= STORE_COMMIT_LOOKUP_LIMIT) {
     await addSessionsFromPrScan(input.rootPath, commits, sessions);
   }
 
   const descriptors: ReviewTraceSessionDescriptor[] = [];
   for (const ref of sessions.values()) {
-    const desc = await describeTraceSession(ref);
+    const desc = await describeTraceSession(ref, storage);
     descriptors.push(desc);
   }
   return descriptors;
@@ -175,17 +198,18 @@ export async function listReviewTraceSessions(input: {
 
 export async function describeTraceSession(
   ref: ReviewTraceSessionRef,
+  storage?: TraceStorage | null,
 ): Promise<ReviewTraceSessionDescriptor> {
-  const configured = isTraceR2Configured();
-  const mainKey = `by-session/${ref.sessionId}/trace.jsonl`;
+  const store = await storageFor(storage);
   const local = findNormalizedTraceFile(ref.sessionId, "main");
   const normalized = local ? readNormalizedTrace(local) : null;
-  const remoteSize = configured ? await r2HeadObjectSize(mainKey) : null;
-  const available =
-    normalized !== null || (remoteSize !== null && remoteSize > 0);
+  const remote = store
+    ? await store.describeObject(ref.sessionId, "main")
+    : null;
+  const available = normalized !== null || (remote !== null && remote.size > 0);
   const harness = normalized?.metadata.harness ?? "unknown";
 
-  const subagents = await listSessionSubagents(ref.sessionId);
+  const subagents = await listSessionSubagents(ref.sessionId, store);
 
   return {
     sessionId: ref.sessionId,
@@ -205,6 +229,7 @@ export async function loadReviewAgentTrace(input: {
   cwd?: string;
   repo?: string | { owner: string; repo: string };
   refresh?: boolean;
+  storage?: TraceStorage | null;
 }): Promise<LoadedReviewAgentTrace | null> {
   const { sessionId, trace } = input;
   if (sessionId === TUTORIAL_TRACE_SESSION_ID) {
@@ -212,38 +237,34 @@ export async function loadReviewAgentTrace(input: {
   }
   if (!sessionIdSchema.safeParse(sessionId).success) return null;
   const traceName = trace ?? "main";
-  const traceKey =
-    traceName === "main"
-      ? `by-session/${sessionId}/trace.jsonl`
-      : `by-session/${sessionId}/subagents/${normalizeSubagentFileName(traceName)}`;
+  const storage = await storageFor(input.storage);
 
   let normalizedPath = input.repo
     ? normalizedTracePath(normalizeRepo(input.repo), sessionId, traceName)
     : findNormalizedTraceFile(sessionId, traceName);
   let normalized = normalizedPath ? readNormalizedTrace(normalizedPath) : null;
   const now = Date.now();
-  const lastChecked = lastCheckedTimes.get(traceKey) ?? 0;
+  const checkKey = storage ? freshnessKey(storage, sessionId, traceName) : null;
+  const lastChecked = checkKey ? (lastCheckedTimes.get(checkKey) ?? 0) : 0;
   const canUseWithoutCheck =
     normalized && !input.refresh && now - lastChecked < REMOTE_HEAD_TTL_MS;
 
-  if (!canUseWithoutCheck) {
-    const remoteSize = await r2HeadObjectSize(traceKey);
-    lastCheckedTimes.set(traceKey, now);
+  if (storage && checkKey && !canUseWithoutCheck) {
+    const remote = await storage.describeObject(sessionId, traceName);
+    lastCheckedTimes.set(checkKey, now);
     const mustMaterialize =
-      remoteSize !== null &&
-      (!normalized || remoteSize > normalized.metadata.source.bytes);
+      remote !== null &&
+      (!normalized || remote.size > normalized.metadata.source.bytes);
     if (mustMaterialize) {
       let repo = input.repo ? normalizeRepo(input.repo) : null;
       if (!repo && input.cwd) {
         repo = await inferRepoFromGit(input.cwd).catch(() => null);
       }
       if (!repo) {
-        const meta = sessionMetaSchema.safeParse(
-          await r2GetJson(`by-session/${sessionId}/meta.json`),
-        );
-        if (meta.success && meta.data.repo) {
+        const meta = await storage.sessionMeta(sessionId);
+        if (meta?.repo) {
           try {
-            repo = parseRepo(meta.data.repo);
+            repo = parseRepo(meta.repo);
           } catch {
             repo = null;
           }
@@ -256,9 +277,9 @@ export async function loadReviewAgentTrace(input: {
       }
       normalizedPath = normalizedTracePath(repo, sessionId, traceName);
       normalized = await materializeNormalizedTrace({
+        storage,
         sessionId,
         traceName,
-        traceKey,
         normalizedPath,
         repo,
       });
@@ -334,9 +355,9 @@ interface NormalizedTrace {
 }
 
 async function materializeNormalizedTrace(input: {
+  storage: TraceStorage;
   sessionId: string;
   traceName: string;
-  traceKey: string;
   normalizedPath: string;
   repo: { owner: string; repo: string };
 }): Promise<NormalizedTrace | null> {
@@ -345,11 +366,19 @@ async function materializeNormalizedTrace(input: {
     `review-trace-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`,
   );
   try {
-    if (!(await r2GetObject(input.traceKey, rawTempPath))) return null;
+    const downloaded = await input.storage.downloadObject(
+      input.sessionId,
+      input.traceName,
+      rawTempPath,
+    );
+    if (!downloaded) return null;
     const parsed = parseAgentTraceJsonl(readFileSync(rawTempPath, "utf8"), {
       isSubagent: input.traceName !== "main",
     });
-    const subagents = await listSessionSubagents(input.sessionId);
+    const subagents = await listSessionSubagents(
+      input.sessionId,
+      input.storage,
+    );
     const normalized: NormalizedTrace = {
       metadata: {
         type: "metadata",
@@ -367,8 +396,8 @@ async function materializeNormalizedTrace(input: {
         toolCalls: parsed.toolCalls,
         subagents,
         source: {
-          r2Key: input.traceKey,
-          bytes: statSync(rawTempPath).size,
+          r2Key: legacyObjectKey(input.sessionId, input.traceName),
+          bytes: downloaded.size,
           checkedAt: new Date().toISOString(),
         },
       },
@@ -598,9 +627,13 @@ function corpusPathSegment(value: string, label: string): string {
   return value;
 }
 
-function normalizeSubagentFileName(name: string): string {
-  const base = path.basename(name);
-  return base.endsWith(".jsonl") ? base : `${base}.jsonl`;
+// The version-1 cache record names the bucket object it came from. Keep
+// writing that label so existing caches and readers agree on the format.
+function legacyObjectKey(sessionId: string, traceName: string): string {
+  if (traceName === "main") return `by-session/${sessionId}/trace.jsonl`;
+  const base = path.basename(traceName);
+  const fileName = base.endsWith(".jsonl") ? base : `${base}.jsonl`;
+  return `by-session/${sessionId}/subagents/${fileName}`;
 }
 
 async function runGit(
@@ -634,14 +667,16 @@ async function runGit(
 export async function lookupReviewTraceCommit(input: {
   cwd: string;
   sha: string;
+  storage?: TraceStorage | null;
 }): Promise<ReviewTraceCommitLookupResult> {
+  const storage = await storageFor(input.storage);
   const commit = await resolveCommitSha(input.cwd, input.sha);
   const trailerSessions = await readTrailerSessions(input.cwd, commit);
   const pr = await readSubjectPullNumber(input.cwd, commit);
 
   // Step 1: local trailers
   if (trailerSessions.length > 0) {
-    const sessionMeta = await enrichSessionMeta(trailerSessions);
+    const sessionMeta = await enrichSessionMeta(trailerSessions, storage);
     const result: ReviewTraceCommitLookupResult = {
       commit,
       sessions: trailerSessions,
@@ -653,28 +688,16 @@ export async function lookupReviewTraceCommit(input: {
     return result;
   }
 
-  // Step 2: direct R2 by-commit index
-  let r2Entry: ByCommitEntry | null = null;
-  if (isTraceR2Configured() && commitShaSchema.safeParse(commit).success) {
-    try {
-      const raw = await r2GetJson(`by-commit/${commit}.json`);
-      const parsed = byCommitSchema.safeParse(raw);
-      if (parsed.success && parsed.data.sessions.length > 0) {
-        r2Entry = parsed.data;
-      }
-    } catch {
-      // R2 read error; proceed to next steps
-    }
-  }
-
-  if (r2Entry && r2Entry.sessions.length > 0) {
-    const sessions = deduplicateStrings(r2Entry.sessions);
-    const sessionMeta = await enrichSessionMeta(sessions);
+  // Step 2: the store's commit index
+  const indexed = storage ? await storage.sessionsForCommit(commit) : null;
+  if (indexed && indexed.sessions.length > 0) {
+    const sessions = deduplicateStrings(indexed.sessions);
+    const sessionMeta = await enrichSessionMeta(sessions, storage);
     const result: ReviewTraceCommitLookupResult = {
       commit,
       sessions,
-      pr: r2Entry.pr ?? pr,
-      branch: r2Entry.branch ?? null,
+      pr: indexed.pr ?? pr,
+      branch: indexed.branch ?? null,
       source: "index",
     };
     if (sessionMeta) result.session_meta = sessionMeta;
@@ -685,7 +708,7 @@ export async function lookupReviewTraceCommit(input: {
   if (pr !== null) {
     const prSessions = await prScanTrailerSessions(input.cwd, commit, pr);
     if (prSessions.length > 0) {
-      const sessionMeta = await enrichSessionMeta(prSessions);
+      const sessionMeta = await enrichSessionMeta(prSessions, storage);
       const result: ReviewTraceCommitLookupResult = {
         commit,
         sessions: prSessions,
@@ -719,7 +742,10 @@ function deduplicateStrings(items: string[]): string[] {
   return out;
 }
 
-async function enrichSessionMeta(sessions: string[]): Promise<
+async function enrichSessionMeta(
+  sessions: string[],
+  storage: TraceStorage | null,
+): Promise<
   | Record<
       string,
       {
@@ -731,7 +757,7 @@ async function enrichSessionMeta(sessions: string[]): Promise<
     >
   | undefined
 > {
-  if (!isTraceR2Configured() || sessions.length === 0) return undefined;
+  if (!storage || sessions.length === 0) return undefined;
   const detail: Record<
     string,
     {
@@ -742,19 +768,14 @@ async function enrichSessionMeta(sessions: string[]): Promise<
     }
   > = {};
   for (const session of sessions) {
-    try {
-      const raw = await r2GetJson(`by-session/${session}/meta.json`);
-      const parsed = sessionMetaSchema.safeParse(raw);
-      if (parsed.success) {
-        detail[session] = {
-          repo: parsed.data.repo,
-          branch: parsed.data.branch,
-          pr: parsed.data.pr,
-          author: parsed.data.author,
-        };
-      }
-    } catch {
-      // Ignore individual session metadata fetch errors
+    const meta = await storage.sessionMeta(session);
+    if (meta) {
+      detail[session] = {
+        repo: meta.repo,
+        branch: meta.branch,
+        pr: meta.pr,
+        author: meta.author,
+      };
     }
   }
   return Object.keys(detail).length > 0 ? detail : undefined;
@@ -762,6 +783,7 @@ async function enrichSessionMeta(sessions: string[]): Promise<
 
 export async function lookupReviewTraceSession(input: {
   sessionId: string;
+  storage?: TraceStorage | null;
 }): Promise<ReviewTraceSessionLookupResult> {
   const parseResult = sessionIdSchema.safeParse(input.sessionId);
   if (!parseResult.success) {
@@ -770,28 +792,15 @@ export async function lookupReviewTraceSession(input: {
     );
   }
   const sessionId = parseResult.data;
+  const storage = await storageFor(input.storage);
 
-  let meta: SessionMeta | null = null;
-  if (isTraceR2Configured()) {
-    try {
-      const raw = await r2GetJson(`by-session/${sessionId}/meta.json`);
-      if (raw) {
-        const parsed = sessionMetaSchema.safeParse(raw);
-        if (parsed.success) {
-          meta = parsed.data;
-        }
-      }
-    } catch {
-      // Ignore error fetching metadata
-    }
-  }
+  const meta: SessionMeta | null = storage
+    ? await storage.sessionMeta(sessionId)
+    : null;
 
   let hasRawTrace = false;
-  if (isTraceR2Configured()) {
-    const size = await r2HeadObjectSize(`by-session/${sessionId}/trace.jsonl`);
-    if (size !== null) {
-      hasRawTrace = true;
-    }
+  if (storage && (await storage.describeObject(sessionId, "main")) !== null) {
+    hasRawTrace = true;
   }
   if (!hasRawTrace) {
     const local = await findLocalTrace(sessionId);
@@ -801,9 +810,8 @@ export async function lookupReviewTraceSession(input: {
   }
 
   const subagentSet = new Set<string>();
-  if (isTraceR2Configured()) {
-    const r2Subs = await listSessionSubagents(sessionId);
-    for (const s of r2Subs) {
+  if (storage) {
+    for (const s of await listSessionSubagents(sessionId, storage)) {
       subagentSet.add(s);
     }
   }
@@ -1088,6 +1096,7 @@ export async function syncReviewTrace(input: {
   cwd?: string;
   repo?: string;
   commits?: string[];
+  storage?: TraceStorage | null;
 }): Promise<ReviewTraceSyncResult> {
   const sessionId = input.sessionId.trim();
   if (!sessionIdSchema.safeParse(sessionId).success) {
@@ -1095,7 +1104,8 @@ export async function syncReviewTrace(input: {
       "Session id must be 8-128 characters of letters, digits, dots, dashes, or underscores.",
     );
   }
-  if (!isTraceR2Configured()) {
+  const storage = await storageFor(input.storage);
+  if (!storage) {
     throw new Error(
       "S3/R2 storage is not configured. Use Review Agent Setup to configure trace capture.",
     );
@@ -1110,76 +1120,25 @@ export async function syncReviewTrace(input: {
   const repo = input.repo
     ? parseRepo(input.repo)
     : await inferRepoFromGit(workDir);
-
-  const uploads: ReviewTraceSyncUpload[] = [];
-
-  // Main trace upload
-  const mainKey = `by-session/${sessionId}/trace.jsonl`;
-  const mainGrown = await r2PutIfGrown(mainKey, local.tracePath);
-  const mainBytes = statSync(local.tracePath).size;
-  uploads.push({
-    blob: "trace.jsonl",
-    bytes_stored: mainBytes,
-    status: mainGrown ? "uploaded" : "unchanged",
-  });
-
-  // Subagent uploads
-  for (const sub of local.subagentPaths) {
-    const subKey = `by-session/${sessionId}/subagents/${sub.name}`;
-    const subGrown = await r2PutIfGrown(subKey, sub.path);
-    const subBytes = statSync(sub.path).size;
-    uploads.push({
-      blob: `subagents/${sub.name}`,
-      bytes_stored: subBytes,
-      status: subGrown ? "uploaded" : "unchanged",
-    });
-  }
-
-  // Update session metadata (read-merge-write)
   const { author, branch } = await readRepoMetaFields(workDir);
-  const metaKey = `by-session/${sessionId}/meta.json`;
-  const existingMetaParse = sessionMetaSchema.safeParse(
-    await r2GetJson(metaKey),
-  );
-  const existingMeta = existingMetaParse.success
-    ? existingMetaParse.data
-    : null;
 
-  const mergedCommits = deduplicateStrings([
-    ...(existingMeta?.commits ?? []),
-    ...(input.commits ?? []).filter(
-      (commit) => commitShaSchema.safeParse(commit).success,
-    ),
-  ]);
-  const mergedRepo = `${repo.owner}/${repo.repo}`;
-  const mergedBranch = branch ?? existingMeta?.branch ?? null;
-  const mergedAuthor = author ?? existingMeta?.author ?? null;
-  const mergedPr = existingMeta?.pr ?? null;
-
-  const newMeta: SessionMeta = {
-    session: sessionId,
-    repo: mergedRepo,
-    branch: mergedBranch,
-    pr: mergedPr,
-    commits: mergedCommits,
-    author: mergedAuthor,
-    ts: new Date().toISOString(),
-  };
-
-  const metaSaved = await r2PutBuffer(
-    metaKey,
-    Buffer.from(JSON.stringify(newMeta, null, 2), "utf8"),
-  );
-  if (!metaSaved) {
-    throw new Error(
-      `Failed to update session metadata for ${sessionId} in S3/R2 storage.`,
-    );
-  }
+  const published = await storage.publish({
+    sessionId,
+    cwd: workDir,
+    repo,
+    files: [
+      { name: "main", path: local.tracePath },
+      ...local.subagentPaths.map((sub) => ({ name: sub.name, path: sub.path })),
+    ],
+    commits: input.commits ?? [],
+    branch,
+    author,
+  });
 
   return {
     session: sessionId,
-    repo: mergedRepo,
-    uploads,
+    repo: `${repo.owner}/${repo.repo}`,
+    uploads: published.uploads,
   };
 }
 
@@ -1188,36 +1147,29 @@ export async function writeReviewTraceCommitMapping(input: {
   commit: string;
   sessions: string[];
   branch: string | null;
+  storage?: TraceStorage | null;
 }): Promise<boolean> {
   const commit = commitShaSchema.parse(input.commit);
-  const existing = await r2GetJson(`by-commit/${commit}.json`);
-  if (existing !== null) return false;
-  const repo = await inferRepoFromGit(input.cwd);
-  const entry: ByCommitEntry = byCommitSchema.parse({
-    commit,
-    sessions: deduplicateStrings(input.sessions),
-    repo: `${repo.owner}/${repo.repo}`,
-    pr: await readSubjectPullNumber(input.cwd, commit),
-    branch: input.branch,
-    indexed_by: "hook",
-    ts: new Date().toISOString(),
-  });
-  const saved = await r2PutBuffer(
-    `by-commit/${commit}.json`,
-    Buffer.from(JSON.stringify(entry, null, 2), "utf8"),
-  );
-  if (!saved) {
+  const storage = await storageFor(input.storage);
+  if (!storage) {
     throw new Error(`Failed to write by-commit/${commit}.json.`);
   }
-  return true;
+  return storage.associateCommits({
+    commit,
+    sessions: input.sessions,
+    branch: input.branch,
+    resolve: async () => ({
+      repo: await inferRepoFromGit(input.cwd),
+      pr: await readSubjectPullNumber(input.cwd, commit),
+    }),
+  });
 }
 
 export async function checkReviewTraceDoctor(input?: {
   cwd?: string;
 }): Promise<ReviewTraceDoctorResult> {
-  const envPath =
-    process.env.TRACE_ENV_FILE ??
-    path.join(homedir(), ".config", "dev-trace", "env");
+  void input;
+  const envPath = traceEnvPath();
 
   if (
     !existsSync(envPath) &&
@@ -1246,7 +1198,7 @@ export async function checkReviewTraceDoctor(input?: {
     };
   }
 
-  const config = traceR2Config();
+  const config = resolveDirectCredentials();
   if (!config) {
     return {
       ok: false,
@@ -1256,51 +1208,22 @@ export async function checkReviewTraceDoctor(input?: {
     };
   }
 
-  try {
-    await execFileAsync(
-      "aws",
-      [
-        "--region",
-        config.region,
-        "--endpoint-url",
-        config.endpoint,
-        "s3api",
-        "head-bucket",
-        "--bucket",
-        config.bucket,
-      ],
-      {
-        timeout: 15_000,
-        env: {
-          ...process.env,
-          AWS_ACCESS_KEY_ID: config.accessKeyId,
-          AWS_SECRET_ACCESS_KEY: config.secretAccessKey,
-        },
-      },
-    );
-    return {
-      ok: true,
-      envPath,
-      config: {
-        endpoint: config.endpoint,
-        bucket: config.bucket,
-        accessKeyId: config.accessKeyId,
-      },
-      reachable: true,
-    };
-  } catch (err: unknown) {
-    return {
-      ok: false,
-      envPath,
-      config: {
-        endpoint: config.endpoint,
-        bucket: config.bucket,
-        accessKeyId: config.accessKeyId,
-      },
-      reachable: false,
-      error: err instanceof Error ? err.message : String(err),
-    };
+  const summary = {
+    endpoint: config.endpoint,
+    bucket: config.bucket,
+    accessKeyId: config.accessKeyId,
+  };
+  const doctor = await DirectTraceStorage.fromCredentials(config).doctor();
+  if (doctor.reachable) {
+    return { ok: true, envPath, config: summary, reachable: true };
   }
+  return {
+    ok: false,
+    envPath,
+    config: summary,
+    reachable: false,
+    error: doctor.error,
+  };
 }
 
 // --- Commit trailer resolution ---------------------------------------------
@@ -1482,44 +1405,13 @@ async function commitsWithTrailers(input: {
 
 // --- R2 trace store and local materialization -------------------------------
 
-export interface TraceR2Config {
-  bucket: string;
-  endpoint: string;
-  accessKeyId: string;
-  secretAccessKey: string;
-  // SigV4 signing region. R2 accepts "auto"; AWS S3 needs the bucket's
-  // real region.
-  region: string;
-}
-
-let cachedTraceEnv: Map<string, string> | null = null;
-
 export function clearTraceEnvCache(): void {
-  cachedTraceEnv = null;
+  clearDirectEnvCache();
   lastCheckedTimes.clear();
 }
 
-function traceEnvFile(): Map<string, string> {
-  if (cachedTraceEnv) return cachedTraceEnv;
-  const values = new Map<string, string>();
-  const envPath =
-    process.env.TRACE_ENV_FILE ??
-    path.join(homedir(), ".config", "dev-trace", "env");
-  try {
-    for (const line of readFileSync(envPath, "utf8").split("\n")) {
-      const match = /^\s*(?:export\s+)?([A-Z0-9_]+)=(.*)$/.exec(line);
-      if (!match) continue;
-      values.set(match[1], match[2].replace(/^["']|["']$/g, "").trim());
-    }
-  } catch {
-    // No env file; exported variables may still be present.
-  }
-  cachedTraceEnv = values;
-  return values;
-}
-
 export function traceEnvValue(name: string): string | undefined {
-  return process.env[name] ?? traceEnvFile().get(name);
+  return directEnvValue(name);
 }
 
 // Codex reads CODEX_HOME from its own environment only, so this does not
@@ -1535,260 +1427,14 @@ export function codexSessionsRoot(): string {
   );
 }
 
-export function traceR2Config(): TraceR2Config | null {
-  const bucket = traceEnvValue("TRACE_R2_BUCKET");
-  const endpoint = traceEnvValue("TRACE_R2_ENDPOINT");
-  const accessKeyId =
-    traceEnvValue("TRACE_R2_ACCESS_KEY_ID") ??
-    traceEnvValue("AWS_ACCESS_KEY_ID");
-  const secretAccessKey =
-    traceEnvValue("TRACE_R2_SECRET_ACCESS_KEY") ??
-    traceEnvValue("AWS_SECRET_ACCESS_KEY");
-  if (!bucket || !endpoint || !accessKeyId || !secretAccessKey) return null;
-  const region = traceEnvValue("TRACE_R2_REGION") ?? "auto";
-  return { bucket, endpoint, accessKeyId, secretAccessKey, region };
-}
-
 const execFileAsync = promisify(execFile);
 
-export async function r2HeadObjectSize(key: string): Promise<number | null> {
-  if (process.env.TRACE_R2_MODE === "mock") {
-    const mockRoot = process.env.TRACE_R2_MOCK_DIR;
-    if (!mockRoot) return null;
-    const target = path.join(mockRoot, key);
-    try {
-      const stats = statSync(target);
-      return stats.isFile() ? stats.size : null;
-    } catch {
-      return null;
-    }
-  }
-
-  const config = traceR2Config();
-  if (!config) return null;
-  try {
-    const proc = await execFileAsync(
-      "aws",
-      [
-        "--region",
-        config.region,
-        "--endpoint-url",
-        config.endpoint,
-        "s3api",
-        "head-object",
-        "--bucket",
-        config.bucket,
-        "--key",
-        key,
-      ],
-      {
-        timeout: 10_000,
-        env: {
-          ...process.env,
-          AWS_ACCESS_KEY_ID: config.accessKeyId,
-          AWS_SECRET_ACCESS_KEY: config.secretAccessKey,
-        },
-      },
-    );
-    return (
-      jsonNumber(jsonObject(parseJsonText(proc.stdout))?.ContentLength) ?? null
-    );
-  } catch {
-    return null;
-  }
-}
-
-export async function r2GetObject(
-  key: string,
-  destPath: string,
-): Promise<boolean> {
-  mkdirSync(path.dirname(destPath), { recursive: true });
-
-  if (process.env.TRACE_R2_MODE === "mock") {
-    const mockRoot = process.env.TRACE_R2_MOCK_DIR;
-    if (!mockRoot) return false;
-    const target = path.join(mockRoot, key);
-    try {
-      const content = readFileSync(target);
-      writeFileSync(destPath, content);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  const config = traceR2Config();
-  if (!config) return false;
-  try {
-    await execFileAsync(
-      "aws",
-      [
-        "--region",
-        config.region,
-        "--endpoint-url",
-        config.endpoint,
-        "s3api",
-        "get-object",
-        "--bucket",
-        config.bucket,
-        "--key",
-        key,
-        destPath,
-      ],
-      {
-        timeout: 60_000,
-        maxBuffer: 16 * 1024 * 1024,
-        env: {
-          ...process.env,
-          AWS_ACCESS_KEY_ID: config.accessKeyId,
-          AWS_SECRET_ACCESS_KEY: config.secretAccessKey,
-        },
-      },
-    );
-    return existsSync(destPath);
-  } catch {
-    return false;
-  }
-}
-
-export async function r2GetBuffer(key: string): Promise<Buffer | null> {
-  const tmpPath = path.join(
-    tmpdir(),
-    `r2-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`,
-  );
-  try {
-    const ok = await r2GetObject(key, tmpPath);
-    if (!ok) return null;
-    return readFileSync(tmpPath);
-  } catch {
-    return null;
-  } finally {
-    try {
-      if (existsSync(tmpPath)) {
-        const { rmSync } = await import("node:fs");
-        rmSync(tmpPath, { force: true });
-      }
-    } catch {
-      // Ignore cleanup error
-    }
-  }
-}
-
-export async function r2GetJson(key: string): Promise<JsonValue | null> {
-  const content = await r2GetBuffer(key);
-  if (!content) return null;
-  try {
-    return parseJsonText(content.toString("utf8"));
-  } catch {
-    return null;
-  }
-}
-
-export async function r2PutFile(
-  key: string,
-  filePath: string,
-): Promise<boolean> {
-  if (process.env.TRACE_R2_MODE === "mock") {
-    const mockRoot = process.env.TRACE_R2_MOCK_DIR;
-    if (!mockRoot) return false;
-    try {
-      const target = path.join(mockRoot, key);
-      mkdirSync(path.dirname(target), { recursive: true });
-      writeFileSync(target, readFileSync(filePath));
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  const config = traceR2Config();
-  if (!config) return false;
-  try {
-    await execFileAsync(
-      "aws",
-      [
-        "--region",
-        config.region,
-        "--endpoint-url",
-        config.endpoint,
-        "s3",
-        "cp",
-        "--only-show-errors",
-        filePath,
-        `s3://${config.bucket}/${key}`,
-      ],
-      {
-        timeout: 60_000,
-        env: {
-          ...process.env,
-          AWS_ACCESS_KEY_ID: config.accessKeyId,
-          AWS_SECRET_ACCESS_KEY: config.secretAccessKey,
-        },
-      },
-    );
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export async function r2PutBuffer(
-  key: string,
-  content: Buffer,
-): Promise<boolean> {
-  if (process.env.TRACE_R2_MODE === "mock") {
-    const mockRoot = process.env.TRACE_R2_MOCK_DIR;
-    if (!mockRoot) return false;
-    try {
-      const target = path.join(mockRoot, key);
-      mkdirSync(path.dirname(target), { recursive: true });
-      writeFileSync(target, content);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  const tempFile = path.join(
-    tmpdir(),
-    `put-${process.pid}-${Math.random().toString(36).slice(2)}.tmp`,
-  );
-  writeFileSync(tempFile, content);
-  try {
-    return await r2PutFile(key, tempFile);
-  } finally {
-    try {
-      if (existsSync(tempFile)) {
-        const { rmSync } = await import("node:fs");
-        rmSync(tempFile, { force: true });
-      }
-    } catch {
-      // Ignore cleanup error
-    }
-  }
-}
-
-export async function r2PutIfGrown(
-  key: string,
-  filePath: string,
-): Promise<boolean> {
-  const remoteSize = await r2HeadObjectSize(key);
-  const localSize = statSync(filePath).size;
-  if (remoteSize !== null && localSize <= remoteSize) {
-    return false;
-  }
-  const uploaded = await r2PutFile(key, filePath);
-  if (!uploaded) {
-    throw new Error(`Failed to upload ${key} to S3/R2 storage.`);
-  }
-  return true;
-}
-
+/** Subagent traces known locally or in the store, by name without ".jsonl". */
 export async function listSessionSubagents(
   sessionId: string,
+  storage?: TraceStorage | null,
 ): Promise<string[]> {
   const subagents = new Set<string>();
-  const prefix = `by-session/${sessionId}/subagents/`;
 
   for (const localSessionDir of findNormalizedSessionDirs(sessionId)) {
     try {
@@ -1802,60 +1448,10 @@ export async function listSessionSubagents(
     }
   }
 
-  if (process.env.TRACE_R2_MODE === "mock") {
-    const mockRoot = process.env.TRACE_R2_MOCK_DIR;
-    if (mockRoot) {
-      const dir = path.join(mockRoot, prefix);
-      if (existsSync(dir)) {
-        try {
-          for (const entry of readdirSync(dir)) {
-            if (entry.endsWith(".jsonl")) {
-              subagents.add(entry.slice(0, -6));
-            }
-          }
-        } catch {
-          // Ignore mock readdir errors
-        }
-      }
-    }
-  } else {
-    const config = traceR2Config();
-    if (config) {
-      try {
-        const proc = await execFileAsync(
-          "aws",
-          [
-            "--region",
-            config.region,
-            "--endpoint-url",
-            config.endpoint,
-            "s3api",
-            "list-objects-v2",
-            "--bucket",
-            config.bucket,
-            "--prefix",
-            prefix,
-          ],
-          {
-            timeout: 10_000,
-            env: {
-              ...process.env,
-              AWS_ACCESS_KEY_ID: config.accessKeyId,
-              AWS_SECRET_ACCESS_KEY: config.secretAccessKey,
-            },
-          },
-        );
-        const listing = jsonObject(parseJsonText(proc.stdout));
-        for (const item of jsonArray(listing?.Contents) ?? []) {
-          const key = jsonString(jsonObject(item)?.Key);
-          if (key && key.startsWith(prefix) && key.endsWith(".jsonl")) {
-            const subName = key.slice(prefix.length, -6);
-            if (subName) subagents.add(subName);
-          }
-        }
-      } catch {
-        // Ignore remote list failure
-      }
+  const store = await storageFor(storage);
+  if (store) {
+    for (const name of await store.listSubagents(sessionId)) {
+      subagents.add(name);
     }
   }
 
@@ -1935,34 +1531,25 @@ async function addSessionsFromPrScan(
   }
 }
 
-async function addSessionsFromR2Index(
+async function addSessionsFromStoreIndex(
+  storage: TraceStorage | null,
   commits: CommitWithSessions[],
   sessions: Map<string, ReviewTraceSessionRef>,
 ): Promise<void> {
-  if (!isTraceR2Configured()) return;
+  if (!storage) return;
   for (const commit of commits) {
-    const key = `by-commit/${commit.sha}.json`;
-    try {
-      const entrySessions = jsonArray(
-        jsonObject(await r2GetJson(key))?.sessions,
-      );
-      if (!entrySessions) continue;
-      for (const value of entrySessions) {
-        const parsed = sessionIdSchema.safeParse(value);
-        if (!parsed.success) continue;
-        const sessionId = parsed.data;
-        const existing = sessions.get(sessionId);
-        if (existing) {
-          existing.commits.push({ sha: commit.sha, subject: commit.subject });
-        } else {
-          sessions.set(sessionId, {
-            sessionId,
-            commits: [{ sha: commit.sha, subject: commit.subject }],
-          });
-        }
+    const indexed = await storage.sessionsForCommit(commit.sha);
+    if (!indexed) continue;
+    for (const sessionId of indexed.sessions) {
+      const existing = sessions.get(sessionId);
+      if (existing) {
+        existing.commits.push({ sha: commit.sha, subject: commit.subject });
+      } else {
+        sessions.set(sessionId, {
+          sessionId,
+          commits: [{ sha: commit.sha, subject: commit.subject }],
+        });
       }
-    } catch {
-      // Ignore malformed index entries.
     }
   }
 }

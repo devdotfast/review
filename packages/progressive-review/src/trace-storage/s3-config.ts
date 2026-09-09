@@ -166,22 +166,26 @@ export function resolveS3Setup(
     region: undefined,
   };
   let source: S3CredentialsSource = profile ? "profile" : "none";
+  // Precedence is per variable name, as it always was: the TRACE_R2_* name
+  // is tried in the environment, then the profile, then the file before the
+  // AWS_* fallback name is considered at all. An exported AWS_* pair must
+  // not outrank the bucket's own keys saved in the file.
   for (const field of S3_FIELDS) {
-    const names = S3_FIELD_VARIABLES[field];
-    const fromEnv = names.find((name) => env[name] !== undefined);
-    if (fromEnv !== undefined) {
-      overrides.push(fromEnv);
-      resolved[field] = env[fromEnv];
-      continue;
-    }
-    if (profile) {
-      resolved[field] = profile[field];
-      continue;
-    }
-    const fromFile = names.find((name) => legacy.has(name));
-    if (fromFile !== undefined) {
-      resolved[field] = legacy.get(fromFile);
-      if (source === "none") source = "legacy-file";
+    for (const name of S3_FIELD_VARIABLES[field]) {
+      if (env[name] !== undefined) {
+        overrides.push(name);
+        resolved[field] = env[name];
+        break;
+      }
+      if (profile && profile[field] !== undefined) {
+        resolved[field] = profile[field];
+        break;
+      }
+      if (legacy.has(name)) {
+        resolved[field] = legacy.get(name);
+        if (source === "none") source = "legacy-file";
+        break;
+      }
     }
   }
   if (source === "none" && overrides.length > 0) source = "process-env";

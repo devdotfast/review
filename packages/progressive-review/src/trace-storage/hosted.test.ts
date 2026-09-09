@@ -19,6 +19,7 @@ import {
   syncReviewTrace,
 } from "../review-agent-traces";
 import { writeStoreAuth } from "../store-auth";
+import { StoreApiError } from "../store-client";
 import {
   type TraceRepositoryTarget,
   rememberTraceRepositoryTarget,
@@ -233,6 +234,70 @@ describe("hosted trace storage", () => {
     expect(
       await loadReviewAgentTrace({ sessionId, cwd: repoDir, storage }),
     ).toBeNull();
+  });
+
+  it("refuses to publish through a login for another origin", async () => {
+    await writeStoreAuth(
+      {
+        origin: "https://other.dev.fast",
+        token: "t",
+        login: "dev",
+        savedAt: "2026-09-02T00:00:00Z",
+      },
+      process.env,
+    );
+    await expect(
+      HostedTraceStorage.resolve({
+        cwd: repoDir,
+        origin: ORIGIN,
+        write: true,
+        transport: createMemoryTraceStoreTransport(),
+      }),
+    ).rejects.toThrow(
+      /logged in to https:\/\/other.dev.fast, not the selected store/,
+    );
+  });
+
+  it("shows nothing when the store refuses, instead of an old copy", async () => {
+    const sessionId = "hosted-session-0007";
+    const transport = createMemoryTraceStoreTransport();
+    const storage = HostedTraceStorage.fromParts({
+      target: target(transport.storeId),
+      transport,
+      devHome,
+    });
+    seedMemoryTraceSession(transport, {
+      repositoryId: REPOSITORY_ID,
+      sessionId,
+      traces: { "main.jsonl.gz": `${sessionRecord(sessionId, "cached")}\n` },
+    });
+    expect(
+      await loadReviewAgentTrace({ sessionId, cwd: repoDir, storage }),
+    ).not.toBeNull();
+    // Access is revoked: the store now answers forbidden.
+    const listSessions = transport.listSessions;
+    transport.listSessions = async () => {
+      throw new StoreApiError(
+        "forbidden",
+        403,
+        "You cannot use this repository.",
+      );
+    };
+    try {
+      expect(
+        await loadReviewAgentTrace({
+          sessionId,
+          cwd: repoDir,
+          storage,
+          refresh: true,
+        }),
+      ).toBeNull();
+      expect(
+        (await lookupReviewTraceSession({ sessionId, storage })).has_raw_trace,
+      ).toBe(false);
+    } finally {
+      transport.listSessions = listSessions;
+    }
   });
 
   it("refreshes a saved copy when the content changes at the same size", async () => {

@@ -455,6 +455,7 @@ async function discoverAndPullScaffoldTraces(input: {
       () =>
         pullReviewTraceCorpus({
           repo,
+          cwd: input.rootPath,
           sessions: availableSessions.map((session) => ({
             id: session.sessionId,
             traces: session.subagents,

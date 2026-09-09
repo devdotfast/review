@@ -138,6 +138,8 @@ describe("trace storage commands", () => {
     writeLegacy();
     const before = readFileSync(envPath, "utf8");
     const settingsBefore = readFileSync(settingsPath, "utf8");
+    const retiredEnv = legacyRetiredPath(envPath);
+    const retiredSettings = legacyRetiredPath(settingsPath);
     const first = await migrate();
     expect(first.code).toBe(0);
     expect(first.stdout).toContain("Wrote ");
@@ -165,8 +167,6 @@ describe("trace storage commands", () => {
       },
     });
     // The legacy files moved aside unchanged; the originals are gone.
-    const retiredEnv = legacyRetiredPath(envPath);
-    const retiredSettings = legacyRetiredPath(settingsPath);
     expect(existsSync(envPath)).toBe(false);
     expect(existsSync(settingsPath)).toBe(false);
     expect(readFileSync(retiredEnv, "utf8")).toBe(before);

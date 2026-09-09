@@ -14,6 +14,7 @@ import {
   type TraceConfigFile,
   TraceConfigurationError,
   emptyTraceConfig,
+  hostedCaptureEnabled,
   readTraceConfigFile,
   writeTraceConfigFile,
 } from "./trace-storage/config";
@@ -150,7 +151,9 @@ export async function traceMachineStatus(
   // machine switch (settings file or profile capture flag). An explicit
   // hosted selection is the machine-level opt-in; per-repository consent
   // and session provenance gate every hosted publication after that.
-  const hosted = selection.mode === "hosted";
+  const hosted =
+    selection.mode === "hosted" &&
+    hostedCaptureEnabled(selection.config.config);
   const status: TraceMachineStatus = {
     enabled: hosted || settings?.enabled === true,
     configured: hosted || credentials !== null,
@@ -328,6 +331,19 @@ export async function disableTraceMachine(
   const homeDir = input.homeDir ?? os.homedir();
   const env = input.env ?? process.env;
   const configFile = readTraceConfigFile({ homeDir, env });
+  if (configFile.error) throw new TraceConfigurationError(configFile.error);
+  if (selectTraceStorage({ homeDir, env }).mode === "hosted") {
+    // The hosted store gets its own switch; consent is left intact.
+    const current = configFile.config ?? emptyTraceConfig();
+    await writeTraceConfigFile(configFile, {
+      ...current,
+      stores: {
+        ...current.stores,
+        hosted: { ...current.stores?.hosted, capture: { enabled: false } },
+      },
+    });
+    return;
+  }
   const profile = configFile.config?.stores?.s3;
   if (profile?.capture) {
     // Credentials stay; only capture turns off.

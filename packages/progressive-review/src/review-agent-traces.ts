@@ -55,6 +55,7 @@ import {
 import {
   type HostedPublishDetails,
   type TraceStorage,
+  TraceStorageDeniedError,
   TraceStorageUnavailableError,
 } from "./trace-storage/types";
 import { TUTORIAL_TRACE_SESSION_ID, loadTutorialTrace } from "./tutorial-trace";
@@ -173,12 +174,20 @@ async function storageFor(
   return storage === undefined ? resolveTraceStorage({ cwd }) : storage;
 }
 
-/** A remote lookup, or null when the store could not be reached. */
+/**
+ * A remote lookup, or null when the store could not be reached or refused.
+ * Either way the caller has nothing confirmed to show.
+ */
 async function reachable<T>(lookup: () => Promise<T>): Promise<T | null> {
   try {
     return await lookup();
   } catch (error) {
-    if (error instanceof TraceStorageUnavailableError) return null;
+    if (
+      error instanceof TraceStorageUnavailableError ||
+      error instanceof TraceStorageDeniedError
+    ) {
+      return null;
+    }
     throw error;
   }
 }
@@ -290,6 +299,9 @@ export async function loadReviewAgentTrace(input: {
     try {
       remote = await storage.describeObject(sessionId, traceName);
     } catch (error) {
+      // A refusal (forbidden, deleted) shows nothing: an old copy must not
+      // pass as freshly authorized data.
+      if (error instanceof TraceStorageDeniedError) return null;
       // The store did not answer: the saved copy, if any, is all there is.
       if (!(error instanceof TraceStorageUnavailableError)) throw error;
       return normalized
@@ -727,9 +739,14 @@ function findNormalizedTraceFile(
     );
     return isFile(candidate) ? candidate : null;
   }
+  // The corpus holds every store's copies; the first file that is ours wins,
+  // not the first file that exists.
   for (const sessionDir of findNormalizedSessionDirs(sessionId)) {
     const candidate = path.join(sessionDir, fileName);
-    if (isFile(candidate)) return candidate;
+    if (!isFile(candidate)) continue;
+    if (!storage || readNormalizedTrace(candidate, storage) !== null) {
+      return candidate;
+    }
   }
   return null;
 }

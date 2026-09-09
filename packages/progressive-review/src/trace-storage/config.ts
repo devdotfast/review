@@ -11,6 +11,7 @@ import { z } from "zod";
 
 import { devReviewHome } from "../review-storage";
 import { writePrivateJsonAtomic } from "../server/desktop-paths";
+import { normalizeStoreOrigin } from "../store-origin";
 
 /**
  * The shared trace configuration at `$DEV_REVIEW_HOME/trace/config.json`.
@@ -54,6 +55,8 @@ export type S3Profile = z.infer<typeof s3ProfileSchema>;
 /** The hosted store in use. The login token lives in the auth file. */
 export const hostedStoreSchema = z.object({
   origin: z.string().min(1).optional(),
+  /** Machine-level capture switch for the hosted store; consent stays. */
+  capture: z.object({ enabled: z.boolean() }).optional(),
 });
 
 /**
@@ -99,7 +102,18 @@ export function s3Store(config: TraceConfig | null): S3Profile | null {
 
 /** The hosted origin in effect: the store entry's, or the default. */
 export function hostedOrigin(config: TraceConfig | null): string {
-  return config?.stores?.hosted?.origin ?? DEFAULT_HOSTED_ORIGIN;
+  const origin = config?.stores?.hosted?.origin;
+  if (!origin) return DEFAULT_HOSTED_ORIGIN;
+  try {
+    return normalizeStoreOrigin(origin);
+  } catch {
+    return origin;
+  }
+}
+
+/** Whether hosted capture is switched on; consent alone leaves it on. */
+export function hostedCaptureEnabled(config: TraceConfig | null): boolean {
+  return config?.stores?.hosted?.capture?.enabled ?? true;
 }
 
 /** Whether the file names a hosted store at all, explicitly or through consent. */
@@ -172,9 +186,11 @@ export function readTraceConfigFile(
   let text: string;
   let fingerprint: string;
   try {
-    text = readFileSync(filePath, "utf8");
+    // Stat first: a replacement between the two calls then reads as a later
+    // change and is refused, never as a matching fingerprint over new bytes.
     const stats = statSync(filePath);
     fingerprint = `${stats.size}:${stats.mtimeMs}`;
+    text = readFileSync(filePath, "utf8");
   } catch {
     return {
       path: filePath,
@@ -253,6 +269,7 @@ export async function writeTraceConfigFile(
   file: TraceConfigFile,
   config: TraceConfig,
 ): Promise<void> {
+  if (file.error) throw new TraceConfigurationError(file.error);
   if (currentFingerprint(file.path) !== file.fingerprint) {
     throw new TraceConfigurationError(
       `Trace configuration at ${file.path} changed while it was being updated. Re-run the command.`,

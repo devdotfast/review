@@ -5,8 +5,12 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { clearTraceEnvCache } from "./review-agent-traces";
-import { traceMachineEnabled, traceMachineStatus } from "./trace-machine-setup";
-import { traceConfigPath } from "./trace-storage/config";
+import {
+  disableTraceMachine,
+  traceMachineEnabled,
+  traceMachineStatus,
+} from "./trace-machine-setup";
+import { readTraceConfigFile, traceConfigPath } from "./trace-storage/config";
 
 describe("trace machine capture switch", () => {
   let home: string;
@@ -79,6 +83,27 @@ describe("trace machine capture switch", () => {
       autoActivateRepositories: true,
       storageMode: "hosted",
     });
+  });
+
+  it("turns hosted capture off without touching consent", async () => {
+    writeConfig(
+      JSON.stringify({
+        version: 2,
+        repositories: [
+          {
+            repositoryId: 1,
+            name: "acme/app",
+            allowedAt: "2026-09-01T00:00:00Z",
+          },
+        ],
+      }),
+    );
+    expect(await traceMachineEnabled({ homeDir: home, env })).toBe(true);
+    await disableTraceMachine({ homeDir: home, env });
+    expect(await traceMachineEnabled({ homeDir: home, env })).toBe(false);
+    const file = readTraceConfigFile({ env, homeDir: home });
+    expect(file.config?.repositories).toHaveLength(1);
+    expect(file.config?.stores?.hosted?.capture).toEqual({ enabled: false });
   });
 
   it("infers hosted from a consent list when no bucket exists", async () => {

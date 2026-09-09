@@ -631,7 +631,7 @@ describe("trace-store-transport", () => {
   });
 
   it("pull reads an onboarded store without an allow entry", async () => {
-    await denyTraceRepository("acme/app");
+    await denyTraceRepository({ name: "acme/app" });
     const sessionId = "session-0003";
     const transport = createMemoryTraceStoreTransport();
     seedMemoryTraceSession(transport, {

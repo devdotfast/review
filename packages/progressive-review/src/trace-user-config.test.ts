@@ -42,7 +42,7 @@ describe("trace user config", () => {
       enabledOrigins: [DEFAULT_HOSTED_ORIGIN],
     });
     expect((await stat(traceUserConfigPath(devHome))).mode & 0o777).toBe(0o600);
-    expect(await denyTraceRepository("ACME/app", devHome)).toBe(true);
+    expect(await denyTraceRepository({ name: "ACME/app" }, devHome)).toBe(true);
     expect(
       findTraceRepository(await readTraceUserConfig(devHome), "acme/app"),
     ).toBeNull();

@@ -7,7 +7,10 @@
 
 import { devReviewHome } from "./review-storage";
 import { normalizeStoreOrigin } from "./store-origin";
-import type { TraceRepositoryEntry as ConfigEntry } from "./trace-storage/config";
+import type {
+  TraceRepositoryEntry as ConfigEntry,
+  TraceConfigFile,
+} from "./trace-storage/config";
 import {
   TRACE_CONFIG_VERSION,
   TraceConfigurationError,
@@ -38,6 +41,13 @@ export function traceUserConfigPath(devHome = devReviewHome()): string {
 export async function readTraceUserConfig(
   devHome?: string,
 ): Promise<TraceUserConfig> {
+  return (await readTraceUserConfigFile(devHome)).consent;
+}
+
+/** The consent entries together with the file read they came from. */
+async function readTraceUserConfigFile(
+  devHome?: string,
+): Promise<{ file: TraceConfigFile; consent: TraceUserConfig }> {
   const file = readTraceConfigFile({ devHome: devHome ?? devReviewHome() });
   if (file.error) throw new TraceConfigurationError(file.error);
   const repositories = (file.config?.repositories ?? []).map((entry) => ({
@@ -54,15 +64,15 @@ export async function readTraceUserConfig(
     }),
     allowedAt: entry.allowedAt ?? null,
   }));
-  return { version: TRACE_CONFIG_VERSION, repositories };
+  return { file, consent: { version: TRACE_CONFIG_VERSION, repositories } };
 }
 
+// The write goes against the very read it was computed from, so two
+// concurrent allow/deny runs cannot silently drop each other's change.
 async function writeRepositories(
-  devHome: string,
+  file: TraceConfigFile,
   repositories: ConfigEntry[],
 ): Promise<void> {
-  const file = readTraceConfigFile({ devHome });
-  if (file.error) throw new TraceConfigurationError(file.error);
   await writeTraceConfigFile(file, {
     ...(file.config ?? emptyTraceConfig()),
     repositories,
@@ -92,7 +102,7 @@ export async function allowTraceRepository(
   if (!Number.isSafeInteger(entry.repositoryId) || entry.repositoryId < 1) {
     throw new Error("The trace repository id must be a positive integer.");
   }
-  const config = await readTraceUserConfig(devHome);
+  const { file, consent: config } = await readTraceUserConfigFile(devHome);
   const existing = config.repositories.find(
     (candidate) => candidate.repositoryId === entry.repositoryId,
   );
@@ -110,22 +120,28 @@ export async function allowTraceRepository(
     ),
     merged,
   ];
-  await writeRepositories(devHome, repositories.map(toConfigEntry));
+  await writeRepositories(file, repositories.map(toConfigEntry));
   return { version: TRACE_CONFIG_VERSION, repositories };
 }
 
-/** Withdraws consent for a repository at every origin. */
+/**
+ * Withdraws consent for a repository at every origin. The immutable id
+ * catches an entry whose display name moved; the name catches one whose id
+ * this machine never learned.
+ */
 export async function denyTraceRepository(
-  name: string,
+  repository: { name: string; repositoryId?: number | null },
   devHome = devReviewHome(),
 ): Promise<boolean> {
-  const config = await readTraceUserConfig(devHome);
+  const { file, consent: config } = await readTraceUserConfigFile(devHome);
   const repositories = config.repositories.filter(
-    (existing) => existing.name.toLowerCase() !== name.toLowerCase(),
+    (existing) =>
+      existing.name.toLowerCase() !== repository.name.toLowerCase() &&
+      (repository.repositoryId == null ||
+        existing.repositoryId !== repository.repositoryId),
   );
   const removed = repositories.length !== config.repositories.length;
-  if (removed)
-    await writeRepositories(devHome, repositories.map(toConfigEntry));
+  if (removed) await writeRepositories(file, repositories.map(toConfigEntry));
   return removed;
 }
 

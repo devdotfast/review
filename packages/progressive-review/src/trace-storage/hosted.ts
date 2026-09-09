@@ -11,11 +11,7 @@ import {
 } from "@dev.fast/trace-shared";
 
 import { devReviewHome } from "../review-storage";
-import {
-  DEFAULT_STORE_ORIGIN,
-  readStoreAuth,
-  requireStoreClient,
-} from "../store-auth";
+import { DEFAULT_STORE_ORIGIN, readStoreAuth } from "../store-auth";
 import { StoreApiError, StoreClient } from "../store-client";
 import { traceRepoName } from "../trace-repo";
 import {
@@ -45,7 +41,7 @@ import type {
   TraceStorage,
   TraceStorageReadiness,
 } from "./types";
-import { TraceStorageUnavailableError } from "./types";
+import { TraceStorageDeniedError, TraceStorageUnavailableError } from "./types";
 
 /**
  * The hosted trace store: authorization and metadata through the hosted
@@ -164,7 +160,20 @@ export class HostedTraceStorage implements TraceStorage {
     const origin = input.origin;
 
     if (input.write) {
-      const client = input.client ?? (await requireStoreClient(env));
+      // A publication goes to the selected origin only. A login for another
+      // origin is not a client for this one.
+      let client = input.client;
+      if (!client) {
+        const auth = await readStoreAuth(env);
+        if (!auth || auth.origin !== origin) {
+          throw new Error(
+            auth
+              ? `You are logged in to ${auth.origin}, not the selected store ${origin}. Run \`review login --origin ${origin}\`.`
+              : `The trace store login is missing. Run \`review login --origin ${origin}\`.`,
+          );
+        }
+        client = new StoreClient({ origin, token: auth.token });
+      }
       const { target } = await resolveTraceRepositoryTarget({
         cwd: input.cwd,
         origin,
@@ -477,7 +486,10 @@ export class HostedTraceStorage implements TraceStorage {
       );
     }
     // The store answered. Its answer decides; a saved copy is never served
-    // as if the store had confirmed it.
+    // as if the store had confirmed it, and a refusal is not "nothing here".
+    if (lookup.status === "denied") {
+      throw new TraceStorageDeniedError(lookup.error.message);
+    }
     return lookup.status === "found" ? lookup.session : null;
   }
 
@@ -544,14 +556,19 @@ export class HostedTraceStorage implements TraceStorage {
   }
 }
 
-/** A session lookup, or null when the store could not be reached. */
+/** A session lookup, or null when the store could not be reached or refused. */
 async function reachableSession<T>(
   lookup: () => Promise<T | null>,
 ): Promise<T | null> {
   try {
     return await lookup();
   } catch (error) {
-    if (error instanceof TraceStorageUnavailableError) return null;
+    if (
+      error instanceof TraceStorageUnavailableError ||
+      error instanceof TraceStorageDeniedError
+    ) {
+      return null;
+    }
     throw error;
   }
 }

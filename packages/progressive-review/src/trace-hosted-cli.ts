@@ -20,6 +20,8 @@ import { StoreApiError, StoreClient } from "./store-client";
 import { readActiveTraceSessions } from "./trace-agent-sessions";
 import { inferRepoFromGit, traceRepoName } from "./trace-repo";
 import { enableTraceRepository } from "./trace-repository-hooks";
+import { readCachedTraceRepositoryTarget } from "./trace-repository-target";
+import { hostedOrigin, readTraceConfigFile } from "./trace-storage/config";
 import { listTraceSyncFailures } from "./trace-sync-status";
 import {
   allowTraceRepository,
@@ -188,9 +190,17 @@ export async function runReviewTraceDeny(
       error instanceof Error ? error.message : String(error),
     );
   }
+  const devHome = devReviewHome(input.env, input.homeDir);
+  // The id this checkout resolved to earlier, if any, so a renamed
+  // repository is still found. No network is needed to deny.
+  const cached = await readCachedTraceRepositoryTarget({
+    cwd: input.cwd,
+    origin: hostedOrigin(readTraceConfigFile({ devHome }).config),
+    devHome,
+  }).catch(() => null);
   const removed = await denyTraceRepository(
-    name,
-    devReviewHome(input.env, input.homeDir),
+    { name, repositoryId: cached?.repositoryId ?? null },
+    devHome,
   );
   emitJsonEvent(input, { event: "trace.deny", name, removed });
   humanStream(input).write(

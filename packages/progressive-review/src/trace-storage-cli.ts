@@ -46,6 +46,7 @@ import {
   type S3Credentials,
   S3_DEFAULT_REGION,
   isS3MockMode,
+  readTraceEnvFile,
   resolveS3Setup,
   traceSettingsPath,
 } from "./trace-storage/s3-config";
@@ -112,10 +113,10 @@ export async function runReviewTraceStorageUse(
           input.region?.trim() ||
           current.stores?.s3?.region ||
           S3_DEFAULT_REGION,
-        capture: current.stores?.s3?.capture ?? {
-          enabled: true,
-          autoActivateRepositories: true,
-        },
+        capture: current.stores?.s3?.capture ??
+          (await readLegacyCaptureSettings(
+            traceSettingsPath(scope.homeDir, scope.env),
+          )) ?? { enabled: true, autoActivateRepositories: true },
       });
       await requireReachable(profile, scope);
       next = {
@@ -263,9 +264,17 @@ export interface RunReviewTraceConfigMigrateInput
   keepLegacy?: boolean;
 }
 
-/** Where a migrated legacy file goes: `legacy_<name>` beside the original. */
+/**
+ * Where a migrated legacy file goes: `legacy_<name>` beside the original,
+ * with a timestamp when that name is already taken by an earlier backup.
+ */
 export function legacyRetiredPath(filePath: string): string {
-  return path.join(path.dirname(filePath), `legacy_${path.basename(filePath)}`);
+  const base = path.join(
+    path.dirname(filePath),
+    `legacy_${path.basename(filePath)}`,
+  );
+  if (!existsSync(base)) return base;
+  return `${base}.${new Date().toISOString().replace(/[:.]/g, "-")}`;
 }
 
 /**
@@ -367,15 +376,29 @@ export async function runReviewTraceConfigMigrate(
     //    file is the only active source. Renaming, not deleting, keeps the
     //    rollback a rename away. Exported variables are the user's own.
     const retired: Array<{ from: string; to: string }> = [];
+    const kept: string[] = [];
     if (!input.dryRun && !input.keepLegacy) {
       for (const filePath of [legacy.envPath, settingsPath]) {
         if (!existsSync(filePath)) continue;
+        // The env file may also hold session-root settings that only it
+        // supplies; those keys are not migrated, so such a file stays.
+        const others =
+          filePath === legacy.envPath
+            ? [...readTraceEnvFile(filePath).keys()].filter(
+                (key) => !key.startsWith("TRACE_R2_"),
+              )
+            : [];
+        if (others.length > 0) {
+          kept.push(`${filePath} (still supplies ${others.join(", ")})`);
+          continue;
+        }
         const to = legacyRetiredPath(filePath);
         renameSync(filePath, to);
         retired.push({ from: filePath, to });
       }
       clearTraceEnvCache();
     }
+    for (const line of kept) human.write(`Kept ${line}\n`);
     if (retired.length > 0) {
       for (const move of retired) {
         human.write(`Retired ${move.from} -> ${move.to}\n`);

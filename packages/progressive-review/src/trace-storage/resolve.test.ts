@@ -162,6 +162,39 @@ describe("trace storage selection", () => {
     expect(overridden.overrides).toEqual(["TRACE_R2_BUCKET"]);
   });
 
+  it("keeps the legacy file's TRACE_R2_* keys ahead of exported AWS_* credentials", () => {
+    writeLegacyEnv();
+    const setup = resolveS3Setup({
+      env: {
+        ...env,
+        AWS_ACCESS_KEY_ID: "shell-aws-key",
+        AWS_SECRET_ACCESS_KEY: "shell-aws-secret",
+      },
+      homeDir: home,
+    });
+    expect(setup.credentials).toMatchObject({
+      accessKeyId: "legacy-key",
+      secretAccessKey: "legacy-secret",
+    });
+    expect(setup.overrides).toEqual([]);
+    // Without the bucket's own keys, the AWS names are the fallback.
+    const dir = path.join(home, ".config", "dev-trace");
+    writeFileSync(
+      path.join(dir, "env"),
+      'TRACE_R2_ENDPOINT="https://legacy.example.invalid"\nTRACE_R2_BUCKET="legacy-traces"\n',
+    );
+    clearTraceEnvCache();
+    const fallback = resolveS3Setup({
+      env: { ...env, AWS_ACCESS_KEY_ID: "k", AWS_SECRET_ACCESS_KEY: "s" },
+      homeDir: home,
+    });
+    expect(fallback.credentials?.accessKeyId).toBe("k");
+    expect(fallback.overrides).toEqual([
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+    ]);
+  });
+
   it("does not patch an incomplete profile from the legacy file", () => {
     writeLegacyEnv();
     writeConfig({

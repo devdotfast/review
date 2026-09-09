@@ -86,6 +86,14 @@ export interface TracePublishResult {
   hosted?: HostedPublishDetails;
 }
 
+/** The store answered with a refusal (forbidden, deleted, bad login). Nothing is served. */
+export class TraceStorageDeniedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TraceStorageDeniedError";
+  }
+}
+
 /** The store did not answer; a saved copy may be served, labeled offline. */
 export class TraceStorageUnavailableError extends Error {
   constructor(message: string) {

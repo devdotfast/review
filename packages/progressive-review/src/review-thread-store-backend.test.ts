@@ -324,9 +324,9 @@ describe("sqlite thread store", () => {
     "preserves saved and draft conversations upgrading $version $boundary",
     async ({ version, boundary }) => {
       const reviewPath = makeReviewPath();
-      createReviewThreadDb(path.dirname(reviewPath));
+      createLegacyReviewThreadDb(path.dirname(reviewPath));
       closeAllReviewThreadStores();
-      const db = new DatabaseSync(reviewThreadDbPath(reviewPath));
+      const db = new DatabaseSync(legacyReviewThreadDbPath(reviewPath));
       const records = ["codex", "claude-code", "pi", "opencode"].map(
         (harness) => ({
           threadId: harness,
@@ -391,7 +391,7 @@ describe("sqlite thread store", () => {
 
       await migrateReviewThreadDb(reviewPath);
       const comments = readReviewComments(reviewPath);
-      const upgraded = new DatabaseSync(reviewThreadDbPath(reviewPath));
+      const upgraded = new DatabaseSync(legacyReviewThreadDbPath(reviewPath));
       for (const original of records) {
         const comment = comments[original.threadId];
         expect(comment).toEqual({
@@ -421,9 +421,22 @@ describe("sqlite thread store", () => {
 
   it("leaves every record and version unchanged if a binding is invalid", async () => {
     const reviewPath = makeReviewPath();
-    seedComment(reviewPath);
+    createLegacyReviewThreadDb(path.dirname(reviewPath));
+    const seed = new DatabaseSync(legacyReviewThreadDbPath(reviewPath));
+    seed
+      .prepare("INSERT INTO comments (thread_id, record_json) VALUES (?, ?)")
+      .run(
+        "thread-1",
+        JSON.stringify({
+          threadId: "thread-1",
+          target: { kind: "document" },
+          status: "open",
+          messages: [],
+        }),
+      );
+    seed.close();
     closeAllReviewThreadStores();
-    const db = new DatabaseSync(reviewThreadDbPath(reviewPath));
+    const db = new DatabaseSync(legacyReviewThreadDbPath(reviewPath));
     const original = db
       .prepare("SELECT record_json FROM comments WHERE thread_id = 'thread-1'")
       .get() as { record_json: string };
@@ -442,7 +455,7 @@ describe("sqlite thread store", () => {
     await expect(migrateReviewThreadDb(reviewPath)).rejects.toThrow(
       "sessionId",
     );
-    const unchanged = new DatabaseSync(reviewThreadDbPath(reviewPath));
+    const unchanged = new DatabaseSync(legacyReviewThreadDbPath(reviewPath));
     expect(
       unchanged
         .prepare(

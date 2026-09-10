@@ -173,15 +173,16 @@ export async function createReviewSessionHandler(
     : undefined;
 
   /* The overlay is the author's working preview. A candidate is mounted to
-     validate its own bytes and a historical revision is sealed, so neither of
-     them may serve it. */
-  const overlayApplies =
+     validate its own bytes and a historical revision is committed, so neither
+     of them may serve it. Read per request: a candidate that is promoted
+     becomes a publication origin and starts serving the preview. */
+  const overlayApplies = () =>
     artifact.origin.kind !== "candidate" && mode.kind !== "historical";
   const liveBundles = new Map<string, ReviewDocumentBundle>();
   /** The host's preview, remembered by hash so an in-flight document URL
    * stays valid once the next edit replaces it. */
   const takeLiveBundle = async (): Promise<ReviewDocumentBundle | null> => {
-    const live = overlayApplies ? await input.getLiveBundle?.() : null;
+    const live = overlayApplies() ? await input.getLiveBundle?.() : null;
     if (!live) return null;
     liveBundles.set(`${live.contentHash}.json`, live);
     if (liveBundles.size > 16)
@@ -442,6 +443,7 @@ export async function createReviewSessionHandler(
     readOnlyThreadsPath: input.readOnlyThreadsPath,
     sourceUnavailable: input.sourceUnavailable,
     reviewPath: artifact.sourcePath,
+    documentUpdatedAtMs: () => artifact.documentUpdatedAtMs,
     reviewDocumentsDir: documentsDir,
     rootPath: input.rootPath,
     reviewRootPath,

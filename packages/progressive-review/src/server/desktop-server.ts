@@ -30,7 +30,6 @@ import {
   jsonProperty,
   jsonString,
   parseReviewCliInstallApplyRequest,
-  parseReviewPublishReadyRequest,
   reviewViewSchema,
 } from "@dev.fast/review-protocol";
 import { type Context, Hono } from "hono";
@@ -58,12 +57,17 @@ import {
   ProgressiveReviewTelemetry,
 } from "../progressive-review-telemetry";
 import {
+  readReviewDocumentArtifact,
+  readReviewSoftwareMapArtifact,
+} from "../review-artifact-store";
+import {
   dismissReview,
   markReviewViewed,
   restoreReview,
   reviewReapsAt,
   selectReapableReviews,
 } from "../review-attention";
+import type { ReviewDocumentBundle } from "../review-bundle";
 import {
   readReviewDocumentFile,
   writeReviewDocumentFile,
@@ -115,13 +119,35 @@ import {
   writeReviewPreferences,
 } from "../review-preferences";
 import {
+  type ActivatedPublication,
+  type DocumentActivationCandidate,
+  type ReviewActivationHooks,
+  activateReviewPublication,
+} from "../review-publication-activation";
+import type {
+  ExpectedReviewFields,
+  PreparedDocumentCandidate,
+  PreparedSoftwareMapCandidate,
+} from "../review-publication-candidate";
+import {
+  type DocumentPublicationRecord,
+  type SourceContext,
+  parsePublicationRecord,
+} from "../review-publication-record";
+import { fingerprintAuthoring } from "../review-publication-staging";
+import {
   ReviewOpenThreadsError,
   requireClosedThreadsForRepublish,
+  requireCompletedAgentResponsesForRepublish,
 } from "../review-publish-thread-gate";
 import { clearReopenPending, markReopenPending } from "../review-reopen-marker";
 import { ReviewRepairReadyRequestSchema } from "../review-repair-state";
 import { runReviewScaffold } from "../review-scaffold";
-import { deleteReviewState } from "../review-state-db";
+import {
+  deleteReviewState,
+  listPublications,
+  readPublication,
+} from "../review-state-db";
 import { devReviewHome, readOpenReviewThreadCount } from "../review-storage";
 import { ReviewThreadsService } from "../review-threads-service";
 import { readReviewSoftwareMapBundle } from "../software-map-bundle";
@@ -163,10 +189,13 @@ import { resolvePublishReview } from "./publish-preparation";
 import {
   materializePublishRevision,
   reviewWithPresentedDocumentPins,
+  reviewWithPublicationContext,
 } from "./publish-stage";
 import { captureSanitizedUiTelemetry } from "./review-api";
 import { resolveReviewInfo } from "./review-info";
 import {
+  type MountedDocumentPublication,
+  type MountedSoftwareMapPublication,
   agentEnvironment,
   publishReview,
   publishReviewSoftwareMap,
@@ -180,7 +209,11 @@ import {
 } from "./review-live-authoring";
 import { promoteReviewRepair } from "./review-repair-promotion";
 import {
+  HISTORICAL_UNAVAILABLE_ERROR,
+  NEEDS_REPUBLISH_ERROR,
+  NEEDS_REPUBLISH_MAP_ERROR,
   type ReviewSessionArtifactInput,
+  type ReviewSessionArtifactMap,
   legacySessionArtifactFromBuildDir,
 } from "./review-session-artifact";
 import { resolveThreadsReview } from "./review-threads-target";
@@ -194,6 +227,16 @@ export interface PublishMountTiming {
   name: string;
   startEpochMs: number;
   endEpochMs: number;
+}
+
+/** What a mounted document publication reports back to the publishing CLI.
+ * `revision` keeps the wire name the app and CLI already use; its value is a
+ * publication ID, never a repository commit. */
+interface MountedDocumentPublicationResult extends MountedDocumentPublication {
+  ok: true;
+  revision: string;
+  url: string;
+  timings: PublishMountTiming[];
 }
 
 // The renderer returns its mount step timings inside the verb result; parse
@@ -226,10 +269,6 @@ interface ActiveReviewSession {
   artifact: ReviewSessionArtifactInput;
   revision?: string;
   historicalRevision?: string;
-  source?: {
-    sourceCommit: string;
-    sourceBranch: string;
-  };
   handler: ReviewSessionHandler;
   promoted: boolean;
   terminal: boolean;
@@ -250,7 +289,6 @@ interface RegisterSessionInput {
   historicalRevision?: string;
   repairValidation?: boolean;
   readOnlyThreadsPath?: string;
-  source?: ActiveReviewSession["source"];
   appSessionId?: string;
   promoted: boolean;
   announce?: boolean;
@@ -310,6 +348,9 @@ export interface GlobalReviewServerInput {
   tutorialAgentResolver?: () => Promise<ReviewAgentHarness | undefined>;
   publishRuntime?: {
     materializePublishRevision: typeof materializePublishRevision;
+    /** Observation points inside the publication activation, for tests that
+     * interrupt it between its steps. */
+    activationHooks?: ReviewActivationHooks;
   };
   telemetry?: ProgressiveReviewTelemetry;
   /* Object seam, like publishRuntime: a test supplies a relay whose dispatch
@@ -695,43 +736,12 @@ export function createGlobalReviewServer(
         review: homeReview,
       });
     }
-    let documentUnavailable: string | undefined;
-    const documentBuildDir = await publishRuntime
-      .materializePublishRevision({
-        review: viewed,
-        revision: documentRevision,
-      })
-      .catch(() => {
-        documentUnavailable = `The presented document revision ${documentRevision} is unavailable.`;
-        return path.join(review.dir, ".build", documentRevision);
-      });
-    const presentedReview = documentUnavailable
-      ? viewed
-      : await reviewWithPresentedDocumentPins(viewed, documentBuildDir);
-    let softwareMapUnavailable: string | undefined;
-    const softwareMapRootPath = viewed.review.presentedSoftwareMapRevision
-      ? await publishRuntime
-          .materializePublishRevision({
-            review: viewed,
-            revision: viewed.review.presentedSoftwareMapRevision,
-          })
-          .then((root) => presentedMapRoot(root, false))
-          .catch(() => {
-            softwareMapUnavailable = `The presented software map revision ${viewed.review.presentedSoftwareMapRevision} is unavailable.`;
-            return undefined;
-          })
-      : undefined;
+    const presented =
+      (await publicationSessionArtifact(viewed, documentRevision)) ??
+      (await legacyCurrentSessionArtifact(viewed, documentRevision));
     const active = await registerSerialized({
-      review: presentedReview,
-      artifact: await legacySessionArtifactFromBuildDir({
-        reviewUuid: presentedReview.review.uuid,
-        revision: documentRevision,
-        buildDir: documentBuildDir,
-        routePath: "/",
-        softwareMapRootPath,
-        documentUnavailable,
-        softwareMapUnavailable,
-      }),
+      review: presented.review,
+      artifact: presented.artifact,
       promoted: true,
       announce: true,
       focusCanvas: !background,
@@ -746,6 +756,170 @@ export function createGlobalReviewServer(
       review: homeReview,
     });
   });
+
+  /** The session a committed document publication serves. Null when the
+   * pointer is a Git-era revision no row answers. */
+  async function publicationSessionArtifact(
+    review: StoredReview,
+    documentRevision: string,
+  ): Promise<PresentedSessionArtifact | null> {
+    const row = readPublication(review.dir, documentRevision, "document");
+    if (!row) return null;
+    const record = parsePublicationRecord(row.record);
+    if (record.kind !== "document") return null;
+    const map = await presentedMapArtifact(review);
+    const document = await storedDocumentBundle(review, record);
+    return {
+      review: reviewWithPublicationContext(review, record),
+      artifact: {
+        reviewUuid: review.review.uuid,
+        origin: {
+          kind: "publication",
+          publicationId: documentRevision,
+          mapPublicationId: map.publicationId,
+        },
+        document: document
+          ? { bundle: document }
+          : { unavailable: NEEDS_REPUBLISH_ERROR },
+        map: map.artifact,
+        title: record.title,
+        sourcePath: path.join(review.dir, "review.mdx"),
+        documentUpdatedAtMs: Date.parse(record.createdAt),
+      },
+    };
+  }
+
+  /** Git-era reviews still present from `.build/<revision>`; the importer
+   * retires this path. */
+  async function legacyCurrentSessionArtifact(
+    review: StoredReview,
+    documentRevision: string,
+  ): Promise<PresentedSessionArtifact> {
+    let documentUnavailable: string | undefined;
+    const documentBuildDir = await publishRuntime
+      .materializePublishRevision({ review, revision: documentRevision })
+      .catch(() => {
+        documentUnavailable = `The presented document revision ${documentRevision} is unavailable.`;
+        return path.join(review.dir, ".build", documentRevision);
+      });
+    const mapRevision = review.review.presentedSoftwareMapRevision;
+    let softwareMapUnavailable: string | undefined;
+    const softwareMapRootPath = mapRevision
+      ? await publishRuntime
+          .materializePublishRevision({ review, revision: mapRevision })
+          .then((root) => presentedMapRoot(root, false))
+          .catch(() => {
+            softwareMapUnavailable = `The presented software map revision ${mapRevision} is unavailable.`;
+            return undefined;
+          })
+      : undefined;
+    return {
+      review: documentUnavailable
+        ? review
+        : await reviewWithPresentedDocumentPins(review, documentBuildDir),
+      artifact: await legacySessionArtifactFromBuildDir({
+        reviewUuid: review.review.uuid,
+        revision: documentRevision,
+        buildDir: documentBuildDir,
+        routePath: "/",
+        softwareMapRootPath,
+        documentUnavailable,
+        softwareMapUnavailable,
+      }),
+    };
+  }
+
+  /** A historical open restores the publication's own code context and the
+   * map it was published beside. Null only for a Git-era review, which has no
+   * rows at all; once a review has rows, an unknown ID is not one of them. */
+  async function historicalPublicationSessionArtifact(
+    review: StoredReview,
+    revision: string,
+  ): Promise<PresentedSessionArtifact | null> {
+    const row = readPublication(review.dir, revision, "document");
+    if (!row) {
+      if (listPublications(review.dir, "document").length === 0) return null;
+      throw new ReviewServerError(
+        "Review version not found.",
+        404,
+        "revision_not_found",
+      );
+    }
+    const record = parsePublicationRecord(row.record);
+    if (record.kind !== "document")
+      throw new ReviewServerError(
+        "Review version not found.",
+        404,
+        "revision_not_found",
+      );
+    const document = await storedDocumentBundle(review, record);
+    return {
+      review: reviewWithPublicationContext(review, record),
+      artifact: {
+        reviewUuid: review.review.uuid,
+        origin: {
+          kind: "publication",
+          publicationId: revision,
+          mapPublicationId: record.pairedMapPublicationId,
+        },
+        document: document
+          ? { bundle: document }
+          : { unavailable: HISTORICAL_UNAVAILABLE_ERROR },
+        map: await historicalMapArtifact(review, record.pairedMapPublicationId),
+        title: record.title,
+        sourcePath: path.join(review.dir, "review.mdx"),
+        documentUpdatedAtMs: Date.parse(record.createdAt),
+      },
+    };
+  }
+
+  async function legacyHistoricalSessionArtifact(
+    review: StoredReview,
+    revision: string,
+  ): Promise<PresentedSessionArtifact> {
+    let documentBuildDir: string;
+    try {
+      documentBuildDir = await publishRuntime.materializePublishRevision({
+        review,
+        revision,
+      });
+    } catch {
+      throw new ReviewServerError(
+        "Review version not found.",
+        404,
+        "revision_not_found",
+      );
+    }
+    const presentedValue = JSON.parse(
+      await readFile(path.join(documentBuildDir, "review.json"), "utf8"),
+    );
+    const presentedRecord = parseAnyStoredReviewRecord(presentedValue);
+    const mapRevision = presentedRecord.presentedSoftwareMapRevision;
+    let softwareMapUnavailable: string | undefined;
+    const softwareMapRootPath = mapRevision
+      ? await publishRuntime
+          .materializePublishRevision({ review, revision: mapRevision })
+          .then((root) =>
+            presentedMapRoot(root, presentedValue.schemaVersion === 2),
+          )
+          .catch(() => {
+            softwareMapUnavailable = `The historical software map revision ${mapRevision} is unavailable.`;
+            return undefined;
+          })
+      : undefined;
+    return {
+      review: await reviewWithPresentedDocumentPins(review, documentBuildDir),
+      artifact: await legacySessionArtifactFromBuildDir({
+        reviewUuid: review.review.uuid,
+        revision,
+        buildDir: documentBuildDir,
+        routePath: "/",
+        softwareMapRootPath,
+        softwareMapUnavailable,
+        historical: true,
+      }),
+    };
+  }
 
   async function openHistoricalReviewSession(
     review: StoredReview,
@@ -769,53 +943,12 @@ export function createGlobalReviewServer(
         review: homeReview,
       });
     }
-    let documentBuildDir: string;
-    try {
-      documentBuildDir = await publishRuntime.materializePublishRevision({
-        review,
-        revision,
-      });
-    } catch {
-      throw new ReviewServerError(
-        "Review version not found.",
-        404,
-        "revision_not_found",
-      );
-    }
-    const presentedReview = await reviewWithPresentedDocumentPins(
-      review,
-      documentBuildDir,
-    );
-    const presentedValue = JSON.parse(
-      await readFile(path.join(documentBuildDir, "review.json"), "utf8"),
-    );
-    const presentedRecord = parseAnyStoredReviewRecord(presentedValue);
-    let softwareMapUnavailable: string | undefined;
-    const softwareMapRootPath = presentedRecord.presentedSoftwareMapRevision
-      ? await publishRuntime
-          .materializePublishRevision({
-            review,
-            revision: presentedRecord.presentedSoftwareMapRevision,
-          })
-          .then((root) =>
-            presentedMapRoot(root, presentedValue.schemaVersion === 2),
-          )
-          .catch(() => {
-            softwareMapUnavailable = `The historical software map revision ${presentedRecord.presentedSoftwareMapRevision} is unavailable.`;
-            return undefined;
-          })
-      : undefined;
+    const presented =
+      (await historicalPublicationSessionArtifact(review, revision)) ??
+      (await legacyHistoricalSessionArtifact(review, revision));
     const active = await registerSerialized({
-      review: presentedReview,
-      artifact: await legacySessionArtifactFromBuildDir({
-        reviewUuid: presentedReview.review.uuid,
-        revision,
-        buildDir: documentBuildDir,
-        routePath: "/",
-        softwareMapRootPath,
-        softwareMapUnavailable,
-        historical: true,
-      }),
+      review: presented.review,
+      artifact: presented.artifact,
       promoted: false,
       historicalRevision: revision,
       announce: true,
@@ -1239,23 +1372,10 @@ export function createGlobalReviewServer(
         ReviewPublishRequestSchema.parse(
           await readBoundedRequestJson(context.req.raw),
         ),
-        async (request) => {
-          await completeMapPublication(request);
-        },
+        completeMapPublication,
       ),
     ),
   );
-  app.post("/publish-ready", async (context) => {
-    try {
-      const request = parseReviewPublishReadyRequest(
-        await readBoundedRequestJson(context.req.raw),
-      );
-      return globalJson(201, await completeDocumentPublication(request));
-    } catch (error) {
-      await telemetry.capturePublishGateRejected({ gate: "publish_ready" });
-      throw error;
-    }
-  });
   app.post("/lifecycle/repair", async (context) =>
     globalJson(
       200,
@@ -1272,19 +1392,6 @@ export function createGlobalReviewServer(
       await readBoundedRequestJson(context.req.raw),
     );
     return globalJson(201, await completeReviewRepair(request));
-  });
-  app.post("/map-publish-ready", async (context) => {
-    try {
-      const request = parseReviewPublishReadyRequest(
-        await readBoundedRequestJson(context.req.raw),
-      );
-      return globalJson(201, await completeMapPublication(request));
-    } catch (error) {
-      await telemetry.capturePublishGateRejected({
-        gate: "map_publish_ready",
-      });
-      throw error;
-    }
   });
   app.get("/events", (context) => openGlobalEvents(context));
   app.get("/control", (context) => openControlEvents(context));
@@ -1455,47 +1562,39 @@ export function createGlobalReviewServer(
   }
 
   async function completeDocumentPublication(
-    request: ReturnType<typeof parseReviewPublishReadyRequest>,
-  ) {
-    let review = await findReview(request.reviewUuid);
-    if (!review) throw new ReviewServerError("Review not found.", 404);
-    const agent = request.agent;
-    if (agent) {
-      const found = review;
-      review = await withReviewLock(request.reviewUuid, () =>
-        touchReviewAgentSession(found, authoringSessionKey(agent), "publisher"),
-      );
-    }
-    return mountPublishedDocument(review, request.revision, request.view);
+    candidate: PreparedDocumentCandidate,
+    options: { view?: ReviewView; agent?: SessionRef },
+  ): Promise<MountedDocumentPublicationResult> {
+    const review = await publishingReview(candidate.reviewUuid, options.agent);
+    return mountPublishedDocument(review, candidate, options.view);
   }
 
   async function completeMapPublication(
-    request: ReturnType<typeof parseReviewPublishReadyRequest>,
-  ) {
-    let review = await findReview(request.reviewUuid);
+    candidate: PreparedSoftwareMapCandidate,
+    options: { agent?: SessionRef },
+  ): Promise<MountedSoftwareMapPublication> {
+    const review = await publishingReview(candidate.reviewUuid, options.agent);
+    return mountPublishedSoftwareMap(review, candidate);
+  }
+
+  /** The record the mount guards against, with the publishing agent stamped. */
+  async function publishingReview(
+    reviewUuid: string,
+    agent: SessionRef | undefined,
+  ): Promise<StoredReview> {
+    const review = await findReview(reviewUuid);
     if (!review) throw new ReviewServerError("Review not found.", 404);
-    const agent = request.agent;
-    if (agent) {
-      const found = review;
-      review = await withReviewLock(request.reviewUuid, () =>
-        touchReviewAgentSession(found, authoringSessionKey(agent), "publisher"),
-      );
-    }
-    return mountPublishedSoftwareMap(review, request.revision);
+    if (!agent) return review;
+    return withReviewLock(reviewUuid, () =>
+      touchReviewAgentSession(review, authoringSessionKey(agent), "publisher"),
+    );
   }
 
   async function mountPublishedDocument(
     review: StoredReview,
-    revision: string,
+    candidate: PreparedDocumentCandidate,
     view?: ReviewView,
-  ): Promise<{
-    ok: true;
-    revision: string;
-    sessionId: string;
-    url: string;
-    focusWarning?: string;
-    timings: PublishMountTiming[];
-  }> {
+  ): Promise<MountedDocumentPublicationResult> {
     // Each mount step reports its wall-clock interval so the publishing CLI
     // can show where desktop time went; the CLI only sees the round-trip.
     const timings: PublishMountTiming[] = [];
@@ -1507,56 +1606,47 @@ export function createGlobalReviewServer(
         timings.push({ name, startEpochMs, endEpochMs: Date.now() });
       }
     };
-    const sourceCommit = review.review.sourceCommit;
-    const sourceBranch = review.review.sourceIdentity?.name;
-    if (!sourceCommit || !sourceBranch) {
+    rejectChangedReviewRecord(review, candidate.expected);
+    if (!review.review.sourceCommit) {
       throw new ReviewServerError(
         `Review ${review.review.uuid} is not bound to a source commit.`,
         409,
         "review_unbound",
       );
     }
-    const source = { sourceCommit, sourceBranch };
-    const buildDir = await timed("materialize document revision", () =>
-      publishRuntime.materializePublishRevision({ review, revision }),
+    const document = await readReviewDocumentArtifact(
+      review.dir,
+      candidate.artifactHash,
     );
-    // A revision this server sealed is current by construction; a legacy record here
-    // is a bug, not something to upgrade silently.
-    const preparedRecord = parseStoredReviewRecord(
-      JSON.parse(await readFile(path.join(buildDir, "review.json"), "utf8")),
-    );
-    rejectConcurrentPublication(review, {
-      dir: buildDir,
-      review: preparedRecord,
-    });
-    const softwareMapRootPath = review.review.presentedSoftwareMapRevision
-      ? await timed("materialize software map revision", () =>
-          publishRuntime.materializePublishRevision({
-            review,
-            revision: review.review.presentedSoftwareMapRevision!,
-          }),
-        )
-      : undefined;
-    const documentPath = path.join(buildDir, "review.mdx");
+    if (!document) {
+      throw new ReviewServerError(
+        `The prepared document artifact ${candidate.artifactHash} is unavailable.`,
+        422,
+        "document_artifact_unavailable",
+      );
+    }
+    const map = await presentedMapArtifact(review);
     const successor = await timed("register session", async () =>
       registerSerialized({
         review,
-        artifact: await legacySessionArtifactFromBuildDir({
+        artifact: {
           reviewUuid: review.review.uuid,
-          revision,
-          buildDir,
-          routePath: "/",
-          softwareMapRootPath,
-        }),
-        revision,
-        source,
+          origin: { kind: "candidate" },
+          document: { bundle: document },
+          map: map.artifact,
+          title: candidate.title,
+          sourcePath: path.join(review.dir, "review.mdx"),
+        },
         promoted: false,
       }),
     );
+    let mirrorWarning: string | undefined;
+    let publicationId!: string;
+    let mapPublicationId: string | null = null;
     try {
       // The app mounts the unpromoted session off-screen first. A failed
-      // mount fails the publish before promotion, so the reviewer keeps the
-      // last good revision on screen.
+      // mount fails the publish before activation, so the reviewer keeps the
+      // last committed publication on screen.
       const validation = await timed("validate canvas mount", () =>
         relay.dispatch(successor.descriptor.sessionId, {
           name: "validateCanvasMount",
@@ -1564,6 +1654,7 @@ export function createGlobalReviewServer(
         }),
       );
       if (!validation.ok) {
+        await telemetry.capturePublishGateRejected({ gate: "publish_ready" });
         throw new ReviewServerError(
           `Review document failed to mount: ${validation.error ?? "unknown error"}`,
           422,
@@ -1575,26 +1666,43 @@ export function createGlobalReviewServer(
       for (const step of mountStepTimings(validation)) {
         timings.push({ ...step, name: `mount: ${step.name}` });
       }
-      await timed("promote", () =>
+      await timed("activate publication", () =>
         withReviewLock(review.review.uuid, async () => {
-          if (
-            successor.closing ||
-            sessions.get(successor.descriptor.sessionId) !== successor ||
-            !successor.revision ||
-            !successor.source
-          ) {
-            throw new ReviewServerError("Review session is unavailable.", 404);
-          }
-          const latest = await findReview(review.review.uuid);
-          if (!latest) throw new ReviewServerError("Review not found.", 404);
-          rejectTerminalPublication(latest);
-          rejectConcurrentPublication(latest, review);
-          requireClosedThreadsForRepublish(latest);
-          successor.review = await promoteReview(
-            latest,
-            successor.revision,
-            successor.source,
-            await reviewTitleFromDocument(documentPath),
+          requireLiveSession(successor);
+          const activated = await activateReviewPublication({
+            reviewDir: review.dir,
+            expected: { guarded: candidate.expected },
+            candidates: [documentActivationCandidate(review.review, candidate)],
+            precheck: () => requireUnchangedAuthoring(review.dir, candidate),
+            gates: [
+              (latest) => rejectTerminalPublication(latest),
+              (latest) =>
+                requireClosedThreadsForRepublish({
+                  dir: review.dir,
+                  review: latest,
+                }),
+              (latest) =>
+                requireCompletedAgentResponsesForRepublish({
+                  dir: review.dir,
+                  review: latest,
+                }),
+            ],
+            updateRecord: promoteReviewRecord,
+            hooks: publishRuntime.activationHooks,
+          });
+          const published = documentPublicationOf(activated.published);
+          mirrorWarning = activated.mirrorWarning;
+          publicationId = published.publicationId;
+          mapPublicationId = published.record.pairedMapPublicationId;
+          successor.review = { ...review, review: activated.review };
+          successor.revision = publicationId;
+          successor.artifact.origin = {
+            kind: "publication",
+            publicationId,
+            mapPublicationId,
+          };
+          successor.artifact.documentUpdatedAtMs = Date.parse(
+            published.record.createdAt,
           );
           successor.promoted = true;
           await startSessionTelemetry(successor);
@@ -1604,23 +1712,7 @@ export function createGlobalReviewServer(
             uuid: successor.review.review.uuid,
             status: "awaiting-review",
           });
-          broadcastGlobal({
-            event: "session-registered",
-            session: successor.descriptor,
-            review: await reviewDescriptor(successor.review, {
-              retentionDays: (await readReviewPreferences())
-                .dismissedRetentionDays,
-            }),
-          });
-          const replaced = [...sessions.values()].filter(
-            (session) =>
-              session !== successor &&
-              session.review.review.uuid === successor.review.review.uuid &&
-              session.promoted,
-          );
-          await Promise.all(
-            replaced.map((session) => closeSession(session, "replaced", false)),
-          );
+          await announcePromotedSession(successor);
         }),
       );
     } finally {
@@ -1628,35 +1720,36 @@ export function createGlobalReviewServer(
         await closeSession(successor, "closed", false);
       }
     }
-    // Promotion already happened: from here on nothing can fail the publish.
-    // A focus failure is a warning — the promoted revision is live either
+    // The publication is committed: from here on nothing can fail the
+    // publish. A focus failure is a warning — the publication is live either
     // way — and a prune failure is ignored.
     const focus = await timed("focus canvas", () =>
       relay.dispatch(successor.descriptor.sessionId, revealVerb(view)),
     );
+    // Publication mounts write nothing under `.build`; this only ages out
+    // Git-era materializations until Task 13 removes them entirely.
     await timed("prune builds", () =>
-      pruneReviewBuilds(review.dir, [
-        revision,
-        ...(successor.review.review.presentedSoftwareMapRevision
-          ? [successor.review.review.presentedSoftwareMapRevision]
-          : []),
-      ]).catch(() => undefined),
+      pruneReviewBuilds(review.dir, []).catch(() => undefined),
     );
-    const mounted: Awaited<ReturnType<typeof mountPublishedDocument>> = {
+    const mounted: MountedDocumentPublicationResult = {
       ok: true,
-      revision,
+      revision: publicationId,
+      publicationId,
+      mapPublicationId,
       sessionId: successor.descriptor.sessionId,
       url: successor.descriptor.sessionUrl,
       timings,
     };
+    if (mirrorWarning) mounted.mirrorWarning = mirrorWarning;
     if (!focus.ok) mounted.focusWarning = focus.error;
     return mounted;
   }
 
   async function mountPublishedSoftwareMap(
     review: StoredReview,
-    revision: string,
-  ): Promise<{ ok: true; revision: string }> {
+    candidate: PreparedSoftwareMapCandidate,
+  ): Promise<MountedSoftwareMapPublication> {
+    rejectChangedReviewRecord(review, candidate.expected);
     const documentRevision = review.review.presentedDocumentRevision;
     if (!documentRevision) {
       throw new ReviewServerError(
@@ -1665,39 +1758,12 @@ export function createGlobalReviewServer(
         "review_unpublished",
       );
     }
-    const [documentBuildDir, softwareMapRootPath] = await Promise.all([
-      publishRuntime.materializePublishRevision({
-        review,
-        revision: documentRevision,
-      }),
-      publishRuntime.materializePublishRevision({ review, revision }),
-    ]);
-    // A revision this server sealed is current by construction; a legacy record here
-    // is a bug, not something to upgrade silently.
-    const preparedMapRecord = parseStoredReviewRecord(
-      JSON.parse(
-        await readFile(path.join(softwareMapRootPath, "review.json"), "utf8"),
-      ),
-    );
-    rejectConcurrentPublication(review, {
-      dir: softwareMapRootPath,
-      review: preparedMapRecord,
-    });
-    const mapBundle = await readReviewSoftwareMapBundle(softwareMapRootPath);
-    if (!mapBundle) {
-      throw new ReviewServerError(
-        "The published software map bundle is missing.",
-        422,
-        "map_bundle_missing",
-      );
-    }
-    const presentedReview = await reviewWithPresentedDocumentPins(
-      review,
-      documentBuildDir,
-    );
+    const documentRecord = presentedDocumentRecord(review, documentRevision);
+    // The activation rechecks this inside its transaction; failing here keeps
+    // a mismatched map from ever being mounted.
     if (
-      mapBundle.headCommit !== presentedReview.review.sourceCommit ||
-      mapBundle.baseCommit !== presentedReview.review.baseCommit
+      documentRecord.sourceCommit !== candidate.headCommit ||
+      documentRecord.baseCommit !== candidate.baseCommit
     ) {
       throw new ReviewServerError(
         "The software map pins do not match the published Review document.",
@@ -1705,34 +1771,45 @@ export function createGlobalReviewServer(
         "map_pins_mismatch",
       );
     }
-    const sourceCommit = presentedReview.review.sourceCommit;
-    const sourceBranch = presentedReview.review.sourceIdentity?.name;
-    if (!sourceCommit || !sourceBranch) {
+    const document = await publishedDocumentArtifact(review, documentRecord);
+    const map = await readReviewSoftwareMapArtifact(
+      review.dir,
+      candidate.artifactHash,
+    );
+    if (!map) {
       throw new ReviewServerError(
-        "The published Review document has no source pins.",
-        409,
-        "review_unbound",
+        `The prepared software map artifact ${candidate.artifactHash} is unavailable.`,
+        422,
+        "map_artifact_unavailable",
       );
     }
+    const presentedReview = reviewWithPublicationContext(
+      review,
+      documentRecord,
+    );
     const successor = await registerSerialized({
       review: presentedReview,
-      artifact: await legacySessionArtifactFromBuildDir({
+      artifact: {
         reviewUuid: presentedReview.review.uuid,
-        revision: documentRevision,
-        buildDir: documentBuildDir,
-        routePath: "/",
-        softwareMapRootPath,
-      }),
-      revision: documentRevision,
-      source: { sourceCommit, sourceBranch },
+        origin: { kind: "candidate" },
+        document: { bundle: document },
+        map: { bundle: map },
+        title: documentRecord.title,
+        sourcePath: path.join(review.dir, "review.mdx"),
+        documentUpdatedAtMs: Date.parse(documentRecord.createdAt),
+      },
       promoted: false,
     });
+    let publicationId!: string;
     try {
       const validation = await relay.dispatch(successor.descriptor.sessionId, {
         name: "validateCanvasMount",
         args: {},
       });
       if (!validation.ok) {
+        await telemetry.capturePublishGateRejected({
+          gate: "map_publish_ready",
+        });
         throw new ReviewServerError(
           `Software map failed to load: ${validation.error ?? "unknown error"}`,
           422,
@@ -1740,30 +1817,34 @@ export function createGlobalReviewServer(
         );
       }
       await withReviewLock(review.review.uuid, async () => {
-        const latest = await findReview(review.review.uuid);
-        if (!latest) throw new ReviewServerError("Review not found.", 404);
-        rejectTerminalPublication(latest);
-        rejectConcurrentPublication(latest, review);
-        successor.review = await promoteSoftwareMap(latest, revision);
+        requireLiveSession(successor);
+        const activated = await activateReviewPublication({
+          reviewDir: review.dir,
+          expected: { guarded: candidate.expected },
+          candidates: [
+            {
+              kind: "map",
+              artifactHash: candidate.artifactHash,
+              headCommit: candidate.headCommit,
+              baseCommit: candidate.baseCommit,
+              context: candidate.context,
+              operation: "map-publish",
+            },
+          ],
+          gates: [(latest) => rejectTerminalPublication(latest)],
+          updateRecord: (latest) => latest,
+          hooks: publishRuntime.activationHooks,
+        });
+        publicationId = mapPublicationOf(activated.published);
+        successor.review = { ...presentedReview, review: activated.review };
+        successor.artifact.origin = {
+          kind: "publication",
+          publicationId: documentRevision,
+          mapPublicationId: publicationId,
+        };
         successor.promoted = true;
         await startSessionTelemetry(successor);
-        broadcastGlobal({
-          event: "session-registered",
-          session: successor.descriptor,
-          review: await reviewDescriptor(successor.review, {
-            retentionDays: (await readReviewPreferences())
-              .dismissedRetentionDays,
-          }),
-        });
-        const replaced = [...sessions.values()].filter(
-          (session) =>
-            session !== successor &&
-            session.review.review.uuid === successor.review.review.uuid &&
-            session.promoted,
-        );
-        await Promise.all(
-          replaced.map((session) => closeSession(session, "replaced", false)),
-        );
+        await announcePromotedSession(successor);
       });
     } finally {
       if (!successor.promoted) {
@@ -1774,13 +1855,85 @@ export function createGlobalReviewServer(
       name: "focusCanvas",
       args: {},
     });
-    await pruneReviewBuilds(review.dir, [documentRevision, revision]).catch(
-      () => undefined,
-    );
-    return { ok: true, revision };
+    return { publicationId };
   }
 
-  /* Match by path rather than tutorial.find(): an invalid stamp or repo must
+  /** The promoted session takes over the review: announce it and close the
+   * sessions it replaces. */
+  async function announcePromotedSession(
+    successor: ActiveReviewSession,
+  ): Promise<void> {
+    broadcastGlobal({
+      event: "session-registered",
+      session: successor.descriptor,
+      review: await reviewDescriptor(successor.review, {
+        retentionDays: (await readReviewPreferences()).dismissedRetentionDays,
+      }),
+    });
+    const replaced = [...sessions.values()].filter(
+      (session) =>
+        session !== successor &&
+        session.review.review.uuid === successor.review.review.uuid &&
+        session.promoted,
+    );
+    await Promise.all(
+      replaced.map((session) => closeSession(session, "replaced", false)),
+    );
+  }
+
+  function requireLiveSession(successor: ActiveReviewSession): void {
+    if (
+      successor.closing ||
+      sessions.get(successor.descriptor.sessionId) !== successor
+    ) {
+      throw new ReviewServerError("Review session is unavailable.", 404);
+    }
+  }
+
+  /** The document publication a map is checked and presented against. */
+  function presentedDocumentRecord(
+    review: StoredReview,
+    documentRevision: string,
+  ): DocumentPublicationRecord {
+    const row = readPublication(review.dir, documentRevision, "document");
+    if (!row) {
+      throw new ReviewServerError(
+        "The presented Review document predates JSON publications. " +
+          "Republish the Review document first.",
+        409,
+        "review_unpublished",
+      );
+    }
+    const record = parsePublicationRecord(row.record);
+    if (record.kind !== "document") {
+      throw new ReviewServerError(
+        `Publication ${documentRevision} is not a Review document.`,
+        422,
+        "document_artifact_unavailable",
+      );
+    }
+    return record;
+  }
+
+  async function publishedDocumentArtifact(
+    review: StoredReview,
+    record: DocumentPublicationRecord,
+  ): Promise<ReviewDocumentBundle> {
+    const bundle =
+      record.artifact.state === "stored"
+        ? await readReviewDocumentArtifact(review.dir, record.artifact.hash)
+        : null;
+    if (!bundle) {
+      throw new ReviewServerError(
+        "The published Review document artifact is unavailable.",
+        422,
+        "document_artifact_unavailable",
+      );
+    }
+    return bundle;
+  }
+
+  /* Match by path rather than tutorial.find(): an invalid stamp or repo must  /* Match by path rather than tutorial.find(): an invalid stamp or repo must
      not leave a session serving files that cleanup is about to delete. */
   async function closeTutorialSessions(): Promise<void> {
     const tutorialRoot = path.resolve(devReviewHome(), "tutorial");
@@ -2247,9 +2400,7 @@ export function createGlobalReviewServer(
     if (registration.historicalRevision) {
       descriptor.historicalRevision = registration.historicalRevision;
     }
-    const sourceCommit =
-      registration.source?.sourceCommit ??
-      registration.review.review.sourceCommit;
+    const sourceCommit = registration.review.review.sourceCommit;
     let sourceUnavailable: string | undefined;
     const { baseRootPath, headRootPath } =
       registration.checkoutRoots ??
@@ -2266,7 +2417,6 @@ export function createGlobalReviewServer(
       descriptor,
       boundPort,
       registration.artifact.sourcePath,
-      registration.source,
       baseRootPath,
       headRootPath,
     );
@@ -2385,7 +2535,6 @@ export function createGlobalReviewServer(
       artifact: registration.artifact,
       revision: registration.revision,
       historicalRevision: registration.historicalRevision,
-      source: registration.source,
       handler,
       promoted: registration.promoted,
       terminal: false,
@@ -2927,11 +3076,10 @@ function sessionWireFor(
   descriptor: ReviewSessionDescriptor,
   port: number,
   sourcePath: string,
-  source?: ActiveReviewSession["source"],
   baseRootPath?: string,
   headRootPath?: string,
 ): ReviewSessionWire {
-  const headRef = source?.sourceCommit ?? review.review.sourceCommit;
+  const headRef = review.review.sourceCommit;
   if (!headRef && !descriptor.historicalRevision) {
     throw new ReviewServerError(
       `Review ${review.review.uuid} is not bound to a source commit.`,
@@ -2973,17 +3121,16 @@ function sessionWireFor(
   return wire;
 }
 
-async function promoteReview(
-  stored: StoredReview,
-  revision: string,
-  source: { sourceCommit: string; sourceBranch: string },
-  title: string | undefined,
-): Promise<StoredReview> {
+/** The record a committed document publication leaves behind. Pure: the
+ * activation primitive owns the presentation pointers and the write. */
+function promoteReviewRecord(
+  latest: StoredReviewRecord,
+  published: readonly ActivatedPublication[],
+): StoredReviewRecord {
+  const document = documentPublicationOf(published);
   const review: StoredReviewRecord = {
-    ...stored.review,
-    sourceCommit: source.sourceCommit,
+    ...latest,
     status: "awaiting-review",
-    presentedDocumentRevision: revision,
     lastPublishedAt: new Date().toISOString(),
     /* A publish is new work, so the review earns attention again and returns
        to Home as new. This also rescues a review that was dismissed and then
@@ -2991,22 +3138,125 @@ async function promoteReview(
     viewedAt: null,
     dismissedAt: null,
   };
-  if (stored.review.titleOverride) review.title = stored.review.titleOverride;
-  else if (title) review.title = title;
-  await persistStoredReviewRecord(stored.dir, review);
-  return { ...stored, review };
+  // Precedence, against the record as it stands at commit time: the
+  // reviewer's override wins, then the published document's own heading, and
+  // a document with no heading keeps the stored title.
+  if (latest.titleOverride) review.title = latest.titleOverride;
+  else if (document.record.titleSource !== "stored")
+    review.title = document.record.title;
+  return review;
 }
 
-async function promoteSoftwareMap(
-  stored: StoredReview,
-  revision: string,
-): Promise<StoredReview> {
-  const review: StoredReviewRecord = {
-    ...stored.review,
-    presentedSoftwareMapRevision: revision,
+/** Title precedence for a document publication: the reviewer's override, then
+ * the published document's own H1, then the title already stored. */
+function documentActivationCandidate(
+  record: StoredReviewRecord,
+  candidate: PreparedDocumentCandidate,
+): DocumentActivationCandidate {
+  const override = record.titleOverride;
+  return {
+    kind: "document",
+    artifactHash: candidate.artifactHash,
+    title: override ?? candidate.title ?? record.title,
+    titleSource: override
+      ? "override"
+      : candidate.title
+        ? "document"
+        : "stored",
+    context: candidate.context,
+    operation: "publish",
   };
-  await persistStoredReviewRecord(stored.dir, review);
-  return { ...stored, review };
+}
+
+interface PublishedDocumentPublication {
+  publicationId: string;
+  record: DocumentPublicationRecord;
+}
+
+function documentPublicationOf(
+  published: readonly ActivatedPublication[],
+): PublishedDocumentPublication {
+  for (const entry of published)
+    if (entry.record.kind === "document")
+      return { publicationId: entry.publicationId, record: entry.record };
+  throw new Error("The activation committed no Review document publication.");
+}
+
+function mapPublicationOf(published: readonly ActivatedPublication[]): string {
+  for (const entry of published)
+    if (entry.record.kind === "map") return entry.publicationId;
+  throw new Error("The activation committed no software map publication.");
+}
+
+/** The authoring tree the candidate was built from must still be on disk, or
+ * the publication would present bytes no source produces. */
+async function requireUnchangedAuthoring(
+  reviewDir: string,
+  candidate: PreparedDocumentCandidate,
+): Promise<void> {
+  if (
+    candidate.authoringFingerprint !== (await fingerprintAuthoring(reviewDir))
+  )
+    throw new ReviewServerError(
+      "Review authoring changed while preparing publication; rerun the publish command.",
+      409,
+      "review_authoring_changed",
+    );
+}
+
+/** A session's bytes plus the review record they are presented under: a
+ * publication restores the code context it was published against. */
+interface PresentedSessionArtifact {
+  review: StoredReview;
+  artifact: ReviewSessionArtifactInput;
+}
+
+async function storedDocumentBundle(
+  review: StoredReview,
+  record: DocumentPublicationRecord,
+): Promise<ReviewDocumentBundle | null> {
+  if (record.artifact.state !== "stored") return null;
+  return readReviewDocumentArtifact(review.dir, record.artifact.hash);
+}
+
+/** The map a historical document publication was published beside. */
+async function historicalMapArtifact(
+  review: StoredReview,
+  publicationId: string | null,
+): Promise<ReviewSessionArtifactMap | undefined> {
+  if (!publicationId) return undefined;
+  const row = readPublication(review.dir, publicationId, "map");
+  const record = row ? parsePublicationRecord(row.record) : null;
+  const bundle =
+    record?.artifact.state === "stored"
+      ? await readReviewSoftwareMapArtifact(review.dir, record.artifact.hash)
+      : null;
+  return bundle ? { bundle } : { unavailable: HISTORICAL_UNAVAILABLE_ERROR };
+}
+
+interface PresentedSoftwareMapArtifact {
+  artifact: ReviewSessionArtifactMap | undefined;
+  publicationId: string | null;
+}
+
+/** What the review presents as its software map: the stored bytes when a row
+ * and an artifact answer the pointer, a message when either is missing, and
+ * nothing at all when no map is published. */
+async function presentedMapArtifact(
+  review: StoredReview,
+  staleMessage: string = NEEDS_REPUBLISH_MAP_ERROR,
+): Promise<PresentedSoftwareMapArtifact> {
+  const publicationId = review.review.presentedSoftwareMapRevision;
+  if (!publicationId) return { artifact: undefined, publicationId: null };
+  const row = readPublication(review.dir, publicationId, "map");
+  const record = row ? parsePublicationRecord(row.record) : null;
+  const bundle =
+    record?.artifact.state === "stored"
+      ? await readReviewSoftwareMapArtifact(review.dir, record.artifact.hash)
+      : null;
+  return bundle
+    ? { artifact: { bundle }, publicationId }
+    : { artifact: { unavailable: staleMessage }, publicationId: null };
 }
 
 async function presentedMapRoot(
@@ -3024,27 +3274,26 @@ async function presentedMapRoot(
   return root;
 }
 
-function rejectTerminalPublication(review: StoredReview): void {
-  if (
-    review.review.status === "accepted" ||
-    review.review.status === "rejected"
-  ) {
+function rejectTerminalPublication(review: StoredReviewRecord): void {
+  if (review.status === "accepted" || review.status === "rejected") {
     throw new ReviewServerError(
-      `Review ${review.review.uuid} is ${review.review.status}; publication pointers are frozen.`,
+      `Review ${review.uuid} is ${review.status}; publication pointers are frozen.`,
       409,
       "review_terminal",
     );
   }
 }
 
-function rejectConcurrentPublication(
+/** The fast reject for a candidate prepared against a record that has since
+ * moved. The activation's own guard is authoritative; this only avoids
+ * mounting bytes that could never be committed. */
+function rejectChangedReviewRecord(
   latest: StoredReview,
-  startedFrom: StoredReview,
+  expected: ExpectedReviewFields,
 ): void {
-  // The same guarded fields assertReviewUnchanged compares; only the message differs.
   if (
     reviewMutationFingerprint(latest.review) !==
-    reviewMutationFingerprint(startedFrom.review)
+    reviewMutationFingerprint(expected)
   ) {
     throw new ReviewServerError(
       "The presented Review artifacts changed during publication. Retry the command.",

@@ -16,6 +16,7 @@ import {
 import { ReviewDocumentFileResponseSchema } from "./review-lifecycle-contracts";
 import { startLifecycleTestServer } from "./review-lifecycle-test-utils";
 import { runReviewMcp } from "./review-mcp";
+import { listPublications } from "./review-state-db";
 import {
   cleanupTempDirs,
   gitRepository,
@@ -89,6 +90,13 @@ it("authors rich live nodes through the desktop API and rejects competing edits"
   expect(
     await requestReviewLifecycle("/lifecycle/document/live", { reviewUuid }),
   ).toEqual(accepted);
+  // Authoring is not publishing: only an activation writes a publication row.
+  expect(listPublications(review.dir, "document")).toEqual([]);
+  expect(listPublications(review.dir, "map")).toEqual([]);
+  expect((await findReview(reviewUuid))?.review).toMatchObject({
+    presentedDocumentRevision: null,
+    status: "draft",
+  });
 });
 
 it("serializes source edits, rejects stale writes and symlinks, and preserves accepted content", async () => {

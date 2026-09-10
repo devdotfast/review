@@ -10,7 +10,7 @@ no repository. It opens pinned review worktrees only when a review needs them.
 Home scans `${DEV_REVIEW_HOME:-~/.dev}/reviews/*/review.json`; opening a review
 creates an in-memory active session rooted at that review's repository, while
 `review publish` validates and seals the revision in the CLI and asks the
-desktop (via `/publish-ready`) to materialize it, mount it off-screen, and
+desktop (via `/lifecycle/publish`) to mount it off-screen and
 promote it only when that mount is clean. Session URLs are routes on that global server; session-scoped
 document caches, file watchers, and event clients do not bind their own ports
 or create additional HTTP servers.

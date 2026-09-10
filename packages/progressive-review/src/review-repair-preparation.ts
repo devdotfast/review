@@ -93,7 +93,8 @@ interface RepairedMap {
   pins: MapPins;
 }
 
-/** Only the isolated snapshot is writable. Promotion belongs to /repair-ready. */
+/** Only the isolated snapshot is writable. Promotion belongs to the repair
+ * completer. */
 export async function prepareReviewRepair(input: {
   reviewDir: string;
   warning?: (message: string) => void;

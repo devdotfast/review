@@ -52,6 +52,12 @@ export interface ReviewSessionArtifactInput {
   map?: ReviewSessionArtifactMap;
   title: string | undefined;
   /**
+   * When the presented bytes were published. A publication's clock is the
+   * moment it was committed, not the mtime of the editable source it shares a
+   * path with; a legacy origin leaves this unset and the file answers.
+   */
+  documentUpdatedAtMs?: number;
+  /**
    * The document file the session reports and attaches for diagnostics, and the
    * directory it renders from. A `legacy` origin points at the materialized
    * revision's `review.mdx` inside its build directory, so a historical session

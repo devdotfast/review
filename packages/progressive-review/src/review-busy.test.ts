@@ -107,26 +107,24 @@ it("reports loader, open, and CLI contention as busy and allows migration after 
         json: true,
         stdout,
       }),
-      ...["publish-ready", "map-publish-ready", "repair-ready"].map((route) =>
+      // Publication now runs in process behind /lifecycle/publish, so the
+      // only remaining ready route is repair's.
+      ...["repair-ready"].map((route) =>
         fetch(`${server.url}/${route}`, {
           method: "POST",
           headers: {
             "x-review-token": "busy-token",
             "content-type": "application/json",
           },
-          body: JSON.stringify(
-            route === "repair-ready"
-              ? {
-                  reviewUuid: review.review.uuid,
-                  stagingDir: root,
-                  expectedRecord: recordBytes,
-                  expectedFingerprint: "a".repeat(64),
-                  newDocumentRevision: "a".repeat(40),
-                  newMapRevision: null,
-                  sourceFallback: { document: false, map: false },
-                }
-              : { reviewUuid: review.review.uuid, revision: "a".repeat(40) },
-          ),
+          body: JSON.stringify({
+            reviewUuid: review.review.uuid,
+            stagingDir: root,
+            expectedRecord: recordBytes,
+            expectedFingerprint: "a".repeat(64),
+            newDocumentRevision: "a".repeat(40),
+            newMapRevision: null,
+            sourceFallback: { document: false, map: false },
+          }),
         }),
       ),
     ]);

@@ -16,21 +16,24 @@ import { setImmediate, setTimeout } from "node:timers/promises";
 
 import { afterEach, expect, it, vi } from "vitest";
 
+import {
+  REVIEW_ARTIFACTS_DIR,
+  readReviewDocumentArtifact,
+} from "./review-artifact-store";
 import { markReviewViewed } from "./review-attention";
 import {
   readReviewDocumentBundle,
   reviewDocumentBundleData,
 } from "./review-bundle";
-import { createReviewDir, materializeReviewRevision } from "./review-home";
+import { createReviewDir } from "./review-home";
 import { withReviewMutationLock } from "./review-mutation-lock";
 import {
-  sealReviewDocumentPublication,
+  prepareReviewDocumentCandidate,
   stageReviewDocumentPublication,
 } from "./review-publication-staging";
-import { putReviewRecord } from "./review-state-db";
+import { listPublications, putReviewRecord } from "./review-state-db";
 import { appendReviewComment, readReviewComments } from "./review-state-store";
 import { closeAllReviewThreadStores } from "./review-thread-store-backend";
-import { reviewVcs } from "./review-vcs";
 import {
   mutateLiveDocument,
   readLiveBundle,
@@ -167,9 +170,7 @@ it("prepares outside the live lock while preserving viewed and comment updates",
   expect(JSON.stringify(reviewDocumentBundleData(document.bundle))).toContain(
     "dependency label",
   );
-  const revision = await sealReviewDocumentPublication({ review, document });
-  const materialized = path.join(home, "presented");
-  await materializeReviewRevision(review.dir, revision, materialized);
+  const candidate = await prepareReviewDocumentCandidate({ review, document });
   expect(
     JSON.parse(await readFile(path.join(review.dir, "review.json"), "utf8"))
       .viewedAt,
@@ -178,11 +179,17 @@ it("prepares outside the live lock while preserving viewed and comment updates",
     readReviewComments(path.join(review.dir, "review.mdx"))["during-compile"]
       .messages,
   ).toHaveLength(1);
-  const materializedBundle = await readReviewDocumentBundle(materialized, "/");
-  if (!materializedBundle) throw new Error("Missing materialized bundle");
-  expect(reviewDocumentBundleData(materializedBundle)).toEqual(
+  // The candidate is only bytes in the store: nothing points at it yet.
+  expect(listPublications(review.dir, "document")).toEqual([]);
+  const installed = await readReviewDocumentArtifact(
+    review.dir,
+    candidate.artifactHash,
+  );
+  if (!installed) throw new Error("Missing installed document artifact");
+  expect(reviewDocumentBundleData(installed)).toEqual(
     reviewDocumentBundleData(document.bundle),
   );
+  expect(candidate.title).toBe("Staged document");
 }, 15_000);
 
 /** The staging copy lands in a `.review-publish-` sibling of the review dir. */
@@ -242,11 +249,11 @@ it("resolves Review-local pnpm dependencies without copying their symlinks", asy
   expect(await readFile(path.join(dependency, "index.js"), "utf8")).toContain(
     "local pnpm dependency",
   );
-  const revision = await sealReviewDocumentPublication({ review, document });
-  expect(revision).toMatch(/^[a-f0-9]{40}$/);
+  const candidate = await prepareReviewDocumentCandidate({ review, document });
+  expect(candidate.artifactHash).toMatch(/^[a-f0-9]{64}$/);
 });
 
-it("takes the mutation lock around document write and seal", async () => {
+it("takes the mutation lock around candidate install", async () => {
   const { review } = await fixture();
   const document = await stageReviewDocumentPublication({ review });
   const entered = Promise.withResolvers<void>();
@@ -257,21 +264,22 @@ it("takes the mutation lock around document write and seal", async () => {
   });
   await entered.promise;
   let finished = false;
-  const sealing = sealReviewDocumentPublication({ review, document }).then(
-    (revision) => {
+  const preparing = prepareReviewDocumentCandidate({ review, document }).then(
+    (candidate) => {
       finished = true;
-      return revision;
+      return candidate.artifactHash;
     },
   );
   for (let attempt = 0; attempt < 30; attempt++) await setImmediate();
   const bypassed = finished;
+  expect(existsSync(path.join(review.dir, REVIEW_ARTIFACTS_DIR))).toBe(false);
   release.resolve();
   await holding;
-  await expect(sealing).resolves.toMatch(/^[a-f0-9]{40}$/);
+  await expect(preparing).resolves.toMatch(/^[a-f0-9]{64}$/);
   expect(bypassed).toBe(false);
 });
 
-it("rejects changed authoring before writing bundles or sealing private history", async () => {
+it("rejects changed authoring before installing an artifact", async () => {
   const { review } = await fixture();
   const document = await stageReviewDocumentPublication({ review });
   await writeFile(
@@ -279,10 +287,10 @@ it("rejects changed authoring before writing bundles or sealing private history"
     'export const label = "new draft";',
   );
   await expect(
-    sealReviewDocumentPublication({ review, document }),
+    prepareReviewDocumentCandidate({ review, document }),
   ).rejects.toThrow("authoring changed");
-  expect(await reviewVcs.log(review.dir)).toEqual([]);
-  expect(existsSync(path.join(review.dir, ".bundle"))).toBe(false);
+  expect(existsSync(path.join(review.dir, REVIEW_ARTIFACTS_DIR))).toBe(false);
+  expect(listPublications(review.dir, "document")).toEqual([]);
   expect(await readFile(path.join(review.dir, "data.ts"), "utf8")).toContain(
     "new draft",
   );
@@ -302,14 +310,14 @@ it.each([
     // lands there, not in the review.json mirror.
     putReviewRecord(review.dir, { ...review.review, ...changed });
     await expect(
-      sealReviewDocumentPublication({ review, document }),
+      prepareReviewDocumentCandidate({ review, document }),
     ).rejects.toThrow("Review changed while preparing publication");
-    expect(await reviewVcs.log(review.dir)).toEqual([]);
-    expect(existsSync(path.join(review.dir, ".bundle"))).toBe(false);
+    expect(existsSync(path.join(review.dir, REVIEW_ARTIFACTS_DIR))).toBe(false);
+    expect(listPublications(review.dir, "document")).toEqual([]);
   },
 );
 
-it("rechecks new open threads before sealing a prepared republication", async () => {
+it("rechecks new open threads before installing a prepared republication", async () => {
   const fixtureValue = await fixture();
   const review = {
     ...fixtureValue.review,
@@ -328,10 +336,10 @@ it("rechecks new open threads before sealing a prepared republication", async ()
     author: "Reviewer",
   });
   await expect(
-    sealReviewDocumentPublication({ review, document }),
+    prepareReviewDocumentCandidate({ review, document }),
   ).rejects.toMatchObject({ code: "review_open_threads" });
-  expect(await reviewVcs.log(review.dir)).toEqual([]);
-  expect(existsSync(path.join(review.dir, ".bundle"))).toBe(false);
+  expect(existsSync(path.join(review.dir, REVIEW_ARTIFACTS_DIR))).toBe(false);
+  expect(listPublications(review.dir, "document")).toEqual([]);
 });
 
 it.skipIf(process.platform === "win32")(
@@ -346,7 +354,7 @@ it.skipIf(process.platform === "win32")(
       "symbolic link",
     );
     expect(await readFile(external, "utf8")).toContain("external");
-    expect(await reviewVcs.log(review.dir)).toEqual([]);
+    expect(existsSync(path.join(review.dir, REVIEW_ARTIFACTS_DIR))).toBe(false);
   },
 );
 

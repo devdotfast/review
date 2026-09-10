@@ -1,7 +1,8 @@
 import { mkdir, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { gunzipSync } from "node:zlib";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   REVIEW_DOCUMENT_BUNDLE_DIR,
@@ -291,6 +292,108 @@ describe("createReviewSessionHandler", () => {
       }
     },
   );
+
+  it("reports a publication's own clock and attaches the editable source", async () => {
+    const reviewDir = await tempDir("review-publication-meta-");
+    const reviewPath = path.join(reviewDir, "review.mdx");
+    const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
+    const token = "session-secret";
+    await writeFile(reviewPath, "# Draft in progress\n", "utf8");
+    const publishedAt = Date.UTC(2026, 8, 5, 12);
+    const handler = await createReviewSessionHandler({
+      ...unusedAgentServices,
+      rootPath: reviewDir,
+      toolingRoot: reviewDir,
+      reviewRootPath: reviewDir,
+      reviewUuid: "11111111-1111-4111-8111-111111111111",
+      artifact: {
+        ...sessionArtifactFixture({
+          sourcePath: reviewPath,
+          origin: {
+            kind: "publication",
+            publicationId: "a".repeat(40),
+            mapPublicationId: null,
+          },
+        }),
+        documentUpdatedAtMs: publishedAt,
+      },
+      stateReviewPath: reviewPath,
+      routePath: "/",
+      token,
+      session: {
+        rootPath: reviewDir,
+        baseRef: "HEAD",
+        appUrl: sessionUrl,
+        reviewPath,
+        startedAt: Date.now(),
+      },
+    });
+    let upstreamBody: FormData | null = null;
+    vi.stubGlobal("fetch", async (_url: string, init: { body: FormData }) => {
+      upstreamBody = init.body;
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          report_id: "22222222-2222-4222-8222-222222222222",
+          short_id: "abcdef123456",
+        }),
+        {
+          headers: { "content-type": "application/json" },
+        },
+      );
+    });
+    try {
+      // The publication's bytes are frozen; editing the source it shares a
+      // path with must not move its clock.
+      const edited = new Date(1_800_000_000_000);
+      await utimes(reviewPath, edited, edited);
+      const meta = await (
+        await handler.handle(
+          new Request(
+            new URL("/__progressive-review/document-meta", sessionUrl),
+            {
+              headers: { "x-review-token": token },
+            },
+          ),
+        )
+      ).json();
+      expect(meta).toMatchObject({ ok: true, updatedAtMs: publishedAt });
+
+      // The diagnostics attachment is the editable source, because that is
+      // what `sourcePath` points at for a publication origin.
+      const report = await handler.handle(
+        new Request(
+          new URL("/__progressive-review/telemetry/bug-report", sessionUrl),
+          {
+            method: "POST",
+            headers: {
+              "x-review-token": token,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              description: "Attachment path",
+              app_version: "1.0.0",
+              app_session_id: "11111111-1111-4111-8111-111111111111",
+              include_review: true,
+              include_map: false,
+              include_diff: false,
+              include_trace: false,
+            }),
+          },
+        ),
+      );
+      expect(report.status).toBe(200);
+      const part = (upstreamBody as FormData | null)?.get("payload");
+      if (!(part instanceof Blob)) throw new Error("No bug report payload.");
+      const payload = JSON.parse(
+        gunzipSync(Buffer.from(await part.arrayBuffer())).toString("utf8"),
+      );
+      expect(payload.review["review.mdx"]).toBe("# Draft in progress\n");
+    } finally {
+      vi.unstubAllGlobals();
+      await handler.close();
+    }
+  });
 
   it("reports the materialized document's timestamp for a historical session", async () => {
     const reviewDir = await tempDir("review-historical-meta-");

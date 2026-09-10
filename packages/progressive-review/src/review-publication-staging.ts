@@ -2,17 +2,18 @@ import { lstat, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { isMissingFileError } from "./native-agent/transcript-json";
-import {
-  type ReviewDocumentBundle,
-  writeReviewDocumentBundle,
-} from "./review-bundle";
+import { installReviewArtifact } from "./review-artifact-store";
+import type { ReviewDocumentBundle } from "./review-bundle";
 import { isAuthoringInput } from "./review-derived-paths";
-import { REVIEW_PUBLISH_CANDIDATE_MESSAGE } from "./review-document-versions";
-import { type StoredReview, sealReviewCandidate } from "./review-home";
+import { type StoredReview, reviewTitleFromDocument } from "./review-home";
 import {
   assertReviewUnchanged,
   withReviewMutationLock,
 } from "./review-mutation-lock";
+import {
+  type PreparedDocumentCandidate,
+  reviewSourceContext,
+} from "./review-publication-candidate";
 import {
   ReviewPublicationValidationError,
   prepareReviewDocumentBundle,
@@ -27,11 +28,14 @@ import {
   fingerprintReviewTree,
 } from "./review-tree-fingerprint";
 
-interface StagedReviewDocument {
+export interface StagedReviewDocument {
   bundle: ReviewDocumentBundle;
   warnings: string[];
   fingerprint: string;
   sourceFingerprint: string;
+  /** The staged document's own title, read before the staging copy is
+   * removed, so a publication records the title of the bytes it publishes. */
+  title: string | undefined;
 }
 
 export async function stageReviewDocumentPublication(input: {
@@ -78,6 +82,7 @@ export async function stageReviewDocumentPublication(input: {
       warnings: prepared.warnings,
       fingerprint,
       sourceFingerprint,
+      title: await reviewTitleFromDocument(path.join(stagingDir, "review.mdx")),
     };
   } catch (error) {
     if (error instanceof ReviewPublicationValidationError) {
@@ -96,10 +101,16 @@ export async function stageReviewDocumentPublication(input: {
   }
 }
 
-export async function sealReviewDocumentPublication(input: {
+/**
+ * Installs the staged document's bytes in the artifact store under the
+ * mutation lock, after rechecking everything the staging run assumed: the
+ * guarded record, the authoring tree, and both republication thread gates.
+ * Nothing points at the artifact until an activation commits it.
+ */
+export async function prepareReviewDocumentCandidate(input: {
   review: StoredReview;
   document: StagedReviewDocument;
-}): Promise<string> {
+}): Promise<PreparedDocumentCandidate> {
   return withReviewMutationLock(input.review.dir, async () => {
     await assertReviewUnchanged(input.review.dir, input.review.review);
     if (
@@ -109,11 +120,21 @@ export async function sealReviewDocumentPublication(input: {
       throw authoringChanged();
     requireClosedThreadsForRepublish(input.review);
     requireCompletedAgentResponsesForRepublish(input.review);
-    await writeReviewDocumentBundle(input.review.dir, input.document.bundle);
-    return sealReviewCandidate(
+    const installed = await installReviewArtifact(
       input.review.dir,
-      REVIEW_PUBLISH_CANDIDATE_MESSAGE,
+      "document",
+      input.document.bundle.json,
     );
+    return {
+      kind: "document",
+      reviewUuid: input.review.review.uuid,
+      artifactHash: installed.hash,
+      title: input.document.title,
+      context: reviewSourceContext(input.review.review),
+      expected: input.review.review,
+      authoringFingerprint: input.document.fingerprint,
+      warnings: input.document.warnings,
+    };
   });
 }
 

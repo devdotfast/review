@@ -11,7 +11,7 @@
  */
 // Hand-maintained twin of REVIEW_DESKTOP_DISCOVERY_VERSION in
 // @dev.fast/review-protocol. Version 3: CLI-owned publish; the server
-// replaced /publish with /publish-ready.
+// replaced /publish with the desktop-owned /lifecycle/publish.
 export const REVIEW_DESKTOP_CONNECTION_VERSION = 3;
 
 /** Main-process IPC channel the renderer asks for that endpoint on. */

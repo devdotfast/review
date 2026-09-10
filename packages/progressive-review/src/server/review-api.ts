@@ -208,6 +208,9 @@ interface ReviewApiOptions {
   readOnlyThreadsPath?: string;
   sourceUnavailable?: string;
   reviewPath: string;
+  /** When the presented document was published, for sessions whose bytes are
+   * a committed publication rather than the file at `reviewPath`. */
+  documentUpdatedAtMs?: () => number | undefined;
   reviewDocumentsDir: string;
   rootPath: string;
   reviewRootPath?: string;
@@ -986,10 +989,11 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     if (!documentPath) {
       throw new Error("Review document not found.");
     }
-    const stats = statSync(documentPath);
+    const published =
+      documentPath === reviewPath ? options.documentUpdatedAtMs?.() : undefined;
     return reviewApiJsonResponse(200, {
       ok: true,
-      updatedAtMs: stats.mtimeMs,
+      updatedAtMs: published ?? statSync(documentPath).mtimeMs,
       pullRequestNumber: session?.pullRequestNumber ?? null,
       pullRequestUrl: session?.pullRequestUrl ?? null,
     });

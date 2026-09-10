@@ -30,9 +30,9 @@ export const sessionMetaSchema = z.object({
 });
 export type SessionMeta = z.infer<typeof sessionMetaSchema>;
 
-// Version 3: `review publish` owns validation, bundling, and sealing; the
-// desktop serves prebuilt revisions and exposes /publish-ready instead of the
-// removed /publish route. (Version 2 added the bundled-CLI discovery fields.)
+// Version 3: `review publish` owns validation and bundling; the desktop
+// mounts the prepared candidate and commits its publication through
+// /lifecycle/publish. (Version 2 added the bundled-CLI discovery fields.)
 export const REVIEW_DESKTOP_DISCOVERY_VERSION = 3;
 // Version 5: document and software-map bundles are JSON.
 export const REVIEW_SCHEMA_VERSION = 5;
@@ -1550,20 +1550,6 @@ export const ReviewCliInstallApplyResponseSchema = z.strictObject({
 });
 export type ReviewCliInstallApplyResponse = z.infer<
   typeof ReviewCliInstallApplyResponseSchema
->;
-
-// The CLI validates, bundles, and seals the revision; this request tells the
-// desktop which sealed revision to materialize, promote, and mount.
-export const ReviewPublishReadyRequestSchema = z.strictObject({
-  reviewUuid: z.uuid({ error: "must be a UUID" }),
-  revision: z
-    .string({ error: "must be a 40-hex revision" })
-    .regex(/^[0-9a-f]{40}$/i, "must be a 40-hex revision"),
-  agent: AuthoringAgentSessionSchema.optional(),
-  view: reviewViewSchema.optional(),
-});
-export type ReviewPublishReadyRequest = z.infer<
-  typeof ReviewPublishReadyRequestSchema
 >;
 
 export const ReviewSubmissionWireSchema = z.strictObject({

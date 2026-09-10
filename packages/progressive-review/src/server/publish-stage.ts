@@ -6,6 +6,7 @@ import {
   materializeReviewRevision,
   parseAnyStoredReviewRecord,
 } from "../review-home";
+import type { SourceContext } from "../review-publication-record";
 
 export async function materializePublishRevision(input: {
   review: StoredReview;
@@ -49,6 +50,24 @@ export async function reviewWithPresentedDocumentPins(
       baseCommit: presented.baseCommit,
       sourceCommit: presented.sourceCommit,
       sourceIdentity: presented.sourceIdentity,
+    },
+  };
+}
+
+/** A publication presents the code it was published against, not the pins the
+ * Review carries now. */
+export function reviewWithPublicationContext(
+  stored: StoredReview,
+  context: SourceContext,
+): StoredReview {
+  return {
+    ...stored,
+    review: {
+      ...stored.review,
+      baseRef: context.baseRef,
+      baseCommit: context.baseCommit,
+      sourceCommit: context.sourceCommit,
+      sourceIdentity: context.sourceIdentity,
     },
   };
 }

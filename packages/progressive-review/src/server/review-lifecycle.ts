@@ -1,14 +1,8 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
-
 import {
   changeIdentityForRevision,
   resolveRevision,
 } from "@dev.fast/local-vcs";
-import type {
-  ReviewPublishReadyRequest,
-  ReviewView,
-} from "@dev.fast/review-protocol";
+import type { ReviewView } from "@dev.fast/review-protocol";
 import type { z } from "zod";
 
 import {
@@ -16,28 +10,25 @@ import {
   authoringSessionKey,
   resolveAuthoringSessionRef,
 } from "../authoring-session";
-import {
-  type StoredReview,
-  findScopedReview,
-  parseAnyStoredReviewRecord,
-  sealReviewCandidate,
-  touchReviewAgentSession,
-} from "../review-home";
+import { reviewArtifactHash } from "../review-artifact-store";
+import { findScopedReview, touchReviewAgentSession } from "../review-home";
 import {
   type ReviewPublicationEvent,
   ReviewPublishRequestSchema,
 } from "../review-lifecycle-contracts";
 import type { MapPublishReporter } from "../review-map-publish";
 import {
-  assertReviewUnchanged,
-  withReviewMutationLock,
-} from "../review-mutation-lock";
+  type PreparedDocumentCandidate,
+  type PreparedSoftwareMapCandidate,
+  prepareReviewSoftwareMapCandidate,
+} from "../review-publication-candidate";
 import {
   ReviewPublicationValidationError,
   prepareReviewSoftwareMapBundle,
 } from "../review-publication-preparation";
+import { parsePublicationRecord } from "../review-publication-record";
 import {
-  sealReviewDocumentPublication,
+  prepareReviewDocumentCandidate,
   stageReviewDocumentPublication,
 } from "../review-publication-staging";
 import type { PublishReporter } from "../review-publish";
@@ -48,19 +39,17 @@ import type {
   ReviewRepairReadyResponse,
 } from "../review-repair-state";
 import { repinReview } from "../review-scaffold";
+import { readPublication } from "../review-state-db";
 import { resolveReviewRoot } from "../runtime";
 import {
   type ReviewSoftwareMapBundle,
-  readReviewSoftwareMapBundle,
-  sameReviewSoftwareMapBundle,
-  writeReviewSoftwareMapBundle,
+  softwareMapArtifactBytes,
 } from "../software-map-bundle";
 import { span } from "../startup-trace";
 import {
   prepareReviewPublish,
   resolvePublishReview,
 } from "./publish-preparation";
-import { materializePublishRevision } from "./publish-stage";
 
 // Caller identity is data, not an environment override or a storage location.
 export function agentEnvironment(
@@ -114,11 +103,33 @@ export async function repairReview(
   }
 }
 
+/** What the desktop reports once a document candidate is mounted and its
+ * publication is committed. */
+export interface MountedDocumentPublication {
+  publicationId: string;
+  mapPublicationId: string | null;
+  sessionId: string;
+  focusWarning?: string;
+  mirrorWarning?: string;
+}
+
+export type CompleteDocumentPublication = (
+  candidate: PreparedDocumentCandidate,
+  options: { view?: ReviewView; agent?: SessionRef },
+) => Promise<MountedDocumentPublication>;
+
+export interface MountedSoftwareMapPublication {
+  publicationId: string;
+}
+
+export type CompleteSoftwareMapPublication = (
+  candidate: PreparedSoftwareMapCandidate,
+  options: { agent?: SessionRef },
+) => Promise<MountedSoftwareMapPublication>;
+
 export async function publishReview(
   request: z.infer<typeof ReviewPublishRequestSchema>,
-  complete: (
-    request: ReviewPublishReadyRequest,
-  ) => Promise<{ sessionId: string; focusWarning?: string }>,
+  complete: CompleteDocumentPublication,
 ) {
   const events: ReviewPublicationEvent[] = [];
   const reporter: PublishReporter = {
@@ -161,7 +172,7 @@ export async function publishReview(
 
 export async function publishReviewSoftwareMap(
   request: z.infer<typeof ReviewPublishRequestSchema>,
-  complete: (request: ReviewPublishReadyRequest) => Promise<void>,
+  complete: CompleteSoftwareMapPublication,
 ) {
   const events: ReviewPublicationEvent[] = [];
   const code = await publishReviewMap(
@@ -194,9 +205,7 @@ export async function publishReviewDocument(
     onReviewBound?: (uuid: string) => void | Promise<void>;
   },
   reporter: PublishReporter,
-  complete: (
-    request: ReviewPublishReadyRequest,
-  ) => Promise<{ sessionId: string; focusWarning?: string }>,
+  complete: CompleteDocumentPublication,
 ): Promise<number> {
   const reviewRoot = await resolveReviewRoot(input.cwd);
   const prepared = await span("publish: prepare", () =>
@@ -212,7 +221,7 @@ export async function publishReviewDocument(
   }
 
   reporter.stage("validate", "running");
-  let revision: string;
+  let candidate: PreparedDocumentCandidate;
   try {
     const document = await span("publish: validate document", () =>
       stageReviewDocumentPublication({ review }),
@@ -221,8 +230,8 @@ export async function publishReviewDocument(
       reporter.warning("validate", document.warnings);
     reporter.stage("validate", "complete");
     reporter.stage("revision", "running");
-    revision = await span("publish: seal revision", () =>
-      sealReviewDocumentPublication({ review, document }),
+    candidate = await span("publish: install document artifact", () =>
+      prepareReviewDocumentCandidate({ review, document }),
     );
   } catch (error) {
     if (error instanceof ReviewPublicationValidationError) {
@@ -241,22 +250,26 @@ export async function publishReviewDocument(
     }
     return 1;
   }
-  reporter.stage("revision", "complete", { revision });
+  // The candidate's artifact is stored but unreferenced; its publication ID
+  // only exists once the activation commits it.
+  reporter.stage("revision", "complete");
 
   reporter.stage("mount", "running");
-  const result = await complete({
-    reviewUuid: prepared.uuid,
-    revision,
+  const result = await complete(candidate, {
     view: input.view,
     agent: resolveAuthoringSessionRef(input.env ?? process.env),
   });
   reporter.published(
-    revision,
+    result.publicationId,
     result.sessionId,
-    review.review.presentedSoftwareMapRevision,
+    result.mapPublicationId,
   );
-  // The revision is promoted and on screen by now: a focus failure cannot
-  // make the publish a failure, so it reports as a warning with exit 0.
+  // The publication is committed and on screen by now: neither a stale
+  // review.json mirror nor a focus failure can fail the publish, so both
+  // report as warnings with exit 0.
+  if (result.mirrorWarning) {
+    reporter.warning("mount", [result.mirrorWarning]);
+  }
   if (result.focusWarning) {
     reporter.warning("mount", [result.focusWarning]);
   }
@@ -267,7 +280,7 @@ export async function publishReviewDocument(
 export async function publishReviewMap(
   input: { cwd: string; reviewUuid?: string; env?: NodeJS.ProcessEnv },
   report: MapPublishReporter,
-  complete: (request: ReviewPublishReadyRequest) => Promise<void>,
+  complete: CompleteSoftwareMapPublication,
 ): Promise<number> {
   try {
     const reviewRoot = await resolveReviewRoot(input.cwd);
@@ -279,16 +292,25 @@ export async function publishReviewMap(
         "The Review document is not published. Run `review publish` first.",
       );
     }
-    const documentBuildDir = await materializePublishRevision({
-      review,
-      revision: documentRevision,
-    });
-    const presentedDocument = parseAnyStoredReviewRecord(
-      JSON.parse(
-        await readFile(path.join(documentBuildDir, "review.json"), "utf8"),
-      ),
+    // A map is only ever published against a document publication, so a
+    // pointer no row answers is a Git-era document. Task 9's import makes
+    // this unreachable.
+    const documentRow = readPublication(
+      review.dir,
+      documentRevision,
+      "document",
     );
-    if (!presentedDocument.sourceCommit) {
+    if (!documentRow) {
+      throw new Error(
+        "The presented Review document predates JSON publications. " +
+          "Republish the Review document first.",
+      );
+    }
+    const presentedDocument = parsePublicationRecord(documentRow.record);
+    if (
+      presentedDocument.kind !== "document" ||
+      !presentedDocument.sourceCommit
+    ) {
       throw new Error(
         "The published Review document has no pinned head commit.",
       );
@@ -312,36 +334,35 @@ export async function publishReviewMap(
     report.stage("validate", "complete");
 
     const existingRevision = review.review.presentedSoftwareMapRevision;
-    if (existingRevision) {
-      const existingDir = await materializePublishRevision({
-        review,
-        revision: existingRevision,
-      });
-      const existing = await readReviewSoftwareMapBundle(existingDir);
-      if (existing && sameReviewSoftwareMapBundle(existing, bundle)) {
-        if (agent) {
-          await touchReviewAgentSession(
-            review,
-            authoringSessionKey(agent),
-            "publisher",
-          );
-        }
-        report.published(existingRevision, documentRevision, true);
-        return 0;
+    if (
+      existingRevision &&
+      publishesSameMapArtifact(review.dir, existingRevision, bundle)
+    ) {
+      // Identical bytes are not a new publication, but the run still belongs
+      // to this agent, so the session stamp the mount would have made happens
+      // here instead.
+      if (agent) {
+        await touchReviewAgentSession(
+          review,
+          authoringSessionKey(agent),
+          "publisher",
+        );
       }
+      report.published(existingRevision, documentRevision, true);
+      return 0;
     }
 
     report.stage("revision", "running");
-    const revision = await sealReviewSoftwareMapPublication({
+    const candidate = await prepareReviewSoftwareMapCandidate({
       review,
       bundle,
     });
-    report.stage("revision", "complete", { revision });
+    report.stage("revision", "complete");
 
     report.stage("load", "running");
-    await complete({ reviewUuid: review.review.uuid, revision, agent });
+    const mounted = await complete(candidate, { agent });
     report.stage("load", "complete");
-    report.published(revision, documentRevision, false);
+    report.published(mounted.publicationId, documentRevision, false);
     return 0;
   } catch (error) {
     report.error("publish", [
@@ -351,16 +372,23 @@ export async function publishReviewMap(
   }
 }
 
-export async function sealReviewSoftwareMapPublication(input: {
-  review: StoredReview;
-  bundle: ReviewSoftwareMapBundle;
-}): Promise<string> {
-  return withReviewMutationLock(input.review.dir, async () => {
-    await assertReviewUnchanged(input.review.dir, input.review.review);
-    await writeReviewSoftwareMapBundle(input.review.dir, input.bundle);
-    return sealReviewCandidate(input.review.dir, "Publish Review software map");
-  });
+/** The presented map already holds exactly these bytes, so publishing again
+ * would only add a duplicate row. */
+function publishesSameMapArtifact(
+  reviewDir: string,
+  publicationId: string,
+  bundle: ReviewSoftwareMapBundle,
+): boolean {
+  const row = readPublication(reviewDir, publicationId, "map");
+  if (!row) return false;
+  const record = parsePublicationRecord(row.record);
+  return (
+    record.artifact.state === "stored" &&
+    record.artifact.hash ===
+      reviewArtifactHash(softwareMapArtifactBytes(bundle))
+  );
 }
+
 export async function rebindReview(
   input: Omit<Parameters<typeof runReviewRebind>[0], "stdout">,
 ): Promise<ReviewRebindJsonOutput> {

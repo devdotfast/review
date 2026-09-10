@@ -7,10 +7,8 @@ import {
   initLegacyReviewRepo,
   sealLegacyReviewCommit,
 } from "./fixtures/legacy-reviews/legacy-review-git";
-import {
-  REVIEW_PUBLISH_CANDIDATE_MESSAGE,
-  listReviewDocumentVersions,
-} from "./review-document-versions";
+import { LEGACY_PUBLISH_CANDIDATE_MESSAGE } from "./legacy-review-import";
+import { listReviewDocumentVersions } from "./review-document-versions";
 import type { StoredReview } from "./review-home";
 import {
   ensureReviewRegistration,
@@ -74,17 +72,17 @@ describe("listReviewDocumentVersions", () => {
     await writeFile(path.join(dir, "review.mdx"), "# v1\n");
     const v1 = await sealLegacyReviewCommit(
       dir,
-      REVIEW_PUBLISH_CANDIDATE_MESSAGE,
+      LEGACY_PUBLISH_CANDIDATE_MESSAGE,
     );
     await writeFile(path.join(dir, "map.json"), "{}");
     await sealLegacyReviewCommit(dir, "Publish Review software map");
     await writeFile(path.join(dir, "review.mdx"), "# v2\n");
     const v2 = await sealLegacyReviewCommit(
       dir,
-      REVIEW_PUBLISH_CANDIDATE_MESSAGE,
+      LEGACY_PUBLISH_CANDIDATE_MESSAGE,
     );
     await writeFile(path.join(dir, "review.mdx"), "# v3 never promoted\n");
-    await sealLegacyReviewCommit(dir, REVIEW_PUBLISH_CANDIDATE_MESSAGE);
+    await sealLegacyReviewCommit(dir, LEGACY_PUBLISH_CANDIDATE_MESSAGE);
 
     const versions = await listReviewDocumentVersions(storedReview(dir, v2));
 

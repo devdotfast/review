@@ -8,6 +8,7 @@ import {
 } from "./review-artifact-store";
 import {
   type StoredReviewRecord,
+  parseAnyStoredReviewRecord,
   parseStoredReviewRecord,
   refreshReviewMirror,
 } from "./review-home";
@@ -199,6 +200,14 @@ export interface ReviewArtifactRef {
   hash: string;
 }
 
+/** The presentation pointers an activation leaves behind. A publish derives
+ * them from the rows it just committed; an import replays a history whose
+ * presented rows are not simply the last of each kind, so it states them. */
+export interface ActivatedPointers {
+  document: string | null;
+  map: string | null;
+}
+
 export type ActivationRowBuilder = (
   tx: ReviewStateTransaction,
   latest: StoredReviewRecord,
@@ -212,6 +221,8 @@ export interface ReviewActivationCommit {
   gates?: readonly ActivationGate[];
   buildRows: ActivationRowBuilder;
   updateRecord: ActivationRecordUpdate;
+  /** Overrides the pointers derived from the committed rows. */
+  presentedPointers?: ActivatedPointers;
   inTransaction?: ActivationTransactionWrite;
   hooks?: ReviewActivationHooks;
 }
@@ -301,7 +312,9 @@ function applyActivation(
   const latestJson = readReviewRecordInTransaction(tx, input.reviewDir);
   if (latestJson === null)
     throw new Error(`No Review record in the database for ${input.reviewDir}.`);
-  const latest = parseStoredReviewRecord(latestJson);
+  // An import activates against a record still at its Git-era schema; every
+  // other caller is already current, which this parse leaves untouched.
+  const latest = parseAnyStoredReviewRecord(latestJson);
   assertActivationGuard(latestJson, input.expected);
   for (const gate of input.gates ?? []) gate(latest);
 
@@ -327,10 +340,15 @@ function applyActivation(
   input.hooks?.afterPublicationInsert?.();
 
   const next: StoredReviewRecord = { ...input.updateRecord(latest, published) };
-  for (const entry of published) {
-    if (entry.record.kind === "document")
-      next.presentedDocumentRevision = entry.publicationId;
-    else next.presentedSoftwareMapRevision = entry.publicationId;
+  if (input.presentedPointers) {
+    next.presentedDocumentRevision = input.presentedPointers.document;
+    next.presentedSoftwareMapRevision = input.presentedPointers.map;
+  } else {
+    for (const entry of published) {
+      if (entry.record.kind === "document")
+        next.presentedDocumentRevision = entry.publicationId;
+      else next.presentedSoftwareMapRevision = entry.publicationId;
+    }
   }
   const review = parseStoredReviewRecord(next);
   putReviewRecordInTransaction(tx, input.reviewDir, review);

@@ -15,6 +15,7 @@ import { errorMessage as message } from "./error-message";
 import {
   evaluateSealedReviewDocument,
   legacySoftwareMapBundle,
+  readSealedMapManifestPins,
 } from "./legacy-sealed-artifacts";
 import { isMissingFileError } from "./native-agent/transcript-json";
 import { REVIEW_ARTIFACTS_DIR } from "./review-artifact-store";
@@ -390,28 +391,6 @@ async function repairPresentedDocument(input: {
   }
 }
 
-/** Full 40-hex pins from the sealed software-map manifest, when it has them. */
-async function readSealedMapManifestPins(
-  mapDir: string,
-): Promise<{ baseCommit: string; headCommit: string } | undefined> {
-  const manifest = await readFile(
-    path.join(mapDir, ".bundle/software-map/manifest.json"),
-    "utf8",
-  )
-    .then((value) => jsonObject(parseJsonText(value)))
-    .catch(() => undefined);
-  const baseCommit = jsonString(manifest?.baseCommit);
-  const headCommit = jsonString(manifest?.headCommit);
-  if (
-    !baseCommit ||
-    !headCommit ||
-    !/^[0-9a-f]{40}$/i.test(baseCommit) ||
-    !/^[0-9a-f]{40}$/i.test(headCommit)
-  )
-    return undefined;
-  return { baseCommit, headCommit };
-}
-
 /** Writes the repaired software-map bundle into the candidate. Falls back to
  * validated saved map notes only when the sealed map cannot be converted. */
 async function repairPresentedMap(input: {
@@ -548,7 +527,7 @@ async function assertIsolatedRepairInternals(dir: string): Promise<void> {
   await inspect(".git");
 }
 
-async function prepareSavedMapNotes(input: {
+export async function prepareSavedMapNotes(input: {
   rootPath: string;
   baseCommit: string;
   headCommit: string;

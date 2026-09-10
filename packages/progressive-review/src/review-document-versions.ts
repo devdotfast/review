@@ -1,10 +1,9 @@
 import type { ReviewDocumentVersionWire } from "@dev.fast/review-protocol";
 
+import { LEGACY_PUBLISH_CANDIDATE_MESSAGE } from "./legacy-review-import";
 import type { StoredReview } from "./review-home";
 import { listPublications } from "./review-state-db";
 import { reviewVcs } from "./review-vcs";
-
-export const REVIEW_PUBLISH_CANDIDATE_MESSAGE = "Review publish candidate";
 
 /** Published document versions, newest first. Every row is a committed
  * activation, so the row set is the history; a Git-era review with no rows
@@ -34,7 +33,7 @@ export async function listLegacyReviewDocumentVersions(
   return presented
     .filter(
       (entry) =>
-        entry.message === REVIEW_PUBLISH_CANDIDATE_MESSAGE ||
+        entry.message === LEGACY_PUBLISH_CANDIDATE_MESSAGE ||
         entry.oid === current,
     )
     .map((entry) => ({

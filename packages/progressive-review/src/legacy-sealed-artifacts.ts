@@ -123,3 +123,31 @@ export async function legacySoftwareMapBundle(
     );
   return bundleReviewSoftwareMap({ head, base, headCommit, baseCommit });
 }
+
+/** Full 40-hex pins from a sealed software-map manifest, when it has them.
+ * Both the version-1 and version-2 manifests carry the pair. */
+export interface SealedSoftwareMapPins {
+  baseCommit: string;
+  headCommit: string;
+}
+
+export async function readSealedMapManifestPins(
+  mapDir: string,
+): Promise<SealedSoftwareMapPins | undefined> {
+  const manifest = await readFile(
+    path.join(mapDir, ".bundle/software-map/manifest.json"),
+    "utf8",
+  )
+    .then((value) => jsonObject(parseJsonText(value)))
+    .catch(() => undefined);
+  const baseCommit = jsonString(manifest?.baseCommit);
+  const headCommit = jsonString(manifest?.headCommit);
+  if (
+    !baseCommit ||
+    !headCommit ||
+    !/^[0-9a-f]{40}$/i.test(baseCommit) ||
+    !/^[0-9a-f]{40}$/i.test(headCommit)
+  )
+    return undefined;
+  return { baseCommit, headCommit };
+}

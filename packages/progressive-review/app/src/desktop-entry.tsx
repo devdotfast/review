@@ -98,6 +98,7 @@ function DesktopReviewApp({
       return { state: "ready", document };
     },
     session,
+    purpose === "display",
   );
   const softwareMapState = useSettledLoad(
     softwareMapBundle,
@@ -110,6 +111,7 @@ function DesktopReviewApp({
       };
     },
     session,
+    purpose === "display",
   );
 
   useEffect(() => {
@@ -198,6 +200,7 @@ function useSettledLoad<TLoad, TState>(
   bundle: Promise<TLoad>,
   settle: (load: TLoad) => TState | Promise<TState>,
   session: ReviewSession,
+  preservePrevious: boolean,
 ): TState | ReviewLoadFallback {
   const settleRef = useRef(settle);
   settleRef.current = settle;
@@ -228,9 +231,10 @@ function useSettledLoad<TLoad, TState>(
       cancelled = true;
     };
   }, [bundle, session]);
-  // DesktopReviewApp is keyed by session ID. Keep this session's mounted
-  // document while its next validated live revision is being hydrated.
-  return settledLoad.session === session
+  // Keep the visible editor mounted during live updates. Validation must
+  // settle the requested bundle before its previous state can imply readiness.
+  return settledLoad.session === session &&
+    (preservePrevious || settledLoad.bundle === bundle)
     ? settledLoad.value
     : reviewLoadLoading;
 }

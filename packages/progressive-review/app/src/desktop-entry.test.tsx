@@ -670,6 +670,51 @@ describe("desktop review document load states", () => {
 });
 
 describe("publication validation mounts", () => {
+  it("waits for a replacement validation bundle before reporting readiness", async () => {
+    const order: string[] = [];
+    const bridge = testReviewBridge(
+      { sessionId: "validation-replacement" },
+      {
+        request: requestStub,
+        ready: () => order.push("ready"),
+        reportDiagnostic: (diagnostic) => {
+          if (diagnostic.level === "error") order.push("error");
+        },
+        diffView: { create: createDiffView },
+      },
+    );
+    const softwareMap = Promise.resolve(null);
+    const content = (document: Promise<ReviewDocumentLoad>) => ({
+      ...sessionContent(bridge, { document, softwareMap }),
+      purpose: "validation" as const,
+    });
+    const container = document.createElement("div");
+    document.body.append(container);
+    let handle: ReturnType<typeof mountReviewCanvas> | undefined;
+    try {
+      await act(async () => {
+        handle = mountReviewCanvas(
+          container,
+          content(Promise.resolve(codePeekDocument("first"))),
+        );
+      });
+      expect(order).toEqual(["ready"]);
+      order.length = 0;
+      const replacement = Promise.withResolvers<ReviewDocumentLoad>();
+      await act(async () => handle?.update(content(replacement.promise)));
+      expect(order).toEqual([]);
+      await act(async () =>
+        replacement.resolve({
+          state: "unavailable",
+          message: "Replacement failed",
+        }),
+      );
+      expect(order).toEqual(["error"]);
+    } finally {
+      await act(async () => handle?.dispose());
+    }
+  });
+
   it.each([
     "document-unavailable",
     "document-republish",

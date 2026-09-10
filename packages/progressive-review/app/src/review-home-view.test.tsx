@@ -73,7 +73,9 @@ describe("ReviewHome", () => {
     expect(container.textContent).not.toContain(errors[0]!.message);
     expect(container.querySelector('[aria-label="Copy prompt"]')).toBeNull();
     await act(async () => entries[0]?.click());
-    expect(container.textContent).toContain("This review needs migration.");
+    expect(container.textContent).toContain(
+      "This review needs manual migration.",
+    );
     const writeText = vi.fn<(text: string) => Promise<void>>(async () => {});
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
@@ -373,7 +375,7 @@ describe("ReviewHome", () => {
         )
         ?.click(),
     );
-    expect(container.textContent).toContain("This review needs repair.");
+    expect(container.textContent).toContain("This review needs manual repair.");
     const writeText = vi.fn<(text: string) => Promise<void>>(async () => {});
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,

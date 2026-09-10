@@ -75,7 +75,7 @@ describe("desktop review document load states", () => {
     expect(entry?.textContent).toContain("Old review");
     expect(container.querySelector('[aria-label="Copy prompt"]')).toBeNull();
     await act(async () => entry?.click());
-    expect(container.textContent).toContain("This review needs repair.");
+    expect(container.textContent).toContain("This review needs manual repair.");
     expect(
       container.querySelector('[aria-label="Copy prompt"]'),
     ).not.toBeNull();

@@ -273,11 +273,12 @@ function unavailableReviewGuidance(error: ReviewListError) {
   switch (error.code) {
     case "MIGRATION_REQUIRED":
       explanation =
-        "This review needs migration. Copy the prompt to your agent.";
+        "This review needs manual migration. Copy the prompt to your agent.";
       command = "review migrate apply";
       break;
     case "REPAIR_REQUIRED":
-      explanation = "This review needs repair. Copy the prompt to your agent.";
+      explanation =
+        "This review needs manual repair. Copy the prompt to your agent.";
       command = error.reviewUuid
         ? repairCommand(error.reviewUuid)
         : "review migrate apply";

@@ -1583,16 +1583,17 @@ export function createGlobalReviewServer(
             published.record.createdAt,
           );
           successor.promoted = true;
-          announceWarning = await warnInsteadOfFailing(async () => {
-            await startSessionTelemetry(successor);
-            await clearReopenPending(successor.review.review.worktreePath);
-            broadcastGlobal({
-              event: "review-status-changed",
-              uuid: successor.review.review.uuid,
-              status: "awaiting-review",
-            });
-            await announcePromotedSession(successor);
-          });
+          announceWarning = await warnInsteadOfFailing([
+            () => startSessionTelemetry(successor),
+            () => clearReopenPending(successor.review.review.worktreePath),
+            async () =>
+              broadcastGlobal({
+                event: "review-status-changed",
+                uuid: successor.review.review.uuid,
+                status: "awaiting-review",
+              }),
+            () => announcePromotedSession(successor),
+          ]);
         }),
       );
     } finally {
@@ -1722,10 +1723,10 @@ export function createGlobalReviewServer(
           mapPublicationId: publicationId,
         };
         successor.promoted = true;
-        announceWarning = await warnInsteadOfFailing(async () => {
-          await startSessionTelemetry(successor);
-          await announcePromotedSession(successor);
-        });
+        announceWarning = await warnInsteadOfFailing([
+          () => startSessionTelemetry(successor),
+          () => announcePromotedSession(successor),
+        ]);
       });
     } finally {
       if (!successor.promoted) {
@@ -1745,31 +1746,38 @@ export function createGlobalReviewServer(
   /**
    * Announcing an already-committed publication cannot un-publish it, so a
    * failure after the transaction is reported to the publisher, never thrown:
-   * the row and the pointer stand either way.
+   * the row and the pointer stand either way. Each step runs on its own —
+   * one that throws must not skip the ones after it, or a republish would
+   * leave the session it replaced open beside the promoted one.
    */
   async function warnInsteadOfFailing(
-    announce: () => Promise<void>,
+    steps: ReadonlyArray<() => Promise<void>>,
   ): Promise<string | undefined> {
-    try {
-      await announce();
-      return undefined;
-    } catch (error) {
-      console.error(error);
-      return `The Review was published, but the desktop could not announce it: ${toError(error).message}`;
+    const failures: string[] = [];
+    for (const step of steps) {
+      try {
+        await step();
+      } catch (error) {
+        console.error(error);
+        failures.push(toError(error).message);
+      }
     }
+    return failures.length === 0
+      ? undefined
+      : `The Review was published, but the desktop could not announce it: ${failures.join("; ")}`;
   }
 
   /** The promoted session takes over the review: announce it and close the
-   * sessions it replaces. */
+   * sessions it replaces. A descriptor this cannot build is announced as
+   * absent — the takeover itself must not depend on rendering it. */
   async function announcePromotedSession(
     successor: ActiveReviewSession,
   ): Promise<void> {
+    const review = await promotedReviewDescriptor(successor);
     broadcastGlobal({
       event: "session-registered",
       session: successor.descriptor,
-      review: await reviewDescriptor(successor.review, {
-        retentionDays: (await readReviewPreferences()).dismissedRetentionDays,
-      }),
+      review,
     });
     const replaced = [...sessions.values()].filter(
       (session) =>
@@ -1780,6 +1788,19 @@ export function createGlobalReviewServer(
     await Promise.all(
       replaced.map((session) => closeSession(session, "replaced", false)),
     );
+  }
+
+  async function promotedReviewDescriptor(
+    successor: ActiveReviewSession,
+  ): Promise<ReviewDescriptor | undefined> {
+    try {
+      return await reviewDescriptor(successor.review, {
+        retentionDays: (await readReviewPreferences()).dismissedRetentionDays,
+      });
+    } catch (error) {
+      console.error(error);
+      return undefined;
+    }
   }
 
   function requireLiveSession(successor: ActiveReviewSession): void {

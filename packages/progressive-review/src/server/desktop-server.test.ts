@@ -671,6 +671,46 @@ describe("publishing a Review document as a JSON publication", () => {
     }
   }, 60_000);
 
+  it("closes the session a republish replaces even when a step before it throws", async () => {
+    const telemetry = ProgressiveReviewTelemetry.fromEnv({});
+    const harness = await publicationHarness({ telemetry });
+    try {
+      const first = await harness.publishDocument();
+      expect(first).toMatchObject({ ok: true });
+      // The steps after a committed publication run independently: a failed
+      // one is a warning, and the session takeover still happens.
+      vi.spyOn(telemetry, "captureSessionStarted").mockRejectedValue(
+        new Error("telemetry channel is down"),
+      );
+      await writeFile(
+        path.join(harness.review.dir, "review.mdx"),
+        "# Second publication\n\nRepublished.\n",
+      );
+
+      const second = await harness.publishDocument();
+
+      expect(second).toMatchObject({ ok: true });
+      expect(second.events).toContainEqual({
+        event: "warning",
+        stage: "mount",
+        diagnostics: [
+          expect.stringContaining("could not announce it: telemetry channel"),
+        ],
+      });
+      const sessions = await (await harness.request("/sessions")).json();
+      expect(
+        sessions.items.filter(
+          (item: { reviewUuid: string }) =>
+            item.reviewUuid === harness.review.review.uuid,
+        ),
+      ).toEqual([expect.objectContaining({ sessionId: sessionIdOf(second) })]);
+      expect(sessionIdOf(second)).not.toBe(sessionIdOf(first));
+      expect(listPublications(harness.review.dir, "document")).toHaveLength(2);
+    } finally {
+      await harness.close();
+    }
+  }, 60_000);
+
   it("hands an activation refusal's own status and code back to the caller", async () => {
     const harness = await publicationHarness();
     try {

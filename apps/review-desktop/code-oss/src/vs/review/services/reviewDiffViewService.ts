@@ -192,7 +192,8 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
     this.activeControlStore.clear();
     const diffEditor = view.getActiveControl();
     if (!diffEditor) return;
-    const editors: readonly ICodeEditor[] = [
+    const unified = view.getActiveUnifiedControl();
+    const editors: readonly ICodeEditor[] = unified ? [unified] : [
       diffEditor.getOriginalEditor(),
       diffEditor.getModifiedEditor(),
     ];

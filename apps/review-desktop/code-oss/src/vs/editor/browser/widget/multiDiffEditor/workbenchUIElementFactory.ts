@@ -3,6 +3,9 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import type { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import type { IRange } from '../../../common/core/range.js';
+import type { ICodeEditor } from '../../editorBrowser.js';
 import { IDisposable } from '../../../../base/common/lifecycle.js';
 import type { IObservable } from '../../../../base/common/observable.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -15,6 +18,9 @@ import type { IDiffCodeEditorWidgetOptions } from '../diffEditor/diffEditorWidge
  * This would make monaco-editor consumption much more difficult though.
  */
 export interface IWorkbenchUIElementFactory {
+	/** Optional selectable row editor for a read-only unified diff. */
+	createUnifiedEditor?(container: HTMLElement, original: URI | undefined, modified: URI | undefined, instantiationService: IInstantiationService): IUnifiedDiffEditor | undefined;
+
 	createResourceLabel?(element: HTMLElement): IResourceLabel;
 	createResourceHeaderMetadata?(element: HTMLElement): IResourceHeaderMetadata;
 
@@ -62,4 +68,9 @@ export interface IResourceLabel extends IDisposable {
 
 export interface IResourceLabelOptions {
 	strikethrough?: boolean;
+}
+
+export interface IUnifiedDiffEditor extends IDisposable {
+	readonly editor: ICodeEditor;
+	readonly changedRanges: readonly IRange[];
 }

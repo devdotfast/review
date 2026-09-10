@@ -175,6 +175,7 @@ export interface IReviewCodeResourceService {
     path: string,
     side: ReviewDiffSide,
     ranges: readonly ReviewInlineEditorRange[],
+    scope?: ReviewCommitScope,
   ): Promise<ReviewCodeDiffTarget | undefined>;
   positionRowsForResourceRange(
     resource: URI,
@@ -189,6 +190,7 @@ export interface IReviewCodeResourceService {
     path: string,
     side: ReviewDiffSide,
     ranges: readonly ReviewInlineEditorRange[],
+    scope?: ReviewCommitScope,
   ): Promise<ReviewUnifiedCodeModelReference | undefined>;
   unifiedResource(resource: URI): ReviewUnifiedResourceInfo | undefined;
   reset(): void;
@@ -345,9 +347,10 @@ export class ReviewCodeResourceService
     path: string,
     side: ReviewDiffSide,
     ranges: readonly ReviewInlineEditorRange[],
+    scope?: ReviewCommitScope,
   ): Promise<ReviewCodeDiffTarget | undefined> {
     const session = this.requireSession();
-    const target = await this.targetForSession(session, path, side);
+    const target = await this.targetForSession(session, path, side, scope);
     const diffFile = target.diffFile;
     if (!diffFile) return undefined;
 
@@ -356,12 +359,13 @@ export class ReviewCodeResourceService
         session,
         diffFile.previousPath ?? diffFile.path,
         "base",
+        scope,
       ),
-      this.targetForSession(session, diffFile.path, "head"),
+      this.targetForSession(session, diffFile.path, "head", scope),
     ]);
     const patch =
       diffFile.patch ??
-      (await this.diffService.patch(diffFile.path));
+      (scope ? undefined : await this.diffService.patch(diffFile.path));
     if (!patch) return undefined;
 
     const mappings = reviewPeekLineMappings(patch);
@@ -474,8 +478,9 @@ export class ReviewCodeResourceService
     path: string,
     side: ReviewDiffSide,
     ranges: readonly ReviewInlineEditorRange[],
+    scope?: ReviewCommitScope,
   ): Promise<ReviewUnifiedCodeModelReference | undefined> {
-    const target = await this.resolveDiff(path, side, ranges);
+    const target = await this.resolveDiff(path, side, ranges, scope);
     if (!target) return undefined;
     const session = this.requireSession();
     const generation = this.generation;
@@ -484,6 +489,7 @@ export class ReviewCodeResourceService
       version: session.session.sessionId,
       side,
       revision: String(generation),
+      ...(scope?.commit ? { commit: scope.commit } : {}),
     });
     const resource = URI.from({
       scheme: REVIEW_UNIFIED_SCHEME,

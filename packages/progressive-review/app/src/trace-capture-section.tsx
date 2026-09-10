@@ -26,6 +26,14 @@ function traceStorageSummary(trace: ReviewCliInstallStatus["trace"]): string {
   return `Storage: S3/R2 bucket "${trace.bucket ?? ""}" (credentials from ${source}).`;
 }
 
+/** What capture records and where, for the selected store. */
+function traceDestinationCopy(trace: ReviewCliInstallStatus["trace"]): string {
+  if (trace.storageMode === "hosted") {
+    return "Records agent sessions from allowed repositories to the hosted /dev/fast trace store so reviews can quote them. Session hooks activate each Git or Jujutsu repository when an agent session starts.";
+  }
+  return "Records agent sessions to your own S3/R2 bucket so reviews can quote them. Session hooks activate each Git or Jujutsu repository when an agent session starts.";
+}
+
 /**
  * Experimental trace capture controls. Lives under Settings ▸ Experimental
  * Features. The tutorial demonstrates a bundled trace without requiring
@@ -58,6 +66,7 @@ export function TraceCaptureSection({
   const [traceSecret, setTraceSecret] = useState("");
 
   useEffect(() => setStatus(install.status), [install.status]);
+  const hosted = status.trace.storageMode === "hosted";
 
   const run = async (
     key: string,
@@ -124,55 +133,55 @@ export function TraceCaptureSection({
               : "off"}
         </span>
         <span className="review-agent-setup-cli">
-          Records agent sessions to your own S3/R2 bucket so reviews can quote
-          them. Session hooks activate each Git or Jujutsu repository when an
-          agent session starts.
+          {traceDestinationCopy(status.trace)}
         </span>
         <span className="review-agent-setup-cli" data-testid="trace-storage">
           {traceStorageSummary(status.trace)}
         </span>
       </div>
-      <div className="review-agent-setup-trace-fields">
-        <input
-          aria-label="S3/R2 endpoint URL"
-          placeholder="S3/R2 endpoint URL"
-          value={traceEndpoint}
-          onChange={(event) => setTraceEndpoint(event.currentTarget.value)}
-        />
-        <input
-          aria-label="S3/R2 bucket"
-          placeholder="S3/R2 bucket"
-          value={traceBucket}
-          onChange={(event) => setTraceBucket(event.currentTarget.value)}
-        />
-        <input
-          aria-label="S3/R2 region"
-          placeholder="Region (auto for R2)"
-          value={traceRegion}
-          onChange={(event) => setTraceRegion(event.currentTarget.value)}
-        />
-        <input
-          aria-label="S3/R2 access key ID"
-          placeholder={
-            status.trace.accessKeyIdPrefix
-              ? `Access key (${status.trace.accessKeyIdPrefix}…)`
-              : "S3/R2 access key ID"
-          }
-          value={traceKey}
-          onChange={(event) => setTraceKey(event.currentTarget.value)}
-        />
-        <input
-          aria-label="S3/R2 secret access key"
-          type="password"
-          placeholder={
-            status.trace.configured
-              ? "Secret key (unchanged)"
-              : "S3/R2 secret access key"
-          }
-          value={traceSecret}
-          onChange={(event) => setTraceSecret(event.currentTarget.value)}
-        />
-      </div>
+      {hosted ? null : (
+        <div className="review-agent-setup-trace-fields">
+          <input
+            aria-label="S3/R2 endpoint URL"
+            placeholder="S3/R2 endpoint URL"
+            value={traceEndpoint}
+            onChange={(event) => setTraceEndpoint(event.currentTarget.value)}
+          />
+          <input
+            aria-label="S3/R2 bucket"
+            placeholder="S3/R2 bucket"
+            value={traceBucket}
+            onChange={(event) => setTraceBucket(event.currentTarget.value)}
+          />
+          <input
+            aria-label="S3/R2 region"
+            placeholder="Region (auto for R2)"
+            value={traceRegion}
+            onChange={(event) => setTraceRegion(event.currentTarget.value)}
+          />
+          <input
+            aria-label="S3/R2 access key ID"
+            placeholder={
+              status.trace.accessKeyIdPrefix
+                ? `Access key (${status.trace.accessKeyIdPrefix}…)`
+                : "S3/R2 access key ID"
+            }
+            value={traceKey}
+            onChange={(event) => setTraceKey(event.currentTarget.value)}
+          />
+          <input
+            aria-label="S3/R2 secret access key"
+            type="password"
+            placeholder={
+              status.trace.configured
+                ? "Secret key (unchanged)"
+                : "S3/R2 secret access key"
+            }
+            value={traceSecret}
+            onChange={(event) => setTraceSecret(event.currentTarget.value)}
+          />
+        </div>
+      )}
       {status.trace.enabled ? (
         <button
           type="button"
@@ -187,39 +196,41 @@ export function TraceCaptureSection({
           {busy === "trace-remove" ? "Disabling…" : "Disable"}
         </button>
       ) : null}
-      <button
-        type="button"
-        disabled={busy !== null}
-        onClick={() =>
-          void run(
-            "trace",
-            () => {
-              const trace: TraceCredentials = {};
-              if (traceEndpoint) trace.endpoint = traceEndpoint;
-              if (traceBucket) trace.bucket = traceBucket;
-              if (traceRegion) trace.region = traceRegion;
-              if (traceKey) trace.key = traceKey;
-              if (traceSecret) trace.secret = traceSecret;
-              const request: InstallApplyRequest = {
-                targets: installedTargets,
-                trace,
-              };
-              if (fffTargets.length > 0) request.fff = true;
-              return install.apply(request);
-            },
-            () => {
-              setTraceKey("");
-              setTraceSecret("");
-            },
-          )
-        }
-      >
-        {busy === "trace"
-          ? "Checking…"
-          : status.trace.enabled
-            ? "Repair"
-            : "Enable"}
-      </button>
+      {hosted ? null : (
+        <button
+          type="button"
+          disabled={busy !== null}
+          onClick={() =>
+            void run(
+              "trace",
+              () => {
+                const trace: TraceCredentials = {};
+                if (traceEndpoint) trace.endpoint = traceEndpoint;
+                if (traceBucket) trace.bucket = traceBucket;
+                if (traceRegion) trace.region = traceRegion;
+                if (traceKey) trace.key = traceKey;
+                if (traceSecret) trace.secret = traceSecret;
+                const request: InstallApplyRequest = {
+                  targets: installedTargets,
+                  trace,
+                };
+                if (fffTargets.length > 0) request.fff = true;
+                return install.apply(request);
+              },
+              () => {
+                setTraceKey("");
+                setTraceSecret("");
+              },
+            )
+          }
+        >
+          {busy === "trace"
+            ? "Checking…"
+            : status.trace.enabled
+              ? "Repair"
+              : "Enable"}
+        </button>
+      )}
       {status.trace.enabled && fffTargets.length > 0 ? (
         <div className="review-agent-setup-terminal review-agent-setup-trace-search">
           <div className="review-agent-setup-terminal-info">

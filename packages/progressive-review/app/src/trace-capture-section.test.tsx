@@ -122,6 +122,41 @@ describe("TraceCaptureSection", () => {
       trace: true,
     });
   });
+
+  it("hides the bucket fields and the S3 copy on a hosted machine", async () => {
+    const hostedStatus: ReviewCliInstallStatus = {
+      ...traceStatus,
+      trace: {
+        ...traceStatus.trace,
+        enabled: true,
+        configured: true,
+        storageMode: "hosted",
+      },
+    };
+    const install: ReviewCanvasInstallContent = {
+      status: hostedStatus,
+      apply: vi.fn<ReviewCanvasInstallContent["apply"]>(),
+      remove: vi.fn<ReviewCanvasInstallContent["remove"]>(),
+      decline: vi.fn<ReviewCanvasInstallContent["decline"]>(),
+      skip: vi.fn<ReviewCanvasInstallContent["skip"]>(),
+      enablePrompts: vi.fn<ReviewCanvasInstallContent["enablePrompts"]>(),
+    };
+    await act(async () =>
+      root.render(<TraceCaptureSection install={install} />),
+    );
+    expect(
+      container.querySelector('input[aria-label="S3/R2 endpoint URL"]'),
+    ).toBeNull();
+    expect(container.textContent).toContain(
+      "to the hosted /dev/fast trace store",
+    );
+    expect(container.textContent).not.toContain("your own S3/R2 bucket");
+    expect(
+      [...container.querySelectorAll<HTMLButtonElement>("button")].map(
+        (button) => button.textContent,
+      ),
+    ).not.toContain("Repair");
+  });
 });
 
 const traceStatus: ReviewCliInstallStatus = {

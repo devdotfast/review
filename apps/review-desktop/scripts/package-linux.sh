@@ -14,12 +14,18 @@ if [[ "$(uname -s)" != "Linux" ]]; then
   echo "Review Desktop Linux packaging must run on Linux" >&2
   exit 1
 fi
+if [[ "$(uname -m)" != "x86_64" ]]; then
+  echo "Review Desktop Linux packaging currently requires x86_64" >&2
+  exit 1
+fi
 if [[ ! -f "$CHECKOUT/node_modules/gulp/bin/gulp.js" ]]; then
   echo "code-oss dependencies are missing; run pnpm --filter @dev.fast/review-desktop app:build first" >&2
   exit 1
 fi
 
 node "$APP_DIR/scripts/curated-extensions.mjs" --target=linux-x64
+
+export BUILD_SOURCEVERSION="${BUILD_SOURCEVERSION:-$(git -C "$MONOREPO_ROOT" rev-parse HEAD)}"
 
 npm --prefix "$CHECKOUT" run gulp -- vscode-linux-x64
 

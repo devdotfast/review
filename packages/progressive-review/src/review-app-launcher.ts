@@ -164,34 +164,44 @@ export function launchDesktopApplication(
   input: LaunchDesktopApplicationInput = {},
 ): DesktopLaunchAttempt {
   const platform = input.platform ?? process.platform;
-  if (platform !== "darwin") {
+  if (platform !== "darwin" && platform !== "linux") {
     return {
-      method: `the macOS bundle identifier "${REVIEW_DESKTOP_BUNDLE_ID}"`,
+      method: `the ${platform} application launcher`,
       successfulExitIsExpected: false,
       completion: Promise.reject(
-        new Error("automatic launch is available only on macOS"),
+        new Error("automatic launch is available only on macOS and Linux"),
       ),
     };
   }
 
   const electron = input.electron ?? Boolean(process.versions.electron);
-  const command = electron
-    ? (input.execPath ?? process.execPath)
-    : "/usr/bin/open";
   const env = { ...(input.env ?? process.env) };
-  if (electron) delete env.ELECTRON_RUN_AS_NODE;
-  const stateRoot = env.DEV_FAST_REVIEW_DESKTOP_STATE_ROOT?.trim();
-  const args = electron
-    ? stateRoot
-      ? [
-          `--user-data-dir=${path.resolve(stateRoot, "user-data")}`,
-          `--extensions-dir=${path.resolve(stateRoot, "extensions")}`,
-        ]
-      : []
-    : ["-b", REVIEW_DESKTOP_BUNDLE_ID];
-  const method = electron
-    ? `the Desktop-managed bundle at "${command}"`
-    : `the macOS bundle identifier "${REVIEW_DESKTOP_BUNDLE_ID}"`;
+  const directLaunch = electron || platform === "linux";
+  if (directLaunch) delete env.ELECTRON_RUN_AS_NODE;
+  if (platform === "linux") {
+    delete env.VSCODE_DEV;
+    delete env.VSCODE_CLI;
+  }
+
+  let command = "/usr/bin/open";
+  let method = `the macOS bundle identifier "${REVIEW_DESKTOP_BUNDLE_ID}"`;
+  let args = ["-b", REVIEW_DESKTOP_BUNDLE_ID];
+  if (directLaunch) {
+    command = "/usr/bin/review-desktop";
+    method = `the installed Linux launcher at "${command}"`;
+    if (electron) {
+      command = input.execPath ?? process.execPath;
+      method = `the Desktop-managed bundle at "${command}"`;
+    }
+    args = [];
+    const stateRoot = env.DEV_FAST_REVIEW_DESKTOP_STATE_ROOT?.trim();
+    if (stateRoot) {
+      args = [
+        `--user-data-dir=${path.resolve(stateRoot, "user-data")}`,
+        `--extensions-dir=${path.resolve(stateRoot, "extensions")}`,
+      ];
+    }
+  }
 
   let resolveCompletion: (result: DesktopLaunchCompletion) => void = () =>
     undefined;
@@ -215,7 +225,11 @@ export function launchDesktopApplication(
   } catch (error) {
     rejectCompletion(error instanceof Error ? error : new Error(String(error)));
   }
-  return { method, successfulExitIsExpected: !electron, completion };
+  return {
+    method,
+    successfulExitIsExpected: !directLaunch,
+    completion,
+  };
 }
 
 function launchEvent(

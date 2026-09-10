@@ -7,6 +7,7 @@
   "scripts": {
     "app:build": "bash scripts/build.sh",
     "app:package:linux": "bash scripts/package-linux.sh",
+    "app:package:linux:distributions": "bash scripts/package-linux-distributions.sh",
     "app:package:macos": "bash scripts/package-macos.sh",
     "app:notarize:macos": "bash scripts/notarize-macos.sh",
     "app:run": "bash scripts/run.sh",

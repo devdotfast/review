@@ -65,7 +65,7 @@ function hasRenderer(userDataDir) {
   try {
     // Match on the directory alone: a pattern starting with "--" would be read
     // as an option by BSD pgrep. The temp path is unique either way.
-    const matches = execFileSync("pgrep", ["-fl", userDataDir], {
+    const matches = execFileSync("pgrep", [process.platform === "linux" ? "-fa" : "-fl", userDataDir], {
       encoding: "utf8",
     });
     return matches.split("\n").some((line) => line.includes("--type=renderer"));
@@ -107,14 +107,18 @@ export async function smokeLaunch({
   app = DEFAULT_APP,
   timeoutMs = 90_000,
 } = {}) {
-  const binary = path.join(app, "Contents", "MacOS", PRODUCT_NAME);
+  const binary = process.platform === "linux"
+    ? path.join(app, "review")
+    : path.join(app, "Contents", "MacOS", PRODUCT_NAME);
   const userDataDir = await mkdtemp(path.join(os.tmpdir(), "review-smoke-"));
 
   // A launch that finds a running instance hands its arguments over and exits 0
   // without opening anything. The throwaway user-data-dir is what keeps this a
   // real boot rather than a silent no-op.
-  const child = spawn(binary, [`--user-data-dir=${userDataDir}`], {
-    env: { ...process.env, ELECTRON_ENABLE_LOGGING: "1" },
+  const env = { ...process.env, ELECTRON_ENABLE_LOGGING: "1", DEV_REVIEW_HOME: path.join(userDataDir, "review-home"), DEV_REVIEW_IMPORT_FROM: "none" };
+  delete env.ELECTRON_RUN_AS_NODE;
+  const child = spawn(binary, [`--user-data-dir=${userDataDir}`, `--extensions-dir=${path.join(userDataDir, "extensions")}`], {
+    env,
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -125,6 +129,7 @@ export async function smokeLaunch({
   child.stdout.on("data", (chunk) => (output += chunk));
   child.stderr.on("data", (chunk) => (output += chunk));
   child.on("exit", (code, signal) => (exited = { code, signal }));
+  child.on("error", (error) => { output += error.message; exited = { code: null, signal: null }; });
 
   const fail = (message) => {
     throw new Error(

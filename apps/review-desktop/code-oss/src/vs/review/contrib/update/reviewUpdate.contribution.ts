@@ -11,13 +11,15 @@
  * whole replacement: tell the reader when an update is waiting on a restart, and
  * confirm once it has landed.
  *
- * Squirrel installs a staged update whenever the app quits, with or without the
+ * Linux announces an available package and opens system update instructions.
+ * Squirrel on macOS installs a staged update whenever the app quits, with or without the
  * toast, so the prompt is an invitation to restart now, not a gate on updating.
  */
 
 import { localize, localize2 } from '../../../nls.js';
 import { toAction } from '../../../base/common/actions.js';
 import { Disposable } from '../../../base/common/lifecycle.js';
+import { isLinux } from '../../../base/common/platform.js';
 import Severity from '../../../base/common/severity.js';
 import { Action2, registerAction2 } from '../../../platform/actions/common/actions.js';
 import type { ServicesAccessor } from '../../../platform/instantiation/common/instantiation.js';
@@ -143,7 +145,7 @@ class ReviewUpdateNotifications extends Disposable {
 	}
 
 	/**
-	 * Only `Ready` matters.
+	 * Linux rests at `AvailableForDownload`; macOS prompts at `Ready`.
 	 *
 	 * On macOS the flow is Idle → CheckingForUpdates → Downloading → Downloaded →
 	 * Ready, and the last two are set back to back, so `Downloaded` is never a
@@ -152,6 +154,24 @@ class ReviewUpdateNotifications extends Disposable {
 	 * would add a download-progress story for a state that clears on its own.
 	 */
 	private onStateChange(state: State): void {
+		if (isLinux && state.type === StateType.AvailableForDownload) {
+			if (this.readyCommit === state.update.version && this.readyHandle) { return; }
+			this.readyHandle?.close();
+			this.readyCommit = state.update.version;
+			this.readyHandle = this.notificationService.notify({
+				severity: Severity.Info,
+				message: localize('review.update.linuxAvailable', "Review {0} is available. Update with your system package manager, then reopen Review.", state.update.productVersion ?? ''),
+				actions: { primary: [toAction({
+					id: 'review.update.instructions', label: localize('review.update.instructions', "Update Instructions"),
+					run: () => this.updateService.downloadUpdate(true),
+				})] },
+			});
+			const handle = this.readyHandle;
+			this._register(handle.onDidClose(() => {
+				if (this.readyHandle === handle) { this.readyHandle = undefined; this.readyCommit = undefined; }
+			}));
+			return;
+		}
 		if (state.type !== StateType.Ready) {
 			return;
 		}
@@ -235,7 +255,7 @@ class ReviewUpdateNotifications extends Disposable {
 /**
  * Checking on demand. Without this the only trigger is the scheduled check, 30
  * seconds after startup and hourly after that. An explicit check also bypasses
- * the metered-connection path, so it always resolves to a downloaded update.
+ * the metered-connection path, so macOS can download immediately; Linux still uses the package manager.
  */
 class ReviewCheckForUpdatesAction extends Action2 {
 

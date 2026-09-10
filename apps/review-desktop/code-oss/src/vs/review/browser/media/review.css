@@ -60,6 +60,13 @@
   pointer-events: auto;
 }
 
+.monaco-workbench.linux
+  .part.titlebar.review-chrome-overlay
+  > .review-titlebar-container
+  > .titlebar-right {
+  margin-left: auto;
+}
+
 /* The native macOS stoplights sit over the left container. Make its unused
    area draggable, including the space between and around the stoplights. The
    navigation control below removes itself from this drag region. */
@@ -656,6 +663,40 @@ body
   flex: 0 0 auto;
   font-size: 12px;
   margin-left: 8px;
+}
+
+.review-titlebar-container .review-application-menu {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  width: 30px;
+  height: 28px;
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.review-titlebar-container .review-application-menu:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.review-titlebar-container .review-application-menu:focus-visible,
+.review-titlebar-container .window-controls-container > button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -2px;
+}
+
+.review-titlebar-container .window-controls-container > button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  -webkit-app-region: no-drag;
 }
 
 /* Equal space on each side of the arrows.

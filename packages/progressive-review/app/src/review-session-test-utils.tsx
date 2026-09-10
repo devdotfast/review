@@ -54,6 +54,9 @@ export function testReviewBridge(
     subscribe: () => ({ dispose() {} }),
     currentTheme: () => "dark",
     onDidChangeTheme: () => ({ dispose() {} }),
+    currentDiffLayout: () => "split",
+    async setDiffLayout() {},
+    onDidChangeDiffLayout: () => ({ dispose() {} }),
     ready() {},
     ...overrides,
   };

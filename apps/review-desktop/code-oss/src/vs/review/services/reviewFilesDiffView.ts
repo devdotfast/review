@@ -43,6 +43,7 @@ import {
   ReviewChangedFilesTree,
 } from "../browser/reviewChangedFilesTree.js";
 import type { IReviewCodeResourceService } from "./reviewCodeResourceService.js";
+import type { ReviewDiffLayoutSetting } from "./reviewDiffLayout.js";
 import type { ReviewDesktopSession } from "./reviewSessionModelService.js";
 import {
   ReviewMultiDiffUIElementFactory,
@@ -188,10 +189,9 @@ export class ReviewFilesDiffView extends Disposable {
   constructor(
     private readonly container: HTMLElement,
     overflowWidgetsDomNode: HTMLElement | undefined,
+    layout: ReviewDiffLayoutSetting,
     @IInstantiationService
     private readonly reviewInstantiationService: IInstantiationService,
-    @ITextResourceConfigurationService
-    private readonly textResourceConfigurationService: ITextResourceConfigurationService,
     @IEditorService private readonly editorService: IEditorService,
     @IEditorGroupsService
     private readonly editorGroupService: IEditorGroupsService,
@@ -252,6 +252,12 @@ export class ReviewFilesDiffView extends Disposable {
         undefined,
       ),
     );
+    // The widget's own switch, not the per-item option refresh: it pins the
+    // width heuristic off, so the chosen layout is what renders at any width.
+    const applyLayout = () =>
+      this.widget.setRenderSideBySide(layout.get() === "split");
+    this._register(layout.onDidChange(applyLayout));
+    applyLayout();
     this._register(
       this.widget.onDidChangeActiveControl(() =>
         this._onDidChangeActiveControl.fire(),
@@ -370,20 +376,6 @@ export class ReviewFilesDiffView extends Disposable {
 
   getActiveControl(): IDiffEditor | undefined {
     return this.widget.getActiveControl();
-  }
-
-  toggleRenderSideBySide(): void {
-    const resource = this.widget.getActiveItem()?.modified;
-    if (!resource) return;
-    const key = "diffEditor.renderSideBySide";
-    const current =
-      this.textResourceConfigurationService.getValue<boolean>(resource, key) ??
-      true;
-    void this.textResourceConfigurationService.updateValue(
-      resource,
-      key,
-      !current,
-    );
   }
 
   focus(): void {

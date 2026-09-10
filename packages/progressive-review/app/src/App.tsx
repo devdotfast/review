@@ -28,6 +28,7 @@ import {
   type ReviewNodeTint,
   useReviewDebugSettings,
 } from "./debug-settings";
+import { DiffLayoutControl } from "./diff-layout-control";
 import { ReviewDiffView } from "./DiffView";
 import {
   type SelectionTarget,
@@ -614,6 +615,7 @@ function ReviewLayoutContent({
                     </button>
                   )}
               </div>
+              <DiffLayoutControl />
               {!review.historicalRevision && !review.submissionOutcome && (
                 <div className="topbar-actions-divider" />
               )}

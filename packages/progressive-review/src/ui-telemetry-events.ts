@@ -18,6 +18,7 @@
 
 import {
   type JsonObject,
+  REVIEW_DIFF_LAYOUTS,
   isJsonObject,
   jsonBoolean,
   jsonNumber,
@@ -137,6 +138,8 @@ export const CLIENT_ERROR_SOURCE = [
   "renderer_unexpected",
   "main_unexpected",
   "bootstrap",
+  // A workbench setting write the app requested failed.
+  "settings",
 ] as const;
 export const ERROR_PROCESS = ["main", "renderer", "canvas", "server"] as const;
 export const UPDATE_FAILURE_PHASE = ["check", "download", "install"] as const;
@@ -269,6 +272,10 @@ export const UI_TELEMETRY_EVENTS = {
   source_tree_opened: {
     event: "review_source_tree_opened",
     properties: { via: SOURCE_TREE_OPENED_VIA },
+  },
+  diff_layout_changed: {
+    event: "review_diff_layout_changed",
+    properties: { layout: REVIEW_DIFF_LAYOUTS },
   },
   comment_created: {
     event: "review_comment_created",

@@ -203,6 +203,9 @@ function createTestSession(): ReviewSession {
         themeListener = listener;
         return { dispose: () => (themeListener = undefined) };
       },
+      currentDiffLayout: () => "split",
+      async setDiffLayout() {},
+      onDidChangeDiffLayout: () => ({ dispose() {} }),
       ready() {},
     },
   );

@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -129,7 +129,6 @@ describe("createReviewSessionHandler", () => {
         revision: "c".repeat(40),
         buildDir: rootPath,
         routePath: "/",
-        sourcePath: reviewPath,
       }),
       routePath: "/",
       token,
@@ -262,7 +261,6 @@ describe("createReviewSessionHandler", () => {
           buildDir: rootPath,
           routePath: "/",
           softwareMapRootPath,
-          sourcePath: reviewPath,
         }),
         routePath: "/",
         token,
@@ -293,6 +291,73 @@ describe("createReviewSessionHandler", () => {
       }
     },
   );
+
+  it("reports the materialized document's timestamp for a historical session", async () => {
+    const reviewDir = await tempDir("review-historical-meta-");
+    const revision = "c".repeat(40);
+    const buildDir = path.join(reviewDir, ".build", revision);
+    const liveReviewPath = path.join(reviewDir, "review.mdx");
+    const materializedPath = path.join(buildDir, "review.mdx");
+    const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
+    const token = "session-secret";
+    await mkdir(buildDir, { recursive: true });
+    await writeFile(materializedPath, "# Published\n", "utf8");
+    await writeFile(liveReviewPath, "# Editing\n", "utf8");
+    await writeReviewDocumentBundle(
+      buildDir,
+      bundleReviewDocument(reviewDocument),
+    );
+    const sealedAt = new Date(1_700_000_000_000);
+    await utimes(materializedPath, sealedAt, sealedAt);
+    const handler = await createReviewSessionHandler({
+      ...unusedAgentServices,
+      rootPath: reviewDir,
+      toolingRoot: reviewDir,
+      artifact: await legacySessionArtifactFromBuildDir({
+        reviewUuid: "11111111-1111-4111-8111-111111111111",
+        revision,
+        buildDir,
+        routePath: "/",
+        historical: true,
+      }),
+      stateReviewPath: liveReviewPath,
+      routePath: "/",
+      token,
+      session: {
+        rootPath: reviewDir,
+        baseRef: "HEAD",
+        appUrl: sessionUrl,
+        reviewPath: liveReviewPath,
+        startedAt: Date.now(),
+      },
+    });
+    const documentMeta = async () =>
+      (
+        await handler.handle(
+          new Request(
+            new URL("/__progressive-review/document-meta", sessionUrl),
+            {
+              headers: { "x-review-token": token },
+            },
+          ),
+        )
+      ).json();
+
+    try {
+      await expect(documentMeta()).resolves.toMatchObject({
+        ok: true,
+        updatedAtMs: sealedAt.getTime(),
+      });
+      // Editing the review's own source must not move a sealed revision's clock.
+      const edited = new Date(1_800_000_000_000);
+      await utimes(liveReviewPath, edited, edited);
+      await expect(documentMeta()).resolves.toMatchObject({
+        updatedAtMs: sealedAt.getTime(),
+      });
+    } finally {
+      await handler.close();
+    }
+  });
 
   it("fails clearly if needs-republish has no review UUID", async () => {
     const rootPath = await tempDir("review-session-handler-");

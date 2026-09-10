@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import {
   type ReviewDocumentBundle,
   readReviewDocumentBundle,
@@ -49,7 +51,14 @@ export interface ReviewSessionArtifactInput {
   /** Absent when no map is published; present and unavailable when one is stale. */
   map?: ReviewSessionArtifactMap;
   title: string | undefined;
-  /** `<reviewDir>/review.mdx` — diagnostics and authoring actions only. */
+  /**
+   * The document file the session reports and attaches for diagnostics, and the
+   * directory it renders from. A `legacy` origin points at the materialized
+   * revision's `review.mdx` inside its build directory, so a historical session
+   * describes the revision it presents rather than the editable source; a
+   * `publication` or `candidate` origin points at `<reviewDir>/review.mdx`.
+   * Thread writes never go here — they follow `stateReviewPath`.
+   */
   sourcePath: string;
 }
 
@@ -59,7 +68,6 @@ export interface LegacySessionArtifactInput {
   buildDir: string;
   routePath: string;
   softwareMapRootPath?: string | null;
-  sourcePath: string;
   /** Reported instead of reading the build directory when the revision itself
    * could not be materialized. */
   documentUnavailable?: string;
@@ -97,7 +105,7 @@ export async function legacySessionArtifactFromBuildDir(
     document,
     map,
     title: undefined,
-    sourcePath: input.sourcePath,
+    sourcePath: path.join(input.buildDir, "review.mdx"),
   };
 }
 

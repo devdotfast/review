@@ -36,6 +36,8 @@ export const reviewDocument: ReviewDocumentData = {
   softwareModels: [],
 };
 
+/* Spelled out rather than imported from `review-session-artifact.ts`: this is a
+   message readers see, so the assertions that use it must fail when it changes. */
 export const NEEDS_REPUBLISH_ERROR =
   "This review was published by an earlier version of Review and its document must be regenerated.";
 

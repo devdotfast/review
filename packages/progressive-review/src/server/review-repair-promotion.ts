@@ -353,7 +353,6 @@ export async function promoteReviewRepair<
         buildDir: documentDir,
         routePath: "/",
         softwareMapRootPath: mapDir,
-        sourcePath: path.join(presented.dir, "review.mdx"),
       }),
       revision: request.newDocumentRevision,
       promoted: false,

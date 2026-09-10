@@ -17,7 +17,9 @@ import {
   type CSSProperties,
   type MouseEvent,
   type ReactNode,
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -43,7 +45,7 @@ import { hasTextSelectionWithin } from "./diagram-text-selection";
 import { DiagramTourOverlay, useDiagramTourShell } from "./diagram-tour";
 import { useReviewSession } from "./host/review-session";
 import { HoverCommentButton } from "./hover-comment-button";
-import { useReviewActions } from "./review-context";
+import { type ReviewActionsValue, useReviewActions } from "./review-context";
 import { useReviewPanel } from "./review-panel";
 import type { GuidedTour } from "./review-panel-model";
 import { useTourPersist, useTourRestore } from "./review-view-state";
@@ -75,6 +77,7 @@ type SequenceMessageEdgeData = {
   path: string[];
   openTour: (anchor?: string) => void;
   stepNumber: number | null;
+  actionId: string;
 };
 
 type SequenceMessageFlowEdge = ReactFlowEdge<
@@ -84,6 +87,9 @@ type SequenceMessageFlowEdge = ReactFlowEdge<
 
 const sequenceNodeTypes = { sequenceParticipant: SequenceParticipantNode };
 const sequenceEdgeTypes = { sequenceMessage: SequenceMessageEdge };
+const SequenceCommentContext = createContext<
+  ReviewActionsValue["openCommentDraft"] | null
+>(null);
 
 export function sequenceMessageColor(isActive: boolean): string {
   return isActive ? "var(--accent)" : "var(--edge-muted)";
@@ -123,6 +129,7 @@ export interface SequenceMessage {
   label: string;
   anchor: AnchorRef;
   code?: SequenceMessageCodeBlock;
+  style?: "call" | "return" | "async";
 }
 
 export interface SequenceRef {
@@ -511,25 +518,43 @@ export function SequenceDiagram(input: SequenceInput) {
   );
 }
 
-function SequenceDiagramFigure({
+interface SequenceDiagramViewProps {
+  sequence: SequenceRef;
+  theme: "dark" | "light";
+  stopCount: number;
+  openTour: (anchor?: string) => void;
+  activeTourAnchor: string | null;
+  onCloseTour?: () => void;
+  itemIdentity?: "anchor" | "message";
+  motion?: "restored" | "animated";
+  onComment?: ReviewActionsValue["openCommentDraft"];
+}
+
+function SequenceDiagramFigure(props: SequenceDiagramViewProps) {
+  const motion = useReviewPanel((state) => state.motion);
+  const { openCommentDraft } = useReviewActions();
+  return (
+    <SequenceDiagramView
+      {...props}
+      motion={motion === "restored" ? "restored" : "animated"}
+      onComment={openCommentDraft}
+    />
+  );
+}
+
+/** Existing sequence visuals with explicit interaction and display inputs. */
+export function SequenceDiagramView({
   sequence,
   theme,
   stopCount,
   openTour,
   activeTourAnchor,
   onCloseTour,
-}: {
-  sequence: ReturnType<typeof createSequence>;
-  theme: ReturnType<typeof useReviewDebugSettings>["theme"];
-  stopCount: number;
-  openTour: (anchor?: string) => void;
-  activeTourAnchor: string | null;
-  /** Present when the figure is the fullscreen tour stage: the header swaps
-   * its Tour button for a close control and message dots show stop numbers. */
-  onCloseTour?: () => void;
-}) {
+  itemIdentity = "anchor",
+  motion: panelMotion = "animated",
+  onComment,
+}: SequenceDiagramViewProps) {
   const sequenceScrollRef = useRef<HTMLDivElement | null>(null);
-  const panelMotion = useReviewPanel((state) => state.motion);
   const [availableWidth, setAvailableWidth] = useState(0);
   useEffect(() => {
     const scroll = sequenceScrollRef.current;
@@ -574,7 +599,9 @@ function SequenceDiagramFigure({
   const reactFlowEdges: SequenceMessageFlowEdge[] = useMemo(
     () =>
       sequence.messages.map((message, index) => {
-        const isActive = activeTourAnchor === message.anchor.id;
+        const actionId =
+          itemIdentity === "message" ? message.id : message.anchor.id;
+        const isActive = activeTourAnchor === actionId;
         const color = sequenceMessageColor(isActive);
         return {
           id: message.id,
@@ -584,10 +611,16 @@ function SequenceDiagramFigure({
           sourceHandle: sequenceHandleId(message.id, "source"),
           targetHandle: sequenceHandleId(message.id, "target"),
           markerEnd: {
-            type: MarkerType.ArrowClosed,
+            type:
+              message.style === "async"
+                ? MarkerType.Arrow
+                : MarkerType.ArrowClosed,
             color,
           },
-          style: { stroke: color },
+          style: {
+            stroke: color,
+            strokeDasharray: message.style === "return" ? "6 4" : undefined,
+          },
           data: {
             message,
             index,
@@ -597,6 +630,7 @@ function SequenceDiagramFigure({
             path: sequenceEdgePath(sequence.messages, message),
             openTour,
             stepNumber: onCloseTour ? index + 1 : null,
+            actionId,
           },
           className: isActive
             ? "sequence-message clickable active"
@@ -604,14 +638,14 @@ function SequenceDiagramFigure({
           zIndex: isActive ? 2 : 1,
         };
       }),
-    [activeTourAnchor, onCloseTour, openTour, sequence, width],
+    [activeTourAnchor, itemIdentity, onCloseTour, openTour, sequence, width],
   );
   const onEdgeClick: EdgeMouseHandler<SequenceMessageFlowEdge> = (
     event,
     edge,
   ) => {
     event.stopPropagation();
-    if (edge.data) openTour(edge.data.message.anchor.id);
+    if (edge.data) openTour(edge.data.actionId);
   };
   const scrollSequenceHorizontally = useCallback((event: WheelEvent) => {
     const scroll = event.currentTarget;
@@ -639,8 +673,18 @@ function SequenceDiagramFigure({
   useEffect(() => {
     const scroll = sequenceScrollRef.current;
     if (!scroll || !activeTourAnchor) return;
+    const scrollSequence =
+      itemIdentity === "message"
+        ? {
+            ...sequence,
+            messages: sequence.messages.map((message) => ({
+              ...message,
+              anchor: { ...message.anchor, id: message.id },
+            })),
+          }
+        : sequence;
     const nextScrollLeft = sequenceActiveMessageScrollTarget({
-      sequence,
+      sequence: scrollSequence,
       activeAnchor: activeTourAnchor,
       laneWidth,
       viewportWidth: scroll.clientWidth,
@@ -648,7 +692,7 @@ function SequenceDiagramFigure({
       currentScrollLeft: scroll.scrollLeft,
     });
     const nextScrollTop = sequenceActiveMessageScrollTopTarget({
-      sequence,
+      sequence: scrollSequence,
       activeAnchor: activeTourAnchor,
       messageTop,
       messageGap,
@@ -671,7 +715,7 @@ function SequenceDiagramFigure({
       top,
       behavior: panelMotion === "restored" ? "auto" : "smooth",
     });
-  }, [activeTourAnchor, laneWidth, panelMotion, sequence]);
+  }, [activeTourAnchor, itemIdentity, laneWidth, panelMotion, sequence]);
   // SAFETY: the `--sequence-*` keys are CSS custom properties, which React
   // forwards to style.setProperty; the CSSProperties typings only omit custom
   // names.
@@ -682,7 +726,7 @@ function SequenceDiagramFigure({
   } as CSSProperties;
 
   return (
-    <>
+    <SequenceCommentContext.Provider value={onComment ?? null}>
       <figure
         className={sequenceDiagramClassName(Boolean(activeTourAnchor))}
         style={style}
@@ -736,7 +780,7 @@ function SequenceDiagramFigure({
           />
         </div>
       </figure>
-    </>
+    </SequenceCommentContext.Provider>
   );
 }
 
@@ -802,7 +846,7 @@ function DiagramHeader({
 function SequenceParticipantNode({
   data,
 }: ReactFlowNodeProps<SequenceParticipantFlowNode>) {
-  const { openCommentDraft } = useReviewActions();
+  const openCommentDraft = useContext(SequenceCommentContext);
   const { participant, diagram, height, messages, messageGap, messageTop } =
     data;
   const target = buildGraphTarget({
@@ -819,7 +863,7 @@ function SequenceParticipantNode({
   const openParticipantComment = (event: MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    openCommentDraft({
+    openCommentDraft?.({
       target,
       title: participant.label,
       body: "",
@@ -843,7 +887,9 @@ function SequenceParticipantNode({
         >
           {participant.label}
         </span>
-        <HoverCommentButton onClick={openParticipantComment} />
+        {openCommentDraft && (
+          <HoverCommentButton onClick={openParticipantComment} />
+        )}
       </div>
       <div className="sequence-lifeline" />
       {activeMessages.flatMap((message, index) => {
@@ -914,7 +960,7 @@ export function sequenceSelfMessagePath(input: {
 function SequenceMessageEdge(
   props: ReactFlowEdgeProps<SequenceMessageFlowEdge>,
 ) {
-  const { openCommentDraft } = useReviewActions();
+  const openCommentDraft = useContext(SequenceCommentContext);
   const [isHoveringEdge, setIsHoveringEdge] = useState(false);
   const data = props.data;
   if (!data) return null;
@@ -957,7 +1003,7 @@ function SequenceMessageEdge(
   const openMessageComment = (event: MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    openCommentDraft({
+    openCommentDraft?.({
       target,
       title: data.message.label,
       body: "",
@@ -980,7 +1026,7 @@ function SequenceMessageEdge(
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          data.openTour(data.message.anchor.id);
+          data.openTour(data.actionId);
         }}
       />
       <EdgeLabelRenderer>
@@ -997,11 +1043,12 @@ function SequenceMessageEdge(
             transform: `translate(-50%, -50%) translate(${props.sourceX}px,${props.sourceY}px)`,
           }}
           data-review-anchor-id={data.message.anchor.id}
+          data-review-item-id={data.message.id}
           data-review-locator={targetKey(target)}
           onContextMenu={openMessageComment}
           onClick={(event) => {
             event.stopPropagation();
-            data.openTour(data.message.anchor.id);
+            data.openTour(data.actionId);
           }}
           aria-label={data.message.label}
         >
@@ -1032,18 +1079,20 @@ function SequenceMessageEdge(
             onClick={(event) => {
               event.stopPropagation();
               if (hasTextSelectionWithin(event.currentTarget)) return;
-              data.openTour(data.message.anchor.id);
+              data.openTour(data.actionId);
             }}
             onKeyDown={(event) => {
               if (event.key !== "Enter" && event.key !== " ") return;
               event.preventDefault();
               event.stopPropagation();
-              data.openTour(data.message.anchor.id);
+              data.openTour(data.actionId);
             }}
           >
             {data.message.label}
           </span>
-          <HoverCommentButton onClick={openMessageComment} />
+          {openCommentDraft && (
+            <HoverCommentButton onClick={openMessageComment} />
+          )}
         </div>
       </EdgeLabelRenderer>
     </>

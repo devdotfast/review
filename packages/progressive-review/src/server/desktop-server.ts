@@ -43,6 +43,11 @@ import {
   parseAuthoringSessionKey,
   parseFreshSourceSessionHarness,
 } from "../authoring-session";
+import { EvidenceProviderError } from "../host/evidence-provider";
+import { HostCredentials } from "../host/host-credentials";
+import { createHostHttp } from "../host/host-http";
+import { ReviewHost } from "../host/review-host";
+import { ReviewHostStore } from "../host/review-host-store";
 import { preferredInstalledReviewAgent } from "../installed-review-agent";
 import * as claudeCode from "../native-agent/claude-code";
 import * as codex from "../native-agent/codex";
@@ -89,7 +94,6 @@ import {
   ReviewOpenThreadsError,
   requireClosedThreadsForRepublish,
 } from "../review-publish-thread-gate";
-import { clearReopenPending, markReopenPending } from "../review-reopen-marker";
 import { devReviewHome } from "../review-storage";
 import { readReviewSoftwareMapBundle } from "../software-map-bundle";
 import { createTutorialAuthoringSession } from "../tutorial-authoring-session";
@@ -257,6 +261,7 @@ export interface GlobalReviewServerInput {
   token?: string;
   instanceId?: string;
   discoveryPath?: string;
+  jsonHost?: { databasePath: string; discoveryPath: string };
   sessionHandlerFactory?: typeof createReviewSessionHandler;
   tutorialAuthoringSessionFactory?: typeof createTutorialAuthoringSession;
   tutorialAuthorSessionBinder?: typeof bindReviewAuthorSession;
@@ -302,10 +307,18 @@ export function createGlobalReviewServer(
   const sessions = new Map<string, ActiveReviewSession>();
   const reviewLocks = new Map<string, Promise<void>>();
   const globalClients = new Set<ReviewDesktopEventClient>();
-  const tutorial = createTutorialService({
+  const tutorialOptions: Parameters<typeof createTutorialService>[0] = {
     packageRoot: input.packageRoot,
     deleteReview: deleteStoredReview,
-  });
+  };
+  if (input.jsonHost)
+    tutorialOptions.isolatedHome = path.join(
+      devReviewHome(),
+      "review-host-tutorial",
+    );
+  const tutorial = createTutorialService(tutorialOptions);
+  const findRuntimeReview = (uuid: string) =>
+    input.jsonHost ? tutorial.lookup(uuid) : findReview(uuid);
   let preparedTutorial: PreparedTutorial | null = null;
   const tutorialAuthoringStates = new Map<string, TutorialAuthoringState>();
   let reviewReaper: ReturnType<typeof setInterval> | undefined;
@@ -400,9 +413,95 @@ export function createGlobalReviewServer(
       desktopAttached: relay.attached,
     }),
   );
+  const jsonStore = input.jsonHost
+    ? new ReviewHostStore(input.jsonHost.databasePath)
+    : null;
+  const jsonHost = jsonStore
+    ? new ReviewHost(jsonStore, {
+        onPublishRejected: () =>
+          telemetry.capturePublishGateRejected({ gate: "publish_ready" }),
+      })
+    : null;
+  const jsonCredentials = jsonStore
+    ? new HostCredentials(jsonStore, token)
+    : null;
+  if (jsonHost && jsonCredentials) {
+    jsonHost.store.command(
+      {
+        clientId: "host-canvas-startup",
+        commandId: crypto.randomUUID(),
+        request: {},
+      },
+      () => {
+        jsonHost.store.clearCanvasReports();
+        return null;
+      },
+    );
+  }
+  const jsonRoutes =
+    jsonHost && jsonCredentials
+      ? createHostHttp({
+          host: jsonHost,
+          credentials: jsonCredentials,
+          baseUrl: urlForBoundPort,
+          openReview: async (reviewId) => {
+            const result = await relay.dispatch("host", {
+              name: "openHostReview",
+              args: { reviewId },
+            });
+            if (!result.ok)
+              throw new EvidenceProviderError(
+                "DEPENDENCY_UNAVAILABLE",
+                "Review Desktop could not open this review.",
+              );
+          },
+        })
+      : null;
+  if (jsonRoutes) app.route("/v1", jsonRoutes.app);
   app.use("*", async (context, next) => {
     if (!isAuthorizedRequest(context.req.raw, token)) {
       return globalJson(401, { ok: false, error: "Unauthorized" });
+    }
+    if (input.jsonHost) {
+      const pathname = context.req.path;
+      // Old reviews are deliberately inactive, not implicitly migrated. Native
+      // shell polling must not scan them or trigger the legacy deletion policy.
+      if (pathname === "/reviews" && context.req.method === "GET")
+        return globalJson(200, { reviews: [], errors: [] });
+      if (
+        ["/info", "/publish-ready", "/map-publish-ready"].includes(pathname) ||
+        pathname.startsWith("/reviews/")
+      ) {
+        const tutorialDelete = /^\/reviews\/([0-9a-f-]+)$/i.exec(pathname);
+        if (
+          tutorialDelete &&
+          context.req.method === "DELETE" &&
+          (await tutorial.referencesReview(tutorialDelete[1]!))
+        ) {
+          await withReviewLock(
+            TUTORIAL_LIFECYCLE_LOCK_KEY,
+            deleteTutorialLocked,
+          );
+          return globalJson(200, { ok: true });
+        }
+        return globalJson(410, {
+          ok: false,
+          code: "legacy_review_inactive",
+          error:
+            "Older file-based reviews are unchanged and inactive in this app. Use the Review host API for new reviews.",
+        });
+      }
+      const sessionMatch = /^\/sessions\/([^/]+)/.exec(pathname);
+      if (
+        sessionMatch &&
+        !sessions.get(decodeURIComponent(sessionMatch[1]!))?.tutorialPreparation
+      )
+        return globalJson(410, {
+          ok: false,
+          code: "legacy_review_inactive",
+          error:
+            "This older review session is inactive. Open a host review or the bundled tutorial.",
+        });
     }
     await next();
   });
@@ -410,9 +509,15 @@ export function createGlobalReviewServer(
   // Every lookup is authenticated by the desktop token above.
   app.get("/agent-threads/:threadId", (context) => {
     const threadId = context.req.param("threadId");
+    const tutorialOnly = context.req.query("scope") === "tutorial";
     for (const session of sessions.values()) {
+      if (tutorialOnly && !session.tutorialPreparation) continue;
       const found = session.handler.findAgentThread(threadId);
-      if (found) return globalJson(200, found);
+      if (found)
+        return globalJson(
+          200,
+          tutorialOnly ? { ...found, tutorial: true } : found,
+        );
     }
     return globalJson(404, {
       ok: false,
@@ -530,7 +635,7 @@ export function createGlobalReviewServer(
       );
     }
     const view = parsedView.success ? parsedView.data : undefined;
-    const review = await findReview(uuid);
+    const review = await findRuntimeReview(uuid);
     if (!review) {
       throw new ReviewServerError("Review not found.", 404);
     }
@@ -861,7 +966,7 @@ export function createGlobalReviewServer(
       const request = parseReviewPublishReadyRequest(
         await readBoundedRequestJson(context.req.raw),
       );
-      let review = await findReview(request.reviewUuid);
+      let review = await findRuntimeReview(request.reviewUuid);
       if (!review) throw new ReviewServerError("Review not found.", 404);
       const agent = request.agent;
       if (agent) {
@@ -888,7 +993,7 @@ export function createGlobalReviewServer(
       const request = parseReviewPublishReadyRequest(
         await readBoundedRequestJson(context.req.raw),
       );
-      let review = await findReview(request.reviewUuid);
+      let review = await findRuntimeReview(request.reviewUuid);
       if (!review) throw new ReviewServerError("Review not found.", 404);
       const agent = request.agent;
       if (agent) {
@@ -1129,7 +1234,7 @@ export function createGlobalReviewServer(
           ) {
             throw new ReviewServerError("Review session is unavailable.", 404);
           }
-          const latest = await findReview(review.review.uuid);
+          const latest = await findRuntimeReview(review.review.uuid);
           if (!latest) throw new ReviewServerError("Review not found.", 404);
           rejectTerminalPublication(latest);
           rejectConcurrentPublication(latest, review);
@@ -1142,7 +1247,6 @@ export function createGlobalReviewServer(
           );
           successor.promoted = true;
           await startSessionTelemetry(successor);
-          await clearReopenPending(successor.review.review.worktreePath);
           broadcastGlobal({
             event: "review-status-changed",
             uuid: successor.review.review.uuid,
@@ -1268,7 +1372,7 @@ export function createGlobalReviewServer(
         );
       }
       await withReviewLock(review.review.uuid, async () => {
-        const latest = await findReview(review.review.uuid);
+        const latest = await findRuntimeReview(review.review.uuid);
         if (!latest) throw new ReviewServerError("Review not found.", 404);
         rejectTerminalPublication(latest);
         rejectConcurrentPublication(latest, review);
@@ -1554,7 +1658,7 @@ export function createGlobalReviewServer(
           prepared.review.review.uuid,
           async () => {
             if (!isCurrent()) return undefined;
-            const latest = await findReview(prepared.review.review.uuid);
+            const latest = await findRuntimeReview(prepared.review.review.uuid);
             if (!latest) return undefined;
             const bound = await tutorialAuthorSessionBinder(latest, session);
             prepared.review = bound;
@@ -1642,7 +1746,7 @@ export function createGlobalReviewServer(
       if (!existsSync(dir)) {
         throw new ReviewServerError("Review not found.", 404);
       }
-      const stored = await findReview(uuid).catch(() => null);
+      const stored = await findRuntimeReview(uuid).catch(() => null);
       if (stored) {
         await deleteStoredReviewUnlocked(stored);
         return;
@@ -1654,10 +1758,6 @@ export function createGlobalReviewServer(
         open.map((session) => closeSession(session, "closed", false)),
       );
       await rm(dir, { recursive: true, force: true });
-      const worktreePath = open[0]?.review.review.worktreePath;
-      if (worktreePath) {
-        await clearReopenPending(worktreePath).catch(() => undefined);
-      }
       broadcastGlobal({ event: "review-deleted", uuid });
     });
   }
@@ -1682,7 +1782,6 @@ export function createGlobalReviewServer(
       reviewUuid: review.review.uuid,
     });
     await rm(review.dir, { recursive: true, force: true });
-    await clearReopenPending(review.review.worktreePath).catch(() => undefined);
     broadcastGlobal({ event: "review-deleted", uuid: review.review.uuid });
   }
 
@@ -1794,7 +1893,7 @@ export function createGlobalReviewServer(
       reviewUuid: registration.review.review.uuid,
       historicalRevision: registration.historicalRevision,
       listDocumentVersions: async () => {
-        const latest = await findReview(registration.review.review.uuid);
+        const latest = await findRuntimeReview(registration.review.review.uuid);
         return latest ? listReviewDocumentVersions(latest) : [];
       },
       session: sessionWire,
@@ -1843,7 +1942,9 @@ export function createGlobalReviewServer(
       resolveQuestionSourceSession: registration.resolveQuestionSourceSession,
       onQuestionAgentSession: (agent) =>
         withReviewLock(registration.review.review.uuid, async () => {
-          const latest = await findReview(registration.review.review.uuid);
+          const latest = await findRuntimeReview(
+            registration.review.review.uuid,
+          );
           if (!latest) throw new Error("Review not found.");
           active.review = await touchReviewAgentSession(
             latest,
@@ -1895,7 +1996,7 @@ export function createGlobalReviewServer(
       throw new Error("An unpromoted Review session cannot be submitted.");
     }
     await withReviewLock(active.review.review.uuid, async () => {
-      const latest = await findReview(active.review.review.uuid);
+      const latest = await findRuntimeReview(active.review.review.uuid);
       if (
         !latest ||
         active.closing ||
@@ -1913,12 +2014,6 @@ export function createGlobalReviewServer(
           ? "accepted"
           : "awaiting-agent-updates";
       active.review = await setReviewStatus(latest, status);
-      if (submission.decision === "request-changes") {
-        await markReopenPending(
-          active.review.review.worktreePath,
-          submission.createdAt,
-        );
-      }
       broadcastGlobal({
         event: "review-status-changed",
         uuid: active.review.review.uuid,
@@ -1943,7 +2038,7 @@ export function createGlobalReviewServer(
       throw new Error("An unpromoted Review session cannot be dismissed.");
     }
     await withReviewLock(active.review.review.uuid, async () => {
-      const latest = await findReview(active.review.review.uuid);
+      const latest = await findRuntimeReview(active.review.review.uuid);
       if (
         !latest ||
         active.closing ||
@@ -1953,7 +2048,6 @@ export function createGlobalReviewServer(
         return;
       }
       active.review = await dismissReview(latest);
-      await clearReopenPending(active.review.review.worktreePath);
       await broadcastReviewAttention(active.review, "dismissed");
       broadcastGlobal({
         event: "session-updated",
@@ -1982,7 +2076,7 @@ export function createGlobalReviewServer(
       throw new ReviewServerError("Review not found.", 404);
     }
     return withReviewLock(uuid, async () => {
-      const stored = await findReview(uuid);
+      const stored = await findRuntimeReview(uuid);
       if (!stored) throw new ReviewServerError("Review not found.", 404);
       const next = dismissed
         ? await dismissReview(stored)
@@ -2039,7 +2133,7 @@ export function createGlobalReviewServer(
   async function reapDismissedReviews(
     retentionDays: number | null,
   ): Promise<void> {
-    if (retentionDays === null) return;
+    if (input.jsonHost || retentionDays === null) return;
     const listed = await listReviews().catch(() => null);
     if (!listed) return;
     for (const stored of selectReapableReviews(listed.reviews, retentionDays)) {
@@ -2049,9 +2143,6 @@ export function createGlobalReviewServer(
       try {
         await withReviewLock(uuid, async () => {
           await rm(stored.dir, { recursive: true, force: true });
-          await clearReopenPending(stored.review.worktreePath).catch(
-            () => undefined,
-          );
           broadcastGlobal({ event: "review-deleted", uuid });
         });
         console.info(
@@ -2206,20 +2297,33 @@ export function createGlobalReviewServer(
       boundPort = await listen(httpServer, input.port);
       discovery.url = urlForBoundPort();
       await writePrivateJsonAtomic(discoveryPath, discovery);
+      if (input.jsonHost && jsonStore && jsonCredentials) {
+        await writePrivateJsonAtomic(input.jsonHost.discoveryPath, {
+          apiVersion: 1,
+          instanceId,
+          appPid: input.appPid,
+          hostId: jsonStore.hostId,
+          workspaceId: jsonStore.workspaceId,
+          url: urlForBoundPort(),
+          token: jsonCredentials.agentToken,
+        });
+      }
       agentPreparation = prepareAgentServers().catch((error) =>
         console.error(
           "[Review] Could not inspect enabled agent integrations",
           error,
         ),
       );
-      void runReviewReaper().catch((error) =>
-        console.error("Could not run Review cleanup:", error),
-      );
-      reviewReaper = setInterval(() => {
+      if (!input.jsonHost) {
         void runReviewReaper().catch((error) =>
           console.error("Could not run Review cleanup:", error),
         );
-      }, REVIEW_REAPER_INTERVAL_MS);
+        reviewReaper = setInterval(() => {
+          void runReviewReaper().catch((error) =>
+            console.error("Could not run Review cleanup:", error),
+          );
+        }, REVIEW_REAPER_INTERVAL_MS);
+      }
     },
     close: async () => {
       if (closing) return;
@@ -2227,6 +2331,9 @@ export function createGlobalReviewServer(
       if (reviewReaper) clearInterval(reviewReaper);
       reviewReaper = undefined;
       await removeMatchingDiscovery(discoveryPath, discovery);
+      if (input.jsonHost)
+        await removeMatchingDiscovery(input.jsonHost.discoveryPath, discovery);
+      jsonRoutes?.close();
       await abortTutorialAuthoringStates();
       await agentPreparation;
       await Promise.all(
@@ -2241,6 +2348,7 @@ export function createGlobalReviewServer(
         [...agentServers.values()].map((server) => server.close()),
       );
       await closeHttpServer(httpServer);
+      jsonStore?.close();
       await telemetry.shutdown(1_500);
     },
   };

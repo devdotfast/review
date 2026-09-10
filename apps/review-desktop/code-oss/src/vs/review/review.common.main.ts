@@ -344,6 +344,7 @@ import {
   IReviewCodeResourceService,
   ReviewCodeResourceService,
 } from "./services/reviewCodeResourceService.js";
+import { IReviewHostSourceService, ReviewHostSourceService } from "./services/reviewHostSourceService.js";
 import {
   IReviewSessionService,
   ReviewSessionService,
@@ -404,6 +405,7 @@ registerSingleton(
   ReviewCodeResourceService,
   InstantiationType.Delayed,
 );
+registerSingleton(IReviewHostSourceService, ReviewHostSourceService, InstantiationType.Delayed);
 registerSingleton(
   IReviewVerbsService,
   ReviewVerbsService,

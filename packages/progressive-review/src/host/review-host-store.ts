@@ -4,15 +4,32 @@ import path from "node:path";
 import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 
 import {
+  type HostAsset,
+  HostAssetSchema,
   type HostBinding,
   HostBindingSchema,
+  type HostCanvasReport,
+  HostCanvasReportSchema,
+  type HostCheckpoint,
+  HostCheckpointSchema,
   HostDefinitionSchema,
   type HostDocument,
   type HostDocumentManifest,
   HostDocumentManifestSchema,
   type HostDocumentState,
   HostDocumentStateSchema,
+  HostHashSchema,
+  type HostMap,
+  HostMapSummarySchema,
+  type HostMapVersion,
+  HostMapVersionSchema,
   HostNodeSchema,
+  type HostPrincipal,
+  HostPrincipalSchema,
+  type HostRepinPlan,
+  HostRepinPlanSchema,
+  type HostRetainedTrace,
+  HostRetainedTraceSchema,
   type HostReview,
   HostReviewSchema,
   type HostSourceQuote,
@@ -57,6 +74,12 @@ export interface HostPreparedDocument {
   binding: HostBinding;
   evidence: Record<string, HostSourceQuote>;
 }
+export interface HostPreparedMap {
+  repositoryId: string;
+  commit: string;
+  map: HostMap;
+  evidence: Record<string, HostSourceQuote>;
+}
 export interface HostStoredEvent {
   cursor: string;
   reviewId: string | null;
@@ -71,6 +94,10 @@ export interface HostRetiredIds {
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS host_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS host_principals (
+  id TEXT PRIMARY KEY, identity_key TEXT NOT NULL UNIQUE,
+  record_json TEXT NOT NULL CHECK(json_valid(record_json))
+) STRICT;
 CREATE TABLE IF NOT EXISTS host_repositories (
   id TEXT PRIMARY KEY, display_name TEXT NOT NULL, vcs TEXT NOT NULL CHECK (vcs IN ('git','jj')),
   local_path TEXT NOT NULL UNIQUE
@@ -100,6 +127,48 @@ CREATE TABLE IF NOT EXISTS host_document_object_refs (
 CREATE TABLE IF NOT EXISTS host_document_ids (
   review_id TEXT NOT NULL REFERENCES host_reviews(id), namespace TEXT NOT NULL CHECK(namespace IN ('node','definition')),
   local_id TEXT NOT NULL, PRIMARY KEY(review_id,namespace,local_id)
+) STRICT;
+CREATE TABLE IF NOT EXISTS host_checkpoints (
+  id TEXT PRIMARY KEY, review_id TEXT NOT NULL REFERENCES host_reviews(id),
+  ordinal INTEGER NOT NULL CHECK(ordinal > 0), document_version INTEGER NOT NULL,
+  record_json TEXT NOT NULL CHECK(json_valid(record_json)), UNIQUE(review_id,ordinal),
+  FOREIGN KEY(review_id,document_version) REFERENCES host_document_versions(review_id,version)
+) STRICT;
+CREATE TABLE IF NOT EXISTS host_repin_plans (
+  id TEXT PRIMARY KEY, review_id TEXT NOT NULL REFERENCES host_reviews(id),
+  document_version INTEGER NOT NULL, record_json TEXT NOT NULL CHECK(json_valid(record_json)),
+  FOREIGN KEY(review_id,document_version) REFERENCES host_document_versions(review_id,version)
+) STRICT;
+CREATE TABLE IF NOT EXISTS host_maps (
+  id TEXT PRIMARY KEY, review_id TEXT NOT NULL REFERENCES host_reviews(id),
+  repository_id TEXT NOT NULL REFERENCES host_repositories(id), commit_oid TEXT NOT NULL,
+  current_revision INTEGER NOT NULL CHECK(current_revision >= 0),
+  FOREIGN KEY(id,current_revision) REFERENCES host_map_versions(map_id,revision) DEFERRABLE INITIALLY DEFERRED
+) STRICT;
+CREATE TABLE IF NOT EXISTS host_map_versions (
+  sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
+  map_id TEXT NOT NULL REFERENCES host_maps(id), revision INTEGER NOT NULL CHECK(revision >= 0),
+  content_hash TEXT NOT NULL, created_at TEXT NOT NULL,
+  record_json TEXT NOT NULL CHECK(json_valid(record_json)),
+  evidence_json TEXT NOT NULL CHECK(json_valid(evidence_json)), UNIQUE(map_id,revision)
+) STRICT;
+CREATE TABLE IF NOT EXISTS host_traces (
+  id TEXT PRIMARY KEY, review_id TEXT NOT NULL REFERENCES host_reviews(id),
+  content_hash TEXT NOT NULL, record_json TEXT NOT NULL CHECK(json_valid(record_json))
+) STRICT;
+CREATE TABLE IF NOT EXISTS host_asset_blobs (
+  hash TEXT PRIMARY KEY, bytes BLOB NOT NULL
+) STRICT;
+CREATE TABLE IF NOT EXISTS host_assets (
+  id TEXT PRIMARY KEY, review_id TEXT NOT NULL REFERENCES host_reviews(id),
+  blob_hash TEXT NOT NULL REFERENCES host_asset_blobs(hash),
+  content_hash TEXT NOT NULL, record_json TEXT NOT NULL CHECK(json_valid(record_json))
+) STRICT;
+CREATE TABLE IF NOT EXISTS host_canvas_reports (
+  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+  review_id TEXT NOT NULL REFERENCES host_reviews(id), canvas_session_id TEXT NOT NULL,
+  principal_id TEXT NOT NULL, received_at TEXT NOT NULL,
+  report_json TEXT NOT NULL CHECK(json_valid(report_json)), UNIQUE(review_id,canvas_session_id)
 ) STRICT;
 CREATE TABLE IF NOT EXISTS host_command_receipts (
   client_id TEXT NOT NULL, command_id TEXT NOT NULL, request_hash TEXT NOT NULL,
@@ -140,7 +209,19 @@ function preflightDatabase(databasePath: string): void {
         "SELECT name FROM sqlite_master WHERE type='table' AND name='host_meta'",
       )
       .get();
-    if (!metadata) return;
+    if (!metadata) {
+      const foreignTable = db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' LIMIT 1",
+        )
+        .get();
+      if (foreignTable)
+        throw new HostStoreError(
+          "INVALID_STATE",
+          "This file is not a JSON Review host database. Choose a separate review home; the existing data has not been changed.",
+        );
+      return;
+    }
     const version = db
       .prepare("SELECT value FROM host_meta WHERE key='schema_version'")
       .get();
@@ -298,6 +379,36 @@ export class ReviewHostStore {
         "INSERT INTO host_repositories(id,display_name,vcs,local_path) VALUES (?,?,?,?)",
       )
       .run(input.id, input.displayName, input.vcs, input.localPath);
+  }
+
+  /** Identity keys are host-private, never supplied in portable review data. */
+  principal(identityKey: string): HostPrincipal | null {
+    const row = this.db
+      .prepare("SELECT record_json FROM host_principals WHERE identity_key=?")
+      .get(identityKey);
+    return row
+      ? HostPrincipalSchema.parse(parseJsonText(rowText(row, "record_json")))
+      : null;
+  }
+
+  putPrincipal(identityKey: string, principal: HostPrincipal): void {
+    this.requireWrite();
+    this.db
+      .prepare(
+        "INSERT INTO host_principals(id,identity_key,record_json) VALUES (?,?,?)",
+      )
+      .run(
+        principal.id,
+        identityKey,
+        canonicalHostJson(HostPrincipalSchema.parse(principal)),
+      );
+  }
+
+  repositoryForPath(localPath: string): string | null {
+    const row = this.db
+      .prepare("SELECT id FROM host_repositories WHERE local_path=?")
+      .get(localPath);
+    return row ? rowText(row, "id") : null;
   }
 
   repositories(): { id: string; displayName: string; vcs: "git" | "jj" }[] {
@@ -541,6 +652,506 @@ export class ReviewHostStore {
         version: z.number().int().parse(row.version),
         contentHash: rowText(row, "content_hash"),
         createdAt: rowText(row, "created_at"),
+      }));
+  }
+
+  publish(input: {
+    reviewId: string;
+    expectedDocumentVersion: number;
+    expectedReviewVersion: number;
+    mapVersions: HostCheckpoint["mapVersions"];
+    principalId: string;
+  }): HostCheckpoint {
+    this.requireWrite();
+    const review = this.review(input.reviewId);
+    if (
+      review.documentVersion !== input.expectedDocumentVersion ||
+      review.version !== input.expectedReviewVersion
+    )
+      throw new HostStoreError(
+        "VERSION_CONFLICT",
+        "Review or document changed. Read the current versions and retry.",
+      );
+    if (review.deletedAt !== null || review.workflow === "closed")
+      throw new HostStoreError(
+        "INVALID_STATE",
+        "Closed or trashed reviews cannot be published.",
+      );
+    const document = this.document(review.id);
+    const latest = this.db
+      .prepare(
+        "SELECT COALESCE(MAX(ordinal),0) AS ordinal FROM host_checkpoints WHERE review_id=?",
+      )
+      .get(review.id)!;
+    const checkpoint = HostCheckpointSchema.parse({
+      id: randomUUID(),
+      reviewId: review.id,
+      ordinal: z.number().int().parse(latest.ordinal) + 1,
+      documentVersion: document.version,
+      bindingId: document.binding.id,
+      title: review.title,
+      description: review.description,
+      mapVersions: input.mapVersions,
+      authorSessionId: review.authorSessionId,
+      createdBy: input.principalId,
+      createdAt: new Date().toISOString(),
+    });
+    this.db
+      .prepare(
+        "INSERT INTO host_checkpoints(id,review_id,ordinal,document_version,record_json) VALUES (?,?,?,?,?)",
+      )
+      .run(
+        checkpoint.id,
+        review.id,
+        checkpoint.ordinal,
+        checkpoint.documentVersion,
+        canonicalHostJson(checkpoint),
+      );
+    this.updateReview(review.id, review.version, (before) => ({
+      ...before,
+      version: before.version + 1,
+      workflow: "in_review",
+      publishedCheckpointId: checkpoint.id,
+      updatedAt: checkpoint.createdAt,
+    }));
+    return checkpoint;
+  }
+
+  checkpoints(reviewId: string): HostCheckpoint[] {
+    this.review(reviewId);
+    return this.db
+      .prepare(
+        "SELECT record_json FROM host_checkpoints WHERE review_id=? ORDER BY ordinal DESC",
+      )
+      .all(reviewId)
+      .map((row) =>
+        HostCheckpointSchema.parse(parseJsonText(rowText(row, "record_json"))),
+      );
+  }
+
+  saveRepinPlan(plan: HostRepinPlan): void {
+    this.requireWrite();
+    const review = this.review(plan.reviewId);
+    if (review.documentVersion !== plan.basedOnDocumentVersion)
+      throw new HostStoreError(
+        "VERSION_CONFLICT",
+        "Document changed while planning the repin. Make a new plan.",
+      );
+    if (review.deletedAt !== null || review.workflow === "closed")
+      throw new HostStoreError(
+        "INVALID_STATE",
+        "Closed or trashed reviews cannot be repinned.",
+      );
+    this.db
+      .prepare(
+        "INSERT INTO host_repin_plans(id,review_id,document_version,record_json) VALUES (?,?,?,?)",
+      )
+      .run(
+        plan.id,
+        plan.reviewId,
+        plan.basedOnDocumentVersion,
+        canonicalHostJson(HostRepinPlanSchema.parse(plan)),
+      );
+  }
+
+  repinPlan(reviewId: string, planId: string): HostRepinPlan {
+    const row = this.db
+      .prepare(
+        "SELECT record_json FROM host_repin_plans WHERE id=? AND review_id=?",
+      )
+      .get(planId, reviewId);
+    if (!row) throw new HostStoreError("NOT_FOUND", "Repin plan not found.");
+    return HostRepinPlanSchema.parse(
+      parseJsonText(rowText(row, "record_json")),
+    );
+  }
+
+  checkpoint(reviewId: string, checkpointId: string): HostCheckpoint {
+    const row = this.db
+      .prepare(
+        "SELECT record_json FROM host_checkpoints WHERE review_id=? AND id=?",
+      )
+      .get(reviewId, checkpointId);
+    if (!row) throw new HostStoreError("NOT_FOUND", "Checkpoint not found.");
+    return HostCheckpointSchema.parse(
+      parseJsonText(rowText(row, "record_json")),
+    );
+  }
+
+  createMap(reviewId: string, prepared: HostPreparedMap): HostMapVersion {
+    this.requireWrite();
+    const review = this.mutableResourceReview(reviewId);
+    if (review.repositoryId !== prepared.repositoryId)
+      throw new HostStoreError(
+        "INVALID_STATE",
+        "Map repository does not belong to this review.",
+      );
+    const mapId = randomUUID();
+    this.db
+      .prepare(
+        "INSERT INTO host_maps(id,review_id,repository_id,commit_oid,current_revision) VALUES (?,?,?,?,0)",
+      )
+      .run(mapId, reviewId, prepared.repositoryId, prepared.commit);
+    return this.writeMapVersion(mapId, 0, prepared);
+  }
+
+  commitMap(
+    reviewId: string,
+    mapId: string,
+    expectedVersion: number,
+    prepared: HostPreparedMap,
+  ): HostMapVersion {
+    this.requireWrite();
+    this.mutableResourceReview(reviewId);
+    const before = this.currentMap(reviewId, mapId);
+    if (before.revision !== expectedVersion)
+      throw new HostStoreError(
+        "VERSION_CONFLICT",
+        "Map changed. Read its current revision and retry.",
+      );
+    if (
+      before.repositoryId !== prepared.repositoryId ||
+      before.commit !== prepared.commit
+    )
+      throw new HostStoreError(
+        "INVALID_STATE",
+        "A map's pinned repository and commit cannot change.",
+      );
+    if (before.contentHash === contentHash({ ...prepared })) return before;
+    const after = this.writeMapVersion(mapId, expectedVersion + 1, prepared);
+    this.db
+      .prepare("UPDATE host_maps SET current_revision=? WHERE id=?")
+      .run(after.revision, mapId);
+    return after;
+  }
+
+  currentMap(reviewId: string, mapId: string): HostMapVersion {
+    const row = this.db
+      .prepare(
+        "SELECT v.id FROM host_maps m JOIN host_map_versions v ON v.map_id=m.id AND v.revision=m.current_revision WHERE m.review_id=? AND m.id=?",
+      )
+      .get(reviewId, mapId);
+    if (!row) throw new HostStoreError("NOT_FOUND", "Map not found.");
+    return this.mapVersion(reviewId, rowText(row, "id"));
+  }
+
+  mapVersion(reviewId: string, mapVersionId: string): HostMapVersion {
+    return this.readMapVersion(reviewId, mapVersionId).version;
+  }
+
+  mapEvidence(
+    reviewId: string,
+    mapVersionId: string,
+  ): Record<string, HostSourceQuote> {
+    return this.readMapVersion(reviewId, mapVersionId).evidence;
+  }
+
+  maps(
+    reviewId: string,
+    input: { mapId?: string; cursor?: string; limit?: number },
+  ) {
+    this.review(reviewId);
+    const mapId = input.mapId ?? null;
+    const limit = Math.max(1, Math.min(input.limit ?? 100, 200));
+    let upper = z
+      .number()
+      .int()
+      .parse(
+        this.db
+          .prepare(
+            "SELECT COALESCE(MAX(v.sequence),0) AS sequence FROM host_map_versions v JOIN host_maps m ON v.map_id=m.id WHERE m.review_id=? AND (? IS NULL OR m.id=?)",
+          )
+          .get(reviewId, mapId, mapId)!.sequence,
+      );
+    let last = upper + 1;
+    if (input.cursor) {
+      let decoded: JsonValue;
+      try {
+        decoded = parseJsonText(
+          Buffer.from(input.cursor, "base64url").toString("utf8"),
+        );
+      } catch {
+        throw new HostStoreError("CURSOR_EXPIRED", "Map cursor is invalid.");
+      }
+      const cursor = z
+        .strictObject({
+          hostId: z.string(),
+          reviewId: z.string(),
+          mapId: z.string().nullable(),
+          upper: z.number().int().nonnegative(),
+          last: z.number().int().positive(),
+        })
+        .safeParse(decoded);
+      if (
+        !cursor.success ||
+        cursor.data.hostId !== this.hostId ||
+        cursor.data.reviewId !== reviewId ||
+        cursor.data.mapId !== mapId ||
+        cursor.data.upper > upper ||
+        cursor.data.last > cursor.data.upper
+      )
+        throw new HostStoreError(
+          "CURSOR_EXPIRED",
+          "Map cursor does not belong to this retained query.",
+        );
+      upper = cursor.data.upper;
+      last = cursor.data.last;
+    }
+    const rows = this.db
+      .prepare(
+        "SELECT v.sequence,v.id,v.map_id,v.revision,v.content_hash,v.created_at,m.repository_id,m.commit_oid FROM host_map_versions v JOIN host_maps m ON v.map_id=m.id WHERE m.review_id=? AND (? IS NULL OR m.id=?) AND v.sequence<=? AND v.sequence<? ORDER BY v.sequence DESC LIMIT ?",
+      )
+      .all(reviewId, mapId, mapId, upper, last, limit + 1);
+    const selected = rows.slice(0, limit);
+    return {
+      items: selected.map((row) =>
+        HostMapSummarySchema.parse({
+          id: row.id,
+          mapId: row.map_id,
+          repositoryId: row.repository_id,
+          commit: row.commit_oid,
+          revision: row.revision,
+          contentHash: row.content_hash,
+          createdAt: row.created_at,
+        }),
+      ),
+      nextCursor:
+        rows.length > limit
+          ? Buffer.from(
+              canonicalHostJson({
+                hostId: this.hostId,
+                reviewId,
+                mapId,
+                upper,
+                last: z.number().int().parse(selected.at(-1)!.sequence),
+              }),
+            ).toString("base64url")
+          : null,
+    };
+  }
+
+  putTrace(reviewId: string, retained: HostRetainedTrace): void {
+    this.requireWrite();
+    this.mutableResourceReview(reviewId);
+    const parsed = HostRetainedTraceSchema.parse(retained);
+    if (parsed.trace.parentTraceId !== null)
+      this.trace(reviewId, parsed.trace.parentTraceId);
+    this.db
+      .prepare(
+        "INSERT INTO host_traces(id,review_id,content_hash,record_json) VALUES (?,?,?,?)",
+      )
+      .run(
+        parsed.trace.id,
+        reviewId,
+        contentHash(parsed),
+        canonicalHostJson(parsed),
+      );
+  }
+
+  trace(reviewId: string, traceId: string): HostRetainedTrace {
+    const row = this.db
+      .prepare(
+        "SELECT content_hash,record_json FROM host_traces WHERE review_id=? AND id=?",
+      )
+      .get(reviewId, traceId);
+    if (!row) throw new HostStoreError("NOT_FOUND", "Trace not found.");
+    const value = HostRetainedTraceSchema.parse(
+      parseJsonText(rowText(row, "record_json")),
+    );
+    if (
+      value.trace.id !== traceId ||
+      contentHash(value) !== rowText(row, "content_hash")
+    )
+      throw new HostStoreError(
+        "INTEGRITY_ERROR",
+        "Retained trace failed its integrity check.",
+      );
+    return value;
+  }
+
+  putAsset(reviewId: string, asset: HostAsset, bytes: Uint8Array): void {
+    this.requireWrite();
+    this.mutableResourceReview(reviewId);
+    const parsed = HostAssetSchema.parse(asset);
+    if (
+      bytes.byteLength !== parsed.byteLength ||
+      createHash("sha256").update(bytes).digest("hex") !== parsed.sha256
+    )
+      throw new HostStoreError(
+        "INTEGRITY_ERROR",
+        "Image bytes do not match their retained metadata.",
+      );
+    this.db
+      .prepare(
+        "INSERT OR IGNORE INTO host_asset_blobs(hash,bytes) VALUES (?,?)",
+      )
+      .run(parsed.sha256, bytes);
+    this.db
+      .prepare(
+        "INSERT INTO host_assets(id,review_id,blob_hash,content_hash,record_json) VALUES (?,?,?,?,?)",
+      )
+      .run(
+        parsed.id,
+        reviewId,
+        parsed.sha256,
+        contentHash(parsed),
+        canonicalHostJson(parsed),
+      );
+  }
+
+  asset(reviewId: string, assetId: string) {
+    const row = this.db
+      .prepare(
+        "SELECT a.record_json,a.content_hash,a.blob_hash,b.bytes FROM host_assets a JOIN host_asset_blobs b ON a.blob_hash=b.hash WHERE a.review_id=? AND a.id=?",
+      )
+      .get(reviewId, assetId);
+    if (!row) throw new HostStoreError("NOT_FOUND", "Image asset not found.");
+    const asset = HostAssetSchema.parse(
+      parseJsonText(rowText(row, "record_json")),
+    );
+    if (
+      !(row.bytes instanceof Uint8Array) ||
+      asset.id !== assetId ||
+      contentHash(asset) !== rowText(row, "content_hash") ||
+      asset.sha256 !== rowText(row, "blob_hash") ||
+      asset.byteLength !== row.bytes.byteLength ||
+      createHash("sha256").update(row.bytes).digest("hex") !== asset.sha256
+    )
+      throw new HostStoreError(
+        "INTEGRITY_ERROR",
+        "Retained image failed its integrity check.",
+      );
+    return { asset, bytes: row.bytes };
+  }
+
+  private writeMapVersion(
+    mapId: string,
+    revision: number,
+    prepared: HostPreparedMap,
+  ): HostMapVersion {
+    const version = HostMapVersionSchema.parse({
+      ...prepared.map,
+      id: randomUUID(),
+      mapId,
+      repositoryId: prepared.repositoryId,
+      commit: prepared.commit,
+      revision,
+      contentHash: contentHash({ ...prepared }),
+      createdAt: new Date().toISOString(),
+    });
+    this.db
+      .prepare(
+        "INSERT INTO host_map_versions(id,map_id,revision,content_hash,created_at,record_json,evidence_json) VALUES (?,?,?,?,?,?,?)",
+      )
+      .run(
+        version.id,
+        mapId,
+        revision,
+        version.contentHash,
+        version.createdAt,
+        canonicalHostJson(version),
+        canonicalHostJson(prepared.evidence),
+      );
+    return version;
+  }
+
+  private readMapVersion(reviewId: string, mapVersionId: string) {
+    const row = this.db
+      .prepare(
+        "SELECT v.record_json,v.evidence_json,v.map_id,v.revision,v.content_hash,v.created_at,m.repository_id,m.commit_oid FROM host_map_versions v JOIN host_maps m ON v.map_id=m.id WHERE m.review_id=? AND v.id=?",
+      )
+      .get(reviewId, mapVersionId);
+    if (!row) throw new HostStoreError("NOT_FOUND", "Map version not found.");
+    const version = HostMapVersionSchema.parse(
+      parseJsonText(rowText(row, "record_json")),
+    );
+    const evidence = z
+      .record(HostHashSchema, HostSourceQuoteSchema)
+      .parse(parseJsonText(rowText(row, "evidence_json")));
+    const prepared = {
+      repositoryId: version.repositoryId,
+      commit: version.commit,
+      map: {
+        schemaVersion: version.schemaVersion,
+        elements: version.elements,
+        relationships: version.relationships,
+      },
+      evidence,
+    };
+    if (
+      version.id !== mapVersionId ||
+      version.mapId !== row.map_id ||
+      version.revision !== row.revision ||
+      version.repositoryId !== row.repository_id ||
+      version.commit !== row.commit_oid ||
+      version.createdAt !== row.created_at ||
+      version.contentHash !== row.content_hash ||
+      contentHash(prepared) !== version.contentHash
+    )
+      throw new HostStoreError(
+        "INTEGRITY_ERROR",
+        "Retained map failed its integrity check.",
+      );
+    return { version, evidence };
+  }
+
+  private mutableResourceReview(reviewId: string) {
+    const review = this.review(reviewId);
+    if (review.deletedAt !== null || review.workflow === "closed")
+      throw new HostStoreError(
+        "INVALID_STATE",
+        "Closed or trashed reviews cannot be authored.",
+      );
+    return review;
+  }
+
+  clearCanvasReports(): void {
+    this.requireWrite();
+    this.db.exec("DELETE FROM host_canvas_reports");
+  }
+
+  recordCanvasReport(input: HostCanvasReport, principalId: string): void {
+    this.requireWrite();
+    const report = HostCanvasReportSchema.parse(input);
+    this.document(report.reviewId, report.documentVersion);
+    const existing = this.db
+      .prepare(
+        "SELECT principal_id FROM host_canvas_reports WHERE review_id=? AND canvas_session_id=?",
+      )
+      .get(report.reviewId, report.canvasSessionId);
+    if (existing && existing.principal_id !== principalId)
+      throw new HostStoreError("NOT_FOUND", "Canvas session not found.");
+    this.db
+      .prepare(
+        "INSERT OR REPLACE INTO host_canvas_reports(review_id,canvas_session_id,principal_id,received_at,report_json) VALUES (?,?,?,?,?)",
+      )
+      .run(
+        report.reviewId,
+        report.canvasSessionId,
+        principalId,
+        new Date().toISOString(),
+        canonicalHostJson(report),
+      );
+    this.db
+      .prepare(
+        "DELETE FROM host_canvas_reports WHERE sequence IN (SELECT sequence FROM host_canvas_reports WHERE review_id=? ORDER BY sequence DESC LIMIT -1 OFFSET 20)",
+      )
+      .run(report.reviewId);
+  }
+
+  canvasReports(reviewId: string) {
+    this.review(reviewId);
+    return this.db
+      .prepare(
+        "SELECT principal_id,received_at,report_json FROM host_canvas_reports WHERE review_id=? ORDER BY sequence DESC",
+      )
+      .all(reviewId)
+      .map((row) => ({
+        ...HostCanvasReportSchema.parse(
+          parseJsonText(rowText(row, "report_json")),
+        ),
+        principalId: rowText(row, "principal_id"),
+        receivedAt: rowText(row, "received_at"),
       }));
   }
 

@@ -21,6 +21,7 @@ The dependency inventory currently includes these license families:
 - `EPL-2.0`
 - `ISC`
 - `LGPL-2.1-or-later`
+- `LGPL-3.0-or-later`
 - `MPL-2.0`
 
 Most dependencies are permissive (`MIT`, `Apache-2.0`, `BSD-3-Clause`,
@@ -28,6 +29,19 @@ Most dependencies are permissive (`MIT`, `Apache-2.0`, `BSD-3-Clause`,
 explicit release attention are listed below.
 
 ## LGPL Notice
+
+### `sharp` and its prebuilt `libvips` packages
+
+- `sharp` version observed: `0.35.4`; license: `Apache-2.0`.
+- Platform package version observed: `@img/sharp-libvips-*` `1.3.3`;
+  declared license: `LGPL-3.0-or-later`.
+- Sources: https://github.com/lovell/sharp and
+  https://github.com/lovell/sharp-libvips.
+
+Review uses these packages to validate retained PNG, JPEG, and WebP images.
+The deployed platform package includes a `README.md` listing the licenses of
+its bundled libraries and a `versions.json` inventory. Preserve those notices
+with the native runtime and include them in the release license review.
 
 ### `libavoid-js`
 

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -640,6 +640,31 @@ describe("ReviewHostStore lifecycle and integrity", () => {
       ),
     ).toThrow(expect.objectContaining({ code: "INVALID_STATE" }));
     expect(store.review(review.id)).toEqual(review);
+  });
+
+  it("refuses an older or unrelated database without adding host tables or touching its bytes", () => {
+    const databasePath = path.join(directory(), "review.db");
+    changeDatabase(databasePath, (db) => {
+      db.exec(
+        "CREATE TABLE legacy_comments (id TEXT PRIMARY KEY, body TEXT NOT NULL) STRICT",
+      );
+      db.prepare("INSERT INTO legacy_comments VALUES (?,?)").run(
+        "kept",
+        "Keep this older review intact.",
+      );
+    });
+    const before = readFileSync(databasePath);
+    const mode = statSync(databasePath).mode;
+    expect(() => openStore(databasePath)).toThrow(
+      expect.objectContaining({ code: "INVALID_STATE" }),
+    );
+    expect(readFileSync(databasePath)).toEqual(before);
+    expect(statSync(databasePath).mode).toBe(mode);
+    expect(
+      inspect(databasePath, (db) =>
+        db.prepare("SELECT body FROM legacy_comments WHERE id='kept'").get(),
+      ),
+    ).toEqual({ body: "Keep this older review intact." });
   });
 
   it("refuses unsupported databases without changing their data or journal mode", () => {

@@ -51,6 +51,10 @@ export * from "./contracts.js";
 export * from "./host-document.js";
 export * from "./host-document-operations.js";
 export * from "./host-api.js";
+export * from "./host-source.js";
+export * from "./host-resources.js";
+export * from "./host-commands.js";
+export * from "./host-client.js";
 
 export function parseReviewDesktopDiscovery(
   value: JsonValue,

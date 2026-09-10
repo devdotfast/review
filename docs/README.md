@@ -8,18 +8,20 @@ Review is a desktop app where coding agents turn code changes into guided,
 interactive reviews. Start with the quickstart, then use the rest of this
 directory as a reference.
 
+Comments, feedback submission and Ask are unavailable for JSON reviews in this authoring-only version. They are deferred to the third PR in this stack.
+
 ## Start here
 
 - [Quickstart](quickstart.md) — install Review, add authoring guidance, and
   complete a first review.
-- [How Review works](how-review-works.md) — understand documents, live code,
-  maps, threads, and the review lifecycle.
+- [How Review works](how-review-works.md) — understand live documents, pinned
+  evidence, maps and checkpoints.
 - [Coding agents](agents.md) — connect Claude Code, Codex, and other coding
   agents.
 
 ## Reference
 
-- [CLI reference](cli-reference.md) — commands, options, and JSON output.
+- [CLI and API reference](cli-reference.md) — commands, MCP, and JSON contracts.
 - [Privacy](privacy.md) — what stays local, what is sent, and how to opt out.
 - [Telemetry reference](telemetry.md) — the complete event and data contract.
 - [Troubleshooting](troubleshooting.md) — fixes for common setup and runtime

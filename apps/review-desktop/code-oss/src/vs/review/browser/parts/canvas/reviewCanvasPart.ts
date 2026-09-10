@@ -73,7 +73,6 @@ import type {
 	ReviewCanvasContent,
 	ReviewCanvasHandle,
 	ReviewCanvasOnboarding,
-	ReviewCanvasHomeSetup,
 	ReviewCanvasInstallContent,
 	ReviewCanvasModule,
 	ReviewCanvasSettingsContent,
@@ -99,6 +98,7 @@ import {
 } from "../../reviewThemeChoice.js";
 import { IReviewVerbsService } from "../../../contrib/verbs/reviewVerbs.js";
 import { ReviewInlineEditorService } from "../../../services/reviewInlineEditorService.js";
+import { IReviewHostSourceService } from "../../../services/reviewHostSourceService.js";
 import { ReviewDiffViewService } from "../../../services/reviewDiffViewService.js";
 import { IReviewDiffService } from "../../../services/reviewDiffService.js";
 import {
@@ -122,7 +122,6 @@ import {
 	reviewSessionApiRequest,
 } from "../../../services/reviewSessionModelService.js";
 import { IReviewCanvasEditorTabsService } from "../../../services/reviewCanvasEditorTabsService.js";
-import { IReviewExplorerPartsService } from "../explorer/reviewExplorerPart.js";
 import { ReviewCanvasEditorInput } from "./reviewCanvasEditorInput.js";
 import {
 	loadReviewDocumentModule,
@@ -239,11 +238,10 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		@IReviewSessionModelService
 		private readonly sessionModelService: IReviewSessionModelService,
 		@IReviewDiffService private readonly diffService: IReviewDiffService,
+		@IReviewHostSourceService private readonly hostSource: IReviewHostSourceService,
 		@IReviewVerbsService private readonly verbs: IReviewVerbsService,
 		@IReviewCanvasEditorTabsService
 		private readonly tabsService: IReviewCanvasEditorTabsService,
-		@IReviewExplorerPartsService
-		private readonly explorerParts: IReviewExplorerPartsService,
 		@IInstantiationService
 		reviewInstantiationService: IInstantiationService,
 		@IHostService private readonly hostService: IHostService,
@@ -345,6 +343,11 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		this.diffViews.setOverflowWidgetsDomNode(overflowWidgets);
 		this.sessionService.attachControl(async (sessionId, value) => {
 			const request = parseReviewVerbRequest(value);
+			if (request.name === "openHostReview") {
+				await this.tabsService.openHostReview(request.args.reviewId, true);
+				await this.hostService.focus(this.targetDocument?.defaultView ?? window, { mode: FocusMode.Force });
+				return { ok: true };
+			}
 			if (request.name === "focusWindow") {
 				await this.hostService.focus(
 					this.targetDocument?.defaultView ?? window,
@@ -475,78 +478,32 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			return;
 		}
 		this.modelSubscription.clear();
-		if (input.target.kind === "home") {
+		if (input.target.kind === "host-review" || input.target.kind === "home") {
+			const reviewId = input.target.kind === "host-review" ? input.target.reviewId : undefined;
 			this.renderedInput = input;
 			this.renderedModel = null;
 			this.sessionModelService.setActiveModel(null);
 			this.setSessionState("home");
-			const setup = await this.resolveHomeSetup();
-			let emptyStateVisible = false;
-			/* The empty-list render suspends on the install fetch below, while
-			   the list render has no await at all. The sequence number keeps a
-			   suspended empty render from resuming after a later list render
-			   and overwriting it with a stale snapshot. */
-			let renderSeq = 0;
-			const renderHome = async () =>
-				{
-					const seq = ++renderSeq;
-					const isEmpty = this.sessionService.reviews.length === 0;
-					// Only the Welcome rail needs install status; the list must
-					// render without waiting on it. One fetch serves both the
-					// install card and the onboarding rail.
-					const install = isEmpty
-						? await this.resolveInstallContent()
-						: undefined;
-					if (seq !== renderSeq) return;
-					if (isEmpty && !emptyStateVisible) {
-						this.reviewTelemetryService.capture("home_empty_state_viewed");
-					}
-					emptyStateVisible = isEmpty;
-					const openReview = (uuid: string) => {
-						this.reviewTelemetryService.capture("review_opened", {
-							via: "home",
-						});
-						return this.tabsService.openReview(uuid, true);
-					};
-					return this.render(
-					{
-						kind: "home",
-						reviews: this.sessionService.reviews,
-						reviewErrors: this.sessionService.reviewErrors,
-						openReview: (uuid) => void openReview(uuid),
-						deleteReview: (uuid) => this.sessionService.deleteReview(uuid),
-						dismissReview: (uuid) => this.sessionService.dismissReview(uuid),
-						restoreReview: (uuid) => this.sessionService.restoreReview(uuid),
-						openSourceTree: (uuid) => {
-							this.reviewTelemetryService.capture("source_tree_opened", {
-								via: "home",
-							});
-							// Only the Source tab opens. Its activation acquires the
-							// review's session itself, which roots the workspace
-							// folder — and therefore the tree — at the pinned
-							// worktree, without opening the review document.
-							void this.tabsService
-								.openSource(true, uuid)
-								.then(() => this.explorerParts.show());
-						},
-						setup,
-						// Home shows the Welcome rail while the list is empty.
-						install,
-						onboarding: install
-							? this.resolveOnboarding(install.status)
-							: undefined,
-						openTutorial: () => this.openTutorial(),
-					},
-					generation,
-					);
-				};
-			// Home stays live while it is the rendered input: a deletion or a
-			// newly published review re-renders the list. render() drops stale
-			// generations once another input starts loading.
-			this.modelSubscription.value = this.sessionService.onDidChangeLists(
-				() => void renderHome(),
-			);
-			await renderHome();
+			const connection = await this.sessionService.getConnection();
+			const assets = await this.loadAssets();
+			await this.render({
+				kind: "host", connection, reviewId,
+				wasmUrl: assets.reviewWasmUrl,
+				source: {
+					open: (target) => this.hostSource.openSource(target),
+					createPeek: (spec) => this.inlineEditors.create({
+						container: spec.container, path: spec.target.range.file, title: spec.title,
+						side: spec.target.range.side, ranges: [{ startLine: spec.target.range.fromLine, endLine: spec.target.range.toLine }],
+						heightMode: "content", active: false, commentsEnabled: false, onDidOpen: spec.onDidOpen,
+					}, () => this.hostSource.acquireSnippet(spec.target)),
+				},
+				openReview: (reviewId, title) => { void this.tabsService.openHostReview(reviewId, true, title); },
+				showHome: () => { void this.tabsService.openHome(true); },
+				openWelcome: () => { void this.tabsService.openWelcome(true); },
+				openSettings: () => { void this.tabsService.openSettings(true); },
+				openTutorial: () => { void this.openTutorial(); },
+				setTitle: (title) => input.updateHostTitle(title),
+			}, generation, assets);
 			return;
 		}
 		if (input.target.kind === "welcome") {
@@ -971,23 +928,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			this.configurationService.getValue<boolean>(REVIEW_TELEMETRY_SETTING) !==
 			false
 		);
-	}
-
-	/**
-	 * Install status for the Home setup banner. Home must render even when the
-	 * status endpoint fails, so a failure yields no banner.
-	 */
-	private async resolveHomeSetup(): Promise<
-		ReviewCanvasHomeSetup | undefined
-	> {
-		try {
-			return {
-				status: await this.sessionService.getCliInstallStatus(),
-				open: () => void this.tabsService.openWelcome(true),
-			};
-		} catch {
-			return undefined;
-		}
 	}
 
 	/**

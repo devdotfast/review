@@ -1,0 +1,79 @@
+.host-canvas {
+  height: 100%;
+  overflow: auto;
+  padding: 24px 32px;
+  color: var(--vscode-editor-foreground);
+  background: var(--vscode-editor-background);
+}
+
+.host-canvas-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+.host-canvas-toolbar > div:first-child {
+  flex: 1;
+}
+
+.host-canvas h1 {
+  margin: 0 0 6px;
+  font-size: 22px;
+}
+
+.host-canvas-publication {
+  margin-left: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.host-canvas button,
+.host-canvas select {
+  color: inherit;
+  background: var(--vscode-button-secondaryBackground);
+  border: 1px solid var(--vscode-widget-border, #8885);
+  border-radius: 5px;
+  padding: 6px 10px;
+  font: inherit;
+}
+
+.host-canvas button:disabled {
+  opacity: 0.5;
+}
+.host-canvas-list ul {
+  list-style: none;
+  padding: 0;
+}
+.host-canvas-list li {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 0;
+}
+.host-canvas-error {
+  color: var(--vscode-errorForeground, #d33);
+}
+
+.host-canvas-source {
+  max-width: min(900px, 90vw);
+  max-height: 80vh;
+  color: var(--vscode-editor-foreground);
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-widget-border, #8885);
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.host-canvas-source header {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  justify-content: space-between;
+}
+.host-canvas-source pre {
+  overflow: auto;
+}
+.host-canvas-source::backdrop {
+  background: #0006;
+}

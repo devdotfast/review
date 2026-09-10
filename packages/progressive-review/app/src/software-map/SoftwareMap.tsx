@@ -37,6 +37,7 @@ import { HoverCommentButton } from "../hover-comment-button";
 import { CloseIcon, RefreshIcon } from "../icons";
 import {
   type CommentDraftPlacement,
+  type ReviewActionsValue,
   useReviewActions,
 } from "../review-context";
 import { useReviewInitialData } from "../review-initial-data-context";
@@ -274,6 +275,9 @@ const softwareMapC4EdgeTypes = {
 const c4NodeTypes = softwareMapC4NodeTypes;
 const c4EdgeTypes = softwareMapC4EdgeTypes;
 const C4HoveredNodeContext = createContext<string | null>(null);
+const C4CommentContext = createContext<
+  ReviewActionsValue["openCommentDraft"] | null
+>(null);
 export function SoftwareMap(props: SoftwareMapProps) {
   if (!props.model && !props.snapshot && !props.resolvedSnapshot) {
     return (
@@ -1287,24 +1291,7 @@ function mapExpansionLevelForNode(
   }
 }
 
-function C4MapCanvas({
-  snapshot,
-  viewName,
-  diagram,
-  expanded,
-  interactionMode,
-  onSelectNode,
-  onExpandNode,
-  onCollapseNode,
-  onToggleNodeExpansion,
-  onFocusNode,
-  relationshipStateById,
-  onOpenRelationship,
-  selectChildNodeIdForDrill,
-  viewportFocusNodeId,
-  viewportFocusRequiresExpanded,
-  onViewportFocusComplete,
-}: {
+export interface SoftwareMapCanvasProps {
   snapshot: SoftwareMapResolvedSnapshot;
   viewName: string;
   diagram: string;
@@ -1324,8 +1311,53 @@ function C4MapCanvas({
   viewportFocusNodeId?: string | null;
   viewportFocusRequiresExpanded?: boolean;
   onViewportFocusComplete?: (nodeId: string) => void;
-}) {
+  theme: "dark" | "light";
+  wasmUrl?: string;
+  onComment?: ReviewActionsValue["openCommentDraft"];
+  onError?: (error: Error) => void;
+}
+
+function C4MapCanvas(
+  props: Omit<SoftwareMapCanvasProps, "theme" | "wasmUrl" | "onComment">,
+) {
   const session = useReviewSession();
+  const { theme } = useReviewDebugSettings();
+  const { openCommentDraft } = useReviewActions();
+  return (
+    <SoftwareMapCanvas
+      {...props}
+      theme={theme}
+      wasmUrl={session.wasmUrl()}
+      onComment={openCommentDraft}
+    />
+  );
+}
+
+/** C4 layout and visuals, independent of a legacy review session. */
+export function SoftwareMapCanvas({
+  snapshot,
+  viewName,
+  diagram,
+  expanded,
+  interactionMode,
+  onSelectNode,
+  onExpandNode,
+  onCollapseNode,
+  onToggleNodeExpansion,
+  onFocusNode,
+  relationshipStateById,
+  onOpenRelationship,
+  selectChildNodeIdForDrill,
+  viewportFocusNodeId,
+  viewportFocusRequiresExpanded,
+  onViewportFocusComplete,
+  theme,
+  wasmUrl,
+  onComment,
+  onError,
+}: SoftwareMapCanvasProps) {
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
   const [layoutState, setLayoutState] = useState<C4DisplayedLayoutState | null>(
     null,
   );
@@ -1361,7 +1393,6 @@ function C4MapCanvas({
   );
   const layout = layoutState?.layout ?? null;
   const nodes = displayedSnapshot.nodes ?? [];
-  const { theme } = useReviewDebugSettings();
   const reactFlowInteractionProps =
     c4MapReactFlowInteractionProps(interactionMode);
   const measurementKey = useMemo(
@@ -1437,7 +1468,7 @@ function C4MapCanvas({
             // placement. Reusing a no-edge layout keeps the graph in its old
             // stack, even though the edge itself is present.
             previousInlineLayout,
-            session.wasmUrl(),
+            wasmUrl,
           ),
     )
       .then((nextLayout) => {
@@ -1455,12 +1486,14 @@ function C4MapCanvas({
       })
       .catch((cause: unknown) => {
         if (cancelled) return;
-        setLayoutError(cause instanceof Error ? cause.message : String(cause));
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        setLayoutError(error.message);
+        onErrorRef.current?.(error);
       });
     return () => {
       cancelled = true;
     };
-  }, [hasMeasuredNodes, layoutSignature, session]);
+  }, [hasMeasuredNodes, layoutSignature, wasmUrl]);
   const layoutRefreshing = Boolean(
     layoutState && layoutSignature && layoutState.signature !== layoutSignature,
   );
@@ -1700,7 +1733,7 @@ function C4MapCanvas({
     [handleKeyDown],
   );
 
-  return (
+  const canvas = (
     <div
       ref={keyboardTargetRef}
       className={[
@@ -1809,6 +1842,11 @@ function C4MapCanvas({
       />
     </div>
   );
+  return (
+    <C4CommentContext.Provider value={onComment ?? null}>
+      {canvas}
+    </C4CommentContext.Provider>
+  );
 }
 
 function hasResizeObserver(): boolean {
@@ -1915,7 +1953,7 @@ function C4NodeMeasurementLayer({
 function SoftwareMapC4Edge(
   props: ReactFlowEdgeProps<ReactFlowEdge<C4MapEdgeData>>,
 ) {
-  const { openCommentDraft } = useReviewActions();
+  const openCommentDraft = useContext(C4CommentContext);
   const hoveredNodeId = useContext(C4HoveredNodeContext);
   const [isHoveringEdge, setIsHoveringEdge] = useState(false);
   const data = props.data;
@@ -1960,7 +1998,7 @@ function SoftwareMapC4Edge(
     if (!target) return;
     event.preventDefault();
     event.stopPropagation();
-    openCommentDraft({
+    openCommentDraft?.({
       target,
       title: commentLabel,
       body: "",
@@ -2063,7 +2101,7 @@ function SoftwareMapC4Edge(
               </span>
             )
           ) : null}
-          <HoverCommentButton onClick={openEdgeComment} />
+          {openCommentDraft && <HoverCommentButton onClick={openEdgeComment} />}
         </div>
       </EdgeLabelRenderer>
     </>
@@ -2091,7 +2129,7 @@ function c4PolylinePath(points: C4ElkPoint[]): string {
 function SoftwareMapC4GroupNode({
   data,
 }: ReactFlowNodeProps<C4MapFlowGroupNode>) {
-  const { openCommentDraft } = useReviewActions();
+  const openCommentDraft = useContext(C4CommentContext);
   const target = buildGraphTarget({
     diagram: data.diagram,
     type: "node",
@@ -2102,7 +2140,7 @@ function SoftwareMapC4GroupNode({
   const openNodeComment = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    openCommentDraft({
+    openCommentDraft?.({
       target,
       title: data.node.label,
       body: "",
@@ -2171,7 +2209,7 @@ function SoftwareMapC4GroupNode({
           deletions={data.node.deletions}
         />
       </div>
-      <HoverCommentButton onClick={openNodeComment} />
+      {openCommentDraft && <HoverCommentButton onClick={openNodeComment} />}
       <Handle
         id="source-right"
         type="source"
@@ -2201,7 +2239,7 @@ function SoftwareMapC4GroupNode({
 }
 
 function SoftwareMapC4Node({ data }: ReactFlowNodeProps<C4MapFlowNode>) {
-  const { openCommentDraft } = useReviewActions();
+  const openCommentDraft = useContext(C4CommentContext);
   const target = buildGraphTarget({
     diagram: data.diagram,
     type: "node",
@@ -2212,7 +2250,7 @@ function SoftwareMapC4Node({ data }: ReactFlowNodeProps<C4MapFlowNode>) {
   const openNodeComment = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    openCommentDraft({
+    openCommentDraft?.({
       target,
       title: data.node.label,
       body: "",
@@ -2270,7 +2308,7 @@ function SoftwareMapC4Node({ data }: ReactFlowNodeProps<C4MapFlowNode>) {
         onSelect={data.onSelect}
         onExpandNode={data.onExpandNode}
       />
-      <HoverCommentButton onClick={openNodeComment} />
+      {openCommentDraft && <HoverCommentButton onClick={openNodeComment} />}
       <Handle
         id="source-right"
         type="source"

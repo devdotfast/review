@@ -1,6 +1,6 @@
 ---
 name: dev-review-map
-description: Author and save the pinned base and head software maps for a Review.
+description: Author and save pinned JSON software-map versions for a Review through its host API.
 metadata:
   review-managed-by: "Review Desktop"
   review-generated: "Do not edit. Review automatically replaces this skill directory on updates."
@@ -9,47 +9,52 @@ metadata:
 
 # Review software-map worker
 
-Author and save two commit-addressed software maps. Work on the base first. Then update that structure for the head diff.
+Use the running Review Host's MCP tools or `review host` commands. Map state is versioned JSON in the host, not Git notes, TypeScript scratch files or generated source-branch files.
 
-Do not edit `review.mdx` or `data.ts`. Do not run `review publish` or `review map publish`.
+Obtain the review ID, observed document version and exact binding from the parent or `document.get`. Author the base structure first, then the head structure. If asked directly and no review exists, ask for/select the intended review before creating map state; do not invent repository bindings.
 
-## Storage contract
+## Model
 
-Git notes under `refs/notes/dev-fast/*` are the only durable map state. Never commit a map to the source branch.
+`map.create({reviewId,documentVersion,side,map})` accepts:
 
-`review map open <rev>` hydrates this scratch file:
-
-```text
-$GIT_COMMON_DIR/dev-fast/scratch/<commit>/software-map.ts
+```json
+{
+  "schemaVersion": 1,
+  "elements": {
+    "desktop": {
+      "id": "desktop",
+      "parentId": null,
+      "label": "Review Desktop",
+      "description": "Local review host and viewer.",
+      "kind": "system",
+      "source": []
+    }
+  },
+  "relationships": {}
+}
 ```
 
-The command prints a provenance line and a work order. Read both before you edit the adjacent model declaration.
+Element kinds: `person,system,container,component,code,store`. Use stable letter-led keys containing letters, numbers, underscores or hyphens, not dot paths. Define hierarchy using `parentId`.
 
-`review map check <rev> --review <uuid>` validates the scratch file. A successful check saves the file to that commit's git note.
+Source spans name `repositoryId,commit,blob,file,fromLine,toLine`. Obtain them from host source reads at the selected side; the host verifies them. Store elements can carry the typed collection/field model exposed in the MCP schema.
+
+Relationships have `id,fromId,toId,label` and either:
+
+- `kind:"call", evidence:<verified source span>`; or
+- `kind:"semantic", explanation:<why the relation exists>`.
+
+Do not fabricate a source-backed call to represent a conceptual relationship.
 
 ## Workflow
 
-1. Use the exact base and head commits from the dispatch prompt.
-2. Run `review map open <base>`.
-3. Read the work order and inspect the repository at the base commit.
-4. Model the important people, systems, containers, components, and code elements.
-5. Use stable dot-path identities. Do not model incidental implementation detail.
-6. Run `review map check <base> --review <uuid>`. Correct errors until it passes.
-7. Run `review map open <head>` only after the base check passes.
-8. Inspect the base-to-head diff. Apply only its structural changes.
-9. Run `review map check <head> --review <uuid>`. Correct errors until it passes.
-10. Run `review map push` when the notes remote is writable. Use `--remote <name>` when `origin` is read-only.
+1. Inspect the important boundaries at the pinned base using source queries.
+2. Create a base map; correct reported shape, hierarchy, evidence or layout errors.
+3. Inspect the pinned diff and create a head map with stable element identities.
+4. Read both exact versions through `map.get({reviewId,mapVersionId})`.
+5. Return the base/head map-version IDs, commits and any limitations.
 
-If head provenance names the wrong seed, check the base again. Then reopen the head with `--force`.
+To revise a map, use `map.mutate({reviewId,mapId,expectedVersion,operations})`. Operations are `element.put/remove` and `relationship.put/remove`; inspect the advertised schema for exact fields. The result is a new immutable map version.
 
-Resolve validation errors. Report unrelated existing warnings without expanding the task scope. Do not retry an environmental failure without new evidence.
+Every command needs a UUID `commandId`; reuse it with identical input after an uncertain response. Resolve actual version conflicts before sending a new command.
 
-A push failure does not invalidate successful local checks. Report the push failure so the main agent can continue local map publication.
-
-To keep a non-origin choice, run `git config devFast.notesRemote <name>`. Review uses that remote for map push, map fetch, and the installed notes refspec.
-
-When a user invokes this skill directly, use supplied base and head refs. If the user supplies none, use an active Review's pins. Otherwise, use the working-tree diff: jj `@-..@`, or the Git merge base to `HEAD`.
-
-## Completion criteria
-
-Return only after both `review map check` commands pass. Report the base and head commits, both check results, the push result, and remaining warnings. If an environmental condition blocks a check, return the blocking evidence and the smallest next action.
+The main author owns document mutations and `review.publish`, including selected map-version IDs. Do not publish or alter document nodes as a map-only worker. A missing optional map need not block a useful document checkpoint. Do not run repository tests merely to produce a map.

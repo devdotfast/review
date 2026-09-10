@@ -1,87 +1,50 @@
 # How Review works
 
-<!--
-Outline: Product model -> Review contents -> Pins -> Publication -> Lifecycle -> Storage.
--->
-
-Review separates authoring from reading. A coding agent studies a change and
-writes a guided document; Review Desktop gives the human reviewer live code,
-system views, and a structured feedback loop around that document.
+Review Desktop starts one local Review Host. Agents, the desktop canvas and other authorized local clients use the same API. The host owns the data; the desktop is a viewer and interaction surface.
 
 ```mermaid
 flowchart LR
-  A[Branch, change, or PR] --> B[Agent authors a Review]
-  B --> C[CLI validates and publishes]
-  C --> D[Reviewer reads in Review Desktop]
-  D --> E{Decision}
-  E -->|Request changes| B
+  A[Authoring agent] -->|Commands and queries| H[Desktop Review Host]
+  H -->|Snapshot and committed events| V[Desktop canvas]
+  V -->|Queries and render observations| H
 ```
 
-## A Review is more than a diff
+## Structured documents
 
-Each Review can combine:
+The canonical document is JSON: stable-ID nodes, shared definitions and retained source evidence. It can contain prose, typed source links, code peeks, collapsible sections, sequence diagrams, call-stack diffs, database read/write views, software maps, trace excerpts and images.
 
-- concise prose about intent, architecture, data flow, and risk;
-- source links and code peeks anchored to exact files and line ranges;
-- editor navigation such as hover and go-to-definition;
-- sequence diagrams and database access views;
-- a software map from systems down to code elements; and
-- comment and question threads attached to the relevant evidence.
+An agent updates a few nodes at a time through atomic commands. The host validates the proposed result before accepting it; the open canvas applies each complete commit without replacing unrelated content. No agent-authored MDX, TypeScript module or SQL runs in this path.
 
-The changed-file diff remains available in the Files tab, but it is supporting
-evidence rather than the only way to understand the change.
+## Pinned evidence
 
-## Changes are pinned before authoring
+A review binds to exact repository commits. Source paths are relative to that repository, not the author's home directory. Accepted source anchors retain their text and commit/blob identity. Moving the checkout does not silently change the review; unavailable source does not erase a saved code excerpt.
 
-A Review binds to one unit of change: a Git branch, Jujutsu bookmark, Jujutsu
-change ID, or GitHub pull request. Scaffolding resolves and pins exact base and
-head commits, then prepares Review-owned checkouts for them.
+The Source browser reads pinned files, changed-file summaries and commits through the host API. The native editor is read-only and version-bound. Full language-server hover/go-to-definition support is not implied by basic source navigation.
 
-The agent reads those pinned checkouts while it writes. Moving your current
-checkout does not silently change the code being reviewed. Run
-`review scaffold --update` when the bound branch, change, or pull request moves.
+Repinning is explicit: the host proposes range mappings, the author corrects changed/missing ranges, then applies the new binding atomically. The conservative remapper follows surviving contiguous lines and renames; it does not rewrite diagram meaning. Original document versions and source evidence remain immutable.
 
-## Publishing is a validation boundary
+## Live versus published
 
-`review publish` compiles the Review document, checks its software-map
-relationship, and resolves every source range against the pinned checkout. The
-CLI seals a revision only after these checks pass. Review Desktop then mounts
-the candidate before making it visible.
+Accepted mutations update the **Live** document. Publishing creates an immutable checkpoint of the document, metadata, binding and selected map versions. Historical checkpoint views ignore later live updates.
 
-A failed publish does not replace the last good revision. The document can also
-publish before its architecture map; `review map publish` validates and
-promotes that artifact independently.
+Maps are independently versioned host resources, not Git notes. A document may publish without maps; include exact map-version IDs in a later checkpoint when ready.
 
-## Reviews have an explicit lifecycle
-
-| State | What happens next |
+| Workflow | Meaning |
 | --- | --- |
-| `draft` | The agent authors and publishes the Review. |
-| `awaiting-review` | The reviewer reads, asks questions, comments, and decides. |
-| `awaiting-agent-updates` | The agent addresses submitted feedback and republishes. |
-| `accepted` | The Review is complete and cannot be republished. |
-| `rejected` | The Review is closed and cannot be republished. |
+| `draft` | Not published |
+| `in_review` | Published for the reader |
+| `closed` | Closed; a human may explicitly reopen |
 
-An immediate question does not change the review state. **Request changes**
-starts another agent round; **Approve** completes the Review.
+## Comments and questions
 
-## Reviews live locally
+Comments, feedback submission and Ask are unavailable for JSON reviews in this authoring-only version. They are deferred to the third PR in this stack.
 
-Authored Reviews are stored under:
+The authoring API and viewer do not provide Discussion, Add to review, Post
+comment, Submit review or Ask now for JSON reviews. The trusted bundled
+tutorial may still demonstrate its separate legacy question flow.
 
-```text
-${DEV_REVIEW_HOME:-~/.dev}/reviews/<uuid>/
-```
+## Local ownership
 
-The directory contains the document, supporting TypeScript, pinned state,
-thread database, sealed revisions, and disposable build output. Review owns the
-infrastructure files; agents author `review.mdx` and `data.ts`, and use the CLI
-for publication and threads.
+New reviews share `$DEV_REVIEW_HOME/review-host.db`, default `~/.dev/review-host.db`. Clients use APIs, not this storage path. Old review directories/databases are left untouched and are not converted by this implementation. The bundled tutorial remains a trusted legacy UI exception.
 
-Software maps are stored per commit in Git notes under
-`refs/notes/dev-fast/*`. They do not add generated map files to the reviewed
-branch. Map notes can be shared explicitly with `review map push` and
-`review map fetch`.
-
-See the [CLI reference](cli-reference.md) for the lifecycle commands and the
-[privacy overview](privacy.md) for the local and network boundaries.
+This delivery is local-only: no hosted reviews, upload flow, public sharing, team login or cloud execution. The API and portable evidence model make those future additions possible without introducing a second document authority. See [Privacy](privacy.md) for local-agent and network boundaries.

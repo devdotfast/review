@@ -3,13 +3,14 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 
 import { gitCommonDir } from "@dev.fast/local-vcs";
-import type {
-  HostBinding,
-  HostSourceQuote,
-  HostSourceRange,
+import {
+  HOST_SOURCE_FILE_BYTES,
+  type HostBinding,
+  type HostSourceFile,
+  type HostSourceQuote,
+  type HostSourceRange,
 } from "@dev.fast/review-protocol";
 
-const MAX_FILE_BYTES = 1024 * 1024;
 const MAX_QUOTE_BYTES = 256 * 1024;
 const MAX_RANGE_LINES = 1000;
 const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
@@ -54,8 +55,51 @@ export class LocalEvidenceProvider implements EvidenceProvider {
     range: HostSourceRange,
   ): Promise<HostSourceQuote> {
     validateRange(range);
-    const commit =
-      range.side === "base" ? binding.baseCommit : binding.headCommit;
+    const file = await this.readFile(binding, range.side, range.file);
+    const lines = file.text === "" ? [] : file.text.split(/\r?\n/);
+    // A terminating newline does not introduce another source line.
+    if (file.text.endsWith("\n")) lines.pop();
+    if (range.toLine > lines.length) {
+      throw new EvidenceProviderError(
+        "INVALID_REQUEST",
+        "The source range exceeds the file's line count.",
+      );
+    }
+    // Quotations use LF consistently; the blob ID retains exact-byte provenance.
+    const text = lines.slice(range.fromLine - 1, range.toLine).join("\n");
+    if (Buffer.byteLength(text, "utf8") > MAX_QUOTE_BYTES) {
+      throw new EvidenceProviderError(
+        "RESOURCE_LIMIT",
+        "Source quotations may not exceed 256 KiB.",
+      );
+    }
+    return {
+      span: {
+        repositoryId: file.repositoryId,
+        commit: file.commit,
+        blob: file.blob,
+        file: file.file,
+        fromLine: range.fromLine,
+        toLine: range.toLine,
+      },
+      text,
+      sha256: createHash("sha256").update(text).digest("hex"),
+    };
+  }
+
+  /** Full immutable file for native editors, using the same blob safety checks. */
+  async readFile(
+    binding: HostBinding,
+    side: "base" | "head",
+    file: string,
+  ): Promise<HostSourceFile> {
+    if (side !== "base" && side !== "head")
+      throw new EvidenceProviderError(
+        "INVALID_REQUEST",
+        "Source queries require a base or head side.",
+      );
+    validateSourcePath(file);
+    const commit = side === "base" ? binding.baseCommit : binding.headCommit;
     if (!OBJECT_ID.test(commit)) {
       throw new EvidenceProviderError(
         "INVALID_REQUEST",
@@ -87,12 +131,12 @@ export class LocalEvidenceProvider implements EvidenceProvider {
 
     const listed = await readGitObject(
       gitDir,
-      ["ls-tree", "-z", "-l", commit, "--", range.file],
+      ["ls-tree", "-z", "-l", commit, "--", file],
       { maxBytes: 8192 },
     );
     const entries = listed.toString("utf8").split("\0").filter(Boolean);
     const entry = entries.find(
-      (value) => value.slice(value.indexOf("\t") + 1) === range.file,
+      (value) => value.slice(value.indexOf("\t") + 1) === file,
     );
     if (!entry) {
       throw new EvidenceProviderError(
@@ -117,7 +161,7 @@ export class LocalEvidenceProvider implements EvidenceProvider {
     ) {
       throw repositoryUnavailable();
     }
-    if (byteLength > MAX_FILE_BYTES) {
+    if (byteLength > HOST_SOURCE_FILE_BYTES) {
       throw new EvidenceProviderError(
         "RESOURCE_LIMIT",
         "Source files may not exceed 1 MiB.",
@@ -125,7 +169,7 @@ export class LocalEvidenceProvider implements EvidenceProvider {
     }
 
     const bytes = await readGitObject(gitDir, ["cat-file", "blob", blob], {
-      maxBytes: MAX_FILE_BYTES,
+      maxBytes: HOST_SOURCE_FILE_BYTES,
     });
     if (bytes.byteLength !== byteLength) throw repositoryUnavailable();
     let source: string;
@@ -141,34 +185,13 @@ export class LocalEvidenceProvider implements EvidenceProvider {
         "Source evidence must be UTF-8 text, not a binary file.",
       );
     }
-    const lines = source === "" ? [] : source.split(/\r?\n/);
-    // A terminating newline does not introduce another source line.
-    if (source.endsWith("\n")) lines.pop();
-    if (range.toLine > lines.length) {
-      throw new EvidenceProviderError(
-        "INVALID_REQUEST",
-        "The source range exceeds the file's line count.",
-      );
-    }
-    // Quotations use LF consistently; the blob ID retains exact-byte provenance.
-    const text = lines.slice(range.fromLine - 1, range.toLine).join("\n");
-    if (Buffer.byteLength(text, "utf8") > MAX_QUOTE_BYTES) {
-      throw new EvidenceProviderError(
-        "RESOURCE_LIMIT",
-        "Source quotations may not exceed 256 KiB.",
-      );
-    }
     return {
-      span: {
-        repositoryId: binding.repositoryId,
-        commit,
-        blob,
-        file: range.file,
-        fromLine: range.fromLine,
-        toLine: range.toLine,
-      },
-      text,
-      sha256: createHash("sha256").update(text).digest("hex"),
+      repositoryId: binding.repositoryId,
+      commit,
+      blob,
+      file,
+      text: source,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
     };
   }
 }
@@ -192,13 +215,17 @@ function validateRange(range: HostSourceRange): void {
       "Source quotations may not exceed 1000 lines.",
     );
   }
+  validateSourcePath(range.file);
+}
+
+function validateSourcePath(file: string): void {
   if (
-    !range.file ||
-    Buffer.byteLength(range.file, "utf8") > 4096 ||
-    /[:\u0000-\u001f\u007f\\]/.test(range.file) ||
-    path.posix.isAbsolute(range.file) ||
-    path.win32.isAbsolute(range.file) ||
-    range.file.split("/").some((part) => !part || part === "." || part === "..")
+    !file ||
+    Buffer.byteLength(file, "utf8") > 4096 ||
+    /[:\u0000-\u001f\u007f\\]/.test(file) ||
+    path.posix.isAbsolute(file) ||
+    path.win32.isAbsolute(file) ||
+    file.split("/").some((part) => !part || part === "." || part === "..")
   ) {
     throw new EvidenceProviderError(
       "INVALID_REQUEST",

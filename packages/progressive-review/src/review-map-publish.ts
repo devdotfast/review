@@ -27,8 +27,10 @@ export async function runReviewMapPublish(input: {
         case "stage":
           report.stage(event.name, event.status, event);
           break;
-        case "error":
         case "warning":
+          report.warning(event.stage, event.diagnostics);
+          break;
+        case "error":
           report.error(event.stage, event.diagnostics);
           break;
         case "map-published":
@@ -61,6 +63,7 @@ export interface MapPublishReporter {
     status: "running" | "complete",
     details?: MapPublishStageDetails,
   ): void;
+  warning(stage: string, diagnostics: string[]): void;
   error(stage: string, diagnostics: string[]): void;
   published(
     revision: string,
@@ -86,6 +89,13 @@ function mapPublishReporter(input: {
           status,
           ...details,
         }),
+      warning: (stage, diagnostics) =>
+        emit({
+          event: "warning",
+          artifact: "software-map",
+          stage,
+          diagnostics,
+        }),
       error: (stage, diagnostics) =>
         emit({ event: "error", artifact: "software-map", stage, diagnostics }),
       published: (revision, documentRevision, unchanged) =>
@@ -108,6 +118,11 @@ function mapPublishReporter(input: {
       input.stdout.write(
         `${name === "load" ? "Load map" : name}: ok${suffix}\n`,
       );
+    },
+    warning(_stage, diagnostics) {
+      for (const diagnostic of diagnostics) {
+        input.stderr.write(`warning: ${diagnostic}\n`);
+      }
     },
     error(_stage, diagnostics) {
       for (const diagnostic of diagnostics) {

@@ -121,7 +121,10 @@ import {
 import {
   type ActivatedPublication,
   type DocumentActivationCandidate,
+  ReviewActivationConflictError,
   type ReviewActivationHooks,
+  ReviewArtifactUnavailableError,
+  ReviewMapPinsMismatchError,
   activateReviewPublication,
 } from "../review-publication-activation";
 import type {
@@ -1450,7 +1453,7 @@ export function createGlobalReviewServer(
       error instanceof ReviewServerError ||
       error instanceof ReviewOpenThreadsError
         ? error
-        : undefined;
+        : activationRefusal(error);
     const message = toError(error).message;
     return globalJson(
       serverError?.statusCode ?? httpJsonStatus(error),
@@ -1641,6 +1644,7 @@ export function createGlobalReviewServer(
       }),
     );
     let mirrorWarning: string | undefined;
+    let announceWarning: string | undefined;
     let publicationId!: string;
     let mapPublicationId: string | null = null;
     try {
@@ -1705,14 +1709,16 @@ export function createGlobalReviewServer(
             published.record.createdAt,
           );
           successor.promoted = true;
-          await startSessionTelemetry(successor);
-          await clearReopenPending(successor.review.review.worktreePath);
-          broadcastGlobal({
-            event: "review-status-changed",
-            uuid: successor.review.review.uuid,
-            status: "awaiting-review",
+          announceWarning = await warnInsteadOfFailing(async () => {
+            await startSessionTelemetry(successor);
+            await clearReopenPending(successor.review.review.worktreePath);
+            broadcastGlobal({
+              event: "review-status-changed",
+              uuid: successor.review.review.uuid,
+              status: "awaiting-review",
+            });
+            await announcePromotedSession(successor);
           });
-          await announcePromotedSession(successor);
         }),
       );
     } finally {
@@ -1741,6 +1747,7 @@ export function createGlobalReviewServer(
       timings,
     };
     if (mirrorWarning) mounted.mirrorWarning = mirrorWarning;
+    if (announceWarning) mounted.announceWarning = announceWarning;
     if (!focus.ok) mounted.focusWarning = focus.error;
     return mounted;
   }
@@ -1801,6 +1808,8 @@ export function createGlobalReviewServer(
       promoted: false,
     });
     let publicationId!: string;
+    let mirrorWarning: string | undefined;
+    let announceWarning: string | undefined;
     try {
       const validation = await relay.dispatch(successor.descriptor.sessionId, {
         name: "validateCanvasMount",
@@ -1836,6 +1845,7 @@ export function createGlobalReviewServer(
           hooks: publishRuntime.activationHooks,
         });
         publicationId = mapPublicationOf(activated.published);
+        mirrorWarning = activated.mirrorWarning;
         successor.review = { ...presentedReview, review: activated.review };
         successor.artifact.origin = {
           kind: "publication",
@@ -1843,8 +1853,10 @@ export function createGlobalReviewServer(
           mapPublicationId: publicationId,
         };
         successor.promoted = true;
-        await startSessionTelemetry(successor);
-        await announcePromotedSession(successor);
+        announceWarning = await warnInsteadOfFailing(async () => {
+          await startSessionTelemetry(successor);
+          await announcePromotedSession(successor);
+        });
       });
     } finally {
       if (!successor.promoted) {
@@ -1855,7 +1867,27 @@ export function createGlobalReviewServer(
       name: "focusCanvas",
       args: {},
     });
-    return { publicationId };
+    const mounted: MountedSoftwareMapPublication = { publicationId };
+    if (mirrorWarning) mounted.mirrorWarning = mirrorWarning;
+    if (announceWarning) mounted.announceWarning = announceWarning;
+    return mounted;
+  }
+
+  /**
+   * Announcing an already-committed publication cannot un-publish it, so a
+   * failure after the transaction is reported to the publisher, never thrown:
+   * the row and the pointer stand either way.
+   */
+  async function warnInsteadOfFailing(
+    announce: () => Promise<void>,
+  ): Promise<string | undefined> {
+    try {
+      await announce();
+      return undefined;
+    } catch (error) {
+      console.error(error);
+      return `The Review was published, but the desktop could not announce it: ${toError(error).message}`;
+    }
   }
 
   /** The promoted session takes over the review: announce it and close the
@@ -1933,7 +1965,7 @@ export function createGlobalReviewServer(
     return bundle;
   }
 
-  /* Match by path rather than tutorial.find(): an invalid stamp or repo must  /* Match by path rather than tutorial.find(): an invalid stamp or repo must
+  /* Match by path rather than tutorial.find(): an invalid stamp or repo must
      not leave a session serving files that cleanup is about to delete. */
   async function closeTutorialSessions(): Promise<void> {
     const tutorialRoot = path.resolve(devReviewHome(), "tutorial");
@@ -3272,6 +3304,22 @@ async function presentedMapRoot(
     throw error;
   }
   return root;
+}
+
+/** An activation refusal carries its own status and machine code, so the JSON
+ * routes hand those back instead of flattening every one of them to 400. */
+function activationRefusal(
+  error: Error,
+):
+  | ReviewActivationConflictError
+  | ReviewMapPinsMismatchError
+  | ReviewArtifactUnavailableError
+  | undefined {
+  return error instanceof ReviewActivationConflictError ||
+    error instanceof ReviewMapPinsMismatchError ||
+    error instanceof ReviewArtifactUnavailableError
+    ? error
+    : undefined;
 }
 
 function rejectTerminalPublication(review: StoredReviewRecord): void {

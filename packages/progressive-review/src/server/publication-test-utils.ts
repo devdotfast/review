@@ -11,6 +11,7 @@ import type {
 } from "@dev.fast/review-protocol";
 import type { z } from "zod";
 
+import type { ProgressiveReviewTelemetry } from "../progressive-review-telemetry";
 import { type StoredReview, createReviewDir } from "../review-home";
 import { ReviewPublicationResultSchema } from "../review-lifecycle-contracts";
 import type { ReviewActivationHooks } from "../review-publication-activation";
@@ -69,6 +70,7 @@ export async function publicationHarness(
     softwareMap?: string;
     document?: string;
     activationHooks?: ReviewActivationHooks;
+    telemetry?: ProgressiveReviewTelemetry;
   } = {},
 ): Promise<PublicationHarness> {
   const home = await reviewHome();
@@ -114,6 +116,7 @@ export async function publicationHarness(
       port: 0,
       token,
       discoveryPath: path.join(home, "desktop.json"),
+      telemetry: options.telemetry,
       relay: scriptedRelay(() => state.respond),
       publishRuntime: {
         materializePublishRevision,

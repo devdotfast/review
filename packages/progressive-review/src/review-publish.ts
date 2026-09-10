@@ -106,7 +106,7 @@ export interface PublishReporter {
 
 const STAGE_LABELS = {
   validate: "Validate document",
-  revision: "Seal revision",
+  revision: "Prepare publication",
   mount: "Mount",
 } satisfies Record<PublishStage, string>;
 

@@ -111,6 +111,8 @@ export interface MountedDocumentPublication {
   sessionId: string;
   focusWarning?: string;
   mirrorWarning?: string;
+  /** The publication is committed; the desktop could not announce it. */
+  announceWarning?: string;
 }
 
 export type CompleteDocumentPublication = (
@@ -120,6 +122,9 @@ export type CompleteDocumentPublication = (
 
 export interface MountedSoftwareMapPublication {
   publicationId: string;
+  mirrorWarning?: string;
+  /** The publication is committed; the desktop could not announce it. */
+  announceWarning?: string;
 }
 
 export type CompleteSoftwareMapPublication = (
@@ -180,6 +185,8 @@ export async function publishReviewSoftwareMap(
     {
       stage: (name, status, details) =>
         events.push({ event: "stage", name, status, ...details }),
+      warning: (stage, diagnostics) =>
+        events.push({ event: "warning", stage, diagnostics }),
       error: (stage, diagnostics) =>
         events.push({ event: "error", stage, diagnostics }),
       published: (revision, documentRevision, unchanged) =>
@@ -267,11 +274,12 @@ export async function publishReviewDocument(
   // The publication is committed and on screen by now: neither a stale
   // review.json mirror nor a focus failure can fail the publish, so both
   // report as warnings with exit 0.
-  if (result.mirrorWarning) {
-    reporter.warning("mount", [result.mirrorWarning]);
-  }
-  if (result.focusWarning) {
-    reporter.warning("mount", [result.focusWarning]);
+  for (const warning of [
+    result.mirrorWarning,
+    result.announceWarning,
+    result.focusWarning,
+  ]) {
+    if (warning) reporter.warning("mount", [warning]);
   }
   reporter.stage("mount", "complete", { sessionId: result.sessionId });
   return 0;
@@ -362,6 +370,11 @@ export async function publishReviewMap(
     report.stage("load", "running");
     const mounted = await complete(candidate, { agent });
     report.stage("load", "complete");
+    // The map is committed by now: neither a stale review.json mirror nor a
+    // failed announcement can fail the publish.
+    for (const warning of [mounted.mirrorWarning, mounted.announceWarning]) {
+      if (warning) report.warning("load", [warning]);
+    }
     report.published(mounted.publicationId, documentRevision, false);
     return 0;
   } catch (error) {

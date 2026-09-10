@@ -14,6 +14,7 @@ import {
   listLegacyReviewFixtures,
   readLegacyReviewGolden,
 } from "../fixtures/legacy-reviews/legacy-review-fixture";
+import { ProgressiveReviewTelemetry } from "../progressive-review-telemetry";
 import { readReviewSoftwareMapArtifact } from "../review-artifact-store";
 import {
   bundleReviewDocument,
@@ -25,6 +26,7 @@ import {
   parseStoredReviewRecord,
   reviewTitleFromDocument,
 } from "../review-home";
+import { ReviewActivationConflictError } from "../review-publication-activation";
 import { parsePublicationRecord } from "../review-publication-record";
 import {
   listPublications,
@@ -615,6 +617,57 @@ describe("publishing a Review document as a JSON publication", () => {
       // pointer still names the previous publication while the row is written.
       expect(artifactsAtVerify).toBe(true);
       expect(pointerAtInsert).toBeNull();
+    } finally {
+      await harness.close();
+    }
+  }, 60_000);
+
+  it("keeps a publication that the desktop could not announce, and warns", async () => {
+    const telemetry = ProgressiveReviewTelemetry.fromEnv({});
+    vi.spyOn(telemetry, "captureSessionStarted").mockRejectedValue(
+      new Error("telemetry channel is down"),
+    );
+    const harness = await publicationHarness({ telemetry });
+    try {
+      const result = await harness.publishDocument();
+      // The row and the pointer are committed, so announcing is not allowed
+      // to turn a published Review back into a failed publish.
+      expect(result).toMatchObject({ ok: true });
+      expect(result.events).toContainEqual({
+        event: "warning",
+        stage: "mount",
+        diagnostics: [
+          expect.stringContaining("could not announce it: telemetry channel"),
+        ],
+      });
+      const rows = listPublications(harness.review.dir, "document");
+      expect(rows).toHaveLength(1);
+      expect(presentedDocumentRevision(harness.review.dir)).toBe(
+        rows[0]!.publicationId,
+      );
+    } finally {
+      await harness.close();
+    }
+  }, 60_000);
+
+  it("hands an activation refusal's own status and code back to the caller", async () => {
+    const harness = await publicationHarness();
+    try {
+      const published = await harness.publishDocument();
+      expect(published).toMatchObject({ ok: true });
+      harness.respond = async () => {
+        throw new ReviewActivationConflictError();
+      };
+      const response = await harness.request(
+        `/sessions/${sessionIdOf(published)}/verb`,
+        { name: "focusCanvas", args: {} },
+      );
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({
+        ok: false,
+        code: "review_publication_conflict",
+        error: expect.stringContaining("Review changed while preparing"),
+      });
     } finally {
       await harness.close();
     }

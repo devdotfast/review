@@ -16,8 +16,15 @@ export const MAX_TRACE_OBJECTS = 64;
 export const MAX_TRACE_COMMITS = 200;
 /** Largest JSON body a metadata request may carry. Object bytes go to S3. */
 export const MAX_TRACE_METADATA_BODY_BYTES = 64 * 1024;
+/** Most sessions one listing page returns. */
+export const MAX_TRACE_SESSIONS_PAGE = 200;
+/** Sessions per page when the client names no limit. */
+export const DEFAULT_TRACE_SESSIONS_PAGE = 100;
 
 const nameSegment = z.string().regex(/^[A-Za-z0-9_.-]{1,100}$/);
+
+/** A branch or author label a client attaches to a publication. */
+const sessionLabelSchema = z.string().max(200).nullable();
 
 export const traceHarnessSchema = z.enum(["claude", "codex", "opencode", "pi"]);
 export type TraceHarness = z.infer<typeof traceHarnessSchema>;
@@ -52,6 +59,8 @@ export const storeResponseSchema = z.object({
   status: z.enum(["active", "deleting"]),
   createdAt: z.string(),
   created: z.boolean().optional(),
+  /** Bytes of every completed upload in this store instance. Absent from older servers. */
+  bytesStored: z.number().int().nonnegative().optional(),
 });
 export type StoreResponse = z.infer<typeof storeResponseSchema>;
 
@@ -137,6 +146,9 @@ export const completeUploadRequestSchema = z.object({
     .refine((commits) => new Set(commits).size === commits.length, {
       message: "A commit is listed twice.",
     }),
+  /** The checkout branch and author at publication, kept with the upload. */
+  branch: sessionLabelSchema.optional(),
+  author: sessionLabelSchema.optional(),
 });
 export type CompleteUploadRequest = z.infer<typeof completeUploadRequestSchema>;
 
@@ -166,6 +178,15 @@ export const listSessionsQuerySchema = z
   .object({
     commit: commitShaSchema.optional(),
     session: sessionIdSchema.optional(),
+    /** Page size; the server caps it at MAX_TRACE_SESSIONS_PAGE. */
+    limit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_TRACE_SESSIONS_PAGE)
+      .optional(),
+    /** The last session id of the previous page. */
+    cursor: sessionIdSchema.optional(),
   })
   .refine((q) => q.commit !== undefined || q.session !== undefined, {
     message: "commit or session is required",
@@ -180,6 +201,8 @@ export const sessionDownloadSchema = z.object({
   generation: z.number().int().positive(),
   updatedAt: z.string(),
   commits: z.array(commitShaSchema),
+  branch: sessionLabelSchema.optional(),
+  author: sessionLabelSchema.optional(),
   objects: z.array(
     storedObjectSchema.extend({
       url: z.string().url(),
@@ -191,6 +214,8 @@ export type SessionDownload = z.infer<typeof sessionDownloadSchema>;
 
 export const listSessionsResponseSchema = z.object({
   sessions: z.array(sessionDownloadSchema),
+  /** Present when another page follows; pass it back as `cursor`. */
+  nextCursor: sessionIdSchema.optional(),
 });
 export type ListSessionsResponse = z.infer<typeof listSessionsResponseSchema>;
 

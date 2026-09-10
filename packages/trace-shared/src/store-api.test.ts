@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   MAX_TRACE_OBJECT_BYTES,
+  MAX_TRACE_SESSIONS_PAGE,
   MAX_TRACE_SESSION_BYTES,
   TRACE_STORE_API_PREFIX,
   beginUploadRequestSchema,
@@ -9,6 +10,10 @@ import {
   completeUploadRequestSchema,
   completeUploadResponseSchema,
   createStoreRequestSchema,
+  listSessionsQuerySchema,
+  listSessionsResponseSchema,
+  sessionDownloadSchema,
+  storeResponseSchema,
   traceObjectKey,
   traceObjectNameSchema,
   uploadManifestMismatch,
@@ -169,5 +174,85 @@ describe("store-api contracts", () => {
     expect(
       createStoreRequestSchema.safeParse({ owner: "a/b", name: "c" }).success,
     ).toBe(false);
+  });
+  it("accepts the optional byte counter on a store", () => {
+    const base = {
+      repositoryId: 1,
+      storeId: id,
+      displayName: "acme/app",
+      status: "active",
+      createdAt: "2026-09-01T00:00:00.000Z",
+    };
+    expect(storeResponseSchema.safeParse(base).success).toBe(true);
+    expect(
+      storeResponseSchema.safeParse({ ...base, bytesStored: 12 }).success,
+    ).toBe(true);
+    expect(
+      storeResponseSchema.safeParse({ ...base, bytesStored: -1 }).success,
+    ).toBe(false);
+  });
+
+  it("carries optional branch and author through completion and listing", () => {
+    expect(
+      completeUploadRequestSchema.safeParse({
+        commits: [],
+        branch: "main",
+        author: "dev@example.test",
+      }).success,
+    ).toBe(true);
+    expect(
+      completeUploadRequestSchema.safeParse({ commits: [], branch: null })
+        .success,
+    ).toBe(true);
+    expect(
+      completeUploadRequestSchema.safeParse({
+        commits: [],
+        branch: "x".repeat(201),
+      }).success,
+    ).toBe(false);
+    const session = {
+      sessionId: "session-0001",
+      harness: "claude",
+      uploadId: id,
+      generation: 1,
+      updatedAt: "2026-09-01T00:00:00.000Z",
+      commits: [],
+      objects: [],
+    };
+    expect(sessionDownloadSchema.safeParse(session).success).toBe(true);
+    expect(
+      sessionDownloadSchema.safeParse({
+        ...session,
+        branch: "main",
+        author: null,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("pages the session listing with a bounded limit and a session cursor", () => {
+    const commit = "b".repeat(40);
+    expect(listSessionsQuerySchema.safeParse({ commit }).success).toBe(true);
+    expect(
+      listSessionsQuerySchema.safeParse({
+        commit,
+        limit: "50",
+        cursor: "session-0009",
+      }).success,
+    ).toBe(true);
+    expect(
+      listSessionsQuerySchema.safeParse({ commit, limit: "0" }).success,
+    ).toBe(false);
+    expect(
+      listSessionsQuerySchema.safeParse({
+        commit,
+        limit: String(MAX_TRACE_SESSIONS_PAGE + 1),
+      }).success,
+    ).toBe(false);
+    expect(
+      listSessionsResponseSchema.safeParse({
+        sessions: [],
+        nextCursor: "session-0009",
+      }).success,
+    ).toBe(true);
   });
 });

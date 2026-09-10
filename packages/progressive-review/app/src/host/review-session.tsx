@@ -16,6 +16,12 @@ import {
 } from "./review-client";
 import { type ReviewSurface, createReviewSurface } from "./review-host";
 
+export interface ReviewDocumentCacheEntry {
+  document: HydratedReviewDocument;
+  complete: boolean;
+  preparation?: Promise<HydratedReviewDocument>;
+}
+
 export interface ReviewSession {
   appSessionId: string;
   bridge: ReviewCanvasBridge;
@@ -26,7 +32,7 @@ export interface ReviewSession {
    * session owns the cache, so it dies with the session instead of living in
    * a module-global map with its own eviction policy.
    */
-  documents: Map<string, Promise<HydratedReviewDocument>>;
+  documents: Map<string, ReviewDocumentCacheEntry>;
   apiUrl(endpoint: `/${string}`, options?: ReviewRequestOptions): string;
   fetch: (
     endpoint: `/${string}`,

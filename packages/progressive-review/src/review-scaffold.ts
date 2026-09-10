@@ -717,7 +717,6 @@ async function reportRangeStaleness(input: {
     }),
   );
   if (!evaluated.document) return;
-  if (evaluated.errors.length > 0) return;
 
   const changedBySide = new Map<"head" | "base", Set<string>>();
   const changes = [

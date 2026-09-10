@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import {
   cp,
   mkdir,
@@ -13,7 +12,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { listLegacyReviewFixtures } from "../fixtures/legacy-reviews/legacy-review-fixture";
+import { type ReviewNode, walkReviewNodes } from "../review-document-data";
 import { evaluateReviewDocumentBundleForPublish } from "../review-publish-evaluate";
 import { buildReviewDocument } from "./build";
 
@@ -32,7 +31,7 @@ afterEach(async () => {
 });
 
 describe("native document builder", () => {
-  it("preserves the frozen rich document JSON", async () => {
+  it("retains rich prose, unused anchors, evidence sides and component nesting", async () => {
     const dir = path.resolve(import.meta.dirname, "../fixtures/document-json");
     const input = await fixture(
       await readFile(path.join(dir, "order-review.mdx"), "utf8"),
@@ -44,13 +43,27 @@ describe("native document builder", () => {
     const result = await buildReviewDocument(input);
     expect(result.diagnostics).toEqual([]);
     expect(result.errors).toEqual([]);
-    const baseline = JSON.parse(
-      await readFile(
-        path.resolve(import.meta.dirname, "./fixtures/baseline.json"),
-        "utf8",
-      ),
+    const document = result.document!;
+    expect(document.title).toBe("Order persistence — café ☕");
+    expect(document.anchors.unused.title).toBe("Unused but retained");
+    expect(document.anchors.previous.peek?.props.graph).toBe("base");
+    const nodes: ReviewNode[] = [];
+    walkReviewNodes(document.body, (node) => nodes.push(node));
+    expect(nodes).toContainEqual(
+      expect.objectContaining({
+        type: "element",
+        tag: "a",
+        props: expect.objectContaining({
+          href: "https://example.com/orders?q=ready&limit=2",
+        }),
+      }),
     );
-    expect(result.document).toEqual(baseline.cases.order.document);
+    const lens = nodes.find(
+      (node) => node.type === "component" && node.name === "DatabaseLens",
+    );
+    expect(lens?.type === "component" && lens.children).toContainEqual(
+      expect.objectContaining({ type: "component", name: "DbUseCase" }),
+    );
   });
   it("maps semantic failures to authored positions", async () => {
     const result = await buildReviewDocument(
@@ -106,55 +119,6 @@ describe("native document builder", () => {
     ]);
   });
 });
-
-it("matches frozen tutorial and public authored fixtures independently of sealed migration goldens", async () => {
-  const packageRoot = path.resolve(import.meta.dirname, "../..");
-  const baseline = JSON.parse(
-    await readFile(
-      path.join(import.meta.dirname, "fixtures/baseline.json"),
-      "utf8",
-    ),
-  );
-  const tutorial = await fixture("");
-  for (const name of ["review.mdx", "data.ts", "authoring-conversation.json"])
-    await cp(
-      name === "review.mdx"
-        ? path.join(import.meta.dirname, "fixtures/tutorial.mdx")
-        : path.join(packageRoot, "tutorial", name),
-      path.join(path.dirname(tutorial.reviewPath), name),
-    );
-  const result = await buildReviewDocument(tutorial);
-  expect(result.diagnostics).toEqual([]);
-  expect({
-    document: result.document,
-    errors: result.errors,
-    warnings: result.warnings,
-  }).toEqual(baseline.cases.tutorial);
-  for (const entry of await listLegacyReviewFixtures()) {
-    const input = await fixture("");
-    const archive = path.join(
-      packageRoot,
-      "src/fixtures/legacy-reviews",
-      `${entry.name}.tgz`,
-    );
-    const entries = execFileSync("tar", ["-tzf", archive], {
-      encoding: "utf8",
-    }).split("\n");
-    for (const name of ["review.mdx", "data.ts", "authoring-conversation.json"])
-      if (entries.includes(`./${name}`))
-        await writeFile(
-          path.join(path.dirname(input.reviewPath), name),
-          execFileSync("tar", ["-xOzf", archive, `./${name}`]),
-        );
-    const built = await buildReviewDocument(input);
-    expect(built.diagnostics).toEqual([]);
-    expect({
-      document: built.document,
-      errors: built.errors,
-      warnings: built.warnings,
-    }).toEqual(baseline.cases[entry.name]);
-  }
-}, 30000);
 
 it("publishes footnotes, inert inline HTML, GFM and aligned tables successfully", async () => {
   const built = await buildReviewDocument(

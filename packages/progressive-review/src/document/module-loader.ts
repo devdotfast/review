@@ -1,29 +1,37 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync, realpathSync, statSync } from "node:fs";
-import {
-  createRequire,
-  registerHooks,
-  stripTypeScriptTypes,
-} from "node:module";
+import { registerHooks } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+import { type Diagnostic, DiagnosticCategory } from "typescript";
 
 import { reviewAuthoringPropsSchemas } from "../authoring";
 import { errorMessage } from "../error-message";
 import type { PublishValidationRuntime } from "../review-publication-audit";
 import type { PublishValidationProps } from "../review-publish-element-audit";
+import {
+  isAuthoringSpecifier,
+  reviewHelperImports,
+} from "./authoring-environment";
 import { constructDocument } from "./construct";
 import {
   type ReviewDocumentDiagnostic,
   formatReviewDocumentDiagnostics,
 } from "./diagnostics";
-import { reviewHelperImports } from "./review-mdx-transform";
 import type { DocumentSyntax } from "./syntax";
+import { transformAuthoredModule, typescriptDiagnostic } from "./typescript";
 
 /** Load authored modules inside the caller's disposable worker. This owns
  * module hooks and source mapping; it does not communicate with the parent. */
 export async function loadDocumentModule(
-  input: { reviewPath: string; routePath: string; syntax: DocumentSyntax },
+  input: {
+    reviewPath: string;
+    routePath: string;
+    syntax: DocumentSyntax;
+    runtimeBindings: string[];
+    typeOnlyExports: Record<string, string[]>;
+  },
   runtime: PublishValidationRuntime,
   helperDiagnostics: ReviewDocumentDiagnostic[],
 ): Promise<string | null> {
@@ -44,17 +52,9 @@ export async function loadDocumentModule(
             )}} = __reviewComponents; return (${expression.value.startsWith("...") ? `{${expression.value}}` : expression.value}); }`,
       )
       .join(",\n")}];`,
-    `export const __reviewModels = {${tree.bindings.join(",")}};`,
+    `export const __reviewModels = {${input.runtimeBindings.join(",")}};`,
   ].join("\n");
-  // Most documents only import helpers and read expressions. Avoid loading a
-  // TypeScript compiler into their worker merely because the synthetic module
-  // could contain JSX. A '<' conservatively keeps the existing TSX transform
-  // for JSX, generics, comparisons, or strings; helper .tsx files are unchanged.
-  const documentModuleFilename = [...tree.modules, ...tree.expressions].some(
-    (part) => part.value.includes("<"),
-  )
-    ? `${reviewPath}.tsx`
-    : `${reviewPath}.ts`;
+  const documentModuleFilename = `${reviewPath}.tsx`;
   const id = randomUUID();
   const documentUrl = pathToFileURL(reviewPath);
   documentUrl.searchParams.set("pipeline", id);
@@ -86,12 +86,7 @@ export async function loadDocumentModule(
     `\nexport default globalThis[${JSON.stringify(slot)}].React;`;
   const hooks = registerHooks({
     resolve(specifier, context, nextResolve) {
-      if (
-        [
-          "virtual:progressive-review-authoring",
-          "@dev.fast/review/authoring",
-        ].includes(specifier)
-      )
+      if (isAuthoringSpecifier(specifier))
         return { url: authoringUrl, shortCircuit: true };
       if (
         ["react", "react/jsx-runtime", "react/jsx-dev-runtime"].includes(
@@ -156,7 +151,7 @@ export async function loadDocumentModule(
       title: tree.title,
       routePath: input.routePath,
       filePath: reviewPath,
-      modelNames: [],
+      modelNames: tree.declaredModelNames ?? [],
       models: { ...data, ...data.__reviewModels },
       Component: (props: PublishValidationProps) =>
         constructDocument(
@@ -169,14 +164,14 @@ export async function loadDocumentModule(
     });
     return null;
   } catch (error) {
-    // Native linking can report a missing CJS export before evaluating a
-    // malformed helper. Recover its original syntax location on failure,
-    // without loading another compiler on successful native-strip builds.
+    // Linking may fail before a malformed CJS helper is evaluated. Recover its
+    // original syntax location using the same transform as normal loading.
     for (const filename of loadedHelpers) {
       try {
-        const transformed = transformHelper(
+        const transformed = transformAuthoredModule(
           readFileSync(filename, "utf8"),
           filename,
+          input.typeOnlyExports[filename],
         );
         helperDiagnostics.push(
           ...helperSyntaxDiagnostics(filename, transformed.diagnostics ?? []),
@@ -192,23 +187,13 @@ export async function loadDocumentModule(
   }
 
   function emit(source: string, filename: string): string {
-    if (!/\.(?:tsx|jsx|cts)$/.test(filename)) {
-      try {
-        const result = stripTypeScriptTypes(source, {
-          mode: "strip",
-          sourceUrl: filename,
-        });
-        return result;
-      } catch (error) {
-        if (
-          !(error instanceof Error) ||
-          !("code" in error) ||
-          error.code !== "ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX"
-        )
-          throw error;
-      }
-    }
-    const transformed = transformHelper(source, filename);
+    const transformed = transformAuthoredModule(
+      source,
+      filename,
+      input.typeOnlyExports[
+        filename === documentModuleFilename ? reviewPath : filename
+      ],
+    );
     const diagnostics = helperSyntaxDiagnostics(
       filename,
       transformed.diagnostics ?? [],
@@ -218,44 +203,10 @@ export async function loadDocumentModule(
     return transformed.outputText;
   }
 
-  function transformHelper(
-    source: string,
-    filename: string,
-  ): import("typescript").TranspileOutput {
-    // Load compatibility transforms only for syntax native stripping cannot
-    // erase, or to explain a failed import. Never accept a transpiler's recovered
-    // output when its source has syntax errors.
-    const {
-      JsxEmit,
-      ModuleKind,
-      ScriptTarget,
-      transpileModule,
-    }: typeof import("typescript") = createRequire(import.meta.url)(
-      "typescript",
-    );
-    return transpileModule(source, {
-      fileName: filename,
-      reportDiagnostics: true,
-      compilerOptions: {
-        module: filename.endsWith(".cts")
-          ? ModuleKind.CommonJS
-          : ModuleKind.ESNext,
-        target: ScriptTarget.ES2022,
-        jsx: JsxEmit.ReactJSX,
-      },
-    });
-  }
-
   function helperSyntaxDiagnostics(
     filename: string,
-    diagnostics: readonly import("typescript").Diagnostic[],
+    diagnostics: readonly Diagnostic[],
   ): ReviewDocumentDiagnostic[] {
-    const {
-      DiagnosticCategory,
-      flattenDiagnosticMessageText,
-    }: typeof import("typescript") = createRequire(import.meta.url)(
-      "typescript",
-    );
     return diagnostics
       .filter((diagnostic) => diagnostic.category === DiagnosticCategory.Error)
       .map((diagnostic) => {
@@ -263,15 +214,11 @@ export async function loadDocumentModule(
           diagnostic.file && diagnostic.start !== undefined
             ? diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start)
             : undefined;
-        return {
-          source: "typescript",
-          severity: "error",
-          code: `TS${diagnostic.code}`,
-          message: flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
+        return typescriptDiagnostic(diagnostic, {
           filePath: authoredSourcePath(diagnostic.file?.fileName ?? filename),
           line: point ? point.line + 1 : undefined,
           column: point ? point.character + 1 : undefined,
-        };
+        });
       });
   }
 
@@ -285,6 +232,15 @@ export async function loadDocumentModule(
 
   function resolveLocalFile(url: URL): string | null {
     const filename = fileURLToPath(url);
+    const extension = path.extname(filename);
+    const replacements =
+      extension === ".js" || extension === ".jsx"
+        ? [".ts", ".tsx"]
+        : extension === ".mjs"
+          ? [".mts"]
+          : extension === ".cjs"
+            ? [".cts"]
+            : [];
     for (const candidate of [
       filename,
       ...[
@@ -298,6 +254,9 @@ export async function loadDocumentModule(
         ".cjs",
         ".json",
       ].map((extension) => filename + extension),
+      ...replacements.map(
+        (replacement) => filename.slice(0, -extension.length) + replacement,
+      ),
       path.join(filename, "index.ts"),
       path.join(filename, "index.js"),
     ]) {

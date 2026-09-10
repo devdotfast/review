@@ -46,6 +46,16 @@ export function constructDocument(
     if (children.length)
       attributes.children = children.length === 1 ? children[0] : children;
     if (node.name === null) return runtime.jsx(runtime.Fragment, attributes);
+    // JSX treats lowercase and custom-element names as intrinsic tags. Dotted
+    // names still refer to authored components, including lowercase namespaces.
+    if (
+      !node.name.includes(".") &&
+      (/^[a-z]/.test(node.name) || node.name.includes("-"))
+    )
+      return runtime.jsx(
+        props.components?.[node.name] ?? node.name,
+        attributes,
+      );
     let binding: ReviewDocumentExport = bindings;
     for (const part of node.name.split("."))
       binding = isObjectValue(binding)

@@ -96,6 +96,28 @@ it("keeps a second session's hydration separate", async () => {
   ]);
 });
 
+it("shares concurrent preparation and keeps content hashes separate", async () => {
+  const session = testReviewSession();
+  const resolution =
+    Promise.withResolvers<Awaited<ReturnType<typeof resolveCodePeekRequest>>>();
+  resolveCodePeek.mockReturnValue(resolution.promise);
+
+  const first = prepareReviewDocument(load, session, { resolveCodePeek });
+  const concurrent = prepareReviewDocument(load, session, { resolveCodePeek });
+  const different = prepareReviewDocument(
+    { ...load, contentHash: "different-content" },
+    session,
+    { resolveCodePeek },
+  );
+  expect(concurrent).toBe(first);
+  await Promise.resolve();
+  expect(resolveCodePeek).toHaveBeenCalledTimes(2);
+
+  resolution.resolve({ snapshot: { roots: [], resolved: {} } });
+  expect(await concurrent).toBe(await first);
+  expect(await different).not.toBe(await first);
+});
+
 it("keeps available peeks visible and retries incomplete preparation on a later load", async () => {
   const session = testReviewSession();
   const data = documentData();
@@ -120,13 +142,31 @@ it("keeps available peeks visible and retries incomplete preparation on a later 
   expect(partial.anchors.get("other")?.peek?.resolution).toEqual({
     snapshot: { roots: [], resolved: {} },
   });
-  expect(session.documents.has("document-hash")).toBe(false);
+  const available = partial.anchors.get("other");
+  const availableResolution = available?.peek?.resolution;
+  expect(session.documents.get("document-hash")?.document).toBe(partial);
 
-  const recovered = await prepareReviewDocument(load, session, {
+  const retry = prepareReviewDocument(load, session, {
     resolveCodePeek,
   });
+  expect(prepareReviewDocument(load, session, { resolveCodePeek })).toBe(retry);
+  const recovered = await retry;
+  expect(recovered).toBe(partial);
+  expect(recovered.anchors.get("other")).toBe(available);
+  expect(recovered.anchors.get("other")?.peek?.resolution).toBe(
+    availableResolution,
+  );
   expect(recovered.anchors.get("create-order")?.peek?.resolution).toBeDefined();
-  expect(resolveCodePeek).toHaveBeenCalledTimes(4);
+  expect(resolveCodePeek).toHaveBeenCalledTimes(3);
+  expect(resolveCodePeek.mock.calls.map((call) => call[1].file)).toEqual([
+    "src/orders.ts",
+    "src/available.ts",
+    "src/orders.ts",
+  ]);
+  expect(await prepareReviewDocument(load, session, { resolveCodePeek })).toBe(
+    partial,
+  );
+  expect(resolveCodePeek).toHaveBeenCalledTimes(3);
 });
 
 it("evicts rejected hydration without caching invalid document data", async () => {

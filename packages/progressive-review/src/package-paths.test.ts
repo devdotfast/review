@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   findProgressiveReviewPackageRoot,
   progressiveReviewAppSourcePath,
-  progressiveReviewAuthoringSourcePath,
+  progressiveReviewAuthoringTypesPath,
 } from "./package-paths";
 
 describe("findProgressiveReviewPackageRoot", () => {
@@ -54,10 +54,13 @@ describe("compiler resource paths", () => {
     }
   });
 
-  it("resolves the authoring module inside the package", () => {
-    for (const moduleUrl of moduleUrls) {
-      expect(progressiveReviewAuthoringSourcePath(moduleUrl)).toBe(
-        path.join(packageRoot, "src", "authoring.ts"),
+  it("uses fresh source types in development and generated declarations after packaging", () => {
+    expect(progressiveReviewAuthoringTypesPath(moduleUrls[0])).toBe(
+      path.join(packageRoot, "src", "authoring.ts"),
+    );
+    for (const moduleUrl of moduleUrls.slice(1)) {
+      expect(progressiveReviewAuthoringTypesPath(moduleUrl)).toBe(
+        path.join(packageRoot, "dist", "authoring.d.ts"),
       );
     }
   });

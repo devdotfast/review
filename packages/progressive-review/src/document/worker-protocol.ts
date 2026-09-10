@@ -10,6 +10,8 @@ export interface DocumentWorkerInput {
   reviewPath: string;
   routePath: string;
   syntax: DocumentSyntax;
+  runtimeBindings: string[];
+  typeOnlyExports: Record<string, string[]>;
   ranges: "validate" | "skip";
   hasEvidence: boolean;
   hasChangedLines: boolean;

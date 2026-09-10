@@ -51,6 +51,7 @@ export const REQUIRED_RUNTIME_ENTRIES = [
   "node_modules",
   "node_modules/@dev.fast/local-vcs/dist/index.js",
   "dist/document/worker.js",
+  "dist/authoring.d.ts",
 ];
 
 export function runtimeRootForPackagedRoot(packagedRoot) {
@@ -127,7 +128,6 @@ export async function stageReviewRuntime(packagedRoot) {
   await stampReviewSkills(runtimeRoot);
   await makeTreeOwnerWritable(path.join(runtimeRoot, "tutorial", "git-stub"));
   await assertRuntimeClosure(runtimeRoot);
-  await assertNoRuntimeBundler(packagedRoot);
   return runtimeRoot;
 }
 
@@ -269,8 +269,7 @@ export async function assertRuntimeClosure(runtimeRoot) {
       );
     }
   }
-  await assertNoCheckoutReferences(runtimeRoot);
-  await assertNoRuntimeBundler(runtimeRoot);
+  await assertRuntimeContents(runtimeRoot);
 }
 
 export async function readTutorialRuntimeManifest(tutorialRoot) {
@@ -307,9 +306,20 @@ function isSafeManifestPath(entry) {
   );
 }
 
-/** Also used by installed-CLI E2E: a dependency declaration alone cannot
- * prove that a transitive native bundler was removed from the shipped files. */
+/** Final package verification includes files outside the staged runtime, such
+ * as extension dependencies and ASAR archives, after all package mutations. */
 export async function assertNoRuntimeBundler(runtimeRoot) {
+  await inspectRuntimeTree(runtimeRoot, false);
+}
+
+/** Validate the staged dependency closure in one traversal. */
+export async function assertRuntimeContents(runtimeRoot) {
+  await inspectRuntimeTree(runtimeRoot, true);
+}
+
+async function inspectRuntimeTree(root, checkCheckoutReferences) {
+  const runtimeRoot = await realpath(root);
+  const offenders = [];
   const visit = async (directory) => {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       const absolute = path.join(directory, entry.name);
@@ -318,11 +328,46 @@ export async function assertNoRuntimeBundler(runtimeRoot) {
           `The Review runtime must not ship esbuild: ${path.relative(runtimeRoot, absolute)}`,
         );
       }
-      if (entry.isDirectory()) await visit(absolute);
-      else if (entry.isFile() && entry.name.endsWith(".asar")) {
+      if (entry.isSymbolicLink()) {
+        if (checkCheckoutReferences) {
+          const real = await realpathOrNull(absolute);
+          if (!real) {
+            offenders.push(
+              `${path.relative(runtimeRoot, absolute)} (broken link)`,
+            );
+          } else if (
+            real !== runtimeRoot &&
+            !real.startsWith(runtimeRoot + path.sep)
+          ) {
+            offenders.push(
+              `${path.relative(runtimeRoot, absolute)} -> ${real} (escapes runtime)`,
+            );
+          }
+        }
+        continue;
+      }
+      if (entry.isDirectory()) {
+        await visit(absolute);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (entry.name.endsWith(".asar")) {
         await assertNoArchivedBundler(absolute);
-      } else if (entry.isFile() && entry.name === "package.json") {
-        const manifest = JSON.parse(await readFile(absolute, "utf8"));
+        continue;
+      }
+      const isManifest = entry.name === "package.json";
+      // Declarations and source maps can embed checkout paths just as emitted
+      // JavaScript can. Read manifests once for both closure checks.
+      const checkContents =
+        checkCheckoutReferences &&
+        (isManifest ||
+          /\.[cm]?js\.map$/.test(entry.name) ||
+          (/\.(?:[cm]?js|d\.[cm]?ts)$/.test(entry.name) &&
+            absolute.includes(`${path.sep}dist${path.sep}`)));
+      if (!isManifest && !checkContents) continue;
+      const contents = await readFile(absolute, "utf8");
+      if (isManifest) {
+        const manifest = JSON.parse(contents);
         if (
           manifest.name === "esbuild" ||
           manifest.name?.startsWith("@esbuild/")
@@ -331,9 +376,19 @@ export async function assertNoRuntimeBundler(runtimeRoot) {
             `The Review runtime must not ship ${manifest.name}: ${path.relative(runtimeRoot, absolute)}`,
           );
       }
+      if (checkContents && contents.includes(monorepoRoot)) {
+        offenders.push(
+          `${path.relative(runtimeRoot, absolute)} (build checkout path)`,
+        );
+      }
     }
   };
   await visit(runtimeRoot);
+  if (offenders.length > 0) {
+    throw new Error(
+      `The staged Review runtime is not relocatable:\n  ${offenders.join("\n  ")}`,
+    );
+  }
 }
 
 // ASAR headers are two Chromium pickles: an 8-byte size pickle followed by
@@ -365,67 +420,6 @@ async function assertNoArchivedBundler(archive) {
     visit(JSON.parse(contents.toString("utf8")));
   } finally {
     await file.close();
-  }
-}
-
-/** A relocatable closure must not name its build machine or link outside it. */
-export async function assertNoCheckoutReferences(runtimeRoot) {
-  const offenders = [];
-  const manifests = [];
-
-  const walk = async (directory) => {
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
-      const absolute = path.join(directory, entry.name);
-      if (entry.isSymbolicLink()) {
-        const target = await stat(absolute).catch(() => null);
-        if (!target) {
-          offenders.push(
-            `${path.relative(runtimeRoot, absolute)} (broken link)`,
-          );
-          continue;
-        }
-        const real = await realpathOrNull(absolute);
-        if (real && !real.startsWith(runtimeRoot + path.sep)) {
-          offenders.push(
-            `${path.relative(runtimeRoot, absolute)} -> ${real} (escapes runtime)`,
-          );
-        }
-        continue;
-      }
-      if (entry.isDirectory()) {
-        await walk(absolute);
-        continue;
-      }
-      // Manifests are the obvious place a build path leaks, but source maps
-      // and emitted JavaScript embed absolute paths just as easily, and a
-      // dynamic import built from one fails only once the app is installed.
-      if (
-        entry.name === "package.json" ||
-        entry.name.endsWith(".js.map") ||
-        entry.name.endsWith(".cjs.map") ||
-        entry.name.endsWith(".mjs.map") ||
-        (entry.name.endsWith(".js") &&
-          absolute.includes(`${path.sep}dist${path.sep}`))
-      ) {
-        manifests.push(absolute);
-      }
-    }
-  };
-  await walk(runtimeRoot);
-
-  for (const manifest of manifests) {
-    const contents = await readFile(manifest, "utf8");
-    if (contents.includes(monorepoRoot)) {
-      offenders.push(
-        `${path.relative(runtimeRoot, manifest)} (build checkout path)`,
-      );
-    }
-  }
-
-  if (offenders.length > 0) {
-    throw new Error(
-      `The staged Review runtime is not relocatable:\n  ${offenders.join("\n  ")}`,
-    );
   }
 }
 

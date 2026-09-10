@@ -18,6 +18,7 @@ export interface DocumentBuildInput extends ReviewPublishEvaluationInput {
   reviewPath: string;
   routePath?: string;
   signal?: AbortSignal;
+  typecheck?: "document" | "review";
 }
 export interface DocumentBuildResult extends ReviewPublishEvaluationResult {
   diagnostics: ReviewDocumentDiagnostic[];
@@ -53,11 +54,14 @@ export async function buildReviewDocument(
       ],
     };
   }
-  const diagnostics = checkReviewDocument({
-    filePath: input.reviewPath,
-    source,
-    syntax,
-  });
+  const { diagnostics, runtimeBindings, typeOnlyExports } = checkReviewDocument(
+    {
+      filePath: input.reviewPath,
+      source,
+      syntax,
+      typecheck: input.typecheck,
+    },
+  );
   if (diagnostics.some((diagnostic) => diagnostic.severity === "error"))
     return {
       document: null,
@@ -73,6 +77,8 @@ export async function buildReviewDocument(
       reviewPath: input.reviewPath,
       routePath: input.routePath ?? "/",
       syntax,
+      runtimeBindings,
+      typeOnlyExports,
       ranges: input.ranges ?? "validate",
       hasEvidence: Boolean(input.prepareEvidence),
       hasChangedLines: Boolean(input.resolveChangedLines),

@@ -104,6 +104,7 @@
     "semver": "7.8.5",
     "typescript": "6.0.3",
     "unified": "11.0.5",
+    "vfile-message": "^4.0.3",
     "write-file-atomic": "8.0.0",
     "zod": "4.4.3",
     "zustand": "4.5.7"

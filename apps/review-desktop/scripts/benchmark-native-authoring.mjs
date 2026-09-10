@@ -80,12 +80,13 @@ if (process.argv[2] === "--child") {
   process.send({ ready: true });
 }
 
-async function expose(runtime, native) {
+async function expose(runtime) {
   const dist = path.join(runtime, "dist");
   const names = await readdir(dist);
   for (const name of names.filter((name) => /^cli-runner-.*\.js$/.test(name))) {
     const source = await readFile(path.join(dist, name), "utf8");
     const entry = path.join(dist, `.benchmark-${process.pid}.mjs`);
+    const native = source.includes("function buildReviewDocument(");
     assert.ok(
       source.includes(
         native
@@ -170,8 +171,8 @@ export async function benchmark({
   output,
 }) {
   const entries = {
-    old: await expose(baselineRuntime, false),
-    native: await expose(runtime, true),
+    old: await expose(baselineRuntime),
+    native: await expose(runtime),
   };
   const report = {
     node: process.version,

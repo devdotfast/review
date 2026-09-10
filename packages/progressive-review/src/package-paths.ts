@@ -41,13 +41,16 @@ export function progressiveReviewAppSourcePath(
   return path.join(findProgressiveReviewPackageRoot(moduleUrl), "app", "src");
 }
 
-export function progressiveReviewAuthoringSourcePath(
+export function progressiveReviewAuthoringTypesPath(
   moduleUrl: string = import.meta.url,
 ): string {
+  // Source execution must see edits immediately; installed execution uses the
+  // generated declaration closure instead of checking implementation modules.
+  const sourceMode = fileURLToPath(moduleUrl).endsWith(".ts");
   return path.join(
     findProgressiveReviewPackageRoot(moduleUrl),
-    "src",
-    "authoring.ts",
+    sourceMode ? "src" : "dist",
+    sourceMode ? "authoring.ts" : "authoring.d.ts",
   );
 }
 

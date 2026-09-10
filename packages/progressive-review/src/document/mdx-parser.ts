@@ -13,10 +13,11 @@ import remarkMdx from "remark-mdx";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
-import { z } from "zod";
+import { VFileMessage } from "vfile-message";
 
 import { maskReviewFrontmatter } from "../review-frontmatter";
 import { reviewTypescriptEstreeParser } from "../review-mdx-typescript-parser";
+import { headingText } from "./heading-text";
 import { rehypeReviewTargets } from "./rehype-review-targets";
 import { remarkReviewAnchorLinks } from "./remark-review-anchor-links";
 import { remarkReviewSections } from "./remark-review-sections";
@@ -41,30 +42,12 @@ interface TreeNode {
   data?: { estree?: Program };
 }
 
-const pointSchema = z.object({
-  line: z.number().optional(),
-  column: z.number().optional(),
-});
-const parseErrorSchema = z.object({
-  message: z.string(),
-  line: z.number().optional(),
-  column: z.number().optional(),
-  place: z.union([pointSchema, z.object({ start: pointSchema })]).nullish(),
-});
 export const parseReviewDocument: DocumentParser = async (source) => {
   try {
     return await parseDocument(source);
   } catch (error) {
-    const parsed = parseErrorSchema.safeParse(error);
-    if (!parsed.success) throw error;
-    const { data } = parsed;
-    const point =
-      data.place && "start" in data.place ? data.place.start : data.place;
-    throw new DocumentParseError(
-      data.message,
-      data.line ?? point?.line,
-      data.column ?? point?.column,
-    );
+    if (!(error instanceof VFileMessage)) throw error;
+    throw new DocumentParseError(error.message, error.line, error.column);
   }
 };
 const parseDocument: DocumentParser = async (source) => {
@@ -198,20 +181,25 @@ const parseDocument: DocumentParser = async (source) => {
               value: attr.value ?? true,
               span: attributeSpan,
             };
-          const valueSpan = span(attr.value, attributeSpan);
-          // Synthesized anchor links carry the link's source position rather than
-          // a fabricated parser position for their expression.
-          const start = attr.value.position
-            ? valueSpan.start + 1
-            : source.indexOf(attr.value.value, location.start);
+          let valueSpan = attr.value.data?.reviewSourceSpan;
+          if (!valueSpan) {
+            // mdast positions the attribute, but not its expression value. The
+            // opening brace belongs to this attribute, even when its expression
+            // also appears in the tag name or an earlier attribute.
+            const openingBrace = source.indexOf("{", attributeSpan.start);
+            if (openingBrace < 0 || openingBrace >= attributeSpan.end)
+              throw new Error(
+                "Missing source boundary for MDX attribute expression",
+              );
+            valueSpan = {
+              start: openingBrace + 1,
+              end: attributeSpan.end - 1,
+            };
+          }
           return {
             kind: "expression",
             name: attr.name,
-            expression: expression(attr.value.value, {
-              start:
-                start >= 0 && start < location.end ? start : location.start,
-              end: valueSpan.end,
-            }),
+            expression: expression(attr.value.value, valueSpan),
             span: attributeSpan,
           };
         },
@@ -234,6 +222,7 @@ const parseDocument: DocumentParser = async (source) => {
     modules,
     expressions,
     bindings: moduleBindings(programs),
+    declaredModelNames: declaredModelNames(programs),
     body,
   };
 };
@@ -339,7 +328,44 @@ function firstHeading(root: Root): string {
     (node) => node.type === "heading" && node.depth === 1,
   );
   if (!heading || heading.type !== "heading") return "review";
-  return heading.children
-    .map((node) => ("value" in node ? node.value : ""))
-    .join("");
+  return headingText(heading) || "review";
+}
+
+function declaredModelNames(programs: readonly Program[]): string[] {
+  const names: string[] = [];
+  for (const program of programs)
+    for (const statement of program.body) {
+      if (
+        statement.type !== "ExportNamedDeclaration" ||
+        statement.declaration?.type !== "VariableDeclaration"
+      )
+        continue;
+      for (const { id, init } of statement.declaration.declarations)
+        if (id.type === "Identifier" && isSoftwareModelDeclaration(init))
+          names.push(id.name);
+    }
+  return names;
+}
+
+// Babel retains these TypeScript wrappers in the otherwise ESTree expression.
+interface TypeScriptExpression {
+  type: "TSAsExpression" | "TSSatisfiesExpression" | "TSNonNullExpression";
+  expression: Expression | TypeScriptExpression;
+}
+
+function isSoftwareModelDeclaration(
+  expression: Expression | TypeScriptExpression | null | undefined,
+): boolean {
+  if (!expression) return false;
+  if (
+    expression.type === "TSAsExpression" ||
+    expression.type === "TSSatisfiesExpression" ||
+    expression.type === "TSNonNullExpression"
+  )
+    return isSoftwareModelDeclaration(expression.expression);
+  return (
+    expression.type === "CallExpression" &&
+    expression.callee.type === "Identifier" &&
+    expression.callee.name === "defineSoftwareModel"
+  );
 }

@@ -7,6 +7,8 @@ import type {
 } from "mdast";
 import type { MdxJsxAttribute, MdxJsxFlowElement } from "mdast-util-mdx-jsx";
 
+import { headingText } from "./heading-text";
+
 const COLLAPSED_MARKER = /\s*\[collapsed\]\s*$/i;
 
 /**
@@ -80,14 +82,4 @@ function stripCollapsedMarker(heading: Heading): boolean {
   if (!lastText || !COLLAPSED_MARKER.test(lastText.value)) return false;
   lastText.value = lastText.value.replace(COLLAPSED_MARKER, "");
   return true;
-}
-
-function headingText(heading: Heading): string {
-  return heading.children
-    .map((child) =>
-      child.type === "text" || child.type === "inlineCode" ? child.value : "",
-    )
-    .join("")
-    .replace(/\s+/g, " ")
-    .trim();
 }

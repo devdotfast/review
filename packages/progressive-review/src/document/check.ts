@@ -1,10 +1,38 @@
+import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 
-import ts from "typescript";
+import {
+  type CompilerOptions,
+  Extension,
+  JsxEmit,
+  ModuleKind,
+  ModuleResolutionKind,
+  ScriptKind,
+  ScriptTarget,
+  type Symbol,
+  SymbolFlags,
+  type TypeChecker,
+  createCompilerHost,
+  createModuleResolutionCache,
+  createProgram,
+  createSourceFile,
+  flattenDiagnosticMessageText,
+  getModeForUsageLocation,
+  getPreEmitDiagnostics,
+  isExportDeclaration,
+  isNamedExports,
+  isTypeOnlyImportOrExportDeclaration,
+  resolveModuleName,
+} from "typescript";
 
 import { reviewAuthoringPropsSchemas } from "../authoring";
-import { progressiveReviewAuthoringSourcePath } from "../package-paths";
+import { progressiveReviewAuthoringTypesPath } from "../package-paths";
+import {
+  isAuthoringSpecifier,
+  reviewHelperImports,
+  sessionHelperNames,
+} from "./authoring-environment";
 import type { ReviewDocumentDiagnostic } from "./diagnostics";
 import { unsupportedTypescriptDiagnostics } from "./review-document-syntax-validator";
 import type {
@@ -13,15 +41,15 @@ import type {
   DocumentSyntaxNode,
   SourceSpan,
 } from "./syntax";
+import { typescriptDiagnostic } from "./typescript";
 
 const require = createRequire(import.meta.url);
-const helpers = [
-  "defineActors",
-  "defineAnchors",
-  "defineSoftwareActors",
-  "defineSoftwareStores",
-  "defineStores",
-] as const;
+
+export interface DocumentCheckResult {
+  diagnostics: ReviewDocumentDiagnostic[];
+  runtimeBindings: string[];
+  typeOnlyExports: Record<string, string[]>;
+}
 
 /** Only a diagnostic projection is emitted. This TSX is never executed,
  * bundled, persisted, or used to construct the published document. */
@@ -29,8 +57,10 @@ export function checkReviewDocument(input: {
   filePath: string;
   source: string;
   syntax: DocumentSyntax;
-}): ReviewDocumentDiagnostic[] {
+  typecheck?: "document" | "review";
+}): DocumentCheckResult {
   const { syntax } = input;
+  const filePath = path.resolve(input.filePath);
   const point = (offset: number) => {
     const before = input.source.slice(0, offset);
     return {
@@ -39,7 +69,7 @@ export function checkReviewDocument(input: {
     };
   };
   const unsupported = unsupportedTypescriptDiagnostics(
-    input,
+    { filePath },
     [
       ...syntax.modules.map((region) => ({ ...region, kind: "esm" as const })),
       ...syntax.expressions.map((region) => ({
@@ -53,14 +83,21 @@ export function checkReviewDocument(input: {
       sourceStartColumn: point(region.span.start).column,
     })),
   );
-  if (unsupported.length) return unsupported;
+  if (unsupported.length)
+    return {
+      diagnostics: unsupported,
+      runtimeBindings: [],
+      typeOnlyExports: {},
+    };
 
-  const authoringPath = progressiveReviewAuthoringSourcePath(import.meta.url);
+  const authoringPath = progressiveReviewAuthoringTypesPath(import.meta.url);
+  if (!existsSync(authoringPath))
+    throw new Error(`Review authoring types are missing: ${authoringPath}`);
   const helpersPath = `${authoringPath}.document-helpers.ts`;
-  const virtualPath = `${input.filePath}.tsx`;
+  const virtualPath = `${filePath}.tsx`;
   const helperSource = [
     `export * from ${JSON.stringify(authoringPath)};`,
-    ...helpers.map(
+    ...sessionHelperNames.map(
       (name) =>
         `export declare const ${name}: import(${JSON.stringify(authoringPath)}).ReviewDefinitionSession[${JSON.stringify(name)}];`,
     ),
@@ -76,7 +113,7 @@ export function checkReviewDocument(input: {
           (name) =>
             `declare const ${name}: __ReviewComponents[${JSON.stringify(name)}];`,
         ),
-      `import { ${[...helpers, "calls", "defineSoftwareModel", "__reviewDefinitionsReady"].filter((name) => !syntax.bindings.includes(name)).join(", ")} } from ${JSON.stringify(helpersPath)};`,
+      reviewHelperImports(new Set(syntax.bindings), helpersPath),
     ].join("\n") + "\n";
   const mappings: {
     start: number;
@@ -144,11 +181,11 @@ export function checkReviewDocument(input: {
   syntax.body.forEach(node);
   append("</>);\n");
   const reactRoot = path.dirname(require.resolve("@types/react/package.json"));
-  const options: ts.CompilerOptions = {
-    target: ts.ScriptTarget.ES2022,
-    module: ts.ModuleKind.ESNext,
-    moduleResolution: ts.ModuleResolutionKind.Bundler,
-    jsx: ts.JsxEmit.ReactJSX,
+  const options: CompilerOptions = {
+    target: ScriptTarget.ES2022,
+    module: ModuleKind.ESNext,
+    moduleResolution: ModuleResolutionKind.Bundler,
+    jsx: JsxEmit.ReactJSX,
     strict: true,
     noImplicitAny: false,
     noEmit: true,
@@ -165,27 +202,37 @@ export function checkReviewDocument(input: {
     [virtualPath, virtual],
     [helpersPath, helperSource],
   ]);
-  const host = ts.createCompilerHost(options);
+  const host = createCompilerHost(options);
   const originalGetSourceFile = host.getSourceFile.bind(host);
   host.getSourceFile = (file, languageVersion, onError, shouldCreate) =>
     files.has(file)
-      ? ts.createSourceFile(
+      ? createSourceFile(
           file,
           files.get(file)!,
           languageVersion,
           true,
-          ts.ScriptKind.TSX,
+          ScriptKind.TSX,
         )
       : originalGetSourceFile(file, languageVersion, onError, shouldCreate);
   const originalFileExists = host.fileExists.bind(host);
   host.fileExists = (file) => files.has(file) || originalFileExists(file);
   const originalReadFile = host.readFile.bind(host);
   host.readFile = (file) => files.get(file) ?? originalReadFile(file);
-  const resolutionCache = ts.createModuleResolutionCache(
-    path.dirname(input.filePath),
+  const resolutionCache = createModuleResolutionCache(
+    path.dirname(filePath),
     host.getCanonicalFileName,
     options,
   );
+  // Internal-test checks even helpers the document does not import. Publishing
+  // deliberately keeps its MDX-only semantic-checking boundary.
+  const helperFiles = new Set(
+    input.typecheck === "review"
+      ? readdirSync(path.dirname(filePath), { withFileTypes: true })
+          .filter((entry) => entry.isFile() && entry.name.endsWith(".ts"))
+          .map((entry) => path.join(path.dirname(filePath), entry.name))
+      : [],
+  );
+  const rootFiles = [virtualPath, ...helperFiles];
   host.resolveModuleNameLiterals = (
     literals,
     containingFile,
@@ -194,32 +241,38 @@ export function checkReviewDocument(input: {
     sourceFile,
   ) =>
     literals.map((literal) => {
-      if (
-        [
-          "virtual:progressive-review-authoring",
-          "@dev.fast/review/authoring",
-        ].includes(literal.text)
-      )
+      if (isAuthoringSpecifier(literal.text))
         return {
           resolvedModule: {
             resolvedFileName: helpersPath,
-            extension: ts.Extension.Ts,
+            extension: Extension.Ts,
           },
         };
-      return ts.resolveModuleName(
+      const resolution = resolveModuleName(
         literal.text.startsWith("/@fs/") ? literal.text.slice(5) : literal.text,
         containingFile,
         compilerOptions,
         host,
         resolutionCache,
         redirectedReference,
-        ts.getModeForUsageLocation(sourceFile, literal, compilerOptions),
+        getModeForUsageLocation(sourceFile, literal, compilerOptions),
       );
+      const resolved = resolution.resolvedModule;
+      if (
+        (containingFile === virtualPath || helperFiles.has(containingFile)) &&
+        resolved &&
+        !resolved.isExternalLibraryImport &&
+        !files.has(resolved.resolvedFileName) &&
+        resolved.resolvedFileName !== authoringPath
+      )
+        helperFiles.add(resolved.resolvedFileName);
+      return resolution;
     });
-  const program = ts.createProgram([virtualPath], options, host);
+  const program = createProgram(rootFiles, options, host);
+  const virtualFile = program.getSourceFile(virtualPath)!;
   const diagnostics: ReviewDocumentDiagnostic[] = [];
-  for (const diagnostic of ts.getPreEmitDiagnostics(program)) {
-    if (diagnostic.file?.fileName !== virtualPath) continue;
+  for (const diagnostic of getPreEmitDiagnostics(program, virtualFile)) {
+    if (diagnostic.file && diagnostic.file.fileName !== virtualPath) continue;
     const start = diagnostic.start ?? 0;
     const mapping = mappings.find(
       (item) => start >= item.start && start < item.end,
@@ -228,22 +281,94 @@ export function checkReviewDocument(input: {
     // silently accept them: surface an infrastructure error for its owner.
     if (!mapping)
       throw new Error(
-        `Document diagnostic projection: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")}`,
+        `Document diagnostic projection: ${flattenDiagnosticMessageText(diagnostic.messageText, "\n")}`,
       );
     const offset =
       mapping.source.start + (mapping.exact ? start - mapping.start : 0);
     const position = point(offset);
-    diagnostics.push({
-      source: "typescript",
-      severity:
-        diagnostic.category === ts.DiagnosticCategory.Error
-          ? "error"
-          : "warning",
-      code: `TS${diagnostic.code}`,
-      message: ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
-      filePath: input.filePath,
-      ...position,
-    });
+    diagnostics.push(
+      typescriptDiagnostic(diagnostic, {
+        filePath: filePath,
+        ...position,
+      }),
+    );
   }
-  return diagnostics;
+  if (input.typecheck === "review") {
+    for (const helper of helperFiles) {
+      const file = program.getSourceFile(helper);
+      if (!file || file.isDeclarationFile) continue;
+      for (const diagnostic of [
+        ...program.getSyntacticDiagnostics(file),
+        ...program.getSemanticDiagnostics(file),
+      ]) {
+        const point = file.getLineAndCharacterOfPosition(diagnostic.start ?? 0);
+        diagnostics.push(
+          typescriptDiagnostic(diagnostic, {
+            filePath: helper,
+            line: point.line + 1,
+            column: point.character + 1,
+          }),
+        );
+      }
+    }
+  }
+  const checker = program.getTypeChecker();
+  const typeOnlyExports: Record<string, string[]> = {};
+  // Single-file emission cannot infer that a re-exported name denotes only a
+  // type. Reuse this graph for that fact, without expanding publish diagnostics
+  // to helper semantics or sending compiler objects across the worker boundary.
+  for (const filename of [virtualPath, ...helperFiles]) {
+    const file = program.getSourceFile(filename);
+    if (!file || file.isDeclarationFile) continue;
+    const names: string[] = [];
+    for (const statement of file.statements) {
+      if (
+        !isExportDeclaration(statement) ||
+        statement.isTypeOnly ||
+        !statement.exportClause ||
+        !isNamedExports(statement.exportClause)
+      )
+        continue;
+      for (const specifier of statement.exportClause.elements) {
+        if (specifier.isTypeOnly) continue;
+        const symbol = checker.getSymbolAtLocation(specifier.name);
+        if (symbol && !hasRuntimeValue(symbol, checker))
+          names.push(specifier.name.text);
+      }
+    }
+    if (names.length) {
+      // Standalone checker callers may provide a virtual MDX source, while
+      // files loaded by the worker need the same canonical symlink identity.
+      const authoredPath =
+        filename === virtualPath && !existsSync(filePath)
+          ? filePath
+          : realpathSync(filename === virtualPath ? filePath : filename);
+      typeOnlyExports[authoredPath] = names;
+    }
+  }
+  const values = new Set(
+    checker
+      .getSymbolsInScope(virtualFile, SymbolFlags.Value | SymbolFlags.Alias)
+      .filter((symbol) => hasRuntimeValue(symbol, checker))
+      .map((symbol) => symbol.name),
+  );
+  return {
+    diagnostics,
+    runtimeBindings: syntax.bindings.filter((name) => values.has(name)),
+    typeOnlyExports,
+  };
+}
+
+function hasRuntimeValue(symbol: Symbol, checker: TypeChecker): boolean {
+  const seen = new Set<Symbol>();
+  while (symbol.flags & SymbolFlags.Alias) {
+    if (seen.has(symbol)) return false;
+    seen.add(symbol);
+    if (symbol.declarations?.some(isTypeOnlyImportOrExportDeclaration))
+      return false;
+    symbol =
+      checker.getImmediateAliasedSymbol(symbol) ??
+      checker.getAliasedSymbol(symbol);
+  }
+  return Boolean(symbol.flags & SymbolFlags.Value);
 }

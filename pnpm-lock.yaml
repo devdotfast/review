@@ -182,6 +182,9 @@ importers:
       unified:
         specifier: 11.0.5
         version: 11.0.5
+      vfile-message:
+        specifier: ^4.0.3
+        version: 4.0.3
       write-file-atomic:
         specifier: 8.0.0
         version: 8.0.0

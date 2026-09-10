@@ -21,10 +21,7 @@ import os from "node:os";
 import path from "node:path";
 import { parseArgs, promisify } from "node:util";
 
-import {
-  assertNoCheckoutReferences,
-  assertNoRuntimeBundler,
-} from "./stage-review-runtime.mjs";
+import { assertRuntimeContents } from "./stage-review-runtime.mjs";
 
 const exec = promisify(execFile);
 const appRoot = path.resolve(import.meta.dirname, "..");
@@ -38,6 +35,7 @@ const { values } = parseArgs({
     app: { type: "string" },
     keep: { type: "boolean", default: false },
     "baseline-runtime": { type: "string" },
+    "comparison-runtime": { type: "string" },
   },
 });
 assert.ok(
@@ -45,8 +43,7 @@ assert.ok(
   "--runtime must name a production-installed Review package",
 );
 const runtime = await realpath(values.runtime);
-await assertNoRuntimeBundler(runtime);
-await assertNoCheckoutReferences(runtime);
+await assertRuntimeContents(runtime);
 const root = await realpath(
   await mkdtemp(
     path.join(
@@ -270,6 +267,35 @@ try {
   ).find((event) => event.reviews?.length);
   assert.ok(scaffold, "Scaffold must return a Review binding");
   const { uuid, dir } = scaffold.reviews[0];
+  const helperCheckDir = path.join(root, "helper-check");
+  await mkdir(helperCheckDir);
+  await writeFile(path.join(helperCheckDir, "review.mdx"), "# Helper checks\n");
+  const checkedHelper = path.join(helperCheckDir, "unimported.ts");
+  await writeFile(checkedHelper, 'export const value: number = "wrong";\n');
+  const checkHelpers = () =>
+    exec(
+      process.execPath,
+      [path.join(runtime, "dist/cli.js"), "internal-test", helperCheckDir],
+      { cwd: helperCheckDir, env, timeout: 60000 },
+    );
+  const expectHelperTypeError = () =>
+    assert.rejects(checkHelpers(), (error) => {
+      const output = `${error.stdout ?? ""}\n${error.stderr ?? ""}`;
+      assert.match(output, /unimported\.ts/);
+      assert.match(output, /TS2322/);
+      return true;
+    });
+  await expectHelperTypeError();
+  await writeFile(
+    path.join(helperCheckDir, "review.mdx"),
+    'import { value } from "./unimported.js";\n\n# Helper checks\n\n{value}\n',
+  );
+  await expectHelperTypeError();
+  await writeFile(checkedHelper, "export const value: number = 1;\n");
+  await checkHelpers();
+  report.checks.push(
+    "installed internal-test rejects imported and unimported helper type errors and succeeds after correction",
+  );
   const source = (
     await readFile(
       path.join(sourcePackage, "src/fixtures/document-json/order-review.mdx"),
@@ -286,11 +312,19 @@ try {
     path.join(dir, "data.ts"),
   );
   await writeFile(
+    path.join(dir, "label-types.ts"),
+    "export interface Label { text: string }\n",
+  );
+  const labelSource = (text) =>
+    'import { Label } from "./label-types.js";\n' +
+    `const value: Label = { text: ${JSON.stringify(text)} };\n` +
+    "export const label = value.text;\n";
+  await writeFile(
     path.join(dir, "label.ts"),
-    'export const label = "Before helper edit";\n',
+    labelSource("Before helper edit"),
   );
   const authored =
-    'import { label } from "./label.ts";\n' +
+    'import { label } from "./label.js";\n' +
     source +
     "\n\n<CodePeek anchor={anchors.current} />\n\n{label}\n" +
     gfm;
@@ -327,14 +361,12 @@ try {
   console.log("E2E checkpoint", report.checks.length);
   report.checks.push(
     "installed CLI publishes validated JSON rendered as tables, footnotes, peeks and DatabaseLens",
+    "installed helpers resolve .js specifiers to TypeScript and elide ordinary interface imports",
   );
   const recordPath = path.join(dir, "review.json");
   const before = JSON.parse(await readFile(recordPath, "utf8"));
   assert.equal(before.presentedSoftwareMapRevision, null);
-  await writeFile(
-    path.join(dir, "label.ts"),
-    'export const label = "After helper edit";\n',
-  );
+  await writeFile(path.join(dir, "label.ts"), labelSource("After helper edit"));
   const updated = (await cli(["publish", "--review", uuid])).find(
     (event) => event.event === "published",
   );
@@ -360,7 +392,7 @@ try {
   );
   await writeFile(
     path.join(dir, "review.mdx"),
-    authored.replace("./label.ts", "./broken.tsx"),
+    authored.replace("./label.js", "./broken.tsx"),
   );
   const helperErrors = await cli(["publish", "--review", uuid], 1);
   assert.ok(
@@ -716,6 +748,16 @@ try {
       output: path.join(root, "benchmark.json"),
     });
     report.benchmarkPass = result.pass;
+    if (values["comparison-runtime"]) {
+      const comparison = await benchmark({
+        runtime,
+        baselineRuntime: await realpath(values["comparison-runtime"]),
+        cases: benchmarkCases,
+        env,
+        output: path.join(root, "benchmark-prior.json"),
+      });
+      report.comparisonPass = comparison.pass;
+    }
   }
   assert.deepEqual(pageErrors, []);
   await page.screenshot({ path: path.join(root, "document.png") });

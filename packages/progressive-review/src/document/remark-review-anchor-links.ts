@@ -1,5 +1,14 @@
 import type { Program } from "estree";
-import type { Nodes, Root } from "mdast";
+import type { Link, Nodes, Root } from "mdast";
+
+import type { SourceSpan } from "./syntax";
+
+declare module "mdast-util-mdx-jsx" {
+  interface MdxJsxAttributeValueExpressionData {
+    /** The authored link destination represented by a synthesized expression. */
+    reviewSourceSpan?: SourceSpan;
+  }
+}
 
 const ANCHOR_LINK = /^anchors\.([A-Za-z_$][A-Za-z0-9_$]*)$/;
 
@@ -10,6 +19,7 @@ interface ParentNode {
 
 interface VFileLike {
   fail(message: string, node?: Nodes): never;
+  toString(): string;
 }
 
 /** Compile Markdown `[label](anchors.key)` into a typed AnchorLink. */
@@ -45,6 +55,10 @@ function rewriteChildren(parent: ParentNode, file: VFileLike): void {
                 value: expression,
                 data: {
                   estree: anchorExpressionProgram(match[1]),
+                  reviewSourceSpan: anchorDestinationSpan(
+                    link,
+                    file.toString(),
+                  ),
                 },
               },
             },
@@ -57,6 +71,19 @@ function rewriteChildren(parent: ParentNode, file: VFileLike): void {
     }
     rewriteChildren(child, file);
   }
+}
+
+function anchorDestinationSpan(link: Link, source: string): SourceSpan {
+  const start = link.position?.start.offset;
+  const end = link.position?.end.offset;
+  if (start === undefined || end === undefined)
+    throw new Error("Missing source position for Review anchor link");
+  const labelEnd = link.children.at(-1)?.position?.end.offset ?? start + 1;
+  const destination = /\]\(\s*<?/.exec(source.slice(labelEnd, end));
+  if (!destination)
+    throw new Error("Missing source destination for Review anchor link");
+  const destinationStart = labelEnd + destination.index + destination[0].length;
+  return { start: destinationStart, end: destinationStart + link.url.length };
 }
 
 function anchorExpressionProgram(property: string): Program {

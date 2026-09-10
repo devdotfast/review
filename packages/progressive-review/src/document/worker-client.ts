@@ -2,7 +2,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
 
-import { type BirpcReturn, createBirpc } from "birpc";
+import { type BirpcReturn, type ChannelOptions, createBirpc } from "birpc";
 
 import { errorMessage } from "../error-message";
 import { findProgressiveReviewPackageRoot } from "../package-paths";
@@ -14,6 +14,18 @@ import type {
   DocumentWorkerResult,
 } from "./worker-protocol";
 
+/** The worker's transport and lifetime, separate from entry-point discovery. */
+export interface DocumentWorkerTransport {
+  stdout: { on(event: "data", listener: (chunk: Buffer) => void): void };
+  stderr: { on(event: "data", listener: (chunk: Buffer) => void): void };
+  on(event: "message", listener: Parameters<ChannelOptions["on"]>[0]): void;
+  off(event: "message", listener: Parameters<ChannelOptions["on"]>[0]): void;
+  once(event: "error", listener: (error: Error) => void): void;
+  once(event: "exit", listener: (code: number) => void): void;
+  postMessage: Worker["postMessage"];
+  terminate(): Promise<number>;
+}
+
 /** One worker per document. Every completion path terminates it, and late
  * callback results cannot send messages after cancellation or completion. */
 export async function runDocumentWorker(
@@ -21,6 +33,7 @@ export async function runDocumentWorker(
   callbacks: ReviewPublishEvaluationInput,
   signal?: AbortSignal,
 ): Promise<DocumentWorkerResult> {
+  signal?.throwIfAborted();
   const sourceMode = fileURLToPath(import.meta.url).endsWith(".ts");
   const workerPath = sourceMode
     ? new URL("./worker.ts", import.meta.url)
@@ -43,6 +56,14 @@ export async function runDocumentWorker(
     stdout: true,
     stderr: true,
   });
+  return runDocumentWorkerWithTransport(worker, callbacks, signal);
+}
+
+export async function runDocumentWorkerWithTransport(
+  worker: DocumentWorkerTransport,
+  callbacks: ReviewPublishEvaluationInput,
+  signal?: AbortSignal,
+): Promise<DocumentWorkerResult> {
   let output = "";
   worker.stdout.on("data", (chunk) => {
     output = (output + chunk).slice(-4000);
@@ -56,13 +77,40 @@ export async function runDocumentWorker(
   let rpc: BirpcReturn<DocumentWorkerApi, DocumentWorkerCallbacks> | undefined;
   try {
     return await new Promise<DocumentWorkerResult>((resolve, reject) => {
+      let remainingMs = 30_000;
+      let resumedAt = performance.now();
+      let pendingCallbacks = 0;
+      const resumeDeadline = () => {
+        if (finished || pendingCallbacks > 0) return;
+        resumedAt = performance.now();
+        timeout = setTimeout(
+          () => reject(new Error("Document build exceeded 30 seconds")),
+          Math.max(0, remainingMs),
+        );
+      };
+      const parentCallback = async <T>(run: () => Promise<T>): Promise<T> => {
+        // Checkout preparation can be much slower than authored execution.
+        // Exclude the union of parent callback waits, preserving the remaining
+        // execution budget when concurrent callbacks settle independently.
+        if (pendingCallbacks++ === 0) {
+          clearTimeout(timeout);
+          remainingMs -= performance.now() - resumedAt;
+        }
+        try {
+          return await callbackResult(run);
+        } finally {
+          pendingCallbacks--;
+          resumeDeadline();
+        }
+      };
       abort = () =>
         reject(signal?.reason ?? new Error("Document build cancelled"));
       signal?.addEventListener("abort", abort, { once: true });
-      timeout = setTimeout(
-        () => reject(new Error("Document build exceeded 30 seconds")),
-        30_000,
-      );
+      if (signal?.aborted) {
+        abort();
+        return;
+      }
+      resumeDeadline();
       worker.once("error", reject);
       worker.once("exit", (code) =>
         reject(
@@ -74,17 +122,9 @@ export async function runDocumentWorker(
       rpc = createBirpc<DocumentWorkerApi, DocumentWorkerCallbacks>(
         {
           prepareEvidence: () =>
-            callbackResult(() => {
-              if (!callbacks.prepareEvidence)
-                throw new Error("Review source preparation is unavailable.");
-              return callbacks.prepareEvidence();
-            }),
+            parentCallback(() => callbacks.prepareEvidence!()),
           resolveChangedLines: (file, side) =>
-            callbackResult(() => {
-              if (!callbacks.resolveChangedLines)
-                throw new Error("Changed-line resolution is unavailable.");
-              return callbacks.resolveChangedLines(file, side);
-            }),
+            parentCallback(() => callbacks.resolveChangedLines!(file, side)),
         },
         {
           // Closing RPC removes listeners but an in-flight parent callback

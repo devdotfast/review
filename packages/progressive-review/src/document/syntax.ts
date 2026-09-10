@@ -36,6 +36,8 @@ export interface DocumentSyntax {
   modules: AuthoredSource[];
   expressions: AuthoredSource[];
   bindings: string[];
+  /** Exported software model declarations, in authored order. */
+  declaredModelNames?: string[];
   body: DocumentSyntaxNode[];
 }
 

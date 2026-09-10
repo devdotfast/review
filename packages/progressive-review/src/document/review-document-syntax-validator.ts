@@ -1,6 +1,23 @@
-import ts from "typescript";
+import {
+  type ImportDeclaration,
+  type Node,
+  ScriptKind,
+  ScriptTarget,
+  type SourceFile,
+  createSourceFile,
+  forEachChild,
+  isDecorator,
+  isEnumDeclaration,
+  isImportDeclaration,
+  isModuleDeclaration,
+  isNamedImports,
+  isParameter,
+  isParameterPropertyDeclaration,
+  isStringLiteral,
+} from "typescript";
 
 import { reviewAuthoringPropsSchemas } from "../authoring";
+import { isAuthoringSpecifier } from "./authoring-environment";
 import type { ReviewDocumentDiagnostic } from "./diagnostics";
 
 export interface AuthoredTypescriptRegion {
@@ -18,15 +35,15 @@ export function unsupportedTypescriptDiagnostics(
 ): ReviewDocumentDiagnostic[] {
   const diagnostics: ReviewDocumentDiagnostic[] = [];
   for (const region of regions) {
-    const sourceFile = ts.createSourceFile(
+    const sourceFile = createSourceFile(
       input.filePath,
       region.value,
-      ts.ScriptTarget.Latest,
+      ScriptTarget.Latest,
       true,
-      ts.ScriptKind.TS,
+      ScriptKind.TS,
     );
-    const visit = (node: ts.Node): void => {
-      if (ts.isImportDeclaration(node)) {
+    const visit = (node: Node): void => {
+      if (isImportDeclaration(node)) {
         for (const imported of importedMdxComponents(node, sourceFile)) {
           const position = sourceFile.getLineAndCharacterOfPosition(
             imported.start,
@@ -64,7 +81,7 @@ export function unsupportedTypescriptDiagnostics(
         });
         return;
       }
-      ts.forEachChild(node, visit);
+      forEachChild(node, visit);
     };
     visit(sourceFile);
   }
@@ -72,17 +89,17 @@ export function unsupportedTypescriptDiagnostics(
 }
 
 function importedMdxComponents(
-  node: ts.ImportDeclaration,
-  sourceFile: ts.SourceFile,
+  node: ImportDeclaration,
+  sourceFile: SourceFile,
 ): Array<{ name: string; start: number }> {
   if (
-    !ts.isStringLiteral(node.moduleSpecifier) ||
-    node.moduleSpecifier.text !== "virtual:progressive-review-authoring"
+    !isStringLiteral(node.moduleSpecifier) ||
+    !isAuthoringSpecifier(node.moduleSpecifier.text)
   ) {
     return [];
   }
   const bindings = node.importClause?.namedBindings;
-  if (!bindings || !ts.isNamedImports(bindings)) return [];
+  if (!bindings || !isNamedImports(bindings)) return [];
   return bindings.elements.flatMap((element) => {
     const name = element.propertyName?.text ?? element.name.text;
     return Object.hasOwn(reviewAuthoringPropsSchemas, name)
@@ -92,16 +109,16 @@ function importedMdxComponents(
 }
 
 function unsupportedTypescriptNode(
-  node: ts.Node,
-  sourceFile: ts.SourceFile,
+  node: Node,
+  sourceFile: SourceFile,
 ): { description: string; start: number } | null {
-  if (ts.isEnumDeclaration(node)) {
+  if (isEnumDeclaration(node)) {
     return {
       description: "enum declarations",
       start: typescriptKeywordStart(node, sourceFile, /\benum\b/),
     };
   }
-  if (ts.isModuleDeclaration(node)) {
+  if (isModuleDeclaration(node)) {
     return {
       description: "namespace declarations",
       start: typescriptKeywordStart(
@@ -111,13 +128,13 @@ function unsupportedTypescriptNode(
       ),
     };
   }
-  if (ts.isDecorator(node)) {
+  if (isDecorator(node)) {
     return { description: "decorators", start: node.getStart(sourceFile) };
   }
   if (
-    ts.isParameter(node) &&
+    isParameter(node) &&
     node.parent &&
-    ts.isParameterPropertyDeclaration(node, node.parent)
+    isParameterPropertyDeclaration(node, node.parent)
   ) {
     return {
       description: "parameter properties",
@@ -128,8 +145,8 @@ function unsupportedTypescriptNode(
 }
 
 function typescriptKeywordStart(
-  node: ts.Node,
-  sourceFile: ts.SourceFile,
+  node: Node,
+  sourceFile: SourceFile,
   keyword: RegExp,
 ): number {
   const start = node.getStart(sourceFile);

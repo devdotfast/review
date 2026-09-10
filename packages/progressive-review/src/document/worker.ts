@@ -43,7 +43,7 @@ const rpc = createBirpc<DocumentWorkerCallbacks, DocumentWorkerApi>(
     off: (listener) => {
       port.off("message", listener);
     },
-    // The parent owns the publication deadline, including evidence callbacks.
+    // The parent owns the execution deadline and pauses it for evidence callbacks.
     timeout: -1,
   },
 );

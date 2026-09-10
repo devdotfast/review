@@ -267,6 +267,43 @@ export function ReviewHome({
   );
 }
 
+function unavailableReviewGuidance(error: ReviewListError) {
+  let explanation: string;
+  let command: string | undefined;
+  switch (error.code) {
+    case "MIGRATION_REQUIRED":
+      explanation =
+        "This review uses a format this version of Review cannot open automatically. Copy the prompt below to ask your coding agent to migrate it.";
+      command = "review migrate apply";
+      break;
+    case "REPAIR_REQUIRED":
+      explanation =
+        "Review could not upgrade this review automatically. Copy the prompt below to ask your coding agent to recover it.";
+      command = error.reviewUuid
+        ? repairCommand(error.reviewUuid)
+        : "review migrate apply";
+      break;
+    default:
+      explanation =
+        "Review could not read this review. Copy the prompt below to ask your coding agent to investigate.";
+  }
+  const nextStep = command
+    ? `Inspect the affected review and back up its data before making changes. Use the supported local review CLI (${command}) if appropriate. If the data was created by a newer Review version, update Review instead of downgrading its data.`
+    : "Inspect the diagnostic and fix the underlying access or storage problem.";
+  const prompt = [
+    `Help me open this Review: ${JSON.stringify(error.title || error.reviewUuid || error.reviewDir)}.`,
+    `Review directory: ${JSON.stringify(error.reviewDir)}.`,
+    `Diagnostic: ${JSON.stringify(error.message)}.`,
+    nextStep,
+    "Preserve reviews, comments, and history. Do not use --force or delete data. Confirm that the affected review opens afterward.",
+  ].join("\n");
+  return {
+    explanation,
+    prompt,
+    promptLabel: command ? "Migration prompt" : "Recovery prompt",
+  };
+}
+
 function UnavailableReview({
   error,
   onBack,
@@ -276,26 +313,7 @@ function UnavailableReview({
 }) {
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
-  const needsMigration = error.code === "MIGRATION_REQUIRED";
-  const needsRepair = error.code === "REPAIR_REQUIRED";
-  const explanation = needsMigration
-    ? "This review uses a format this version of Review cannot open automatically. Copy the prompt below to ask your coding agent to migrate it."
-    : needsRepair
-      ? "Review could not upgrade this review automatically. Copy the prompt below to ask your coding agent to recover it."
-      : "Review could not read this review. Copy the prompt below to ask your coding agent to investigate.";
-  const command =
-    needsRepair && error.reviewUuid
-      ? repairCommand(error.reviewUuid)
-      : "review migrate apply";
-  const prompt = [
-    `Help me open this Review: ${JSON.stringify(error.title || error.reviewUuid || error.reviewDir)}.`,
-    `Review directory: ${JSON.stringify(error.reviewDir)}.`,
-    `Diagnostic: ${JSON.stringify(error.message)}.`,
-    needsMigration || needsRepair
-      ? `Inspect the affected review and back up its data before making changes. Use the supported local review CLI (${command}) if appropriate. If the data was created by a newer Review version, update Review instead of downgrading its data.`
-      : "Inspect the diagnostic and fix the underlying access or storage problem.",
-    "Preserve reviews, comments, and history. Do not use --force or delete data. Confirm that the affected review opens afterward.",
-  ].join("\n");
+  const { explanation, prompt, promptLabel } = unavailableReviewGuidance(error);
   return (
     <main className="review-home">
       <div className="review-home-scroll">
@@ -329,11 +347,7 @@ function UnavailableReview({
             </p>
           ) : null}
           <details>
-            <summary>
-              {needsMigration || needsRepair
-                ? "Migration prompt"
-                : "Recovery prompt"}
-            </summary>
+            <summary>{promptLabel}</summary>
             <pre>{prompt}</pre>
           </details>
           <details>

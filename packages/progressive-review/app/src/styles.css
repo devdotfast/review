@@ -878,42 +878,36 @@ button {
   margin: 0 auto;
 }
 
-.review-home-attention {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 12px;
-  align-items: center;
-  align-self: flex-start;
-  width: fit-content;
-  max-width: 100%;
-  margin-bottom: 24px;
-  padding: 10px 12px;
-  border: 1px solid var(--change-modified);
-  border-radius: 7px;
-  background: var(--accent-wash);
-  color: var(--ink-soft);
+.review-home-unavailable-entries {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 336px));
+  gap: 16px;
 }
 
-.review-home-attention-title {
-  font-weight: 600;
+.review-home[data-view="list"] .review-home-unavailable-entries {
+  grid-template-columns: 1fr;
 }
 
-.review-home-attention-command {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
+.review-home[data-view="list"]
+  .review-home-unavailable-entries
+  .review-home-card {
+  flex-direction: row;
+  height: auto;
+  gap: 16px;
 }
 
-.review-home-attention code {
-  min-width: 0;
+.review-home-unavailable-entries:empty {
+  display: none;
+}
+
+.review-unavailable {
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.review-unavailable pre {
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
-  color: var(--ink);
-  font-family: var(--font-mono);
-}
-
-.review-home-attention .review-home-prompt-copy {
-  flex: 0 0 auto;
 }
 
 .review-session-content {

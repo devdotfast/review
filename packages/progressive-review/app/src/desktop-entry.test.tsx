@@ -68,12 +68,19 @@ describe("desktop review document load states", () => {
         openTutorial: () => {},
       });
     });
+    expect(container.querySelector(".review-home-attention")).toBeNull();
+    const entry = container.querySelector<HTMLButtonElement>(
+      ".review-home-unavailable-entries button",
+    );
+    expect(entry?.textContent).toContain("Old review");
+    expect(container.querySelector('[aria-label="Copy prompt"]')).toBeNull();
+    await act(async () => entry?.click());
+    expect(container.textContent).toContain(
+      "could not upgrade this review automatically",
+    );
     expect(
-      container.querySelector(".review-home-attention")?.textContent,
-    ).toContain("Old review");
-    expect(
-      container.querySelector(".review-home-attention code")?.textContent,
-    ).toBe(`review repair --review ${reviewUuid}`);
+      container.querySelector('[aria-label="Copy prompt"]'),
+    ).not.toBeNull();
     await act(async () => handle?.dispose());
   });
 

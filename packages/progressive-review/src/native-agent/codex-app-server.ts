@@ -17,6 +17,7 @@ import {
 } from "@dev.fast/review-protocol";
 import { WebSocket } from "undici";
 
+import { tomlInline } from "./terminal-command";
 import { isJsonRecord } from "./transcript-json";
 
 interface PendingRequest {
@@ -273,6 +274,8 @@ interface StartedHost {
 export class CodexAppServerHost {
   #started: Promise<StartedHost> | undefined;
 
+  constructor(private readonly config: JsonObject = {}) {}
+
   /** WebSocket URL of the shared server. */
   async url(): Promise<string> {
     return (await this.#start()).url;
@@ -293,7 +296,11 @@ export class CodexAppServerHost {
     this.#started = undefined;
     const { child, client } = await started;
     await client.close();
-    if (child.exitCode === null) child.kill("SIGTERM");
+    if (child.exitCode === null && child.signalCode === null) {
+      const closed = once(child, "close");
+      child.kill("SIGTERM");
+      await closed;
+    }
   }
 
   #start(): Promise<StartedHost> {
@@ -301,7 +308,18 @@ export class CodexAppServerHost {
     const started = (async (): Promise<StartedHost> => {
       const child: ListeningChild = spawn(
         "codex",
-        ["app-server", "--listen", "ws://127.0.0.1:0"],
+        [
+          "app-server",
+          "--listen",
+          "ws://127.0.0.1:0",
+          // TUI follow-ups select the thread's named permission profile again.
+          // Codex reloads server config for that selection, without the config
+          // overrides supplied to thread/start or thread/fork.
+          ...Object.entries(this.config).flatMap(([name, value]) => [
+            "-c",
+            `${name}=${tomlInline(value)}`,
+          ]),
+        ],
         {
           cwd: "/",
           env: process.env,

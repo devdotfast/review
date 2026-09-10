@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createReviewDir } from "../review-home";
+import { deleteReviewState } from "../review-state-db";
 import {
   prepareReviewPublish,
   resolvePublishReview,
@@ -43,6 +44,7 @@ describe("prepareReviewPublish", () => {
       baseRef: "main",
       baseCommit: repo.baseCommit,
     });
+    deleteReviewState(corrupt.dir);
     await writeFile(path.join(corrupt.dir, "review.json"), "{");
     await expect(
       resolvePublishReview(repo.rootPath, undefined),
@@ -53,6 +55,29 @@ describe("prepareReviewPublish", () => {
     await expect(
       resolvePublishReview(home, healthy.review.uuid),
     ).rejects.toThrow(/Active review not found/);
+  });
+
+  it("selects the canonical record when the mirror has stale checkout scope", async () => {
+    const repo = await createDivergedGitRepository(cleanupPaths);
+    const home = await mkdtemp(path.join(os.tmpdir(), "review-publish-home-"));
+    cleanupPaths.push(home);
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+    const review = await createReviewDir({
+      worktreePath: repo.rootPath,
+      baseRef: "main",
+      baseCommit: repo.baseCommit,
+      sourceCommit: repo.baseCommit,
+      sourceIdentity: { kind: "git-branch", name: "main" },
+    });
+    await writeFile(
+      path.join(review.dir, "review.json"),
+      JSON.stringify({ ...review.review, worktreePath: home }),
+    );
+    await expect(
+      resolvePublishReview(repo.rootPath, undefined),
+    ).resolves.toMatchObject({
+      review: { uuid: review.review.uuid, worktreePath: repo.rootPath },
+    });
   });
 
   it("prepares a publish from a checkout unrelated to the pinned head", async () => {

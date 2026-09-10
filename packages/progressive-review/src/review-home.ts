@@ -479,9 +479,9 @@ export async function findReviewForRepair(
   const dir = path.join(reviewsHomeDir(devHome), uuid);
   let value: JsonValue;
   try {
-    value = parseJsonText(
-      await readFile(path.join(dir, "review.json"), "utf8"),
-    );
+    const canonical = readReviewRecord(dir);
+    if (canonical === null) return null;
+    value = canonical;
   } catch (error) {
     if (isMissingFileError(error)) return null;
     const detail: ReviewHomeErrorDetail = {
@@ -703,9 +703,7 @@ async function readReviewForList(
   if (!filter.worktreePath && !filter.repoKey) return readStoredReview(dir);
   let record: JsonObject | undefined;
   try {
-    record = jsonObject(
-      parseJsonText(await readFile(path.join(dir, "review.json"), "utf8")),
-    );
+    record = jsonObject(readReviewRecord(dir));
   } catch {
     return unreadableReview(dir, filter);
   }
@@ -729,7 +727,7 @@ async function readReviewForList(
     : null;
 }
 
-/** Every scope test in one place, so the cheap JSON pre-pass and the final
+/** Every scope test in one place, so the canonical record pre-pass and the final
  * pass answer the same question about the same fields. */
 function reviewMatchesFilter(
   record: {

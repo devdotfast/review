@@ -12,8 +12,13 @@ import {
   writeReviewDocumentBundle,
 } from "../review-bundle";
 import { ensureReviewPinnedCheckout } from "../review-head-checkout";
-import { createReviewDir, sealReviewCandidate } from "../review-home";
+import {
+  createReviewDir,
+  persistStoredReviewRecord,
+  sealReviewCandidate,
+} from "../review-home";
 import { withReviewMutationLock } from "../review-mutation-lock";
+import { putReviewRecord } from "../review-state-db";
 import { closeAllReviewThreadStores } from "../review-thread-store-backend";
 import { reviewVcs } from "../review-vcs";
 import {
@@ -62,15 +67,12 @@ async function fixture(options: Partial<GlobalReviewServerInput> = {}) {
     }),
   );
   const revision = await sealReviewCandidate(review.dir, "Published");
-  await writeFile(
-    path.join(review.dir, "review.json"),
-    JSON.stringify({
-      ...review.review,
-      status: "awaiting-review",
-      presentedDocumentRevision: revision,
-      lastPublishedAt: new Date().toISOString(),
-    }),
-  );
+  await persistStoredReviewRecord(review.dir, {
+    ...review.review,
+    status: "awaiting-review",
+    presentedDocumentRevision: revision,
+    lastPublishedAt: new Date().toISOString(),
+  });
   const packageRoot = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
     "../..",
@@ -192,10 +194,8 @@ it.each(["stale", "duplicate", "closing"] as const)(
         await withReviewMutationLock(setup.review.dir, async () => {
           const recordPath = path.join(setup.review.dir, "review.json");
           const record = JSON.parse(await readFile(recordPath, "utf8"));
-          await writeFile(
-            recordPath,
-            JSON.stringify({ ...record, baseRef: "changed" }),
-          );
+          // Keep the compatibility mirror stale; the database is authoritative.
+          putReviewRecord(setup.review.dir, { ...record, baseRef: "changed" });
         });
       if (scenario === "closing") shutdown = setup.server.close();
       release.resolve();

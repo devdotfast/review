@@ -78,7 +78,7 @@ export async function repairReview(
   ) => Promise<ReviewRepairReadyResponse>,
 ) {
   const review = await findScopedReview(request.reviewUuid, {
-    worktreePath: request.cwd,
+    worktreePath: await resolveReviewRoot(request.cwd),
     includeTerminal: true,
     includeLegacySchema: true,
   });

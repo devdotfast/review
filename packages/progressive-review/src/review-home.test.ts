@@ -828,6 +828,7 @@ describe("legacy records on read", () => {
         uuid: "11111111-1111-4111-8111-111111111111",
       }),
     ]) {
+      deleteReviewState(created.dir);
       await writeFile(recordPath, value);
       await expect(
         findReviewForRepair(created.review.uuid),

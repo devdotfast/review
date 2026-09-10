@@ -45,12 +45,15 @@ import {
 import * as stateDb from "./review-state-db";
 import {
   closeAllReviewStateDatabases,
+  ensureReviewRegistration,
+  insertPublicationInTransaction,
   listPublications,
   openReviewStateDb,
   putReviewRecord,
   readLegacyArtifactImport,
   readReviewRecord,
   resolveLegacyMapPublicationId,
+  withReviewStateTransaction,
 } from "./review-state-db";
 import {
   cleanupTempDirs,
@@ -171,19 +174,23 @@ async function writeMapV2(
 }
 
 /** Seals the review tree with the record a Git-era publish would embed. */
+interface SealInput {
+  message: string;
+  timestamp: number;
+  document?: string | null;
+  map?: string | null;
+  /** The record this revision seals, when it differs from the fixture's. */
+  record?: JsonObject;
+}
+
 async function seal(
   fixture: LegacyReviewFixture,
-  input: {
-    message: string;
-    timestamp: number;
-    document?: string | null;
-    map?: string | null;
-  },
+  input: SealInput,
 ): Promise<string> {
   await writeFile(
     path.join(fixture.dir, "review.json"),
     JSON.stringify({
-      ...fixture.record,
+      ...(input.record ?? fixture.record),
       presentedDocumentRevision: input.document ?? null,
       presentedSoftwareMapRevision: input.map ?? null,
     }),
@@ -692,7 +699,167 @@ it("rebuilds an unconvertible presented document from its editable sources", asy
   expect(documents[0]?.artifactHash).toMatch(/^[0-9a-f]{64}$/);
   expect(record.presentedDocumentRevision).toBe(documents[0]?.publicationId);
   expect(plan.unavailable).toBe(1);
+
+  // Replaying the fallback must mint the same ID: a row's identity cannot
+  // depend on when the import ran, or the replay would insert a second copy
+  // of the repair row at a sequence the first one already holds.
+  forgetImportRows(fixture, [only]);
+  const replay = requirePlan(
+    await planLegacyReviewArtifactImport({
+      reviewDir: created.dir,
+      record: parseAnyStoredReviewRecord(stored),
+      original: stored,
+      home,
+      activeDocumentFallback: "editable-source",
+    }),
+  );
+  // The repair row is re-minted under its committed ID, recognized as this
+  // import's own and dropped; only the deleted row is left to insert.
+  expect(replay.activeDocumentId).toBe(documents[0]?.publicationId);
+  expect(replay.publications.map((row) => row.publicationId)).toEqual([only]);
 }, 30_000);
+
+it("keeps a schema-2 companion map as a map publication", async () => {
+  const fixture = await legacyReview({ schemaVersion: 2 });
+  delete fixture.record.presentedDocumentRevision;
+  delete fixture.record.presentedSoftwareMapRevision;
+  await writeDocumentV2(fixture.dir, "Schema two");
+  await writeMapV2(fixture.dir);
+  await writeFile(
+    path.join(fixture.dir, "review.json"),
+    JSON.stringify({ ...fixture.record, presentedRevision: null }),
+    "utf8",
+  );
+  const only = await sealLegacyReviewCommit(fixture.dir, PUBLISH_CANDIDATE, {
+    timestamp: 1_760_000_000,
+  });
+  const record: JsonObject = { ...fixture.record, presentedRevision: only };
+  await writeFile(
+    path.join(fixture.dir, "review.json"),
+    JSON.stringify(record),
+    "utf8",
+  );
+  putReviewRecord(fixture.dir, record, fixture.home);
+
+  await importLegacyReviewArtifacts({
+    reviewDir: fixture.dir,
+    home: fixture.home,
+  });
+
+  const companion = legacyCompanionMapPublicationId(UUID, only);
+  expect(
+    listPublications(fixture.dir, "document", fixture.home)[0],
+  ).toMatchObject({ publicationId: only, operation: "publish" });
+  expect(listPublications(fixture.dir, "map", fixture.home)[0]).toMatchObject({
+    publicationId: companion,
+    operation: "map-publish",
+    legacyCommit: only,
+  });
+});
+
+it("skips a historical map whose pins cannot be recovered", async () => {
+  const fixture = await legacyReview();
+  const unpinned = await seal(fixture, {
+    message: MAP_PUBLISH,
+    timestamp: 1_760_000_000,
+    record: { ...fixture.record, sourceCommit: null },
+  });
+  await writeDocumentV2(fixture.dir, "v1");
+  const first = await seal(fixture, {
+    message: PUBLISH_CANDIDATE,
+    timestamp: 1_760_000_100,
+    map: unpinned,
+  });
+  await writeDocumentV2(fixture.dir, "v2");
+  const second = await seal(fixture, {
+    message: PUBLISH_CANDIDATE,
+    timestamp: 1_760_000_200,
+    document: first,
+  });
+  await presentRecord(fixture, { document: second, map: null });
+
+  const result = await importLegacyReviewArtifacts({
+    reviewDir: fixture.dir,
+    home: fixture.home,
+  });
+
+  expect(result.versions).toBe(2);
+  expect(result.warnings).toEqual([
+    `Software map revision ${unpinned} has no commit pins to record; it is ` +
+      "not imported and the documents presented beside it keep no paired map.",
+  ]);
+  expect(listPublications(fixture.dir, "map", fixture.home)).toEqual([]);
+  const documents = listPublications(fixture.dir, "document", fixture.home);
+  expect(documents.map((row) => row.publicationId)).toEqual([second, first]);
+  expect(documents[1]?.record).toMatchObject({ pairedMapPublicationId: null });
+});
+
+it("marks a review whose pointer already answers to a row as imported", async () => {
+  const fixture = await legacyReview();
+  const publicationId = "d".repeat(40);
+  ensureReviewRegistration(fixture.dir, fixture.home);
+  withReviewStateTransaction(fixture.home, (tx) =>
+    insertPublicationInTransaction(tx, fixture.dir, {
+      publicationId,
+      kind: "document",
+      record: { kind: "document", createdAt: "2026-01-01T00:00:00.000Z" },
+      createdAt: "2026-01-01T00:00:00.000Z",
+      operation: "publish",
+      artifactHash: null,
+      previousPublicationId: null,
+    }),
+  );
+  await presentRecord(fixture, { document: publicationId, map: null });
+
+  const result = await importLegacyReviewArtifacts({
+    reviewDir: fixture.dir,
+    home: fixture.home,
+  });
+
+  expect(result).toMatchObject({ imported: true, versions: 0, unavailable: 0 });
+  expect(readLegacyArtifactImport(fixture.dir, fixture.home)).toMatchObject({
+    versions: 0,
+    unavailable: 0,
+    sourceHead: null,
+  });
+  expect(readReviewRecord(fixture.dir, fixture.home)).toMatchObject({
+    schemaVersion: REVIEW_SCHEMA_VERSION,
+    presentedDocumentRevision: publicationId,
+    presentedSoftwareMapRevision: null,
+  });
+  expect(
+    listPublications(fixture.dir, "document", fixture.home).map(
+      (row) => row.publicationId,
+    ),
+  ).toEqual([publicationId]);
+});
+
+it("marks a review that never presented a document as imported", async () => {
+  const fixture = await legacyReview();
+  await writeDocumentV2(fixture.dir, "never presented");
+  await sealLegacyReviewCommit(fixture.dir, PUBLISH_CANDIDATE, {
+    timestamp: 1_760_000_000,
+  });
+  await presentRecord(fixture, { document: null, map: null });
+
+  const result = await importLegacyReviewArtifacts({
+    reviewDir: fixture.dir,
+    home: fixture.home,
+  });
+
+  expect(result).toMatchObject({ imported: true, versions: 0 });
+  expect(readLegacyArtifactImport(fixture.dir, fixture.home)).toMatchObject({
+    versions: 0,
+    unavailable: 0,
+    sourceHead: null,
+  });
+  expect(listPublications(fixture.dir, "document", fixture.home)).toEqual([]);
+  expect(readReviewRecord(fixture.dir, fixture.home)).toMatchObject({
+    schemaVersion: REVIEW_SCHEMA_VERSION,
+    presentedDocumentRevision: null,
+    presentedSoftwareMapRevision: null,
+  });
+});
 
 describe.each(listLegacyReviewFixtures())(
   "legacy fixture $name",

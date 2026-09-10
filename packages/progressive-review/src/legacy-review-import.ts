@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   type JsonObject,
   type JsonValue,
+  REVIEW_SCHEMA_VERSION,
   jsonObject,
   jsonString,
   parseJsonText,
@@ -260,6 +261,8 @@ export async function commitLegacyReviewArtifactImport(
           seq: row.seq,
         })),
       updateRecord: () => plan.next,
+      // The record still carries its Git-era schema until this commit lands.
+      parseRecord: parseAnyStoredReviewRecord,
       presentedPointers: {
         document: plan.activeDocumentId,
         map: plan.activeMapId,
@@ -391,7 +394,7 @@ function pointersOnlyPlan(
     unavailable: 0,
     warnings: context.warnings,
     sourceFallback: context.sourceFallback,
-    next: context.record,
+    next: { ...context.record, schemaVersion: REVIEW_SCHEMA_VERSION },
   };
 }
 
@@ -508,7 +511,12 @@ async function convertDocumentVersion(
     );
     return { ...version, layout, artifactHash: installed.hash };
   } catch (error) {
-    if (context.documentFallback !== "editable-source") throw error;
+    if (context.documentFallback !== "editable-source")
+      throw new LegacyImportBlocker(
+        `Cannot import ${context.reviewDir}: the document sealed at ` +
+          `${entry.oid} could not be converted (${errorMessage(error)}).`,
+        { cause: error },
+      );
     warn(
       context,
       `Sealed document conversion failed: ${errorMessage(error)}. Using ` +
@@ -614,11 +622,18 @@ async function convertMapCommit(
     };
   if (!options.convertible) {
     const pins = manifestPins ?? sealedRecordPins(record);
-    if (!pins)
-      throw new LegacyImportBlocker(
-        `Cannot import ${context.reviewDir}: software map revision ` +
-          `${entry.oid} has no commit pins to record.`,
+    // A row needs both pins. A historical map that cannot supply them is
+    // dropped from the history rather than blocking the whole import; the
+    // documents that paired with it import with no paired map.
+    if (!pins) {
+      warn(
+        context,
+        `Software map revision ${entry.oid} has no commit pins to record; ` +
+          "it is not imported and the documents presented beside it keep no " +
+          "paired map.",
       );
+      return null;
+    }
     return {
       ...version,
       layout: await legacyMapLayout(dir),
@@ -795,7 +810,7 @@ function buildPlan(
         title: document.replacement.title,
       });
       emitDocument(
-        publicationIdFor(replacement),
+        importedPublicationId(replacement),
         replacement,
         document,
         document.replacement.artifactHash,
@@ -812,6 +827,7 @@ function buildPlan(
       : (mapIds.get(input.activeMapCommit) ?? null);
   const next: StoredReviewRecord = {
     ...context.record,
+    schemaVersion: REVIEW_SCHEMA_VERSION,
     presentedDocumentRevision: activeDocumentId,
     presentedSoftwareMapRevision: activeMapId,
   };
@@ -867,11 +883,23 @@ function sameImportedRecord(
   return comparableImportedRecord(record) === comparableImportedRecord(planned);
 }
 
-/** Import time is the one field a replay cannot reproduce. */
+/** Import time is the one field a replay cannot reproduce, so it is the one
+ * field neither a row's identity nor its comparison may depend on. */
+function withoutImportTime(
+  record: ReviewPublicationRecord,
+): ReviewPublicationRecord {
+  if (!record.legacy) return record;
+  return { ...record, legacy: { ...record.legacy, importedAt: "" } };
+}
+
 function comparableImportedRecord(record: ReviewPublicationRecord): string {
-  if (!record.legacy) return stableJson(record);
-  const { importedAt: _importedAt, ...legacy } = record.legacy;
-  return stableJson({ ...record, legacy });
+  return stableJson(withoutImportTime(record));
+}
+
+/** The content-derived ID of a row an import mints itself, stable across
+ * replans of the same history. */
+function importedPublicationId(record: ReviewPublicationRecord): string {
+  return publicationIdFor(withoutImportTime(record));
 }
 
 interface DocumentRecordInput {
@@ -912,7 +940,7 @@ function documentPublicationRecord(
       document.layout,
     ),
   };
-  return asDocumentRecord(draft);
+  return asDocumentRecord(draft, document.oid);
 }
 
 interface MapRecordInput {
@@ -940,23 +968,48 @@ function mapPublicationRecord(
     validatedDocumentPublicationId: input.validatedDocumentPublicationId,
     legacy: legacyImport(context, map.commit, map.message, map.layout),
   };
-  return asMapRecord(draft);
+  return asMapRecord(draft, map.commit);
 }
 
 function asDocumentRecord(
   draft: DocumentPublicationRecord,
+  commit: string,
 ): DocumentPublicationRecord {
-  const record = parsePublicationRecord(draft);
+  const record = parseImportedRecord(draft, commit);
   if (record.kind !== "document")
-    throw new LegacyImportBlocker("Expected a document publication record.");
+    throw new LegacyImportBlocker(
+      `Revision ${commit} did not replay as a document publication.`,
+    );
   return record;
 }
 
-function asMapRecord(draft: MapPublicationRecord): MapPublicationRecord {
-  const record = parsePublicationRecord(draft);
+function asMapRecord(
+  draft: MapPublicationRecord,
+  commit: string,
+): MapPublicationRecord {
+  const record = parseImportedRecord(draft, commit);
   if (record.kind !== "map")
-    throw new LegacyImportBlocker("Expected a map publication record.");
+    throw new LegacyImportBlocker(
+      `Revision ${commit} did not replay as a map publication.`,
+    );
   return record;
+}
+
+/** A draft this module built that the record schema still rejects describes a
+ * revision that cannot be replayed, not a caller error. */
+function parseImportedRecord(
+  draft: ReviewPublicationRecord,
+  commit: string,
+): ReviewPublicationRecord {
+  try {
+    return parsePublicationRecord(draft);
+  } catch (error) {
+    throw new LegacyImportBlocker(
+      `Revision ${commit} cannot be replayed as a publication: ` +
+        `${errorMessage(error)}.`,
+      { cause: error },
+    );
+  }
 }
 
 function legacyArtifact(hash: string | null): ReviewPublicationArtifact {
@@ -989,16 +1042,31 @@ function legacyImportNonce(
     .slice(0, 32);
 }
 
+/**
+ * The operation a sealed commit message replays as, per row kind:
+ *
+ * | message                             | document    | map          |
+ * | ----------------------------------- | ----------- | ------------ |
+ * | `Review publish candidate`          | `publish`   | `map-publish`|
+ * | `Publish Review software map`       | `migration` | `map-publish`|
+ * | `Materialize bundled tutorial …`    | `tutorial`  | `tutorial`   |
+ * | anything else (`Migrate …`, repair) | `migration` | `migration`  |
+ *
+ * A map row minted from a publish-candidate commit is the companion of a
+ * document sealed in the same revision, and a map presented from a document
+ * commit is still a map publication.
+ */
 function legacyOperation(
   message: string,
   kind: ReviewPublicationKind,
 ): ReviewPublicationRecord["operation"] {
-  if (message === LEGACY_PUBLISH_CANDIDATE_MESSAGE && kind === "document")
-    return "publish";
-  if (message === LEGACY_MAP_PUBLISH_MESSAGE && kind === "map")
-    return "map-publish";
   if (message === LEGACY_TUTORIAL_MESSAGE) return "tutorial";
-  return "migration";
+  if (kind === "map")
+    return message === LEGACY_MAP_PUBLISH_MESSAGE ||
+      message === LEGACY_PUBLISH_CANDIDATE_MESSAGE
+      ? "map-publish"
+      : "migration";
+  return message === LEGACY_PUBLISH_CANDIDATE_MESSAGE ? "publish" : "migration";
 }
 
 /** The pinned code context the revision was sealed against. */
@@ -1038,13 +1106,30 @@ async function readEmbeddedRecord(
         "cannot be recovered.",
     );
   }
-  const value = parseJsonText(text);
+  let value: JsonValue;
+  try {
+    value = parseJsonText(text);
+  } catch (error) {
+    throw new LegacyImportBlocker(
+      `Revision ${commit} seals a Review record that is not JSON: ` +
+        `${errorMessage(error)}.`,
+      { cause: error },
+    );
+  }
   const raw = jsonObject(value);
   if (!raw)
     throw new LegacyImportBlocker(
       `Revision ${commit} seals a Review record that is not an object.`,
     );
-  return { raw, record: parseAnyStoredReviewRecord(value) };
+  try {
+    return { raw, record: parseAnyStoredReviewRecord(value) };
+  } catch (error) {
+    throw new LegacyImportBlocker(
+      `Revision ${commit} seals a Review record this build cannot read: ` +
+        `${errorMessage(error)}.`,
+      { cause: error },
+    );
+  }
 }
 
 /** Schema 2 sealed one `presentedRevision` for both presentations. */

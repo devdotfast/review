@@ -8,7 +8,6 @@ import {
 } from "./review-artifact-store";
 import {
   type StoredReviewRecord,
-  parseAnyStoredReviewRecord,
   parseStoredReviewRecord,
   refreshReviewMirror,
 } from "./review-home";
@@ -208,6 +207,10 @@ export interface ActivatedPointers {
   map: string | null;
 }
 
+/** How the record read inside the transaction is parsed. Publishing demands
+ * the current schema; only an import may activate against an older one. */
+export type ActivationRecordParser = (value: JsonValue) => StoredReviewRecord;
+
 export type ActivationRowBuilder = (
   tx: ReviewStateTransaction,
   latest: StoredReviewRecord,
@@ -223,6 +226,8 @@ export interface ReviewActivationCommit {
   updateRecord: ActivationRecordUpdate;
   /** Overrides the pointers derived from the committed rows. */
   presentedPointers?: ActivatedPointers;
+  /** Defaults to `parseStoredReviewRecord`: the record must be current. */
+  parseRecord?: ActivationRecordParser;
   inTransaction?: ActivationTransactionWrite;
   hooks?: ReviewActivationHooks;
 }
@@ -312,9 +317,7 @@ function applyActivation(
   const latestJson = readReviewRecordInTransaction(tx, input.reviewDir);
   if (latestJson === null)
     throw new Error(`No Review record in the database for ${input.reviewDir}.`);
-  // An import activates against a record still at its Git-era schema; every
-  // other caller is already current, which this parse leaves untouched.
-  const latest = parseAnyStoredReviewRecord(latestJson);
+  const latest = (input.parseRecord ?? parseStoredReviewRecord)(latestJson);
   assertActivationGuard(latestJson, input.expected);
   for (const gate of input.gates ?? []) gate(latest);
 

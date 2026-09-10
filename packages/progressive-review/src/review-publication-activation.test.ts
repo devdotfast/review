@@ -191,6 +191,24 @@ describe("activateReviewPublication", () => {
     ).resolves.toEqual(result.review);
   });
 
+  it("refuses a record that is not at the current schema", async () => {
+    const { dir, home, review } = await registeredReview();
+    const artifactHash = await installDocument(dir, "first");
+    putReviewRecord(dir, { ...review, schemaVersion: 5 }, home);
+
+    await expect(
+      activateReviewPublication({
+        reviewDir: dir,
+        expected: { guarded: review },
+        candidates: [documentCandidate(artifactHash)],
+        updateRecord: keepRecord,
+      }),
+    ).rejects.toThrow(/expected 6/);
+
+    expect(listPublications(dir, "document")).toEqual([]);
+    expect(readReviewRecord(dir)).toMatchObject({ schemaVersion: 5 });
+  });
+
   it("chains the second activation onto the first", async () => {
     const { dir, review } = await registeredReview();
     const first = await activateReviewPublication({

@@ -41,6 +41,44 @@ const execFileAsync = promisify(execFile);
 
 const SESSION_ID_REGEX = /^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$/;
 
+/**
+ * Starts `review trace sync` detached for one session. The attempt names
+ * the destination it was started for; the sync rechecks the selection and
+ * consent before any transfer. A missing CLI reports asynchronously and
+ * never fails the caller.
+ */
+export function spawnDetachedTraceSync(input: {
+  sessionId: string;
+  cwd: string;
+  homeDir?: string;
+  env?: NodeJS.ProcessEnv;
+}): void {
+  try {
+    const installedCommand = path.join(
+      input.homeDir ?? process.env.TRACE_HOME_DIR ?? os.homedir(),
+      ".local",
+      "bin",
+      "review",
+    );
+    const command =
+      process.env.REVIEW_TRACE_COMMAND ??
+      (existsSync(installedCommand) ? installedCommand : "review");
+    const expectation = traceStorageExpectation({
+      homeDir: input.homeDir,
+      env: input.env,
+    });
+    const child = spawn(
+      command,
+      ["trace", "sync", input.sessionId, "--expect-storage", expectation],
+      { cwd: input.cwd, detached: true, stdio: "ignore" },
+    );
+    child.on("error", () => {});
+    child.unref();
+  } catch {
+    // Ignore sync spawn errors
+  }
+}
+
 export interface RunReviewTraceHookInput {
   cwd: string;
   event: string;
@@ -206,39 +244,14 @@ export async function runReviewTraceHook(
     }
   }
 
-  // 3. On SessionEnd: detached background trace sync to R2
+  // 3. On SessionEnd: detached background trace sync to the selected store
   if (isEnd) {
-    try {
-      const installedCommand = path.join(
-        input.homeDir ?? process.env.TRACE_HOME_DIR ?? os.homedir(),
-        ".local",
-        "bin",
-        "review",
-      );
-      const command =
-        process.env.REVIEW_TRACE_COMMAND ??
-        (existsSync(installedCommand) ? installedCommand : "review");
-      // The attempt names the destination it was started for; the detached
-      // sync rechecks the selection and consent before any transfer.
-      const expectation = traceStorageExpectation({
-        homeDir: input.homeDir,
-        env: input.env,
-      });
-      const child = spawn(
-        command,
-        ["trace", "sync", sessionId, "--expect-storage", expectation],
-        {
-          cwd: input.cwd,
-          detached: true,
-          stdio: "ignore",
-        },
-      );
-      // A missing CLI reports asynchronously; do not fail the agent hook.
-      child.on("error", () => {});
-      child.unref();
-    } catch {
-      // Ignore sync spawn errors
-    }
+    spawnDetachedTraceSync({
+      sessionId,
+      cwd: input.cwd,
+      homeDir: input.homeDir,
+      env: input.env,
+    });
   }
 
   return 0;

@@ -12,6 +12,11 @@ import {
   readActiveTraceSessions,
   writeTraceSessions,
 } from "./trace-agent-sessions";
+// The namespace import keeps the detached spawn observable to tests, which
+// intercept it through the module namespace.
+import * as hookRunner from "./trace-hook-runner";
+import { traceMachineEnabled } from "./trace-machine-setup";
+import { selectTraceStorage } from "./trace-storage/resolve";
 
 const ZERO_OID = /^0+$/;
 
@@ -23,6 +28,8 @@ export async function runReviewTraceGitHook(input: {
   stderr: Writable;
 }): Promise<number> {
   if (process.env.TRACE_DISABLE === "1") return 0;
+  // The machine switch owns every capture path, including the git hooks.
+  if (!(await traceMachineEnabled())) return 0;
   try {
     if (input.hook === "prepare-commit-msg") {
       return runPrepareCommitMessage(input.cwd, input.args[0]);
@@ -136,7 +143,14 @@ async function runPrePush(input: {
       ]);
     }
   }
+  const selection = selectTraceStorage();
   for (const [sessionId, values] of sessionCommits) {
+    if (selection.mode === "hosted") {
+      // A hosted publish may take minutes; a push never waits for it. The
+      // detached sync discovers this session's commits from the trailers.
+      hookRunner.spawnDetachedTraceSync({ sessionId, cwd: input.cwd });
+      continue;
+    }
     await syncReviewTrace({ sessionId, cwd: input.cwd, commits: values }).catch(
       (cause) => warn(input.stderr, cause),
     );

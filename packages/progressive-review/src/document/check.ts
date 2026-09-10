@@ -93,19 +93,23 @@ export function checkReviewDocument(input: {
   const authoringPath = progressiveReviewAuthoringTypesPath(import.meta.url);
   if (!existsSync(authoringPath))
     throw new Error(`Review authoring types are missing: ${authoringPath}`);
-  const helpersPath = `${authoringPath}.document-helpers.ts`;
+  const authoringModulePath = authoringPath.replace(/\.d\.ts$/, ".js");
+  const helpersPath = path.join(
+    path.dirname(authoringPath),
+    "review-document-helpers.ts",
+  );
   const virtualPath = `${filePath}.tsx`;
   const helperSource = [
-    `export * from ${JSON.stringify(authoringPath)};`,
+    `export * from ${JSON.stringify(authoringModulePath)};`,
     ...sessionHelperNames.map(
       (name) =>
-        `export declare const ${name}: import(${JSON.stringify(authoringPath)}).ReviewDefinitionSession[${JSON.stringify(name)}];`,
+        `export declare const ${name}: import(${JSON.stringify(authoringModulePath)}).ReviewDefinitionSession[${JSON.stringify(name)}];`,
     ),
     `export declare const __reviewDefinitionsReady: () => Promise<void>;`,
   ].join("\n");
   let virtual =
     [
-      `import type { ReviewAuthoringComponentRegistry as __ReviewComponents } from ${JSON.stringify(authoringPath)};`,
+      `import type { ReviewAuthoringComponentRegistry as __ReviewComponents } from ${JSON.stringify(authoringModulePath)};`,
       `declare const __reviewComponents: __ReviewComponents;`,
       ...Object.keys(reviewAuthoringPropsSchemas)
         .filter((name) => !syntax.bindings.includes(name))

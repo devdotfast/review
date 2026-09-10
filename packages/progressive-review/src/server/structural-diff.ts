@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 
-/** The experiment is opt-in: the host selects the executable, never the request. */
+/** The frontend setting opts in; the host selects the executable, never the request. */
 export async function structuralDiff(input: {
   rootPath: string;
   baseRef?: string;
@@ -9,8 +9,7 @@ export async function structuralDiff(input: {
   paths?: readonly string[];
   signal?: AbortSignal;
 }): Promise<{ enabled: boolean; events: unknown[] }> {
-  const executable = process.env.REVIEW_DIFFR_BINARY;
-  if (!executable) return { enabled: false, events: [] };
+  const executable = process.env.REVIEW_DIFFR_BINARY || "diffr";
   if (!input.baseRef)
     throw new Error("Structural review requires a base revision.");
   const args = ["--repo", input.rootPath, "--format", "ndjson"];
@@ -34,7 +33,11 @@ export async function structuralDiff(input: {
     stderr = (stderr + chunk).slice(-16_384);
   });
   const exited = new Promise<void>((resolve, reject) => {
-    child.once("error", reject);
+    child.once("error", (error: NodeJS.ErrnoException) => {
+      reject(error.code === "ENOENT"
+        ? new Error("Cannot find diffr. Install it on the Review host PATH or set REVIEW_DIFFR_BINARY to its executable, then restart Review.")
+        : error);
+    });
     child.once("close", (code) => {
       if (code === 0) resolve();
       else reject(new Error(`diffr exited with ${code}: ${stderr}`));

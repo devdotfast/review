@@ -1,8 +1,15 @@
 # Native structural diff experiment
 
-This branch replaces the Files view's diff computation with `diffr` when
-`REVIEW_DIFFR_BINARY` names an executable. Without it, Review uses its existing
-native diff provider. It does not require a diffr server or CodeMirror.
+Enable **Settings → Experimental Features → Structural Diffs** to replace the
+standard Diff view with the structural viewer. The setting is saved as
+`review.experimental.structuralDiff.enabled`, defaults to off, and remounts open
+review views when changed. Turning it off restores the standard provider without
+requesting structural diffs.
+
+The Review host runs `diffr` from PATH, or the executable named by
+`REVIEW_DIFFR_BINARY`. The environment variable selects the executable; it does not
+enable the feature. Missing or incompatible executables surface an error in the
+Diff view. A diffr server and CodeMirror are not required.
 
 ```sh
 REVIEW_DESKTOP_DEV_FAST=1 DEV_REVIEW_EXTENSIONS=none pnpm desktop:build

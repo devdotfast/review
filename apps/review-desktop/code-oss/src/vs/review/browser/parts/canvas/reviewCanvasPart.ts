@@ -91,6 +91,7 @@ import type {
 import {
 	REVIEW_KEYMAP_SETTING,
 	REVIEW_SOFTWARE_MAP_SETTING,
+	REVIEW_STRUCTURAL_DIFF_SETTING,
 	REVIEW_TELEMETRY_SETTING,
 } from "../../../common/reviewConfigurationDefaults.js";
 import {
@@ -309,7 +310,8 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		);
 		this._register(
 			configurationService.onDidChangeConfiguration((event) => {
-				if (!event.affectsConfiguration(REVIEW_SOFTWARE_MAP_SETTING)) return;
+				if (!event.affectsConfiguration(REVIEW_SOFTWARE_MAP_SETTING) &&
+					!event.affectsConfiguration(REVIEW_STRUCTURAL_DIFF_SETTING)) return;
 				const input = this.renderedInput;
 				const model = this.renderedModel;
 				if (!input || !model || model.state !== "active") return;
@@ -928,6 +930,13 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				);
 				return this.currentSoftwareMapEnabled();
 			},
+			structuralDiffEnabled: this.currentStructuralDiffEnabled(),
+			setStructuralDiffEnabled: async (enabled) => {
+				await this.configurationService.updateValue(
+					REVIEW_STRUCTURAL_DIFF_SETTING, enabled, ConfigurationTarget.USER,
+				);
+				return this.currentStructuralDiffEnabled();
+			},
 			manageExtensions: () =>
 				void this.commandService.executeCommand("review.manageExtensions"),
 		};
@@ -955,6 +964,10 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				REVIEW_KEYMAP_SETTING,
 			) ?? "none"
 		);
+	}
+
+	private currentStructuralDiffEnabled(): boolean {
+		return this.configurationService.getValue<boolean>(REVIEW_STRUCTURAL_DIFF_SETTING) === true;
 	}
 
 	private currentSoftwareMapEnabled(): boolean {
@@ -1245,6 +1258,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					document,
 					softwareMap,
 					softwareMapEnabled,
+					structuralDiffEnabled: this.currentStructuralDiffEnabled(),
 					reviewErrors: this.sessionService.reviewErrors,
 					commits: model.session.review.commits ?? [],
 					range: {
@@ -1590,6 +1604,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				document: documentPromise,
 				softwareMap: softwareMapPromise,
 				softwareMapEnabled: true,
+				structuralDiffEnabled: this.currentStructuralDiffEnabled(),
 				reviewErrors: this.sessionService.reviewErrors,
 				commits: session.review.commits ?? [],
 				range: {

@@ -159,7 +159,7 @@ function ReviewCanvas({
   if (content.kind === "session") {
     return (
       <DesktopReviewApp
-        key={content.bridge.config.sessionId}
+        key={`${content.bridge.config.sessionId}:${content.structuralDiffEnabled}`}
         documentBundle={content.document}
         softwareMapBundle={content.softwareMap}
         softwareMapEnabled={content.softwareMapEnabled}

@@ -3,6 +3,8 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { IConfigurationService } from "../../platform/configuration/common/configuration.js";
+import { REVIEW_STRUCTURAL_DIFF_SETTING } from "../common/reviewConfigurationDefaults.js";
 import { prepareStructuralReview } from "./reviewStructuralDiff.js";
 import { Emitter } from "../../base/common/event.js";
 import {
@@ -146,14 +148,19 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
     try {
       const session = this.sessionModelService.activeModel?.session;
       if (!session) throw new Error("No active Review Desktop session.");
-      this.viewStateKey = `${session.session.sessionId}:${session.session.routePath ?? "/"}:${this.spec.scope?.commit ?? "full"}`;
+      const structuralEnabled = this.instantiationService.invokeFunction((a) =>
+        a.get(IConfigurationService).getValue<boolean>(REVIEW_STRUCTURAL_DIFF_SETTING) === true,
+      );
+      this.viewStateKey = `${session.session.sessionId}:${session.session.routePath ?? "/"}:${this.spec.scope?.commit ?? "full"}:${structuralEnabled}`;
       const entries = await buildReviewFilesEntries(
         this.codeResources,
         this.spec.scope,
       );
       if (this.disposed) return;
       const store = this._register(new DisposableStore());
-      const structural = await prepareStructuralReview(this.instantiationService, entries, this.spec.scope, store);
+      const structural = structuralEnabled
+        ? await prepareStructuralReview(this.instantiationService, entries, this.spec.scope, store)
+        : { instantiation: this.instantiationService, entries, enabled: false };
       if (this.disposed) return;
       // The input owns the text-model references its view model resolves, so
       // this handle disposes it alongside the view.

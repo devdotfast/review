@@ -72,6 +72,9 @@ export function SettingsPage({
   const [softwareMapEnabled, setSoftwareMapEnabled] = useState(
     settings.softwareMapEnabled,
   );
+  const [structuralDiffEnabled, setStructuralDiffEnabled] = useState(
+    settings.structuralDiffEnabled,
+  );
   const [installStatus, setInstallStatus] = useState<
     ReviewCliInstallStatus | undefined
   >(settings.install?.status);
@@ -222,6 +225,28 @@ export function SettingsPage({
           </Section>
 
           <Section label="Experimental Features">
+            <Row
+              label="Structural Diffs"
+              description="Replace the standard diff view with syntax-aware diffs and linked folds. Requires the diffr CLI."
+            >
+              <label className="review-settings-toggle">
+                <input
+                  type="checkbox"
+                  aria-label="Structural Diffs"
+                  checked={structuralDiffEnabled}
+                  disabled={busy !== null}
+                  onChange={(event) => {
+                    const enabled = event.target.checked;
+                    void run(
+                      "structural-diff",
+                      () => settings.setStructuralDiffEnabled(enabled),
+                      setStructuralDiffEnabled,
+                    );
+                  }}
+                />
+                <span>{structuralDiffEnabled ? "On" : "Off"}</span>
+              </label>
+            </Row>
             <Row
               label="Software Map"
               description="Show the experimental Software Map view in reviews."

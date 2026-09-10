@@ -63,7 +63,7 @@ export async function prepareStructuralReview(
   const body = await response.json();
   if (!response.ok || !body.ok) throw new Error(body.error ?? "Structural diff request failed.");
   if (lifetime.isDisposed) throw new CancellationError();
-  if (!body.enabled) return { instantiation, enabled: false, entries };
+  if (!body.enabled) throw new Error("This Review server does not have structural diffs enabled. Configure diffr on the host and restart Review.");
   const files = new Map<string, StructuralDiff>();
   for (const event of body.events as StructuralFileEvent[]) {
     if (event.type === "file") files.set(event.file.new_path ?? event.file.old_path!, event.diff);

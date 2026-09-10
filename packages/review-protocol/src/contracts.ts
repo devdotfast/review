@@ -977,6 +977,8 @@ export interface ReviewCanvasSettingsContent {
   setDismissedRetentionDays(days: number | null): Promise<number | null>;
   softwareMapEnabled: boolean;
   setSoftwareMapEnabled(enabled: boolean): Promise<boolean>;
+  structuralDiffEnabled: boolean;
+  setStructuralDiffEnabled(enabled: boolean): Promise<boolean>;
   manageExtensions(): void;
   // Agent installs are managed here too, so they stay reachable once Home
   // has reviews and no longer shows the Welcome rail. Absent when the
@@ -1050,6 +1052,7 @@ export type ReviewCanvasContent =
       document: Promise<unknown>;
       softwareMap: Promise<unknown | null>;
       softwareMapEnabled: boolean;
+      structuralDiffEnabled: boolean;
       reviewErrors: readonly ReviewListError[];
       range: ReviewCanvasRange;
       commits: readonly ReviewCommitSummary[];

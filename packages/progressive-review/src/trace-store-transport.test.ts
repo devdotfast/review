@@ -10,6 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
+import type { IncomingHttpHeaders } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
@@ -174,6 +175,55 @@ describe("trace-store-transport", () => {
       await gzipped.cleanup();
     } finally {
       process.umask(previousUmask);
+    }
+  });
+
+  it("sends a fixed content length on the wire, never chunked", async () => {
+    const { createServer } = await import("node:http");
+    const source = path.join(tempDir, "wire.jsonl");
+    await writeFile(source, "hello wire\n", "utf8");
+    const gzipped = await gzipToTemp(source);
+    let receivedHeaders: IncomingHttpHeaders = {};
+    let receivedBytes = 0;
+    const server = createServer((request, response) => {
+      receivedHeaders = request.headers;
+      request.on("data", (chunk: Buffer) => {
+        receivedBytes += chunk.length;
+      });
+      request.on("end", () => {
+        response.statusCode = 200;
+        response.end();
+      });
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const address = server.address();
+    if (!address || !("port" in address)) throw new Error("no port");
+    try {
+      await httpTransport(globalThis.fetch).putObject(
+        {
+          name: "main.jsonl.gz",
+          url: `http://127.0.0.1:${address.port}/k`,
+          headers: {
+            "content-type": "application/gzip",
+            "content-length": String(gzipped.size),
+            "x-amz-checksum-sha256": Buffer.from(
+              gzipped.sha256,
+              "hex",
+            ).toString("base64"),
+            "if-none-match": "*",
+          },
+          expiresAt: "2099-01-01T00:00:00.000Z",
+        },
+        gzipped.path,
+      );
+      expect(receivedHeaders["content-length"]).toBe(String(gzipped.size));
+      expect(receivedHeaders["transfer-encoding"]).toBeUndefined();
+      expect(receivedBytes).toBe(gzipped.size);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await gzipped.cleanup();
     }
   });
 

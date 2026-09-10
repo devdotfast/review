@@ -178,7 +178,13 @@ export async function runReviewTraceAllow(
 }
 
 export async function runReviewTraceDeny(
-  input: CliJsonOutput & HostedCommandScope & { cwd: string },
+  input: CliJsonOutput &
+    HostedCommandScope & {
+      cwd: string;
+      /** Also delete the hosted store (repository admins only). */
+      deleteStore?: boolean;
+      client?: StoreClient;
+    },
 ): Promise<number> {
   let name: string;
   try {
@@ -202,18 +208,71 @@ export async function runReviewTraceDeny(
     { name, repositoryId: cached?.repositoryId ?? null },
     devHome,
   );
-  emitJsonEvent(input, { event: "trace.deny", name, removed });
-  humanStream(input).write(
+  let deletion: Awaited<ReturnType<StoreClient["deleteStore"]>> | null = null;
+  if (input.deleteStore) {
+    let client: StoreClient;
+    try {
+      client = input.client ?? (await requireStoreClient(input.env));
+    } catch (error) {
+      return failWithJsonError(
+        input,
+        "deny",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    const repositoryId = cached?.repositoryId ?? null;
+    if (repositoryId === null) {
+      return failWithJsonError(
+        input,
+        "deny",
+        `${name} has no resolved hosted store on this machine. Run \`review trace allow .\` once, then deny with --delete-store.`,
+      );
+    }
+    try {
+      deletion = await client.deleteStore(repositoryId);
+    } catch (error) {
+      if (error instanceof StoreApiError && error.code === "forbidden") {
+        return failWithJsonError(
+          input,
+          "deny",
+          `Deleting the store of ${name} needs admin access to the repository.`,
+        );
+      }
+      return failWithJsonError(
+        input,
+        "deny",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+  emitJsonEvent(input, {
+    event: "trace.deny",
+    name,
+    removed,
+    storeDeleted: deletion !== null,
+  });
+  const stream = humanStream(input);
+  stream.write(
     removed
       ? `${name} will no longer publish traces.\n`
       : `${name} was not allowed to publish traces.\n`,
   );
+  if (deletion) {
+    stream.write(
+      `Store deletion requested for ${name} (store ${deletion.storeId}). Uploaded objects are removed by a later operator cleanup.\n`,
+    );
+  }
   return 0;
 }
 
 /** The hosted lines of `review trace status`: login, consent, pending work. */
 export async function writeHostedTraceStatus(
-  input: HostedCommandScope & { cwd: string; origin: string; stdout: Writable },
+  input: HostedCommandScope & {
+    cwd: string;
+    origin: string;
+    stdout: Writable;
+    client?: StoreClient;
+  },
 ): Promise<void> {
   const stream = input.stdout;
   const devHome = devReviewHome(input.env, input.homeDir);
@@ -259,6 +318,20 @@ export async function writeHostedTraceStatus(
       stream.write(
         `This repository (${name}) is allowed to publish traces to ${input.origin}.\n`,
       );
+      const client =
+        input.client ??
+        (auth && auth.origin === input.origin
+          ? new StoreClient({ origin: auth.origin, token: auth.token })
+          : null);
+      if (client) {
+        const [owner = "", repo = ""] = name.split("/");
+        const store = await client
+          .findStore({ owner, name: repo })
+          .catch(() => null);
+        if (store?.bytesStored !== undefined) {
+          stream.write(`Stored bytes: ${store.bytesStored}\n`);
+        }
+      }
     }
   }
   for (const sessionId of await pendingTraceSessions(input.cwd)) {

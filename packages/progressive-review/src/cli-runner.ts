@@ -994,13 +994,21 @@ export async function runProgressiveReviewCli(
       .command("deny [path]")
       .description(
         "Stop publishing traces from one repository to the hosted store",
+      )
+      .option(
+        "--delete-store",
+        "also delete the hosted store; needs repository admin access",
       ),
     "plain",
   ).action(
-    async (repoPath: string | undefined, options: { json?: boolean }) => {
+    async (
+      repoPath: string | undefined,
+      options: { json?: boolean; deleteStore?: boolean },
+    ) => {
       state.exitCode = await runtime.runReviewTraceDeny({
         cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
         json: options.json,
+        deleteStore: options.deleteStore,
         stdout: input.stdout,
         stderr: input.stderr,
       });

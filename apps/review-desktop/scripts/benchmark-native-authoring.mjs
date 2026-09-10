@@ -86,7 +86,8 @@ async function expose(runtime) {
   for (const name of names.filter((name) => /^cli-runner-.*\.js$/.test(name))) {
     const source = await readFile(path.join(dist, name), "utf8");
     const entry = path.join(dist, `.benchmark-${process.pid}.mjs`);
-    const native = source.includes("function buildReviewDocument(");
+    // The old scanner has an unrelated buildReviewDocument function too.
+    const native = !source.includes("function compileReviewDocumentBundle(");
     assert.ok(
       source.includes(
         native
@@ -169,11 +170,8 @@ export async function benchmark({
   cases,
   env,
   output,
+  resumeFrom,
 }) {
-  const entries = {
-    old: await expose(baselineRuntime),
-    native: await expose(runtime),
-  };
   const report = {
     node: process.version,
     runtime,
@@ -182,10 +180,65 @@ export async function benchmark({
     coldSamples: 20,
     rows: [],
   };
+  if (resumeFrom) {
+    const previous = JSON.parse(await readFile(resumeFrom, "utf8"));
+    for (const key of [
+      "node",
+      "runtime",
+      "baselineRuntime",
+      "warmSamples",
+      "coldSamples",
+    ])
+      assert.equal(previous[key], report[key], `Resume mismatch: ${key}`);
+    const keys = new Set();
+    for (const row of previous.rows) {
+      const fixture = cases.find((candidate) => candidate.name === row.fixture);
+      assert.ok(fixture, `Unknown resume fixture: ${row.fixture}`);
+      assert.ok(
+        row.operation === "builder" || (row.operation === "cli" && fixture.cli),
+      );
+      assert.ok(row.mode === "warm" || row.mode === "cold");
+      const key = `${row.fixture}/${row.operation}/${row.mode}`;
+      assert.ok(!keys.has(key), `Duplicate resume row: ${key}`);
+      keys.add(key);
+      for (const which of ["old", "native"]) {
+        assert.equal(
+          row[which].samples.length,
+          row.mode === "warm" ? report.warmSamples : report.coldSamples,
+        );
+        assert.ok(
+          row[which].samples.every(
+            (sample) => Number.isFinite(sample) && sample > 0,
+          ),
+        );
+        assert.deepEqual(row[which], summary(row[which].samples));
+      }
+      assert.equal(row.medianRatio, row.native.median / row.old.median);
+      assert.equal(row.p95Ratio, row.native.p95 / row.old.p95);
+      assert.equal(row.pass, row.medianRatio <= 1.05 && row.p95Ratio <= 1.1);
+    }
+    // Keep every completed row, including failures; only incomplete rows rerun.
+    report.rows = previous.rows;
+    report.resumedFrom = path.resolve(resumeFrom);
+    await writeFile(output, JSON.stringify(report, null, 2));
+  }
+  const entries = {
+    old: await expose(baselineRuntime),
+    native: await expose(runtime),
+  };
   try {
     for (const fixture of cases)
       for (const operation of ["builder", ...(fixture.cli ? ["cli"] : [])])
         for (const mode of ["warm", "cold"]) {
+          if (
+            report.rows.some(
+              (row) =>
+                row.fixture === fixture.name &&
+                row.operation === operation &&
+                row.mode === mode,
+            )
+          )
+            continue;
           const samples = { old: [], native: [] };
           const processes =
             mode === "warm"

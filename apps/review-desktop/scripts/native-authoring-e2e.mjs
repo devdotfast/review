@@ -36,6 +36,8 @@ const { values } = parseArgs({
     keep: { type: "boolean", default: false },
     "baseline-runtime": { type: "string" },
     "comparison-runtime": { type: "string" },
+    // Only reuse completed rows from the same runtimes and unchanged corpus.
+    "resume-benchmark": { type: "string" },
   },
 });
 assert.ok(
@@ -170,6 +172,10 @@ const app = spawn(
   { cwd: appRoot, env, detached: true, stdio: ["ignore", "pipe", "pipe"] },
 );
 let appLog = "";
+function lifecycle(message) {
+  appLog += `\n[E2E ${new Date().toISOString()}] ${message}\n`;
+}
+app.on("exit", (code, signal) => lifecycle(`Desktop exit: ${code}, ${signal}`));
 app.stdout.on("data", (chunk) => {
   appLog = (appLog + chunk).slice(-200000);
 });
@@ -200,6 +206,22 @@ async function until(run, label, timeout = 90000) {
 let browser;
 let page;
 const pageErrors = [];
+async function watchPage(candidate) {
+  candidate.on("pageerror", (error) => pageErrors.push(error.message));
+  candidate.on("close", () => lifecycle("Workbench page closed"));
+  // New workbench windows can show the isolated profile's community invitation.
+  await candidate.addLocatorHandler(
+    candidate.getByText("Join the Review community", { exact: true }),
+    async () => {
+      await candidate
+        .getByRole("checkbox", { name: "Don't show again" })
+        .check();
+      await candidate
+        .getByRole("button", { name: "Not now", exact: true })
+        .click();
+    },
+  );
+}
 const report = {
   mode: values.app ? "packaged" : "development",
   runtime,
@@ -216,6 +238,7 @@ try {
     return health.ok && health.desktopAttached ? value : null;
   }, "attached Desktop server");
   browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+  browser.on("disconnected", () => lifecycle("Desktop CDP disconnected"));
   page = await until(
     () =>
       browser
@@ -224,7 +247,7 @@ try {
         .find((candidate) => candidate.url().includes("workbench")),
     "workbench renderer",
   );
-  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await watchPage(page);
   async function cli(args, expectedCode = 0, cwd = repo) {
     // Reload temporarily detaches Desktop. Wait before app pick can interpret
     // that gap as a reason to launch the system-installed application.
@@ -619,7 +642,7 @@ try {
             return candidate;
         return null;
       }, `Desktop window for ${name}`);
-      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await watchPage(page);
       canvas = page.locator(".review-canvas-root");
       const opened = await api(
         `/reviews/${metadata.sourceUuid}/open`,
@@ -677,6 +700,12 @@ try {
     );
     console.log("E2E legacy fixture passed", name);
   }
+  assert.deepEqual(pageErrors, []);
+  await page.locator(".review-canvas-root").click({ trial: true });
+  await page.screenshot({ path: path.join(root, "document.png") });
+  console.log("E2E checkpoint", report.checks.length);
+  report.checks.push("no renderer page errors during authoring and repair");
+  report.functionalSuccess = true;
   if (values["baseline-runtime"]) {
     // Compare the same original corpus supported by both implementations.
     await writeFile(path.join(dir, "review.mdx"), source);
@@ -746,6 +775,7 @@ try {
       ),
       env,
       output: path.join(root, "benchmark.json"),
+      resumeFrom: values["resume-benchmark"],
     });
     report.benchmarkPass = result.pass;
     if (values["comparison-runtime"]) {
@@ -760,9 +790,6 @@ try {
     }
   }
   assert.deepEqual(pageErrors, []);
-  await page.screenshot({ path: path.join(root, "document.png") });
-  console.log("E2E checkpoint", report.checks.length);
-  report.checks.push("no renderer page errors during authoring and repair");
   success = true;
 } finally {
   if (!success && page) {

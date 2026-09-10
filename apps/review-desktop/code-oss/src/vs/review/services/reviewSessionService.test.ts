@@ -85,7 +85,8 @@ function mockFetch(
 	});
 }
 
-test("successful repair registration refreshes cached migration warnings", async (t) => {
+for (const refreshFails of [false, true]) {
+test(`repair registration survives list refresh (failure: ${refreshFails})`, async (t) => {
 	const service = serviceWith([review]);
 	let errorsAtRegistration: unknown;
 	service.onDidRegisterSession(() => {
@@ -101,6 +102,7 @@ test("successful repair registration refreshes cached migration warnings", async
 		}
 		if (url.includes("/sessions")) return Response.json({ items: [session] });
 		lists += 1;
+		if (refreshFails && lists > 1) throw new Error("refresh unavailable");
 		return Response.json({
 			reviews: [review],
 			errors: lists === 1 ? [{
@@ -117,11 +119,14 @@ test("successful repair registration refreshes cached migration warnings", async
 	await (service as unknown as {
 		watchGlobalEvents(connected: () => void): Promise<void>;
 	}).watchGlobalEvents(() => undefined);
-	assert.deepEqual(service.reviewErrors, []);
-	assert.deepEqual(errorsAtRegistration, []);
+	assert.ok(Array.isArray(errorsAtRegistration));
+	assert.equal(service.reviewErrors.length, refreshFails ? 1 : 0);
+	assert.deepEqual(errorsAtRegistration, service.reviewErrors);
+	assert.ok(service.sessions.some(item => item.sessionId === session.sessionId));
 	assert.equal(lists, 2);
 	service.dispose();
 });
+}
 
 test("historical source availability survives registration, refresh, and reconnect", async (t) => {
 	const service = serviceWith([review]);

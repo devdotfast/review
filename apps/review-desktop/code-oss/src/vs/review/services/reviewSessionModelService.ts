@@ -318,7 +318,7 @@ async function fetchReviewEnvelope<TResponse>(
 /**
  * Turns a failed review load response into the state the canvas renders.
  * Republish and historical-revision responses are expected outcomes rather
- * than errors, so only transport failures reach a caller's catch.
+ * than errors; unexpected failures reject so the module cache can retry.
  */
 function decodeReviewLoadEnvelope(
 	response: Response,
@@ -326,97 +326,82 @@ function decodeReviewLoadEnvelope(
 	label: string,
 ): ReviewLoadSettlement {
 	if (payload.ok) {
-		return {
-			state: "unavailable",
-			message: `${label} returned ${response.status}.`,
-		};
+		throw new Error(`${label} returned ${response.status}.`);
 	}
-	if (payload.detail?.code === "historical_revision_unavailable") {
+	if (!payload.retryable && response.status === 409 && payload.detail?.code === "historical_revision_unavailable") {
 		return {
 			state: "unavailable",
 			message: payload.error,
 			currentReviewUuid: payload.detail.reviewUuid,
 		};
 	}
-	if (response.status === 409 && payload.detail?.code === "needs_republish") {
+	if (!payload.retryable && response.status === 409 && payload.detail?.code === "needs_republish") {
 		return {
 			state: "needs-republish",
 			reviewUuid: payload.detail.reviewUuid,
 			mapStale: payload.detail.mapStale,
 		};
 	}
-	return { state: "unavailable", message: payload.error };
+	throw new Error(payload.error);
 }
 
 export async function loadReviewSessionDocument(
 	session: ReviewDesktopSession,
 	loader: ReviewDocumentDataLoader,
 ): Promise<ReviewDocumentLoad> {
-	try {
-		const url = new URL(`${session.sessionUrl}/__progressive-review/document`);
-		const routePath = session.session.routePath ?? session.descriptor.routePath;
-		if (routePath && routePath !== "/") {
-			url.searchParams.set("document", routePath);
-		}
-		const { response, payload } = await fetchReviewEnvelope(
-			session,
-			url,
-			(value) => ReviewDocumentResponseSchema.parse(value),
-		);
-		if (payload === null) {
-			return {
-				state: "unavailable",
-				message: `Review document returned ${response.status}.`,
-			};
-		}
-		if (!response.ok || !payload.ok) {
-			return decodeReviewLoadEnvelope(response, payload, "Review document");
-		}
-		return await loader(session, payload.documentUrl, payload.contentHash);
-	} catch (error) {
-		return { state: "unavailable", message: reviewLoadErrorMessage(error) };
+	const url = new URL(`${session.sessionUrl}/__progressive-review/document`);
+	const routePath = session.session.routePath ?? session.descriptor.routePath;
+	if (routePath && routePath !== "/") {
+		url.searchParams.set("document", routePath);
 	}
+	const { response, payload } = await fetchReviewEnvelope(
+		session,
+		url,
+		(value) => ReviewDocumentResponseSchema.parse(value),
+	);
+	if (payload === null) {
+		return {
+			state: "unavailable",
+			message: `Review document returned ${response.status}.`,
+		};
+	}
+	if (!response.ok || !payload.ok) {
+		return decodeReviewLoadEnvelope(response, payload, "Review document");
+	}
+	return await loader(session, payload.documentUrl, payload.contentHash);
 }
 
 export async function loadReviewSessionSoftwareMap(
 	session: ReviewDesktopSession,
 	loader: ReviewSoftwareMapLoader,
 ): Promise<ReviewSoftwareMapLoad | null> {
-	try {
-		const url = new URL(
-			`${session.sessionUrl}/__progressive-review/software-map`,
+	const url = new URL(
+		`${session.sessionUrl}/__progressive-review/software-map`,
+	);
+	const { response, payload } = await fetchReviewEnvelope(
+		session,
+		url,
+		(value) => ReviewSoftwareMapResponseSchema.parse(value),
+	);
+	// An unpublished software map is absent, not unavailable.
+	if (payload === null) return null;
+	if (!response.ok || !payload.ok) {
+		const settlement = decodeReviewLoadEnvelope(
+			response,
+			payload,
+			"Software map",
 		);
-		const { response, payload } = await fetchReviewEnvelope(
-			session,
-			url,
-			(value) => ReviewSoftwareMapResponseSchema.parse(value),
-		);
-		// An unpublished software map is absent, not unavailable.
-		if (payload === null) return null;
-		if (!response.ok || !payload.ok) {
-			const settlement = decodeReviewLoadEnvelope(
-				response,
-				payload,
-				"Software map",
-			);
-			// The map load carries no mapStale: the document's state owns it.
-			return settlement.state === "needs-republish"
-				? { state: "needs-republish", reviewUuid: settlement.reviewUuid }
-				: settlement;
-		}
-		return await loader(
-			session,
-			payload.headMapUrl,
-			payload.baseMapUrl,
-			payload.contentHash,
-		);
-	} catch (error) {
-		return { state: "unavailable", message: reviewLoadErrorMessage(error) };
+		// The map load carries no mapStale: the document's state owns it.
+		return settlement.state === "needs-republish"
+			? { state: "needs-republish", reviewUuid: settlement.reviewUuid }
+			: settlement;
 	}
-}
-
-function reviewLoadErrorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
+	return await loader(
+		session,
+		payload.headMapUrl,
+		payload.baseMapUrl,
+		payload.contentHash,
+	);
 }
 
 function reviewDocumentRevision(session: ReviewDesktopSession): string {

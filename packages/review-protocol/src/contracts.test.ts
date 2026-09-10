@@ -49,6 +49,20 @@ import type { ReviewDocumentLoad, ReviewSoftwareMapLoad } from "./contracts.js";
 import { jsonValueSchema } from "./json.js";
 import type { JsonObject } from "./json.js";
 
+it("accepts retryable busy errors through strict response envelopes", () => {
+  const busy = {
+    ok: false,
+    code: "review_busy",
+    retryable: true,
+    error: "Review is busy",
+  };
+  expect(ReviewErrorResponseSchema.parse(busy)).toEqual(busy);
+  expect(ReviewDocumentResponseSchema.parse(busy)).toEqual(busy);
+  expect(
+    ReviewErrorResponseSchema.safeParse({ ...busy, retryable: "yes" }).success,
+  ).toBe(false);
+});
+
 const repository = {
   kind: "jj",
   repositoryId: "repo-1",

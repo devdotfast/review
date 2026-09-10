@@ -1,7 +1,7 @@
 import type { PublishedSoftwareMap } from "./App";
 import {
   hydrateSoftwareModel,
-  softwareModelDataSchema,
+  softwareMapDataFileSchema,
 } from "./software-map/model";
 
 export function hydratePublishedSoftwareMap(maps: {
@@ -9,7 +9,7 @@ export function hydratePublishedSoftwareMap(maps: {
   base: unknown;
 }): PublishedSoftwareMap {
   return {
-    head: hydrateSoftwareModel(softwareModelDataSchema.parse(maps.head)),
-    base: hydrateSoftwareModel(softwareModelDataSchema.parse(maps.base)),
+    head: hydrateSoftwareModel(softwareMapDataFileSchema.parse(maps.head)),
+    base: hydrateSoftwareModel(softwareMapDataFileSchema.parse(maps.base)),
   };
 }

@@ -22,7 +22,7 @@ import {
   type ReviewDocumentBundle,
   readReviewDocumentBundle,
 } from "../review-bundle";
-import { ReviewBusyError } from "../review-mutation-lock";
+import { ReviewBusyError, reviewBusyResponse } from "../review-mutation-lock";
 import { resolveReviewSessionBaseCommit } from "../review-worktree-target";
 import {
   type ReviewSoftwareMapBundle,
@@ -507,15 +507,7 @@ export async function createReviewSessionHandler(
   app.notFound(() => jsonResponse({ ok: false, error: "Not found" }, 404));
   app.onError((error) => {
     if (error instanceof ReviewBusyError)
-      return jsonResponse(
-        {
-          ok: false,
-          code: "review_busy",
-          retryable: true,
-          error: error.message,
-        },
-        409,
-      );
+      return jsonResponse(reviewBusyResponse(error), 409);
     return jsonResponse(
       {
         ok: false,

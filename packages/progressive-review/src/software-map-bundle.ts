@@ -7,16 +7,18 @@ import { z } from "zod";
 
 import {
   type NormalizedSoftwareModel,
+  SOFTWARE_MAP_DATA_FORMAT,
   type SoftwareModelData,
+  softwareMapDataFileSchema,
   softwareModelData,
-  softwareModelDataSchema,
 } from "./software-map-model";
+
+export { SOFTWARE_MAP_DATA_FORMAT } from "./software-map-model";
 
 export const REVIEW_SOFTWARE_MAP_BUNDLE_DIR = path.join(
   ".bundle",
   "software-map",
 );
-export const SOFTWARE_MAP_DATA_FORMAT = "software-map/1";
 const HEAD_MAP_FILE = "head-map.json";
 const BASE_MAP_FILE = "base-map.json";
 const MANIFEST_FILE = "manifest.json";
@@ -33,9 +35,6 @@ const SoftwareMapBundleManifestSchema = z.object({
 type SoftwareMapBundleManifest = z.infer<
   typeof SoftwareMapBundleManifestSchema
 >;
-const SoftwareMapDataFileSchema = softwareModelDataSchema.extend({
-  format: z.literal(SOFTWARE_MAP_DATA_FORMAT),
-});
 
 export interface ReviewSoftwareMapBundle {
   headJson: string;
@@ -53,8 +52,8 @@ export function bundleReviewSoftwareMap(input: {
 }): ReviewSoftwareMapBundle {
   const head = softwareModelData(input.head);
   const base = softwareModelData(input.base);
-  const headJson = softwareMapDataJson(head);
-  const baseJson = softwareMapDataJson(base);
+  const headJson = softwareMapDataJson(head, "head");
+  const baseJson = softwareMapDataJson(base, "base");
   return {
     headJson,
     baseJson,
@@ -68,6 +67,8 @@ export async function writeReviewSoftwareMapBundle(
   reviewDir: string,
   bundle: ReviewSoftwareMapBundle,
 ): Promise<void> {
+  validateSoftwareMapJson(bundle.headJson, "head");
+  validateSoftwareMapJson(bundle.baseJson, "base");
   const bundleDir = path.join(reviewDir, REVIEW_SOFTWARE_MAP_BUNDLE_DIR);
   await mkdir(bundleDir, { recursive: true, mode: 0o700 });
   const manifest: SoftwareMapBundleManifest = {
@@ -114,8 +115,8 @@ export async function readReviewSoftwareMapBundle(
     }
     throw error;
   }
-  const head = parseJson(headJson, SoftwareMapDataFileSchema);
-  const base = parseJson(baseJson, SoftwareMapDataFileSchema);
+  const head = parseJson(headJson, softwareMapDataFileSchema);
+  const base = parseJson(baseJson, softwareMapDataFileSchema);
   if (!head || !base) return null;
   return {
     headJson,
@@ -138,8 +139,24 @@ export function sameReviewSoftwareMapBundle(
   );
 }
 
-function softwareMapDataJson(data: SoftwareModelData): string {
-  return `${JSON.stringify({ format: SOFTWARE_MAP_DATA_FORMAT, ...data })}\n`;
+function softwareMapDataJson(
+  data: SoftwareModelData,
+  side: "head" | "base",
+): string {
+  const json = `${JSON.stringify({ format: SOFTWARE_MAP_DATA_FORMAT, ...data })}\n`;
+  validateSoftwareMapJson(json, side);
+  return json;
+}
+
+function validateSoftwareMapJson(json: string, side: "head" | "base"): void {
+  try {
+    softwareMapDataFileSchema.parse(parseJsonText(json));
+  } catch (cause) {
+    throw new Error(
+      `Invalid ${side} software map: ${cause instanceof Error ? cause.message : String(cause)}`,
+      { cause },
+    );
+  }
 }
 
 function parseJson<T>(raw: string, schema: z.ZodType<T>): T | null {

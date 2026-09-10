@@ -10,6 +10,7 @@ import {
 	loadReviewDocumentData,
 	loadReviewSoftwareMaps,
 } from "../browser/parts/canvas/reviewDocumentData.js";
+import { ReviewModuleCache } from "../common/reviewModuleCache.js";
 import {
 	loadReviewSessionDocument,
 	loadReviewSessionSoftwareMap,
@@ -112,19 +113,14 @@ test("turns document republish metadata into a needs-republish state", async (t)
 	});
 });
 
-test("document loading never rejects and reports other failures as unavailable", async (t) => {
+test("rejects document transport failures so the same revision can retry", async (t) => {
 	mockFetch(t, async () => {
 		throw new Error("network down");
 	});
 
-	const load = await loadReviewSessionDocument(session, async () => {
+	await assert.rejects(loadReviewSessionDocument(session, async () => {
 		throw new Error("loader must not run");
-	});
-
-	assert.deepEqual(load, {
-		state: "unavailable",
-		message: "network down",
-	});
+	}), /network down/);
 });
 
 test("reports a missing document endpoint as unavailable", async (t) => {
@@ -140,7 +136,7 @@ test("reports a missing document endpoint as unavailable", async (t) => {
 	});
 });
 
-test("reports other document statuses as unavailable", async (t) => {
+test("rejects unexpected document statuses", async (t) => {
 	mockFetch(t, async () =>
 		Response.json(
 			{ ok: false, error: "document exploded", code: "internal_error" },
@@ -148,14 +144,9 @@ test("reports other document statuses as unavailable", async (t) => {
 		),
 	);
 
-	const load = await loadReviewSessionDocument(session, async () => {
+	await assert.rejects(loadReviewSessionDocument(session, async () => {
 		throw new Error("loader must not run");
-	});
-
-	assert.deepEqual(load, {
-		state: "unavailable",
-		message: "document exploded",
-	});
+	}), /document exploded/);
 });
 
 test("loads software-map JSON into a ready state", async (t) => {
@@ -215,7 +206,7 @@ test("turns stale software-map metadata into a needs-republish state", async (t)
 	assert.deepEqual(load, { state: "needs-republish", reviewUuid });
 });
 
-test("reports other software-map failures as unavailable", async (t) => {
+test("rejects unexpected software-map failures", async (t) => {
 	mockFetch(t, async () =>
 		Response.json(
 			{ ok: false, error: "map exploded", code: "internal_error" },
@@ -223,12 +214,37 @@ test("reports other software-map failures as unavailable", async (t) => {
 		),
 	);
 
-	const load = await loadReviewSessionSoftwareMap(session, async () => {
+	await assert.rejects(loadReviewSessionSoftwareMap(session, async () => {
 		throw new Error("loader must not run");
-	});
-
-	assert.deepEqual(load, {
-		state: "unavailable",
-		message: "map exploded",
-	});
+	}), /map exploded/);
 });
+
+for (const kind of ["document", "software-map"] as const) {
+  for (const failure of ["busy", "transport", "invalid-envelope", "invalid-json", "artifact-json"] as const) {
+    test(`${kind} retries the same cache key after ${failure}`, async (t) => {
+      const cache = new ReviewModuleCache();
+      let failing = true;
+      const artifact = `${session.sessionUrl}/artifact.json`;
+      mockFetch(t, async (input) => {
+        if (String(input) === artifact) {
+          return failing && failure === "artifact-json" ? new Response("{") : Response.json({});
+        }
+        if (failing) {
+          if (failure === "transport") throw new Error("offline");
+          if (failure === "busy") return Response.json({ ok: false, error: "busy", code: "review_busy", retryable: true }, { status: 409 });
+          if (failure === "invalid-envelope") return Response.json({ ok: true });
+          if (failure === "invalid-json") return new Response("{");
+        }
+        return Response.json(kind === "document"
+          ? { ok: true, contentHash: "same", documentUrl: artifact }
+          : { ok: true, contentHash: "same", headMapUrl: artifact, baseMapUrl: artifact });
+      });
+      const load = () => kind === "document"
+        ? cache.load(kind, () => loadReviewSessionDocument(session, loadReviewDocumentData))
+        : cache.load(kind, () => loadReviewSessionSoftwareMap(session, loadReviewSoftwareMaps));
+      await assert.rejects(load());
+      failing = false;
+      assert.equal((await load())?.state, "ready");
+    });
+  }
+}

@@ -1072,6 +1072,8 @@ export type ReviewCanvasContent =
     }
   | {
       kind: "session";
+      /** Internal publication checks require usable artifacts before readiness. */
+      purpose?: "display" | "validation";
       bridge: ReviewCanvasBridge;
       document: Promise<ReviewDocumentLoad>;
       softwareMap: Promise<ReviewSoftwareMapLoad | null>;
@@ -1322,6 +1324,7 @@ export const ReviewErrorResponseSchema = z
     error: requiredString,
     /** Machine-readable code for errors that carry no structured detail. */
     code: requiredString.optional(),
+    retryable: z.boolean().optional(),
     detail: ReviewErrorDetailSchema.optional(),
   })
   .refine((value) => value.code === undefined || value.detail === undefined, {

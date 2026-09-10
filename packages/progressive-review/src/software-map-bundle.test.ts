@@ -24,6 +24,56 @@ afterEach(async () => {
 });
 
 describe("software map bundle", () => {
+  it.each(["head", "base"] as const)(
+    "rejects unknown %s field properties before creating a bundle",
+    (side) => {
+      const field = { type: "string", unsupported: true };
+      const invalid = defineSoftwareMap({
+        systems: {
+          app: {
+            dataStores: {
+              db: { tables: { users: { schema: { id: field } } } },
+            },
+          },
+        },
+      });
+      const valid = defineSoftwareMap({ systems: {} });
+      expect(() =>
+        bundleReviewSoftwareMap({
+          head: side === "head" ? invalid : valid,
+          base: side === "base" ? invalid : valid,
+          headCommit: "a".repeat(40),
+          baseCommit: "b".repeat(40),
+        }),
+      ).toThrow(new RegExp(`${side}.*unsupported`, "s"));
+    },
+  );
+
+  it("rejects unknown foreign-key properties before creating a bundle", () => {
+    const fk = { table: "users", field: "id", unsupported: true };
+    const map = defineSoftwareMap({
+      systems: {
+        app: {
+          dataStores: {
+            db: {
+              tables: {
+                orders: { schema: { userId: { type: "string", fk } } },
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(() =>
+      bundleReviewSoftwareMap({
+        head: map,
+        base: map,
+        headCommit: "a".repeat(40),
+        baseCommit: "b".repeat(40),
+      }),
+    ).toThrow(/head.*unsupported/s);
+  });
+
   it("writes head and base maps as JSON and reads them back", async () => {
     directory = await mkdtemp(path.join(tmpdir(), "review-map-bundle-"));
     const head = defineSoftwareMap({ systems: { app: { label: "App" } } });

@@ -86,6 +86,7 @@ import {
 import type { RunReviewInfoInput } from "../review-info";
 import {
   ReviewBusyError,
+  reviewBusyResponse,
   reviewMutationFingerprint,
   withReviewMutationLock,
 } from "../review-mutation-lock";
@@ -1029,13 +1030,7 @@ export function createGlobalReviewServer(
         : busyScan
           ? new ReviewBusyError(busyScan.reviewDir)
           : undefined;
-    if (busyError)
-      return globalJson(409, {
-        ok: false,
-        code: "review_busy",
-        retryable: true,
-        error: busyError.message,
-      });
+    if (busyError) return globalJson(409, reviewBusyResponse(busyError));
     const serverError =
       error instanceof ReviewServerError ||
       error instanceof ReviewOpenThreadsError

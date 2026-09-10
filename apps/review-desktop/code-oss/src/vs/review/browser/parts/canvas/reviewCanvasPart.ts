@@ -1567,6 +1567,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			mountedAt = Date.now();
 			handle = assets.mountReviewCanvas(container, {
 				kind: "session",
+				purpose: "validation",
 				bridge,
 				document: documentPromise,
 				softwareMap: softwareMapPromise,

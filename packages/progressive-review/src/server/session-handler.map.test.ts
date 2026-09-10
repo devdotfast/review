@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { hydratePublishedSoftwareMap } from "../../app/src/hydrate-published-software-map";
 import { cleanupTempDirs, tempDir } from "../review-test-utils";
 import {
   REVIEW_SOFTWARE_MAP_BUNDLE_DIR,
@@ -105,6 +106,17 @@ describe("createReviewSessionHandler", () => {
           expectedPath,
         ]);
       }
+
+      const hydrated = hydratePublishedSoftwareMap({
+        head: await (await dispatchSessionUrl(payload.headMapUrl)).json(),
+        base: await (await dispatchSessionUrl(payload.baseMapUrl)).json(),
+      });
+      expect(hydrated.head.elementsByPath.get("app")).toEqual(
+        head.elementsByPath.get("app"),
+      );
+      expect(hydrated.base.elementsByPath.get("api")).toEqual(
+        base.elementsByPath.get("api"),
+      );
 
       const missing = await handler.handle(
         new Request(

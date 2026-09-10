@@ -10,7 +10,7 @@ import { parseJsonText } from "@dev.fast/review-protocol";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { softwareModelData } from "../../src/software-map-model";
+import { bundleReviewSoftwareMap } from "../../src/software-map-bundle";
 import { mountReviewCanvas } from "./desktop-entry";
 import { testReviewBridge } from "./review-session-test-utils";
 import { defineSoftwareModel } from "./software-map/model";
@@ -322,9 +322,15 @@ describe("desktop review document load states", () => {
 
   it("keeps the app shell and valid map after document failure, settling ready before diagnostics", async () => {
     const order: string[] = [];
-    const model = softwareModelData(
-      defineSoftwareModel({ systems: { orders: { label: "Orders map" } } }),
-    );
+    const model = defineSoftwareModel({
+      systems: { orders: { label: "Orders map" } },
+    });
+    const mapBundle = bundleReviewSoftwareMap({
+      head: model,
+      base: model,
+      headCommit: "a".repeat(40),
+      baseCommit: "b".repeat(40),
+    });
     const bridge = testReviewBridge(
       { sessionId: "unavailable-document" },
       {
@@ -342,8 +348,8 @@ describe("desktop review document load states", () => {
       softwareMap: Promise.resolve({
         state: "ready",
         contentHash: "map-hash",
-        head: parseJsonText(JSON.stringify(model)),
-        base: parseJsonText(JSON.stringify(model)),
+        head: parseJsonText(mapBundle.headJson),
+        base: parseJsonText(mapBundle.baseJson),
       }),
     });
     const container = document.createElement("div");
@@ -655,6 +661,111 @@ describe("desktop review document load states", () => {
       await act(async () => handle?.dispose());
     },
   );
+});
+
+describe("publication validation mounts", () => {
+  it.each([
+    "document-unavailable",
+    "document-republish",
+    "historical-unavailable",
+    "malformed-document",
+    "map-unavailable",
+    "map-republish",
+    "malformed-map",
+    "peek-failure",
+    "render-failure",
+    "absent-map",
+  ] as const)("settles %s before publication", async (scenario) => {
+    const order: string[] = [];
+    const bridge = testReviewBridge(
+      { sessionId: `validation-${scenario}` },
+      {
+        request: (url) =>
+          scenario === "peek-failure" && url.includes("/code-peek/resolve")
+            ? Promise.resolve(
+                Response.json(
+                  { ok: false, error: "peek failed" },
+                  { status: 500 },
+                ),
+              )
+            : requestStub(url),
+        ready: () => order.push("ready"),
+        reportDiagnostic: (diagnostic) => {
+          if (diagnostic.level === "error") order.push("error");
+        },
+        diffView: { create: createDiffView },
+      },
+    );
+    let documentLoad: ReviewDocumentLoad = codePeekDocument(
+      "validation-document",
+    );
+    let mapLoad: ReviewSoftwareMapLoad | null = null;
+    const reviewUuid = "11111111-1111-4111-8111-111111111111";
+    if (
+      scenario === "document-unavailable" ||
+      scenario === "historical-unavailable"
+    )
+      documentLoad = {
+        state: "unavailable",
+        message: "Unavailable",
+      };
+    if (
+      scenario === "historical-unavailable" &&
+      documentLoad.state === "unavailable"
+    )
+      documentLoad.currentReviewUuid = reviewUuid;
+    if (scenario === "document-republish")
+      documentLoad = { state: "needs-republish", reviewUuid, mapStale: false };
+    if (scenario === "malformed-document")
+      documentLoad = { state: "ready", contentHash: "invalid", data: {} };
+    if (scenario === "map-unavailable")
+      mapLoad = { state: "unavailable", message: "Unavailable map" };
+    if (scenario === "map-republish")
+      mapLoad = { state: "needs-republish", reviewUuid };
+    if (scenario === "malformed-map")
+      mapLoad = { state: "ready", contentHash: "invalid", head: {}, base: {} };
+    if (scenario === "render-failure") {
+      documentLoad = {
+        state: "ready",
+        contentHash: "render-failure",
+        data: {
+          format: "review-document/1",
+          title: "Broken render",
+          routePath: "/",
+          sourcePath: "review.mdx",
+          anchors: {},
+          anchorContents: {},
+          softwareModels: [],
+          body: [
+            {
+              type: "component",
+              name: "DatabaseLens",
+              props: { stores: {} },
+              children: [],
+            },
+          ],
+        },
+      };
+    }
+    const container = document.createElement("div");
+    document.body.append(container);
+    let handle: ReturnType<typeof mountReviewCanvas> | undefined;
+    try {
+      await act(async () => {
+        handle = mountReviewCanvas(container, {
+          ...sessionContent(bridge, {
+            document: Promise.resolve(documentLoad),
+            softwareMap: Promise.resolve(mapLoad),
+          }),
+          purpose: "validation",
+        });
+      });
+      expect(order).toEqual(scenario === "absent-map" ? ["ready"] : ["error"]);
+      expect(container.textContent).toContain("Threads");
+    } finally {
+      await act(async () => handle?.dispose());
+    }
+  });
 });
 
 function sessionContent(

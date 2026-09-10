@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   type JsonObject,
   type JsonValue,
+  type ReviewErrorResponse,
   isJsonObject,
   jsonObject,
   parseJsonText,
@@ -44,6 +45,17 @@ export class ReviewBusyError extends Error {
     );
     this.reviewUuid = reviewUuid;
   }
+}
+
+export function reviewBusyResponse(
+  error: ReviewBusyError,
+): ReviewErrorResponse {
+  return {
+    ok: false,
+    code: "review_busy",
+    retryable: true,
+    error: error.message,
+  };
 }
 
 export function reviewMutationFingerprint<

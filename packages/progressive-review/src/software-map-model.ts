@@ -1029,6 +1029,12 @@ export const softwareModelDataSchema = z.strictObject({
   elements: z.array(normalizedSoftwareElementSchema),
   relationships: z.array(normalizedSoftwareRelationshipSchema),
 });
+
+export const SOFTWARE_MAP_DATA_FORMAT = "software-map/1";
+/** The on-disk envelope, shared by publishers, readers and the canvas. */
+export const softwareMapDataFileSchema = softwareModelDataSchema.extend({
+  format: z.literal(SOFTWARE_MAP_DATA_FORMAT),
+});
 /** JSON projection of a normalized model. `elementsByPath` is derived and is
     rebuilt on load by `hydrateSoftwareModel`. */
 export type SoftwareModelData = z.infer<typeof softwareModelDataSchema>;

@@ -5,7 +5,7 @@ import type {
   ReviewDocumentLoad,
   ReviewSoftwareMapLoad,
 } from "@dev.fast/review-protocol";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import {
@@ -42,6 +42,7 @@ function DesktopReviewApp({
   documentBundle,
   softwareMapBundle,
   softwareMapEnabled,
+  purpose = "display",
   range,
   commits,
   tutorial,
@@ -50,12 +51,29 @@ function DesktopReviewApp({
   documentBundle: Promise<ReviewDocumentLoad>;
   softwareMapBundle: Promise<ReviewSoftwareMapLoad | null>;
   softwareMapEnabled: boolean;
+  purpose?: "display" | "validation";
   range: Extract<ReviewCanvasContent, { kind: "session" }>["range"];
   commits: Extract<ReviewCanvasContent, { kind: "session" }>["commits"];
   tutorial?: Extract<ReviewCanvasContent, { kind: "session" }>["tutorial"];
   findHost: ReviewFindHost;
 }) {
   const session = useReviewSession();
+  // Render boundaries report during commit, before our readiness effect.
+  // Keep their failure authoritative for this pair of validation artifacts.
+  const settlementSession = useMemo(() => {
+    if (purpose === "display") return session;
+    let failed = false;
+    return {
+      ...session,
+      signalReady: () => {
+        if (!failed) session.signalReady();
+      },
+      reportDiagnostic: (diagnostic: ReviewCanvasDiagnostic) => {
+        if (diagnostic.level === "error") failed = true;
+        session.reportDiagnostic(diagnostic);
+      },
+    };
+  }, [session, purpose, documentBundle, softwareMapBundle]);
   const sessionRef = useRef(session);
   sessionRef.current = session;
   const container = useReviewContainer();
@@ -88,36 +106,47 @@ function DesktopReviewApp({
 
   useEffect(() => {
     if (
-      documentState.state !== "loading" &&
-      softwareMapState.state !== "loading"
-    ) {
-      session.signalReady();
-    }
-  }, [documentState.state, session, softwareMapState.state]);
-
-  // Ready is deliberately signalled before unavailable diagnostics. The
-  // visible host treats the first settlement as authoritative; diagnostics
-  // must not replace a usable shell with its whole-canvas error fallback.
-  useEffect(() => {
-    if (
       documentState.state === "loading" ||
       softwareMapState.state === "loading"
     ) {
       return;
     }
+    // The display host opens a usable recovery shell before diagnostics.
+    // Validation instead reports every unusable artifact before success.
+    if (purpose === "display") settlementSession.signalReady();
     if (
       reportedDocumentBundle.current !== documentBundle &&
-      reportLoadFailure(sessionRef.current, "document", documentState)
+      reportLoadFailure(settlementSession, "document", documentState, purpose)
     ) {
       reportedDocumentBundle.current = documentBundle;
     }
     if (
       reportedSoftwareMapBundle.current !== softwareMapBundle &&
-      reportLoadFailure(sessionRef.current, "software-map", softwareMapState)
+      reportLoadFailure(
+        settlementSession,
+        "software-map",
+        softwareMapState,
+        purpose,
+      )
     ) {
       reportedSoftwareMapBundle.current = softwareMapBundle;
     }
-  }, [documentBundle, documentState, softwareMapBundle, softwareMapState]);
+    if (
+      purpose === "validation" &&
+      documentState.state === "ready" &&
+      (softwareMapState.state === "ready" ||
+        softwareMapState.state === "absent")
+    ) {
+      settlementSession.signalReady();
+    }
+  }, [
+    documentBundle,
+    documentState,
+    softwareMapBundle,
+    softwareMapState,
+    purpose,
+    settlementSession,
+  ]);
 
   useEffect(() => {
     if (!container) return;
@@ -130,16 +159,18 @@ function DesktopReviewApp({
 
   return (
     <div className="review-session-content">
-      <TutorialProvider tutorial={tutorial}>
-        <App
-          documentState={documentState}
-          softwareMapState={softwareMapState}
-          softwareMapEnabled={softwareMapEnabled}
-          range={range}
-          commits={commits}
-          findHost={findHost}
-        />
-      </TutorialProvider>
+      <ReviewSessionProvider session={settlementSession}>
+        <TutorialProvider tutorial={tutorial}>
+          <App
+            documentState={documentState}
+            softwareMapState={softwareMapState}
+            softwareMapEnabled={softwareMapEnabled}
+            range={range}
+            commits={commits}
+            findHost={findHost}
+          />
+        </TutorialProvider>
+      </ReviewSessionProvider>
     </div>
   );
 }
@@ -193,7 +224,23 @@ function reportLoadFailure(
   session: ReviewSession,
   source: "document" | "software-map",
   state: ReviewDocumentAppState | ReviewSoftwareMapAppState,
+  purpose: "display" | "validation",
 ): boolean {
+  if (
+    purpose === "validation" &&
+    (state.state === "needs-republish" ||
+      (state.state === "unavailable" && state.currentReviewUuid))
+  ) {
+    session.reportDiagnostic({
+      level: "error",
+      source: "loader",
+      message:
+        state.state === "unavailable"
+          ? state.message
+          : `The ${source} needs repair before publication.`,
+    });
+    return true;
+  }
   if (state.state !== "unavailable" || state.currentReviewUuid) return false;
   const cause = state.cause ?? new Error(state.message);
   captureClientError(session, source, cause);
@@ -221,6 +268,7 @@ function ReviewCanvas({
         documentBundle={content.document}
         softwareMapBundle={content.softwareMap}
         softwareMapEnabled={content.softwareMapEnabled}
+        purpose={content.purpose}
         range={content.range}
         commits={content.commits}
         tutorial={content.tutorial}

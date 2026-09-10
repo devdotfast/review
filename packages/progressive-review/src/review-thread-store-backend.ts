@@ -37,6 +37,23 @@ import type {
 
 export const REVIEW_THREAD_DB_FILENAME = "review.db";
 export const REVIEW_THREAD_DB_SCHEMA_VERSION = 9;
+const LEGACY_THREAD_DB_SCHEMA_VERSIONS = new Set([
+  "1",
+  "2",
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
+  "8",
+]);
+
+function isSupportedThreadDbVersion(version: string | null): version is string {
+  return (
+    version === String(REVIEW_THREAD_DB_SCHEMA_VERSION) ||
+    (version !== null && LEGACY_THREAD_DB_SCHEMA_VERSIONS.has(version))
+  );
+}
 
 export function reviewStateDir(reviewMdxPath: string): string {
   return path.dirname(path.resolve(reviewMdxPath));
@@ -280,7 +297,7 @@ export function hasPendingReviewAgentWrites(reviewMdxPath: string): boolean {
     const db = new DatabaseSync(snapshotPath, { readOnly: true });
     try {
       const version = readThreadDbSchemaVersion(db);
-      if (!version || !["1", "2", "3", "4", "5", "6"].includes(version))
+      if (!isSupportedThreadDbVersion(version))
         throw new ReviewThreadDbVersionError(dbPath, version);
       const tables =
         version === "1"
@@ -419,16 +436,7 @@ export async function migrateReviewThreadDb(
       inTransaction = false;
       return "current";
     }
-    if (
-      version !== "1" &&
-      version !== "2" &&
-      version !== "3" &&
-      version !== "4" &&
-      version !== "5" &&
-      version !== "6" &&
-      version !== "7" &&
-      version !== "8"
-    ) {
+    if (!isSupportedThreadDbVersion(version)) {
       throw new ReviewThreadDbVersionError(dbPath, version);
     }
     if (version === "1") db.exec(REVIEW_THREAD_DB_V1_TO_V2_DDL);

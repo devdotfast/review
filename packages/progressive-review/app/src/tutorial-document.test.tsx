@@ -32,6 +32,7 @@ const expectedComponents = [
   "DbWrite",
   "ReviewSection",
   "SequenceDiagram",
+  "TraceQuote",
   "TutorialAuthoringConversation",
   "TutorialFeature",
   "TutorialKeymapPicker",

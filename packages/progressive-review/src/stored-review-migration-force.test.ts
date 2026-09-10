@@ -71,8 +71,9 @@ it.each([4, 5])(
       comments: [
         {
           thread_id: "good",
-          status: null,
-          record_json: '{"target":{"kind":"document"},"messages":[]}',
+          status: "open",
+          record_json:
+            '{"threadId":"good","target":{"kind":"document"},"status":"open","messages":[]}',
         },
       ],
       drafts: [],
@@ -101,11 +102,14 @@ it("does not report rolled-back drops as committed losses", async () => {
   db.close();
   const before = databaseRows(dbPath);
   const log: string[] = [];
+  const blockers: string[] = [];
   const result = await migrateStoredReviewData({
     reviewHome,
     force: true,
     log: (message) => log.push(message),
+    onBlocker: (message) => blockers.push(message),
   });
+  expect(blockers.join("\n")).toContain("injected commit failure");
   expect(result).toMatchObject({
     upgradedThreadDatabases: 0,
     droppedComments: 0,
@@ -188,7 +192,7 @@ async function fixture(schemaVersion: number) {
   );
   db.prepare("INSERT INTO comments VALUES (?, ?)").run(
     "good",
-    '{"target":{"kind":"document"},"messages":[]}',
+    '{"threadId":"good","target":{"kind":"document"},"status":"open","messages":[]}',
   );
   db.prepare("INSERT INTO comment_drafts VALUES (?, ?)").run(
     "bad-draft",

@@ -5,11 +5,13 @@ import { DatabaseSync } from "node:sqlite";
 import { promisify } from "node:util";
 
 import {
+  ReviewCommentDraftThreadSchema,
   ReviewCommentThreadRecordSchema,
   jsonObject,
   parseJsonText,
 } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import {
   extractLegacyReviewFixture,
@@ -30,10 +32,9 @@ import {
   sealReviewCandidate,
 } from "./review-home";
 import {
-  appendReviewComment,
-  appendReviewCommentDraft,
-} from "./review-state-store";
-import { closeAllReviewThreadStores } from "./review-thread-store-backend";
+  REVIEW_THREAD_DB_SCHEMA_VERSION,
+  closeAllReviewThreadStores,
+} from "./review-thread-store-backend";
 import { reviewVcs } from "./review-vcs";
 import { readReviewSoftwareMapBundle } from "./software-map-bundle";
 
@@ -66,14 +67,22 @@ async function git(dir: string, args: string[]) {
 function threadRows(dir: string) {
   const db = new DatabaseSync(path.join(dir, "review.db"), { readOnly: true });
   try {
+    const rows = (table: "comments" | "comment_drafts") =>
+      db
+        .prepare(`SELECT * FROM ${table} ORDER BY thread_id`)
+        .all()
+        .map((row) => {
+          return {
+            ...row,
+            record_json: parseJsonText(z.string().parse(row.record_json)),
+          };
+        });
     return {
       version: db
         .prepare("SELECT value FROM meta WHERE key = 'schema_version'")
         .get(),
-      comments: db.prepare("SELECT * FROM comments ORDER BY thread_id").all(),
-      drafts: db
-        .prepare("SELECT * FROM comment_drafts ORDER BY thread_id")
-        .all(),
+      comments: rows("comments"),
+      drafts: rows("comment_drafts"),
     };
   } finally {
     db.close();
@@ -190,7 +199,9 @@ describe.each(fixtures)("legacy fixture $name", (fixture) => {
       parentRevision = revision;
     }
     const threadsAfter = threadRows(dir);
-    expect(threadsAfter.version).toEqual({ value: "6" });
+    expect(threadsAfter.version).toEqual({
+      value: String(REVIEW_THREAD_DB_SCHEMA_VERSION),
+    });
     expect(threadsAfter.comments).toEqual(threadsBefore.comments);
     expect(threadsAfter.drafts).toEqual(threadsBefore.drafts);
     const snapshot = await snapshotReviewTree(dir);
@@ -284,7 +295,6 @@ it("lists healthy reviews alongside a corrupt sealed presentation", async () => 
 
 it("preserves seeded prose and code threads and a prose draft", async () => {
   const { dir, originalRecord } = await extract("schema4-bug-report-dialog");
-  const reviewPath = path.join(dir, "review.mdx");
   const target = {
     kind: "text" as const,
     surface: {
@@ -295,21 +305,41 @@ it("preserves seeded prose and code threads and a prose draft", async () => {
     },
     selection: { start: 0, length: 5, hash: "f55c314b", quote: "Hello" },
   };
-  appendReviewComment(reviewPath, {
+  const proseThread = ReviewCommentThreadRecordSchema.parse({
     threadId: "prose-thread",
-    messageId: "prose-message",
     target,
-    body: "Preserve prose",
-    author: "Fixture reviewer",
+    status: "open",
+    messages: [
+      {
+        id: "prose-message",
+        by: "Fixture reviewer",
+        at: "2026-09-05T00:00:00.000Z",
+        body: "Preserve prose",
+        agentInput: false,
+      },
+    ],
   });
-  appendReviewCommentDraft(reviewPath, {
-    threadId: "draft-thread",
-    messageId: "draft-message",
-    target,
-    body: "Preserve draft",
-    author: "Fixture reviewer",
+  const draft = ReviewCommentDraftThreadSchema.parse({
+    thread: {
+      ...proseThread,
+      threadId: "draft-thread",
+      messages: [
+        {
+          ...proseThread.messages[0],
+          id: "draft-message",
+          body: "Preserve draft",
+        },
+      ],
+    },
+    inputs: [
+      {
+        threadId: "draft-thread",
+        messageId: "draft-message",
+        target,
+        body: "Preserve draft",
+      },
+    ],
   });
-  closeAllReviewThreadStores();
   const position = {
     position_type: "text",
     base_sha: originalRecord.baseCommit,
@@ -336,6 +366,13 @@ it("preserves seeded prose and code threads and a prose draft", async () => {
   });
   const db = new DatabaseSync(path.join(dir, "review.db"));
   try {
+    // Seed the legacy layout without using a current-schema runtime writer.
+    db.prepare(
+      "INSERT INTO comments(thread_id, record_json) VALUES (?, ?)",
+    ).run(proseThread.threadId, JSON.stringify(proseThread));
+    db.prepare(
+      "INSERT INTO comment_drafts(thread_id, record_json) VALUES (?, ?)",
+    ).run(draft.thread.threadId, JSON.stringify(draft));
     db.prepare(
       "INSERT INTO comments(thread_id, record_json) VALUES (?, ?)",
     ).run(codeThread.threadId, JSON.stringify(codeThread));
@@ -347,5 +384,8 @@ it("preserves seeded prose and code threads and a prose draft", async () => {
   expect(before.drafts).toHaveLength(1);
   const loaded = await readStoredReview(dir);
   expect("error" in loaded).toBe(false);
-  expect(threadRows(dir)).toEqual(before);
+  expect(threadRows(dir)).toEqual({
+    ...before,
+    version: { value: String(REVIEW_THREAD_DB_SCHEMA_VERSION) },
+  });
 });

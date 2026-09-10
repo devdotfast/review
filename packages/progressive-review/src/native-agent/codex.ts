@@ -152,7 +152,6 @@ export class CodexAgentServer implements AgentServer {
         result = await client.request("turn/start", {
           threadId,
           cwd: input.cwd,
-          permissions: ASK_PERMISSIONS,
           input: [{ type: "text", text: input.prompt.text, text_elements: [] }],
         });
       } catch (error) {
@@ -180,11 +179,9 @@ export class CodexAgentServer implements AgentServer {
       await accepted;
     }
     const url = await this.#host.url();
+    // Remote resume inherits the server thread's permissions; the TUI rejects
+    // permission overrides when attaching to an existing remote thread.
     const args = ["--remote", url];
-    for (const [name, value] of Object.entries(config)) {
-      if (name === "shell_environment_policy.set") continue;
-      args.push("-c", `${name}=${tomlInline(value)}`);
-    }
     for (const [name, value] of Object.entries(env)) {
       args.push(
         "-c",

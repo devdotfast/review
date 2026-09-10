@@ -109,3 +109,16 @@ The production signing certificate is
 The certification key stays outside CI; CI uses a dedicated signing subkey.
 Both keys expire in September 2028. Keep the encrypted recovery export offline
 and its passphrase stored separately.
+
+## Temporary Linux-only release
+
+After this PR merges, run **Review Linux Release (temporary)** from `main`.
+It builds that pinned main commit with the current published stable version,
+uses production signing, and publishes the verified Linux repository and RPM.
+It does not rebuild macOS, bump the version, or create or move a release tag.
+The Linux source commit can be newer than the existing macOS release commit.
+
+Start with package revision `1`. Increment it for a rebuild after publication;
+immutable package files cannot be replaced. The workflow shares the normal
+release lock and requires `review-release` approval. Remove this temporary
+workflow after the first normal release includes Fedora packages.

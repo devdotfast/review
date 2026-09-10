@@ -9,6 +9,9 @@ on:
       version:
         type: string
         default: ""
+      package_revision:
+        type: string
+        default: "1"
       release_signing:
         type: boolean
         default: false
@@ -24,7 +27,7 @@ jobs:
     timeout-minutes: 90
     env:
       BUILD_SOURCEVERSION: ${{ inputs.commit }}
-      REVIEW_LINUX_PACKAGE_REVISION: "1"
+      REVIEW_LINUX_PACKAGE_REVISION: ${{ inputs.package_revision }}
       GNUPGHOME: ${{ github.workspace }}/.linux-signing
       REVIEW_SIGNING_PASSPHRASE_FILE: ${{ github.workspace }}/.linux-signing/passphrase
     steps:

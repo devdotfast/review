@@ -79,7 +79,6 @@ CREATE TABLE IF NOT EXISTS publications (
 ) STRICT;
 CREATE UNIQUE INDEX IF NOT EXISTS publications_by_seq ON publications(review_id, seq);
 CREATE INDEX IF NOT EXISTS publications_by_kind ON publications(review_id, kind, seq);
-CREATE INDEX IF NOT EXISTS publications_by_legacy_commit ON publications(review_id, kind, legacy_commit);
 CREATE TABLE IF NOT EXISTS legacy_artifact_imports (
   review_id TEXT PRIMARY KEY REFERENCES reviews(review_id) ON DELETE CASCADE,
   imported_at TEXT NOT NULL,
@@ -481,7 +480,6 @@ export function insertPublicationInTransaction(
     artifactHash: string | null;
     previousPublicationId: string | null;
     legacyCommit?: string | null;
-    seq?: number;
   },
 ): ReviewPublicationInsertOutcome {
   const reviewId = reviewIdForDir(reviewDir);
@@ -506,7 +504,7 @@ export function insertPublicationInTransaction(
     )
     .get(reviewId);
   // SAFETY: COALESCE(MAX(seq), 0) + 1 always projects one INTEGER `next`.
-  const seq = input.seq ?? (nextSeqRow?.next as number);
+  const seq = nextSeqRow?.next as number;
   tx.db
     .prepare(
       `INSERT INTO publications
@@ -572,24 +570,6 @@ export function listPublications(
   return rows.map(mapPublicationRow);
 }
 
-export function resolveLegacyMapPublicationId(
-  reviewDir: string,
-  commit: string,
-  home = reviewHomeForDir(reviewDir),
-): string | null {
-  // SAFETY: publications.publication_id is TEXT NOT NULL by
-  // REVIEW_STATE_DB_V2_DDL.
-  const row = openReviewStateDb(home)
-    .prepare(
-      `SELECT publication_id FROM publications
-       WHERE review_id = ? AND kind = 'map' AND legacy_commit = ?`,
-    )
-    .get(reviewIdForDir(reviewDir), commit) as
-    | { publication_id: string }
-    | undefined;
-  return row?.publication_id ?? null;
-}
-
 export interface ReviewLegacyArtifactImportRow {
   importedAt: string;
   sourceHead: string | null;
@@ -600,10 +580,10 @@ export interface ReviewLegacyArtifactImportRow {
 
 /**
  * Records what a legacy artifact import replayed. A Review can be imported
- * more than once — `review repair` moves the pointer to a newly sealed Git
- * revision, which the next read replays — so the marker is upserted and
- * always describes the most recent replay. `legacy_removed_at` is never reset:
- * a history discarded once stays discarded.
+ * more than once — a replan after a partial import replays whatever the first
+ * pass did not commit — so the marker is upserted and always describes the
+ * most recent replay. `legacy_removed_at` is never reset: a history discarded
+ * once stays discarded.
  */
 export function upsertLegacyArtifactImportInTransaction(
   tx: ReviewStateTransaction,

@@ -49,11 +49,9 @@ import {
 } from "./review-mutation-lock";
 import {
   deleteReviewState,
-  openReviewStateDb,
   putReviewRecord,
   readPublication,
   readReviewRecord,
-  readReviewRecordInTransaction,
   reviewHomeForDir,
 } from "./review-state-db";
 import { readReviewComments } from "./review-state-store";
@@ -858,21 +856,6 @@ export async function refreshReviewMirror(
   } catch (error) {
     return `Could not refresh the review.json mirror at ${dir}: ${errorMessage(error)}`;
   }
-}
-
-/** Rewrites `review.json` from the database row. Throws when the database has
- * no row for this Review; there is nothing to mirror from. */
-export async function repairReviewMirror(
-  dir: string,
-  home = reviewHomeForDir(dir),
-): Promise<void> {
-  const record = readReviewRecordInTransaction(
-    { db: openReviewStateDb(home), home },
-    dir,
-  );
-  if (record === null)
-    throw new Error(`No Review record in the database for ${dir}.`);
-  await writePrivateJsonAtomic(path.join(dir, "review.json"), record);
 }
 
 /** A Review whose published versions are not yet publication rows: either an

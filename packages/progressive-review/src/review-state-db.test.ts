@@ -21,7 +21,6 @@ import {
   readPublication,
   readReviewRecord,
   readReviewStateDbSchemaVersion,
-  resolveLegacyMapPublicationId,
   reviewStateDbPath,
   upsertLegacyArtifactImportInTransaction,
   withReviewStateTransaction,
@@ -529,33 +528,6 @@ describe("global review state database", () => {
     expect(readPublication(dir, publicationId, "map", home)?.record).toEqual({
       ok: true,
     });
-  });
-
-  it("resolves a legacy map publication id by commit", () => {
-    const home = setupHome();
-    const document = reviewPath(home, "review-a");
-    const dir = path.dirname(document);
-    putReviewRecord(dir, { uuid: "review-a" });
-    const publicationId = createHash("sha1")
-      .update("pub-map-legacy")
-      .digest("hex");
-    withReviewStateTransaction(home, (tx) =>
-      insertPublicationInTransaction(tx, dir, {
-        publicationId,
-        kind: "map",
-        record: { ok: true },
-        createdAt: "2026-01-01T00:00:00.000Z",
-        operation: "import",
-        artifactHash: null,
-        previousPublicationId: null,
-        legacyCommit: "abc123",
-      }),
-    );
-
-    expect(resolveLegacyMapPublicationId(dir, "abc123", home)).toBe(
-      publicationId,
-    );
-    expect(resolveLegacyMapPublicationId(dir, "missing", home)).toBeNull();
   });
 
   it("cascades publications and the legacy artifact import marker when a review is deleted", () => {

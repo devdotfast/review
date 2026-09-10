@@ -37,7 +37,6 @@ import {
   parseAnyStoredReviewRecord,
   parseStoredReviewRecord,
   refreshReviewMirror,
-  repairReviewMirror,
   reviewDescriptor,
   reviewsHomeDir,
   touchReviewAgentSession,
@@ -837,40 +836,6 @@ describe("review home", () => {
       dir: created.dir,
       review: { uuid: created.review.uuid },
     });
-  });
-
-  it("rewrites a corrupt mirror from the database row", async () => {
-    const root = await gitRepository();
-    await reviewHome();
-    const created = await createReviewDir({
-      worktreePath: root,
-      baseRef: "main",
-      baseCommit: await git(root, ["rev-parse", "HEAD"]),
-    });
-    const recordPath = path.join(created.dir, "review.json");
-    await writeFile(recordPath, "{not valid json");
-
-    await repairReviewMirror(created.dir);
-
-    expect(JSON.parse(await readFile(recordPath, "utf8"))).toEqual(
-      created.review,
-    );
-  });
-
-  it("rejects repairing a mirror when the database has no row", async () => {
-    const root = await gitRepository();
-    await reviewHome();
-    const created = await createReviewDir({
-      worktreePath: root,
-      baseRef: "main",
-      baseCommit: await git(root, ["rev-parse", "HEAD"]),
-    });
-    deleteReviewState(created.dir);
-    await rm(path.join(created.dir, "review.json"));
-
-    await expect(repairReviewMirror(created.dir)).rejects.toThrow(
-      "No Review record in the database",
-    );
   });
 
   it("finds a review with a corrupt or missing review.json when the database row exists", async () => {

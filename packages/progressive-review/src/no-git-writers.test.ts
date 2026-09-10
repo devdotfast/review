@@ -19,11 +19,6 @@ const FORBIDDEN_WRITERS = [
   "writeReviewSoftwareMapBundle",
 ] as const;
 
-/** Test scaffolding and the shipped tutorial build still produce Git-era and
- * bundle trees on purpose; the read-only importer is the one production module
- * allowed to touch a Review's private history. */
-const EXEMPT_FILES = new Set(["legacy-review-import.ts"]);
-
 const SOURCE_ROOT = path.join(import.meta.dirname);
 
 describe("production Review writers", () => {
@@ -71,7 +66,6 @@ async function productionSourceFiles(dir: string): Promise<string[]> {
     if (!entry.name.endsWith(".ts")) continue;
     if (entry.name.endsWith(".test.ts")) continue;
     if (entry.name.includes("test-utils")) continue;
-    if (EXEMPT_FILES.has(entry.name)) continue;
     files.push(entryPath);
   }
   return files;

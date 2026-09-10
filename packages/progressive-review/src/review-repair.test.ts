@@ -483,6 +483,100 @@ describe("prepareReviewRepair", () => {
     }
   });
 
+  it("rebuilds a lost publication from editable sources when no history remains", async () => {
+    const stored = await fixture({ imported: true });
+    // The shared database came back without this Review's rows (deleted,
+    // restored from a backup, or a moved home) and the private history that
+    // sealed the publication is gone: the mirror and the editable sources are
+    // all that is left to repair from.
+    deleteReviewState(stored.dir);
+    await rm(path.join(stored.dir, ".git"), { recursive: true, force: true });
+    await writeFile(
+      path.join(stored.dir, "review.mdx"),
+      "# Rebuilt presentation\n",
+    );
+    const warnings: string[] = [];
+    const candidate = await prepared(stored.dir, (message) =>
+      warnings.push(message),
+    );
+    expect(repairSourceFallback(candidate)).toEqual({
+      document: true,
+      map: false,
+    });
+    expect(warnings.join(" ")).toContain("semantic equivalence");
+    expect(candidate.legacyImport?.publications).toHaveLength(1);
+
+    const repaired = await applyPreparedReviewRepair(stored.dir, candidate);
+    await candidate.cleanup();
+
+    const rows = listPublications(stored.dir, "document");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      publicationId: repaired.presentedDocumentRevision,
+      seq: 1,
+      operation: "repair",
+      legacyCommit: null,
+    });
+    expect(repaired.presentedDocumentRevision).not.toBe(stored.revision);
+    const reopened = await readStoredReview(stored.dir);
+    expect(reopened).toMatchObject({
+      review: {
+        status: "accepted",
+        presentedDocumentRevision: repaired.presentedDocumentRevision,
+      },
+    });
+    expect(
+      await readReviewDocumentArtifact(stored.dir, rows[0]?.artifactHash ?? ""),
+    ).not.toBeNull();
+  });
+
+  it("rebuilds the software map it still presents from saved map notes", async () => {
+    const stored = await fixture({ imported: true });
+    await writeNote({
+      rootPath: stored.review.worktreePath,
+      ref: SOFTWARE_MAP_NOTES_REF,
+      commit: stored.review.sourceCommit!,
+      content:
+        'import {defineSoftwareMap} from "@dev.fast/progressive-review/software-map-model"; export default defineSoftwareMap({systems:{app:{label:"App"}}});',
+    });
+    const mirror = jsonObject(readReviewRecord(stored.dir));
+    if (!mirror) throw new Error("Expected a stored Review record");
+    await writeFile(
+      path.join(stored.dir, "review.json"),
+      JSON.stringify({
+        ...mirror,
+        presentedSoftwareMapRevision: "e".repeat(40),
+      }),
+    );
+    deleteReviewState(stored.dir);
+    await rm(path.join(stored.dir, ".git"), { recursive: true, force: true });
+
+    const candidate = await prepared(stored.dir);
+    const repaired = await applyPreparedReviewRepair(stored.dir, candidate);
+    await candidate.cleanup();
+
+    // A repair may not discard a presented map, so the plan carries both rows.
+    expect(repairSourceFallback(candidate)).toEqual({
+      document: true,
+      map: true,
+    });
+    const maps = listPublications(stored.dir, "map");
+    expect(maps).toHaveLength(1);
+    expect(maps[0]).toMatchObject({
+      publicationId: repaired.presentedSoftwareMapRevision,
+      seq: 1,
+      operation: "repair",
+    });
+    expect(maps[0]?.record).toMatchObject({
+      headCommit: stored.review.sourceCommit,
+      baseCommit: stored.review.baseCommit,
+      validatedDocumentPublicationId: null,
+    });
+    expect(listPublications(stored.dir, "document")[0]?.record).toMatchObject({
+      pairedMapPublicationId: repaired.presentedSoftwareMapRevision,
+    });
+  });
+
   it("requires an explicit UUID before looking up a review", async () => {
     let output = "";
     const stdout = new Writable({

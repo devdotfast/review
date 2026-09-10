@@ -287,7 +287,6 @@ export async function applyPreparedReviewRepair(
           artifactHash: row.artifactHash,
           previousPublicationId: row.previousPublicationId,
           legacyCommit: row.legacyCommit,
-          seq: row.seq,
         })),
         ...buildActivationCandidateRows(tx, dir, latest, candidates),
       ],

@@ -41,6 +41,7 @@ import {
   DISABLED_REVIEW_SOURCE_SESSION,
   createReviewDir,
   parseAnyStoredReviewRecord,
+  readStoredReview,
 } from "./review-home";
 import * as stateDb from "./review-state-db";
 import {
@@ -52,9 +53,9 @@ import {
   putReviewRecord,
   readLegacyArtifactImport,
   readReviewRecord,
-  resolveLegacyMapPublicationId,
   withReviewStateTransaction,
 } from "./review-state-db";
+import { appendReviewCommentDraft } from "./review-state-store";
 import {
   cleanupTempDirs,
   gitRepository,
@@ -421,9 +422,6 @@ it("gives a tutorial commit's map a companion publication ID", async () => {
     operation: "tutorial",
     legacyCommit: only,
   });
-  expect(resolveLegacyMapPublicationId(fixture.dir, only, fixture.home)).toBe(
-    companion,
-  );
   expect(readReviewRecord(fixture.dir, fixture.home)).toMatchObject({
     presentedDocumentRevision: only,
     presentedSoftwareMapRevision: companion,
@@ -466,6 +464,88 @@ it("imports a schema-2 presentation that legitimately has no software map", asyn
     presentedDocumentRevision: only,
     presentedSoftwareMapRevision: null,
   });
+});
+
+it("imports a Review whose agent question nobody answered yet", async () => {
+  const fixture = await legacyReview();
+  await writeDocumentV2(fixture.dir, "v1");
+  const only = await seal(fixture, {
+    message: PUBLISH_CANDIDATE,
+    timestamp: 1_760_000_000,
+  });
+  await presentRecord(fixture, { document: only, map: null });
+  // An unanswered agent-directed thread gates `review repair`, which rebuilds
+  // authored bytes. An import only replays sealed history, so it must open.
+  appendReviewCommentDraft(path.join(fixture.dir, "review.mdx"), {
+    threadId: "thread",
+    messageId: "message",
+    target: { kind: "document" },
+    body: "What changed here?",
+    author: "Reviewer",
+    agentInput: true,
+  });
+  closeAllReviewThreadStores();
+
+  const loaded = await readStoredReview(fixture.dir);
+
+  expect(loaded).toMatchObject({
+    review: {
+      schemaVersion: REVIEW_SCHEMA_VERSION,
+      presentedDocumentRevision: only,
+    },
+  });
+  expect(
+    listPublications(fixture.dir, "document", fixture.home).map(
+      (row) => row.publicationId,
+    ),
+  ).toEqual([only]);
+});
+
+it("appends imported rows after the publications a Review already holds", async () => {
+  const fixture = await legacyReview();
+  await writeDocumentV2(fixture.dir, "v1");
+  const first = await seal(fixture, {
+    message: PUBLISH_CANDIDATE,
+    timestamp: 1_760_000_000,
+  });
+  await writeDocumentV2(fixture.dir, "v2");
+  const second = await seal(fixture, {
+    message: PUBLISH_CANDIDATE,
+    timestamp: 1_760_000_100,
+    document: first,
+  });
+  await presentRecord(fixture, { document: second, map: null });
+  // A partial import — or a record restored beside rows it does not name —
+  // leaves the Review holding publications the replay did not plan. Sequences
+  // counted from one would collide with them on `publications_by_seq`.
+  withReviewStateTransaction(fixture.home, (tx) =>
+    insertPublicationInTransaction(tx, fixture.dir, {
+      publicationId: "e".repeat(40),
+      kind: "document",
+      record: { kind: "document", note: "an earlier publication" },
+      createdAt: "2025-01-01T00:00:00.000Z",
+      operation: "publish",
+      artifactHash: null,
+      previousPublicationId: null,
+    }),
+  );
+
+  const result = await importLegacyReviewArtifacts({
+    reviewDir: fixture.dir,
+    home: fixture.home,
+  });
+
+  expect(result.imported).toBe(true);
+  expect(
+    listPublications(fixture.dir, "document", fixture.home).map((row) => [
+      row.publicationId,
+      row.seq,
+    ]),
+  ).toEqual([
+    [second, 3],
+    [first, 2],
+    ["e".repeat(40), 1],
+  ]);
 });
 
 it("leaves the private Git history untouched", async () => {

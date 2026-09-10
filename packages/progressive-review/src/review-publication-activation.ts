@@ -70,6 +70,30 @@ export class ReviewActivationConflictError extends Error {
   }
 }
 
+/** A presentation pointer names no publication row of its kind. Every reader
+ * resolves presentations through rows, so chaining a new publication onto a
+ * pointer that answers nothing would bury the inconsistency in the history. */
+export class ReviewPublicationMissingError extends Error {
+  override readonly name = "ReviewPublicationMissingError";
+  readonly code = "publication_missing";
+  readonly statusCode = 422;
+  readonly kind: ReviewPublicationKind;
+  readonly publicationId: string;
+
+  constructor(
+    kind: ReviewPublicationKind,
+    publicationId: string,
+    reviewDir: string,
+  ) {
+    super(
+      `The presented ${kind} of ${reviewDir} is ${publicationId}, which no ` +
+        `${kind} publication row answers; run \`review repair\` first.`,
+    );
+    this.kind = kind;
+    this.publicationId = publicationId;
+  }
+}
+
 /** A software map pins a diff the document it is checked against does not.
  * `documentPublicationId` is null when that document is the one being
  * published beside the map, which has no ID until it is built. */
@@ -190,8 +214,6 @@ export interface PreparedPublicationRow {
   artifactHash: string | null;
   previousPublicationId: string | null;
   legacyCommit: string | null;
-  /** Only imports, which replay a recorded order, pin their own sequence. */
-  seq?: number;
 }
 
 export interface ReviewArtifactRef {
@@ -334,7 +356,6 @@ function applyActivation(
       artifactHash: row.artifactHash,
       previousPublicationId: row.previousPublicationId,
       legacyCommit: row.legacyCommit,
-      seq: row.seq,
     });
     published.push({
       publicationId: row.publicationId,
@@ -413,14 +434,17 @@ function orderedCandidates(
   return ordered;
 }
 
-/** The stored record is authoritative for both pointers: a pointer that no
- * row answers is a Git-era value and chains to nothing. */
+/** The stored record is authoritative for both pointers, and both must answer
+ * to a row before anything chains onto them. A repair that commits only the
+ * rows of a pending legacy import brings no candidates and reads no pointer:
+ * that import states the pointers itself. */
 function candidateRows(
   tx: ReviewStateTransaction,
   reviewDir: string,
   latest: StoredReviewRecord,
   candidates: readonly ActivationCandidate[],
 ): PreparedPublicationRow[] {
+  if (candidates.length === 0) return [];
   const createdAt = new Date().toISOString();
   const activeDocument = activePublicationRow(
     tx,
@@ -475,7 +499,10 @@ function activePublicationRow(
   kind: ReviewPublicationKind,
 ): ReviewPublicationRow | null {
   if (publicationId === null) return null;
-  return readPublicationInTransaction(tx, reviewDir, publicationId, kind);
+  const row = readPublicationInTransaction(tx, reviewDir, publicationId, kind);
+  if (row === null)
+    throw new ReviewPublicationMissingError(kind, publicationId, reviewDir);
+  return row;
 }
 
 function documentCandidateOf(
@@ -489,7 +516,8 @@ function documentCandidateOf(
 /**
  * A map is only valid against a document that saw the same diff, so the pins
  * are checked against the document the map will be presented with: the one
- * published beside it when there is one, else the presented publication.
+ * published beside it when there is one, else the presented publication. A
+ * Review that presents neither has no diff to pin the map to, so it refuses.
  *
  * A document of the same call cannot be *named*, only checked: it is built
  * after the map so it can pair with it, and two content-derived IDs cannot
@@ -509,7 +537,9 @@ function validatingDocumentId(
     );
     return null;
   }
-  if (activeDocument === null) return null;
+  // Nothing to check the pins against: the Review presents no document at
+  // all, so this map would be presented beside nothing (invariant 6).
+  if (activeDocument === null) throw new ReviewMapPinsMismatchError(null);
   const document = parsePublicationRecord(activeDocument.record);
   if (document.kind !== "document")
     throw new ReviewMapPinsMismatchError(activeDocument.publicationId);

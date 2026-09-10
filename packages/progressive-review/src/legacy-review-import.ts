@@ -43,7 +43,6 @@ import {
   publicationIdFor,
 } from "./review-publication-record";
 import { stageReviewDocumentPublication } from "./review-publication-staging";
-import { assertNoActiveReviewAgentWrites } from "./review-repair-state";
 import {
   type ReviewPublicationKind,
   ensureReviewRegistration,
@@ -91,10 +90,10 @@ export interface PlannedPublication {
   publicationId: string;
   kind: ReviewPublicationKind;
   record: ReviewPublicationRecord;
-  seq: number;
   artifactHash: string | null;
   previousPublicationId: string | null;
-  legacyCommit: string;
+  /** Null only for a row rebuilt with no private history to replay. */
+  legacyCommit: string | null;
 }
 
 export interface LegacyImportPlan {
@@ -202,10 +201,10 @@ export async function planLegacyReviewArtifactImport(
   const activeIsPublication =
     active === null ||
     readPublication(reviewDir, active, "document", home) !== null;
-  // The marker alone is not enough to stop: `review repair` moves the pointer
-  // to a freshly sealed Git revision after an import, and that revision still
-  // has to be replayed. Re-planning is cheap — every row this import already
-  // committed is dropped again, so only what the pointer added is inserted.
+  // The marker alone is not enough to stop: a marker with a pointer no row
+  // answers describes an import that did not finish, and the rest of that
+  // history still has to be replayed. Re-planning is cheap — every row this
+  // import already committed is dropped again, so only what is missing lands.
   if (activeIsPublication && hasLegacyArtifactImport(reviewDir, home))
     return { imported: true };
   const context: PlanContext = {
@@ -241,7 +240,7 @@ export async function planLegacyReviewArtifactImport(
 
 /**
  * Commits a plan: every referenced artifact is verified, the rows are inserted
- * with the sequence and IDs the plan replayed, the record moves to its
+ * in replay order under the IDs the plan minted, the record moves to its
  * imported pointers, and the import marker lands in the same transaction.
  */
 export async function commitLegacyReviewArtifactImport(
@@ -252,7 +251,6 @@ export async function commitLegacyReviewArtifactImport(
   const dir = path.resolve(reviewDir);
   const resolvedHome = home ?? reviewHomeForDir(dir);
   return withReviewMutationLock(dir, async () => {
-    assertNoActiveReviewAgentWrites(dir);
     const committed = await commitReviewActivation({
       reviewDir: dir,
       home: resolvedHome,
@@ -269,7 +267,6 @@ export async function commitLegacyReviewArtifactImport(
           artifactHash: row.artifactHash,
           previousPublicationId: row.previousPublicationId,
           legacyCommit: row.legacyCommit,
-          seq: row.seq,
         })),
       updateRecord: () => plan.next,
       // The record still carries its Git-era schema until this commit lands.
@@ -416,20 +413,23 @@ async function planFromPrivateHistory(
   expectedRecordJson: string,
 ): Promise<LegacyImportPlan> {
   const log = await reviewVcs.log(context.reviewDir);
-  try {
-    await reviewVcs.resolve(context.reviewDir, active);
-  } catch (error) {
-    throw new LegacyImportBlocker(
-      `Cannot import ${context.reviewDir}: its presented revision is not in ` +
-        `the private history (${errorMessage(error)}).`,
+  const history = presentedDocumentVersions(context.reviewDir, log, active);
+  if (history.kind === "unreadable") {
+    // Nothing of this Review's history can be read back — an empty log, or a
+    // presented revision the log does not hold. `review repair` may still
+    // rebuild the presentation from the editable sources it was published
+    // from; every other caller refuses rather than invent a history.
+    if (context.documentFallback !== "editable-source")
+      throw new LegacyImportBlocker(
+        `Cannot import ${context.reviewDir}: ${history.reason}.`,
+      );
+    return await planFromEditableSources(
+      context,
+      expectedRecordJson,
+      history.reason,
     );
   }
-  const entries = legacyDocumentVersionEntries(log, active);
-  if (!entries.some((entry) => entry.oid === active))
-    throw new LegacyImportBlocker(
-      `Cannot import ${context.reviewDir}: its presented revision is not in ` +
-        "the private history.",
-    );
+  const entries = history.entries;
   const documents: LegacyDocumentVersion[] = [];
   for (const entry of entries)
     documents.push(
@@ -455,6 +455,177 @@ async function planFromPrivateHistory(
     maps,
     activeMapCommit,
   });
+}
+
+/**
+ * A presentation whose sealed bytes are unreachable, rebuilt from the editable
+ * sources the Review still carries. The private history is the only thing that
+ * could replay the versions behind the current one, so this plan is a single
+ * presentation, not a history: one document row, and the software map row the
+ * record still presents. Only `review repair` asks for it — the rebuild is not
+ * byte-faithful, and every other reader must refuse instead.
+ */
+async function planFromEditableSources(
+  context: PlanContext,
+  expectedRecordJson: string,
+  reason: string,
+): Promise<LegacyImportPlan> {
+  warn(
+    context,
+    `Sealed document conversion failed: ${reason}. Using editable ` +
+      "review.mdx/data.ts; reconcile unpublished edits without changing the " +
+      "Review's meaning. Validation does not prove semantic equivalence.",
+  );
+  const map = await rebuiltMapRow(context);
+  const document = await rebuiltDocumentRow(
+    context,
+    map?.publicationId ?? null,
+  );
+  const rows = map ? [map, document] : [document];
+  return {
+    reviewId: context.reviewId,
+    sourceHead: null,
+    expectedRecordJson,
+    publications: retainUncommittedRows(context, rows),
+    activeDocumentId: document.publicationId,
+    activeMapId: map?.publicationId ?? null,
+    versions: 1,
+    unavailable: 0,
+    warnings: context.warnings,
+    sourceFallback: context.sourceFallback,
+    next: {
+      ...context.record,
+      schemaVersion: REVIEW_SCHEMA_VERSION,
+      presentedDocumentRevision: document.publicationId,
+      presentedSoftwareMapRevision: map?.publicationId ?? null,
+    },
+  };
+}
+
+/** A rebuilt row replays no commit, so its timestamp is the last publication
+ * the record remembers: a fresh clock would mint a new ID on every replan. */
+function rebuiltAt(context: PlanContext): string {
+  return context.record.lastPublishedAt ?? context.record.createdAt;
+}
+
+async function rebuiltDocumentRow(
+  context: PlanContext,
+  pairedMapPublicationId: string | null,
+): Promise<PlannedPublication> {
+  const staged = await stageReviewDocumentPublication({
+    review: { dir: context.reviewDir, review: context.record },
+  });
+  for (const warning of staged.warnings) warn(context, warning);
+  const installed = await installReviewArtifact(
+    context.reviewDir,
+    "document",
+    staged.bundle.json,
+  );
+  context.sourceFallback.document = true;
+  const replaced = context.record.presentedDocumentRevision ?? "";
+  const draft: DocumentPublicationRecord = {
+    kind: "document",
+    version: PUBLICATION_RECORD_VERSION,
+    reviewUuid: context.record.uuid,
+    createdAt: rebuiltAt(context),
+    nonce: legacyImportNonce(context.record.uuid, "document-rebuild", replaced),
+    operation: "repair",
+    previousPublicationId: null,
+    ...sealedPins(context.record),
+    artifact: { state: "stored", hash: installed.hash },
+    title: staged.title ?? context.record.title,
+    titleSource: staged.title === undefined ? "stored" : "document",
+    pairedMapPublicationId,
+  };
+  return rebuiltRow(asDocumentRecord(draft, replaced), installed.hash);
+}
+
+/** The map the record still presents, rebuilt from the saved map notes at the
+ * pins it was published against. A repair may not discard a presented map, so
+ * a map it cannot rebuild refuses the whole plan. */
+async function rebuiltMapRow(
+  context: PlanContext,
+): Promise<PlannedPublication | null> {
+  const replaced = context.record.presentedSoftwareMapRevision;
+  if (replaced === null) return null;
+  const pins = sealedRecordPins(context.record);
+  if (context.mapFallback !== "saved-map-notes" || !pins)
+    throw new LegacyImportBlocker(
+      `Cannot import ${context.reviewDir}: its presented software map cannot ` +
+        "be rebuilt without the private history.",
+    );
+  warn(
+    context,
+    "Sealed software map conversion failed: the private history that sealed " +
+      "it is unreadable. Validating saved map notes at the current " +
+      "presentation's pinned commits.",
+  );
+  const bundle = await prepareSavedMapNotes({
+    rootPath: context.record.worktreePath,
+    baseCommit: pins.baseCommit,
+    headCommit: pins.headCommit,
+  });
+  const installed = await installMap(context, bundle);
+  context.sourceFallback.map = true;
+  const draft: MapPublicationRecord = {
+    kind: "map",
+    version: PUBLICATION_RECORD_VERSION,
+    reviewUuid: context.record.uuid,
+    createdAt: rebuiltAt(context),
+    nonce: legacyImportNonce(context.record.uuid, "map-rebuild", replaced),
+    operation: "repair",
+    previousPublicationId: null,
+    ...sealedPins(context.record),
+    baseCommit: installed.baseCommit,
+    artifact: { state: "stored", hash: installed.artifactHash },
+    headCommit: installed.headCommit,
+    // The document is built after the map so it can pair with it, and two
+    // content-derived IDs cannot reference each other.
+    validatedDocumentPublicationId: null,
+  };
+  return rebuiltRow(asMapRecord(draft, replaced), installed.artifactHash);
+}
+
+/** A rebuilt row stands for no revision at all: it chains to nothing and
+ * records no legacy commit, because the history it replaces cannot be read. */
+function rebuiltRow(
+  record: ReviewPublicationRecord,
+  artifactHash: string,
+): PlannedPublication {
+  return {
+    publicationId: importedPublicationId(record),
+    kind: record.kind,
+    record,
+    artifactHash,
+    previousPublicationId: null,
+    legacyCommit: null,
+  };
+}
+
+/** The document versions the presented revision replays, oldest first. */
+interface PresentedDocumentHistory {
+  kind: "versions";
+  entries: ReviewVcsLogEntry[];
+}
+
+/** Why the private history cannot supply the presented revision at all. */
+interface UnreadableDocumentHistory {
+  kind: "unreadable";
+  reason: string;
+}
+
+function presentedDocumentVersions(
+  reviewDir: string,
+  log: readonly ReviewVcsLogEntry[],
+  active: string,
+): PresentedDocumentHistory | UnreadableDocumentHistory {
+  const entries = legacyDocumentVersionEntries(log, active);
+  return entries.some((entry) => entry.oid === active)
+    ? { kind: "versions", entries }
+    : {
+        kind: "unreadable",
+        reason: `its presented revision ${active} is not in the private history of ${reviewDir}`,
+      };
 }
 
 /** Exactly `listLegacyReviewDocumentVersions`' filter, oldest first: the log
@@ -736,7 +907,10 @@ interface PlanAssemblyInput {
 }
 
 /** Rows in replay order: a map precedes every document that pairs with it, so
- * a document row can name the map publication it was presented beside. */
+ * a document row can name the map publication it was presented beside. The
+ * rows carry no sequence of their own — a replan after a partial import emits
+ * fewer rows than the first pass, and an absolute sequence would collide with
+ * the ones already committed — so the insert order below is the history. */
 function buildPlan(
   context: PlanContext,
   input: PlanAssemblyInput,
@@ -767,7 +941,6 @@ function buildPlan(
       publicationId,
       kind: "map",
       record,
-      seq: rows.length + 1,
       artifactHash: map.artifactHash,
       previousPublicationId: previousMap,
       legacyCommit: map.commit,
@@ -787,7 +960,6 @@ function buildPlan(
       publicationId,
       kind: "document",
       record,
-      seq: rows.length + 1,
       artifactHash,
       previousPublicationId: record.previousPublicationId,
       legacyCommit: document.oid,

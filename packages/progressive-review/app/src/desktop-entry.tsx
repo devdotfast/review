@@ -86,10 +86,16 @@ function DesktopReviewApp({
     documentBundle,
     async (load): Promise<ReviewDocumentAppState> => {
       if (load.state !== "ready") return load;
-      return {
-        state: "ready",
-        document: await prepareReviewDocument(load, sessionRef.current),
-      };
+      const document = await prepareReviewDocument(load, sessionRef.current);
+      if (purpose === "validation") {
+        for (const anchor of document.anchors.values()) {
+          if (anchor.peek && !anchor.peek.resolution)
+            throw new Error(
+              `Review document code peek ${anchor.id} could not be resolved.`,
+            );
+        }
+      }
+      return { state: "ready", document };
     },
   );
   const softwareMapState = useSettledLoad(

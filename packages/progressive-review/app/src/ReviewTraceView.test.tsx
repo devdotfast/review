@@ -193,6 +193,44 @@ describe("ReviewTraceView", () => {
     );
   });
 
+  it("shows the storage error instead of the unconfigured hint", async () => {
+    const requestMock = vi
+      .fn<ReviewCanvasBridge["request"]>()
+      .mockImplementation((url) => {
+        if (url.includes("/agent-traces")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                ...mockListResponse,
+                configured: false,
+                sessions: [],
+                storageError: "Set current-store in config.json.",
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+    const session = testReviewSession({}, { request: requestMock });
+    await act(async () => {
+      root?.render(
+        <ReviewSessionProvider session={session}>
+          <ReviewTraceView />
+        </ReviewSessionProvider>,
+      );
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(container.textContent).toContain(
+      "Set current-store in config.json.",
+    );
+    expect(container.textContent).not.toContain(
+      "Agent traces are not configured.",
+    );
+  });
+
   it("shows unconfigured state when list returns configured: false", async () => {
     const unconfiguredList: Extract<
       ReviewAgentTraceListResponse,

@@ -242,6 +242,13 @@ export class HostedTraceStorage implements TraceStorage {
       });
     } catch (error) {
       const cause = error instanceof Error ? error : new Error(String(error));
+      if (
+        cause instanceof StoreApiError &&
+        (cause.code === "forbidden" || cause.code === "store_deleted")
+      ) {
+        // The store answered and refused. Nothing saved may pass as current.
+        throw new TraceStorageDeniedError(cause.message);
+      }
       // A missing store is a setup problem the user can fix, so it is named.
       const message =
         cause instanceof StoreApiError && cause.code === "not_found"

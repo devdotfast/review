@@ -175,19 +175,14 @@ async function storageFor(
 }
 
 /**
- * A remote lookup, or null when the store could not be reached or refused.
- * Either way the caller has nothing confirmed to show.
+ * A remote lookup, or null when the store could not be reached. A refusal
+ * propagates: the caller must show nothing, not "nothing here".
  */
 async function reachable<T>(lookup: () => Promise<T>): Promise<T | null> {
   try {
     return await lookup();
   } catch (error) {
-    if (
-      error instanceof TraceStorageUnavailableError ||
-      error instanceof TraceStorageDeniedError
-    ) {
-      return null;
-    }
+    if (error instanceof TraceStorageUnavailableError) return null;
     throw error;
   }
 }

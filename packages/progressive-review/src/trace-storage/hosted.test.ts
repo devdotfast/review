@@ -38,6 +38,7 @@ import { traceConfigPath } from "./config";
 import { HostedTraceStorage } from "./hosted";
 import { resolveTraceStorage } from "./resolve";
 import { clearTraceEnvCache } from "./s3-config";
+import { TraceStorageDeniedError } from "./types";
 
 const REPOSITORY_ID = 321;
 const ORIGIN = "https://app.dev.fast";
@@ -292,9 +293,10 @@ describe("hosted trace storage", () => {
           refresh: true,
         }),
       ).toBeNull();
-      expect(
-        (await lookupReviewTraceSession({ sessionId, storage })).has_raw_trace,
-      ).toBe(false);
+      // A lookup names the refusal instead of answering "no trace".
+      await expect(
+        lookupReviewTraceSession({ sessionId, storage }),
+      ).rejects.toBeInstanceOf(TraceStorageDeniedError);
     } finally {
       transport.listSessions = listSessions;
     }
@@ -463,5 +465,57 @@ describe("hosted trace storage", () => {
       /network down/,
     );
     expect(readdirSync(mockBucket)).toEqual([]);
+  });
+  it("reports a refusal at target resolution instead of serving another copy", async () => {
+    // A hosted copy saved earlier, under this origin and repository.
+    const sessionId = "hosted-session-0008";
+    const transport = createMemoryTraceStoreTransport();
+    const first = HostedTraceStorage.fromParts({
+      target: target(transport.storeId),
+      transport,
+      devHome,
+    });
+    seedMemoryTraceSession(transport, {
+      repositoryId: REPOSITORY_ID,
+      sessionId,
+      traces: { "main.jsonl.gz": `${sessionRecord(sessionId, "cached")}\n` },
+    });
+    expect(
+      await loadReviewAgentTrace({ sessionId, cwd: repoDir, storage: first }),
+    ).not.toBeNull();
+
+    // Access is revoked: findStore answers forbidden.
+    writeConfig({ version: 2, "current-store": "hosted" });
+    clearTraceEnvCache();
+    await writeStoreAuth(
+      {
+        origin: ORIGIN,
+        token: "t",
+        login: "dev",
+        savedAt: "2026-09-02T00:00:00Z",
+      },
+      process.env,
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          {
+            error: {
+              code: "forbidden",
+              message: "You cannot use this repository.",
+            },
+          },
+          { status: 403 },
+        ),
+      ),
+    );
+    await expect(
+      resolveTraceStorage({ cwd: repoDir, onWarning: () => undefined }),
+    ).rejects.toBeInstanceOf(TraceStorageDeniedError);
+    // The saved copy is not served through a null storage either.
+    await expect(
+      loadReviewAgentTrace({ sessionId, cwd: repoDir }),
+    ).rejects.toBeInstanceOf(TraceStorageDeniedError);
   });
 });

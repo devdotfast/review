@@ -2126,6 +2126,9 @@ export const ReviewAgentTraceListResponseSchema = z.discriminatedUnion("ok", [
     // read; absent from older CLIs.
     storage: z.enum(["s3", "hosted", "none"]).optional(),
     sources: z.array(ReviewTraceStorageKindSchema).optional(),
+    // Why the selected store answered nothing: a refusal, a missing login
+    // for a requested source, or a malformed config. Absent from older CLIs.
+    storageError: requiredString.optional(),
     sessions: z.array(ReviewAgentTraceSessionSchema),
   }),
   ReviewErrorResponseSchema,

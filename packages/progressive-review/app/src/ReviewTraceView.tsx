@@ -62,6 +62,8 @@ type TraceListState =
       storage: AgentTraceStorage | null;
       /** Every store this machine can read; a control appears for two. */
       sources: AgentTraceStorage[];
+      /** Why the store answered nothing, when the CLI reports a reason. */
+      storageError: string | null;
       sessions: ReviewAgentTraceSession[];
     };
 
@@ -136,6 +138,7 @@ export function ReviewTraceView({
               ? result.storage
               : null,
           sources: result.sources ?? [],
+          storageError: result.storageError ?? null,
           sessions: result.sessions,
         });
       })
@@ -209,7 +212,14 @@ export function ReviewTraceView({
     activeTarget?.trace,
     storageOverride,
   );
-  const sourceChoices = list.status === "loaded" ? list.sources : [];
+  // The last known sources stay while a refetch is in flight, so the
+  // control never disappears between two answers.
+  const [sourceChoices, setSourceChoices] = useState<AgentTraceStorage[]>([]);
+  useEffect(() => {
+    if (list.status === "loaded" && list.sources.length > 0) {
+      setSourceChoices(list.sources);
+    }
+  }, [list]);
   const activeSource =
     storageOverride ?? (list.status === "loaded" ? list.storage : null);
 
@@ -253,17 +263,25 @@ export function ReviewTraceView({
             </select>
           </label>
         )}
-        {list.status === "loaded" && !list.configured && (
-          <div className="review-trace-unconfigured">
-            <span className="review-trace-kicker">Agent trace</span>
-            <p>Agent traces are not configured.</p>
-            <p className="review-trace-note">
-              Open Agent Setup in Review Desktop to enable trace capture.
-            </p>
-          </div>
-        )}
+        {list.status === "loaded" &&
+          (list.storageError !== null || !list.configured) && (
+            <div className="review-trace-unconfigured">
+              <span className="review-trace-kicker">Agent trace</span>
+              {list.storageError !== null ? (
+                <p>{list.storageError}</p>
+              ) : (
+                <>
+                  <p>Agent traces are not configured.</p>
+                  <p className="review-trace-note">
+                    Open Agent Setup in Review Desktop to enable trace capture.
+                  </p>
+                </>
+              )}
+            </div>
+          )}
         {list.status === "loaded" &&
           list.configured &&
+          list.storageError === null &&
           sessions.length === 0 && (
             <div className="review-trace-empty">
               <span className="review-trace-kicker">Agent trace</span>

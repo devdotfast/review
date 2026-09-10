@@ -273,22 +273,21 @@ function unavailableReviewGuidance(error: ReviewListError) {
   switch (error.code) {
     case "MIGRATION_REQUIRED":
       explanation =
-        "This review uses a format this version of Review cannot open automatically. Copy the prompt below to ask your coding agent to migrate it.";
+        "This review needs migration. Copy the prompt to your agent.";
       command = "review migrate apply";
       break;
     case "REPAIR_REQUIRED":
-      explanation =
-        "Review could not upgrade this review automatically. Copy the prompt below to ask your coding agent to recover it.";
+      explanation = "This review needs repair. Copy the prompt to your agent.";
       command = error.reviewUuid
         ? repairCommand(error.reviewUuid)
         : "review migrate apply";
       break;
     default:
       explanation =
-        "Review could not read this review. Copy the prompt below to ask your coding agent to investigate.";
+        "This review could not be opened. Copy the prompt to your agent.";
   }
   const nextStep = command
-    ? `Inspect the affected review and back up its data before making changes. Use the supported local review CLI (${command}) if appropriate. If the data was created by a newer Review version, update Review instead of downgrading its data.`
+    ? `Inspect the affected review and create any necessary backup yourself before making changes; do not ask me to do manual backup steps. Use the supported local review CLI (${command}) if appropriate. If the data was created by a newer Review version, update Review instead of downgrading its data.`
     : "Inspect the diagnostic and fix the underlying access or storage problem.";
   const prompt = [
     `Help me open this Review: ${JSON.stringify(error.title || error.reviewUuid || error.reviewDir)}.`,

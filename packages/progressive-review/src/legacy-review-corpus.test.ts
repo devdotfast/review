@@ -32,15 +32,18 @@ import { z } from "zod";
 
 import { parseAuthoringSessionKey } from "./authoring-session";
 import { snapshotReviewTree } from "./fixtures/legacy-reviews/legacy-review-fixture";
-import { materializeReviewRevision } from "./legacy-sealed-artifacts";
-import { readReviewDocumentBundle } from "./review-bundle";
+import {
+  readReviewDocumentArtifact,
+  readReviewSoftwareMapArtifact,
+} from "./review-artifact-store";
 import { isDerivedReviewPath } from "./review-derived-paths";
 import { parseAnyStoredReviewRecord, readStoredReview } from "./review-home";
+import { parsePublicationRecord } from "./review-publication-record";
+import { readLegacyArtifactImport, readPublication } from "./review-state-db";
 import {
   REVIEW_THREAD_DB_SCHEMA_VERSION,
   closeAllReviewThreadStores,
 } from "./review-thread-store-backend";
-import { readReviewSoftwareMapBundle } from "./software-map-bundle";
 import { migrateStoredReview } from "./stored-review-migration";
 
 const corpus = process.env.REVIEW_LEGACY_CORPUS;
@@ -335,30 +338,60 @@ describe.skipIf(!corpus)("legacy review corpus", () => {
         let documentBytes = 0;
         let mapBytes = 0;
         if (loaded.review.presentedDocumentRevision) {
-          const out = path.join(home, "materialized", uuid, "document");
-          await materializeReviewRevision(
+          const row = readPublication(
             dir,
             loaded.review.presentedDocumentRevision,
-            out,
+            "document",
+            home,
           );
-          const bundle = await readReviewDocumentBundle(out, "/");
+          if (!row)
+            throw new Error(
+              `${uuid}: presented document publication ${loaded.review.presentedDocumentRevision} is missing.`,
+            );
+          const record = parsePublicationRecord(row.record);
+          if (record.artifact.state !== "stored")
+            throw new Error(
+              `${uuid}: presented document artifact is unavailable (${record.artifact.reason}).`,
+            );
+          const bundle = await readReviewDocumentArtifact(
+            dir,
+            record.artifact.hash,
+          );
           if (!bundle)
-            throw new Error("Converted corpus document is unavailable.");
+            throw new Error(
+              `${uuid}: converted corpus document is unavailable.`,
+            );
           documentBytes = Buffer.byteLength(bundle.json);
         }
         if (loaded.review.presentedSoftwareMapRevision) {
-          const out = path.join(home, "materialized", uuid, "map");
-          await materializeReviewRevision(
+          const row = readPublication(
             dir,
             loaded.review.presentedSoftwareMapRevision,
-            out,
+            "map",
+            home,
           );
-          const bundle = await readReviewSoftwareMapBundle(out);
-          if (!bundle) throw new Error("Converted corpus map is unavailable.");
+          if (!row)
+            throw new Error(
+              `${uuid}: presented map publication ${loaded.review.presentedSoftwareMapRevision} is missing.`,
+            );
+          const record = parsePublicationRecord(row.record);
+          if (record.artifact.state !== "stored")
+            throw new Error(
+              `${uuid}: presented map artifact is unavailable (${record.artifact.reason}).`,
+            );
+          const bundle = await readReviewSoftwareMapArtifact(
+            dir,
+            record.artifact.hash,
+          );
+          if (!bundle)
+            throw new Error(`${uuid}: converted corpus map is unavailable.`);
           mapBytes =
             Buffer.byteLength(bundle.headJson) +
             Buffer.byteLength(bundle.baseJson);
         }
+        const importMarker = readLegacyArtifactImport(dir, home);
+        if (!importMarker)
+          throw new Error(`${uuid}: legacy artifact import marker is missing.`);
         closeAllReviewThreadStores();
         const snapshot = await snapshotReviewTree(dir);
         const repeated = await readStoredReview(dir);
@@ -375,6 +408,8 @@ describe.skipIf(!corpus)("legacy review corpus", () => {
           status: loaded.review.status,
           documentBytes,
           mapBytes,
+          importedVersions: importMarker.versions,
+          importedUnavailable: importMarker.unavailable,
           result: "ok",
         });
       }

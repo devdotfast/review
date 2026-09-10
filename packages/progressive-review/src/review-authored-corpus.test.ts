@@ -10,6 +10,7 @@ import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { hydrateReviewDocument } from "../app/src/review-document-hydrate";
 import { reviewAuthoringPropsSchemas } from "./authoring";
 import { patchChangedLines } from "./call-stack-diff";
+import { buildReviewDocument } from "./document/build";
 import {
   type AuthoredReviewCase,
   authoredReviewCases,
@@ -31,8 +32,6 @@ import {
   walkReviewNodes,
 } from "./review-document-data";
 import { createReviewDir } from "./review-home";
-import { evaluateReviewDocumentBundleForPublish } from "./review-publish-evaluate";
-import { compileReviewDocumentBundle } from "./server/doc-bundler";
 
 const exec = promisify(execFile);
 const packageRoot = path.resolve(import.meta.dirname, "..");
@@ -200,17 +199,8 @@ describe.each(authoredReviewCases)("authored corpus $name", (input) => {
   it("preserves the document through compilation, storage, hydration and repeated evaluation", async () => {
     const fixture = await prepare(input);
     async function evaluate() {
-      const compiled = await compileReviewDocumentBundle({
+      const evaluated = await buildReviewDocument({
         reviewPath: path.join(fixture.dir, "review.mdx"),
-        reviewDocumentsDir: path.join(fixture.dir, ".review-documents"),
-        reviewRootPath: fixture.dir,
-        routePath: "/",
-      });
-      expect(compiled.diagnostics).toEqual([]);
-      if (!compiled.bundle) throw new Error("Corpus MDX did not compile");
-      const evaluated = await evaluateReviewDocumentBundleForPublish({
-        bundleCode: compiled.bundle.code,
-        reviewDir: fixture.dir,
         prepareEvidence: async () => fixture.evidence,
         resolveChangedLines: async (file) =>
           patchChangedLines(
@@ -223,6 +213,7 @@ describe.each(authoredReviewCases)("authored corpus $name", (input) => {
             ]),
           ),
       });
+      expect(evaluated.diagnostics).toEqual([]);
       expect(evaluated.errors).toEqual([]);
       if (!evaluated.document)
         throw new Error("Corpus MDX did not materialize");

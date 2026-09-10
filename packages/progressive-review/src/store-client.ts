@@ -26,6 +26,8 @@ import {
 import { z } from "zod";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+/** Largest metadata answer the client reads; object bytes never come this way. */
+const MAX_STORE_RESPONSE_BYTES = 8 * 1024 * 1024;
 
 /**
  * The message for a store whose responses do not match this client's
@@ -201,6 +203,8 @@ export class StoreClient {
     const params = new URLSearchParams();
     if (query.commit) params.set("commit", query.commit);
     if (query.session) params.set("session", query.session);
+    if (query.limit !== undefined) params.set("limit", String(query.limit));
+    if (query.cursor) params.set("cursor", query.cursor);
     return this.get(
       storeRoutes.sessions(repositoryId),
       listSessionsResponseSchema,
@@ -261,6 +265,14 @@ export class StoreClient {
     });
     if (!response.ok) {
       throw await this.toStoreApiError(response);
+    }
+    const contentLength = Number(response.headers.get("content-length") ?? "0");
+    if (contentLength > MAX_STORE_RESPONSE_BYTES) {
+      throw new StoreApiError(
+        "internal",
+        response.status,
+        `The trace store answered ${contentLength} bytes; the client accepts at most ${MAX_STORE_RESPONSE_BYTES}.`,
+      );
     }
     return this.parseJson(response, schema);
   }

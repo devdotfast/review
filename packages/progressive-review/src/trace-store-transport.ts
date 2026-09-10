@@ -29,6 +29,7 @@ import {
   type BeginUploadResponse,
   type CompleteUploadRequest,
   type CompleteUploadResponse,
+  DEFAULT_TRACE_SESSIONS_PAGE,
   type ListSessionsQuery,
   type ListSessionsResponse,
   type PresignedUpload,
@@ -345,6 +346,8 @@ export interface MemoryTraceStoreSession {
   harness: TraceHarness;
   updatedAt: string;
   commits: string[];
+  branch: string | null;
+  author: string | null;
   /** The published upload, or null while no upload has completed. */
   currentUploadId: string | null;
   /** Counts publications. Zero means nothing is published. */
@@ -365,6 +368,9 @@ export interface MemoryTraceStoreUpload {
   keys: Record<string, string>;
   /** The commits the completion receipt reported. */
   commits: string[];
+  /** The labels the completion carried. */
+  branch: string | null;
+  author: string | null;
 }
 
 export interface MemoryTraceStoreTransport extends TraceStoreTransport {
@@ -404,10 +410,15 @@ function newUploadId(): string {
  * completion checks every object, and a stale base generation is a conflict.
  */
 export function createMemoryTraceStoreTransport(
-  options: TraceStoreTransportOptions & { storeId?: string } = {},
+  options: TraceStoreTransportOptions & {
+    storeId?: string;
+    /** Sessions per listing page; the server's default otherwise. */
+    pageSize?: number;
+  } = {},
 ): MemoryTraceStoreTransport {
   const limits = { ...DEFAULT_LIMITS, ...options.limits };
   const storeId = options.storeId ?? MEMORY_STORE_ID;
+  const pageSize = options.pageSize ?? DEFAULT_TRACE_SESSIONS_PAGE;
   const objects = new Map<string, Buffer>();
   const sessions = new Map<string, MemoryTraceStoreSession>();
   const uploads = new Map<string, MemoryTraceStoreUpload>();
@@ -445,6 +456,8 @@ export function createMemoryTraceStoreTransport(
         objects: body.objects.map((object) => ({ ...object })),
         keys,
         commits: [],
+        branch: null,
+        author: null,
       });
       return {
         uploadId,
@@ -511,6 +524,15 @@ export function createMemoryTraceStoreTransport(
         );
       }
       if (upload.status === "complete" && upload.generation !== null) {
+        const current = sessions.get(
+          memoryTraceSessionKey(repositoryId, sessionId),
+        );
+        if (current && current.currentUploadId === uploadId) {
+          // Completing the current upload again links any new commits.
+          const merged = [...new Set([...current.commits, ...body.commits])];
+          current.commits = merged;
+          upload.commits = merged;
+        }
         return {
           sessionId,
           uploadId,
@@ -555,12 +577,16 @@ export function createMemoryTraceStoreTransport(
         harness: upload.harness,
         updatedAt: new Date().toISOString(),
         commits,
+        branch: body.branch ?? null,
+        author: body.author ?? null,
         currentUploadId: uploadId,
         generation,
       });
       upload.status = "complete";
       upload.generation = generation;
       upload.commits = commits;
+      upload.branch = body.branch ?? null;
+      upload.author = body.author ?? null;
       return {
         sessionId,
         uploadId,
@@ -571,17 +597,22 @@ export function createMemoryTraceStoreTransport(
     },
 
     async listSessions(repositoryId, query) {
-      const matches = [...sessions.values()].filter(
-        (session) =>
-          session.repositoryId === repositoryId &&
-          session.currentUploadId !== null &&
-          (query.session === undefined ||
-            session.sessionId === query.session) &&
-          (query.commit === undefined ||
-            session.commits.includes(query.commit)),
-      );
-      return {
-        sessions: matches.map((session) => {
+      const matches = [...sessions.values()]
+        .filter(
+          (session) =>
+            session.repositoryId === repositoryId &&
+            session.currentUploadId !== null &&
+            (query.session === undefined ||
+              session.sessionId === query.session) &&
+            (query.commit === undefined ||
+              session.commits.includes(query.commit)) &&
+            (query.cursor === undefined || session.sessionId > query.cursor),
+        )
+        .sort((a, b) => a.sessionId.localeCompare(b.sessionId));
+      const limit = query.limit ?? pageSize;
+      const page = matches.slice(0, limit);
+      const response: ListSessionsResponse = {
+        sessions: page.map((session) => {
           const upload = uploads.get(session.currentUploadId ?? "");
           if (!upload) {
             throw new Error("A published session lost its upload.");
@@ -593,6 +624,8 @@ export function createMemoryTraceStoreTransport(
             generation: session.generation,
             updatedAt: session.updatedAt,
             commits: [...session.commits],
+            branch: session.branch,
+            author: session.author,
             objects: upload.objects.map((object) => ({
               ...object,
               url: `${MEMORY_URL_PREFIX}${upload.keys[object.name]}`,
@@ -601,6 +634,9 @@ export function createMemoryTraceStoreTransport(
           };
         }),
       };
+      const last = page[page.length - 1];
+      if (matches.length > limit && last) response.nextCursor = last.sessionId;
+      return response;
     },
 
     async getObject(object, destinationPath) {
@@ -677,6 +713,8 @@ export function seedMemoryTraceSession(
     objects,
     keys,
     commits,
+    branch: null,
+    author: null,
   };
   transport.uploads.set(uploadId, upload);
   transport.sessions.set(sessionKey, {
@@ -685,6 +723,8 @@ export function seedMemoryTraceSession(
     harness: upload.harness,
     updatedAt: "2026-09-02T12:00:10.000Z",
     commits,
+    branch: null,
+    author: null,
     currentUploadId: uploadId,
     generation,
   });

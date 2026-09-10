@@ -17,6 +17,7 @@ import {
   clearTraceEnvCache,
   loadReviewAgentTrace,
   lookupReviewTraceSession,
+  pullReviewTraceCorpus,
   syncReviewTrace,
 } from "../review-agent-traces";
 import { writeStoreAuth } from "../store-auth";
@@ -284,18 +285,24 @@ describe("hosted trace storage", () => {
         "You cannot use this repository.",
       );
     };
+    // A later command resolves its own storage; the listing is not reused.
+    const revoked = HostedTraceStorage.fromParts({
+      target: target(transport.storeId),
+      transport,
+      devHome,
+    });
     try {
       expect(
         await loadReviewAgentTrace({
           sessionId,
           cwd: repoDir,
-          storage,
+          storage: revoked,
           refresh: true,
         }),
       ).toBeNull();
       // A lookup names the refusal instead of answering "no trace".
       await expect(
-        lookupReviewTraceSession({ sessionId, storage }),
+        lookupReviewTraceSession({ sessionId, storage: revoked }),
       ).rejects.toBeInstanceOf(TraceStorageDeniedError);
     } finally {
       transport.listSessions = listSessions;
@@ -334,7 +341,8 @@ describe("hosted trace storage", () => {
     expect(metadata.source.storage).toBe(storage.cacheIdentity());
     expect(metadata.source.contentId).toMatch(/^sha256:[0-9a-f]{64}@1$/);
 
-    // Same byte length, different content, new generation.
+    // Same byte length, different content, new generation. A later command
+    // resolves its own storage instance.
     seedMemoryTraceSession(transport, {
       repositoryId: REPOSITORY_ID,
       sessionId,
@@ -343,7 +351,11 @@ describe("hosted trace storage", () => {
     const second = await loadReviewAgentTrace({
       sessionId,
       cwd: repoDir,
-      storage,
+      storage: HostedTraceStorage.fromParts({
+        target: target(transport.storeId),
+        transport,
+        devHome,
+      }),
       refresh: true,
     });
     expect(
@@ -544,5 +556,129 @@ describe("hosted trace storage", () => {
       syncReviewTrace({ sessionId, cwd: repoDir, storage }),
     ).rejects.toThrow(/not allowed for trace publication/);
     expect(transport.uploads.size).toBe(0);
+  });
+  it("lists a session once per storage instance", async () => {
+    const sessionId = "hosted-session-0010";
+    const transport = createMemoryTraceStoreTransport();
+    const listSessions = vi.spyOn(transport, "listSessions");
+    seedMemoryTraceSession(transport, {
+      repositoryId: REPOSITORY_ID,
+      sessionId,
+      traces: {
+        "main.jsonl.gz": `${sessionRecord(sessionId, "main")}\n`,
+        "subagents/agent-a1.jsonl.gz": `${sessionRecord(sessionId, "sub")}\n`,
+      },
+    });
+    const storage = HostedTraceStorage.fromParts({
+      target: target(transport.storeId),
+      transport,
+      devHome,
+    });
+    const pulled = await pullReviewTraceCorpus({
+      repo: { owner: "acme", repo: "app" },
+      sessions: [{ id: sessionId }],
+      storage,
+    });
+    expect(pulled.files).toBe(2);
+    expect(listSessions).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips the upload when the store already holds identical objects and links new commits", async () => {
+    const sessionId = "hosted-session-0011";
+    writeFileSync(
+      path.join(localTraceRoot, `${sessionId}.jsonl`),
+      `${sessionRecord(sessionId, "same")}\n`,
+    );
+    await allowTraceRepository(
+      { repositoryId: REPOSITORY_ID, name: "acme/app", origin: ORIGIN },
+      devHome,
+    );
+    const transport = createMemoryTraceStoreTransport();
+    const storage = HostedTraceStorage.fromParts({
+      target: target(transport.storeId),
+      transport,
+      devHome,
+    });
+    await recordTraceSessionProvenance({
+      sessionId,
+      ...traceCaptureIdentity({ target: target(transport.storeId) }),
+      devHome,
+    });
+    const first = await syncReviewTrace({
+      sessionId,
+      cwd: repoDir,
+      storage,
+      commits: ["a".repeat(40)],
+    });
+    expect(first.uploads.map((upload) => upload.status)).toEqual(["uploaded"]);
+    const putObject = vi.spyOn(transport, "putObject");
+    const second = await syncReviewTrace({
+      sessionId,
+      cwd: repoDir,
+      storage,
+      commits: ["b".repeat(40)],
+    });
+    expect(second.uploads.map((upload) => upload.status)).toEqual([
+      "unchanged",
+    ]);
+    expect(putObject).not.toHaveBeenCalled();
+    expect(second.hosted?.uploadId).toBe(first.hosted?.uploadId);
+    expect(second.hosted?.commits).toEqual(["a".repeat(40), "b".repeat(40)]);
+    expect(transport.uploads.size).toBe(1);
+  });
+
+  it("follows listing pages when a commit has many sessions", async () => {
+    const transport = createMemoryTraceStoreTransport({ pageSize: 2 });
+    const commit = "c".repeat(40);
+    const ids = [1, 2, 3, 4, 5].map((index) => `hosted-session-page-${index}`);
+    for (const id of ids) {
+      seedMemoryTraceSession(transport, {
+        repositoryId: REPOSITORY_ID,
+        sessionId: id,
+        commits: [commit],
+        traces: { "main.jsonl.gz": `${sessionRecord(id, "p")}\n` },
+      });
+    }
+    const storage = HostedTraceStorage.fromParts({
+      target: target(transport.storeId),
+      transport,
+      devHome,
+    });
+    const found = await storage.sessionsForCommit(commit);
+    expect([...(found?.sessions ?? [])].sort()).toEqual(ids);
+  });
+
+  it("carries branch and author into the session metadata", async () => {
+    const sessionId = "hosted-session-0012";
+    execFileSync("git", ["commit", "--allow-empty", "--quiet", "-m", "init"], {
+      cwd: repoDir,
+    });
+    writeFileSync(
+      path.join(localTraceRoot, `${sessionId}.jsonl`),
+      `${sessionRecord(sessionId, "labels")}\n`,
+    );
+    await allowTraceRepository(
+      { repositoryId: REPOSITORY_ID, name: "acme/app", origin: ORIGIN },
+      devHome,
+    );
+    const transport = createMemoryTraceStoreTransport();
+    const storage = HostedTraceStorage.fromParts({
+      target: target(transport.storeId),
+      transport,
+      devHome,
+    });
+    await recordTraceSessionProvenance({
+      sessionId,
+      ...traceCaptureIdentity({ target: target(transport.storeId) }),
+      devHome,
+    });
+    await syncReviewTrace({ sessionId, cwd: repoDir, storage, commits: [] });
+    const meta = await HostedTraceStorage.fromParts({
+      target: target(transport.storeId),
+      transport,
+      devHome,
+    }).sessionMeta(sessionId);
+    expect(meta?.branch).toEqual(expect.any(String));
+    expect(meta?.author).toEqual(expect.any(String));
   });
 });

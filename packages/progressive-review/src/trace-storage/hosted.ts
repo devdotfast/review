@@ -3,6 +3,7 @@ import path from "node:path";
 import { git } from "@dev.fast/local-vcs";
 import { type SessionMeta, commitShaSchema } from "@dev.fast/review-protocol";
 import {
+  type CompleteUploadResponse,
   MAX_TRACE_COMMITS,
   MAX_TRACE_OBJECTS,
   type TraceObjectName,
@@ -128,6 +129,8 @@ export class HostedTraceStorage implements TraceStorage {
   private readonly transport: TraceStoreTransport;
   private readonly devHome: string;
   private readonly warn: TraceStoreWarning;
+  /** One listing per session per instance; an instance lives one operation. */
+  private readonly lookups = new Map<string, Promise<StoreSessionLookup>>();
 
   private constructor(parts: HostedStorageParts) {
     this.repositoryTarget = parts.target;
@@ -320,8 +323,8 @@ export class HostedTraceStorage implements TraceStorage {
 
   /**
    * The store's record of one session, in the shape the bucket's meta.json
-   * has: repository, commits, and last update. The store keeps no branch,
-   * pull request, or author, so those stay null.
+   * has: repository, commits, branch, author, and last update. The store
+   * keeps no pull request number, so that stays null.
    */
   async sessionMeta(sessionId: string): Promise<SessionMeta | null> {
     const stored = await reachableSession(() => this.requireSession(sessionId));
@@ -329,10 +332,10 @@ export class HostedTraceStorage implements TraceStorage {
     return {
       session: stored.sessionId,
       repo: this.repositoryTarget.name,
-      branch: null,
+      branch: stored.branch ?? null,
       pr: null,
       commits: [...stored.commits],
-      author: null,
+      author: stored.author ?? null,
       ts: stored.updatedAt,
     };
   }
@@ -341,11 +344,18 @@ export class HostedTraceStorage implements TraceStorage {
     if (this.offline) return null;
     if (!commitShaSchema.safeParse(commit).success) return null;
     try {
-      const response = await this.transport.listSessions(
-        this.repositoryTarget.repositoryId,
-        { commit },
-      );
-      const sessions = response.sessions.map((session) => session.sessionId);
+      const sessions: string[] = [];
+      let cursor: string | undefined;
+      // A bounded walk: ten pages of the server's default size.
+      for (let page = 0; page < MAX_COMMIT_LISTING_PAGES; page += 1) {
+        const response = await this.transport.listSessions(
+          this.repositoryTarget.repositoryId,
+          cursor === undefined ? { commit } : { commit, cursor },
+        );
+        sessions.push(...response.sessions.map((session) => session.sessionId));
+        if (!response.nextCursor) break;
+        cursor = response.nextCursor;
+      }
       return sessions.length > 0 ? { sessions, pr: null, branch: null } : null;
     } catch (error) {
       this.reportFailure(
@@ -408,6 +418,47 @@ export class HostedTraceStorage implements TraceStorage {
         size: object.size,
         sha256: object.sha256,
       }));
+      const allCommits = [
+        ...new Set(
+          input.commits?.filter(
+            (commit) => commitShaSchema.safeParse(commit).success,
+          ) ?? (await commitsForTraceSession(input.cwd, input.sessionId)),
+        ),
+      ];
+      const commits = allCommits.slice(0, MAX_TRACE_COMMITS);
+      const omitted = {
+        subagents: omittedSubagents,
+        commits: allCommits.length - commits.length,
+      };
+      const labels = { branch: input.branch, author: input.author };
+
+      // The published upload already holds these exact bytes: link any new
+      // commits to it and send nothing. Completing the current upload again
+      // is additive for commits and returns its receipt.
+      this.lookups.delete(input.sessionId);
+      const current = await this.lookupSession(input.sessionId);
+      if (
+        current.status === "found" &&
+        sameObjects(manifest, current.session.objects)
+      ) {
+        const completed = await this.completeUploadOnce(
+          input.sessionId,
+          current.session.uploadId,
+          commits,
+          labels,
+        );
+        this.lookups.delete(input.sessionId);
+        await clearTraceSyncFailure(input.sessionId, this.devHome).catch(
+          () => undefined,
+        );
+        return publishResult(
+          compressed,
+          "unchanged",
+          target,
+          completed,
+          omitted,
+        );
+      }
 
       const begun = await this.transport.beginUpload(
         target.repositoryId,
@@ -427,47 +478,17 @@ export class HostedTraceStorage implements TraceStorage {
         await this.transport.putObject(upload, object.path);
       }
 
-      const allCommits = [
-        ...new Set(
-          input.commits?.filter(
-            (commit) => commitShaSchema.safeParse(commit).success,
-          ) ?? (await commitsForTraceSession(input.cwd, input.sessionId)),
-        ),
-      ];
-      const commits = allCommits.slice(0, MAX_TRACE_COMMITS);
       const completed = await this.completeUploadOnce(
         input.sessionId,
         begun.uploadId,
         commits,
+        labels,
       );
+      this.lookups.delete(input.sessionId);
       await clearTraceSyncFailure(input.sessionId, this.devHome).catch(
         () => undefined,
       );
-
-      const omitted = {
-        subagents: omittedSubagents,
-        commits: allCommits.length - commits.length,
-      };
-      return {
-        uploads: compressed.map((object) => ({
-          blob:
-            object.name === "main.jsonl.gz"
-              ? "trace.jsonl"
-              : `subagents/${traceNameFromObject(object.name)}.jsonl`,
-          bytes_stored: object.size,
-          status: "uploaded" as const,
-        })),
-        hosted: {
-          repositoryId: target.repositoryId,
-          storeId: target.storeId,
-          uploadId: completed.uploadId,
-          generation: completed.generation,
-          complete: omitted.subagents.length === 0 && omitted.commits === 0,
-          objects: completed.objects.map((object) => object.name),
-          commits: completed.commits,
-          omitted,
-        },
-      };
+      return publishResult(compressed, "uploaded", target, completed, omitted);
     } finally {
       for (const object of compressed) {
         await object.cleanup();
@@ -499,7 +520,17 @@ export class HostedTraceStorage implements TraceStorage {
     return lookup.status === "found" ? lookup.session : null;
   }
 
-  private async lookupSession(sessionId: string): Promise<StoreSessionLookup> {
+  private lookupSession(sessionId: string): Promise<StoreSessionLookup> {
+    const pending = this.lookups.get(sessionId);
+    if (pending) return pending;
+    const lookup = this.lookupSessionLive(sessionId);
+    this.lookups.set(sessionId, lookup);
+    return lookup;
+  }
+
+  private async lookupSessionLive(
+    sessionId: string,
+  ): Promise<StoreSessionLookup> {
     if (this.offline) return { status: "unreachable", error: null };
     try {
       const response = await this.transport.listSessions(
@@ -533,13 +564,14 @@ export class HostedTraceStorage implements TraceStorage {
     sessionId: string,
     uploadId: string,
     commits: string[],
+    labels: PublishLabels,
   ) {
     const complete = () =>
       this.transport.completeUpload(
         this.repositoryTarget.repositoryId,
         sessionId,
         uploadId,
-        { commits },
+        { commits, branch: labels.branch, author: labels.author },
       );
     try {
       return await complete();
@@ -577,6 +609,60 @@ async function reachableSession<T>(
     }
     throw error;
   }
+}
+
+/** The checkout labels a publication carries. */
+interface PublishLabels {
+  branch: string | null;
+  author: string | null;
+}
+
+/** Most listing pages one commit lookup walks. */
+const MAX_COMMIT_LISTING_PAGES = 10;
+
+/** Whether the manifest names exactly the stored objects, byte for byte. */
+function sameObjects(
+  manifest: ReadonlyArray<{ name: string; size: number; sha256: string }>,
+  stored: ReadonlyArray<{ name: string; size: number; sha256: string }>,
+): boolean {
+  if (manifest.length !== stored.length) return false;
+  return manifest.every((object) =>
+    stored.some(
+      (candidate) =>
+        candidate.name === object.name &&
+        candidate.size === object.size &&
+        candidate.sha256 === object.sha256,
+    ),
+  );
+}
+
+function publishResult(
+  compressed: ReadonlyArray<{ name: TraceObjectName; size: number }>,
+  status: "uploaded" | "unchanged",
+  target: TraceRepositoryTarget,
+  completed: CompleteUploadResponse,
+  omitted: { subagents: string[]; commits: number },
+): TracePublishResult {
+  return {
+    uploads: compressed.map((object) => ({
+      blob:
+        object.name === "main.jsonl.gz"
+          ? "trace.jsonl"
+          : `subagents/${traceNameFromObject(object.name)}.jsonl`,
+      bytes_stored: object.size,
+      status,
+    })),
+    hosted: {
+      repositoryId: target.repositoryId,
+      storeId: target.storeId,
+      uploadId: completed.uploadId,
+      generation: completed.generation,
+      complete: omitted.subagents.length === 0 && omitted.commits === 0,
+      objects: completed.objects.map((object) => object.name),
+      commits: completed.commits,
+      omitted,
+    },
+  };
 }
 
 function syncStoreError(error: StoreApiError, sessionId: string): Error {

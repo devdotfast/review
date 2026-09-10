@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { prepareStructuralReview } from "./reviewStructuralDiff.js";
 import { Emitter } from "../../base/common/event.js";
 import {
   Disposable,
@@ -152,17 +153,20 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
       );
       if (this.disposed) return;
       const store = this._register(new DisposableStore());
+      const structural = await prepareStructuralReview(this.instantiationService, entries, this.spec.scope, store);
+      if (this.disposed) return;
       // The input owns the text-model references its view model resolves, so
       // this handle disposes it alongside the view.
       const input = store.add(
-        this.instantiationService.createInstance(
+        structural.instantiation.createInstance(
           ReviewFilesEditorInput,
           reviewFilesSourceUri(session, this.spec.scope),
-          entries,
+          structural.entries,
+          structural.enabled,
         ),
       );
       const view = store.add(
-        this.instantiationService.createInstance(
+        structural.instantiation.createInstance(
           ReviewFilesDiffView,
           this.spec.container,
           this.overflowWidgetsDomNode,

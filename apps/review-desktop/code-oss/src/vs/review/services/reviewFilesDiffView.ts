@@ -121,6 +121,7 @@ export class ReviewFilesEditorInput extends MultiDiffEditorInput {
   constructor(
     source: URI,
     readonly entries: readonly ReviewFilesEditorEntry[],
+    structural: boolean,
     @ITextModelService textModelService: ITextModelService,
     @ITextResourceConfigurationService
     textResourceConfigurationService: ITextResourceConfigurationService,
@@ -141,7 +142,7 @@ export class ReviewFilesEditorInput extends MultiDiffEditorInput {
             undefined,
             undefined,
             reviewMultiDiffLabelUris(entry.file),
-            REVIEW_FILES_DIFF_EDITOR_OPTIONS,
+            structural ? { ...REVIEW_FILES_DIFF_EDITOR_OPTIONS, hideUnchangedRegions: { enabled: true }, folding: true, lineDecorationsWidth: 40, experimentalDiffFolding: true, showFoldingControls: "always", experimental: { useTrueInlineView: false } } : REVIEW_FILES_DIFF_EDITOR_OPTIONS,
           ),
       ),
       true,

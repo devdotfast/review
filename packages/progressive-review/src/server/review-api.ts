@@ -96,6 +96,7 @@ import {
   parseUpdateReviewCommentInput,
   requestJsonErrorStatus,
 } from "./review-api-parsers";
+import { structuralDiff } from "./structural-diff";
 
 const REVIEW_SUBMIT_HOOK_ENV = "DEV_FAST_REVIEW_SUBMIT_HOOK";
 export const TUTORIAL_QUESTION_SOURCE_WAIT_MS = 5_000;
@@ -391,6 +392,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   app.get("/document-meta", route(documentMeta));
   app.get("/stack", route(reviewStack));
   app.post("/diff-files", route(diffFiles));
+  app.post("/structural-diff", route(structuralDiffRequest));
   app.get("/file-content", route(fileContent));
   app.get("/agent-traces", route(agentTraces));
   app.get("/agent-traces/:sessionId", route(agentTraceDetail));
@@ -967,6 +969,22 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     return reviewApiJsonResponse(200, {
       layers: await resolveReviewStackLayers(current, reviews),
     });
+  }
+
+  async function structuralDiffRequest(
+    context: Context<ReviewHonoEnv>,
+  ): Promise<Response> {
+    const body = parseReviewDiffFilesInput(await readJson(context.req.raw));
+    const target = await resolveScopedDiffTarget(
+      new URL(context.req.url),
+      body.commit,
+    );
+    const result = await structuralDiff({
+      ...target,
+      paths: body.paths,
+      signal: context.req.raw.signal,
+    });
+    return reviewApiJsonResponse(200, { ok: true, ...result });
   }
 
   async function diffFiles(context: Context<ReviewHonoEnv>): Promise<Response> {

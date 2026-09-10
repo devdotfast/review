@@ -1767,3 +1767,14 @@ body
   background: var(--review-comment-accent) !important;
   color: #fff !important;
 }
+
+/* Give commenting and folding separate hit targets in the Files view. */
+.review-files-editor .monaco-editor .margin-view-overlays .cldr:is(
+  .codicon-folding-expanded,
+  .codicon-folding-collapsed,
+  .codicon-folding-manual-expanded,
+  .codicon-folding-manual-collapsed
+) {
+  margin-left: 30px;
+  width: 20px !important;
+}

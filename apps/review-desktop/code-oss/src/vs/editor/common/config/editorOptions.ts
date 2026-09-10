@@ -51,6 +51,8 @@ export const enum EditorAutoIndentStrategy {
  * Configuration options for the editor.
  */
 export interface IEditorOptions {
+	/** @internal Enables folding in the structural diff experiment only. */
+	experimentalDiffFolding?: boolean;
 	/**
 	 * This editor is used inside a diff editor.
 	 */

@@ -217,6 +217,7 @@
 	opacity: 1;
 }
 
+.monaco-editor .inline-original-margin-view-zone,
 .monaco-editor .inline-deleted-margin-view-zone {
 	text-align: right;
 }

@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { projectSourceAlignment } from "../../../../../common/diff/sourceLineAlignment.js";
 import { $, addDisposableListener } from '../../../../../../base/browser/dom.js';
 import { ArrayQueue } from '../../../../../../base/common/arrays.js';
 import { RunOnceScheduler } from '../../../../../../base/common/async.js';
@@ -81,6 +82,8 @@ export class DiffEditorViewZones extends Disposable {
 
 		this._register(this._editors.original.onDidChangeViewZones((_args) => { if (!this._canIgnoreViewZoneUpdateEvent()) { updateImmediately.schedule(); } }));
 		this._register(this._editors.modified.onDidChangeViewZones((_args) => { if (!this._canIgnoreViewZoneUpdateEvent()) { updateImmediately.schedule(); } }));
+		this._register(this._editors.original.onDidChangeHiddenAreas(() => updateImmediately.schedule()));
+		this._register(this._editors.modified.onDidChangeHiddenAreas(() => updateImmediately.schedule()));
 		this._register(this._editors.original.onDidChangeConfiguration((args) => {
 			if (args.hasChanged(EditorOption.wrappingInfo) || args.hasChanged(EditorOption.lineHeight)) { updateImmediately.schedule(); }
 		}));
@@ -100,6 +103,9 @@ export class DiffEditorViewZones extends Disposable {
 			state.read(reader);
 			const renderSideBySide = this._options.renderSideBySide.read(reader);
 			const innerHunkAlignment = renderSideBySide;
+			if (renderSideBySide && diff.sourceLineAlignment) {
+				return computeSourceAlignment(this._editors.original, this._editors.modified, diff.sourceLineAlignment, this._origViewZonesToIgnore, this._modViewZonesToIgnore);
+			}
 			return computeRangeAlignment(
 				this._editors.original,
 				this._editors.modified,
@@ -184,7 +190,7 @@ export class DiffEditorViewZones extends Disposable {
 							if (i > originalModel.getLineCount()) {
 								return { orig: origViewZones, mod: modViewZones };
 							}
-							deletedCodeLineBreaksComputer?.addRequest(i, null);
+							if (this._editors.original._getViewModel()!.coordinatesConverter.getModelLineViewLineCount(i) > 0) deletedCodeLineBreaksComputer?.addRequest(i, null);
 						}
 					}
 				}
@@ -201,13 +207,15 @@ export class DiffEditorViewZones extends Disposable {
 			const mightContainRTL = this._editors.original.getModel()?.mightContainRTL() ?? false;
 			const renderOptions = RenderOptions.fromEditor(this._editors.modified);
 
+			const changeHighlights = this._diffModel.read(reader)?.diff.read(reader)?.changeHighlights;
 			for (const a of alignmentsVal) {
 				if (a.diff && !renderSideBySide && (!this._options.useTrueInlineDiffRendering.read(reader) || !allowsTrueInlineDiffRendering(a.diff))) {
-					if (!a.originalRange.isEmpty) {
+					if (!a.originalRange.isEmpty && a.originalRange.mapToLineArray(l => this._editors.original._getViewModel()!.coordinatesConverter.getModelLineViewLineCount(l)).some(height => height > 0)) {
 						originalModelTokenizationCompleted.read(reader); // Update view-zones once tokenization completes
 
 						const deletedCodeDomNode = document.createElement('div');
-						deletedCodeDomNode.classList.add('view-lines', 'line-delete', 'line-delete-selectable', 'monaco-mouse-cursor-text');
+						deletedCodeDomNode.classList.add('view-lines', 'line-delete-selectable', 'monaco-mouse-cursor-text');
+						if (!changeHighlights) deletedCodeDomNode.classList.add('line-delete');
 						const originalModel = this._editors.original.getModel()!;
 						// `a.originalRange` can be out of bound when the diff has not been updated yet.
 						// In this case, we do an early return.
@@ -215,27 +223,50 @@ export class DiffEditorViewZones extends Disposable {
 						if (a.originalRange.endLineNumberExclusive - 1 > originalModel.getLineCount()) {
 							return { orig: origViewZones, mod: modViewZones };
 						}
+						const visibleOriginalLines = a.originalRange.mapToLineArray(l => l).filter(l => this._editors.original._getViewModel()!.coordinatesConverter.getModelLineViewLineCount(l) > 0);
 						const source = new LineSource(
-							a.originalRange.mapToLineArray(l => originalModel.tokenization.getLineTokens(l)),
-							a.originalRange.mapToLineArray(_ => lineBreakData[lineBreakDataIdx++]),
+							visibleOriginalLines.map(l => originalModel.tokenization.getLineTokens(l)),
+							visibleOriginalLines.map(_ => lineBreakData[lineBreakDataIdx++]),
 							mightContainNonBasicASCII,
 							mightContainRTL,
 						);
 						const decorations: InlineDecoration[] = [];
-						for (const i of a.diff.innerChanges || []) {
-							decorations.push(new InlineDecoration(
-								i.originalRange.delta(-(a.diff.original.startLineNumber - 1)),
-								diffDeleteDecoration.className!,
-								InlineDecorationType.Regular
-							));
+						if (changeHighlights) {
+							// Source lines can be hidden by folds. Map paint into the compact
+							// deleted-code buffer rather than treating it as contiguous source.
+							const visibleRows = new Map(visibleOriginalLines.map((line, i) => [line, i + 1]));
+							for (const highlight of changeHighlights.original) {
+								for (let line = highlight.startLineNumber; line <= highlight.endLineNumber; line++) {
+									const row = visibleRows.get(line);
+									if (row === undefined) continue;
+									const start = line === highlight.startLineNumber ? highlight.startColumn : 1;
+									const end = line === highlight.endLineNumber ? highlight.endColumn : originalModel.getLineMaxColumn(line);
+									if (end > start) decorations.push(new InlineDecoration(new Range(row, start, row, end), diffDeleteDecoration.className!, InlineDecorationType.Regular));
+								}
+							}
+						} else {
+							for (const i of a.diff.innerChanges || []) {
+								decorations.push(new InlineDecoration(i.originalRange.delta(-(a.diff.original.startLineNumber - 1)), diffDeleteDecoration.className!, InlineDecorationType.Regular));
+							}
 						}
-						const result = renderLines(source, renderOptions, decorations, deletedCodeDomNode);
+						const result = renderLines(source, renderOptions, decorations, deletedCodeDomNode, false, changeHighlights !== undefined);
+						if (changeHighlights) {
+							const novelLines = new Set(changeHighlights.originalLines);
+							const viewLines = deletedCodeDomNode.querySelectorAll('.view-line');
+							let viewRow = 0;
+							for (let i = 0; i < visibleOriginalLines.length; i++) {
+								for (let wrappedRow = 0; wrappedRow < result.viewLineCounts[i]; wrappedRow++, viewRow++) {
+									if (novelLines.has(visibleOriginalLines[i])) viewLines[viewRow].classList.add('line-delete');
+
+								}
+							}
+						}
 
 						const marginDomNode = document.createElement('div');
-						marginDomNode.className = 'inline-deleted-margin-view-zone';
+						marginDomNode.className = changeHighlights ? 'inline-original-margin-view-zone' : 'inline-deleted-margin-view-zone';
 						applyFontInfo(marginDomNode, renderOptions.fontInfo);
 
-						if (this._options.renderIndicators.read(reader)) {
+						if (!changeHighlights && this._options.renderIndicators.read(reader)) {
 							for (let i = 0; i < result.heightInLines; i++) {
 								const marginElement = document.createElement('div');
 								marginElement.className = `delete-sign ${ThemeIcon.asClassName(diffRemoveIcon)}`;
@@ -257,6 +288,7 @@ export class DiffEditorViewZones extends Disposable {
 								this._editors.original.getModel()!,
 								this._contextMenuService,
 								this._clipboardService,
+								visibleOriginalLines,
 							)
 						);
 
@@ -265,7 +297,7 @@ export class DiffEditorViewZones extends Disposable {
 							// Account for wrapped lines in the (collapsed) original editor (which doesn't wrap lines).
 							if (count > 1) {
 								origViewZones.push({
-									afterLineNumber: a.originalRange.startLineNumber + i,
+									afterLineNumber: visibleOriginalLines[i],
 									domNode: createFakeLinesDiv(),
 									heightInPx: (count - 1) * modLineHeight,
 									showInHiddenAreas: true,
@@ -287,7 +319,7 @@ export class DiffEditorViewZones extends Disposable {
 					}
 
 					const marginDomNode = document.createElement('div');
-					marginDomNode.className = 'gutter-delete';
+					marginDomNode.className = changeHighlights ? '' : 'gutter-delete';
 
 					origViewZones.push({
 						afterLineNumber: a.originalRange.endLineNumberExclusive - 1,
@@ -656,4 +688,18 @@ export function allowsTrueInlineDiffRendering(mapping: DetailedLineRangeMapping)
 
 export function rangeIsSingleLine(range: Range): boolean {
 	return range.startLineNumber === range.endLineNumber;
+}
+
+/** Project existing correspondence through folding and wrapping, without rematching. */
+function computeSourceAlignment(original: CodeEditorWidget, modified: CodeEditorWidget, rows: readonly (readonly [number | null, number | null])[], originalZonesToIgnore: ReadonlySet<string>, modifiedZonesToIgnore: ReadonlySet<string>): ILineRangeAlignment[] {
+	const leftView = original._getViewModel()!.coordinatesConverter;
+	const rightView = modified._getViewModel()!.coordinatesConverter;
+	const leftHeight = original.getOption(EditorOption.lineHeight);
+	const rightHeight = modified.getOption(EditorOption.lineHeight);
+	const leftExtra = new Map(getAdditionalLineHeights(original, originalZonesToIgnore).map(info => [info.lineNumber, info.heightInPx]));
+	const rightExtra = new Map(getAdditionalLineHeights(modified, modifiedZonesToIgnore).map(info => [info.lineNumber, info.heightInPx]));
+	return projectSourceAlignment(rows,
+		l => leftView.getModelLineViewLineCount(l + 1) === 0 ? 0 : leftHeight + (leftExtra.get(l + 1) ?? 0),
+		r => rightView.getModelLineViewLineCount(r + 1) === 0 ? 0 : rightHeight + (rightExtra.get(r + 1) ?? 0),
+	).filter(s => s.leftHeight !== s.rightHeight).map(s => ({ originalRange: new LineRange(s.leftStart + 1, s.leftEnd + 1), modifiedRange: new LineRange(s.rightStart + 1, s.rightEnd + 1), originalHeightInPx: s.leftHeight, modifiedHeightInPx: s.rightHeight, diff: undefined }));
 }

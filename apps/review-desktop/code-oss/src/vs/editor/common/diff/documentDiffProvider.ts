@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { CancellationToken } from '../../../base/common/cancellation.js';
+import { IRange } from '../core/range.js';
 import { Event } from '../../../base/common/event.js';
 import { MovedText } from './linesDiffComputer.js';
 import { DetailedLineRangeMapping } from './rangeMapping.js';
@@ -54,6 +55,18 @@ export interface IDocumentDiffProviderOptions {
  * @internal
  */
 export interface IDocumentDiff {
+	/** Authoritative change paint, independent of replacement ranges used for layout.
+	 * When present (even empty), replaces inferred line and character highlighting. */
+	readonly changeHighlights?: {
+		readonly original: readonly IRange[];
+		readonly modified: readonly IRange[];
+		/** One-based source lines receiving a lighter whole-line background. */
+		readonly originalLines?: readonly number[];
+		readonly modifiedLines?: readonly number[];
+	};
+	/** Optional authoritative zero-based source row correspondence. Null denotes padding. */
+	readonly contextGaps?: readonly { originalStart: number; modifiedStart: number; originalCount: number; modifiedCount: number }[];
+	readonly sourceLineAlignment?: readonly (readonly [number | null, number | null])[];
 	/**
 	 * If true, both text models are identical (byte-wise).
 	 */

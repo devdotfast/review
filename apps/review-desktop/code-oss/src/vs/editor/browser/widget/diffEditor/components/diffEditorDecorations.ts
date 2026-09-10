@@ -41,6 +41,17 @@ export class DiffEditorDecorations extends Disposable {
 
 		const originalDecorations: IModelDeltaDecoration[] = [];
 		const modifiedDecorations: IModelDeltaDecoration[] = [];
+		if (diff.changeHighlights) {
+			for (const line of diff.changeHighlights.originalLines ?? []) {
+				originalDecorations.push({ range: { startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 1 }, options: diffLineDeleteDecorationBackground });
+			}
+			for (const line of diff.changeHighlights.modifiedLines ?? []) {
+				modifiedDecorations.push({ range: { startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 1 }, options: diffLineAddDecorationBackground });
+			}
+			for (const range of diff.changeHighlights.original) originalDecorations.push({ range, options: diffDeleteDecoration });
+			for (const range of diff.changeHighlights.modified) modifiedDecorations.push({ range, options: diffAddDecoration });
+			return { originalDecorations, modifiedDecorations };
+		}
 		if (!movedTextToCompare) {
 			for (const m of diff.mappings) {
 				if (!m.lineRangeMapping.original.isEmpty) {

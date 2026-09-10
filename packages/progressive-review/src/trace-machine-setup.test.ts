@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -123,5 +129,35 @@ describe("trace machine capture switch", () => {
       enabled: true,
       storageMode: "hosted",
     });
+  });
+
+  it("ignores a legacy capture setting once hosted is selected and switched off", async () => {
+    const dir = path.join(home, ".config", "dev-trace");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      path.join(dir, "env"),
+      'TRACE_R2_ENDPOINT="https://s3.example.invalid"\nTRACE_R2_BUCKET="b"\nTRACE_R2_ACCESS_KEY_ID="k"\nTRACE_R2_SECRET_ACCESS_KEY="s"\n',
+    );
+    writeFileSync(
+      path.join(dir, "settings.json"),
+      JSON.stringify({
+        version: 1,
+        enabled: true,
+        autoActivateRepositories: true,
+      }),
+    );
+    writeConfig(JSON.stringify({ version: 2, "current-store": "hosted" }));
+    expect(await traceMachineEnabled({ homeDir: home, env })).toBe(true);
+    await disableTraceMachine({ homeDir: home, env });
+    expect(await traceMachineEnabled({ homeDir: home, env })).toBe(false);
+    expect(await traceMachineStatus({ homeDir: home, env })).toMatchObject({
+      enabled: false,
+      autoActivateRepositories: false,
+      storageMode: "hosted",
+    });
+    // The legacy file is untouched; selecting s3 again restores it.
+    expect(
+      JSON.parse(readFileSync(path.join(dir, "settings.json"), "utf8")).enabled,
+    ).toBe(true);
   });
 });

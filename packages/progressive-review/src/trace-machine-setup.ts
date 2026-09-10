@@ -147,20 +147,19 @@ export async function traceMachineStatus(
   const setup = selection.s3;
   const credentials = setup.credentials;
   const { settings, source } = await readCaptureSettings(setup, settingsPath);
-  // Capture eligibility has one owner. Direct storage keeps the legacy
-  // machine switch (settings file or profile capture flag). An explicit
-  // hosted selection is the machine-level opt-in; per-repository consent
-  // and session provenance gate every hosted publication after that.
+  // Capture eligibility has one owner per store. With s3 selected the
+  // legacy machine switch (settings file or profile capture flag) decides.
+  // With hosted selected only the hosted switch decides; a legacy setting
+  // left behind by a bucket install never re-enables hosted uploads.
+  const hostedSelected = selection.mode === "hosted";
   const hosted =
-    selection.mode === "hosted" &&
-    hostedCaptureEnabled(selection.config.config);
+    hostedSelected && hostedCaptureEnabled(selection.config.config);
+  const s3Enabled = !hostedSelected && settings?.enabled === true;
   const status: TraceMachineStatus = {
-    enabled: hosted || settings?.enabled === true,
-    configured: hosted || credentials !== null,
+    enabled: hosted || s3Enabled,
+    configured: hostedSelected || credentials !== null,
     autoActivateRepositories:
-      hosted ||
-      (settings?.enabled === true &&
-        settings.autoActivateRepositories === true),
+      hosted || (s3Enabled && settings?.autoActivateRepositories === true),
     envPath,
     settingsPath,
     configPath: setup.configPath,

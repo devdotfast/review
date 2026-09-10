@@ -16,12 +16,12 @@ import { promisify } from "node:util";
 import { REVIEW_SCHEMA_VERSION } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { sealLegacyReviewCandidate } from "./fixtures/legacy-reviews/legacy-review-git";
 import {
   ReviewHomeScanError,
   createReviewDir,
   findReview,
   listReviews,
-  sealReviewCandidate,
 } from "./review-home";
 import { startLifecycleTestServer } from "./review-lifecycle-test-utils";
 import { runReviewScaffold } from "./review-scaffold";
@@ -124,7 +124,7 @@ describe("scoped review diagnostics", () => {
         );
         badRecord = {
           ...badRecord,
-          presentedDocumentRevision: await sealReviewCandidate(
+          presentedDocumentRevision: await sealLegacyReviewCandidate(
             other.stored.dir,
             "Broken fixture",
           ),

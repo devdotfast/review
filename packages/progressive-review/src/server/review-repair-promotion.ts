@@ -36,6 +36,7 @@ import {
   type SourceContext,
   parsePublicationRecord,
   publicationSourceContext,
+  reviewWithPublicationContext,
 } from "../review-publication-record";
 import type { ReviewRepairCandidate } from "../review-repair-preparation";
 import {
@@ -56,7 +57,6 @@ import {
 } from "../review-thread-store-backend";
 import type { ReviewSoftwareMapBundle } from "../software-map-bundle";
 import { ReviewServerError } from "./http-json";
-import { reviewWithPublicationContext } from "./publish-stage";
 import type {
   ReviewSessionArtifactInput,
   ReviewSessionArtifactMap,

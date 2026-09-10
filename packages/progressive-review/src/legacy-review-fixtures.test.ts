@@ -288,7 +288,7 @@ describe.each(fixtures)("legacy fixture $name", (fixture) => {
 
   it("migrates once when two readers race", async () => {
     const { dir } = await extract(fixture.name);
-    const seal = vi.spyOn(reviewVcs, "seal");
+    const sealedHead = await reviewVcs.resolve(dir, "HEAD");
     const [first, second] = await Promise.all([
       readStoredReview(dir),
       readStoredReview(dir),
@@ -296,7 +296,7 @@ describe.each(fixtures)("legacy fixture $name", (fixture) => {
     expect("error" in first).toBe(false);
     expect(first).toEqual(second);
     // Importing replays the sealed history; it never writes to it.
-    expect(seal).not.toHaveBeenCalled();
+    expect(await reviewVcs.resolve(dir, "HEAD")).toBe(sealedHead);
     expect(listPublications(dir, "document")).toHaveLength(1);
     expect(readLegacyArtifactImport(dir)).toMatchObject({ versions: 1 });
   });

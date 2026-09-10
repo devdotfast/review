@@ -188,6 +188,12 @@ async function migrateStoredReviewLocked(
     next,
   });
   if (legacySourceSession) await clearSourceMigrationState(input);
+  // The private Git materialization cache is dead once the artifacts and rows
+  // are committed; every read now serves from the store.
+  await rm(path.join(input.reviewDir, ".build"), {
+    recursive: true,
+    force: true,
+  });
   input.log?.(
     `Migrated Review ${imported.uuid} to schema ${REVIEW_SCHEMA_VERSION} with ${plan.versions} imported version(s).`,
   );
@@ -307,12 +313,6 @@ export async function migrateStoredReviewData(input: {
           input.log?.(
             `Imported ${outcome.importedVersions} published version(s) of Review ${entry.name}.`,
           );
-        // The private Git materialization cache is dead once the artifacts
-        // and rows are committed; every read now serves from the store.
-        await rm(path.join(reviewDir, ".build"), {
-          recursive: true,
-          force: true,
-        });
       }
       total.documents += 1;
     } catch (error) {

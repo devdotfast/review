@@ -32,13 +32,10 @@ import { z } from "zod";
 
 import { parseAuthoringSessionKey } from "./authoring-session";
 import { snapshotReviewTree } from "./fixtures/legacy-reviews/legacy-review-fixture";
+import { materializeReviewRevision } from "./legacy-sealed-artifacts";
 import { readReviewDocumentBundle } from "./review-bundle";
 import { isDerivedReviewPath } from "./review-derived-paths";
-import {
-  materializeReviewRevision,
-  parseAnyStoredReviewRecord,
-  readStoredReview,
-} from "./review-home";
+import { parseAnyStoredReviewRecord, readStoredReview } from "./review-home";
 import {
   REVIEW_THREAD_DB_SCHEMA_VERSION,
   closeAllReviewThreadStores,

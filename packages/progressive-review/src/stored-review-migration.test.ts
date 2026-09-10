@@ -18,6 +18,8 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { snapshotReviewTree } from "./fixtures/legacy-reviews/legacy-review-fixture";
+import { sealLegacyReviewCandidate } from "./fixtures/legacy-reviews/legacy-review-git";
+import { materializeReviewRevision } from "./legacy-sealed-artifacts";
 import {
   readReviewDocumentArtifact,
   readReviewSoftwareMapArtifact,
@@ -30,10 +32,8 @@ import {
 } from "./review-bundle";
 import {
   createReviewDir,
-  materializeReviewRevision,
   parseStoredReviewRecord,
   readStoredReview,
-  sealReviewCandidate,
 } from "./review-home";
 import { withReviewMutationLock } from "./review-mutation-lock";
 import {
@@ -97,7 +97,10 @@ describe("migrateStoredReviewData", () => {
   it("does not replace live files when the artifact import fails", async () => {
     const { created } = await storedReview();
     await writeLegacyDocument(created.dir);
-    const revision = await sealReviewCandidate(created.dir, "Legacy document");
+    const revision = await sealLegacyReviewCandidate(
+      created.dir,
+      "Legacy document",
+    );
     await writeFile(
       path.join(created.dir, "review.json"),
       JSON.stringify({
@@ -139,7 +142,7 @@ describe("migrateStoredReviewData", () => {
         `Sealed document ${name}\n`,
       );
     }
-    const documentRevision = await sealReviewCandidate(
+    const documentRevision = await sealLegacyReviewCandidate(
       created.dir,
       "Legacy document only",
     );
@@ -150,7 +153,7 @@ describe("migrateStoredReviewData", () => {
     for (const name of sourceFiles) {
       await writeFile(path.join(created.dir, name), `Sealed map ${name}\n`);
     }
-    const mapRevision = await sealReviewCandidate(
+    const mapRevision = await sealLegacyReviewCandidate(
       created.dir,
       "Legacy independent map",
     );
@@ -167,7 +170,7 @@ describe("migrateStoredReviewData", () => {
     for (const name of sourceFiles) {
       await writeFile(path.join(created.dir, name), `Unpublished ${name}\n`);
     }
-    const seal = vi.spyOn(reviewVcs, "seal");
+    const sealedHead = await reviewVcs.resolve(created.dir, "HEAD");
     const blockers: string[] = [];
     await migrateStoredReviewData({
       reviewHome,
@@ -175,7 +178,7 @@ describe("migrateStoredReviewData", () => {
     });
     expect(blockers).toEqual([]);
     // Importing replays the sealed history; it never adds to it.
-    expect(seal).not.toHaveBeenCalled();
+    expect(await reviewVcs.resolve(created.dir, "HEAD")).toBe(sealedHead);
     const current = await readReviewRecord(created.dir);
     expect(current.baseRef).toBe("unpublished-branch");
     // Each sealed commit keeps its identity as its publication ID.
@@ -215,9 +218,12 @@ describe("migrateStoredReviewData", () => {
         baseCommit: sourceCommit,
       }),
     );
-    const mapRevision = await sealReviewCandidate(created.dir, "JSON map");
+    const mapRevision = await sealLegacyReviewCandidate(
+      created.dir,
+      "JSON map",
+    );
     await writeLegacyDocument(created.dir);
-    const documentRevision = await sealReviewCandidate(
+    const documentRevision = await sealLegacyReviewCandidate(
       created.dir,
       "Legacy document",
     );
@@ -254,7 +260,10 @@ describe("migrateStoredReviewData", () => {
       baseCommit: sourceCommit,
     });
     await rm(path.join(created.dir, ".bundle/software-map/base-map.js"));
-    const revision = await sealReviewCandidate(created.dir, "Missing base map");
+    const revision = await sealLegacyReviewCandidate(
+      created.dir,
+      "Missing base map",
+    );
     await writeFile(
       path.join(created.dir, "review.json"),
       JSON.stringify({
@@ -281,7 +290,10 @@ describe("migrateStoredReviewData", () => {
   it("rejects a concurrent lifecycle change without restoring over it", async () => {
     const { created, reviewHome } = await storedReview();
     await writeLegacyDocument(created.dir);
-    const revision = await sealReviewCandidate(created.dir, "Legacy document");
+    const revision = await sealLegacyReviewCandidate(
+      created.dir,
+      "Legacy document",
+    );
     const original = {
       ...created.review,
       schemaVersion: 4,
@@ -344,7 +356,7 @@ describe("migrateStoredReviewData", () => {
       await writeLegacyDocument(created.dir);
       await rm(path.join(created.dir, "review.mdx"));
       await rm(path.join(created.dir, "data.ts"));
-      const revision = await sealReviewCandidate(
+      const revision = await sealLegacyReviewCandidate(
         created.dir,
         "Exact legacy document",
       );
@@ -404,7 +416,10 @@ describe("migrateStoredReviewData", () => {
   it("preserves every record and candidate byte and private ref on a failed import", async () => {
     const { created, reviewHome } = await storedReview();
     await writeLegacyDocument(created.dir);
-    const revision = await sealReviewCandidate(created.dir, "Legacy document");
+    const revision = await sealLegacyReviewCandidate(
+      created.dir,
+      "Legacy document",
+    );
     await writeFile(
       path.join(created.dir, "review.json"),
       JSON.stringify({
@@ -440,7 +455,7 @@ describe("migrateStoredReviewData", () => {
     await writeLegacyDocument(created.dir, {
       code: 'import { jsx } from "review-doc-runtime"; throw new Error("broken sealed document");',
     });
-    const revision = await sealReviewCandidate(
+    const revision = await sealLegacyReviewCandidate(
       created.dir,
       "Broken sealed document",
     );
@@ -661,7 +676,7 @@ describe("migrateStoredReviewData", () => {
 
   it("imports a schema-4 legacy map independently and skips artifact work on a repeated sweep", async () => {
     const { created, reviewHome, sourceCommit } = await storedReview();
-    const documentRevision = await sealReviewCandidate(
+    const documentRevision = await sealLegacyReviewCandidate(
       created.dir,
       "Published Review document",
     );
@@ -669,7 +684,7 @@ describe("migrateStoredReviewData", () => {
       baseCommit: sourceCommit,
       headCommit: sourceCommit,
     });
-    const legacyMapRevision = await sealReviewCandidate(
+    const legacyMapRevision = await sealLegacyReviewCandidate(
       created.dir,
       "Published legacy software map",
     );
@@ -694,7 +709,6 @@ describe("migrateStoredReviewData", () => {
     const migratedMapRevision = migrated.presentedSoftwareMapRevision;
     const before = await snapshotReviewTree(created.dir);
     const materialize = vi.spyOn(reviewVcs, "materialize");
-    const seal = vi.spyOn(reviewVcs, "seal");
     const legacyRepos = path.join(reviewHome, "repos");
     await mkdir(legacyRepos);
     await writeFile(path.join(legacyRepos, "legacy-cache"), "retired");
@@ -705,7 +719,6 @@ describe("migrateStoredReviewData", () => {
       droppedReviews: 0,
     });
     expect(materialize).not.toHaveBeenCalled();
-    expect(seal).not.toHaveBeenCalled();
     expect(await snapshotReviewTree(created.dir)).toEqual(before);
     await expect(stat(legacyRepos)).rejects.toMatchObject({ code: "ENOENT" });
     expect(
@@ -715,7 +728,7 @@ describe("migrateStoredReviewData", () => {
 
   it("leaves a current valid JSON map revision unchanged", async () => {
     const { created, reviewHome, sourceCommit } = await storedReview();
-    const documentRevision = await sealReviewCandidate(
+    const documentRevision = await sealLegacyReviewCandidate(
       created.dir,
       "Published Review document",
     );
@@ -731,7 +744,7 @@ describe("migrateStoredReviewData", () => {
         baseCommit: sourceCommit,
       }),
     );
-    const mapRevision = await sealReviewCandidate(
+    const mapRevision = await sealLegacyReviewCandidate(
       created.dir,
       "Published JSON software map",
     );
@@ -848,7 +861,10 @@ describe("migrateStoredReview", () => {
   it("upgrades one schema-4 review in place and is a byte-level no-op on repeat", async () => {
     const { created } = await storedReview();
     await writeLegacyDocument(created.dir);
-    const revision = await sealReviewCandidate(created.dir, "Legacy document");
+    const revision = await sealLegacyReviewCandidate(
+      created.dir,
+      "Legacy document",
+    );
     await writeFile(
       path.join(created.dir, "review.json"),
       JSON.stringify({
@@ -883,11 +899,9 @@ describe("migrateStoredReview", () => {
 
     const before = await snapshotMigrationFiles(created.dir);
     const materialize = vi.spyOn(reviewVcs, "materialize");
-    const seal = vi.spyOn(reviewVcs, "seal");
     const second = await migrateStoredReview({ reviewDir: created.dir });
     expect(second.migrated).toBe(false);
     expect(materialize).not.toHaveBeenCalled();
-    expect(seal).not.toHaveBeenCalled();
     expect(await snapshotMigrationFiles(created.dir)).toEqual(before);
   });
 
@@ -896,7 +910,10 @@ describe("migrateStoredReview", () => {
     await writeLegacyDocument(created.dir, {
       code: 'import { jsx } from "review-doc-runtime"; throw new Error("broken sealed document");',
     });
-    const revision = await sealReviewCandidate(created.dir, "Broken document");
+    const revision = await sealLegacyReviewCandidate(
+      created.dir,
+      "Broken document",
+    );
     const legacy = JSON.stringify({
       ...created.review,
       schemaVersion: 4,
@@ -1057,7 +1074,7 @@ async function sealSchema2Candidate(
   message: string,
 ): Promise<string> {
   await writeSchema2Record(reviewDir, null);
-  const revision = await sealReviewCandidate(reviewDir, message);
+  const revision = await sealLegacyReviewCandidate(reviewDir, message);
   await writeSchema2Record(reviewDir, revision);
   return revision;
 }
@@ -1163,7 +1180,7 @@ describe("legacy artifact import on first read", () => {
   it("imports a revision a repair sealed after the first import", async () => {
     const { created } = await storedReview();
     await writeLegacyDocument(created.dir);
-    const first = await sealReviewCandidate(
+    const first = await sealLegacyReviewCandidate(
       created.dir,
       "Review publish candidate",
     );
@@ -1199,7 +1216,7 @@ describe("legacy artifact import on first read", () => {
         softwareModels: [],
       }),
     );
-    const repaired = await sealReviewCandidate(
+    const repaired = await sealLegacyReviewCandidate(
       created.dir,
       "Repair current Review document",
     );
@@ -1235,21 +1252,21 @@ describe("legacy artifact import on first read", () => {
     // A historical software map whose sealed record names no head commit
     // cannot be pinned into a row; the import skips it and warns.
     await writeSealedRecord(created.dir, { sourceCommit: null });
-    const unpinnedMap = await sealReviewCandidate(
+    const unpinnedMap = await sealLegacyReviewCandidate(
       created.dir,
       "Publish Review software map",
     );
     await writeSealedRecord(created.dir, {
       presentedSoftwareMapRevision: unpinnedMap,
     });
-    const first = await sealReviewCandidate(
+    const first = await sealLegacyReviewCandidate(
       created.dir,
       "Review publish candidate",
     );
     await writeSealedRecord(created.dir, {
       presentedSoftwareMapRevision: null,
     });
-    const presented = await sealReviewCandidate(
+    const presented = await sealLegacyReviewCandidate(
       created.dir,
       "Review publish candidate",
     );
@@ -1286,7 +1303,7 @@ describe("legacy artifact import on first read", () => {
   it("imports every publish candidate as a publication row", async () => {
     const { created } = await storedReview();
     await writeLegacyDocument(created.dir);
-    const first = await sealReviewCandidate(
+    const first = await sealLegacyReviewCandidate(
       created.dir,
       "Review publish candidate",
     );
@@ -1294,7 +1311,7 @@ describe("legacy artifact import on first read", () => {
       code: `import { createActiveReviewDocument, jsx } from "review-doc-runtime";
 export default createActiveReviewDocument({ title: "Second", routePath: "/", filePath: "review.mdx", modelNames: [], models: {}, Component: () => jsx("h1", { children: "Second" }), isDefault: true });`,
     });
-    const second = await sealReviewCandidate(
+    const second = await sealLegacyReviewCandidate(
       created.dir,
       "Review publish candidate",
     );

@@ -1,13 +1,14 @@
-import fs from "node:fs";
+import fs, { existsSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
+import path from "node:path";
 
 import * as git from "isomorphic-git";
 
 /**
- * Test-only reproduction of `reviewVcs.init`/`seal` (`../../review-vcs.ts`).
- * Fixtures use this instead of the production writers so Task 13 can delete
- * `reviewVcs.init`/`seal` without breaking every test that only needs a
- * Git-era review directory to read back through `reviewVcs.log`/`resolve`/
- * `materialize` — none of which this module touches.
+ * Test-only reproduction of the private-Git writers Reviews once had. Nothing
+ * in production seals a Review any more, so tests that need a Git-era review
+ * directory to read back through `reviewVcs.log`/`resolve`/`materialize` build
+ * one here — none of which this module touches.
  */
 const REVIEW_BRANCH = "refs/heads/main";
 const REVIEW_AUTHOR = {
@@ -15,8 +16,41 @@ const REVIEW_AUTHOR = {
   email: "review@dev.fast",
 };
 
+/** The `.gitignore` `createReviewDir` wrote in the Git era: the thread database
+ * and its sqlite sidecars, plus `.build/` materializations, had to stay out of
+ * sealed revisions. */
+const LEGACY_REVIEW_GITIGNORE = [
+  ".build/",
+  "review.db",
+  "review.db-wal",
+  "review.db-shm",
+  "",
+].join("\n");
+
 export async function initLegacyReviewRepo(dir: string): Promise<void> {
   await git.init({ fs, dir, defaultBranch: "main" });
+}
+
+/**
+ * Seals a Review directory the way the Git era did while `createReviewDir`
+ * still initialized a repository: the first seal creates the repository and its
+ * `.gitignore`, so a test that starts from `createReviewDir` still produces a
+ * Git-era review tree to import or repair from.
+ */
+export async function sealLegacyReviewCandidate(
+  dir: string,
+  message: string,
+  options: { timestamp?: number } = {},
+): Promise<string> {
+  if (!existsSync(path.join(dir, ".git"))) {
+    await initLegacyReviewRepo(dir);
+    await writeFile(
+      path.join(dir, ".gitignore"),
+      LEGACY_REVIEW_GITIGNORE,
+      "utf8",
+    );
+  }
+  return sealLegacyReviewCommit(dir, message, options);
 }
 
 export async function sealLegacyReviewCommit(

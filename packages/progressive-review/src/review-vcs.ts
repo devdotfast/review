@@ -5,10 +5,6 @@ import path from "node:path";
 import * as git from "isomorphic-git";
 
 const REVIEW_BRANCH = "refs/heads/main";
-const REVIEW_AUTHOR = {
-  name: "dev.fast Review",
-  email: "review@dev.fast",
-};
 const GIT_OBJECT_ID_PATTERN = /^[0-9a-f]{40}$/i;
 
 export interface ReviewVcsLogEntry {
@@ -18,9 +14,9 @@ export interface ReviewVcsLogEntry {
   timestamp: number;
 }
 
+/** Read-only access to the private Git repository Reviews created before the
+ * artifact store still carry. Nothing writes one any more. */
 export interface ReviewVcs {
-  init(dir: string): Promise<void>;
-  seal(dir: string, message: string): Promise<string>;
   log(dir: string): Promise<ReviewVcsLogEntry[]>;
   resolve(dir: string, revision: string): Promise<string>;
   materialize(
@@ -31,25 +27,6 @@ export interface ReviewVcs {
 }
 
 export const reviewVcs: ReviewVcs = {
-  async init(dir) {
-    await git.init({ fs, dir, defaultBranch: "main" });
-  },
-
-  async seal(dir, message) {
-    await stageWorkingTree(dir);
-    const parent = await resolveHead(dir);
-    const timestamp = Math.floor(Date.now() / 1_000);
-    return git.commit({
-      fs,
-      dir,
-      ref: REVIEW_BRANCH,
-      parent: parent ? [parent] : [],
-      message,
-      author: { ...REVIEW_AUTHOR, timestamp },
-      committer: { ...REVIEW_AUTHOR, timestamp },
-    });
-  },
-
   async log(dir) {
     let commits: Awaited<ReturnType<typeof git.log>>;
     try {
@@ -114,25 +91,6 @@ export const reviewVcs: ReviewVcs = {
     });
   },
 };
-
-async function stageWorkingTree(dir: string): Promise<void> {
-  const rows = await git.statusMatrix({ fs, dir });
-  await Promise.all(
-    rows.map(([filepath, , worktreeStatus]) =>
-      worktreeStatus === 0
-        ? git.remove({ fs, dir, filepath })
-        : git.add({ fs, dir, filepath }),
-    ),
-  );
-}
-
-async function resolveHead(dir: string): Promise<string | null> {
-  try {
-    return await git.resolveRef({ fs, dir, ref: "HEAD" });
-  } catch {
-    return null;
-  }
-}
 
 async function resolveCommit(dir: string, revision: string): Promise<string> {
   const commitId = GIT_OBJECT_ID_PATTERN.test(revision)

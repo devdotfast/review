@@ -8,6 +8,7 @@ import {
 } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
+import type { StoredReview } from "./review-home";
 import { stableJson } from "./review-mutation-lock";
 
 /** Bumped whenever the publication record shape changes incompatibly. */
@@ -132,6 +133,24 @@ export function publicationSourceContext(
     baseCommit: record.baseCommit,
     sourceCommit: record.sourceCommit,
     sourceIdentity: record.sourceIdentity,
+  };
+}
+
+/** A publication presents the code it was published against, not the pins the
+ * Review carries now. */
+export function reviewWithPublicationContext(
+  stored: StoredReview,
+  context: SourceContext,
+): StoredReview {
+  return {
+    ...stored,
+    review: {
+      ...stored.review,
+      baseRef: context.baseRef,
+      baseCommit: context.baseCommit,
+      sourceCommit: context.sourceCommit,
+      sourceIdentity: context.sourceIdentity,
+    },
   };
 }
 

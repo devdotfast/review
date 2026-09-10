@@ -13,6 +13,7 @@ import {
 import { isMissingFileError } from "./native-agent/transcript-json";
 import { evaluateReviewDocumentBundleForPublish } from "./review-publish-evaluate";
 import { SOFTWARE_MAP_NOTES_REF } from "./review-storage";
+import { reviewVcs } from "./review-vcs";
 import {
   type ReviewSoftwareMapBundle,
   bundleReviewSoftwareMap,
@@ -22,6 +23,18 @@ import {
   type NormalizedSoftwareModel,
   isNormalizedSoftwareModel,
 } from "./software-map-model";
+
+/** Copies out the tree a Git-era Review sealed. The private repository is only
+ * ever read: nothing writes one any more, and only Reviews created before the
+ * artifact store have one to read. */
+export async function materializeReviewRevision(
+  dir: string,
+  revision: string,
+  destinationPath: string,
+): Promise<void> {
+  const resolvedRevision = await reviewVcs.resolve(dir, revision);
+  await reviewVcs.materialize(dir, resolvedRevision, destinationPath);
+}
 
 /** Evaluates the JavaScript document bundle sealed into a materialized review
  * revision. The oldest presentations kept it directly in `.bundle`; later ones

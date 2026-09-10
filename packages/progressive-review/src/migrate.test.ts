@@ -7,6 +7,7 @@ import { REVIEW_SCHEMA_VERSION } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { collectingWritable } from "./cli-output";
+import { sealLegacyReviewCandidate } from "./fixtures/legacy-reviews/legacy-review-git";
 import {
   type ReviewPackageManager,
   discardLegacyReviewHistories,
@@ -16,7 +17,7 @@ import {
   removeLegacyReviewSkills,
   runReviewMigration,
 } from "./migrate";
-import { createReviewDir, sealReviewCandidate } from "./review-home";
+import { createReviewDir } from "./review-home";
 import {
   deleteReviewState,
   listPublications,
@@ -60,7 +61,7 @@ describe("review migrate apply", () => {
       `import { jsx, createActiveReviewDocument } from "review-doc-runtime";
       export default createActiveReviewDocument({ title: "Exact", filePath: "review.mdx", routePath: "/", modelNames: [], models: {}, Component: () => jsx("h1", { children: "Exact" }) });`,
     );
-    const revision = await sealReviewCandidate(
+    const revision = await sealLegacyReviewCandidate(
       reviewDir,
       "Legacy current publication",
     );
@@ -576,7 +577,7 @@ async function legacyPublishedReview(): Promise<{
 }> {
   const { reviewHome, reviewDir } = await canonicalReview();
   await writeLegacyDocument(reviewDir);
-  const revision = await sealReviewCandidate(
+  const revision = await sealLegacyReviewCandidate(
     reviewDir,
     "Review publish candidate",
   );

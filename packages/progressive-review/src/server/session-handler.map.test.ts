@@ -10,10 +10,10 @@ import {
   writeReviewSoftwareMapBundle,
 } from "../software-map-bundle";
 import { defineSoftwareMap } from "../software-map-model";
-import { legacySessionArtifactFromBuildDir } from "./review-session-artifact";
 import { createReviewSessionHandler } from "./session-handler";
 import {
   sessionArtifactFixture,
+  sessionArtifactFromBundleDir,
   unusedAgentServices,
 } from "./session-handler-test-utils";
 
@@ -43,10 +43,10 @@ describe("createReviewSessionHandler", () => {
       ...unusedAgentServices,
       rootPath,
       toolingRoot: rootPath,
-      artifact: await legacySessionArtifactFromBuildDir({
+      artifact: await sessionArtifactFromBundleDir({
         reviewUuid: "11111111-1111-4111-8111-111111111111",
-        revision: "c".repeat(40),
-        buildDir: rootPath,
+        publicationId: "c".repeat(40),
+        bundleDir: rootPath,
         routePath: "/",
         softwareMapRootPath: rootPath,
       }),
@@ -162,10 +162,10 @@ describe("createReviewSessionHandler", () => {
         ...unusedAgentServices,
         rootPath,
         toolingRoot: rootPath,
-        artifact: await legacySessionArtifactFromBuildDir({
+        artifact: await sessionArtifactFromBundleDir({
           reviewUuid,
-          revision: "c".repeat(40),
-          buildDir: rootPath,
+          publicationId: "c".repeat(40),
+          bundleDir: rootPath,
           routePath: "/",
           softwareMapRootPath: rootPath,
         }),

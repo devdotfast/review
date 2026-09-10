@@ -65,7 +65,6 @@ import {
   readReviewThreadsReadOnly,
   reviewThreadStoreBackend,
 } from "./review-thread-store-backend";
-import { reviewVcs } from "./review-vcs";
 import { writePrivateJsonAtomic } from "./server/desktop-paths";
 import { resolveReviewRepositoryIdentity } from "./server/repository-identity";
 import { withFileLock } from "./with-file-lock";
@@ -220,7 +219,6 @@ export async function createReviewDir(
 
   await mkdirReviewDir(dir);
   try {
-    await reviewVcs.init(dir);
     await Promise.all([
       writeFile(path.join(dir, "review.mdx"), defaultReviewMdx(review), "utf8"),
       writeFile(path.join(dir, "data.ts"), "export {};\n", "utf8"),
@@ -230,7 +228,6 @@ export async function createReviewDir(
         "utf8",
       ),
       writeFile(path.join(dir, "review-test.mjs"), reviewTestShim, "utf8"),
-      writeFile(path.join(dir, ".gitignore"), reviewGitignore, "utf8"),
     ]);
     createReviewThreadDb(dir, reviewHome);
     await persistStoredReviewRecord(dir, review, reviewHome);
@@ -353,13 +350,6 @@ export async function bindReviewAuthorSession(
     );
   }
   return outcome.result;
-}
-
-export async function sealReviewCandidate(
-  dir: string,
-  message: string,
-): Promise<string> {
-  return withReviewMutationLock(dir, () => reviewVcs.seal(dir, message));
 }
 
 export async function updateReviewPins(
@@ -795,15 +785,6 @@ async function mkdirReviewDir(dir: string): Promise<void> {
   }
 }
 
-export async function materializeReviewRevision(
-  dir: string,
-  revision: string,
-  destinationPath: string,
-): Promise<void> {
-  const resolvedRevision = await reviewVcs.resolve(dir, revision);
-  await reviewVcs.materialize(dir, resolvedRevision, destinationPath);
-}
-
 export async function readStoredReview(
   dir: string,
 ): Promise<StoredReview | { error: ReviewHomeError }> {
@@ -1079,17 +1060,6 @@ function reviewPackageJson(uuid: string) {
     scripts: { test: "node review-test.mjs" },
   };
 }
-
-// The thread database (and sqlite's transient sidecars) must stay out of the
-// review VCS: sealed revisions would otherwise capture nondeterministic binary
-// state, and .build/ materializations would carry stale copies of it.
-const reviewGitignore = [
-  ".build/",
-  "review.db",
-  "review.db-wal",
-  "review.db-shm",
-  "",
-].join("\n");
 
 const reviewTestShim = [
   'import { spawn } from "node:child_process";',

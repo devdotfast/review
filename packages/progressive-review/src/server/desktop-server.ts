@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { existsSync } from "node:fs";
-import { readFile, readdir, rm, stat } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { type Server, createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
@@ -135,6 +135,7 @@ import {
   type DocumentPublicationRecord,
   type SourceContext,
   parsePublicationRecord,
+  reviewWithPublicationContext,
 } from "../review-publication-record";
 import { fingerprintAuthoring } from "../review-publication-staging";
 import {
@@ -188,7 +189,6 @@ import {
 } from "./hono-http";
 import { HttpJsonError, ReviewServerError } from "./http-json";
 import { resolvePublishReview } from "./publish-preparation";
-import { reviewWithPublicationContext } from "./publish-stage";
 import { captureSanitizedUiTelemetry } from "./review-api";
 import { resolveReviewInfo } from "./review-info";
 import {
@@ -1602,14 +1602,9 @@ export function createGlobalReviewServer(
     }
     // The publication is committed: from here on nothing can fail the
     // publish. A focus failure is a warning — the publication is live either
-    // way — and a prune failure is ignored.
+    // way.
     const focus = await timed("focus canvas", () =>
       relay.dispatch(successor.descriptor.sessionId, revealVerb(view)),
-    );
-    // Publication mounts write nothing under `.build`; this only ages out
-    // Git-era materializations until Task 13 removes them entirely.
-    await timed("prune builds", () =>
-      pruneReviewBuilds(review.dir, []).catch(() => undefined),
     );
     const mounted: MountedDocumentPublicationResult = {
       ok: true,
@@ -2871,41 +2866,6 @@ function parseInfoRequest(input: JsonValue): RunReviewInfoInput {
   if (all) request.all = true;
   if (reviewUuid !== undefined) request.reviewUuid = reviewUuid.trim();
   return request;
-}
-
-async function pruneReviewBuilds(
-  reviewDirPath: string,
-  currentRevisions: readonly string[],
-): Promise<void> {
-  const buildsPath = path.join(reviewDirPath, ".build");
-  let entries;
-  try {
-    entries = await readdir(buildsPath, { withFileTypes: true });
-  } catch (error) {
-    // SAFETY: fs/promises rejects with a Node ErrnoException carrying `code`.
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw error;
-  }
-  const builds = await Promise.all(
-    entries
-      .filter((entry) => entry.isDirectory())
-      .map(async (entry) => ({
-        name: entry.name,
-        modifiedAt: (await stat(path.join(buildsPath, entry.name))).mtimeMs,
-      })),
-  );
-  const keep = new Set(currentRevisions);
-  const previous = builds
-    .filter((build) => !keep.has(build.name))
-    .sort((left, right) => right.modifiedAt - left.modifiedAt)
-    .at(0)?.name;
-  await Promise.all(
-    builds
-      .filter((build) => !keep.has(build.name) && build.name !== previous)
-      .map((build) =>
-        rm(path.join(buildsPath, build.name), { recursive: true, force: true }),
-      ),
-  );
 }
 
 function sessionRouteSuffix(pathname: string): string {

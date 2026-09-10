@@ -13,11 +13,8 @@ import path from "node:path";
 
 import { afterEach, expect, it, vi } from "vitest";
 
-import {
-  createReviewDir,
-  readStoredReview,
-  sealReviewCandidate,
-} from "./review-home";
+import { sealLegacyReviewCandidate } from "./fixtures/legacy-reviews/legacy-review-git";
+import { createReviewDir, readStoredReview } from "./review-home";
 import type { createReviewSourceAgentSession } from "./review-source-agent-session";
 import { deleteReviewState } from "./review-state-db";
 import { closeAllReviewThreadStores } from "./review-thread-store-backend";
@@ -71,7 +68,7 @@ it.each(["document", "materialize"])(
         path.join(review.dir, ".bundle/document/review-document.js"),
         legacyDocument,
       );
-      const revision = await sealReviewCandidate(
+      const revision = await sealLegacyReviewCandidate(
         review.dir,
         "Repaired fixture",
       );
@@ -279,7 +276,10 @@ async function fixture(broken = false) {
       ? 'import { jsx } from "review-doc-runtime"; throw new Error("broken document");'
       : legacyDocument,
   );
-  const revision = await sealReviewCandidate(review.dir, "Legacy document");
+  const revision = await sealLegacyReviewCandidate(
+    review.dir,
+    "Legacy document",
+  );
   const original = JSON.stringify({
     ...review.review,
     schemaVersion: 3,

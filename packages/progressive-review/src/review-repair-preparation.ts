@@ -20,6 +20,7 @@ import {
 import {
   evaluateSealedReviewDocument,
   legacySoftwareMapBundle,
+  materializeReviewRevision,
   prepareSavedMapNotes,
 } from "./legacy-sealed-artifacts";
 import { isMissingFileError } from "./native-agent/transcript-json";
@@ -36,7 +37,6 @@ import {
 import { createLegacyCodeRecordMigrator } from "./review-code-target-migration";
 import {
   type StoredReviewRecord,
-  materializeReviewRevision,
   parseAnyStoredReviewRecord,
 } from "./review-home";
 import { stableJson, withReviewMutationLock } from "./review-mutation-lock";

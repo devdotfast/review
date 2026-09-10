@@ -9,7 +9,7 @@ import { remoteNotesRef, writeNote } from "@dev.fast/local-vcs";
 import { REVIEW_SCHEMA_VERSION, jsonObject } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { sealLegacyReviewCommit } from "./fixtures/legacy-reviews/legacy-review-git";
+import { sealLegacyReviewCandidate } from "./fixtures/legacy-reviews/legacy-review-git";
 import { readReviewDocumentArtifact } from "./review-artifact-store";
 import {
   bundleReviewDocument,
@@ -102,7 +102,7 @@ async function fixture(options: FixtureOptions = {}) {
       'import {createActiveReviewDocument,jsx} from "review-doc-runtime"; export default createActiveReviewDocument({title:"Sealed",routePath:"/",filePath:"review.mdx",models:{},modelNames:[],Component:()=>jsx("h1",{children:"Sealed"}),isDefault:true});',
     );
   } else await writeReviewDocumentBundle(stored.dir, readyDocument());
-  const revision = await sealLegacyReviewCommit(stored.dir, "Presented");
+  const revision = await sealLegacyReviewCandidate(stored.dir, "Presented");
   const record = {
     ...stored.review,
     schemaVersion: options.legacy ? 4 : REVIEW_SCHEMA_VERSION,
@@ -221,7 +221,7 @@ describe("prepareReviewRepair", () => {
       path.join(stored.dir, ".bundle/document/review-document.js"),
       "broken javascript",
     );
-    const revision = await sealLegacyReviewCommit(
+    const revision = await sealLegacyReviewCandidate(
       stored.dir,
       "Broken current artifact",
     );
@@ -314,7 +314,7 @@ describe("prepareReviewRepair", () => {
         baseCommit: stored.review.baseCommit,
       }),
     );
-    const mapRevision = await sealLegacyReviewCommit(
+    const mapRevision = await sealLegacyReviewCandidate(
       stored.dir,
       "Independent JSON map",
     );
@@ -352,7 +352,7 @@ describe("prepareReviewRepair", () => {
     const code = `const elements = ${JSON.stringify(model.elements)}; const relationships = ${JSON.stringify(model.relationships)}; const elementsByPath = new Map(elements.map(element => [element.path, element])); export default {elements,relationships,elementsByPath};`;
     await writeFile(path.join(mapDir, "head-map.js"), code);
     await writeFile(path.join(mapDir, "base-map.js"), code);
-    const mapRevision = await sealLegacyReviewCommit(
+    const mapRevision = await sealLegacyReviewCandidate(
       stored.dir,
       "Legacy map only",
     );
@@ -444,7 +444,7 @@ describe("prepareReviewRepair", () => {
         headCommit: "d".repeat(40),
       }),
     );
-    const mapRevision = await sealLegacyReviewCommit(
+    const mapRevision = await sealLegacyReviewCandidate(
       stored.dir,
       "Contradictory map pins",
     );
@@ -632,7 +632,7 @@ it("rejects changes to legacy threads while preparing artifact repair", async ()
     path.join(stored.dir, ".bundle/document/review-document.js"),
     "throw new Error('broken sealed');",
   );
-  const broken = await sealLegacyReviewCommit(
+  const broken = await sealLegacyReviewCandidate(
     stored.dir,
     "Broken sealed document",
   );
@@ -678,7 +678,7 @@ async function legacyThreadDatabaseFixture() {
     path.join(stored.dir, ".bundle/document/review-document.js"),
     "throw new Error('broken sealed');",
   );
-  const broken = await sealLegacyReviewCommit(
+  const broken = await sealLegacyReviewCandidate(
     stored.dir,
     "Broken sealed document",
   );

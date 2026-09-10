@@ -24,12 +24,12 @@ import {
   writeReviewSoftwareMapBundle,
 } from "../software-map-bundle";
 import { defineSoftwareMap } from "../software-map-model";
-import { legacySessionArtifactFromBuildDir } from "./review-session-artifact";
 import type { ReviewSessionMode } from "./review-session-mode";
 import { createReviewSessionHandler } from "./session-handler";
 import {
   reviewDocument,
   sessionArtifactFixture,
+  sessionArtifactFromBundleDir,
   unusedAgentServices,
 } from "./session-handler-test-utils";
 
@@ -54,10 +54,10 @@ it("serves live previews without changing sealed bundles and keeps in-flight has
     ...unusedAgentServices,
     rootPath,
     toolingRoot: rootPath,
-    artifact: await legacySessionArtifactFromBuildDir({
+    artifact: await sessionArtifactFromBundleDir({
       reviewUuid: "11111111-1111-4111-8111-111111111111",
-      revision: "c".repeat(40),
-      buildDir: rootPath,
+      publicationId: "c".repeat(40),
+      bundleDir: rootPath,
       routePath: "/",
     }),
     routePath: "/",
@@ -131,9 +131,9 @@ describe("createReviewSessionHandler", () => {
     {
       presentation: "historical",
       origin: {
-        kind: "legacy" as const,
-        revision: "c".repeat(40),
-        buildDir: "/build",
+        kind: "publication" as const,
+        publicationId: "c".repeat(40),
+        mapPublicationId: null,
       },
       mode: {
         kind: "historical" as const,
@@ -280,10 +280,10 @@ describe("createReviewSessionHandler", () => {
         ...unusedAgentServices,
         rootPath,
         toolingRoot: rootPath,
-        artifact: await legacySessionArtifactFromBuildDir({
+        artifact: await sessionArtifactFromBundleDir({
           reviewUuid: readOnlyRecord.uuid,
-          revision: "c".repeat(40),
-          buildDir: rootPath,
+          publicationId: "c".repeat(40),
+          bundleDir: rootPath,
           routePath: "/",
           softwareMapRootPath: rootPath,
           historical: mode.kind === "historical",

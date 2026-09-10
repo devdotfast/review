@@ -13,12 +13,12 @@ import {
   listLegacyReviewFixtures,
   normalizeMigratedRecord,
 } from "../src/fixtures/legacy-reviews/legacy-review-fixture";
+import { materializeReviewRevision } from "../src/legacy-sealed-artifacts";
 import {
   readReviewDocumentBundle,
   reviewDocumentBundleData,
 } from "../src/review-bundle";
 import type { ReviewDocumentData } from "../src/review-document-data";
-import { materializeReviewRevision } from "../src/review-home";
 import { closeAllReviewThreadStores } from "../src/review-thread-store-backend";
 import {
   type ReviewSoftwareMapBundle,

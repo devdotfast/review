@@ -15,12 +15,12 @@ import {
   writeReviewSoftwareMapBundle,
 } from "../software-map-bundle";
 import { defineSoftwareMap } from "../software-map-model";
-import { legacySessionArtifactFromBuildDir } from "./review-session-artifact";
 import { createReviewSessionHandler } from "./session-handler";
 import {
   NEEDS_REPUBLISH_ERROR,
   reviewDocument,
   sessionArtifactFixture,
+  sessionArtifactFromBundleDir,
   unusedAgentServices,
 } from "./session-handler-test-utils";
 
@@ -125,10 +125,10 @@ describe("createReviewSessionHandler", () => {
       ...unusedAgentServices,
       rootPath,
       toolingRoot: rootPath,
-      artifact: await legacySessionArtifactFromBuildDir({
+      artifact: await sessionArtifactFromBundleDir({
         reviewUuid: "11111111-1111-4111-8111-111111111111",
-        revision: "c".repeat(40),
-        buildDir: rootPath,
+        publicationId: "c".repeat(40),
+        bundleDir: rootPath,
         routePath: "/",
       }),
       routePath: "/",
@@ -256,10 +256,10 @@ describe("createReviewSessionHandler", () => {
         ...unusedAgentServices,
         rootPath,
         toolingRoot: rootPath,
-        artifact: await legacySessionArtifactFromBuildDir({
+        artifact: await sessionArtifactFromBundleDir({
           reviewUuid,
-          revision: "c".repeat(40),
-          buildDir: rootPath,
+          publicationId: "c".repeat(40),
+          bundleDir: rootPath,
           routePath: "/",
           softwareMapRootPath,
         }),
@@ -395,31 +395,31 @@ describe("createReviewSessionHandler", () => {
     }
   });
 
-  it("reports the materialized document's timestamp for a historical session", async () => {
+  it("reports the published document's timestamp for a historical session", async () => {
     const reviewDir = await tempDir("review-historical-meta-");
-    const revision = "c".repeat(40);
-    const buildDir = path.join(reviewDir, ".build", revision);
+    const publicationId = "c".repeat(40);
+    const bundleDir = path.join(reviewDir, "versions", publicationId);
     const liveReviewPath = path.join(reviewDir, "review.mdx");
-    const materializedPath = path.join(buildDir, "review.mdx");
+    const publishedPath = path.join(bundleDir, "review.mdx");
     const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
     const token = "session-secret";
-    await mkdir(buildDir, { recursive: true });
-    await writeFile(materializedPath, "# Published\n", "utf8");
+    await mkdir(bundleDir, { recursive: true });
+    await writeFile(publishedPath, "# Published\n", "utf8");
     await writeFile(liveReviewPath, "# Editing\n", "utf8");
     await writeReviewDocumentBundle(
-      buildDir,
+      bundleDir,
       bundleReviewDocument(reviewDocument),
     );
     const sealedAt = new Date(1_700_000_000_000);
-    await utimes(materializedPath, sealedAt, sealedAt);
+    await utimes(publishedPath, sealedAt, sealedAt);
     const handler = await createReviewSessionHandler({
       ...unusedAgentServices,
       rootPath: reviewDir,
       toolingRoot: reviewDir,
-      artifact: await legacySessionArtifactFromBuildDir({
+      artifact: await sessionArtifactFromBundleDir({
         reviewUuid: "11111111-1111-4111-8111-111111111111",
-        revision,
-        buildDir,
+        publicationId,
+        bundleDir,
         routePath: "/",
         historical: true,
       }),
@@ -451,7 +451,7 @@ describe("createReviewSessionHandler", () => {
         ok: true,
         updatedAtMs: sealedAt.getTime(),
       });
-      // Editing the review's own source must not move a sealed revision's clock.
+      // Editing the review's own source must not move a publication's clock.
       const edited = new Date(1_800_000_000_000);
       await utimes(liveReviewPath, edited, edited);
       await expect(documentMeta()).resolves.toMatchObject({

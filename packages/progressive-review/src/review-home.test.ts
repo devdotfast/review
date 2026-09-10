@@ -19,7 +19,7 @@ import {
 } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { sealLegacyReviewCommit } from "./fixtures/legacy-reviews/legacy-review-git";
+import { sealLegacyReviewCandidate } from "./fixtures/legacy-reviews/legacy-review-git";
 import { readReviewDocumentArtifact } from "./review-artifact-store";
 import {
   readReviewDocumentBundle,
@@ -34,7 +34,6 @@ import {
   findReview,
   findReviewForRepair,
   listReviews,
-  materializeReviewRevision,
   parseAnyStoredReviewRecord,
   parseStoredReviewRecord,
   refreshReviewMirror,
@@ -251,7 +250,7 @@ describe("review home", () => {
     expect(parseStoredReviewRecord(legacy)).not.toHaveProperty("agentSessions");
   });
 
-  it("creates a UUID review directory with a plain Git repository", async () => {
+  it("creates a UUID review directory with no private Git repository", async () => {
     const root = await gitRepository();
     await reviewHome();
 
@@ -277,16 +276,14 @@ describe("review home", () => {
       lastPublishedAt: null,
     });
     expect(created.dir).toBe(path.join(reviewsHomeDir(), created.review.uuid));
-    expect(existsSync(path.join(created.dir, ".git"))).toBe(true);
+    expect(existsSync(path.join(created.dir, ".git"))).toBe(false);
+    expect(existsSync(path.join(created.dir, ".gitignore"))).toBe(false);
     await expect(
       readFile(path.join(created.dir, "review.mdx"), "utf8"),
     ).resolves.toContain("# Checkout review");
     await expect(
       readFile(path.join(created.dir, "data.ts"), "utf8"),
     ).resolves.toBe("export {};\n");
-    await expect(
-      readFile(path.join(created.dir, ".gitignore"), "utf8"),
-    ).resolves.toBe(".build/\nreview.db\nreview.db-wal\nreview.db-shm\n");
     await expect(
       readFile(path.join(created.dir, "package.json"), "utf8"),
     ).resolves.toContain('"test": "node review-test.mjs"');
@@ -959,7 +956,7 @@ describe("legacy records on read", () => {
         baseCommit: await git(root, ["rev-parse", "HEAD"]),
       });
       const recordPath = path.join(created.dir, "review.json");
-      await sealLegacyReviewCommit(created.dir, "Initial document");
+      await sealLegacyReviewCandidate(created.dir, "Initial document");
       const record = await legacyRecord(
         created,
         schemaVersion === 7 ? 4 : schemaVersion,
@@ -1006,7 +1003,7 @@ describe("legacy records on read", () => {
         recordPath,
         JSON.stringify(await legacyRecord(created, schemaVersion, null)),
       );
-      const revision = await sealLegacyReviewCommit(
+      const revision = await sealLegacyReviewCandidate(
         created.dir,
         "Legacy document",
       );
@@ -1060,7 +1057,7 @@ describe("legacy records on read", () => {
       baseCommit: await git(root, ["rev-parse", "HEAD"]),
     });
     await writeLegacyDocument(created.dir);
-    const revision = await sealLegacyReviewCommit(
+    const revision = await sealLegacyReviewCandidate(
       created.dir,
       "Legacy document",
     );
@@ -1068,7 +1065,7 @@ describe("legacy records on read", () => {
       path.join(created.dir, "review.json"),
       JSON.stringify(await legacyRecord(created, 4, revision)),
     );
-    const seal = vi.spyOn(reviewVcs, "seal");
+    const sealedHead = await reviewVcs.resolve(created.dir, "HEAD");
 
     const [first, second] = await Promise.all([
       findReview(created.review.uuid),
@@ -1078,7 +1075,7 @@ describe("legacy records on read", () => {
     expect(first?.review.schemaVersion).toBe(6);
     expect(second?.review).toEqual(first?.review);
     // Importing replays the sealed history; it never writes to it.
-    expect(seal).not.toHaveBeenCalled();
+    expect(await reviewVcs.resolve(created.dir, "HEAD")).toBe(sealedHead);
     expect(listPublications(created.dir, "document")).toHaveLength(1);
   });
 
@@ -1093,7 +1090,7 @@ describe("legacy records on read", () => {
     await writeLegacyDocument(created.dir, {
       code: 'import { jsx } from "review-doc-runtime"; throw new Error("broken sealed document");',
     });
-    const revision = await sealLegacyReviewCommit(
+    const revision = await sealLegacyReviewCandidate(
       created.dir,
       "Broken document",
     );

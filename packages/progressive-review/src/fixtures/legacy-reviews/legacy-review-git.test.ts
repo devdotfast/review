@@ -1,4 +1,5 @@
-import { writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -7,6 +8,7 @@ import { cleanupTempDirs, tempDir } from "../../review-test-utils";
 import { reviewVcs } from "../../review-vcs";
 import {
   initLegacyReviewRepo,
+  sealLegacyReviewCandidate,
   sealLegacyReviewCommit,
 } from "./legacy-review-git";
 
@@ -39,7 +41,7 @@ describe("legacy review Git fixture sealer", () => {
     ).toBe("# v1\n");
   });
 
-  it("reproduces reviewVcs.init/seal's author, branch, and single-parent shape", async () => {
+  it("reproduces the Git-era author, branch, and single-parent shape", async () => {
     const dir = await tempDir("legacy-review-git-shape-");
     await initLegacyReviewRepo(dir);
     await writeFile(path.join(dir, "a.txt"), "a\n");
@@ -72,5 +74,26 @@ describe("legacy review Git fixture sealer", () => {
     expect(await git.resolveRef({ fs, dir, ref: "refs/heads/main" })).toBe(
       child,
     );
+  });
+
+  it("excludes gitignored files from sealed revisions", async () => {
+    // Regression: Git-era seals once captured review.db and stale .build/
+    // copies, re-embedding every previous materialization into each revision.
+    const dir = await tempDir("legacy-review-git-ignored-");
+    await writeFile(path.join(dir, "review.mdx"), "# Review\n");
+    await writeFile(path.join(dir, "review.db"), "binary");
+    await mkdir(path.join(dir, ".build"), { recursive: true });
+    await writeFile(path.join(dir, ".build", "stale"), "stale");
+
+    const revision = await sealLegacyReviewCandidate(dir, "checkpoint");
+    const out = await tempDir("legacy-review-git-sealed-");
+    await reviewVcs.materialize(dir, revision, out);
+
+    await expect(readFile(path.join(out, "review.mdx"), "utf8")).resolves.toBe(
+      "# Review\n",
+    );
+    expect(existsSync(path.join(out, ".gitignore"))).toBe(true);
+    expect(existsSync(path.join(out, "review.db"))).toBe(false);
+    expect(existsSync(path.join(out, ".build"))).toBe(false);
   });
 });

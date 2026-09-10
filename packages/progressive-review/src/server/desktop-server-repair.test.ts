@@ -44,8 +44,6 @@ import {
   checkReviewThreadDbVersion,
   closeAllReviewThreadStores,
   copyReviewThreadDatabaseSnapshot,
-  readReviewThreadDatabaseFingerprint,
-  reviewThreadDbPath,
 } from "../review-thread-store-backend";
 import { createGlobalReviewServer } from "./desktop-server";
 import {

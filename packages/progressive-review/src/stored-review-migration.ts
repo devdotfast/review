@@ -300,7 +300,6 @@ export async function migrateStoredReviewData(input: {
         input.onBlocker?.(
           `Review ${entry.name} database migration failed: ${outcome.threadDbError}`,
         );
-      for (const warning of outcome.warnings) input.onBlocker?.(warning);
       if (outcome.migrated) {
         total.importedVersions += outcome.importedVersions;
         total.unavailableVersions += outcome.unavailableVersions;

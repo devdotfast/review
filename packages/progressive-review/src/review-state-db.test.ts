@@ -13,7 +13,6 @@ import {
   closeAllReviewStateDatabases,
   deleteReviewState,
   importLegacyReview,
-  insertLegacyArtifactImportInTransaction,
   insertPublicationInTransaction,
   listPublications,
   openReviewStateDb,
@@ -24,6 +23,7 @@ import {
   readReviewStateDbSchemaVersion,
   resolveLegacyMapPublicationId,
   reviewStateDbPath,
+  upsertLegacyArtifactImportInTransaction,
   withReviewStateTransaction,
 } from "./review-state-db";
 import {
@@ -576,7 +576,7 @@ describe("global review state database", () => {
         artifactHash: null,
         previousPublicationId: null,
       });
-      insertLegacyArtifactImportInTransaction(tx, dir, {
+      upsertLegacyArtifactImportInTransaction(tx, dir, {
         importedAt: "2026-01-01T00:00:00.000Z",
         sourceHead: "main",
         versions: 3,

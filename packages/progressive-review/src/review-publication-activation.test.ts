@@ -22,11 +22,11 @@ import {
 import type { SourceContext } from "./review-publication-record";
 import {
   closeAllReviewStateDatabases,
-  insertLegacyArtifactImportInTransaction,
   listPublications,
   putReviewRecord,
   readLegacyArtifactImport,
   readReviewRecord,
+  upsertLegacyArtifactImportInTransaction,
 } from "./review-state-db";
 import { cleanupTempDirs, reviewHome } from "./review-test-utils";
 
@@ -676,7 +676,7 @@ describe("activateReviewPublication", () => {
       candidates: [documentCandidate(await installDocument(dir, "first"))],
       updateRecord: keepRecord,
       inTransaction: (tx, published) => {
-        insertLegacyArtifactImportInTransaction(tx, dir, {
+        upsertLegacyArtifactImportInTransaction(tx, dir, {
           importedAt: "2026-03-03T00:00:00.000Z",
           sourceHead: published[0].publicationId,
           versions: 1,
@@ -701,7 +701,7 @@ describe("activateReviewPublication", () => {
         candidates: [documentCandidate(await installDocument(dir, "first"))],
         updateRecord: keepRecord,
         inTransaction: (tx) => {
-          insertLegacyArtifactImportInTransaction(tx, dir, {
+          upsertLegacyArtifactImportInTransaction(tx, dir, {
             importedAt: "2026-03-03T00:00:00.000Z",
             sourceHead: null,
             versions: 1,

@@ -27,7 +27,7 @@ import { startLifecycleTestServer } from "./review-lifecycle-test-utils";
 import { runReviewRepair } from "./review-repair";
 import { prepareReviewRepair } from "./review-repair-preparation";
 import { fingerprintReviewRepairInputs } from "./review-repair-state";
-import { deleteReviewState } from "./review-state-db";
+import { deleteReviewState, listPublications } from "./review-state-db";
 import { appendReviewComment } from "./review-state-store";
 import { SOFTWARE_MAP_NOTES_REF } from "./review-storage";
 import {
@@ -36,6 +36,7 @@ import {
   createLegacyReviewThreadDb,
   readReviewThreadsReadOnly,
 } from "./review-thread-store-backend";
+import { applyPreparedReviewRepair } from "./server/review-repair-promotion";
 import {
   bundleReviewSoftwareMap,
   writeReviewSoftwareMapBundle,
@@ -651,6 +652,64 @@ it("repairs broken sealed artifacts with a legacy DB by upgrading only the isola
         path.join(prepared.request.stagingDir, "review.mdx"),
       ).comments.kept?.messages[0]?.body,
     ).toBe("Preserved comment");
+  } finally {
+    await prepared.cleanup();
+  }
+});
+
+it("refuses to promote a repair after the legacy thread database changes", async () => {
+  const stored = await fixture(true);
+  appendReviewComment(path.join(stored.dir, "review.mdx"), {
+    threadId: "kept",
+    messageId: "message",
+    target: { kind: "document" },
+    body: "Preserved comment",
+    author: "Reviewer",
+  });
+  closeAllReviewThreadStores();
+  const dbPath = path.join(stored.dir, "review.db");
+  const document = path.join(stored.dir, "review.mdx");
+  copyReviewThreadDatabaseSnapshot(document, document);
+  deleteReviewState(stored.dir);
+  const db = new DatabaseSync(dbPath);
+  db.exec("UPDATE meta SET value = '5' WHERE key = 'schema_version'");
+  db.close();
+  await writeFile(
+    path.join(stored.dir, ".bundle/document/review-document.js"),
+    "throw new Error('broken sealed');",
+  );
+  const broken = await sealLegacyReviewCommit(
+    stored.dir,
+    "Broken sealed document",
+  );
+  const record = JSON.stringify({
+    ...stored.record,
+    presentedDocumentRevision: broken,
+  });
+  await writeFile(path.join(stored.dir, "review.json"), record);
+  const prepared = await prepareReviewRepair({ reviewDir: stored.dir });
+  expect(prepared.kind).toBe("prepared");
+  if (prepared.kind !== "prepared") throw new Error("Expected repair");
+  try {
+    // The guard the isolated upgrade arms: a write to the Review's own legacy
+    // thread database between preparation and promotion refuses the promotion.
+    expect(prepared.request.expectedThreadDbFingerprint).toMatch(
+      /^[0-9a-f]{64}$/,
+    );
+    const writer = new DatabaseSync(dbPath);
+    writer.exec(
+      "INSERT OR REPLACE INTO meta(key,value) VALUES ('concurrent-write','changed')",
+    );
+    writer.close();
+
+    await expect(
+      applyPreparedReviewRepair(stored.dir, prepared.request),
+    ).rejects.toThrow("Review threads changed while preparing repair");
+
+    expect(await readFile(path.join(stored.dir, "review.json"), "utf8")).toBe(
+      record,
+    );
+    expect(listPublications(stored.dir, "document")).toEqual([]);
   } finally {
     await prepared.cleanup();
   }

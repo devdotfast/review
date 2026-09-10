@@ -48,12 +48,12 @@ import {
   type ReviewPublicationKind,
   ensureReviewRegistration,
   importLegacyReview,
-  insertLegacyArtifactImportInTransaction,
   readLegacyArtifactImport,
   readPublication,
   readReviewRecord,
   reviewHomeForDir,
   reviewIdForDir,
+  upsertLegacyArtifactImportInTransaction,
 } from "./review-state-db";
 import { type ReviewVcsLogEntry, reviewVcs } from "./review-vcs";
 import {
@@ -190,7 +190,17 @@ export async function planLegacyReviewArtifactImport(
   const home = input.home ?? reviewHomeForDir(reviewDir);
   ensureReviewRegistration(reviewDir, home);
   importLegacyReview(reviewDir, home);
-  if (hasLegacyArtifactImport(reviewDir, home)) return { imported: true };
+  const active = input.record.presentedDocumentRevision;
+  // A record whose pointer already answers to a row needs no history read.
+  const activeIsPublication =
+    active === null ||
+    readPublication(reviewDir, active, "document", home) !== null;
+  // The marker alone is not enough to stop: `review repair` moves the pointer
+  // to a freshly sealed Git revision after an import, and that revision still
+  // has to be replayed. Re-planning is cheap — every row this import already
+  // committed is dropped again, so only what the pointer added is inserted.
+  if (activeIsPublication && hasLegacyArtifactImport(reviewDir, home))
+    return { imported: true };
   const context: PlanContext = {
     reviewDir,
     home,
@@ -205,14 +215,8 @@ export async function planLegacyReviewArtifactImport(
   };
   if (input.warn) context.warn = input.warn;
   const expectedRecordJson = JSON.stringify(input.original);
-  const active = input.record.presentedDocumentRevision;
-  // A record whose pointer already answers to a row was published by the
-  // current path before the schema bump; its history is already rows.
-  if (
-    active === null ||
-    readPublication(reviewDir, active, "document", home) !== null
-  )
-    return pointersOnlyPlan(context, expectedRecordJson);
+  // Published by the current path before the schema bump: already all rows.
+  if (activeIsPublication) return pointersOnlyPlan(context, expectedRecordJson);
   const scratch = await mkdtemp(
     path.join(os.tmpdir(), "review-legacy-import-"),
   );
@@ -268,7 +272,7 @@ export async function commitLegacyReviewArtifactImport(
         map: plan.activeMapId,
       },
       inTransaction: (tx) =>
-        insertLegacyArtifactImportInTransaction(tx, dir, {
+        upsertLegacyArtifactImportInTransaction(tx, dir, {
           importedAt: new Date().toISOString(),
           sourceHead: plan.sourceHead,
           versions: plan.versions,
@@ -496,8 +500,17 @@ async function convertDocumentVersion(
   }
   const layout = await legacyDocumentLayout(dir);
   // Only the presented document is worth evaluating: a historical JavaScript
-  // bundle runs code whose pinned worktree is usually long gone.
-  if (entry.oid !== active) return { ...version, layout, artifactHash: null };
+  // bundle runs code whose pinned worktree is usually long gone. A version
+  // this import already committed keeps the bytes it chose then, so a re-plan
+  // after `review repair` never downgrades a row it already stored.
+  if (entry.oid !== active)
+    return {
+      ...version,
+      layout,
+      artifactHash:
+        readPublication(context.reviewDir, entry.oid, "document", context.home)
+          ?.artifactHash ?? null,
+    };
   try {
     const evaluated = await evaluateSealedReviewDocument(dir, (message) =>
       warn(context, message),

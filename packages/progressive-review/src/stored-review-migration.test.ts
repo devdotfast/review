@@ -10,6 +10,7 @@ import {
 import path from "node:path";
 
 import {
+  type JsonObject,
   REVIEW_SCHEMA_VERSION,
   jsonObject,
   parseJsonText,
@@ -1102,6 +1103,20 @@ function presentedPublicationRecord(
   return parsePublicationRecord(row.record);
 }
 
+/** Rewrites review.json so the next sealed commit embeds these fields. */
+async function writeSealedRecord(
+  reviewDir: string,
+  fields: JsonObject,
+): Promise<void> {
+  const current = jsonObject(
+    parseJsonText(await readFile(path.join(reviewDir, "review.json"), "utf8")),
+  )!;
+  await writeFile(
+    path.join(reviewDir, "review.json"),
+    `${JSON.stringify({ ...current, ...fields })}\n`,
+  );
+}
+
 async function writeCurrentRecord(
   reviewDir: string,
   revisions: {
@@ -1145,6 +1160,129 @@ async function expectConvertedSoftwareMap(reviewDir: string): Promise<void> {
 }
 
 describe("legacy artifact import on first read", () => {
+  it("imports a revision a repair sealed after the first import", async () => {
+    const { created } = await storedReview();
+    await writeLegacyDocument(created.dir);
+    const first = await sealReviewCandidate(
+      created.dir,
+      "Review publish candidate",
+    );
+    await writeFile(
+      path.join(created.dir, "review.json"),
+      JSON.stringify({
+        ...created.review,
+        schemaVersion: 4,
+        presentedDocumentRevision: first,
+      }),
+    );
+    expect("error" in (await readStoredReview(created.dir))).toBe(false);
+    const firstImport = readLegacyArtifactImport(created.dir);
+    const firstHash = listPublications(created.dir, "document")[0]
+      ?.artifactHash;
+
+    // `review repair` seals a repaired presentation and moves the pointer to
+    // it without writing a publication row of its own.
+    await rm(path.join(created.dir, ".bundle/document"), {
+      recursive: true,
+      force: true,
+    });
+    await writeReviewDocumentBundle(
+      created.dir,
+      bundleReviewDocument({
+        format: "review-document/1",
+        title: "Repaired",
+        routePath: "/",
+        sourcePath: "review.mdx",
+        body: [],
+        anchors: {},
+        anchorContents: {},
+        softwareModels: [],
+      }),
+    );
+    const repaired = await sealReviewCandidate(
+      created.dir,
+      "Repair current Review document",
+    );
+    putReviewRecordFromDb(created.dir, {
+      ...parseStoredReviewRecord(readReviewRecordFromDb(created.dir)),
+      presentedDocumentRevision: repaired,
+    });
+
+    expect("error" in (await readStoredReview(created.dir))).toBe(false);
+
+    expect(readPublication(created.dir, repaired, "document")).not.toBeNull();
+    expect(
+      listPublications(created.dir, "document").map((row) => row.publicationId),
+    ).toEqual([repaired, first]);
+    // The already-imported version keeps the bytes the first import stored.
+    expect(listPublications(created.dir, "document")[1]?.artifactHash).toBe(
+      firstHash,
+    );
+    expect(readLegacyArtifactImport(created.dir)).toMatchObject({
+      versions: 2,
+      unavailable: 0,
+    });
+    expect(readLegacyArtifactImport(created.dir)?.importedAt).not.toBe(
+      firstImport?.importedAt,
+    );
+    expect((await presentedDocumentArtifact(created.dir)).title).toBe(
+      "Repaired",
+    );
+  });
+
+  it("reports an import warning as a log line, not a migration blocker", async () => {
+    const { created, reviewHome } = await storedReview();
+    // A historical software map whose sealed record names no head commit
+    // cannot be pinned into a row; the import skips it and warns.
+    await writeSealedRecord(created.dir, { sourceCommit: null });
+    const unpinnedMap = await sealReviewCandidate(
+      created.dir,
+      "Publish Review software map",
+    );
+    await writeSealedRecord(created.dir, {
+      presentedSoftwareMapRevision: unpinnedMap,
+    });
+    const first = await sealReviewCandidate(
+      created.dir,
+      "Review publish candidate",
+    );
+    await writeSealedRecord(created.dir, {
+      presentedSoftwareMapRevision: null,
+    });
+    const presented = await sealReviewCandidate(
+      created.dir,
+      "Review publish candidate",
+    );
+    await writeFile(
+      path.join(created.dir, "review.json"),
+      JSON.stringify({
+        ...created.review,
+        schemaVersion: 4,
+        presentedDocumentRevision: presented,
+      }),
+    );
+    const log: string[] = [];
+    const blockers: string[] = [];
+
+    const result = await migrateStoredReviewData({
+      reviewHome,
+      log: (message) => log.push(message),
+      onBlocker: (message) => blockers.push(message),
+    });
+
+    expect(blockers).toEqual([]);
+    expect(result).toMatchObject({ documents: 1, importedVersions: 2 });
+    expect(log).toContainEqual(
+      `Software map revision ${unpinnedMap} has no commit pins to record; ` +
+        "it is not imported and the documents presented beside it keep no " +
+        "paired map.",
+    );
+    expect(
+      listPublications(created.dir, "document").map((row) => row.publicationId),
+    ).toEqual([presented, first]);
+    expect(listPublications(created.dir, "map")).toEqual([]);
+  });
+
   it("imports every publish candidate as a publication row", async () => {
     const { created } = await storedReview();
     await writeLegacyDocument(created.dir);

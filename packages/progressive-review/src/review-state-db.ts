@@ -598,7 +598,14 @@ export interface ReviewLegacyArtifactImportRow {
   legacyRemovedAt: string | null;
 }
 
-export function insertLegacyArtifactImportInTransaction(
+/**
+ * Records what a legacy artifact import replayed. A Review can be imported
+ * more than once — `review repair` moves the pointer to a newly sealed Git
+ * revision, which the next read replays — so the marker is upserted and
+ * always describes the most recent replay. `legacy_removed_at` is never reset:
+ * a history discarded once stays discarded.
+ */
+export function upsertLegacyArtifactImportInTransaction(
   tx: ReviewStateTransaction,
   reviewDir: string,
   input: {
@@ -612,7 +619,12 @@ export function insertLegacyArtifactImportInTransaction(
     .prepare(
       `INSERT INTO legacy_artifact_imports
        (review_id, imported_at, source_head, versions, unavailable, legacy_removed_at)
-       VALUES (?, ?, ?, ?, ?, NULL)`,
+       VALUES (?, ?, ?, ?, ?, NULL)
+       ON CONFLICT(review_id) DO UPDATE SET
+         imported_at = excluded.imported_at,
+         source_head = excluded.source_head,
+         versions = excluded.versions,
+         unavailable = excluded.unavailable`,
     )
     .run(
       reviewIdForDir(reviewDir),

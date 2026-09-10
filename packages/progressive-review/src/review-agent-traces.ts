@@ -362,7 +362,7 @@ export async function loadReviewAgentTrace(input: {
 }
 
 /**
- * Whether a saved copy still matches the stored object. Direct storage can
+ * Whether a saved copy still matches the stored object. S3 storage can
  * only compare sizes and objects only grow; hosted storage names content
  * exactly, so an equal-size or smaller replacement is still seen.
  */
@@ -549,7 +549,7 @@ function writeNormalizedTraceAtomic(
 /**
  * A saved copy, or null when the file is absent, written by another parser
  * version, or made for another store. A copy that names its store is served
- * only to that store; a copy from before the field is trusted only by direct
+ * only to that store; a copy from before the field is trusted only by s3
  * storage, which wrote every such file.
  */
 function readNormalizedTrace(
@@ -1289,7 +1289,7 @@ export async function syncReviewTrace(input: {
   const { author, branch } = await readRepoMetaFields(workDir);
 
   // A hosted publication settles consent and provenance before it reads a
-  // transcript; direct publication has no such gate.
+  // transcript; s3 publication has no such gate.
   const published = await storage.publish({
     sessionId,
     cwd: workDir,

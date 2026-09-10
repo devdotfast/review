@@ -172,7 +172,7 @@ export async function runReviewTraceAllow(
     store: storeOrigin,
   });
   humanStream(input).write(
-    `Traces from ${store.displayName} may be published to ${storeOrigin}. Select it with \`review trace storage use hosted\` if you have not.\n`,
+    `Traces from ${store.displayName} may be published to ${storeOrigin}. A machine with no bucket configured now uses the hosted store; one with a bucket needs \`review trace storage use hosted\`.\n`,
   );
   return 0;
 }

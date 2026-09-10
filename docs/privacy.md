@@ -126,14 +126,18 @@ submission.
 
 ## Hosted trace store
 
-Trace capture is off by default. When you select the hosted store with
-`review trace storage use hosted`, complete agent session transcripts for the
-repositories you allowed with `review trace allow` are uploaded to the /dev/fast
-hosted store at the origin you logged in to. One conversation can contain work
-from several repositories; Review publishes a session automatically only when
-its captured provenance places it in the allowed repository, and a commit
-trailer alone never authorizes an upload. Transcripts can contain prompts,
-model output, source code, file paths, URLs, and email addresses.
+Trace capture is off by default. Hosted uploads start when this machine's
+selected store is the hosted store and the repository is allowed. Selection
+happens explicitly with `review trace storage use hosted`, or implicitly when
+a machine that has no bucket configured allows a repository with
+`review trace allow`. After that, complete agent session transcripts for the
+allowed repositories are uploaded to the /dev/fast hosted store at the origin
+you logged in to. One conversation can contain work from several
+repositories; Review publishes a session automatically only when its captured
+provenance places it in the allowed repository, and a commit trailer alone
+never authorizes an upload. Transcripts can contain prompts, model output,
+source code, file paths, URLs, and email addresses. Each publication also
+records the checkout branch and the Git author name at that time.
 
 Only GitHub users with current push access or higher to the repository can
 discover or read its traces, for public and private repositories alike.
@@ -141,12 +145,14 @@ Read-only collaborators, former contributors, and the public cannot. Making a
 repository public does not widen access. Deleting a store is admin-only and is
 a logical deletion followed by operator cleanup; issued download links and
 retained object versions expire on a bounded schedule rather than instantly.
-`review trace deny` stops future publication and does not erase prior uploads.
+`review trace deny` stops future publication and does not erase prior uploads;
+`review trace deny --delete-store` additionally asks the store to delete the
+repository's hosted copies, which a repository admin may do.
 `review logout` forgets the local login only.
 
 Objects are encrypted with server-controlled keys, so /dev/fast can decrypt
 stored traces. The GitHub OAuth app requests the `repo` scope to check access.
-Direct S3/R2 storage sends nothing to /dev/fast.
+S3/R2 bucket storage sends nothing to /dev/fast.
 
 ## Turn telemetry off
 

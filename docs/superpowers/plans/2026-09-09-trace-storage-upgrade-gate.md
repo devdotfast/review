@@ -4,7 +4,7 @@ Date: 2026-09-09. Branch `feat/trace-storage-rewrite`, head `8179393a` plus the
 doctor fix committed with this document. Governing design:
 `/Users/aiansiti/workable/trace-storage-design.md`.
 
-## Mandatory criterion: an existing direct setup works unchanged
+## Mandatory criterion: an existing s3 setup works unchanged
 
 Result: **passed**. A S3/R2 installation made with the pre-upgrade
 CLI kept capturing, uploading, indexing, discovering, and reading traces
@@ -12,15 +12,15 @@ after only the CLI was replaced. No configuration file changed, no login,
 consent, credential change, or object migration happened, and the guarded
 process made no non-loopback network request.
 
-| Item | Value |
-| --- | --- |
-| Pre-upgrade CLI | `origin/main` at `317bc7f0`, built with `pnpm --filter @dev.fast/review build` |
-| Upgraded CLI | this branch, same build command |
-| Bucket | MinIO (`minio/minio`, Docker 29.7.2) on `127.0.0.1:9000`, bucket `review-traces-gate`, region `us-east-1` |
-| Transport | `aws-cli/2.34.60` as shipped; Node `v24.15.0` |
-| Home | disposable `HOME` and `DEV_REVIEW_HOME`; `AWS_PROFILE` and agent-session variables unset |
-| Hosted network | every non-loopback `fetch`, `http(s).request`, and socket connect throws and is logged (`no-network.cjs`) |
-| Commands run | 32, all exit 0 (`evidence.log`) |
+| Item            | Value                                                                                                     |
+| --------------- | --------------------------------------------------------------------------------------------------------- |
+| Pre-upgrade CLI | `origin/main` at `317bc7f0`, built with `pnpm --filter @dev.fast/review build`                            |
+| Upgraded CLI    | this branch, same build command                                                                           |
+| Bucket          | MinIO (`minio/minio`, Docker 29.7.2) on `127.0.0.1:9000`, bucket `review-traces-gate`, region `us-east-1` |
+| Transport       | `aws-cli/2.34.60` as shipped; Node `v24.15.0`                                                             |
+| Home            | disposable `HOME` and `DEV_REVIEW_HOME`; `AWS_PROFILE` and agent-session variables unset                  |
+| Hosted network  | every non-loopback `fetch`, `http(s).request`, and socket connect throws and is logged (`no-network.cjs`) |
+| Commands run    | 32, all exit 0 (`evidence.log`)                                                                           |
 
 ### Procedure and observations
 
@@ -87,7 +87,7 @@ client/server agreement on the revised contract, not deployment.
 
 Result: **passed** (repeated after the `current-store`/`stores` schema
 revision with the same outcome). The same comparison was repeated on a developer machine
-with a real, pre-existing direct setup (`~/.config/dev-trace/env` and
+with a real, pre-existing s3 setup (`~/.config/dev-trace/env` and
 `settings.json` from the original setup flow, a Cloudflare R2 bucket, this
 repository registered for capture) and two sessions already in the bucket.
 Review Desktop was running, so `DEV_FAST_REVIEW_CLI_NO_DELEGATE=1` kept the
@@ -95,17 +95,17 @@ standalone builds from deferring to the app's bundled CLI; without it every
 "new CLI" command silently ran the bundled older CLI, which is the intended
 delegation behavior and worth knowing when testing.
 
-| Step (new CLI, network guard on) | Result |
-| --- | --- |
-| `trace status` | legacy env file named as the credential source, `config.json (not present)`, bucket reachable |
+| Step (new CLI, network guard on)     | Result                                                                                                              |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `trace status`                       | legacy env file named as the credential source, `config.json (not present)`, bucket reachable                       |
 | `trace show <s1>`, `trace show <s2>` | both sessions read from the bucket; `show --json` identical to the pre-upgrade CLI apart from the new `cache` field |
-| `trace pull --session <s1>` | materialized into the existing corpus |
-| `trace sync <s2>` | main and two subagent objects reported `unchanged` |
-| `trace show <s2> --storage s3` | works |
-| `trace show <s2> --storage hosted` | refused: hosted not configured, no fallback |
-| `trace config migrate --dry-run` | preview only, no file written, key prefix only |
-| Config files | `env`, `settings.json`, `repositories.json` hash-identical before and after; no `config.json` created |
-| Non-loopback requests from Node | none |
+| `trace pull --session <s1>`          | materialized into the existing corpus                                                                               |
+| `trace sync <s2>`                    | main and two subagent objects reported `unchanged`                                                                  |
+| `trace show <s2> --storage s3`       | works                                                                                                               |
+| `trace show <s2> --storage hosted`   | refused: hosted not configured, no fallback                                                                         |
+| `trace config migrate --dry-run`     | preview only, no file written, key prefix only                                                                      |
+| Config files                         | `env`, `settings.json`, `repositories.json` hash-identical before and after; no `config.json` created               |
+| Non-loopback requests from Node      | none                                                                                                                |
 
 Note: the machine's `repositories.json` already contained many
 `trace-cli-test-*` temporary paths before this branch. The existing test
@@ -148,7 +148,7 @@ or the first failing step.
 
 ```js
 // Fails every non-loopback network request from Node and logs the attempt,
-// so the upgrade gate can prove the direct-storage flow makes no hosted calls.
+// so the upgrade gate can prove the s3-storage flow makes no hosted calls.
 const fs = require("node:fs");
 const net = require("node:net");
 const http = require("node:http");
@@ -198,7 +198,7 @@ net.Socket.prototype.connect = function (...args) {
 
 ```bash
 #!/bin/bash
-# Upgrade gate: a working direct S3/R2 setup made with the pre-upgrade CLI
+# Upgrade gate: a working S3/R2 setup made with the pre-upgrade CLI
 # must keep working after replacing only the CLI, with no config edits and
 # no hosted requests. Everything runs in a disposable HOME against MinIO.
 set -u

@@ -32,7 +32,7 @@ export type TraceStorageTarget = S3StorageTarget | HostedStorageTarget;
 export interface TraceObjectInfo {
   size: number;
   /**
-   * What the backend can verify about the object's content. Direct storage
+   * What the backend can verify about the object's content. S3 storage
    * only knows sizes; hosted storage knows checksums and generations.
    */
   contentId: string;
@@ -69,7 +69,7 @@ export interface TracePublishUpload {
   status: "uploaded" | "unchanged";
 }
 
-/** Hosted publication details, additive to the direct result shape. */
+/** Hosted publication details, additive to the s3 result. */
 export interface HostedPublishDetails {
   repositoryId: number;
   storeId: string;
@@ -137,7 +137,7 @@ export interface TraceStorage {
   sessionsForCommit(commit: string): Promise<TraceCommitSessions | null>;
   publish(input: TracePublishInput): Promise<TracePublishResult>;
   /**
-   * Records which sessions produced a commit. Direct storage writes a
+   * Records which sessions produced a commit. S3 storage writes a
    * by-commit index entry once; hosted storage records commits with the
    * published snapshot and returns false here.
    */

@@ -65,21 +65,21 @@ $ review version --json
 
 ## Commands
 
-| Command | Purpose |
-| --- | --- |
-| `review app` | Start Review Desktop. Bare `review app` aliases `app launch`. |
-| `review app launch` | Start or activate Review Desktop. |
-| `review app pick` | Select a published Review and optionally choose its opened view. |
-| `review info` | List Reviews associated with the current checkout. |
-| `review scaffold` | Create or update a pinned UUID Review. |
-| `review publish` | Validate and publish the Review document, optionally opening a chosen view. |
-| `review rebind` | Move a Review to another branch, bookmark, or change ID. |
-| `review wait` | Wait for reviewer activity or an agent-action state. |
-| `review threads` | Read, reply to, and resolve Review threads. |
-| `review map` | Author, validate, publish, and share experimental software maps. |
-| `review install` | Install Review skills for supported coding agents. |
-| `review migrate apply` | Migrate supported legacy Review data. |
-| `review version` | Print the Review package version. |
+| Command                | Purpose                                                                     |
+| ---------------------- | --------------------------------------------------------------------------- |
+| `review app`           | Start Review Desktop. Bare `review app` aliases `app launch`.               |
+| `review app launch`    | Start or activate Review Desktop.                                           |
+| `review app pick`      | Select a published Review and optionally choose its opened view.            |
+| `review info`          | List Reviews associated with the current checkout.                          |
+| `review scaffold`      | Create or update a pinned UUID Review.                                      |
+| `review publish`       | Validate and publish the Review document, optionally opening a chosen view. |
+| `review rebind`        | Move a Review to another branch, bookmark, or change ID.                    |
+| `review wait`          | Wait for reviewer activity or an agent-action state.                        |
+| `review threads`       | Read, reply to, and resolve Review threads.                                 |
+| `review map`           | Author, validate, publish, and share experimental software maps.            |
+| `review install`       | Install Review skills for supported coding agents.                          |
+| `review migrate apply` | Migrate supported legacy Review data.                                       |
+| `review version`       | Print the Review package version.                                           |
 
 ## Desktop and discovery
 
@@ -192,7 +192,7 @@ review logout
 review whoami
 review trace onboard [path]
 review trace allow [path] [--no-harness-hooks]
-review trace deny [path]
+review trace deny [path] [--delete-store]
 ```
 
 Review stores traces in one selected place per machine: an **s3** store (an
@@ -216,7 +216,12 @@ S3-compatible bucket you own, R2 included) or the **hosted** store at
     "hosted": { "origin": "https://app.dev.fast" }
   },
   "repositories": [
-    { "repositoryId": 123456789, "name": "owner/repo", "enabledOrigins": ["https://app.dev.fast"], "allowedAt": "…" }
+    {
+      "repositoryId": 123456789,
+      "name": "owner/repo",
+      "enabledOrigins": ["https://app.dev.fast"],
+      "allowedAt": "…"
+    }
   ]
 }
 ```
@@ -262,7 +267,8 @@ Read commands accept `--storage s3|hosted` to inspect the other store
 for one operation. The override never changes the selection, capture
 settings, or consent. `review trace status` names the effective store, the
 configuration sources in use, and the config file, without revealing
-secrets.
+secrets. On a hosted machine it also prints `Stored bytes`, the size of every
+completed upload in the repository's store.
 
 ## Agent integration and migration
 

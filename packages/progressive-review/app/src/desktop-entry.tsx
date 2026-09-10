@@ -335,7 +335,7 @@ function ReviewCanvas({
       </CanvasShell>
     );
   }
-  return <ReviewCanvasLoading page note="Preparing the selected review…" />;
+  return <ReviewCanvasLoading page />;
 }
 
 function Home({

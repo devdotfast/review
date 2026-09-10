@@ -43,7 +43,7 @@ review host connection
 review host capabilities
 ```
 
-For checkout development, follow the [build instructions](../apps/review-desktop/README.md).
+For checkout development, follow the [build instructions](https://github.com/devdotfast/review/blob/main/apps/review-desktop/README.md).
 Review-data commands require a healthy host; there is no offline file-editing
 fallback. Discovery is private and host-specific. Do not copy tokens between
 installations or expose `host.json`.

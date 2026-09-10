@@ -4,7 +4,7 @@ This guide describes the JSON-host version of Review. Use a matching Desktop and
 
 ## 1. Start Review Desktop
 
-Install and open Review, or use the [checkout development instructions](../apps/review-desktop/README.md) when testing an unreleased change. Development verification must use the app built from that checkout, not another installed copy.
+Install and open Review, or use the [checkout development instructions](https://github.com/devdotfast/review/blob/main/apps/review-desktop/README.md) when testing an unreleased change. Development verification must use the app built from that checkout, not another installed copy.
 
 Home lists reviews held by the local host. **Welcome**, **Settings** and the bundled **Tutorial** remain available. Setup can install the `review` command and the `dev-review` / `dev-review-map` skills for supported coding agents.
 

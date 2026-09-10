@@ -52,7 +52,7 @@ MCP tool discovery filters operations by the current credential's capabilities. 
 
 ## Operation families
 
-The complete strict input/output schemas live in [host-commands.ts](../packages/review-protocol/src/host-commands.ts), [host-source.ts](../packages/review-protocol/src/host-source.ts), and [host-resources.ts](../packages/review-protocol/src/host-resources.ts). MCP uses those same schemas.
+The complete strict input/output schemas live in [host-commands.ts](https://github.com/devdotfast/review/blob/main/packages/review-protocol/src/host-commands.ts), [host-source.ts](https://github.com/devdotfast/review/blob/main/packages/review-protocol/src/host-source.ts), and [host-resources.ts](https://github.com/devdotfast/review/blob/main/packages/review-protocol/src/host-resources.ts). MCP uses those same schemas.
 
 | Area | Commands | Queries |
 | --- | --- | --- |

@@ -18,6 +18,7 @@ import {
   writeReviewDocumentBundle,
 } from "./review-bundle";
 import {
+  PROSE_TAGS,
   type ReviewNode,
   reviewDocumentDataSchema,
   walkReviewNodes,
@@ -104,6 +105,52 @@ async function fixture() {
 }
 
 describe("real authored document JSON conversion", () => {
+  it("preserves every supported prose element through real Markdown compilation and storage", async () => {
+    const example = await fixture();
+    const source = await readFile(
+      path.join(
+        import.meta.dirname,
+        "fixtures/document-json/markdown-reference.mdx",
+      ),
+      "utf8",
+    );
+    const result = await example.evaluate(source);
+    expect(result.errors).toEqual([]);
+    if (!result.document)
+      throw new Error("Missing Markdown reference document");
+    const nodes: ReviewNode[] = [];
+    walkReviewNodes(result.document.body, (node) => nodes.push(node));
+    expect(
+      [
+        ...new Set(
+          nodes
+            .filter((node) => node.type === "element")
+            .map((node) => node.tag),
+        ),
+      ].sort(),
+    ).toEqual([...PROSE_TAGS].sort());
+    const bundle = bundleReviewDocument(result.document);
+    await writeReviewDocumentBundle(example.dir, bundle);
+    expect(await readReviewDocumentBundle(example.dir, "/")).toEqual(bundle);
+    expect(nodes).toContainEqual(
+      expect.objectContaining({
+        type: "element",
+        tag: "img",
+        props: expect.objectContaining({
+          src: "https://example.com/review.png",
+          alt: "Review illustration",
+          title: "Illustration",
+        }),
+      }),
+    );
+    expect(
+      nodes
+        .filter((node) => node.type === "element")
+        .filter((node) => node.tag === "td")
+        .map((node) => node.props.align),
+    ).toEqual(["left", "center", "right"]);
+  });
+
   it("preserves footnotes and accessible return links from Markdown through rendering", async () => {
     const example = await fixture();
     const result = await example.evaluate(

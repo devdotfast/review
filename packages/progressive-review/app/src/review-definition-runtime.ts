@@ -5,6 +5,7 @@ import {
   calls,
   createReviewDefinitionSession,
 } from "../../src/authoring";
+import { codePeekResolutionKey } from "../../src/code-peek-diff";
 
 export { calls };
 import { reviewFetch } from "./host/review-client";
@@ -47,6 +48,10 @@ export function createBrowserReviewDefinitionSession(input: {
   // produced before the origin-agnostic change keep working.
   const requestOrigin = input.requestOrigin ?? reviewRequestContext?.origin;
   const requestToken = input.requestToken ?? reviewRequestContext?.token;
+  // A published bundle carries every peek publish resolved; mounting it needs
+  // no request. Bundles from before that change carry nothing and still
+  // resolve against the running server.
+  const embedded = embeddedCodePeeks(input.routePath);
   return createReviewDefinitionSession({
     softwareMap: input.softwareMap,
     baseSoftwareMap: input.baseSoftwareMap,
@@ -54,14 +59,45 @@ export function createBrowserReviewDefinitionSession(input: {
     resolveCodePeek:
       input.resolveCodePeeks === false
         ? undefined
-        : (props) =>
-            resolveCodePeek(
-              input.routePath,
-              props,
-              requestOrigin,
-              requestToken,
-            ),
+        : embedded
+          ? (props) => resolveEmbeddedCodePeek(embedded, props)
+          : (props) =>
+              resolveCodePeek(
+                input.routePath,
+                props,
+                requestOrigin,
+                requestToken,
+              ),
   });
+}
+
+type EmbeddedCodePeeks = Record<string, CodePeekResolution>;
+
+declare global {
+  // Written by publish as a prelude of the bundle it just evaluated (see
+  // embedCodePeeks in doc-bundler): routePath -> peek key -> resolution.
+  // eslint-disable-next-line no-var
+  var __reviewEmbeddedCodePeeks:
+    | Record<string, EmbeddedCodePeeks | undefined>
+    | undefined;
+}
+
+function embeddedCodePeeks(routePath: string): EmbeddedCodePeeks | null {
+  return globalThis.__reviewEmbeddedCodePeeks?.[routePath] ?? null;
+}
+
+async function resolveEmbeddedCodePeek(
+  embedded: EmbeddedCodePeeks,
+  props: CodePeekProps,
+): Promise<CodePeekResolution> {
+  const key = codePeekResolutionKey(props);
+  const resolution = embedded[key];
+  if (!resolution) {
+    throw new Error(
+      `Code peek ${key} is not in the published bundle; republish the review.`,
+    );
+  }
+  return resolution;
 }
 
 async function resolveCodePeek(

@@ -170,7 +170,24 @@ def write_review_shim(bin_dir: Path, calls_log: Path) -> Path:
         "exit $code\n"
     )
     shim.chmod(shim.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    # ast-grep rides along on the same PATH when the machine has it, so the
+    # skill's code-search guidance can be exercised; without it the run still
+    # proceeds and the agent falls back to grep/sed.
+    binary = ast_grep_binary()
+    for name in ("ast-grep", "sg"):
+        link = bin_dir / name
+        if link.is_symlink() or link.exists():
+            link.unlink()
+        if binary is not None:
+            link.symlink_to(binary)
     return shim
+
+
+def ast_grep_binary() -> Path | None:
+    """The ast-grep on PATH (`brew install ast-grep`), or None. It is not a
+    workspace dependency: pnpm refuses its postinstall in CI."""
+    found = shutil.which("ast-grep") or shutil.which("sg")
+    return Path(found) if found else None
 
 
 def write_zdotdir(zdotdir: Path, bin_dir: Path) -> Path:

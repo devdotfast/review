@@ -19,6 +19,7 @@ import {
 } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { sealLegacyReviewCommit } from "./fixtures/legacy-reviews/legacy-review-git";
 import {
   readReviewDocumentBundle,
   reviewDocumentBundleData,
@@ -39,7 +40,6 @@ import {
   repairReviewMirror,
   reviewDescriptor,
   reviewsHomeDir,
-  sealReviewCandidate,
   touchReviewAgentSession,
   updateReviewPins,
 } from "./review-home";
@@ -117,6 +117,19 @@ describe("review home", () => {
         presentedSoftwareMapRevision: null,
       }),
     ).toMatchObject({ schemaVersion: REVIEW_SCHEMA_VERSION });
+    expect(
+      parseAnyStoredReviewRecord({
+        ...base,
+        schemaVersion: 5,
+        sourceSession: "disabled:review",
+        presentedDocumentRevision: "d".repeat(40),
+        presentedSoftwareMapRevision: "d".repeat(40),
+      }),
+    ).toMatchObject({
+      schemaVersion: REVIEW_SCHEMA_VERSION,
+      presentedDocumentRevision: "d".repeat(40),
+      presentedSoftwareMapRevision: "d".repeat(40),
+    });
     expect(
       parseAnyStoredReviewRecord({
         ...base,
@@ -903,14 +916,14 @@ describe("legacy records on read", () => {
     const loaded = await findReviewForRepair(created.review.uuid);
     expect(loaded).toMatchObject({
       dir: created.dir,
-      review: { schemaVersion: 5, presentedDocumentRevision: "a".repeat(40) },
+      review: { schemaVersion: 6, presentedDocumentRevision: "a".repeat(40) },
     });
     expect(loaded).not.toHaveProperty("recovery");
     expect(await readFile(recordPath, "utf8")).toBe(bytes);
     for (const value of [
       "{broken",
       JSON.stringify({ ...record, baseCommit: 42 }),
-      JSON.stringify({ ...record, schemaVersion: 6 }),
+      JSON.stringify({ ...record, schemaVersion: 7 }),
       JSON.stringify({
         ...record,
         uuid: "11111111-1111-4111-8111-111111111111",
@@ -929,7 +942,7 @@ describe("legacy records on read", () => {
       findReviewForRepair("22222222-2222-4222-8222-222222222222"),
     ).resolves.toBeNull();
   });
-  it.each([2, 3, 4, 6] as const)(
+  it.each([2, 3, 4, 7] as const)(
     "does not mutate malformed or unsupported schema %s records",
     async (schemaVersion) => {
       const root = await gitRepository();
@@ -940,14 +953,14 @@ describe("legacy records on read", () => {
         baseCommit: await git(root, ["rev-parse", "HEAD"]),
       });
       const recordPath = path.join(created.dir, "review.json");
-      await sealReviewCandidate(created.dir, "Initial document");
+      await sealLegacyReviewCommit(created.dir, "Initial document");
       const record = await legacyRecord(
         created,
-        schemaVersion === 6 ? 4 : schemaVersion,
+        schemaVersion === 7 ? 4 : schemaVersion,
         "a".repeat(40),
       );
       const bytes = JSON.stringify(
-        schemaVersion === 6
+        schemaVersion === 7
           ? { ...created.review, schemaVersion }
           : {
               ...record,
@@ -980,7 +993,7 @@ describe("legacy records on read", () => {
         baseCommit: await git(root, ["rev-parse", "HEAD"]),
       });
       await writeLegacyDocument(created.dir);
-      const revision = await sealReviewCandidate(
+      const revision = await sealLegacyReviewCommit(
         created.dir,
         "Legacy document",
       );
@@ -996,7 +1009,7 @@ describe("legacy records on read", () => {
       expect(listed.reviews).toHaveLength(1);
       const stored = await findReview(created.review.uuid);
       expect(stored?.review).toMatchObject({
-        schemaVersion: 5,
+        schemaVersion: 6,
         status: "accepted",
         dismissedAt: "2026-01-01T00:00:00Z",
         sourceSession: created.review.sourceSession,
@@ -1031,7 +1044,10 @@ describe("legacy records on read", () => {
       baseCommit: await git(root, ["rev-parse", "HEAD"]),
     });
     await writeLegacyDocument(created.dir);
-    const revision = await sealReviewCandidate(created.dir, "Legacy document");
+    const revision = await sealLegacyReviewCommit(
+      created.dir,
+      "Legacy document",
+    );
     await writeFile(
       path.join(created.dir, "review.json"),
       JSON.stringify(await legacyRecord(created, 4, revision)),
@@ -1043,7 +1059,7 @@ describe("legacy records on read", () => {
       findReview(created.review.uuid),
     ]);
 
-    expect(first?.review.schemaVersion).toBe(5);
+    expect(first?.review.schemaVersion).toBe(6);
     expect(second?.review).toEqual(first?.review);
     expect(seal).toHaveBeenCalledTimes(1);
   });
@@ -1059,7 +1075,10 @@ describe("legacy records on read", () => {
     await writeLegacyDocument(created.dir, {
       code: 'import { jsx } from "review-doc-runtime"; throw new Error("broken sealed document");',
     });
-    const revision = await sealReviewCandidate(created.dir, "Broken document");
+    const revision = await sealLegacyReviewCommit(
+      created.dir,
+      "Broken document",
+    );
     const recordPath = path.join(created.dir, "review.json");
     const bytes = JSON.stringify(await legacyRecord(created, 4, revision));
     await writeFile(recordPath, bytes);

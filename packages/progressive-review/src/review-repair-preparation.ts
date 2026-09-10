@@ -12,6 +12,10 @@ import {
 } from "@dev.fast/review-protocol";
 
 import { errorMessage as message } from "./error-message";
+import {
+  evaluateSealedReviewDocument,
+  legacySoftwareMapBundle,
+} from "./legacy-sealed-artifacts";
 import { isMissingFileError } from "./native-agent/transcript-json";
 import { REVIEW_ARTIFACTS_DIR } from "./review-artifact-store";
 import {
@@ -35,7 +39,6 @@ import {
   assertNoActiveReviewAgentWrites,
   fingerprintReviewRepairInputs,
 } from "./review-repair-state";
-import { evaluateSealedReviewDocument } from "./review-sealed-document";
 import { readReviewRecord } from "./review-state-db";
 import { SOFTWARE_MAP_NOTES_REF } from "./review-storage";
 import {
@@ -52,7 +55,6 @@ import {
   writeReviewSoftwareMapBundle,
 } from "./software-map-bundle";
 import { checkSoftwareMapSource } from "./software-map-health";
-import { legacySoftwareMapBundle } from "./stored-review-migration";
 
 export type PreparedReviewRepair =
   | { kind: "noop"; review: StoredReviewRecord }

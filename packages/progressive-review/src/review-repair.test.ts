@@ -14,17 +14,15 @@ import { DatabaseSync } from "node:sqlite";
 import { Writable } from "node:stream";
 
 import { remoteNotesRef, writeNote } from "@dev.fast/local-vcs";
+import { REVIEW_SCHEMA_VERSION } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { sealLegacyReviewCommit } from "./fixtures/legacy-reviews/legacy-review-git";
 import {
   bundleReviewDocument,
   writeReviewDocumentBundle,
 } from "./review-bundle";
-import {
-  createReviewDir,
-  materializeReviewRevision,
-  sealReviewCandidate,
-} from "./review-home";
+import { createReviewDir, materializeReviewRevision } from "./review-home";
 import { startLifecycleTestServer } from "./review-lifecycle-test-utils";
 import { runReviewRepair } from "./review-repair";
 import { prepareReviewRepair } from "./review-repair-preparation";
@@ -105,10 +103,10 @@ async function fixture(legacy = false) {
         softwareModels: [],
       }),
     );
-  const revision = await sealReviewCandidate(stored.dir, "Presented");
+  const revision = await sealLegacyReviewCommit(stored.dir, "Presented");
   const record = {
     ...stored.review,
-    schemaVersion: legacy ? 4 : 5,
+    schemaVersion: legacy ? 4 : REVIEW_SCHEMA_VERSION,
     status: "accepted",
     presentedDocumentRevision: revision,
     dismissedAt: "2026-09-01T00:00:00.000Z",
@@ -239,7 +237,7 @@ describe("prepareReviewRepair", () => {
         headCommit: "d".repeat(40),
       }),
     );
-    const mapRevision = await sealReviewCandidate(
+    const mapRevision = await sealLegacyReviewCommit(
       stored.dir,
       "Contradictory map pins",
     );
@@ -288,7 +286,7 @@ describe("prepareReviewRepair", () => {
       expect(staged).toMatchObject({
         status: "accepted",
         dismissedAt: stored.record.dismissedAt,
-        schemaVersion: 5,
+        schemaVersion: REVIEW_SCHEMA_VERSION,
       });
       expect(await readFile(path.join(stored.dir, "review.json"), "utf8")).toBe(
         before,
@@ -317,7 +315,7 @@ describe("prepareReviewRepair", () => {
       path.join(stored.dir, ".bundle/document/review-document.js"),
       "broken javascript",
     );
-    const revision = await sealReviewCandidate(
+    const revision = await sealLegacyReviewCommit(
       stored.dir,
       "Broken current artifact",
     );
@@ -374,7 +372,7 @@ describe("prepareReviewRepair", () => {
         baseCommit: stored.review.baseCommit,
       }),
     );
-    const mapRevision = await sealReviewCandidate(
+    const mapRevision = await sealLegacyReviewCommit(
       stored.dir,
       "Independent JSON map",
     );
@@ -498,7 +496,7 @@ describe("prepareReviewRepair", () => {
       path.join(stored.dir, "review.json"),
       JSON.stringify({ ...stored.record, sourceCommit: "c".repeat(40) }),
     );
-    const mapRevision = await sealReviewCandidate(
+    const mapRevision = await sealLegacyReviewCommit(
       stored.dir,
       "Legacy map only",
     );
@@ -570,7 +568,7 @@ describe("prepareReviewRepair", () => {
             "utf8",
           ),
         ).schemaVersion,
-      ).toBe(5);
+      ).toBe(REVIEW_SCHEMA_VERSION);
     } finally {
       await result.cleanup();
     }
@@ -625,7 +623,7 @@ it("repairs broken sealed artifacts with a legacy DB by upgrading only the isola
     path.join(stored.dir, ".bundle/document/review-document.js"),
     "throw new Error('broken sealed');",
   );
-  const broken = await sealReviewCandidate(
+  const broken = await sealLegacyReviewCommit(
     stored.dir,
     "Broken sealed document",
   );
@@ -671,7 +669,7 @@ it("rejects changes to legacy threads while preparing artifact repair", async ()
     path.join(stored.dir, ".bundle/document/review-document.js"),
     "throw new Error('broken sealed');",
   );
-  const broken = await sealReviewCandidate(
+  const broken = await sealLegacyReviewCommit(
     stored.dir,
     "Broken sealed document",
   );

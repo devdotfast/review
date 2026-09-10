@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { cp, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 
 import {
   type JsonObject,
@@ -18,6 +17,10 @@ import {
   parseAuthoringSessionKey,
 } from "./authoring-session";
 import { errorMessage } from "./error-message";
+import {
+  evaluateSealedReviewDocument,
+  legacySoftwareMapBundle,
+} from "./legacy-sealed-artifacts";
 import { isMissingFileError } from "./native-agent/transcript-json";
 import { promoteReviewArtifactFiles } from "./review-artifact-promotion";
 import {
@@ -42,7 +45,6 @@ import {
   sealReviewCandidate,
 } from "./review-home";
 import { stableJson, withReviewMutationLock } from "./review-mutation-lock";
-import { evaluateSealedReviewDocument } from "./review-sealed-document";
 import { createReviewSourceAgentSession } from "./review-source-agent-session";
 import {
   importLegacyReview,
@@ -60,10 +62,6 @@ import {
   readReviewSoftwareMapBundle,
   writeReviewSoftwareMapBundle,
 } from "./software-map-bundle";
-import {
-  type NormalizedSoftwareModel,
-  isNormalizedSoftwareModel,
-} from "./software-map-model";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -120,7 +118,7 @@ async function migrateStoredReviewLocked(
   const schemaVersion = value?.schemaVersion;
   if (
     !value ||
-    ![2, 3, 4, REVIEW_SCHEMA_VERSION].includes(Number(schemaVersion))
+    ![2, 3, 4, 5, REVIEW_SCHEMA_VERSION].includes(Number(schemaVersion))
   ) {
     throw new Error("Unsupported Review schema; the record was preserved.");
   }
@@ -460,7 +458,11 @@ async function regeneratePresentedArtifacts(input: {
     let mapBundle: ReviewSoftwareMapBundle | null = null;
     let mapRevision = input.review.presentedSoftwareMapRevision;
     const documentRevision = input.review.presentedDocumentRevision;
-    if (documentRevision) {
+    // Schema 5 presented artifacts are already JSON (or, once imported,
+    // publication rows) — never Git-sealed `.bundle` revisions — so schema
+    // 5 -> 6 must never try to materialize and read them as Git commits.
+    const presentedArtifactsAreSealedInGit = input.original.schemaVersion !== 5;
+    if (presentedArtifactsAreSealedInGit && documentRevision) {
       await materializeReviewRevision(
         input.reviewDir,
         documentRevision,
@@ -474,7 +476,7 @@ async function regeneratePresentedArtifacts(input: {
         documentBundle = bundleReviewDocument(evaluatedDocument.document);
       }
     }
-    if (mapRevision) {
+    if (presentedArtifactsAreSealedInGit && mapRevision) {
       await materializeReviewRevision(input.reviewDir, mapRevision, mapDir);
       if (!(await readReviewSoftwareMapBundle(mapDir))) {
         mapBundle = await legacySoftwareMapBundle(mapDir);
@@ -524,7 +526,9 @@ async function regeneratePresentedArtifacts(input: {
           putReviewRecord(input.reviewDir, finalized);
           const warning = await refreshReviewMirror(input.reviewDir, finalized);
           if (warning) input.log?.(warning);
-          input.log?.("Migrated Review " + input.review.uuid + " to schema 5.");
+          input.log?.(
+            `Migrated Review ${input.review.uuid} to schema ${REVIEW_SCHEMA_VERSION}.`,
+          );
           return true;
         }
         return false;
@@ -678,63 +682,4 @@ async function withSealedSourcePins(
     sourceCommit: sealed.sourceCommit,
     sourceIdentity: sealed.sourceIdentity,
   };
-}
-
-export async function legacySoftwareMapBundle(
-  legacyBuildDir: string,
-): Promise<ReviewSoftwareMapBundle | null> {
-  const mapDir = path.join(legacyBuildDir, ".bundle", "software-map");
-  let manifestValue: JsonObject | undefined;
-  try {
-    manifestValue = jsonObject(
-      parseJsonText(await readFile(path.join(mapDir, "manifest.json"), "utf8")),
-    );
-  } catch (error) {
-    if (isMissingFileError(error)) {
-      try {
-        await readdir(mapDir);
-      } catch (directoryError) {
-        if (isMissingFileError(directoryError)) return null;
-        throw directoryError;
-      }
-      throw new Error("The presented software map has no manifest.");
-    }
-    throw error;
-  }
-  const headCommit = jsonString(manifestValue?.headCommit);
-  const baseCommit = jsonString(manifestValue?.baseCommit);
-  if (
-    manifestValue?.version !== 1 ||
-    !headCommit ||
-    !baseCommit ||
-    !/^[0-9a-f]{40}$/i.test(headCommit) ||
-    !/^[0-9a-f]{40}$/i.test(baseCommit)
-  ) {
-    throw new Error(
-      "The presented software-map manifest is invalid or unsupported.",
-    );
-  }
-  const load = async (
-    file: string,
-  ): Promise<NormalizedSoftwareModel | null> => {
-    const url = pathToFileURL(path.join(mapDir, file));
-    url.searchParams.set("t", `${Date.now()}-${Math.random()}`);
-    try {
-      // SAFETY: an imported legacy map module has no static TypeScript shape;
-      // isNormalizedSoftwareModel validates its default export before use.
-      const module = (await import(url.href)) as { default?: unknown };
-      return isNormalizedSoftwareModel(module.default) ? module.default : null;
-    } catch {
-      return null;
-    }
-  };
-  const [head, base] = await Promise.all([
-    load("head-map.js"),
-    load("base-map.js"),
-  ]);
-  if (!head || !base)
-    throw new Error(
-      "The presented software map could not be converted; its sealed head or base bundle is invalid.",
-    );
-  return bundleReviewSoftwareMap({ head, base, headCommit, baseCommit });
 }

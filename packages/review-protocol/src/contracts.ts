@@ -34,8 +34,10 @@ export type SessionMeta = z.infer<typeof sessionMetaSchema>;
 // mounts the prepared candidate and commits its publication through
 // /lifecycle/publish. (Version 2 added the bundled-CLI discovery fields.)
 export const REVIEW_DESKTOP_DISCOVERY_VERSION = 3;
-// Version 5: document and software-map bundles are JSON.
-export const REVIEW_SCHEMA_VERSION = 5;
+// Version 5: document and software-map bundles are JSON. Version 6 is the
+// same record shape, relabeled: it marks that this Review's presented
+// artifacts have been imported into publication rows.
+export const REVIEW_SCHEMA_VERSION = 6;
 
 const requiredString = z
   .string({ error: "must be a string" })

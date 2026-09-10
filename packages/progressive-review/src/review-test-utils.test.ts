@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
+import { REVIEW_SCHEMA_VERSION } from "@dev.fast/review-protocol";
 import { afterEach, expect, it } from "vitest";
 
 import { parseStoredReviewRecord } from "./review-home";
@@ -48,7 +49,9 @@ it("initializes a committed repository on the requested branch", async () => {
 
 it("stages a promotable review directory at either stored schema", async () => {
   const current = await storedReviewFixture();
-  expect(parseStoredReviewRecord(current.record).schemaVersion).toBe(5);
+  expect(parseStoredReviewRecord(current.record).schemaVersion).toBe(
+    REVIEW_SCHEMA_VERSION,
+  );
   expect(
     await readFile(path.join(current.reviewDir, ".git", "HEAD"), "utf8"),
   ).toBe("old-head");

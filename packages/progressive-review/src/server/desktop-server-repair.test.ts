@@ -25,6 +25,10 @@ import { afterEach, expect, it, vi } from "vitest";
 
 import { snapshotReviewTree } from "../fixtures/legacy-reviews/legacy-review-fixture";
 import {
+  initLegacyReviewRepo,
+  sealLegacyReviewCommit,
+} from "../fixtures/legacy-reviews/legacy-review-git";
+import {
   bundleReviewDocument,
   writeReviewDocumentBundle,
 } from "../review-bundle";
@@ -41,7 +45,6 @@ import {
   closeAllReviewThreadStores,
   copyReviewThreadDatabaseSnapshot,
 } from "../review-thread-store-backend";
-import { reviewVcs } from "../review-vcs";
 import { createGlobalReviewServer } from "./desktop-server";
 import {
   GlobalReviewDesktopVerbRelay,
@@ -80,14 +83,14 @@ const packageRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../..",
 );
-async function fixture(schemaVersion: 4 | 5 = 4) {
+async function fixture(schemaVersion: 4 | 6 = 4) {
   root = await mkdtemp(path.join(tmpdir(), "repair-server-"));
   vi.stubEnv("DEV_REVIEW_HOME", root);
   const source = path.join(root, "source");
   await mkdir(source);
-  await reviewVcs.init(source);
+  await initLegacyReviewRepo(source);
   await writeFile(path.join(source, "one.ts"), "export const one = 1;\n");
-  const commit = await reviewVcs.seal(source, "source");
+  const commit = await sealLegacyReviewCommit(source, "source");
   const stored = await createReviewDir({
     worktreePath: source,
     baseRef: "main",
@@ -115,7 +118,7 @@ async function fixture(schemaVersion: 4 | 5 = 4) {
     "throw new Error('never execute server');",
   );
   await writeFile(path.join(stored.dir, "review.json"), JSON.stringify(record));
-  const oldRevision = await reviewVcs.seal(
+  const oldRevision = await sealLegacyReviewCommit(
     stored.dir,
     "Review publish candidate",
   );
@@ -130,7 +133,7 @@ async function fixture(schemaVersion: 4 | 5 = 4) {
   await cp(stored.dir, stagingDir, { recursive: true });
   const normalized = {
     ...record,
-    schemaVersion: 5,
+    schemaVersion: 6,
     presentedDocumentRevision: oldRevision,
   };
   await writeFile(
@@ -150,7 +153,7 @@ async function fixture(schemaVersion: 4 | 5 = 4) {
       softwareModels: [],
     }),
   );
-  const newDocumentRevision = await reviewVcs.seal(
+  const newDocumentRevision = await sealLegacyReviewCommit(
     stagingDir,
     "Repair current Review document",
   );
@@ -190,7 +193,7 @@ async function fixture(schemaVersion: 4 | 5 = 4) {
       softwareModels: [],
     }),
   );
-  const visibleRevision = await reviewVcs.seal(
+  const visibleRevision = await sealLegacyReviewCommit(
     visible.dir,
     "Review publish candidate",
   );
@@ -367,7 +370,7 @@ it.each(["success", "mount-failure", "live-change", "stage-change"])(
 );
 
 it("switches repaired comments to live snapshots for resynchronization after promotion", async () => {
-  const { stored, record, request, server, post, get } = await fixture(5);
+  const { stored, record, request, server, post, get } = await fixture(6);
   const comment = (index: number): ReviewThreadsCommand => ({
     command: "comment.create",
     mutationId: `repair-message-${index}`,
@@ -457,7 +460,7 @@ it.each([true, false])(
   "replaces only the repaired current-schema session when mount succeeds: %s",
   async (mountSucceeds) => {
     const { stored, record, request, server, post, list, get } =
-      await fixture(5);
+      await fixture(6);
     dispatchVerb = async (_sessionId, value) =>
       jsonObject(value)?.name === "validateCanvasMount" && !mountSucceeds
         ? { ok: false, error: "test mount failure" }
@@ -517,7 +520,7 @@ it.each([
         recordPath,
         JSON.stringify({ ...finalRecord, baseCommit: "f".repeat(40) }),
       );
-      request.newDocumentRevision = await reviewVcs.seal(
+      request.newDocumentRevision = await sealLegacyReviewCommit(
         request.stagingDir,
         "Bad changed pins",
       );
@@ -596,7 +599,7 @@ it.each([
         success
           ? {
               ...JSON.parse(request.expectedRecord),
-              schemaVersion: 5,
+              schemaVersion: 6,
               presentedDocumentRevision: request.newDocumentRevision,
             }
           : JSON.parse(request.expectedRecord),

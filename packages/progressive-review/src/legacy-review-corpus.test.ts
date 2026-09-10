@@ -20,6 +20,7 @@ import { isDeepStrictEqual, promisify } from "node:util";
 import {
   type JsonObject,
   type JsonValue,
+  REVIEW_SCHEMA_VERSION,
   ReviewCommentAgentSessionSchema,
   isJsonObject,
   jsonObject,
@@ -273,7 +274,7 @@ describe.skipIf(!corpus)("legacy review corpus", () => {
         const record = jsonObject(
           parseJsonText(JSON.stringify(loaded.review)),
         )!;
-        expect(record.schemaVersion).toBe(5);
+        expect(record.schemaVersion).toBe(REVIEW_SCHEMA_VERSION);
         expect(
           isDeepStrictEqual(
             preservedMetadata(record),

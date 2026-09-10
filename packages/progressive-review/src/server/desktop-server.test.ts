@@ -14,6 +14,10 @@ import {
   listLegacyReviewFixtures,
   readLegacyReviewGolden,
 } from "../fixtures/legacy-reviews/legacy-review-fixture";
+import {
+  initLegacyReviewRepo,
+  sealLegacyReviewCommit,
+} from "../fixtures/legacy-reviews/legacy-review-git";
 import { ProgressiveReviewTelemetry } from "../progressive-review-telemetry";
 import { readReviewSoftwareMapArtifact } from "../review-artifact-store";
 import {
@@ -137,7 +141,7 @@ describe("Review Desktop open requests", () => {
     const uuid = "11111111-1111-4111-8111-111111111111";
     const dir = path.join(directory, "reviews", uuid);
     await mkdir(dir, { recursive: true });
-    await reviewVcs.init(dir);
+    await initLegacyReviewRepo(dir);
     const source = await makeSourceRepository(directory);
     const record = {
       schemaVersion: 4,
@@ -160,7 +164,10 @@ describe("Review Desktop open requests", () => {
     await writeFile(path.join(dir, "review.mdx"), "# Recovery");
     await writeFile(path.join(dir, ".gitignore"), ".build/\nreview.db*\n");
     await writeFile(path.join(dir, "review.json"), JSON.stringify(record));
-    const oldRevision = await reviewVcs.seal(dir, "Review publish candidate");
+    const oldRevision = await sealLegacyReviewCommit(
+      dir,
+      "Review publish candidate",
+    );
     await writeReviewDocumentBundle(
       dir,
       bundleReviewDocument({
@@ -178,7 +185,7 @@ describe("Review Desktop open requests", () => {
       path.join(dir, "review.json"),
       JSON.stringify({ ...record, sourceCommit: "f".repeat(40) }),
     );
-    const historicalJsonRevision = await reviewVcs.seal(
+    const historicalJsonRevision = await sealLegacyReviewCommit(
       dir,
       "Review publish candidate",
     );
@@ -201,7 +208,7 @@ describe("Review Desktop open requests", () => {
       `import { createActiveReviewDocument, jsx } from "review-doc-runtime";
 export default createActiveReviewDocument({ title: "Legacy", routePath: "/", filePath: "review.mdx", modelNames: [], models: {}, Component: () => jsx("h1", { children: "Legacy sealed" }), isDefault: true });`,
     );
-    const currentRevision = await reviewVcs.seal(
+    const currentRevision = await sealLegacyReviewCommit(
       dir,
       "Review publish candidate",
     );
@@ -255,7 +262,7 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
         await readFile(path.join(dir, "review.json"), "utf8"),
       );
       expect(migrated).toMatchObject({
-        schemaVersion: 5,
+        schemaVersion: 6,
         status: "accepted",
         dismissedAt: null,
       });
@@ -361,7 +368,7 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
     const uuid = "11111111-1111-4111-8111-111111111111";
     const dir = path.join(directory, "reviews", uuid);
     await mkdir(dir, { recursive: true });
-    await reviewVcs.init(dir);
+    await initLegacyReviewRepo(dir);
     const source = await makeSourceRepository(directory);
     const record = {
       schemaVersion: 4,
@@ -384,7 +391,7 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
     await writeFile(path.join(dir, "review.mdx"), "# Recovery");
     await writeFile(path.join(dir, ".gitignore"), ".build/\nreview.db*\n");
     await writeFile(path.join(dir, "review.json"), JSON.stringify(record));
-    await reviewVcs.seal(dir, "Review publish candidate");
+    await sealLegacyReviewCommit(dir, "Review publish candidate");
     await writeReviewDocumentBundle(
       dir,
       bundleReviewDocument({
@@ -398,7 +405,7 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
         softwareModels: [],
       }),
     );
-    await reviewVcs.seal(dir, "Review publish candidate");
+    await sealLegacyReviewCommit(dir, "Review publish candidate");
     await writeFile(
       path.join(dir, "review.mdx"),
       "# Recovery\n\nCurrent revision",
@@ -416,7 +423,7 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
       path.join(dir, ".bundle/document/review-document.js"),
       'throw new Error("corrupt sealed document");',
     );
-    const currentRevision = await reviewVcs.seal(
+    const currentRevision = await sealLegacyReviewCommit(
       dir,
       "Review publish candidate",
     );

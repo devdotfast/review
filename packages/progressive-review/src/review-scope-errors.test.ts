@@ -13,6 +13,7 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 import { promisify } from "node:util";
 
+import { REVIEW_SCHEMA_VERSION } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { runProgressiveReviewCli } from "./cli-runner";
@@ -133,7 +134,11 @@ describe("scoped review diagnostics", () => {
       const bytes = JSON.stringify({
         ...badRecord,
         schemaVersion:
-          kind === "unsupported" ? 6 : kind === "failed-conversion" ? 4 : 5,
+          kind === "unsupported"
+            ? 7
+            : kind === "failed-conversion"
+              ? 4
+              : REVIEW_SCHEMA_VERSION,
         baseCommit: kind === "malformed" ? 42 : badRecord.baseCommit,
       });
       await writeFile(badPath, bytes);

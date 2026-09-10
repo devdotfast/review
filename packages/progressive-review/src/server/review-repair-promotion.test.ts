@@ -1,6 +1,7 @@
 import { cp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { REVIEW_SCHEMA_VERSION } from "@dev.fast/review-protocol";
 import { afterEach, expect, it, vi } from "vitest";
 
 import * as reviewHome from "../review-home";
@@ -23,7 +24,7 @@ async function fixture() {
   await cp(dir, stagingDir, { recursive: true });
   const next = {
     ...record,
-    schemaVersion: 5,
+    schemaVersion: REVIEW_SCHEMA_VERSION,
     presentedDocumentRevision: "d".repeat(40),
   };
   await writeFile(path.join(stagingDir, "review.json"), JSON.stringify(next));
@@ -54,12 +55,12 @@ it("upgrades legacy metadata without moving healthy artifact pointers", async ()
   request.newDocumentRevision = String(record.presentedDocumentRevision);
   await writeFile(
     path.join(request.stagingDir, "review.json"),
-    JSON.stringify({ ...record, schemaVersion: 5 }),
+    JSON.stringify({ ...record, schemaVersion: REVIEW_SCHEMA_VERSION }),
   );
   await applyPreparedReviewRepair(dir, request);
   expect(
     JSON.parse(await readFile(path.join(dir, "review.json"), "utf8")),
-  ).toEqual({ ...record, schemaVersion: 5 });
+  ).toEqual({ ...record, schemaVersion: REVIEW_SCHEMA_VERSION });
 });
 it("surfaces a mirror-refresh failure as a warning but still commits the database row", async () => {
   const { dir, request, next } = await fixture();

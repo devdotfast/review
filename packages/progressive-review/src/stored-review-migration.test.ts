@@ -9,7 +9,11 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 
-import { jsonObject, parseJsonText } from "@dev.fast/review-protocol";
+import {
+  REVIEW_SCHEMA_VERSION,
+  jsonObject,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { snapshotReviewTree } from "./fixtures/legacy-reviews/legacy-review-fixture";
@@ -180,7 +184,7 @@ describe("migrateStoredReviewData", () => {
       const current = JSON.parse(
         await readFile(path.join(created.dir, "review.json"), "utf8"),
       );
-      expect(current.schemaVersion).toBe(fail ? 4 : 5);
+      expect(current.schemaVersion).toBe(fail ? 4 : REVIEW_SCHEMA_VERSION);
       expect(current.presentedDocumentRevision === revision).toBe(fail);
     },
   );
@@ -316,7 +320,7 @@ describe("migrateStoredReviewData", () => {
     });
     expect(blockers).toEqual([]);
     const current = await readReviewRecord(created.dir);
-    expect(current.schemaVersion).toBe(5);
+    expect(current.schemaVersion).toBe(REVIEW_SCHEMA_VERSION);
     expect(current.presentedDocumentRevision).not.toBe(documentRevision);
     expect(current.presentedSoftwareMapRevision).toBe(mapRevision);
   });
@@ -400,7 +404,7 @@ describe("migrateStoredReviewData", () => {
     await migrateStoredReviewData({ reviewHome });
     expect(await readReviewRecord(created.dir)).toEqual({
       ...created.review,
-      schemaVersion: 5,
+      schemaVersion: REVIEW_SCHEMA_VERSION,
     });
     expect(
       await readFile(
@@ -441,7 +445,7 @@ describe("migrateStoredReviewData", () => {
       const current = await readReviewRecord(created.dir);
       expect(current).toMatchObject({
         ...original,
-        schemaVersion: 5,
+        schemaVersion: REVIEW_SCHEMA_VERSION,
         presentedDocumentRevision: expect.any(String),
       });
       expect(current.presentedDocumentRevision).not.toBe(revision);
@@ -616,7 +620,7 @@ describe("migrateStoredReviewData", () => {
     });
     await expect(
       readFile(path.join(created.dir, "review.json"), "utf8"),
-    ).resolves.toContain('"schemaVersion": 5');
+    ).resolves.toContain(`"schemaVersion": ${REVIEW_SCHEMA_VERSION}`);
     await expect(
       readFile(path.join(created.dir, "review.json"), "utf8"),
     ).resolves.toContain('"sourceSession": "disabled:review"');
@@ -669,7 +673,7 @@ describe("migrateStoredReviewData", () => {
       }),
     );
     const result = await migrateStoredReview({ reviewDir: created.dir });
-    expect(result.record.schemaVersion).toBe(5);
+    expect(result.record.schemaVersion).toBe(REVIEW_SCHEMA_VERSION);
     expect(result.record.presentedSoftwareMapRevision).not.toBeNull();
     const materialized = await materializedRevision(
       created.dir,
@@ -714,7 +718,7 @@ describe("migrateStoredReviewData", () => {
   it("does not invent an embedded repository map from inline flat schema-2 models", async () => {
     const { created } = await flatSchema2Review("absent");
     const result = await migrateStoredReview({ reviewDir: created.dir });
-    expect(result.record.schemaVersion).toBe(5);
+    expect(result.record.schemaVersion).toBe(REVIEW_SCHEMA_VERSION);
     expect(result.record.presentedSoftwareMapRevision).toBeNull();
     const materialized = await materializedRevision(
       created.dir,
@@ -960,7 +964,7 @@ describe("migrateStoredReview", () => {
     expect(first.threadDbError).toBeUndefined();
     const record = await readReviewRecord(created.dir);
     expect(record).toMatchObject({
-      schemaVersion: 5,
+      schemaVersion: REVIEW_SCHEMA_VERSION,
       uuid: created.review.uuid,
       status: "accepted",
       dismissedAt: "2026-01-01T00:00:00Z",

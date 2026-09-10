@@ -3,7 +3,10 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import type { JsonObject } from "@dev.fast/review-protocol";
+import {
+  type JsonObject,
+  REVIEW_SCHEMA_VERSION,
+} from "@dev.fast/review-protocol";
 import { vi } from "vitest";
 
 import { deleteReviewState } from "./review-state-db";
@@ -63,14 +66,17 @@ export async function reviewHome(): Promise<string> {
 
 /** A review directory whose `.git` and `.bundle` are promotable placeholders. */
 export async function storedReviewFixture(
-  options: { schemaVersion?: 4 | 5; uuid?: string } = {},
+  options: {
+    schemaVersion?: 4 | typeof REVIEW_SCHEMA_VERSION;
+    uuid?: string;
+  } = {},
 ): Promise<{ reviewDir: string; record: JsonObject }> {
   const root = await tempDir("review-promotion-");
   const reviewDir = path.join(root, "review");
   await mkdir(path.join(reviewDir, ".git"), { recursive: true });
   await mkdir(path.join(reviewDir, ".bundle"));
   const record: JsonObject = {
-    schemaVersion: options.schemaVersion ?? 5,
+    schemaVersion: options.schemaVersion ?? REVIEW_SCHEMA_VERSION,
     uuid: options.uuid ?? DEFAULT_STORED_REVIEW_UUID,
     repoKey: "repo",
     worktreePath: "/source",

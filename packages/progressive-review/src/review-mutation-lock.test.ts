@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { REVIEW_SCHEMA_VERSION } from "@dev.fast/review-protocol";
 import { afterEach, expect, it } from "vitest";
 
 import { parseStoredReviewRecord } from "./review-home";
@@ -26,7 +27,7 @@ async function guardedFixture() {
   const root = await mkdtemp(path.join(tmpdir(), "review-guarded-fields-"));
   roots.push(root);
   const record = parseStoredReviewRecord({
-    schemaVersion: 5,
+    schemaVersion: REVIEW_SCHEMA_VERSION,
     uuid: "11111111-1111-4111-8111-111111111111",
     repoKey: "repo",
     worktreePath: "/source",

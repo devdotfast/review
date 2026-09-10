@@ -5,6 +5,7 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
 
+import { REVIEW_SCHEMA_VERSION } from "@dev.fast/review-protocol";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { createReviewDir, readStoredReview } from "./review-home";
@@ -160,7 +161,7 @@ it("reports loader, open, and CLI contention as busy and allows migration after 
     await server.close();
   }
   expect(await readStoredReview(review.dir)).toMatchObject({
-    review: { schemaVersion: 5 },
+    review: { schemaVersion: REVIEW_SCHEMA_VERSION },
   });
 }, 20_000);
 

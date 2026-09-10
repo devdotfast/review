@@ -4,6 +4,7 @@ import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Writable } from "node:stream";
 
+import { REVIEW_SCHEMA_VERSION } from "@dev.fast/review-protocol";
 import * as git from "isomorphic-git";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -89,7 +90,10 @@ describe("review migrate apply", () => {
     const current = JSON.parse(
       await readFile(path.join(reviewDir, "review.json"), "utf8"),
     );
-    expect(current).toMatchObject({ schemaVersion: 5, status: "accepted" });
+    expect(current).toMatchObject({
+      schemaVersion: REVIEW_SCHEMA_VERSION,
+      status: "accepted",
+    });
     expect(current.presentedDocumentRevision).not.toBe(revision);
     expect(current.presentedDocumentRevision).not.toBeNull();
     expect(

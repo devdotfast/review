@@ -102,6 +102,7 @@ const legacyStoredReviewRecordFields = StoredReviewRecordSchema.omit({
 });
 const LegacyStoredReviewRecordSchema = z
   .union([
+    StoredReviewRecordSchema.extend({ schemaVersion: z.literal(5) }),
     StoredReviewRecordSchema.extend({ schemaVersion: z.literal(4) }),
     legacyStoredReviewRecordFields.extend({
       schemaVersion: z.literal(3),
@@ -897,7 +898,8 @@ function isLegacyStoredReviewRecord(value: JsonValue, dir: string): boolean {
     !isJsonObject(value) ||
     (value.schemaVersion !== 2 &&
       value.schemaVersion !== 3 &&
-      value.schemaVersion !== 4)
+      value.schemaVersion !== 4 &&
+      value.schemaVersion !== 5)
   )
     return false;
   try {
@@ -986,7 +988,7 @@ export function parseAnyStoredReviewRecord(
   if (record.schemaVersion === REVIEW_SCHEMA_VERSION)
     return parseStoredReviewRecord(record);
   const legacyRecord = LegacyStoredReviewRecordSchema.parse(record);
-  if (legacyRecord.schemaVersion === 4) {
+  if (legacyRecord.schemaVersion === 5 || legacyRecord.schemaVersion === 4) {
     return StoredReviewRecordSchema.parse({
       ...legacyRecord,
       schemaVersion: REVIEW_SCHEMA_VERSION,

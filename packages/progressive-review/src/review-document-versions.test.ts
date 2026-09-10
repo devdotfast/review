@@ -4,6 +4,10 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  initLegacyReviewRepo,
+  sealLegacyReviewCommit,
+} from "./fixtures/legacy-reviews/legacy-review-git";
+import {
   REVIEW_PUBLISH_CANDIDATE_MESSAGE,
   listReviewDocumentVersions,
 } from "./review-document-versions";
@@ -14,7 +18,6 @@ import {
   withReviewStateTransaction,
 } from "./review-state-db";
 import { cleanupTempDirs, reviewHome } from "./review-test-utils";
-import { reviewVcs } from "./review-vcs";
 
 afterEach(cleanupTempDirs);
 
@@ -67,15 +70,21 @@ describe("listReviewDocumentVersions", () => {
     const home = await reviewHome();
     const dir = path.join(home, "reviews", UUID);
     await mkdir(dir, { recursive: true });
-    await reviewVcs.init(dir);
+    await initLegacyReviewRepo(dir);
     await writeFile(path.join(dir, "review.mdx"), "# v1\n");
-    const v1 = await reviewVcs.seal(dir, REVIEW_PUBLISH_CANDIDATE_MESSAGE);
+    const v1 = await sealLegacyReviewCommit(
+      dir,
+      REVIEW_PUBLISH_CANDIDATE_MESSAGE,
+    );
     await writeFile(path.join(dir, "map.json"), "{}");
-    await reviewVcs.seal(dir, "Publish Review software map");
+    await sealLegacyReviewCommit(dir, "Publish Review software map");
     await writeFile(path.join(dir, "review.mdx"), "# v2\n");
-    const v2 = await reviewVcs.seal(dir, REVIEW_PUBLISH_CANDIDATE_MESSAGE);
+    const v2 = await sealLegacyReviewCommit(
+      dir,
+      REVIEW_PUBLISH_CANDIDATE_MESSAGE,
+    );
     await writeFile(path.join(dir, "review.mdx"), "# v3 never promoted\n");
-    await reviewVcs.seal(dir, REVIEW_PUBLISH_CANDIDATE_MESSAGE);
+    await sealLegacyReviewCommit(dir, REVIEW_PUBLISH_CANDIDATE_MESSAGE);
 
     const versions = await listReviewDocumentVersions(storedReview(dir, v2));
 

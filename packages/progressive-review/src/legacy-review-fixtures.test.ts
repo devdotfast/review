@@ -20,6 +20,7 @@ import {
   readLegacyReviewGolden,
   snapshotReviewTree,
 } from "./fixtures/legacy-reviews/legacy-review-fixture";
+import { sealLegacyReviewCommit } from "./fixtures/legacy-reviews/legacy-review-git";
 import {
   readReviewDocumentBundle,
   reviewDocumentBundleData,
@@ -29,7 +30,6 @@ import {
   listReviews,
   materializeReviewRevision,
   readStoredReview,
-  sealReviewCandidate,
 } from "./review-home";
 import {
   REVIEW_THREAD_DB_SCHEMA_VERSION,
@@ -207,7 +207,7 @@ describe.each(fixtures)("legacy fixture $name", (fixture) => {
     const snapshot = await snapshotReviewTree(dir);
     expect(await readStoredReview(dir)).toEqual(loaded);
     expect(await listReviews()).toMatchObject({ errors: [] });
-    expect((await findReview(uuid))?.review.schemaVersion).toBe(5);
+    expect((await findReview(uuid))?.review.schemaVersion).toBe(6);
     expect(await snapshotReviewTree(dir)).toEqual(snapshot);
   });
 
@@ -229,7 +229,7 @@ describe.each(fixtures)("legacy fixture $name", (fixture) => {
       path.join(dir, ".bundle/document/review-document.js"),
       'throw new Error("corrupt sealed document");',
     );
-    const brokenRevision = await sealReviewCandidate(
+    const brokenRevision = await sealLegacyReviewCommit(
       dir,
       "Corrupt sealed document fixture",
     );
@@ -265,7 +265,7 @@ it("lists healthy reviews alongside a corrupt sealed presentation", async () => 
     path.join(broken.dir, ".bundle/document/review-document.js"),
     'throw new Error("corrupt sealed document");',
   );
-  const revision = await sealReviewCandidate(
+  const revision = await sealLegacyReviewCommit(
     broken.dir,
     "Corrupt mixed-store fixture",
   );
@@ -283,7 +283,7 @@ it("lists healthy reviews alongside a corrupt sealed presentation", async () => 
   expect(listed.reviews).toHaveLength(1);
   expect(listed.reviews[0]?.review).toMatchObject({
     uuid: healthy.uuid,
-    schemaVersion: 5,
+    schemaVersion: 6,
   });
   expect(listed.errors).toHaveLength(1);
   expect(listed.errors[0]).toMatchObject({

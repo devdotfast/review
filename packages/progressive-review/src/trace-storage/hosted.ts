@@ -11,7 +11,7 @@ import {
 } from "@dev.fast/trace-shared";
 
 import { devReviewHome } from "../review-storage";
-import { DEFAULT_STORE_ORIGIN, readStoreAuth } from "../store-auth";
+import { readStoreAuth } from "../store-auth";
 import { StoreApiError, StoreClient } from "../store-client";
 import { traceRepoName } from "../trace-repo";
 import {
@@ -30,7 +30,6 @@ import {
   gzipToTemp,
 } from "../trace-store-transport";
 import { clearTraceSyncFailure } from "../trace-sync-status";
-import { findTraceRepository, readTraceUserConfig } from "../trace-user-config";
 import type {
   HostedStorageTarget,
   TraceCommitAssociation,
@@ -618,14 +617,3 @@ async function commitsForTraceSession(
   }
   return commits;
 }
-
-/** The consent entry for a checkout's repository name, or null. */
-export async function resolveAllowedTraceRepository(
-  name: string,
-  devHome?: string,
-) {
-  const config = await readTraceUserConfig(devHome);
-  return findTraceRepository(config, name);
-}
-
-export { DEFAULT_STORE_ORIGIN };

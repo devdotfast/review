@@ -112,7 +112,7 @@ export class S3TraceStorage implements TraceStorage {
 
   /** Secret-free identity of the destination; the same bucket keys the same cache. */
   cacheIdentity(): string {
-    if (!this.config) return "s3:mock";
+    if (!this.config) return `s3:mock:${this.mockRoot ?? ""}`;
     const digest = createHash("sha256")
       .update(
         `${normalizeEndpoint(this.config.endpoint)}\n${this.config.bucket}`,

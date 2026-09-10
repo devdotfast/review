@@ -16,7 +16,6 @@ import { requireHealthyReviewDesktop } from "./desktop-discovery";
 import type {
   findScopedReview,
   listReviews,
-  sealReviewCandidate,
   touchReviewAgentSession,
 } from "./review-home";
 import {
@@ -103,16 +102,6 @@ export const findScopedReviewClient: typeof findScopedReview = async (
       worktreePath: scope.worktreePath,
       includeTerminal: scope.includeTerminal,
       includeLegacySchema: scope.includeLegacySchema,
-    }),
-  );
-export const checkpointReviewClient: typeof sealReviewCandidate = async (
-  reviewDir,
-  message,
-) =>
-  z.string().parse(
-    await requestReviewLifecycle("/lifecycle/checkpoint", {
-      reviewUuid: path.basename(reviewDir),
-      message,
     }),
   );
 export const touchReviewAgentSessionClient: typeof touchReviewAgentSession =

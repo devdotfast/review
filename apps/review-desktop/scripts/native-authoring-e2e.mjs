@@ -19,6 +19,7 @@ import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { parseArgs, promisify } from "node:util";
 
 import {
@@ -556,15 +557,31 @@ try {
         "utf8",
       ),
     );
-    const sealed = await exec(
-      "git",
-      [
-        "show",
-        `${migrated.presentedDocumentRevision}:.bundle/document/review-document.json`,
-      ],
-      { cwd: legacyDir, maxBuffer: 8 * 1024 * 1024 },
+    const publicationDb = new DatabaseSync(path.join(home, "review.db"));
+    const publicationRow = publicationDb
+      .prepare(
+        "SELECT record_json FROM publications WHERE review_id = ? AND publication_id = ? AND kind = 'document'",
+      )
+      .get(metadata.sourceUuid, migrated.presentedDocumentRevision);
+    publicationDb.close();
+    assert.ok(
+      publicationRow,
+      `No document publication row for ${migrated.presentedDocumentRevision}`,
     );
-    assert.deepEqual(JSON.parse(sealed.stdout), golden);
+    const publicationRecord = JSON.parse(publicationRow.record_json);
+    assert.equal(publicationRecord.artifact.state, "stored");
+    const sealed = JSON.parse(
+      await readFile(
+        path.join(
+          legacyDir,
+          "artifacts",
+          "documents",
+          `${publicationRecord.artifact.hash}.json`,
+        ),
+        "utf8",
+      ),
+    );
+    assert.deepEqual(sealed, golden);
     assert.equal(migrated.status, original.status);
     assert.equal(migrated.createdAt, original.createdAt);
     await cli(["repair", "--review", metadata.sourceUuid], 0, worktreePath);

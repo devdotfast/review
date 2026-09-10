@@ -16,7 +16,6 @@ import { promisify } from "node:util";
 import { REVIEW_SCHEMA_VERSION } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { runProgressiveReviewCli } from "./cli-runner";
 import {
   ReviewHomeScanError,
   createReviewDir,
@@ -178,42 +177,6 @@ describe("scoped review diagnostics", () => {
       await expect(
         runReviewThreadsList({ cwd: healthy.root, stdout: new PassThrough() }),
       ).resolves.toBe(0);
-
-      const stdin = new PassThrough();
-      stdin.end(JSON.stringify({ cwd: healthy.stored.dir }));
-      const checkpoint = vi.fn<typeof sealReviewCandidate>(
-        async () => "checkpoint",
-      );
-      await expect(
-        runProgressiveReviewCli({
-          argv: ["stop-hook"],
-          stdin,
-          stdout: new PassThrough(),
-          stderr: new PassThrough(),
-          runtime: { listReviews, sealReviewCandidate: checkpoint },
-        }),
-      ).resolves.toBe(0);
-      expect(checkpoint).toHaveBeenCalledExactlyOnceWith(
-        healthy.stored.dir,
-        "Review turn checkpoint",
-      );
-
-      const brokenStdin = new PassThrough();
-      brokenStdin.end(JSON.stringify({ cwd: other.stored.dir }));
-      const stderr = new PassThrough();
-      await expect(
-        runProgressiveReviewCli({
-          argv: ["stop-hook"],
-          stdin: brokenStdin,
-          stdout: new PassThrough(),
-          stderr,
-          runtime: { listReviews, sealReviewCandidate: checkpoint },
-        }),
-      ).resolves.toBe(1);
-      expect(stderr.read()?.toString()).toContain(
-        "Could not checkpoint reviews",
-      );
-      expect(checkpoint).toHaveBeenCalledTimes(1);
 
       const global = await listReviews();
       expect(global.errors.map((error) => error.reviewUuid).sort()).toEqual(

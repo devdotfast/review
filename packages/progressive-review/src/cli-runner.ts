@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { Writable } from "node:stream";
 
@@ -48,14 +47,11 @@ import {
   runReviewAppLaunch,
 } from "./review-app-launcher";
 import { runReviewCodexWait } from "./review-codex-wait";
-import type { StoredReview } from "./review-home";
 import { runReviewInfo } from "./review-info";
 import { runReviewInternalTest } from "./review-internal-test";
 import {
-  listReviewsClient as listReviews,
   requestReviewLifecycle,
   scaffoldReviewClient as runReviewScaffold,
-  checkpointReviewClient as sealReviewCandidate,
 } from "./review-lifecycle-client";
 import { ReviewDocumentFileNameSchema } from "./review-lifecycle-contracts";
 import { emitReviewEvent, serializeReviewError } from "./review-logger";
@@ -130,8 +126,6 @@ interface ProgressiveReviewCliRuntime {
   runReviewTraceHook: typeof runReviewTraceHook;
   runReviewTraceGitHook: typeof runReviewTraceGitHook;
   runReviewTraceSync: typeof runReviewTraceSync;
-  listReviews: typeof listReviews;
-  sealReviewCandidate: typeof sealReviewCandidate;
   prepareReviewPinnedCheckout: typeof prepareReviewPinnedCheckout;
 }
 
@@ -879,12 +873,6 @@ export async function runProgressiveReviewCli(
     "plain",
   ).action(async () => {
     const payload = await readStopHookPayload(input);
-    for (const review of await touchedStopHookReviews(
-      payload,
-      runtime.listReviews,
-    )) {
-      await runtime.sealReviewCandidate(review.dir, "Review turn checkpoint");
-    }
     const decisionCwd = payload.cwd ?? cwd;
     const marker = await readReopenMarker(decisionCwd);
     const decision = decideStopHook(marker);
@@ -1286,7 +1274,6 @@ function installTargets(targets: readonly string[]): InstallTarget[] {
 
 interface StopHookPayload {
   cwd?: string;
-  transcriptPath?: string;
 }
 
 async function readStopHookPayload(
@@ -1305,38 +1292,10 @@ async function readStopHookPayload(
     const payload: StopHookPayload = {};
     const cwd = jsonString(parsed?.cwd);
     if (cwd !== undefined) payload.cwd = cwd;
-    const transcriptPath = jsonString(parsed?.transcript_path);
-    if (transcriptPath !== undefined) payload.transcriptPath = transcriptPath;
     return payload;
   } catch {
     return {};
   }
-}
-
-async function touchedStopHookReviews(
-  input: {
-    cwd?: string;
-    transcriptPath?: string;
-  },
-  scan: typeof listReviews,
-): Promise<StoredReview[]> {
-  const listed = await scan();
-  const cwd = input.cwd ? path.resolve(input.cwd) : undefined;
-  const transcript = input.transcriptPath
-    ? await readFile(input.transcriptPath, "utf8")
-    : "";
-  const touched = (reviewDir: string) => {
-    const dir = path.resolve(reviewDir);
-    const cwdInside =
-      cwd === dir || (cwd?.startsWith(`${dir}${path.sep}`) ?? false);
-    return cwdInside || transcript.includes(dir);
-  };
-  const errors = listed.errors.filter((error) => touched(error.reviewDir));
-  if (errors.length > 0)
-    throw new Error(
-      `Could not checkpoint reviews:\n${errors.map((error) => `${error.reviewDir}: ${error.message}`).join("\n")}`,
-    );
-  return listed.reviews.filter((review) => touched(review.dir));
 }
 
 function progressiveReviewCliRuntime(
@@ -1374,8 +1333,6 @@ function progressiveReviewCliRuntime(
     runReviewTraceHook,
     runReviewTraceGitHook,
     runReviewTraceSync,
-    listReviews,
-    sealReviewCandidate,
     prepareReviewPinnedCheckout,
     ...overrides,
   };

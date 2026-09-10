@@ -25,13 +25,14 @@ import {
 } from "./progressive-review-telemetry";
 import { runReviewApp as runReviewAppActual } from "./review-app";
 import { runReviewAppLaunch as runReviewAppLaunchActual } from "./review-app-launcher";
-import {
-  type StoredReview,
-  listReviews as listReviewsActual,
-  sealReviewCandidate as sealReviewCandidateActual,
-} from "./review-home";
+import { type StoredReview } from "./review-home";
 import { runReviewInfo as runReviewInfoActual } from "./review-info";
 import { runReviewPublish as runReviewPublishActual } from "./review-publish";
+import {
+  REOPEN_STOP_HOOK_REASON,
+  markReopenPending,
+  readReopenMarker,
+} from "./review-reopen-marker";
 import { runReviewRepair as runReviewRepairActual } from "./review-repair";
 import { runReviewScaffold as runReviewScaffoldActual } from "./review-scaffold";
 import {
@@ -912,39 +913,58 @@ describe("Review CLI", () => {
     ).resolves.toBe(1);
   });
 
-  it("checkpoints every touched UUID review at the end of a turn", async () => {
-    const review = {
-      dir: "/tmp/reviews/review-uuid",
-      review: {
-        uuid: "11111111-1111-4111-8111-111111111111",
-        status: "awaiting-agent-updates",
-      },
-    } as StoredReview;
-    const listReviews = vi.fn<typeof listReviewsActual>(async () => ({
-      reviews: [review],
-      errors: [],
-    }));
-    const sealReviewCandidate = vi.fn<typeof sealReviewCandidateActual>(
-      async () => "revision",
+  it("stop-hook emits the reopen nudge once and never calls the lifecycle API", async () => {
+    const rootPath = await mkdtemp(
+      path.join(os.tmpdir(), "review-cli-stop-hook-"),
     );
-    const stdin = new PassThrough();
-    stdin.end(`${JSON.stringify({ cwd: `${review.dir}/notes` })}\n`);
+    // DEV_REVIEW_HOME points at a fresh temp dir with no
+    // review-desktop/server.json discovery file, so a stop-hook that tried to
+    // reach the lifecycle API (as the old checkpoint path did) would reject
+    // here instead of resolving.
+    vi.stubEnv("DEV_REVIEW_HOME", path.join(rootPath, ".dev-home"));
+    const cwd = path.join(rootPath, "repo");
+    await mkdir(cwd, { recursive: true });
+    await markReopenPending(cwd, "2026-07-01T12:00:00Z");
+
+    const firstStdout = outputStream();
+    let firstOutput = "";
+    firstStdout.on("data", (chunk) => (firstOutput += String(chunk)));
+    const firstStdin = new PassThrough();
+    firstStdin.end(`${JSON.stringify({ cwd })}\n`);
 
     await expect(
       runProgressiveReviewCli({
         argv: ["stop-hook"],
-        stdin,
-        stdout: outputStream(),
+        stdin: firstStdin,
+        stdout: firstStdout,
         stderr: outputStream(),
-        runtime: { listReviews, sealReviewCandidate },
       }),
     ).resolves.toBe(0);
+    expect(JSON.parse(firstOutput.trim())).toEqual({
+      decision: "block",
+      reason: REOPEN_STOP_HOOK_REASON,
+    });
+    expect((await readReopenMarker(cwd))?.nudged).toBe(true);
 
-    expect(listReviews).toHaveBeenCalledWith();
-    expect(sealReviewCandidate).toHaveBeenCalledWith(
-      review.dir,
-      "Review turn checkpoint",
-    );
+    // A second stop for the same un-reopened round must not block again.
+    const secondStdout = outputStream();
+    let secondOutput = "";
+    secondStdout.on("data", (chunk) => (secondOutput += String(chunk)));
+    const secondStdin = new PassThrough();
+    secondStdin.end(`${JSON.stringify({ cwd })}\n`);
+
+    await expect(
+      runProgressiveReviewCli({
+        argv: ["stop-hook"],
+        stdin: secondStdin,
+        stdout: secondStdout,
+        stderr: outputStream(),
+      }),
+    ).resolves.toBe(0);
+    expect(secondOutput).toBe("");
+
+    vi.unstubAllEnvs();
+    await rm(rootPath, { recursive: true, force: true });
   });
 
   it("handles the internal prepare-worktree command", async () => {

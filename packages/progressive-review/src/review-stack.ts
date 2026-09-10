@@ -4,6 +4,8 @@ import { promisify } from "node:util";
 import type { ReviewStackLayer } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
+import type { ReviewPublicationId } from "./review-publication-record";
+
 const execFileAsync = promisify(execFile);
 
 const GhStackViewSchema = z.object({
@@ -31,7 +33,7 @@ export interface ReviewStackCandidate {
   title: string;
   repoKey: string;
   pullRequestNumber?: number | null;
-  presentedDocumentRevision: string | null;
+  presentedDocumentRevision: ReviewPublicationId | null;
 }
 
 export type RunGhStackView = (cwd: string) => Promise<string>;

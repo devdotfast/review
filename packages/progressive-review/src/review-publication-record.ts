@@ -23,6 +23,9 @@ export const hex64 = z
 /** A publication ID: the 40-hex prefix of `publicationIdFor`'s digest. */
 export const publicationIdSchema = hex40;
 
+/** A publication ID value, for typing fields that hold one (e.g. `presented*`). */
+export type ReviewPublicationId = string;
+
 /** The review's pinned code binding at the moment a publication was made.
  * Mirrors the four fields of `StoredReviewRecord` with the same name so a
  * historical open can restore exactly the code context a publication saw. */

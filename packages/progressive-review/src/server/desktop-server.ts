@@ -93,7 +93,6 @@ import {
   reviewDescriptor,
   reviewTitleFromDocument,
   reviewsHomeDir,
-  sealReviewCandidate,
   touchReviewAgentSession,
 } from "../review-home";
 import type { RunReviewInfoInput } from "../review-info";
@@ -1223,19 +1222,6 @@ export function createGlobalReviewServer(
       ),
     ),
   );
-  app.post("/lifecycle/checkpoint", async (context) => {
-    const request = z
-      .strictObject({ reviewUuid: z.uuid(), message: z.string().min(1) })
-      .parse(await readBoundedRequestJson(context.req.raw));
-    const review = await findReview(request.reviewUuid);
-    if (!review) throw new ReviewServerError("Review not found.", 404);
-    return globalJson(
-      200,
-      await withReviewLock(request.reviewUuid, () =>
-        sealReviewCandidate(review.dir, request.message),
-      ),
-    );
-  });
   app.post("/lifecycle/agent-session", async (context) => {
     const request = z
       .strictObject({

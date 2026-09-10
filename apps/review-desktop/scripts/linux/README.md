@@ -86,7 +86,7 @@ range downloads, and refusal to expose removed distribution paths.
 
 Before the first public Fedora release, record these additional results:
 
-- GNOME/Wayland on Fedora Workstation 43/44 with SELinux enforcing and Chromium
+- GNOME/Wayland on the latest Fedora Workstation release (44) with SELinux enforcing and Chromium
   sandboxing enabled. Check native/custom controls, F10/Escape, drag regions,
   fullscreen, narrow widths, light/dark themes, and fractional scaling.
 - Onboarding, tutorial, review publication, language tools, and `review app launch`
@@ -134,5 +134,24 @@ Fetching a matching generation and its checksum-verified indexes restored DNF
 metadata refresh. These package revisions use the same runtime; they do not prove
 an upgrade between different released application versions.
 
-Full-system Fedora 43/44 GNOME validation is still pending. No production Fedora
-package has been published.
+Full-system Fedora 44 Workstation validation subsequently passed GNOME/Wayland
+startup with SELinux enforcing and Chromium sandboxing enabled. The renderer had
+`NoNewPrivs: 1` and `Seccomp: 2`; the sandbox helper remained root-owned with mode
+4755. Onboarding, Review skill installation, the bundled tutorial, TypeScript
+hover and Go to Definition, CLI launch, and publication of a small local review
+passed without system Node or a source checkout of Review. Native window dragging,
+resizing, maximize/restore, fullscreen, and F10/Escape menu behavior passed.
+
+The hosted DNF upgrade from 0.0.32-3 to CI-built 0.0.33-1 passed with both signature
+checks enabled. The test settings, a user-data sentinel, and the published review
+document retained their SHA-256 hashes. This CI artifact uses an ephemeral key;
+the test explicitly trusted the new key and refreshed DNF's metadata cache after
+a key-change cache error. Production releases use the configured stable key.
+
+The full-system test used an official Fedora Cloud image converted to Workstation,
+with GNOME 50, in one x86-64 QEMU VM on Apple Silicon (4 GiB RAM, two CPUs). Initial
+TypeScript startup caused a recovered extension-host stall. The test profile used
+a 120-second shell-environment resolution timeout, and CLI launch passed on retry.
+This is functional VM evidence, not bare-metal GPU or performance evidence.
+Native desktop testing is scoped to Fedora 44; Fedora 43 retains package-level
+coverage only. No production Fedora package has been published.

@@ -40,6 +40,7 @@ import { IEditorTitleControlDimensions } from './editorTitleControl.js';
 import { IReadonlyEditorGroupModel } from '../../../common/editor/editorGroupModel.js';
 import { EDITOR_CORE_NAVIGATION_COMMANDS } from './editorCommands.js';
 import { IAuxiliaryEditorPart, MergeGroupMode } from '../../../services/editor/common/editorGroupsService.js';
+import { Schemas } from '../../../../base/common/network.js';
 import { isMacintosh } from '../../../../base/common/platform.js';
 import { IHostService } from '../../../services/host/browser/host.js';
 import { ServiceCollection } from '../../../../platform/instantiation/common/serviceCollection.js';
@@ -340,6 +341,12 @@ export abstract class EditorTabsControl extends Themable implements IEditorTabsC
 	}
 
 	protected updateEditorActionsToolbar(): void {
+		// Ask Agent uses native terminal editors, but needs no terminal-management
+		// toolbar. Keep this scoped to the active terminal so file/diff actions return.
+		this.parent.classList.toggle('review-agent-terminal-tabs',
+			!!IsReviewWindowContext.getValue(this.contextKeyService) &&
+			this.groupView.activeEditor?.resource?.scheme === Schemas.vscodeTerminal);
+
 		if (!this.editorActionsEnabled) {
 			return;
 		}

@@ -12,6 +12,7 @@ import {
   type HostPermission,
   type HostPrincipal,
   type HostQuery,
+  type HostQuestionRun,
   type HostRepinPlan,
   type HostReview,
   type JsonValue,
@@ -35,6 +36,7 @@ import {
   resolveBinding,
   resolveRepository,
 } from "./local-repository";
+import { ReviewFeedback } from "./review-feedback";
 import {
   type HostPreparedDocument,
   HostStoreError,
@@ -66,6 +68,10 @@ interface HostDependencies {
   evidence?: EvidenceProvider;
   resources?: (reviewId: string) => HostDocumentEvidenceResources;
   onPublishRejected?: () => void | Promise<void>;
+  questions?: {
+    capabilities(): Promise<HostQuestionRun["harness"][]>;
+    start(run: HostQuestionRun): Promise<void>;
+  };
 }
 
 /** Transport-neutral authority. Source work precedes short synchronous commits;
@@ -74,6 +80,7 @@ export class ReviewHost {
   private readonly evidence: EvidenceProvider;
   private readonly source: LocalRepositorySource;
   private readonly resources: ReviewResources;
+  private readonly feedback: ReviewFeedback;
   private readonly listeners = new Set<() => void>();
 
   constructor(
@@ -85,6 +92,7 @@ export class ReviewHost {
       dependencies.evidence ?? new LocalEvidenceProvider(repositoryPath);
     this.source = new LocalRepositorySource(repositoryPath);
     this.resources = new ReviewResources(store, this.evidence);
+    this.feedback = new ReviewFeedback(store, this.evidence, this.source);
   }
 
   async command(
@@ -126,6 +134,19 @@ export class ReviewHost {
     // network/Git work, notifications, or frontend mount occurs inside SQLite.
     let commit: () => JsonValue;
     switch (request.type) {
+      case "draft.save":
+      case "draft.delete":
+      case "thread.create":
+      case "thread.reply":
+      case "thread.status":
+      case "feedback.submit":
+      case "question.start":
+      case "question.follow_up":
+      case "question.retry":
+      case "question.complete":
+      case "review.attention":
+        commit = await this.feedback.prepare(request, access);
+        break;
       case "map.create":
       case "map.mutate":
       case "trace.ingest":
@@ -425,7 +446,103 @@ export class ReviewHost {
       return result;
     });
     if (committed) this.notify();
+    if (
+      committed &&
+      (request.type === "question.start" ||
+        request.type === "question.follow_up" ||
+        request.type === "question.retry")
+    ) {
+      const parsed = HOST_COMMAND_DEFINITIONS[request.type].result.parse(
+        response.result,
+      );
+      const run = "run" in parsed ? parsed.run : parsed;
+      if (this.dependencies.questions)
+        void this.dependencies.questions
+          .start(run)
+          .catch(() =>
+            this.failQuestion(
+              run,
+              "The local question session could not start. You can retry this saved question.",
+            ),
+          );
+      else
+        this.failQuestion(
+          run,
+          "No local question executor is available. The question has been saved.",
+        );
+    }
     return response;
+  }
+
+  /** Host-owned execution callbacks; never exposed as unrestricted transport mutations. */
+  interruptQuestionRuns(): void {
+    this.store.command(
+      {
+        clientId: "host-question-startup",
+        commandId: randomUUID(),
+        request: {},
+      },
+      () => {
+        for (const run of this.store.interruptOutstandingQuestionRuns())
+          this.store.appendEvent(run.reviewId, "question.updated", { run });
+        return null;
+      },
+    );
+    this.notify();
+  }
+
+  recordQuestionSession(run: HostQuestionRun, sessionId: string): void {
+    this.questionTransaction(run, () => {
+      const current = this.store.questionRun(run.reviewId, run.id);
+      if (current.state !== "pending") return;
+      const updated = this.store.updateQuestionRun(run.reviewId, run.id, {
+        state: "running",
+        sessionId,
+        updatedAt: new Date().toISOString(),
+      });
+      this.store.appendEvent(run.reviewId, "question.updated", {
+        run: updated,
+      });
+    });
+  }
+
+  completeQuestion(run: HostQuestionRun, body: string): void {
+    this.questionTransaction(run, () => {
+      const current = this.store.questionRun(run.reviewId, run.id);
+      // A scoped output command may already have saved the final answer.
+      if (current.state === "completed") return;
+      this.feedback.complete(run.reviewId, run.id, run.id, body, run.assistant);
+    });
+  }
+
+  failQuestion(run: HostQuestionRun, error: string, interrupted = false): void {
+    this.questionTransaction(run, () => {
+      const current = this.store.questionRun(run.reviewId, run.id);
+      if (current.state !== "pending" && current.state !== "running") return;
+      const updated = this.store.updateQuestionRun(run.reviewId, run.id, {
+        state: interrupted ? "interrupted" : "failed",
+        error: error.slice(0, 4096),
+        updatedAt: new Date().toISOString(),
+      });
+      this.store.appendEvent(run.reviewId, "question.updated", {
+        run: updated,
+      });
+    });
+  }
+
+  private questionTransaction(run: HostQuestionRun, write: () => void) {
+    this.store.command(
+      {
+        clientId: "host-question-execution",
+        commandId: randomUUID(),
+        request: { runId: run.id },
+      },
+      () => {
+        write();
+        return null;
+      },
+    );
+    this.notify();
   }
 
   private notify() {
@@ -454,6 +571,31 @@ export class ReviewHost {
       request,
       HOST_QUERY_DEFINITIONS[request.type].permission,
     );
+    if (request.type === "capabilities" && this.dependencies.questions) {
+      const supportedHarnesses =
+        await this.dependencies.questions.capabilities();
+      return this.store.snapshot(() => {
+        const result = HOST_QUERY_DEFINITIONS.capabilities.result.parse(
+          this.read(access, request),
+        );
+        return {
+          ...result,
+          ask: {
+            available: supportedHarnesses.length > 0,
+            supportedHarnesses,
+            isolation: "trusted_local",
+          },
+        };
+      });
+    }
+    if (request.type === "thread.mapping") {
+      const result = await this.feedback.mapping(
+        request.input.reviewId,
+        request.input.threadId,
+        request.input.documentVersion,
+      );
+      return this.store.snapshot(() => result);
+    }
     if (
       request.type === "source.read" ||
       request.type === "source.file" ||
@@ -580,6 +722,7 @@ export class ReviewHost {
           | "document.validate"
           | "source.read"
           | "source.file"
+          | "thread.mapping"
           | "source.tree"
           | "source.commits"
           | "source.diff";
@@ -589,6 +732,16 @@ export class ReviewHost {
     switch (request.type) {
       case "canvas.reports":
         return this.store.canvasReports(request.input.reviewId);
+      case "drafts.list":
+      case "threads.list":
+      case "thread.get":
+      case "feedback.list":
+      case "feedback.get":
+      case "question.get":
+      case "question.context":
+      case "questions.list":
+      case "attention.get":
+        return this.feedback.query(request, access.principal);
       case "map.get":
       case "maps.list":
       case "trace.get":

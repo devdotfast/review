@@ -6,7 +6,9 @@ Review Desktop starts one local Review Host. Agents, the desktop canvas and othe
 flowchart LR
   A[Authoring agent] -->|Commands and queries| H[Desktop Review Host]
   H -->|Snapshot and committed events| V[Desktop canvas]
-  V -->|Queries and render observations| H
+  V -->|Drafts, questions, feedback| H
+  H -->|Frozen question context| Q[Fresh local question agent]
+  Q -->|Completed answer| H
 ```
 
 ## Structured documents
@@ -21,7 +23,7 @@ A review binds to exact repository commits. Source paths are relative to that re
 
 The Source browser reads pinned files, changed-file summaries and commits through the host API. The native editor is read-only and version-bound. Full language-server hover/go-to-definition support is not implied by basic source navigation.
 
-Repinning is explicit: the host proposes range mappings, the author corrects changed/missing ranges, then applies the new binding atomically. The conservative remapper follows surviving contiguous lines and renames; it does not rewrite diagram meaning. Original document versions and source evidence remain immutable.
+Repinning is explicit: the host proposes range mappings, the author corrects changed/missing ranges, then applies the new binding atomically. The conservative remapper follows surviving contiguous lines and renames; it does not rewrite diagram meaning. Original comment targets remain stored separately from their current mappings.
 
 ## Live versus published
 
@@ -33,15 +35,17 @@ Maps are independently versioned host resources, not Git notes. A document may p
 | --- | --- |
 | `draft` | Not published |
 | `in_review` | Published for the reader |
+| `changes_requested` | Submitted feedback requests changes |
 | `closed` | Closed; a human may explicitly reopen |
 
 ## Comments and questions
 
-Comments, feedback submission and Ask are unavailable for JSON reviews in this authoring-only version. They are deferred to the third PR in this stack.
+- **Add to review** saves a private editable draft. It does not launch an agent.
+- **Post comment** creates a visible thread immediately.
+- **Submit review** atomically shares selected saved drafts and a decision tied to a checkpoint. Submission does not depend on an online author.
+- **Ask now** saves a question, then opens a fresh supported local agent alongside the review. Its context is the observed document/evidence and saved conversation, not a fork of the original author.
 
-The authoring API and viewer do not provide Discussion, Add to review, Post
-comment, Submit review or Ask now for JSON reviews. The trusted bundled
-tutorial may still demonstrate its separate legacy question flow.
+Posted questions and replies are immutable; corrections are follow-ups. Completed answers are saved in the host even if the terminal is later closed. Launch failures remain visible. After restart an unfinished run may be marked interrupted and retried explicitly; automatic resumption, partial-answer streaming and a Stop button are not provided.
 
 ## Local ownership
 

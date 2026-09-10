@@ -18,8 +18,8 @@ Review is an open-source desktop app for understanding and reviewing
 agent-written code. Coding agents turn a branch or pull request into a guided,
 interactive Review connected to the exact code behind it.
 
-Explore architecture and data flow, inspect diffs, and explore retained coding
-traces from one interface.
+Explore architecture and data flow, inspect diffs, ask questions, and explore
+coding traces from one interface.
 
 One local Desktop host owns review data. Agents author structured JSON through
 the same API used by the canvas; accepted changes appear live, and publishing
@@ -65,7 +65,6 @@ See [Review guidance](docs/quickstart.md#add-review-guidance).
   engineered it to map architectural changes across repos. If you need this, let
   us know!
 - Review doesn't properly handle stacked PRs right now, but this is coming soon.
-- Comments, feedback submission and Ask are unavailable for JSON reviews in this authoring-only version. They are deferred to the third PR in this stack.
 - Reviews are local-only. Remote hosting, sharing and multiplayer collaboration
   are not implemented yet.
 

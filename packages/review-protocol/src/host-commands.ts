@@ -24,6 +24,10 @@ import {
   HostVersionSchema,
 } from "./host-document.js";
 import {
+  HOST_FEEDBACK_COMMANDS,
+  HOST_FEEDBACK_QUERIES,
+} from "./host-feedback.js";
+import {
   HOST_RESOURCE_COMMANDS,
   HOST_RESOURCE_QUERIES,
 } from "./host-resources.js";
@@ -80,6 +84,7 @@ export const HostPermissionSchema = z.enum([
   "author",
   "publish",
   "human",
+  "answer",
   "register_repository",
 ]);
 export type HostPermission = z.infer<typeof HostPermissionSchema>;
@@ -93,6 +98,7 @@ interface HostOperationDefinition {
 export const HOST_COMMAND_DEFINITIONS = {
   ...HOST_BINDING_COMMANDS,
   ...HOST_RESOURCE_COMMANDS,
+  ...HOST_FEEDBACK_COMMANDS,
   "repository.register": {
     permission: "register_repository",
     input: z.strictObject({
@@ -233,6 +239,7 @@ export type HostCapabilities = z.infer<typeof HostCapabilitiesSchema>;
 export const HOST_QUERY_DEFINITIONS = {
   ...HOST_SOURCE_QUERIES,
   ...HOST_RESOURCE_QUERIES,
+  ...HOST_FEEDBACK_QUERIES,
   "canvas.reports": {
     permission: "read",
     input: z.strictObject({ reviewId: HostIdSchema }),

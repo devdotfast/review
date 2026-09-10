@@ -43,6 +43,8 @@ export interface LaunchInput {
   session?: { resume: string } | { forkOf: string };
   /** Submitted when the terminal starts. Absent opens the session silently. */
   prompt?: { id: string; text: string };
+  /** Host-supplied per-session tool environment; never mutate shared process env. */
+  environment?: Readonly<Record<string, string>>;
   cwd: string;
 }
 

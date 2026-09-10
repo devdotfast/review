@@ -2,7 +2,7 @@
 
 ## One owner
 
-Desktop runs one local HTTP Review Host. UI, CLI and MCP use the same commands, queries and events. The shared `$DEV_REVIEW_HOME/review-host.db` (default `~/.dev/review-host.db`) owns reviews, immutable document versions/evidence/maps, resources and checkpoints. Its schema and filesystem layout are implementation details, not a client API.
+Desktop runs one local HTTP Review Host. UI, CLI and MCP use the same commands, queries and events. The shared `$DEV_REVIEW_HOME/review-host.db` (default `~/.dev/review-host.db`) owns reviews, immutable document versions/evidence/maps, checkpoints, comments, private drafts and completed answers. Its schema and filesystem layout are implementation details, not a client API.
 
 Do not edit SQL, review files, Git notes or bundles. No migration of old MDX reviews is provided; old data is left untouched. The trusted bundled tutorial is an explicit legacy exception.
 
@@ -24,7 +24,7 @@ Apply with `review.repin.apply({reviewId,planId,expectedDocumentVersion,operatio
 
 ## Versions, retries and publication
 
-Document and review metadata versions are independent. Use the relevant expected version for each write. A metadata update or another review's edit does not invalidate the document version.
+Document and review metadata versions are independent. Use the relevant expected version for each write. A comment, viewed marker or another review's edit does not invalidate the document version.
 
 Commands use caller-chosen UUID receipt IDs. Retry an uncertain result with the same ID and input. A changed request needs a new ID. Refetch and reconcile real conflicts.
 
@@ -34,12 +34,15 @@ Commands use caller-chosen UUID receipt IDs. Retry an uncertain result with the 
 | --- | --- |
 | `draft` | Not yet published |
 | `in_review` | Published for a reviewer |
-| `closed` | Closed by an explicit human action; explicit reopen is required |
+| `changes_requested` | Submitted feedback requests author changes |
+| `closed` | Closed by a human decision/action; explicit reopen is required |
 
 Live views receive atomic committed events. Historical checkpoint views ignore working-document updates. Render reports are observations of a version, not the server's commit gate.
 
-## Conversations are deferred
+## Conversations
 
-Comments, feedback submission and Ask are unavailable for JSON reviews in this authoring-only version. They are deferred to the third PR in this stack. No draft, thread, feedback or question operations are exposed by
-the JSON host. Do not use legacy files or commands as a substitute. Ordinary
-authoring, repinning and checkpoint publication remain available.
+`thread.get` returns immutable posted messages; append with `thread.reply`. Use message IDs and command receipts for deduplication. `thread.status` uses the thread's expected version. Preserve original targets; query `thread.mapping` to see their location in a later document. A missing mapping does not erase the saved conversation.
+
+Human drafts use `draft.save/delete` and `drafts.list` and are private until submitted. `feedback.submit` atomically publishes selected saved drafts and records the decision against a checkpoint. It does not need an agent to be online. Authors query submitted feedback and respond through the ordinary API.
+
+Ask saves a question and frozen context before launch. A fresh local harness receives read/answer-scoped API access, not author permission. Completed answers are durable; failed launches and interrupted runs remain visible and can be explicitly retried. Do not promise automatic process recovery, partial-answer streaming, cancellation or transcript forking.

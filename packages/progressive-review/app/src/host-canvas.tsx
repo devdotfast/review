@@ -5,11 +5,13 @@ import {
   type HostSourceQuote,
   type ReviewCanvasContent,
   ReviewClient,
+  type ReviewHostSourceTarget,
 } from "@dev.fast/review-protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useHostResources } from "./host-canvas-resources";
 import { HostDocumentRenderer } from "./host-document-renderer";
+import { HostFeedbackPanel } from "./host-feedback-panel";
 import { HostSourceBrowser } from "./host-source-browser";
 
 import "./host-canvas.css";
@@ -170,7 +172,11 @@ function HostReviewCanvas({
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState(false);
   const [sourceId, setSourceId] = useState<string>();
+  const [discussionOpen, setDiscussionOpen] = useState(false);
+  const [discussionMounted, setDiscussionMounted] = useState(false);
   const [sourceBrowserOpen, setSourceBrowserOpen] = useState(false);
+  const [requestedSource, setRequestedSource] =
+    useState<ReviewHostSourceTarget>();
   const [failures, setFailures] = useState<{
     version: number;
     items: Record<string, string>;
@@ -218,6 +224,16 @@ function HostReviewCanvas({
   useEffect(() => {
     if (review) content.setTitle?.(review.title);
   }, [review?.title, content.setTitle]);
+
+  useEffect(() => {
+    const subscription = content.source?.onDidRequestComment?.((target) => {
+      if (target.reviewId !== reviewId) return;
+      setRequestedSource(target);
+      setDiscussionMounted(true);
+      setDiscussionOpen(true);
+    });
+    return () => subscription?.dispose();
+  }, [content.source, reviewId]);
 
   useEffect(() => {
     const abort = new AbortController();
@@ -451,6 +467,16 @@ function HostReviewCanvas({
         >
           Source
         </button>
+        <button
+          type="button"
+          aria-expanded={discussionOpen}
+          onClick={() => {
+            setDiscussionMounted(true);
+            setDiscussionOpen((value) => !value);
+          }}
+        >
+          Discussion
+        </button>
         <button type="button" onClick={content.showHome}>
           Home
         </button>
@@ -494,6 +520,16 @@ function HostReviewCanvas({
           />
         )}
       </div>
+      {document && discussionMounted && (
+        <div hidden={!discussionOpen}>
+          <HostFeedbackPanel
+            client={client}
+            document={document}
+            checkpoint={checkpoint ?? published}
+            requestedSource={requestedSource}
+          />
+        </div>
+      )}
       <dialog
         ref={sourceDialog}
         className="host-canvas-source"

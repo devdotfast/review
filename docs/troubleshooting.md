@@ -48,6 +48,9 @@ Review-data commands require a healthy host; there is no offline file-editing
 fallback. Discovery is private and host-specific. Do not copy tokens between
 installations or expose `host.json`.
 
+An Ask process has a scoped connection. If it fails, report the failure or
+retry from the question UI; do not replace its credentials with the author's.
+
 ## A review is missing from Home
 
 Query `reviews.list` and inspect any filters, repository selection or trash
@@ -96,12 +99,16 @@ referenced by exact IDs. Upload image bytes through `asset.upload`; do not use
 external URLs or local file paths. Maps must match the document's exact binding.
 Repinning does not make an old map a map of the new commits.
 
-## Comments, feedback and Ask are unavailable
+## Ask is unavailable or failed
 
-Comments, feedback submission and Ask are unavailable for JSON reviews in this authoring-only version. They are deferred to the third PR in this stack. This is an intentional version boundary, not a missing harness
-installation. Do not use old file-backed commands or enable hooks to work
-around it. The bundled tutorial's attached Ask flow remains a trusted legacy
-exception and is not the JSON review authoring path.
+Query `capabilities` for the available harnesses. Ensure the selected harness
+is installed and usable locally. Ask runs a fresh session, not the original
+author's transcript. Questions and run status remain saved if launch or
+completion fails. Use **Retry** to start another attempt; no partial-answer
+streaming or Stop workflow is provided.
+
+**Request changes** records feedback but does not automatically start an author.
+Ask the authoring agent to fetch submitted feedback through the API.
 
 ## A coding agent is not detected
 

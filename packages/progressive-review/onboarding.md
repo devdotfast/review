@@ -1,7 +1,7 @@
 # Review workflow
 
 The running Desktop owns the canonical JSON document, retained evidence,
-resources and checkpoints. Author through MCP or `review host`;
+resources, checkpoints and conversations. Author through MCP or `review host`;
 never edit a review database, MDX file, TypeScript module or Git note.
 
 1. Use the matching Desktop and CLI. In development, use the checkout-built app.
@@ -22,12 +22,18 @@ never edit a review database, MDX file, TypeScript module or Git note.
 8. Publish explicitly with `review.publish`, using the current document and
    metadata versions and selected base/head map-version IDs (or `null`).
    Inspect the returned checkpoint and any canvas diagnostics.
+9. Read submitted `feedback` and `threads`, reply to the specific comments,
+   update the document, and publish another checkpoint when requested.
 
 Mutating commands require a caller-chosen UUID command ID. Reuse that ID and
 identical input after an uncertain response. For a genuine version conflict,
 refetch and reconcile before sending a new command.
 
-Comments, feedback submission and Ask are unavailable for JSON reviews in this authoring-only version. They are deferred to the third PR in this stack.
+Human drafts are private and editable; posted messages are immutable.
+**Ask now** launches a fresh trusted local agent with a frozen context, not a
+fork of the author. Final answers are saved through the run's completion path.
+**Submit review** records selected drafts and a decision without requiring an
+agent to be online; it does not automatically resume an author.
 
 Use the bundled [authoring skill](skills/dev-review/SKILL.md) for node shapes,
 evidence rules and the full workflow. The trusted bundled tutorial may retain

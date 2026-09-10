@@ -46,8 +46,10 @@ import {
 import { EvidenceProviderError } from "../host/evidence-provider";
 import { HostCredentials } from "../host/host-credentials";
 import { createHostHttp } from "../host/host-http";
+import { LocalQuestionExecutor } from "../host/local-question-executor";
 import { ReviewHost } from "../host/review-host";
 import { ReviewHostStore } from "../host/review-host-store";
+import { ReviewQuestionRunner } from "../host/review-question-runner";
 import { preferredInstalledReviewAgent } from "../installed-review-agent";
 import * as claudeCode from "../native-agent/claude-code";
 import * as codex from "../native-agent/codex";
@@ -416,10 +418,19 @@ export function createGlobalReviewServer(
   const jsonStore = input.jsonHost
     ? new ReviewHostStore(input.jsonHost.databasePath)
     : null;
+  let jsonQuestionRunner: ReviewQuestionRunner | undefined;
   const jsonHost = jsonStore
     ? new ReviewHost(jsonStore, {
         onPublishRejected: () =>
           telemetry.capturePublishGateRejected({ gate: "publish_ready" }),
+        questions: {
+          capabilities: async () => jsonQuestionRunner?.capabilities() ?? [],
+          start: async (run) => {
+            if (!jsonQuestionRunner)
+              throw new Error("Question executor is unavailable.");
+            await jsonQuestionRunner.start(run);
+          },
+        },
       })
     : null;
   const jsonCredentials = jsonStore
@@ -437,6 +448,36 @@ export function createGlobalReviewServer(
         return null;
       },
     );
+    jsonHost.interruptQuestionRuns();
+    jsonQuestionRunner = new ReviewQuestionRunner({
+      host: jsonHost,
+      credentials: jsonCredentials,
+      baseUrl: urlForBoundPort,
+      executor: new LocalQuestionExecutor({
+        agentServer: agentServerFor,
+        isAvailable: async (harness) => {
+          const status = await resolveInstalledReviewAgentStatus();
+          const executable = harness === "claude-code" ? "claude" : harness;
+          return (
+            status.agents.some(
+              (agent) => agent.target === executable && agent.installed,
+            ) && (await executableOnPath(executable))
+          );
+        },
+        openTerminal: async (terminal) => {
+          const result = await relay.dispatch("host", {
+            name: "openHostQuestionTerminal",
+            args: {
+              ...terminal,
+              session: { ...terminal.session },
+              command: { ...terminal.command },
+            },
+          });
+          if (!result.ok)
+            throw new Error("The question terminal could not be opened.");
+        },
+      }),
+    });
   }
   const jsonRoutes =
     jsonHost && jsonCredentials
@@ -2334,6 +2375,7 @@ export function createGlobalReviewServer(
       if (input.jsonHost)
         await removeMatchingDiscovery(input.jsonHost.discoveryPath, discovery);
       jsonRoutes?.close();
+      await jsonQuestionRunner?.close();
       await abortTutorialAuthoringStates();
       await agentPreparation;
       await Promise.all(

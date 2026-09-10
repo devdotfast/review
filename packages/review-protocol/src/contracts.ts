@@ -801,6 +801,9 @@ export interface ReviewInlineEditorFactory {
 export type ReviewHostSourceTarget = HostQueryInputs["source.read"];
 export interface ReviewHostSourceBridge {
   open(target: ReviewHostSourceTarget): Promise<void>;
+  onDidRequestComment?(
+    listener: (target: ReviewHostSourceTarget) => void,
+  ): ReviewDisposable;
   createPeek(spec: {
     container: HTMLElement;
     target: ReviewHostSourceTarget;
@@ -1997,6 +2000,22 @@ export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
   z.strictObject({
     name: z.literal("openHostReview"),
     args: z.strictObject({ reviewId: z.uuid() }),
+  }),
+  // Trusted host-to-native relay, never a public document command.
+  z.strictObject({
+    name: z.literal("openHostQuestionTerminal"),
+    args: z.strictObject({
+      runId: z.uuid(),
+      questionId: z.uuid(),
+      reviewId: z.uuid(),
+      session: AuthoringAgentSessionSchema,
+      command: z.strictObject({
+        cwd: requiredString,
+        executable: requiredString,
+        args: z.array(z.string()),
+        env: z.record(requiredString, z.string()),
+      }),
+    }),
   }),
   z.strictObject({
     name: z.literal("openReview"),

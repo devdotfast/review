@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Event } from "../../base/common/event.js";
+import { Emitter, Event } from "../../base/common/event.js";
 import { Disposable, type IDisposable } from "../../base/common/lifecycle.js";
 import { URI } from "../../base/common/uri.js";
 import { ITextModelService } from "../../editor/common/services/resolverService.js";
@@ -14,7 +14,7 @@ import {
   type IFileSystemProviderWithFileReadWriteCapability, type IStat,
 } from "../../platform/files/common/files.js";
 import { IEditorService } from "../../workbench/services/editor/common/editorService.js";
-import { HOST_SOURCE_QUERIES, HostIdSchema, ReviewClient, type HostQueryInputs, type ReviewHostSourceTarget } from "../common/reviewProtocol.js";
+import { HOST_SOURCE_QUERIES, HostIdSchema, ReviewClient, type HostQueryInputs, type ReviewHostSourceTarget, type ReviewRangeWire } from "../common/reviewProtocol.js";
 import { reviewPeekWindows } from "../common/reviewPeek.js";
 import type { ReviewCodeModelReference } from "./reviewCodeResourceService.js";
 import { IReviewSessionService } from "./reviewSessionService.js";
@@ -25,6 +25,8 @@ export interface IReviewHostSourceService {
   readonly _serviceBrand: undefined;
   openSource(target: ReviewHostSourceTarget): Promise<void>;
   acquireSnippet(target: ReviewHostSourceTarget): Promise<ReviewCodeModelReference>;
+  requestComment(resource: URI, range: ReviewRangeWire): Promise<void>;
+  subscribeComments(reviewId: string, listener: (target: ReviewHostSourceTarget) => void): IDisposable;
 }
 
 interface HostSourceLocation {
@@ -55,6 +57,8 @@ export class ReviewHostSourceService extends Disposable implements IReviewHostSo
   readonly onDidChangeCapabilities = Event.None;
   readonly onDidChangeFile = Event.None;
   private connection: { serverUrl: string; token: string; client: Promise<ReviewClient> } | undefined;
+  private readonly commentRequested = this._register(new Emitter<ReviewHostSourceTarget>());
+  private readonly pendingComments = new Map<string, ReviewHostSourceTarget>();
 
   constructor(
     @IReviewSessionService private readonly sessionService: IReviewSessionService,
@@ -96,6 +100,25 @@ export class ReviewHostSourceService extends Disposable implements IReviewHostSo
     await this.editorService.openEditor({ resource: await this.resource(target), options: {
       pinned: true, selection: { startLineNumber: target.range.fromLine, startColumn: 1, endLineNumber: target.range.toLine, endColumn: Number.MAX_SAFE_INTEGER },
     } });
+  }
+
+  async requestComment(resource: URI, range: ReviewRangeWire): Promise<void> {
+    const { request } = await this.source(resource);
+    const target = HOST_SOURCE_QUERIES["source.read"].input.parse({ reviewId: request.reviewId, documentVersion: request.documentVersion, range: { ...range, side: request.side, file: request.file } });
+    this.pendingComments.set(request.reviewId, target);
+    this.commentRequested.fire(target);
+  }
+
+  subscribeComments(reviewId: string, listener: (target: ReviewHostSourceTarget) => void): IDisposable {
+    const deliver = (target: ReviewHostSourceTarget) => {
+      if (target.reviewId !== reviewId) return;
+      this.pendingComments.delete(reviewId);
+      listener(target);
+    };
+    const subscription = this.commentRequested.event(deliver);
+    const pending = this.pendingComments.get(reviewId);
+    if (pending) deliver(pending);
+    return subscription;
   }
 
   async acquireSnippet(target: ReviewHostSourceTarget): Promise<ReviewCodeModelReference> {

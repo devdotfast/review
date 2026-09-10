@@ -2,8 +2,6 @@
 
 These commands describe the JSON-host implementation. Use a CLI and Desktop built from the same version. Desktop must already be running for review operations; the thin clients do not start another server or delegate to another installed CLI.
 
-Comments, feedback submission and Ask are unavailable for JSON reviews in this authoring-only version. They are deferred to the third PR in this stack. The command/query registries below describe only the available authoring surface.
-
 ## Command surface
 
 ```sh
@@ -48,11 +46,11 @@ Configure a stdio MCP entry to run the matching `review` executable with argumen
 
 Tool names map from operations: `review.create → review_create`, `document.mutate → review_document_mutate`, `source.read → review_source_read`. Queries use the operation input directly. Commands add `commandId` at the top level. `review_open({reviewId})` only selects the desktop window/tab.
 
-MCP tool discovery filters operations by the current credential's capabilities. Object results are returned as structured content; array results are wrapped in `{result:[...]}`. Command receipts and event cursors are available in result metadata. A read-only credential does not grant author permissions.
+MCP tool discovery filters operations by the current credential's capabilities. Object results are returned as structured content; array results are wrapped in `{result:[...]}`. Command receipts and event cursors are available in result metadata. Ask credentials are not author credentials.
 
 ## Operation families
 
-The complete strict input/output schemas live in [host-commands.ts](https://github.com/devdotfast/review/blob/main/packages/review-protocol/src/host-commands.ts), [host-source.ts](https://github.com/devdotfast/review/blob/main/packages/review-protocol/src/host-source.ts), and [host-resources.ts](https://github.com/devdotfast/review/blob/main/packages/review-protocol/src/host-resources.ts). MCP uses those same schemas.
+The complete strict input/output schemas live in [host-commands.ts](https://github.com/devdotfast/review/blob/main/packages/review-protocol/src/host-commands.ts), [host-source.ts](https://github.com/devdotfast/review/blob/main/packages/review-protocol/src/host-source.ts), [host-resources.ts](https://github.com/devdotfast/review/blob/main/packages/review-protocol/src/host-resources.ts), and [host-feedback.ts](https://github.com/devdotfast/review/blob/main/packages/review-protocol/src/host-feedback.ts). MCP uses those same schemas.
 
 | Area | Commands | Queries |
 | --- | --- | --- |
@@ -64,9 +62,13 @@ The complete strict input/output schemas live in [host-commands.ts](https://gith
 | Source | — | `source.read/file/tree/commits/diff` |
 | Maps | `map.create/mutate` | `map.get`, `maps.list` |
 | Retained resources | `trace.ingest`, `asset.upload` | `trace.get`, `asset.get` |
+| Private drafts | `draft.save/delete` | `drafts.list` |
+| Conversations | `thread.create/reply/status` | `threads.list`, `thread.get/mapping` |
+| Feedback | `feedback.submit` | `feedback.list/get` |
+| Ask | `question.start/follow_up/retry/complete` | `questions.list`, `question.get/context` |
 | Viewer observations | `canvas.report` | `canvas.reports` |
 
-Slash-separated names in the table abbreviate separate operations, not CLI subcommands. Availability is permission/capability dependent; human-only lifecycle actions are not exposed to an author agent.
+Slash-separated names in the table abbreviate separate operations, not CLI subcommands. Availability is permission/capability dependent; human decisions and private drafts are not exposed to an author agent.
 
 Important contracts:
 
@@ -76,6 +78,10 @@ Important contracts:
 - `source.read({reviewId,documentVersion,range:{side,file,fromLine,toLine}})` returns retained/verified source; `source.file` takes `side,file` instead of a range.
 - `review.repin.plan` proposes mappings; `review.repin.apply` takes `planId,expectedDocumentVersion,operations` for explicit corrections. Changed/ambiguous ranges require author action.
 - `map.create({reviewId,documentVersion,side,map})` returns an immutable map version. `map.mutate` takes `mapId,expectedVersion,operations`.
+- `thread.reply({reviewId,threadId,messageId,body,replyToMessageId?})` appends an immutable message. Thread status and draft edits use expected versions.
+- `feedback.submit({reviewId,checkpointId,decision,drafts:[{draftId,expectedVersion}],body?})` saves the selected drafts and decision atomically.
+- `question.start({reviewId,target,body,harness})` saves the question before launching a fresh trusted local assistant. `question.complete` is limited to the appropriate answer credential.
+- Targets always include `documentVersion` and `kind:"document"|"node"|"source"|"diagram"|"trace"`, with the corresponding IDs/range.
 
 ## HTTP and subscriptions
 
@@ -89,4 +95,4 @@ Use `x-review-token`, never a token in the URL. Command/query envelopes contain 
 
 A document snapshot includes its event cursor. Subscribe after that cursor, deduplicate replay, apply each whole committed patch atomically, and refetch on a gap or `document.resync_required`. Historical views do not subscribe to working-document changes. Prefer the typed `ReviewClient` implementation over recreating this protocol.
 
-Discovery uses OS-private `$DEV_REVIEW_HOME/review-desktop/host.json` (default under `~/.dev`). It handles changing local endpoints. An explicitly supplied connection never falls back to another discovery credential. Do not hand-edit discovery or copy credentials into authored content.
+Discovery uses OS-private `$DEV_REVIEW_HOME/review-desktop/host.json` (default under `~/.dev`). It handles changing local endpoints. Scoped Ask processes use the supplied connection environment and never fall back to an author's discovery token. Do not hand-edit discovery or copy credentials into authored content.

@@ -107,6 +107,7 @@ export class ClaudeAgentServer implements AgentServer {
       CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: "1",
     };
     if (pathValue) env.PATH = pathValue;
+    Object.assign(env, input.environment);
     return {
       sessionId,
       command: {

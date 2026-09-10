@@ -4,9 +4,6 @@ Review collects a small amount of anonymous usage and reliability data. We use
 it to learn which parts of Review are useful and where the app is failing.
 
 This page is the complete public contract for Review Desktop and CLI telemetry.
-The event catalog also covers retained legacy/tutorial surfaces; it is not a
-list of available JSON-host operations. Comments, feedback and Ask for JSON
-reviews are deferred to the third PR in this stack.
 For a shorter overview of all product data, including local files, coding
 agents, and bug reports, see [Privacy](privacy.md).
 

@@ -6,6 +6,8 @@ import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
 import {
   type HostAsset,
   HostAssetSchema,
+  type HostAttention,
+  HostAttentionSchema,
   type HostBinding,
   HostBindingSchema,
   type HostCanvasReport,
@@ -18,14 +20,24 @@ import {
   HostDocumentManifestSchema,
   type HostDocumentState,
   HostDocumentStateSchema,
+  type HostDraft,
+  HostDraftSchema,
+  type HostFeedbackSubmission,
+  HostFeedbackSubmissionSchema,
   HostHashSchema,
   type HostMap,
   HostMapSummarySchema,
   type HostMapVersion,
   HostMapVersionSchema,
+  type HostMessage,
+  HostMessageSchema,
   HostNodeSchema,
   type HostPrincipal,
   HostPrincipalSchema,
+  type HostQuestionContext,
+  HostQuestionContextSchema,
+  type HostQuestionRun,
+  HostQuestionRunSchema,
   type HostRepinPlan,
   HostRepinPlanSchema,
   type HostRetainedTrace,
@@ -34,6 +46,8 @@ import {
   HostReviewSchema,
   type HostSourceQuote,
   HostSourceQuoteSchema,
+  type HostThread,
+  HostThreadSchema,
   type JsonValue,
   canonicalHostJson,
   parseJsonText,
@@ -164,6 +178,43 @@ CREATE TABLE IF NOT EXISTS host_assets (
   blob_hash TEXT NOT NULL REFERENCES host_asset_blobs(hash),
   content_hash TEXT NOT NULL, record_json TEXT NOT NULL CHECK(json_valid(record_json))
 ) STRICT;
+CREATE TABLE IF NOT EXISTS host_drafts (
+  id TEXT PRIMARY KEY, review_id TEXT NOT NULL REFERENCES host_reviews(id), principal_id TEXT NOT NULL,
+  version INTEGER NOT NULL CHECK(version>=0), document_version INTEGER NOT NULL,
+  record_json TEXT NOT NULL CHECK(json_valid(record_json)),
+  FOREIGN KEY(review_id,document_version) REFERENCES host_document_versions(review_id,version)
+) STRICT;
+CREATE TABLE IF NOT EXISTS host_threads (
+  id TEXT PRIMARY KEY, review_id TEXT NOT NULL REFERENCES host_reviews(id),
+  document_version INTEGER NOT NULL, record_json TEXT NOT NULL CHECK(json_valid(record_json)),
+  FOREIGN KEY(review_id,document_version) REFERENCES host_document_versions(review_id,version)
+) STRICT;
+CREATE TABLE IF NOT EXISTS host_messages (
+  id TEXT PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES host_threads(id),
+  ordinal INTEGER NOT NULL CHECK(ordinal>0), reply_to_message_id TEXT REFERENCES host_messages(id),
+  question_run_id TEXT REFERENCES host_question_runs(id), record_json TEXT NOT NULL CHECK(json_valid(record_json)),
+  UNIQUE(thread_id,ordinal)
+) STRICT;
+CREATE TABLE IF NOT EXISTS host_feedback_submissions (
+  id TEXT PRIMARY KEY, review_id TEXT NOT NULL REFERENCES host_reviews(id),
+  checkpoint_id TEXT NOT NULL REFERENCES host_checkpoints(id), record_json TEXT NOT NULL CHECK(json_valid(record_json))
+) STRICT;
+CREATE TABLE IF NOT EXISTS host_question_contexts (
+  id TEXT PRIMARY KEY, review_id TEXT NOT NULL REFERENCES host_reviews(id), document_version INTEGER NOT NULL,
+  record_json TEXT NOT NULL CHECK(json_valid(record_json)),
+  FOREIGN KEY(review_id,document_version) REFERENCES host_document_versions(review_id,version)
+) STRICT;
+CREATE TABLE IF NOT EXISTS host_question_runs (
+  id TEXT PRIMARY KEY, review_id TEXT NOT NULL REFERENCES host_reviews(id), thread_id TEXT NOT NULL REFERENCES host_threads(id),
+  question_id TEXT NOT NULL REFERENCES host_messages(id), context_id TEXT NOT NULL REFERENCES host_question_contexts(id),
+  state TEXT NOT NULL CHECK(state IN ('pending','running','completed','failed','interrupted')),
+  answer_message_id TEXT REFERENCES host_messages(id), record_json TEXT NOT NULL CHECK(json_valid(record_json))
+) STRICT;
+CREATE UNIQUE INDEX IF NOT EXISTS host_question_active_attempt ON host_question_runs(question_id) WHERE state IN ('pending','running');
+CREATE TABLE IF NOT EXISTS host_attention (
+  review_id TEXT NOT NULL REFERENCES host_reviews(id), principal_id TEXT NOT NULL,
+  record_json TEXT NOT NULL CHECK(json_valid(record_json)), PRIMARY KEY(review_id,principal_id)
+) STRICT;
 CREATE TABLE IF NOT EXISTS host_canvas_reports (
   sequence INTEGER PRIMARY KEY AUTOINCREMENT,
   review_id TEXT NOT NULL REFERENCES host_reviews(id), canvas_session_id TEXT NOT NULL,
@@ -185,6 +236,17 @@ CREATE INDEX IF NOT EXISTS host_events_by_review ON host_events(review_id,sequen
 
 function contentHash(value: JsonValue): string {
   return createHash("sha256").update(canonicalHostJson(value)).digest("hex");
+}
+
+function messageIdentity(message: Omit<HostMessage, "ordinal">) {
+  return {
+    id: message.id,
+    threadId: message.threadId,
+    author: message.author,
+    body: message.body,
+    replyToMessageId: message.replyToMessageId,
+    questionRunId: message.questionRunId,
+  };
 }
 
 const rowText = (
@@ -1103,6 +1165,573 @@ export class ReviewHostStore {
         "Closed or trashed reviews cannot be authored.",
       );
     return review;
+  }
+
+  saveDraft(record: HostDraft, expectedVersion: number | null): HostDraft {
+    this.requireWrite();
+    const draft = HostDraftSchema.parse(record);
+    this.mutableResourceReview(draft.reviewId);
+    this.document(draft.reviewId, draft.target.documentVersion);
+    if (expectedVersion === null) {
+      const existing = this.db
+        .prepare("SELECT review_id,principal_id FROM host_drafts WHERE id=?")
+        .get(draft.id);
+      if (existing) {
+        if (
+          existing.review_id !== draft.reviewId ||
+          existing.principal_id !== draft.principalId
+        )
+          throw new HostStoreError("NOT_FOUND", "Draft not found.");
+        throw new HostStoreError(
+          "VERSION_CONFLICT",
+          "Draft already exists. Read its current version.",
+        );
+      }
+      if (draft.version !== 0)
+        throw new HostStoreError(
+          "INVALID_STATE",
+          "New drafts must start at version zero.",
+        );
+      this.db
+        .prepare(
+          "INSERT INTO host_drafts(id,review_id,principal_id,version,document_version,record_json) VALUES (?,?,?,?,?,?)",
+        )
+        .run(
+          draft.id,
+          draft.reviewId,
+          draft.principalId,
+          draft.version,
+          draft.target.documentVersion,
+          canonicalHostJson(draft),
+        );
+    } else {
+      const before = this.draft(draft.reviewId, draft.id, draft.principalId);
+      if (before.version !== expectedVersion)
+        throw new HostStoreError(
+          "VERSION_CONFLICT",
+          "Draft changed. Refresh before saving.",
+        );
+      if (
+        draft.version !== before.version + 1 ||
+        draft.createdAt !== before.createdAt
+      )
+        throw new HostStoreError(
+          "INVALID_STATE",
+          "Draft identity and creation time are immutable.",
+        );
+      this.db
+        .prepare(
+          "UPDATE host_drafts SET version=?,document_version=?,record_json=? WHERE id=?",
+        )
+        .run(
+          draft.version,
+          draft.target.documentVersion,
+          canonicalHostJson(draft),
+          draft.id,
+        );
+    }
+    return draft;
+  }
+
+  draft(reviewId: string, id: string, principalId: string): HostDraft {
+    const row = this.db
+      .prepare(
+        "SELECT record_json FROM host_drafts WHERE review_id=? AND id=? AND principal_id=?",
+      )
+      .get(reviewId, id, principalId);
+    if (!row) throw new HostStoreError("NOT_FOUND", "Draft not found.");
+    return HostDraftSchema.parse(parseJsonText(rowText(row, "record_json")));
+  }
+
+  drafts(reviewId: string, principalId: string): HostDraft[] {
+    this.review(reviewId);
+    return this.db
+      .prepare(
+        "SELECT record_json FROM host_drafts WHERE review_id=? AND principal_id=? ORDER BY rowid DESC",
+      )
+      .all(reviewId, principalId)
+      .map((row) =>
+        HostDraftSchema.parse(parseJsonText(rowText(row, "record_json"))),
+      );
+  }
+
+  deleteDraft(
+    reviewId: string,
+    id: string,
+    principalId: string,
+    expectedVersion: number,
+  ): void {
+    this.requireWrite();
+    const before = this.draft(reviewId, id, principalId);
+    if (before.version !== expectedVersion)
+      throw new HostStoreError(
+        "VERSION_CONFLICT",
+        "Draft changed. Refresh before deleting.",
+      );
+    this.db.prepare("DELETE FROM host_drafts WHERE id=?").run(id);
+  }
+
+  createThread(record: HostThread): HostThread {
+    this.requireWrite();
+    const thread = HostThreadSchema.parse(record);
+    this.mutableResourceReview(thread.reviewId);
+    this.document(thread.reviewId, thread.target.documentVersion);
+    if (thread.version !== 0)
+      throw new HostStoreError(
+        "INVALID_STATE",
+        "New threads must start at version zero.",
+      );
+    this.db
+      .prepare(
+        "INSERT INTO host_threads(id,review_id,document_version,record_json) VALUES (?,?,?,?)",
+      )
+      .run(
+        thread.id,
+        thread.reviewId,
+        thread.target.documentVersion,
+        canonicalHostJson(thread),
+      );
+    return thread;
+  }
+
+  thread(reviewId: string, id: string): HostThread {
+    const row = this.db
+      .prepare(
+        "SELECT record_json FROM host_threads WHERE review_id=? AND id=?",
+      )
+      .get(reviewId, id);
+    if (!row) throw new HostStoreError("NOT_FOUND", "Thread not found.");
+    return HostThreadSchema.parse(parseJsonText(rowText(row, "record_json")));
+  }
+
+  threads(reviewId: string): HostThread[] {
+    this.review(reviewId);
+    return this.db
+      .prepare(
+        "SELECT record_json FROM host_threads WHERE review_id=? ORDER BY rowid DESC",
+      )
+      .all(reviewId)
+      .map((row) =>
+        HostThreadSchema.parse(parseJsonText(rowText(row, "record_json"))),
+      );
+  }
+
+  setThreadStatus(
+    reviewId: string,
+    id: string,
+    expectedVersion: number,
+    status: HostThread["status"],
+  ): HostThread {
+    this.requireWrite();
+    this.mutableResourceReview(reviewId);
+    const before = this.thread(reviewId, id);
+    if (before.version !== expectedVersion)
+      throw new HostStoreError(
+        "VERSION_CONFLICT",
+        "Thread changed. Refresh before changing its status.",
+      );
+    if (before.status === status) return before;
+    const after = HostThreadSchema.parse({
+      ...before,
+      status,
+      version: before.version + 1,
+      updatedAt: new Date().toISOString(),
+    });
+    this.db
+      .prepare("UPDATE host_threads SET record_json=? WHERE id=?")
+      .run(canonicalHostJson(after), id);
+    return after;
+  }
+
+  appendMessage(
+    reviewId: string,
+    input: Omit<HostMessage, "ordinal">,
+  ): HostMessage {
+    this.requireWrite();
+    const thread = this.thread(reviewId, input.threadId);
+    const previous = this.db
+      .prepare(
+        "SELECT t.review_id,m.record_json FROM host_messages m JOIN host_threads t ON m.thread_id=t.id WHERE m.id=?",
+      )
+      .get(input.id);
+    if (previous) {
+      if (previous.review_id !== reviewId)
+        throw new HostStoreError("NOT_FOUND", "Message not found.");
+      const existing = HostMessageSchema.parse(
+        parseJsonText(rowText(previous, "record_json")),
+      );
+      if (
+        canonicalHostJson(messageIdentity(existing)) !==
+        canonicalHostJson(messageIdentity(input))
+      )
+        throw new HostStoreError(
+          "IDEMPOTENCY_CONFLICT",
+          "Message ID was already used for different content.",
+        );
+      return existing;
+    }
+    if (input.replyToMessageId !== null) {
+      const reply = this.message(reviewId, input.replyToMessageId);
+      if (reply.threadId !== thread.id)
+        throw new HostStoreError(
+          "INVALID_STATE",
+          "Replies must remain in the same thread.",
+        );
+    }
+    if (input.questionRunId !== null) {
+      const run = this.questionRun(reviewId, input.questionRunId);
+      if (
+        run.threadId !== thread.id ||
+        run.assistant.id !== input.author.id ||
+        input.replyToMessageId !== run.questionId ||
+        (run.state !== "pending" && run.state !== "running")
+      )
+        throw new HostStoreError(
+          "INVALID_STATE",
+          "This answer does not belong to an active question run.",
+        );
+      // Accepted work may finish after its review is closed or trashed.
+    } else this.mutableResourceReview(reviewId);
+    const last = this.db
+      .prepare(
+        "SELECT COALESCE(MAX(ordinal),0) AS ordinal FROM host_messages WHERE thread_id=?",
+      )
+      .get(thread.id)!;
+    const message = HostMessageSchema.parse({
+      ...input,
+      ordinal: z.number().int().parse(last.ordinal) + 1,
+    });
+    this.db
+      .prepare(
+        "INSERT INTO host_messages(id,thread_id,ordinal,reply_to_message_id,question_run_id,record_json) VALUES (?,?,?,?,?,?)",
+      )
+      .run(
+        message.id,
+        message.threadId,
+        message.ordinal,
+        message.replyToMessageId,
+        message.questionRunId,
+        canonicalHostJson(message),
+      );
+    return message;
+  }
+
+  messages(reviewId: string, threadId: string): HostMessage[] {
+    this.thread(reviewId, threadId);
+    return this.db
+      .prepare(
+        "SELECT record_json FROM host_messages WHERE thread_id=? ORDER BY ordinal",
+      )
+      .all(threadId)
+      .map((row) =>
+        HostMessageSchema.parse(parseJsonText(rowText(row, "record_json"))),
+      );
+  }
+
+  putSubmission(record: HostFeedbackSubmission): HostFeedbackSubmission {
+    this.requireWrite();
+    const submission = HostFeedbackSubmissionSchema.parse(record);
+    this.mutableResourceReview(submission.reviewId);
+    this.checkpoint(submission.reviewId, submission.checkpointId);
+    if (
+      submission.threadIds.length !== submission.messageIds.length ||
+      new Set(submission.messageIds).size !== submission.messageIds.length
+    )
+      throw new HostStoreError(
+        "INVALID_STATE",
+        "Submission messages must correspond to its selected threads.",
+      );
+    submission.messageIds.forEach((id, index) => {
+      const message = this.message(submission.reviewId, id);
+      if (message.threadId !== submission.threadIds[index])
+        throw new HostStoreError(
+          "INVALID_STATE",
+          "Submission message belongs to a different thread.",
+        );
+    });
+    this.db
+      .prepare(
+        "INSERT INTO host_feedback_submissions(id,review_id,checkpoint_id,record_json) VALUES (?,?,?,?)",
+      )
+      .run(
+        submission.id,
+        submission.reviewId,
+        submission.checkpointId,
+        canonicalHostJson(submission),
+      );
+    return submission;
+  }
+
+  submission(reviewId: string, id: string): HostFeedbackSubmission {
+    const row = this.db
+      .prepare(
+        "SELECT record_json FROM host_feedback_submissions WHERE review_id=? AND id=?",
+      )
+      .get(reviewId, id);
+    if (!row)
+      throw new HostStoreError("NOT_FOUND", "Feedback submission not found.");
+    return HostFeedbackSubmissionSchema.parse(
+      parseJsonText(rowText(row, "record_json")),
+    );
+  }
+
+  submissions(reviewId: string): HostFeedbackSubmission[] {
+    this.review(reviewId);
+    return this.db
+      .prepare(
+        "SELECT record_json FROM host_feedback_submissions WHERE review_id=? ORDER BY rowid DESC",
+      )
+      .all(reviewId)
+      .map((row) =>
+        HostFeedbackSubmissionSchema.parse(
+          parseJsonText(rowText(row, "record_json")),
+        ),
+      );
+  }
+
+  putQuestionContext(record: HostQuestionContext): HostQuestionContext {
+    this.requireWrite();
+    const context = HostQuestionContextSchema.parse(record);
+    this.mutableResourceReview(context.reviewId);
+    this.document(context.reviewId, context.documentVersion);
+    if (Buffer.byteLength(canonicalHostJson(context)) > 64 * 1024)
+      throw new HostStoreError(
+        "INVALID_STATE",
+        "Question context exceeds its retained size limit.",
+      );
+    this.db
+      .prepare(
+        "INSERT INTO host_question_contexts(id,review_id,document_version,record_json) VALUES (?,?,?,?)",
+      )
+      .run(
+        context.id,
+        context.reviewId,
+        context.documentVersion,
+        canonicalHostJson(context),
+      );
+    return context;
+  }
+
+  questionContext(reviewId: string, id: string): HostQuestionContext {
+    const row = this.db
+      .prepare(
+        "SELECT record_json FROM host_question_contexts WHERE review_id=? AND id=?",
+      )
+      .get(reviewId, id);
+    if (!row)
+      throw new HostStoreError("NOT_FOUND", "Question context not found.");
+    return HostQuestionContextSchema.parse(
+      parseJsonText(rowText(row, "record_json")),
+    );
+  }
+
+  createQuestionRun(record: HostQuestionRun): HostQuestionRun {
+    this.requireWrite();
+    const run = HostQuestionRunSchema.parse(record);
+    this.mutableResourceReview(run.reviewId);
+    const thread = this.thread(run.reviewId, run.threadId);
+    const question = this.message(run.reviewId, run.questionId);
+    const context = this.questionContext(run.reviewId, run.contextId);
+    if (
+      run.state !== "pending" ||
+      run.answerMessageId !== null ||
+      run.sessionId !== null ||
+      run.error !== null ||
+      run.assistant.kind !== "agent" ||
+      question.threadId !== thread.id ||
+      context.question !== question.body ||
+      context.documentVersion !== thread.target.documentVersion
+    )
+      throw new HostStoreError(
+        "INVALID_STATE",
+        "A new question run must match its frozen question and context.",
+      );
+    if (
+      this.db
+        .prepare(
+          "SELECT id FROM host_question_runs WHERE question_id=? AND state IN ('pending','running')",
+        )
+        .get(run.questionId)
+    )
+      throw new HostStoreError(
+        "VERSION_CONFLICT",
+        "This question already has an active attempt.",
+      );
+    this.db
+      .prepare(
+        "INSERT INTO host_question_runs(id,review_id,thread_id,question_id,context_id,state,answer_message_id,record_json) VALUES (?,?,?,?,?,?,?,?)",
+      )
+      .run(
+        run.id,
+        run.reviewId,
+        run.threadId,
+        run.questionId,
+        run.contextId,
+        run.state,
+        run.answerMessageId,
+        canonicalHostJson(run),
+      );
+    return run;
+  }
+
+  questionRun(reviewId: string, id: string): HostQuestionRun {
+    const row = this.db
+      .prepare(
+        "SELECT record_json FROM host_question_runs WHERE review_id=? AND id=?",
+      )
+      .get(reviewId, id);
+    if (!row) throw new HostStoreError("NOT_FOUND", "Question run not found.");
+    return HostQuestionRunSchema.parse(
+      parseJsonText(rowText(row, "record_json")),
+    );
+  }
+
+  questionRuns(reviewId: string): HostQuestionRun[] {
+    this.review(reviewId);
+    return this.db
+      .prepare(
+        "SELECT record_json FROM host_question_runs WHERE review_id=? ORDER BY rowid DESC",
+      )
+      .all(reviewId)
+      .map((row) =>
+        HostQuestionRunSchema.parse(parseJsonText(rowText(row, "record_json"))),
+      );
+  }
+
+  updateQuestionRun(
+    reviewId: string,
+    id: string,
+    input: Partial<
+      Pick<
+        HostQuestionRun,
+        "state" | "sessionId" | "answerMessageId" | "error" | "updatedAt"
+      >
+    >,
+  ): HostQuestionRun {
+    this.requireWrite();
+    const changes = HostQuestionRunSchema.pick({
+      state: true,
+      sessionId: true,
+      answerMessageId: true,
+      error: true,
+      updatedAt: true,
+    })
+      .partial()
+      .parse(input);
+    const before = this.questionRun(reviewId, id);
+    const after = HostQuestionRunSchema.parse({ ...before, ...changes });
+    if (canonicalHostJson(before) === canonicalHostJson(after)) return before;
+    if (before.state !== "pending" && before.state !== "running")
+      throw new HostStoreError(
+        "INVALID_STATE",
+        "A terminal question run cannot be changed.",
+      );
+    if (
+      (before.state === "running" && after.state === "pending") ||
+      (after.state === "completed" &&
+        (after.answerMessageId === null || after.error !== null)) ||
+      (after.state !== "completed" && after.answerMessageId !== null)
+    )
+      throw new HostStoreError(
+        "INVALID_STATE",
+        "Invalid question run transition.",
+      );
+    if (after.answerMessageId !== null) {
+      const answer = this.message(reviewId, after.answerMessageId);
+      if (
+        answer.threadId !== before.threadId ||
+        answer.questionRunId !== before.id ||
+        answer.replyToMessageId !== before.questionId ||
+        answer.author.id !== before.assistant.id
+      )
+        throw new HostStoreError(
+          "INVALID_STATE",
+          "Completed answer does not belong to this question run.",
+        );
+    }
+    this.db
+      .prepare(
+        "UPDATE host_question_runs SET state=?,answer_message_id=?,record_json=? WHERE id=?",
+      )
+      .run(after.state, after.answerMessageId, canonicalHostJson(after), id);
+    return after;
+  }
+
+  interruptOutstandingQuestionRuns(): HostQuestionRun[] {
+    this.requireWrite();
+    const rows = this.db
+      .prepare(
+        "SELECT review_id,id FROM host_question_runs WHERE state IN ('pending','running') ORDER BY rowid",
+      )
+      .all();
+    return rows.map((row) =>
+      this.updateQuestionRun(rowText(row, "review_id"), rowText(row, "id"), {
+        state: "interrupted",
+        error:
+          "Review Desktop stopped before this question completed. Retry explicitly to start a new attempt.",
+        updatedAt: new Date().toISOString(),
+      }),
+    );
+  }
+
+  attention(reviewId: string, principalId: string): HostAttention {
+    this.review(reviewId);
+    const row = this.db
+      .prepare(
+        "SELECT record_json FROM host_attention WHERE review_id=? AND principal_id=?",
+      )
+      .get(reviewId, principalId);
+    return row
+      ? HostAttentionSchema.parse(parseJsonText(rowText(row, "record_json")))
+      : {
+          reviewId,
+          principalId,
+          version: 0,
+          viewedDocumentVersion: null,
+          viewedAt: null,
+          pinned: false,
+        };
+  }
+
+  updateAttention(
+    record: HostAttention,
+    expectedVersion: number,
+  ): HostAttention {
+    this.requireWrite();
+    const attention = HostAttentionSchema.parse(record);
+    const before = this.attention(attention.reviewId, attention.principalId);
+    if (before.version !== expectedVersion)
+      throw new HostStoreError(
+        "VERSION_CONFLICT",
+        "Attention changed. Read its current version and retry.",
+      );
+    if (attention.version !== before.version + 1)
+      throw new HostStoreError(
+        "INVALID_STATE",
+        "Attention must advance exactly one version.",
+      );
+    if (attention.viewedDocumentVersion !== null)
+      this.document(attention.reviewId, attention.viewedDocumentVersion);
+    this.db
+      .prepare(
+        "INSERT INTO host_attention(review_id,principal_id,record_json) VALUES (?,?,?) ON CONFLICT(review_id,principal_id) DO UPDATE SET record_json=excluded.record_json",
+      )
+      .run(
+        attention.reviewId,
+        attention.principalId,
+        canonicalHostJson(attention),
+      );
+    return attention;
+  }
+
+  private message(reviewId: string, id: string): HostMessage {
+    const row = this.db
+      .prepare(
+        "SELECT m.record_json FROM host_messages m JOIN host_threads t ON m.thread_id=t.id WHERE t.review_id=? AND m.id=?",
+      )
+      .get(reviewId, id);
+    if (!row) throw new HostStoreError("NOT_FOUND", "Message not found.");
+    return HostMessageSchema.parse(parseJsonText(rowText(row, "record_json")));
   }
 
   clearCanvasReports(): void {

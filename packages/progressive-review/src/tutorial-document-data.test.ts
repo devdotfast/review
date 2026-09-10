@@ -88,6 +88,7 @@ describe("tutorial review document data", () => {
       expect([...componentNames].sort()).toEqual(
         [
           "ReviewSection",
+          "TraceQuote",
           "AnchorLink",
           "CodePeek",
           "SequenceDiagram",

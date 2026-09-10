@@ -45,6 +45,10 @@ import { reviewVcs } from "../review-vcs";
 import { readReviewSoftwareMapBundle } from "../software-map-bundle";
 import { ReviewServerError } from "./http-json";
 import { reviewWithPresentedDocumentPins } from "./publish-stage";
+import {
+  type ReviewSessionArtifactInput,
+  legacySessionArtifactFromBuildDir,
+} from "./review-session-artifact";
 
 /** A staged seal may extend private objects and advance main/index, but cannot
  * replace repository config, remove history, or redirect writes through links. */
@@ -226,8 +230,7 @@ export async function promoteReviewRepair<
   sessions: ReadonlyMap<string, Session>;
   registerSerialized: (registration: {
     review: StoredReview;
-    documentPath: string;
-    softwareMapRootPath?: string;
+    artifact: ReviewSessionArtifactInput;
     revision: string;
     promoted: false;
     repairValidation: true;
@@ -344,8 +347,14 @@ export async function promoteReviewRepair<
     }
     successor = await input.registerSerialized({
       review: presented,
-      documentPath: path.join(documentDir, "review.mdx"),
-      softwareMapRootPath: mapDir,
+      artifact: await legacySessionArtifactFromBuildDir({
+        reviewUuid: presented.review.uuid,
+        revision: request.newDocumentRevision,
+        buildDir: documentDir,
+        routePath: "/",
+        softwareMapRootPath: mapDir,
+        sourcePath: path.join(presented.dir, "review.mdx"),
+      }),
       revision: request.newDocumentRevision,
       promoted: false,
       repairValidation: true,

@@ -18,6 +18,7 @@ import { closeAllReviewThreadStores } from "./review-thread-store-backend";
 import { createGlobalReviewServer } from "./server/desktop-server";
 import { GlobalReviewDesktopVerbRelay } from "./server/global-verb-relay";
 import { createReviewSessionHandler } from "./server/session-handler";
+import { sessionArtifactFixture } from "./server/session-handler-test-utils";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -174,7 +175,7 @@ it.each(["thread-commands", "revisions"])(
     await writeFile(reviewPath, "# Review\n");
     const handler = await createReviewSessionHandler({
       rootPath: root,
-      reviewPath,
+      artifact: sessionArtifactFixture({ sourcePath: reviewPath }),
       toolingRoot: root,
       routePath: "/",
       token: "busy-token",

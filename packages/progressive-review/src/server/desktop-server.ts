@@ -179,6 +179,10 @@ import {
   readLiveSnapshot,
 } from "./review-live-authoring";
 import { promoteReviewRepair } from "./review-repair-promotion";
+import {
+  type ReviewSessionArtifactInput,
+  legacySessionArtifactFromBuildDir,
+} from "./review-session-artifact";
 import { resolveThreadsReview } from "./review-threads-target";
 import {
   type ReviewSessionHandler,
@@ -219,8 +223,7 @@ interface ReviewDesktopEventClient {
 interface ActiveReviewSession {
   descriptor: ReviewSessionDescriptor;
   review: StoredReview;
-  documentPath: string;
-  softwareMapRootPath?: string;
+  artifact: ReviewSessionArtifactInput;
   revision?: string;
   historicalRevision?: string;
   source?: {
@@ -242,12 +245,9 @@ interface ActiveReviewSession {
 
 interface RegisterSessionInput {
   review: StoredReview;
-  documentPath: string;
-  softwareMapRootPath?: string;
+  artifact: ReviewSessionArtifactInput;
   revision?: string;
   historicalRevision?: string;
-  documentUnavailable?: string;
-  softwareMapUnavailable?: string;
   repairValidation?: boolean;
   readOnlyThreadsPath?: string;
   source?: ActiveReviewSession["source"];
@@ -279,6 +279,7 @@ function revealVerb(view?: ReviewView): ReviewVerbRequest {
 
 interface PreparedTutorial {
   review: StoredReview;
+  documentRevision: string;
   documentPath: string;
   softwareMapRootPath: string;
   checkoutRoots: ReviewCheckoutRoots;
@@ -722,10 +723,16 @@ export function createGlobalReviewServer(
       : undefined;
     const active = await registerSerialized({
       review: presentedReview,
-      documentPath: path.join(documentBuildDir, "review.mdx"),
-      softwareMapRootPath,
-      documentUnavailable,
-      softwareMapUnavailable,
+      artifact: await legacySessionArtifactFromBuildDir({
+        reviewUuid: presentedReview.review.uuid,
+        revision: documentRevision,
+        buildDir: documentBuildDir,
+        routePath: "/",
+        softwareMapRootPath,
+        sourcePath: path.join(presentedReview.dir, "review.mdx"),
+        documentUnavailable,
+        softwareMapUnavailable,
+      }),
       promoted: true,
       announce: true,
       focusCanvas: !background,
@@ -801,11 +808,18 @@ export function createGlobalReviewServer(
       : undefined;
     const active = await registerSerialized({
       review: presentedReview,
-      documentPath: path.join(documentBuildDir, "review.mdx"),
-      softwareMapRootPath,
+      artifact: await legacySessionArtifactFromBuildDir({
+        reviewUuid: presentedReview.review.uuid,
+        revision,
+        buildDir: documentBuildDir,
+        routePath: "/",
+        softwareMapRootPath,
+        sourcePath: path.join(presentedReview.dir, "review.mdx"),
+        softwareMapUnavailable,
+        historical: true,
+      }),
       promoted: false,
       historicalRevision: revision,
-      softwareMapUnavailable,
       announce: true,
       focusCanvas: true,
       view,
@@ -1526,11 +1540,17 @@ export function createGlobalReviewServer(
         )
       : undefined;
     const documentPath = path.join(buildDir, "review.mdx");
-    const successor = await timed("register session", () =>
+    const successor = await timed("register session", async () =>
       registerSerialized({
         review,
-        documentPath,
-        softwareMapRootPath,
+        artifact: await legacySessionArtifactFromBuildDir({
+          reviewUuid: review.review.uuid,
+          revision,
+          buildDir,
+          routePath: "/",
+          softwareMapRootPath,
+          sourcePath: path.join(review.dir, "review.mdx"),
+        }),
         revision,
         source,
         promoted: false,
@@ -1699,8 +1719,14 @@ export function createGlobalReviewServer(
     }
     const successor = await registerSerialized({
       review: presentedReview,
-      documentPath: path.join(documentBuildDir, "review.mdx"),
-      softwareMapRootPath,
+      artifact: await legacySessionArtifactFromBuildDir({
+        reviewUuid: presentedReview.review.uuid,
+        revision: documentRevision,
+        buildDir: documentBuildDir,
+        routePath: "/",
+        softwareMapRootPath,
+        sourcePath: path.join(presentedReview.dir, "review.mdx"),
+      }),
       revision: documentRevision,
       source: { sourceCommit, sourceBranch },
       promoted: false,
@@ -1881,6 +1907,7 @@ export function createGlobalReviewServer(
     );
     return {
       review: presentedReview,
+      documentRevision,
       documentPath: path.join(documentBuildDir, "review.mdx"),
       softwareMapRootPath,
       checkoutRoots,
@@ -1914,8 +1941,14 @@ export function createGlobalReviewServer(
       existing ??
       (await registerSerialized({
         review: prepared.review,
-        documentPath: prepared.documentPath,
-        softwareMapRootPath: prepared.softwareMapRootPath,
+        artifact: await legacySessionArtifactFromBuildDir({
+          reviewUuid: prepared.review.review.uuid,
+          revision: prepared.documentRevision,
+          buildDir: path.dirname(prepared.documentPath),
+          routePath: "/",
+          softwareMapRootPath: prepared.softwareMapRootPath,
+          sourcePath: path.join(prepared.review.dir, "review.mdx"),
+        }),
         checkoutRoots: prepared.checkoutRoots,
         tutorialPreparation: prepared,
         resolveQuestionSourceSession,
@@ -2237,7 +2270,7 @@ export function createGlobalReviewServer(
       registration.review,
       descriptor,
       boundPort,
-      registration.documentPath,
+      registration.artifact.sourcePath,
       registration.source,
       baseRootPath,
       headRootPath,
@@ -2247,8 +2280,7 @@ export function createGlobalReviewServer(
       rootPath: registration.review.review.worktreePath,
       reviewRootPath: registration.review.dir,
       toolingRoot: input.toolingRoot,
-      reviewPath: registration.documentPath,
-      softwareMapRootPath: registration.softwareMapRootPath,
+      artifact: registration.artifact,
       stateReviewPath: path.join(registration.review.dir, "review.mdx"),
       getLiveBundle: registration.historicalRevision
         ? undefined
@@ -2287,11 +2319,7 @@ export function createGlobalReviewServer(
               isPromoted: () => active.promoted,
             }
           : { kind: "live" },
-      artifacts: {
-        document: registration.documentUnavailable,
-        map: registration.softwareMapUnavailable,
-        source: sourceUnavailable,
-      },
+      sourceUnavailable,
       listDocumentVersions: async () => {
         const latest = await (
           registration.repairValidation && !active.promoted
@@ -2359,8 +2387,7 @@ export function createGlobalReviewServer(
     active = {
       descriptor,
       review: registration.review,
-      documentPath: registration.documentPath,
-      softwareMapRootPath: registration.softwareMapRootPath,
+      artifact: registration.artifact,
       revision: registration.revision,
       historicalRevision: registration.historicalRevision,
       source: registration.source,
@@ -2904,7 +2931,7 @@ function sessionWireFor(
   review: StoredReview,
   descriptor: ReviewSessionDescriptor,
   port: number,
-  documentPath: string,
+  sourcePath: string,
   source?: ActiveReviewSession["source"],
   baseRootPath?: string,
   headRootPath?: string,
@@ -2936,7 +2963,7 @@ function sessionWireFor(
     serverUrl: new URL(descriptor.sessionUrl).origin,
     sessionUrl: descriptor.sessionUrl,
     storageDir: review.dir,
-    reviewPath: documentPath,
+    reviewPath: sourcePath,
     agent: authoringAgent,
     freshQuestionHarness,
     codexThreadId:

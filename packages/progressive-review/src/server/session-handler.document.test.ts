@@ -14,10 +14,12 @@ import {
   writeReviewSoftwareMapBundle,
 } from "../software-map-bundle";
 import { defineSoftwareMap } from "../software-map-model";
+import { legacySessionArtifactFromBuildDir } from "./review-session-artifact";
 import { createReviewSessionHandler } from "./session-handler";
 import {
   NEEDS_REPUBLISH_ERROR,
   reviewDocument,
+  sessionArtifactFixture,
   unusedAgentServices,
 } from "./session-handler-test-utils";
 
@@ -32,11 +34,14 @@ describe("createReviewSessionHandler", () => {
       ...unusedAgentServices,
       rootPath,
       toolingRoot: rootPath,
-      reviewPath,
+      artifact: sessionArtifactFixture({
+        sourcePath: reviewPath,
+        document: { unavailable: NEEDS_REPUBLISH_ERROR },
+        map: { unavailable: "Map revision is missing." },
+      }),
       routePath: "/",
       token: "secret",
       reviewUuid: "11111111-1111-4111-8111-111111111111",
-      artifacts: { map: "Map revision is missing." },
       session: {
         rootPath,
         baseRef: "HEAD",
@@ -81,7 +86,7 @@ describe("createReviewSessionHandler", () => {
       ...unusedAgentServices,
       rootPath,
       toolingRoot: rootPath,
-      reviewPath,
+      artifact: sessionArtifactFixture({ sourcePath: reviewPath }),
       routePath: "/",
       token,
       listDocumentVersions: async () => versions,
@@ -119,7 +124,13 @@ describe("createReviewSessionHandler", () => {
       ...unusedAgentServices,
       rootPath,
       toolingRoot: rootPath,
-      reviewPath,
+      artifact: await legacySessionArtifactFromBuildDir({
+        reviewUuid: "11111111-1111-4111-8111-111111111111",
+        revision: "c".repeat(40),
+        buildDir: rootPath,
+        routePath: "/",
+        sourcePath: reviewPath,
+      }),
       routePath: "/",
       token,
       session: {
@@ -245,8 +256,14 @@ describe("createReviewSessionHandler", () => {
         ...unusedAgentServices,
         rootPath,
         toolingRoot: rootPath,
-        reviewPath,
-        softwareMapRootPath,
+        artifact: await legacySessionArtifactFromBuildDir({
+          reviewUuid,
+          revision: "c".repeat(40),
+          buildDir: rootPath,
+          routePath: "/",
+          softwareMapRootPath,
+          sourcePath: reviewPath,
+        }),
         routePath: "/",
         token,
         reviewUuid,
@@ -286,7 +303,10 @@ describe("createReviewSessionHandler", () => {
       ...unusedAgentServices,
       rootPath,
       toolingRoot: rootPath,
-      reviewPath,
+      artifact: sessionArtifactFixture({
+        sourcePath: reviewPath,
+        document: { unavailable: NEEDS_REPUBLISH_ERROR },
+      }),
       routePath: "/",
       token,
       session: {

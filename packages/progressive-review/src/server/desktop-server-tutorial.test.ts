@@ -243,7 +243,7 @@ describe("Review Desktop tutorial preparation", () => {
       await vi.waitFor(() => expect(authoringFactory).toHaveBeenCalledOnce());
       const firstHandler = handlers[0];
       expect(firstHandler).toBeDefined();
-      await rm(firstHandler!.reviewPath, { force: true });
+      await rm(materializedDocumentPath(firstHandler!), { force: true });
 
       const repaired = await tutorialRequest(
         server.url,
@@ -251,7 +251,7 @@ describe("Review Desktop tutorial preparation", () => {
         "POST",
       );
       expect(repaired.status).toBe(200);
-      expect(existsSync(firstHandler!.reviewPath)).toBe(true);
+      expect(existsSync(materializedDocumentPath(firstHandler!))).toBe(true);
       expect(close).toHaveBeenCalledOnce();
 
       await tutorialRequest(server.url, "/tutorial/open", "POST");
@@ -283,7 +283,7 @@ describe("Review Desktop tutorial preparation", () => {
       expect(second.reviewUuid).not.toBe(first.reviewUuid);
       const secondHandler = handlers.at(-1);
       expect(secondHandler).toBeDefined();
-      expect(existsSync(secondHandler!.reviewPath)).toBe(true);
+      expect(existsSync(materializedDocumentPath(secondHandler!))).toBe(true);
       expect(existsSync(secondHandler!.session.baseRootPath!)).toBe(true);
       expect(existsSync(secondHandler!.session.headRootPath!)).toBe(true);
     } finally {
@@ -514,6 +514,15 @@ function tutorialServer(
     },
     ...overrides,
   });
+}
+
+/** The materialized `review.mdx` a legacy-origin session was registered from. */
+function materializedDocumentPath(input: ReviewSessionHandlerInput): string {
+  const origin = input.artifact.origin;
+  if (origin.kind !== "legacy") {
+    throw new Error(`Expected a legacy artifact origin, got ${origin.kind}.`);
+  }
+  return path.join(origin.buildDir, "review.mdx");
 }
 
 function stubSessionHandler(): ReviewSessionHandler {

@@ -16,13 +16,6 @@ export type ReviewSessionMode =
       isPromoted: () => boolean;
     };
 
-/** Absent when the artifact is available; otherwise the reason to show the reader. */
-export interface ReviewSessionArtifacts {
-  document?: string;
-  map?: string;
-  source?: string;
-}
-
 export const LIVE_REVIEW_SESSION_MODE: ReviewSessionMode = { kind: "live" };
 
 /** The record a read-only session presents, or undefined for a live session. */

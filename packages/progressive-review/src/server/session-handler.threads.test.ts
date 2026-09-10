@@ -10,7 +10,10 @@ import { readReviewComments } from "../review-state-store";
 import { cleanupTempDirs, tempDir } from "../review-test-utils";
 import { ReviewThreadsService } from "../review-threads-service";
 import { createReviewSessionHandler } from "./session-handler";
-import { unusedAgentServices } from "./session-handler-test-utils";
+import {
+  sessionArtifactFixture,
+  unusedAgentServices,
+} from "./session-handler-test-utils";
 
 afterEach(cleanupTempDirs);
 
@@ -32,7 +35,7 @@ describe("createReviewSessionHandler", () => {
           ...unusedAgentServices,
           rootPath,
           toolingRoot: rootPath,
-          reviewPath,
+          artifact: sessionArtifactFixture({ sourcePath: reviewPath }),
           routePath: "/",
           token: "secret",
           session: {
@@ -104,7 +107,7 @@ describe("createReviewSessionHandler", () => {
       ...unusedAgentServices,
       rootPath,
       toolingRoot: rootPath,
-      reviewPath,
+      artifact: sessionArtifactFixture({ sourcePath: reviewPath }),
       routePath: "/",
       token,
       onReviewThreadsCommit,
@@ -185,7 +188,7 @@ describe("createReviewSessionHandler", () => {
       ...unusedAgentServices,
       rootPath,
       toolingRoot: rootPath,
-      reviewPath,
+      artifact: sessionArtifactFixture({ sourcePath: reviewPath }),
       routePath: "/",
       token,
       runReviewThreadMutation: async (operation) => {

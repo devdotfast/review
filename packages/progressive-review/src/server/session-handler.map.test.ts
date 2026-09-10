@@ -10,8 +10,12 @@ import {
   writeReviewSoftwareMapBundle,
 } from "../software-map-bundle";
 import { defineSoftwareMap } from "../software-map-model";
+import { legacySessionArtifactFromBuildDir } from "./review-session-artifact";
 import { createReviewSessionHandler } from "./session-handler";
-import { unusedAgentServices } from "./session-handler-test-utils";
+import {
+  sessionArtifactFixture,
+  unusedAgentServices,
+} from "./session-handler-test-utils";
 
 afterEach(cleanupTempDirs);
 
@@ -39,8 +43,14 @@ describe("createReviewSessionHandler", () => {
       ...unusedAgentServices,
       rootPath,
       toolingRoot: rootPath,
-      reviewPath,
-      softwareMapRootPath: rootPath,
+      artifact: await legacySessionArtifactFromBuildDir({
+        reviewUuid: "11111111-1111-4111-8111-111111111111",
+        revision: "c".repeat(40),
+        buildDir: rootPath,
+        routePath: "/",
+        softwareMapRootPath: rootPath,
+        sourcePath: reviewPath,
+      }),
       routePath: "/",
       token,
       session: {
@@ -153,8 +163,14 @@ describe("createReviewSessionHandler", () => {
         ...unusedAgentServices,
         rootPath,
         toolingRoot: rootPath,
-        reviewPath,
-        softwareMapRootPath: rootPath,
+        artifact: await legacySessionArtifactFromBuildDir({
+          reviewUuid,
+          revision: "c".repeat(40),
+          buildDir: rootPath,
+          routePath: "/",
+          softwareMapRootPath: rootPath,
+          sourcePath: reviewPath,
+        }),
         routePath: "/",
         token,
         reviewUuid,
@@ -197,7 +213,7 @@ describe("createReviewSessionHandler", () => {
       ...unusedAgentServices,
       rootPath,
       toolingRoot: rootPath,
-      reviewPath,
+      artifact: sessionArtifactFixture({ sourcePath: reviewPath }),
       routePath: "/",
       token,
       session: {

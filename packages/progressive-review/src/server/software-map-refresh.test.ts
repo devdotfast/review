@@ -11,7 +11,10 @@ import { createReviewDir } from "../review-home";
 import { SOFTWARE_MAP_NOTES_REF } from "../review-storage";
 import { CANONICAL_SOFTWARE_MAP_MODEL_IMPORT } from "../software-map-artifact";
 import { createReviewSessionHandler } from "./session-handler";
-import { unusedAgentServices } from "./session-handler-test-utils";
+import {
+  sessionArtifactFixture,
+  unusedAgentServices,
+} from "./session-handler-test-utils";
 
 it("refreshes note artifacts without executing authored code in the server", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "review-map-refresh-"));
@@ -54,7 +57,7 @@ it("refreshes note artifacts without executing authored code in the server", asy
       ...unusedAgentServices,
       rootPath: root,
       toolingRoot: root,
-      reviewPath,
+      artifact: sessionArtifactFixture({ sourcePath: reviewPath }),
       reviewRootPath: stored.dir,
       routePath: "/",
       token: "secret",

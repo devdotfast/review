@@ -24,9 +24,14 @@ import {
   writeReviewSoftwareMapBundle,
 } from "../software-map-bundle";
 import { defineSoftwareMap } from "../software-map-model";
+import { legacySessionArtifactFromBuildDir } from "./review-session-artifact";
 import type { ReviewSessionMode } from "./review-session-mode";
 import { createReviewSessionHandler } from "./session-handler";
-import { unusedAgentServices } from "./session-handler-test-utils";
+import {
+  reviewDocument,
+  sessionArtifactFixture,
+  unusedAgentServices,
+} from "./session-handler-test-utils";
 
 it("serves live previews without changing sealed bundles and keeps in-flight hash URLs valid", async () => {
   const rootPath = await tempDir("review-live-session-");
@@ -49,7 +54,13 @@ it("serves live previews without changing sealed bundles and keeps in-flight has
     ...unusedAgentServices,
     rootPath,
     toolingRoot: rootPath,
-    reviewPath,
+    artifact: await legacySessionArtifactFromBuildDir({
+      reviewUuid: "11111111-1111-4111-8111-111111111111",
+      revision: "c".repeat(40),
+      buildDir: rootPath,
+      routePath: "/",
+      sourcePath: reviewPath,
+    }),
     routePath: "/",
     token: "secret",
     session: {
@@ -116,6 +127,90 @@ const readOnlyRecord: ReviewRecord = {
 afterEach(cleanupTempDirs);
 
 describe("createReviewSessionHandler", () => {
+  it.each([
+    { presentation: "candidate", origin: { kind: "candidate" } as const },
+    {
+      presentation: "historical",
+      origin: {
+        kind: "legacy" as const,
+        revision: "c".repeat(40),
+        buildDir: "/build",
+      },
+      mode: {
+        kind: "historical" as const,
+        revision: "c".repeat(40),
+        record: readOnlyRecord,
+      },
+    },
+  ])(
+    "serves a $presentation session's own bytes and never a live preview",
+    async ({ origin, mode }) => {
+      const rootPath = await tempDir("review-sealed-session-");
+      const reviewPath = path.join(rootPath, "review.mdx");
+      const sealed = bundleReviewDocument({
+        ...reviewDocument,
+        title: "Sealed",
+      });
+      const live = bundleReviewDocument({
+        ...reviewDocument,
+        title: "Live preview",
+      });
+      let livePreviews = 0;
+      const handler = await createReviewSessionHandler({
+        ...unusedAgentServices,
+        rootPath,
+        toolingRoot: rootPath,
+        artifact: sessionArtifactFixture({
+          sourcePath: reviewPath,
+          origin,
+          document: { bundle: sealed },
+        }),
+        routePath: "/",
+        token: "secret",
+        mode,
+        getLiveBundle: async () => {
+          livePreviews += 1;
+          return live;
+        },
+        session: {
+          rootPath,
+          baseRef: "HEAD",
+          appUrl: "http://127.0.0.1:5570",
+          reviewPath,
+          startedAt: Date.now(),
+        },
+      });
+      const get = (pathname: string) =>
+        handler.handle(
+          new Request(`http://127.0.0.1:5570${pathname}`, {
+            headers: { "x-review-token": "secret" },
+          }),
+        );
+      try {
+        expect(
+          await (await get("/__progressive-review/document")).json(),
+        ).toMatchObject({ ok: true, contentHash: sealed.contentHash });
+        expect(
+          await (
+            await get(
+              `/__progressive-review/documents/${sealed.contentHash}.json`,
+            )
+          ).text(),
+        ).toBe(sealed.json);
+        expect(
+          (
+            await get(
+              `/__progressive-review/documents/${live.contentHash}.json`,
+            )
+          ).status,
+        ).toBe(404);
+        expect(livePreviews).toBe(0);
+      } finally {
+        await handler.close();
+      }
+    },
+  );
+
   it("offers current repair metadata when a sealed artifact is missing", async () => {
     const rootPath = await tempDir("review-missing-repair-");
     const reviewPath = path.join(rootPath, "review.mdx");
@@ -124,14 +219,15 @@ describe("createReviewSessionHandler", () => {
       ...unusedAgentServices,
       rootPath,
       toolingRoot: rootPath,
-      reviewPath,
       routePath: "/",
       token: "secret",
       reviewUuid,
-      artifacts: {
-        document: "Document revision is missing.",
-        map: "Map revision is missing.",
-      },
+      artifact: sessionArtifactFixture({
+        sourcePath: reviewPath,
+        reviewUuid,
+        document: { unavailable: "Document revision is missing." },
+        map: { unavailable: "Map revision is missing." },
+      }),
       session: {
         rootPath,
         baseRef: "HEAD",
@@ -185,8 +281,15 @@ describe("createReviewSessionHandler", () => {
         ...unusedAgentServices,
         rootPath,
         toolingRoot: rootPath,
-        reviewPath,
-        softwareMapRootPath: rootPath,
+        artifact: await legacySessionArtifactFromBuildDir({
+          reviewUuid: readOnlyRecord.uuid,
+          revision: "c".repeat(40),
+          buildDir: rootPath,
+          routePath: "/",
+          softwareMapRootPath: rootPath,
+          sourcePath: reviewPath,
+          historical: mode.kind === "historical",
+        }),
         routePath: "/",
         token: "secret",
         mode,
@@ -249,11 +352,14 @@ describe("createReviewSessionHandler", () => {
       ...unusedAgentServices,
       rootPath,
       toolingRoot: rootPath,
-      reviewPath,
+      artifact: sessionArtifactFixture({
+        sourcePath: reviewPath,
+        reviewUuid,
+        document: { unavailable: "Document revision is missing." },
+      }),
       routePath: "/",
       token: "secret",
       reviewUuid,
-      artifacts: { document: "Document revision is missing." },
       mode: {
         kind: "historical",
         revision: "c".repeat(40),
@@ -308,7 +414,7 @@ describe("createReviewSessionHandler", () => {
       ...unusedAgentServices,
       rootPath,
       toolingRoot: rootPath,
-      reviewPath,
+      artifact: sessionArtifactFixture({ sourcePath: reviewPath }),
       routePath: "/",
       token,
       sessionId,
@@ -385,7 +491,7 @@ describe("createReviewSessionHandler", () => {
       ...unusedAgentServices,
       rootPath,
       toolingRoot: rootPath,
-      reviewPath,
+      artifact: sessionArtifactFixture({ sourcePath: reviewPath }),
       routePath: "/",
       token,
       mode: {
@@ -445,7 +551,7 @@ describe("createReviewSessionHandler", () => {
         ...unusedAgentServices,
         rootPath,
         toolingRoot: rootPath,
-        reviewPath,
+        artifact: sessionArtifactFixture({ sourcePath: reviewPath }),
         routePath: "/",
         token,
         getReviewStatus: () => reviewStatus,
@@ -491,7 +597,7 @@ describe("createReviewSessionHandler", () => {
       ...unusedAgentServices,
       rootPath,
       toolingRoot: rootPath,
-      reviewPath,
+      artifact: sessionArtifactFixture({ sourcePath: reviewPath }),
       routePath: "/",
       token,
       submitHook: "sleep 1",

@@ -18,17 +18,10 @@ import { streamSSE } from "hono/streaming";
 
 import type { ReviewAgentHarness, SessionRef } from "../authoring-session";
 import type { AgentServer } from "../native-agent/native-session";
-import {
-  type ReviewDocumentBundle,
-  readReviewDocumentBundle,
-} from "../review-bundle";
+import type { ReviewDocumentBundle } from "../review-bundle";
 import { ReviewBusyError } from "../review-mutation-lock";
 import type { ReviewThreadsService } from "../review-threads-service";
 import { resolveReviewSessionBaseCommit } from "../review-worktree-target";
-import {
-  type ReviewSoftwareMapBundle,
-  readReviewSoftwareMapBundle,
-} from "../software-map-bundle";
 import type {
   ProgressiveReviewTelemetry,
   ProgressiveReviewTelemetryContext,
@@ -42,9 +35,9 @@ import {
   jsonResponse,
 } from "./hono-http";
 import { type ReviewApi, createReviewApi } from "./review-api";
+import type { ReviewSessionArtifactInput } from "./review-session-artifact";
 import {
   LIVE_REVIEW_SESSION_MODE,
-  type ReviewSessionArtifacts,
   type ReviewSessionMode,
   reviewSessionModeIsReadOnly,
   reviewSessionModeRecord,
@@ -53,12 +46,6 @@ import {
 const API_PREFIX = "/__progressive-review";
 const DOCUMENT_PATH_PREFIX = `${API_PREFIX}/documents/`;
 const MAP_PATH_PREFIX = `${API_PREFIX}/software-maps/`;
-const NEEDS_REPUBLISH_ERROR =
-  "This review was published by an earlier version of Review and its document must be regenerated.";
-const NEEDS_REPUBLISH_MAP_ERROR =
-  "This review's software map must be regenerated.";
-const HISTORICAL_UNAVAILABLE_ERROR =
-  "This older revision is unavailable in this version of Review";
 
 interface ReviewEventClient {
   write(frame: string): void;
@@ -69,8 +56,7 @@ export interface ReviewSessionHandlerInput {
   rootPath: string;
   reviewRootPath?: string;
   toolingRoot: string;
-  reviewPath: string;
-  softwareMapRootPath?: string;
+  artifact: ReviewSessionArtifactInput;
   stateReviewPath?: string;
   getLiveBundle?: () => Promise<ReviewDocumentBundle | null>;
   threadsService?: () => ReviewThreadsService;
@@ -80,7 +66,8 @@ export interface ReviewSessionHandlerInput {
   reviewUuid?: string;
   submitHook?: string;
   mode?: ReviewSessionMode;
-  artifacts?: ReviewSessionArtifacts;
+  /** Set when the session's pinned source commits could not be checked out. */
+  sourceUnavailable?: string;
   readOnlyThreadsPath?: string;
   listDocumentVersions?: () => Promise<ReviewDocumentVersionWire[]>;
   session: ReviewSessionWire;
@@ -128,11 +115,11 @@ export async function createReviewSessionHandler(
 ): Promise<ReviewSessionHandler> {
   const session = input.session;
   const mode = input.mode ?? LIVE_REVIEW_SESSION_MODE;
-  const artifacts = input.artifacts ?? {};
-  const renderDir = path.dirname(input.reviewPath);
+  const artifact = input.artifact;
+  const renderDir = path.dirname(artifact.sourcePath);
   const storageDir =
     session.storageDir ??
-    path.dirname(input.stateReviewPath ?? input.reviewPath);
+    path.dirname(input.stateReviewPath ?? artifact.sourcePath);
   const reviewRootPath = input.reviewRootPath ?? storageDir;
   await Promise.all([
     mkdir(renderDir, { recursive: true, mode: 0o700 }),
@@ -141,10 +128,8 @@ export async function createReviewSessionHandler(
   const token = input.token ?? crypto.randomBytes(32).toString("base64url");
   const sessionUrl = (session.sessionUrl ?? session.appUrl).replace(/\/$/, "");
   const documentsDir = path.join(renderDir, ".review-documents");
-  let currentBundle: ReviewDocumentBundle | null = null;
-  let bundlePromise: Promise<ReviewDocumentBundle | null> | null = null;
-  let softwareMapBundlePromise: Promise<ReviewSoftwareMapBundle | null> | null =
-    null;
+  const mapBundle =
+    artifact.map && "bundle" in artifact.map ? artifact.map.bundle : null;
   const eventClients = new Set<ReviewEventClient>();
   const telemetryContext: ProgressiveReviewTelemetryContext = {
     reviewUuid: input.reviewUuid,
@@ -187,32 +172,25 @@ export async function createReviewSessionHandler(
       }
     : undefined;
 
+  /* The overlay is the author's working preview. A candidate is mounted to
+     validate its own bytes and a historical revision is sealed, so neither of
+     them may serve it. */
+  const overlayApplies =
+    artifact.origin.kind !== "candidate" && mode.kind !== "historical";
   const liveBundles = new Map<string, ReviewDocumentBundle>();
-  const getBundle = async (): Promise<ReviewDocumentBundle | null> => {
-    const live = await input.getLiveBundle?.();
-    if (live) {
-      liveBundles.set(`${live.contentHash}.json`, live);
-      if (liveBundles.size > 16)
-        liveBundles.delete(liveBundles.keys().next().value!);
-      return live;
-    }
-    if (currentBundle) return currentBundle;
-    bundlePromise ??= readReviewDocumentBundle(renderDir, input.routePath);
-    try {
-      currentBundle = await bundlePromise;
-      return currentBundle;
-    } finally {
-      bundlePromise = null;
-    }
+  /** The host's preview, remembered by hash so an in-flight document URL
+   * stays valid once the next edit replaces it. */
+  const takeLiveBundle = async (): Promise<ReviewDocumentBundle | null> => {
+    const live = overlayApplies ? await input.getLiveBundle?.() : null;
+    if (!live) return null;
+    liveBundles.set(`${live.contentHash}.json`, live);
+    if (liveBundles.size > 16)
+      liveBundles.delete(liveBundles.keys().next().value!);
+    return live;
   };
-
-  const getSoftwareMapBundle = async () => {
-    if (!input.softwareMapRootPath) return null;
-    softwareMapBundlePromise ??= readReviewSoftwareMapBundle(
-      input.softwareMapRootPath,
-    );
-    return softwareMapBundlePromise;
-  };
+  const getBundle = async (): Promise<ReviewDocumentBundle | null> =>
+    (await takeLiveBundle()) ??
+    ("bundle" in artifact.document ? artifact.document.bundle : null);
 
   const broadcast = (event: ReviewServerEvent) => {
     const frame = `data: ${JSON.stringify(event)}\n\n`;
@@ -226,19 +204,15 @@ export async function createReviewSessionHandler(
     return input.reviewUuid;
   };
 
-  /** The map is stale when its own revision is gone, or when a published map
-   * root no longer yields a readable bundle. One expression, one answer. */
-  const mapIsStale = async (): Promise<boolean> =>
-    Boolean(
-      artifacts.map ||
-      (input.softwareMapRootPath && !(await getSoftwareMapBundle())),
-    );
+  /** The map is stale when a published one cannot be served. */
+  const mapIsStale = (): boolean =>
+    Boolean(artifact.map && "unavailable" in artifact.map);
 
   /** The one 409 for an artifact the session cannot serve. */
-  const artifactUnavailable = async (
+  const artifactUnavailable = (
     kind: "document" | "map",
     message: string,
-  ): Promise<Response> => {
+  ): Response => {
     const reviewUuid = needsRepublishReviewUuid();
     const detail: ReviewErrorDetail =
       mode.kind === "historical"
@@ -246,7 +220,7 @@ export async function createReviewSessionHandler(
         : {
             code: "needs_republish",
             reviewUuid,
-            mapStale: kind === "document" ? await mapIsStale() : true,
+            mapStale: kind === "document" ? mapIsStale() : true,
           };
     return jsonResponse(
       {
@@ -257,14 +231,6 @@ export async function createReviewSessionHandler(
       409,
     );
   };
-
-  /** The message when the artifact itself is intact but its revision is not. */
-  const staleArtifactMessage = (kind: "document" | "map"): string =>
-    mode.kind === "historical"
-      ? HISTORICAL_UNAVAILABLE_ERROR
-      : kind === "document"
-        ? NEEDS_REPUBLISH_ERROR
-        : NEEDS_REPUBLISH_MAP_ERROR;
 
   const documentUrl = (bundle: ReviewDocumentBundle): string =>
     `${sessionUrl}${DOCUMENT_PATH_PREFIX}${bundle.contentHash}.json`;
@@ -329,7 +295,7 @@ export async function createReviewSessionHandler(
   app.get(`${API_PREFIX}/session`, async () => {
     const presentedRecord = reviewSessionModeRecord(mode);
     const resolvedBaseRef = presentedRecord
-      ? artifacts.source
+      ? input.sourceUnavailable
         ? null
         : presentedRecord.baseCommit
       : await (
@@ -360,11 +326,10 @@ export async function createReviewSessionHandler(
     );
   });
   app.get(`${API_PREFIX}/document`, async () => {
-    if (artifacts.document)
-      return artifactUnavailable("document", artifacts.document);
-    const bundle = await getBundle();
-    if (!bundle)
-      return artifactUnavailable("document", staleArtifactMessage("document"));
+    const document = artifact.document;
+    if ("unavailable" in document)
+      return artifactUnavailable("document", document.unavailable);
+    const bundle = (await takeLiveBundle()) ?? document.bundle;
     return jsonResponse(
       {
         ok: true,
@@ -394,12 +359,11 @@ export async function createReviewSessionHandler(
       },
     });
   });
-  app.get(`${API_PREFIX}/software-map`, async () => {
-    if (artifacts.map) return artifactUnavailable("map", artifacts.map);
-    const bundle = await getSoftwareMapBundle();
-    if (!bundle) {
-      if (input.softwareMapRootPath)
-        return artifactUnavailable("map", staleArtifactMessage("map"));
+  app.get(`${API_PREFIX}/software-map`, () => {
+    const map = artifact.map;
+    if (map && "unavailable" in map)
+      return artifactUnavailable("map", map.unavailable);
+    if (!mapBundle) {
       return jsonResponse(
         { ok: false, error: "Software map is not published" },
         404,
@@ -408,21 +372,20 @@ export async function createReviewSessionHandler(
     return jsonResponse(
       {
         ok: true,
-        contentHash: bundle.contentHash,
-        headMapUrl: `${sessionUrl}${MAP_PATH_PREFIX}head-${bundle.contentHash}.json`,
-        baseMapUrl: `${sessionUrl}${MAP_PATH_PREFIX}base-${bundle.contentHash}.json`,
+        contentHash: mapBundle.contentHash,
+        headMapUrl: `${sessionUrl}${MAP_PATH_PREFIX}head-${mapBundle.contentHash}.json`,
+        baseMapUrl: `${sessionUrl}${MAP_PATH_PREFIX}base-${mapBundle.contentHash}.json`,
       },
       200,
     );
   });
-  app.get(`${MAP_PATH_PREFIX}:mapName`, async (context) => {
-    const bundle = await getSoftwareMapBundle();
+  app.get(`${MAP_PATH_PREFIX}:mapName`, (context) => {
     const mapName = context.req.param("mapName");
     const json =
-      mapName === `head-${bundle?.contentHash}.json`
-        ? bundle?.headJson
-        : mapName === `base-${bundle?.contentHash}.json`
-          ? bundle?.baseJson
+      mapName === `head-${mapBundle?.contentHash}.json`
+        ? mapBundle?.headJson
+        : mapName === `base-${mapBundle?.contentHash}.json`
+          ? mapBundle?.baseJson
           : undefined;
     if (!json) {
       return jsonResponse({ ok: false, error: "Software map not found" }, 404);
@@ -477,8 +440,8 @@ export async function createReviewSessionHandler(
   const reviewApi = createReviewApi({
     mode,
     readOnlyThreadsPath: input.readOnlyThreadsPath,
-    sourceUnavailable: artifacts.source,
-    reviewPath: input.reviewPath,
+    sourceUnavailable: input.sourceUnavailable,
+    reviewPath: artifact.sourcePath,
     reviewDocumentsDir: documentsDir,
     rootPath: input.rootPath,
     reviewRootPath,
@@ -555,7 +518,7 @@ export async function createReviewSessionHandler(
       input.sessionId ??
       crypto
         .createHash("sha256")
-        .update(`${input.rootPath}\0${input.reviewPath}`)
+        .update(`${input.rootPath}\0${artifact.sourcePath}`)
         .digest("hex")
         .slice(0, 20)
     );

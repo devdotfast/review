@@ -363,6 +363,14 @@ describe.skipIf(!corpus)("legacy review corpus", () => {
             );
           documentBytes = Buffer.byteLength(bundle.json);
         }
+        // An import may not quietly drop a presented software map: the record
+        // it leaves presents one exactly when the record it read did. The
+        // upgraded reading is the comparable one — schema 2 sealed a single
+        // `presentedRevision` for both presentations.
+        expect(
+          loaded.review.presentedSoftwareMapRevision !== null,
+          `${uuid}: presented software map preserved (schema ${original.schemaVersion})`,
+        ).toBe(validated.presentedSoftwareMapRevision !== null);
         if (loaded.review.presentedSoftwareMapRevision) {
           const row = readPublication(
             dir,

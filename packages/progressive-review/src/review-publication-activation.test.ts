@@ -281,7 +281,11 @@ describe("activateReviewPublication", () => {
         candidates: [documentCandidate("0".repeat(64))],
         updateRecord: keepRecord,
       }),
-    ).rejects.toThrow(/artifact/);
+    ).rejects.toMatchObject({
+      name: "ReviewArtifactUnavailableError",
+      code: "artifact_unavailable",
+      statusCode: 422,
+    });
     expect(listPublications(dir, "document")).toHaveLength(0);
     expect(readReviewRecord(dir)).toMatchObject({
       presentedDocumentRevision: null,
@@ -425,7 +429,7 @@ describe("activateReviewPublication", () => {
       headCommit: HEAD_COMMIT,
       baseCommit: BASE_COMMIT,
       previousPublicationId: null,
-      validatedDocumentPublicationId: documentId,
+      validatedDocumentPublicationId: null,
     });
     expect(document.record).toMatchObject({
       kind: "document",
@@ -437,6 +441,100 @@ describe("activateReviewPublication", () => {
       document.publicationId,
     );
     expect([map.seq, document.seq]).toEqual([2, 3]);
+  });
+
+  it("activates a combined pair that moves the pins past the presented document", async () => {
+    const { dir, review } = await registeredReview();
+    const first = await activateReviewPublication({
+      reviewDir: dir,
+      expected: { guarded: review },
+      candidates: [documentCandidate(await installDocument(dir, "first"))],
+      updateRecord: keepRecord,
+    });
+    const documentId = first.published[0].publicationId;
+
+    const second = await activateReviewPublication({
+      reviewDir: dir,
+      expected: { guarded: first.review },
+      candidates: [
+        documentCandidate(
+          await installDocument(dir, "second"),
+          sourceContext(OTHER_HEAD_COMMIT),
+        ),
+        mapCandidate(await installMap(dir, "shapes"), OTHER_HEAD_COMMIT),
+      ],
+      updateRecord: keepRecord,
+    });
+
+    const [map, document] = second.published;
+    expect(map.record).toMatchObject({
+      kind: "map",
+      headCommit: OTHER_HEAD_COMMIT,
+      validatedDocumentPublicationId: null,
+    });
+    expect(document.record).toMatchObject({
+      kind: "document",
+      sourceCommit: OTHER_HEAD_COMMIT,
+      previousPublicationId: documentId,
+      pairedMapPublicationId: map.publicationId,
+    });
+    expect(second.review.presentedDocumentRevision).toBe(
+      document.publicationId,
+    );
+    expect(second.review.presentedSoftwareMapRevision).toBe(map.publicationId);
+  });
+
+  it("rejects a map whose pins disagree with the document beside it", async () => {
+    const { dir, review } = await registeredReview();
+
+    await expect(
+      activateReviewPublication({
+        reviewDir: dir,
+        expected: { guarded: review },
+        candidates: [
+          documentCandidate(await installDocument(dir, "first")),
+          mapCandidate(await installMap(dir, "shapes"), OTHER_HEAD_COMMIT),
+        ],
+        updateRecord: keepRecord,
+      }),
+    ).rejects.toMatchObject({
+      name: "ReviewMapPinsMismatchError",
+      code: "map_pins_mismatch",
+      statusCode: 422,
+      documentPublicationId: null,
+    });
+    expect(listPublications(dir, "map")).toHaveLength(0);
+    expect(listPublications(dir, "document")).toHaveLength(0);
+  });
+
+  it("ignores presentation pointers that no row of that kind answers", async () => {
+    const { dir, home, review } = await registeredReview();
+    const first = await activateReviewPublication({
+      reviewDir: dir,
+      expected: { guarded: review },
+      candidates: [documentCandidate(await installDocument(dir, "first"))],
+      updateRecord: keepRecord,
+    });
+    // A Git-era oid answers no row; the map pointer holds a document row.
+    const strayed: StoredReviewRecord = {
+      ...first.review,
+      presentedDocumentRevision: "f".repeat(40),
+      presentedSoftwareMapRevision: first.published[0].publicationId,
+    };
+    putReviewRecord(dir, strayed, home);
+
+    const second = await activateReviewPublication({
+      reviewDir: dir,
+      expected: { guarded: strayed },
+      candidates: [documentCandidate(await installDocument(dir, "second"))],
+      updateRecord: keepRecord,
+    });
+
+    expect(second.published[0].record).toMatchObject({
+      kind: "document",
+      previousPublicationId: null,
+      pairedMapPublicationId: null,
+    });
   });
 
   it("pairs a document with the map already presented", async () => {

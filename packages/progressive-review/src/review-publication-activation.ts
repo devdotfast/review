@@ -41,6 +41,21 @@ import {
   withReviewStateTransaction,
 } from "./review-state-db";
 
+/** An artifact a publication would reference is not in the store, so nothing
+ * may point at it (invariant 3). */
+export class ReviewArtifactUnavailableError extends Error {
+  override readonly name = "ReviewArtifactUnavailableError";
+  readonly code = "artifact_unavailable";
+  readonly statusCode = 422;
+
+  constructor(kind: ReviewArtifactKind, hash: string, reviewDir: string) {
+    super(
+      `Cannot activate a publication: no ${kind} artifact ${hash} under ` +
+        `${reviewDir}.`,
+    );
+  }
+}
+
 /** The record changed between preparing a publication and committing it, so
  * the prepared bytes no longer describe the Review they were built from. */
 export class ReviewActivationConflictError extends Error {
@@ -55,17 +70,23 @@ export class ReviewActivationConflictError extends Error {
   }
 }
 
-/** A software map pins a diff the validating document publication does not. */
+/** A software map pins a diff the document it is checked against does not.
+ * `documentPublicationId` is null when that document is the one being
+ * published beside the map, which has no ID until it is built. */
 export class ReviewMapPinsMismatchError extends Error {
   override readonly name = "ReviewMapPinsMismatchError";
   readonly code = "map_pins_mismatch";
   readonly statusCode = 422;
+  readonly documentPublicationId: string | null;
 
-  constructor(documentPublicationId: string) {
+  constructor(documentPublicationId: string | null) {
     super(
-      `Software map pins do not match document publication ${documentPublicationId}; ` +
-        "republish the Review document first.",
+      documentPublicationId === null
+        ? "Software map pins do not match the Review document published beside it."
+        : `Software map pins do not match document publication ${documentPublicationId}; ` +
+            "republish the Review document first.",
     );
+    this.documentPublicationId = documentPublicationId;
   }
 }
 
@@ -211,12 +232,12 @@ export async function commitReviewActivation(
       artifact.kind,
       artifact.hash,
     );
-    if (bytes === null) {
-      throw new Error(
-        `Cannot activate a publication: no ${artifact.kind} artifact ` +
-          `${artifact.hash} under ${input.reviewDir}.`,
+    if (bytes === null)
+      throw new ReviewArtifactUnavailableError(
+        artifact.kind,
+        artifact.hash,
+        input.reviewDir,
       );
-    }
   }
   input.hooks?.afterArtifactVerify?.();
   const committed = withReviewStateTransaction(
@@ -377,6 +398,7 @@ function candidateRows(
     latest.presentedSoftwareMapRevision,
     "map",
   );
+  const sameCallDocument = documentCandidateOf(candidates);
   let pairedMapPublicationId = activeMap?.publicationId ?? null;
   const rows: PreparedPublicationRow[] = [];
   for (const candidate of candidates) {
@@ -387,7 +409,7 @@ function candidateRows(
             latest.uuid,
             createdAt,
             activeMap?.publicationId ?? null,
-            validatingDocumentId(candidate, activeDocument),
+            validatingDocumentId(candidate, sameCallDocument, activeDocument),
           )
         : documentDraft(
             candidate,
@@ -420,23 +442,61 @@ function activePublicationRow(
   return readPublicationInTransaction(tx, reviewDir, publicationId, kind);
 }
 
-/** A map is only valid against a document that saw the same diff, so the
- * document it names must carry the map's own pins. That is always the
- * presented document: a document activated in the same call is built after
- * the map, and content-addressed IDs cannot reference each other. */
+function documentCandidateOf(
+  candidates: readonly ActivationCandidate[],
+): DocumentActivationCandidate | null {
+  for (const candidate of candidates)
+    if (candidate.kind === "document") return candidate;
+  return null;
+}
+
+/**
+ * A map is only valid against a document that saw the same diff, so the pins
+ * are checked against the document the map will be presented with: the one
+ * published beside it when there is one, else the presented publication.
+ *
+ * A document of the same call cannot be *named*, only checked: it is built
+ * after the map so it can pair with it, and two content-derived IDs cannot
+ * reference each other. Its `pairedMapPublicationId` carries the link instead.
+ */
 function validatingDocumentId(
   candidate: MapActivationCandidate,
+  sameCallDocument: DocumentActivationCandidate | null,
   activeDocument: ReviewPublicationRow | null,
 ): string | null {
+  if (sameCallDocument !== null) {
+    assertMapPins(
+      candidate,
+      sameCallDocument.context.sourceCommit,
+      sameCallDocument.context.baseCommit,
+      null,
+    );
+    return null;
+  }
   if (activeDocument === null) return null;
   const document = parsePublicationRecord(activeDocument.record);
-  if (
-    document.kind !== "document" ||
-    document.sourceCommit !== candidate.headCommit ||
-    document.baseCommit !== candidate.baseCommit
-  )
+  if (document.kind !== "document")
     throw new ReviewMapPinsMismatchError(activeDocument.publicationId);
+  assertMapPins(
+    candidate,
+    document.sourceCommit,
+    document.baseCommit,
+    activeDocument.publicationId,
+  );
   return activeDocument.publicationId;
+}
+
+function assertMapPins(
+  candidate: MapActivationCandidate,
+  sourceCommit: string | null,
+  baseCommit: string,
+  documentPublicationId: string | null,
+): void {
+  if (
+    sourceCommit !== candidate.headCommit ||
+    baseCommit !== candidate.baseCommit
+  )
+    throw new ReviewMapPinsMismatchError(documentPublicationId);
 }
 
 function documentDraft(

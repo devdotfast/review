@@ -18,7 +18,7 @@ For the exact event schemas and implementation references, see the full
 ## What stays local
 
 The JSON host stores reviews, document history, retained source, uploaded
-resources and checkpoints in `~/.dev/review-host.db`.
+resources, comments and completed question answers in `~/.dev/review-host.db`.
 Desktop discovery and state are under `~/.dev/review-desktop/`. The private
 `host.json` discovery file contains the local author connection credential;
 do not share it or include it in reports. `DEV_REVIEW_HOME` overrides this root.
@@ -28,15 +28,18 @@ access. Old `review.db` and `reviews/<uuid>/` data are left untouched; this
 workflow neither migrates nor deletes them. Reviews cannot yet be uploaded to
 a remote host or shared through a multiplayer service.
 
-## Connected agents
+## Connected agents and Ask
 
-An authoring agent may send repository context to its own model provider under
-that provider's privacy, retention and billing terms. A trace quoted in the
+An authoring agent may send repository context to its own model provider.
+**Ask now** launches a fresh trusted local agent with a frozen question context,
+including relevant review text, retained evidence and saved conversation. It
+does not copy or fork the original author's transcript. A trace quoted in the
 review is a separately supplied excerpt, not an uploaded author session.
 
-Comments, feedback submission and Ask are unavailable for JSON reviews in this authoring-only version. They are deferred to the third PR in this stack. This JSON host does not launch question sessions or store their
-conversations yet. The bundled tutorial may retain trusted local legacy Ask;
-its selected harness can send the supplied question and context to its provider.
+The selected harness may send this context to its provider under that provider's
+privacy, retention and billing terms. The host saves the question and final
+answer locally. Ask has read/answer-scoped Review API access, but the local
+process is not an execution or filesystem sandbox.
 
 ## What passive telemetry excludes
 

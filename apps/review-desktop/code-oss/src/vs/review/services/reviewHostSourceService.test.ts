@@ -67,4 +67,12 @@ test("native source reads only authenticated pinned API bytes and opens the sele
   assert.equal(disposed, 1);
   await assert.rejects(service.acquireSnippet({ ...target, range: { ...target.range, toLine: 4 } }), /retained source range is unavailable/);
   assert.equal(disposed, 2);
+  const requested: ReviewHostSourceTarget[] = [];
+  await service.requestComment(resource, { fromLine: 2, toLine: 3 });
+  const subscription = service.subscribeComments(target.reviewId, selected => requested.push(selected));
+  assert.deepEqual(requested, [target]);
+  await service.requestComment(resource, { fromLine: 1, toLine: 1 });
+  assert.equal(requested[1].documentVersion, 4);
+  assert.deepEqual(requested[1].range, { ...target.range, fromLine: 1, toLine: 1 });
+  subscription.dispose();
 });

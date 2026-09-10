@@ -22,7 +22,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     (command === "help" && !argv[1])
   ) {
     input.stdout.write(
-      "Usage: review <command>\n\n  host capabilities                       Discover the current API\n  host connection                         Inspect the bound host/workspace\n  host query <operation> --input <json>    Read reviews, documents and resources\n  host command <operation> --command-id <uuid> --input <json>\n                                          Apply one atomic API command\n  host open --review <uuid>                Show a review in running Desktop\n  mcp                                     Start the thin stdio MCP client\n  app launch                              Start or activate Review Desktop\n  install [targets...]                    Install skills and this CLI\n  version                                 Print package version\n  trace                                   Local agent trace utilities\n\nReview Desktop owns review data. Clients do not author MDX/data.ts, read review files, or execute SQL. Commands require an already running host; only app launch starts Desktop.\n",
+      "Usage: review <command>\n\n  host capabilities                       Discover the current API\n  host connection                         Inspect the bound host/workspace\n  host query <operation> --input <json>    Read reviews, documents and feedback\n  host command <operation> --command-id <uuid> --input <json>\n                                          Apply one atomic API command\n  host open --review <uuid>                Show a review in running Desktop\n  mcp                                     Start the thin stdio MCP client\n  app launch                              Start or activate Review Desktop\n  install [targets...]                    Install skills and this CLI\n  version                                 Print package version\n  trace                                   Local agent trace utilities\n\nReview Desktop owns review data. Clients do not author MDX/data.ts, read review files, or execute SQL. Commands require an already running host; only app launch starts Desktop.\n",
     );
     return 0;
   }
@@ -110,7 +110,7 @@ function obsoleteCommandGuidance(
     case "threads":
       return (
         prefix +
-        "Comments and feedback are unavailable in this authoring-only version and are deferred to the next change. Do not use legacy review files as a workaround."
+        "Use threads.list/thread.get host queries and thread.reply/thread.status host commands."
       );
     case "map":
       return (
@@ -121,7 +121,7 @@ function obsoleteCommandGuidance(
     case "wait-codex":
       return (
         prefix +
-        "Observe review.get and document.get through the host API and committed event subscriptions. Feedback and Ask are deferred to the next change."
+        "Observe review.get, feedback.list and questions.list through the host API and committed event subscriptions."
       );
     case "repair":
     case "migrate":

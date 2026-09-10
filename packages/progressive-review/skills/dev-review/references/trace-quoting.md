@@ -1,6 +1,6 @@
 # Retained trace excerpts
 
-A trace quote is optional evidence, not a dependency on the author's session. Ingest only the relevant material supplied or authorized for this task. Never copy a full private transcript merely to render a quote.
+A trace quote is optional evidence, not a dependency on the author's session. Ingest only the relevant material supplied or authorized for this task. Never copy a full private transcript just to make Ask work.
 
 Read enough surrounding context to understand requirements, accepted decisions and later reversals. Prefer short user quotations for intent. Do not present an earlier reversed decision as the final design.
 

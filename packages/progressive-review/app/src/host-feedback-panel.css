@@ -1,0 +1,56 @@
+.host-feedback {
+  border: 1px solid var(--vscode-widget-border, #8885);
+  border-radius: 8px;
+  padding: 20px;
+  margin: 20px 0;
+}
+.host-feedback h2 {
+  margin-top: 0;
+}
+.host-feedback textarea {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  min-height: 80px;
+  margin: 10px 0;
+  resize: vertical;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, #8885);
+  border-radius: 4px;
+  padding: 8px;
+  font: inherit;
+}
+.host-feedback-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.host-feedback-context,
+.host-feedback-message header {
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+}
+.host-feedback-draft,
+.host-feedback-thread {
+  border-top: 1px solid var(--vscode-widget-border, #8885);
+  padding: 14px 0;
+}
+.host-feedback-message p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.host-feedback fieldset {
+  margin: 20px 0;
+  padding: 12px;
+  border: 1px solid var(--vscode-widget-border, #8885);
+}
+.host-feedback select {
+  max-width: 100%;
+}
+.host-feedback pre {
+  overflow: auto;
+}
+.host-feedback [role="alert"] {
+  color: var(--vscode-errorForeground, #d33);
+}

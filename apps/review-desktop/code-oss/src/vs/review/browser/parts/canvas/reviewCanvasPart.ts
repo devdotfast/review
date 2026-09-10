@@ -99,6 +99,7 @@ import {
 import { IReviewVerbsService } from "../../../contrib/verbs/reviewVerbs.js";
 import { ReviewInlineEditorService } from "../../../services/reviewInlineEditorService.js";
 import { IReviewHostSourceService } from "../../../services/reviewHostSourceService.js";
+import { IReviewHostQuestionTerminalService } from "../../../services/reviewHostQuestionTerminalService.js";
 import { ReviewDiffViewService } from "../../../services/reviewDiffViewService.js";
 import { IReviewDiffService } from "../../../services/reviewDiffService.js";
 import {
@@ -239,6 +240,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		private readonly sessionModelService: IReviewSessionModelService,
 		@IReviewDiffService private readonly diffService: IReviewDiffService,
 		@IReviewHostSourceService private readonly hostSource: IReviewHostSourceService,
+		@IReviewHostQuestionTerminalService private readonly questionTerminals: IReviewHostQuestionTerminalService,
 		@IReviewVerbsService private readonly verbs: IReviewVerbsService,
 		@IReviewCanvasEditorTabsService
 		private readonly tabsService: IReviewCanvasEditorTabsService,
@@ -343,6 +345,10 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		this.diffViews.setOverflowWidgetsDomNode(overflowWidgets);
 		this.sessionService.attachControl(async (sessionId, value) => {
 			const request = parseReviewVerbRequest(value);
+			if (request.name === "openHostQuestionTerminal") {
+				await this.questionTerminals.open(request.args);
+				return { ok: true };
+			}
 			if (request.name === "openHostReview") {
 				await this.tabsService.openHostReview(request.args.reviewId, true);
 				await this.hostService.focus(this.targetDocument?.defaultView ?? window, { mode: FocusMode.Force });
@@ -491,6 +497,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				wasmUrl: assets.reviewWasmUrl,
 				source: {
 					open: (target) => this.hostSource.openSource(target),
+					onDidRequestComment: (listener) => this.hostSource.subscribeComments(reviewId ?? '', listener),
 					createPeek: (spec) => this.inlineEditors.create({
 						container: spec.container, path: spec.target.range.file, title: spec.title,
 						side: spec.target.range.side, ranges: [{ startLine: spec.target.range.fromLine, endLine: spec.target.range.toLine }],

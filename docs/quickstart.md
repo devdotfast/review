@@ -38,14 +38,18 @@ A review can explain an existing architecture too: use a snapshot binding at one
 
 Optional user guidance lives at `$DEV_REVIEW_HOME/DEV-REVIEW.md` (default `~/.dev/DEV-REVIEW.md`). Repository-root `DEV-REVIEW.md` takes precedence. These are guidance files, not review storage.
 
-## 4. Read the review
+## 4. Read and respond
 
-Use **Source** to explore the exact pinned files, commits and changes. Use the
-version selector to distinguish the live document from published checkpoints.
-Authors can update the live document and publish another checkpoint explicitly.
+Use **Source** to explore the exact pinned files, commits and changes. Use the version selector to distinguish the live document from published checkpoints.
 
-Comments, feedback submission and Ask are unavailable for JSON reviews in this authoring-only version. They are deferred to the third PR in this stack. The JSON canvas does not yet offer Discussion, source comments,
-Add to review, Submit review or Ask now.
+Open **Discussion** or select code in the native source editor and choose **Add Review Comment**:
+
+- **Add to review** saves a private draft.
+- **Post comment** shares a comment immediately.
+- **Ask now** saves your question and launches a fresh supported local assistant alongside the canvas.
+- **Submit review** shares selected saved drafts with Comment, Request changes or Approve.
+
+Save draft edits before submitting. Posted messages cannot be edited; add a follow-up instead. Questions and final answers remain in the review. A request-changes submission is available to an authorized authoring agent through the API; it does not automatically resume the original author.
 
 ## Next steps
 

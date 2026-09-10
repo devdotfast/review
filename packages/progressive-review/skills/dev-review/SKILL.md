@@ -9,7 +9,7 @@ metadata:
 
 # dev.fast Review
 
-Author through the running Desktop's Review Host. JSON nodes, definitions, retained evidence, maps and checkpoints belong to that host. Never read or write Review document files, databases, Git notes or generated bundles.
+Author through the running Desktop's Review Host. JSON nodes, definitions, retained evidence, maps, checkpoints and conversations belong to that host. Never read or write Review document files, databases, Git notes or generated bundles.
 
 ## Product questions
 
@@ -19,7 +19,7 @@ Read the bundled [documentation index](docs/README.md) and relevant pages. In a 
 
 Read user guidance at `$DEV_REVIEW_HOME/DEV-REVIEW.md` (default `~/.dev/DEV-REVIEW.md`) and repository-root `DEV-REVIEW.md` when present. Repository guidance takes precedence.
 
-Read [Document authoring](references/document-authoring.md) and [Component API](references/component-api.md). Read [Lifecycle and storage](references/lifecycle-and-storage.md) for pins and publication; [Trace quoting](references/trace-quoting.md) only when using supplied trace evidence.
+Read [Document authoring](references/document-authoring.md) and [Component API](references/component-api.md). Read [Lifecycle and storage](references/lifecycle-and-storage.md) for pins, publication and feedback; [Trace quoting](references/trace-quoting.md) only when using supplied trace evidence.
 
 Use available Review MCP tools. Their schemas are authoritative and are generated from the same contracts as the host. If MCP is not configured, use `review host`; do not install an integration without authorization. `review mcp` is a stdio adapter, not a second review server. Desktop must already be running. Start it explicitly only when the task calls for opening/authoring a review. In development, use this checkout's built app and CLI, never an unrelated installed build.
 
@@ -36,12 +36,11 @@ Use available Review MCP tools. Their schemas are authoritative and are generate
 
 Every mutating command requires a caller-chosen `commandId` UUID. Reuse the same ID **and identical input** after a lost response. For a genuine version conflict, refetch, reconcile, and send a new command ID. Never overwrite concurrent changes by blindly replacing the whole document.
 
-## Feedback and Ask are deferred
+## Feedback and Ask
 
-Comments, feedback submission and Ask are unavailable for JSON reviews in this authoring-only version. They are deferred to the third PR in this stack. Do not promise these capabilities or call draft, thread, feedback
-or question operations. The authoring workflow ends with an explicitly
-published checkpoint and honest canvas verification; it does not wait on a
-feedback API that is not present.
+Read submitted work with `feedback.list/get`, `threads.list` and `thread.get`. Private human drafts are not author-visible. Reply with `thread.reply`, update the document normally, and resolve addressed threads with `thread.status` when appropriate. Republishing remains explicit. Do not claim request changes automatically launches or resumes the author; submission persists independently of agent execution.
+
+Ask starts a **fresh trusted local** agent with a frozen question context; it does not fork the review author. For an Ask task, follow the provided run instructions and scoped connection. Read `question.context` and the saved thread when needed. Return the answer through the supplied completion path; never switch to author credentials, mutate the document, or submit reviewer decisions. The host saves the completed answer. Posted questions and replies are immutable; corrections are follow-ups. No partial-answer streaming or Stop workflow is provided.
 
 ## Boundaries
 

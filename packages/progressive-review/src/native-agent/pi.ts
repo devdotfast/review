@@ -81,6 +81,7 @@ export class PiAgentServer implements AgentServer {
       [DEV_REVIEW_HOME_ENV]: devReviewHome(),
     };
     if (pathValue) env.PATH = pathValue;
+    Object.assign(env, input.environment);
     return {
       sessionId,
       command: {

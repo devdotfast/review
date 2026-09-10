@@ -16,8 +16,6 @@ The trusted bundled tutorial retains a separate legacy rendering path on the
 same listener. Ordinary legacy review files are not scanned, restored or
 migrated into the default host.
 
-Comments, feedback submission and Ask are unavailable for JSON reviews in this authoring-only version. They are deferred to the third PR in this stack.
-
 ## Build and run
 
 ### Prerequisites

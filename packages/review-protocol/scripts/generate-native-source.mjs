@@ -80,6 +80,7 @@ const MODULE_FILES = [
   "host-document-operations.ts",
   "host-source.ts",
   "host-resources.ts",
+  "host-feedback.ts",
   "host-commands.ts",
   "host-client.ts",
   "contracts.ts",

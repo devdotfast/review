@@ -94,13 +94,23 @@ Specific context produces a better Review. Tell the agent what you already
 believe, which risks you care about, and where you want sequence or database
 views.
 
-## Feedback and Ask are deferred
+## Send feedback to the agent
 
-Comments, feedback submission and Ask are unavailable for JSON reviews in this authoring-only version. They are deferred to the third PR in this stack.
+**Ask now** saves your question and starts a fresh local agent with the observed
+document, retained evidence and saved conversation. It does not fork or require
+the original author's session. Available harnesses are reported by the host.
+The final answer is saved in the review; a failed run remains visible and can
+be retried. Partial-answer streaming and a Stop workflow are not provided.
 
-Authors can continue updating JSON documents and publish new checkpoints. Do not
-use the retired file-backed commands as a feedback workaround. The bundled
-tutorial's attached question utility is a separate trusted legacy exception.
+**Add to review** saves a private, editable draft. **Submit review** posts the
+selected saved drafts and a Comment, Request changes or Approve decision against
+a checkpoint. Posted questions, comments and answers are immutable; corrections
+are follow-ups. Authors cannot read private drafts.
+
+Submission does not automatically resume an author. Ask your authoring agent to
+read submitted feedback through the API, reply to the relevant threads, update
+the document and publish another checkpoint. Approve closes the review; it can
+be explicitly reopened.
 
 ## Install from the terminal
 
@@ -118,7 +128,11 @@ With no target, `review install` installs every supported integration. Run
 
 ## Provider boundary
 
-Review runs locally, but an authoring agent may send source, prompts and context
-to its own model provider. Review does not change the provider's privacy,
-retention or billing terms. See [Privacy](privacy.md) for the data Review itself
-sends. The JSON host does not launch question agents in this version.
+Review runs locally, but an authoring agent or an Ask session may send source,
+prompts and context to its model provider. Review does not change the provider's
+privacy, retention or billing terms.
+
+Ask receives read/answer-scoped Review API credentials, not author permissions.
+It is still a trusted local process: that API scope is not a filesystem or
+tool-execution sandbox. No cloud-sharing execution isolation is provided. See
+[Privacy](privacy.md) for the data Review itself sends.

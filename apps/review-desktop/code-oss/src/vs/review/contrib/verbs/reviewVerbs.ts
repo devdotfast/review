@@ -28,7 +28,6 @@ import {
   createDecorator,
 } from "../../../platform/instantiation/common/instantiation.js";
 import type { IEditorPane } from "../../../workbench/common/editor.js";
-import { ResourceContextKey } from "../../../workbench/common/contextkeys.js";
 import {
   type ITerminalInstance,
   ITerminalEditorService,
@@ -79,12 +78,11 @@ import { IReviewSessionService } from "../../services/reviewSessionService.js";
 import { IReviewDiffTabsService } from "../../services/reviewDiffTabs.js";
 import { ReviewCanvasEditorInput } from "../../browser/parts/canvas/reviewCanvasEditorInput.js";
 import { IReviewExplorerPartsService } from "../../browser/parts/explorer/reviewExplorerPart.js";
-import { REVIEW_HOST_SOURCE_SCHEME } from "../../services/reviewHostSourceService.js";
+import { IReviewHostSourceService, REVIEW_HOST_SOURCE_SCHEME, parseHostSourceUri } from "../../services/reviewHostSourceService.js";
 
 MenuRegistry.appendMenuItem(MenuId.EditorContext, {
   group: "review",
   order: 1,
-  when: ResourceContextKey.Scheme.notEqualsTo(REVIEW_HOST_SOURCE_SCHEME),
   command: {
     id: "devfast.review.addComment",
     title: "Add Review Comment",
@@ -155,6 +153,7 @@ export class ReviewVerbsService
     @IHostService private readonly hostService: IHostService,
     @INativeHostService private readonly nativeHostService: INativeHostService,
     @IOpenerService private readonly openerService: IOpenerService,
+    @IReviewHostSourceService private readonly hostSource: IReviewHostSourceService,
   ) {
     super();
     const watchAsks = () => {
@@ -669,10 +668,20 @@ export class ReviewVerbsService
     this.revealDecoration = undefined;
   }
 
-  private requestComment(): void {
+  private async requestComment(): Promise<void> {
     const editor = this.codeEditorService.getActiveCodeEditor();
-    // JSON source comments arrive with the feedback slice, not legacy threads.
-    if (editor?.getModel()?.uri.scheme === REVIEW_HOST_SOURCE_SCHEME) return;
+    const uri = editor?.getModel()?.uri;
+    const selected = editor?.getSelection();
+    if (uri?.scheme === REVIEW_HOST_SOURCE_SCHEME && selected) {
+      const { request } = parseHostSourceUri(uri);
+      const range = reviewSelectionRange(selected.getStartPosition(), selected.getEndPosition());
+      const modal = this.editorGroupsService.activeModalEditorPart;
+      if (modal && !(await modal.close())) return;
+      await this.tabsService.openHostReview(request.reviewId, true);
+      await this.hostSource.requestComment(uri, range);
+      this._onDidRequestCanvasFocus.fire();
+      return;
+    }
     const session = this.sessionModelService.activeModel?.session;
     const identity =
       editor && session ? this.editorIdentity(editor, session) : null;

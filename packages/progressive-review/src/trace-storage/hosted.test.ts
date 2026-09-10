@@ -14,6 +14,7 @@ import type { JsonValue } from "@dev.fast/review-protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  clearTraceEnvCache,
   loadReviewAgentTrace,
   lookupReviewTraceSession,
   syncReviewTrace,
@@ -37,7 +38,6 @@ import { allowTraceRepository } from "../trace-user-config";
 import { traceConfigPath } from "./config";
 import { HostedTraceStorage } from "./hosted";
 import { resolveTraceStorage } from "./resolve";
-import { clearTraceEnvCache } from "./s3-config";
 import { TraceStorageDeniedError } from "./types";
 
 const REPOSITORY_ID = 321;
@@ -517,5 +517,32 @@ describe("hosted trace storage", () => {
     await expect(
       loadReviewAgentTrace({ sessionId, cwd: repoDir }),
     ).rejects.toBeInstanceOf(TraceStorageDeniedError);
+  });
+  it("does not let a same-name consent entry authorize another repository id", async () => {
+    const sessionId = "hosted-session-0009";
+    writeFileSync(
+      path.join(localTraceRoot, `${sessionId}.jsonl`),
+      `${sessionRecord(sessionId, "hello")}\n`,
+    );
+    // Consent for id 999 under the same display name as this target (321).
+    await allowTraceRepository(
+      { repositoryId: 999, name: "acme/app", origin: ORIGIN },
+      devHome,
+    );
+    const transport = createMemoryTraceStoreTransport();
+    const storage = HostedTraceStorage.fromParts({
+      target: target(transport.storeId),
+      transport,
+      devHome,
+    });
+    await recordTraceSessionProvenance({
+      sessionId,
+      ...traceCaptureIdentity({ target: target(transport.storeId) }),
+      devHome,
+    });
+    await expect(
+      syncReviewTrace({ sessionId, cwd: repoDir, storage }),
+    ).rejects.toThrow(/not allowed for trace publication/);
+    expect(transport.uploads.size).toBe(0);
   });
 });

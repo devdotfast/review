@@ -154,7 +154,11 @@ export async function runReviewTraceHook(
     // a later publication can tell a session that stayed in one allowed
     // repository from one that also ran somewhere the user did not allow.
     const origin = selection.hosted?.origin ?? "";
-    const entry = await resolveAllowedTraceRepository(input.cwd, input.env);
+    const entry = await resolveAllowedTraceRepository(
+      input.cwd,
+      input.env,
+      input.homeDir,
+    );
     await recordCaptureProvenance({
       cwd: input.cwd,
       sessionId,

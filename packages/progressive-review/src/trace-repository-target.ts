@@ -227,10 +227,11 @@ export async function requireTraceConsent(
   devHome?: string,
 ): Promise<TraceRepositoryEntry> {
   const config = await readTraceUserConfig(devHome);
-  const entry =
-    config.repositories.find(
-      (candidate) => candidate.repositoryId === target.repositoryId,
-    ) ?? findTraceRepository(config, target.name);
+  // The id is the identity. A display name can be reused by another
+  // repository, so a name match never stands in for a missing id match.
+  const entry = config.repositories.find(
+    (candidate) => candidate.repositoryId === target.repositoryId,
+  );
   if (entry?.enabledOrigins.includes(target.origin)) return entry;
   if (entry) {
     throw new Error(

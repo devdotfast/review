@@ -45,7 +45,6 @@ import {
   LIVE_REVIEW_SESSION_MODE,
   type ReviewSessionArtifacts,
   type ReviewSessionMode,
-  reviewSessionModeIsReadOnly,
   reviewSessionModeRecord,
 } from "./review-session-mode";
 
@@ -131,10 +130,9 @@ export async function createReviewSessionHandler(
     session.storageDir ??
     path.dirname(input.stateReviewPath ?? input.reviewPath);
   const reviewRootPath = input.reviewRootPath ?? storageDir;
-  await Promise.all([
-    mkdir(renderDir, { recursive: true, mode: 0o700 }),
-    mkdir(storageDir, { recursive: true, mode: 0o700 }),
-  ]);
+  await mkdir(storageDir, { recursive: true, mode: 0o700 });
+  if (!artifacts.document)
+    await mkdir(renderDir, { recursive: true, mode: 0o700 });
   const token = input.token ?? crypto.randomBytes(32).toString("base64url");
   const sessionUrl = (session.sessionUrl ?? session.appUrl).replace(/\/$/, "");
   const documentsDir = path.join(renderDir, ".review-documents");
@@ -277,44 +275,6 @@ export async function createReviewSessionHandler(
     }
     await next();
   });
-  if (mode.kind !== "live") {
-    app.use(`${API_PREFIX}/*`, async (context, next) => {
-      if (!reviewSessionModeIsReadOnly(mode)) {
-        await next();
-        return;
-      }
-      const method = context.req.method;
-      if (
-        method === "GET" ||
-        method === "HEAD" ||
-        method === "OPTIONS" ||
-        context.req.path.startsWith(`${API_PREFIX}/telemetry`) ||
-        (method === "POST" &&
-          [
-            "/code-peek/resolve",
-            "/software-map/resolved-data",
-            "/diff-files",
-          ].some((route) => context.req.path === `${API_PREFIX}${route}`))
-      ) {
-        await next();
-        return;
-      }
-      return jsonResponse(
-        {
-          ok: false,
-          error:
-            mode.kind === "historical"
-              ? "This historical version is read-only."
-              : "This review is read-only while repair is validated.",
-          code:
-            mode.kind === "historical"
-              ? "historical_revision"
-              : "review_read_only",
-        },
-        409,
-      );
-    });
-  }
   app.get(`${API_PREFIX}/session`, async () => {
     const presentedRecord = reviewSessionModeRecord(mode);
     const resolvedBaseRef = presentedRecord

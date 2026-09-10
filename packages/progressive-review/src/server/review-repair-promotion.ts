@@ -18,8 +18,8 @@ import { promoteReviewArtifactFiles } from "../review-artifact-promotion";
 import { readReviewDocumentBundle } from "../review-bundle";
 import {
   type StoredReview,
+  type StoredReviewRecord,
   allowsAbsentSoftwareMap,
-  materializeReviewRevision,
   parseAnyStoredReviewRecord,
   parseStoredReviewRecord,
   reviewDescriptor,
@@ -38,7 +38,10 @@ import {
 import { reviewVcs } from "../review-vcs";
 import { readReviewSoftwareMapBundle } from "../software-map-bundle";
 import { ReviewServerError } from "./http-json";
-import { reviewWithPresentedDocumentPins } from "./publish-stage";
+import {
+  materializePublishRevision,
+  reviewWithPresentedDocumentPins,
+} from "./publish-stage";
 
 /** A staged seal may extend private objects and advance main/index, but cannot
  * replace repository config, remove history, or redirect writes through links. */
@@ -217,6 +220,7 @@ export async function promoteReviewRepair<
   sessions: ReadonlyMap<string, Session>;
   registerSerialized: (registration: {
     review: StoredReview;
+    canonicalRecord: StoredReviewRecord;
     documentPath: string;
     softwareMapRootPath?: string;
     revision: string;
@@ -263,14 +267,12 @@ export async function promoteReviewRepair<
       const destination = path.join(review.dir, ".build", revision);
       if (!existsSync(destination)) {
         createdBuilds.push(destination);
-        try {
-          await materializeReviewRevision(stagingDir, revision, destination);
-        } catch (error) {
-          await rm(destination, { recursive: true, force: true });
-          throw error;
-        }
       }
-      return destination;
+      return materializePublishRevision({
+        review,
+        revision,
+        sourceDir: stagingDir,
+      });
     };
     const materializedRecord = async (revision: string) =>
       materialize(revision)
@@ -334,6 +336,7 @@ export async function promoteReviewRepair<
     }
     successor = await input.registerSerialized({
       review: presented,
+      canonicalRecord: review.review,
       documentPath: path.join(documentDir, "review.mdx"),
       softwareMapRootPath: mapDir,
       revision: request.newDocumentRevision,

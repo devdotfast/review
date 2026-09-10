@@ -205,6 +205,8 @@ interface ActiveReviewSession {
 
 interface RegisterSessionInput {
   review: StoredReview;
+  /** Live record observed before preparing the sealed presentation. */
+  canonicalRecord: StoredReviewRecord;
   documentPath: string;
   softwareMapRootPath?: string;
   revision?: string;
@@ -242,6 +244,7 @@ function revealVerb(view?: ReviewView): ReviewVerbRequest {
 
 interface PreparedTutorial {
   review: StoredReview;
+  canonicalRecord: StoredReviewRecord;
   documentPath: string;
   softwareMapRootPath: string;
   checkoutRoots: ReviewCheckoutRoots;
@@ -267,6 +270,7 @@ export interface GlobalReviewServerInput {
   instanceId?: string;
   discoveryPath?: string;
   sessionHandlerFactory?: typeof createReviewSessionHandler;
+  pinnedCheckoutFactory?: typeof ensureReviewPinnedCheckout;
   tutorialAuthoringSessionFactory?: typeof createTutorialAuthoringSession;
   tutorialAuthorSessionBinder?: typeof bindReviewAuthorSession;
   tutorialAgentResolver?: () => Promise<ReviewAgentHarness | undefined>;
@@ -673,6 +677,7 @@ export function createGlobalReviewServer(
       : undefined;
     const active = await registerSerialized({
       review: presentedReview,
+      canonicalRecord: viewed.review,
       documentPath: path.join(documentBuildDir, "review.mdx"),
       softwareMapRootPath,
       documentUnavailable,
@@ -727,14 +732,15 @@ export function createGlobalReviewServer(
         "revision_not_found",
       );
     }
-    const presentedReview = await reviewWithPresentedDocumentPins(
-      review,
-      documentBuildDir,
-    );
     const presentedValue = JSON.parse(
       await readFile(path.join(documentBuildDir, "review.json"), "utf8"),
     );
     const presentedRecord = parseAnyStoredReviewRecord(presentedValue);
+    const presentedReview = await reviewWithPresentedDocumentPins(
+      review,
+      documentBuildDir,
+      presentedRecord,
+    );
     let softwareMapUnavailable: string | undefined;
     const softwareMapRootPath = presentedRecord.presentedSoftwareMapRevision
       ? await publishRuntime
@@ -752,6 +758,7 @@ export function createGlobalReviewServer(
       : undefined;
     const active = await registerSerialized({
       review: presentedReview,
+      canonicalRecord: review.review,
       documentPath: path.join(documentBuildDir, "review.mdx"),
       softwareMapRootPath,
       promoted: false,
@@ -1182,6 +1189,7 @@ export function createGlobalReviewServer(
     const successor = await timed("register session", () =>
       registerSerialized({
         review,
+        canonicalRecord: review.review,
         documentPath,
         softwareMapRootPath,
         revision,
@@ -1352,6 +1360,7 @@ export function createGlobalReviewServer(
     }
     const successor = await registerSerialized({
       review: presentedReview,
+      canonicalRecord: review.review,
       documentPath: path.join(documentBuildDir, "review.mdx"),
       softwareMapRootPath,
       revision: documentRevision,
@@ -1488,6 +1497,7 @@ export function createGlobalReviewServer(
       return null;
     }
     cached.review = current;
+    cached.canonicalRecord = current.review;
     return cached;
   }
 
@@ -1534,6 +1544,7 @@ export function createGlobalReviewServer(
     );
     return {
       review: presentedReview,
+      canonicalRecord: review.review,
       documentPath: path.join(documentBuildDir, "review.mdx"),
       softwareMapRootPath,
       checkoutRoots,
@@ -1567,6 +1578,7 @@ export function createGlobalReviewServer(
       existing ??
       (await registerSerialized({
         review: prepared.review,
+        canonicalRecord: prepared.canonicalRecord,
         documentPath: prepared.documentPath,
         softwareMapRootPath: prepared.softwareMapRootPath,
         checkoutRoots: prepared.checkoutRoots,
@@ -1661,6 +1673,7 @@ export function createGlobalReviewServer(
             if (!latest) return undefined;
             const bound = await tutorialAuthorSessionBinder(latest, session);
             prepared.review = bound;
+            prepared.canonicalRecord = bound.review;
             for (const active of sessions.values()) {
               if (active.review.review.uuid === bound.review.uuid) {
                 active.review = bound;
@@ -1792,8 +1805,76 @@ export function createGlobalReviewServer(
   async function registerSerialized(
     registration: RegisterSessionInput,
   ): Promise<ActiveReviewSession> {
-    return withReviewLock(registration.review.review.uuid, () =>
-      registerSession(registration),
+    const expected = reviewMutationFingerprint(registration.canonicalRecord);
+    const prepared = await prepareSession(registration);
+    let installed = false;
+    try {
+      const active = await withReviewLock(
+        registration.review.review.uuid,
+        async () => {
+          assertServerOpen();
+          const latest = await findReviewForRepair(
+            registration.review.review.uuid,
+          );
+          if (
+            !latest ||
+            reviewMutationFingerprint(latest.review) !== expected
+          ) {
+            throw new ReviewServerError(
+              "Review changed while preparing its session; retry opening or publishing it.",
+              409,
+              "review_changed",
+            );
+          }
+          const existing = matchingSession(registration);
+          if (existing) return existing;
+          sessions.set(prepared.descriptor.sessionId, prepared);
+          installed = true;
+          return prepared;
+        },
+      );
+      if (!installed) return active;
+      await startSessionTelemetry(active).catch((error) =>
+        console.error("Could not start Review session telemetry:", error),
+      );
+      if (registration.announce) {
+        const event: ReviewDesktopGlobalEvent = {
+          event: "session-registered",
+          session: active.descriptor,
+        };
+        if (registration.background) event.background = true;
+        broadcastGlobal(event);
+      }
+      if (registration.focusCanvas)
+        void relay.dispatch(
+          active.descriptor.sessionId,
+          revealVerb(registration.view),
+        );
+      return active;
+    } finally {
+      if (!installed) await prepared.handler.close();
+    }
+  }
+
+  function assertServerOpen(): void {
+    if (closing)
+      throw new ReviewServerError(
+        "Review Desktop is closing.",
+        409,
+        "server_closing",
+      );
+  }
+
+  function matchingSession(
+    registration: RegisterSessionInput,
+  ): ActiveReviewSession | undefined {
+    return [...sessions.values()].find(
+      (session) =>
+        !session.closing &&
+        session.review.review.uuid === registration.review.review.uuid &&
+        ((registration.promoted && session.promoted) ||
+          (registration.historicalRevision !== undefined &&
+            session.historicalRevision === registration.historicalRevision)),
     );
   }
 
@@ -1808,13 +1889,17 @@ export function createGlobalReviewServer(
         "review_unbound",
       );
     }
-    const baseRootPath = await ensureReviewPinnedCheckout({
+    const baseRootPath = await (
+      input.pinnedCheckoutFactory ?? ensureReviewPinnedCheckout
+    )({
       rootPath: review.review.worktreePath,
       ref: review.review.baseCommit,
       reviewUuid: review.review.uuid,
       role: "base",
     });
-    const headRootPath = await ensureReviewPinnedCheckout({
+    const headRootPath = await (
+      input.pinnedCheckoutFactory ?? ensureReviewPinnedCheckout
+    )({
       rootPath: review.review.worktreePath,
       ref: sourceCommit,
       reviewUuid: review.review.uuid,
@@ -1830,32 +1915,11 @@ export function createGlobalReviewServer(
     return { baseRootPath, headRootPath };
   }
 
-  async function registerSession(
+  /** Pinned checkouts and handler creation perform no review mutation. */
+  async function prepareSession(
     registration: RegisterSessionInput,
   ): Promise<ActiveReviewSession> {
-    if (closing) {
-      throw new ReviewServerError(
-        "Review Desktop is closing.",
-        409,
-        "server_closing",
-      );
-    }
-    if (registration.promoted) {
-      const existing = [...sessions.values()].find(
-        (session) =>
-          session.review.review.uuid === registration.review.review.uuid &&
-          session.promoted,
-      );
-      if (existing) return existing;
-    }
-    if (registration.historicalRevision) {
-      const existing = [...sessions.values()].find(
-        (session) =>
-          session.review.review.uuid === registration.review.review.uuid &&
-          session.historicalRevision === registration.historicalRevision,
-      );
-      if (existing) return existing;
-    }
+    assertServerOpen();
     const sessionId = crypto.randomUUID();
     const sessionUrl = `${urlForBoundPort()}/sessions/${encodeURIComponent(sessionId)}`;
     const descriptor: ReviewSessionDescriptor = {
@@ -2004,19 +2068,6 @@ export function createGlobalReviewServer(
       tutorialPreparation: registration.tutorialPreparation,
       resolveQuestionSourceSession: registration.resolveQuestionSourceSession,
     };
-    sessions.set(sessionId, active);
-    await startSessionTelemetry(active);
-    if (registration.announce) {
-      const event: ReviewDesktopGlobalEvent = {
-        event: "session-registered",
-        session: descriptor,
-      };
-      if (registration.background) event.background = true;
-      broadcastGlobal(event);
-    }
-    if (registration.focusCanvas) {
-      void relay.dispatch(sessionId, revealVerb(registration.view));
-    }
     return active;
   }
 
@@ -2473,7 +2524,9 @@ async function pruneReviewBuilds(
   }
   const builds = await Promise.all(
     entries
-      .filter((entry) => entry.isDirectory())
+      .filter(
+        (entry) => entry.isDirectory() && /^[0-9a-f]{40}$/i.test(entry.name),
+      )
       .map(async (entry) => ({
         name: entry.name,
         modifiedAt: (await stat(path.join(buildsPath, entry.name))).mtimeMs,

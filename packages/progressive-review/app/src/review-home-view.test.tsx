@@ -39,7 +39,7 @@ describe("ReviewHome", () => {
     vi.restoreAllMocks();
   });
 
-  it("leaves migration notices to the workbench and shows other scan errors", async () => {
+  it("keeps unsupported and unreadable reviews selectable without banners", async () => {
     const errors: ReviewListError[] = [
       {
         reviewDir: "/reviews/unsupported",
@@ -65,18 +65,38 @@ describe("ReviewHome", () => {
         <ReviewHome reviews={[]} onOpen={() => {}} reviewErrors={errors} />,
       ),
     );
-    const attention = [...container.querySelectorAll(".review-home-attention")];
-    expect(attention).toHaveLength(1);
-    expect(attention.map((entry) => entry.getAttribute("aria-label"))).toEqual([
-      "Attention for /reviews/unreadable",
-    ]);
+    const entries = container.querySelectorAll<HTMLButtonElement>(
+      ".review-home-unavailable-entries button",
+    );
+    expect(entries).toHaveLength(2);
+    expect(container.querySelector(".review-home-attention")).toBeNull();
     expect(container.textContent).not.toContain(errors[0]!.message);
-    expect(attention[0]?.textContent).toContain(errors[1]!.message);
-    expect(container.querySelector(".review-home-attention code")).toBeNull();
+    expect(container.querySelector('[aria-label="Copy prompt"]')).toBeNull();
+    await act(async () => entries[0]?.click());
+    expect(container.textContent).toContain(
+      "This review needs manual migration.",
+    );
+    const writeText = vi.fn<(text: string) => Promise<void>>(async () => {});
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Copy prompt"]')
+        ?.click(),
+    );
+    expect(writeText.mock.calls[0]?.[0]).toContain("review migrate apply");
+    expect(writeText.mock.calls[0]?.[0]).toContain(errors[0]!.reviewDir);
+    expect(writeText.mock.calls[0]?.[0]).toContain("Do not use --force");
+    await act(async () =>
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Back to reviews")
+        ?.click(),
+    );
     expect(
-      container.querySelector('button[aria-label="Copy command"]'),
-    ).toBeNull();
-    expect(container.querySelector(".review-migration-warning")).toBeNull();
+      container.querySelectorAll(".review-home-unavailable-entries button"),
+    ).toHaveLength(2);
   });
 
   it("groups reviews by worktree without changing their order", () => {
@@ -326,7 +346,7 @@ describe("ReviewHome", () => {
     expect(container.querySelector(".review-home-delete")).toBeNull();
   });
 
-  it("shows and copies the repair command for failed artifact conversion", async () => {
+  it("shows recovery guidance only after opening a failed conversion", async () => {
     const error: ReviewListError = {
       reviewDir: `/tmp/reviews/${uuid(2)}`,
       reviewUuid: uuid(2),
@@ -346,30 +366,32 @@ describe("ReviewHome", () => {
       ),
     );
 
-    const attention = container.querySelector(".review-home-attention");
-    expect(attention?.textContent).toContain("Old review");
-    expect(attention?.textContent).toContain(error.message);
-    expect(attention?.querySelector("code")?.textContent).toBe(
-      `review repair --review ${uuid(2)}`,
+    expect(container.querySelector(".review-home-attention")).toBeNull();
+    expect(container.querySelector('[aria-label="Copy prompt"]')).toBeNull();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          ".review-home-unavailable-entries button",
+        )
+        ?.click(),
     );
-    expect(container.querySelector(".review-migration-warning")).toBeNull();
-    const copy = container.querySelector<HTMLButtonElement>(
-      '.review-home-attention button[aria-label="Copy command"]',
-    );
-    expect(copy).not.toBeNull();
+    expect(container.textContent).toContain("This review needs manual repair.");
     const writeText = vi.fn<(text: string) => Promise<void>>(async () => {});
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: { writeText },
     });
-    await act(async () => copy?.click());
-    expect(writeText.mock.calls).toEqual([
-      [`review repair --review ${uuid(2)}`],
-    ]);
-    expect(copy?.getAttribute("aria-label")).toBe("Command copied");
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Copy prompt"]')
+        ?.click(),
+    );
+    expect(writeText.mock.calls[0]?.[0]).toContain(
+      `review repair --review ${uuid(2)}`,
+    );
     expect(
-      container.querySelector('button[aria-label="Copy prompt"]'),
-    ).toBeNull();
+      container.querySelector('[aria-label="Prompt copied"]'),
+    ).not.toBeNull();
   });
 
   it("restores list view from storage", async () => {

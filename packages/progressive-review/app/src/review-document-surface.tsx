@@ -1,16 +1,38 @@
-import { type ComponentProps, type ReactElement } from "react";
+import {
+  type ComponentProps,
+  type FunctionComponent,
+  type ReactElement,
+} from "react";
 
+import type { ReviewAuthoringComponentName } from "../../src/review-document-data";
 import { MarkdownCodeBlock } from "./code-block";
 import { reviewAuthoringComponents } from "./review-authoring-components";
 import { a } from "./review-components";
 import { ReviewDocumentMetaLine } from "./review-doc-meta";
-import type { ReviewDocumentComponent } from "./review-documents-runtime";
+import type {
+  HydratedReviewComponentProps,
+  HydratedReviewNode,
+} from "./review-document-hydrate";
+import {
+  type ReviewDocumentComponents,
+  renderReviewNodes,
+} from "./review-document-renderer";
 
-export const reviewDocumentComponents = {
-  ...reviewAuthoringComponents,
-  a,
-  pre: MarkdownCodeBlock,
-  h1: ReviewDocumentTitle,
+export const reviewDocumentComponents: ReviewDocumentComponents = {
+  // SAFETY: publish validated every component's props against its authoring
+  // schema (reviewAuthoringPropsSchemas) and hydration rebuilt exactly the
+  // runtime handles those props declare, so each registry entry accepts the
+  // hydrated props carried by a node with its own name.
+  components: reviewAuthoringComponents as typeof reviewAuthoringComponents &
+    Record<
+      ReviewAuthoringComponentName,
+      FunctionComponent<HydratedReviewComponentProps>
+    >,
+  elementOverrides: {
+    a,
+    pre: MarkdownCodeBlock,
+    h1: ReviewDocumentTitle,
+  },
 };
 
 function ReviewDocumentTitle({
@@ -26,9 +48,9 @@ function ReviewDocumentTitle({
 }
 
 export function ReviewDocumentContent({
-  ReviewDocument,
+  body,
 }: {
-  ReviewDocument: ReviewDocumentComponent;
+  body: HydratedReviewNode[];
 }): ReactElement {
-  return <ReviewDocument components={reviewDocumentComponents} />;
+  return <>{renderReviewNodes(body, reviewDocumentComponents)}</>;
 }

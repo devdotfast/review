@@ -3,7 +3,9 @@ import { z } from "zod";
 
 import {
   type CallStackDiffProps,
+  type DatabaseLensProps,
   callStackDiffPropsSchema,
+  databaseLensPropsSchema,
   dbUseCasePropsSchema,
   reviewAuthoringPropsSchemas,
   traceQuotePropsSchema,
@@ -20,7 +22,7 @@ import { errorMessage } from "./error-message";
 // mistakes: the app never sees an element the audit did not see first.
 
 const ELEMENT_MARKER = "__reviewPublishElement";
-const FRAGMENT = Symbol.for("react.fragment");
+export const FRAGMENT = Symbol.for("react.fragment");
 
 // What `jsx` receives as an element type: an intrinsic tag name, a React
 // marker symbol (Fragment, Suspense, ...), or a component function.
@@ -54,19 +56,42 @@ export type PublishAuditComponent = (
 // `label` is a string, and `components` is the stub map handed to the
 // document. Every other authored prop is opaque here; the component's zod
 // schema parses it.
-export type PublishValidationPropValue =
-  | PublishAuditNode
-  | Record<string, PublishAuditComponent>;
-
 export interface PublishValidationProps {
   children?: PublishAuditNode;
   key?: PublishAuditKey;
-  [prop: string]: PublishValidationPropValue;
+  components?: Record<string, PublishAuditComponent>;
+  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Authored component schemas own these deliberately opaque values.
+  [prop: string]: unknown;
 }
 
-type AuthoringComponentName = keyof typeof reviewAuthoringPropsSchemas;
+const authoringComponentNameSchema = z.keyof(
+  z.object(reviewAuthoringPropsSchemas),
+);
+export type AuthoringComponentName = z.infer<
+  typeof authoringComponentNameSchema
+>;
 
-function isAuditElement(value: PublishAuditNode): value is PublishAuditElement {
+type OtherAuthoringComponentProps = {
+  [Name in Exclude<AuthoringComponentName, "DatabaseLens">]: z.infer<
+    (typeof reviewAuthoringPropsSchemas)[Name]
+  >;
+}[Exclude<AuthoringComponentName, "DatabaseLens">];
+
+// The audit is the one walk that sees every authored element, so it parses
+// each component's props once and hands the typed result to materialization.
+// DatabaseLens is its own member because it is the only component whose
+// document form differs from its authored form (store handles project to
+// data), and narrowing on `name` must narrow `props` with it.
+export type AuditedComponentProps =
+  | { name: "DatabaseLens"; props: DatabaseLensProps }
+  | {
+      name: Exclude<AuthoringComponentName, "DatabaseLens">;
+      props: OtherAuthoringComponentProps;
+    };
+
+export function isAuditElement(
+  value: PublishAuditNode,
+): value is PublishAuditElement {
   if (!isObjectValue(value)) return false;
   return (
     (ELEMENT_MARKER in value && value[ELEMENT_MARKER] === true) ||
@@ -97,7 +122,9 @@ function makeElement(
 // arrays flatten recursively; null, undefined, and booleans disappear.
 // Fragments do NOT flatten — React.Children treats a fragment as one child,
 // and the lens parsers in the app rely on that.
-function flattenChildren(children: PublishAuditNode): PublishAuditNode[] {
+export function flattenChildren(
+  children: PublishAuditNode,
+): PublishAuditNode[] {
   if (
     children === null ||
     children === undefined ||
@@ -236,6 +263,12 @@ export interface PublishAuditTraceQuote {
   text: string;
 }
 
+export interface ReviewDocumentPublishAudit {
+  tree: PublishAuditNode;
+  componentNames: ReadonlyMap<PublishAuditElementType, AuthoringComponentName>;
+  componentProps: ReadonlyMap<PublishAuditElement, AuditedComponentProps>;
+}
+
 export function extractAuditText(node: PublishAuditNode): string {
   if (node === null || node === undefined || node === true || node === false) {
     return "";
@@ -257,17 +290,14 @@ export function auditReviewDocumentComponent(input: {
   // element, so it hands the parsed props to the evaluation.
   collectCallStackDiff?: (props: CallStackDiffProps) => void;
   collectTraceQuote?: (quote: PublishAuditTraceQuote) => void;
-}): void {
+}): ReviewDocumentPublishAudit | null {
   const components = new Map<AuthoringComponentName, PublishAuditComponent>();
   const componentNames = new Map<
     PublishAuditElementType,
     AuthoringComponentName
   >();
-  // SAFETY: `reviewAuthoringPropsSchemas` is an object literal whose own keys
-  // are exactly the AuthoringComponentName members.
-  for (const name of Object.keys(
-    reviewAuthoringPropsSchemas,
-  ) as AuthoringComponentName[]) {
+  const componentProps = new Map<PublishAuditElement, AuditedComponentProps>();
+  for (const name of authoringComponentNameSchema.options) {
     const stub = () => null;
     Object.defineProperty(stub, "name", { value: name });
     components.set(name, stub);
@@ -281,7 +311,7 @@ export function auditReviewDocumentComponent(input: {
     input.reportError(
       `Review document did not evaluate for validation: ${errorMessage(error)}`,
     );
-    return;
+    return null;
   }
 
   const walk = (
@@ -292,29 +322,16 @@ export function auditReviewDocumentComponent(input: {
       if (!isAuditElement(child)) continue;
       const name = componentNames.get(child.type) ?? null;
       if (name) {
-        auditElement(
+        const audited = auditElement(
           child,
           name,
           parentName,
           componentNames,
           input.reportError,
+          input.collectCallStackDiff,
+          input.collectTraceQuote,
         );
-        if (name === "CallStackDiff" && input.collectCallStackDiff) {
-          const parsed = callStackDiffPropsSchema.safeParse(child.props);
-          if (parsed.success) input.collectCallStackDiff(parsed.data);
-        }
-        if (name === "TraceQuote" && input.collectTraceQuote) {
-          const parsed = traceQuotePropsSchema.safeParse(child.props);
-          if (parsed.success) {
-            const text = extractAuditText(child.props.children);
-            input.collectTraceQuote({
-              sessionId: parsed.data.sessionId,
-              trace: parsed.data.trace,
-              event: parsed.data.event,
-              text,
-            });
-          }
-        }
+        if (audited) componentProps.set(child, audited);
         walk(child.props.children, name);
         continue;
       }
@@ -334,6 +351,7 @@ export function auditReviewDocumentComponent(input: {
     }
   };
   walk(tree, null);
+  return { tree, componentNames, componentProps };
 }
 
 function auditElement(
@@ -342,14 +360,35 @@ function auditElement(
   parentName: AuthoringComponentName | null,
   componentNames: ReadonlyMap<PublishAuditElementType, AuthoringComponentName>,
   reportError: (message: string) => void,
-): void {
-  const schema: z.ZodType = reviewAuthoringPropsSchemas[name];
-  const parsed = schema.safeParse(element.props);
-  if (!parsed.success) {
-    for (const issue of parsed.error.issues) {
-      const path = issue.path.length > 0 ? issue.path.join(".") : "props";
-      reportError(`<${name}> ${path}: ${issue.message}`);
+  collectCallStackDiff?: (props: CallStackDiffProps) => void,
+  collectTraceQuote?: (quote: PublishAuditTraceQuote) => void,
+): AuditedComponentProps | null {
+  let audited: AuditedComponentProps | null;
+  if (name === "DatabaseLens") {
+    const parsed = databaseLensPropsSchema.safeParse(element.props);
+    reportParseErrors(name, parsed, reportError);
+    audited = parsed.success ? { name, props: parsed.data } : null;
+  } else if (name === "CallStackDiff") {
+    const parsed = callStackDiffPropsSchema.safeParse(element.props);
+    reportParseErrors(name, parsed, reportError);
+    audited = parsed.success ? { name, props: parsed.data } : null;
+    if (parsed.success) collectCallStackDiff?.(parsed.data);
+  } else if (name === "TraceQuote") {
+    const parsed = traceQuotePropsSchema.safeParse(element.props);
+    reportParseErrors(name, parsed, reportError);
+    audited = parsed.success ? { name, props: parsed.data } : null;
+    if (parsed.success && collectTraceQuote) {
+      collectTraceQuote({
+        sessionId: parsed.data.sessionId,
+        trace: parsed.data.trace,
+        event: parsed.data.event,
+        text: extractAuditText(element.props.children),
+      });
     }
+  } else {
+    const parsed = reviewAuthoringPropsSchemas[name].safeParse(element.props);
+    reportParseErrors(name, parsed, reportError);
+    audited = parsed.success ? { name, props: parsed.data } : null;
   }
 
   const childNames = flattenChildren(element.props.children).flatMap((child) =>
@@ -394,5 +433,18 @@ function auditElement(
     !childNames.some((child) => child === "DbRead" || child === "DbWrite")
   ) {
     reportError(`<DbUseCase> must contain at least one <DbRead> or <DbWrite>.`);
+  }
+  return audited;
+}
+
+function reportParseErrors(
+  name: AuthoringComponentName,
+  parsed: z.ZodSafeParseResult<unknown>,
+  reportError: (message: string) => void,
+): void {
+  if (parsed.success) return;
+  for (const issue of parsed.error.issues) {
+    const path = issue.path.length > 0 ? issue.path.join(".") : "props";
+    reportError(`<${name}> ${path}: ${issue.message}`);
   }
 }

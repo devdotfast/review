@@ -85,6 +85,95 @@ function mockFetch(
 	});
 }
 
+for (const refreshFails of [false, true]) {
+test(`repair registration survives list refresh (failure: ${refreshFails})`, async (t) => {
+	const service = serviceWith([review]);
+	let errorsAtRegistration: unknown;
+	service.onDidRegisterSession(() => {
+		errorsAtRegistration = service.reviewErrors;
+	});
+	let lists = 0;
+	mockFetch(t, async (input) => {
+		const url = String(input);
+		if (url.includes("/events")) {
+			return new Response(
+				`data: ${JSON.stringify({ event: "session-registered", session, review })}\n\n`,
+			);
+		}
+		if (url.includes("/sessions")) return Response.json({ items: [session] });
+		lists += 1;
+		if (refreshFails && lists > 1) throw new Error("refresh unavailable");
+		return Response.json({
+			reviews: [review],
+			errors: lists === 1 ? [{
+				reviewDir: "/tmp/review",
+				reviewUuid: uuid,
+				title: review.title,
+				worktreePath: review.worktreePath,
+				lastPublishedAt: review.lastPublishedAt,
+				code: "review_needs_migration",
+				message: "Needs migration",
+			}] : [],
+		});
+	});
+	await (service as unknown as {
+		watchGlobalEvents(connected: () => void): Promise<void>;
+	}).watchGlobalEvents(() => undefined);
+	assert.ok(Array.isArray(errorsAtRegistration));
+	assert.equal(service.reviewErrors.length, refreshFails ? 1 : 0);
+	assert.deepEqual(errorsAtRegistration, service.reviewErrors);
+	assert.ok(service.sessions.some(item => item.sessionId === session.sessionId));
+	assert.equal(lists, 2);
+	service.dispose();
+});
+}
+
+test("historical source availability survives registration, refresh, and reconnect", async (t) => {
+	const service = serviceWith([review]);
+	const historical: ReviewSessionDescriptor = {
+		...session,
+		sessionId: "historical-session",
+		sessionUrl: `${session.sessionUrl}-historical`,
+		historicalRevision: "b".repeat(40),
+		sourceUnavailable: "The pinned source commits are unavailable: missing commit",
+	};
+	let connections = 0;
+	let registered = false;
+	service.onDidRegisterSession((event) => {
+		registered = true;
+		assert.deepEqual(event.session, historical);
+	});
+	mockFetch(t, async (input) => {
+		const url = String(input);
+		if (url.includes("/events")) {
+			connections += 1;
+			return new Response(connections === 1
+				? `data: ${JSON.stringify({ event: "session-registered", session: historical, review })}\n\ndata: ${JSON.stringify({ event: "review-status-changed", uuid, status: "accepted" })}\n\n`
+				: "");
+		}
+		if (url.includes("/sessions")) return Response.json({ items: registered ? [session, historical] : [session] });
+		return Response.json({ reviews: [review], errors: [] });
+	});
+	const watch = () => (service as unknown as {
+		watchGlobalEvents(connected: () => void): Promise<void>;
+	}).watchGlobalEvents(() => undefined);
+	const assertAvailability = () => {
+		assert.equal(service.sessions.find((item) => item.sessionId === historical.sessionId)?.sourceUnavailable, historical.sourceUnavailable);
+		assert.equal(service.sessions.find((item) => item.sessionId === session.sessionId)?.sourceUnavailable, undefined);
+		assert.equal(service.reviews[0].sourceUnavailable, undefined);
+	};
+	await watch();
+	assert.equal(registered, true);
+	assert.equal(service.reviews[0].status, "accepted");
+	assertAvailability();
+	await service.refresh();
+	assertAvailability();
+	await watch();
+	assert.equal(connections, 2);
+	assertAvailability();
+	service.dispose();
+});
+
 test("confirmed dismiss updates the cached review", async (t) => {
 	const service = serviceWith([review]);
 	mockFetch(t, async () =>

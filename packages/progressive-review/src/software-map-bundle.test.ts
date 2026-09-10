@@ -1,25 +1,80 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { jsonObject, parseJsonText } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
   REVIEW_SOFTWARE_MAP_BUNDLE_DIR,
   bundleReviewSoftwareMap,
   readReviewSoftwareMapBundle,
+  sameReviewSoftwareMapBundle,
   writeReviewSoftwareMapBundle,
 } from "./software-map-bundle";
-import { defineSoftwareMap } from "./software-map-model";
+import {
+  defineSoftwareMap,
+  hydrateSoftwareModel,
+  softwareModelDataSchema,
+} from "./software-map-model";
 
 let directory: string | undefined;
-
 afterEach(async () => {
   if (directory) await rm(directory, { recursive: true, force: true });
 });
 
 describe("software map bundle", () => {
-  it("writes independent head and base modules with pinned commits", async () => {
+  it.each(["head", "base"] as const)(
+    "rejects unknown %s field properties before creating a bundle",
+    (side) => {
+      const field = { type: "string", unsupported: true };
+      const invalid = defineSoftwareMap({
+        systems: {
+          app: {
+            dataStores: {
+              db: { tables: { users: { schema: { id: field } } } },
+            },
+          },
+        },
+      });
+      const valid = defineSoftwareMap({ systems: {} });
+      expect(() =>
+        bundleReviewSoftwareMap({
+          head: side === "head" ? invalid : valid,
+          base: side === "base" ? invalid : valid,
+          headCommit: "a".repeat(40),
+          baseCommit: "b".repeat(40),
+        }),
+      ).toThrow(new RegExp(`${side}.*unsupported`, "s"));
+    },
+  );
+
+  it("rejects unknown foreign-key properties before creating a bundle", () => {
+    const fk = { table: "users", field: "id", unsupported: true };
+    const map = defineSoftwareMap({
+      systems: {
+        app: {
+          dataStores: {
+            db: {
+              tables: {
+                orders: { schema: { userId: { type: "string", fk } } },
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(() =>
+      bundleReviewSoftwareMap({
+        head: map,
+        base: map,
+        headCommit: "a".repeat(40),
+        baseCommit: "b".repeat(40),
+      }),
+    ).toThrow(/head.*unsupported/s);
+  });
+
+  it("writes head and base maps as JSON and reads them back", async () => {
     directory = await mkdtemp(path.join(tmpdir(), "review-map-bundle-"));
     const head = defineSoftwareMap({ systems: { app: { label: "App" } } });
     const base = defineSoftwareMap({ systems: { api: { label: "API" } } });
@@ -32,14 +87,45 @@ describe("software map bundle", () => {
 
     await writeReviewSoftwareMapBundle(directory, bundle);
 
-    await expect(readReviewSoftwareMapBundle(directory)).resolves.toEqual(
-      bundle,
-    );
-    await expect(
-      readFile(
-        path.join(directory, REVIEW_SOFTWARE_MAP_BUNDLE_DIR, "head-map.js"),
+    const read = await readReviewSoftwareMapBundle(directory);
+    expect(read).toEqual(bundle);
+    const headFile = JSON.parse(
+      await readFile(
+        path.join(directory, REVIEW_SOFTWARE_MAP_BUNDLE_DIR, "head-map.json"),
         "utf8",
       ),
-    ).resolves.toContain("elementsByPath = new Map");
+    );
+    expect(headFile.format).toBe("software-map/1");
+    expect(headFile.elements.map((e: { path: string }) => e.path)).toEqual(
+      head.elements.map((e) => e.path),
+    );
+    expect(
+      hydrateSoftwareModel(
+        softwareModelDataSchema.parse({
+          elements: jsonObject(parseJsonText(read!.headJson))?.elements,
+          relationships: jsonObject(parseJsonText(read!.headJson))
+            ?.relationships,
+        }),
+      ).elementsByPath.get("app"),
+    ).toEqual(head.elementsByPath.get("app"));
+    expect(sameReviewSoftwareMapBundle(read!, bundle)).toBe(true);
+  });
+
+  it("returns null for a version-1 (JavaScript) bundle", async () => {
+    directory = await mkdtemp(path.join(tmpdir(), "review-map-bundle-"));
+    const bundleDir = path.join(directory, REVIEW_SOFTWARE_MAP_BUNDLE_DIR);
+    await mkdir(bundleDir, { recursive: true });
+    await writeFile(
+      path.join(bundleDir, "manifest.json"),
+      JSON.stringify({
+        version: 1,
+        headCommit: "a".repeat(40),
+        baseCommit: "b".repeat(40),
+      }),
+    );
+    await writeFile(path.join(bundleDir, "head-map.js"), "export default {}");
+    await writeFile(path.join(bundleDir, "base-map.js"), "export default {}");
+
+    await expect(readReviewSoftwareMapBundle(directory)).resolves.toBeNull();
   });
 });

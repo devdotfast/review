@@ -5,7 +5,7 @@ import {
   defineStores,
 } from "virtual:progressive-review-authoring";
 
-import authoringConversationInput from "./authoring-conversation.json";
+import authoringConversationInput from "./authoring-conversation.json" with { type: "json" };
 
 // SAFETY: scripts/check-tutorial.ts parses authoring-conversation.json with
 // tutorialAuthoringConversationSchema in CI, which pins version to 1 and role

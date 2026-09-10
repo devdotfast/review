@@ -56,8 +56,8 @@ test("production build configurations include the Review entrypoint and CSS", as
     workbenchHtml,
     /href="\.\.\/\.\.\/\.\.\/review\/review\.desktop\.main\.css"/,
   );
-  assert.match(workbenchHtml, /\breviewDocumentModule\b/);
-  assert.match(workbenchDevHtml, /\breviewDocumentModule\b/);
+  assert.doesNotMatch(workbenchHtml, /\breviewDocumentModule\b/);
+  assert.doesNotMatch(workbenchDevHtml, /\breviewDocumentModule\b/);
   assert.match(workbenchHtml, /\breviewLibavoid\b/);
   assert.match(workbenchDevHtml, /\breviewLibavoid\b/);
   assert.match(workbenchHtml, /script-src[\s\S]*?'trusted-types-eval'/);
@@ -100,7 +100,6 @@ test("canvas targets are derived from fixed output locations", () => {
 test("the canvas loader exposes transient view-state reset", () => {
   const source = canvasLoaderSource({
     canvasFile: "assets/canvas.js",
-    docRuntimeFile: "assets/doc-runtime.js",
     wasmFile: "assets/libavoid.wasm",
     stylesheets: ["assets/canvas.css"],
   });
@@ -109,6 +108,7 @@ test("the canvas loader exposes transient view-state reset", () => {
     source,
     /export \{ clearReviewViewState, mountReviewCanvas \} from "\.\/assets\/canvas\.js";/,
   );
+  assert.doesNotMatch(source, /reviewDocRuntimeUrl|doc-runtime/);
 });
 
 test("M5 launches the packaged Review binary", async () => {
@@ -238,7 +238,17 @@ test("the packaged app carries its own Review runtime and is never written to at
   assert.ok(tutorialManifest.requiredPaths.includes("git-stub/HEAD"));
   assert.ok(
     tutorialManifest.requiredPaths.includes(
-      ".bundle/document/review-document.js",
+      ".bundle/document/review-document.json",
+    ),
+  );
+  assert.ok(
+    tutorialManifest.requiredPaths.includes(
+      ".bundle/software-map/head-map.json",
+    ),
+  );
+  assert.ok(
+    tutorialManifest.requiredPaths.includes(
+      ".bundle/software-map/base-map.json",
     ),
   );
   assert.ok(

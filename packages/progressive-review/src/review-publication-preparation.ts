@@ -2,7 +2,10 @@ import path from "node:path";
 
 import { patchChangedLines } from "./call-stack-diff";
 import type { ReviewDocumentDiagnostic } from "./compiler/review-document-compiler";
-import { writeReviewDocumentBundle } from "./review-bundle";
+import {
+  type ReviewDocumentBundle,
+  bundleReviewDocument,
+} from "./review-bundle";
 import {
   type ReviewDiffFilesResult,
   resolveReviewDiffFiles,
@@ -53,7 +56,7 @@ export class ReviewPublicationValidationError extends Error {
 
 export async function prepareReviewDocumentBundle(input: {
   review: StoredReview;
-}): Promise<{ warnings: string[] }> {
+}): Promise<{ bundle: ReviewDocumentBundle; warnings: string[] }> {
   const warnings: string[] = [];
   const compiled = await span("publish: compile document bundle", () =>
     compileReviewDocumentBundle({
@@ -118,15 +121,19 @@ export async function prepareReviewDocumentBundle(input: {
       },
     }),
   );
-  if (evaluation.errors.length > 0) {
-    throw new ReviewPublicationValidationError(evaluation.errors, undefined, [
-      ...new Set([...warnings, ...evaluation.warnings]),
-    ]);
+  if (!evaluation.document) {
+    throw new ReviewPublicationValidationError(
+      evaluation.errors.length > 0
+        ? evaluation.errors
+        : ["Review document did not materialize."],
+      undefined,
+      [...new Set([...warnings, ...evaluation.warnings])],
+    );
   }
-  await span("publish: write document bundle", () =>
-    writeReviewDocumentBundle(input.review.dir, bundle),
-  );
-  return { warnings: [...new Set([...warnings, ...evaluation.warnings])] };
+  return {
+    bundle: bundleReviewDocument(evaluation.document),
+    warnings: [...new Set([...warnings, ...evaluation.warnings])],
+  };
 }
 
 /** Validates and bundles the software map. The caller decides when to

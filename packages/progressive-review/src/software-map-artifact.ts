@@ -544,10 +544,14 @@ function readFileOrNull(filePath: string): string | null {
 // Materialization (derived cache for document-bundle static imports)
 // ---------------------------------------------------------------------------
 
+/** Copies a note source into the tolerant cache used by document-bundle
+ * static imports. `validate: "skip"` is the serving path: strict-validation
+ * warnings belong to CLI materialization and publication, not to the server. */
 export async function materializeSoftwareMapAtRef(input: {
   repoRootPath: string;
   ref: string;
   role: SoftwareMapArtifactRole;
+  validate?: "strict-warn" | "skip";
 }): Promise<string | null> {
   const read = await readSoftwareMapSourceForRef(input);
   if (!read) return null;
@@ -557,7 +561,9 @@ export async function materializeSoftwareMapAtRef(input: {
   // Gated by a content-hash marker, NOT by write status: the sync path may
   // have materialized this content first (making this write "unchanged"),
   // and the promised strict-validation warning must still fire once for it.
-  await warnOnInvalidMaterializedSource({ gitDir, read });
+  if ((input.validate ?? "strict-warn") === "strict-warn") {
+    await warnOnInvalidMaterializedSource({ gitDir, read });
+  }
   return written.outputPath;
 }
 

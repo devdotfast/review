@@ -6,6 +6,7 @@ import {
 import { useMemo, useState } from "react";
 
 import { useReviewSession } from "./host/review-session";
+import { ReviewUnavailable } from "./review-empty-state";
 import { useReviewPanel } from "./review-panel";
 import { captureUiEvent } from "./ui-telemetry";
 
@@ -23,6 +24,15 @@ export function ReviewCommitsView({
   range: import("@dev.fast/review-protocol").ReviewCanvasRange;
   onOpenDiff: (commit: ReviewCommitSummary, via: "row") => void;
 }) {
+  if (range.sourceUnavailable) {
+    return (
+      <ReviewUnavailable
+        role="status"
+        title="Commits unavailable"
+        message={range.sourceUnavailable}
+      />
+    );
+  }
   return (
     <div className="review-commits-view">
       <div className="review-commits-column">

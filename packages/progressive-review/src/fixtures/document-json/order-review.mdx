@@ -1,0 +1,39 @@
+import { anchors, actors, stores, messages } from "./data.ts";
+
+# Order persistence — café ☕
+
+Keep **durable writes**, *typed reads*, and `order.status` together.
+Preserve &amp; decode entities; keep [the API guide](https://example.com/orders?q=ready&limit=2 "Order API").
+
+> A queued order is not yet shipped.
+
+- [x] Validate inventory
+- [ ] Ship the order
+
+1. Read the existing order.
+2. Persist the new status.
+
+| Field | Value |
+| :--- | ---: |
+| status | queued |
+
+```ts
+const status = "queued";
+if (status !== "shipped") enqueue();
+```
+
+## Evidence
+
+<AnchorLink anchor={anchors.current}>Read the current write</AnchorLink>
+<CodePeek anchor={anchors.previous} />
+<SequenceDiagram label="Read, then write" messages={messages} />
+<CallStackDiff title="Queue instead of draft" base={[anchors.previous]} head={[anchors.current]} />
+
+<ReviewSection title="Storage details" defaultCollapsed>
+  <DatabaseLens title="Order database" stores={stores}>
+    <DbUseCase id="persist" label="Persist an order">
+      <DbRead from={stores.db.tables.orders.status} to={actors.service} label="Read status" anchor={anchors.current} />
+      <DbWrite from={actors.service} to={stores.db.tables.orders.status} label="Queue order" anchor={anchors.current} />
+    </DbUseCase>
+  </DatabaseLens>
+</ReviewSection>

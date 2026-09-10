@@ -5,6 +5,7 @@ import type { Writable } from "node:stream";
 
 import {
   type ReviewDocumentVersionWire,
+  type ReviewErrorDetail,
   type ReviewRecord,
   type ReviewServerEvent,
   type ReviewSessionWire,
@@ -17,7 +18,11 @@ import { streamSSE } from "hono/streaming";
 
 import type { ReviewAgentHarness, SessionRef } from "../authoring-session";
 import type { AgentServer } from "../native-agent/native-session";
-import { readReviewDocumentBundle } from "../review-bundle";
+import {
+  type ReviewDocumentBundle,
+  readReviewDocumentBundle,
+} from "../review-bundle";
+import { ReviewBusyError, reviewBusyResponse } from "../review-mutation-lock";
 import { resolveReviewSessionBaseCommit } from "../review-worktree-target";
 import {
   type ReviewSoftwareMapBundle,
@@ -28,7 +33,6 @@ import type {
   ProgressiveReviewTelemetryContext,
 } from "../telemetry";
 import type { ReviewSubmissionEvent } from "../types";
-import type { ReviewDocumentBundle } from "./doc-bundler";
 import {
   type ReviewHonoEnv,
   applyCorsHeaders,
@@ -37,10 +41,22 @@ import {
   jsonResponse,
 } from "./hono-http";
 import { type ReviewApi, createReviewApi } from "./review-api";
+import {
+  LIVE_REVIEW_SESSION_MODE,
+  type ReviewSessionArtifacts,
+  type ReviewSessionMode,
+  reviewSessionModeRecord,
+} from "./review-session-mode";
 
 const API_PREFIX = "/__progressive-review";
-const MODULE_PATH_PREFIX = `${API_PREFIX}/doc-modules/`;
-const MAP_MODULE_PATH_PREFIX = `${API_PREFIX}/software-map-modules/`;
+const DOCUMENT_PATH_PREFIX = `${API_PREFIX}/documents/`;
+const MAP_PATH_PREFIX = `${API_PREFIX}/software-maps/`;
+const NEEDS_REPUBLISH_ERROR =
+  "This review was published by an earlier version of Review and its document must be regenerated.";
+const NEEDS_REPUBLISH_MAP_ERROR =
+  "This review's software map must be regenerated.";
+const HISTORICAL_UNAVAILABLE_ERROR =
+  "This older revision is unavailable in this version of Review";
 
 interface ReviewEventClient {
   write(frame: string): void;
@@ -59,7 +75,9 @@ export interface ReviewSessionHandlerInput {
   sessionId?: string;
   reviewUuid?: string;
   submitHook?: string;
-  historicalRevision?: string;
+  mode?: ReviewSessionMode;
+  artifacts?: ReviewSessionArtifacts;
+  readOnlyThreadsPath?: string;
   listDocumentVersions?: () => Promise<ReviewDocumentVersionWire[]>;
   session: ReviewSessionWire;
   stderr?: Writable;
@@ -105,20 +123,21 @@ export async function createReviewSessionHandler(
   dependencies: ReviewSessionHandlerDependencies = {},
 ): Promise<ReviewSessionHandler> {
   const session = input.session;
+  const mode = input.mode ?? LIVE_REVIEW_SESSION_MODE;
+  const artifacts = input.artifacts ?? {};
   const renderDir = path.dirname(input.reviewPath);
   const storageDir =
     session.storageDir ??
     path.dirname(input.stateReviewPath ?? input.reviewPath);
   const reviewRootPath = input.reviewRootPath ?? storageDir;
-  await Promise.all([
-    mkdir(renderDir, { recursive: true, mode: 0o700 }),
-    mkdir(storageDir, { recursive: true, mode: 0o700 }),
-  ]);
+  await mkdir(storageDir, { recursive: true, mode: 0o700 });
+  if (!artifacts.document)
+    await mkdir(renderDir, { recursive: true, mode: 0o700 });
   const token = input.token ?? crypto.randomBytes(32).toString("base64url");
   const sessionUrl = (session.sessionUrl ?? session.appUrl).replace(/\/$/, "");
   const documentsDir = path.join(renderDir, ".review-documents");
   let currentBundle: ReviewDocumentBundle | null = null;
-  let bundlePromise: Promise<ReviewDocumentBundle> | null = null;
+  let bundlePromise: Promise<ReviewDocumentBundle | null> | null = null;
   let softwareMapBundlePromise: Promise<ReviewSoftwareMapBundle | null> | null =
     null;
   const eventClients = new Set<ReviewEventClient>();
@@ -163,17 +182,9 @@ export async function createReviewSessionHandler(
       }
     : undefined;
 
-  const getBundle = async (): Promise<ReviewDocumentBundle> => {
+  const getBundle = async (): Promise<ReviewDocumentBundle | null> => {
     if (currentBundle) return currentBundle;
-    bundlePromise ??= (async () => {
-      const bundle = await readReviewDocumentBundle(renderDir, input.routePath);
-      if (!bundle) {
-        throw new Error(
-          "The published Review document bundle is missing. Run `review migrate apply`.",
-        );
-      }
-      return bundle;
-    })();
+    bundlePromise ??= readReviewDocumentBundle(renderDir, input.routePath);
     try {
       currentBundle = await bundlePromise;
       return currentBundle;
@@ -195,8 +206,55 @@ export async function createReviewSessionHandler(
     for (const client of eventClients) client.write(frame);
   };
 
-  const moduleUrl = (bundle: ReviewDocumentBundle): string =>
-    `${sessionUrl}${MODULE_PATH_PREFIX}${bundle.contentHash}.js`;
+  const needsRepublishReviewUuid = (): string => {
+    if (!input.reviewUuid) {
+      throw new Error("A review UUID is required to report needs_republish.");
+    }
+    return input.reviewUuid;
+  };
+
+  /** The map is stale when its own revision is gone, or when a published map
+   * root no longer yields a readable bundle. One expression, one answer. */
+  const mapIsStale = async (): Promise<boolean> =>
+    Boolean(
+      artifacts.map ||
+      (input.softwareMapRootPath && !(await getSoftwareMapBundle())),
+    );
+
+  /** The one 409 for an artifact the session cannot serve. */
+  const artifactUnavailable = async (
+    kind: "document" | "map",
+    message: string,
+  ): Promise<Response> => {
+    const reviewUuid = needsRepublishReviewUuid();
+    const detail: ReviewErrorDetail =
+      mode.kind === "historical"
+        ? { code: "historical_revision_unavailable", reviewUuid }
+        : {
+            code: "needs_republish",
+            reviewUuid,
+            mapStale: kind === "document" ? await mapIsStale() : true,
+          };
+    return jsonResponse(
+      {
+        ok: false,
+        error: message,
+        detail,
+      },
+      409,
+    );
+  };
+
+  /** The message when the artifact itself is intact but its revision is not. */
+  const staleArtifactMessage = (kind: "document" | "map"): string =>
+    mode.kind === "historical"
+      ? HISTORICAL_UNAVAILABLE_ERROR
+      : kind === "document"
+        ? NEEDS_REPUBLISH_ERROR
+        : NEEDS_REPUBLISH_MAP_ERROR;
+
+  const documentUrl = (bundle: ReviewDocumentBundle): string =>
+    `${sessionUrl}${DOCUMENT_PATH_PREFIX}${bundle.contentHash}.json`;
 
   const app = new Hono<ReviewHonoEnv>();
   app.use("*", async (context, next) => {
@@ -217,35 +275,18 @@ export async function createReviewSessionHandler(
     }
     await next();
   });
-  if (input.historicalRevision) {
-    app.use(`${API_PREFIX}/*`, async (context, next) => {
-      const method = context.req.method;
-      if (
-        method === "GET" ||
-        method === "HEAD" ||
-        method === "OPTIONS" ||
-        context.req.path.startsWith(`${API_PREFIX}/telemetry`)
-      ) {
-        await next();
-        return;
-      }
-      return jsonResponse(
-        {
-          ok: false,
-          error: "This historical version is read-only.",
-          code: "historical_revision",
-        },
-        409,
-      );
-    });
-  }
   app.get(`${API_PREFIX}/session`, async () => {
-    const resolvedBaseRef = await (
-      dependencies.resolveReviewSessionBaseCommit ??
-      resolveReviewSessionBaseCommit
-    )({
-      reviewRootPath,
-    });
+    const presentedRecord = reviewSessionModeRecord(mode);
+    const resolvedBaseRef = presentedRecord
+      ? artifacts.source
+        ? null
+        : presentedRecord.baseCommit
+      : await (
+          dependencies.resolveReviewSessionBaseCommit ??
+          resolveReviewSessionBaseCommit
+        )({
+          reviewRootPath,
+        });
     const sessionPayload: ReturnType<typeof reviewSessionPayload> & {
       resolvedBaseRef: typeof resolvedBaseRef;
       reviewStatus?: ReviewRecord["status"];
@@ -267,36 +308,46 @@ export async function createReviewSessionHandler(
       200,
     );
   });
-  app.get(`${API_PREFIX}/doc-module`, async () => {
+  app.get(`${API_PREFIX}/document`, async () => {
+    if (artifacts.document)
+      return artifactUnavailable("document", artifacts.document);
     const bundle = await getBundle();
+    if (!bundle)
+      return artifactUnavailable("document", staleArtifactMessage("document"));
     return jsonResponse(
       {
         ok: true,
         contentHash: bundle.contentHash,
-        moduleUrl: moduleUrl(bundle),
+        documentUrl: documentUrl(bundle),
       },
       200,
     );
   });
-  app.get(`${MODULE_PATH_PREFIX}:moduleName`, async (context) => {
+  app.get(`${DOCUMENT_PATH_PREFIX}:documentName`, async (context) => {
     const bundle = await getBundle();
-    if (context.req.param("moduleName") !== `${bundle.contentHash}.js`) {
+    if (
+      !bundle ||
+      context.req.param("documentName") !== `${bundle.contentHash}.json`
+    ) {
       return jsonResponse(
-        { ok: false, error: "Document module not found" },
+        { ok: false, error: "Review document not found" },
         404,
       );
     }
-    return new Response(bundle.code, {
+    return new Response(bundle.json, {
       status: 200,
       headers: {
         "cache-control": "no-store",
-        "content-type": "text/javascript; charset=utf-8",
+        "content-type": "application/json; charset=utf-8",
       },
     });
   });
-  app.get(`${API_PREFIX}/software-map-module`, async () => {
+  app.get(`${API_PREFIX}/software-map`, async () => {
+    if (artifacts.map) return artifactUnavailable("map", artifacts.map);
     const bundle = await getSoftwareMapBundle();
     if (!bundle) {
+      if (input.softwareMapRootPath)
+        return artifactUnavailable("map", staleArtifactMessage("map"));
       return jsonResponse(
         { ok: false, error: "Software map is not published" },
         404,
@@ -306,32 +357,29 @@ export async function createReviewSessionHandler(
       {
         ok: true,
         contentHash: bundle.contentHash,
-        headModuleUrl: `${sessionUrl}${MAP_MODULE_PATH_PREFIX}head-${bundle.contentHash}.js`,
-        baseModuleUrl: `${sessionUrl}${MAP_MODULE_PATH_PREFIX}base-${bundle.contentHash}.js`,
+        headMapUrl: `${sessionUrl}${MAP_PATH_PREFIX}head-${bundle.contentHash}.json`,
+        baseMapUrl: `${sessionUrl}${MAP_PATH_PREFIX}base-${bundle.contentHash}.json`,
       },
       200,
     );
   });
-  app.get(`${MAP_MODULE_PATH_PREFIX}:moduleName`, async (context) => {
+  app.get(`${MAP_PATH_PREFIX}:mapName`, async (context) => {
     const bundle = await getSoftwareMapBundle();
-    const moduleName = context.req.param("moduleName");
-    const code =
-      moduleName === `head-${bundle?.contentHash}.js`
-        ? bundle?.headCode
-        : moduleName === `base-${bundle?.contentHash}.js`
-          ? bundle?.baseCode
+    const mapName = context.req.param("mapName");
+    const json =
+      mapName === `head-${bundle?.contentHash}.json`
+        ? bundle?.headJson
+        : mapName === `base-${bundle?.contentHash}.json`
+          ? bundle?.baseJson
           : undefined;
-    if (!code) {
-      return jsonResponse(
-        { ok: false, error: "Software map module not found" },
-        404,
-      );
+    if (!json) {
+      return jsonResponse({ ok: false, error: "Software map not found" }, 404);
     }
-    return new Response(code, {
+    return new Response(json, {
       status: 200,
       headers: {
         "cache-control": "no-store",
-        "content-type": "text/javascript; charset=utf-8",
+        "content-type": "application/json; charset=utf-8",
       },
     });
   });
@@ -375,6 +423,9 @@ export async function createReviewSessionHandler(
     return response;
   });
   const reviewApi = createReviewApi({
+    mode,
+    readOnlyThreadsPath: input.readOnlyThreadsPath,
+    sourceUnavailable: artifacts.source,
     reviewPath: input.reviewPath,
     reviewDocumentsDir: documentsDir,
     rootPath: input.rootPath,
@@ -414,15 +465,17 @@ export async function createReviewSessionHandler(
     }),
   );
   app.notFound(() => jsonResponse({ ok: false, error: "Not found" }, 404));
-  app.onError((error) =>
-    jsonResponse(
+  app.onError((error) => {
+    if (error instanceof ReviewBusyError)
+      return jsonResponse(reviewBusyResponse(error), 409);
+    return jsonResponse(
       {
         ok: false,
         error: error instanceof Error ? error.message : String(error),
       },
       500,
-    ),
-  );
+    );
+  });
 
   function reviewSessionPayload() {
     return {

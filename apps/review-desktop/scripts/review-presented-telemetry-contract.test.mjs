@@ -6,25 +6,11 @@ const canvasPartUrl = new URL(
   "../code-oss/src/vs/review/browser/parts/canvas/reviewCanvasPart.ts",
   import.meta.url,
 );
-const desktopEntryUrl = new URL(
-  "../../../packages/progressive-review/app/src/desktop-entry.tsx",
-  import.meta.url,
-);
 
+// The canvas part has no rendering test; the entry's ready/diagnostic
+// ordering does, in app/src/desktop-entry.test.tsx.
 test("presented telemetry follows a successful visible canvas ready signal", async () => {
-  const [canvasPart, desktopEntry] = await Promise.all([
-    readFile(canvasPartUrl, "utf8"),
-    readFile(desktopEntryUrl, "utf8"),
-  ]);
-
-  assert.match(
-    desktopEntry,
-    /Promise\.all\(\[documentBundle, softwareMapBundle\]\)/,
-  );
-  assert.match(
-    desktopEntry,
-    /if \(document && softwareMapLoaded && !error\) session\.signalReady\(\)/,
-  );
+  const canvasPart = await readFile(canvasPartUrl, "utf8");
 
   const visibleBridge = canvasPart.slice(
     canvasPart.indexOf("private createBridge("),

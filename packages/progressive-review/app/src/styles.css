@@ -878,9 +878,10 @@ button {
   margin: 0 auto;
 }
 
-.review-scan-warning {
+.review-home-attention {
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   align-items: center;
   align-self: flex-start;
   width: fit-content;
@@ -893,8 +894,26 @@ button {
   color: var(--ink-soft);
 }
 
-.review-scan-warning code {
+.review-home-attention-title {
+  font-weight: 600;
+}
+
+.review-home-attention-command {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.review-home-attention code {
+  min-width: 0;
+  overflow-wrap: anywhere;
   color: var(--ink);
+  font-family: var(--font-mono);
+}
+
+.review-home-attention .review-home-prompt-copy {
+  flex: 0 0 auto;
 }
 
 .review-session-content {

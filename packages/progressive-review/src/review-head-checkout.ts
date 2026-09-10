@@ -18,6 +18,7 @@ import {
   reviewManagedCheckoutRoot,
   reviewManagedCheckoutsDir,
 } from "./review-storage";
+import { withFileLock } from "./with-file-lock";
 
 // A review renders the pinned code on the canvas, but file reads against the
 // user's working tree see whatever is checked out there — including edits
@@ -38,10 +39,22 @@ export async function ensureReviewPinnedCheckout(input: {
     role: input.role ?? "head",
   });
   if (!target) return null;
-  await materializeReviewPinnedCheckout({
-    rootPath: input.rootPath,
-    ...target,
-  });
+  const prepared = await withFileLock(
+    `${target.checkoutPath}.prepare-lock`,
+    {
+      retryMs: 20,
+      timeoutMs: 30_000,
+      staleMs: 120_000,
+      heartbeatMs: 5_000,
+      unownedGraceMs: 1_000,
+    },
+    () =>
+      materializeReviewPinnedCheckout({ rootPath: input.rootPath, ...target }),
+  );
+  if (!prepared.acquired)
+    throw new Error(
+      `Pinned checkout ${target.commit} is busy; retry the operation.`,
+    );
   return target.checkoutPath;
 }
 

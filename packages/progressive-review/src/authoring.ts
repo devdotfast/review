@@ -1,4 +1,4 @@
-import { isObjectValue } from "@dev.fast/review-protocol";
+import { isObjectValue, jsonValueSchema } from "@dev.fast/review-protocol";
 import type { ComponentType, ReactNode } from "react";
 import { z } from "zod";
 
@@ -579,6 +579,9 @@ export const reviewAuthoringPropsSchemas = {
   TutorialViewButton: tutorialViewButtonPropsSchema,
 } satisfies Record<keyof ReviewAuthoringComponentRegistry, z.ZodType>;
 
+export type ReviewAuthoringComponentName =
+  keyof typeof reviewAuthoringPropsSchemas;
+
 const softwareDataStoreForeignKeyRefSchema = z.union([
   nonEmptyStringSchema,
   z.strictObject({
@@ -603,6 +606,22 @@ const softwareDataStoreFieldSchema: z.ZodType<SoftwareDataStoreFieldSchema> =
           schema: softwareDataStoreFieldSchema.optional(),
         }),
         softwareDataStoreFieldSchema,
+      ]),
+    ),
+  );
+const softwareDataStoreFieldDataSchema: z.ZodType<SoftwareDataStoreFieldSchema> =
+  z.lazy(() =>
+    z.record(
+      nonEmptyStringSchema,
+      z.union([
+        z.strictObject({
+          type: nonEmptyStringSchema,
+          example: jsonValueSchema.optional(),
+          pk: z.boolean().optional(),
+          fk: softwareDataStoreForeignKeyRefSchema.optional(),
+          schema: softwareDataStoreFieldDataSchema.optional(),
+        }),
+        softwareDataStoreFieldDataSchema,
       ]),
     ),
   );
@@ -649,15 +668,205 @@ type CollectionHandle = AuthoredTargetRef & {
 export type CollectionRef = CollectionHandle &
   Record<string, AuthoredTargetRef>;
 
-export function collectionTargetRef(collection: CollectionRef): TargetRef {
+export function collectionTargetRef(collection: CollectionHandle): TargetRef {
   return collection[authoredTargetRefKey];
 }
 
 export function collectionSchema(
-  collection: CollectionRef,
+  collection: CollectionHandle,
 ): SoftwareDataStoreFieldSchema {
   return collection[collectionSchemaKey];
 }
+
+export interface CollectionRefData {
+  target: TargetRef;
+  schema: SoftwareDataStoreFieldSchema;
+}
+
+export interface StoreRefData {
+  __kind: "db-store-ref";
+  id: string;
+  kind: StoreKind;
+  label: string;
+  dataStoreKind?: SoftwareDataStoreKind;
+  softwareMapPath?: string;
+  tables?: Record<string, CollectionRefData>;
+  documents?: Record<string, CollectionRefData>;
+}
+
+type StoreRefDataSource = Omit<StoreRef, "tables" | "documents"> & {
+  tables?: Record<string, CollectionHandle>;
+  documents?: Record<string, CollectionHandle>;
+};
+
+export function storeRefData(store: StoreRef): StoreRefData;
+export function storeRefData(store: StoreRefDataSource): StoreRefData;
+export function storeRefData(store: StoreRefDataSource): StoreRefData {
+  const collections = (
+    refs?: Record<string, CollectionHandle>,
+  ): Record<string, CollectionRefData> | undefined =>
+    refs &&
+    Object.fromEntries(
+      Object.entries(refs).map(([id, ref]) => [
+        id,
+        {
+          target: collectionTargetRef(ref),
+          schema: collectionSchema(ref),
+        },
+      ]),
+    );
+
+  const data: StoreRefData = {
+    __kind: "db-store-ref",
+    id: store.id,
+    kind: store.kind,
+    label: store.label,
+  };
+  if (store.dataStoreKind) data.dataStoreKind = store.dataStoreKind;
+  if (store.softwareMapPath) data.softwareMapPath = store.softwareMapPath;
+  if (store.tables) data.tables = collections(store.tables);
+  if (store.documents) data.documents = collections(store.documents);
+  return data;
+}
+
+export function hydrateStoreRef(data: StoreRefData): StoreRef {
+  const collections = (
+    refs?: Record<string, CollectionRefData>,
+  ): Record<string, CollectionRef> | undefined =>
+    refs &&
+    Object.fromEntries(
+      Object.entries(refs).map(([id, ref]) => [
+        id,
+        collectionRefFromTarget(ref.target, ref.schema),
+      ]),
+    );
+
+  const store: StoreRef = {
+    __kind: "db-store-ref",
+    id: data.id,
+    kind: data.kind,
+    label: data.label,
+  };
+  if (data.dataStoreKind) store.dataStoreKind = data.dataStoreKind;
+  if (data.softwareMapPath) store.softwareMapPath = data.softwareMapPath;
+  if (data.tables) store.tables = collections(data.tables);
+  if (data.documents) store.documents = collections(data.documents);
+  return Object.freeze(store);
+}
+
+const collectionRefDataSchema = z.strictObject({
+  target: resolvedTargetRefSchema,
+  schema: softwareDataStoreFieldDataSchema,
+});
+
+export const storeRefDataSchema: z.ZodType<StoreRefData> = z.strictObject({
+  __kind: z.literal("db-store-ref"),
+  id: nonEmptyStringSchema,
+  kind: storeKindSchema,
+  label: nonEmptyStringSchema,
+  dataStoreKind: softwareDataStoreKindSchema.optional(),
+  softwareMapPath: optionalNonEmptyStringSchema,
+  tables: z.record(nonEmptyStringSchema, collectionRefDataSchema).optional(),
+  documents: z.record(nonEmptyStringSchema, collectionRefDataSchema).optional(),
+});
+
+// The JSON form of each registry component's props, as a published document
+// stores them: `children` is gone (the document keeps its own child nodes),
+// store handles are their data projection, and code-peek resolutions are
+// stripped. review-document-materialize.ts writes exactly this.
+export const documentCodePeekRefSchema = codePeekRefSchema.extend({
+  resolution: z.null(),
+});
+export const documentAnchorRefSchema = anchorRefSchema.extend({
+  peek: documentCodePeekRefSchema.optional(),
+});
+export const documentPeekableAnchorRefSchema = anchorRefSchema.extend({
+  peek: documentCodePeekRefSchema,
+});
+
+const documentCallStackEntrySchema = z.union([
+  documentPeekableAnchorRefSchema,
+  z.strictObject({
+    __kind: z.literal("call-assertion"),
+    parent: documentPeekableAnchorRefSchema,
+    child: documentPeekableAnchorRefSchema,
+    reason: optionalNonEmptyStringSchema,
+  }),
+]);
+
+const documentSequenceMessageFields = {
+  from: sequenceActorInputSchema,
+  to: sequenceActorInputSchema,
+  label: nonEmptyStringSchema,
+};
+const documentSequenceMessageSchema = z.union([
+  z.strictObject({
+    ...documentSequenceMessageFields,
+    anchor: documentPeekableAnchorRefSchema,
+    code: sequenceMessageCodeInputSchema.optional(),
+  }),
+  z.strictObject({
+    ...documentSequenceMessageFields,
+    anchor: documentAnchorRefSchema.optional(),
+    code: sequenceMessageCodeInputSchema,
+  }),
+]);
+
+const documentDbOperationFields = {
+  label: nonEmptyStringSchema,
+  anchor: documentPeekableAnchorRefSchema,
+};
+
+export const reviewComponentDataSchemas = {
+  AnchorLink: z.strictObject({ anchor: documentPeekableAnchorRefSchema }),
+  CallStackDiff: z.strictObject({
+    title: optionalNonEmptyStringSchema,
+    base: z.array(documentCallStackEntrySchema),
+    head: z.array(documentCallStackEntrySchema),
+  }),
+  CodePeek: z.strictObject({ anchor: documentPeekableAnchorRefSchema }),
+  DatabaseLens: z.strictObject({
+    title: optionalNonEmptyStringSchema,
+    stores: z.record(nonEmptyStringSchema, storeRefDataSchema),
+    height: z.number().positive().optional(),
+  }),
+  DbRead: z.strictObject({
+    from: resolvedTargetRefSchema,
+    to: actorRefSchema,
+    ...documentDbOperationFields,
+  }),
+  DbUseCase: z.strictObject({
+    id: nonEmptyStringSchema,
+    label: nonEmptyStringSchema,
+    summary: optionalNonEmptyStringSchema,
+  }),
+  DbWrite: z.strictObject({
+    from: actorRefSchema,
+    to: resolvedTargetRefSchema,
+    ...documentDbOperationFields,
+  }),
+  ReviewSection: z.strictObject({
+    title: nonEmptyStringSchema,
+    defaultCollapsed: z.boolean().optional(),
+  }),
+  SequenceDiagram: z.strictObject({
+    label: nonEmptyStringSchema,
+    messages: z.array(documentSequenceMessageSchema).min(1),
+  }),
+  TraceQuote: z.strictObject({
+    sessionId: nonEmptyStringSchema,
+    trace: optionalNonEmptyStringSchema,
+    event: z.int().nonnegative().optional(),
+  }),
+  TutorialAuthoringConversation: z.strictObject({
+    conversation: tutorialAuthoringConversationSchema,
+  }),
+  TutorialFeature: z.strictObject({ feature: z.literal("softwareMap") }),
+  TutorialKeymapPicker: z.strictObject({}),
+  TutorialViewButton: z.strictObject({
+    view: z.enum(["review", "commits", "diff", "map"]),
+  }),
+} satisfies Record<ReviewAuthoringComponentName, z.ZodType>;
 
 export type CollectionRefs<T> =
   T extends Record<string, SoftwareDataStoreCollectionInput>
@@ -1077,17 +1286,24 @@ function defineCollections(
         collectionKey: collection.key,
         path: [],
       };
-      const fields = defineFieldTargets(target, collection.schema, []);
-      // SAFETY: the handle's symbol-keyed target and schema are defined on
-      // the next statement, before the collection ref escapes.
-      const authored = Object.assign({}, fields) as CollectionRef;
-      Object.defineProperties(authored, {
-        [authoredTargetRefKey]: { value: Object.freeze(target) },
-        [collectionSchemaKey]: { value: collection.schema },
-      });
-      return [collectionId, Object.freeze(authored)];
+      return [collectionId, collectionRefFromTarget(target, collection.schema)];
     }),
   );
+}
+
+function collectionRefFromTarget(
+  target: TargetRef,
+  schema: SoftwareDataStoreFieldSchema,
+): CollectionRef {
+  const fields = defineFieldTargets(target, schema, []);
+  // SAFETY: the handle's symbol-keyed target and schema are defined on the
+  // next statement, before the collection ref escapes.
+  const authored = Object.assign({}, fields) as CollectionRef;
+  Object.defineProperties(authored, {
+    [authoredTargetRefKey]: { value: Object.freeze(target) },
+    [collectionSchemaKey]: { value: schema },
+  });
+  return Object.freeze(authored);
 }
 
 function defineFieldTargets(

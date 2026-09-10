@@ -35,7 +35,48 @@ describe("ReviewHome", () => {
   afterEach(async () => {
     await act(async () => root.unmount());
     container.remove();
+    Reflect.deleteProperty(navigator, "clipboard");
     vi.restoreAllMocks();
+  });
+
+  it("leaves migration notices to the workbench and shows other scan errors", async () => {
+    const errors: ReviewListError[] = [
+      {
+        reviewDir: "/reviews/unsupported",
+        reviewUuid: uuid(2),
+        title: "Unsupported review",
+        worktreePath: "/repo",
+        lastPublishedAt: null,
+        code: "MIGRATION_REQUIRED",
+        message: "Unsupported review schema.",
+      },
+      {
+        reviewDir: "/reviews/unreadable",
+        reviewUuid: null,
+        title: "",
+        worktreePath: "/repo",
+        lastPublishedAt: null,
+        code: "EACCES",
+        message: "Cannot read review.json.",
+      },
+    ];
+    await act(async () =>
+      root.render(
+        <ReviewHome reviews={[]} onOpen={() => {}} reviewErrors={errors} />,
+      ),
+    );
+    const attention = [...container.querySelectorAll(".review-home-attention")];
+    expect(attention).toHaveLength(1);
+    expect(attention.map((entry) => entry.getAttribute("aria-label"))).toEqual([
+      "Attention for /reviews/unreadable",
+    ]);
+    expect(container.textContent).not.toContain(errors[0]!.message);
+    expect(attention[0]?.textContent).toContain(errors[1]!.message);
+    expect(container.querySelector(".review-home-attention code")).toBeNull();
+    expect(
+      container.querySelector('button[aria-label="Copy command"]'),
+    ).toBeNull();
+    expect(container.querySelector(".review-migration-warning")).toBeNull();
   });
 
   it("groups reviews by worktree without changing their order", () => {
@@ -285,36 +326,50 @@ describe("ReviewHome", () => {
     expect(container.querySelector(".review-home-delete")).toBeNull();
   });
 
-  it("leaves migration reminders to the workbench and retains other scan warnings", async () => {
+  it("shows and copies the repair command for failed artifact conversion", async () => {
     const error: ReviewListError = {
       reviewDir: `/tmp/reviews/${uuid(2)}`,
       reviewUuid: uuid(2),
-      title: "Legacy Review",
+      title: "Old review",
       worktreePath: "/repo/old",
       lastPublishedAt: null,
-      code: "MIGRATION_REQUIRED",
-      message: "Run review migrate apply.",
+      code: "REPAIR_REQUIRED",
+      message: `Sealed document conversion failed. Run \`review repair --review ${uuid(2)}\` to regenerate this Review's artifacts.`,
     };
     await act(async () =>
       root.render(
-        <ReviewHome reviews={[]} reviewErrors={[error]} onOpen={() => {}} />,
-      ),
-    );
-    expect(container.querySelector(".review-home")).not.toBeNull();
-    expect(container.querySelector(".review-scan-warning")).toBeNull();
-    expect(container.textContent).not.toContain("Copy prompt");
-    await act(async () =>
-      root.render(
         <ReviewHome
-          reviews={[]}
-          reviewErrors={[error, { ...error, code: "BROKEN_REVIEW" }]}
+          reviews={[descriptor()]}
+          reviewErrors={[error]}
           onOpen={() => {}}
         />,
       ),
     );
-    expect(container.querySelector(".review-scan-warning")?.textContent).toBe(
-      "1 Review has issues.",
+
+    const attention = container.querySelector(".review-home-attention");
+    expect(attention?.textContent).toContain("Old review");
+    expect(attention?.textContent).toContain(error.message);
+    expect(attention?.querySelector("code")?.textContent).toBe(
+      `review repair --review ${uuid(2)}`,
     );
+    expect(container.querySelector(".review-migration-warning")).toBeNull();
+    const copy = container.querySelector<HTMLButtonElement>(
+      '.review-home-attention button[aria-label="Copy command"]',
+    );
+    expect(copy).not.toBeNull();
+    const writeText = vi.fn<(text: string) => Promise<void>>(async () => {});
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    await act(async () => copy?.click());
+    expect(writeText.mock.calls).toEqual([
+      [`review repair --review ${uuid(2)}`],
+    ]);
+    expect(copy?.getAttribute("aria-label")).toBe("Command copied");
+    expect(
+      container.querySelector('button[aria-label="Copy prompt"]'),
+    ).toBeNull();
   });
 
   it("restores list view from storage", async () => {

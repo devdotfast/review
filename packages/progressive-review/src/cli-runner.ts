@@ -64,6 +64,7 @@ import {
   markReopenNudged,
   readReopenMarker,
 } from "./review-reopen-marker";
+import { runReviewRepair } from "./review-repair";
 import { runReviewScaffold } from "./review-scaffold";
 import { runReviewWait, validateReviewWait } from "./review-wait";
 import { installReviewCommand, pathShimPath } from "./server/cli-install";
@@ -96,6 +97,7 @@ interface ProgressiveReviewCliRuntime {
   runReviewScaffold: typeof runReviewScaffold;
   runReviewInternalTest: typeof runReviewInternalTest;
   runReviewPublish: typeof runReviewPublish;
+  runReviewRepair: typeof runReviewRepair;
   runReviewRebind: typeof runReviewRebind;
   runReviewThreadsGet: typeof runReviewThreadsGet;
   runReviewThreadsList: typeof runReviewThreadsList;
@@ -390,6 +392,25 @@ export async function runProgressiveReviewCli(
       progress: (message) => input.stderr.write(`${message}\n`),
       env,
       stdout: input.stdout,
+    });
+  });
+
+  configureJsonOutput(
+    program
+      .command("repair")
+      .description(
+        "Repair current Review artifacts without changing review status",
+      )
+      .requiredOption("--review <uuid>", "review UUID"),
+    "plain",
+  ).action(async (options: { review: string; json?: boolean }) => {
+    state.exitCode = await runtime.runReviewRepair({
+      cwd,
+      reviewUuid: options.review,
+      json: options.json,
+      stdout: input.stdout,
+      stderr: input.stderr,
+      env,
     });
   });
 
@@ -1233,21 +1254,22 @@ async function touchedStopHookReviews(
   scan: typeof listReviews,
 ): Promise<StoredReview[]> {
   const listed = await scan();
-  if (listed.errors.length > 0) {
-    throw new Error(
-      `Could not checkpoint reviews:\n${listed.errors.map((error) => `${error.reviewDir}: ${error.message}`).join("\n")}`,
-    );
-  }
   const cwd = input.cwd ? path.resolve(input.cwd) : undefined;
   const transcript = input.transcriptPath
     ? await readFile(input.transcriptPath, "utf8")
     : "";
-  return listed.reviews.filter((review) => {
-    const dir = path.resolve(review.dir);
+  const touched = (reviewDir: string) => {
+    const dir = path.resolve(reviewDir);
     const cwdInside =
       cwd === dir || (cwd?.startsWith(`${dir}${path.sep}`) ?? false);
     return cwdInside || transcript.includes(dir);
-  });
+  };
+  const errors = listed.errors.filter((error) => touched(error.reviewDir));
+  if (errors.length > 0)
+    throw new Error(
+      `Could not checkpoint reviews:\n${errors.map((error) => `${error.reviewDir}: ${error.message}`).join("\n")}`,
+    );
+  return listed.reviews.filter((review) => touched(review.dir));
 }
 
 function progressiveReviewCliRuntime(
@@ -1260,6 +1282,7 @@ function progressiveReviewCliRuntime(
     runReviewScaffold,
     runReviewInternalTest,
     runReviewPublish,
+    runReviewRepair,
     runReviewRebind,
     runReviewThreadsGet,
     runReviewThreadsList,

@@ -1,0 +1,1458 @@
+{
+  "format": "review-document/1",
+  "title": "OpenCode on AgentServer",
+  "routePath": "/",
+  "sourcePath": "review.mdx",
+  "body": [
+    {
+      "type": "element",
+      "tag": "h1",
+      "props": {
+        "data-review-block-index": "0",
+        "data-review-block-tag": "h1"
+      },
+      "children": [
+        {
+          "type": "text",
+          "value": "OpenCode on AgentServer"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "value": "\n"
+    },
+    {
+      "type": "text",
+      "value": "\n"
+    },
+    {
+      "type": "element",
+      "tag": "p",
+      "props": {
+        "data-review-block-index": "1",
+        "data-review-block-tag": "p"
+      },
+      "children": [
+        {
+          "type": "text",
+          "value": "Stacked on #83. This adds "
+        },
+        {
+          "type": "element",
+          "tag": "code",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "\"opencode\""
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "value": " as a fourth native agent harness (alongside Claude Code, Codex, and Pi), backed by a new "
+        },
+        {
+          "type": "component",
+          "name": "AnchorLink",
+          "props": {
+            "anchor": {
+              "__kind": "db-anchor-ref",
+              "id": "opencodeAgentServer",
+              "title": "OpencodeAgentServer",
+              "peek": {
+                "__kind": "code-peek-ref",
+                "props": {
+                  "file": "packages/progressive-review/src/native-agent/opencode.ts",
+                  "fromLine": 50,
+                  "toLine": 66
+                },
+                "resolution": null
+              },
+              "softwareMapPath": "review.cliPackage.nativeAgents.opencodeServer"
+            }
+          },
+          "children": [
+            {
+              "type": "element",
+              "tag": "code",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "OpencodeAgentServer"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "value": " that owns one "
+        },
+        {
+          "type": "element",
+          "tag": "code",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "opencode serve"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "value": " process and talks to it over HTTP + SSE. Author flagged the PR title "
+        },
+        {
+          "type": "element",
+          "tag": "code",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "[needs testing]"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "value": " — the desktop-facing flow has not been run end to end."
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "value": "\n"
+    },
+    {
+      "type": "component",
+      "name": "ReviewSection",
+      "props": {
+        "title": "Interface change"
+      },
+      "children": [
+        {
+          "type": "element",
+          "tag": "h2",
+          "props": {
+            "data-review-block-index": "2",
+            "data-review-block-tag": "h2"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Interface change"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "3",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "The harness identity is a closed string union threaded through both the CLI package and the wire protocol. This PR widens it in three places that must move together:"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "ul",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "4",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "component",
+                  "name": "AnchorLink",
+                  "props": {
+                    "anchor": {
+                      "__kind": "db-anchor-ref",
+                      "id": "harnessUnion",
+                      "title": "ReviewAgentHarness",
+                      "peek": {
+                        "__kind": "code-peek-ref",
+                        "props": {
+                          "file": "packages/progressive-review/src/authoring-session.ts",
+                          "fromLine": 1,
+                          "toLine": 1
+                        },
+                        "resolution": null
+                      },
+                      "softwareMapPath": "review.cliPackage.authoring.authoringSession"
+                    }
+                  },
+                  "children": [
+                    {
+                      "type": "element",
+                      "tag": "code",
+                      "props": {},
+                      "children": [
+                        {
+                          "type": "text",
+                          "value": "ReviewAgentHarness"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "value": " — the CLI-side type and its "
+                },
+                {
+                  "type": "element",
+                  "tag": "code",
+                  "props": {},
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "isReviewAgentHarness"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "value": " guard."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "5",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "component",
+                  "name": "AnchorLink",
+                  "props": {
+                    "anchor": {
+                      "__kind": "db-anchor-ref",
+                      "id": "contractsEnum",
+                      "title": "AuthoringAgentSessionSchema",
+                      "peek": {
+                        "__kind": "code-peek-ref",
+                        "props": {
+                          "file": "packages/review-protocol/src/contracts.ts",
+                          "fromLine": 1223,
+                          "toLine": 1226
+                        },
+                        "resolution": null
+                      },
+                      "softwareMapPath": "review.protocolPackage.contracts"
+                    }
+                  },
+                  "children": [
+                    {
+                      "type": "element",
+                      "tag": "code",
+                      "props": {},
+                      "children": [
+                        {
+                          "type": "text",
+                          "value": "AuthoringAgentSessionSchema"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "value": " and "
+                },
+                {
+                  "type": "element",
+                  "tag": "code",
+                  "props": {},
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "ReviewCommentAgentSessionSchema"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "value": " — the zod wire contracts, mirrored in both "
+                },
+                {
+                  "type": "element",
+                  "tag": "code",
+                  "props": {},
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "packages/review-protocol"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "value": " and the vendored "
+                },
+                {
+                  "type": "element",
+                  "tag": "code",
+                  "props": {},
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "code-oss"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "value": " copy."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "6",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "component",
+                  "name": "AnchorLink",
+                  "props": {
+                    "anchor": {
+                      "__kind": "db-anchor-ref",
+                      "id": "desktopServer",
+                      "title": "desktop-server harness table",
+                      "peek": {
+                        "__kind": "code-peek-ref",
+                        "props": {
+                          "file": "packages/progressive-review/src/server/desktop-server.ts",
+                          "fromLine": 283,
+                          "toLine": 284
+                        },
+                        "resolution": null
+                      },
+                      "softwareMapPath": "review.cliPackage.serverSurface.desktopServer"
+                    }
+                  },
+                  "children": [
+                    {
+                      "type": "element",
+                      "tag": "code",
+                      "props": {},
+                      "children": [
+                        {
+                          "type": "text",
+                          "value": "desktop-server"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "value": "'s harness table"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "value": " — the map handing each harness its "
+                },
+                {
+                  "type": "element",
+                  "tag": "code",
+                  "props": {},
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "AgentServer"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "value": "."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "7",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Everywhere else (thread label, tutorial authoring, review-source fork) just adds an "
+            },
+            {
+              "type": "element",
+              "tag": "code",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "\"opencode\""
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " case to an existing per-harness switch."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "value": "\n"
+    },
+    {
+      "type": "component",
+      "name": "ReviewSection",
+      "props": {
+        "title": "Why OpenCode needed its own shape"
+      },
+      "children": [
+        {
+          "type": "element",
+          "tag": "h2",
+          "props": {
+            "data-review-block-index": "8",
+            "data-review-block-tag": "h2"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Why OpenCode needed its own shape"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "9",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Claude Code, Codex, and Pi are each observed through hooks or an app-server already running in the review's own checkout. OpenCode is different: it is server-first, so Review starts and owns a private "
+            },
+            {
+              "type": "element",
+              "tag": "code",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "opencode serve"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " process, and every session it creates belongs to a "
+            },
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "project keyed by directory"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " — not to the review checkout that made the request."
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "10",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "The first version forked and attached using the review's own checkout directory, which put the fork in the wrong project and the server answered "
+            },
+            {
+              "type": "element",
+              "tag": "code",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "404"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": ". The fix, in the last commit, looks the source session up by ID first (scanning every project OpenCode knows about) and then forks, prompts, and attaches inside "
+            },
+            {
+              "type": "element",
+              "tag": "em",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "that"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " session's own directory:"
+            }
+          ]
+        },
+        {
+          "type": "component",
+          "name": "SequenceDiagram",
+          "props": {
+            "label": "Forking a review-source session",
+            "messages": [
+              {
+                "from": {
+                  "__kind": "db-actor-ref",
+                  "id": "reviewCli",
+                  "label": "Review CLI/desktop",
+                  "softwareMapPath": "review.cliPackage.authoring"
+                },
+                "to": {
+                  "__kind": "db-actor-ref",
+                  "id": "opencodeServe",
+                  "label": "opencode serve",
+                  "softwareMapPath": "review.cliPackage.nativeAgents.opencodeServe"
+                },
+                "label": "GET /project, then GET /session/:id in each worktree until one answers",
+                "anchor": {
+                  "__kind": "db-anchor-ref",
+                  "id": "clientSession",
+                  "title": "OpencodeClient.session()",
+                  "peek": {
+                    "__kind": "code-peek-ref",
+                    "props": {
+                      "file": "packages/progressive-review/src/native-agent/opencode.ts",
+                      "fromLine": 373,
+                      "toLine": 401
+                    },
+                    "resolution": null
+                  },
+                  "softwareMapPath": "review.cliPackage.nativeAgents.opencodeServe"
+                }
+              },
+              {
+                "from": {
+                  "__kind": "db-actor-ref",
+                  "id": "reviewCli",
+                  "label": "Review CLI/desktop",
+                  "softwareMapPath": "review.cliPackage.authoring"
+                },
+                "to": {
+                  "__kind": "db-actor-ref",
+                  "id": "opencodeServe",
+                  "label": "opencode serve",
+                  "softwareMapPath": "review.cliPackage.nativeAgents.opencodeServe"
+                },
+                "label": "POST /session/:id/fork, scoped to the source session's own directory",
+                "anchor": {
+                  "__kind": "db-anchor-ref",
+                  "id": "forkOpencodeSession",
+                  "title": "forkOpencodeSession",
+                  "peek": {
+                    "__kind": "code-peek-ref",
+                    "props": {
+                      "file": "packages/progressive-review/src/native-agent/opencode.ts",
+                      "fromLine": 538,
+                      "toLine": 558
+                    },
+                    "resolution": null
+                  },
+                  "softwareMapPath": "review.cliPackage.authoring.reviewSourceAgentSession"
+                }
+              },
+              {
+                "from": {
+                  "__kind": "db-actor-ref",
+                  "id": "reviewCli",
+                  "label": "Review CLI/desktop",
+                  "softwareMapPath": "review.cliPackage.authoring"
+                },
+                "to": {
+                  "__kind": "db-actor-ref",
+                  "id": "opencodeServe",
+                  "label": "opencode serve",
+                  "softwareMapPath": "review.cliPackage.nativeAgents.opencodeServe"
+                },
+                "label": "opencode attach <url> --session <id> --dir <source directory>",
+                "anchor": {
+                  "__kind": "db-anchor-ref",
+                  "id": "launch",
+                  "title": "launch()",
+                  "peek": {
+                    "__kind": "code-peek-ref",
+                    "props": {
+                      "file": "packages/progressive-review/src/native-agent/opencode.ts",
+                      "fromLine": 67,
+                      "toLine": 121
+                    },
+                    "resolution": null
+                  },
+                  "softwareMapPath": "review.cliPackage.nativeAgents.opencodeServer"
+                }
+              }
+            ]
+          },
+          "children": []
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "11",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "One consequence called out in the PR: an OpenCode question session runs in the "
+            },
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "source worktree"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": ", not the review's pinned checkout — different from the other three harnesses."
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "12",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "The second fix addresses a separate problem: "
+            },
+            {
+              "type": "component",
+              "name": "AnchorLink",
+              "props": {
+                "anchor": {
+                  "__kind": "db-anchor-ref",
+                  "id": "createOpencodeSession",
+                  "title": "createOpencodeSession",
+                  "peek": {
+                    "__kind": "code-peek-ref",
+                    "props": {
+                      "file": "packages/progressive-review/src/native-agent/opencode.ts",
+                      "fromLine": 571,
+                      "toLine": 611
+                    },
+                    "resolution": null
+                  },
+                  "softwareMapPath": "review.cliPackage.authoring.tutorialAuthoringSession"
+                }
+              },
+              "children": [
+                {
+                  "type": "element",
+                  "tag": "code",
+                  "props": {},
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "createOpencodeSession"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " originally waited on the synchronous message endpoint, so a model turn longer than the request timeout aborted before the assistant replied. It now submits with "
+            },
+            {
+              "type": "element",
+              "tag": "code",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "prompt_async"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " and polls "
+            },
+            {
+              "type": "element",
+              "tag": "code",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "GET /session/:id/message"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " once a second (10-minute cap, cancellable), failing fast if the assistant message itself carries an error."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "value": "\n"
+    },
+    {
+      "type": "component",
+      "name": "ReviewSection",
+      "props": {
+        "title": "Testing"
+      },
+      "children": [
+        {
+          "type": "element",
+          "tag": "h2",
+          "props": {
+            "data-review-block-index": "13",
+            "data-review-block-tag": "h2"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Testing"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "14",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "component",
+              "name": "AnchorLink",
+              "props": {
+                "anchor": {
+                  "__kind": "db-anchor-ref",
+                  "id": "opencodeTest",
+                  "title": "opencode.test.ts",
+                  "detail": "Fake `opencode serve` over a real HTTP server: session create/fork scoped by directory, message projection, and the SSE event stream.",
+                  "peek": {
+                    "__kind": "code-peek-ref",
+                    "props": {
+                      "file": "packages/progressive-review/src/native-agent/opencode.test.ts",
+                      "fromLine": 1,
+                      "toLine": 40
+                    },
+                    "resolution": null
+                  },
+                  "softwareMapPath": "review.cliPackage.nativeAgents.opencodeServer"
+                }
+              },
+              "children": [
+                {
+                  "type": "element",
+                  "tag": "code",
+                  "props": {},
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "opencode.test.ts"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " runs "
+            },
+            {
+              "type": "element",
+              "tag": "code",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "OpencodeAgentServer"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " and "
+            },
+            {
+              "type": "element",
+              "tag": "code",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "projectOpencodeMessages"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " against a fake "
+            },
+            {
+              "type": "element",
+              "tag": "code",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "opencode serve"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " (a real Node HTTP server), covering session create/fork scoped by directory, message-id deduplication, and the "
+            },
+            {
+              "type": "element",
+              "tag": "code",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "/global/event"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " SSE reconnect path. That's the part that can be unit-tested."
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "15",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Not covered by tests, and explicitly called out by the author as unverified:"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "ul",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "16",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "The desktop flow end to end — asking a question through a real "
+                },
+                {
+                  "type": "element",
+                  "tag": "code",
+                  "props": {},
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "opencode serve"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "value": " 1.1.53 process from Review Desktop."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "17",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "The basic-auth username ("
+                },
+                {
+                  "type": "element",
+                  "tag": "code",
+                  "props": {},
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "opencode"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "value": ") "
+                },
+                {
+                  "type": "element",
+                  "tag": "code",
+                  "props": {},
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "opencode attach"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "value": " is expected to send back with "
+                },
+                {
+                  "type": "element",
+                  "tag": "code",
+                  "props": {},
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "OPENCODE_SERVER_PASSWORD"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "value": "."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "18",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "A TUI attaching to a session that is already mid-turn ("
+                },
+                {
+                  "type": "element",
+                  "tag": "code",
+                  "props": {},
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "opencode attach"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "value": " joining a running "
+                },
+                {
+                  "type": "element",
+                  "tag": "code",
+                  "props": {},
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "prompt_async"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "value": ")."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "value": "\n"
+    },
+    {
+      "type": "component",
+      "name": "ReviewSection",
+      "props": {
+        "title": "Decision log"
+      },
+      "children": [
+        {
+          "type": "element",
+          "tag": "h2",
+          "props": {
+            "data-review-block-index": "19",
+            "data-review-block-tag": "h2"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Decision log"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "20",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "From the PR description:"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "ul",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "21",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "OpenCode is server-first — Review should drive it through "
+                },
+                {
+                  "type": "element",
+                  "tag": "code",
+                  "props": {},
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "opencode serve"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "value": "'s HTTP API rather than simulating a server from hooks, matching how the TUI itself works."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "22",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "This is the OpenCode port of an existing Codex-shaped design (#48); the non-agent-layer parts of #48 (identification tool, install/setup UI, docs) are out of scope here and rebase separately."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "p",
+          "props": {
+            "data-review-block-index": "23",
+            "data-review-block-tag": "p"
+          },
+          "children": [
+            {
+              "type": "element",
+              "tag": "strong",
+              "props": {},
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Made during implementation:"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "element",
+          "tag": "ul",
+          "props": {},
+          "children": [
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "24",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Session lookup by ID scans every project OpenCode reports, since Review has no other way to know which project a given session belongs to."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "25",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Forking, prompting, and the TUI's "
+                },
+                {
+                  "type": "element",
+                  "tag": "code",
+                  "props": {},
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "--dir"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "value": " all use the "
+                },
+                {
+                  "type": "element",
+                  "tag": "em",
+                  "props": {},
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "source"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "value": " session's directory, not the review's pinned checkout — accepted as a real behavior difference rather than something to paper over."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            },
+            {
+              "type": "element",
+              "tag": "li",
+              "props": {
+                "data-review-block-index": "26",
+                "data-review-block-tag": "li"
+              },
+              "children": [
+                {
+                  "type": "element",
+                  "tag": "code",
+                  "props": {},
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "createOpencodeSession"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "value": "'s title is now supplied by the caller, no longer hardcoded."
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": "\n"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "anchors": {
+    "harnessUnion": {
+      "__kind": "db-anchor-ref",
+      "id": "harnessUnion",
+      "title": "ReviewAgentHarness",
+      "peek": {
+        "__kind": "code-peek-ref",
+        "props": {
+          "file": "packages/progressive-review/src/authoring-session.ts",
+          "fromLine": 1,
+          "toLine": 1
+        },
+        "resolution": null
+      },
+      "softwareMapPath": "review.cliPackage.authoring.authoringSession"
+    },
+    "contractsEnum": {
+      "__kind": "db-anchor-ref",
+      "id": "contractsEnum",
+      "title": "AuthoringAgentSessionSchema",
+      "peek": {
+        "__kind": "code-peek-ref",
+        "props": {
+          "file": "packages/review-protocol/src/contracts.ts",
+          "fromLine": 1223,
+          "toLine": 1226
+        },
+        "resolution": null
+      },
+      "softwareMapPath": "review.protocolPackage.contracts"
+    },
+    "opencodeAgentServer": {
+      "__kind": "db-anchor-ref",
+      "id": "opencodeAgentServer",
+      "title": "OpencodeAgentServer",
+      "peek": {
+        "__kind": "code-peek-ref",
+        "props": {
+          "file": "packages/progressive-review/src/native-agent/opencode.ts",
+          "fromLine": 50,
+          "toLine": 66
+        },
+        "resolution": null
+      },
+      "softwareMapPath": "review.cliPackage.nativeAgents.opencodeServer"
+    },
+    "launch": {
+      "__kind": "db-anchor-ref",
+      "id": "launch",
+      "title": "launch()",
+      "peek": {
+        "__kind": "code-peek-ref",
+        "props": {
+          "file": "packages/progressive-review/src/native-agent/opencode.ts",
+          "fromLine": 67,
+          "toLine": 121
+        },
+        "resolution": null
+      },
+      "softwareMapPath": "review.cliPackage.nativeAgents.opencodeServer"
+    },
+    "clientSession": {
+      "__kind": "db-anchor-ref",
+      "id": "clientSession",
+      "title": "OpencodeClient.session()",
+      "peek": {
+        "__kind": "code-peek-ref",
+        "props": {
+          "file": "packages/progressive-review/src/native-agent/opencode.ts",
+          "fromLine": 373,
+          "toLine": 401
+        },
+        "resolution": null
+      },
+      "softwareMapPath": "review.cliPackage.nativeAgents.opencodeServe"
+    },
+    "forkOpencodeSession": {
+      "__kind": "db-anchor-ref",
+      "id": "forkOpencodeSession",
+      "title": "forkOpencodeSession",
+      "peek": {
+        "__kind": "code-peek-ref",
+        "props": {
+          "file": "packages/progressive-review/src/native-agent/opencode.ts",
+          "fromLine": 538,
+          "toLine": 558
+        },
+        "resolution": null
+      },
+      "softwareMapPath": "review.cliPackage.authoring.reviewSourceAgentSession"
+    },
+    "createOpencodeSession": {
+      "__kind": "db-anchor-ref",
+      "id": "createOpencodeSession",
+      "title": "createOpencodeSession",
+      "peek": {
+        "__kind": "code-peek-ref",
+        "props": {
+          "file": "packages/progressive-review/src/native-agent/opencode.ts",
+          "fromLine": 571,
+          "toLine": 611
+        },
+        "resolution": null
+      },
+      "softwareMapPath": "review.cliPackage.authoring.tutorialAuthoringSession"
+    },
+    "desktopServer": {
+      "__kind": "db-anchor-ref",
+      "id": "desktopServer",
+      "title": "desktop-server harness table",
+      "peek": {
+        "__kind": "code-peek-ref",
+        "props": {
+          "file": "packages/progressive-review/src/server/desktop-server.ts",
+          "fromLine": 283,
+          "toLine": 284
+        },
+        "resolution": null
+      },
+      "softwareMapPath": "review.cliPackage.serverSurface.desktopServer"
+    },
+    "opencodeTest": {
+      "__kind": "db-anchor-ref",
+      "id": "opencodeTest",
+      "title": "opencode.test.ts",
+      "detail": "Fake `opencode serve` over a real HTTP server: session create/fork scoped by directory, message projection, and the SSE event stream.",
+      "peek": {
+        "__kind": "code-peek-ref",
+        "props": {
+          "file": "packages/progressive-review/src/native-agent/opencode.test.ts",
+          "fromLine": 1,
+          "toLine": 40
+        },
+        "resolution": null
+      },
+      "softwareMapPath": "review.cliPackage.nativeAgents.opencodeServer"
+    }
+  },
+  "anchorContents": {},
+  "softwareModels": []
+}

@@ -5,10 +5,10 @@ import type {
 } from "@dev.fast/review-protocol";
 import { type ReactNode, createContext, useContext } from "react";
 
+import type { HydratedReviewDocument } from "../review-document-hydrate";
 import { createReviewAppSessionId } from "../tab-dwell-telemetry";
 import {
   type ReviewRequestOptions,
-  importReviewModule,
   reviewApiUrl,
   reviewBeaconUrl,
   reviewStorageKey,
@@ -21,6 +21,12 @@ export interface ReviewSession {
   bridge: ReviewCanvasBridge;
   config: ReviewRuntimeConfig;
   surface: ReviewSurface;
+  /**
+   * Hydrated review documents for this session, keyed by content hash. The
+   * session owns the cache, so it dies with the session instead of living in
+   * a module-global map with its own eviction policy.
+   */
+  documents: Map<string, Promise<HydratedReviewDocument>>;
   apiUrl(endpoint: `/${string}`, options?: ReviewRequestOptions): string;
   fetch: (
     endpoint: `/${string}`,
@@ -28,7 +34,6 @@ export interface ReviewSession {
     options?: ReviewRequestOptions,
   ) => Promise<Response>;
   fetchUrl(url: string | URL, init?: RequestInit): Promise<Response>;
-  importModule<T>(moduleUrl: string): Promise<T>;
   beaconUrl(endpoint: `/${string}`): string;
   wasmUrl(): string;
   storageKey(
@@ -53,11 +58,11 @@ export function createReviewSession(bridge: ReviewCanvasBridge): ReviewSession {
     bridge,
     config,
     surface: createReviewSurface(bridge),
+    documents: new Map(),
     apiUrl: (endpoint, options) => reviewApiUrl(config, endpoint, options),
     fetch: (endpoint, init, options) =>
       request(reviewApiUrl(config, endpoint, options), init),
     fetchUrl: request,
-    importModule: (moduleUrl) => importReviewModule(config, moduleUrl),
     beaconUrl: (endpoint) => reviewBeaconUrl(config, endpoint),
     wasmUrl: () => reviewWasmUrl(config),
     storageKey: (namespace, ...parts) =>

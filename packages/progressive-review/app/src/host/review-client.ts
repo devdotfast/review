@@ -1,31 +1,12 @@
-import {
-  type ReviewRuntimeConfig,
-  rewriteReviewDocumentRuntime,
-} from "@dev.fast/review-protocol";
+import type { ReviewRuntimeConfig } from "@dev.fast/review-protocol";
 
 const REVIEW_API_PREFIX = "/__progressive-review";
 export type ReviewClientConfig = Partial<
   Pick<
     ReviewRuntimeConfig,
-    | "docRuntimeUrl"
-    | "routePath"
-    | "serverUrl"
-    | "sessionId"
-    | "sessionUrl"
-    | "token"
-    | "wasmUrl"
+    "routePath" | "serverUrl" | "sessionId" | "sessionUrl" | "token" | "wasmUrl"
   >
 >;
-
-/** Loads a module namespace; the caller names the exports it expects. */
-export type ReviewModuleImporter = <T>(url: string) => Promise<T>;
-
-interface ReviewDocRuntimeModule {
-  setReviewRequestContext?: (context: {
-    origin?: string;
-    token?: string;
-  }) => void;
-}
 
 export interface ReviewRequestOptions {
   origin?: string;
@@ -70,56 +51,6 @@ export async function reviewFetchUrl(
   const headers = new Headers(init.headers);
   if (config.token) headers.set("x-review-token", config.token);
   return fetch(url, { ...init, headers });
-}
-
-export function importReviewModule<T>(
-  config: ReviewClientConfig,
-  moduleUrl: string,
-  importModule: ReviewModuleImporter = importBlobReviewModule,
-): Promise<T> {
-  const url = new URL(moduleUrl, config.serverUrl ?? browserOrigin());
-  if (config.token) url.searchParams.set("token", config.token);
-  if (!config.docRuntimeUrl) {
-    return Promise.reject(
-      new Error("Review document runtime URL is unavailable."),
-    );
-  }
-  return loadReviewModule<T>(config, url, config.docRuntimeUrl, importModule);
-}
-
-async function loadReviewModule<T>(
-  config: ReviewClientConfig,
-  url: URL,
-  docRuntimeUrl: string,
-  importModule: ReviewModuleImporter,
-): Promise<T> {
-  const response = await reviewFetchUrl(config, url);
-  if (!response.ok) {
-    throw new Error(`Review document module returned ${response.status}.`);
-  }
-  const source = await response.text();
-  const rewritten = rewriteReviewDocumentRuntime(source, docRuntimeUrl);
-  // Published bundles carry no origin or token; hand the runtime this
-  // session's request context before the document module evaluates.
-  const runtime = await importModule<ReviewDocRuntimeModule>(
-    new URL(docRuntimeUrl).href,
-  );
-  runtime.setReviewRequestContext?.({
-    origin: config.sessionUrl,
-    token: config.token,
-  });
-  const blobUrl = URL.createObjectURL(
-    new Blob([rewritten], { type: "text/javascript" }),
-  );
-  try {
-    return await importModule<T>(blobUrl);
-  } finally {
-    URL.revokeObjectURL(blobUrl);
-  }
-}
-
-function importBlobReviewModule<T>(url: string): Promise<T> {
-  return import(/* @vite-ignore */ url);
 }
 
 export function reviewBeaconUrl(

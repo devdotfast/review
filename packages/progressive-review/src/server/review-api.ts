@@ -13,6 +13,7 @@ import {
   type JsonObject,
   type JsonValue,
   type ReviewCommentThreadRecord,
+  type ReviewRecord,
   type ReviewSessionWire,
   type ReviewStackResponse,
   type ReviewThreadsCommit,
@@ -53,12 +54,18 @@ import {
   resolveReviewFileContent,
 } from "../review-diff-files";
 import { listReviews } from "../review-home";
+import { ReviewBusyError, reviewBusyResponse } from "../review-mutation-lock";
 import {
   normalizeReviewRoutePath,
   resolveReviewDocumentFilePath,
 } from "../review-paths";
 import { resolveReviewStackLayers } from "../review-stack";
 import { saveReviewSubmissionAudit } from "../review-state-store";
+import {
+  type ReviewThreadsReadOnlySnapshot,
+  readReviewThreadsReadOnly,
+  reviewThreadDbSnapshotToken,
+} from "../review-thread-store-backend";
 import { ReviewThreadsService } from "../review-threads-service";
 import {
   readReviewStoreRecord,
@@ -96,6 +103,11 @@ import {
   parseUpdateReviewCommentInput,
   requestJsonErrorStatus,
 } from "./review-api-parsers";
+import {
+  type ReviewSessionMode,
+  reviewSessionModeIsReadOnly,
+  reviewSessionModeRecord,
+} from "./review-session-mode";
 
 const REVIEW_SUBMIT_HOOK_ENV = "DEV_FAST_REVIEW_SUBMIT_HOOK";
 export const TUTORIAL_QUESTION_SOURCE_WAIT_MS = 5_000;
@@ -192,6 +204,9 @@ export async function captureSanitizedUiTelemetry(
 }
 
 interface ReviewApiOptions {
+  mode: ReviewSessionMode;
+  readOnlyThreadsPath?: string;
+  sourceUnavailable?: string;
   reviewPath: string;
   reviewDocumentsDir: string;
   rootPath: string;
@@ -252,6 +267,7 @@ const AgentInterruptRequestSchema = z.strictObject({
 });
 
 export function createReviewApi(options: ReviewApiOptions): ReviewApi {
+  const readOnlyReview = reviewSessionModeRecord(options.mode);
   const reviewRootPath =
     options.reviewRootPath ??
     options.session.storageDir ??
@@ -281,6 +297,24 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   const canceledAgentMessageIds = new Set<string>();
   const activeRuns = new Map<string, ActiveAgentRun>();
   const diffCorpora = new Map<string, Promise<ReviewDiffFilesResult>>();
+  let readOnlyThreads: {
+    key: string;
+    snapshot: ReviewThreadsReadOnlySnapshot;
+  } | null = null;
+  const readOnlyThreadsSnapshot = (
+    writableReviewPath: string,
+  ): ReviewThreadsReadOnlySnapshot => {
+    const readOnlyThreadsPath =
+      options.readOnlyThreadsPath ?? writableReviewPath;
+    const key = `${readOnlyThreadsPath}|${reviewThreadDbSnapshotToken(readOnlyThreadsPath)}`;
+    if (readOnlyThreads?.key !== key) {
+      readOnlyThreads = {
+        key,
+        snapshot: readReviewThreadsReadOnly(readOnlyThreadsPath),
+      };
+    }
+    return readOnlyThreads.snapshot;
+  };
   const startMirror = (
     writableReviewPath: string,
     service: ReviewThreadsService,
@@ -318,11 +352,26 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   // Every handler answers through the same catch, so a thrown parse or state
   // error becomes the route's JSON error response instead of a 500.
   const route =
-    (handler: ReviewApiHandler): ReviewApiHandler =>
+    (access: "read" | "write", handler: ReviewApiHandler): ReviewApiHandler =>
     async (context) => {
       try {
+        if (access === "write" && reviewSessionModeIsReadOnly(options.mode)) {
+          return reviewApiJsonResponse(409, {
+            ok: false,
+            error:
+              options.mode.kind === "historical"
+                ? "This historical version is read-only."
+                : "This review is read-only while repair is validated.",
+            code:
+              options.mode.kind === "historical"
+                ? "historical_revision"
+                : "review_read_only",
+          });
+        }
         return await handler(context);
       } catch (err) {
+        if (err instanceof ReviewBusyError)
+          return reviewApiJsonResponse(409, reviewBusyResponse(err));
         return reviewApiJsonResponse(requestJsonErrorStatus(err), {
           ok: false,
           error: err instanceof Error ? err.message : String(err),
@@ -330,15 +379,15 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       }
     };
 
-  // Routes that write review state resolve the target document first. The
-  // handler only runs once a writable path exists, so it takes one.
-  const writable = (
+  // Resolve the document once for routes that operate on its stored state.
+  const documentRoute = (
+    access: "read" | "write",
     handler: (
       context: Context<ReviewHonoEnv>,
       writableReviewPath: string,
     ) => Promise<Response> | Response,
   ): ReviewApiHandler =>
-    route((context) => {
+    route(access, (context) => {
       const writableReviewPath =
         stateReviewPath ??
         resolveWritableReviewPath(new URL(context.req.url), {
@@ -360,21 +409,27 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       writableReviewPath: string,
     ) => Promise<Response> | Response,
   ): ReviewApiHandler =>
-    writable((context, writableReviewPath) =>
+    documentRoute("write", (context, writableReviewPath) =>
       runReviewThreadMutation(() => handler(context, writableReviewPath)),
     );
 
-  app.post("/telemetry/tab", route(telemetryTab));
-  app.post("/telemetry/event", route(telemetryEvent));
-  app.post("/telemetry/bug-report", route(bugReport));
-  app.get("/session", route(sessionInfo));
-  app.get("/comments", writable(commentsList));
+  app.post("/telemetry/tab", route("read", telemetryTab));
+  app.post("/telemetry/event", route("read", telemetryEvent));
+  app.post("/telemetry/bug-report", route("read", bugReport));
+  app.get("/session", route("read", sessionInfo));
+  app.get("/comments", documentRoute("read", commentsList));
   app.post("/thread-commands", threadMutation(threadCommand));
-  app.post("/agent-runs", writable(agentRunCreate));
-  app.post("/comments/:threadId/agent-interrupt", writable(agentRunInterrupt));
-  app.post("/comments/:threadId/agent-terminal", writable(agentTerminalOpen));
-  app.post("/submissions", writable(submissionCreate));
-  app.post("/dismiss", route(reviewDismiss));
+  app.post("/agent-runs", documentRoute("write", agentRunCreate));
+  app.post(
+    "/comments/:threadId/agent-interrupt",
+    documentRoute("write", agentRunInterrupt),
+  );
+  app.post(
+    "/comments/:threadId/agent-terminal",
+    documentRoute("write", agentTerminalOpen),
+  );
+  app.post("/submissions", documentRoute("write", submissionCreate));
+  app.post("/dismiss", route("write", reviewDismiss));
   app.delete(
     "/comments/:threadId/messages/:messageId",
     threadMutation(commentMessageDelete),
@@ -382,24 +437,27 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   app.post("/comments/:threadId", threadMutation(commentCreate));
   app.patch("/comments/:threadId", threadMutation(commentUpdate));
   app.delete("/comments/:threadId", threadMutation(commentDelete));
-  app.post("/code-peek/resolve", route(codePeekResolve));
-  app.post("/software-map/resolved-data", route(softwareMapResolvedData));
+  app.post("/code-peek/resolve", route("read", codePeekResolve));
+  app.post(
+    "/software-map/resolved-data",
+    route("read", softwareMapResolvedData),
+  );
   app.post(
     "/software-map/artifacts/refresh",
-    route(softwareMapArtifactsRefresh),
+    route("write", softwareMapArtifactsRefresh),
   );
-  app.get("/document-meta", route(documentMeta));
-  app.get("/stack", route(reviewStack));
-  app.post("/diff-files", route(diffFiles));
-  app.get("/file-content", route(fileContent));
-  app.get("/agent-traces", route(agentTraces));
-  app.get("/agent-traces/:sessionId", route(agentTraceDetail));
+  app.get("/document-meta", route("read", documentMeta));
+  app.get("/stack", route("read", reviewStack));
+  app.post("/diff-files", route("read", diffFiles));
+  app.get("/file-content", route("read", fileContent));
+  app.get("/agent-traces", route("read", agentTraces));
+  app.get("/agent-traces/:sessionId", route("read", agentTraceDetail));
   app.notFound(() =>
     reviewApiJsonResponse(404, { ok: false, error: "not found" }),
   );
 
   async function resolveTraceSessionDescriptors() {
-    const review = readReviewStoreRecord(reviewRootPath);
+    const review = readOnlyReview ?? readReviewStoreRecord(reviewRootPath);
     const repoRootPath = resolveReviewRepoRootFromStore(reviewRootPath, review);
     const headCommit = review.sourceCommit ?? review.baseCommit;
     return listReviewTraceSessions({
@@ -569,7 +627,9 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   ): Response {
     return reviewApiJsonResponse(200, {
       ok: true,
-      snapshot: threadsFor(writableReviewPath).snapshot(),
+      snapshot: reviewSessionModeIsReadOnly(options.mode)
+        ? readOnlyThreadsSnapshot(writableReviewPath)
+        : threadsFor(writableReviewPath).snapshot(),
     });
   }
 
@@ -863,9 +923,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     context: Context<ReviewHonoEnv>,
   ): Promise<Response> {
     const body = await readJsonObject(context.req.raw);
-    const sourceTarget = await resolveRequestSourceTarget({
-      reviewRootPath,
-    });
+    const sourceTarget = await requestSourceTarget();
     const baseSourceTarget = sourceTarget.preparedBase;
     const graph = parseCodePeekGraph(body.graph);
     const includeDiff = body.includeDiff === true;
@@ -899,9 +957,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     const body = await readJsonObject(context.req.raw);
     const codeElements = parseSoftwareMapCodeElements(body.codeElements);
     const coverageClaims = parseSoftwareMapCoverageClaims(body.coverageClaims);
-    const sourceTarget = await resolveRequestSourceTarget({
-      reviewRootPath,
-    });
+    const sourceTarget = await requestSourceTarget();
     const result = await buildSoftwareMapResolvedData({
       sourceTarget,
       codeElements,
@@ -952,7 +1008,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   }
 
   async function reviewStack(): Promise<Response> {
-    const current = readReviewStoreRecord(reviewRootPath);
+    const current = readOnlyReview ?? readReviewStoreRecord(reviewRootPath);
     if (!current.pullRequestNumber) {
       return reviewApiJsonResponse(200, { layers: [] });
     }
@@ -1055,14 +1111,16 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   }
 
   async function resolveScopedDiffTarget(url: URL, commit?: string) {
+    if (options.sourceUnavailable) throw new Error(options.sourceUnavailable);
     const target = resolveRequestDiffTarget(url, {
       reviewPath,
       reviewDocumentsDir,
       rootPath: reviewRootPath,
       session,
+      record: readOnlyReview,
     });
     if (!commit) return target;
-    const review = readReviewStoreRecord(reviewRootPath);
+    const review = readOnlyReview ?? readReviewStoreRecord(reviewRootPath);
     const headCommit = review.sourceCommit ?? review.baseCommit;
     const scope = resolveReviewCommitScope(
       await reviewCommits(target.rootPath, review.baseCommit, headCommit),
@@ -1071,6 +1129,24 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     return {
       rootPath: target.rootPath,
       ...scope,
+    };
+  }
+
+  async function requestSourceTarget() {
+    if (!readOnlyReview) return resolveRequestSourceTarget({ reviewRootPath });
+    if (options.sourceUnavailable) throw new Error(options.sourceUnavailable);
+    if (!session.headRootPath || !session.baseRootPath)
+      throw new Error("The pinned source worktrees are unavailable.");
+    return {
+      repoRoot: rootPath,
+      sourceRootPath: session.headRootPath,
+      diffRootPath: rootPath,
+      headRef: readOnlyReview.sourceCommit ?? undefined,
+      baseRef: readOnlyReview.baseCommit,
+      preparedBase: {
+        ref: readOnlyReview.baseCommit,
+        sourceRootPath: session.baseRootPath,
+      },
     };
   }
 
@@ -1438,6 +1514,7 @@ async function rematerializeReviewSoftwareMapArtifacts(input: {
       repoRootPath,
       ref: headCommit,
       role: "head",
+      validate: "skip",
     }),
     review.baseCommit
       ? resolveRevision(repoRootPath, review.baseCommit)
@@ -1448,6 +1525,7 @@ async function rematerializeReviewSoftwareMapArtifacts(input: {
                   repoRootPath,
                   ref: base.commit,
                   role: "base",
+                  validate: "skip",
                 })
               : null,
           )
@@ -1613,13 +1691,14 @@ export function resolveRequestDiffTarget(
     reviewDocumentsDir: string;
     rootPath: string;
     session?: ReviewSessionWire;
+    record?: ReviewRecord;
   },
 ): ReviewRequestDiffTarget {
   const reviewDocumentPath = resolveReviewDocumentPath(url, input);
   if (!reviewDocumentPath) {
     throw new Error("Review document not found.");
   }
-  const review = readReviewStoreRecord(input.rootPath);
+  const review = input.record ?? readReviewStoreRecord(input.rootPath);
   return {
     rootPath: resolveReviewRepoRootFromStore(input.rootPath, review),
     baseRef: review.baseCommit,

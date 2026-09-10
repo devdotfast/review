@@ -59,6 +59,7 @@ import {
 import {
   readReviewDocumentArtifact,
   readReviewSoftwareMapArtifact,
+  reviewArtifactPath,
 } from "../review-artifact-store";
 import {
   dismissReview,
@@ -188,11 +189,7 @@ import {
 } from "./hono-http";
 import { HttpJsonError, ReviewServerError } from "./http-json";
 import { resolvePublishReview } from "./publish-preparation";
-import {
-  materializePublishRevision,
-  reviewWithPresentedDocumentPins,
-  reviewWithPublicationContext,
-} from "./publish-stage";
+import { reviewWithPublicationContext } from "./publish-stage";
 import { captureSanitizedUiTelemetry } from "./review-api";
 import { resolveReviewInfo } from "./review-info";
 import {
@@ -216,7 +213,6 @@ import {
   NEEDS_REPUBLISH_MAP_ERROR,
   type ReviewSessionArtifactInput,
   type ReviewSessionArtifactMap,
-  legacySessionArtifactFromBuildDir,
 } from "./review-session-artifact";
 import { resolveThreadsReview } from "./review-threads-target";
 import {
@@ -320,8 +316,8 @@ function revealVerb(view?: ReviewView): ReviewVerbRequest {
 interface PreparedTutorial {
   review: StoredReview;
   documentRevision: string;
-  documentPath: string;
-  softwareMapRootPath: string;
+  /** The artifact files the prepared session serves. */
+  artifactPaths: readonly string[];
   checkoutRoots: ReviewCheckoutRoots;
   harness: ReviewAgentHarness;
 }
@@ -349,7 +345,6 @@ export interface GlobalReviewServerInput {
   tutorialAuthorSessionBinder?: typeof bindReviewAuthorSession;
   tutorialAgentResolver?: () => Promise<ReviewAgentHarness | undefined>;
   publishRuntime?: {
-    materializePublishRevision: typeof materializePublishRevision;
     /** Observation points inside the publication activation, for tests that
      * interrupt it between its steps. */
     activationHooks?: ReviewActivationHooks;
@@ -387,9 +382,7 @@ export function createGlobalReviewServer(
     input.tutorialAgentResolver ??
     (async () =>
       preferredInstalledReviewAgent(await resolveInstalledReviewAgentStatus()));
-  const publishRuntime = input.publishRuntime ?? {
-    materializePublishRevision,
-  };
+  const publishRuntime = input.publishRuntime ?? {};
   const telemetry = input.telemetry ?? ProgressiveReviewTelemetry.fromEnv();
   const relay = input.relay ?? new GlobalReviewDesktopVerbRelay();
   const sessions = new Map<string, ActiveReviewSession>();
@@ -1898,11 +1891,8 @@ export function createGlobalReviewServer(
     );
     const currentReview = current?.review;
     const cachedReview = cached.review.review;
-    const documentExists = existsSync(cached.documentPath);
-    const softwareMapExists = existsSync(cached.softwareMapRootPath);
     const pathsExist =
-      documentExists &&
-      softwareMapExists &&
+      cached.artifactPaths.every((artifactPath) => existsSync(artifactPath)) &&
       existsSync(cached.checkoutRoots.baseRootPath) &&
       existsSync(cached.checkoutRoots.headRootPath);
     if (
@@ -1918,14 +1908,6 @@ export function createGlobalReviewServer(
       preparedTutorial = null;
       await abortTutorialAuthoringState(cachedReview.uuid);
       await closeTutorialSessions();
-      if (!documentExists) {
-        await rm(path.dirname(cached.documentPath), {
-          recursive: true,
-          force: true,
-        });
-      } else if (!softwareMapExists) {
-        await rm(cached.softwareMapRootPath, { recursive: true, force: true });
-      }
       return null;
     }
     cached.review = current;
@@ -1947,27 +1929,18 @@ export function createGlobalReviewServer(
       },
     });
     const documentRevision = review.review.presentedDocumentRevision;
-    const softwareMapRevision = review.review.presentedSoftwareMapRevision;
-    if (!documentRevision || !softwareMapRevision) {
+    if (!documentRevision || !review.review.presentedSoftwareMapRevision) {
       throw new ReviewServerError(
         "Tutorial Review has no published revision.",
         409,
         "review_unpublished",
       );
     }
-    const documentBuildDir = await publishRuntime.materializePublishRevision({
+    // The tutorial presents the code its publications were built against,
+    // exactly as a published Review does.
+    const presentedReview = reviewWithPublicationContext(
       review,
-      revision: documentRevision,
-    });
-    const softwareMapRootPath = await publishRuntime.materializePublishRevision(
-      {
-        review,
-        revision: softwareMapRevision,
-      },
-    );
-    const presentedReview = await reviewWithPresentedDocumentPins(
-      review,
-      documentBuildDir,
+      presentedDocumentRecord(review, documentRevision),
     );
     const checkoutRoots = await ensureReviewCheckouts(presentedReview);
     console.info(
@@ -1976,8 +1949,7 @@ export function createGlobalReviewServer(
     return {
       review: presentedReview,
       documentRevision,
-      documentPath: path.join(documentBuildDir, "review.mdx"),
-      softwareMapRootPath,
+      artifactPaths: presentedArtifactPaths(review),
       checkoutRoots,
       harness: tutorialAgent,
     };
@@ -2008,14 +1980,10 @@ export function createGlobalReviewServer(
     const session =
       existing ??
       (await registerSerialized({
-        review: prepared.review,
-        artifact: await legacySessionArtifactFromBuildDir({
-          reviewUuid: prepared.review.review.uuid,
-          revision: prepared.documentRevision,
-          buildDir: path.dirname(prepared.documentPath),
-          routePath: "/",
-          softwareMapRootPath: prepared.softwareMapRootPath,
-        }),
+        ...(await publicationSessionArtifact(
+          prepared.review,
+          prepared.documentRevision,
+        )),
         checkoutRoots: prepared.checkoutRoots,
         tutorialPreparation: prepared,
         resolveQuestionSourceSession,
@@ -3176,6 +3144,23 @@ async function presentedMapArtifact(
   return bundle
     ? { artifact: { bundle }, publicationId }
     : { artifact: { unavailable: staleMessage }, publicationId: null };
+}
+
+/** The artifact files the presented publications point at. A prepared
+ * tutorial stays mounted only while both are still on disk. */
+function presentedArtifactPaths(review: StoredReview): string[] {
+  const paths: string[] = [];
+  for (const kind of ["document", "map"] as const) {
+    const publicationId =
+      kind === "document"
+        ? review.review.presentedDocumentRevision
+        : review.review.presentedSoftwareMapRevision;
+    const hash = publicationId
+      ? readPublication(review.dir, publicationId, kind)?.artifactHash
+      : null;
+    if (hash) paths.push(reviewArtifactPath(review.dir, kind, hash));
+  }
+  return paths;
 }
 
 /** An activation refusal carries its own status and machine code, so the JSON

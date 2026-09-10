@@ -26,7 +26,6 @@ import {
   GlobalReviewDesktopVerbRelay,
   type ReviewDesktopVerbRelay,
 } from "./global-verb-relay";
-import { materializePublishRevision } from "./publish-stage";
 
 export type ReviewPublicationResult = z.infer<
   typeof ReviewPublicationResultSchema
@@ -118,10 +117,7 @@ export async function publicationHarness(
       discoveryPath: path.join(home, "desktop.json"),
       telemetry: options.telemetry,
       relay: scriptedRelay(() => state.respond),
-      publishRuntime: {
-        materializePublishRevision,
-        activationHooks: options.activationHooks,
-      },
+      publishRuntime: { activationHooks: options.activationHooks },
     });
   let server = startServer();
   await server.listen();

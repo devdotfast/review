@@ -27,6 +27,13 @@ import {
   parseAuthoringSessionKey,
   parseFreshSourceSessionHarness,
 } from "../authoring-session";
+import {
+  type ReviewArtifactKind,
+  installReviewArtifact,
+  readReviewDocumentArtifact,
+  readReviewSoftwareMapArtifact,
+  reviewArtifactHash,
+} from "../review-artifact-store";
 import { readReviewDocumentBundle } from "../review-bundle";
 import {
   type StoredReview,
@@ -34,16 +41,20 @@ import {
   createReviewUuid,
   findReview,
   listReviews,
-  persistStoredReviewRecord,
   reviewTitleFromDocument,
-  sealReviewCandidate,
 } from "../review-home";
+import { activateReviewPublication } from "../review-publication-activation";
+import { reviewSourceContext } from "../review-publication-candidate";
 import {
   pinReviewSourceHeadRef,
   reviewSourceHeadRef,
 } from "../review-source-ref";
-import { deleteReviewState } from "../review-state-db";
+import { deleteReviewState, readPublication } from "../review-state-db";
 import { devReviewHome } from "../review-storage";
+import {
+  readReviewSoftwareMapBundle,
+  softwareMapArtifactBytes,
+} from "../software-map-bundle";
 import { writePrivateJsonAtomic } from "./desktop-paths";
 
 const execFilePromise = promisify(execFile);
@@ -69,13 +80,30 @@ export interface TutorialService {
   /** The hidden system Review record. Null when absent or invalid. */
   find(): Promise<StoredReview | null>;
   /** Returns the ready-to-mount tutorial Review. Materializes the shipped
-      repo and a sealed revision when absent or invalid. Compilation remains
-      unnecessary because the document and map bundles ship precompiled. */
+      repo and publishes the shipped bundles when absent or invalid.
+      Compilation remains unnecessary because the document and map bundles
+      ship precompiled. */
   prepare(
     agent: ReviewAgentHarness,
     options?: { beforeReset(): Promise<void> },
   ): Promise<StoredReview>;
   cleanup(): Promise<void>;
+}
+
+/** The precompiled bundles an app release ships, as the exact artifact bytes
+ * a tutorial publication points at. */
+interface ShippedTutorialArtifacts {
+  documentBytes: string;
+  documentHash: string;
+  mapBytes: string;
+  mapHash: string;
+  headCommit: string;
+  baseCommit: string;
+}
+
+interface ValidTutorialState {
+  stamp: TutorialStamp;
+  review: StoredReview;
 }
 
 export function createTutorialService(input: {
@@ -96,10 +124,10 @@ export function createTutorialService(input: {
 
   const readValidState = async (
     expectedHarness?: ReviewAgentHarness,
-  ): Promise<{
-    stamp: TutorialStamp;
-    review: StoredReview;
-  } | null> => {
+    options?: { repair?: boolean },
+  ): Promise<ValidTutorialState | null> => {
+    const shipped = await readShippedTutorialArtifacts(assetsRoot);
+    if (!shipped) return null;
     const stamp = await readTutorialStamp(stampPath);
     if (!stamp) return null;
     const review = await findTutorialReview(stamp.reviewUuid).catch(() => null);
@@ -112,28 +140,24 @@ export function createTutorialService(input: {
     // An app update ships new bundles pinned to a new commit. A record
     // bound to the old commit is stale: re-materialize instead of serving
     // new bundles against the old repository.
-    const manifest = await readShippedMapManifest(assetsRoot).catch(() => null);
     if (
-      !manifest ||
-      manifest.headCommit !== review.review.sourceCommit ||
-      manifest.baseCommit !== review.review.baseCommit
+      shipped.headCommit !== review.review.sourceCommit ||
+      shipped.baseCommit !== review.review.baseCommit
     ) {
       return null;
     }
-    // Copy-only edits leave the sample repository's commits unchanged.
-    // Refresh the saved tutorial when its compiled document has changed too.
-    const documentMatches = await Promise.all([
-      readReviewDocumentBundle(assetsRoot, "/"),
-      readReviewDocumentBundle(review.dir, "/"),
-    ])
-      .then(
-        ([shipped, saved]) =>
-          shipped !== null &&
-          saved !== null &&
-          shipped.contentHash === saved.contentHash,
-      )
-      .catch(() => false);
-    if (!documentMatches) return null;
+    // Copy-only edits leave the sample repository's commits unchanged. The
+    // publications must still hold the bytes this release ships.
+    if (!publishesShippedArtifacts(review, shipped)) return null;
+    const stored = await storedArtifactState(review.dir, shipped);
+    if (stored === "damaged") return null;
+    if (stored === "missing") {
+      // Artifacts are content-addressed, so reinstalling the bytes the
+      // publications already name restores a deleted file and changes nothing
+      // else. Until something does, the tutorial cannot be served.
+      if (!options?.repair) return null;
+      await installShippedArtifacts(review.dir, shipped);
+    }
     return { stamp, review };
   };
 
@@ -143,6 +167,14 @@ export function createTutorialService(input: {
       if (await isManagedTutorialPath(review.review.worktreePath, sampleRoot)) {
         await input.deleteReview(review);
         deleteReviewState(review.dir);
+      }
+    }
+    // A tutorial Review an older release left behind can be one this one
+    // cannot read. Its directory is still managed, so it still goes.
+    for (const error of listed.errors) {
+      if (await isManagedTutorialPath(error.worktreePath, sampleRoot)) {
+        await rm(error.reviewDir, { recursive: true, force: true });
+        deleteReviewState(error.reviewDir);
       }
     }
     await rm(tutorialRoot, { recursive: true, force: true });
@@ -172,12 +204,16 @@ export function createTutorialService(input: {
     },
 
     async prepare(agent, options) {
-      const current = await readValidState(agent);
+      const current = await readValidState(agent, { repair: true });
       if (current) return current.review;
 
       await options?.beforeReset();
       await cleanup();
       await requireTutorialAssets(assetsRoot);
+      const shipped = await readShippedTutorialArtifacts(assetsRoot);
+      if (!shipped) {
+        throw new Error("Tutorial bundles are not readable.");
+      }
       await materializeSampleRepository({
         assetsRoot,
         tutorialRoot,
@@ -188,10 +224,9 @@ export function createTutorialService(input: {
       if (!head) {
         throw new Error("Tutorial repository has no main commit.");
       }
-      const manifest = await readShippedMapManifest(assetsRoot);
-      if (manifest.headCommit !== head.commit) {
+      if (shipped.headCommit !== head.commit) {
         throw new Error(
-          `Tutorial assets are inconsistent: repository HEAD ${head.commit} does not match the shipped bundle commit ${manifest.headCommit}.`,
+          `Tutorial assets are inconsistent: repository HEAD ${head.commit} does not match the shipped bundle commit ${shipped.headCommit}.`,
         );
       }
 
@@ -207,7 +242,7 @@ export function createTutorialService(input: {
         visibility: "system",
         worktreePath: sampleRoot,
         baseRef: "main~1",
-        baseCommit: manifest.baseCommit,
+        baseCommit: shipped.baseCommit,
         sourceCommit: head.commit,
         sourceIdentity: { kind: "git-branch", name: "main" },
         sourceSession,
@@ -215,45 +250,46 @@ export function createTutorialService(input: {
           path.join(assetsRoot, "review.mdx"),
         ),
       });
-      // Store the shipped source and precompiled bundles as a genuine Review
-      // revision. Opening can then use the same materialization and session
-      // path as any published Review.
+      const runtimeManifest = await readTutorialRuntimeManifest(assetsRoot);
+      await Promise.all(
+        runtimeManifest.reviewFiles.map((entry) =>
+          cp(path.join(assetsRoot, entry), path.join(created.dir, entry)),
+        ),
+      );
+      // The shipped bundles are packaging, not authoring output: they become
+      // this Review's first publications so opening reads the artifact store
+      // like any published Review.
+      await installShippedArtifacts(created.dir, shipped);
+      const context = reviewSourceContext(created.review);
       const publishedAt = new Date().toISOString();
-      const candidate: StoredReview = {
-        ...created,
-        review: {
-          ...created.review,
+      const activated = await activateReviewPublication({
+        reviewDir: created.dir,
+        expected: { recordJson: JSON.stringify(created.review) },
+        candidates: [
+          {
+            kind: "map",
+            artifactHash: shipped.mapHash,
+            headCommit: shipped.headCommit,
+            baseCommit: shipped.baseCommit,
+            context,
+            operation: "tutorial",
+          },
+          {
+            kind: "document",
+            artifactHash: shipped.documentHash,
+            title: created.review.title,
+            titleSource: "document",
+            context,
+            operation: "tutorial",
+          },
+        ],
+        updateRecord: (latest) => ({
+          ...latest,
           status: "awaiting-review",
           lastPublishedAt: publishedAt,
-        },
-      };
-      await persistStoredReviewRecord(candidate.dir, candidate.review);
-      const runtimeManifest = await readTutorialRuntimeManifest(assetsRoot);
-      await Promise.all([
-        ...runtimeManifest.reviewFiles.map((entry) =>
-          cp(path.join(assetsRoot, entry), path.join(candidate.dir, entry)),
-        ),
-        cp(
-          path.join(assetsRoot, ".bundle"),
-          path.join(candidate.dir, ".bundle"),
-          {
-            recursive: true,
-          },
-        ),
-      ]);
-      const revision = await sealReviewCandidate(
-        candidate.dir,
-        "Materialize bundled tutorial Review",
-      );
-      const review: StoredReview = {
-        ...candidate,
-        review: {
-          ...candidate.review,
-          presentedDocumentRevision: revision,
-          presentedSoftwareMapRevision: revision,
-        },
-      };
-      await persistStoredReviewRecord(review.dir, review.review);
+        }),
+      });
+      const review: StoredReview = { ...created, review: activated.review };
       await writePrivateJsonAtomic(stampPath, {
         version: TUTORIAL_STAMP_VERSION,
         reviewUuid: review.review.uuid,
@@ -298,25 +334,77 @@ async function materializeSampleRepository(input: {
   }
 }
 
-async function readShippedMapManifest(
+/** Null when a bundle is absent or does not parse; every caller treats that
+ * as "this installation cannot serve the tutorial as shipped". */
+async function readShippedTutorialArtifacts(
   assetsRoot: string,
-): Promise<{ headCommit: string; baseCommit: string }> {
-  const manifestPath = path.join(
-    assetsRoot,
-    ".bundle",
-    "software-map",
-    "manifest.json",
-  );
-  const value = parseJsonText(await readFile(manifestPath, "utf8"));
-  const manifest = isJsonObject(value) ? value : undefined;
-  const headCommit =
-    manifest && jsonString(jsonProperty(manifest, "headCommit"));
-  const baseCommit =
-    manifest && jsonString(jsonProperty(manifest, "baseCommit"));
-  if (headCommit === undefined || baseCommit === undefined) {
-    throw new Error("Tutorial software-map manifest is invalid.");
+): Promise<ShippedTutorialArtifacts | null> {
+  const [document, map] = await Promise.all([
+    readReviewDocumentBundle(assetsRoot, "/").catch(() => null),
+    readReviewSoftwareMapBundle(assetsRoot).catch(() => null),
+  ]);
+  if (!document || !map) return null;
+  const mapBytes = softwareMapArtifactBytes(map);
+  return {
+    documentBytes: document.json,
+    documentHash: reviewArtifactHash(document.json),
+    mapBytes,
+    mapHash: reviewArtifactHash(mapBytes),
+    headCommit: map.headCommit,
+    baseCommit: map.baseCommit,
+  };
+}
+
+async function installShippedArtifacts(
+  reviewDir: string,
+  shipped: ShippedTutorialArtifacts,
+): Promise<void> {
+  await Promise.all([
+    installReviewArtifact(reviewDir, "document", shipped.documentBytes),
+    installReviewArtifact(reviewDir, "map", shipped.mapBytes),
+  ]);
+}
+
+/** Whether the presented publications' artifact files are on disk as this
+ * release shipped them. Absent bytes are repairable, because the publications
+ * name exactly the hashes the shipped bundles carry; bytes that no longer hash
+ * to their own file name are damage this cannot repair. */
+async function storedArtifactState(
+  reviewDir: string,
+  shipped: ShippedTutorialArtifacts,
+): Promise<"present" | "missing" | "damaged"> {
+  try {
+    const [document, map] = await Promise.all([
+      readReviewDocumentArtifact(reviewDir, shipped.documentHash),
+      readReviewSoftwareMapArtifact(reviewDir, shipped.mapHash),
+    ]);
+    return document && map ? "present" : "missing";
+  } catch {
+    return "damaged";
   }
-  return { headCommit, baseCommit };
+}
+
+/** Both presented publications must exist and name this release's bytes. */
+function publishesShippedArtifacts(
+  review: StoredReview,
+  shipped: ShippedTutorialArtifacts,
+): boolean {
+  return (
+    presentedArtifactHash(review, "document") === shipped.documentHash &&
+    presentedArtifactHash(review, "map") === shipped.mapHash
+  );
+}
+
+function presentedArtifactHash(
+  review: StoredReview,
+  kind: ReviewArtifactKind,
+): string | null {
+  const publicationId =
+    kind === "document"
+      ? review.review.presentedDocumentRevision
+      : review.review.presentedSoftwareMapRevision;
+  if (!publicationId) return null;
+  return readPublication(review.dir, publicationId, kind)?.artifactHash ?? null;
 }
 
 async function isValidTutorialReview(

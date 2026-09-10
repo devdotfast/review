@@ -8,10 +8,11 @@ import { type JsonObject, isJsonObject } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { SessionRef } from "../authoring-session";
+import { reviewArtifactPath } from "../review-artifact-store";
 import { bindReviewAuthorSession, findReview } from "../review-home";
+import { readPublication } from "../review-state-db";
 import type { ReviewSubmissionEvent } from "../types";
 import { createGlobalReviewServer } from "./desktop-server";
-import { materializePublishRevision } from "./publish-stage";
 import type {
   ReviewSessionHandler,
   ReviewSessionHandlerInput,
@@ -31,7 +32,6 @@ type GlobalServerInput = Parameters<typeof createGlobalReviewServer>[0];
 type TutorialServerOverrides = Partial<
   Pick<
     GlobalServerInput,
-    | "publishRuntime"
     | "sessionHandlerFactory"
     | "tutorialAgentResolver"
     | "tutorialAuthorSessionBinder"
@@ -243,7 +243,16 @@ describe("Review Desktop tutorial preparation", () => {
       await vi.waitFor(() => expect(authoringFactory).toHaveBeenCalledOnce());
       const firstHandler = handlers[0];
       expect(firstHandler).toBeDefined();
-      await rm(materializedDocumentPath(firstHandler!), { force: true });
+      // The tutorial mounts its committed publications, like any open Review.
+      expect(firstHandler!.artifact.origin).toMatchObject({
+        kind: "publication",
+        publicationId: (await findReview(String(first.reviewUuid)))?.review
+          .presentedDocumentRevision,
+      });
+      const documentArtifact = await publishedDocumentArtifactPath(
+        String(first.reviewUuid),
+      );
+      await rm(documentArtifact, { force: true });
 
       const repaired = await tutorialRequest(
         server.url,
@@ -251,7 +260,7 @@ describe("Review Desktop tutorial preparation", () => {
         "POST",
       );
       expect(repaired.status).toBe(200);
-      expect(existsSync(materializedDocumentPath(firstHandler!))).toBe(true);
+      expect(existsSync(documentArtifact)).toBe(true);
       expect(close).toHaveBeenCalledOnce();
 
       await tutorialRequest(server.url, "/tutorial/open", "POST");
@@ -283,7 +292,11 @@ describe("Review Desktop tutorial preparation", () => {
       expect(second.reviewUuid).not.toBe(first.reviewUuid);
       const secondHandler = handlers.at(-1);
       expect(secondHandler).toBeDefined();
-      expect(existsSync(materializedDocumentPath(secondHandler!))).toBe(true);
+      expect(
+        existsSync(
+          await publishedDocumentArtifactPath(String(second.reviewUuid)),
+        ),
+      ).toBe(true);
       expect(existsSync(secondHandler!.session.baseRootPath!)).toBe(true);
       expect(existsSync(secondHandler!.session.headRootPath!)).toBe(true);
     } finally {
@@ -314,15 +327,13 @@ describe("Review Desktop tutorial preparation", () => {
         sessionId: "unused",
       })),
       {
-        publishRuntime: {
-          materializePublishRevision: async (input) => {
-            if (blockFirst) {
-              blockFirst = false;
-              entered();
-              await gate;
-            }
-            return materializePublishRevision(input);
-          },
+        tutorialAgentResolver: async () => {
+          if (blockFirst) {
+            blockFirst = false;
+            entered();
+            await gate;
+          }
+          return "codex";
         },
       },
     );
@@ -516,13 +527,22 @@ function tutorialServer(
   });
 }
 
-/** The materialized `review.mdx` a legacy-origin session was registered from. */
-function materializedDocumentPath(input: ReviewSessionHandlerInput): string {
-  const origin = input.artifact.origin;
-  if (origin.kind !== "legacy") {
-    throw new Error(`Expected a legacy artifact origin, got ${origin.kind}.`);
+/** The artifact file the tutorial's presented document publication names. */
+async function publishedDocumentArtifactPath(uuid: string): Promise<string> {
+  const review = await findReview(uuid);
+  const publicationId = review?.review.presentedDocumentRevision;
+  if (!review || !publicationId) {
+    throw new Error(`Tutorial Review ${uuid} has no published document.`);
   }
-  return path.join(origin.buildDir, "review.mdx");
+  const hash = readPublication(
+    review.dir,
+    publicationId,
+    "document",
+  )?.artifactHash;
+  if (!hash) {
+    throw new Error(`Publication ${publicationId} stores no artifact hash.`);
+  }
+  return reviewArtifactPath(review.dir, "document", hash);
 }
 
 function stubSessionHandler(): ReviewSessionHandler {

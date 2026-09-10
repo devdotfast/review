@@ -17,6 +17,7 @@ import zlib from "node:zlib";
 
 import { type StoredObject, traceObjectKey } from "@dev.fast/trace-shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import { pullReviewTraceCorpus, syncReviewTrace } from "./review-agent-traces";
 import { StoreApiError, StoreClient } from "./store-client";
@@ -198,13 +199,13 @@ describe("trace-store-transport", () => {
     await new Promise<void>((resolve) =>
       server.listen(0, "127.0.0.1", resolve),
     );
-    const address = server.address();
-    if (!address || !("port" in address)) throw new Error("no port");
+    // The listener's address is external input to this test; parse it.
+    const { port } = z.object({ port: z.number() }).parse(server.address());
     try {
       await httpTransport(globalThis.fetch).putObject(
         {
           name: "main.jsonl.gz",
-          url: `http://127.0.0.1:${address.port}/k`,
+          url: `http://127.0.0.1:${port}/k`,
           headers: {
             "content-type": "application/gzip",
             "content-length": String(gzipped.size),

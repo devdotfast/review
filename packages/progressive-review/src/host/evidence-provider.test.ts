@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   mkdirSync,
@@ -22,6 +22,7 @@ import {
 
 const temporaryRoots: string[] = [];
 const repositoryId = "0a411236-208c-41e7-80ba-0b32c06b37f9";
+const hasJj = spawnSync("jj", ["--version"], { stdio: "ignore" }).status === 0;
 
 afterEach(() => {
   for (const root of temporaryRoots.splice(0))
@@ -107,30 +108,33 @@ describe("immutable source evidence", () => {
     ).resolves.toMatchObject({ text: "retained evidence" });
   });
 
-  it("uses the inner Git-backed jj store rather than an enclosing repository", async () => {
-    const outer = repository({ "file.ts": "outer repository" });
-    const original = repository({ "file.ts": "inner repository" });
-    const commit = git(original, ["rev-parse", "HEAD"]);
-    const inner = path.join(outer, "inner");
-    execFileSync("jj", ["git", "init", "--no-colocate", inner], {
-      cwd: outer,
-      stdio: "ignore",
-    });
-    const gitDir = await gitCommonDir(inner);
-    expect(gitDir).toBeTruthy();
-    execFileSync(
-      "git",
-      ["--git-dir", gitDir!, "fetch", "--no-tags", original, commit],
-      { env: gitEnvironment(), stdio: "ignore" },
-    );
+  it.skipIf(!hasJj)(
+    "uses the inner Git-backed jj store rather than an enclosing repository",
+    async () => {
+      const outer = repository({ "file.ts": "outer repository" });
+      const original = repository({ "file.ts": "inner repository" });
+      const commit = git(original, ["rev-parse", "HEAD"]);
+      const inner = path.join(outer, "inner");
+      execFileSync("jj", ["git", "init", "--no-colocate", inner], {
+        cwd: outer,
+        stdio: "ignore",
+      });
+      const gitDir = await gitCommonDir(inner);
+      expect(gitDir).toBeTruthy();
+      execFileSync(
+        "git",
+        ["--git-dir", gitDir!, "fetch", "--no-tags", original, commit],
+        { env: gitEnvironment(), stdio: "ignore" },
+      );
 
-    await expect(
-      new LocalEvidenceProvider(() => inner).resolve(
-        binding(commit),
-        range("file.ts"),
-      ),
-    ).resolves.toMatchObject({ text: "inner repository", span: { commit } });
-  });
+      await expect(
+        new LocalEvidenceProvider(() => inner).resolve(
+          binding(commit),
+          range("file.ts"),
+        ),
+      ).resolves.toMatchObject({ text: "inner repository", span: { commit } });
+    },
+  );
 
   it("ignores replacement objects instead of changing what an old commit means", async () => {
     const root = repository({ "file.ts": "original" });

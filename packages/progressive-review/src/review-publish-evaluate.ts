@@ -133,17 +133,21 @@ async function loadSealedReviewDocument(
     `publish-validate-${process.pid}-${Math.random().toString(36).slice(2)}`,
   );
   const runtimeImportNames = await collectRuntimeImportNames(input.bundleCode);
+  // Validate both sources before starting either write. A synchronous rewrite
+  // failure must not leave a write running outside Promise.all during cleanup.
+  const runtimeSource = validationRuntimeModuleSource(runtimeImportNames);
+  const documentSource = rewriteRuntimeSpecifier(input.bundleCode);
   await mkdir(evaluationDir, { recursive: true, mode: 0o700 });
   try {
     await Promise.all([
       writeFile(
         path.join(evaluationDir, RUNTIME_MODULE_FILE),
-        validationRuntimeModuleSource(runtimeImportNames),
+        runtimeSource,
         "utf8",
       ),
       writeFile(
         path.join(evaluationDir, DOCUMENT_MODULE_FILE),
-        rewriteRuntimeSpecifier(input.bundleCode),
+        documentSource,
         "utf8",
       ),
     ]);

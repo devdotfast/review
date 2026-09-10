@@ -1,6 +1,13 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, writeFileSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,6 +42,7 @@ import { parsePublicationRecord } from "../review-publication-record";
 import {
   listPublications,
   putReviewRecord,
+  readLegacyArtifactImport,
   readPublication,
   readReviewRecord,
 } from "../review-state-db";
@@ -266,7 +274,13 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
         status: "accepted",
         dismissedAt: null,
       });
-      expect(migrated.presentedDocumentRevision).not.toBe(currentRevision);
+      // The import keeps each sealed commit's identity as its publication ID,
+      // so the pointer the Git-era record carried still names the version.
+      expect(migrated.presentedDocumentRevision).toBe(currentRevision);
+      expect(
+        listPublications(dir, "document").map((row) => row.publicationId),
+      ).toEqual([currentRevision, historicalJsonRevision, oldRevision]);
+      expect(opened.session.origin ?? "publication").toBe("publication");
       const listed = await (await request("/reviews")).json();
       expect(listed.errors).toEqual([]);
       expect(listed.reviews).toHaveLength(1);
@@ -1004,6 +1018,17 @@ describe("real legacy fixtures open end to end", () => {
         const opened = await request(`/reviews/${uuid}/open`, {});
         expect(opened.status).toBe(201);
         const session = await opened.json();
+        // Opening imported the Git-era history, and every byte the session
+        // serves comes from the artifact store: nothing is materialized.
+        const reviewDir = path.join(home, "reviews", uuid);
+        expect(listPublications(reviewDir, "document")).toHaveLength(1);
+        expect(readLegacyArtifactImport(reviewDir)).toMatchObject({
+          versions: 1,
+          unavailable: 0,
+        });
+        await expect(
+          readdir(path.join(reviewDir, ".build")),
+        ).rejects.toMatchObject({ code: "ENOENT" });
         const prefix = `/sessions/${session.sessionId}/__progressive-review`;
         const documentResponse = await request(`${prefix}/document`);
         expect(documentResponse.status).toBe(200);

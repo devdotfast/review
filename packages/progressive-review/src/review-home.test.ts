@@ -20,6 +20,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { sealLegacyReviewCommit } from "./fixtures/legacy-reviews/legacy-review-git";
+import { readReviewDocumentArtifact } from "./review-artifact-store";
 import {
   readReviewDocumentBundle,
   reviewDocumentBundleData,
@@ -44,7 +45,12 @@ import {
   updateReviewPins,
 } from "./review-home";
 import { withReviewMutationLock } from "./review-mutation-lock";
-import { deleteReviewState } from "./review-state-db";
+import { parsePublicationRecord } from "./review-publication-record";
+import {
+  deleteReviewState,
+  listPublications,
+  readPublication,
+} from "./review-state-db";
 import { appendReviewComment, readReviewComments } from "./review-state-store";
 import {
   cleanupTempDirs,
@@ -993,11 +999,17 @@ describe("legacy records on read", () => {
         baseCommit: await git(root, ["rev-parse", "HEAD"]),
       });
       await writeLegacyDocument(created.dir);
+      const recordPath = path.join(created.dir, "review.json");
+      // A real legacy publication sealed its own legacy record, and the
+      // import reads the sealed record to decide what the revision presents.
+      await writeFile(
+        recordPath,
+        JSON.stringify(await legacyRecord(created, schemaVersion, null)),
+      );
       const revision = await sealLegacyReviewCommit(
         created.dir,
         "Legacy document",
       );
-      const recordPath = path.join(created.dir, "review.json");
       await writeFile(
         recordPath,
         JSON.stringify(await legacyRecord(created, schemaVersion, revision)),
@@ -1014,15 +1026,19 @@ describe("legacy records on read", () => {
         dismissedAt: "2026-01-01T00:00:00Z",
         sourceSession: created.review.sourceSession,
       });
-      expect(stored?.review.presentedDocumentRevision).not.toBe(revision);
+      // The sealed commit keeps its identity as the publication ID.
+      expect(stored?.review.presentedDocumentRevision).toBe(revision);
       expect(stored?.review.presentedSoftwareMapRevision).toBeNull();
-      const materialized = path.join(home, "materialized");
-      await materializeReviewRevision(
-        created.dir,
-        stored!.review.presentedDocumentRevision!,
-        materialized,
-      );
-      const bundle = await readReviewDocumentBundle(materialized, "/");
+      const row = readPublication(created.dir, revision, "document");
+      const publication = parsePublicationRecord(row?.record ?? null);
+      expect(publication.artifact.state).toBe("stored");
+      const bundle =
+        publication.artifact.state === "stored"
+          ? await readReviewDocumentArtifact(
+              created.dir,
+              publication.artifact.hash,
+            )
+          : null;
       expect(bundle && reviewDocumentBundleData(bundle).title).toBe("Sealed");
       expect(await reviewDescriptor(stored!)).toMatchObject({
         available: true,
@@ -1061,7 +1077,9 @@ describe("legacy records on read", () => {
 
     expect(first?.review.schemaVersion).toBe(6);
     expect(second?.review).toEqual(first?.review);
-    expect(seal).toHaveBeenCalledTimes(1);
+    // Importing replays the sealed history; it never writes to it.
+    expect(seal).not.toHaveBeenCalled();
+    expect(listPublications(created.dir, "document")).toHaveLength(1);
   });
 
   it("reports repair without touching a review whose sealed document is broken", async () => {
@@ -1111,7 +1129,7 @@ describe("legacy records on read", () => {
 async function legacyRecord(
   created: StoredReview,
   schemaVersion: 2 | 3 | 4,
-  revision: string,
+  revision: string | null,
 ) {
   deleteReviewState(created.dir);
   const {

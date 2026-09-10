@@ -41,7 +41,6 @@ import {
   writeReviewSoftwareMapBundle,
 } from "./software-map-bundle";
 import { defineSoftwareMap } from "./software-map-model";
-import { migrateStoredReview } from "./stored-review-migration";
 
 const roots: string[] = [];
 let server: Awaited<ReturnType<typeof startLifecycleTestServer>> | undefined;
@@ -631,9 +630,9 @@ it("repairs broken sealed artifacts with a legacy DB by upgrading only the isola
     path.join(stored.dir, "review.json"),
     JSON.stringify({ ...stored.record, presentedDocumentRevision: broken }),
   );
-  await expect(migrateStoredReview({ reviewDir: stored.dir })).rejects.toThrow(
-    "no runtime import",
-  );
+  // `review repair` runs before `review migrate apply` here: the schema
+  // migration would upgrade the thread database in place, and this covers the
+  // repair's own isolated upgrade of a still-legacy one.
   const prepared = await prepareReviewRepair({ reviewDir: stored.dir });
   expect(prepared.kind).toBe("prepared");
   if (prepared.kind !== "prepared") throw new Error("Expected repair");

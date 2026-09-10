@@ -34,7 +34,7 @@ afterEach(async () => {
   );
 });
 
-it.each(["document", "seal"])(
+it.each(["document", "materialize"])(
   "does not fork before %s validation succeeds",
   async (failure) => {
     const { review, original } = await fixture(failure === "document");
@@ -44,18 +44,20 @@ it.each(["document", "seal"])(
         sessionId: "frozen",
       }),
     );
-    const failedSeal =
-      failure === "seal"
+    const failedMaterialize =
+      failure === "materialize"
         ? vi
-            .spyOn(reviewVcs, "seal")
-            .mockRejectedValue(new Error("candidate seal failed"))
+            .spyOn(reviewVcs, "materialize")
+            .mockRejectedValue(new Error("sealed revision unreadable"))
         : undefined;
     for (const attempt of [1, 2]) {
       await expect(
         migrateStoredReview({ reviewDir: review.dir, createSourceSession }),
         `failed scan ${attempt}`,
       ).rejects.toThrow(
-        failure === "document" ? "broken document" : "candidate seal failed",
+        failure === "document"
+          ? "broken document"
+          : "sealed revision unreadable",
       );
     }
     expect(createSourceSession).not.toHaveBeenCalled();
@@ -63,7 +65,7 @@ it.each(["document", "seal"])(
       original,
     );
     expect(existsSync(`${review.dir}.source-migration.json`)).toBe(false);
-    failedSeal?.mockRestore();
+    failedMaterialize?.mockRestore();
     if (failure === "document") {
       await writeFile(
         path.join(review.dir, ".bundle/document/review-document.js"),
@@ -80,6 +82,9 @@ it.each(["document", "seal"])(
           presentedDocumentRevision: revision,
         }),
       );
+      // The database is authoritative for the record; a repair that only
+      // rewrites the mirror has to drop the imported row it supersedes.
+      deleteReviewState(review.dir);
     }
     const migrated = await migrateStoredReview({
       reviewDir: review.dir,
@@ -105,7 +110,7 @@ it("reuses a durable fork after record promotion fails", async () => {
   try {
     await expect(
       migrateStoredReview({ reviewDir: review.dir, createSourceSession }),
-    ).rejects.toThrow("ENOENT");
+    ).rejects.toThrow("Cannot activate a publication");
   } finally {
     await rename(displaced, review.dir);
   }
@@ -173,7 +178,7 @@ it.each(["started", "different pins"])(
     try {
       await expect(
         migrateStoredReview({ reviewDir: review.dir, createSourceSession }),
-      ).rejects.toThrow("ENOENT");
+      ).rejects.toThrow("Cannot activate a publication");
     } finally {
       await rename(displaced, review.dir);
     }

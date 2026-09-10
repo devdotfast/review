@@ -300,25 +300,23 @@ export async function publishReviewMap(
         "The Review document is not published. Run `review publish` first.",
       );
     }
-    // A map is only ever published against a document publication, so a
-    // pointer no row answers is a Git-era document. Task 9's import makes
-    // this unreachable.
+    // A map is only ever published against a document publication, and
+    // reading the Review imported its Git-era history, so the pointer
+    // always answers to a document row.
     const documentRow = readPublication(
       review.dir,
       documentRevision,
       "document",
     );
-    if (!documentRow) {
+    const presentedDocument = documentRow
+      ? parsePublicationRecord(documentRow.record)
+      : null;
+    if (presentedDocument?.kind !== "document") {
       throw new Error(
-        "The presented Review document predates JSON publications. " +
-          "Republish the Review document first.",
+        `Publication ${documentRevision} is not a Review document.`,
       );
     }
-    const presentedDocument = parsePublicationRecord(documentRow.record);
-    if (
-      presentedDocument.kind !== "document" ||
-      !presentedDocument.sourceCommit
-    ) {
+    if (!presentedDocument.sourceCommit) {
       throw new Error(
         "The published Review document has no pinned head commit.",
       );

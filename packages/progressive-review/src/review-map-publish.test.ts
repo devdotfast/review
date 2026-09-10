@@ -138,7 +138,7 @@ it("pairs a published map with the presented document and republishes nothing wh
   }
 }, 60_000);
 
-it("refuses a map publish while the presented document is a Git-era revision", async () => {
+it("refuses a map publish while the presented document has no publication", async () => {
   const harness = await publicationHarness({
     softwareMap: softwareMapNote("App"),
   });
@@ -152,7 +152,14 @@ it("refuses a map publish while the presented document is a Git-era revision", a
     expect(map.events).toContainEqual({
       event: "error",
       stage: "publish",
-      diagnostics: [expect.stringContaining("Republish the Review document")],
+      // A pointer no publication row answers sends the Review through the
+      // legacy import first; when its history cannot supply that revision the
+      // Review reports repair instead of publishing a map against it.
+      diagnostics: [
+        expect.stringContaining(
+          `review repair --review ${harness.review.review.uuid}`,
+        ),
+      ],
     });
     expect(listPublications(harness.review.dir, "map")).toEqual([]);
   } finally {

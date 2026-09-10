@@ -1,14 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import {
-  access,
-  lstat,
-  mkdir,
-  readFile,
-  realpath,
-  rename,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { access, lstat, readFile, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { Writable } from "node:stream";
@@ -30,15 +21,13 @@ import {
   ensureReviewPinnedCheckout,
   removeLegacyReviewCheckouts,
 } from "./review-head-checkout";
+import { parseStoredReviewRecord } from "./review-home";
 import {
-  type StoredReviewRecord,
-  parseAnyStoredReviewRecord,
-  parseStoredReviewRecord,
-} from "./review-home";
-import { putReviewRecord, readReviewRecord } from "./review-state-db";
+  markLegacyArtifactImportRemoved,
+  readLegacyArtifactImport,
+  readReviewRecord,
+} from "./review-state-db";
 import { devReviewHome } from "./review-storage";
-import { reviewVcs } from "./review-vcs";
-import { writePrivateJsonAtomic } from "./server/desktop-paths";
 import { auditStoredReviewDocuments } from "./stored-review-document-audit";
 import { migrateStoredReviewData } from "./stored-review-migration";
 
@@ -67,12 +56,6 @@ interface CleanupResult {
   blockers: string[];
 }
 
-interface JjMigrationResult {
-  checked: number;
-  migrated: number;
-  blockers: string[];
-}
-
 interface ManagedCheckoutMigrationResult {
   checked: number;
   created: number;
@@ -82,7 +65,7 @@ interface ManagedCheckoutMigrationResult {
 
 interface RunReviewMigrationRuntime {
   migrateStoredReviewData: typeof migrateStoredReviewData;
-  migrateJjReviewRepositories: typeof migrateJjReviewRepositories;
+  discardLegacyReviewHistories: typeof discardLegacyReviewHistories;
   migrateReviewManagedCheckouts: typeof migrateReviewManagedCheckouts;
   auditStoredReviewDocuments: typeof auditStoredReviewDocuments;
   removeLegacyDesktopCatalog: typeof removeLegacyDesktopCatalog;
@@ -93,6 +76,7 @@ interface RunReviewMigrationRuntime {
 export async function runReviewMigration(input: {
   env?: NodeJS.ProcessEnv;
   force?: boolean;
+  discardLegacyGit?: boolean;
   json?: boolean;
   homeDir?: string;
   packageRoot?: string;
@@ -107,7 +91,7 @@ export async function runReviewMigration(input: {
   const packageRoot = input.packageRoot ?? defaultPackageRoot();
   const runtime: RunReviewMigrationRuntime = {
     migrateStoredReviewData,
-    migrateJjReviewRepositories,
+    discardLegacyReviewHistories,
     migrateReviewManagedCheckouts,
     auditStoredReviewDocuments,
     removeLegacyDesktopCatalog,
@@ -127,6 +111,8 @@ export async function runReviewMigration(input: {
       droppedQuestions: 0,
       legacyCheckoutsRemoved: 0,
       upgradedThreadDatabases: 0,
+      importedVersions: 0,
+      unavailableVersions: 0,
     },
     () =>
       runtime.migrateStoredReviewData({
@@ -137,16 +123,16 @@ export async function runReviewMigration(input: {
       }),
     blockers,
   );
-  const jj = await runMigrationPhase(
-    "jj repository migration",
-    { checked: 0, migrated: 0, blockers: [] },
+  const discarded = await runMigrationPhase(
+    "legacy history disposal",
+    { checked: 0, removed: 0, blockers: [] },
     () =>
-      runtime.migrateJjReviewRepositories({
-        reviewHome,
-        skipReviewUuids: stored.failedReviewUuids,
-        force: input.force,
-        log: (message) => input.stderr.write(`${message}\n`),
-      }),
+      input.discardLegacyGit
+        ? runtime.discardLegacyReviewHistories({
+            reviewHome,
+            log: (message) => input.stderr.write(`${message}\n`),
+          })
+        : Promise.resolve({ checked: 0, removed: 0, blockers: [] }),
     blockers,
   );
   const managedCheckouts = await runMigrationPhase(
@@ -203,7 +189,7 @@ export async function runReviewMigration(input: {
   );
 
   blockers.push(
-    ...jj.blockers,
+    ...discarded.blockers,
     ...managedCheckouts.blockers,
     ...catalog.blockers,
     ...skills.blockers,
@@ -232,7 +218,9 @@ export async function runReviewMigration(input: {
       `Review migration: ${count(stored.documents, "document")} checked;`,
       `${count(stored.droppedReviews, "old Review")} dropped;`,
       `${count(stored.droppedLegacyPeekReviews, "legacy-peek Review")} dropped;`,
-      `${count(jj.migrated, "jj repository", "jj repositories")} converted;`,
+      `${count(stored.importedVersions, "published version")} imported;`,
+      `${count(stored.unavailableVersions, "unavailable version")} recorded;`,
+      `${count(discarded.removed, "legacy Git history", "legacy Git histories")} discarded;`,
       `${count(managedCheckouts.created, "managed checkout")} created;`,
       `${count(stored.legacyCheckoutsRemoved + managedCheckouts.legacyRemoved, "legacy checkout")} removed;`,
       `${count(stored.upgradedThreadDatabases, "thread database")} upgraded;`,
@@ -251,7 +239,9 @@ export async function runReviewMigration(input: {
     documents: stored.documents,
     droppedReviews: stored.droppedReviews,
     droppedLegacyPeekReviews: stored.droppedLegacyPeekReviews,
-    jjRepositories: jj.migrated,
+    importedVersions: stored.importedVersions,
+    unavailableVersions: stored.unavailableVersions,
+    legacyHistoriesDiscarded: discarded.removed,
     managedCheckouts: managedCheckouts.created,
     legacyCheckouts:
       stored.legacyCheckoutsRemoved + managedCheckouts.legacyRemoved,
@@ -350,147 +340,47 @@ async function runMigrationPhase<T>(
   }
 }
 
-export async function migrateJjReviewRepositories(input: {
+/**
+ * `review migrate apply --discard-legacy-git`: the private Git history and the
+ * sealed `.bundle` tree of a fully imported Review are dead weight once every
+ * published version answers to a publication row. A Review with unavailable
+ * rows still needs its history, so it is reported and skipped, and the default
+ * run never reaches this phase at all.
+ */
+export async function discardLegacyReviewHistories(input: {
   reviewHome: string;
-  skipReviewUuids?: readonly string[];
-  force?: boolean;
   log?: (message: string) => void;
-}): Promise<JjMigrationResult> {
+}): Promise<CleanupResult> {
   const reviewsRoot = path.join(input.reviewHome, "reviews");
-  const result: JjMigrationResult = {
-    checked: 0,
-    migrated: 0,
-    blockers: [],
-  };
+  const result: CleanupResult = { checked: 0, removed: 0, blockers: [] };
   for (const entry of await readDirectory(reviewsRoot)) {
     if (!entry.isDirectory() || !UUID_PATTERN.test(entry.name)) continue;
     const reviewDir = path.join(reviewsRoot, entry.name);
-    if (!(await pathExists(path.join(reviewDir, ".jj")))) continue;
-    if (input.skipReviewUuids?.includes(entry.name)) continue;
+    const marker = readLegacyArtifactImport(reviewDir, input.reviewHome);
+    if (!marker || marker.legacyRemovedAt !== null) continue;
     result.checked += 1;
-    let recordSource: string;
+    if (marker.unavailable > 0) {
+      result.blockers.push(
+        `${reviewDir}: ${count(marker.unavailable, "published version")} could not be imported; its legacy Git history was kept.`,
+      );
+      continue;
+    }
     try {
-      recordSource = await readFile(
-        path.join(reviewDir, "review.json"),
-        "utf8",
-      );
-      const parsed = parseAnyStoredReviewRecord(JSON.parse(recordSource));
-      if (parsed.uuid !== entry.name) {
-        throw new Error("review.json UUID does not match its directory");
-      }
-      // The current implementation already reads the colocated Git objects.
-      // Rebuilding from the worktree would erase immutable publication history.
-      if (
-        parsed.presentedDocumentRevision ||
-        parsed.presentedSoftwareMapRevision ||
-        (await reviewVcs.log(reviewDir)).length > 0
-      ) {
-        input.log?.(
-          `Preserved colocated Review history for ${parsed.uuid}; no repository reset is needed.`,
-        );
-        continue;
-      }
-      await resetJjReviewRepository({
-        reviewDir,
-        review: parsed,
-        recordSource,
-        force: input.force,
+      await rm(path.join(reviewDir, ".git"), { recursive: true, force: true });
+      await rm(path.join(reviewDir, ".bundle"), {
+        recursive: true,
+        force: true,
       });
-      putReviewRecord(
-        reviewDir,
-        parseStoredReviewRecord(
-          JSON.parse(
-            await readFile(path.join(reviewDir, "review.json"), "utf8"),
-          ),
-        ),
-        input.reviewHome,
-      );
-      input.log?.(`Converted jj Review repository ${reviewDir} to plain Git.`);
-      result.migrated += 1;
+      markLegacyArtifactImportRemoved(reviewDir, input.reviewHome);
+      result.removed += 1;
+      input.log?.(`Discarded the legacy Git history of Review ${entry.name}.`);
     } catch (error) {
-      result.blockers.push(`${reviewDir}: ${errorMessage(error)}`);
+      result.blockers.push(
+        `${reviewDir}: legacy history disposal failed: ${errorMessage(error)}`,
+      );
     }
   }
   return result;
-}
-
-async function resetJjReviewRepository(input: {
-  reviewDir: string;
-  review: StoredReviewRecord;
-  recordSource: string;
-  force?: boolean;
-}): Promise<void> {
-  const gitDir = path.join(input.reviewDir, ".git");
-  const jjDir = path.join(input.reviewDir, ".jj");
-  const backupDir = `${input.reviewDir}.review-migrate-git-backup`;
-  const backupExists = await pathExists(backupDir);
-  if (backupExists && !input.force) {
-    throw new Error(
-      `an interrupted Git backup exists at ${backupDir}; rerun with --force`,
-    );
-  }
-  if (backupExists) {
-    await rm(backupDir, { recursive: true, force: true });
-  }
-
-  let movedGit = false;
-  try {
-    await rename(gitDir, backupDir);
-    movedGit = true;
-  } catch (error) {
-    if (
-      !(error instanceof Error && "code" in error && error.code === "ENOENT")
-    ) {
-      throw error;
-    }
-    if (!input.force) {
-      throw new Error("the colocated .git directory is missing");
-    }
-  }
-
-  try {
-    await writePrivateJsonAtomic(path.join(input.reviewDir, "review.json"), {
-      ...input.review,
-      presentedDocumentRevision: null,
-      presentedSoftwareMapRevision: null,
-    });
-    await reviewVcs.init(input.reviewDir);
-    const excludeDir = path.join(gitDir, "info");
-    await mkdir(excludeDir, { recursive: true });
-    await writeFile(path.join(excludeDir, "exclude"), ".jj/\n", "utf8");
-    const revision = await reviewVcs.seal(
-      input.reviewDir,
-      "Migrate Review history to plain Git",
-    );
-    await reviewVcs.resolve(input.reviewDir, revision);
-    const stored = parseStoredReviewRecord(
-      JSON.parse(
-        await readFile(path.join(input.reviewDir, "review.json"), "utf8"),
-      ),
-    );
-    if (
-      stored.uuid !== input.review.uuid ||
-      stored.presentedDocumentRevision !== null ||
-      stored.presentedSoftwareMapRevision !== null
-    ) {
-      throw new Error("the migrated review.json did not verify");
-    }
-    await rm(jjDir, { recursive: true, force: false });
-  } catch (error) {
-    await rm(gitDir, { recursive: true, force: true });
-    if (movedGit && (await pathExists(backupDir))) {
-      await rename(backupDir, gitDir);
-    }
-    await writeFile(
-      path.join(input.reviewDir, "review.json"),
-      input.recordSource,
-      "utf8",
-    );
-    throw error;
-  }
-  if (movedGit) {
-    await rm(backupDir, { recursive: true, force: false });
-  }
 }
 
 export async function removeLegacyDesktopCatalog(input: {

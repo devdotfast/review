@@ -776,17 +776,28 @@ export async function runProgressiveReviewCli(
       .option(
         "--force",
         "restart an interrupted migration and drop unrecoverable comment threads",
+      )
+      .option(
+        "--discard-legacy-git",
+        "delete the private Git history of Reviews whose published versions all imported",
       ),
     "plain",
-  ).action(async (options: { force?: boolean; json?: boolean }) => {
-    state.exitCode = await runtime.runReviewMigration({
-      env,
-      force: options.force,
-      json: options.json,
-      stdout: input.stdout,
-      stderr: input.stderr,
-    });
-  });
+  ).action(
+    async (options: {
+      force?: boolean;
+      discardLegacyGit?: boolean;
+      json?: boolean;
+    }) => {
+      state.exitCode = await runtime.runReviewMigration({
+        env,
+        force: options.force,
+        discardLegacyGit: options.discardLegacyGit,
+        json: options.json,
+        stdout: input.stdout,
+        stderr: input.stderr,
+      });
+    },
+  );
 
   const threads = configureOutput(
     program

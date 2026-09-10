@@ -15,6 +15,11 @@ import {
   requireCompletedAgentResponsesForRepublish,
 } from "./review-publish-thread-gate";
 import {
+  insertPublicationInTransaction,
+  reviewHomeForDir,
+  withReviewStateTransaction,
+} from "./review-state-db";
+import {
   appendReviewAgentMessage,
   appendReviewComment,
   setReviewCommentAgentSession,
@@ -89,9 +94,23 @@ describe("requireClosedThreadsForRepublish", () => {
     const review = await createTestReview();
     server = await startLifecycleTestServer();
     addComment(review.dir, "thread-1");
+    // The pointer has to answer to a real publication row; a Review whose
+    // presented revision no row answers is imported before anything reads it.
+    const publicationId = "a".repeat(40);
+    withReviewStateTransaction(reviewHomeForDir(review.dir), (tx) =>
+      insertPublicationInTransaction(tx, review.dir, {
+        publicationId,
+        kind: "document",
+        record: { kind: "document", createdAt: "2026-09-01T00:00:00.000Z" },
+        createdAt: "2026-09-01T00:00:00.000Z",
+        operation: "publish",
+        artifactHash: null,
+        previousPublicationId: null,
+      }),
+    );
     await persistStoredReviewRecord(review.dir, {
       ...review.review,
-      presentedDocumentRevision: "published-revision",
+      presentedDocumentRevision: publicationId,
     });
     const stdout = new PassThrough();
     let output = "";

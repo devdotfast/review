@@ -653,6 +653,21 @@ export function readLegacyArtifactImport(
   };
 }
 
+/** Records that a fully imported Review's private Git history was discarded. */
+export function markLegacyArtifactImportRemoved(
+  reviewDir: string,
+  home = reviewHomeForDir(reviewDir),
+): void {
+  withReviewStateTransaction(home, (tx) => {
+    tx.db
+      .prepare(
+        `UPDATE legacy_artifact_imports SET legacy_removed_at = ?
+         WHERE review_id = ? AND legacy_removed_at IS NULL`,
+      )
+      .run(new Date().toISOString(), reviewIdForDir(reviewDir));
+  });
+}
+
 export function deleteReviewState(
   reviewDir: string,
   home = reviewHomeForDir(reviewDir),

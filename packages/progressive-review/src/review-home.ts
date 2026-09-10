@@ -51,6 +51,7 @@ import {
   deleteReviewState,
   openReviewStateDb,
   putReviewRecord,
+  readPublication,
   readReviewRecord,
   readReviewRecordInTransaction,
   reviewHomeForDir,
@@ -810,7 +811,7 @@ export async function readStoredReview(
     await access(dir);
     let value = readReviewRecord(dir);
     let parsed = safeParseStoredReviewRecord(value);
-    if (!parsed.success && isLegacyStoredReviewRecord(value, dir)) {
+    if (needsLegacyArtifactImport(value, dir)) {
       try {
         await migrateLegacyStoredReview(dir);
       } catch (error) {
@@ -893,6 +894,20 @@ export async function repairReviewMirror(
   await writePrivateJsonAtomic(path.join(dir, "review.json"), record);
 }
 
+/** A Review whose published versions are not yet publication rows: either an
+ * older schema, or a current-schema record still pointing at a Git-era
+ * revision. Reading either one imports its private history first, so every
+ * reader downstream can rely on the rows. */
+function needsLegacyArtifactImport(value: JsonValue, dir: string): boolean {
+  if (isLegacyStoredReviewRecord(value, dir)) return true;
+  const parsed = safeParseStoredReviewRecord(value);
+  if (!parsed.success || parsed.data.uuid !== path.basename(dir)) return false;
+  const presented = parsed.data.presentedDocumentRevision;
+  return (
+    presented !== null && readPublication(dir, presented, "document") === null
+  );
+}
+
 function isLegacyStoredReviewRecord(value: JsonValue, dir: string): boolean {
   if (
     !isJsonObject(value) ||
@@ -912,7 +927,7 @@ function isLegacyStoredReviewRecord(value: JsonValue, dir: string): boolean {
 async function migrateLegacyStoredReview(dir: string): Promise<void> {
   await withReviewMutationLock(dir, async () => {
     const current = readReviewRecord(dir);
-    if (!isLegacyStoredReviewRecord(current, dir)) return;
+    if (!needsLegacyArtifactImport(current, dir)) return;
     const { migrateStoredReview } = await import("./stored-review-migration");
     const uuid = path.basename(dir);
     const outcome = await migrateStoredReview({

@@ -77,6 +77,10 @@ async function sourceSnapshot(root: string): Promise<string> {
   );
 }
 
+/** A corpus Review whose source repository is gone cannot be cloned or pinned;
+ * it is reported and skipped instead of failing the whole sweep. */
+class CorpusSourceUnavailable extends Error {}
+
 async function git(root: string, args: string[]): Promise<string> {
   try {
     return (
@@ -87,7 +91,9 @@ async function git(root: string, args: string[]): Promise<string> {
       })
     ).stdout.trim();
   } catch {
-    throw new Error("Corpus source clone or pinned revision check failed.");
+    throw new CorpusSourceUnavailable(
+      "Corpus source clone or pinned revision check failed.",
+    );
   }
 }
 
@@ -199,6 +205,7 @@ describe.skipIf(!corpus)("legacy review corpus", () => {
         const sourceDir = path.join(source, uuid);
         originals.set(sourceDir, await sourceSnapshot(sourceDir));
         const dir = path.join(home, "reviews", uuid);
+        let clone = "";
         await cp(sourceDir, dir, {
           recursive: true,
           filter: async (entry) => {
@@ -214,35 +221,47 @@ describe.skipIf(!corpus)("legacy review corpus", () => {
         );
         if (!original) throw new Error("Corpus record has no source checkout.");
         const validated = parseAnyStoredReviewRecord(original);
-        const commonDir = await realpath(
-          await git(validated.worktreePath, [
-            "rev-parse",
-            "--path-format=absolute",
-            "--git-common-dir",
-          ]),
-        );
-        let clone = clones.get(commonDir);
-        if (!clone) {
-          clone = path.join(home, "sources", String(clones.size));
-          await mkdir(path.dirname(clone), { recursive: true });
-          await git(home, [
-            "clone",
-            "--no-hardlinks",
-            "--no-checkout",
-            "--config",
-            "core.hooksPath=/dev/null",
-            commonDir,
-            clone,
-          ]);
-          clones.set(commonDir, clone);
-        }
-        for (const pin of [validated.baseCommit, validated.sourceCommit]) {
-          if (pin === null || pin === undefined) continue;
-          if (!/^[a-f0-9]{40}$/i.test(pin))
-            throw new Error("Corpus record has an invalid pinned commit.");
-          expect(
-            await git(clone, ["rev-parse", "--verify", `${pin}^{commit}`]),
-          ).toBe(pin);
+        try {
+          const commonDir = await realpath(
+            await git(validated.worktreePath, [
+              "rev-parse",
+              "--path-format=absolute",
+              "--git-common-dir",
+            ]),
+          );
+          clone = clones.get(commonDir) ?? "";
+          if (!clone) {
+            clone = path.join(home, "sources", String(clones.size));
+            await mkdir(path.dirname(clone), { recursive: true });
+            await git(home, [
+              "clone",
+              "--no-hardlinks",
+              "--no-checkout",
+              "--config",
+              "core.hooksPath=/dev/null",
+              commonDir,
+              clone,
+            ]);
+            clones.set(commonDir, clone);
+          }
+          for (const pin of [validated.baseCommit, validated.sourceCommit]) {
+            if (pin === null || pin === undefined) continue;
+            if (!/^[a-f0-9]{40}$/i.test(pin))
+              throw new Error("Corpus record has an invalid pinned commit.");
+            expect(
+              await git(clone, ["rev-parse", "--verify", `${pin}^{commit}`]),
+            ).toBe(pin);
+          }
+        } catch (error) {
+          // A Review whose source repository no longer exists on this machine
+          // is reported and skipped: it says nothing about the migration.
+          if (!(error instanceof CorpusSourceUnavailable)) throw error;
+          rows.push({
+            uuid,
+            schema: String(original.schemaVersion),
+            result: "skipped-source-unavailable",
+          });
+          continue;
         }
         await writeFile(
           recordPath,
@@ -348,6 +367,11 @@ describe.skipIf(!corpus)("legacy review corpus", () => {
         const repeated = await readStoredReview(dir);
         expect("error" in repeated).toBe(false);
         expect(digest(await snapshotReviewTree(dir))).toBe(digest(snapshot));
+        // The import reads the copy in the temp home and never the corpus.
+        expect(
+          await sourceSnapshot(sourceDir),
+          `${uuid}: source untouched`,
+        ).toBe(originals.get(sourceDir));
         rows.push({
           uuid,
           schema: String(original.schemaVersion),

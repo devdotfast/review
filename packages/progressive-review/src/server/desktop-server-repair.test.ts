@@ -32,7 +32,7 @@ import {
   bundleReviewDocument,
   writeReviewDocumentBundle,
 } from "../review-bundle";
-import { createReviewDir } from "../review-home";
+import { createReviewDir, readStoredReview } from "../review-home";
 import { prepareReviewRepair } from "../review-repair-preparation";
 import {
   type ReviewRepairReadyRequest,
@@ -44,6 +44,8 @@ import {
   checkReviewThreadDbVersion,
   closeAllReviewThreadStores,
   copyReviewThreadDatabaseSnapshot,
+  readReviewThreadDatabaseFingerprint,
+  reviewThreadDbPath,
 } from "../review-thread-store-backend";
 import { createGlobalReviewServer } from "./desktop-server";
 import {
@@ -83,7 +85,13 @@ const packageRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../..",
 );
-async function fixture(schemaVersion: 4 | 6 = 4) {
+/** `sealedDocument: "broken"` seals JavaScript that cannot be converted, so
+ * the Review is only reachable through repair; `"json"` seals a readable v2
+ * bundle, so its Git-era publication imports on the first read. */
+async function fixture(
+  schemaVersion: 4 | 6 = 4,
+  sealedDocument: "broken" | "json" = "broken",
+) {
   root = await mkdtemp(path.join(tmpdir(), "repair-server-"));
   vi.stubEnv("DEV_REVIEW_HOME", root);
   const source = path.join(root, "source");
@@ -106,28 +114,50 @@ async function fixture(schemaVersion: 4 | 6 = 4) {
     dismissedAt: schemaVersion === 4 ? "2026-09-01T01:00:00Z" : null,
     viewedAt: "2026-09-01T00:01:00Z",
   };
-  await mkdir(path.join(stored.dir, ".bundle", "document"), {
-    recursive: true,
-  });
-  await writeFile(
-    path.join(stored.dir, ".bundle", "document", "manifest.json"),
-    JSON.stringify({ version: 1, routePath: "/", sourcePath: "review.mdx" }),
-  );
-  await writeFile(
-    path.join(stored.dir, ".bundle", "document", "review-document.js"),
-    "throw new Error('never execute server');",
-  );
+  if (sealedDocument === "broken") {
+    await mkdir(path.join(stored.dir, ".bundle", "document"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(stored.dir, ".bundle", "document", "manifest.json"),
+      JSON.stringify({ version: 1, routePath: "/", sourcePath: "review.mdx" }),
+    );
+    await writeFile(
+      path.join(stored.dir, ".bundle", "document", "review-document.js"),
+      "throw new Error('never execute server');",
+    );
+  } else {
+    await writeReviewDocumentBundle(
+      stored.dir,
+      bundleReviewDocument({
+        format: "review-document/1",
+        title: "Keep title",
+        routePath: "/",
+        sourcePath: "review.mdx",
+        body: [],
+        anchors: {},
+        anchorContents: {},
+        softwareModels: [],
+      }),
+    );
+  }
   await writeFile(path.join(stored.dir, "review.json"), JSON.stringify(record));
   const oldRevision = await sealLegacyReviewCommit(
     stored.dir,
     "Review publish candidate",
   );
-  const expectedRecord = JSON.stringify({
-    ...record,
-    presentedDocumentRevision: oldRevision,
-  });
-  await writeFile(path.join(stored.dir, "review.json"), expectedRecord);
+  await writeFile(
+    path.join(stored.dir, "review.json"),
+    JSON.stringify({ ...record, presentedDocumentRevision: oldRevision }),
+  );
   deleteReviewState(stored.dir);
+  // A readable sealed document imports on the first read, which rewrites the
+  // record mirror; the repair guard has to be taken after that.
+  if (sealedDocument === "json") await readStoredReview(stored.dir);
+  const expectedRecord = await readFile(
+    path.join(stored.dir, "review.json"),
+    "utf8",
+  );
   const expectedFingerprint = await fingerprintReviewRepairInputs(stored.dir);
   const stagingDir = path.join(root, "stage");
   await cp(stored.dir, stagingDir, { recursive: true });
@@ -237,8 +267,13 @@ async function fixture(schemaVersion: 4 | 6 = 4) {
   return { stored, record, request, server, post, list, visible, get };
 }
 
-it.each(["success", "mount-failure", "live-change", "stage-change"])(
-  "repairs a legacy database with the document only after mount validation: %s",
+// "live-change" and "stage-change" outcomes are gone with the thread-database
+// guard they exercised: reading a Review now imports its threads into the
+// shared home database, so repair no longer upgrades a per-review legacy one
+// in isolation. `review-repair.test.ts` still covers that upgrade and its
+// preparation-time guard for a Review repaired before it is ever read.
+it.each(["success", "mount-failure"])(
+  "repairs an unconvertible sealed document only after mount validation: %s",
   async (outcome) => {
     const { stored, server, post, get } = await fixture();
     const reviewPath = path.join(stored.dir, "review.mdx");
@@ -251,20 +286,20 @@ it.each(["success", "mount-failure", "live-change", "stage-change"])(
     });
     closeAllReviewThreadStores();
     copyReviewThreadDatabaseSnapshot(reviewPath, reviewPath);
-    deleteReviewState(stored.dir);
-    const db = new DatabaseSync(path.join(stored.dir, "review.db"));
-    db.prepare(
-      "UPDATE meta SET value = '5' WHERE key = 'schema_version'",
-    ).run();
-    db.close();
-    const before = await snapshotReviewTree(stored.dir);
-    let expectedAfterFailure = before;
+    // Reading is what migrates this Review's metadata and threads; its sealed
+    // document cannot be converted, so it stays a repair candidate.
+    expect("error" in (await readStoredReview(stored.dir))).toBe(true);
     const prepared = await prepareReviewRepair({ reviewDir: stored.dir });
     if (prepared.kind !== "prepared") throw new Error("Expected legacy repair");
-    expect(prepared.request.expectedThreadDbFingerprint).toBeDefined();
+    // Preparing reads the Review, which migrates its thread database in
+    // place, so repair has no isolated legacy upgrade of its own left to do.
+    expect(prepared.request.expectedThreadDbFingerprint).toBeUndefined();
+    checkReviewThreadDbVersion(reviewPath);
     expect(prepared.request.sourceFallback.document).toBe(true);
+    // Preparation reads the Review, which migrates its threads first, so the
+    // "nothing else changed" baseline is the tree it leaves behind.
+    const before = await snapshotReviewTree(stored.dir);
     let validated = false;
-    let refreshedDraftIds: string[] | undefined;
     dispatchVerb = async (sessionId, value) => {
       if (jsonObject(value)?.name !== "validateCanvasMount")
         return { ok: true };
@@ -287,45 +322,6 @@ it.each(["success", "mount-failure", "live-change", "stage-change"])(
           ),
         ),
       ).toEqual(before);
-      if (outcome === "live-change" || outcome === "stage-change") {
-        const changedDir =
-          outcome === "live-change" ? stored.dir : prepared.request.stagingDir;
-        if (outcome === "stage-change") {
-          appendReviewCommentDraft(path.join(changedDir, "review.mdx"), {
-            threadId: "concurrent-draft",
-            messageId: "concurrent-message",
-            target: { kind: "document" },
-            body: "Concurrent staged draft",
-            author: "Reviewer",
-          });
-          const refreshed = ReviewThreadsSnapshotResponseSchema.parse(
-            await (await get(`${prefix}/comments`)).json(),
-          );
-          if (!refreshed.ok) throw new Error(refreshed.error);
-          refreshedDraftIds = Object.keys(refreshed.snapshot.drafts).sort();
-        } else {
-          const changed = new DatabaseSync(path.join(changedDir, "review.db"));
-          changed
-            .prepare(
-              "INSERT INTO meta (key, value) VALUES ('concurrent-change', 'keep')",
-            )
-            .run();
-          changed.close();
-        }
-        if (outcome === "live-change") {
-          const latest = await snapshotReviewTree(stored.dir);
-          expectedAfterFailure = Object.fromEntries(
-            Object.entries(latest).filter(
-              ([name]) => !name.startsWith(".build/"),
-            ),
-          );
-        }
-      }
-      expect(refreshedDraftIds).toEqual(
-        outcome === "stage-change"
-          ? ["concurrent-draft", "preserved-draft"]
-          : undefined,
-      );
       validated = true;
       return outcome === "mount-failure"
         ? { ok: false, error: "test mount failure" }
@@ -334,11 +330,9 @@ it.each(["success", "mount-failure", "live-change", "stage-change"])(
     try {
       const response = await post("/repair-ready", prepared.request);
       expect(validated).toBe(true);
-      expect(response.status).toBe(
-        outcome === "success" ? 201 : outcome === "mount-failure" ? 422 : 400,
-      );
+      expect(response.status).toBe(outcome === "success" ? 201 : 422);
       if (outcome !== "success") {
-        await expectReviewTree(stored.dir, expectedAfterFailure);
+        await expectReviewTree(stored.dir, before);
         return;
       }
       checkReviewThreadDbVersion(reviewPath);
@@ -459,13 +453,22 @@ it("switches repaired comments to live snapshots for resynchronization after pro
 it.each([true, false])(
   "replaces only the repaired current-schema session when mount succeeds: %s",
   async (mountSucceeds) => {
-    const { stored, record, request, server, post, list, get } =
-      await fixture(6);
+    const { stored, record, request, server, post, list, get } = await fixture(
+      6,
+      "json",
+    );
     dispatchVerb = async (_sessionId, value) =>
       jsonObject(value)?.name === "validateCanvasMount" && !mountSucceeds
         ? { ok: false, error: "test mount failure" }
         : { ok: true };
     try {
+      // Reading imports the Git-era publication; dropping the stored bytes
+      // afterwards leaves a row whose document needs republishing.
+      await readStoredReview(stored.dir);
+      await rm(path.join(stored.dir, "artifacts"), {
+        recursive: true,
+        force: true,
+      });
       const opened = await post(`/reviews/${record.uuid}/open`, {});
       expect(opened.status).toBe(201);
       const old = await opened.json();

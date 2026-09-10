@@ -87,7 +87,6 @@ import {
   findReviewForRepair,
   findScopedReview,
   listReviews,
-  parseAnyStoredReviewRecord,
   parseStoredReviewRecord,
   persistStoredReviewRecord,
   reviewDescriptor,
@@ -739,9 +738,10 @@ export function createGlobalReviewServer(
         review: homeReview,
       });
     }
-    const presented =
-      (await publicationSessionArtifact(viewed, documentRevision)) ??
-      (await legacyCurrentSessionArtifact(viewed, documentRevision));
+    const presented = await publicationSessionArtifact(
+      viewed,
+      documentRevision,
+    );
     const active = await registerSerialized({
       review: presented.review,
       artifact: presented.artifact,
@@ -760,16 +760,14 @@ export function createGlobalReviewServer(
     });
   });
 
-  /** The session a committed document publication serves. Null when the
-   * pointer is a Git-era revision no row answers. */
+  /** The session a committed document publication serves. Reading a Review
+   * imports its Git-era history first, so a presented pointer always answers
+   * to a row. */
   async function publicationSessionArtifact(
     review: StoredReview,
     documentRevision: string,
-  ): Promise<PresentedSessionArtifact | null> {
-    const row = readPublication(review.dir, documentRevision, "document");
-    if (!row) return null;
-    const record = parsePublicationRecord(row.record);
-    if (record.kind !== "document") return null;
+  ): Promise<PresentedSessionArtifact> {
+    const record = presentedDocumentRecord(review, documentRevision);
     const map = await presentedMapArtifact(review);
     const document = await storedDocumentBundle(review, record);
     return {
@@ -792,64 +790,16 @@ export function createGlobalReviewServer(
     };
   }
 
-  /** Git-era reviews still present from `.build/<revision>`; the importer
-   * retires this path. */
-  async function legacyCurrentSessionArtifact(
-    review: StoredReview,
-    documentRevision: string,
-  ): Promise<PresentedSessionArtifact> {
-    let documentUnavailable: string | undefined;
-    const documentBuildDir = await publishRuntime
-      .materializePublishRevision({ review, revision: documentRevision })
-      .catch(() => {
-        documentUnavailable = `The presented document revision ${documentRevision} is unavailable.`;
-        return path.join(review.dir, ".build", documentRevision);
-      });
-    const mapRevision = review.review.presentedSoftwareMapRevision;
-    let softwareMapUnavailable: string | undefined;
-    const softwareMapRootPath = mapRevision
-      ? await publishRuntime
-          .materializePublishRevision({ review, revision: mapRevision })
-          .then((root) => presentedMapRoot(root, false))
-          .catch(() => {
-            softwareMapUnavailable = `The presented software map revision ${mapRevision} is unavailable.`;
-            return undefined;
-          })
-      : undefined;
-    return {
-      review: documentUnavailable
-        ? review
-        : await reviewWithPresentedDocumentPins(review, documentBuildDir),
-      artifact: await legacySessionArtifactFromBuildDir({
-        reviewUuid: review.review.uuid,
-        revision: documentRevision,
-        buildDir: documentBuildDir,
-        routePath: "/",
-        softwareMapRootPath,
-        documentUnavailable,
-        softwareMapUnavailable,
-      }),
-    };
-  }
-
   /** A historical open restores the publication's own code context and the
-   * map it was published beside. Null only for a Git-era review, which has no
-   * rows at all; once a review has rows, an unknown ID is not one of them. */
+   * map it was published beside. Every published version is a row, so an
+   * unknown ID is simply not one of this Review's versions. */
   async function historicalPublicationSessionArtifact(
     review: StoredReview,
     revision: string,
-  ): Promise<PresentedSessionArtifact | null> {
+  ): Promise<PresentedSessionArtifact> {
     const row = readPublication(review.dir, revision, "document");
-    if (!row) {
-      if (listPublications(review.dir, "document").length === 0) return null;
-      throw new ReviewServerError(
-        "Review version not found.",
-        404,
-        "revision_not_found",
-      );
-    }
-    const record = parsePublicationRecord(row.record);
-    if (record.kind !== "document")
+    const record = row ? parsePublicationRecord(row.record) : null;
+    if (record?.kind !== "document")
       throw new ReviewServerError(
         "Review version not found.",
         404,
@@ -876,54 +826,6 @@ export function createGlobalReviewServer(
     };
   }
 
-  async function legacyHistoricalSessionArtifact(
-    review: StoredReview,
-    revision: string,
-  ): Promise<PresentedSessionArtifact> {
-    let documentBuildDir: string;
-    try {
-      documentBuildDir = await publishRuntime.materializePublishRevision({
-        review,
-        revision,
-      });
-    } catch {
-      throw new ReviewServerError(
-        "Review version not found.",
-        404,
-        "revision_not_found",
-      );
-    }
-    const presentedValue = JSON.parse(
-      await readFile(path.join(documentBuildDir, "review.json"), "utf8"),
-    );
-    const presentedRecord = parseAnyStoredReviewRecord(presentedValue);
-    const mapRevision = presentedRecord.presentedSoftwareMapRevision;
-    let softwareMapUnavailable: string | undefined;
-    const softwareMapRootPath = mapRevision
-      ? await publishRuntime
-          .materializePublishRevision({ review, revision: mapRevision })
-          .then((root) =>
-            presentedMapRoot(root, presentedValue.schemaVersion === 2),
-          )
-          .catch(() => {
-            softwareMapUnavailable = `The historical software map revision ${mapRevision} is unavailable.`;
-            return undefined;
-          })
-      : undefined;
-    return {
-      review: await reviewWithPresentedDocumentPins(review, documentBuildDir),
-      artifact: await legacySessionArtifactFromBuildDir({
-        reviewUuid: review.review.uuid,
-        revision,
-        buildDir: documentBuildDir,
-        routePath: "/",
-        softwareMapRootPath,
-        softwareMapUnavailable,
-        historical: true,
-      }),
-    };
-  }
-
   async function openHistoricalReviewSession(
     review: StoredReview,
     revision: string,
@@ -946,9 +848,10 @@ export function createGlobalReviewServer(
         review: homeReview,
       });
     }
-    const presented =
-      (await historicalPublicationSessionArtifact(review, revision)) ??
-      (await legacyHistoricalSessionArtifact(review, revision));
+    const presented = await historicalPublicationSessionArtifact(
+      review,
+      revision,
+    );
     const active = await registerSerialized({
       review: presented.review,
       artifact: presented.artifact,
@@ -1928,16 +1831,8 @@ export function createGlobalReviewServer(
     documentRevision: string,
   ): DocumentPublicationRecord {
     const row = readPublication(review.dir, documentRevision, "document");
-    if (!row) {
-      throw new ReviewServerError(
-        "The presented Review document predates JSON publications. " +
-          "Republish the Review document first.",
-        409,
-        "review_unpublished",
-      );
-    }
-    const record = parsePublicationRecord(row.record);
-    if (record.kind !== "document") {
+    const record = row ? parsePublicationRecord(row.record) : null;
+    if (record?.kind !== "document") {
       throw new ReviewServerError(
         `Publication ${documentRevision} is not a Review document.`,
         422,
@@ -3289,21 +3184,6 @@ async function presentedMapArtifact(
   return bundle
     ? { artifact: { bundle }, publicationId }
     : { artifact: { unavailable: staleMessage }, publicationId: null };
-}
-
-async function presentedMapRoot(
-  root: string,
-  allowAbsent: boolean,
-): Promise<string | undefined> {
-  if (!allowAbsent) return root;
-  try {
-    await stat(path.join(root, ".bundle", "software-map"));
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT")
-      return undefined;
-    throw error;
-  }
-  return root;
 }
 
 /** An activation refusal carries its own status and machine code, so the JSON

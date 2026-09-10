@@ -4,9 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
+import { REVIEW_SCHEMA_VERSION } from "@dev.fast/review-protocol";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { createReviewDir } from "./review-home";
+import { listPublications, readLegacyArtifactImport } from "./review-state-db";
 import {
   REVIEW_THREAD_DB_SCHEMA_VERSION,
   closeAllReviewThreadStores,
@@ -43,6 +45,12 @@ it.each([4, 5])(
       path.join(reviewDir, "review.json"),
       "utf8",
     );
+    // A thread database that refuses to migrate also blocks the artifact
+    // import, so the record stays at its stored schema: bumping it would
+    // leave a current-schema Review whose pointer no publication answers.
+    expect(JSON.parse(recordBeforeForce).schemaVersion).toBe(schemaVersion);
+    expect(listPublications(reviewDir, "document")).toEqual([]);
+    expect(readLegacyArtifactImport(reviewDir)).toBeNull();
     const log: string[] = [];
     const blockers: string[] = [];
     const forced = await migrateStoredReviewData({
@@ -81,9 +89,18 @@ it.each([4, 5])(
         { question_id: "question", record_json: '{"body":"private prose"}' },
       ],
     });
-    expect(await readFile(path.join(reviewDir, "review.json"), "utf8")).toBe(
-      recordBeforeForce,
-    );
+    // Forcing the thread database through unblocks the import, which is the
+    // write that finally moves the record to the current schema.
+    expect(
+      JSON.parse(await readFile(path.join(reviewDir, "review.json"), "utf8")),
+    ).toEqual({
+      ...JSON.parse(recordBeforeForce),
+      schemaVersion: REVIEW_SCHEMA_VERSION,
+    });
+    expect(readLegacyArtifactImport(reviewDir)).toMatchObject({
+      versions: 0,
+      unavailable: 0,
+    });
     const repeated = await migrateStoredReviewData({ reviewHome, force: true });
     expect(repeated).toMatchObject({
       upgradedThreadDatabases: 0,

@@ -1,13 +1,8 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  initLegacyReviewRepo,
-  sealLegacyReviewCommit,
-} from "./fixtures/legacy-reviews/legacy-review-git";
-import { LEGACY_PUBLISH_CANDIDATE_MESSAGE } from "./legacy-review-import";
 import { listReviewDocumentVersions } from "./review-document-versions";
 import type { StoredReview } from "./review-home";
 import {
@@ -62,33 +57,6 @@ describe("listReviewDocumentVersions", () => {
     await expect(
       listReviewDocumentVersions({ dir, review: {} } as never),
     ).resolves.toEqual([]);
-  });
-
-  it("falls back to the private Git history for a review with no rows", async () => {
-    const home = await reviewHome();
-    const dir = path.join(home, "reviews", UUID);
-    await mkdir(dir, { recursive: true });
-    await initLegacyReviewRepo(dir);
-    await writeFile(path.join(dir, "review.mdx"), "# v1\n");
-    const v1 = await sealLegacyReviewCommit(
-      dir,
-      LEGACY_PUBLISH_CANDIDATE_MESSAGE,
-    );
-    await writeFile(path.join(dir, "map.json"), "{}");
-    await sealLegacyReviewCommit(dir, "Publish Review software map");
-    await writeFile(path.join(dir, "review.mdx"), "# v2\n");
-    const v2 = await sealLegacyReviewCommit(
-      dir,
-      LEGACY_PUBLISH_CANDIDATE_MESSAGE,
-    );
-    await writeFile(path.join(dir, "review.mdx"), "# v3 never promoted\n");
-    await sealLegacyReviewCommit(dir, LEGACY_PUBLISH_CANDIDATE_MESSAGE);
-
-    const versions = await listReviewDocumentVersions(storedReview(dir, v2));
-
-    expect(versions.map((version) => version.revision)).toEqual([v2, v1]);
-    expect(versions[0]?.isCurrent).toBe(true);
-    expect(versions[0]?.sealedAt).toBeGreaterThan(1_000_000_000_000);
   });
 });
 

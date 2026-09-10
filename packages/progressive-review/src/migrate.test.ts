@@ -1,17 +1,15 @@
 import { execFileSync } from "node:child_process";
-import fs from "node:fs";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Writable } from "node:stream";
 
 import { REVIEW_SCHEMA_VERSION } from "@dev.fast/review-protocol";
-import * as git from "isomorphic-git";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { collectingWritable } from "./cli-output";
 import {
   type ReviewPackageManager,
-  migrateJjReviewRepositories,
+  discardLegacyReviewHistories,
   migrateReviewManagedCheckouts,
   removeLegacyDesktopCatalog,
   removeLegacyGlobalReviewInstalls,
@@ -19,8 +17,20 @@ import {
   runReviewMigration,
 } from "./migrate";
 import { createReviewDir, sealReviewCandidate } from "./review-home";
-import { deleteReviewState } from "./review-state-db";
-import { cleanupTempDirs, gitRepository, tempDir } from "./review-test-utils";
+import {
+  deleteReviewState,
+  listPublications,
+  readLegacyArtifactImport,
+  reviewIdForDir,
+  withReviewStateTransaction,
+} from "./review-state-db";
+import {
+  cleanupTempDirs,
+  gitRepository,
+  tempDir,
+  writeLegacyDocument,
+} from "./review-test-utils";
+import { reviewVcs } from "./review-vcs";
 import { auditStoredReviewDocuments } from "./stored-review-document-audit";
 
 type TestRunCommand = (
@@ -38,7 +48,7 @@ type TestRunProcess = (input: {
 afterEach(cleanupTempDirs);
 
 describe("review migrate apply", () => {
-  it("keeps a migrated terminal colocated-jj presentation and old history through every follow-on phase", async () => {
+  it("keeps a migrated terminal colocated presentation and old history through every follow-on phase", async () => {
     const { reviewHome, reviewDir } = await canonicalReview();
     await mkdir(path.join(reviewDir, ".bundle/document"), { recursive: true });
     await writeFile(
@@ -94,11 +104,13 @@ describe("review migrate apply", () => {
       schemaVersion: REVIEW_SCHEMA_VERSION,
       status: "accepted",
     });
-    expect(current.presentedDocumentRevision).not.toBe(revision);
-    expect(current.presentedDocumentRevision).not.toBeNull();
+    // The imported publication keeps the sealed commit's identity, so a link
+    // to the Git-era revision still opens the same published version.
+    expect(current.presentedDocumentRevision).toBe(revision);
     expect(
-      await git.readCommit({ fs, dir: reviewDir, oid: revision }),
-    ).toBeDefined();
+      listPublications(reviewDir, "document").map((row) => row.publicationId),
+    ).toEqual([revision]);
+    expect(await reviewVcs.resolve(reviewDir, revision)).toBe(revision);
     expect(
       await readFile(path.join(reviewDir, ".jj/repo/operation"), "utf8"),
     ).toBe("preserve");
@@ -118,11 +130,6 @@ describe("review migrate apply", () => {
     const audit = vi.fn<typeof auditStoredReviewDocuments>(async () => ({
       documents: 0,
       issues: [],
-    }));
-    const jj = vi.fn<typeof migrateJjReviewRepositories>(async () => ({
-      checked: 0,
-      migrated: 0,
-      blockers: [],
     }));
     const cleanup = async () => ({ checked: 0, removed: 0, blockers: [] });
     const code = await runReviewMigration({
@@ -145,9 +152,10 @@ describe("review migrate apply", () => {
             droppedQuestions: 0,
             legacyCheckoutsRemoved: 0,
             upgradedThreadDatabases: 0,
+            importedVersions: 0,
+            unavailableVersions: 0,
           };
         },
-        migrateJjReviewRepositories: jj,
         migrateReviewManagedCheckouts: managed,
         auditStoredReviewDocuments: audit,
         removeLegacyDesktopCatalog: cleanup,
@@ -157,9 +165,6 @@ describe("review migrate apply", () => {
     });
     expect(code).toBe(1);
     expect(managed).toHaveBeenCalledWith(
-      expect.objectContaining({ skipReviewUuids: [uuid] }),
-    );
-    expect(jj).toHaveBeenCalledWith(
       expect.objectContaining({ skipReviewUuids: [uuid] }),
     );
     expect(audit).toHaveBeenCalledWith(
@@ -187,11 +192,8 @@ describe("review migrate apply", () => {
           droppedQuestions: 1,
           legacyCheckoutsRemoved: 0,
           upgradedThreadDatabases: 1,
-        }),
-        migrateJjReviewRepositories: async () => ({
-          checked: 1,
-          migrated: 1,
-          blockers: [],
+          importedVersions: 4,
+          unavailableVersions: 1,
         }),
         auditStoredReviewDocuments: async () => ({
           documents: 3,
@@ -217,7 +219,9 @@ describe("review migrate apply", () => {
 
     expect(code).toBe(1);
     expect(io.out.join("")).toContain("1 old Review dropped");
-    expect(io.out.join("")).toContain("1 jj repository converted");
+    expect(io.out.join("")).toContain("4 published versions imported");
+    expect(io.out.join("")).toContain("1 unavailable version recorded");
+    expect(io.out.join("")).toContain("0 legacy Git histories discarded");
     expect(io.out.join("")).toContain("1 thread database upgraded");
     expect(io.out.join("")).toContain("3 state records migrated or dropped");
     expect(io.out.join("")).toContain("1 blocker");
@@ -246,11 +250,6 @@ describe("review migrate apply", () => {
         migrateStoredReviewData: async () => {
           throw new Error("missing session.json");
         },
-        migrateJjReviewRepositories: async () => ({
-          checked: 0,
-          migrated: 0,
-          blockers: [],
-        }),
         auditStoredReviewDocuments: async () => ({
           documents: 0,
           issues: [],
@@ -296,13 +295,10 @@ describe("review migrate apply", () => {
             droppedQuestions: 0,
             legacyCheckoutsRemoved: 0,
             upgradedThreadDatabases: 0,
+            importedVersions: 0,
+            unavailableVersions: 0,
           };
         },
-        migrateJjReviewRepositories: async () => ({
-          checked: 0,
-          migrated: 0,
-          blockers: [],
-        }),
         auditStoredReviewDocuments: async () => ({
           documents: 2,
           issues: [],
@@ -333,84 +329,86 @@ describe("review migrate apply", () => {
   });
 });
 
-describe("jj Review repository migration", () => {
-  it("preserves current pointers and every private historical commit for colocated jj reviews", async () => {
-    const { reviewHome, reviewDir } = await canonicalReview();
-    const revision = await sealReviewCandidate(
-      reviewDir,
-      "Immutable legacy history",
-    );
-    const record = JSON.parse(
-      await readFile(path.join(reviewDir, "review.json"), "utf8"),
-    );
-    const current = JSON.stringify({
-      ...record,
-      presentedDocumentRevision: revision,
-    });
-    await writeFile(path.join(reviewDir, "review.json"), current);
-    await mkdir(path.join(reviewDir, ".jj/repo"), { recursive: true });
-    await writeFile(path.join(reviewDir, ".jj/repo/operation"), "keep history");
-    expect(await migrateJjReviewRepositories({ reviewHome })).toEqual({
-      checked: 1,
-      migrated: 0,
-      blockers: [],
-    });
-    expect(await readFile(path.join(reviewDir, "review.json"), "utf8")).toBe(
-      current,
-    );
-    expect(
-      await git.readCommit({ fs, dir: reviewDir, oid: revision }),
-    ).toBeDefined();
-    expect(
-      await readFile(path.join(reviewDir, ".jj/repo/operation"), "utf8"),
-    ).toBe("keep history");
-  });
-  it("rebuilds a canonical Review as plain Git from its working copy", async () => {
-    const { reviewHome, reviewDir } = await canonicalReview();
-    await mkdir(path.join(reviewDir, ".jj", "repo"), { recursive: true });
-    await writeFile(
-      path.join(reviewDir, ".jj", "repo", "operation"),
-      "legacy jj state\n",
-    );
-    await writeFile(path.join(reviewDir, "review.mdx"), "# Working copy\n");
+describe("legacy history disposal", () => {
+  it("discards the private history only for fully imported Reviews", async () => {
+    const { reviewHome, reviewDir } = await legacyPublishedReview();
+    const io = streams();
+    const cleanup = async () => ({ checked: 0, removed: 0, blockers: [] });
 
-    const result = await migrateJjReviewRepositories({ reviewHome });
+    const applied = await runReviewMigration({
+      homeDir: reviewHome,
+      env: { DEV_REVIEW_HOME: reviewHome },
+      stdout: io.stdout,
+      stderr: io.stderr,
+      runtime: {
+        removeLegacyDesktopCatalog: cleanup,
+        removeLegacyReviewSkills: cleanup,
+        removeLegacyGlobalReviewInstalls: cleanup,
+      },
+    });
 
-    expect(result).toEqual({ checked: 1, migrated: 1, blockers: [] });
-    await expect(readdir(path.join(reviewDir, ".jj"))).rejects.toMatchObject({
+    expect(applied).toBe(0);
+    expect(readLegacyArtifactImport(reviewDir)).toMatchObject({
+      versions: 1,
+      unavailable: 0,
+      legacyRemovedAt: null,
+    });
+    // The default run never touches the private history.
+    await expect(readdir(path.join(reviewDir, ".git"))).resolves.toBeDefined();
+    await expect(readdir(path.join(reviewDir, ".build"))).rejects.toMatchObject(
+      { code: "ENOENT" },
+    );
+
+    const discard = streams();
+    const discarded = await runReviewMigration({
+      homeDir: reviewHome,
+      env: { DEV_REVIEW_HOME: reviewHome },
+      discardLegacyGit: true,
+      stdout: discard.stdout,
+      stderr: discard.stderr,
+      runtime: {
+        removeLegacyDesktopCatalog: cleanup,
+        removeLegacyReviewSkills: cleanup,
+        removeLegacyGlobalReviewInstalls: cleanup,
+      },
+    });
+
+    expect(discarded).toBe(0);
+    expect(discard.out.join("")).toContain("1 legacy Git history discarded");
+    await expect(readdir(path.join(reviewDir, ".git"))).rejects.toMatchObject({
       code: "ENOENT",
     });
-    expect(await readFile(path.join(reviewDir, "review.mdx"), "utf8")).toBe(
-      "# Working copy\n",
+    await expect(
+      readdir(path.join(reviewDir, ".bundle")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    expect(readLegacyArtifactImport(reviewDir)?.legacyRemovedAt).toEqual(
+      expect.any(String),
     );
-    expect(
-      JSON.parse(await readFile(path.join(reviewDir, "review.json"), "utf8")),
-    ).toMatchObject({
-      presentedDocumentRevision: null,
-      presentedSoftwareMapRevision: null,
-    });
-    expect(
-      await git.currentBranch({ fs, dir: reviewDir, fullname: true }),
-    ).toBe("refs/heads/main");
-    expect(await git.listFiles({ fs, dir: reviewDir })).not.toContain(
-      ".jj/repo/operation",
-    );
+    expect(listPublications(reviewDir, "document")).toHaveLength(1);
   });
 
-  it("uses --force to recover a missing colocated Git repository", async () => {
-    const { reviewHome, reviewDir } = await canonicalReview();
-    await mkdir(path.join(reviewDir, ".jj"), { recursive: true });
-    await rm(path.join(reviewDir, ".git"), { recursive: true, force: true });
-
-    await expect(
-      migrateJjReviewRepositories({ reviewHome }),
-    ).resolves.toMatchObject({
-      migrated: 0,
-      blockers: [expect.stringContaining(".git directory is missing")],
+  it("keeps and reports a Review whose versions could not all import", async () => {
+    const { reviewHome, reviewDir } = await legacyPublishedReview();
+    const io = streams();
+    const cleanup = async () => ({ checked: 0, removed: 0, blockers: [] });
+    await runReviewMigration({
+      homeDir: reviewHome,
+      env: { DEV_REVIEW_HOME: reviewHome },
+      stdout: io.stdout,
+      stderr: io.stderr,
+      runtime: {
+        removeLegacyDesktopCatalog: cleanup,
+        removeLegacyReviewSkills: cleanup,
+        removeLegacyGlobalReviewInstalls: cleanup,
+      },
     });
-    await expect(
-      migrateJjReviewRepositories({ reviewHome, force: true }),
-    ).resolves.toEqual({ checked: 1, migrated: 1, blockers: [] });
+    markLegacyArtifactImportUnavailable(reviewDir, reviewHome);
+
+    const result = await discardLegacyReviewHistories({ reviewHome });
+
+    expect(result).toMatchObject({ checked: 1, removed: 0 });
+    expect(result.blockers[0]).toContain("could not be imported");
+    await expect(readdir(path.join(reviewDir, ".git"))).resolves.toBeDefined();
   });
 });
 
@@ -570,6 +568,46 @@ describe("legacy global CLI cleanup", () => {
     expect(runProcess).not.toHaveBeenCalled();
   });
 });
+
+/** A schema-4 Review whose single published version is a sealed Git commit. */
+async function legacyPublishedReview(): Promise<{
+  reviewHome: string;
+  reviewDir: string;
+}> {
+  const { reviewHome, reviewDir } = await canonicalReview();
+  await writeLegacyDocument(reviewDir);
+  const revision = await sealReviewCandidate(
+    reviewDir,
+    "Review publish candidate",
+  );
+  const record = JSON.parse(
+    await readFile(path.join(reviewDir, "review.json"), "utf8"),
+  );
+  await writeFile(
+    path.join(reviewDir, "review.json"),
+    JSON.stringify({
+      ...record,
+      schemaVersion: 4,
+      presentedDocumentRevision: revision,
+    }),
+  );
+  await mkdir(path.join(reviewDir, ".build", revision), { recursive: true });
+  return { reviewHome, reviewDir };
+}
+
+/** Rewrites the import marker as if one version had failed to convert. */
+function markLegacyArtifactImportUnavailable(
+  reviewDir: string,
+  reviewHome: string,
+): void {
+  withReviewStateTransaction(reviewHome, (tx) => {
+    tx.db
+      .prepare(
+        "UPDATE legacy_artifact_imports SET unavailable = 1 WHERE review_id = ?",
+      )
+      .run(reviewIdForDir(reviewDir));
+  });
+}
 
 async function canonicalReview(): Promise<{
   reviewHome: string;

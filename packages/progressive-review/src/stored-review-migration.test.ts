@@ -18,6 +18,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { snapshotReviewTree } from "./fixtures/legacy-reviews/legacy-review-fixture";
 import {
+  readReviewDocumentArtifact,
+  readReviewSoftwareMapArtifact,
+} from "./review-artifact-store";
+import {
   bundleReviewDocument,
   readReviewDocumentBundle,
   reviewDocumentBundleData,
@@ -27,12 +31,20 @@ import {
   createReviewDir,
   materializeReviewRevision,
   parseStoredReviewRecord,
+  readStoredReview,
   sealReviewCandidate,
 } from "./review-home";
 import { withReviewMutationLock } from "./review-mutation-lock";
 import {
+  type ReviewPublicationRecord,
+  parsePublicationRecord,
+} from "./review-publication-record";
+import {
   deleteReviewState,
+  listPublications,
   putReviewRecord as putReviewRecordFromDb,
+  readLegacyArtifactImport,
+  readPublication,
   readReviewRecord as readReviewRecordFromDb,
 } from "./review-state-db";
 import {
@@ -81,7 +93,7 @@ describe("migrateStoredReviewData", () => {
     await expect(readFile(recordPath, "utf8")).resolves.toBe(malformed);
   });
 
-  it("does not replace live files when sealing the isolated candidate fails", async () => {
+  it("does not replace live files when the artifact import fails", async () => {
     const { created } = await storedReview();
     await writeLegacyDocument(created.dir);
     const revision = await sealReviewCandidate(created.dir, "Legacy document");
@@ -97,13 +109,15 @@ describe("migrateStoredReviewData", () => {
     const before = await Promise.all(
       names.map(async (name) => (await stat(path.join(created.dir, name))).ino),
     );
-    vi.spyOn(reviewVcs, "seal").mockRejectedValue(
+    vi.spyOn(reviewVcs, "materialize").mockRejectedValue(
       new Error("candidate disk full"),
     );
 
     await expect(
       migrateStoredReview({ reviewDir: created.dir }),
     ).rejects.toThrow("candidate disk full");
+    expect(listPublications(created.dir, "document")).toEqual([]);
+    expect(readLegacyArtifactImport(created.dir)).toBeNull();
 
     expect(
       await Promise.all(
@@ -114,81 +128,7 @@ describe("migrateStoredReviewData", () => {
     ).toEqual(before);
   });
 
-  it.each([false, true])(
-    "preserves a competing candidate writer after migration rollback=%s",
-    async (fail) => {
-      const { created, reviewHome } = await storedReview();
-      await writeLegacyDocument(created.dir);
-      const revision = await sealReviewCandidate(
-        created.dir,
-        "Legacy document",
-      );
-      await writeFile(
-        path.join(created.dir, "review.json"),
-        JSON.stringify({
-          ...created.review,
-          schemaVersion: 4,
-          presentedDocumentRevision: revision,
-        }),
-      );
-      const entered = Promise.withResolvers<void>();
-      const release = Promise.withResolvers<void>();
-      const seal = reviewVcs.seal.bind(reviewVcs);
-      vi.spyOn(reviewVcs, "seal").mockImplementation(async (dir, message) => {
-        if (dir !== created.dir) {
-          entered.resolve();
-          await release.promise;
-          if (fail) throw new Error("injected transaction failure");
-        }
-        return seal(dir, message);
-      });
-      const blockers: string[] = [];
-      const migration = migrateStoredReviewData({
-        reviewHome,
-        onBlocker: (message) => blockers.push(message),
-      });
-      await entered.promise;
-      let writerFinished = false;
-      const writing = withReviewMutationLock(created.dir, async () => {
-        await writeReviewDocumentBundle(
-          created.dir,
-          bundleReviewDocument({
-            format: "review-document/1",
-            title: "Concurrent writer",
-            routePath: "/",
-            sourcePath: "review.mdx",
-            body: [],
-            anchors: {},
-            anchorContents: {},
-            softwareModels: [],
-          }),
-        );
-        const head = await sealReviewCandidate(created.dir, "Competing writer");
-        writerFinished = true;
-        return head;
-      });
-      expect(writerFinished).toBe(false);
-      release.resolve();
-      await migration;
-      const writerHead = await writing;
-      expect(blockers).toHaveLength(fail ? 1 : 0);
-      expect(await reviewVcs.resolve(created.dir, "HEAD")).toBe(writerHead);
-      expect(
-        JSON.parse(
-          await readFile(
-            path.join(created.dir, ".bundle/document/review-document.json"),
-            "utf8",
-          ),
-        ).title,
-      ).toBe("Concurrent writer");
-      const current = JSON.parse(
-        await readFile(path.join(created.dir, "review.json"), "utf8"),
-      );
-      expect(current.schemaVersion).toBe(fail ? 4 : REVIEW_SCHEMA_VERSION);
-      expect(current.presentedDocumentRevision === revision).toBe(fail);
-    },
-  );
-  it("converts independent current document/map revisions and embeds the final map pin", async () => {
+  it("imports independent current document and map revisions as their own rows", async () => {
     const { created, reviewHome, sourceCommit } = await storedReview();
     await writeLegacyDocument(created.dir);
     const sourceFiles = ["review.mdx", "data.ts", "software-map.ts"];
@@ -226,51 +166,31 @@ describe("migrateStoredReviewData", () => {
     for (const name of sourceFiles) {
       await writeFile(path.join(created.dir, name), `Unpublished ${name}\n`);
     }
-    const originalRecord = await readFile(
-      path.join(created.dir, "review.json"),
-      "utf8",
-    );
-    const seal = reviewVcs.seal.bind(reviewVcs);
-    const sealing = vi
-      .spyOn(reviewVcs, "seal")
-      .mockImplementation(async (...args) => {
-        expect(
-          await readFile(path.join(created.dir, "review.json"), "utf8"),
-        ).toBe(originalRecord);
-        return seal(...args);
-      });
+    const seal = vi.spyOn(reviewVcs, "seal");
     const blockers: string[] = [];
     await migrateStoredReviewData({
       reviewHome,
       onBlocker: (message) => blockers.push(message),
     });
     expect(blockers).toEqual([]);
-    expect(sealing).toHaveBeenCalledTimes(2);
+    // Importing replays the sealed history; it never adds to it.
+    expect(seal).not.toHaveBeenCalled();
     const current = await readReviewRecord(created.dir);
     expect(current.baseRef).toBe("unpublished-branch");
-    expect(current.presentedDocumentRevision).not.toBe(documentRevision);
-    expect(current.presentedSoftwareMapRevision).not.toBe(mapRevision);
-    expect(current.presentedDocumentRevision).not.toBe(
-      current.presentedSoftwareMapRevision,
-    );
-    const sealed = await materializedRevision(
-      created.dir,
-      current.presentedDocumentRevision!,
-    );
-    expect((await readReviewRecord(sealed)).presentedSoftwareMapRevision).toBe(
-      current.presentedSoftwareMapRevision,
-    );
-    expect((await readReviewRecord(sealed)).baseRef).toBe(
-      created.review.baseRef,
-    );
-    const sealedMap = await materializedRevision(
-      created.dir,
-      current.presentedSoftwareMapRevision!,
-    );
+    // Each sealed commit keeps its identity as its publication ID.
+    expect(current.presentedDocumentRevision).toBe(documentRevision);
+    expect(current.presentedSoftwareMapRevision).toBe(mapRevision);
+    expect(
+      listPublications(created.dir, "document").map((row) => row.legacyCommit),
+    ).toEqual([documentRevision]);
+    expect(
+      listPublications(created.dir, "map").map((row) => row.legacyCommit),
+    ).toEqual([mapRevision]);
+    expect((await presentedDocumentArtifact(created.dir)).title).toBe("Sealed");
+    await expectConvertedSoftwareMap(created.dir);
+    // The private history and the unpublished working files are untouched.
+    const sealedMap = await materializedRevision(created.dir, mapRevision);
     for (const name of sourceFiles) {
-      expect(await readFile(path.join(sealed, name), "utf8")).toBe(
-        `Sealed document ${name}\n`,
-      );
       expect(await readFile(path.join(sealedMap, name), "utf8")).toBe(
         `Sealed map ${name}\n`,
       );
@@ -278,10 +198,6 @@ describe("migrateStoredReviewData", () => {
         `Unpublished ${name}\n`,
       );
     }
-    await expectJsonMapRevision(
-      created.dir,
-      current.presentedSoftwareMapRevision!,
-    );
   });
 
   it("preserves an independent JSON map while converting the schema-3 document", async () => {
@@ -321,8 +237,12 @@ describe("migrateStoredReviewData", () => {
     expect(blockers).toEqual([]);
     const current = await readReviewRecord(created.dir);
     expect(current.schemaVersion).toBe(REVIEW_SCHEMA_VERSION);
-    expect(current.presentedDocumentRevision).not.toBe(documentRevision);
+    expect(current.presentedDocumentRevision).toBe(documentRevision);
     expect(current.presentedSoftwareMapRevision).toBe(mapRevision);
+    expect((await presentedDocumentArtifact(created.dir)).title).toBe("Sealed");
+    expect((await presentedMapArtifact(created.dir)).headCommit).toBe(
+      sourceCommit,
+    );
   });
 
   it("blocks a broken presented map without promoting a prepared document", async () => {
@@ -352,6 +272,9 @@ describe("migrateStoredReviewData", () => {
     expect(blockers).toHaveLength(1);
     expect(blockers[0]).toContain("software map");
     expect(await snapshotMigrationFiles(created.dir)).toEqual(before);
+    expect(listPublications(created.dir, "document")).toEqual([]);
+    expect(listPublications(created.dir, "map")).toEqual([]);
+    expect(readLegacyArtifactImport(created.dir)).toBeNull();
   });
 
   it("rejects a concurrent lifecycle change without restoring over it", async () => {
@@ -414,7 +337,7 @@ describe("migrateStoredReviewData", () => {
     ).toBe(candidate);
   });
   it.each(["awaiting-review", "accepted", "rejected"])(
-    "converts only the sealed current schema-4 %s document without authoring inputs",
+    "imports only the sealed current schema-4 %s document without authoring inputs",
     async (status) => {
       const { created, reviewHome } = await storedReview();
       await writeLegacyDocument(created.dir);
@@ -443,19 +366,11 @@ describe("migrateStoredReviewData", () => {
       });
       expect(blockers).toEqual([]);
       const current = await readReviewRecord(created.dir);
-      expect(current).toMatchObject({
+      expect(current).toEqual({
         ...original,
         schemaVersion: REVIEW_SCHEMA_VERSION,
-        presentedDocumentRevision: expect.any(String),
       });
-      expect(current.presentedDocumentRevision).not.toBe(revision);
-      const document = JSON.parse(
-        await readFile(
-          path.join(created.dir, ".bundle/document/review-document.json"),
-          "utf8",
-        ),
-      );
-      expect(document).toMatchObject({
+      expect(await presentedDocumentArtifact(created.dir)).toMatchObject({
         format: "review-document/1",
         body: [
           {
@@ -465,20 +380,14 @@ describe("migrateStoredReviewData", () => {
           },
         ],
       });
-      await expect(
-        readFile(path.join(created.dir, ".bundle/document/review-document.js")),
-      ).rejects.toMatchObject({ code: "ENOENT" });
+      // The sealed JavaScript is converted into the store, not over the
+      // Review's own files: the deleted authoring inputs stay deleted.
       await expect(
         readFile(path.join(created.dir, "review.mdx")),
       ).rejects.toMatchObject({ code: "ENOENT" });
-      const before = await readFile(
-        path.join(created.dir, "review.json"),
-        "utf8",
-      );
+      const before = await snapshotMigrationFiles(created.dir);
       await migrateStoredReviewData({ reviewHome });
-      expect(
-        await readFile(path.join(created.dir, "review.json"), "utf8"),
-      ).toBe(before);
+      expect(await snapshotMigrationFiles(created.dir)).toEqual(before);
       expect(
         await readFile(
           path.join(
@@ -491,7 +400,7 @@ describe("migrateStoredReviewData", () => {
     },
   );
 
-  it("preserves every record and candidate byte and private ref on failed sealing", async () => {
+  it("preserves every record and candidate byte and private ref on a failed import", async () => {
     const { created, reviewHome } = await storedReview();
     await writeLegacyDocument(created.dir);
     const revision = await sealReviewCandidate(created.dir, "Legacy document");
@@ -504,20 +413,25 @@ describe("migrateStoredReviewData", () => {
       }),
     );
     const before = await snapshotMigrationFiles(created.dir);
-    const seal = reviewVcs.seal.bind(reviewVcs);
-    vi.spyOn(reviewVcs, "seal").mockImplementation(async (dir, message) => {
-      await seal(dir, message);
-      throw new Error("injected seal failure");
+    const materialize = reviewVcs.materialize.bind(reviewVcs);
+    vi.spyOn(reviewVcs, "materialize").mockImplementation(async (...args) => {
+      await materialize(...args);
+      throw new Error("injected materialization failure");
     });
     const blockers: string[] = [];
     const result = await migrateStoredReviewData({
       reviewHome,
       onBlocker: (message) => blockers.push(message),
     });
-    expect(result.droppedReviews).toBe(0);
+    expect(result).toMatchObject({
+      droppedReviews: 0,
+      importedVersions: 0,
+      unavailableVersions: 0,
+    });
     expect(blockers).toHaveLength(1);
-    expect(blockers[0]).toContain("injected seal failure");
+    expect(blockers[0]).toContain("injected materialization failure");
     expect(await snapshotMigrationFiles(created.dir)).toEqual(before);
+    expect(listPublications(created.dir, "document")).toEqual([]);
   });
 
   it("leaves a failed sealed conversion unchanged even when sources would compile", async () => {
@@ -636,7 +550,7 @@ describe("migrateStoredReviewData", () => {
       baseCommit: sourceCommit,
       headCommit: sourceCommit,
     });
-    const legacyRevision = await sealReviewCandidate(
+    const legacyRevision = await sealSchema2Candidate(
       created.dir,
       "Legacy Review publication",
     );
@@ -644,19 +558,18 @@ describe("migrateStoredReviewData", () => {
       recursive: true,
       force: true,
     });
-    await writeSchema2Record(created.dir, legacyRevision);
 
     await expect(
       migrateStoredReviewData({ reviewHome }),
     ).resolves.toMatchObject({ documents: 1, droppedReviews: 0 });
 
     const migrated = await readReviewRecord(created.dir);
-    expect(migrated.presentedDocumentRevision).not.toBeNull();
+    expect(migrated.presentedDocumentRevision).toBe(legacyRevision);
+    // A schema-2 revision presents document and map together, so the map row
+    // takes a companion ID rather than the commit the document row holds.
     expect(migrated.presentedSoftwareMapRevision).not.toBeNull();
-    await expectJsonMapRevision(
-      created.dir,
-      migrated.presentedSoftwareMapRevision!,
-    );
+    expect(migrated.presentedSoftwareMapRevision).not.toBe(legacyRevision);
+    await expectConvertedSoftwareMap(created.dir);
   });
 
   it("preserves a genuine flat schema-2 embedded map and its sealed pins", async () => {
@@ -675,33 +588,29 @@ describe("migrateStoredReviewData", () => {
     const result = await migrateStoredReview({ reviewDir: created.dir });
     expect(result.record.schemaVersion).toBe(REVIEW_SCHEMA_VERSION);
     expect(result.record.presentedSoftwareMapRevision).not.toBeNull();
-    const materialized = await materializedRevision(
-      created.dir,
-      result.record.presentedSoftwareMapRevision!,
-    );
-    const bundle = await readReviewSoftwareMapBundle(materialized);
+    const bundle = await presentedMapArtifact(created.dir);
     expect(
-      bundle &&
-        softwareModelDataSchema.parse({
-          elements: jsonObject(parseJsonText(bundle.headJson))?.elements,
-          relationships: jsonObject(parseJsonText(bundle.headJson))
-            ?.relationships,
-        }).elements,
+      softwareModelDataSchema.parse({
+        elements: jsonObject(parseJsonText(bundle.headJson))?.elements,
+        relationships: jsonObject(parseJsonText(bundle.headJson))
+          ?.relationships,
+      }).elements,
     ).toEqual(
       defineSoftwareMap({ systems: { service: { label: "Head" } } }).elements,
     );
     expect(
-      bundle &&
-        softwareModelDataSchema.parse({
-          elements: jsonObject(parseJsonText(bundle.baseJson))?.elements,
-          relationships: jsonObject(parseJsonText(bundle.baseJson))
-            ?.relationships,
-        }).elements,
+      softwareModelDataSchema.parse({
+        elements: jsonObject(parseJsonText(bundle.baseJson))?.elements,
+        relationships: jsonObject(parseJsonText(bundle.baseJson))
+          ?.relationships,
+      }).elements,
     ).toEqual(
       defineSoftwareMap({ systems: { service: { label: "Base" } } }).elements,
     );
-    expect(bundle?.headCommit).toBe(created.review.sourceCommit);
-    expect(bundle?.baseCommit).toBe(created.review.baseCommit);
+    // The map is pinned by the record sealed beside it, while the live
+    // record keeps the pins it carried into the migration.
+    expect(bundle.headCommit).toBe(created.review.sourceCommit);
+    expect(bundle.baseCommit).toBe(created.review.baseCommit);
     expect(result.record.sourceCommit).toBe("f".repeat(40));
     expect(result.record.baseCommit).toBe("e".repeat(40));
   });
@@ -720,24 +629,19 @@ describe("migrateStoredReviewData", () => {
     const result = await migrateStoredReview({ reviewDir: created.dir });
     expect(result.record.schemaVersion).toBe(REVIEW_SCHEMA_VERSION);
     expect(result.record.presentedSoftwareMapRevision).toBeNull();
-    const materialized = await materializedRevision(
-      created.dir,
-      result.record.presentedDocumentRevision!,
-    );
-    const bundle = await readReviewDocumentBundle(materialized, "/");
+    expect(listPublications(created.dir, "map")).toEqual([]);
     expect(
-      bundle && reviewDocumentBundleData(bundle).softwareModels,
+      (await presentedDocumentArtifact(created.dir)).softwareModels,
     ).toHaveLength(2);
   });
 
   it("migrates a schema-2 review with missing legacy maps without a blocker", async () => {
     const { created, reviewHome } = await storedReview();
     await writeLegacyDocument(created.dir);
-    const legacyRevision = await sealReviewCandidate(
+    const legacyRevision = await sealSchema2Candidate(
       created.dir,
       "Legacy Review publication without a map",
     );
-    await writeSchema2Record(created.dir, legacyRevision);
     const blockers: string[] = [];
 
     await expect(
@@ -749,11 +653,12 @@ describe("migrateStoredReviewData", () => {
 
     expect(blockers).toEqual([]);
     const migrated = await readReviewRecord(created.dir);
-    expect(migrated.presentedDocumentRevision).not.toBeNull();
+    expect(migrated.presentedDocumentRevision).toBe(legacyRevision);
     expect(migrated.presentedSoftwareMapRevision).toBeNull();
+    expect(listPublications(created.dir, "map")).toEqual([]);
   });
 
-  it("converts a schema-4 legacy map independently and skips artifact work on a repeated sweep", async () => {
+  it("imports a schema-4 legacy map independently and skips artifact work on a repeated sweep", async () => {
     const { created, reviewHome, sourceCommit } = await storedReview();
     const documentRevision = await sealReviewCandidate(
       created.dir,
@@ -783,12 +688,8 @@ describe("migrateStoredReviewData", () => {
 
     const migrated = await readReviewRecord(created.dir);
     expect(migrated.presentedDocumentRevision).toBe(documentRevision);
-    expect(migrated.presentedSoftwareMapRevision).not.toBe(legacyMapRevision);
-    expect(migrated.presentedSoftwareMapRevision).not.toBe(documentRevision);
-    await expectJsonMapRevision(
-      created.dir,
-      migrated.presentedSoftwareMapRevision!,
-    );
+    expect(migrated.presentedSoftwareMapRevision).toBe(legacyMapRevision);
+    await expectConvertedSoftwareMap(created.dir);
     const migratedMapRevision = migrated.presentedSoftwareMapRevision;
     const before = await snapshotReviewTree(created.dir);
     const materialize = vi.spyOn(reviewVcs, "materialize");
@@ -971,16 +872,13 @@ describe("migrateStoredReview", () => {
       baseCommit: created.review.baseCommit,
       sourceCommit: created.review.sourceCommit,
     });
-    expect(record.presentedDocumentRevision).not.toBe(revision);
+    expect(record.presentedDocumentRevision).toBe(revision);
+    expect(first).toMatchObject({
+      importedVersions: 1,
+      unavailableVersions: 0,
+    });
     expect(first.record).toEqual(record);
-    const materialized = await tempDir("review-migration-");
-    await materializeReviewRevision(
-      created.dir,
-      record.presentedDocumentRevision!,
-      materialized,
-    );
-    const bundle = await readReviewDocumentBundle(materialized, "/");
-    expect(bundle && reviewDocumentBundleData(bundle).title).toBe("Sealed");
+    expect((await presentedDocumentArtifact(created.dir)).title).toBe("Sealed");
 
     const before = await snapshotMigrationFiles(created.dir);
     const materialize = vi.spyOn(reviewVcs, "materialize");
@@ -1037,11 +935,7 @@ repoSoftwareMap: ${maps === "absent" ? "null" : "head"}, baseSoftwareMap: ${maps
 Component: () => jsx("p", { children: "Sealed flat document" }), isDefault: true });
 `,
   );
-  const revision = await sealReviewCandidate(
-    fixture.created.dir,
-    "Flat schema-2 publication",
-  );
-  await writeSchema2Record(fixture.created.dir, revision);
+  await sealSchema2Candidate(fixture.created.dir, "Flat schema-2 publication");
   return fixture;
 }
 
@@ -1081,6 +975,9 @@ async function storedReview() {
   return { created, reviewHome, sourceCommit };
 }
 
+/** Every authored and sealed byte of a Review. `artifacts/` is excluded: the
+ * store is content-addressed and immutable, so a refused import legitimately
+ * leaves unreferenced bytes behind that nothing points at. */
 async function snapshotMigrationFiles(
   dir: string,
 ): Promise<Record<string, string>> {
@@ -1090,7 +987,8 @@ async function snapshotMigrationFiles(
       withFileTypes: true,
     })) {
       const name = path.join(relative, entry.name);
-      if (name === ".build" || name === ".git/objects") continue;
+      if (name === ".build" || name === ".git/objects" || name === "artifacts")
+        continue;
       if (entry.isDirectory()) await visit(name);
       else
         files[name] = (await readFile(path.join(dir, name))).toString("base64");
@@ -1128,12 +1026,15 @@ async function writeLegacySoftwareMapBundle(
 
 async function writeSchema2Record(
   reviewDir: string,
-  presentedRevision: string,
+  presentedRevision: string | null,
 ): Promise<void> {
-  const current = await readReviewRecord(reviewDir);
+  const current = jsonObject(
+    parseJsonText(await readFile(path.join(reviewDir, "review.json"), "utf8")),
+  )!;
   const {
     presentedDocumentRevision: _documentRevision,
     presentedSoftwareMapRevision: _mapRevision,
+    presentedRevision: _presentedRevision,
     schemaVersion: _schemaVersion,
     ...legacy
   } = current;
@@ -1145,6 +1046,60 @@ async function writeSchema2Record(
       presentedRevision,
     })}\n`,
   );
+}
+
+/** A real schema-2 publication sealed its own schema-2 record, so the import
+ * reads the sealed record's version — not the live one — when it decides
+ * whether a presentation may legitimately carry no software map. */
+async function sealSchema2Candidate(
+  reviewDir: string,
+  message: string,
+): Promise<string> {
+  await writeSchema2Record(reviewDir, null);
+  const revision = await sealReviewCandidate(reviewDir, message);
+  await writeSchema2Record(reviewDir, revision);
+  return revision;
+}
+
+/** The document bytes the presented publication row serves. */
+async function presentedDocumentArtifact(reviewDir: string) {
+  const record = presentedPublicationRecord(reviewDir, "document");
+  if (record.artifact.state !== "stored")
+    throw new Error("The presented document artifact is unavailable.");
+  const bundle = await readReviewDocumentArtifact(
+    reviewDir,
+    record.artifact.hash,
+  );
+  if (!bundle) throw new Error("The presented document artifact is missing.");
+  return reviewDocumentBundleData(bundle);
+}
+
+/** The software map bytes the presented publication row serves. */
+async function presentedMapArtifact(reviewDir: string) {
+  const record = presentedPublicationRecord(reviewDir, "map");
+  if (record.artifact.state !== "stored")
+    throw new Error("The presented map artifact is unavailable.");
+  const bundle = await readReviewSoftwareMapArtifact(
+    reviewDir,
+    record.artifact.hash,
+  );
+  if (!bundle) throw new Error("The presented map artifact is missing.");
+  return bundle;
+}
+
+function presentedPublicationRecord(
+  reviewDir: string,
+  kind: "document" | "map",
+): ReviewPublicationRecord {
+  const record = parseStoredReviewRecord(readReviewRecordFromDb(reviewDir));
+  const publicationId =
+    kind === "document"
+      ? record.presentedDocumentRevision
+      : record.presentedSoftwareMapRevision;
+  if (!publicationId) throw new Error(`No presented ${kind} publication.`);
+  const row = readPublication(reviewDir, publicationId, kind);
+  if (!row) throw new Error(`No ${kind} row for ${publicationId}.`);
+  return parsePublicationRecord(row.record);
 }
 
 async function writeCurrentRecord(
@@ -1177,26 +1132,61 @@ async function materializedRevision(
   return destination;
 }
 
-async function expectJsonMapRevision(
-  reviewDir: string,
-  revision: string,
-): Promise<void> {
-  const mapRevisionDir = await materializedRevision(reviewDir, revision);
-  const mapDir = path.join(mapRevisionDir, ".bundle", "software-map");
-  await expect(
-    readdir(mapDir).then((entries) => entries.sort()),
-  ).resolves.toEqual(["base-map.json", "head-map.json", "manifest.json"]);
-  await expect(
-    readFile(path.join(mapDir, "manifest.json"), "utf8").then((source) =>
-      JSON.parse(source),
-    ),
-  ).resolves.toMatchObject({ version: 2 });
-  await expect(
-    readFile(path.join(mapDir, "head-map.json"), "utf8").then((source) =>
-      JSON.parse(source),
-    ),
-  ).resolves.toMatchObject({
+/** The presented map row serves the converted JSON software map. */
+async function expectConvertedSoftwareMap(reviewDir: string): Promise<void> {
+  const bundle = await presentedMapArtifact(reviewDir);
+  expect(jsonObject(parseJsonText(bundle.headJson))).toMatchObject({
     format: "software-map/1",
     elements: [{ path: "service" }],
   });
+  expect(jsonObject(parseJsonText(bundle.baseJson))).toMatchObject({
+    format: "software-map/1",
+  });
 }
+
+describe("legacy artifact import on first read", () => {
+  it("imports every publish candidate as a publication row", async () => {
+    const { created } = await storedReview();
+    await writeLegacyDocument(created.dir);
+    const first = await sealReviewCandidate(
+      created.dir,
+      "Review publish candidate",
+    );
+    await writeLegacyDocument(created.dir, {
+      code: `import { createActiveReviewDocument, jsx } from "review-doc-runtime";
+export default createActiveReviewDocument({ title: "Second", routePath: "/", filePath: "review.mdx", modelNames: [], models: {}, Component: () => jsx("h1", { children: "Second" }), isDefault: true });`,
+    });
+    const second = await sealReviewCandidate(
+      created.dir,
+      "Review publish candidate",
+    );
+    await writeFile(
+      path.join(created.dir, "review.json"),
+      JSON.stringify({
+        ...created.review,
+        schemaVersion: 4,
+        presentedDocumentRevision: second,
+      }),
+    );
+
+    const loaded = await readStoredReview(created.dir);
+
+    expect("error" in loaded).toBe(false);
+    expect(
+      listPublications(created.dir, "document").map((row) => row.publicationId),
+    ).toEqual([second, first]);
+    // Only the presented JavaScript bundle can be evaluated; an older v1
+    // version is recorded as a row whose bytes are unavailable.
+    expect(readLegacyArtifactImport(created.dir)).toMatchObject({
+      versions: 2,
+      unavailable: 1,
+    });
+    expect(
+      listPublications(created.dir, "document").map((row) => row.artifactHash),
+    ).toEqual([expect.any(String), null]);
+    expect(await readReviewRecord(created.dir)).toMatchObject({
+      schemaVersion: REVIEW_SCHEMA_VERSION,
+      presentedDocumentRevision: second,
+    });
+  });
+});

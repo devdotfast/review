@@ -45,6 +45,7 @@ import { SOFTWARE_MAP_NOTES_REF } from "./review-storage";
 import {
   type ReviewThreadDbMigrationOptions,
   copyReviewThreadDatabaseSnapshot,
+  legacyReviewThreadDbPath,
   migrateReviewThreadDb,
   readReviewThreadDatabaseFingerprint,
   reviewThreadDbPath,
@@ -284,14 +285,22 @@ async function snapshotReviewForRepair(
       throw new Error(
         "Review authoring changed while preparing repair. Retry after active writes finish.",
       );
-    const threadDbFingerprint = existsSync(
-      reviewThreadDbPath(path.join(reviewDir, "review.mdx")),
-    )
+    const reviewMdxPath = path.join(reviewDir, "review.mdx");
+    const copied = existsSync(reviewThreadDbPath(reviewMdxPath))
       ? copyReviewThreadDatabaseSnapshot(
-          path.join(reviewDir, "review.mdx"),
+          reviewMdxPath,
           path.join(stagingDir, "review.mdx"),
         )
       : undefined;
+    // The guard covers the isolated upgrade of a Review's own legacy thread
+    // database. Once its threads live in the shared home database, that
+    // database's bytes move for reasons unrelated to this Review, so
+    // fingerprinting it would refuse repairs at random.
+    const threadDbFingerprint =
+      reviewThreadDbPath(reviewMdxPath) ===
+      legacyReviewThreadDbPath(reviewMdxPath)
+        ? copied
+        : undefined;
     return {
       review,
       documentRevision,

@@ -5,6 +5,8 @@ import { DatabaseSync } from "node:sqlite";
 import { promisify } from "node:util";
 
 import {
+  type JsonObject,
+  type JsonValue,
   ReviewCommentDraftThreadSchema,
   ReviewCommentThreadRecordSchema,
   jsonObject,
@@ -21,22 +23,26 @@ import {
   snapshotReviewTree,
 } from "./fixtures/legacy-reviews/legacy-review-fixture";
 import { sealLegacyReviewCommit } from "./fixtures/legacy-reviews/legacy-review-git";
+import { legacyCompanionMapPublicationId } from "./legacy-review-import";
 import {
-  readReviewDocumentBundle,
-  reviewDocumentBundleData,
-} from "./review-bundle";
+  readReviewDocumentArtifact,
+  readReviewSoftwareMapArtifact,
+} from "./review-artifact-store";
+import { reviewDocumentBundleData } from "./review-bundle";
+import { findReview, listReviews, readStoredReview } from "./review-home";
+import { parsePublicationRecord } from "./review-publication-record";
 import {
-  findReview,
-  listReviews,
-  materializeReviewRevision,
-  readStoredReview,
-} from "./review-home";
+  type ReviewPublicationRow,
+  deleteReviewState,
+  listPublications,
+  readLegacyArtifactImport,
+  reviewIdForDir,
+} from "./review-state-db";
 import {
   REVIEW_THREAD_DB_SCHEMA_VERSION,
   closeAllReviewThreadStores,
 } from "./review-thread-store-backend";
 import { reviewVcs } from "./review-vcs";
-import { readReviewSoftwareMapBundle } from "./software-map-bundle";
 
 const execFilePromise = promisify(execFile);
 const fixtures = listLegacyReviewFixtures();
@@ -62,6 +68,70 @@ async function extract(name: string) {
 
 async function git(dir: string, args: string[]) {
   return (await execFilePromise("git", ["-C", dir, ...args])).stdout.trim();
+}
+
+/** The Review tree without its thread database. A Review whose sealed
+ * document cannot be converted still has its thread database migrated first —
+ * the import refuses to read one at an older schema — so those files legitimately
+ * change while every authored and sealed byte stays put. */
+async function snapshotWithoutThreadDb(
+  dir: string,
+): Promise<Record<string, string>> {
+  return Object.fromEntries(
+    Object.entries(await snapshotReviewTree(dir)).filter(
+      ([name]) => !name.startsWith("review.db"),
+    ),
+  );
+}
+
+/** Every commit the Git-era version listing offered: the publish candidates
+ * from the presented revision back, plus the presented revision itself. */
+async function publishCandidateCommits(
+  dir: string,
+  originalRecord: JsonObject,
+): Promise<string[]> {
+  const presented = originalRecord.presentedDocumentRevision;
+  const log = await reviewVcs.log(dir);
+  const index = log.findIndex((entry) => entry.oid === presented);
+  return (index === -1 ? log : log.slice(index))
+    .filter(
+      (entry) =>
+        entry.message === "Review publish candidate" || entry.oid === presented,
+    )
+    .map((entry) => entry.oid);
+}
+
+/** A revision that sealed its document and its map together needs a companion
+ * map ID, because the document row already holds the commit; an independently
+ * published map keeps its own commit as its publication ID. */
+function expectedMapPublicationId(
+  dir: string,
+  documentPublicationId: JsonValue,
+  row: ReviewPublicationRow | undefined,
+): string | null {
+  const commit = row?.legacyCommit ?? null;
+  if (commit === null) return null;
+  return commit === documentPublicationId
+    ? legacyCompanionMapPublicationId(reviewIdForDir(dir), commit)
+    : commit;
+}
+
+function publicationArtifactHash(
+  row: ReviewPublicationRow | undefined,
+): string {
+  const record = parsePublicationRecord(row?.record ?? null);
+  if (record.artifact.state !== "stored")
+    throw new Error("The publication has no stored artifact.");
+  return record.artifact.hash;
+}
+
+async function artifactOf(dir: string, row: ReviewPublicationRow | undefined) {
+  const bundle = await readReviewDocumentArtifact(
+    dir,
+    publicationArtifactHash(row),
+  );
+  if (!bundle) throw new Error("The document artifact is missing.");
+  return bundle;
 }
 
 function threadRows(dir: string) {
@@ -124,14 +194,14 @@ it("snapshots authored locks, databases, and managed metadata", async () => {
 });
 
 describe.each(fixtures)("legacy fixture $name", (fixture) => {
-  it("migrates to golden JSON while preserving metadata, threads and old history", async () => {
-    const { home, dir, uuid, originalRecord } = await extract(fixture.name);
+  it("imports to golden artifacts while preserving metadata, threads and old history", async () => {
+    const { dir, uuid, originalRecord } = await extract(fixture.name);
     const threadsBefore = threadRows(dir);
     const oldCommits = (await git(dir, ["rev-list", "--all"])).split("\n");
     const oldRefs = (
       await git(dir, ["for-each-ref", "--format=%(refname) %(objectname)"])
     ).split("\n");
-    const oldHead = await git(dir, ["rev-parse", "HEAD"]);
+    const candidates = await publishCandidateCommits(dir, originalRecord);
     const loaded = await readStoredReview(dir);
     expect("error" in loaded).toBe(false);
     const record = jsonObject(
@@ -141,38 +211,58 @@ describe.each(fixtures)("legacy fixture $name", (fixture) => {
       await readLegacyReviewGolden(fixture.name, "record"),
     );
     const preservedEntries = Object.entries(originalRecord).filter(
+      // The map pointer is the one value the import may rewrite: a revision
+      // that sealed document and map together needs a companion map ID.
       ([key]) =>
-        ![
-          "schemaVersion",
-          "presentedDocumentRevision",
-          "presentedSoftwareMapRevision",
-        ].includes(key),
+        !["schemaVersion", "presentedSoftwareMapRevision"].includes(key),
     );
     for (const [key, value] of preservedEntries) {
       expect(record[key]).toEqual(value);
     }
-    const documentRevision = record.presentedDocumentRevision as string;
-    expect(documentRevision).not.toBe(originalRecord.presentedDocumentRevision);
-    const documentDir = path.join(home, "document");
-    await materializeReviewRevision(dir, documentRevision, documentDir);
-    const documentBundle = await readReviewDocumentBundle(documentDir, "/");
-    expect(documentBundle && reviewDocumentBundleData(documentBundle)).toEqual(
+    // One row per published version, each keyed by the commit that sealed it,
+    // so an existing link to a Git-era revision still names its publication.
+    const documentRows = listPublications(dir, "document");
+    expect(documentRows.map((row) => row.publicationId).sort()).toEqual(
+      [...candidates].sort(),
+    );
+    expect(documentRows.map((row) => row.legacyCommit).sort()).toEqual(
+      [...candidates].sort(),
+    );
+    expect(readLegacyArtifactImport(dir)).toMatchObject({
+      versions: candidates.length,
+      unavailable: 0,
+    });
+    expect(record.presentedDocumentRevision).toBe(
+      originalRecord.presentedDocumentRevision,
+    );
+    const active = documentRows.find(
+      (row) => row.publicationId === record.presentedDocumentRevision,
+    );
+    expect(reviewDocumentBundleData(await artifactOf(dir, active))).toEqual(
       await readLegacyReviewGolden(fixture.name, "document"),
     );
-    let actualMap = null;
-    let expectedMap = null;
-    if (fixture.hasMap) {
-      const mapDir = path.join(home, "map");
-      await materializeReviewRevision(
+    const mapRows = listPublications(dir, "map");
+    const activeMap = mapRows.find(
+      (row) => row.publicationId === record.presentedSoftwareMapRevision,
+    );
+    expect(record.presentedSoftwareMapRevision).toBe(
+      expectedMapPublicationId(
         dir,
-        record.presentedSoftwareMapRevision as string,
-        mapDir,
-      );
-      actualMap = await readReviewSoftwareMapBundle(mapDir);
-      expectedMap = await readLegacyReviewGolden(fixture.name, "map");
-    }
+        record.presentedDocumentRevision,
+        activeMap,
+      ),
+    );
+    expect(mapRows).toHaveLength(fixture.hasMap ? 1 : 0);
+    const actualMap = activeMap
+      ? await readReviewSoftwareMapArtifact(
+          dir,
+          publicationArtifactHash(activeMap),
+        )
+      : null;
+    const expectedMap = fixture.hasMap
+      ? await readLegacyReviewGolden(fixture.name, "map")
+      : null;
     expect(actualMap).toEqual(expectedMap);
-    expect(Boolean(record.presentedSoftwareMapRevision)).toBe(fixture.hasMap);
     for (const revision of oldCommits)
       expect(await reviewVcs.resolve(dir, revision)).toBe(revision);
     for (const entry of oldRefs) {
@@ -180,24 +270,9 @@ describe.each(fixtures)("legacy fixture $name", (fixture) => {
       expect(await reviewVcs.resolve(dir, revision!)).toBe(revision);
       await git(dir, ["merge-base", "--is-ancestor", revision!, ref!]);
     }
-    for (const entry of oldRefs.filter(
-      (entry) => !entry.startsWith("refs/heads/main "),
-    )) {
-      const [ref, revision] = entry.split(" ");
-      expect(await reviewVcs.resolve(dir, ref!)).toBe(revision);
-    }
-    let parentRevision = oldHead;
-    const newRevisions = fixture.hasMap
-      ? [record.presentedSoftwareMapRevision as string, documentRevision]
-      : [documentRevision];
-    for (const revision of newRevisions) {
-      expect(
-        (await git(dir, ["rev-list", "--parents", "-n", "1", revision]))
-          .split(" ")
-          .slice(1),
-      ).toEqual([parentRevision]);
-      parentRevision = revision;
-    }
+    expect(
+      await git(dir, ["for-each-ref", "--format=%(refname) %(objectname)"]),
+    ).toBe(oldRefs.join("\n"));
     const threadsAfter = threadRows(dir);
     expect(threadsAfter.version).toEqual({
       value: String(REVIEW_THREAD_DB_SCHEMA_VERSION),
@@ -220,7 +295,10 @@ describe.each(fixtures)("legacy fixture $name", (fixture) => {
     ]);
     expect("error" in first).toBe(false);
     expect(first).toEqual(second);
-    expect(seal).toHaveBeenCalledTimes(fixture.hasMap ? 2 : 1);
+    // Importing replays the sealed history; it never writes to it.
+    expect(seal).not.toHaveBeenCalled();
+    expect(listPublications(dir, "document")).toHaveLength(1);
+    expect(readLegacyArtifactImport(dir)).toMatchObject({ versions: 1 });
   });
 
   it("reports repair without mutations for a corrupt sealed document", async () => {
@@ -240,7 +318,7 @@ describe.each(fixtures)("legacy fixture $name", (fixture) => {
         presentedDocumentRevision: brokenRevision,
       }),
     );
-    const snapshot = await snapshotReviewTree(dir);
+    const snapshot = await snapshotWithoutThreadDb(dir);
     const listed = await listReviews();
     expect(listed.reviews).toEqual([]);
     expect(listed.errors).toHaveLength(1);
@@ -251,8 +329,36 @@ describe.each(fixtures)("legacy fixture $name", (fixture) => {
     expect(listed.errors[0]?.message).toContain(
       `review repair --review ${uuid}`,
     );
-    expect(await snapshotReviewTree(dir)).toEqual(snapshot);
+    expect(await snapshotWithoutThreadDb(dir)).toEqual(snapshot);
+    expect(listPublications(dir, "document")).toEqual([]);
+    expect(readLegacyArtifactImport(dir)).toBeNull();
   });
+});
+
+it("records an older JavaScript version without inventing its bytes", async () => {
+  const { dir, originalRecord } = await extract("schema4-bug-report-dialog");
+  const historical = originalRecord.presentedDocumentRevision as string;
+  await writeFile(path.join(dir, "review.mdx"), "# Republished\n");
+  const republished = await sealLegacyReviewCommit(
+    dir,
+    "Review publish candidate",
+  );
+  await writeFile(
+    path.join(dir, "review.json"),
+    JSON.stringify({
+      ...originalRecord,
+      presentedDocumentRevision: republished,
+    }),
+  );
+
+  expect("error" in (await readStoredReview(dir))).toBe(false);
+
+  const rows = listPublications(dir, "document");
+  expect(rows.map((row) => row.publicationId)).toContain(historical);
+  expect(
+    rows.find((row) => row.publicationId === historical)?.artifactHash,
+  ).toBeNull();
+  expect(readLegacyArtifactImport(dir)).toMatchObject({ unavailable: 1 });
 });
 
 it("lists healthy reviews alongside a corrupt sealed presentation", async () => {
@@ -276,7 +382,7 @@ it("lists healthy reviews alongside a corrupt sealed presentation", async () => 
       presentedDocumentRevision: revision,
     }),
   );
-  const snapshot = await snapshotReviewTree(broken.dir);
+  const snapshot = await snapshotWithoutThreadDb(broken.dir);
 
   const listed = await listReviews();
 
@@ -290,7 +396,7 @@ it("lists healthy reviews alongside a corrupt sealed presentation", async () => 
     code: "REPAIR_REQUIRED",
     reviewUuid: broken.uuid,
   });
-  expect(await snapshotReviewTree(broken.dir)).toEqual(snapshot);
+  expect(await snapshotWithoutThreadDb(broken.dir)).toEqual(snapshot);
 });
 
 it("preserves seeded prose and code threads and a prose draft", async () => {

@@ -1008,15 +1008,15 @@ async function verify(
       reviewId: document.reviewId,
       checkpointId: checkpoint.id,
     });
-  const openedAt = Date.now();
   await local.open(document.reviewId);
+  // Startup clears observations and main() requires a different host instance.
+  // An already-restored canvas need not emit again just because it is focused.
   const report = await observed(
     client,
     document.reviewId,
     document.version,
     Object.keys(document.nodes),
     options.reportTimeoutMs,
-    openedAt,
   );
   emit({
     kind: "restart_verified",

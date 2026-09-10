@@ -101,10 +101,10 @@
   .part.editor
   .editor-group-container
   > .title
-  > .tabs-and-actions-container.review-chrome-inset {
+  > .tabs-and-actions-container.review-chrome-tab-strip {
   box-sizing: border-box;
-  padding-left: calc(var(--review-chrome-left-width, 0px) + 6px);
-  padding-right: calc(var(--review-chrome-right-width, 0px) + 6px);
+  padding-left: 6px;
+  padding-right: 6px;
   user-select: none;
   -webkit-app-region: drag;
 }
@@ -113,22 +113,31 @@
   .part.editor
   .editor-group-container
   > .title
-  > .tabs-and-actions-container.review-chrome-inset {
+  > .tabs-and-actions-container.review-chrome-tab-strip {
   -webkit-app-region: no-drag;
 }
 
 .monaco-workbench
   .part.editor
-  .tabs-and-actions-container.review-chrome-inset
+  .tabs-and-actions-container.review-chrome-tab-strip
   .tabs-container {
   -webkit-app-region: drag;
 }
 
 .monaco-workbench.review-tab-dragging
   .part.editor
-  .tabs-and-actions-container.review-chrome-inset
+  .tabs-and-actions-container.review-chrome-tab-strip
   .tabs-container {
   -webkit-app-region: no-drag;
+}
+
+.monaco-workbench
+  .part.editor
+  .editor-group-container
+  > .title
+  > .tabs-and-actions-container.review-chrome-inset {
+  padding-left: calc(var(--review-chrome-left-width, 0px) + 6px);
+  padding-right: calc(var(--review-chrome-right-width, 0px) + 6px);
 }
 
 .monaco-workbench .part.editor .tabs-container > .tab,
@@ -141,6 +150,14 @@
   > .monaco-scrollable-element
   > .scrollbar {
   -webkit-app-region: no-drag;
+}
+
+/* Ask Agent keeps native tabs without the terminal creation, group lock, or
+   overflow controls. Removing their boxes leaves the strip available to drag. */
+.monaco-workbench.review-workbench .part.editor
+  .review-agent-terminal-tabs > .tabs-and-actions-container
+  > :is(.editor-actions, .editor-layout-actions, .editor-actions-separator) {
+  display: none;
 }
 
 /* ---------------------------------------------------------------------------

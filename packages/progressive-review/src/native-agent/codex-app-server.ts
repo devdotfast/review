@@ -297,9 +297,16 @@ export class CodexAppServerHost {
     const { child, client } = await started;
     await client.close();
     if (child.exitCode === null && child.signalCode === null) {
-      const closed = once(child, "close");
-      child.kill("SIGTERM");
-      await closed;
+      const exited = once(child, "exit");
+      // Codex may keep running while shutting down plugins. Bound graceful
+      // shutdown so closing Review cannot hang, then wait for actual exit.
+      const timer = setTimeout(() => child.kill("SIGKILL"), 2_000);
+      try {
+        child.kill("SIGTERM");
+        await exited;
+      } finally {
+        clearTimeout(timer);
+      }
     }
   }
 

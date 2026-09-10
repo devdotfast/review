@@ -487,9 +487,15 @@ describe("sqlite thread store", () => {
   });
 });
 
-it.each(["1", "2", "3", "4", "5", "6"])(
-  "inspects pending messages in DB schema %s without converting targets or changing files",
-  (version) => {
+const pendingWriteCases = ["1", "2", "3", "4", "5", "6", "7", "8", "9"].flatMap(
+  (version) =>
+    (["comments", "comment_drafts"] as const)
+      .filter((table) => version !== "1" || table === "comments")
+      .map((table) => ({ version, table })),
+);
+it.each(pendingWriteCases)(
+  "inspects pending $table in schema $version without changing files",
+  ({ version, table }) => {
     const reviewPath = makeReviewPath();
     seedComment(reviewPath);
     closeAllReviewThreadStores();
@@ -498,31 +504,92 @@ it.each(["1", "2", "3", "4", "5", "6"])(
     db.prepare("UPDATE meta SET value = ? WHERE key = 'schema_version'").run(
       version,
     );
-    db.prepare(
-      "UPDATE comments SET record_json = ? WHERE thread_id = 'thread-1'",
-    ).run(
-      JSON.stringify({
-        target: { kind: "code", file: "old.ts" },
-        messages: [{ role: "reviewer", agentInput: true }],
-      }),
-    );
+    db.exec("DELETE FROM comments; DELETE FROM comment_drafts;");
     if (version === "1") db.exec("DROP TABLE comment_drafts");
     db.close();
-    const before = readFileSync(dbPath);
-    expect(hasPendingReviewAgentWrites(reviewPath)).toBe(true);
-    expect(readFileSync(dbPath)).toEqual(before);
-    const answered = new DatabaseSync(dbPath);
-    answered
-      .prepare(
-        "UPDATE comments SET record_json = ? WHERE thread_id = 'thread-1'",
-      )
-      .run(
-        JSON.stringify({
-          messages: [{ role: "reviewer", agentInput: true }, { role: "agent" }],
-        }),
+    for (const { messages, pending } of [
+      { messages: [], pending: false },
+      { messages: [{ role: "reviewer", agentInput: false }], pending: false },
+      { messages: [{ role: "reviewer", agentInput: true }], pending: true },
+      {
+        messages: [{ role: "reviewer", agentInput: true }, { role: "agent" }],
+        pending: false,
+      },
+      {
+        messages: [
+          { role: "reviewer", agentInput: true },
+          { role: "agent" },
+          { role: "reviewer", agentInput: true },
+        ],
+        pending: true,
+      },
+    ]) {
+      const thread = { target: { kind: "code", file: "old.ts" }, messages };
+      const writer = new DatabaseSync(dbPath);
+      writer
+        .prepare(
+          `INSERT OR REPLACE INTO ${table}(thread_id, record_json) VALUES (?, ?)`,
+        )
+        .run(
+          "thread-1",
+          JSON.stringify(table === "comments" ? thread : { thread }),
+        );
+      writer.close();
+      const before = readFileSync(dbPath);
+      expect(hasPendingReviewAgentWrites(reviewPath)).toBe(pending);
+      expect(readFileSync(dbPath)).toEqual(before);
+    }
+  },
+);
+
+it("detects pending WAL writes without changing source DB, WAL or SHM bytes", () => {
+  const source = makeReviewPath();
+  appendReviewComment(source, {
+    threadId: "pending",
+    messageId: "input",
+    target: { kind: "document" },
+    body: "Update",
+    author: "Reviewer",
+    agentInput: true,
+  });
+  const target = makeReviewPath();
+  const suffixes = ["", "-wal", "-shm"];
+  for (const suffix of suffixes)
+    copyFileSync(
+      `${reviewThreadDbPath(source)}${suffix}`,
+      `${reviewThreadDbPath(target)}${suffix}`,
+    );
+  const before = suffixes.map((suffix) =>
+    readFileSync(`${reviewThreadDbPath(target)}${suffix}`),
+  );
+  expect(hasPendingReviewAgentWrites(target)).toBe(true);
+  expect(
+    suffixes.map((suffix) =>
+      readFileSync(`${reviewThreadDbPath(target)}${suffix}`),
+    ),
+  ).toEqual(before);
+});
+
+it.each([null, "", "09", "invalid", "10", "999"])(
+  "rejects unsupported schema %s without changing the database",
+  (version) => {
+    const reviewPath = makeReviewPath();
+    seedComment(reviewPath);
+    closeAllReviewThreadStores();
+    const dbPath = reviewThreadDbPath(reviewPath);
+    const db = new DatabaseSync(dbPath);
+    if (version === null)
+      db.exec("DELETE FROM meta WHERE key = 'schema_version'");
+    else
+      db.prepare("UPDATE meta SET value = ? WHERE key = 'schema_version'").run(
+        version,
       );
-    answered.close();
-    expect(hasPendingReviewAgentWrites(reviewPath)).toBe(false);
+    db.close();
+    const before = readFileSync(dbPath);
+    expect(() => hasPendingReviewAgentWrites(reviewPath)).toThrow(
+      ReviewThreadDbVersionError,
+    );
+    expect(readFileSync(dbPath)).toEqual(before);
   },
 );
 

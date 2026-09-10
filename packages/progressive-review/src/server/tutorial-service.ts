@@ -27,6 +27,7 @@ import {
   parseAuthoringSessionKey,
   parseFreshSourceSessionHarness,
 } from "../authoring-session";
+import { readReviewDocumentBundle } from "../review-bundle";
 import {
   type StoredReview,
   createReviewDir,
@@ -119,12 +120,16 @@ export function createTutorialService(input: {
     }
     // Copy-only edits leave the sample repository's commits unchanged.
     // Refresh the saved tutorial when its compiled document has changed too.
-    const documentPath = path.join(".bundle", "document", "review-document.js");
     const documentMatches = await Promise.all([
-      readFile(path.join(assetsRoot, documentPath)),
-      readFile(path.join(review.dir, documentPath)),
+      readReviewDocumentBundle(assetsRoot, "/"),
+      readReviewDocumentBundle(review.dir, "/"),
     ])
-      .then(([shipped, saved]) => shipped.equals(saved))
+      .then(
+        ([shipped, saved]) =>
+          shipped !== null &&
+          saved !== null &&
+          shipped.contentHash === saved.contentHash,
+      )
       .catch(() => false);
     if (!documentMatches) return null;
     return { stamp, review };

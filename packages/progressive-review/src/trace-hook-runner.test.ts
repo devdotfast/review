@@ -232,6 +232,8 @@ describe("runReviewTraceHook", () => {
       hook: "prepare-commit-msg",
       args: [messagePath],
       stderr: process.stderr,
+      homeDir: repo,
+      env: { TRACE_R2_MODE: "mock" },
     });
 
     expect(await readFile(messagePath, "utf8")).toBe("Test commit\n");
@@ -250,6 +252,8 @@ describe("runReviewTraceHook", () => {
       hook: "prepare-commit-msg",
       args: [messagePath],
       stderr: process.stderr,
+      homeDir: repo,
+      env: { TRACE_R2_MODE: "mock" },
     });
     expect(await readFile(messagePath, "utf8")).toContain(
       `Agent-Session: ${sessionId}`,

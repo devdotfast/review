@@ -26,10 +26,14 @@ export async function runReviewTraceGitHook(input: {
   args: string[];
   stdin?: NodeJS.ReadableStream;
   stderr: Writable;
+  /** The machine scope; the real home and environment when absent. */
+  homeDir?: string;
+  env?: NodeJS.ProcessEnv;
 }): Promise<number> {
   if (process.env.TRACE_DISABLE === "1") return 0;
   // The machine switch owns every capture path, including the git hooks.
-  if (!(await traceMachineEnabled())) return 0;
+  const scope = { homeDir: input.homeDir, env: input.env };
+  if (!(await traceMachineEnabled(scope))) return 0;
   try {
     if (input.hook === "prepare-commit-msg") {
       return runPrepareCommitMessage(input.cwd, input.args[0]);
@@ -92,6 +96,8 @@ async function runPrePush(input: {
   cwd: string;
   stdin?: NodeJS.ReadableStream;
   stderr: Writable;
+  homeDir?: string;
+  env?: NodeJS.ProcessEnv;
 }): Promise<void> {
   const raw = await readStdin(input.stdin);
   const commits = new Map<
@@ -143,12 +149,17 @@ async function runPrePush(input: {
       ]);
     }
   }
-  const selection = selectTraceStorage();
+  const scope = { homeDir: input.homeDir, env: input.env };
+  const selection = selectTraceStorage(scope);
   for (const [sessionId, values] of sessionCommits) {
     if (selection.mode === "hosted") {
       // A hosted publish may take minutes; a push never waits for it. The
       // detached sync discovers this session's commits from the trailers.
-      hookRunner.spawnDetachedTraceSync({ sessionId, cwd: input.cwd });
+      hookRunner.spawnDetachedTraceSync({
+        sessionId,
+        cwd: input.cwd,
+        ...scope,
+      });
       continue;
     }
     await syncReviewTrace({ sessionId, cwd: input.cwd, commits: values }).catch(

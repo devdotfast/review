@@ -1,4 +1,4 @@
-name: Review Linux packages
+name: Review Fedora packages
 
 on:
   workflow_call:
@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   linux:
-    name: Build and validate Linux packages
+    name: Build and validate Fedora packages
     environment: ${{ inputs.release_signing && 'review-release' || 'review-linux-ci' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 90
@@ -53,8 +53,9 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libx11-dev libxkbfile-dev libkrb5-dev libsecret-1-dev \
             libgtk-3-0 libnss3 libasound2 libgbm1 libnotify4 \
-            dpkg-dev fakeroot zstd gnupg xvfb dbus-x11 unzip openbox
-          docker pull --platform linux/amd64 archlinux:base-devel@sha256:61f7de2dd88cc4ba1fe36c24cfe1a503c3936984492d6405eeab013ce6ac68c5
+            rpm createrepo-c zstd gnupg xvfb dbus-x11 unzip openbox
+          docker pull --platform linux/amd64 fedora:43@sha256:a651ddf48ea28a06ed4e1e6519f51c9f47e7a5a138722ade87369b8fbb7e5b42
+          docker pull --platform linux/amd64 fedora:44@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80
       - name: Build and assemble Linux app
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -79,14 +80,10 @@ jobs:
         run: |
           mkdir -p apps/review-desktop/dist/linux
           tar --zstd -cf apps/review-desktop/dist/linux/Review-linux-x64-preview.tar.zst -C apps/review-desktop VSCode-linux-x64
-      - name: Create native packages
+      - name: Create Fedora RPM
         if: ${{ !contains(inputs.version, '-preview.') }}
         run: |
           pnpm --filter @dev.fast/review-desktop app:package:linux:distributions
-          bash apps/review-desktop/scripts/package-linux-arch.sh
-          sudo apt-get install -y ./apps/review-desktop/dist/linux/dev-fast-review_*.deb
-          review --help
-          xvfb-run -a node apps/review-desktop/scripts/smoke-launch-packaged.mjs --app /usr/share/review
       - name: Prepare repository signing key
         if: ${{ !contains(inputs.version, '-preview.') }}
         id: signing
@@ -118,6 +115,7 @@ jobs:
             --packages apps/review-desktop/dist/linux \
             --output apps/review-desktop/dist/linux-repository \
             --version "$VERSION" --commit "$BUILD_SOURCEVERSION" --fingerprint "$FINGERPRINT"
+          cp apps/review-desktop/dist/linux-repository/repos/rpm/x86_64/Packages/*.rpm apps/review-desktop/dist/linux/
           tar --zstd -cf apps/review-desktop/dist/linux/linux-publication.tar.zst -C apps/review-desktop/dist/linux-repository .
       - name: Validate clean installs and rejected signatures
         if: ${{ !contains(inputs.version, '-preview.') }}
@@ -127,8 +125,7 @@ jobs:
         with:
           name: linux-packages
           path: |
-            apps/review-desktop/dist/linux/*.deb
-            apps/review-desktop/dist/linux/*.pkg.tar.zst
+            apps/review-desktop/dist/linux/*.rpm
             apps/review-desktop/dist/linux/*.tar.zst
           retention-days: 7
           compression-level: 0

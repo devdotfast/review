@@ -17,7 +17,7 @@ class PublicationTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        self.current = dict(schemaVersion=1, generation="1.2.3-1-" + "a" * 40,
+        self.current = dict(schemaVersion=1, format="rpm", generation="1.2.3-1-" + "a" * 40,
                             version="1.2.3", commit="a" * 40, keyFingerprint="B" * 40)
         (self.root / "repos").mkdir()
         (self.root / "repos/current.json").write_text(json.dumps(self.current))
@@ -31,7 +31,7 @@ class PublicationTests(unittest.TestCase):
 
     def request(self, url, **kwargs):
         url = url.full_url
-        body = {"schemaVersion": 1} if url.endswith("/health") else {"version": self.current["commit"], "productVersion": self.current["version"]}
+        body = {"schemaVersion": 1, "format": "rpm"} if url.endswith("/health") else {"version": self.current["commit"], "productVersion": self.current["version"]}
         return io.BytesIO(json.dumps(body).encode())
 
     def aws(self, *args):
@@ -81,6 +81,12 @@ class PublicationTests(unittest.TestCase):
         pointers = [call for call in self.writes() if call[call.index("--key") + 1] == "repos/current.json"]
         self.assertEqual(len(pointers), 1)
         self.assertEqual(pointers[0][-2:], ("--if-match", '"previous-etag"'))
+
+    def test_refuses_worker_without_rpm_support(self):
+        with patch.object(publisher, "fetch_json", return_value={"schemaVersion": 1}):
+            with self.assertRaisesRegex(RuntimeError, "Deploy the Linux repository Worker"):
+                self.publish()
+        self.assertEqual(self.writes(), [])
 
     def test_changed_sealed_bytes_fail_before_upload(self):
         (self.root / "repos/package").write_bytes(b"changed")

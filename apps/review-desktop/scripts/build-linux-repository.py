@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Build a complete signed, immutable APT/pacman publication (no network writes)."""
+"""Build a sealed signed RPM/DNF publication without network writes."""
 
 import argparse
-import gzip
 import hashlib
 import json
 import os
@@ -11,37 +10,49 @@ import re
 import shutil
 import subprocess
 import tempfile
-from datetime import datetime, timezone
-from email.utils import format_datetime
-
-ARCH_IMAGE = "archlinux:base-devel@sha256:61f7de2dd88cc4ba1fe36c24cfe1a503c3936984492d6405eeab013ce6ac68c5"
 
 
 def run(*args, **kwargs):
     return subprocess.run(args, check=True, stdout=subprocess.PIPE, **kwargs).stdout
 
 
-def digest(file, algorithm="sha256"):
-    result = hashlib.new(algorithm)
+def digest(file):
+    result = hashlib.sha256()
     with open(file, "rb") as source:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             result.update(chunk)
     return result.hexdigest()
 
 
-def sign(file, fingerprint, *, clear=False):
-    output = file.parent / ("InRelease" if clear else file.name + ".sig")
+def sign(file, fingerprint):
+    output = file.with_name(file.name + ".asc")
     args = ["gpg", "--batch", "--yes", "--local-user", fingerprint]
     passphrase = os.environ.get("REVIEW_SIGNING_PASSPHRASE_FILE")
     if passphrase:
         args += ["--pinentry-mode", "loopback", "--passphrase-file", passphrase]
-    args += ["--output", str(output), "--clearsign" if clear else "--detach-sign", str(file)]
-    run(*args)
-    if clear:
-        run("gpg", "--batch", "--verify", str(output))
-    else:
-        run("gpg", "--batch", "--verify", str(output), str(file))
-    return output
+    run(*args, "--armor", "--output", str(output), "--detach-sign", str(file))
+    run("gpg", "--batch", "--verify", str(output), str(file))
+
+
+def sign_rpm(file, fingerprint, public_key):
+    # Use GnuPG on both RPM 4 (CI builder) and RPM 6 (Fedora). The key stays in
+    # GNUPGHOME; no private credentials enter the native-package build container.
+    args = ["rpmsign", "--define", "_openpgp_sign gpg",
+            "--define", f"_openpgp_sign_id {fingerprint}",
+            "--define", f"_gpg_name {fingerprint}",
+            "--define", f"__gpg {shutil.which('gpg')}"]
+    passphrase = os.environ.get("REVIEW_SIGNING_PASSPHRASE_FILE")
+    if passphrase:
+        if any(character in passphrase for character in "\n\r\"%"):
+            raise ValueError("Invalid signing passphrase file path")
+        args += ["--define", f'_gpg_sign_cmd_extra_args --pinentry-mode loopback --passphrase-file "{passphrase}"']
+    run(*args, "--addsign", str(file))
+    # Verify with an isolated RPM key database, without changing the host's trust.
+    with tempfile.TemporaryDirectory(prefix="review-rpm-keys-") as database:
+        run("rpmkeys", "--dbpath", database, "--import", str(public_key))
+        checked = run("rpmkeys", "--dbpath", database, "--checksig", str(file), env={**os.environ, "LC_ALL": "C"}).decode()
+        if "signatures OK" not in checked:
+            raise ValueError("RPM has no valid package signature")
 
 
 def build(packages, output, version, revision, commit, fingerprint):
@@ -53,82 +64,43 @@ def build(packages, output, version, revision, commit, fingerprint):
         raise ValueError("Expected the full signing key fingerprint")
     if output.exists():
         raise ValueError("Output already exists; use a fresh directory to avoid mixing publications")
+    name = f"dev-fast-review-{version}-{revision}.x86_64.rpm"
+    source = packages / name
+    metadata = run("rpm", "-qp", "--queryformat", "%{NAME}\n%{VERSION}\n%{RELEASE}\n%{ARCH}\n", str(source)).decode().splitlines()
+    if metadata != ["dev-fast-review", version, revision, "x86_64"]:
+        raise ValueError("RPM metadata does not match the release")
     generation = f"{version}-{revision}-{commit}"
     repos = output / "repos"
-    snapshots = repos / "snapshots" / generation
-    apt = snapshots / "apt"
-    arch_snapshot = snapshots / "arch"
-    apt.mkdir(parents=True)
-    arch_snapshot.mkdir()
+    snapshot = repos / "snapshots" / generation / "rpm/repodata"
+    snapshot.mkdir(parents=True)
     keys = repos / "keys"
     keys.mkdir()
-    (keys / f"{fingerprint}.asc").write_bytes(run("gpg", "--batch", "--armor", "--export", fingerprint))
-    if not (keys / f"{fingerprint}.asc").stat().st_size:
+    public_key = keys / f"{fingerprint}.asc"
+    public_key.write_bytes(run("gpg", "--batch", "--armor", "--export", fingerprint))
+    if not public_key.stat().st_size:
         raise ValueError("Signing public key was not exported")
-
-    deb_name = f"dev-fast-review_{version}-{revision}_amd64.deb"
-    deb_source = packages / deb_name
-    fields = run("dpkg-deb", "--field", str(deb_source)).decode()
-    for line in ["Package: dev-fast-review", f"Version: {version}-{revision}", "Architecture: amd64"]:
-        if line not in fields.splitlines():
-            raise ValueError(f"DEB metadata mismatch: {line}")
-    pool = repos / "apt/pool/main/d/dev-fast-review"
+    rpm = repos / "rpm/x86_64"
+    pool = rpm / "Packages"
     pool.mkdir(parents=True)
-    deb = pool / deb_name
-    shutil.copyfile(deb_source, deb)
-    package_index = fields.rstrip() + f"\nFilename: pool/main/d/dev-fast-review/{deb_name}\nSize: {deb.stat().st_size}\nSHA256: {digest(deb)}\nSHA512: {digest(deb, 'sha512')}\n\n"
-    indexes = apt / "main/binary-amd64"
-    indexes.mkdir(parents=True)
-    (indexes / "Packages").write_text(package_index)
-    (indexes / "Packages.gz").write_bytes(gzip.compress(package_index.encode(), mtime=0))
-    index_files = [indexes / "Packages", indexes / "Packages.gz"]
-    for algorithm in ["sha256", "sha512"]:
-        by_hash = repos / "apt/dists/stable/main/binary-amd64/by-hash" / algorithm.upper()
-        by_hash.mkdir(parents=True)
-        for file in index_files:
-            shutil.copyfile(file, by_hash / digest(file, algorithm))
-    release = "\n".join([
-        "Origin: dev.fast", "Label: Review", "Suite: stable", "Codename: stable",
-        "Architectures: amd64", "Components: main", "Acquire-By-Hash: yes",
-        f"Date: {format_datetime(datetime.now(timezone.utc), usegmt=True)}",
-        "Description: Review Desktop stable releases", "SHA256:",
-        *[f" {digest(file)} {file.stat().st_size} {file.relative_to(apt)}" for file in index_files],
-        "SHA512:",
-        *[f" {digest(file, 'sha512')} {file.stat().st_size} {file.relative_to(apt)}" for file in index_files], "",
-    ])
-    (apt / "Release").write_text(release)
-    sign(apt / "Release", fingerprint, clear=True)
-    sign(apt / "Release", fingerprint).rename(apt / "Release.gpg")
-
-    arch_name = f"dev-fast-review-{version}-{revision}-x86_64.pkg.tar.zst"
-    arch_source = packages / arch_name
-    pkginfo = run("tar", "--zstd", "-xOf", str(arch_source), ".PKGINFO").decode()
-    for line in ["pkgname = dev-fast-review", f"pkgver = {version}-{revision}", "arch = x86_64"]:
-        if line not in pkginfo.splitlines():
-            raise ValueError(f"Arch metadata mismatch: {line}")
-    arch = repos / "arch/x86_64"
-    arch.mkdir(parents=True)
-    package = arch / arch_name
-    shutil.copyfile(arch_source, package)
-    sign(package, fingerprint)
-    # Only repo-add runs in Arch. Signing keys never enter the container.
-    with tempfile.TemporaryDirectory(prefix="review-repo-add-") as directory:
-        staging = Path(directory)
-        shutil.copyfile(package, staging / arch_name)
-        shutil.copyfile(arch / (arch_name + ".sig"), staging / (arch_name + ".sig"))
-        run("docker", "run", "--rm", "--platform", "linux/amd64", "--network", "none",
-            "-v", f"{staging}:/repo", "-w", "/repo", ARCH_IMAGE,
-            "repo-add", "--include-sigs", "dev-fast-review.db.tar.gz", arch_name)
-        for name in ["dev-fast-review.db", "dev-fast-review.files"]:
-            file = arch_snapshot / name
-            shutil.copyfile(staging / name, file)
-            sign(file, fingerprint)
+    package = pool / name
+    shutil.copyfile(source, package)
+    sign_rpm(package, fingerprint, public_key)
+    # Package signatures change bytes. Generate checksums only after signing.
+    run("createrepo_c", "--no-database", "--unique-md-filenames", "--checksum", "sha256",
+        "--revision", f"{version}-{revision}", str(rpm))
+    for file in (rpm / "repodata").iterdir():
+        if file.name == "repomd.xml":
+            continue
+        match = re.fullmatch(r"([a-f0-9]{64})-(primary|filelists|other)\.xml\.gz", file.name)
+        if not match or digest(file) != match.group(1):
+            raise ValueError(f"Unexpected or non-content-addressed RPM metadata: {file.name}")
+    (rpm / "repodata/repomd.xml").rename(snapshot / "repomd.xml")
+    sign(snapshot / "repomd.xml", fingerprint)
     pointer = {
-        "schemaVersion": 1, "generation": generation, "version": version,
+        "schemaVersion": 1, "format": "rpm", "generation": generation, "version": version,
         "commit": commit, "keyFingerprint": fingerprint,
     }
     (repos / "current.json").write_text(json.dumps(pointer) + "\n")
-    # Publication uses this digest list to reject changes to immutable objects.
     files = {str(file.relative_to(output)): digest(file) for file in sorted(repos.rglob("*")) if file.is_file()}
     (output / "sha256.json").write_text(json.dumps(files, indent=2) + "\n")
 

@@ -69,7 +69,7 @@ jobs:
           test -n "$SIGNING_KEY"
           test -n "$R2_BUCKET"
           [[ "$SIGNING_FINGERPRINT" =~ ^[A-F0-9]{40}$ ]]
-          curl -fsS https://install.dev.fast/repos/health | python3 -c 'import json,sys; assert json.load(sys.stdin) == {"schemaVersion": 1}'
+          curl -fsS https://install.dev.fast/repos/health | python3 -c 'import json,sys; assert json.load(sys.stdin) == {"schemaVersion": 1, "format": "rpm"}'
 
       # Every read-only gate lives here so a dry run rehearses the same checks a
       # real run must pass, and so the write step below re-derives nothing.
@@ -649,7 +649,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.tag.outputs.tag }}
-        run: gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" linux-packages/*.deb linux-packages/*.pkg.tar.zst
+        run: gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" linux-packages/*.rpm
 
   finalize-release:
     name: Publish release

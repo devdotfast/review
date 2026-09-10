@@ -34,7 +34,7 @@ def fetch_json(url):
 
 
 def publish(directory, bucket, base_url):
-    if fetch_json(base_url + "/repos/health") != {"schemaVersion": 1}:
+    if fetch_json(base_url + "/repos/health") != {"schemaVersion": 1, "format": "rpm"}:
         raise RuntimeError("Deploy the Linux repository Worker before publishing")
     files = json.loads((directory / "sha256.json").read_text())
     if "repos/current.json" not in files:
@@ -49,7 +49,7 @@ def publish(directory, bucket, base_url):
     pointer = directory / "repos/current.json"
     current = json.loads(pointer.read_text())
     generation = re.fullmatch(r"([0-9]+)\.([0-9]+)\.([0-9]+)-([1-9][0-9]*)-([a-f0-9]{40})", current.get("generation", ""))
-    if (not generation or current.get("schemaVersion") != 1
+    if (not generation or current.get("schemaVersion") != 1 or current.get("format") != "rpm"
             or current.get("version") != ".".join(generation.groups()[:3])
             or current.get("commit") != generation.group(5)
             or not re.fullmatch(r"[A-F0-9]{40}", current.get("keyFingerprint", ""))):

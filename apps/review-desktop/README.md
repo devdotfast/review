@@ -488,4 +488,4 @@ bundle with `--app` when packaging by hand.
 Linux x86-64 packaging, repository signing, setup, and release validation are
 documented in [the Linux release runbook](scripts/linux/README.md). The native
 packages expose `review` as the bundled agent CLI and `review-desktop` as the app
-launcher. Updates use APT or pacman; Review links to package-manager instructions.
+launcher. Updates use DNF; Review links to package-manager instructions.

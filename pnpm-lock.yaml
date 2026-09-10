@@ -9,7 +9,7 @@ overrides:
   brace-expansion@2: 2.1.2
   brace-expansion@5: 5.0.8
   esbuild: 0.28.1
-  hono: 4.12.34
+  hono: 4.13.5
   postcss: 8.5.23
   undici: 7.29.0
   vite: 8.0.16
@@ -91,7 +91,7 @@ importers:
         version: link:../local-vcs
       '@hono/node-server':
         specifier: 2.0.12
-        version: 2.0.12(hono@4.12.34)
+        version: 2.0.12(hono@4.13.5)
       '@mdx-js/mdx':
         specifier: 3.1.1
         version: 3.1.1
@@ -126,8 +126,8 @@ importers:
         specifier: 4.0.2
         version: 4.0.2
       hono:
-        specifier: 4.12.34
-        version: 4.12.34
+        specifier: 4.13.5
+        version: 4.13.5
       isomorphic-git:
         specifier: 1.38.10
         version: 1.38.10
@@ -500,7 +500,7 @@ packages:
     resolution: {integrity: sha512-eWpQYr67tqJLeaSUl0Q+TquuYfUdTibpOJlUMV2FfUP7+KqCC5TufnwnlXL6mobZBJbGAYRd7ZvEBDCbLInjhg==}
     engines: {node: '>=20'}
     peerDependencies:
-      hono: 4.12.34
+      hono: 4.13.5
 
   '@jridgewell/sourcemap-codec@1.6.0':
     resolution: {integrity: sha512-T7jf+5zgsZHwNJ4lvQ7/aezbyk0nNX+zJVWpmHA7VYsEx7a7qr5Rg5IbtJFqkgze5Y2sruq1RUY8Q837Od7iFw==}
@@ -1775,8 +1775,8 @@ packages:
   help-me@5.0.0:
     resolution: {integrity: sha512-7xgomUX6ADmcYzFik0HzAxh/73YlKR9bmFzf51CZwR+b6YtzU2m0u49hQCqV6SvlqIqsaxovfwdvbnsw3b/zpg==}
 
-  hono@4.12.34:
-    resolution: {integrity: sha512-GqXJqY/xJkJmuloTrnV1ZEXG3fqte+VjkUqoRNZXcrUidiUOP4fMSIHHY4tsqZBK++kVyWmt/AAfSUuy57/eSA==}
+  hono@4.13.5:
+    resolution: {integrity: sha512-O6+/eCYRkzzzy0rPWwKLiGBR1nFuUPZynnwjxN1MBA62NNqbT0wQEzQyK2gSO5yDIDB336sXQleAhOHrzlYyKw==}
     engines: {node: '>=16.9.0'}
 
   hookable@6.1.1:
@@ -2911,9 +2911,9 @@ snapshots:
 
   '@exodus/bytes@1.15.1': {}
 
-  '@hono/node-server@2.0.12(hono@4.12.34)':
+  '@hono/node-server@2.0.12(hono@4.13.5)':
     dependencies:
-      hono: 4.12.34
+      hono: 4.13.5
 
   '@jridgewell/sourcemap-codec@1.6.0': {}
 
@@ -3895,7 +3895,7 @@ snapshots:
 
   help-me@5.0.0: {}
 
-  hono@4.12.34: {}
+  hono@4.13.5: {}
 
   hookable@6.1.1: {}
 

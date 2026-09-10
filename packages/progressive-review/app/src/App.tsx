@@ -42,6 +42,7 @@ import {
   TerminalIcon,
   ThreadsIcon,
 } from "./icons";
+import { ReviewBranchRange } from "./review-branch-range";
 import { ReviewPanelHost } from "./review-components";
 import {
   ReviewProvider,
@@ -527,6 +528,10 @@ function ReviewLayoutContent({
                   </button>
                 ))}
               </div>
+              <ReviewBranchRange
+                baseRef={range.baseRef}
+                headRef={range.headRef}
+              />
               <button
                 type="button"
                 className="review-open-source-tree"

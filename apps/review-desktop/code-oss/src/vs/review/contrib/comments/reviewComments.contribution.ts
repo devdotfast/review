@@ -66,9 +66,7 @@ import {
   type ReviewCommentThreadRecord,
   type ReviewDiffFileWire,
 } from "../../common/reviewProtocol.js";
-import {
-  IReviewCodeResourceService,
-} from "../../services/reviewCodeResourceService.js";
+import { IReviewCodeResourceService } from "../../services/reviewCodeResourceService.js";
 import {
   IReviewSessionModelService,
   type ReviewSessionModel,
@@ -138,48 +136,48 @@ interface CommentThreadProjection extends BaseThreadProjection {
 
 type ThreadProjection = CommentThreadProjection;
 
-function resourceProjectionKey(threadId: string, resource: URI | string): string {
+function resourceProjectionKey(
+  threadId: string,
+  resource: URI | string,
+): string {
   const resourceValue =
     typeof resource === "string" ? resource : resource.toString();
   return `${threadId}\u0000${resourceValue}`;
 }
 
-function codeRangeLabel(target: CodeThreadTarget, draft = false): string {
-  const draftLabel = draft ? "Draft \u00b7 " : "";
-  const rows = gitLabDiffPositionRows(target.position);
-  if (!rows) return `${draftLabel}Code`;
-  const headStart = rows.start.new_line;
-  const headEnd = rows.end.new_line;
-  if (headStart !== null && headEnd !== null) {
-    const lines =
-      headStart === headEnd ? `L${headStart}` : `L${headStart}\u2013${headEnd}`;
-    return `${draftLabel}${lines} \u00b7 head`;
-  }
-  const baseStart = rows.start.old_line;
-  const baseEnd = rows.end.old_line;
-  if (baseStart !== null && baseEnd !== null) {
-    const lines =
-      baseStart === baseEnd ? `L${baseStart}` : `L${baseStart}\u2013${baseEnd}`;
-    return `${draftLabel}${lines} \u00b7 base`;
-  }
-  const startLine = headStart ?? baseStart;
-  const endLine = headEnd ?? baseEnd;
-  return startLine !== null && endLine !== null
-    ? `${draftLabel}L${startLine}\u2192L${endLine} \u00b7 diff`
-    : `${draftLabel}Code`;
-}
-
-function codeResourceRangeLabel(
-  range: IRange,
-  surface: "base" | "head" | "diff",
+function lineRangeLabel(
+  startSide: "base" | "head",
+  startLine: number,
+  endSide: "base" | "head",
+  endLine: number,
   draft = false,
 ): string {
-  const lines =
-    range.startLineNumber === range.endLineNumber
-      ? `L${range.startLineNumber}`
-      : `L${range.startLineNumber}\u2013${range.endLineNumber}`;
-  const draftLabel = draft ? "Draft \u00b7 " : "";
-  return `${draftLabel}${lines} \u00b7 ${surface}`;
+  const prefix = draft ? "Draft · " : "";
+  const sideLabel = (side: "base" | "head") =>
+    side === "base" ? "Base" : "Head";
+  const start = `${sideLabel(startSide)} ${startLine}`;
+  return (
+    prefix +
+    (startSide !== endSide
+      ? `${start} - ${sideLabel(endSide)} ${endLine}`
+      : startLine === endLine
+        ? start
+        : `${start}-${endLine}`)
+  );
+}
+
+function codeRangeLabel(target: CodeThreadTarget, draft = false): string {
+  const rows = gitLabDiffPositionRows(target.position);
+  if (!rows) return `${draft ? "Draft · " : ""}Code`;
+  const startSide = rows.start.new_line !== null ? "head" : "base";
+  const endSide = rows.end.new_line !== null ? "head" : "base";
+  return lineRangeLabel(
+    startSide,
+    (rows.start.new_line ?? rows.start.old_line)!,
+    endSide,
+    (rows.end.new_line ?? rows.end.old_line)!,
+    draft,
+  );
 }
 
 function agentActivityLabel(activity: ReviewCommentAgentActivity): string {
@@ -190,24 +188,30 @@ function agentActivityLabel(activity: ReviewCommentAgentActivity): string {
 }
 
 class ReviewCommentThread extends Disposable implements CommentThread<IRange> {
-  private readonly _onDidChangeComments = this._register(new Emitter<
-    readonly Comment[] | undefined
-  >());
+  private readonly _onDidChangeComments = this._register(
+    new Emitter<readonly Comment[] | undefined>(),
+  );
   readonly onDidChangeComments = this._onDidChangeComments.event;
-  private readonly _onDidChangeInput = this._register(new Emitter<CommentInput | undefined>());
+  private readonly _onDidChangeInput = this._register(
+    new Emitter<CommentInput | undefined>(),
+  );
   readonly onDidChangeInput = this._onDidChangeInput.event;
-  private readonly _onDidChangeLabel = this._register(new Emitter<string | undefined>());
+  private readonly _onDidChangeLabel = this._register(
+    new Emitter<string | undefined>(),
+  );
   readonly onDidChangeLabel = this._onDidChangeLabel.event;
-  private readonly _onDidChangeCollapsibleState = this._register(new Emitter<
-    CommentThreadCollapsibleState | undefined
-  >());
+  private readonly _onDidChangeCollapsibleState = this._register(
+    new Emitter<CommentThreadCollapsibleState | undefined>(),
+  );
   readonly onDidChangeCollapsibleState =
     this._onDidChangeCollapsibleState.event;
-  private readonly _onDidChangeState = this._register(new Emitter<
-    CommentThreadState | undefined
-  >());
+  private readonly _onDidChangeState = this._register(
+    new Emitter<CommentThreadState | undefined>(),
+  );
   readonly onDidChangeState = this._onDidChangeState.event;
-  private readonly _onDidChangeCanReply = this._register(new Emitter<boolean>());
+  private readonly _onDidChangeCanReply = this._register(
+    new Emitter<boolean>(),
+  );
   readonly onDidChangeCanReply = this._onDidChangeCanReply.event;
   readonly onDidChangeInitialCollapsibleState = Event.None;
 
@@ -333,21 +337,23 @@ class ReviewCommentThread extends Disposable implements CommentThread<IRange> {
   private renderComments(): void {
     const projection = this.projection;
     if (!projection) return;
-    const comments: Comment[] = projection.record.messages.map((message, index) => {
-      const uniqueIdInThread = index + 1;
-      const editing = uniqueIdInThread === this.editingComment;
-      return {
-        uniqueIdInThread,
-        body: message.body,
-        userName: message.by,
-        contextValue: editing
-          ? REVIEW_COMMENT_MESSAGE_EDITING
-          : REVIEW_COMMENT_MESSAGE,
-        mode: editing ? CommentMode.Editing : CommentMode.Preview,
-        state: projection.draft ? CommentState.Draft : CommentState.Published,
-        timestamp: message.at,
-      };
-    });
+    const comments: Comment[] = projection.record.messages.map(
+      (message, index) => {
+        const uniqueIdInThread = index + 1;
+        const editing = uniqueIdInThread === this.editingComment;
+        return {
+          uniqueIdInThread,
+          body: message.body,
+          userName: message.by,
+          contextValue: editing
+            ? REVIEW_COMMENT_MESSAGE_EDITING
+            : REVIEW_COMMENT_MESSAGE,
+          mode: editing ? CommentMode.Editing : CommentMode.Preview,
+          state: projection.draft ? CommentState.Draft : CommentState.Published,
+          timestamp: message.at,
+        };
+      },
+    );
     if (projection.agentActivity) {
       const activity = projection.agentActivity;
       comments.push({
@@ -441,6 +447,58 @@ export class ReviewCommentController
     this.bindModel(this.sessionModelService.activeModel);
   }
 
+  private rangeLabel(
+    target: CodeThreadTarget,
+    resource: URI,
+    range: IRange,
+    draft = false,
+  ): string {
+    const unified = this.codeResources.unifiedResource(resource);
+    if (unified) {
+      const selected = unified.rows.filter(
+        (row) =>
+          row.lineNumber >= range.startLineNumber &&
+          row.lineNumber <= range.endLineNumber,
+      );
+      const first = selected[0];
+      const last = selected[selected.length - 1];
+      if (first && last) {
+        const hasDeleted = selected.some((row) => row.kind === "deleted");
+        const hasAdded = selected.some((row) => row.kind === "added");
+        const side = hasDeleted && !hasAdded ? "base" : "head";
+        const startSide =
+          hasDeleted && hasAdded
+            ? first.kind === "added"
+              ? "head"
+              : "base"
+            : side;
+        const endSide =
+          hasDeleted && hasAdded
+            ? last.kind === "deleted"
+              ? "base"
+              : "head"
+            : side;
+        return lineRangeLabel(
+          startSide,
+          (startSide === "base" ? first.baseLine : first.headLine)!,
+          endSide,
+          (endSide === "base" ? last.baseLine : last.headLine)!,
+          draft,
+        );
+      }
+    }
+    const identity = this.resourceIdentity(resource);
+    return identity
+      ? lineRangeLabel(
+          identity.side,
+          range.startLineNumber,
+          identity.side,
+          range.endLineNumber,
+          draft,
+        )
+      : codeRangeLabel(target, draft);
+  }
+
   async createCommentThreadTemplate(
     resourceComponents: UriComponents,
     range: IRange | undefined,
@@ -458,7 +516,7 @@ export class ReviewCommentController
       normalizedRange,
       true,
       editorId,
-      codeRangeLabel(target),
+      this.rangeLabel(target, resource, normalizedRange),
     );
     this.threads.set(threadId, thread);
     this.resourceThreads.set(resourceProjectionKey(threadId, resource), thread);
@@ -485,7 +543,7 @@ export class ReviewCommentController
     const target = await this.targetForResource(resource, range);
     if (target) {
       this.targets.set(thread.threadId, target);
-      thread.updateLabel(codeRangeLabel(target));
+      thread.updateLabel(this.rangeLabel(target, resource, range));
     }
     this.commentService.updateComments(this.owner, {
       added: [],
@@ -547,7 +605,7 @@ export class ReviewCommentController
           projection,
           resource,
           range,
-          codeResourceRangeLabel(range, surface, projection.draft),
+          this.rangeLabel(projection.target, resource, range, projection.draft),
         ),
       );
     }
@@ -731,7 +789,10 @@ export class ReviewCommentController
           threadId,
           this.projections.get(threadId) ?? projection,
         );
-        nextTargets.set(threadId, this.targets.get(threadId) ?? projection.target);
+        nextTargets.set(
+          threadId,
+          this.targets.get(threadId) ?? projection.target,
+        );
         continue;
       }
       const resourceProjections = [...this.resourceThreads.values()].filter(
@@ -751,19 +812,18 @@ export class ReviewCommentController
       for (const resourceThread of resourceProjections) {
         const projectedResource = URI.parse(resourceThread.resource);
         const projectedRange = resourceThread.range;
-        const projectedIdentity = this.resourceIdentity(projectedResource);
         resourceThread.apply({
           ...projection,
           resource: projectedResource,
           range: projectedRange,
-          label:
-            projectedIdentity && projectedRange
-              ? codeResourceRangeLabel(
-                  projectedRange,
-                  projectedIdentity.side,
-                  projection.draft,
-                )
-              : undefined,
+          label: projectedRange
+            ? this.rangeLabel(
+                projection.target,
+                projectedResource,
+                projectedRange,
+                projection.draft,
+              )
+            : undefined,
         });
         if (this.visibleInEditor(resourceThread)) changed.push(resourceThread);
       }
@@ -913,7 +973,10 @@ export class ReviewCommentController
 
   private targetForPositionRows(
     diffFile: ReviewDiffFileWire,
-    start: { readonly old_line: number | null; readonly new_line: number | null },
+    start: {
+      readonly old_line: number | null;
+      readonly new_line: number | null;
+    },
     end: { readonly old_line: number | null; readonly new_line: number | null },
   ): CodeThreadTarget | null {
     const session = this.model?.session.session;
@@ -947,11 +1010,16 @@ export class ReviewCommentController
       };
     }
     if (resource.scheme !== "file") return null;
-    const rootPath = model.session.session.headRootPath;
-    if (!rootPath) return null;
-    const path = extUri.relativePath(URI.file(rootPath), resource);
-    if (!path || path.startsWith("../")) return null;
-    return { path, side: "head" };
+    const roots = [
+      [model.session.session.headRootPath, "head"],
+      [model.session.session.baseRootPath, "base"],
+    ] as const;
+    for (const [rootPath, side] of roots) {
+      if (!rootPath) continue;
+      const path = extUri.relativePath(URI.file(rootPath), resource);
+      if (path && !path.startsWith("../")) return { path, side };
+    }
+    return null;
   }
 
   private projectThread(
@@ -985,10 +1053,7 @@ export class ReviewCommentController
 
   private clearThreads(): void {
     const resourceThreads = [...this.resourceThreads.values()];
-    const threads = new Set([
-      ...this.threads.values(),
-      ...resourceThreads,
-    ]);
+    const threads = new Set([...this.threads.values(), ...resourceThreads]);
     const removed = resourceThreads.filter((thread) =>
       this.visibleInEditor(thread),
     );

@@ -1767,3 +1767,13 @@ body
   background: var(--review-comment-accent) !important;
   color: #fff !important;
 }
+
+.review-unified-expand-context {
+  width: 100%;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-diffEditor-unchangedRegionBackground);
+  font: inherit;
+}

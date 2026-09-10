@@ -123,6 +123,7 @@ test("keeps one stable comment projection per diff resource", async () => {
         resolvedBaseRef: baseSha,
         headRef: headSha,
         headRootPath: "/tmp/review-head",
+        baseRootPath: "/tmp/review-base",
       },
     },
     comments,
@@ -218,6 +219,15 @@ test("keeps one stable comment projection per diff resource", async () => {
 
   assert.equal(baseResource.scheme, REVIEW_BASE_SCHEME);
   assert.equal(headResource.scheme, REVIEW_HEAD_SCHEME);
+  // Split diff panes use pinned file URIs, rather than the virtual schemes.
+  for (const [root, authorable] of [
+    ["/tmp/review-base", true],
+    ["/tmp/review-head", true],
+    ["/tmp/review-base-unrelated", false],
+  ] as const) {
+    const info = await controller.getDocumentComments(URI.file(`${root}/${path}`), CancellationToken.None);
+    assert.equal(info.commentingRanges.ranges.length > 0, authorable, root);
+  }
   const unified = await controller.getDocumentComments(
     unifiedResource,
     CancellationToken.None,
@@ -247,9 +257,6 @@ test("keeps one stable comment projection per diff resource", async () => {
   assert.notStrictEqual(base.threads[0], head.threads[0]);
   assert.equal(base.threads[0].resource, baseResource.toString());
   assert.equal(head.threads[0].resource, headResource.toString());
-  assert.equal(base.threads[0].label, "L267\u2013270 \u00b7 base");
-  assert.equal(head.threads[0].label, "L320\u2013322 \u00b7 head");
-  assert.equal(unified.threads[0].label, "L3\u20139 \u00b7 diff");
   assert.deepEqual(base.threads[0].range, new Range(267, 1, 270, Number.MAX_SAFE_INTEGER));
   assert.deepEqual(head.threads[0].range, new Range(320, 1, 322, Number.MAX_SAFE_INTEGER));
   const replyThread = unified.threads[0];

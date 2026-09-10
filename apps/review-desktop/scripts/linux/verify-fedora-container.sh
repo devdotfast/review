@@ -4,7 +4,7 @@ set -euo pipefail
 [[ -f /publication/repos/current.json && -n "${GENERATION:-}" && -n "${FINGERPRINT:-}" ]]
 cp -a /publication/repos /repo
 cp /repo/snapshots/"$GENERATION"/rpm/repodata/repomd.xml* /repo/rpm/x86_64/repodata/
-dnf -y --setopt=install_weak_deps=False install rpm-build gnupg2 cpio
+dnf -y --setopt=install_weak_deps=False install rpm-build gnupg2
 rpm --import /repo/keys/"$FINGERPRINT".asc
 cat > /etc/yum.repos.d/dev-fast-review.repo <<EOF
 [dev-fast-review]
@@ -27,10 +27,9 @@ for SENTINEL in /root/.dev/reviews/package-test /root/.config/Review/User/settin
   printf 'keep me\n' > "$SENTINEL"
 done
 
-# Exercise replacement with the same runtime and older metadata. This fixture
-# does not claim to prove migration from a previous released Fedora runtime.
-mkdir -p /tmp/older-root /tmp/rpmbuild/SPECS
-rpm -ql dev-fast-review | cpio -pdm /tmp/older-root
+# A tiny older package exercises DNF replacement without repacking the runtime.
+# This checks package upgrades, not migration from an older application version.
+mkdir -p /tmp/rpmbuild/SPECS
 cat > /tmp/rpmbuild/SPECS/older.spec <<'EOF'
 Name: dev-fast-review
 Version: 0
@@ -39,24 +38,13 @@ Summary: Review upgrade validation fixture
 License: MIT
 BuildArch: x86_64
 AutoReqProv: no
-%global __brp_strip %{nil}
-%global __brp_strip_comment_note %{nil}
-%global debug_package %{nil}
-%global _build_id_links none
 %description
-Current runtime with older metadata, only for package upgrade validation.
+Minimal older package for replacement and retained-data validation.
 %install
-mkdir -p %{buildroot}
-cp -a /tmp/older-root/usr %{buildroot}/
+mkdir -p %{buildroot}/usr/share/review
+printf 'older package\n' > %{buildroot}/usr/share/review/upgrade-fixture
 %files
-%defattr(-,root,root)
-/usr/bin/review
-/usr/bin/review-desktop
-/usr/share/review/
-%attr(4755,root,root) /usr/share/review/chrome-sandbox
-/usr/share/applications/dev-fast-review.desktop
-/usr/share/metainfo/dev-fast-review.metainfo.xml
-/usr/share/icons/hicolor/512x512/apps/review.png
+/usr/share/review/upgrade-fixture
 EOF
 rpmbuild --define '_topdir /tmp/rpmbuild' --define '_binary_payload w3.zstdio' -bb /tmp/rpmbuild/SPECS/older.spec
 # Only this locally built test fixture bypasses a signature. DNF repository
@@ -65,6 +53,7 @@ rpm -U --oldpackage --nosignature /tmp/rpmbuild/RPMS/x86_64/dev-fast-review-0-0.
 test "$(rpm -q --qf '%{VERSION}' dev-fast-review)" = 0
 dnf -y --setopt=install_weak_deps=False upgrade --refresh dev-fast-review
 test "$(rpm -q --qf '%{VERSION}' dev-fast-review)" != 0
+test ! -e /usr/share/review/upgrade-fixture
 review --help >/dev/null
 dnf -y remove dev-fast-review
 for SENTINEL in /root/.dev/reviews/package-test /root/.config/Review/User/settings.json /root/.claude/settings.json; do

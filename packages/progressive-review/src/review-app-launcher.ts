@@ -175,32 +175,33 @@ export function launchDesktopApplication(
   }
 
   const electron = input.electron ?? Boolean(process.versions.electron);
-  const command = electron
-    ? (input.execPath ?? process.execPath)
-    : platform === "linux"
-      ? "/usr/bin/review-desktop"
-      : "/usr/bin/open";
   const env = { ...(input.env ?? process.env) };
-  if (electron || platform === "linux") delete env.ELECTRON_RUN_AS_NODE;
+  const directLaunch = electron || platform === "linux";
+  if (directLaunch) delete env.ELECTRON_RUN_AS_NODE;
   if (platform === "linux") {
     delete env.VSCODE_DEV;
     delete env.VSCODE_CLI;
   }
-  const stateRoot = env.DEV_FAST_REVIEW_DESKTOP_STATE_ROOT?.trim();
-  const args =
-    electron || platform === "linux"
-      ? stateRoot
-        ? [
-            `--user-data-dir=${path.resolve(stateRoot, "user-data")}`,
-            `--extensions-dir=${path.resolve(stateRoot, "extensions")}`,
-          ]
-        : []
-      : ["-b", REVIEW_DESKTOP_BUNDLE_ID];
-  const method = electron
-    ? `the Desktop-managed bundle at "${command}"`
-    : platform === "linux"
-      ? `the installed Linux launcher at "${command}"`
-      : `the macOS bundle identifier "${REVIEW_DESKTOP_BUNDLE_ID}"`;
+
+  let command = "/usr/bin/open";
+  let method = `the macOS bundle identifier "${REVIEW_DESKTOP_BUNDLE_ID}"`;
+  let args = ["-b", REVIEW_DESKTOP_BUNDLE_ID];
+  if (directLaunch) {
+    command = "/usr/bin/review-desktop";
+    method = `the installed Linux launcher at "${command}"`;
+    if (electron) {
+      command = input.execPath ?? process.execPath;
+      method = `the Desktop-managed bundle at "${command}"`;
+    }
+    args = [];
+    const stateRoot = env.DEV_FAST_REVIEW_DESKTOP_STATE_ROOT?.trim();
+    if (stateRoot) {
+      args = [
+        `--user-data-dir=${path.resolve(stateRoot, "user-data")}`,
+        `--extensions-dir=${path.resolve(stateRoot, "extensions")}`,
+      ];
+    }
+  }
 
   let resolveCompletion: (result: DesktopLaunchCompletion) => void = () =>
     undefined;
@@ -226,7 +227,7 @@ export function launchDesktopApplication(
   }
   return {
     method,
-    successfulExitIsExpected: !electron && platform === "darwin",
+    successfulExitIsExpected: !directLaunch,
     completion,
   };
 }

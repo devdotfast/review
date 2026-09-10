@@ -78,8 +78,8 @@ verification failures stop DNF instead of silently skipping Review. Setup and up
 The automated workflow builds the RPM and runs clean Fedora 43/44 installation,
 bundled CLI startup without system Node, sandbox permission checks, a fixture
 upgrade, retained-data uninstall, and rejection of altered RPMs, altered root/index
-metadata, and untrusted keys. The fixture uses current runtime bytes with older
-package metadata; it does not prove migration from an older released runtime.
+metadata, and untrusted keys. The fixture is a minimal older package; it does not prove migration from an older
+released runtime.
 Publication tests cover interrupted uploads, immutable collisions, stale reruns,
 and concurrent pointer promotion. Worker tests cover routing, conditional requests,
 range downloads, and refusal to expose removed distribution paths.
@@ -99,59 +99,13 @@ No Linux package repository was published before the Fedora-only change, so ther
 is no client migration from the removed formats. Production signing credentials
 and the native/hosted acceptance results remain prerequisites for publication.
 
-## Local validation evidence
+## Release evidence
 
-On 2026-09-09, the signed RPM and sealed repository passed the complete container
-matrix on the pinned Fedora 43 and 44 x86-64 images, under Docker emulation on
-macOS. Both runs passed installation, bundled CLI startup without system Node,
-root-owned sandbox permissions, the older-metadata fixture upgrade, retained-data
-removal, and package, root metadata, index, and untrusted-key rejection. Repository
-creation also passed with a passphrase-protected ephemeral signing key after
-stopping its GPG agent. The publisher suite passed 8 tests and the Worker suite
-passed 28 tests, including conditional and resumed downloads.
+Recorded container, signing, hosted upgrade, and native Workstation results are in
+[PR #226](https://github.com/devdotfast/review/pull/226).
 
-These results cover package management. They do not satisfy the native Workstation
-or hosted release upgrade gates above. No test signing key is a production key.
-
-On 2026-09-10, the RPM Worker was deployed and its production health response was
-verified. Removed APT/pacman paths returned 404 and the macOS download remained
-available. Production package signing is configured in `review-release` with a
-dedicated signing subkey. The certification key is kept outside CI. The public
-fingerprint is `0760DDC0AACD234D42A2C62626D3C32D039A5EC3`; its
-[public certificate](keys/0760DDC0AACD234D42A2C62626D3C32D039A5EC3.asc) provides a
-record separate from the download service. Both keys expire in September 2028.
-A passphrase-protected CI-style subkey import passed actual RPM signing, isolated
-RPM verification, and repository metadata signing. The encrypted recovery export
-must also be backed up offline, with its passphrase stored separately.
-
-An isolated Cloudflare Worker and R2 bucket passed direct HTTPS DNF installation
-on Fedora 43 and a Fedora 44 upgrade from package revision 2 to 3. CLI startup,
-retained data, sandbox-helper permissions, and retained-data removal passed.
-Hosted HEAD, resumed and suffix ranges, ETags, preconditions, and metadata
-redirects also passed. Root metadata fetched before promotion was paired with the
-signature fetched afterward; DNF rejected that pair in a local projection.
-Fetching a matching generation and its checksum-verified indexes restored DNF
-metadata refresh. These package revisions use the same runtime; they do not prove
-an upgrade between different released application versions.
-
-Full-system Fedora 44 Workstation validation subsequently passed GNOME/Wayland
-startup with SELinux enforcing and Chromium sandboxing enabled. The renderer had
-`NoNewPrivs: 1` and `Seccomp: 2`; the sandbox helper remained root-owned with mode
-4755. Onboarding, Review skill installation, the bundled tutorial, TypeScript
-hover and Go to Definition, CLI launch, and publication of a small local review
-passed without system Node or a source checkout of Review. Native window dragging,
-resizing, maximize/restore, fullscreen, and F10/Escape menu behavior passed.
-
-The hosted DNF upgrade from 0.0.32-3 to CI-built 0.0.33-1 passed with both signature
-checks enabled. The test settings, a user-data sentinel, and the published review
-document retained their SHA-256 hashes. This CI artifact uses an ephemeral key;
-the test explicitly trusted the new key and refreshed DNF's metadata cache after
-a key-change cache error. Production releases use the configured stable key.
-
-The full-system test used an official Fedora Cloud image converted to Workstation,
-with GNOME 50, in one x86-64 QEMU VM on Apple Silicon (4 GiB RAM, two CPUs). Initial
-TypeScript startup caused a recovered extension-host stall. The test profile used
-a 120-second shell-environment resolution timeout, and CLI launch passed on retry.
-This is functional VM evidence, not bare-metal GPU or performance evidence.
-Native desktop testing is scoped to Fedora 44; Fedora 43 retains package-level
-coverage only. No production Fedora package has been published.
+The production signing certificate is
+[0760DDC0AACD234D42A2C62626D3C32D039A5EC3](keys/0760DDC0AACD234D42A2C62626D3C32D039A5EC3.asc).
+The certification key stays outside CI; CI uses a dedicated signing subkey.
+Both keys expire in September 2028. Keep the encrypted recovery export offline
+and its passphrase stored separately.

@@ -1416,6 +1416,10 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			subscribe: (listener) => this.surfaceEvents.event(listener),
 			currentTheme: () => this.colorScheme(),
 			onDidChangeTheme: (listener) => this.themeEvents.event(listener),
+			currentDiffLayout: () => this.diffViews.diffLayout.get(),
+			setDiffLayout: (layout) => this.diffViews.diffLayout.set(layout),
+			onDidChangeDiffLayout: (listener) =>
+				this.diffViews.diffLayout.onDidChange(listener),
 			ready: () => {
 				if (generation !== this.loadGeneration || !this.targetDocument) return;
 				this.targetDocument.body.dataset["reviewCanvasReady"] = "true";
@@ -1558,6 +1562,10 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				subscribe: () => ({ dispose: () => undefined }),
 				currentTheme: () => this.colorScheme(),
 				onDidChangeTheme: () => ({ dispose: () => undefined }),
+				currentDiffLayout: () => this.diffViews.diffLayout.get(),
+				// The layout is a user setting; a validation mount must not write it.
+				setDiffLayout: async () => undefined,
+				onDidChangeDiffLayout: () => ({ dispose: () => undefined }),
 				// First commit is the success signal. Errors reported from effects
 				// that run before it still fail the mount via reportDiagnostic;
 				// later ones are the visible pane's problem, not publish's.

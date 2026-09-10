@@ -2903,6 +2903,89 @@ button {
   outline: none;
 }
 
+.review-diff-settings {
+  position: relative;
+}
+
+.review-diff-settings-button {
+  display: grid;
+  align-items: center;
+  justify-content: center;
+  width: var(--chrome-control-height);
+  height: var(--chrome-control-height);
+  padding: 0;
+  border: 0;
+  border-radius: var(--chrome-control-radius);
+  background: var(--transparent);
+  color: var(--chrome-icon-fg);
+  cursor: pointer;
+}
+
+.review-diff-settings-button .ui-icon {
+  width: var(--chrome-icon-size);
+  height: var(--chrome-icon-size);
+}
+
+.review-diff-settings-button:hover,
+.review-diff-settings-button:focus-visible,
+.review-diff-settings-button[aria-expanded="true"] {
+  background: var(--chrome-hover-bg);
+  color: var(--chrome-fg);
+  outline: none;
+}
+
+.review-diff-settings-popover {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 260px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  box-shadow: 0 8px 28px var(--shadow-color-strong);
+  color: var(--chrome-fg);
+  font-family: var(--chrome-font);
+  font-size: var(--chrome-font-size);
+}
+
+.review-diff-settings-title {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--rule-soft);
+  color: var(--chrome-fg-muted);
+  font-size: var(--chrome-font-size-small);
+  font-weight: var(--chrome-font-weight-strong);
+  letter-spacing: var(--chrome-tracking);
+  text-transform: uppercase;
+}
+
+.review-diff-settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+}
+
+.review-diff-settings-label {
+  color: var(--chrome-fg);
+}
+
+.review-diff-settings-segmented {
+  align-self: stretch;
+}
+
+.review-diff-settings-segmented .review-segment {
+  flex: 1 1 0;
+  justify-content: center;
+}
+
+.review-diff-settings-segmented .ui-icon {
+  width: var(--chrome-icon-size);
+  height: var(--chrome-icon-size);
+}
+
 .bug-report-backdrop {
   position: fixed;
   z-index: 10000;

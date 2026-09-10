@@ -129,6 +129,9 @@ export type ReviewRuntimeConfig = z.infer<typeof ReviewRuntimeConfigSchema>;
 export type ReviewHost = ReviewRuntimeConfig["host"];
 export type ReviewTheme = ReviewRuntimeConfig["theme"];
 export type ReviewDiffSide = z.infer<typeof reviewDiffSideSchema>;
+/** How embedded diffs lay out: base and head side by side, or one column. */
+export const REVIEW_DIFF_LAYOUTS = ["split", "unified"] as const;
+export type ReviewDiffLayout = (typeof REVIEW_DIFF_LAYOUTS)[number];
 
 export interface ReviewDisposable {
   dispose(): void;
@@ -837,6 +840,13 @@ export interface ReviewCanvasBridge {
   subscribe(listener: (event: ReviewSurfaceEvent) => void): ReviewDisposable;
   currentTheme(): ReviewTheme;
   onDidChangeTheme(listener: (theme: ReviewTheme) => void): ReviewDisposable;
+  // The diff layout is app-wide and backed by the `diffEditor.renderSideBySide`
+  // setting, so a choice outlives the session and the app restart.
+  currentDiffLayout(): ReviewDiffLayout;
+  setDiffLayout(layout: ReviewDiffLayout): Promise<void>;
+  onDidChangeDiffLayout(
+    listener: (layout: ReviewDiffLayout) => void,
+  ): ReviewDisposable;
   ready(): void;
   reportDiagnostic?(diagnostic: ReviewCanvasDiagnostic): void;
 }

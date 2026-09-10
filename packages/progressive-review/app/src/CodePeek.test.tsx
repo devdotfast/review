@@ -561,6 +561,9 @@ function createTestSession(sessionId = "test"): ReviewSession {
       subscribe: () => ({ dispose() {} }),
       currentTheme: () => "dark",
       onDidChangeTheme: () => ({ dispose() {} }),
+      currentDiffLayout: () => "split",
+      async setDiffLayout() {},
+      onDidChangeDiffLayout: () => ({ dispose() {} }),
       ready() {},
     },
   );

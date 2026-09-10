@@ -44,6 +44,7 @@ import {
   ThreadsIcon,
 } from "./icons";
 import { repairInstruction } from "./repair-instruction";
+import { ReviewCanvasLoading } from "./review-canvas-loading";
 import { ReviewPanelHost } from "./review-components";
 import {
   ReviewProvider,
@@ -819,9 +820,7 @@ function ReviewDocumentLoadState({
 }): ReactElement {
   switch (state.state) {
     case "loading":
-      return (
-        <ReviewUnavailable role="status" message="Still loading this review…" />
-      );
+      return <ReviewCanvasLoading />;
     case "needs-republish":
       return (
         <ReviewUnavailable
@@ -860,9 +859,7 @@ function ReviewSoftwareMapLoadState({
 }): ReactElement {
   switch (state.state) {
     case "loading":
-      return (
-        <ReviewUnavailable role="status" message="Loading software map…" />
-      );
+      return <ReviewCanvasLoading />;
     case "needs-republish":
       return (
         <ReviewUnavailable

@@ -14,6 +14,7 @@ import {
   Orientation,
   SplitView,
 } from "../../base/browser/ui/splitview/splitview.js";
+import { autorun } from "../../base/common/observable.js";
 import { Emitter, Event } from "../../base/common/event.js";
 import { Disposable, toDisposable } from "../../base/common/lifecycle.js";
 import { isEqual } from "../../base/common/resources.js";
@@ -118,6 +119,10 @@ export class ReviewFilesEditorInput extends MultiDiffEditorInput {
   static override readonly ID = "workbench.input.devfast.reviewFiles";
   static readonly EDITOR_ID = "workbench.editor.devfast.reviewFiles";
 
+  private readonly updateResources: (paths: ReadonlySet<string>) => void;
+
+  setReadyFiles(paths: ReadonlySet<string>): void { this.updateResources(paths); }
+
   constructor(
     source: URI,
     readonly entries: readonly ReviewFilesEditorEntry[],
@@ -130,10 +135,7 @@ export class ReviewFilesEditorInput extends MultiDiffEditorInput {
     multiDiffSourceResolverService: IMultiDiffSourceResolverService,
     @ITextFileService textFileService: ITextFileService,
   ) {
-    super(
-      source,
-      "Files",
-      entries.map(
+    const items = entries.map(
         (entry) =>
           new MultiDiffEditorItem(
             entry.original,
@@ -144,14 +146,30 @@ export class ReviewFilesEditorInput extends MultiDiffEditorInput {
             reviewMultiDiffLabelUris(entry.file),
             structural ? { ...REVIEW_FILES_DIFF_EDITOR_OPTIONS, hideUnchangedRegions: { enabled: true }, folding: true, lineDecorationsWidth: 40, experimentalDiffFolding: true, showFoldingControls: "always", experimental: { useTrueInlineView: false } } : REVIEW_FILES_DIFF_EDITOR_OPTIONS,
           ),
-      ),
+      );
+    const changes = new Emitter<void>();
+    let current: readonly MultiDiffEditorItem[] = [];
+    const streamSource = { resources: { get value() { return current; }, onDidChange: changes.event } };
+    super(
+      source,
+      "Files",
+      structural ? undefined : items,
       true,
       textModelService,
       textResourceConfigurationService,
       instantiationService,
-      multiDiffSourceResolverService,
+      structural ? {
+        _serviceBrand: undefined,
+        registerResolver: resolver => multiDiffSourceResolverService.registerResolver(resolver),
+        resolve: async () => streamSource,
+      } : multiDiffSourceResolverService,
       textFileService,
     );
+    this._register(changes);
+    this.updateResources = paths => {
+      current = items.filter((_, index) => paths.has(entries[index].file.path));
+      changes.fire();
+    };
   }
 
   override get typeId(): string {
@@ -183,6 +201,10 @@ export class ReviewFilesDiffView extends Disposable {
   private viewModel: MultiDiffEditorViewModel | undefined;
   private input: ReviewFilesEditorInput | undefined;
   private inlineCommentOpen = false;
+  private readonly readyFiles = new Set<string>();
+  private readonly fileStates = new Map<string, string>();
+  private pendingPath: string | undefined;
+  private readonly streamStatus: HTMLElement;
 
   constructor(
     private readonly container: HTMLElement,
@@ -235,6 +257,9 @@ export class ReviewFilesDiffView extends Disposable {
         undefined,
       ),
     );
+    this.streamStatus = append(diffContainer, $(".review-structural-stream-status"));
+    this.streamStatus.setAttribute("role", "status");
+    this.streamStatus.hidden = true;
     this._register(
       this.widget.onDidChangeActiveControl(() =>
         this._onDidChangeActiveControl.fire(),
@@ -273,6 +298,13 @@ export class ReviewFilesDiffView extends Disposable {
           (entry) => entry.file.path === file.path,
         );
         if (!element) return;
+        if (this.fileStates.has(file.path)) {
+          this.pendingPath = file.path;
+          this.showStreamStatus();
+          return;
+        }
+        this.pendingPath = undefined;
+        this.showStreamStatus();
         this.reveal({
           original: element.original,
           modified: element.modified,
@@ -328,6 +360,7 @@ export class ReviewFilesDiffView extends Disposable {
     viewState: IMultiDiffEditorViewState | undefined,
   ): Promise<void> {
     this.input = input;
+    this.changedFilesTree.setFiles(input.entries.map(entry => entry.file));
     const viewModel = await input.getViewModel();
     if (this._store.isDisposed) return;
     this.viewModel = viewModel;
@@ -336,6 +369,51 @@ export class ReviewFilesDiffView extends Disposable {
     this.widget.setViewModel(viewModel, { preserveFocus: true, viewState });
     this.changedFilesTree.setFiles(input.entries.map((entry) => entry.file));
     this.syncFileSelectionFromWidget();
+    this._register(autorun(reader => {
+      const items = viewModel.items.read(reader);
+      const entry = this.input?.entries.find(e => e.file.path === this.pendingPath);
+      if (!entry || !this.readyFiles.has(entry.file.path)) return;
+      if (!items.some(item => sameResource(item.originalUri, entry.original) && sameResource(item.modifiedUri, entry.modified))) return;
+      this.pendingPath = undefined;
+      this.showStreamStatus();
+      queueMicrotask(() => { if (!this._store.isDisposed) this.reveal(entry); });
+    }));
+  }
+
+  startLoading(entries: readonly ReviewFilesEditorEntry[]): void {
+    this.changedFilesTree.setFiles(entries.map(e => e.file));
+    for (const entry of entries) {
+      this.fileStates.set(entry.file.path, "Loading diff…");
+      this.changedFilesTree.setFileState(entry.file.path, "loading");
+    }
+    this.showStreamStatus();
+  }
+
+  fileLoaded(path: string, error?: string): void {
+    if (error) {
+      this.fileStates.set(path, error);
+      this.changedFilesTree.setFileState(path, "error", error);
+    } else {
+      this.fileStates.delete(path);
+      this.readyFiles.add(path);
+      this.changedFilesTree.setFileState(path, undefined);
+      this.input?.setReadyFiles(this.readyFiles);
+    }
+    this.showStreamStatus();
+  }
+
+  loadingFailed(message: string): void {
+    for (const [path, state] of this.fileStates) if (state === "Loading diff…") this.fileLoaded(path, message);
+    this.showStreamStatus();
+  }
+
+  private showStreamStatus(): void {
+    const message = this.pendingPath ? this.fileStates.get(this.pendingPath) : undefined;
+    this.streamStatus.hidden = !message && this.readyFiles.size > 0 || this.fileStates.size === 0;
+    this.streamStatus.textContent = message
+      ? `${this.pendingPath}: ${message}`
+      : this.readyFiles.size === 0 ? [...this.fileStates.values()][0] ?? "" : "";
+    this.streamStatus.classList.toggle("loading", [...this.fileStates.values()].some(s => s === "Loading diff…"));
   }
 
   getViewState(): IMultiDiffEditorViewState | undefined {
@@ -388,14 +466,15 @@ export class ReviewFilesDiffView extends Disposable {
   private syncFileSelectionFromWidget(): void {
     const resource = this.widget.getActiveItem();
     const input = this.input;
-    if (!resource || !input) return;
+    if (!resource || !input || this.pendingPath) return;
     const index = input.entries.findIndex(
       (entry) =>
         sameResource(entry.original, resource.original) &&
         sameResource(entry.modified, resource.modified),
     );
     if (index === -1) return;
-    this.changedFilesTree.setActiveFile(input.entries[index].file.path);
+    // Passive editor updates must not move a sidebar the reader scrolled independently.
+    this.changedFilesTree.setActiveFile(input.entries[index].file.path, false);
   }
 }
 function sameResource(left: URI | undefined, right: URI | undefined): boolean {

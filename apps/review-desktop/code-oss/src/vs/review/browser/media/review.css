@@ -1778,3 +1778,31 @@ body
   margin-left: 30px;
   width: 20px !important;
 }
+
+.review-files-editor-diffs { position: relative; }
+.review-structural-stream-status:not([hidden]) {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-editor-background);
+}
+.review-structural-stream-status.loading::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: review-structural-loading 1s linear infinite;
+}
+@keyframes review-structural-loading { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .review-structural-stream-status.loading::before { animation: none; }
+}

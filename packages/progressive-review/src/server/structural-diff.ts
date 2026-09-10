@@ -8,6 +8,7 @@ export async function structuralDiff(input: {
   headRef?: string;
   paths?: readonly string[];
   signal?: AbortSignal;
+  onEvent?: (event: unknown) => void;
 }): Promise<{ enabled: boolean; events: unknown[] }> {
   const executable = process.env.REVIEW_DIFFR_BINARY || "diffr";
   if (!input.baseRef)
@@ -66,11 +67,12 @@ export async function structuralDiff(input: {
       } else if (event.type === "complete") {
         completed = true;
       } else if (event.type === "file_error") {
-        throw new Error(`diffr: ${event.message}`);
+        if (!input.onEvent) throw new Error(`diffr: ${event.message}`);
       } else if (event.type !== "file") {
         throw new Error(`Unexpected diffr event: ${event.type}`);
       }
-      events.push(event);
+      if (input.onEvent) input.onEvent(event);
+      else events.push(event);
     }
     await exited;
     if (!completed) throw new Error("diffr stream ended before completion.");

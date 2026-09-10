@@ -65,8 +65,11 @@ coordinates, and carrying collapse state between layouts.
 - Older wire without `aligned_rows` uses hunk alignment. Omitted gaps
   are filled positionally for expansion only; use the newer `aligned_rows` wire
   field for authoritative full-file alignment.
-- The CLI stream is consumed incrementally, but this first bridge collects a
-  comparison before mounting the native view (64 MiB / 120-second limits).
+- The CLI stream is forwarded as NDJSON. The file tree appears before diffs
+  arrive, with loading indicators and per-file errors. Ready files are inserted
+  in tree order without replacing the existing editors; selecting a pending
+  file reveals it when ready. Disposing the review cancels the subprocess.
+- Comparisons retain the 64 MiB / 120-second limits and are not yet cached.
 - This is not a large-file performance benchmark or a complete validation of
   comments, nested partial folds, Unicode wrapping, added/deleted files, or jj.
 
@@ -87,5 +90,5 @@ kept replaying file-stream chunks after reloads. Cleanup now waits until event
 delivery finishes. After three reloads, the sampled file stream delivered one
 copy and scrolling crossed file boundaries in both layouts.
 
-Initial mounting still waits for the full subprocess result; this PR does not
-claim progressive rendering or a comprehensive performance benchmark.
+Structural results now render progressively; the large comparison is still
+useful for exercising files that finish at different times.

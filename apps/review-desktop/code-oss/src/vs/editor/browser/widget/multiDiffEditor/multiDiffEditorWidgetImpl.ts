@@ -9,7 +9,7 @@ import { compareBy, numberComparator } from '../../../../base/common/arrays.js';
 import { findFirstMax } from '../../../../base/common/arraysFind.js';
 import { BugIndicatingError } from '../../../../base/common/errors.js';
 import { Disposable, IReference, toDisposable } from '../../../../base/common/lifecycle.js';
-import { IObservable, IReader, ITransaction, autorun, autorunWithStore, derived, disposableObservableValue, globalTransaction, observableFromEvent, observableValue, transaction } from '../../../../base/common/observable.js';
+import { IObservable, IReader, ITransaction, autorun, autorunWithStore, mapObservableArrayCached, derived, disposableObservableValue, globalTransaction, observableFromEvent, observableValue, transaction } from '../../../../base/common/observable.js';
 import { Scrollable, ScrollbarVisibility } from '../../../../base/common/scrollable.js';
 import { URI } from '../../../../base/common/uri.js';
 import { localize } from '../../../../nls.js';
@@ -130,30 +130,20 @@ export class MultiDiffEditorWidgetImpl extends Disposable {
 		}));
 		this.scrollTop = observableFromEvent(this, this._scrollableElement.onScroll, () => /** @description scrollTop */ this._scrollableElement.getScrollPosition().scrollTop);
 		this.scrollLeft = observableFromEvent(this, this._scrollableElement.onScroll, () => /** @description scrollLeft */ this._scrollableElement.getScrollPosition().scrollLeft);
-		this._viewItemsInfo = derived<{ items: readonly VirtualizedViewItem[]; getItem: (viewModel: DocumentDiffItemViewModel) => VirtualizedViewItem }>(this,
-			(reader) => {
-				const vm = this._viewModel.read(reader);
-				if (!vm) {
-					return { items: [], getItem: _d => { throw new BugIndicatingError(); } };
-				}
-				const viewModels = vm.items.read(reader);
-				const map = new Map<DocumentDiffItemViewModel, VirtualizedViewItem>();
-				const items = viewModels.map(d => {
-					const item = reader.store.add(new VirtualizedViewItem(d, this._objectPool, this.scrollLeft, delta => {
-						this._scrollableElement.setScrollPosition({ scrollTop: this._scrollableElement.getScrollPosition().scrollTop + delta });
-					}));
-					const data = this._lastDocStates?.[item.getKey()];
-					if (data) {
-						transaction(tx => {
-							item.setViewState(data, tx);
-						});
-					}
-					map.set(d, item);
-					return item;
-				});
-				return { items, getItem: d => map.get(d)! };
-			}
-		);
+		const viewModels = derived(this, reader => this._viewModel.read(reader)?.items.read(reader) ?? []);
+		const virtualItems = mapObservableArrayCached(this, viewModels, (d, store) => {
+			const item = store.add(new VirtualizedViewItem(d, this._objectPool, this.scrollLeft, delta => {
+				this._scrollableElement.setScrollPosition({ scrollTop: this._scrollableElement.getScrollPosition().scrollTop + delta });
+			}));
+			const data = this._lastDocStates?.[item.getKey()];
+			if (data) transaction(tx => item.setViewState(data, tx));
+			return item;
+		});
+		this._viewItemsInfo = derived(this, reader => {
+			const items = virtualItems.read(reader);
+			const map = new Map(items.map(item => [item.viewModel, item]));
+			return { items, getItem: (d: DocumentDiffItemViewModel) => map.get(d)! };
+		});
 		this._viewItems = this._viewItemsInfo.map(this, items => items.items);
 		this._spaceBetweenPx = 0;
 		this.contentHeight = this._viewItems.map(this, (items, reader) => items.reduce((r, i) => r + i.contentHeight.read(reader) + this._spaceBetweenPx, 0));
@@ -224,6 +214,9 @@ export class MultiDiffEditorWidgetImpl extends Disposable {
 
 		this._scrollableElements.content.style.position = 'relative';
 
+		let previousItems: readonly VirtualizedViewItem[] = [];
+		let previousHeights: number[] = [];
+		let previousModel: MultiDiffEditorViewModel | undefined;
 		this._register(autorun((reader) => {
 			/** @description Update scroll dimensions */
 			const height = this._sizeObserver.height.read(reader);
@@ -235,6 +228,29 @@ export class MultiDiffEditorWidgetImpl extends Disposable {
 
 			let scrollWidth = width;
 			const viewItems = this._viewItems.read(reader);
+			const model = this._viewModel.read(reader);
+			let anchoredScrollTop: number | undefined;
+			// Streaming inserts files before the viewport, then their measured
+			// heights replace estimates. Anchor both updates to the same existing
+			// file and pixel offset; preserving only insertions still causes jumps.
+			if (model === previousModel) {
+				const oldTop = this._scrollableElement.getScrollPosition().scrollTop + this._scrollStart();
+				let before = 0;
+				for (let i = 0; i < previousItems.length; i++) {
+					if (oldTop < before + previousHeights[i]) {
+						const index = viewItems.indexOf(previousItems[i]);
+						if (index >= 0) {
+							const newBefore = viewItems.slice(0, index).reduce((sum, item) => sum + item.contentHeight.get() + this._spaceBetweenPx, 0);
+							anchoredScrollTop = newBefore + oldTop - before - this._scrollStart();
+						}
+						break;
+					}
+					before += previousHeights[i];
+				}
+			}
+			previousItems = viewItems;
+			previousHeights = viewItems.map(item => item.contentHeight.read(reader) + this._spaceBetweenPx);
+			previousModel = model;
 			const max = findFirstMax(viewItems, compareBy(i => i.maxScroll.read(reader).maxScroll, numberComparator));
 			if (max) {
 				const maxScroll = max.maxScroll.read(reader);
@@ -252,6 +268,10 @@ export class MultiDiffEditorWidgetImpl extends Disposable {
 					: totalHeight,
 				scrollWidth,
 			});
+
+			if (anchoredScrollTop !== undefined && anchoredScrollTop !== this._scrollableElement.getScrollPosition().scrollTop) {
+				this._scrollableElement.setScrollPosition({ scrollTop: anchoredScrollTop });
+			}
 
 			// A restored scroll offset applied before the model updated these
 			// dimensions would be clamped against a stale (often 0) scrollHeight, so

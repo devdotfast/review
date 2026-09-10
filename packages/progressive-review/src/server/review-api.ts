@@ -979,12 +979,31 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       new URL(context.req.url),
       body.commit,
     );
-    const result = await structuralDiff({
-      ...target,
-      paths: body.paths,
-      signal: context.req.raw.signal,
+    const abort = new AbortController();
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const send = (event: unknown) => {
+          if (!abort.signal.aborted) controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
+        };
+        try {
+          await structuralDiff({
+            ...target,
+            paths: body.paths,
+            signal: AbortSignal.any([context.req.raw.signal, abort.signal]),
+            onEvent: send,
+          });
+        } catch (error) {
+          send({ type: "error", message: error instanceof Error ? error.message : String(error) });
+        } finally {
+          if (!abort.signal.aborted) controller.close();
+        }
+      },
+      cancel() { abort.abort(); },
     });
-    return reviewApiJsonResponse(200, { ok: true, ...result });
+    return new Response(stream, {
+      headers: { "content-type": "application/x-ndjson", "cache-control": "no-store" },
+    });
   }
 
   async function diffFiles(context: Context<ReviewHonoEnv>): Promise<Response> {

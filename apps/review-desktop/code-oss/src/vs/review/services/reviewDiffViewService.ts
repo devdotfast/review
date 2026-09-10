@@ -160,7 +160,7 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
       const store = this._register(new DisposableStore());
       const structural = structuralEnabled
         ? await prepareStructuralReview(this.instantiationService, entries, this.spec.scope, store)
-        : { instantiation: this.instantiationService, entries, enabled: false };
+        : { instantiation: this.instantiationService, entries, enabled: false, load: undefined };
       if (this.disposed) return;
       // The input owns the text-model references its view model resolves, so
       // this handle disposes it alongside the view.
@@ -180,12 +180,21 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
         ),
       );
       this.view = view;
+      if (structural.enabled) view.startLoading(structural.entries);
       store.add(
         view.onDidChangeActiveControl(() => this.bindActiveControl(view)),
       );
-      await view.setInput(input, this.viewStates.get(this.viewStateKey));
+      // A saved whole-list offset cannot be restored into a partial streamed list.
+      await view.setInput(input, structural.enabled ? undefined : this.viewStates.get(this.viewStateKey));
       if (this.disposed) return;
       this.bindActiveControl(view);
+      if (structural.load) {
+        void structural.load((path, error) => {
+          if (!this.disposed) view.fileLoaded(path, error);
+        }).catch(error => {
+          if (!this.disposed) view.loadingFailed(error instanceof Error ? error.message : String(error));
+        });
+      }
     } catch (error) {
       if (this.disposed) return;
       this._onDidError.fire(

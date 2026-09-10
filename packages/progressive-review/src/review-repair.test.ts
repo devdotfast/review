@@ -430,39 +430,46 @@ describe("prepareReviewRepair", () => {
     expect(err).toContain(stored.review.uuid);
     expect(out).not.toContain("Review repaired:");
   });
-  it("honors an explicit storage home without mutating process.env", async () => {
-    const stored = await fixture();
-    let out = "";
-    let err = "";
-    const stdout = new Writable({
-      write(chunk, _encoding, callback) {
-        out += chunk.toString();
-        callback();
-      },
-    });
-    const stderr = new Writable({
-      write(chunk, _encoding, callback) {
-        err += chunk.toString();
-        callback();
-      },
-    });
-    const originalDevReviewHome = process.env.DEV_REVIEW_HOME;
-    expect(
-      await runReviewRepair({
-        cwd: stored.review.worktreePath,
+  it.each([".", "nested/package"])(
+    "repairs from %s with an explicit storage home",
+    async (relativeCwd) => {
+      const stored = await fixture();
+      let out = "";
+      let err = "";
+      const stdout = new Writable({
+        write(chunk, _encoding, callback) {
+          out += chunk.toString();
+          callback();
+        },
+      });
+      const stderr = new Writable({
+        write(chunk, _encoding, callback) {
+          err += chunk.toString();
+          callback();
+        },
+      });
+      const originalDevReviewHome = process.env.DEV_REVIEW_HOME;
+      const cwd = path.join(stored.review.worktreePath, relativeCwd);
+      await mkdir(cwd, { recursive: true });
+      const exitCode = await runReviewRepair({
+        cwd,
         reviewUuid: stored.review.uuid,
         json: true,
         stdout,
         stderr,
         env: { DEV_REVIEW_HOME: path.dirname(path.dirname(stored.dir)) },
-      }),
-    ).toBe(0);
-    expect(out).toContain('"event":"repaired"');
-    expect(err).toContain(
-      "Current Review artifacts are healthy; no repair needed.",
-    );
-    expect(process.env.DEV_REVIEW_HOME).toBe(originalDevReviewHome);
-  });
+      });
+      expect({ exitCode, err }).toMatchObject({
+        exitCode: 0,
+        err: expect.stringContaining("no repair needed"),
+      });
+      expect(out).toContain('"event":"repaired"');
+      expect(err).toContain(
+        "Current Review artifacts are healthy; no repair needed.",
+      );
+      expect(process.env.DEV_REVIEW_HOME).toBe(originalDevReviewHome);
+    },
+  );
   it("repairs only a legacy map while preserving the healthy document pointer", async () => {
     const stored = await fixture();
     const model = defineSoftwareMap({ systems: { app: { label: "App" } } });

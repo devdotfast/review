@@ -352,9 +352,22 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   // Every handler answers through the same catch, so a thrown parse or state
   // error becomes the route's JSON error response instead of a 500.
   const route =
-    (handler: ReviewApiHandler): ReviewApiHandler =>
+    (access: "read" | "write", handler: ReviewApiHandler): ReviewApiHandler =>
     async (context) => {
       try {
+        if (access === "write" && reviewSessionModeIsReadOnly(options.mode)) {
+          return reviewApiJsonResponse(409, {
+            ok: false,
+            error:
+              options.mode.kind === "historical"
+                ? "This historical version is read-only."
+                : "This review is read-only while repair is validated.",
+            code:
+              options.mode.kind === "historical"
+                ? "historical_revision"
+                : "review_read_only",
+          });
+        }
         return await handler(context);
       } catch (err) {
         if (err instanceof ReviewBusyError)
@@ -366,15 +379,15 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       }
     };
 
-  // Routes that write review state resolve the target document first. The
-  // handler only runs once a writable path exists, so it takes one.
-  const writable = (
+  // Resolve the document once for routes that operate on its stored state.
+  const documentRoute = (
+    access: "read" | "write",
     handler: (
       context: Context<ReviewHonoEnv>,
       writableReviewPath: string,
     ) => Promise<Response> | Response,
   ): ReviewApiHandler =>
-    route((context) => {
+    route(access, (context) => {
       const writableReviewPath =
         stateReviewPath ??
         resolveWritableReviewPath(new URL(context.req.url), {
@@ -396,21 +409,27 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       writableReviewPath: string,
     ) => Promise<Response> | Response,
   ): ReviewApiHandler =>
-    writable((context, writableReviewPath) =>
+    documentRoute("write", (context, writableReviewPath) =>
       runReviewThreadMutation(() => handler(context, writableReviewPath)),
     );
 
-  app.post("/telemetry/tab", route(telemetryTab));
-  app.post("/telemetry/event", route(telemetryEvent));
-  app.post("/telemetry/bug-report", route(bugReport));
-  app.get("/session", route(sessionInfo));
-  app.get("/comments", writable(commentsList));
+  app.post("/telemetry/tab", route("read", telemetryTab));
+  app.post("/telemetry/event", route("read", telemetryEvent));
+  app.post("/telemetry/bug-report", route("read", bugReport));
+  app.get("/session", route("read", sessionInfo));
+  app.get("/comments", documentRoute("read", commentsList));
   app.post("/thread-commands", threadMutation(threadCommand));
-  app.post("/agent-runs", writable(agentRunCreate));
-  app.post("/comments/:threadId/agent-interrupt", writable(agentRunInterrupt));
-  app.post("/comments/:threadId/agent-terminal", writable(agentTerminalOpen));
-  app.post("/submissions", writable(submissionCreate));
-  app.post("/dismiss", route(reviewDismiss));
+  app.post("/agent-runs", documentRoute("write", agentRunCreate));
+  app.post(
+    "/comments/:threadId/agent-interrupt",
+    documentRoute("write", agentRunInterrupt),
+  );
+  app.post(
+    "/comments/:threadId/agent-terminal",
+    documentRoute("write", agentTerminalOpen),
+  );
+  app.post("/submissions", documentRoute("write", submissionCreate));
+  app.post("/dismiss", route("write", reviewDismiss));
   app.delete(
     "/comments/:threadId/messages/:messageId",
     threadMutation(commentMessageDelete),
@@ -418,18 +437,21 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   app.post("/comments/:threadId", threadMutation(commentCreate));
   app.patch("/comments/:threadId", threadMutation(commentUpdate));
   app.delete("/comments/:threadId", threadMutation(commentDelete));
-  app.post("/code-peek/resolve", route(codePeekResolve));
-  app.post("/software-map/resolved-data", route(softwareMapResolvedData));
+  app.post("/code-peek/resolve", route("read", codePeekResolve));
+  app.post(
+    "/software-map/resolved-data",
+    route("read", softwareMapResolvedData),
+  );
   app.post(
     "/software-map/artifacts/refresh",
-    route(softwareMapArtifactsRefresh),
+    route("write", softwareMapArtifactsRefresh),
   );
-  app.get("/document-meta", route(documentMeta));
-  app.get("/stack", route(reviewStack));
-  app.post("/diff-files", route(diffFiles));
-  app.get("/file-content", route(fileContent));
-  app.get("/agent-traces", route(agentTraces));
-  app.get("/agent-traces/:sessionId", route(agentTraceDetail));
+  app.get("/document-meta", route("read", documentMeta));
+  app.get("/stack", route("read", reviewStack));
+  app.post("/diff-files", route("read", diffFiles));
+  app.get("/file-content", route("read", fileContent));
+  app.get("/agent-traces", route("read", agentTraces));
+  app.get("/agent-traces/:sessionId", route("read", agentTraceDetail));
   app.notFound(() =>
     reviewApiJsonResponse(404, { ok: false, error: "not found" }),
   );

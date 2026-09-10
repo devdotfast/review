@@ -102,11 +102,12 @@ describe("createReviewSessionHandler", () => {
         baseCommit: "b".repeat(40),
       }),
     );
+    let promoted = false;
     for (const mode of [
       {
         kind: "repairValidation",
         record: readOnlyRecord,
-        isPromoted: () => false,
+        isPromoted: () => promoted,
       },
       { kind: "historical", revision: "c".repeat(40), record: readOnlyRecord },
     ] satisfies ReviewSessionMode[]) {
@@ -156,6 +157,26 @@ describe("createReviewSessionHandler", () => {
             ReviewDocumentResponseSchema.safeParse(docPayload).success,
         ).toBe(true);
         expect((await request("software-map")).status).toBe(200);
+        for (const route of [
+          "code-peek/resolve",
+          "software-map/resolved-data",
+          "diff-files",
+          "telemetry/tab",
+          "telemetry/event",
+          "telemetry/bug-report",
+        ]) {
+          expect((await request(route, "POST")).status).not.toBe(409);
+        }
+        expect((await request("telemetry/unknown", "POST")).status).toBe(404);
+        for (const [route, method] of [
+          ["thread-commands", "POST"],
+          ["agent-runs", "POST"],
+          ["submissions", "POST"],
+          ["comments/test", "DELETE"],
+          ["software-map/artifacts/refresh", "POST"],
+        ]) {
+          expect((await request(route!, method)).status).toBe(409);
+        }
         const dismissed = await request("dismiss", "POST");
         expect(dismissed.status).toBe(409);
         expect(await dismissed.json()).toMatchObject({
@@ -164,6 +185,10 @@ describe("createReviewSessionHandler", () => {
               ? "historical_revision"
               : "review_read_only",
         });
+        promoted = mode.kind === "repairValidation";
+        expect((await request("thread-commands", "POST")).status === 409).toBe(
+          mode.kind === "historical",
+        );
       } finally {
         await handler.close();
       }

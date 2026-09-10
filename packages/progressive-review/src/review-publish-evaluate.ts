@@ -238,39 +238,35 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
   });
 
   let importErrorMessage: string | null = null;
-  await serializeEvaluation(async () => {
-    const evaluationDir = path.join(
-      input.reviewDir,
-      ".build",
-      `publish-validate-${process.pid}-${Math.random().toString(36).slice(2)}`,
-    );
-    // SAFETY: the slot is a private key on globalThis that only this
-    // evaluation writes; it holds a runtime from `validationRuntimeExports`
-    // or nothing.
-    const globalHolder = globalThis as PublishValidationRuntimeGlobal;
-    const previousRuntime = globalHolder[RUNTIME_GLOBAL];
-    try {
-      const runtimeImportNames = await collectRuntimeImportNames(
-        input.bundleCode,
-      );
-      await mkdir(evaluationDir, { recursive: true, mode: 0o700 });
-      await Promise.all([
-        writeFile(
-          path.join(evaluationDir, RUNTIME_MODULE_FILE),
-          validationRuntimeModuleSource(runtimeImportNames),
-          "utf8",
-        ),
-        writeFile(
-          path.join(evaluationDir, DOCUMENT_MODULE_FILE),
-          rewriteRuntimeSpecifier(input.bundleCode),
-          "utf8",
-        ),
-      ]);
-      globalHolder[RUNTIME_GLOBAL] = runtimeExports;
-      const moduleUrl = pathToFileURL(
+  const evaluationDir = path.join(
+    input.reviewDir,
+    ".build",
+    `publish-validate-${process.pid}-${Math.random().toString(36).slice(2)}`,
+  );
+  const runtimeImportNames = await collectRuntimeImportNames(input.bundleCode);
+  await mkdir(evaluationDir, { recursive: true, mode: 0o700 });
+  try {
+    await Promise.all([
+      writeFile(
+        path.join(evaluationDir, RUNTIME_MODULE_FILE),
+        validationRuntimeModuleSource(runtimeImportNames),
+        "utf8",
+      ),
+      writeFile(
         path.join(evaluationDir, DOCUMENT_MODULE_FILE),
-      );
-      moduleUrl.searchParams.set("t", String(Date.now()));
+        rewriteRuntimeSpecifier(input.bundleCode),
+        "utf8",
+      ),
+    ]);
+    const moduleUrl = pathToFileURL(
+      path.join(evaluationDir, DOCUMENT_MODULE_FILE),
+    );
+    moduleUrl.searchParams.set("t", String(Date.now()));
+    await serializeEvaluation(async () => {
+      // SAFETY: this private global is owned by the serialized import runtime.
+      const globalHolder = globalThis as PublishValidationRuntimeGlobal;
+      const previousRuntime = globalHolder[RUNTIME_GLOBAL];
+      globalHolder[RUNTIME_GLOBAL] = runtimeExports;
       try {
         await span(
           "evaluate: import document module",
@@ -278,12 +274,13 @@ export async function evaluateReviewDocumentBundleForPublish(input: {
         );
       } catch (error) {
         importErrorMessage = errorMessage(error);
+      } finally {
+        globalHolder[RUNTIME_GLOBAL] = previousRuntime;
       }
-    } finally {
-      globalHolder[RUNTIME_GLOBAL] = previousRuntime;
-      await rm(evaluationDir, { recursive: true, force: true });
-    }
-  });
+    });
+  } finally {
+    await rm(evaluationDir, { recursive: true, force: true });
+  }
 
   if (ranges === "validate") {
     failures.push(

@@ -4,6 +4,7 @@ import {
   mkdir,
   readFile,
   readdir,
+  realpath,
   rm,
   stat,
   writeFile,
@@ -537,8 +538,12 @@ export async function findScopedReview(
     scope.includeLegacySchema ? findReviewForRepair : findReview
   )(uuid, scope.devHome);
   if (!found) return null;
-  if (found.review.worktreePath !== path.resolve(scope.worktreePath))
-    return null;
+  const [storedRoot, requestedRoot] = await Promise.all(
+    [found.review.worktreePath, scope.worktreePath].map((root) =>
+      realpath(root).catch(() => path.resolve(root)),
+    ),
+  );
+  if (storedRoot !== requestedRoot) return null;
   if (
     !scope.includeTerminal &&
     (found.review.status === "accepted" || found.review.status === "rejected")

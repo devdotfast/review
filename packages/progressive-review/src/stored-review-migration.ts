@@ -43,6 +43,7 @@ import {
 import { withReviewMutationLock } from "./review-mutation-lock";
 import { evaluateSealedReviewDocument } from "./review-sealed-document";
 import { createReviewSourceAgentSession } from "./review-source-agent-session";
+import { reviewSourcePins } from "./review-source-pins";
 import {
   type ReviewThreadDbMigrationOptions,
   migrateReviewThreadDb,
@@ -453,6 +454,8 @@ async function regeneratePresentedArtifacts(input: {
     let evaluatedDocument:
       | Awaited<ReturnType<typeof evaluateSealedReviewDocument>>
       | undefined;
+    let documentRecord: StoredReviewRecord | undefined;
+    let mapRecord: StoredReviewRecord | undefined;
     let mapBundle: ReviewSoftwareMapBundle | null = null;
     let mapRevision = input.review.presentedSoftwareMapRevision;
     const documentRevision = input.review.presentedDocumentRevision;
@@ -461,6 +464,11 @@ async function regeneratePresentedArtifacts(input: {
         input.reviewDir,
         documentRevision,
         documentDir,
+      );
+      documentRecord = parseAnyStoredReviewRecord(
+        parseJsonText(
+          await readFile(path.join(documentDir, "review.json"), "utf8"),
+        ),
       );
       if (!(await readReviewDocumentBundle(documentDir, "/"))) {
         evaluatedDocument = await evaluateSealedReviewDocument(
@@ -472,6 +480,9 @@ async function regeneratePresentedArtifacts(input: {
     }
     if (mapRevision) {
       await materializeReviewRevision(input.reviewDir, mapRevision, mapDir);
+      mapRecord = parseAnyStoredReviewRecord(
+        parseJsonText(await readFile(path.join(mapDir, "review.json"), "utf8")),
+      );
       if (!(await readReviewSoftwareMapBundle(mapDir))) {
         mapBundle = await legacySoftwareMapBundle(mapDir);
         if (!mapBundle) {
@@ -482,7 +493,7 @@ async function regeneratePresentedArtifacts(input: {
               ? evaluatedDocument
               : await evaluateSealedReviewDocument(mapDir, input.log);
           if (evaluated.legacySoftwareMap) {
-            const sealed = await withSealedSourcePins(input.review, mapDir);
+            const sealed = mapRecord;
             if (!sealed.sourceCommit)
               throw new Error(
                 "The embedded software map has no sealed source commit.",
@@ -583,10 +594,10 @@ async function regeneratePresentedArtifacts(input: {
         };
         if (mapBundle) {
           await replaceCandidateSources(candidateDir, mapDir);
-          await writePrivateJsonAtomic(
-            candidateRecordPath,
-            await withSealedSourcePins(next, mapDir),
-          );
+          await writePrivateJsonAtomic(candidateRecordPath, {
+            ...next,
+            ...reviewSourcePins(mapRecord!),
+          });
           mapRevision = await sealReviewCandidate(
             candidateDir,
             "Migrate current Review software map to JSON",
@@ -596,10 +607,10 @@ async function regeneratePresentedArtifacts(input: {
         }
         if (documentBundle) {
           await replaceCandidateSources(candidateDir, documentDir);
-          await writePrivateJsonAtomic(
-            candidateRecordPath,
-            await withSealedSourcePins(next, documentDir),
-          );
+          await writePrivateJsonAtomic(candidateRecordPath, {
+            ...next,
+            ...reviewSourcePins(documentRecord!),
+          });
           const revision = await sealReviewCandidate(
             candidateDir,
             "Migrate current Review document to JSON",
@@ -658,22 +669,6 @@ async function replaceCandidateSources(
         path.relative(sourceDir, source).split(path.sep)[0] ?? "",
       ),
   });
-}
-
-async function withSealedSourcePins(
-  record: StoredReviewRecord,
-  sourceDir: string,
-): Promise<StoredReviewRecord> {
-  const sealed = parseAnyStoredReviewRecord(
-    parseJsonText(await readFile(path.join(sourceDir, "review.json"), "utf8")),
-  );
-  return {
-    ...record,
-    baseRef: sealed.baseRef,
-    baseCommit: sealed.baseCommit,
-    sourceCommit: sealed.sourceCommit,
-    sourceIdentity: sealed.sourceIdentity,
-  };
 }
 
 export async function legacySoftwareMapBundle(

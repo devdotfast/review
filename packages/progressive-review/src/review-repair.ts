@@ -13,6 +13,7 @@ import { UUID_PATTERN, findScopedReview } from "./review-home";
 import { prepareReviewRepair } from "./review-repair-preparation";
 import { ReviewRepairReadyResponseSchema } from "./review-repair-state";
 import { devReviewHome } from "./review-storage";
+import { resolveReviewRoot } from "./runtime";
 
 export async function runReviewRepair(input: {
   cwd: string;
@@ -28,7 +29,7 @@ export async function runReviewRepair(input: {
         "Repair requires an explicit UUID: review repair --review <uuid>.",
       );
     const review = await findScopedReview(input.reviewUuid, {
-      worktreePath: input.cwd,
+      worktreePath: await resolveReviewRoot(input.cwd),
       includeTerminal: true,
       includeLegacySchema: true,
       devHome: devReviewHome(input.env ?? process.env, os.homedir()),

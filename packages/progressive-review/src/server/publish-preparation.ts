@@ -102,10 +102,13 @@ export async function resolvePublishReview(
     if (!selected) throw new Error(`Active review not found: ${reviewUuid}`);
     return selected;
   }
-  const listed = await listReviews({ worktreePath: cwd });
+  const listed = await listReviews({
+    worktreePath: cwd,
+    reportUnreadableReviews: true,
+  });
   if (listed.errors.length > 0) {
     throw new Error(
-      `Could not read reviews:\n${listed.errors.map((error) => error.message).join("\n")}`,
+      `Could not read reviews:\n${listed.errors.map((error) => `${error.reviewDir}: ${error.message}`).join("\n")}`,
     );
   }
   const publishable = listed.reviews.filter(

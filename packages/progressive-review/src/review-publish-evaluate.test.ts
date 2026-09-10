@@ -456,11 +456,13 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
           ranges: "skip",
         }),
       ]);
+      const firstName = events[0]?.split(":")[0];
+      const secondName = firstName === "first" ? "second" : "first";
       expect(events).toEqual([
-        "first:enter",
-        "first:exit",
-        "second:enter",
-        "second:exit",
+        `${firstName}:enter`,
+        `${firstName}:exit`,
+        `${secondName}:enter`,
+        `${secondName}:exit`,
       ]);
       expect(first.errors).toEqual([]);
       expect(second.errors).toEqual([]);
@@ -491,6 +493,40 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
       errors: [],
       document: { title: "Fixture" },
     });
+  });
+
+  it("restores the runtime and cleans temporary files after a document throws", async () => {
+    const reviewDir = fixtureDir("review");
+    const previous = { marker: "existing runtime" };
+    vi.stubGlobal("__devFastReviewPublishRuntime", previous);
+    try {
+      const [failed, healthy] = await Promise.all([
+        evaluateReviewDocumentBundleForPublish({
+          reviewDir,
+          ranges: "skip",
+          bundleCode: `${bundleWithAnchors("")} throw new Error("evaluation failed");`,
+        }),
+        evaluateReviewDocumentBundleForPublish({
+          reviewDir,
+          ranges: "skip",
+          bundleCode: bundleWithAnchors("").replace(
+            'title: "Fixture"',
+            'title: "Healthy"',
+          ),
+        }),
+      ]);
+      expect(failed.errors.join(" ")).toContain("evaluation failed");
+      expect(healthy.errors).toEqual([]);
+      expect(healthy.document?.title).toBe("Healthy");
+      // SAFETY: this test installs and restores the private runtime slot.
+      const holder = globalThis as typeof globalThis & {
+        __devFastReviewPublishRuntime?: typeof previous;
+      };
+      expect(holder.__devFastReviewPublishRuntime).toBe(previous);
+      expect(fs.readdirSync(path.join(reviewDir, ".build"))).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   function sourceFixture(source: string): string {

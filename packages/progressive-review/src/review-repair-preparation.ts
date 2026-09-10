@@ -35,6 +35,7 @@ import {
   fingerprintReviewRepairInputs,
 } from "./review-repair-state";
 import { evaluateSealedReviewDocument } from "./review-sealed-document";
+import { reviewSourcePins } from "./review-source-pins";
 import { SOFTWARE_MAP_NOTES_REF } from "./review-storage";
 import {
   type ReviewThreadDbMigrationOptions,
@@ -212,7 +213,7 @@ async function sealRepairedPresentations(input: {
   if (input.map.changed) {
     await writePrivateJsonAtomic(path.join(input.stagingDir, "review.json"), {
       ...input.review,
-      ...sealedPins(input.map.presentedRecord),
+      ...reviewSourcePins(input.map.presentedRecord),
       baseCommit: input.map.pins.baseCommit,
       sourceCommit: input.map.pins.headCommit,
       presentedSoftwareMapRevision: input.presentedMapRevision,
@@ -226,7 +227,7 @@ async function sealRepairedPresentations(input: {
   if (input.document.changed) {
     await writePrivateJsonAtomic(path.join(input.stagingDir, "review.json"), {
       ...input.review,
-      ...sealedPins(input.document.presentedRecord),
+      ...reviewSourcePins(input.document.presentedRecord),
       presentedSoftwareMapRevision: mapRevision,
     });
     documentRevision = await sealReviewCandidate(
@@ -298,17 +299,6 @@ async function snapshotReviewForRepair(
   });
 }
 
-/** Sealed document metadata retains the presentation's pinned source, even
- * when editable record pins have moved since its publication. */
-function sealedPins(record: StoredReviewRecord) {
-  return {
-    baseRef: record.baseRef,
-    baseCommit: record.baseCommit,
-    sourceCommit: record.sourceCommit,
-    sourceIdentity: record.sourceIdentity,
-  };
-}
-
 /** Writes the repaired document bundle into the candidate. Falls back to the
  * editable review.mdx/data.ts only when the sealed bundle cannot be read. */
 async function repairPresentedDocument(input: {
@@ -363,7 +353,7 @@ async function repairPresentedDocument(input: {
       );
       const sourceReview = {
         ...input.review,
-        ...sealedPins(presentedRecord),
+        ...reviewSourcePins(presentedRecord),
       };
       await writePrivateJsonAtomic(
         path.join(input.stagingDir, "review.json"),

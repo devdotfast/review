@@ -132,6 +132,9 @@ describe("scoped review diagnostics", () => {
         baseCommit: kind === "malformed" ? 42 : badRecord.baseCommit,
       });
       await writeFile(badPath, bytes);
+      await expect(
+        resolvePublishReview(healthy.root, undefined),
+      ).resolves.toMatchObject({ dir: healthy.stored.dir });
       const unknownUuid = "11111111-1111-4111-8111-111111111111";
       const unknownDir = path.join(home, "reviews", unknownUuid);
       await mkdir(unknownDir);
@@ -156,7 +159,7 @@ describe("scoped review diagnostics", () => {
       });
       await expect(
         resolvePublishReview(healthy.root, undefined),
-      ).resolves.toMatchObject({ dir: healthy.stored.dir });
+      ).rejects.toThrow(unknownDir);
       await expect(
         resolvePublishReview(healthy.root, healthy.stored.review.uuid),
       ).resolves.toMatchObject({ dir: healthy.stored.dir });

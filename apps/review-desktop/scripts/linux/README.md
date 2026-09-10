@@ -112,3 +112,27 @@ passed 28 tests, including conditional and resumed downloads.
 
 These results cover package management. They do not satisfy the native Workstation
 or hosted release upgrade gates above. No test signing key is a production key.
+
+On 2026-09-10, the RPM Worker was deployed and its production health response was
+verified. Removed APT/pacman paths returned 404 and the macOS download remained
+available. Production package signing is configured in `review-release` with a
+dedicated signing subkey. The certification key is kept outside CI. The public
+fingerprint is `0760DDC0AACD234D42A2C62626D3C32D039A5EC3`; its
+[public certificate](keys/0760DDC0AACD234D42A2C62626D3C32D039A5EC3.asc) provides a
+record separate from the download service. Both keys expire in September 2028.
+A passphrase-protected CI-style subkey import passed actual RPM signing, isolated
+RPM verification, and repository metadata signing. The encrypted recovery export
+must also be backed up offline, with its passphrase stored separately.
+
+An isolated Cloudflare Worker and R2 bucket passed direct HTTPS DNF installation
+on Fedora 43 and a Fedora 44 upgrade from package revision 2 to 3. CLI startup,
+retained data, sandbox-helper permissions, and retained-data removal passed.
+Hosted HEAD, resumed and suffix ranges, ETags, preconditions, and metadata
+redirects also passed. Root metadata fetched before promotion was paired with the
+signature fetched afterward; DNF rejected that pair in a local projection.
+Fetching a matching generation and its checksum-verified indexes restored DNF
+metadata refresh. These package revisions use the same runtime; they do not prove
+an upgrade between different released application versions.
+
+Full-system Fedora 43/44 GNOME validation is still pending. No production Fedora
+package has been published.

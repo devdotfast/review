@@ -114,7 +114,8 @@ jobs:
           python3 apps/review-desktop/scripts/build-linux-repository.py \
             --packages apps/review-desktop/dist/linux \
             --output apps/review-desktop/dist/linux-repository \
-            --version "$VERSION" --commit "$BUILD_SOURCEVERSION" --fingerprint "$FINGERPRINT"
+            --version "$VERSION" --revision "$REVIEW_LINUX_PACKAGE_REVISION" \
+            --commit "$BUILD_SOURCEVERSION" --fingerprint "$FINGERPRINT"
           cp apps/review-desktop/dist/linux-repository/repos/rpm/x86_64/Packages/*.rpm apps/review-desktop/dist/linux/
           tar --zstd -cf apps/review-desktop/dist/linux/linux-publication.tar.zst -C apps/review-desktop/dist/linux-repository .
       - name: Validate clean installs and rejected signatures

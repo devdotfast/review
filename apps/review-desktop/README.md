@@ -6,14 +6,17 @@ Review-owned workbench code lives directly in `code-oss/src/vs/review/`. See
 [`UPSTREAM`](UPSTREAM) for provenance and the complete divergence inventory.
 
 One desktop window owns one embedded global server. The app opens on Home with
-no repository. It opens pinned review worktrees only when a review needs them.
-Home scans `${DEV_REVIEW_HOME:-~/.dev}/reviews/*/review.json`; opening a review
-creates an in-memory active session rooted at that review's repository, while
-`review publish` validates and seals the revision in the CLI and asks the
-desktop (via `/publish-ready`) to materialize it, mount it off-screen, and
-promote it only when that mount is clean. Session URLs are routes on that global server; session-scoped
-document caches, file watchers, and event clients do not bind their own ports
-or create additional HTTP servers.
+no repository. The default JSON host owns reviews in
+`${DEV_REVIEW_HOME:-~/.dev}/review-host.db`; Home, native source editors, the
+canvas, CLI and MCP all use its authenticated API. Document mutations validate
+and commit atomically, then stream to the canvas. Publication freezes a
+checkpoint; it does not compile or mount authored MDX.
+
+The trusted bundled tutorial retains a separate legacy rendering path on the
+same listener. Ordinary legacy review files are not scanned, restored or
+migrated into the default host.
+
+Comments, feedback submission and Ask are unavailable for JSON reviews in this authoring-only version. They are deferred to the third PR in this stack.
 
 ## Build and run
 
@@ -56,34 +59,36 @@ from the monorepo root:
 pnpm clean
 ```
 
-This does not remove authored reviews in `${DEV_REVIEW_HOME:-~/.dev}/reviews`.
+This does not remove the review database or old authored review directories.
 
 `desktop:run` takes no repository argument. Global user data and discovery live
-under `${DEV_REVIEW_HOME:-~/.dev}/review-desktop/`; discovery is the private,
-atomic `server.json`, and Code OSS profile state is under `state/`.
+under `${DEV_REVIEW_HOME:-~/.dev}/review-desktop/`. Native discovery uses private,
+atomic `server.json`; JSON author clients use private `host.json`. Code OSS
+profile state is under `state/`. Never publish either discovery credential.
 
 The released macOS app uses `review app launch` as its command-line entry.
 The app-managed CLI removes `ELECTRON_RUN_AS_NODE` and starts its exact
 `process.execPath`. Thus, the app can live outside `/Applications`. A
-repository or standalone CLI asks macOS to open bundle identifier
+checkout CLI runs that checkout's Desktop launch script; a standalone CLI
+without a source checkout asks macOS to open bundle identifier
 `dev.fast.review`. The command checks `/health` for the matching instance and
 an attached Desktop client before it reports readiness.
 Tests can set `DEV_FAST_REVIEW_DESKTOP_STATE_ROOT` to keep the Code OSS profile
 under an isolated directory.
 
-Run `review app pick [--review <uuid>]` after publication. Bare `review app`
-starts the app. `review info` and `review publish` do not start it.
-
-Create and publish reviews independently from any worktree:
+For development, build and run this checkout, or use this checkout's CLI for
+`app launch`. It refuses to activate a different build already using the same
+profile. With the checkout Desktop running, inspect its API using the checkout CLI:
 
 ```sh
-pnpm --filter @dev.fast/review review info
-pnpm --filter @dev.fast/review review publish
+pnpm --filter @dev.fast/review exec tsx src/cli.ts host capabilities
+pnpm --filter @dev.fast/review exec tsx src/cli.ts host query reviews.list --input '{}'
 ```
 
-Home lists review descriptors derived from `review.json`. Missing worktrees or
-documents remain visible but disabled. Reopening creates a desktop-owned active
-session; candidates never appear on Home.
+Use `host command review.create`, `host command document.mutate` and `host
+command review.publish` to author, then `host open --review <uuid>` to open the
+canvas. These calls do not launch Desktop. See the
+[CLI and API reference](../../docs/cli-reference.md) for complete inputs.
 
 ## Packaging and releases
 

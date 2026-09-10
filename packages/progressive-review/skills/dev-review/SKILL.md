@@ -1,6 +1,6 @@
 ---
 name: dev-review
-description: Answer product questions about Review Desktop, or author and publish a progressive Review for a branch, jj change, or pull request. Use for Review capabilities, setup, CLI, privacy, telemetry, troubleshooting, and code-change or architecture reviews.
+description: Answer product questions about Review Desktop, or author and publish a JSON Review for a branch, jj change, or pull request.
 metadata:
   review-managed-by: "Review Desktop"
   review-generated: "Do not edit. Review automatically replaces this skill directory on updates."
@@ -9,188 +9,44 @@ metadata:
 
 # dev.fast Review
 
-Author a short Review document while a dedicated sub-agent authors the software map. Publish each artifact through its own command.
-
-The Review has two independent artifacts:
-
-- `review.mdx` explains the change with exact source ranges and focused visuals.
-- The software map describes the repository structure at the base and head commits.
-
-Document publication must not wait for map authoring.
+Author through the running Desktop's Review Host. JSON nodes, definitions, retained evidence, maps and checkpoints belong to that host. Never read or write Review document files, databases, Git notes or generated bundles.
 
 ## Product questions
 
-When the user asks what Review Desktop can do or how to install, use, configure, or troubleshoot it, read the bundled [Review documentation](docs/README.md). Read only the index and the pages relevant to the question. When the bundled index is unavailable because this skill is loaded directly from a source checkout, use the [source documentation](../../../../docs/README.md) instead.
-
-Answer the question without launching Review Desktop, scaffolding a Review, or publishing. Enter the authoring workflow only when the user also asks you to create, update, or open a Review.
+Read the bundled [documentation index](docs/README.md) and relevant pages. In a source checkout, use the [source documentation](../../../../docs/README.md) if bundled docs are absent. Answer without launching the app or creating a review unless requested.
 
 ## Before authoring
 
-Read these Review guidance files when they exist, in this order:
+Read user guidance at `$DEV_REVIEW_HOME/DEV-REVIEW.md` (default `~/.dev/DEV-REVIEW.md`) and repository-root `DEV-REVIEW.md` when present. Repository guidance takes precedence.
 
-1. `$DEV_REVIEW_HOME/DEV-REVIEW.md` for user-level guidance. Use `~/.dev/DEV-REVIEW.md` when `DEV_REVIEW_HOME` is not set.
-2. `DEV-REVIEW.md` at the source repository root for repository guidance.
+Read [Document authoring](references/document-authoring.md) and [Component API](references/component-api.md). Read [Lifecycle and storage](references/lifecycle-and-storage.md) for pins and publication; [Trace quoting](references/trace-quoting.md) only when using supplied trace evidence.
 
-Follow the review rules and domain language in both files. The repository guidance takes precedence when the files conflict.
+Use available Review MCP tools. Their schemas are authoritative and are generated from the same contracts as the host. If MCP is not configured, use `review host`; do not install an integration without authorization. `review mcp` is a stdio adapter, not a second review server. Desktop must already be running. Start it explicitly only when the task calls for opening/authoring a review. In development, use this checkout's built app and CLI, never an unrelated installed build.
 
-Read [Document authoring](references/document-authoring.md) for writing rules and document structure.
+## Authoring flow
 
-Read [Component API](references/component-api.md) before you write `data.ts`. It defines every component's props and every helper's input shape.
+1. Query `capabilities` and `repositories.list`. Register the requested source repository through `repository.register({path})` if needed and permitted.
+2. Query `reviews.list` and `review.get` to find an appropriate existing review. Reuse only when its binding matches the user's request; create a new review when requested.
+3. Call `review.create({repositoryId,change,title,description?})`. For an exact range, use `change:{kind:"range",baseRef,headRef}` with resolved commit IDs. For architecture, use `{kind:"snapshot",ref}`. Record the returned review ID, document version, metadata version and binding.
+4. Open the canvas using MCP `review_open({reviewId})` or `review host open --review <uuid>`. Send small coherent `document.mutate` commands so the reader can watch accepted content appear. Put dependent definitions and nodes in the same transaction.
+5. Read source through `source.read`, `source.file`, `source.tree`, `source.diff` and `source.commits` with the observed document version. A code peek references an anchor; the host resolves and retains its evidence. Plain code is illustrative, not proof of source.
+6. When maps materially help, delegate a bounded worker using `dev-review-map` if available. Give it the review ID, observed document version and exact base/head commits. The worker owns map commands only and returns map-version IDs. Do not block a useful document on optional map work.
+7. Publish explicitly with `review.publish({reviewId,expectedDocumentVersion,expectedReviewVersion,mapVersions:{base,head}})`. Use `null` for absent map versions. Publication freezes the document, metadata, binding and selected maps in a checkpoint. Accepted live mutations are not publication.
+8. Confirm the expected document/checkpoint through queries and inspect any `canvas.reports`. Report unavailable resources or rendering errors honestly; a successful command is not evidence that the reader has seen it.
 
-Read [Trace quoting](references/trace-quoting.md) when the scaffold event reports a non-empty `traces.paths` array, or when the compatibility fallback below reports an available session.
+Every mutating command requires a caller-chosen `commandId` UUID. Reuse the same ID **and identical input** after a lost response. For a genuine version conflict, refetch, reconcile, and send a new command ID. Never overwrite concurrent changes by blindly replacing the whole document.
 
-Read [Lifecycle and storage](references/lifecycle-and-storage.md) when you must select or update the binding. It also defines publication, state, migration, and thread behavior.
+## Feedback and Ask are deferred
 
-Read [Prepared worktrees](references/prepared-worktrees.md) only when pinned worktree dependencies or language-server navigation do not work.
+Comments, feedback submission and Ask are unavailable for JSON reviews in this authoring-only version. They are deferred to the third PR in this stack. Do not promise these capabilities or call draft, thread, feedback
+or question operations. The authoring workflow ends with an explicitly
+published checkpoint and honest canvas verification; it does not wait on a
+feedback API that is not present.
 
-## In-app Ask replies
+## Boundaries
 
-When the prompt starts with `dev-review-thread-id: <id>`, answer that Review thread. Run `review threads get <id>` from the source worktree. Treat its target and complete message list as the canonical context. Read the Review document or repository files only when the question requires them.
+Legacy `review.mdx`, `data.ts`, `review scaffold/publish/threads/map` workflows do not author JSON reviews. The bundled tutorial may retain trusted legacy rendering; it is not an agent-authoring template. Old user reviews are neither migrated nor deleted by this flow.
 
-Do not modify files. Do not publish, resolve, or reply through the CLI. Review Desktop stores your returned text in the same thread. Return only the answer to the user message that follows the header.
+Only a trusted bundled-tutorial Ask may provide `dev-review-thread-id` and instruct you to use `review internal-thread <threadId>`. That utility requires the attached tutorial thread credential and cannot read ordinary JSON reviews. Follow its read-only prompt; do not use it as a general discovery or authoring path.
 
-## Workflow
-
-### 1. Resolve the Review
-
-Run `review app launch --json` to start Review Desktop. Then run `review info --json` in the source worktree. It lists active Reviews bound to that worktree and reports `matchesCheckout` for each one. Use an existing Review when it matches the requested change. If none matches, run `review scaffold --json` to create one. When the user asks for a fresh Review, pass `--new`; the explicit request overrides reuse.
-
-Pass resolved commit ids to `--base` and `--head`. Parent suffixes like `<rev>^` do not resolve in a jj workspace; resolve the parent first with `jj log -r '<rev>-'`.
-
-If scaffold warns that `devfast.prepare` is not configured, set up that command according to [Prepared worktrees](references/prepared-worktrees.md).
-
-Read the scaffold JSON event and `<review-dir>/review.json`. Together they carry these values; record them:
-
-- Review UUID and directory
-- source worktree
-- `baseCommit` and `sourceCommit` (the scaffold event prints them under `pins`)
-- both pinned checkout paths (the scaffold event prints them under `checkouts`)
-- materialized agent trace paths (the scaffold event prints them under `traces.paths`)
-- source binding and status
-
-`inSync: false` in `review info` means only that the source worktree does not sit on the pinned commit. That alone requires no action. Use `review scaffold --update --review <uuid>` only when the bound branch or pull request gained commits past the pin. Re-read each file whose anchored range changed after the update.
-
-### 2. Show small changes immediately
-
-Measure the change from the source worktree: `git diff --shortstat <baseCommit> <sourceCommit>`. When insertions plus deletions total under 300, publish the untouched scaffolded stub at once and land the reader on the diff:
-
-```sh
-review publish --review <uuid> --view diff --json
-```
-
-Then write a short document (a few sentences with `AnchorLink`s; no diagrams unless one claim needs one), publish again, and continue with the normal steps. Larger changes skip this step.
-
-### 3. Dispatch the map worker
-
-Use the current harness sub-agent facility. Dispatch one worker after Review resolution provides the UUID and pinned commits. The worker must follow the dev-review-map skill.
-
-Give the worker this prompt with resolved values. Prepend any environment setup the worker needs to run the `review` CLI (for example, a PATH prefix). When the harness has no dev-review-map skill registered, or you are not sure the worker can resolve it, give the worker the path to the skill file instead:
-
-```text
-Use the dev-review-map skill in <source-worktree>.
-
-Review UUID: <uuid>
-Review directory: <review-dir>
-Base commit: <baseCommit>
-Head commit: <sourceCommit>
-
-Author and save both software maps.
-Do not edit review.mdx or data.ts.
-Do not publish the Review document or software map.
-Return only after both `review map check <rev> --review <uuid>` commands pass.
-```
-
-The worker owns only map scratch files and git notes. The main agent owns `review.mdx`, `data.ts`, both publish commands, and reviewer feedback.
-
-Continue document work while the worker runs. Do not author the map in the main-agent context.
-
-If no sub-agent facility exists, publish the document. Report that the map is not published. Do not silently author it in the main-agent context.
-
-### 4. Author the document
-
-Read [Document authoring](references/document-authoring.md) before you edit `review.mdx` or `data.ts`.
-
-Use the materialized files in `traces.paths` from the scaffold event. When that array is non-empty, read [Trace quoting](references/trace-quoting.md) and complete its intent pass before authoring. Use FFF for trace search candidate discovery.
-
-Use the `checkouts` paths from the scaffold event: the head checkout for a head range, the base checkout for a base range.
-
-### 5. Publish the document
-
-Run:
-
-```sh
-review publish --review <uuid> --json
-```
-
-Both `review publish` and `review app pick` accept `--view <review|commits|diff|map|trace>` to choose the tab the reader lands on. Without `--view`, the Review tab remains the default.
-
-Read each NDJSON error event. Correct all document errors and publish again. A missing software map is not a document error.
-
-A successful document publish updates `presentedDocumentRevision`. It preserves `presentedSoftwareMapRevision` and sets the status to `awaiting-review`.
-
-Show the published document immediately:
-
-```sh
-review app pick --review <uuid> --json
-```
-
-### 6. Publish the map
-
-Join the map worker after document publication. If the Review became terminal, report the valid unpublished-map state and do not retry.
-
-A worker that finishes early changes nothing. Publish the map only after the document publish. A failed or skipped `review map push` to origin does not gate publication. Only the two checks gate publication.
-
-If both checks passed, run:
-
-```sh
-review map publish --review <uuid> --json
-```
-
-This command updates only `presentedSoftwareMapRevision`. It preserves the document pointer and Review status.
-
-If the worker fails, keep the valid document publication. Report the map failure and the smallest next action.
-
-### 7. Handle feedback
-
-Wait for a status that requires agent action. Use the command for the current harness:
-
-```sh
-review wait --requires-agent --review <uuid>
-review wait --requires-agent --codex --review <uuid>
-```
-
-Use only one wait command.
-
-- For `awaiting-agent-updates`, read the threads with `review threads list`. Address every open thread. Reply to each addressed thread with `review threads reply <threadId> --body <text> --review <uuid>`, then mark it resolved with `review threads resolve <threadId> --review <uuid>`. A document re-publish requires zero open comment threads and a completed agent response for every current-round reviewer message. Update moved pins with `review scaffold --update` when required. If pins move, dispatch a new map worker with the new pins. Publish the document without waiting for the new map. Then publish the new map after both checks pass.
-- For `review-dismissed` or `review-deleted`, stop the loop.
-- While the status is `awaiting-review`, the reviewer owns the next action.
-
-Read and change threads only through `review threads`. Do not edit `review.db`.
-
-## Architecture reviews
-
-A Review can explain a codebase as it stands:
-
-1. Pin the same commit as base and head: `review scaffold --base <ref> --head <ref>` with one ref (`@` in jj, `HEAD` in git).
-2. Choose sections that describe the system (data flows, state, storage, and module boundaries). Omit diff-specific sections (interface changes, test claims, decision logs).
-3. Use diagrams and code peeks instead of raw prose. Scope the review to one subsystem.
-
-All other steps (map worker, publish, wait loop) remain identical.
-
-## Completion criteria
-
-Complete the authoring turn only when all applicable conditions are true:
-
-- Review Desktop shows the published document.
-- The map is published, or you reported why it is not published.
-- All document diagnostics are resolved.
-- Both map checks passed before map publication.
-- The Review is waiting on the reviewer, the reader dismissed it, or the Review was deleted.
-
-## Errata
-
-Do not run typechecks, compilation checks, lints, or tests of any sort until you get explicit instructions from the user.
-
-You do not need ANY of this information to write a good review and it is a complete waste of time.
-
-The point is to help the user understand the code; it does not relevant if CI is or is going to be green.
+Do not run repository tests, typechecks or lints merely to write a review unless the user requested those checks. Explain the code and cite evidence; do not turn authoring into an unrelated implementation task.

@@ -2,167 +2,64 @@
 
 ## Reader contract
 
-The reader sees the original user request and the Review document. The reader does not see agent reasoning or the implementation session.
+The reader may not have your coding transcript. Explain the change in plain language; introduce abstractions before naming their implementation details. Put the outcome first, then use progressive disclosure.
 
-The H1 is the review's display title in Review Desktop tabs and Home. Write a short, specific title for the change (for example, "Publish pipeline: single mount"), not a generic one. Use progressive disclosure: short prose first, then details that earn their cost. Write in ASD-STE100 Simplified Technical English (STE).
+Set a short, specific review title through `review.create` or `review.update`; a heading node does not change metadata. Open with a concise summary and why the change matters. Add only sections that help the reader check important claims: requirements, interfaces, data flow, storage, tradeoffs, or focused testing evidence.
 
-Assume raw prose will confuse the reader. Think about the style of RFCs from great tech leaders like Russ Cox, Dave Cheney, and the early React RFCs.
+Prefer typed source links for evidence and code peeks where seeing the code matters. Use sequence, call-stack, database or software-map views only when they explain a relationship more clearly than prose. Describe what a test verifies; do not fill the review with passing-test counts. Do not invent risks that depend on unknown product usage.
 
-Remember that the reader can ONLY see the 'user' prompts _before_ coding started and the document you write to explain what changed. This means jargon in the middle - references to specific parts of code, especially any and all abstractions, changes, and code referenced _during_ the editing process - is confusing and not helpful. More words do not help. Progressive disclosure of complexity is key.
+Use supplied user words for intent when appropriate. [Trace quoting](trace-quoting.md) explains how to retain those excerpts; an author transcript is never required.
 
-If you have context on the change already in previous chat history, there's almost no reason to do extra exploration - go straight into authoring. Just make sure to attach examples to your claims.
+## Canonical authoring
 
-Open the document with a landing section after the H1 and before the first H2. Be concise.
+The document is JSON:
 
-**Summary** - *What* behavior was changed / What problem are you trying to solve?
-- This should be a couple bullet points; no more than 5
-- This section is best explained by quoting the developer's own prompts to capture the intent behind the PR (i.e. what needs to change), if those are available to you (either through associated agent trace sessions, or your own context window, if you have the implementation session in context.)
-
-**Why**
-A couple short sentences about: What problem does this change solve? (What problem(s) is this change not trying to solve?) For a bugfix, this can be what was wrong before; for a new feature, this can be what this adds. This section is best explained by quoting the developer's own prompts to capture the intent ("the why") behind the PR.
-
-After the landing section, use fewer than five further sections when practical. Choose the sections that fit this change. Good section choices are:
-
-- requirements
-  - best expressed via links to trace
-- design
-  - best expressed via decision log w/ diagram or code examples w/ links to trace
-- interface change
-  - best expressed through links to code w/ example usage
-- lifecycle or data flow
-  - obviously best expressed via diagram (sequence + state diagram)
-- state or storage
-  - database diagram
-- testing evidence
-  - do:
-    - reference what is tested via integration-style or E2E tests via pseudocode.
-      - generally, it is wise here to skip noting unit tests
-    - add links to decisions etc. that are relevant here (e.g. explicit user guidance on what to test)
-  - do not:
-    - run tests or linters.
-    - "xxx/yyy tests are passing" (overwhelming without giving information; CI being green is enough).
-
-Add implementation detail only when it helps the reader check an important claim.
-
-In the decision log, preserve important user requirements in the user's language. Add significant implementation decisions that affect the result.
-
-When the change has synced agent sessions, build the landing, requirements, design, and decision-log sections from trace quotes. Read [Trace quoting](trace-quoting.md) for the workflow and rules. Without sessions, the same structure holds in authored prose.
-
-Do not invent user-impact risks. Ask the user when risk depends on product usage that you do not know.
-
-## File ownership
-
-Agents can edit only these Review files:
-
-- `review.mdx` is the presentation layer.
-- `data.ts` contains typed document inputs.
-
-Do not edit `review.json`, `review.db`, `.bundle/`, `.build/`, or the private Review `.git/` directory.
-
-Do not import runtime values from source repository files. Put document data in `data.ts`.
-
-## Source ranges
-
-Scaffold creates one pinned checkout per pinned commit and prints both paths in its JSON event, under `checkouts.head` and `checkouts.base`. Read the paths from that output. Do not derive them from the repository layout. When you have no scaffold output, the layout is `<git-common-dir>/dev-fast/reviews/<review-uuid>/{head,base}/<full-commit>/`; resolve the common dir with `git rev-parse --git-common-dir` in the source worktree.
-
-1. **Load the change into your context window**:
-   - *IMPORTANT*: THIS STEP IS OPTIONAL; SKIP to #2 IF THIS IS THE SAME SESSION THAT AUTHORED THE CHANGE
-   - Typically involves batched commands; utilize code mode + parallel subagents to minimize the number of tool calls.
-   - infer if "this is the same session that authored the change" via the user's messages.
-2. **Decide on the evidence that you want to show**
-3. **For locations where you can't remember specific line numbers, search for code locations to match your chosen examples/anchors.**
-
-Default to `AnchorLink` or `CodePeek` for source evidence (prefer `AnchorLink`, with `CodePeek` superior for examples which are best demonstrated via inline code, e.g. an API change).
-
-A path outside the pinned checkout blocks document publication.
-
-Remember that a review has two pinned checkouts (base checkout, or `baseCommit`, and head checkout, or `sourceCommit`). Depending on the anchor/code ref you may need to be specific about one side or the other.
-
-If code context is already in your context window (e.g. file/symbols), leverage that information to avoid extraneous searches.
-
-## Authoring API (data.ts)
-
-Import typed helpers from `virtual:progressive-review-authoring` in `data.ts`:
-
-```ts
-import {
-  defineActors,
-  defineAnchors,
-  defineStores,
-} from "virtual:progressive-review-authoring";
-```
-
-Read [Component API](component-api.md) for every helper's input shape and every component's props, with one example each.
-
-Do not use casts, `any`, `<Participant>`, or `<Message>`. Pass typed references from these helpers to the MDX components.
-
-## Public MDX components (review.mdx)
-
-Review supplies these built-in components to MDX. Do not import them. Import only authored values from `./data.ts`.
-
-Use these built-in components:
-
-| Component         | Use                                                    |
-| ----------------- | ------------------------------------------------------ |
-| `CodePeek`        | Show one anchor with an exact source range inline.     |
-| `AnchorLink`      | Link prose to an anchored source range in side peek.   |
-| `SequenceDiagram` | Show important temporal behavior.                      |
-| `CallStackDiff`   | Show call-flow differences between base and head.      |
-| `DatabaseLens`    | Show persisted-state structure and operations.         |
-| `DbUseCase`       | Group related database operations.                     |
-| `DbRead`          | Show a read between typed actor or store references.   |
-| `DbWrite`         | Show a write between typed actor or store references.  |
-| `ReviewSection`   | Collapse optional detail.                              |
-| `TraceQuote`      | Quote and link directly to an agent execution session. |
-
-Write diagram inputs in `data.ts`. Component validation is strict. Read [Component API](component-api.md) for each component's props, rules, and a minimal example. Read [Trace quoting](trace-quoting.md) for the `TraceQuote` workflow, rules, and per-section density.
-
-## Small example
-
-`data.ts`:
-
-```ts
-import {
-  defineActors,
-  defineAnchors,
-} from "virtual:progressive-review-authoring";
-
-export const actors = defineActors({
-  agent: { label: "Agent" },
-  desktop: { label: "Desktop" },
-});
-
-export const anchors = defineAnchors({
-  publish: {
-    title: "Publish document",
-    peek: { file: "src/publish.ts", fromLine: 40, toLine: 66 },
+```json
+{
+  "schemaVersion": 1,
+  "roots": ["intro"],
+  "nodes": {
+    "intro": { "id": "intro", "type": "markdown", "markdown": "A concise explanation." }
   },
-});
-
-export const messages = [
-  {
-    from: actors.agent,
-    to: actors.desktop,
-    label: "Publish document",
-    anchor: anchors.publish,
-  },
-];
+  "definitions": {}
+}
 ```
 
-`review.mdx`:
+The host adds the document/review IDs, version, exact binding, content hash and retained evidence to query results. Do not send those state fields as authored document input.
 
-```mdx
-import { anchors, messages } from "./data.ts";
+`document.mutate` applies an ordered operation list atomically. Stable IDs identify nodes; titles and labels may repeat. Section/callout children are node IDs, not nested JSX. A node has exactly one place in the tree. Use `node.move` to reorder it; keep its ID so the viewer can preserve local state.
 
-# Document publication
+Add an anchor and its peek together:
 
-The CLI seals one document revision.
-
-See <AnchorLink anchor={anchors.publish}>the publish implementation</AnchorLink> for evidence.
-
-<SequenceDiagram label="Publish" messages={messages} />
+```json
+{
+  "reviewId": "<review UUID>",
+  "expectedDocumentVersion": 0,
+  "operations": [
+    {
+      "op": "definition.put",
+      "id": "publish",
+      "value": {
+        "kind": "anchor",
+        "title": "Publication",
+        "source": { "side": "head", "file": "src/publish.ts", "fromLine": 40, "toLine": 66 }
+      }
+    },
+    {
+      "op": "node.insert",
+      "node": { "id": "publish-peek", "type": "code_peek", "anchorId": "publish" },
+      "placement": { "parentId": null, "afterId": null }
+    }
+  ]
+}
 ```
 
-## Publication checks
+Replace the illustrative path/range with source verified at the returned binding. Supply `commandId` as an additional MCP argument, or the CLI's `--command-id` flag.
 
-Run `review publish --review <uuid> --json` to publish.
+## Source and validation
+
+Read exact source through `source.read({reviewId,documentVersion,range})`. Paths are repository-relative; `side` chooses the version's pinned base or head. The host rejects missing/out-of-bounds, binary, symlink and oversized source. It retains accepted quotations with commit/blob IDs. A later unavailable checkout must not invalidate saved evidence.
+
+Every mutation checks shape, limits, tree integrity and references. Changed nodes and affected dependents receive semantic/evidence validation. Failures leave the prior version intact. Optional `document.validate` previews the same proposed operations without committing. Neither operation compiles MDX or TypeScript.
+
+Read [Component API](component-api.md) for node shapes, [Source availability](prepared-worktrees.md) when source cannot be read, and [Lifecycle and storage](lifecycle-and-storage.md) before repinning or publishing.

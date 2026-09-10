@@ -1,98 +1,56 @@
 # Quickstart
 
-<!--
-Outline: Requirements -> Install -> Tour -> Create -> Respond -> Verify -> Next steps.
--->
+This guide describes the JSON-host version of Review. Use a matching Desktop and CLI; older releases may still expose the former file-based workflow.
 
-This guide takes you from a fresh install to a completed first review.
+## 1. Start Review Desktop
 
-## Requirements
+Install and open Review, or use the [checkout development instructions](../apps/review-desktop/README.md) when testing an unreleased change. Development verification must use the app built from that checkout, not another installed copy.
 
-- An Apple silicon Mac.
-- A Git or Jujutsu repository with a branch, bookmark, change, or pull request
-  to review.
-- Claude Code, Codex, and other coding agents.
+Home lists reviews held by the local host. **Welcome**, **Settings** and the bundled **Tutorial** remain available. Setup can install the `review` command and the `dev-review` / `dev-review-map` skills for supported coding agents.
 
-## 1. Install Review
+The tutorial is trusted application content and may retain legacy rendering; it is not a template for authoring new review files.
 
-[Download the latest disk image](https://install.dev.fast), open it, and launch
-Review. The app updates itself after installation.
+## 2. Connect your agent
 
-On first launch, Review opens the welcome screen. It detects supported coding
-agents and offers to install:
+With Desktop running, check the connection:
 
-- the `review` command in `~/.local/bin`;
-- the `dev-review` skill for authoring reviews; and
-- the `dev-review-map` skill for generating architecture maps.
+```sh
+review host capabilities
+review host query repositories.list --input '{}'
+```
 
-Choose **Install** for the agents you use. Review keeps the app-managed command
-and skills in sync after updates.
-
-## 2. Take the tour
-
-Open the bundled three-minute tour from the welcome screen. It uses a real local
-sample repository to show:
-
-- explanations linked to live code;
-- hover, go-to-definition, and code peeks;
-- code comments and agent questions;
-- sequence and database views; and
-- the full architecture map.
+An agent can use the CLI directly. For MCP, configure your agent's stdio integration to run the matching `review` executable with `mcp` as its argument. Skill installation does not currently create that MCP entry. See [Coding agents](agents.md).
 
 ## 3. Create a review
 
-Open the repository you want to review in your coding agent and tell it to
-review it!
+Ask your coding agent:
 
 ```text
-Use the dev-review skill to review my current branch against up to date main,
-then open it in Review.
+Use the dev-review skill to review my current branch against up-to-date main.
+Author the review through the running Desktop's JSON host API and open it.
 ```
 
-The agent scaffolds a Review, writes and validates the walkthrough, publishes
-it, and opens it in Review Desktop. You can also review a specific GitHub pull
-request or ask for an architecture review of a repository.
+The agent registers the repository if needed, creates a review with exact pins, and adds JSON nodes/definitions through commands. You can watch accepted changes appear live. Publishing creates a frozen checkpoint; it does not compile a document file.
+
+A review can explain an existing architecture too: use a snapshot binding at one commit instead of a change range.
 
 ### Add Review guidance
 
-You can add optional guidance for generated Review documents:
+Optional user guidance lives at `$DEV_REVIEW_HOME/DEV-REVIEW.md` (default `~/.dev/DEV-REVIEW.md`). Repository-root `DEV-REVIEW.md` takes precedence. These are guidance files, not review storage.
 
-- User-level guidance: `$DEV_REVIEW_HOME/DEV-REVIEW.md`. Review uses
-  `~/.dev/DEV-REVIEW.md` by default.
-- Repository guidance: `DEV-REVIEW.md` at the source repository root.
+## 4. Read the review
 
-Repository guidance takes precedence over user-level guidance.
+Use **Source** to explore the exact pinned files, commits and changes. Use the
+version selector to distinguish the live document from published checkpoints.
+Authors can update the live document and publish another checkpoint explicitly.
 
-## 4. Read and respond
-
-Use the three main surfaces together:
-
-- **Review** explains the change and links every code claim to its evidence.
-- **Map** lets you move from systems to containers, components, and code
-  (experimental).
-- **Files** shows the underlying changed-file diff.
-
-Leave an anchored comment where something should change, or use **Ask now** for
-a question the agent can answer immediately. When you finish, choose **Approve**
-or **Request changes**. A request-changes round returns your comments to the
-authoring agent so it can update and republish the walkthrough.
-
-## Verify the command-line setup
-
-The app normally manages the CLI. These commands are useful for checking it:
-
-```sh
-review version
-review app launch
-review info
-```
-
-If the command is missing or behaves like an older browser-based Review, see
-[Troubleshooting](troubleshooting.md).
+Comments, feedback submission and Ask are unavailable for JSON reviews in this authoring-only version. They are deferred to the third PR in this stack. The JSON canvas does not yet offer Discussion, source comments,
+Add to review, Submit review or Ask now.
 
 ## Next steps
 
-- Learn [how Review works](how-review-works.md).
-- Read about [coding-agent setup](agents.md).
-- Use the [CLI reference](cli-reference.md) for explicit or automated flows.
-- Review the [privacy boundaries](privacy.md).
+- [How Review works](how-review-works.md)
+- [Coding agents](agents.md)
+- [CLI and API reference](cli-reference.md)
+- [Privacy](privacy.md)
+- [Troubleshooting](troubleshooting.md)

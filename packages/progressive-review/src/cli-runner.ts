@@ -1,14 +1,8 @@
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { Writable } from "node:stream";
 
 import { devfastPrepareCommands } from "@dev.fast/local-vcs";
-import {
-  type ReviewView,
-  jsonObject,
-  jsonString,
-  parseJsonText,
-} from "@dev.fast/review-protocol";
+import type { ReviewView } from "@dev.fast/review-protocol";
 import { Argument, Command, CommanderError, Option } from "commander";
 
 import {
@@ -21,7 +15,6 @@ import {
   requireCodexThreadId,
   startCodexWaitProcess,
 } from "./codex-thread-wakeup";
-import { readReviewDesktopDiscovery } from "./desktop-discovery";
 import { isFile } from "./fs-utils";
 import {
   ALL_INSTALL_TARGETS,
@@ -48,26 +41,15 @@ import {
   runReviewAppLaunch,
 } from "./review-app-launcher";
 import { runReviewCodexWait } from "./review-codex-wait";
-import {
-  type StoredReview,
-  listReviews,
-  sealReviewCandidate,
-} from "./review-home";
 import { runReviewInfo } from "./review-info";
 import { runReviewInternalTest } from "./review-internal-test";
 import { emitReviewEvent, serializeReviewError } from "./review-logger";
 import { prepareReviewPinnedCheckout } from "./review-prepare";
 import { runReviewPublish } from "./review-publish";
 import { runReviewRebind } from "./review-rebind";
-import {
-  decideStopHook,
-  markReopenNudged,
-  readReopenMarker,
-} from "./review-reopen-marker";
 import { runReviewScaffold } from "./review-scaffold";
 import { runReviewWait, validateReviewWait } from "./review-wait";
 import { installReviewCommand, pathShimPath } from "./server/cli-install";
-import { reviewDesktopDiscoveryPath } from "./server/desktop-paths";
 import { setTraceAttribute, span } from "./startup-trace";
 import {
   runReviewThreadsGet,
@@ -125,14 +107,13 @@ interface ProgressiveReviewCliRuntime {
   runReviewTraceHook: typeof runReviewTraceHook;
   runReviewTraceGitHook: typeof runReviewTraceGitHook;
   runReviewTraceSync: typeof runReviewTraceSync;
-  listReviews: typeof listReviews;
-  sealReviewCandidate: typeof sealReviewCandidate;
   prepareReviewPinnedCheckout: typeof prepareReviewPinnedCheckout;
 }
 
 export interface ProgressiveReviewCliInput {
   argv: string[];
   cliVersion?: string;
+  packageRoot?: string;
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   stdin?: CliInputStream;
@@ -329,7 +310,7 @@ export async function runProgressiveReviewCli(
     state.exitCode = 0;
   };
   const launchApp = async (options: { json?: boolean }) => {
-    const event = await runtime.runReviewAppLaunch();
+    const event = await runtime.runReviewAppLaunch({ env });
     writeAppEvent(event, options.json);
     state.exitCode = 0;
   };
@@ -641,7 +622,9 @@ export async function runProgressiveReviewCli(
       const selectedTargets = installTargets(targets);
       const installShim = options.shim !== false;
       const cliSource = installShim
-        ? await resolveInstallCliSource(env)
+        ? await resolveInstallCliSource(
+            input.packageRoot ?? defaultPackageRoot(),
+          )
         : undefined;
       const installInput: RunInstallInput = {
         targets: selectedTargets,
@@ -651,6 +634,7 @@ export async function runProgressiveReviewCli(
         stdout: input.stdout,
         stderr: input.stderr,
       };
+      if (input.packageRoot) installInput.packageRoot = input.packageRoot;
       if (installShim) installInput.reviewCommand = pathShimPath();
       // Trace capture is experimental and opt-in: only a request that names
       // R2 credentials configures it. --without-traces stays accepted so
@@ -783,33 +767,6 @@ export async function runProgressiveReviewCli(
       });
     },
   );
-
-  configureOutput(
-    program
-      .command("stop-hook", { hidden: true })
-      .description("Internal Review stop hook"),
-    "plain",
-  ).action(async () => {
-    const payload = await readStopHookPayload(input);
-    for (const review of await touchedStopHookReviews(
-      payload,
-      runtime.listReviews,
-    )) {
-      await runtime.sealReviewCandidate(review.dir, "Review turn checkpoint");
-    }
-    const decisionCwd = payload.cwd ?? cwd;
-    const marker = await readReopenMarker(decisionCwd);
-    const decision = decideStopHook(marker);
-    if (decision.markNudged && marker) {
-      await markReopenNudged(decisionCwd, marker);
-    }
-    if (decision.block) {
-      input.stdout.write(
-        `${JSON.stringify({ decision: "block", reason: decision.reason })}\n`,
-      );
-    }
-    state.exitCode = 0;
-  });
 
   // The trace surface: inspect storage, manage one repository, or read events.
   const trace = configureOutput(
@@ -1196,60 +1153,6 @@ function installTargets(targets: readonly string[]): InstallTarget[] {
   ];
 }
 
-interface StopHookPayload {
-  cwd?: string;
-  transcriptPath?: string;
-}
-
-async function readStopHookPayload(
-  input: ProgressiveReviewCliInput,
-): Promise<StopHookPayload> {
-  const stdin = input.stdin ?? process.stdin;
-  if (stdin.isTTY) return {};
-  try {
-    const chunks: Buffer[] = [];
-    for await (const chunk of stdin) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    }
-    const raw = Buffer.concat(chunks).toString("utf8").trim();
-    if (!raw) return {};
-    const parsed = jsonObject(parseJsonText(raw));
-    const payload: StopHookPayload = {};
-    const cwd = jsonString(parsed?.cwd);
-    if (cwd !== undefined) payload.cwd = cwd;
-    const transcriptPath = jsonString(parsed?.transcript_path);
-    if (transcriptPath !== undefined) payload.transcriptPath = transcriptPath;
-    return payload;
-  } catch {
-    return {};
-  }
-}
-
-async function touchedStopHookReviews(
-  input: {
-    cwd?: string;
-    transcriptPath?: string;
-  },
-  scan: typeof listReviews,
-): Promise<StoredReview[]> {
-  const listed = await scan();
-  if (listed.errors.length > 0) {
-    throw new Error(
-      `Could not checkpoint reviews:\n${listed.errors.map((error) => `${error.reviewDir}: ${error.message}`).join("\n")}`,
-    );
-  }
-  const cwd = input.cwd ? path.resolve(input.cwd) : undefined;
-  const transcript = input.transcriptPath
-    ? await readFile(input.transcriptPath, "utf8")
-    : "";
-  return listed.reviews.filter((review) => {
-    const dir = path.resolve(review.dir);
-    const cwdInside =
-      cwd === dir || (cwd?.startsWith(`${dir}${path.sep}`) ?? false);
-    return cwdInside || transcript.includes(dir);
-  });
-}
-
 function progressiveReviewCliRuntime(
   overrides: Partial<ProgressiveReviewCliRuntime> | undefined,
 ): ProgressiveReviewCliRuntime {
@@ -1284,8 +1187,6 @@ function progressiveReviewCliRuntime(
     runReviewTraceHook,
     runReviewTraceGitHook,
     runReviewTraceSync,
-    listReviews,
-    sealReviewCandidate,
     prepareReviewPinnedCheckout,
     ...overrides,
   };
@@ -1297,27 +1198,13 @@ interface InstallCliSource {
 }
 
 async function resolveInstallCliSource(
-  env: NodeJS.ProcessEnv,
+  packageRoot: string,
 ): Promise<InstallCliSource | undefined> {
-  try {
-    const discovery = await readReviewDesktopDiscovery(
-      reviewDesktopDiscoveryPath(env),
-    );
-    if (discovery?.cliPath && (await isFile(discovery.cliPath))) {
-      const source: InstallCliSource = { cliPath: discovery.cliPath };
-      if (discovery.cliRuntimePath) {
-        source.cliRuntimePath = discovery.cliRuntimePath;
-      }
-      return source;
-    }
-  } catch {
-    // A packaged CLI remains a valid fallback when discovery is stale.
-  }
-
-  const packageCliPath = path.join(defaultPackageRoot(), "dist", "cli.js");
-  return (await isFile(packageCliPath))
-    ? { cliPath: packageCliPath }
-    : undefined;
+  const packageCliPath = path.join(packageRoot, "dist", "cli.js");
+  if (!(await isFile(packageCliPath))) return undefined;
+  const source: InstallCliSource = { cliPath: packageCliPath };
+  if (process.versions.electron) source.cliRuntimePath = process.execPath;
+  return source;
 }
 
 function progressiveReviewTopLevelHelp(): string {

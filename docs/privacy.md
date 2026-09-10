@@ -5,7 +5,7 @@ Outline: Local data -> Anonymous telemetry -> Errors -> Agent providers
 -> Explicit bug reports -> Opt-out -> Developer inspection.
 -->
 
-Review reads source code and agent-authored documents from your machine. This
+Review reads pinned source and agent-authored JSON from its local host. This
 page separates the local product data, anonymous telemetry, connected coding
 agents, and explicit bug reports.
 
@@ -17,9 +17,28 @@ For the exact event schemas and implementation references, see the full
 
 ## What stays local
 
-Review stores authored Reviews under
-`~/.dev/reviews/<uuid>/` and keeps desktop discovery and
-state under `~/.dev/review-desktop/` by default.
+The JSON host stores reviews, document history, retained source, uploaded
+resources and checkpoints in `~/.dev/review-host.db`.
+Desktop discovery and state are under `~/.dev/review-desktop/`. The private
+`host.json` discovery file contains the local author connection credential;
+do not share it or include it in reports. `DEV_REVIEW_HOME` overrides this root.
+
+Clients use the authenticated host API, not direct database or document-file
+access. Old `review.db` and `reviews/<uuid>/` data are left untouched; this
+workflow neither migrates nor deletes them. Reviews cannot yet be uploaded to
+a remote host or shared through a multiplayer service.
+
+## Connected agents
+
+An authoring agent may send repository context to its own model provider under
+that provider's privacy, retention and billing terms. A trace quoted in the
+review is a separately supplied excerpt, not an uploaded author session.
+
+Comments, feedback submission and Ask are unavailable for JSON reviews in this authoring-only version. They are deferred to the third PR in this stack. This JSON host does not launch question sessions or store their
+conversations yet. The bundled tutorial may retain trusted local legacy Ask;
+its selected harness can send the supplied question and context to its provider.
+
+## What passive telemetry excludes
 
 Passive product telemetry never includes:
 
@@ -71,6 +90,11 @@ Review document or does not pass a second local path-and-secret check.
 ## User-initiated bug reports
 
 The **Report bug** dialog sends a report only after you select **Send**.
+
+The source/map/author-session attachments described below belong to the legacy
+reporting flow, including trusted tutorial content. The JSON canvas does not
+currently provide those legacy authored-file or author-session attachments.
+Do not assume a report includes a JSON review merely because it is open.
 
 Under **Include diagnostic attachments**, three independent checkboxes control
 whether Review attaches:
@@ -133,7 +157,7 @@ installation.
 For a process or headless environment, set a supported opt-out variable:
 
 ```sh
-DO_NOT_TRACK=1 review info
+DO_NOT_TRACK=1 review host capabilities
 ```
 
 `DNT=1` and the Review-specific variables listed in the

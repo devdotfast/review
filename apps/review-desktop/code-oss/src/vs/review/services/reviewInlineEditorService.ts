@@ -249,7 +249,7 @@ export class ReviewInlineEditorService
     this.overflowWidgetsDomNode = node;
   }
 
-  create(spec: ReviewInlineEditorSpec): ReviewInlineEditorHandle {
+  create(spec: ReviewInlineEditorSpec, loadModel?: () => Promise<ReviewCodeModelReference>): ReviewInlineEditorHandle {
     const handle = new InlineEditorHandle(
       spec,
       this.instantiationService,
@@ -281,6 +281,7 @@ export class ReviewInlineEditorService
         });
       },
       (control) => this.handlesByEditor.set(control, handle),
+      loadModel,
     );
     this.handles.add(handle);
     this.updateMetrics(spec.container.ownerDocument);
@@ -478,6 +479,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
     private readonly onDidFocusControl: (control: ICodeEditor) => void,
     private readonly onDidBlurControl: () => void,
     private readonly onDidBindControl: (control: ICodeEditor) => void,
+    private readonly loadModel?: () => Promise<ReviewCodeModelReference>,
   ) {
     super();
     if (spec.ranges.length === 0) {
@@ -643,7 +645,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
 
   private async initialize(): Promise<void> {
     try {
-      if (this.spec.commentsEnabled) {
+      if (!this.loadModel && this.spec.commentsEnabled) {
         const unifiedReference = await this.resources.acquireUnifiedDiff(
           this.spec.path,
           this.spec.side,
@@ -658,7 +660,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
           return;
         }
       }
-      const diffTarget = await this.resources.resolveDiff(
+      const diffTarget = this.loadModel ? undefined : await this.resources.resolveDiff(
         this.spec.path,
         this.spec.side,
         this.spec.ranges,
@@ -668,7 +670,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
         await this.initializeMultiDiffEditor(diffTarget);
         return;
       }
-      const modelReference = await this.resources.acquireSnippet(
+      const modelReference = this.loadModel ? await this.loadModel() : await this.resources.acquireSnippet(
         this.spec.path,
         this.spec.side,
         this.spec.ranges,

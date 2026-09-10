@@ -1,121 +1,45 @@
 # Lifecycle and storage
 
-## Binding and pins
+## One owner
 
-A Review binds to one unit of change:
+Desktop runs one local HTTP Review Host. UI, CLI and MCP use the same commands, queries and events. The shared `$DEV_REVIEW_HOME/review-host.db` (default `~/.dev/review-host.db`) owns reviews, immutable document versions/evidence/maps, resources and checkpoints. Its schema and filesystem layout are implementation details, not a client API.
 
-- a Git branch
-- a jj bookmark
-- a jj change ID
-- a GitHub pull request
+Do not edit SQL, review files, Git notes or bundles. No migration of old MDX reviews is provided; old data is left untouched. The trusted bundled tutorial is an explicit legacy exception.
 
-Use a bookmark for a document about a stack. Use a change ID for one jj change. Use `review scaffold --pr <number-or-url>` for a pull request.
+## Pins and repinning
 
-Choose the base deliberately:
+Creation resolves a change selector to exact commits. Supported selectors are:
 
-- For a stack, use the branch directly below the reviewed stack.
-- For one change, use its parent.
-- A bare scaffold uses the trunk fork point.
+- `{kind:"range",baseRef,headRef}`
+- `{kind:"branch",name,baseRef}`
+- `{kind:"jj_change",changeId,baseRef}`
+- `{kind:"pull_request",url}`
+- `{kind:"snapshot",ref}` for an architecture review
 
-Use `--base @-` for one jj change. Use `--base <head>~1` for one Git commit.
+Use the returned binding, not your current checkout, as the source authority. Publishing never moves pins.
 
-A bare scaffold needs a named checkout. Use `--head <ref>` for a detached Git HEAD. Scaffold output shows the selected change and pins.
+To move pins, call `review.repin.plan({reviewId,expectedDocumentVersion,change})`. Inspect each anchor's `exact`, `relocated` or `missing` result and diagnostics. The existing conservative diff remapper tracks surviving contiguous ranges and detected renames; it does not infer replacement code for changed ranges.
 
-`review scaffold --update` re-pins an existing Review from its binding. It creates a Review when none exists. A pull-request binding updates from GitHub. A branch binding follows only its local branch or bookmark.
+Apply with `review.repin.apply({reviewId,planId,expectedDocumentVersion,operations})`. Include explicit anchor corrections and remove/replace stale map references in the same atomic operation. Diagrams are author-maintained; line tracking does not rewrite their meaning. Failure preserves the last accepted binding/document. Original evidence and checkpoints remain immutable.
 
-`review rebind <change> --review <uuid>` changes the binding and immediately re-pins the Review.
+## Versions, retries and publication
 
-Publication never moves pins. It warns when pins are behind the binding.
+Document and review metadata versions are independent. Use the relevant expected version for each write. A metadata update or another review's edit does not invalidate the document version.
 
-## Artifact publication
+Commands use caller-chosen UUID receipt IDs. Retry an uncertain result with the same ID and input. A changed request needs a new ID. Refetch and reconcile real conflicts.
 
-The reviewer sees sealed artifact revisions. The two publish commands have independent validation and presentation pointers.
+`review.publish` checks the expected document and metadata versions and freezes an immutable checkpoint with exact selected map-version IDs (or `null`). Maps can be authored independently; publish another checkpoint when the selection changes. There is no separate Git-note or map-bundle publication.
 
-`review publish`:
+| Workflow | Meaning |
+| --- | --- |
+| `draft` | Not yet published |
+| `in_review` | Published for a reviewer |
+| `closed` | Closed by an explicit human action; explicit reopen is required |
 
-- compiles `review.mdx` and `data.ts`
-- resolves every source range against the pinned worktree
-- seals only the document bundle
-- updates `presentedDocumentRevision`
-- preserves `presentedSoftwareMapRevision`
-- sets the Review status to `awaiting-review`
+Live views receive atomic committed events. Historical checkpoint views ignore working-document updates. Render reports are observations of a version, not the server's commit gate.
 
-`review map publish`:
+## Conversations are deferred
 
-- requires a published document
-- reads the commits from the presented document revision
-- validates the saved base and head map notes for those commits
-- seals only the software-map bundle
-- updates `presentedSoftwareMapRevision`
-- preserves `presentedDocumentRevision` and the Review status
-- reuses the existing map revision when its bytes are identical
-
-The document can render without a map. Map absence never blocks document publication. Agent workflows must use the two explicit publish commands.
-
-A failed publish keeps the last good pointer.
-
-## Review states
-
-| Status                   | Owner and next action                                        |
-| ------------------------ | ------------------------------------------------------------ |
-| `draft`                  | Agent authors and publishes the document.                    |
-| `awaiting-review`        | Reviewer reads, asks questions, or submits comments.         |
-| `awaiting-agent-updates` | Agent reads threads, corrects the document, and republishes. |
-
-An "Ask now" question does not change the status. "Submit review" with pending comments sets `awaiting-agent-updates`.
-
-Dismissal is separate from Review status. It removes the Review from the active list and stops the waiting agent. The reader can restore it from Home until retention deletes it. Closing the tab does not dismiss the Review. A new document publication clears dismissal and returns the Review to the active list.
-
-After publication, `review wait --requires-agent` resolves for `awaiting-agent-updates`, `review-dismissed`, or `review-deleted`.
-
-## UUID directory
-
-Each Review has one canonical directory:
-
-```text
-${DEV_REVIEW_HOME:-~/.dev}/reviews/<uuid>/
-├── review.mdx
-├── data.ts
-├── review.json
-├── review.db
-├── package.json
-├── review-test.mjs
-├── .gitignore
-├── .bundle/
-│   ├── document/
-│   └── software-map/
-├── .build/<revision>/
-└── .git/
-```
-
-`review.json` is schema 3 state. It contains the source worktree, binding, pinned commits, status, `presentedDocumentRevision`, and `presentedSoftwareMapRevision`.
-
-`review.db` contains durable comment and question threads. Use only `review threads` to read or change it.
-
-`.bundle/document/` contains the current document candidate. `.bundle/software-map/` contains the current map candidate when one exists. The private Review Git repository seals these candidates as revisions.
-
-`.build/<revision>/` contains a temporary materialization of one sealed revision. Review can create it again.
-
-Do not edit Review infrastructure files or directories directly.
-
-## Threads
-
-Run thread commands in the source worktree:
-
-```sh
-review threads list --review <uuid>
-review threads reply <threadId> --body <text> --review <uuid>
-review threads resolve <threadId> --review <uuid>
-```
-
-Do not invent, rewrite, or merge opaque thread targets. After making the requested document or code change, reply with a concise disposition and then resolve the thread.
-
-A document re-publish requires zero open comment threads and a completed agent response for every current-round reviewer message. Before each re-publish, run `review threads list`. Address every open thread, reply with `review threads reply`, and mark it with `review threads resolve`. Run `review threads list` again. Do not re-publish until no comment thread has `status: "open"`. The first document publication does not use this gate.
-
-## Migration
-
-Run `review migrate apply` only for legacy Review state. It converts supported Reviews to schema 3 and the split bundle layout.
-
-A migrated valid combined revision gets independent document and map pointers. The private history can retain old combined revisions. Active pointers and materialized artifacts use the current layout.
-
-Migration drops stored Reviews whose `data.ts` uses removed `symbol` or `declarationId` peeks. It preserves range-only Reviews. Use `--force` only to restart interrupted development migration state.
+Comments, feedback submission and Ask are unavailable for JSON reviews in this authoring-only version. They are deferred to the third PR in this stack. No draft, thread, feedback or question operations are exposed by
+the JSON host. Do not use legacy files or commands as a substitute. Ordinary
+authoring, repinning and checkpoint publication remain available.

@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import type { HostQueryInputs } from "./host-commands.js";
 import { type JsonValue, isJsonObject } from "./json.js";
 
 export const sessionIdSchema = z
@@ -794,6 +795,17 @@ export interface ReviewInlineEditorFactory {
   ): Promise<ReviewInlineFindResult>;
 }
 
+export type ReviewHostSourceTarget = HostQueryInputs["source.read"];
+export interface ReviewHostSourceBridge {
+  open(target: ReviewHostSourceTarget): Promise<void>;
+  createPeek(spec: {
+    container: HTMLElement;
+    target: ReviewHostSourceTarget;
+    title: string;
+    onDidOpen(): void;
+  }): ReviewInlineEditorHandle;
+}
+
 export interface ReviewDiffViewSpec {
   container: HTMLElement;
   scope?: ReviewCommitScope;
@@ -986,6 +998,20 @@ export interface ReviewCanvasSettingsContent {
 
 export type ReviewCanvasContent =
   | { kind: "loading" }
+  | {
+      /** Canonical host-owned JSON. Never loads an authored JavaScript module. */
+      kind: "host";
+      connection: { serverUrl: string; token: string };
+      reviewId?: string;
+      wasmUrl?: string;
+      source?: ReviewHostSourceBridge;
+      openReview(reviewId: string, title?: string): void;
+      showHome(): void;
+      openWelcome?(): void;
+      openSettings?(): void;
+      openTutorial?(): void;
+      setTitle?(title: string): void;
+    }
   | {
       kind: "error";
       message: string;
@@ -1957,6 +1983,10 @@ export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
         .optional(),
       sealedAt: positiveInteger.optional(),
     }),
+  }),
+  z.strictObject({
+    name: z.literal("openHostReview"),
+    args: z.strictObject({ reviewId: z.uuid() }),
   }),
   z.strictObject({
     name: z.literal("openReview"),

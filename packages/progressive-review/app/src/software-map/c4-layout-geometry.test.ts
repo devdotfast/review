@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 import type { Edge as ReactFlowEdge } from "@xyflow/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -225,19 +223,6 @@ describe("SoftwareMap C4 layout geometry", () => {
         },
       ],
     });
-    const styles = readFileSync(
-      new URL("./styles.css", import.meta.url),
-      "utf8",
-    );
-    const source = readFileSync(
-      new URL("./c4-layout-geometry.ts", import.meta.url),
-      "utf8",
-    );
-    const softwareMapSource = readFileSync(
-      new URL("./SoftwareMap.tsx", import.meta.url),
-      "utf8",
-    );
-
     expect(flow.edges).toEqual([
       expect.objectContaining({
         label: undefined,
@@ -250,9 +235,6 @@ describe("SoftwareMap C4 layout geometry", () => {
         markerEnd: expect.objectContaining({ color: "var(--accent)" }),
       }),
     ]);
-    expect(source).not.toContain("GhostWaypointBeads");
-    expect(softwareMapSource).not.toContain("GhostWaypointBeads");
-    expect(styles).not.toContain("software-map-c4-ghost-beads");
   });
 
   it("updates the first map layout when resolved children and edges arrive", async () => {

@@ -1,9 +1,13 @@
 #!/usr/bin/env node
 
+import path from "node:path";
+
 import { findProgressiveReviewPackageRoot } from "../package-paths";
 import { ProgressiveReviewTelemetry } from "../progressive-review-telemetry";
 import { ensureBundledRustAnalyzer } from "../review-bundled-tools";
+import { devReviewHome } from "../review-storage";
 import { listenForDesktopHostShutdown } from "./desktop-host-shutdown";
+import { reviewDesktopRoot } from "./desktop-paths";
 import { createGlobalReviewServer } from "./desktop-server";
 
 export async function runDesktopHost(
@@ -35,6 +39,10 @@ export async function runDesktopHost(
     token: env.DEV_FAST_REVIEW_SERVER_TOKEN,
     instanceId: env.DEV_FAST_REVIEW_INSTANCE_ID,
     telemetry,
+    jsonHost: {
+      databasePath: path.join(devReviewHome(env), "review-host.db"),
+      discoveryPath: path.join(reviewDesktopRoot(env), "host.json"),
+    },
   };
   if (env.DEV_FAST_REVIEW_CLI_RUNTIME) {
     serverInput.cliRuntimePath = env.DEV_FAST_REVIEW_CLI_RUNTIME;

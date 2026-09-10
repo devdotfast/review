@@ -3,8 +3,7 @@ import path from "node:path";
 import type { Writable } from "node:stream";
 import { pathToFileURL } from "node:url";
 
-import { runProgressiveReviewCli } from "./cli-runner";
-import { runSoftwareMapCli } from "./map-cli";
+import { runReviewCli } from "./cli-routing";
 
 export interface SoftwareMapCliEntryInput {
   args: string[];
@@ -12,21 +11,18 @@ export interface SoftwareMapCliEntryInput {
   env: NodeJS.ProcessEnv;
   stdout: Writable;
   stderr: Writable;
-  runSoftwareMapCli?: typeof runSoftwareMapCli;
 }
 
 export async function runSoftwareMapCliEntry(
   input: SoftwareMapCliEntryInput,
 ): Promise<number> {
-  return runProgressiveReviewCli({
+  return runReviewCli({
     argv: ["map", ...input.args],
     cwd: input.cwd,
     env: input.env,
     stdout: input.stdout,
     stderr: input.stderr,
-    runtime: input.runSoftwareMapCli
-      ? { runSoftwareMapCli: input.runSoftwareMapCli }
-      : undefined,
+    stdin: process.stdin,
   });
 }
 

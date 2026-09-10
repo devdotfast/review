@@ -1,51 +1,34 @@
 # Review workflow
 
-A Review lives in one canonical UUID directory under
-`${DEV_REVIEW_HOME:-~/.dev}/reviews/<uuid>/`. Its `review.mdx` and `data.ts`
-are edited with normal file tools. Read and mutate comment threads only through
-`review threads`. The `.build/` directory is disposable publish output.
+The running Desktop owns the canonical JSON document, retained evidence,
+resources and checkpoints. Author through MCP or `review host`;
+never edit a review database, MDX file, TypeScript module or Git note.
 
-1. Run `review app launch --json`.
-2. Run `review info --json` in the source checkout. It lists active Reviews
-   bound to that worktree and reports `matchesCheckout` for each one. If no
-   Review matches the requested change, run `review scaffold --json`.
-3. Read the JSONL event for the UUID directory, source binding, sync state,
-   and unresolved threads.
-4. Read `$DEV_REVIEW_HOME/DEV-REVIEW.md` when it exists. Use
-   `~/.dev/DEV-REVIEW.md` when `DEV_REVIEW_HOME` is not set. Then read
-   `DEV-REVIEW.md` at the source repository root when it exists. Repository
-   guidance takes precedence when the files conflict.
-5. Edit `review.mdx` and `data.ts` in that directory. Keep the H1 and write
-   short, evidence-backed prose. Link each code claim to an anchored source
-   range. Read that exact range from the pinned worktree before you write it.
-6. For any code evidence, `softwareMap` frontmatter must pin the persisted
-   review commits from `review.json` (`baseCommit` and `sourceCommit`), never a
-   moving branch such as `HEAD` or `origin/main`.
-7. Run `npm test` in the UUID directory. It validates TypeScript and MDX
-   without launching a renderer.
-8. Run `review publish` (agents: `review publish --json` — every `review`
-   command accepts `--json`, and it keeps stdout to JSON events only). It is the only
-   promotion gate, and it runs entirely in the CLI: compilation, the
-   software-map check, and resolution of every source range against the pinned
-   worktree. A validation failure preserves the last good revision.
-   On success the CLI seals the revision and Review Desktop mounts it.
-9. Run `review app pick --review <uuid> --json` to select the published Review.
-10. Run `review threads list` for open comment threads and questions. Make the
-   relevant change, and publish again. Resolve a comment with `review threads
-resolve <threadId>` only after its exact target is addressed. Question
-   records remain `running`, `answered`, or `error`.
+1. Use the matching Desktop and CLI. In development, use the checkout-built app.
+   Query `capabilities` to check connectivity and allowed operations.
+2. Query `repositories.list` and register the requested repository if needed.
+   Query `reviews.list` before choosing whether to reuse or create a review.
+3. Read optional user guidance at `$DEV_REVIEW_HOME/DEV-REVIEW.md` (default
+   `~/.dev/DEV-REVIEW.md`) and repository-root `DEV-REVIEW.md`. Repository
+   guidance takes precedence.
+4. Call `review.create({repositoryId,change,title,description?})` with the
+   requested change selector. Save the returned IDs, versions and exact binding.
+5. Open with `review host open --review <uuid>` or MCP `review_open`.
+6. Read pinned source through `source.read/file/tree/diff/commits`. Add JSON
+   nodes and definitions with small atomic `document.mutate` commands. The host
+   validates them and retains source evidence before accepting a new version.
+7. Author maps through `map.create/mutate` when useful; retain exact map-version
+   IDs. Images and optional trace excerpts likewise enter through resource APIs.
+8. Publish explicitly with `review.publish`, using the current document and
+   metadata versions and selected base/head map-version IDs (or `null`).
+   Inspect the returned checkpoint and any canvas diagnostics.
 
-`review info` is read-only discovery. It lists active Reviews bound to the
-current worktree, or all worktrees in the repository with `review info --all`.
-The `matchesCheckout` field reports whether the checkout equals or descends
-from each Review change. A new Review is `draft`; publishing
-sets it to `awaiting-review`. The
-reviewer submits **Approve** (`accepted`) or **Request changes**
-(`awaiting-agent-updates`), with or without comments. Dismissal sets
-`rejected`; `accepted` and `rejected` cannot be published again.
+Mutating commands require a caller-chosen UUID command ID. Reuse that ID and
+identical input after an uncertain response. For a genuine version conflict,
+refetch and reconcile before sending a new command.
 
-Use `SequenceDiagram` for temporal behavior and `DatabaseLens` only for
-meaningful persistence changes. Inline software-map blocks are disabled, but
-pinned `softwareMap` frontmatter remains required for map-backed evidence.
+Comments, feedback submission and Ask are unavailable for JSON reviews in this authoring-only version. They are deferred to the third PR in this stack.
 
-Do not use code mode, `review start`, or blocking session workflows.
+Use the bundled [authoring skill](skills/dev-review/SKILL.md) for node shapes,
+evidence rules and the full workflow. The trusted bundled tutorial may retain
+legacy rendering; old user review data is neither migrated nor deleted.

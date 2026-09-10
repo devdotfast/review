@@ -95,7 +95,10 @@ export async function readBoundedRequestJson(
   request: Request,
   maxBytes = DEFAULT_MAX_REQUEST_BYTES,
   emptyValue?: JsonValue,
-  options: { allowTextPlain?: boolean } = {},
+  options: {
+    allowTextPlain?: boolean;
+    maxBytesForValue?: (value: JsonValue) => number;
+  } = {},
 ): Promise<JsonValue> {
   assertJsonContentType(request, options);
   const contentLength = Number(request.headers.get("content-length"));
@@ -125,11 +128,15 @@ export async function readBoundedRequestJson(
 
   const body = Buffer.concat(chunks).toString("utf8");
   if (!body && emptyValue !== undefined) return emptyValue;
+  let value: JsonValue;
   try {
-    return parseJsonText(body);
+    value = parseJsonText(body);
   } catch {
     throw new HttpJsonError("Invalid JSON body.", 400);
   }
+  const operationLimit = options.maxBytesForValue?.(value) ?? maxBytes;
+  if (total > operationLimit) throw requestTooLarge(operationLimit);
+  return value;
 }
 
 function assertJsonContentType(

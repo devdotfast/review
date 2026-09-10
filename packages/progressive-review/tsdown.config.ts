@@ -32,7 +32,20 @@ export default defineConfig({
   format: "esm",
   outDir: "dist",
   fixedExtension: false,
-  dts: true,
+  dts: {
+    // Use the workspace compiler, not the TypeScript 6 runtime MDX dependency.
+    generator: "tsgo",
+    tsgo: { path: resolve(packageRoot, "../../node_modules/.bin/tsc") },
+    tsconfig: "tsconfig.build.json",
+    // Only package exports need declarations; executables remain JS-only.
+    entry: [
+      "src/authoring.ts",
+      "src/runtime.ts",
+      "src/server/desktop-server.ts",
+      "src/software-map-model.ts",
+      "src/software-map-topology-diff.ts",
+    ],
+  },
   deps: {
     alwaysBundle: [
       /^@dev\.fast\/local-vcs$/,
@@ -40,7 +53,7 @@ export default defineConfig({
       /^isomorphic-git$/,
     ],
     onlyBundle: false,
-    neverBundle: ["typescript"],
+    neverBundle: ["typescript", "sharp"],
   },
   async onSuccess() {
     await Promise.all(

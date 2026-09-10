@@ -47,9 +47,13 @@ export type HostHash = z.infer<typeof HostHashSchema>;
 export type HostOid = z.infer<typeof HostOidSchema>;
 export type HostVersion = z.infer<typeof HostVersionSchema>;
 
-const label = z.string().max(2_048).regex(/\S/, "must not be blank");
-const text = z.string().max(HOST_LIMITS.nodeBytes);
-export { label as HostLabelSchema, text as HostTextSchema };
+export const HostLabelSchema = z
+  .string()
+  .max(2_048)
+  .regex(/\S/, "must not be blank");
+export const HostTextSchema = z.string().max(HOST_LIMITS.nodeBytes);
+const label = HostLabelSchema;
+const text = HostTextSchema;
 const language = z.string().max(100);
 const ref = z
   .string()
@@ -143,7 +147,7 @@ export const HostChangeSelectorSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("jj_change"), changeId: ref, baseRef: ref }),
   z.strictObject({
     kind: z.literal("pull_request"),
-    url: z.httpUrl().max(4_096),
+    url: z.url({ protocol: /^https?$/ }).max(4_096),
   }),
   z.strictObject({ kind: z.literal("snapshot"), ref }),
 ]);
@@ -512,6 +516,7 @@ export const HostDocumentCommitSchema = z.strictObject({
   previousVersion: HostVersionSchema,
   version: HostVersionSchema,
   contentHash: HostHashSchema,
+  createdAt: HostTimeSchema,
   changedNodes: keyedRecord(HostNodeSchema, HOST_LIMITS.nodes),
   removedNodeIds: z.array(HostKeySchema).max(HOST_LIMITS.nodes),
   changedDefinitions: keyedRecord(

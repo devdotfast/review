@@ -1,8 +1,8 @@
 # Coding agents
 
 <!--
-Outline: Built-in setup -> Installed skills -> Change review -> Architecture review
--> Feedback loop -> Headless install -> Provider boundary.
+Outline: Built-in setup -> Installed skills -> API connection -> Change review
+-> Architecture review -> Feedback -> Terminal install -> Provider boundary.
 -->
 
 Review works with Claude Code, Codex, and other coding agents. The desktop app
@@ -35,11 +35,29 @@ settings.
 
 ## Installed skills
 
-- `dev-review` authors and publishes a change review or architecture review.
-- `dev-review-map` builds the base and head software maps used by the Map tab.
+- `dev-review` authors JSON nodes and publishes change or architecture reviews.
+- `dev-review-map` creates versioned base/head maps through the same host API.
 
 The authoring skill coordinates the whole workflow. In normal use, ask your
 agent for a Review instead of running the lower-level CLI commands yourself.
+
+## Connect to the host
+
+Desktop must be running. The matching CLI can call it directly:
+
+```sh
+review host capabilities
+```
+
+For MCP, configure your agent's stdio server entry to run the matching `review`
+executable with `mcp` as its argument. Setup installs skills and the CLI shim;
+it does not currently create that MCP configuration. Use the agent's own MCP
+configuration interface rather than copying guessed settings.
+
+The stdio process is a thin client of Desktop, not a second review server.
+It advertises the operations allowed by its credential. Neither CLI nor MCP
+reads review documents or comment databases directly. See the
+[CLI and API reference](cli-reference.md) for command shapes and discovery.
 
 ## Start a change review
 
@@ -76,18 +94,13 @@ Specific context produces a better Review. Tell the agent what you already
 believe, which risks you care about, and where you want sequence or database
 views.
 
-## Send feedback to the agent
+## Feedback and Ask are deferred
 
-Review threads have two modes:
+Comments, feedback submission and Ask are unavailable for JSON reviews in this authoring-only version. They are deferred to the third PR in this stack.
 
-- **Ask now** sends a question to the authoring agent immediately and keeps the
-  answer in the same thread.
-- **Add to review** holds a comment for the review decision. Choosing
-  **Request changes** sends the submitted set back for another authoring round.
-
-The agent updates the Review document, responds to the exact threads it
-addressed, and publishes another validated revision. **Approve** and dismissal
-are terminal states.
+Authors can continue updating JSON documents and publish new checkpoints. Do not
+use the retired file-backed commands as a feedback workaround. The bundled
+tutorial's attached question utility is a separate trusted legacy exception.
 
 ## Install from the terminal
 
@@ -105,7 +118,7 @@ With no target, `review install` installs every supported integration. Run
 
 ## Provider boundary
 
-Review runs locally, but a connected coding agent may send source code, prompts,
-and context to its own model provider. Review does not change that provider's
-privacy, retention, or billing terms. See [Privacy](privacy.md) for the data
-Review itself sends.
+Review runs locally, but an authoring agent may send source, prompts and context
+to its own model provider. Review does not change the provider's privacy,
+retention or billing terms. See [Privacy](privacy.md) for the data Review itself
+sends. The JSON host does not launch question agents in this version.

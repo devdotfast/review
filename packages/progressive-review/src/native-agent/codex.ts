@@ -33,6 +33,23 @@ import {
 const MATERIALIZE_TIMEOUT_MS = 60_000;
 const ASK_PERMISSIONS = "review-ask";
 
+function askPermissionsConfig(baseUrl: string): JsonObject {
+  // Enable the proxy as well as networking: domain rules alone do not prevent
+  // unrestricted direct connections. Ephemeral ports avoid proxy collisions
+  // between simultaneous Ask sessions.
+  return {
+    default_permissions: ASK_PERMISSIONS,
+    "features.network_proxy": true,
+    [`permissions.${ASK_PERMISSIONS}.extends`]: ":read-only",
+    [`permissions.${ASK_PERMISSIONS}.network.enabled`]: true,
+    [`permissions.${ASK_PERMISSIONS}.network.domains`]: {
+      [new URL(baseUrl).hostname]: "allow",
+    },
+    [`permissions.${ASK_PERMISSIONS}.network.proxy_url`]: "http://127.0.0.1:0",
+    [`permissions.${ASK_PERMISSIONS}.network.socks_url`]: "http://127.0.0.1:0",
+  };
+}
+
 interface NativeToolEnvironment {
   [name: string]: string;
 }
@@ -94,22 +111,9 @@ export class CodexAgentServer implements AgentServer {
     };
     if (pathValue) env.PATH = pathValue;
     // Ask sessions read a frozen checkout and fetch their thread from Desktop.
-    // Enable the proxy as well as networking: domain rules alone do not prevent
-    // unrestricted direct connections. Ephemeral ports avoid proxy collisions
-    // between simultaneous Ask sessions.
     const config: JsonObject = {
+      ...askPermissionsConfig(this.#desktop.baseUrl),
       "shell_environment_policy.set": env,
-      default_permissions: ASK_PERMISSIONS,
-      "features.network_proxy": true,
-      [`permissions.${ASK_PERMISSIONS}.extends`]: ":read-only",
-      [`permissions.${ASK_PERMISSIONS}.network.enabled`]: true,
-      [`permissions.${ASK_PERMISSIONS}.network.domains`]: {
-        [new URL(this.#desktop.baseUrl).hostname]: "allow",
-      },
-      [`permissions.${ASK_PERMISSIONS}.network.proxy_url`]:
-        "http://127.0.0.1:0",
-      [`permissions.${ASK_PERMISSIONS}.network.socks_url`]:
-        "http://127.0.0.1:0",
     };
     let threadId: string;
     if (!input.session) {
@@ -424,6 +428,9 @@ export function server(
 ): AgentServer {
   return new CodexAgentServer(
     options,
-    options.host ?? new CodexAppServerHost(),
+    options.host ??
+      new CodexAppServerHost(
+        askPermissionsConfig(options.desktopEndpoint.baseUrl),
+      ),
   );
 }

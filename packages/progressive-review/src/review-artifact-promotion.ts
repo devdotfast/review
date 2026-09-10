@@ -3,10 +3,19 @@ import path from "node:path";
 
 import { isMissingFileError } from "./native-agent/transcript-json";
 
-export async function promoteReviewArtifactFiles(input: {
+/** The database and the two sidecars a checkpointed upgrade retires with it. */
+const THREAD_DATABASE_FILES = ["review.db", "review.db-wal", "review.db-shm"];
+
+/**
+ * Swaps a Review's own legacy thread database for the upgraded copy `review
+ * repair` built in isolation, keeping the original until the swap is done.
+ *
+ * The last file-level promotion in the Review directory: publication bytes
+ * live in the content-addressed artifact store, which is never overwritten.
+ */
+export async function promoteLegacyThreadDatabase(input: {
   reviewDir: string;
   candidateDir: string;
-  upgradeThreadDatabase?: boolean;
 }): Promise<void> {
   const staging = await mkdtemp(
     path.join(
@@ -19,40 +28,29 @@ export async function promoteReviewArtifactFiles(input: {
   try {
     await mkdir(prepared);
     await mkdir(backup);
-    for (const name of [".bundle", ".git"]) {
-      await cp(path.join(input.candidateDir, name), path.join(prepared, name), {
-        recursive: true,
-      });
-    }
-    if (input.upgradeThreadDatabase)
-      await cp(
-        path.join(input.candidateDir, "review.db"),
-        path.join(prepared, "review.db"),
-      );
+    await cp(
+      path.join(input.candidateDir, "review.db"),
+      path.join(prepared, "review.db"),
+    );
   } catch (error) {
     await rm(staging, { recursive: true, force: true });
     throw error;
   }
-  await commitReviewArtifactPromotion({
+  await commitLegacyThreadDatabasePromotion({
     reviewDir: input.reviewDir,
     stagingDir: staging,
-    upgradeThreadDatabase: input.upgradeThreadDatabase,
   });
 }
 
-export async function commitReviewArtifactPromotion(input: {
+export async function commitLegacyThreadDatabasePromotion(input: {
   reviewDir: string;
   stagingDir: string;
-  upgradeThreadDatabase?: boolean;
 }): Promise<void> {
   const prepared = path.join(input.stagingDir, "prepared");
   const backup = path.join(input.stagingDir, "backup");
   const replacements: Array<{ name: string; hadOriginal: boolean }> = [];
-  const replacementNames = [".bundle", ".git"];
-  if (input.upgradeThreadDatabase)
-    replacementNames.push("review.db", "review.db-wal", "review.db-shm");
   try {
-    for (const name of replacementNames) {
+    for (const name of THREAD_DATABASE_FILES) {
       let hadOriginal = true;
       try {
         await rename(path.join(input.reviewDir, name), path.join(backup, name));
@@ -63,14 +61,14 @@ export async function commitReviewArtifactPromotion(input: {
       replacements.push({ name, hadOriginal });
       // The upgraded database is checkpointed; retire its old WAL/SHM
       // together with the database and restore all three on failure.
-      if (name !== "review.db-wal" && name !== "review.db-shm")
+      if (name === "review.db")
         await rename(
           path.join(prepared, name),
           path.join(input.reviewDir, name),
         );
     }
   } catch (error) {
-    await rollbackReviewArtifactPromotion({
+    await rollbackLegacyThreadDatabasePromotion({
       reviewDir: input.reviewDir,
       stagingDir: input.stagingDir,
       replacements,
@@ -80,7 +78,7 @@ export async function commitReviewArtifactPromotion(input: {
   await rm(input.stagingDir, { recursive: true, force: true });
 }
 
-export async function rollbackReviewArtifactPromotion(input: {
+export async function rollbackLegacyThreadDatabasePromotion(input: {
   reviewDir: string;
   stagingDir: string;
   replacements: Array<{ name: string; hadOriginal: boolean }>;

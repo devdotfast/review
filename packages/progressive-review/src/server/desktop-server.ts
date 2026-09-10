@@ -143,7 +143,7 @@ import {
   requireCompletedAgentResponsesForRepublish,
 } from "../review-publish-thread-gate";
 import { clearReopenPending, markReopenPending } from "../review-reopen-marker";
-import { ReviewRepairReadyRequestSchema } from "../review-repair-state";
+import type { ReviewRepairCandidate } from "../review-repair-preparation";
 import { runReviewScaffold } from "../review-scaffold";
 import {
   deleteReviewState,
@@ -1293,12 +1293,6 @@ export function createGlobalReviewServer(
       ),
     ),
   );
-  app.post("/repair-ready", async (context) => {
-    const request = ReviewRepairReadyRequestSchema.parse(
-      await readBoundedRequestJson(context.req.raw),
-    );
-    return globalJson(201, await completeReviewRepair(request));
-  });
   app.get("/events", (context) => openGlobalEvents(context));
   app.get("/control", (context) => openControlEvents(context));
   app.post("/control/result", async (context) => {
@@ -1446,14 +1440,12 @@ export function createGlobalReviewServer(
     return parsed.success ? (parsed.data.timings ?? []) : [];
   }
 
-  async function completeReviewRepair(
-    request: ReturnType<typeof ReviewRepairReadyRequestSchema.parse>,
-  ) {
-    const review = await findReviewForRepair(request.reviewUuid);
+  async function completeReviewRepair(candidate: ReviewRepairCandidate) {
+    const review = await findReviewForRepair(candidate.reviewUuid);
     if (!review) throw new ReviewServerError("Review not found.", 404);
     return promoteReviewRepair({
       review,
-      request,
+      candidate,
       sessions,
       registerSerialized,
       withReviewLock,
@@ -1462,7 +1454,7 @@ export function createGlobalReviewServer(
       closeSession: (session, reason) => closeSession(session, reason, false),
       broadcast: broadcastGlobal,
       onPromoted: () => {
-        threadServices.delete(request.reviewUuid);
+        threadServices.delete(candidate.reviewUuid);
       },
     });
   }

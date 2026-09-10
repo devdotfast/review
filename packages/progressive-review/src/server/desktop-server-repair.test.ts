@@ -1,16 +1,8 @@
-import {
-  cp,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 
 import {
   type JsonObject,
@@ -20,6 +12,7 @@ import {
   ReviewThreadsSnapshotResponseSchema,
   type ReviewVerbResponse,
   jsonObject,
+  jsonString,
 } from "@dev.fast/review-protocol";
 import { afterEach, expect, it, vi } from "vitest";
 
@@ -33,12 +26,16 @@ import {
   writeReviewDocumentBundle,
 } from "../review-bundle";
 import { createReviewDir, readStoredReview } from "../review-home";
-import { prepareReviewRepair } from "../review-repair-preparation";
+import { parsePublicationRecord } from "../review-publication-record";
+import { fingerprintReviewRepairInputs } from "../review-repair-state";
 import {
-  type ReviewRepairReadyRequest,
-  fingerprintReviewRepairInputs,
-} from "../review-repair-state";
-import { deleteReviewState, putReviewRecord } from "../review-state-db";
+  type ReviewPublicationRow,
+  deleteReviewState,
+  listPublications,
+  putReviewRecord,
+  readLegacyArtifactImport,
+  readReviewRecord,
+} from "../review-state-db";
 import { appendReviewCommentDraft } from "../review-state-store";
 import {
   checkReviewThreadDbVersion,
@@ -83,13 +80,19 @@ const packageRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../..",
 );
-/** `sealedDocument: "broken"` seals JavaScript that cannot be converted, so
- * the Review is only reachable through repair; `"json"` seals a readable v2
- * bundle, so its Git-era publication imports on the first read. */
-async function fixture(
-  schemaVersion: 4 | 6 = 4,
-  sealedDocument: "broken" | "json" = "broken",
-) {
+
+interface FixtureOptions {
+  schemaVersion?: 4 | 5 | 6;
+  /** `"broken"` seals JavaScript that cannot be converted, so the Review is
+   * only reachable through repair; `"json"` seals a readable v2 bundle. */
+  sealedDocument?: "broken" | "json";
+  /** Read the Review once, so its Git-era publication becomes a row. */
+  imported?: boolean;
+}
+
+async function fixture(options: FixtureOptions = {}) {
+  const schemaVersion = options.schemaVersion ?? 4;
+  const sealedDocument = options.sealedDocument ?? "broken";
   root = await mkdtemp(path.join(tmpdir(), "repair-server-"));
   vi.stubEnv("DEV_REVIEW_HOME", root);
   const source = path.join(root, "source");
@@ -109,7 +112,7 @@ async function fixture(
     schemaVersion,
     status: "accepted",
     lastPublishedAt: "2026-09-01T00:00:00Z",
-    dismissedAt: schemaVersion === 4 ? "2026-09-01T01:00:00Z" : null,
+    dismissedAt: schemaVersion === 6 ? null : "2026-09-01T01:00:00Z",
     viewedAt: "2026-09-01T00:01:00Z",
   };
   if (sealedDocument === "broken") {
@@ -127,16 +130,7 @@ async function fixture(
   } else {
     await writeReviewDocumentBundle(
       stored.dir,
-      bundleReviewDocument({
-        format: "review-document/1",
-        title: "Keep title",
-        routePath: "/",
-        sourcePath: "review.mdx",
-        body: [],
-        anchors: {},
-        anchorContents: {},
-        softwareModels: [],
-      }),
+      publishedDocument("Keep title"),
     );
   }
   await writeFile(path.join(stored.dir, "review.json"), JSON.stringify(record));
@@ -149,58 +143,7 @@ async function fixture(
     JSON.stringify({ ...record, presentedDocumentRevision: oldRevision }),
   );
   deleteReviewState(stored.dir);
-  // A readable sealed document imports on the first read, which rewrites the
-  // record mirror; the repair guard has to be taken after that.
-  if (sealedDocument === "json") await readStoredReview(stored.dir);
-  const expectedRecord = await readFile(
-    path.join(stored.dir, "review.json"),
-    "utf8",
-  );
-  const expectedFingerprint = await fingerprintReviewRepairInputs(stored.dir);
-  const stagingDir = path.join(root, "stage");
-  await cp(stored.dir, stagingDir, { recursive: true });
-  const normalized = {
-    ...record,
-    schemaVersion: 6,
-    presentedDocumentRevision: oldRevision,
-  };
-  await writeFile(
-    path.join(stagingDir, "review.json"),
-    JSON.stringify(normalized),
-  );
-  await writeReviewDocumentBundle(
-    stagingDir,
-    bundleReviewDocument({
-      format: "review-document/1",
-      title: "Repaired",
-      routePath: "/",
-      sourcePath: "review.mdx",
-      body: [],
-      anchors: {},
-      anchorContents: {},
-      softwareModels: [],
-    }),
-  );
-  const newDocumentRevision = await sealLegacyReviewCommit(
-    stagingDir,
-    "Repair current Review document",
-  );
-  await writeFile(
-    path.join(stagingDir, "review.json"),
-    JSON.stringify({
-      ...normalized,
-      presentedDocumentRevision: newDocumentRevision,
-    }),
-  );
-  const request: ReviewRepairReadyRequest = {
-    reviewUuid: record.uuid,
-    stagingDir,
-    expectedRecord,
-    expectedFingerprint,
-    newDocumentRevision,
-    newMapRevision: null,
-    sourceFallback: { document: false, map: false },
-  };
+  if (options.imported) await readStoredReview(stored.dir);
   const visible = await createReviewDir({
     worktreePath: source,
     baseRef: "main",
@@ -208,19 +151,7 @@ async function fixture(
     sourceCommit: commit,
     title: "Visible review",
   });
-  await writeReviewDocumentBundle(
-    visible.dir,
-    bundleReviewDocument({
-      format: "review-document/1",
-      title: "Visible",
-      routePath: "/",
-      sourcePath: "review.mdx",
-      body: [],
-      anchors: {},
-      anchorContents: {},
-      softwareModels: [],
-    }),
-  );
+  await writeReviewDocumentBundle(visible.dir, publishedDocument("Visible"));
   const visibleRevision = await sealLegacyReviewCommit(
     visible.dir,
     "Review publish candidate",
@@ -247,10 +178,7 @@ async function fixture(
     relay: recordingRelay(),
   });
   await server.listen();
-  const post = (
-    route: string,
-    body: ReviewRepairReadyRequest | ReviewThreadsCommand | JsonObject,
-  ) =>
+  const post = (route: string, body: ReviewThreadsCommand | JsonObject) =>
     fetch(`${server.url}${route}`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-review-token": token },
@@ -262,18 +190,61 @@ async function fixture(
     }).then((response) => response.json());
   const get = (route: string) =>
     fetch(`${server.url}${route}`, { headers: { "x-review-token": token } });
-  return { stored, record, request, server, post, list, visible, get };
+  const repair = () =>
+    post("/lifecycle/repair", {
+      cwd: stored.review.worktreePath,
+      reviewUuid: stored.review.uuid,
+    });
+  return {
+    stored,
+    record,
+    oldRevision,
+    server,
+    post,
+    list,
+    visible,
+    get,
+    repair,
+  };
 }
 
-// "live-change" and "stage-change" outcomes are gone with the thread-database
-// guard they exercised: reading a Review now imports its threads into the
-// shared home database, so repair no longer upgrades a per-review legacy one
-// in isolation. `review-repair.test.ts` still covers that upgrade and its
-// preparation-time guard for a Review repaired before it is ever read.
+function publishedDocument(title: string) {
+  return bundleReviewDocument({
+    format: "review-document/1",
+    title,
+    routePath: "/",
+    sourcePath: "review.mdx",
+    body: [],
+    anchors: {},
+    anchorContents: {},
+    softwareModels: [],
+  });
+}
+
+function documentRows(reviewDir: string): ReviewPublicationRow[] {
+  return listPublications(reviewDir, "document");
+}
+
+/** A refused repair may leave the content-addressed bytes it installed while
+ * preparing; nothing references them, so they are not part of "unchanged". */
+async function snapshotWithoutArtifacts(dir: string) {
+  return Object.fromEntries(
+    Object.entries(await snapshotReviewTree(dir)).filter(
+      ([name]) => !name.startsWith("artifacts/"),
+    ),
+  );
+}
+
+function presentedDocument(reviewDir: string): string | undefined {
+  return jsonString(
+    jsonObject(readReviewRecord(reviewDir))?.presentedDocumentRevision,
+  );
+}
+
 it.each(["success", "mount-failure"])(
   "repairs an unconvertible sealed document only after mount validation: %s",
   async (outcome) => {
-    const { stored, server, post, get } = await fixture();
+    const { stored, server, post, repair, get } = await fixture();
     const reviewPath = path.join(stored.dir, "review.mdx");
     appendReviewCommentDraft(reviewPath, {
       threadId: "preserved-draft",
@@ -287,16 +258,8 @@ it.each(["success", "mount-failure"])(
     // Reading is what migrates this Review's metadata and threads; its sealed
     // document cannot be converted, so it stays a repair candidate.
     expect("error" in (await readStoredReview(stored.dir))).toBe(true);
-    const prepared = await prepareReviewRepair({ reviewDir: stored.dir });
-    if (prepared.kind !== "prepared") throw new Error("Expected legacy repair");
-    // Preparing reads the Review, which migrates its thread database in
-    // place, so repair has no isolated legacy upgrade of its own left to do.
-    expect(prepared.request.expectedThreadDbFingerprint).toBeUndefined();
-    checkReviewThreadDbVersion(reviewPath);
-    expect(prepared.request.sourceFallback.document).toBe(true);
-    // Preparation reads the Review, which migrates its threads first, so the
-    // "nothing else changed" baseline is the tree it leaves behind.
-    const before = await snapshotReviewTree(stored.dir);
+    expect(documentRows(stored.dir)).toEqual([]);
+    const before = await snapshotWithoutArtifacts(stored.dir);
     let validated = false;
     dispatchVerb = async (sessionId, value) => {
       if (jsonObject(value)?.name !== "validateCanvasMount")
@@ -312,30 +275,45 @@ it.each(["success", "mount-failure"])(
       expect(Object.keys(snapshot.snapshot.drafts)).toEqual([
         "preserved-draft",
       ]);
-      const duringMount = await snapshotReviewTree(stored.dir);
-      expect(
-        Object.fromEntries(
-          Object.entries(duringMount).filter(
-            ([name]) => !name.startsWith(".build/"),
-          ),
-        ),
-      ).toEqual(before);
+      // Nothing is committed until the mount is clean.
+      expect(documentRows(stored.dir)).toEqual([]);
       validated = true;
       return outcome === "mount-failure"
         ? { ok: false, error: "test mount failure" }
         : { ok: true };
     };
     try {
-      const response = await post("/repair-ready", prepared.request);
+      const success = outcome === "success";
+      const response = await repair();
       expect(validated).toBe(true);
-      expect(response.status).toBe(outcome === "success" ? 201 : 422);
-      if (outcome !== "success") {
-        await expectReviewTree(stored.dir, before);
-        return;
-      }
+      // A refused mount leaves the Review exactly as it found it; a committed
+      // one adds the two rows the import and the rebuild contribute.
+      expect({
+        status: response.status,
+        rows: documentRows(stored.dir).length,
+        treeUnchanged: isDeepStrictEqual(
+          await snapshotWithoutArtifacts(stored.dir),
+          before,
+        ),
+      }).toEqual(
+        success
+          ? { status: 200, rows: 2, treeUnchanged: false }
+          : { status: 422, rows: 0, treeUnchanged: true },
+      );
+      if (!success) return;
+      const result = await response.json();
       checkReviewThreadDbVersion(reviewPath);
-      const { sessionId } = await response.json();
-      const prefix = `/sessions/${sessionId}/__progressive-review`;
+      // The unconvertible revision keeps a row of its own; the repair row
+      // beside it carries the rebuilt bytes and takes the pointer.
+      const rows = documentRows(stored.dir);
+      expect(rows.map((row) => row.operation)).toEqual(["repair", "publish"]);
+      expect(rows[0]?.publicationId).toBe(result.newDocumentRevision);
+      expect(presentedDocument(stored.dir)).toBe(result.newDocumentRevision);
+      expect(result.sourceFallback).toEqual({ document: true, map: false });
+      expect(readLegacyArtifactImport(stored.dir)).toMatchObject({
+        versions: 1,
+      });
+      const prefix = `/sessions/${result.sessionId}/__progressive-review`;
       const snapshot = ReviewThreadsSnapshotResponseSchema.parse(
         await (await get(`${prefix}/comments`)).json(),
       );
@@ -356,13 +334,112 @@ it.each(["success", "mount-failure"])(
       expect(created.status).toBe(200);
     } finally {
       await server.close();
-      await prepared.cleanup();
     }
   },
 );
 
+it("adds exactly one repair row when the stored document bytes are lost", async () => {
+  const { stored, server, repair } = await fixture({
+    schemaVersion: 6,
+    sealedDocument: "json",
+    imported: true,
+  });
+  try {
+    const before = documentRows(stored.dir);
+    expect(before).toHaveLength(1);
+    await rm(path.join(stored.dir, "artifacts"), {
+      recursive: true,
+      force: true,
+    });
+    const response = await repair();
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    const after = documentRows(stored.dir);
+    expect(after).toHaveLength(2);
+    // The publication the repair replaces is untouched, byte for byte.
+    expect(after[1]).toEqual(before[0]);
+    expect(after[0]?.operation).toBe("repair");
+    expect(after[0]?.previousPublicationId).toBe(before[0]?.publicationId);
+    expect(after[0]?.publicationId).toBe(result.newDocumentRevision);
+    expect(result.oldDocumentRevision).toBe(before[0]?.publicationId);
+    expect(presentedDocument(stored.dir)).toBe(result.newDocumentRevision);
+    // Repair replaces bytes, never the diff a presentation was published on.
+    const previous = parsePublicationRecord(before[0]!.record);
+    const repaired = parsePublicationRecord(after[0]!.record);
+    expect(repaired.baseCommit).toBe(previous.baseCommit);
+    expect(repaired.sourceCommit).toBe(previous.sourceCommit);
+  } finally {
+    await server.close();
+  }
+});
+
+it.each([4, 5] as const)(
+  "imports a schema-%i history into rows before repairing it",
+  async (schemaVersion) => {
+    const { stored, server, oldRevision, repair } = await fixture({
+      schemaVersion,
+      sealedDocument: "json",
+    });
+    try {
+      const response = await repair();
+      expect(response.status).toBe(200);
+      const result = await response.json();
+      // The Git-era publication becomes a row keyed by its own commit, and a
+      // healthy JSON document needs no replacement beside it.
+      expect(documentRows(stored.dir).map((row) => row.publicationId)).toEqual([
+        oldRevision,
+      ]);
+      expect(result.newDocumentRevision).toBe(oldRevision);
+      expect(jsonObject(readReviewRecord(stored.dir))).toMatchObject({
+        schemaVersion: 6,
+        dismissedAt: "2026-09-01T01:00:00Z",
+        viewedAt: "2026-09-01T00:01:00Z",
+        status: "accepted",
+      });
+    } finally {
+      await server.close();
+    }
+  },
+);
+
+// The other promotion-time guard — a write to a Review's own legacy thread
+// database between prepare and promote — is covered directly in
+// `review-repair.test.ts`: mounting a session migrates those threads into the
+// shared database, so the desktop flow never carries the isolated upgrade.
+it("refuses a repair whose authoring inputs move before promotion", async () => {
+  const { stored, server, repair } = await fixture();
+  try {
+    expect("error" in (await readStoredReview(stored.dir))).toBe(true);
+    dispatchVerb = async (_sessionId, value) => {
+      if (jsonObject(value)?.name === "validateCanvasMount")
+        await writeFile(
+          path.join(stored.dir, "data.ts"),
+          "export const concurrent = true;\n",
+        );
+      return { ok: true };
+    };
+    const presentedBefore = presentedDocument(stored.dir);
+    const response = await repair();
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ ok: false });
+    expect(documentRows(stored.dir)).toEqual([]);
+    expect(presentedDocument(stored.dir)).toBe(presentedBefore);
+  } finally {
+    await server.close();
+  }
+});
+
 it("switches repaired comments to live snapshots for resynchronization after promotion", async () => {
-  const { stored, record, request, server, post, get } = await fixture(6);
+  const { stored, record, oldRevision, server, post, get, repair } =
+    await fixture({
+      schemaVersion: 6,
+      sealedDocument: "json",
+      imported: true,
+    });
+  await rm(path.join(stored.dir, "artifacts"), {
+    recursive: true,
+    force: true,
+  });
   const comment = (index: number): ReviewThreadsCommand => ({
     command: "comment.create",
     mutationId: `repair-message-${index}`,
@@ -376,7 +453,6 @@ it("switches repaired comments to live snapshots for resynchronization after pro
   const validationReads: Array<{ writeStatus: number; revision: number }> = [];
   dispatchVerb = async (sessionId, value) => {
     if (jsonObject(value)?.name !== "validateCanvasMount") return { ok: true };
-    const before = await snapshotReviewTree(stored.dir);
     const prefix = `/sessions/${sessionId}/__progressive-review`;
     const snapshot = ReviewThreadsSnapshotResponseSchema.parse(
       await (await get(`${prefix}/comments`)).json(),
@@ -387,12 +463,11 @@ it("switches repaired comments to live snapshots for resynchronization after pro
       writeStatus: blocked.status,
       revision: snapshot.snapshot.revision,
     });
-    expect(await snapshotReviewTree(stored.dir)).toEqual(before);
     return { ok: true };
   };
   try {
-    const repaired = await post("/repair-ready", request);
-    expect(repaired.status).toBe(201);
+    const repaired = await repair();
+    expect(repaired.status).toBe(200);
     expect(validationReads).toEqual([{ writeStatus: 409, revision: 0 }]);
     const { sessionId } = await repaired.json();
     const prefix = `/sessions/${sessionId}/__progressive-review`;
@@ -429,11 +504,10 @@ it("switches repaired comments to live snapshots for resynchronization after pro
     expect(revisions).toEqual([1, 2, 3]);
 
     const historical = await post(`/reviews/${record.uuid}/open`, {
-      revision: JSON.parse(request.expectedRecord).presentedDocumentRevision,
+      revision: oldRevision,
     });
     expect(historical.status).toBe(201);
     const historicalPrefix = `/sessions/${(await historical.json()).sessionId}/__progressive-review`;
-    const beforeHistoricalRead = await snapshotReviewTree(stored.dir);
     const historicalSnapshot = ReviewThreadsSnapshotResponseSchema.parse(
       await (await get(`${historicalPrefix}/comments`)).json(),
     );
@@ -442,7 +516,6 @@ it("switches repaired comments to live snapshots for resynchronization after pro
     expect(
       (await post(`${historicalPrefix}/thread-commands`, comment(4))).status,
     ).toBe(409);
-    expect(await snapshotReviewTree(stored.dir)).toEqual(beforeHistoricalRead);
   } finally {
     await server.close();
   }
@@ -451,22 +524,23 @@ it("switches repaired comments to live snapshots for resynchronization after pro
 it.each([true, false])(
   "replaces only the repaired current-schema session when mount succeeds: %s",
   async (mountSucceeds) => {
-    const { stored, record, request, server, post, list, get } = await fixture(
-      6,
-      "json",
-    );
+    const { stored, record, server, post, list, get, repair } = await fixture({
+      schemaVersion: 6,
+      sealedDocument: "json",
+      imported: true,
+    });
     dispatchVerb = async (_sessionId, value) =>
       jsonObject(value)?.name === "validateCanvasMount" && !mountSucceeds
         ? { ok: false, error: "test mount failure" }
         : { ok: true };
     try {
-      // Reading imports the Git-era publication; dropping the stored bytes
-      // afterwards leaves a row whose document needs republishing.
-      await readStoredReview(stored.dir);
+      // Dropping the stored bytes leaves a row whose document needs
+      // republishing until repair rebuilds it.
       await rm(path.join(stored.dir, "artifacts"), {
         recursive: true,
         force: true,
       });
+      const before = documentRows(stored.dir);
       const opened = await post(`/reviews/${record.uuid}/open`, {});
       expect(opened.status).toBe(201);
       const old = await opened.json();
@@ -477,67 +551,29 @@ it.each([true, false])(
       expect(await document.json()).toMatchObject({
         detail: { code: "needs_republish" },
       });
-      const response = await post("/repair-ready", request);
+      const response = await repair();
       const result = await response.json();
-      expect(response.status).toBe(mountSucceeds ? 201 : 422);
+      expect(response.status).toBe(mountSucceeds ? 200 : 422);
       expect(
         (await list()).items.map(
           (session: { sessionId: string }) => session.sessionId,
         ),
       ).toEqual([mountSucceeds ? result.sessionId : old.sessionId]);
-      const expectedRecord = JSON.parse(request.expectedRecord);
-      if (mountSucceeds)
-        expectedRecord.presentedDocumentRevision = request.newDocumentRevision;
-      expect(
-        JSON.parse(
-          await readFile(path.join(stored.dir, "review.json"), "utf8"),
-        ),
-      ).toEqual(expectedRecord);
-      expect(
-        (await fingerprintReviewRepairInputs(stored.dir)) ===
-          request.expectedFingerprint,
-      ).toBe(!mountSucceeds);
+      expect(documentRows(stored.dir)).toHaveLength(mountSucceeds ? 2 : 1);
+      expect(presentedDocument(stored.dir)).toBe(
+        mountSucceeds ? result.newDocumentRevision : before[0]?.publicationId,
+      );
     } finally {
       await server.close();
     }
   },
 );
 
-it.each([
-  "success",
-  "mount-failure",
-  "concurrent-edit",
-  "changed-pins",
-  "staging-link",
-] as const)(
+it.each(["success", "mount-failure"] as const)(
   "repair server preserves lifecycle and visible session on %s",
   async (outcome) => {
-    const { stored, record, request, server, post, list, visible, get } =
+    const { stored, record, server, post, list, visible, get, repair } =
       await fixture();
-    if (outcome === "changed-pins") {
-      const recordPath = path.join(request.stagingDir, "review.json");
-      const finalRecord = JSON.parse(await readFile(recordPath, "utf8"));
-      await writeFile(
-        recordPath,
-        JSON.stringify({ ...finalRecord, baseCommit: "f".repeat(40) }),
-      );
-      request.newDocumentRevision = await sealLegacyReviewCommit(
-        request.stagingDir,
-        "Bad changed pins",
-      );
-      await writeFile(
-        recordPath,
-        JSON.stringify({
-          ...finalRecord,
-          presentedDocumentRevision: request.newDocumentRevision,
-        }),
-      );
-    }
-    if (outcome === "staging-link") {
-      const index = path.join(request.stagingDir, ".git", "index");
-      await rm(index);
-      await symlink("HEAD", index);
-    }
     const validationReads: Array<{ status: number; record: string }> = [];
     dispatchVerb = async (sessionId, value) => {
       if (jsonObject(value)?.name === "validateCanvasMount") {
@@ -550,11 +586,6 @@ it.each([
         });
         if (outcome === "mount-failure")
           return { ok: false, error: "test mount failure" };
-        if (outcome === "concurrent-edit")
-          await writeFile(
-            path.join(stored.dir, "data.ts"),
-            "export const concurrent = true;\n",
-          );
       }
       return { ok: true };
     };
@@ -567,43 +598,27 @@ it.each([
       const opened = await post(`/reviews/${visible.review.uuid}/open`, {});
       expect(opened.status).toBe(201);
       const old = await opened.json();
-      const response = await post("/repair-ready", request);
+      const recordBefore = await readFile(
+        path.join(stored.dir, "review.json"),
+        "utf8",
+      );
+      const fingerprintBefore = await fingerprintReviewRepairInputs(stored.dir);
+      const response = await repair();
       const result = await response.json();
       const success = outcome === "success";
-      expect(validationReads).toEqual(
-        outcome === "changed-pins" || outcome === "staging-link"
-          ? []
-          : [{ status: 200, record: request.expectedRecord }],
-      );
-      const errorMessage = expect.any(String);
-      expect(response.status).toBe(
-        success
-          ? 201
-          : outcome === "mount-failure" || outcome === "changed-pins"
-            ? 422
-            : 400,
-      );
+      expect(validationReads).toEqual([{ status: 200, record: recordBefore }]);
+      expect(response.status).toBe(success ? 200 : 422);
       expect(result).toMatchObject(
-        success
-          ? {
-              ok: true,
-              status: "accepted",
-              newDocumentRevision: request.newDocumentRevision,
-            }
-          : { ok: false, error: errorMessage },
+        success ? { ok: true, status: "accepted", noop: false } : { ok: false },
       );
-      expect(
-        JSON.parse(
-          await readFile(path.join(stored.dir, "review.json"), "utf8"),
-        ),
-      ).toEqual(
+      expect(jsonObject(readReviewRecord(stored.dir))).toMatchObject(
         success
           ? {
-              ...JSON.parse(request.expectedRecord),
               schemaVersion: 6,
-              presentedDocumentRevision: request.newDocumentRevision,
+              status: "accepted",
+              presentedDocumentRevision: result.newDocumentRevision,
             }
-          : JSON.parse(request.expectedRecord),
+          : { status: "accepted", schemaVersion: 4 },
       );
       expect(
         (await list()).items.map(
@@ -615,21 +630,13 @@ it.each([
         ),
       );
       expect((await list()).items).toHaveLength(success ? 2 : 1);
-      if (outcome === "concurrent-edit")
-        await writeFile(path.join(stored.dir, "data.ts"), "export {};\n");
+      // A committed repair refreshes the record mirror; a refused one leaves
+      // every fingerprinted input exactly as it found it.
       expect(
-        (await fingerprintReviewRepairInputs(stored.dir)) ===
-          request.expectedFingerprint,
+        (await fingerprintReviewRepairInputs(stored.dir)) === fingerprintBefore,
       ).toBe(!success);
     } finally {
       await server.close();
     }
   },
 );
-
-async function expectReviewTree(
-  dir: string,
-  expected: Awaited<ReturnType<typeof snapshotReviewTree>>,
-) {
-  expect(await snapshotReviewTree(dir)).toEqual(expected);
-}

@@ -33,11 +33,12 @@ import {
 } from "../review-publication-staging";
 import type { PublishReporter } from "../review-publish";
 import type { ReviewRebindJsonOutput, runReviewRebind } from "../review-rebind";
-import { prepareReviewRepair } from "../review-repair-preparation";
-import type {
-  ReviewRepairReadyRequest,
-  ReviewRepairReadyResponse,
-} from "../review-repair-state";
+import {
+  type ReviewRepairCandidate,
+  prepareReviewRepair,
+  repairSourceFallback,
+} from "../review-repair-preparation";
+import type { ReviewRepairReadyResponse } from "../review-repair-state";
 import { repinReview } from "../review-scaffold";
 import { readPublication } from "../review-state-db";
 import { resolveReviewRoot } from "../runtime";
@@ -63,7 +64,7 @@ export function agentEnvironment(
 export async function repairReview(
   request: { cwd: string; reviewUuid: string },
   complete: (
-    request: ReviewRepairReadyRequest,
+    candidate: ReviewRepairCandidate,
   ) => Promise<ReviewRepairReadyResponse>,
 ) {
   const review = await findScopedReview(request.reviewUuid, {
@@ -92,14 +93,14 @@ export async function repairReview(
     };
   try {
     return {
-      ...(await complete(prepared.request)),
+      ...(await complete(prepared.candidate)),
       noop: false,
       reviewUuid: request.reviewUuid,
       warnings,
-      sourceFallback: prepared.request.sourceFallback,
+      sourceFallback: repairSourceFallback(prepared.candidate),
     };
   } finally {
-    await prepared.cleanup();
+    await prepared.candidate.cleanup();
   }
 }
 

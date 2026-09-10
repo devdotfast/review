@@ -16,6 +16,7 @@ import { errorMessage } from "./error-message";
 import {
   evaluateSealedReviewDocument,
   legacySoftwareMapBundle,
+  prepareSavedMapNotes,
   readSealedMapManifestPins,
 } from "./legacy-sealed-artifacts";
 import { isMissingFileError } from "./native-agent/transcript-json";
@@ -42,7 +43,6 @@ import {
   publicationIdFor,
 } from "./review-publication-record";
 import { stageReviewDocumentPublication } from "./review-publication-staging";
-import { prepareSavedMapNotes } from "./review-repair-preparation";
 import { assertNoActiveReviewAgentWrites } from "./review-repair-state";
 import {
   type ReviewPublicationKind,
@@ -134,6 +134,13 @@ export interface PlanLegacyReviewArtifactImportInput {
   warn?: (message: string) => void;
   activeDocumentFallback?: LegacyDocumentFallback;
   activeMapFallback?: LegacyMapFallback;
+  /**
+   * Whether to fold a still-legacy per-review thread database into the shared
+   * home database before planning. Defaults to true. `review repair` sets it
+   * false: it upgrades that database in isolation and imports it only when
+   * the repair is promoted, so planning must not touch it.
+   */
+  importThreads?: boolean;
 }
 
 export interface ImportLegacyReviewArtifactsInput {
@@ -189,7 +196,7 @@ export async function planLegacyReviewArtifactImport(
   const reviewDir = path.resolve(input.reviewDir);
   const home = input.home ?? reviewHomeForDir(reviewDir);
   ensureReviewRegistration(reviewDir, home);
-  importLegacyReview(reviewDir, home);
+  if (input.importThreads !== false) importLegacyReview(reviewDir, home);
   const active = input.record.presentedDocumentRevision;
   // A record whose pointer already answers to a row needs no history read.
   const activeIsPublication =

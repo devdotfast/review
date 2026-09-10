@@ -283,6 +283,8 @@ export async function activateReviewPublication(
   input: ActivationInput,
 ): Promise<ActivationResult> {
   const reviewDir = path.resolve(input.reviewDir);
+  if (input.candidates.length === 0)
+    throw new Error("An activation needs at least one candidate.");
   const candidates = orderedCandidates(input.candidates);
   const home = input.home ?? reviewHomeForDir(reviewDir);
   return withReviewMutationLock(reviewDir, async () => {
@@ -380,14 +382,27 @@ function assertActivationGuard(
   }
 }
 
+/**
+ * Builds the publication rows for prepared candidates: content-derived IDs,
+ * per-kind chaining from the presented rows, and the map/document cross-pin
+ * checks. Exported so `review repair` can commit them in the same transaction
+ * as the rows a pending legacy import replays.
+ */
+export function buildActivationCandidateRows(
+  tx: ReviewStateTransaction,
+  reviewDir: string,
+  latest: StoredReviewRecord,
+  candidates: readonly ActivationCandidate[],
+): PreparedPublicationRow[] {
+  return candidateRows(tx, reviewDir, latest, orderedCandidates(candidates));
+}
+
 /** The map first, so the document of the same call can pair with it. */
 const ACTIVATION_ORDER: readonly ReviewPublicationKind[] = ["map", "document"];
 
 function orderedCandidates(
   candidates: readonly ActivationCandidate[],
 ): ActivationCandidate[] {
-  if (candidates.length === 0)
-    throw new Error("An activation needs at least one candidate.");
   const ordered: ActivationCandidate[] = [];
   for (const kind of ACTIVATION_ORDER) {
     const matching = candidates.filter((candidate) => candidate.kind === kind);

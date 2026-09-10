@@ -2,6 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { readNote, remoteNotesRef } from "@dev.fast/local-vcs";
 import {
   type JsonObject,
   jsonObject,
@@ -11,10 +12,12 @@ import {
 
 import { isMissingFileError } from "./native-agent/transcript-json";
 import { evaluateReviewDocumentBundleForPublish } from "./review-publish-evaluate";
+import { SOFTWARE_MAP_NOTES_REF } from "./review-storage";
 import {
   type ReviewSoftwareMapBundle,
   bundleReviewSoftwareMap,
 } from "./software-map-bundle";
+import { checkSoftwareMapSource } from "./software-map-health";
 import {
   type NormalizedSoftwareModel,
   isNormalizedSoftwareModel,
@@ -150,4 +153,56 @@ export async function readSealedMapManifestPins(
   )
     return undefined;
   return { baseCommit, headCommit };
+}
+
+export interface SavedMapNotesInput {
+  rootPath: string;
+  baseCommit: string;
+  headCommit: string;
+}
+
+/**
+ * Rebuilds a software-map bundle from the map notes saved against a pair of
+ * pinned commits. The last resort for both the legacy import and `review
+ * repair` when a Git-era sealed map cannot be converted at all.
+ */
+export async function prepareSavedMapNotes(
+  input: SavedMapNotesInput,
+): Promise<ReviewSoftwareMapBundle> {
+  const load = async (commit: string, role: "base" | "head") => {
+    const source =
+      (await readNote({
+        rootPath: input.rootPath,
+        ref: SOFTWARE_MAP_NOTES_REF,
+        commit,
+      })) ??
+      (await readNote({
+        rootPath: input.rootPath,
+        ref: remoteNotesRef(SOFTWARE_MAP_NOTES_REF),
+        commit,
+      }));
+    if (source === null)
+      throw new Error(
+        `No saved software map note at ${role} commit ${commit}; author and validate that pinned map before retrying repair.`,
+      );
+    const checked = await checkSoftwareMapSource({
+      repoRootPath: input.rootPath,
+      commit,
+      source,
+      sourceName: `repair-${role}-map.ts`,
+    });
+    if (!checked.model || checked.errors.length)
+      throw new Error(
+        checked.errors.join("; ") || `Invalid saved ${role} map.`,
+      );
+    return checked.model;
+  };
+  const base = await load(input.baseCommit, "base");
+  const head = await load(input.headCommit, "head");
+  return bundleReviewSoftwareMap({
+    base,
+    head,
+    baseCommit: input.baseCommit,
+    headCommit: input.headCommit,
+  });
 }

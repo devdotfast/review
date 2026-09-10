@@ -1,47 +1,63 @@
 import { existsSync } from "node:fs";
-import { cp, lstat, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { readNote, remoteNotesRef } from "@dev.fast/local-vcs";
 import {
   REVIEW_SCHEMA_VERSION,
+  jsonNumber,
   jsonObject,
-  jsonString,
   parseJsonText,
 } from "@dev.fast/review-protocol";
 
 import { errorMessage as message } from "./error-message";
 import {
+  type LegacyImportPlan,
+  type LegacyImportSourceFallback,
+  type PlanLegacyReviewArtifactImportInput,
+  planLegacyReviewArtifactImport,
+} from "./legacy-review-import";
+import {
   evaluateSealedReviewDocument,
   legacySoftwareMapBundle,
-  readSealedMapManifestPins,
+  prepareSavedMapNotes,
 } from "./legacy-sealed-artifacts";
 import { isMissingFileError } from "./native-agent/transcript-json";
-import { REVIEW_ARTIFACTS_DIR } from "./review-artifact-store";
 import {
+  installReviewArtifact,
+  readReviewDocumentArtifact,
+  readReviewSoftwareMapArtifact,
+} from "./review-artifact-store";
+import {
+  type ReviewDocumentBundle,
   bundleReviewDocument,
   readReviewDocumentBundle,
-  writeReviewDocumentBundle,
 } from "./review-bundle";
 import { createLegacyCodeRecordMigrator } from "./review-code-target-migration";
-import { isDerivedReviewPath } from "./review-derived-paths";
 import {
   type StoredReviewRecord,
-  allowsAbsentSoftwareMap,
   materializeReviewRevision,
   parseAnyStoredReviewRecord,
-  sealReviewCandidate,
 } from "./review-home";
 import { stableJson, withReviewMutationLock } from "./review-mutation-lock";
-import { prepareReviewDocumentBundle } from "./review-publication-preparation";
+import type {
+  DocumentActivationCandidate,
+  MapActivationCandidate,
+} from "./review-publication-activation";
 import {
-  type ReviewRepairReadyRequest,
+  type DocumentPublicationRecord,
+  type MapPublicationRecord,
+  type ReviewPublicationRecord,
+  type SourceContext,
+  parsePublicationRecord,
+  publicationSourceContext,
+} from "./review-publication-record";
+import { stageReviewDocumentPublication } from "./review-publication-staging";
+import {
   assertNoActiveReviewAgentWrites,
   fingerprintReviewRepairInputs,
 } from "./review-repair-state";
-import { readReviewRecord } from "./review-state-db";
-import { SOFTWARE_MAP_NOTES_REF } from "./review-storage";
+import { readPublication, readReviewRecord } from "./review-state-db";
 import {
   type ReviewThreadDbMigrationOptions,
   copyReviewThreadDatabaseSnapshot,
@@ -50,219 +66,281 @@ import {
   readReviewThreadDatabaseFingerprint,
   reviewThreadDbPath,
 } from "./review-thread-store-backend";
-import { writePrivateJsonAtomic } from "./server/desktop-paths";
 import {
-  bundleReviewSoftwareMap,
+  type ReviewSoftwareMapBundle,
   readReviewSoftwareMapBundle,
-  writeReviewSoftwareMapBundle,
+  softwareMapArtifactBytes,
 } from "./software-map-bundle";
-import { checkSoftwareMapSource } from "./software-map-health";
+
+/** The presented document already answers to a row whose stored artifact
+ * reads back, or — for a legacy import — to a row the import plan carries. */
+export interface ReviewRepairDocumentUnchanged {
+  kind: "unchanged";
+  publicationId: string;
+}
+
+/** Rebuilt document bytes and the row that will present them. */
+export interface ReviewRepairDocumentReplacement {
+  kind: "replace";
+  candidate: DocumentActivationCandidate;
+  bundle: ReviewDocumentBundle;
+  usedEditableSources: boolean;
+}
+
+export type ReviewRepairDocument =
+  | ReviewRepairDocumentUnchanged
+  | ReviewRepairDocumentReplacement;
+
+/** The presented map needs no new row; `null` when none is presented. */
+export interface ReviewRepairMapUnchanged {
+  kind: "unchanged";
+  publicationId: string | null;
+}
+
+export interface ReviewRepairMapReplacement {
+  kind: "replace";
+  candidate: MapActivationCandidate;
+  bundle: ReviewSoftwareMapBundle;
+  usedEditableSources: boolean;
+}
+
+/** Only a schema that predates the required software map may end up with no
+ * map at all after a repair. */
+export interface ReviewRepairMapDropped {
+  kind: "drop-absent";
+}
+
+export type ReviewRepairMap =
+  | ReviewRepairMapUnchanged
+  | ReviewRepairMapReplacement
+  | ReviewRepairMapDropped;
+
+/** A directory holding only the upgraded copy of a Review's own legacy
+ * `review.db`; promotion swaps it in with a backup. */
+export interface ReviewRepairThreadDatabase {
+  dir: string;
+}
+
+/**
+ * Everything a repair would commit, built without writing to the Review.
+ *
+ * Replacement artifacts are installed during preparation — the artifact store
+ * is content-addressed and excluded from the authoring fingerprint, so a
+ * refused repair leaves at most unreferenced bytes behind.
+ */
+export interface ReviewRepairCandidate {
+  reviewUuid: string;
+  /** The stored record text the activation guards against. */
+  expectedRecordJson: string;
+  expectedAuthoringFingerprint: string;
+  /** Armed only when this repair owns an isolated legacy thread upgrade. */
+  expectedThreadDbFingerprint?: string;
+  upgradedThreadDb?: ReviewRepairThreadDatabase;
+  storedSchemaVersion: number;
+  /** Present when the repair replays a Git-era history into rows first. */
+  legacyImport?: LegacyImportPlan;
+  document: ReviewRepairDocument;
+  map: ReviewRepairMap;
+  next: StoredReviewRecord;
+  cleanup: () => Promise<void>;
+}
 
 export type PreparedReviewRepair =
   | { kind: "noop"; review: StoredReviewRecord }
   | {
       kind: "prepared";
-      request: ReviewRepairReadyRequest;
       review: StoredReviewRecord;
-      cleanup: () => Promise<void>;
+      candidate: ReviewRepairCandidate;
     };
+
+/** Which presentations were rebuilt from editable sources rather than the
+ * bytes the publication recorded. */
+export function repairSourceFallback(
+  candidate: ReviewRepairCandidate,
+): LegacyImportSourceFallback {
+  const legacy = candidate.legacyImport?.sourceFallback;
+  return {
+    document:
+      candidate.document.kind === "replace"
+        ? candidate.document.usedEditableSources
+        : (legacy?.document ?? false),
+    map:
+      candidate.map.kind === "replace"
+        ? candidate.map.usedEditableSources
+        : (legacy?.map ?? false),
+  };
+}
 
 interface ReviewRepairSnapshot {
   review: StoredReviewRecord;
   documentRevision: string;
-  expectedRecord: string;
-  expectedFingerprint: string;
-  schemaVersion: number;
+  expectedRecordJson: string;
+  expectedAuthoringFingerprint: string;
+  storedSchemaVersion: number;
+  /** Set only while the Review still owns an isolated legacy thread database. */
   threadDbFingerprint?: string;
 }
 
-interface RepairedDocument {
-  changed: boolean;
-  usedEditableSources: boolean;
-  /** The record sealed alongside the presented document. */
-  presentedRecord: StoredReviewRecord;
-}
-
-interface MapPins {
-  baseCommit: string;
-  headCommit: string | null;
-}
-
-interface RepairedMap {
-  changed: boolean;
-  usedEditableSources: boolean;
-  /** Null only when a legacy schema legitimately drops an absent map. */
-  revision: string | null;
-  presentedRecord: StoredReviewRecord;
-  pins: MapPins;
-}
-
-/** Only the isolated snapshot is writable. Promotion belongs to the repair
- * completer. */
+/** Nothing under the Review directory is written except content-addressed
+ * artifacts; promotion is the only writer of rows, pointers and files. */
 export async function prepareReviewRepair(input: {
   reviewDir: string;
   warning?: (message: string) => void;
 }): Promise<PreparedReviewRepair> {
+  const reviewDir = path.resolve(input.reviewDir);
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "review-repair-"));
-  const stagingDir = path.join(temporaryRoot, "candidate");
   const cleanup = () => rm(temporaryRoot, { recursive: true, force: true });
   try {
-    const snapshot = await snapshotReviewForRepair(input.reviewDir, stagingDir);
-    const { review } = snapshot;
-    const threadDbMigration: ReviewThreadDbMigrationOptions = {
-      preserveLegacyQuestions: true,
-    };
-    if (review.sourceCommit)
-      threadDbMigration.migrateLegacyCodeRecord =
-        createLegacyCodeRecordMigrator({
-          rootPath: review.worktreePath,
-          baseCommit: review.baseCommit,
-          headCommit: review.sourceCommit,
-        });
-    const threadDbUpgraded =
-      snapshot.threadDbFingerprint !== undefined &&
-      (await migrateReviewThreadDb(
-        path.join(stagingDir, "review.mdx"),
-        threadDbMigration,
-      )) === "upgraded";
-    const document = await repairPresentedDocument({
-      reviewDir: input.reviewDir,
-      stagingDir,
+    const snapshot = await snapshotReviewForRepair(reviewDir);
+    const upgradedThreadDb = await upgradeLegacyThreadDatabase({
+      reviewDir,
       temporaryRoot,
-      review,
-      revision: snapshot.documentRevision,
-      warning: input.warning,
+      review: snapshot.review,
+      armed: snapshot.threadDbFingerprint !== undefined,
     });
-    const presentedMapRevision = review.presentedSoftwareMapRevision;
-    const map: RepairedMap = presentedMapRevision
-      ? await repairPresentedMap({
-          stagingDir,
+    const plan = await planLegacyImport(snapshot, reviewDir, input.warning);
+    const parts = plan
+      ? importedParts(plan, snapshot.review.presentedSoftwareMapRevision)
+      : await rebuildPresentations({
+          reviewDir,
           temporaryRoot,
-          review,
-          revision: presentedMapRevision,
-          documentRecord: document.presentedRecord,
-          allowAbsentMap: allowsAbsentSoftwareMap(snapshot),
+          snapshot,
           warning: input.warning,
-        })
-      : unchangedPresentedMap(document);
+        });
+    if (
+      (await fingerprintReviewRepairInputs(reviewDir)) !==
+      snapshot.expectedAuthoringFingerprint
+    )
+      throw new Error(
+        "Review authoring changed while preparing repair. Retry after active writes finish.",
+      );
     if (
       snapshot.threadDbFingerprint !== undefined &&
       readReviewThreadDatabaseFingerprint(
-        path.join(input.reviewDir, "review.mdx"),
+        path.join(reviewDir, "review.mdx"),
       ) !== snapshot.threadDbFingerprint
     )
       throw new Error(
         "Review threads changed while preparing repair; retry after active writes finish.",
       );
     if (
-      !document.changed &&
-      !map.changed &&
-      !threadDbUpgraded &&
-      map.revision === presentedMapRevision &&
-      snapshot.schemaVersion === REVIEW_SCHEMA_VERSION
+      plan === null &&
+      upgradedThreadDb === undefined &&
+      parts.document.kind === "unchanged" &&
+      parts.map.kind === "unchanged" &&
+      snapshot.storedSchemaVersion === REVIEW_SCHEMA_VERSION
     ) {
       await cleanup();
-      return { kind: "noop", review };
+      return { kind: "noop", review: snapshot.review };
     }
-    const { documentRevision, mapRevision } = await sealRepairedPresentations({
-      stagingDir,
-      review,
-      documentRevision: snapshot.documentRevision,
-      presentedMapRevision,
-      document,
-      map,
-    });
-    const request: ReviewRepairReadyRequest = {
-      reviewUuid: review.uuid,
-      stagingDir,
-      expectedRecord: snapshot.expectedRecord,
-      expectedFingerprint: snapshot.expectedFingerprint,
-      newDocumentRevision: documentRevision,
-      newMapRevision: mapRevision,
-      sourceFallback: {
-        document: document.usedEditableSources,
-        map: map.usedEditableSources,
-      },
+    const candidate: ReviewRepairCandidate = {
+      reviewUuid: snapshot.review.uuid,
+      expectedRecordJson: snapshot.expectedRecordJson,
+      expectedAuthoringFingerprint: snapshot.expectedAuthoringFingerprint,
+      storedSchemaVersion: snapshot.storedSchemaVersion,
+      document: parts.document,
+      map: parts.map,
+      next: plan ? plan.next : nextRecord(snapshot.review),
+      cleanup,
     };
-    if (threadDbUpgraded)
-      request.expectedThreadDbFingerprint = snapshot.threadDbFingerprint;
-    return { kind: "prepared", review, cleanup, request };
+    if (plan) candidate.legacyImport = plan;
+    if (upgradedThreadDb) {
+      candidate.upgradedThreadDb = upgradedThreadDb;
+      // The upgrade only runs when the snapshot armed the guard, so the
+      // fingerprint it recorded is the one promotion must still see.
+      candidate.expectedThreadDbFingerprint = snapshot.threadDbFingerprint;
+    }
+    return { kind: "prepared", review: snapshot.review, candidate };
   } catch (error) {
     await cleanup();
     throw error;
   }
 }
 
-function unchangedPresentedMap(document: RepairedDocument): RepairedMap {
+/**
+ * The record a repair on a Review already carried by rows leaves behind. Only
+ * the schema version can move here: the activation overwrites the pointer of
+ * every presentation it replaces, and a dropped map only ever comes from a
+ * legacy import, whose own `next` already states both pointers.
+ */
+function nextRecord(review: StoredReviewRecord): StoredReviewRecord {
+  return { ...review, schemaVersion: REVIEW_SCHEMA_VERSION };
+}
+
+interface RepairedPresentations {
+  document: ReviewRepairDocument;
+  map: ReviewRepairMap;
+}
+
+/** A legacy import owns every row it replays, including the editable-source
+ * rebuild of a presentation it could not convert, so the repair adds no rows
+ * of its own beside it. */
+function importedParts(
+  plan: LegacyImportPlan,
+  presentedMapRevision: string | null,
+): RepairedPresentations {
+  if (plan.activeDocumentId === null)
+    throw new Error(
+      "This Review has no current presentation. Run review publish instead.",
+    );
   return {
-    changed: false,
-    usedEditableSources: false,
-    revision: null,
-    presentedRecord: document.presentedRecord,
-    pins: {
-      baseCommit: document.presentedRecord.baseCommit,
-      headCommit: document.presentedRecord.sourceCommit,
-    },
+    document: { kind: "unchanged", publicationId: plan.activeDocumentId },
+    map:
+      plan.activeMapId === null && presentedMapRevision !== null
+        ? { kind: "drop-absent" }
+        : { kind: "unchanged", publicationId: plan.activeMapId },
   };
 }
 
-/** Seals map first, document second, then leaves the final candidate record. */
-async function sealRepairedPresentations(input: {
-  stagingDir: string;
-  review: StoredReviewRecord;
-  documentRevision: string;
-  presentedMapRevision: string | null;
-  document: RepairedDocument;
-  map: RepairedMap;
-}): Promise<{ documentRevision: string; mapRevision: string | null }> {
-  let mapRevision = input.map.revision;
-  if (input.map.changed) {
-    await writePrivateJsonAtomic(path.join(input.stagingDir, "review.json"), {
-      ...input.review,
-      ...sealedPins(input.map.presentedRecord),
-      baseCommit: input.map.pins.baseCommit,
-      sourceCommit: input.map.pins.headCommit,
-      presentedSoftwareMapRevision: input.presentedMapRevision,
-    });
-    mapRevision = await sealReviewCandidate(
-      input.stagingDir,
-      "Repair current Review software map",
-    );
-  }
-  let documentRevision = input.documentRevision;
-  if (input.document.changed) {
-    await writePrivateJsonAtomic(path.join(input.stagingDir, "review.json"), {
-      ...input.review,
-      ...sealedPins(input.document.presentedRecord),
-      presentedSoftwareMapRevision: mapRevision,
-    });
-    documentRevision = await sealReviewCandidate(
-      input.stagingDir,
-      "Repair current Review document",
-    );
-  }
-  await writePrivateJsonAtomic(path.join(input.stagingDir, "review.json"), {
-    ...input.review,
-    presentedDocumentRevision: documentRevision,
-    presentedSoftwareMapRevision: mapRevision,
-  });
-  return { documentRevision, mapRevision };
+/**
+ * State A: the presented document does not answer to a publication row, or the
+ * record still carries a Git-era schema, so the repair replays the private
+ * history into rows first. `null` once every publication is already a row —
+ * the same test `readStoredReview` uses to decide a Review needs importing.
+ */
+async function planLegacyImport(
+  snapshot: ReviewRepairSnapshot,
+  reviewDir: string,
+  warning?: (message: string) => void,
+): Promise<LegacyImportPlan | null> {
+  if (
+    snapshot.storedSchemaVersion === REVIEW_SCHEMA_VERSION &&
+    readPublication(reviewDir, snapshot.documentRevision, "document") !== null
+  )
+    return null;
+  const input: PlanLegacyReviewArtifactImportInput = {
+    reviewDir,
+    record: snapshot.review,
+    original: storedRecordObject(snapshot.expectedRecordJson),
+    activeDocumentFallback: "editable-source",
+    activeMapFallback: "saved-map-notes",
+    // The isolated thread upgrade this repair may own must not be folded into
+    // the shared database until the repair is promoted.
+    importThreads: false,
+  };
+  if (warning) input.warn = warning;
+  const plan = await planLegacyReviewArtifactImport(input);
+  return "imported" in plan ? null : plan;
 }
 
-/** Copies the review into an isolated candidate under the mutation lock and
- * proves nothing moved while the copy ran. Only the copy is writable. */
+function storedRecordObject(recordJson: string) {
+  const value = jsonObject(parseJsonText(recordJson));
+  if (!value) throw new Error("The stored Review record is not an object.");
+  return value;
+}
+
+/** Reads what a repair is built from under the mutation lock and proves the
+ * authoring tree did not move while it read. */
 async function snapshotReviewForRepair(
   reviewDir: string,
-  stagingDir: string,
 ): Promise<ReviewRepairSnapshot> {
   return withReviewMutationLock(reviewDir, async () => {
-    await assertIsolatedRepairInternals(reviewDir);
-    await assertNoActiveReviewAgentWrites(reviewDir);
-    const expectedValue = readReviewRecord(reviewDir);
-    if (expectedValue === null)
+    assertNoActiveReviewAgentWrites(reviewDir);
+    const stored = readReviewRecord(reviewDir);
+    if (stored === null)
       throw new Error(`No Review record found for ${reviewDir}.`);
-    const expectedRecord = stableJson(expectedValue);
-    const review = parseAnyStoredReviewRecord(expectedValue);
+    const expectedRecordJson = stableJson(stored);
+    const review = parseAnyStoredReviewRecord(stored);
     if (review.uuid !== path.basename(reviewDir))
       throw new Error("Review UUID does not match its storage directory.");
     const documentRevision = review.presentedDocumentRevision;
@@ -270,311 +348,310 @@ async function snapshotReviewForRepair(
       throw new Error(
         "This Review has no current presentation. Run review publish instead.",
       );
-    const expectedFingerprint = await fingerprintReviewRepairInputs(reviewDir);
-    await cp(reviewDir, stagingDir, {
-      recursive: true,
-      filter: (source) => {
-        const top = path.relative(reviewDir, source).split(path.sep)[0] ?? "";
-        return top !== REVIEW_ARTIFACTS_DIR && !isDerivedReviewPath(top);
-      },
-    });
-    await assertIsolatedRepairInternals(stagingDir);
-    if (
-      (await fingerprintReviewRepairInputs(reviewDir)) !== expectedFingerprint
-    )
-      throw new Error(
-        "Review authoring changed while preparing repair. Retry after active writes finish.",
-      );
-    const reviewMdxPath = path.join(reviewDir, "review.mdx");
-    const copied = existsSync(reviewThreadDbPath(reviewMdxPath))
-      ? copyReviewThreadDatabaseSnapshot(
-          reviewMdxPath,
-          path.join(stagingDir, "review.mdx"),
-        )
-      : undefined;
+    const expectedAuthoringFingerprint =
+      await fingerprintReviewRepairInputs(reviewDir);
+    const snapshot: ReviewRepairSnapshot = {
+      review,
+      documentRevision,
+      expectedRecordJson,
+      expectedAuthoringFingerprint,
+      storedSchemaVersion:
+        jsonNumber(jsonObject(stored)?.schemaVersion) ?? REVIEW_SCHEMA_VERSION,
+    };
     // The guard covers the isolated upgrade of a Review's own legacy thread
     // database. Once its threads live in the shared home database, that
     // database's bytes move for reasons unrelated to this Review, so
     // fingerprinting it would refuse repairs at random.
-    const threadDbFingerprint =
+    const reviewMdxPath = path.join(reviewDir, "review.mdx");
+    if (
       reviewThreadDbPath(reviewMdxPath) ===
       legacyReviewThreadDbPath(reviewMdxPath)
-        ? copied
-        : undefined;
-    return {
-      review,
-      documentRevision,
-      expectedRecord,
-      expectedFingerprint,
-      schemaVersion: Number(jsonObject(expectedValue)?.schemaVersion),
-      threadDbFingerprint,
-    };
+    )
+      snapshot.threadDbFingerprint =
+        readReviewThreadDatabaseFingerprint(reviewMdxPath);
+    return snapshot;
   });
 }
 
-/** Sealed document metadata retains the presentation's pinned source, even
- * when editable record pins have moved since its publication. */
-function sealedPins(record: StoredReviewRecord) {
-  return {
-    baseRef: record.baseRef,
-    baseCommit: record.baseCommit,
-    sourceCommit: record.sourceCommit,
-    sourceIdentity: record.sourceIdentity,
-  };
-}
-
-/** Writes the repaired document bundle into the candidate. Falls back to the
- * editable review.mdx/data.ts only when the sealed bundle cannot be read. */
-async function repairPresentedDocument(input: {
+/** Copies the Review's own legacy thread database into the scratch directory
+ * and upgrades the copy. The live database is never opened for writing. */
+async function upgradeLegacyThreadDatabase(input: {
   reviewDir: string;
-  stagingDir: string;
   temporaryRoot: string;
   review: StoredReviewRecord;
-  revision: string;
-  warning?: (message: string) => void;
-}): Promise<RepairedDocument> {
-  const documentDir = path.join(input.temporaryRoot, "document");
-  let presentedRecord = input.review;
-  try {
-    await materializeReviewRevision(
-      input.stagingDir,
-      input.revision,
-      documentDir,
-    );
-    presentedRecord = parseAnyStoredReviewRecord(
-      parseJsonText(
-        await readFile(path.join(documentDir, "review.json"), "utf8"),
-      ),
-    );
-    const candidateBundle = await readReviewDocumentBundle(documentDir, "/");
-    if (candidateBundle) {
-      await writeReviewDocumentBundle(input.stagingDir, candidateBundle);
-      return { changed: false, usedEditableSources: false, presentedRecord };
-    }
-    const evaluated = await evaluateSealedReviewDocument(
-      documentDir,
-      input.warning,
-    );
-    await writeReviewDocumentBundle(
-      input.stagingDir,
-      bundleReviewDocument(evaluated.document),
-    );
-    return { changed: true, usedEditableSources: false, presentedRecord };
-  } catch (error) {
-    input.warning?.(
-      `Sealed document conversion failed: ${message(error)}. Using editable review.mdx/data.ts; reconcile unpublished edits without changing the Review's meaning. Validation does not prove semantic equivalence.`,
-    );
-    try {
-      await readFile(path.join(input.stagingDir, "review.mdx"), "utf8").catch(
-        (cause) => {
-          if (isMissingFileError(cause)) {
-            throw new Error(
-              `Missing editable Review input: ${path.join(input.reviewDir, "review.mdx")}. Restore that source file before retrying repair.`,
-            );
-          }
-          throw cause;
-        },
-      );
-      const sourceReview = {
-        ...input.review,
-        ...sealedPins(presentedRecord),
-      };
-      await writePrivateJsonAtomic(
-        path.join(input.stagingDir, "review.json"),
-        sourceReview,
-      );
-      const prepared = await prepareReviewDocumentBundle({
-        review: {
-          dir: input.stagingDir,
-          review: sourceReview,
-        },
-      });
-      await writeReviewDocumentBundle(input.stagingDir, prepared.bundle);
-      for (const warning of prepared.warnings) input.warning?.(warning);
-    } catch (fallbackError) {
-      throw new Error(
-        `Document repair failed. Sealed input: ${message(error)}. Editable input: ${message(fallbackError).replaceAll(input.stagingDir, input.reviewDir)}`,
-      );
-    }
-    return { changed: true, usedEditableSources: true, presentedRecord };
-  }
+  armed: boolean;
+}): Promise<ReviewRepairThreadDatabase | undefined> {
+  if (!input.armed) return undefined;
+  const dir = path.join(input.temporaryRoot, "threads");
+  await mkdir(dir, { recursive: true });
+  copyReviewThreadDatabaseSnapshot(
+    path.join(input.reviewDir, "review.mdx"),
+    path.join(dir, "review.mdx"),
+  );
+  const options: ReviewThreadDbMigrationOptions = {
+    preserveLegacyQuestions: true,
+  };
+  if (input.review.sourceCommit)
+    options.migrateLegacyCodeRecord = createLegacyCodeRecordMigrator({
+      rootPath: input.review.worktreePath,
+      baseCommit: input.review.baseCommit,
+      headCommit: input.review.sourceCommit,
+    });
+  const result = await migrateReviewThreadDb(
+    path.join(dir, "review.mdx"),
+    options,
+  );
+  return result === "upgraded" ? { dir } : undefined;
 }
 
-/** Writes the repaired software-map bundle into the candidate. Falls back to
- * validated saved map notes only when the sealed map cannot be converted. */
-async function repairPresentedMap(input: {
-  stagingDir: string;
+interface RebuildInput {
+  reviewDir: string;
   temporaryRoot: string;
-  review: StoredReviewRecord;
-  revision: string;
-  documentRecord: StoredReviewRecord;
-  allowAbsentMap: boolean;
+  snapshot: ReviewRepairSnapshot;
   warning?: (message: string) => void;
-}): Promise<RepairedMap> {
-  const mapDir = path.join(input.temporaryRoot, "map");
-  let presentedRecord = input.documentRecord;
-  let pins: MapPins = {
-    baseCommit: presentedRecord.baseCommit,
-    headCommit: presentedRecord.sourceCommit,
-  };
-  let sealedError: unknown;
-  let materialized = false;
-  try {
-    await materializeReviewRevision(input.stagingDir, input.revision, mapDir);
-    presentedRecord = parseAnyStoredReviewRecord(
-      parseJsonText(await readFile(path.join(mapDir, "review.json"), "utf8")),
-    );
-    pins = {
-      baseCommit: presentedRecord.baseCommit,
-      headCommit: presentedRecord.sourceCommit,
-    };
-    materialized = true;
-  } catch (error) {
-    sealedError = error;
-  }
-  if (materialized) {
-    const manifestPins = await readSealedMapManifestPins(mapDir);
-    if (manifestPins) {
-      if (
-        manifestPins.baseCommit !== pins.baseCommit ||
-        manifestPins.headCommit !== pins.headCommit
-      ) {
-        throw new Error(
-          "Presented software-map manifest pins contradict its sealed Review record; reconcile this presentation before repair.",
+}
+
+/** State B: every publication is a row, so a repair only has to replace the
+ * presentations whose artifact bytes no longer read back. */
+async function rebuildPresentations(
+  input: RebuildInput,
+): Promise<RepairedPresentations> {
+  const document = await repairPresentedDocument(input);
+  const context =
+    document.kind === "replace"
+      ? document.candidate.context
+      : publicationSourceContext(
+          documentRecordOf(input.reviewDir, input.snapshot.documentRevision),
         );
-      }
-      pins = manifestPins;
+  const map = await repairPresentedMap(input, context);
+  return { document, map };
+}
+
+function documentRecordOf(
+  reviewDir: string,
+  publicationId: string,
+): DocumentPublicationRecord {
+  const row = readPublication(reviewDir, publicationId, "document");
+  const record = row ? parsePublicationRecord(row.record) : null;
+  if (record?.kind !== "document")
+    throw new Error(
+      `Publication ${publicationId} is not a Review document; run review migrate apply first.`,
+    );
+  return record;
+}
+
+/** The bytes a Git-era publication sealed, when its commit is still on disk. */
+async function sealedRevisionDir(
+  reviewDir: string,
+  temporaryRoot: string,
+  record: ReviewPublicationRecord,
+  role: string,
+): Promise<string | null> {
+  const commit = record.legacy?.commit;
+  if (!commit || !existsSync(path.join(reviewDir, ".git"))) return null;
+  const dir = path.join(temporaryRoot, `${role}-${commit}`);
+  await materializeReviewRevision(reviewDir, commit, dir);
+  return dir;
+}
+
+async function repairPresentedDocument(
+  input: RebuildInput,
+): Promise<ReviewRepairDocument> {
+  const publicationId = input.snapshot.documentRevision;
+  const record = documentRecordOf(input.reviewDir, publicationId);
+  if (
+    record.artifact.state === "stored" &&
+    (await readReviewDocumentArtifact(input.reviewDir, record.artifact.hash))
+  )
+    return { kind: "unchanged", publicationId };
+  let sealedFailure = `The published Review document artifact of ${publicationId} is unavailable.`;
+  try {
+    const dir = await sealedRevisionDir(
+      input.reviewDir,
+      input.temporaryRoot,
+      record,
+      "document",
+    );
+    if (dir) {
+      const bundle =
+        (await readReviewDocumentBundle(dir, "/")) ??
+        bundleReviewDocument(
+          (await evaluateSealedReviewDocument(dir, input.warning)).document,
+        );
+      return {
+        kind: "replace",
+        candidate: await documentCandidate(input.reviewDir, record, bundle, {
+          title: record.title,
+          titleSource: record.titleSource,
+        }),
+        bundle,
+        usedEditableSources: false,
+      };
     }
-    try {
-      const candidateBundle = await readReviewSoftwareMapBundle(mapDir);
-      if (candidateBundle) {
-        await writeReviewSoftwareMapBundle(input.stagingDir, candidateBundle);
-        return {
-          changed: false,
-          usedEditableSources: false,
-          revision: input.revision,
-          presentedRecord,
-          pins,
-        };
-      }
-      const legacyBundle = await legacySoftwareMapBundle(mapDir);
-      if (legacyBundle) {
-        await writeReviewSoftwareMapBundle(input.stagingDir, legacyBundle);
-        return {
-          changed: true,
-          usedEditableSources: false,
-          revision: input.revision,
-          presentedRecord,
-          pins,
-        };
-      }
-      if (input.allowAbsentMap) {
-        return {
-          changed: false,
-          usedEditableSources: false,
-          revision: null,
-          presentedRecord,
-          pins,
-        };
-      }
-      throw new Error("The presented software map is missing.");
-    } catch (error) {
-      sealedError = error;
-    }
+  } catch (error) {
+    sealedFailure = message(error);
   }
   input.warning?.(
-    `Sealed software map conversion failed: ${message(sealedError)}. Validating saved map notes at the current presentation's pinned commits.`,
+    `Sealed document conversion failed: ${sealedFailure}. Using editable review.mdx/data.ts; reconcile unpublished edits without changing the Review's meaning. Validation does not prove semantic equivalence.`,
   );
   try {
-    const headCommit = pins.headCommit;
+    await requireEditableDocumentSource(input.reviewDir);
+    const staged = await stageReviewDocumentPublication({
+      review: {
+        dir: input.reviewDir,
+        review: {
+          ...input.snapshot.review,
+          ...publicationSourceContext(record),
+        },
+      },
+    });
+    for (const warning of staged.warnings) input.warning?.(warning);
+    return {
+      kind: "replace",
+      candidate: await documentCandidate(
+        input.reviewDir,
+        record,
+        staged.bundle,
+        staged.title === undefined
+          ? { title: record.title, titleSource: record.titleSource }
+          : { title: staged.title, titleSource: "document" },
+      ),
+      bundle: staged.bundle,
+      usedEditableSources: true,
+    };
+  } catch (fallbackError) {
+    throw new Error(
+      `Document repair failed. Sealed input: ${sealedFailure}. Editable input: ${message(fallbackError)}`,
+    );
+  }
+}
+
+async function requireEditableDocumentSource(reviewDir: string): Promise<void> {
+  await readFile(path.join(reviewDir, "review.mdx"), "utf8").catch((error) => {
+    if (isMissingFileError(error))
+      throw new Error(
+        `Missing editable Review input: ${path.join(reviewDir, "review.mdx")}. Restore that source file before retrying repair.`,
+      );
+    throw error;
+  });
+}
+
+interface RepairedDocumentTitle {
+  title: string;
+  titleSource: DocumentPublicationRecord["titleSource"];
+}
+
+/** A repaired document keeps its predecessor's pinned code context: repair
+ * replaces bytes, never the diff a presentation was published against. */
+async function documentCandidate(
+  reviewDir: string,
+  previous: DocumentPublicationRecord,
+  bundle: ReviewDocumentBundle,
+  title: RepairedDocumentTitle,
+): Promise<DocumentActivationCandidate> {
+  const installed = await installReviewArtifact(
+    reviewDir,
+    "document",
+    bundle.json,
+  );
+  return {
+    kind: "document",
+    artifactHash: installed.hash,
+    title: title.title,
+    titleSource: title.titleSource,
+    context: publicationSourceContext(previous),
+    operation: "repair",
+  };
+}
+
+async function repairPresentedMap(
+  input: RebuildInput,
+  context: SourceContext,
+): Promise<ReviewRepairMap> {
+  const publicationId = input.snapshot.review.presentedSoftwareMapRevision;
+  if (publicationId === null) return { kind: "unchanged", publicationId: null };
+  const row = readPublication(input.reviewDir, publicationId, "map");
+  const parsed = row ? parsePublicationRecord(row.record) : null;
+  const record = parsed?.kind === "map" ? parsed : null;
+  if (
+    record?.artifact.state === "stored" &&
+    (await readReviewSoftwareMapArtifact(input.reviewDir, record.artifact.hash))
+  )
+    return { kind: "unchanged", publicationId };
+  let sealedFailure = `The published software map ${publicationId} is unavailable.`;
+  try {
+    const bundle = record ? await sealedMapBundle(input, record) : null;
+    if (bundle)
+      return {
+        kind: "replace",
+        candidate: await mapCandidate(input.reviewDir, bundle, context),
+        bundle,
+        usedEditableSources: false,
+      };
+  } catch (error) {
+    sealedFailure = message(error);
+  }
+  input.warning?.(
+    `Sealed software map conversion failed: ${sealedFailure}. Validating saved map notes at the current presentation's pinned commits.`,
+  );
+  try {
+    const headCommit = context.sourceCommit;
     if (!headCommit)
       throw new Error(
         "The current map presentation has no pinned head commit.",
       );
     const bundle = await prepareSavedMapNotes({
-      rootPath: input.review.worktreePath,
-      baseCommit: pins.baseCommit,
+      rootPath: input.snapshot.review.worktreePath,
+      baseCommit: context.baseCommit,
       headCommit,
     });
-    await writeReviewSoftwareMapBundle(input.stagingDir, bundle);
+    return {
+      kind: "replace",
+      candidate: await mapCandidate(input.reviewDir, bundle, context),
+      bundle,
+      usedEditableSources: true,
+    };
   } catch (fallbackError) {
     throw new Error(
-      `Software map repair failed. Sealed input: ${message(sealedError)}. Saved map notes: ${message(fallbackError)}`,
+      `Software map repair failed. Sealed input: ${sealedFailure}. Saved map notes: ${message(fallbackError)}`,
     );
   }
+}
+
+/** `null` when the sealed revision holds no software map at all. */
+async function sealedMapBundle(
+  input: RebuildInput,
+  record: MapPublicationRecord,
+): Promise<ReviewSoftwareMapBundle | null> {
+  const dir = await sealedRevisionDir(
+    input.reviewDir,
+    input.temporaryRoot,
+    record,
+    "map",
+  );
+  if (!dir) return null;
+  return (
+    (await readReviewSoftwareMapBundle(dir)) ??
+    (await legacySoftwareMapBundle(dir))
+  );
+}
+
+async function mapCandidate(
+  reviewDir: string,
+  bundle: ReviewSoftwareMapBundle,
+  context: SourceContext,
+): Promise<MapActivationCandidate> {
+  const installed = await installReviewArtifact(
+    reviewDir,
+    "map",
+    softwareMapArtifactBytes(bundle),
+  );
   return {
-    changed: true,
-    usedEditableSources: true,
-    revision: input.revision,
-    presentedRecord,
-    pins,
+    kind: "map",
+    artifactHash: installed.hash,
+    headCommit: bundle.headCommit,
+    baseCommit: bundle.baseCommit,
+    context,
+    operation: "repair",
   };
-}
-
-/** Only internal writable trees are restricted; authored import symlinks are valid. */
-async function assertIsolatedRepairInternals(dir: string): Promise<void> {
-  const inspect = async (relative: string): Promise<void> => {
-    const metadata = await lstat(path.join(dir, relative)).catch((error) => {
-      if (isMissingFileError(error)) return null;
-      throw error;
-    });
-    if (!metadata) return;
-    if (
-      metadata.isSymbolicLink() ||
-      (!metadata.isDirectory() && !metadata.isFile())
-    ) {
-      throw new Error(
-        `Repair internal path ${relative} is a symbolic link or special file. Restore ordinary artifact and private Git files before retrying repair.`,
-      );
-    }
-    if (metadata.isDirectory()) {
-      for (const entry of await readdir(path.join(dir, relative)))
-        await inspect(path.join(relative, entry));
-    }
-  };
-  await inspect(".bundle");
-  await inspect(".git");
-}
-
-export async function prepareSavedMapNotes(input: {
-  rootPath: string;
-  baseCommit: string;
-  headCommit: string;
-}) {
-  const load = async (commit: string, role: "base" | "head") => {
-    const source =
-      (await readNote({
-        rootPath: input.rootPath,
-        ref: SOFTWARE_MAP_NOTES_REF,
-        commit,
-      })) ??
-      (await readNote({
-        rootPath: input.rootPath,
-        ref: remoteNotesRef(SOFTWARE_MAP_NOTES_REF),
-        commit,
-      }));
-    if (source === null)
-      throw new Error(
-        `No saved software map note at ${role} commit ${commit}; author and validate that pinned map before retrying repair.`,
-      );
-    const checked = await checkSoftwareMapSource({
-      repoRootPath: input.rootPath,
-      commit,
-      source,
-      sourceName: `repair-${role}-map.ts`,
-    });
-    if (!checked.model || checked.errors.length)
-      throw new Error(
-        checked.errors.join("; ") || `Invalid saved ${role} map.`,
-      );
-    return checked.model;
-  };
-  const base = await load(input.baseCommit, "base");
-  const head = await load(input.headCommit, "head");
-  return bundleReviewSoftwareMap({
-    base,
-    head,
-    baseCommit: input.baseCommit,
-    headCommit: input.headCommit,
-  });
 }

@@ -120,6 +120,18 @@ export type ReviewPublicationRecord = z.infer<
   typeof ReviewPublicationRecordSchema
 >;
 
+/** The pinned code context a publication recorded, as its own value. */
+export function publicationSourceContext(
+  record: ReviewPublicationRecord,
+): SourceContext {
+  return {
+    baseRef: record.baseRef,
+    baseCommit: record.baseCommit,
+    sourceCommit: record.sourceCommit,
+    sourceIdentity: record.sourceIdentity,
+  };
+}
+
 /** Content-derived publication ID: stable under key reordering, distinct for
  * any change to the record (including its nonce). */
 export function publicationIdFor(record: ReviewPublicationRecord): string {

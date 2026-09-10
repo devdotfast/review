@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { ReviewRepairReadyResponseSchema } from "./review-lifecycle-contracts";
 export { ReviewRepairReadyResponseSchema } from "./review-lifecycle-contracts";
-import { z } from "zod";
+import type { z } from "zod";
 
 import { REVIEW_ARTIFACTS_DIR } from "./review-artifact-store";
 import { isDerivedReviewPath } from "./review-derived-paths";
@@ -12,24 +12,6 @@ import {
   reviewThreadDbPath,
 } from "./review-thread-store-backend";
 import { fingerprintReviewTree } from "./review-tree-fingerprint";
-
-const revisionSchema = z.string().regex(/^[0-9a-f]{40}$/);
-export const ReviewRepairReadyRequestSchema = z.strictObject({
-  reviewUuid: z.uuid(),
-  stagingDir: z.string().min(1),
-  expectedRecord: z.string().min(1),
-  expectedFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
-  expectedThreadDbFingerprint: z
-    .string()
-    .regex(/^[0-9a-f]{64}$/)
-    .optional(),
-  newDocumentRevision: revisionSchema,
-  newMapRevision: revisionSchema.nullable(),
-  sourceFallback: z.strictObject({ document: z.boolean(), map: z.boolean() }),
-});
-export type ReviewRepairReadyRequest = z.infer<
-  typeof ReviewRepairReadyRequestSchema
->;
 
 export type ReviewRepairReadyResponse = z.infer<
   typeof ReviewRepairReadyResponseSchema

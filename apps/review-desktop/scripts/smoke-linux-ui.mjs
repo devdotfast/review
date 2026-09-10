@@ -70,7 +70,21 @@ for (const [controls, theme, scale] of [["native", "Review Dark", 1], ["custom",
     await page.waitForFunction(() => document.activeElement?.closest(".monaco-menu"));
     await page.keyboard.press("Escape");
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(700, 600));
-    await page.waitForFunction(() => window.innerWidth <= 700);
+    // Electron's viewport resize can precede the workbench layout pass.
+    await page.waitForFunction(() => {
+      const titlebar = document.querySelector(".review-titlebar-container");
+      const left = titlebar?.querySelector(".titlebar-left")?.getBoundingClientRect();
+      const right = titlebar?.querySelector(".titlebar-right")?.getBoundingClientRect();
+      return window.innerWidth <= 700 && left && right
+        && left.right <= right.left && Math.abs(right.right - window.innerWidth) <= 1;
+    }).catch(async (error) => {
+      const bounds = await page.locator(".review-titlebar-container").evaluate(element => ({
+        viewportWidth: window.innerWidth,
+        left: element.querySelector(".titlebar-left").getBoundingClientRect().toJSON(),
+        right: element.querySelector(".titlebar-right").getBoundingClientRect().toJSON(),
+      }));
+      throw new Error(`Linux titlebar did not finish resizing: ${JSON.stringify(bounds)}`, { cause: error });
+    });
     const geometry = await page.locator(".review-titlebar-container").evaluate(element => {
       const left = element.querySelector(".titlebar-left").getBoundingClientRect();
       const right = element.querySelector(".titlebar-right").getBoundingClientRect();

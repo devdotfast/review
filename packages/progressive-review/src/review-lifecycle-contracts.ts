@@ -6,6 +6,7 @@ import {
 import { z } from "zod";
 
 import { ReviewInfoEventSchema } from "./review-info";
+
 export const ReviewRepairReadyResponseSchema = z.strictObject({
   ok: z.literal(true),
   status: ReviewStatusSchema,
@@ -44,6 +45,7 @@ export const ReviewLifecycleTargetSchema = z.strictObject({
 export const ReviewResolveRequestSchema = ReviewLifecycleTargetSchema.extend({
   includeTerminal: z.boolean().optional(),
 });
+
 export const ReviewListRequestSchema = z.strictObject({
   worktreePath: z.string().optional(),
   repoKey: z.string().optional(),
@@ -128,9 +130,11 @@ export const ReviewPublicationEventSchema = z.discriminatedUnion("event", [
     unchanged: z.boolean(),
   }),
 ]);
+
 export type ReviewPublicationEvent = z.infer<
   typeof ReviewPublicationEventSchema
 >;
+
 export const ReviewPublicationResultSchema = z.strictObject({
   ok: z.boolean(),
   events: z.array(ReviewPublicationEventSchema),
@@ -147,6 +151,7 @@ export const ReviewStoredResponseSchema = z.strictObject({
   dir: z.string(),
   review: ReviewRecordSchema,
 });
+
 export const ReviewListResponseSchema = z.strictObject({
   reviews: z.array(ReviewStoredResponseSchema),
   errors: z.array(
@@ -168,14 +173,17 @@ export const ReviewMetadataUpdateSchema = z.strictObject({
 });
 
 export const ReviewDocumentFileNameSchema = z.enum(["review.mdx", "data.ts"]);
+
 export type ReviewDocumentFileName = z.infer<
   typeof ReviewDocumentFileNameSchema
 >;
+
 export const ReviewDocumentFileResponseSchema = z.strictObject({
   name: ReviewDocumentFileNameSchema,
   source: z.string().nullable(),
   sourceHash: z.string().nullable(),
 });
+
 export const ReviewDocumentFileWriteSchema = z.strictObject({
   name: ReviewDocumentFileNameSchema,
   source: z.string(),

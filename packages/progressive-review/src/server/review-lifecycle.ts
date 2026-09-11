@@ -82,13 +82,16 @@ export async function repairReview(
     includeTerminal: true,
     includeLegacySchema: true,
   });
+
   if (!review)
     throw new Error(`Review not found in this checkout: ${request.reviewUuid}`);
   const warnings: string[] = [];
+
   const prepared = await prepareReviewRepair({
     reviewDir: review.dir,
     warning: (message) => warnings.push(message),
   });
+
   if (prepared.kind === "noop")
     return {
       ok: true as const,
@@ -101,6 +104,7 @@ export async function repairReview(
       oldMapRevision: prepared.review.presentedSoftwareMapRevision,
       newMapRevision: prepared.review.presentedSoftwareMapRevision,
     };
+
   try {
     return {
       ...(await complete(prepared.request)),
@@ -121,6 +125,7 @@ export async function publishReview(
   ) => Promise<{ sessionId: string; focusWarning?: string }>,
 ) {
   const events: ReviewPublicationEvent[] = [];
+
   const reporter: PublishReporter = {
     stage: (name, status, details) =>
       events.push({ event: "stage", name, status, ...details }),
@@ -138,6 +143,7 @@ export async function publishReview(
         softwareMapRevision,
       }),
   };
+
   try {
     const code = await publishReviewDocument(
       {
@@ -150,11 +156,13 @@ export async function publishReview(
       reporter,
       complete,
     );
+
     return { ok: code === 0, events };
   } catch (error) {
     reporter.error("publish", [
       error instanceof Error ? error.message : String(error),
     ]);
+
     return { ok: false, events };
   }
 }
@@ -164,6 +172,7 @@ export async function publishReviewSoftwareMap(
   complete: (request: ReviewPublishReadyRequest) => Promise<void>,
 ) {
   const events: ReviewPublicationEvent[] = [];
+
   const code = await publishReviewMap(
     { ...request, env: agentEnvironment(request.agent) },
     {
@@ -181,6 +190,7 @@ export async function publishReviewSoftwareMap(
     },
     complete,
   );
+
   return { ok: code === 0, events };
 }
 
@@ -199,6 +209,7 @@ export async function publishReviewDocument(
   ) => Promise<{ sessionId: string; focusWarning?: string }>,
 ): Promise<number> {
   const reviewRoot = await resolveReviewRoot(input.cwd);
+
   const prepared = await span("publish: prepare", () =>
     prepareReviewPublish({
       cwd: reviewRoot,
@@ -206,17 +217,21 @@ export async function publishReviewDocument(
       onReviewBound: input.onReviewBound,
     }),
   );
+
   const review = prepared.review;
+
   if (prepared.warnings?.length) {
     reporter.warning("prepare", prepared.warnings);
   }
 
   reporter.stage("validate", "running");
   let revision: string;
+
   try {
     const document = await span("publish: validate document", () =>
       stageReviewDocumentPublication({ review }),
     );
+
     if (document.warnings.length > 0)
       reporter.warning("validate", document.warnings);
     reporter.stage("validate", "complete");
@@ -229,6 +244,7 @@ export async function publishReviewDocument(
       if (error.warnings.length > 0) {
         reporter.warning("validate", error.warnings);
       }
+
       if (error.diagnostics) {
         reporter.validationErrors(error.diagnostics);
       } else {
@@ -239,28 +255,35 @@ export async function publishReviewDocument(
         error instanceof Error ? error.message : String(error),
       ]);
     }
+
     return 1;
   }
+
   reporter.stage("revision", "complete", { revision });
 
   reporter.stage("mount", "running");
+
   const result = await complete({
     reviewUuid: prepared.uuid,
     revision,
     view: input.view,
     agent: resolveAuthoringSessionRef(input.env ?? process.env),
   });
+
   reporter.published(
     revision,
     result.sessionId,
     review.review.presentedSoftwareMapRevision,
   );
+
   // The revision is promoted and on screen by now: a focus failure cannot
   // make the publish a failure, so it reports as a warning with exit 0.
   if (result.focusWarning) {
     reporter.warning("mount", [result.focusWarning]);
   }
+
   reporter.stage("mount", "complete", { sessionId: result.sessionId });
+
   return 0;
 }
 
@@ -274,20 +297,24 @@ export async function publishReviewMap(
     const review = await resolvePublishReview(reviewRoot, input.reviewUuid);
     const agent = resolveAuthoringSessionRef(input.env ?? process.env);
     const documentRevision = review.review.presentedDocumentRevision;
+
     if (!documentRevision) {
       throw new Error(
         "The Review document is not published. Run `review publish` first.",
       );
     }
+
     const documentBuildDir = await materializePublishRevision({
       review,
       revision: documentRevision,
     });
+
     const presentedDocument = parseAnyStoredReviewRecord(
       JSON.parse(
         await readFile(path.join(documentBuildDir, "review.json"), "utf8"),
       ),
     );
+
     if (!presentedDocument.sourceCommit) {
       throw new Error(
         "The published Review document has no pinned head commit.",
@@ -296,6 +323,7 @@ export async function publishReviewMap(
 
     report.stage("validate", "running");
     let bundle;
+
     try {
       bundle = await prepareReviewSoftwareMapBundle({
         review,
@@ -305,19 +333,25 @@ export async function publishReviewMap(
     } catch (error) {
       if (error instanceof ReviewPublicationValidationError) {
         report.error("validate", error.errors);
+
         return 1;
       }
+
       throw error;
     }
+
     report.stage("validate", "complete");
 
     const existingRevision = review.review.presentedSoftwareMapRevision;
+
     if (existingRevision) {
       const existingDir = await materializePublishRevision({
         review,
         revision: existingRevision,
       });
+
       const existing = await readReviewSoftwareMapBundle(existingDir);
+
       if (existing && sameReviewSoftwareMapBundle(existing, bundle)) {
         if (agent) {
           await touchReviewAgentSession(
@@ -326,27 +360,33 @@ export async function publishReviewMap(
             "publisher",
           );
         }
+
         report.published(existingRevision, documentRevision, true);
+
         return 0;
       }
     }
 
     report.stage("revision", "running");
+
     const revision = await sealReviewSoftwareMapPublication({
       review,
       bundle,
     });
+
     report.stage("revision", "complete", { revision });
 
     report.stage("load", "running");
     await complete({ reviewUuid: review.review.uuid, revision, agent });
     report.stage("load", "complete");
     report.published(revision, documentRevision, false);
+
     return 0;
   } catch (error) {
     report.error("publish", [
       error instanceof Error ? error.message : String(error),
     ]);
+
     return 1;
   }
 }
@@ -358,30 +398,37 @@ export async function sealReviewSoftwareMapPublication(input: {
   return withReviewMutationLock(input.review.dir, async () => {
     await assertReviewUnchanged(input.review.dir, input.review.review);
     await writeReviewSoftwareMapBundle(input.review.dir, input.bundle);
+
     return sealReviewCandidate(input.review.dir, "Publish Review software map");
   });
 }
+
 export async function rebindReview(
   input: Omit<Parameters<typeof runReviewRebind>[0], "stdout">,
 ): Promise<ReviewRebindJsonOutput> {
   const reviewRoot = await resolveReviewRoot(input.cwd);
   const review = await resolvePublishReview(reviewRoot, input.reviewUuid);
+
   const resolved = await resolveRevision(
     review.review.worktreePath,
     input.change,
   );
+
   if (!resolved) {
     throw new Error(
       `Change does not resolve in ${review.review.worktreePath}: ${input.change}`,
     );
   }
+
   const sourceIdentity = await changeIdentityForRevision(
     review.review.worktreePath,
     input.change,
   );
+
   if (!sourceIdentity) {
     throw new Error(`Change does not resolve to one identity: ${input.change}`);
   }
+
   const repinned = await repinReview(
     review,
     {
@@ -393,11 +440,14 @@ export async function rebindReview(
     },
     sourceIdentity,
   );
+
   const output: ReviewRebindJsonOutput = {
     event: "rebound",
     uuid: review.review.uuid,
     change: input.change,
   };
+
   if (repinned.warnings) output.warnings = repinned.warnings;
+
   return output;
 }

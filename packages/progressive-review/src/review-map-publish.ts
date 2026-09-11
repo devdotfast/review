@@ -14,6 +14,7 @@ export async function runReviewMapPublish(input: {
   env?: NodeJS.ProcessEnv;
 }): Promise<number> {
   const report = mapPublishReporter(input);
+
   try {
     const result = ReviewPublicationResultSchema.parse(
       await requestReviewLifecycle("/lifecycle/map/publish", {
@@ -22,6 +23,7 @@ export async function runReviewMapPublish(input: {
         agent: resolveAuthoringSessionRef(input.env ?? process.env),
       }),
     );
+
     for (const event of result.events) {
       switch (event.event) {
         case "stage":
@@ -42,11 +44,13 @@ export async function runReviewMapPublish(input: {
           throw new Error("Unexpected document publication result.");
       }
     }
+
     return result.ok ? 0 : 1;
   } catch (error) {
     report.error("publish", [
       error instanceof Error ? error.message : String(error),
     ]);
+
     return 1;
   }
 }
@@ -77,6 +81,7 @@ function mapPublishReporter(input: {
   if (input.json) {
     const emit = <T extends CliJsonEvent>(event: T) =>
       emitJsonEvent(input, event);
+
     return {
       stage: (name, status, details = {}) =>
         emit({
@@ -98,13 +103,16 @@ function mapPublishReporter(input: {
         }),
     };
   }
+
   return {
     stage(name, status, details = {}) {
       if (status !== "complete") return;
+
       const suffix =
         details.revision === undefined
           ? ""
           : ` ${details.revision.slice(0, 12)}`;
+
       input.stdout.write(
         `${name === "load" ? "Load map" : name}: ok${suffix}\n`,
       );
@@ -117,6 +125,7 @@ function mapPublishReporter(input: {
     published(revision, documentRevision, unchanged) {
       input.stdout.write(`Software map published: ${revision}\n`);
       input.stdout.write(`Review document remains: ${documentRevision}\n`);
+
       if (unchanged) input.stdout.write("Software map bytes are unchanged.\n");
     },
   };

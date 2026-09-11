@@ -58,6 +58,7 @@ export class ReviewThreadsService {
 
   subscribe(listener: (commit: ReviewThreadsCommit) => void): () => void {
     this.listeners.add(listener);
+
     return () => {
       this.listeners.delete(listener);
     };
@@ -70,10 +71,12 @@ export class ReviewThreadsService {
           ...command.input,
           author: this.options.author,
         });
+
         return this.commit(command.mutationId, {
           upsertedThreads: [result.thread],
         });
       }
+
       case "comment.update": {
         if (
           !updateReviewComment(
@@ -84,22 +87,28 @@ export class ReviewThreadsService {
         ) {
           return null;
         }
+
         const thread = readReviewComments(this.options.reviewPath)[
           command.threadId
         ];
+
         if (!thread) return null;
+
         return this.commit(command.mutationId, {
           upsertedThreads: [thread],
         });
       }
+
       case "comment.delete": {
         if (!deleteReviewComment(this.options.reviewPath, command.threadId)) {
           return null;
         }
+
         return this.commit(command.mutationId, {
           deletedThreadIds: [command.threadId],
         });
       }
+
       case "comment-message.delete": {
         if (
           !deleteReviewCommentMessage(
@@ -110,53 +119,64 @@ export class ReviewThreadsService {
         ) {
           return null;
         }
+
         const thread = readReviewComments(this.options.reviewPath)[
           command.threadId
         ];
+
         return thread
           ? this.commit(command.mutationId, { upsertedThreads: [thread] })
           : this.commit(command.mutationId, {
               deletedThreadIds: [command.threadId],
             });
       }
+
       case "comment-draft.create": {
         const result = appendReviewCommentDraft(this.options.reviewPath, {
           ...command.input,
           author: this.options.author,
         });
+
         return this.commit(command.mutationId, {
           upsertedDrafts: [result],
         });
       }
+
       case "comment-draft.update": {
         const draft = updateReviewCommentDraft(
           this.options.reviewPath,
           command.threadId,
           command.update,
         );
+
         return draft
           ? this.commit(command.mutationId, {
               upsertedDrafts: [{ threadId: command.threadId, draft }],
             })
           : null;
       }
+
       case "comment-draft.delete": {
         if (
           !deleteReviewCommentDraft(this.options.reviewPath, command.threadId)
         ) {
           return null;
         }
+
         return this.commit(command.mutationId, {
           deletedDraftThreadIds: [command.threadId],
         });
       }
+
       case "comment-draft-message.delete": {
         const draft = deleteReviewCommentDraftMessage(
           this.options.reviewPath,
           command.threadId,
           command.messageId,
         );
+
         if (draft === false) return null;
+
         return draft
           ? this.commit(command.mutationId, {
               upsertedDrafts: [{ threadId: command.threadId, draft }],
@@ -173,7 +193,9 @@ export class ReviewThreadsService {
     inputs: CreateReviewCommentInput[],
   ): ReviewThreadsCommit | null {
     const result = submitReviewCommentDrafts(this.options.reviewPath, inputs);
+
     if (result.deletedDraftThreadIds.length === 0) return null;
+
     return this.commit(mutationId, {
       upsertedThreads: result.threads,
       deletedDraftThreadIds: result.deletedDraftThreadIds,
@@ -201,7 +223,9 @@ export class ReviewThreadsService {
         agentInput: false,
       },
     );
+
     if (!result) return null;
+
     return result.location === "draft"
       ? this.commit(input.mutationId, {
           upsertedDrafts: [
@@ -226,9 +250,11 @@ export class ReviewThreadsService {
   }): ReviewThreadsCommit | null {
     const current =
       this.drafts[input.threadId]?.thread ?? this.comments[input.threadId];
+
     const existing = current?.messages.find(
       (message) => message.id === input.messageId,
     );
+
     const result = upsertReviewAgentSessionMessage(
       this.options.reviewPath,
       input.threadId,
@@ -245,7 +271,9 @@ export class ReviewThreadsService {
         agentInput: input.agentInput,
       },
     );
+
     if (!result?.changed) return null;
+
     return result.location === "draft"
       ? this.commit(input.mutationId, {
           upsertedDrafts: [{ threadId: input.threadId, draft: result.draft }],
@@ -263,7 +291,9 @@ export class ReviewThreadsService {
       input.threadId,
       input.agentSession,
     );
+
     if (!result) return null;
+
     return result.location === "draft"
       ? this.commit(input.mutationId, {
           upsertedDrafts: [{ threadId: input.threadId, draft: result.draft }],
@@ -286,20 +316,26 @@ export class ReviewThreadsService {
     const deletedDraftThreadIds = change.deletedDraftThreadIds ?? [];
     const comments = { ...this.comments };
     const drafts = { ...this.drafts };
+
     for (const thread of upsertedThreads) {
       comments[thread.threadId] = thread;
     }
+
     for (const threadId of deletedThreadIds) {
       delete comments[threadId];
     }
+
     for (const { threadId, draft } of upsertedDrafts) {
       drafts[threadId] = draft;
     }
+
     for (const threadId of deletedDraftThreadIds) {
       delete drafts[threadId];
     }
+
     this.comments = comments;
     this.drafts = drafts;
+
     const commit = {
       mutationId,
       revision: ++this.revision,
@@ -308,8 +344,11 @@ export class ReviewThreadsService {
       upsertedDrafts,
       deletedDraftThreadIds,
     } satisfies ReviewThreadsCommit;
+
     this.options.onCommit?.(commit);
+
     for (const listener of this.listeners) listener(commit);
+
     return commit;
   }
 }

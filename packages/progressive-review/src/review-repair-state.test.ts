@@ -15,10 +15,13 @@ import {
 } from "./review-thread-store-backend";
 
 let root: string | undefined;
+
 afterEach(async () => {
   closeAllReviewThreadStores();
+
   if (root) await rm(root, { recursive: true, force: true });
 });
+
 it("fingerprints editable inputs and blocks pending agent writes without changing threads", async () => {
   root = await mkdtemp(path.join(tmpdir(), "review-repair-state-"));
   await writeFile(path.join(root, "review.mdx"), "# One");

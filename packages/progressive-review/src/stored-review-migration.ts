@@ -108,19 +108,24 @@ async function migrateStoredReviewLocked(
   input: StoredReviewMigrationInput,
 ): Promise<StoredReviewMigrationOutcome> {
   const reviewPath = path.join(input.reviewDir, "review.mdx");
+
   const value = jsonObject(
     parseJsonText(
       await readFile(path.join(input.reviewDir, "review.json"), "utf8"),
     ),
   );
+
   const schemaVersion = value?.schemaVersion;
+
   if (
     !value ||
     ![2, 3, 4, REVIEW_SCHEMA_VERSION].includes(Number(schemaVersion))
   ) {
     throw new Error("Unsupported Review schema; the record was preserved.");
   }
+
   const validatedRecord = parseAnyStoredReviewRecord(value);
+
   const migratedRecord =
     schemaVersion === 3 || schemaVersion === 2
       ? parseStoredReviewRecord({
@@ -128,8 +133,10 @@ async function migrateStoredReviewLocked(
           sourceSession: DISABLED_REVIEW_SOURCE_SESSION,
         })
       : validatedRecord;
+
   if (migratedRecord.uuid !== path.basename(input.reviewDir))
     throw new Error("review.json UUID does not match its directory");
+
   const migrated =
     schemaVersion !== REVIEW_SCHEMA_VERSION &&
     (await regeneratePresentedArtifacts({
@@ -142,6 +149,7 @@ async function migrateStoredReviewLocked(
       log: input.log,
       finalizeSource: async (record) => {
         if (schemaVersion !== 2 && schemaVersion !== 3) return record;
+
         const migrated = await migratePendingReviewSourceSession({
           reviewDir: input.reviewDir,
           value,
@@ -149,6 +157,7 @@ async function migrateStoredReviewLocked(
             input.createSourceSession ?? createReviewSourceAgentSession,
           onWarning: input.log,
         });
+
         return {
           ...record,
           sourceSession: migrated.sourceSession,
@@ -156,6 +165,7 @@ async function migrateStoredReviewLocked(
         };
       },
     }));
+
   if (schemaVersion === 2 || schemaVersion === 3) {
     try {
       await rm(sourceMigrationStatePath(input.reviewDir), { force: true });
@@ -165,21 +175,25 @@ async function migrateStoredReviewLocked(
       );
     }
   }
+
   const record = parseStoredReviewRecord(
     parseJsonText(
       await readFile(path.join(input.reviewDir, "review.json"), "utf8"),
     ),
   );
+
   const dropped: Array<
     Parameters<
       NonNullable<ReviewThreadDbMigrationOptions["onDropLegacyCodeRecord"]>
     >[0]
   > = [];
+
   const threadDbMigration: ReviewThreadDbMigrationOptions = {
     force: input.force ?? false,
     preserveLegacyQuestions: true,
     onDropLegacyCodeRecord: (record) => dropped.push(record),
   };
+
   if (record.sourceCommit) {
     threadDbMigration.migrateLegacyCodeRecord = createLegacyCodeRecordMigrator({
       rootPath: record.worktreePath,
@@ -187,8 +201,10 @@ async function migrateStoredReviewLocked(
       headCommit: record.sourceCommit,
     });
   }
+
   let upgradedThreadDb = false;
   let threadDbError: string | undefined;
+
   try {
     upgradedThreadDb =
       (await migrateReviewThreadDb(reviewPath, threadDbMigration)) ===
@@ -197,9 +213,11 @@ async function migrateStoredReviewLocked(
   } catch (error) {
     threadDbError = errorMessage(error);
   }
+
   if (upgradedThreadDb)
     for (const record of dropped) input.onDropLegacyCodeRecord?.(record);
   putReviewRecord(input.reviewDir, record);
+
   return { record, migrated, upgradedThreadDb, threadDbError };
 }
 
@@ -213,6 +231,7 @@ export async function migrateStoredReviewData(input: {
     recursive: true,
     force: true,
   });
+
   const total: StoredReviewMigrationResult = {
     failedReviewUuids: [],
     documents: 0,
@@ -223,18 +242,22 @@ export async function migrateStoredReviewData(input: {
     legacyCheckoutsRemoved: 0,
     upgradedThreadDatabases: 0,
   };
+
   const reviewsRoot = path.join(input.reviewHome, "reviews");
   const cleanedLegacyRoots = new Set<string>();
   let entries: import("node:fs").Dirent[];
+
   try {
     entries = await readdir(reviewsRoot, { withFileTypes: true });
   } catch (error) {
     if (isMissingFileError(error)) return total;
     throw error;
   }
+
   for (const entry of entries) {
     if (!entry.isDirectory() || !UUID_PATTERN.test(entry.name)) continue;
     const reviewDir = path.join(reviewsRoot, entry.name);
+
     try {
       const outcome = await migrateStoredReview({
         reviewDir,
@@ -247,7 +270,9 @@ export async function migrateStoredReviewData(input: {
           );
         },
       });
+
       const worktreePath = outcome.record.worktreePath;
+
       if (!cleanedLegacyRoots.has(worktreePath)) {
         cleanedLegacyRoots.add(worktreePath);
         total.legacyCheckoutsRemoved += await removeLegacyReviewCheckouts({
@@ -255,12 +280,14 @@ export async function migrateStoredReviewData(input: {
           onBlocker: input.onBlocker,
         });
       }
+
       if (outcome.upgradedThreadDb) {
         total.upgradedThreadDatabases += 1;
         input.log?.(
           `Upgraded Review database ${entry.name} to the current schema.`,
         );
       }
+
       if (outcome.threadDbError)
         input.onBlocker?.(
           `Review ${entry.name} database migration failed: ${outcome.threadDbError}`,
@@ -273,6 +300,7 @@ export async function migrateStoredReviewData(input: {
       input.log?.(message);
     }
   }
+
   return total;
 }
 
@@ -324,8 +352,10 @@ async function migratePendingReviewSourceSession(input: {
       ]),
     )
     .digest("hex");
+
   const statePath = sourceMigrationStatePath(input.reviewDir);
   let pending: z.infer<typeof sourceMigrationStateSchema> | undefined;
+
   try {
     pending = sourceMigrationStateSchema.parse(
       parseJsonText(await readFile(statePath, "utf8")),
@@ -337,16 +367,19 @@ async function migratePendingReviewSourceSession(input: {
         { cause: error },
       );
   }
+
   if (pending && pending.key !== key) {
     throw new Error(
       `Source migration binding ${statePath} belongs to different Review pins. Inspect and reconcile the pending binding before retrying; no new native fork was created.`,
     );
   }
+
   if (pending?.state === "started") {
     throw new Error(
       `Source migration binding ${statePath} was interrupted after starting a native fork. Inspect the native session and recover the pending binding before retrying; no new native fork was created.`,
     );
   }
+
   if (!pending) {
     await writePrivateJsonAtomic(statePath, {
       version: 1,
@@ -363,8 +396,10 @@ async function migratePendingReviewSourceSession(input: {
     };
     await writePrivateJsonAtomic(statePath, pending);
   }
+
   const { agentSession: _agentSession, ...record } = input.value;
   const priorAgentSessions = jsonObject(record.agentSessions) ?? {};
+
   return parseAnyStoredReviewRecord({
     ...record,
     sourceSession: pending.sourceSession,
@@ -392,12 +427,15 @@ async function migrateReviewSourceSession(input: {
   const worktreePath = jsonString(input.value.worktreePath) ?? null;
   const sourceCommit = jsonString(input.value.sourceCommit) ?? null;
   const { agentSession: _agentSession, ...record } = input.value;
+
   if (!source || !uuid || !worktreePath || !sourceCommit) {
     input.onWarning?.(
       `Review ${uuid ?? "with unknown UUID"} has no usable authoring session. Ask Agent is disabled, but the Review was preserved.`,
     );
+
     return { ...record, sourceSession: "disabled:review" };
   }
+
   try {
     const checkout = await ensureReviewPinnedCheckout({
       rootPath: worktreePath,
@@ -405,17 +443,21 @@ async function migrateReviewSourceSession(input: {
       reviewUuid: uuid,
       role: "head",
     });
+
     if (!checkout) {
       throw new Error("the pinned head checkout is unavailable");
     }
+
     const frozen = await input.createSourceSession({
       agent: source,
       reviewUuid: uuid,
       rootPath: checkout,
     });
+
     const sourceSession = authoringSessionKey(frozen);
     const now = new Date().toISOString();
     const priorAgentSessions = jsonObject(record.agentSessions) ?? {};
+
     return {
       ...record,
       agentSessions: {
@@ -433,6 +475,7 @@ async function migrateReviewSourceSession(input: {
       `Review ${uuid} source session migration failed: ${errorMessage(error)}. Ask Agent is disabled, but the Review was preserved.`,
     );
   }
+
   return {
     ...record,
     sourceSession: "disabled:review",
@@ -450,18 +493,23 @@ async function regeneratePresentedArtifacts(input: {
   const staging = await mkdtemp(
     path.join(tmpdir(), "review-artifact-migration-"),
   );
+
   const documentDir = path.join(staging, "document");
   const mapDir = path.join(staging, "map");
+
   try {
     let documentBundle: ReturnType<typeof bundleReviewDocument> | null = null;
+
     let evaluatedDocument:
       | Awaited<ReturnType<typeof evaluateSealedReviewDocument>>
       | undefined;
+
     let documentRecord: StoredReviewRecord | undefined;
     let mapRecord: StoredReviewRecord | undefined;
     let mapBundle: ReviewSoftwareMapBundle | null = null;
     let mapRevision = input.review.presentedSoftwareMapRevision;
     const documentRevision = input.review.presentedDocumentRevision;
+
     if (documentRevision) {
       await materializeReviewRevision(
         input.reviewDir,
@@ -473,6 +521,7 @@ async function regeneratePresentedArtifacts(input: {
           await readFile(path.join(documentDir, "review.json"), "utf8"),
         ),
       );
+
       if (!(await readReviewDocumentBundle(documentDir, "/"))) {
         evaluatedDocument = await evaluateSealedReviewDocument(
           documentDir,
@@ -481,22 +530,28 @@ async function regeneratePresentedArtifacts(input: {
         documentBundle = bundleReviewDocument(evaluatedDocument.document);
       }
     }
+
     if (mapRevision) {
       await materializeReviewRevision(input.reviewDir, mapRevision, mapDir);
       mapRecord = parseAnyStoredReviewRecord(
         parseJsonText(await readFile(path.join(mapDir, "review.json"), "utf8")),
       );
+
       if (!(await readReviewSoftwareMapBundle(mapDir))) {
         mapBundle = await legacySoftwareMapBundle(mapDir);
+
         if (!mapBundle) {
           if (!input.allowAbsentMap)
             throw new Error("The presented software map is missing.");
+
           const evaluated =
             mapRevision === documentRevision && evaluatedDocument
               ? evaluatedDocument
               : await evaluateSealedReviewDocument(mapDir, input.log);
+
           if (evaluated.legacySoftwareMap) {
             const sealed = mapRecord;
+
             if (!sealed.sourceCommit)
               throw new Error(
                 "The embedded software map has no sealed source commit.",
@@ -512,10 +567,12 @@ async function regeneratePresentedArtifacts(input: {
         }
       }
     }
+
     // Source migration and schema normalization must not race a lifecycle or pin change.
     return await withReviewMutationLock(input.reviewDir, async () => {
       const recordPath = path.join(input.reviewDir, "review.json");
       const currentText = await readFile(recordPath, "utf8");
+
       if (
         JSON.stringify(parseJsonText(currentText)) !==
         JSON.stringify(input.original)
@@ -524,6 +581,7 @@ async function regeneratePresentedArtifacts(input: {
           "Review changed while preparing migration; rerun review migrate apply.",
         );
       }
+
       if (!documentBundle && !mapBundle) {
         if (
           input.original.schemaVersion !== REVIEW_SCHEMA_VERSION ||
@@ -537,10 +595,13 @@ async function regeneratePresentedArtifacts(input: {
             }),
           );
           input.log?.("Migrated Review " + input.review.uuid + " to schema 5.");
+
           return true;
         }
+
         return false;
       }
+
       const candidateDir = path.join(staging, "candidate");
       await cp(
         path.join(input.reviewDir, ".git"),
@@ -554,11 +615,13 @@ async function regeneratePresentedArtifacts(input: {
         path.join(candidateDir, ".bundle"),
         { recursive: true },
       );
+
       if (!mapBundle) {
         await rm(path.join(candidateDir, ".bundle/software-map"), {
           recursive: true,
           force: true,
         });
+
         if (mapRevision) {
           await cp(
             path.join(mapDir, ".bundle/software-map"),
@@ -567,9 +630,11 @@ async function regeneratePresentedArtifacts(input: {
           );
         }
       }
+
       const candidateRecordPath = path.join(candidateDir, "review.json");
       let completed = false;
       const newRevisions: string[] = [];
+
       try {
         if (documentBundle) {
           await rm(path.join(candidateDir, ".bundle/document"), {
@@ -584,6 +649,7 @@ async function regeneratePresentedArtifacts(input: {
           });
           await writeReviewDocumentBundle(candidateDir, documentBundle);
         }
+
         if (mapBundle) {
           await rm(path.join(candidateDir, ".bundle/software-map"), {
             recursive: true,
@@ -591,10 +657,12 @@ async function regeneratePresentedArtifacts(input: {
           });
           await writeReviewSoftwareMapBundle(candidateDir, mapBundle);
         }
+
         let next = {
           ...input.review,
           presentedSoftwareMapRevision: mapRevision,
         };
+
         if (mapBundle) {
           await replaceCandidateSources(candidateDir, mapDir);
           await writePrivateJsonAtomic(candidateRecordPath, {
@@ -608,19 +676,23 @@ async function regeneratePresentedArtifacts(input: {
           newRevisions.push(mapRevision);
           next = { ...next, presentedSoftwareMapRevision: mapRevision };
         }
+
         if (documentBundle) {
           await replaceCandidateSources(candidateDir, documentDir);
           await writePrivateJsonAtomic(candidateRecordPath, {
             ...next,
             ...reviewSourcePins(documentRecord!),
           });
+
           const revision = await sealReviewCandidate(
             candidateDir,
             "Migrate current Review document to JSON",
           );
+
           newRevisions.push(revision);
           next = { ...next, presentedDocumentRevision: revision };
         }
+
         for (const revision of newRevisions) {
           await materializeReviewRevision(
             candidateDir,
@@ -628,6 +700,7 @@ async function regeneratePresentedArtifacts(input: {
             path.join(input.reviewDir, ".build", revision),
           );
         }
+
         next = await input.finalizeSource(next);
         await promoteReviewArtifactFiles({
           reviewDir: input.reviewDir,
@@ -640,6 +713,7 @@ async function regeneratePresentedArtifacts(input: {
             input.review.uuid +
             " to JSON.",
         );
+
         return true;
       } finally {
         if (!completed) {
@@ -665,6 +739,7 @@ async function replaceCandidateSources(
       await rm(path.join(candidateDir, name), { recursive: true, force: true });
     }
   }
+
   await cp(sourceDir, candidateDir, {
     recursive: true,
     filter: (source) =>
@@ -679,6 +754,7 @@ export async function legacySoftwareMapBundle(
 ): Promise<ReviewSoftwareMapBundle | null> {
   const mapDir = path.join(legacyBuildDir, ".bundle", "software-map");
   let manifestValue: JsonObject | undefined;
+
   try {
     manifestValue = jsonObject(
       parseJsonText(await readFile(path.join(mapDir, "manifest.json"), "utf8")),
@@ -691,12 +767,16 @@ export async function legacySoftwareMapBundle(
         if (isMissingFileError(directoryError)) return null;
         throw directoryError;
       }
+
       throw new Error("The presented software map has no manifest.");
     }
+
     throw error;
   }
+
   const headCommit = jsonString(manifestValue?.headCommit);
   const baseCommit = jsonString(manifestValue?.baseCommit);
+
   if (
     manifestValue?.version !== 1 ||
     !headCommit ||
@@ -708,27 +788,33 @@ export async function legacySoftwareMapBundle(
       "The presented software-map manifest is invalid or unsupported.",
     );
   }
+
   const load = async (
     file: string,
   ): Promise<NormalizedSoftwareModel | null> => {
     const url = pathToFileURL(path.join(mapDir, file));
     url.searchParams.set("t", `${Date.now()}-${Math.random()}`);
+
     try {
       // SAFETY: an imported legacy map module has no static TypeScript shape;
       // isNormalizedSoftwareModel validates its default export before use.
       const module = (await import(url.href)) as { default?: unknown };
+
       return isNormalizedSoftwareModel(module.default) ? module.default : null;
     } catch {
       return null;
     }
   };
+
   const [head, base] = await Promise.all([
     load("head-map.js"),
     load("base-map.js"),
   ]);
+
   if (!head || !base)
     throw new Error(
       "The presented software map could not be converted; its sealed head or base bundle is invalid.",
     );
+
   return bundleReviewSoftwareMap({ head, base, headCommit, baseCommit });
 }

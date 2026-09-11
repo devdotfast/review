@@ -17,22 +17,26 @@ export async function runReviewRepair(input: {
       throw new Error(
         "Review repair requires an explicit UUID (--review <uuid>).",
       );
+
     const result = ReviewRepairResultSchema.parse(
       await requestReviewLifecycle("/lifecycle/repair", {
         cwd: input.cwd,
         reviewUuid: input.reviewUuid,
       }),
     );
+
     for (const message of result.warnings) {
       emitJsonEvent(input, { event: "warning", message });
       input.stderr.write(`warning: ${message}\n`);
     }
+
     emitJsonEvent(input, { ...result, event: "repaired" });
     humanStream(input).write(
       result.noop
         ? "Current Review artifacts are healthy; no repair needed.\n"
         : `Review repaired: ${result.reviewUuid}\nStatus preserved: ${result.status}\nDocument: ${result.oldDocumentRevision} → ${result.newDocumentRevision}\nMap: ${result.oldMapRevision ?? "absent"} → ${result.newMapRevision ?? "absent"}\n`,
     );
+
     return 0;
   } catch (error) {
     return failWithJsonError(

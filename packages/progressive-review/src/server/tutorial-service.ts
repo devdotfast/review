@@ -47,7 +47,9 @@ import { devReviewHome } from "../review-storage";
 import { writePrivateJsonAtomic } from "./desktop-paths";
 
 const execFilePromise = promisify(execFile);
+
 const TUTORIAL_STATUS_VERSION = 1;
+
 /* Version 9 adds the interactive trace quote chapter. Older records are
    re-materialized on first open to pick up the updated document. */
 const TUTORIAL_STAMP_VERSION = 9;
@@ -91,6 +93,7 @@ export function createTutorialService(input: {
     uuid: string,
   ): Promise<StoredReview | null> => {
     const loaded = await findReview(uuid);
+
     return loaded?.review.visibility === "system" ? loaded : null;
   };
 
@@ -101,18 +104,22 @@ export function createTutorialService(input: {
     review: StoredReview;
   } | null> => {
     const stamp = await readTutorialStamp(stampPath);
+
     if (!stamp) return null;
     const review = await findTutorialReview(stamp.reviewUuid).catch(() => null);
+
     if (
       !review ||
       !(await isValidTutorialReview(review, sampleRoot, expectedHarness))
     ) {
       return null;
     }
+
     // An app update ships new bundles pinned to a new commit. A record
     // bound to the old commit is stale: re-materialize instead of serving
     // new bundles against the old repository.
     const manifest = await readShippedMapManifest(assetsRoot).catch(() => null);
+
     if (
       !manifest ||
       manifest.headCommit !== review.review.sourceCommit ||
@@ -120,6 +127,7 @@ export function createTutorialService(input: {
     ) {
       return null;
     }
+
     // Copy-only edits leave the sample repository's commits unchanged.
     // Refresh the saved tutorial when its compiled document has changed too.
     const documentMatches = await Promise.all([
@@ -133,24 +141,29 @@ export function createTutorialService(input: {
           shipped.contentHash === saved.contentHash,
       )
       .catch(() => false);
+
     if (!documentMatches) return null;
+
     return { stamp, review };
   };
 
   const cleanup = async (): Promise<void> => {
     const listed = await listReviews({ includeSystem: true });
+
     for (const review of listed.reviews) {
       if (await isManagedTutorialPath(review.review.worktreePath, sampleRoot)) {
         await input.deleteReview(review);
         deleteReviewState(review.dir);
       }
     }
+
     await rm(tutorialRoot, { recursive: true, force: true });
   };
 
   return {
     async status() {
       const state = await readValidState();
+
       return {
         version: TUTORIAL_STATUS_VERSION,
         reviewUuid: state?.stamp.reviewUuid ?? null,
@@ -159,8 +172,10 @@ export function createTutorialService(input: {
 
     async referencesReview(reviewUuid) {
       const stamp = await readTutorialStamp(stampPath);
+
       if (stamp?.reviewUuid === reviewUuid) return true;
       const review = await findTutorialReview(reviewUuid).catch(() => null);
+
       return review
         ? isManagedTutorialPath(review.review.worktreePath, sampleRoot)
         : false;
@@ -168,11 +183,13 @@ export function createTutorialService(input: {
 
     async find() {
       const state = await readValidState();
+
       return state?.review ?? null;
     },
 
     async prepare(agent, options) {
       const current = await readValidState(agent);
+
       if (current) return current.review;
 
       await options?.beforeReset();
@@ -185,10 +202,13 @@ export function createTutorialService(input: {
       });
 
       const head = await resolveRevision(sampleRoot, "main");
+
       if (!head) {
         throw new Error("Tutorial repository has no main commit.");
       }
+
       const manifest = await readShippedMapManifest(assetsRoot);
+
       if (manifest.headCommit !== head.commit) {
         throw new Error(
           `Tutorial assets are inconsistent: repository HEAD ${head.commit} does not match the shipped bundle commit ${manifest.headCommit}.`,
@@ -202,6 +222,7 @@ export function createTutorialService(input: {
         head.commit,
       );
       const sourceSession = freshSourceSessionKey(agent);
+
       const created = await createReviewDir({
         uuid,
         visibility: "system",
@@ -215,10 +236,12 @@ export function createTutorialService(input: {
           path.join(assetsRoot, "review.mdx"),
         ),
       });
+
       // Store the shipped source and precompiled bundles as a genuine Review
       // revision. Opening can then use the same materialization and session
       // path as any published Review.
       const publishedAt = new Date().toISOString();
+
       const candidate: StoredReview = {
         ...created,
         review: {
@@ -227,6 +250,7 @@ export function createTutorialService(input: {
           lastPublishedAt: publishedAt,
         },
       };
+
       await persistStoredReviewRecord(candidate.dir, candidate.review);
       const runtimeManifest = await readTutorialRuntimeManifest(assetsRoot);
       await Promise.all([
@@ -241,10 +265,12 @@ export function createTutorialService(input: {
           },
         ),
       ]);
+
       const revision = await sealReviewCandidate(
         candidate.dir,
         "Materialize bundled tutorial Review",
       );
+
       const review: StoredReview = {
         ...candidate,
         review: {
@@ -253,11 +279,13 @@ export function createTutorialService(input: {
           presentedSoftwareMapRevision: revision,
         },
       };
+
       await persistStoredReviewRecord(review.dir, review.review);
       await writePrivateJsonAtomic(stampPath, {
         version: TUTORIAL_STAMP_VERSION,
         reviewUuid: review.review.uuid,
       } satisfies TutorialStamp);
+
       return review;
     },
 
@@ -274,10 +302,12 @@ async function materializeSampleRepository(input: {
   sampleRoot: string;
 }): Promise<void> {
   await mkdir(input.tutorialRoot, { recursive: true, mode: 0o700 });
+
   const temporaryRoot = path.join(
     input.tutorialRoot,
     `.sample-service-${crypto.randomUUID()}`,
   );
+
   try {
     await cp(path.join(input.assetsRoot, "sample-service"), temporaryRoot, {
       recursive: true,
@@ -307,15 +337,20 @@ async function readShippedMapManifest(
     "software-map",
     "manifest.json",
   );
+
   const value = parseJsonText(await readFile(manifestPath, "utf8"));
   const manifest = isJsonObject(value) ? value : undefined;
+
   const headCommit =
     manifest && jsonString(jsonProperty(manifest, "headCommit"));
+
   const baseCommit =
     manifest && jsonString(jsonProperty(manifest, "baseCommit"));
+
   if (headCommit === undefined || baseCommit === undefined) {
     throw new Error("Tutorial software-map manifest is invalid.");
   }
+
   return { headCommit, baseCommit };
 }
 
@@ -327,6 +362,7 @@ async function isValidTutorialReview(
   if (!(await isManagedTutorialPath(review.review.worktreePath, sampleRoot))) {
     return false;
   }
+
   if (
     review.review.visibility !== "system" ||
     !(
@@ -338,17 +374,22 @@ async function isValidTutorialReview(
   ) {
     return false;
   }
+
   const storedHarness =
     parseAuthoringSessionKey(review.review.sourceSession)?.harness ??
     parseFreshSourceSessionHarness(review.review.sourceSession);
+
   if (expectedHarness && storedHarness !== expectedHarness) return false;
   const sourceCommit = review.review.sourceCommit;
+
   if (!sourceCommit || review.review.baseCommit === sourceCommit) return false;
+
   const [head, base, count] = await Promise.all([
     resolveRevision(sampleRoot, "HEAD").catch(() => null),
     resolveRevision(sampleRoot, "HEAD^").catch(() => null),
     runGit(sampleRoot, ["rev-list", "--count", "HEAD"]).catch(() => ""),
   ]);
+
   return (
     head?.commit === sourceCommit &&
     base?.commit === review.review.baseCommit &&
@@ -361,8 +402,10 @@ async function readTutorialStamp(
 ): Promise<TutorialStamp | null> {
   try {
     const value = parseJsonText(await readFile(stampPath, "utf8"));
+
     if (!isJsonObject(value)) return null;
     const reviewUuid = jsonString(jsonProperty(value, "reviewUuid"));
+
     return jsonProperty(value, "version") === TUTORIAL_STAMP_VERSION &&
       reviewUuid !== undefined
       ? { version: TUTORIAL_STAMP_VERSION, reviewUuid }
@@ -375,7 +418,9 @@ async function readTutorialStamp(
 async function requireTutorialAssets(assetsRoot: string): Promise<void> {
   const { requiredPaths: required } =
     await readTutorialRuntimeManifest(assetsRoot);
+
   const missing: string[] = [];
+
   for (const entry of required) {
     try {
       await stat(path.join(assetsRoot, entry));
@@ -383,6 +428,7 @@ async function requireTutorialAssets(assetsRoot: string): Promise<void> {
       missing.push(entry);
     }
   }
+
   if (missing.length > 0) {
     throw new Error(
       `Tutorial runtime assets are missing: ${missing.join(", ")}.`,
@@ -402,9 +448,11 @@ async function readTutorialRuntimeManifest(
   const value = parseJsonText(
     await readFile(path.join(assetsRoot, "runtime-manifest.json"), "utf8"),
   );
+
   const manifest = isJsonObject(value) ? value : undefined;
   const reviewFiles = manifest && jsonProperty(manifest, "reviewFiles");
   const requiredPaths = manifest && jsonProperty(manifest, "requiredPaths");
+
   if (
     !manifest ||
     jsonProperty(manifest, "version") !== 1 ||
@@ -414,6 +462,7 @@ async function readTutorialRuntimeManifest(
   ) {
     throw new Error("Tutorial runtime manifest is invalid.");
   }
+
   return {
     version: 1,
     reviewFiles: [...new Set(reviewFiles)],
@@ -429,6 +478,7 @@ function isRelativePathList(
     entries.length > 0 &&
     entries.every((entry) => {
       const relativePath = jsonString(entry);
+
       return (
         relativePath !== undefined &&
         relativePath.length > 0 &&
@@ -447,7 +497,9 @@ async function isManagedTutorialPath(
     realpath(candidate).catch(() => path.resolve(candidate)),
     realpath(root).catch(() => path.resolve(root)),
   ]);
+
   const relative = path.relative(canonicalRoot, canonicalCandidate);
+
   return (
     relative === "" ||
     (!relative.startsWith("..") && !path.isAbsolute(relative))
@@ -459,5 +511,6 @@ async function runGit(cwd: string, args: string[]): Promise<string> {
     cwd,
     encoding: "utf8",
   });
+
   return stdout;
 }

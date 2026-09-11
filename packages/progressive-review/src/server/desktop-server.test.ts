@@ -33,6 +33,7 @@ import {
 import { GlobalReviewDesktopVerbRelay } from "./global-verb-relay";
 
 let directory: string | undefined;
+
 const packageRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../..",
@@ -85,6 +86,7 @@ describe("reviewAgentKind", () => {
         },
       },
     };
+
     expect(reviewAgentKind(review)).toBe("claude");
     expect(
       reviewAgentKind({
@@ -118,6 +120,7 @@ describe("Review Desktop open requests", () => {
     await mkdir(dir, { recursive: true });
     await reviewVcs.init(dir);
     const source = await makeSourceRepository(directory);
+
     const record = {
       schemaVersion: 4,
       uuid,
@@ -136,6 +139,7 @@ describe("Review Desktop open requests", () => {
       lastPublishedAt: "2026-09-01T00:00:00Z",
       dismissedAt: "2026-01-01T00:00:00Z",
     };
+
     await writeFile(path.join(dir, "review.mdx"), "# Recovery");
     await writeFile(path.join(dir, ".gitignore"), ".build/\nreview.db*\n");
     await writeFile(path.join(dir, "review.json"), JSON.stringify(record));
@@ -157,10 +161,12 @@ describe("Review Desktop open requests", () => {
       path.join(dir, "review.json"),
       JSON.stringify({ ...record, sourceCommit: "f".repeat(40) }),
     );
+
     const historicalJsonRevision = await reviewVcs.seal(
       dir,
       "Review publish candidate",
     );
+
     await writeFile(path.join(dir, "review.json"), JSON.stringify(record));
     await writeFile(
       path.join(dir, "review.mdx"),
@@ -180,10 +186,12 @@ describe("Review Desktop open requests", () => {
       `import { createActiveReviewDocument, jsx } from "review-doc-runtime";
 export default createActiveReviewDocument({ title: "Legacy", routePath: "/", filePath: "review.mdx", modelNames: [], models: {}, Component: () => jsx("h1", { children: "Legacy sealed" }), isDefault: true });`,
     );
+
     const currentRevision = await reviewVcs.seal(
       dir,
       "Review publish candidate",
     );
+
     await writeFile(
       path.join(dir, "review.json"),
       JSON.stringify({ ...record, presentedDocumentRevision: currentRevision }),
@@ -197,16 +205,20 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
       author: "Reviewer",
     });
     closeAllReviewThreadStores();
+
     const files = [
       "review.json",
       "review.mdx",
       "review.db",
       ".git/refs/heads/main",
     ];
+
     const before = await Promise.all(
       files.map((file) => readFile(path.join(dir, file))),
     );
+
     const token = "recovery-secret";
+
     const server = createGlobalReviewServer({
       appPid: process.pid,
       packageRoot,
@@ -215,8 +227,10 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
       token,
       discoveryPath: path.join(directory, "desktop.json"),
     });
+
     try {
       await server.listen();
+
       const request = (route: string, body?: JsonObject) =>
         fetch(`${server.url}${route}`, {
           method: body ? "POST" : "GET",
@@ -226,13 +240,16 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
           },
           body: body ? JSON.stringify(body) : undefined,
         });
+
       const current = await request(`/reviews/${uuid}/open`, {});
       expect(current.status).toBe(201);
       const opened = await current.json();
       expect(opened.review).not.toHaveProperty("recovery");
+
       const migrated = JSON.parse(
         await readFile(path.join(dir, "review.json"), "utf8"),
       );
+
       expect(migrated).toMatchObject({
         schemaVersion: 5,
         status: "accepted",
@@ -254,9 +271,11 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
       expect(
         (await comments.json()).snapshot.comments["recovery-thread"].messages,
       ).toHaveLength(1);
+
       const historical = await request(`/reviews/${uuid}/open`, {
         revision: oldRevision,
       });
+
       expect(historical.status).toBe(201);
       const old = await historical.json();
       expect(
@@ -269,9 +288,11 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
         error: "This older revision is unavailable in this version of Review",
         detail: { code: "historical_revision_unavailable", reviewUuid: uuid },
       });
+
       const historicalJson = await request(`/reviews/${uuid}/open`, {
         revision: historicalJsonRevision,
       });
+
       expect(historicalJson.status).toBe(201);
       const jsonVersion = await historicalJson.json();
       expect(jsonVersion.session.historicalRevision).toBe(
@@ -295,16 +316,20 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
       ).toBeUndefined();
       const refreshedReviews = await (await request("/reviews")).json();
       expect(refreshedReviews.reviews[0].sourceUnavailable).toBeUndefined();
+
       const reopened = await (
         await request(`/reviews/${uuid}/open`, {
           revision: historicalJsonRevision,
         })
       ).json();
+
       expect(reopened.session).toEqual(jsonVersion.session);
+
       const unavailableDiff = await request(
         `/sessions/${jsonVersion.sessionId}/__progressive-review/diff-files`,
         {},
       );
+
       expect(unavailableDiff.status).toBe(400);
       expect((await unavailableDiff.json()).error).toBe(
         jsonVersion.session.sourceUnavailable,
@@ -342,6 +367,7 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
     await mkdir(dir, { recursive: true });
     await reviewVcs.init(dir);
     const source = await makeSourceRepository(directory);
+
     const record = {
       schemaVersion: 4,
       uuid,
@@ -360,6 +386,7 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
       lastPublishedAt: "2026-09-01T00:00:00Z",
       dismissedAt: "2026-01-01T00:00:00Z",
     };
+
     await writeFile(path.join(dir, "review.mdx"), "# Recovery");
     await writeFile(path.join(dir, ".gitignore"), ".build/\nreview.db*\n");
     await writeFile(path.join(dir, "review.json"), JSON.stringify(record));
@@ -395,10 +422,12 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
       path.join(dir, ".bundle/document/review-document.js"),
       'throw new Error("corrupt sealed document");',
     );
+
     const currentRevision = await reviewVcs.seal(
       dir,
       "Review publish candidate",
     );
+
     await writeFile(
       path.join(dir, "review.json"),
       JSON.stringify({ ...record, presentedDocumentRevision: currentRevision }),
@@ -412,16 +441,20 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
       author: "Reviewer",
     });
     closeAllReviewThreadStores();
+
     const files = [
       "review.json",
       "review.mdx",
       "review.db",
       ".git/refs/heads/main",
     ];
+
     const before = await Promise.all(
       files.map((file) => readFile(path.join(dir, file))),
     );
+
     const token = "recovery-secret";
+
     const server = createGlobalReviewServer({
       appPid: process.pid,
       packageRoot,
@@ -430,8 +463,10 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
       token,
       discoveryPath: path.join(directory, "desktop.json"),
     });
+
     try {
       await server.listen();
+
       const request = (route: string, body?: JsonObject) =>
         fetch(`${server.url}${route}`, {
           method: body ? "POST" : "GET",
@@ -441,6 +476,7 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
           },
           body: body ? JSON.stringify(body) : undefined,
         });
+
       const current = await request(`/reviews/${uuid}/open`, {});
       expect(current.status).toBe(409);
       expect(await current.json()).toMatchObject({
@@ -464,6 +500,7 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
   it("rejects an unknown Review view before opening a session", async () => {
     directory = await mkdtemp(path.join(tmpdir(), "review-view-server-"));
     const token = "review-view-test-token";
+
     const server = createGlobalReviewServer({
       appPid: process.pid,
       packageRoot,
@@ -475,6 +512,7 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
 
     try {
       await server.listen();
+
       const response = await fetch(
         `${server.url}/reviews/11111111-1111-4111-8111-111111111111/open`,
         {
@@ -502,6 +540,7 @@ it("rejects a publication whose review moved its base ref during the command", a
   directory = await mkdtemp(path.join(tmpdir(), "review-publish-race-"));
   vi.stubEnv("DEV_REVIEW_HOME", directory);
   const source = await makeSourceRepository(directory);
+
   const stored = await createReviewDir({
     worktreePath: source.root,
     baseRef: "main",
@@ -509,6 +548,7 @@ it("rejects a publication whose review moved its base ref during the command", a
     sourceCommit: source.commit,
     sourceIdentity: { kind: "git-branch", name: "main" },
   });
+
   await writeReviewDocumentBundle(
     stored.dir,
     bundleReviewDocument({
@@ -532,9 +572,12 @@ it("rejects a publication whose review moved its base ref during the command", a
       );
       putReviewRecord(stored.dir, { ...stored.review, baseRef: "release" });
     }
+
     return { ok: true };
   };
+
   const token = "publication-race-secret";
+
   const server = createGlobalReviewServer({
     appPid: process.pid,
     packageRoot,
@@ -544,8 +587,10 @@ it("rejects a publication whose review moved its base ref during the command", a
     discoveryPath: path.join(directory, "desktop.json"),
     relay,
   });
+
   try {
     await server.listen();
+
     const response = await fetch(`${server.url}/publish-ready`, {
       method: "POST",
       headers: {
@@ -589,16 +634,19 @@ describe("real legacy fixtures open end to end", () => {
           ["-C", repositoryRoot, "cat-file", "-e", `${commit}^{commit}`],
           { stdio: "pipe" },
         );
+
         return true;
       } catch {
         return false;
       }
     };
+
     const missing = legacyOpenFixtures.flatMap((fixture) =>
-      [fixture.baseCommit, fixture.sourceCommit]
-        .filter((commit) => !hasCommit(commit))
-        .map((commit) => `${fixture.name} ${commit}`),
+      [fixture.baseCommit, fixture.sourceCommit].flatMap((commit) =>
+        hasCommit(commit) ? [] : [`${fixture.name} ${commit}`],
+      ),
     );
+
     if (missing.length > 0)
       throw new Error(
         `Legacy fixture commits are missing from ${repositoryRoot}. Run \`git fetch --unshallow origin\` (or \`git fetch origin\`) and retry: ${missing.join(", ")}`,
@@ -610,6 +658,7 @@ describe("real legacy fixtures open end to end", () => {
       const { home, uuid, originalRecord } = await extractLegacyReviewFixture(
         fixture.name,
       );
+
       directory = home;
       const sourcePath = String(originalRecord.worktreePath);
       // Only the two pinned commits are needed. Cloning the monorepo copied
@@ -636,6 +685,7 @@ describe("real legacy fixtures open end to end", () => {
       );
       vi.stubEnv("DEV_REVIEW_HOME", home);
       const token = "fixture-secret";
+
       const server = createGlobalReviewServer({
         appPid: process.pid,
         packageRoot,
@@ -644,8 +694,10 @@ describe("real legacy fixtures open end to end", () => {
         token,
         discoveryPath: path.join(home, "desktop.json"),
       });
+
       try {
         await server.listen();
+
         const request = (route: string, body?: JsonObject) =>
           fetch(new URL(route, server.url), {
             method: body ? "POST" : "GET",
@@ -655,6 +707,7 @@ describe("real legacy fixtures open end to end", () => {
             },
             body: body ? JSON.stringify(body) : undefined,
           });
+
         const opened = await request(`/reviews/${uuid}/open`, {});
         expect(opened.status).toBe(201);
         const session = await opened.json();
@@ -662,9 +715,11 @@ describe("real legacy fixtures open end to end", () => {
         const documentResponse = await request(`${prefix}/document`);
         expect(documentResponse.status).toBe(200);
         const document = await documentResponse.json();
+
         const golden = reviewDocumentDataSchema.parse(
           await readLegacyReviewGolden(fixture.name, "document"),
         );
+
         expect(document).toMatchObject({
           ok: true,
           contentHash: bundleReviewDocument(golden).contentHash,
@@ -675,9 +730,11 @@ describe("real legacy fixtures open end to end", () => {
         const mapResponse = await request(`${prefix}/software-map`);
         expect(mapResponse.status).toBe(fixture.hasMap ? 200 : 404);
         const map = await mapResponse.json();
+
         const mapGolden = fixture.hasMap
           ? await readLegacyReviewGolden(fixture.name, "map")
           : null;
+
         expect(map).toMatchObject(
           fixture.hasMap
             ? { ok: true, contentHash: (mapGolden as JsonObject).contentHash }
@@ -703,13 +760,16 @@ describe("real legacy fixtures open end to end", () => {
 async function makeSourceRepository(parent: string) {
   const root = path.join(parent, "source");
   await mkdir(root, { recursive: true });
+
   const git = (args: string[]) =>
     execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();
+
   git(["init", "-q", "-b", "main"]);
   git(["config", "user.email", "test@example.com"]);
   git(["config", "user.name", "Test"]);
   await writeFile(path.join(root, "README.md"), "# Source\n");
   git(["add", "README.md"]);
   git(["commit", "-q", "-m", "Initial"]);
+
   return { root, commit: git(["rev-parse", "HEAD"]) };
 }

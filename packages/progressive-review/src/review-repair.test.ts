@@ -46,7 +46,9 @@ import { defineSoftwareMap } from "./software-map-model";
 import { migrateStoredReview } from "./stored-review-migration";
 
 const roots: string[] = [];
+
 let server: Awaited<ReturnType<typeof startLifecycleTestServer>> | undefined;
+
 afterEach(async () => {
   await server?.close();
   server = undefined;
@@ -61,6 +63,7 @@ async function fixture(legacy = false) {
   roots.push(root);
   const source = path.join(root, "source");
   await mkdir(source);
+
   for (const args of [
     ["init", "-b", "main"],
     ["config", "user.name", "Test"],
@@ -68,10 +71,12 @@ async function fixture(legacy = false) {
     ["commit", "--allow-empty", "-m", "Initial"],
   ])
     execFileSync("git", args, { cwd: source, stdio: "ignore" });
+
   const commit = execFileSync("git", ["rev-parse", "HEAD"], {
     cwd: source,
     encoding: "utf8",
   }).trim();
+
   const stored = await createReviewDir({
     reviewsHomePath: path.join(root, "home"),
     worktreePath: source,
@@ -80,6 +85,7 @@ async function fixture(legacy = false) {
     sourceCommit: commit,
     sourceIdentity: { kind: "git-branch", name: "main" },
   });
+
   if (legacy) {
     const bundle = path.join(stored.dir, ".bundle/document");
     await mkdir(bundle, { recursive: true });
@@ -106,6 +112,7 @@ async function fixture(legacy = false) {
       }),
     );
   const revision = await sealReviewCandidate(stored.dir, "Presented");
+
   const record = {
     ...stored.review,
     schemaVersion: legacy ? 4 : 5,
@@ -113,7 +120,9 @@ async function fixture(legacy = false) {
     presentedDocumentRevision: revision,
     dismissedAt: "2026-09-01T00:00:00.000Z",
   };
+
   await writeFile(path.join(stored.dir, "review.json"), JSON.stringify(record));
+
   return { ...stored, record, revision };
 }
 
@@ -123,10 +132,12 @@ describe("prepareReviewRepair", () => {
     async () => {
       const stored = await fixture(true);
       const recordBefore = await readFile(path.join(stored.dir, "review.json"));
+
       const refsBefore = execFileSync("git", ["show-ref"], {
         cwd: stored.dir,
         encoding: "utf8",
       });
+
       execFileSync("mkfifo", [path.join(stored.dir, ".bundle", "pipe")]);
       await expect(
         prepareReviewRepair({ reviewDir: stored.dir }),
@@ -159,18 +170,24 @@ describe("prepareReviewRepair", () => {
     "rejects internal %s symlinks before touching their external targets",
     async (relative) => {
       const stored = await fixture(true);
+
       const external = await mkdtemp(
         path.join(os.tmpdir(), "review-repair-external-"),
       );
+
       roots.push(external);
+
       const target =
         relative === ".git/index" ? path.join(external, "index") : external;
+
       const marker =
         relative === ".git/index" ? target : path.join(target, "manifest.json");
+
       const originalBytes =
         relative === ".git/index"
           ? await readFile(path.join(stored.dir, relative))
           : Buffer.from("External bytes must not change");
+
       await writeFile(marker, originalBytes);
       await rm(path.join(stored.dir, relative), {
         recursive: true,
@@ -181,6 +198,7 @@ describe("prepareReviewRepair", () => {
       await expect(
         prepareReviewRepair({ reviewDir: stored.dir }).then(async (result) => {
           if (result.kind === "prepared") await result.cleanup();
+
           return result;
         }),
       ).rejects.toThrow(/Repair internal.*symbolic link/);
@@ -204,15 +222,19 @@ describe("prepareReviewRepair", () => {
         presentedSoftwareMapRevision: "e".repeat(40),
       }),
     );
+
     const refs = () =>
       execFileSync("git", ["show-ref"], {
         cwd: stored.review.worktreePath,
         encoding: "utf8",
       });
+
     const before = refs();
     const result = await prepareReviewRepair({ reviewDir: stored.dir });
+
     if (result.kind !== "prepared")
       throw new Error("Expected map notes repair");
+
     try {
       expect(result.request.newDocumentRevision).toBe(stored.revision);
       expect(result.request.sourceFallback).toEqual({
@@ -236,10 +258,12 @@ describe("prepareReviewRepair", () => {
         headCommit: "d".repeat(40),
       }),
     );
+
     const mapRevision = await sealReviewCandidate(
       stored.dir,
       "Contradictory map pins",
     );
+
     await writeFile(
       path.join(stored.dir, "review.json"),
       JSON.stringify({
@@ -269,19 +293,23 @@ describe("prepareReviewRepair", () => {
     const before = await readFile(path.join(stored.dir, "review.json"), "utf8");
     const result = await prepareReviewRepair({ reviewDir: stored.dir });
     expect(result.kind).toBe("prepared");
+
     if (result.kind !== "prepared") throw new Error("Expected repair");
+
     try {
       expect(result.request.newDocumentRevision).not.toBe(stored.revision);
       expect(result.request.sourceFallback).toEqual({
         document: false,
         map: false,
       });
+
       const staged = JSON.parse(
         await readFile(
           path.join(result.request.stagingDir, "review.json"),
           "utf8",
         ),
       );
+
       expect(staged).toMatchObject({
         status: "accepted",
         dismissedAt: stored.record.dismissedAt,
@@ -314,10 +342,12 @@ describe("prepareReviewRepair", () => {
       path.join(stored.dir, ".bundle/document/review-document.js"),
       "broken javascript",
     );
+
     const revision = await sealReviewCandidate(
       stored.dir,
       "Broken current artifact",
     );
+
     await writeFile(
       path.join(stored.dir, "review.json"),
       JSON.stringify({ ...stored.record, presentedDocumentRevision: revision }),
@@ -328,11 +358,14 @@ describe("prepareReviewRepair", () => {
     );
     const before = await fingerprintReviewRepairInputs(stored.dir);
     const warnings: string[] = [];
+
     const result = await prepareReviewRepair({
       reviewDir: stored.dir,
       warning: (message) => warnings.push(message),
     });
+
     if (result.kind !== "prepared") throw new Error("Expected repair");
+
     try {
       expect(result.request.sourceFallback.document).toBe(true);
       expect(warnings.join(" ")).toContain("semantic equivalence");
@@ -371,10 +404,12 @@ describe("prepareReviewRepair", () => {
         baseCommit: stored.review.baseCommit,
       }),
     );
+
     const mapRevision = await sealReviewCandidate(
       stored.dir,
       "Independent JSON map",
     );
+
     await writeFile(
       path.join(stored.dir, "review.json"),
       JSON.stringify({
@@ -383,7 +418,9 @@ describe("prepareReviewRepair", () => {
       }),
     );
     const result = await prepareReviewRepair({ reviewDir: stored.dir });
+
     if (result.kind !== "prepared") throw new Error("Expected repair");
+
     try {
       expect(result.request.newMapRevision).toBe(mapRevision);
     } finally {
@@ -392,12 +429,14 @@ describe("prepareReviewRepair", () => {
   });
   it("requires an explicit UUID before looking up a review", async () => {
     let output = "";
+
     const stdout = new Writable({
       write(chunk, _encoding, callback) {
         output += chunk.toString();
         callback();
       },
     });
+
     expect(
       await runReviewRepair({
         cwd: process.cwd(),
@@ -414,18 +453,21 @@ describe("prepareReviewRepair", () => {
     server = await startLifecycleTestServer();
     let out = "";
     let err = "";
+
     const stdout = new Writable({
       write(chunk, _encoding, callback) {
         out += chunk.toString();
         callback();
       },
     });
+
     const stderr = new Writable({
       write(chunk, _encoding, callback) {
         err += chunk.toString();
         callback();
       },
     });
+
     expect(
       await runReviewRepair({
         cwd: path.join(path.dirname(stored.dir), "elsewhere"),
@@ -448,18 +490,21 @@ describe("prepareReviewRepair", () => {
       server = await startLifecycleTestServer();
       let out = "";
       let err = "";
+
       const stdout = new Writable({
         write(chunk, _encoding, callback) {
           out += chunk.toString();
           callback();
         },
       });
+
       const stderr = new Writable({
         write(chunk, _encoding, callback) {
           err += chunk.toString();
           callback();
         },
       });
+
       const originalDevReviewHome = process.env.DEV_REVIEW_HOME;
       const cwd = path.join(stored.review.worktreePath, relativeCwd);
       await mkdir(cwd, { recursive: true });
@@ -500,10 +545,12 @@ describe("prepareReviewRepair", () => {
       path.join(stored.dir, "review.json"),
       JSON.stringify({ ...stored.record, sourceCommit: "c".repeat(40) }),
     );
+
     const mapRevision = await sealReviewCandidate(
       stored.dir,
       "Legacy map only",
     );
+
     await writeFile(
       path.join(stored.dir, "review.json"),
       JSON.stringify({
@@ -513,14 +560,18 @@ describe("prepareReviewRepair", () => {
     );
     const before = await fingerprintReviewRepairInputs(stored.dir);
     const result = await prepareReviewRepair({ reviewDir: stored.dir });
+
     if (result.kind !== "prepared") throw new Error("Expected repair");
+
     try {
       expect(result.request.newDocumentRevision).toBe(stored.revision);
       expect(result.request.newMapRevision).not.toBe(mapRevision);
+
       const sealedMap = path.join(
         result.request.stagingDir,
         ".build/map-verification",
       );
+
       await materializeReviewRevision(
         result.request.stagingDir,
         result.request.newMapRevision!,
@@ -561,7 +612,9 @@ describe("prepareReviewRepair", () => {
       JSON.stringify({ ...stored.record, schemaVersion: 4 }),
     );
     const result = await prepareReviewRepair({ reviewDir: stored.dir });
+
     if (result.kind !== "prepared") throw new Error("Expected metadata repair");
+
     try {
       expect(result.request.newDocumentRevision).toBe(stored.revision);
       expect(result.request.newMapRevision).toBeNull();
@@ -586,7 +639,9 @@ describe("prepareReviewRepair", () => {
       JSON.stringify({ ...stored.record, schemaVersion: 4 }),
     );
     const result = await prepareReviewRepair({ reviewDir: stored.dir });
+
     if (result.kind !== "prepared") throw new Error("Expected metadata repair");
+
     try {
       expect(
         await readFile(
@@ -627,10 +682,12 @@ it("repairs broken sealed artifacts with a legacy DB by upgrading only the isola
     path.join(stored.dir, ".bundle/document/review-document.js"),
     "throw new Error('broken sealed');",
   );
+
   const broken = await sealReviewCandidate(
     stored.dir,
     "Broken sealed document",
   );
+
   await writeFile(
     path.join(stored.dir, "review.json"),
     JSON.stringify({ ...stored.record, presentedDocumentRevision: broken }),
@@ -640,13 +697,16 @@ it("repairs broken sealed artifacts with a legacy DB by upgrading only the isola
   );
   const prepared = await prepareReviewRepair({ reviewDir: stored.dir });
   expect(prepared.kind).toBe("prepared");
+
   if (prepared.kind !== "prepared") throw new Error("Expected repair");
+
   try {
     expect(prepared.request.sourceFallback.document).toBe(true);
     expect(prepared.request.expectedThreadDbFingerprint).toMatch(
       /^[0-9a-f]{64}$/,
     );
     expect(await readFile(dbPath)).toEqual(bytes);
+
     for (const suffix of ["-wal", "-shm"])
       await expect(
         readFile(path.join(prepared.request.stagingDir, `review.db${suffix}`)),
@@ -673,10 +733,12 @@ it("rejects changes to legacy threads while preparing artifact repair", async ()
     path.join(stored.dir, ".bundle/document/review-document.js"),
     "throw new Error('broken sealed');",
   );
+
   const broken = await sealReviewCandidate(
     stored.dir,
     "Broken sealed document",
   );
+
   await writeFile(
     path.join(stored.dir, "review.json"),
     JSON.stringify({ ...stored.record, presentedDocumentRevision: broken }),

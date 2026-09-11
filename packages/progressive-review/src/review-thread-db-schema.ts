@@ -21,11 +21,14 @@ export function readThreadDbSchemaVersion(db: DatabaseSync): string | null {
       "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'meta'",
     )
     .get() as { present: number } | undefined;
+
   if (!hasMeta) return null;
+
   // SAFETY: the legacy meta table declares value TEXT NOT NULL.
   const row = db
     .prepare("SELECT value FROM meta WHERE key = 'schema_version'")
     .get() as { value: string } | undefined;
+
   return row?.value ?? null;
 }
 
@@ -34,6 +37,7 @@ export function requireCurrentThreadDbSchema(
   dbPath: string,
 ): void {
   const version = readThreadDbSchemaVersion(db);
+
   if (version !== String(REVIEW_THREAD_DB_SCHEMA_VERSION))
     throw new ReviewThreadDbVersionError(dbPath, version);
 }

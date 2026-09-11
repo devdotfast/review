@@ -24,6 +24,7 @@ import {
 } from "./review-lifecycle-contracts";
 
 const reviewTarget = z.strictObject({ reviewUuid: z.uuid() });
+
 const tools = [
   {
     name: "review_create",
@@ -106,12 +107,14 @@ const tools = [
     }),
   },
 ];
+
 const requestSchema = z.object({
   jsonrpc: z.literal("2.0"),
   id: z.union([z.string(), z.number(), z.null()]).optional(),
   method: z.string(),
   params: z.record(z.string(), z.json()).optional(),
 });
+
 const callSchema = z.object({
   name: z.string(),
   arguments: z.record(z.string(), z.json()).default({}),
@@ -124,9 +127,11 @@ export async function runReviewMcp(input: {
   request?: typeof requestReviewLifecycle;
 }): Promise<number> {
   const lines = createInterface({ input: input.stdin, crlfDelay: Infinity });
+
   for await (const line of lines) {
     if (!line.trim()) continue;
     let value: JsonValue;
+
     try {
       value = parseJsonText(line);
     } catch {
@@ -137,7 +142,9 @@ export async function runReviewMcp(input: {
       });
       continue;
     }
+
     const parsed = requestSchema.safeParse(value);
+
     if (!parsed.success) {
       write({
         jsonrpc: "2.0",
@@ -146,10 +153,14 @@ export async function runReviewMcp(input: {
       });
       continue;
     }
+
     const request = parsed.data;
+
     if (request.id === undefined) continue;
+
     try {
       let result: JsonValue;
+
       switch (request.method) {
         case "initialize":
           result = {
@@ -175,27 +186,36 @@ export async function runReviewMcp(input: {
         case "tools/call": {
           const call = callSchema.parse(request.params);
           const tool = tools.find((entry) => entry.name === call.name);
+
           if (!tool) throw new Error(`Unknown Review tool: ${call.name}`);
+
           const agent = tool.agent
             ? resolveAuthoringSessionRef(process.env)
             : undefined;
+
           if (agent && call.arguments.agent === undefined)
             call.arguments.agent = {
               harness: agent.harness,
               sessionId: agent.sessionId,
             };
           const args = tool.schema.parse(call.arguments);
+
           const data = await (input.request ?? requestReviewLifecycle)(
             tool.path,
             args,
           );
+
           result = { content: [{ type: "text", text: JSON.stringify(data) }] };
+
           if (isJsonObject(data)) {
             result.structuredContent = data;
+
             if (data.ok === false) result.isError = true;
           }
+
           break;
         }
+
         default:
           write({
             jsonrpc: "2.0",
@@ -204,6 +224,7 @@ export async function runReviewMcp(input: {
           });
           continue;
       }
+
       write({ jsonrpc: "2.0", id: request.id, result });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -225,7 +246,9 @@ export async function runReviewMcp(input: {
       );
     }
   }
+
   return 0;
+
   function write(value: JsonValue) {
     input.stdout.write(`${JSON.stringify(value)}\n`);
   }

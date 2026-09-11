@@ -37,6 +37,7 @@ const roots: string[] = [];
 afterEach(() => {
   vi.unstubAllEnvs();
   closeAllReviewThreadStores();
+
   for (const root of roots.splice(0)) {
     rmSync(root, { recursive: true, force: true });
   }
@@ -45,6 +46,7 @@ afterEach(() => {
 function tempRoot(): string {
   const root = mkdtempSync(path.join(tmpdir(), "review-state-store-"));
   roots.push(root);
+
   return root;
 }
 
@@ -58,6 +60,7 @@ function makeReviewPath(): string {
   const root = tempRoot();
   vi.stubEnv("DEV_REVIEW_HOME", root);
   const reviewPath = path.join(root, "reviews", "current", "review.mdx");
+
   return reviewPath;
 }
 
@@ -73,9 +76,11 @@ describe("reviewStateDir", () => {
       "3b241101-e2bb-4255-8caf-4136c566a962",
       "review.mdx",
     );
+
     expect(reviewStateDir(mdx)).toBe(path.dirname(mdx));
   });
 });
+
 describe("comment persistence", () => {
   it("returns an empty map before anything is written", () => {
     const reviewPath = makeReviewPath();
@@ -92,6 +97,7 @@ describe("comment persistence", () => {
       body: "First note",
       author: "Reviewer",
     });
+
     expect(created.threadId).toBe("thread-a");
     expect(created.thread.status).toBe("open");
     expect(created.thread.messages).toHaveLength(1);
@@ -137,6 +143,7 @@ describe("comment persistence", () => {
       body: "First delivery",
       author: "Reviewer",
     });
+
     const retried = appendReviewComment(reviewPath, {
       threadId: "thread-a",
       messageId: "message-a1",
@@ -144,6 +151,7 @@ describe("comment persistence", () => {
       body: "Retry body is ignored",
       author: "Reviewer",
     });
+
     expect(retried.thread.messages).toHaveLength(1);
     expect(retried.thread.messages[0]?.body).toBe("First delivery");
   });
@@ -357,12 +365,14 @@ describe("comment persistence", () => {
 describe("agent comment messages", () => {
   it("keeps agent replies out of inputs before and after submission", () => {
     const reviewPath = makeReviewPath();
+
     const input = {
       threadId: "thread-agent",
       messageId: "message-reviewer",
       target,
       body: "Why does this work?",
     };
+
     appendReviewCommentDraft(reviewPath, { ...input, author: "Reviewer" });
 
     expect(
@@ -426,6 +436,7 @@ describe("document history + submission audit", () => {
 
   it("appends a submission event to the audit trail", () => {
     const reviewPath = path.join(tempRoot(), "current", "review.mdx");
+
     const event: ReviewSubmissionEvent = {
       id: "submission-1",
       decision: "request-changes",

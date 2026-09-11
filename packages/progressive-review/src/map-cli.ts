@@ -80,14 +80,17 @@ export async function runSoftwareMapCli(
   // A parse failure happens before options resolve, so read the flag from raw
   // argv the same way the top-level CLI does.
   const json = parsed.ok ? parsed.json : jsonRequestedInArgv(input.args);
+
   const output: CliJsonOutput = {
     json,
     stdout: input.stdout,
     stderr: input.stderr,
   };
+
   if (!parsed.ok) {
     const exitCode = failWithJsonError(output, "map", parsed.error);
     input.stderr.write(softwareMapCliHelp());
+
     return exitCode;
   }
 
@@ -95,10 +98,13 @@ export async function runSoftwareMapCli(
 
   if (command === "--help" || command === "-h" || command === "help") {
     input.stdout.write(softwareMapCliHelp());
+
     return 0;
   }
+
   if (input.args.includes("--help") || input.args.includes("-h")) {
     input.stdout.write(softwareMapCliHelp());
+
     return 0;
   }
 
@@ -184,7 +190,9 @@ export async function runSoftwareMapCli(
     "map",
     `Unknown map command: ${command}`,
   );
+
   input.stderr.write(softwareMapCliHelp());
+
   return exitCode;
 }
 
@@ -236,6 +244,7 @@ export function parseSoftwareMapCliArgs(
   const rawCommand = args[0] ?? "check";
   // `present` is an alias of `publish`.
   const command = rawCommand === "present" ? "publish" : rawCommand;
+
   if (command === "--help" || command === "-h" || command === "help") {
     return {
       ok: true,
@@ -248,12 +257,14 @@ export function parseSoftwareMapCliArgs(
   }
 
   const commandModel = softwareMapCommandModel(command);
+
   try {
     commandModel.parse(args.slice(1), { from: "user" });
   } catch (error) {
     if (!(error instanceof CommanderError)) {
       throw error;
     }
+
     if (error.exitCode === 0) {
       return {
         ok: true,
@@ -264,6 +275,7 @@ export function parseSoftwareMapCliArgs(
         json: args.includes("--json"),
       };
     }
+
     return { ok: false, error: softwareMapCommanderError(error, command) };
   }
 
@@ -276,6 +288,7 @@ export function parseSoftwareMapCliArgs(
     remote?: string;
     json?: boolean;
   }>();
+
   const missingRemovedOption = (
     [
       ["base", options.base],
@@ -283,12 +296,14 @@ export function parseSoftwareMapCliArgs(
       ["pr", options.pr],
     ] as const
   ).find(([, value]) => value === "");
+
   if (missingRemovedOption) {
     return {
       ok: false,
       error: `Expected a value after --${missingRemovedOption[0]}.`,
     };
   }
+
   if (options.remote !== undefined && !options.remote.trim()) {
     return { ok: false, error: "Expected a value after --remote." };
   }
@@ -332,14 +347,17 @@ function softwareMapCommandModel(commandName: string): Command {
   if (commandName === "open") {
     return command.addArgument(new Argument("<rev>"));
   }
+
   if (commandName === "check") {
     return command
       .addArgument(new Argument("[rev]"))
       .addOption(new Option("--review <uuid>"));
   }
+
   if (commandName === "publish") {
     return command.addOption(new Option("--review <uuid>"));
   }
+
   if (
     commandName === "prune" ||
     commandName === "push" ||
@@ -349,6 +367,7 @@ function softwareMapCommandModel(commandName: string): Command {
       ? command.addOption(new Option("--remote <name>"))
       : command;
   }
+
   return command.addArgument(new Argument("[args...]"));
 }
 
@@ -359,14 +378,17 @@ function softwareMapCommanderError(
   if (/option '--remote <name>' argument missing/.test(error.message)) {
     return "Expected a value after --remote.";
   }
+
   const missingRemovedOption = error.message.match(
     /option '(--(?:base|head|pr))(?: <[^>]+>)?' argument missing/,
   )?.[1];
+
   if (missingRemovedOption) {
     return `Expected a value after ${missingRemovedOption}.`;
   }
 
   const unknownOption = error.message.match(/unknown option '([^']+)'/)?.[1];
+
   if (unknownOption) {
     // Unknown flags are a hard error: `--froce` silently proceeding as a
     // typo-ignoring success would discard the user's stated intent.
@@ -398,6 +420,7 @@ async function openSoftwareMapScratch(
   },
 ) {
   const human = humanStream(input);
+
   if (!input.rev) {
     return failWithJsonError(
       input,
@@ -405,6 +428,7 @@ async function openSoftwareMapScratch(
       "Usage: review map open <rev> [--force]",
     );
   }
+
   if (!gitCommonDirSync(input.rootPath)) {
     return failWithJsonError(
       input,
@@ -412,12 +436,14 @@ async function openSoftwareMapScratch(
       `${input.rootPath} is not inside a git repository; software maps are stored as git notes and need one.`,
     );
   }
+
   try {
     const hydrated = await hydrateScratch({
       repoRootPath: input.rootPath,
       rev: input.rev,
       force: input.force,
     });
+
     if (hydrated.dirty) {
       human.write(`scratch: ${hydrated.path}\n`);
       human.write(
@@ -429,11 +455,14 @@ async function openSoftwareMapScratch(
         commit: hydrated.commit,
         dirty: true,
       });
+
       return 0;
     }
+
     human.write(`scratch: ${hydrated.path}\n`);
     human.write(`commit: ${hydrated.commit}\n`);
     human.write(`${openProvenanceLine(hydrated, input.rev)}\n`);
+
     const opened: MapOpenEvent = {
       event: "map-open",
       scratch: hydrated.path,
@@ -441,13 +470,17 @@ async function openSoftwareMapScratch(
       dirty: false,
       hydratedFrom: hydrated.hydratedFrom,
     };
+
     if (hydrated.seedCommit) opened.seedCommit = hydrated.seedCommit;
+
     if (hydrated.hydratedFrom === "ancestor-note") {
       opened.distance = hydrated.distance;
       // The diff the map agent must apply before it checks.
       opened.diffRange = `${hydrated.seedCommit}..${input.rev}`;
     }
+
     emitJsonEvent(input, opened);
+
     return 0;
   } catch (error) {
     return failWithJsonError(
@@ -465,6 +498,7 @@ function openProvenanceLine(
   rev: string,
 ): string {
   const short = (sha: string) => sha.slice(0, 12);
+
   switch (hydrated.hydratedFrom) {
     case "note":
     case "remote-note":
@@ -489,12 +523,15 @@ async function checkSoftwareMapScratch(
 ) {
   const human = humanStream(input);
   const target = await resolveCheckTarget(input);
+
   if (!target.ok) {
     return failWithJsonError(input, "map-check", target.error);
   }
+
   const { repoRootPath, commit } = target;
 
   const mapPath = scratchSoftwareMapPath({ repoRootPath, commit });
+
   if (!mapPath) {
     return failWithJsonError(
       input,
@@ -502,7 +539,9 @@ async function checkSoftwareMapScratch(
       `${repoRootPath} is not inside a git repository; software maps are stored as git notes and need one.`,
     );
   }
+
   const rawMapSource = readFileOrNull(mapPath);
+
   if (rawMapSource === null) {
     return failWithJsonError(
       input,
@@ -510,9 +549,11 @@ async function checkSoftwareMapScratch(
       `No scratch exists for ${commit}. Run review map open ${input.rev ?? commit.slice(0, 12)} first.`,
     );
   }
+
   const authorIdentity = await git(repoRootPath, ["var", "GIT_AUTHOR_IDENT"], {
     allowFailure: true,
   });
+
   if (!authorIdentity.ok) {
     return failWithJsonError(
       input,
@@ -523,6 +564,7 @@ async function checkSoftwareMapScratch(
       ].join("\n"),
     );
   }
+
   // The shared check core validates the canonicalized form — the exact bytes
   // the flush publishes — so check-validated bytes and flushed bytes stay the
   // same bytes. `review publish` runs this same function as its map gate.
@@ -532,9 +574,12 @@ async function checkSoftwareMapScratch(
     source: rawMapSource,
     sourceName: mapPath,
   });
+
   const mapSource = check.canonicalSource;
+
   if (!check.model || check.errors.length > 0) {
     input.stderr.write("software map: error\n");
+
     for (const error of check.errors) input.stderr.write(`- ${error}\n`);
     emitJsonEvent(input, {
       event: "error",
@@ -543,14 +588,17 @@ async function checkSoftwareMapScratch(
       file: mapPath,
       diagnostics: check.errors,
     });
+
     return 1;
   }
+
   const model = check.model;
 
   const warnings = [
     ...collectSoftwareMapConnectivityWarnings(mapSource),
     ...collectSoftwareMapOwnershipWarnings(model),
   ];
+
   const counts = countSoftwareMapElements(model.elements);
 
   // The scratch is valid: flush it. Every green check publishes — and it
@@ -567,6 +615,7 @@ async function checkSoftwareMapScratch(
   }
 
   const agent = resolveAuthoringSessionRef(input.env ?? process.env);
+
   if (agent && input.reviewUuid) {
     const worktreeRoot = await resolveReviewRoot(input.rootPath);
     const review = await resolvePublishReview(worktreeRoot, input.reviewUuid);
@@ -594,6 +643,7 @@ async function checkSoftwareMapScratch(
 
   if (warnings.length > 0) {
     human.write("software map warnings:\n");
+
     for (const warning of warnings) human.write(`- ${warning}\n`);
   }
 
@@ -626,20 +676,24 @@ async function resolveCheckTarget(input: {
     const resolved = await resolveRevision(input.rootPath, input.rev).catch(
       () => null,
     );
+
     if (!resolved?.commit) {
       return { ok: false, error: `Unable to resolve revision: ${input.rev}` };
     }
+
     return { ok: true, repoRootPath: input.rootPath, commit: resolved.commit };
   }
 
   const worktreeRoot = await resolveReviewRoot(input.rootPath);
   const review = await resolvePublishReview(worktreeRoot, input.reviewUuid);
   const repoRootPath = resolveReviewRepoRootFromStore(review.dir);
+
   const head = review.review.sourceCommit
     ? await resolveRevision(repoRootPath, review.review.sourceCommit).catch(
         () => null,
       )
     : await currentHead(repoRootPath).catch(() => null);
+
   if (!head?.commit) {
     return {
       ok: false,
@@ -647,6 +701,7 @@ async function resolveCheckTarget(input: {
         "Unable to resolve the active review's head commit. Pass one: review map check <rev>.",
     };
   }
+
   return { ok: true, repoRootPath, commit: head.commit };
 }
 
@@ -655,6 +710,7 @@ async function pruneSoftwareMapNotes(
 ) {
   const human = humanStream(input);
   const gitDir = gitCommonDirSync(input.rootPath);
+
   if (!gitDir) {
     return failWithJsonError(
       input,
@@ -662,10 +718,12 @@ async function pruneSoftwareMapNotes(
       `${input.rootPath} is not inside a git repository; software maps are stored as git notes and need one.`,
     );
   }
+
   const pruned = await pruneNotes({
     rootPath: input.rootPath,
     ref: SOFTWARE_MAP_NOTES_REF,
   });
+
   human.write(
     pruned.removed.length === 0
       ? `${SOFTWARE_MAP_NOTES_REF}: nothing to prune\n`
@@ -673,11 +731,13 @@ async function pruneSoftwareMapNotes(
           .map((commit) => commit.slice(0, 12))
           .join(", ")})\n`,
   );
+
   const swept = await sweepFlushedScratches({
     rootPath: input.rootPath,
     gitDir,
     stdout: human,
   });
+
   emitJsonEvent(input, {
     event: "map-prune",
     note: SOFTWARE_MAP_NOTES_REF,
@@ -685,6 +745,7 @@ async function pruneSoftwareMapNotes(
     scratchDeleted: swept.deleted,
     scratchKept: swept.kept,
   });
+
   return 0;
 }
 
@@ -701,17 +762,21 @@ async function sweepFlushedScratches(input: {
 }): Promise<{ deleted: number; kept: number }> {
   const scratchRoot = path.join(devFastGitDir(input.gitDir), "scratch");
   let commits: string[] = [];
+
   try {
     commits = readdirSync(scratchRoot);
   } catch {
     // No scratch directory yet: nothing to sweep.
   }
+
   let deleted = 0;
   let kept = 0;
+
   for (const commit of commits) {
     // Scratch dirs are named by their target commit; skip anything else.
     if (!/^[0-9a-f]{40,64}$/i.test(commit)) continue;
     const scratchDir = path.join(scratchRoot, commit);
+
     if (
       await scratchIsFullyFlushed({
         rootPath: input.rootPath,
@@ -728,7 +793,9 @@ async function sweepFlushedScratches(input: {
       kept += 1;
     }
   }
+
   input.stdout.write(`scratch: ${deleted} deleted, ${kept} kept\n`);
+
   return { deleted, kept };
 }
 
@@ -740,13 +807,17 @@ async function scratchIsFullyFlushed(input: {
   const mapSource = readFileOrNull(
     path.join(input.scratchDir, SOFTWARE_MAP_FILE_NAME),
   );
+
   if (mapSource === null) return false;
+
   const mapNote = await readNote({
     rootPath: input.rootPath,
     ref: SOFTWARE_MAP_NOTES_REF,
     commit: input.commit,
   });
+
   if (mapNote === null) return false;
+
   return canonicalizeModelImport(mapSource) === mapNote;
 }
 
@@ -755,11 +826,13 @@ async function pushSoftwareMapNotes(
 ) {
   const human = humanStream(input);
   const remote = await notesRemote(input.rootPath, input.remote);
+
   const result = await pushNotes({
     rootPath: input.rootPath,
     remote,
     refs: [SOFTWARE_MAP_NOTES_REF],
   });
+
   if (!result.ok) {
     return failWithJsonError(
       input,
@@ -767,12 +840,14 @@ async function pushSoftwareMapNotes(
       `software map push failed for ${remote}: ${result.error ?? "unknown error"}. If another remote is writable, retry with --remote <name>.`,
     );
   }
+
   human.write(
     result.pushed.length === 0
       ? "no software-map notes to push.\n"
       : `pushed ${result.pushed.join(", ")} to ${remote}. Teammates receive them on their next fetch (review install configures the refspec).\n`,
   );
   emitJsonEvent(input, { event: "map-push", remote, pushed: result.pushed });
+
   return 0;
 }
 
@@ -782,6 +857,7 @@ async function fetchSoftwareMapNotes(
   const human = humanStream(input);
   const remote = await notesRemote(input.rootPath, input.remote);
   const result = await fetchNotes({ rootPath: input.rootPath, remote });
+
   if (!result.ok) {
     return failWithJsonError(
       input,
@@ -789,6 +865,7 @@ async function fetchSoftwareMapNotes(
       `software map fetch failed for ${remote}: ${result.error ?? "unknown error"}`,
     );
   }
+
   human.write(
     result.skipped
       ? "software-map note fetch skipped (devFast.fetchNotes=false).\n"
@@ -799,6 +876,7 @@ async function fetchSoftwareMapNotes(
     remote,
     skipped: result.skipped ?? false,
   });
+
   return 0;
 }
 
@@ -829,9 +907,11 @@ function countSoftwareMapElements(
 
 function collectSoftwareMapOwnershipWarnings(model: NormalizedSoftwareModel) {
   const warnings: string[] = [];
+
   const componentCount = model.elements.filter(
     (element) => element.type === "component",
   ).length;
+
   const uncoveredComponents = model.elements
     .filter((element) => element.type === "component" && !element.coverage)
     .map((element) => element.path);
@@ -841,11 +921,13 @@ function collectSoftwareMapOwnershipWarnings(model: NormalizedSoftwareModel) {
       `SoftwareMap ownership: ${uncoveredComponents.length}/${componentCount} component(s) have no coverage claim: ${previewList(uncoveredComponents)}.`,
     );
   }
+
   return warnings;
 }
 
 function previewList(values: readonly string[]) {
   const preview = values.slice(0, 8).join(", ");
   const suffix = values.length > 8 ? `, and ${values.length - 8} more` : "";
+
   return `${preview}${suffix}`;
 }

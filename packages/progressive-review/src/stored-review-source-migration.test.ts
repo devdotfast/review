@@ -25,6 +25,7 @@ import { reviewVcs } from "./review-vcs";
 import { migrateStoredReview } from "./stored-review-migration";
 
 const roots: string[] = [];
+
 afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
@@ -38,18 +39,21 @@ it.each(["document", "seal"])(
   "does not fork before %s validation succeeds",
   async (failure) => {
     const { review, original } = await fixture(failure === "document");
+
     const createSourceSession = vi.fn<typeof createReviewSourceAgentSession>(
       async () => ({
         harness: "codex" as const,
         sessionId: "frozen",
       }),
     );
+
     const failedSeal =
       failure === "seal"
         ? vi
             .spyOn(reviewVcs, "seal")
             .mockRejectedValue(new Error("candidate seal failed"))
         : undefined;
+
     for (const attempt of [1, 2]) {
       await expect(
         migrateStoredReview({ reviewDir: review.dir, createSourceSession }),
@@ -58,21 +62,25 @@ it.each(["document", "seal"])(
         failure === "document" ? "broken document" : "candidate seal failed",
       );
     }
+
     expect(createSourceSession).not.toHaveBeenCalled();
     expect(await readFile(path.join(review.dir, "review.json"), "utf8")).toBe(
       original,
     );
     expect(existsSync(`${review.dir}.source-migration.json`)).toBe(false);
     failedSeal?.mockRestore();
+
     if (failure === "document") {
       await writeFile(
         path.join(review.dir, ".bundle/document/review-document.js"),
         legacyDocument,
       );
+
       const revision = await sealReviewCandidate(
         review.dir,
         "Repaired fixture",
       );
+
       await writeFile(
         path.join(review.dir, "review.json"),
         JSON.stringify({
@@ -81,10 +89,12 @@ it.each(["document", "seal"])(
         }),
       );
     }
+
     const migrated = await migrateStoredReview({
       reviewDir: review.dir,
       createSourceSession,
     });
+
     expect(migrated.record.sourceSession).toBe("codex:frozen");
     expect(createSourceSession).toHaveBeenCalledTimes(1);
   },
@@ -93,15 +103,18 @@ it.each(["document", "seal"])(
 it("reuses a durable fork after record promotion fails", async () => {
   const { review, original } = await fixture();
   const displaced = `${review.dir}.displaced`;
+
   const createSourceSession = vi.fn<typeof createReviewSourceAgentSession>(
     async () => {
       await rename(review.dir, displaced);
+
       return {
         harness: "codex" as const,
         sessionId: "frozen",
       };
     },
   );
+
   try {
     await expect(
       migrateStoredReview({ reviewDir: review.dir, createSourceSession }),
@@ -109,6 +122,7 @@ it("reuses a durable fork after record promotion fails", async () => {
   } finally {
     await rename(displaced, review.dir);
   }
+
   expect(createSourceSession).toHaveBeenCalledTimes(1);
   expect(await readFile(path.join(review.dir, "review.json"), "utf8")).toBe(
     original,
@@ -116,10 +130,12 @@ it("reuses a durable fork after record promotion fails", async () => {
   expect(
     JSON.parse(await readFile(`${review.dir}.source-migration.json`, "utf8")),
   ).toMatchObject({ state: "ready", sourceSession: "codex:frozen" });
+
   const migrated = await migrateStoredReview({
     reviewDir: review.dir,
     createSourceSession,
   });
+
   expect(migrated.record.sourceSession).toBe("codex:frozen");
   expect(createSourceSession).toHaveBeenCalledTimes(1);
   expect(existsSync(`${review.dir}.source-migration.json`)).toBe(false);
@@ -129,22 +145,28 @@ it("serializes concurrent direct migration and loader before creating a fork", a
   const { review } = await fixture();
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
+
   const createSourceSession = vi.fn<typeof createReviewSourceAgentSession>(
     async () => {
       entered.resolve();
       await release.promise;
+
       return { harness: "codex" as const, sessionId: "frozen" };
     },
   );
+
   const first = migrateStoredReview({
     reviewDir: review.dir,
     createSourceSession,
   });
+
   await entered.promise;
+
   const second = migrateStoredReview({
     reviewDir: review.dir,
     createSourceSession,
   });
+
   const loaded = readStoredReview(review.dir);
   release.resolve();
   const results = await Promise.all([first, second, loaded]);
@@ -161,15 +183,18 @@ it.each(["started", "different pins"])(
   async (state) => {
     const { review } = await fixture();
     const displaced = `${review.dir}.displaced`;
+
     const createSourceSession = vi.fn<typeof createReviewSourceAgentSession>(
       async () => {
         await rename(review.dir, displaced);
+
         return {
           harness: "codex" as const,
           sessionId: "frozen",
         };
       },
     );
+
     try {
       await expect(
         migrateStoredReview({ reviewDir: review.dir, createSourceSession }),
@@ -177,6 +202,7 @@ it.each(["started", "different pins"])(
     } finally {
       await rename(displaced, review.dir);
     }
+
     const statePath = `${review.dir}.source-migration.json`;
     const pending = JSON.parse(await readFile(statePath, "utf8"));
     await writeFile(
@@ -198,17 +224,21 @@ it.each(["started", "different pins"])(
 
 it("preserves disabled-source behavior for a native provider failure", async () => {
   const { review } = await fixture();
+
   const createSourceSession = vi.fn<typeof createReviewSourceAgentSession>(
     async () => {
       throw new Error("provider unavailable");
     },
   );
+
   const log = vi.fn<(message: string) => void>();
+
   const migrated = await migrateStoredReview({
     reviewDir: review.dir,
     createSourceSession,
     log,
   });
+
   expect(migrated.record.sourceSession).toBe("disabled:review");
   expect(log.mock.calls.flat().join(" ")).toContain("provider unavailable");
   await migrateStoredReview({ reviewDir: review.dir, createSourceSession });
@@ -218,6 +248,7 @@ it("preserves disabled-source behavior for a native provider failure", async () 
 it("does not turn a binding persistence failure into disabled success or another fork", async () => {
   const { review, original } = await fixture();
   const statePath = `${review.dir}.source-migration.json`;
+
   const createSourceSession = vi.fn<typeof createReviewSourceAgentSession>(
     async () => {
       expect(JSON.parse(await readFile(statePath, "utf8"))).toMatchObject({
@@ -225,9 +256,11 @@ it("does not turn a binding persistence failure into disabled success or another
       });
       await rm(statePath);
       await mkdir(statePath);
+
       return { harness: "codex", sessionId: "frozen" };
     },
   );
+
   await expect(
     migrateStoredReview({ reviewDir: review.dir, createSourceSession }),
   ).rejects.toThrow(/EISDIR|EEXIST/);
@@ -246,8 +279,10 @@ async function fixture(broken = false) {
   vi.stubEnv("DEV_REVIEW_HOME", home);
   const source = path.join(home, "source");
   await mkdir(source);
+
   const git = (args: string[]) =>
     execFileSync("git", ["-C", source, ...args], { encoding: "utf8" }).trim();
+
   git(["init", "-q", "-b", "main"]);
   git(["config", "user.email", "review@example.test"]);
   git(["config", "user.name", "Review Test"]);
@@ -255,6 +290,7 @@ async function fixture(broken = false) {
   git(["add", "."]);
   git(["commit", "-qm", "source"]);
   const commit = git(["rev-parse", "HEAD"]);
+
   const review = await createReviewDir({
     worktreePath: source,
     baseRef: "main",
@@ -262,6 +298,7 @@ async function fixture(broken = false) {
     sourceCommit: commit,
     sourceIdentity: { kind: "git-branch", name: "main" },
   });
+
   const bundle = path.join(review.dir, ".bundle/document");
   await mkdir(bundle, { recursive: true });
   await writeFile(
@@ -275,6 +312,7 @@ async function fixture(broken = false) {
       : legacyDocument,
   );
   const revision = await sealReviewCandidate(review.dir, "Legacy document");
+
   const original = JSON.stringify({
     ...review.review,
     schemaVersion: 3,
@@ -282,8 +320,10 @@ async function fixture(broken = false) {
     sourceSession: undefined,
     presentedDocumentRevision: revision,
   });
+
   await writeFile(path.join(review.dir, "review.json"), original);
   deleteReviewState(review.dir);
+
   return { review, original };
 }
 

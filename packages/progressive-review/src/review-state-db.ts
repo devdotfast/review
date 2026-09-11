@@ -9,6 +9,7 @@ import { devReviewHome } from "./review-storage";
 import { requireCurrentThreadDbSchema } from "./review-thread-db-schema";
 
 export const REVIEW_STATE_DB_FILENAME = "review.db";
+
 export const REVIEW_STATE_DB_SCHEMA_VERSION = 1;
 
 const REVIEW_STATE_DB_DDL = `
@@ -75,6 +76,7 @@ export class ReviewStateDbVersionError extends Error {
 
 export function reviewHomeForDir(reviewDir: string): string {
   const parent = path.dirname(path.resolve(reviewDir));
+
   return path.basename(parent) === "reviews"
     ? path.dirname(parent)
     : devReviewHome();
@@ -86,23 +88,28 @@ export function reviewStateDbPath(home = devReviewHome()): string {
 
 export function reviewIdForDir(reviewDir: string): string {
   const reviewId = path.basename(path.resolve(reviewDir));
+
   if (!reviewId)
     throw new Error(`Review directory has no identifier: ${reviewDir}`);
+
   return reviewId;
 }
 
 export function openReviewStateDb(home = devReviewHome()): DatabaseSync {
   const dbPath = reviewStateDbPath(home);
   const cached = connections.get(dbPath);
+
   if (cached) return cached;
   mkdirSync(path.dirname(dbPath), { recursive: true, mode: 0o700 });
   const existed = existsSync(dbPath);
   const db = new DatabaseSync(dbPath);
+
   try {
     db.exec(
       "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; " +
         "PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;",
     );
+
     if (!existed) {
       db.exec(REVIEW_STATE_DB_DDL);
       db.prepare(
@@ -110,16 +117,20 @@ export function openReviewStateDb(home = devReviewHome()): DatabaseSync {
       ).run(String(REVIEW_STATE_DB_SCHEMA_VERSION));
     } else {
       const version = readReviewStateDbSchemaVersion(db);
+
       if (version !== String(REVIEW_STATE_DB_SCHEMA_VERSION)) {
         throw new ReviewStateDbVersionError(dbPath, version);
       }
+
       db.exec(REVIEW_STATE_DB_DDL);
     }
   } catch (error) {
     db.close();
     throw error;
   }
+
   connections.set(dbPath, db);
+
   return db;
 }
 
@@ -132,7 +143,9 @@ export function readReviewStateDbSchemaVersion(
       "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'review_state_meta'",
     )
     .get() as { present: number } | undefined;
+
   if (!hasMeta) return null;
+
   // SAFETY: review_state_meta.value is declared TEXT NOT NULL above.
   return (
     (
@@ -165,6 +178,7 @@ export function putReviewRecord(
   const reviewId = reviewIdForDir(reviewDir);
   const recordJson = JSON.stringify(record);
   db.exec("BEGIN IMMEDIATE");
+
   try {
     db.prepare(
       `INSERT INTO reviews (review_id, review_dir, record_json) VALUES (?, ?, ?)
@@ -185,18 +199,23 @@ export function readReviewRecord(
 ): JsonValue | null {
   const dbPath = reviewStateDbPath(home);
   const recordPath = path.join(reviewDir, "review.json");
+
   if (!existsSync(dbPath) && !existsSync(recordPath)) return null;
+
   // SAFETY: reviews.record_json is a nullable TEXT column in the schema above.
   const row = openReviewStateDb(home)
     .prepare("SELECT record_json FROM reviews WHERE review_id = ?")
     .get(reviewIdForDir(reviewDir)) as
     | { record_json: string | null }
     | undefined;
+
   if (row?.record_json) return parseJsonText(row.record_json);
+
   if (!existsSync(recordPath)) return null;
   // Discovery must not import comment records before their schema migration.
   const record = parseJsonText(readFileSync(recordPath, "utf8"));
   putReviewRecord(reviewDir, record, home);
+
   return record;
 }
 
@@ -207,8 +226,10 @@ export function importLegacyReview(
   const reviewId = reviewIdForDir(reviewDir);
   const recordPath = path.join(reviewDir, "review.json");
   const legacyDbPath = path.join(reviewDir, REVIEW_STATE_DB_FILENAME);
+
   if (!existsSync(recordPath) && !existsSync(legacyDbPath)) return;
   const db = openReviewStateDb(home);
+
   if (
     db
       .prepare("SELECT 1 FROM legacy_review_imports WHERE review_id = ?")
@@ -216,20 +237,26 @@ export function importLegacyReview(
   ) {
     return;
   }
+
   const recordJson = existsSync(recordPath)
     ? readFileSync(recordPath, "utf8")
     : null;
+
   if (recordJson !== null) JSON.parse(recordJson);
+
   const legacy = existsSync(legacyDbPath)
     ? new DatabaseSync(legacyDbPath, { readOnly: true })
     : null;
+
   try {
     if (legacy) requireCurrentThreadDbSchema(legacy, legacyDbPath);
   } catch (error) {
     legacy?.close();
     throw error;
   }
+
   db.exec("BEGIN IMMEDIATE");
+
   try {
     db.prepare(
       `INSERT INTO reviews (review_id, review_dir, record_json) VALUES (?, ?, ?)
@@ -237,6 +264,7 @@ export function importLegacyReview(
          review_dir = excluded.review_dir,
          record_json = COALESCE(reviews.record_json, excluded.record_json)`,
     ).run(reviewId, path.resolve(reviewDir), recordJson);
+
     if (legacy) importLegacyCommentRows(db, legacy, reviewId);
     db.prepare(
       "INSERT INTO legacy_review_imports (review_id, imported_at) VALUES (?, ?)",
@@ -263,12 +291,15 @@ function importLegacyCommentRows(
         .all() as Array<{ name: string }>
     ).map((row) => row.name),
   );
+
   for (const table of ["comments", "comment_drafts"] as const) {
     if (!tables.has(table)) continue;
+
     const insert = target.prepare(
       `INSERT OR IGNORE INTO ${table}
        (review_id, route_path, thread_id, record_json) VALUES (?, '/', ?, ?)`,
     );
+
     // SAFETY: legacy Review v1-v6 tables declare both projected columns TEXT
     // NOT NULL; callers validate the legacy schema version before import.
     for (const row of legacy
@@ -284,6 +315,7 @@ export function deleteReviewState(
   home = reviewHomeForDir(reviewDir),
 ): void {
   const dbPath = reviewStateDbPath(home);
+
   if (!existsSync(dbPath)) return;
   openReviewStateDb(home)
     .prepare("DELETE FROM reviews WHERE review_id = ?")
@@ -298,5 +330,6 @@ export function closeAllReviewStateDatabases(): void {
       // Already closed.
     }
   }
+
   connections.clear();
 }

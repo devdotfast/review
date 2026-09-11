@@ -30,6 +30,7 @@ export async function writeReviewRecord(
     const current = parseStoredReviewRecord(readReviewRecord(stored.dir));
     const review: StoredReviewRecord = { ...current, ...patch };
     await persistStoredReviewRecord(stored.dir, review);
+
     return { ...stored, review };
   });
 }
@@ -43,6 +44,7 @@ export async function markReviewViewed(
   now = new Date(),
 ): Promise<StoredReview> {
   if (stored.review.viewedAt) return stored;
+
   return writeReviewRecord(stored, { viewedAt: now.toISOString() });
 }
 
@@ -51,6 +53,7 @@ export async function dismissReview(
   now = new Date(),
 ): Promise<StoredReview> {
   if (stored.review.dismissedAt) return stored;
+
   return writeReviewRecord(stored, { dismissedAt: now.toISOString() });
 }
 
@@ -59,6 +62,7 @@ export async function restoreReview(
   stored: StoredReview,
 ): Promise<StoredReview> {
   if (!stored.review.dismissedAt) return stored;
+
   return writeReviewRecord(stored, { dismissedAt: null });
 }
 
@@ -71,6 +75,7 @@ export async function resetReviewAttention(
   stored: StoredReview,
 ): Promise<StoredReview> {
   if (!stored.review.viewedAt && !stored.review.dismissedAt) return stored;
+
   return writeReviewRecord(stored, { viewedAt: null, dismissedAt: null });
 }
 
@@ -81,7 +86,9 @@ export function reviewReapsAt(
 ): string | null {
   if (!review.dismissedAt || retentionDays === null) return null;
   const dismissed = Date.parse(review.dismissedAt);
+
   if (!Number.isFinite(dismissed)) return null;
+
   return new Date(dismissed + retentionDays * DAY_MS).toISOString();
 }
 
@@ -91,6 +98,7 @@ export function isReviewReapable(
   now = new Date(),
 ): boolean {
   const reapsAt = reviewReapsAt(review, retentionDays);
+
   return reapsAt !== null && Date.parse(reapsAt) <= now.getTime();
 }
 
@@ -104,6 +112,7 @@ export function selectReapableReviews(
   now = new Date(),
 ): StoredReview[] {
   if (retentionDays === null) return [];
+
   return reviews.filter((stored) =>
     isReviewReapable(stored.review, retentionDays, now),
   );

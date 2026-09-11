@@ -43,8 +43,10 @@ import { auditStoredReviewDocuments } from "./stored-review-document-audit";
 import { migrateStoredReviewData } from "./stored-review-migration";
 
 const PACKAGE_NAME = "@dev.fast/review";
+
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const LEGACY_SKILL_NAMES = [
   "review",
   "review-map",
@@ -52,11 +54,13 @@ const LEGACY_SKILL_NAMES = [
   "progressive-review",
   "pr-review",
 ] as const;
+
 const CURRENT_SKILL_NAMES = [
   "dev-review",
   "dev-review-map",
   "trace-archaeology",
 ] as const;
+
 const execFilePromise = promisify(execFile);
 
 export type ReviewPackageManager = "npm" | "pnpm" | "yarn" | "bun";
@@ -105,6 +109,7 @@ export async function runReviewMigration(input: {
   const homeDir = input.homeDir ?? os.homedir();
   const reviewHome = devReviewHome(env, homeDir);
   const packageRoot = input.packageRoot ?? defaultPackageRoot();
+
   const runtime: RunReviewMigrationRuntime = {
     migrateStoredReviewData,
     migrateJjReviewRepositories,
@@ -117,6 +122,7 @@ export async function runReviewMigration(input: {
   };
 
   const blockers: string[] = [];
+
   const stored = await runMigrationPhase(
     "Old Review cleanup",
     {
@@ -137,6 +143,7 @@ export async function runReviewMigration(input: {
       }),
     blockers,
   );
+
   const jj = await runMigrationPhase(
     "jj repository migration",
     { checked: 0, migrated: 0, blockers: [] },
@@ -149,6 +156,7 @@ export async function runReviewMigration(input: {
       }),
     blockers,
   );
+
   const managedCheckouts = await runMigrationPhase(
     "Review-managed checkout migration",
     { checked: 0, created: 0, legacyRemoved: 0, blockers: [] },
@@ -160,6 +168,7 @@ export async function runReviewMigration(input: {
       }),
     blockers,
   );
+
   const audit = await runMigrationPhase(
     "Review document audit",
     { documents: 0, issues: [] },
@@ -171,12 +180,14 @@ export async function runReviewMigration(input: {
       }),
     blockers,
   );
+
   const catalog = await runMigrationPhase(
     "obsolete Desktop catalog cleanup",
     { checked: 0, removed: 0, blockers: [] },
     () => runtime.removeLegacyDesktopCatalog({ reviewHome }),
     blockers,
   );
+
   const skills = await runMigrationPhase(
     "legacy skill cleanup",
     { checked: 0, removed: 0, blockers: [] },
@@ -187,6 +198,7 @@ export async function runReviewMigration(input: {
       }),
     blockers,
   );
+
   const globalCli = await runMigrationPhase(
     "legacy global CLI cleanup",
     { checked: 0, removed: 0, blockers: [] },
@@ -209,18 +221,22 @@ export async function runReviewMigration(input: {
     ...skills.blockers,
     ...globalCli.blockers,
   );
+
   if (audit.issues.length > 0) {
     const affectedDocuments = new Set(
       audit.issues.map((issue) => issue.filePath),
     ).size;
+
     blockers.push(
       `${count(audit.issues.length, "authoring issue")} across ${count(affectedDocuments, "Review document")} needs an agent.`,
     );
+
     for (const issue of audit.issues) {
       human.write(
         `${issue.filePath}:${issue.line} ${issue.code}: ${issue.message}\n`,
       );
     }
+
     human.write(
       "Correct these Review documents and rerun `review migrate apply`.\n",
     );
@@ -243,9 +259,11 @@ export async function runReviewMigration(input: {
       `${count(blockers.length, "blocker")}.`,
     ].join(" ") + "\n",
   );
+
   for (const blocker of blockers) {
     input.stderr.write(`Review migration blocker: ${blocker}\n`);
   }
+
   emitJsonEvent(input, {
     event: "migrated",
     documents: stored.documents,
@@ -267,6 +285,7 @@ export async function runReviewMigration(input: {
     })),
     blockers,
   });
+
   return blockers.length === 0 ? 0 : 1;
 }
 
@@ -276,26 +295,34 @@ export async function migrateReviewManagedCheckouts(input: {
   log?: (message: string) => void;
 }): Promise<ManagedCheckoutMigrationResult> {
   const reviewsRoot = path.join(input.reviewHome, "reviews");
+
   const result: ManagedCheckoutMigrationResult = {
     checked: 0,
     created: 0,
     legacyRemoved: 0,
     blockers: [],
   };
+
   const sourceRoots = new Set<string>();
+
   for (const entry of await readDirectory(reviewsRoot)) {
     if (!entry.isDirectory() || !UUID_PATTERN.test(entry.name)) continue;
+
     if (input.skipReviewUuids?.includes(entry.name)) continue;
     const reviewDir = path.join(reviewsRoot, entry.name);
     result.checked += 1;
+
     try {
       const review = parseStoredReviewRecord(
         JSON.parse(await readFile(path.join(reviewDir, "review.json"), "utf8")),
       );
+
       if (review.uuid !== entry.name) {
         throw new Error("review.json UUID does not match its directory");
       }
+
       sourceRoots.add(review.worktreePath);
+
       const pins = [
         review.sourceCommit
           ? { role: "head" as const, commit: review.sourceCommit }
@@ -304,6 +331,7 @@ export async function migrateReviewManagedCheckouts(input: {
           ? { role: "base" as const, commit: review.baseCommit }
           : null,
       ].filter((pin): pin is NonNullable<typeof pin> => Boolean(pin));
+
       for (const pin of pins) {
         const checkout = await ensureReviewPinnedCheckout({
           rootPath: review.worktreePath,
@@ -311,18 +339,22 @@ export async function migrateReviewManagedCheckouts(input: {
           reviewUuid: review.uuid,
           role: pin.role,
         });
+
         if (!checkout) {
           throw new Error(
             `cannot create ${pin.role} checkout at ${pin.commit}`,
           );
         }
+
         result.created += 1;
       }
+
       input.log?.(`Created managed checkouts for Review ${review.uuid}.`);
     } catch (error) {
       result.blockers.push(`${reviewDir}: ${errorMessage(error)}`);
     }
   }
+
   for (const sourceRoot of sourceRoots) {
     try {
       result.legacyRemoved += await removeLegacyReviewCheckouts({
@@ -335,6 +367,7 @@ export async function migrateReviewManagedCheckouts(input: {
       );
     }
   }
+
   return result;
 }
 
@@ -348,6 +381,7 @@ async function runMigrationPhase<T>(
     return await phase();
   } catch (error) {
     blockers.push(`${label} failed: ${errorMessage(error)}`);
+
     return fallback;
   }
 }
@@ -359,27 +393,34 @@ export async function migrateJjReviewRepositories(input: {
   log?: (message: string) => void;
 }): Promise<JjMigrationResult> {
   const reviewsRoot = path.join(input.reviewHome, "reviews");
+
   const result: JjMigrationResult = {
     checked: 0,
     migrated: 0,
     blockers: [],
   };
+
   for (const entry of await readDirectory(reviewsRoot)) {
     if (!entry.isDirectory() || !UUID_PATTERN.test(entry.name)) continue;
     const reviewDir = path.join(reviewsRoot, entry.name);
+
     if (!(await pathExists(path.join(reviewDir, ".jj")))) continue;
+
     if (input.skipReviewUuids?.includes(entry.name)) continue;
     result.checked += 1;
     let recordSource: string;
+
     try {
       recordSource = await readFile(
         path.join(reviewDir, "review.json"),
         "utf8",
       );
       const parsed = parseAnyStoredReviewRecord(JSON.parse(recordSource));
+
       if (parsed.uuid !== entry.name) {
         throw new Error("review.json UUID does not match its directory");
       }
+
       // The current implementation already reads the colocated Git objects.
       // Rebuilding from the worktree would erase immutable publication history.
       if (
@@ -392,6 +433,7 @@ export async function migrateJjReviewRepositories(input: {
         );
         continue;
       }
+
       await resetJjReviewRepository({
         reviewDir,
         review: parsed,
@@ -413,6 +455,7 @@ export async function migrateJjReviewRepositories(input: {
       result.blockers.push(`${reviewDir}: ${errorMessage(error)}`);
     }
   }
+
   return result;
 }
 
@@ -426,16 +469,19 @@ async function resetJjReviewRepository(input: {
   const jjDir = path.join(input.reviewDir, ".jj");
   const backupDir = `${input.reviewDir}.review-migrate-git-backup`;
   const backupExists = await pathExists(backupDir);
+
   if (backupExists && !input.force) {
     throw new Error(
       `an interrupted Git backup exists at ${backupDir}; rerun with --force`,
     );
   }
+
   if (backupExists) {
     await rm(backupDir, { recursive: true, force: true });
   }
 
   let movedGit = false;
+
   try {
     await rename(gitDir, backupDir);
     movedGit = true;
@@ -445,6 +491,7 @@ async function resetJjReviewRepository(input: {
     ) {
       throw error;
     }
+
     if (!input.force) {
       throw new Error("the colocated .git directory is missing");
     }
@@ -460,16 +507,20 @@ async function resetJjReviewRepository(input: {
     const excludeDir = path.join(gitDir, "info");
     await mkdir(excludeDir, { recursive: true });
     await writeFile(path.join(excludeDir, "exclude"), ".jj/\n", "utf8");
+
     const revision = await reviewVcs.seal(
       input.reviewDir,
       "Migrate Review history to plain Git",
     );
+
     await reviewVcs.resolve(input.reviewDir, revision);
+
     const stored = parseStoredReviewRecord(
       JSON.parse(
         await readFile(path.join(input.reviewDir, "review.json"), "utf8"),
       ),
     );
+
     if (
       stored.uuid !== input.review.uuid ||
       stored.presentedDocumentRevision !== null ||
@@ -477,12 +528,15 @@ async function resetJjReviewRepository(input: {
     ) {
       throw new Error("the migrated review.json did not verify");
     }
+
     await rm(jjDir, { recursive: true, force: false });
   } catch (error) {
     await rm(gitDir, { recursive: true, force: true });
+
     if (movedGit && (await pathExists(backupDir))) {
       await rename(backupDir, gitDir);
     }
+
     await writeFile(
       path.join(input.reviewDir, "review.json"),
       input.recordSource,
@@ -490,6 +544,7 @@ async function resetJjReviewRepository(input: {
     );
     throw error;
   }
+
   if (movedGit) {
     await rm(backupDir, { recursive: true, force: false });
   }
@@ -500,21 +555,27 @@ export async function removeLegacyDesktopCatalog(input: {
 }): Promise<CleanupResult> {
   const directory = path.join(input.reviewHome, "review-desktop", "reviews");
   const result: CleanupResult = { checked: 0, removed: 0, blockers: [] };
+
   for (const entry of await readDirectory(directory)) {
     if (!entry.isFile() || path.extname(entry.name) !== ".json") continue;
     const filePath = path.join(directory, entry.name);
     result.checked += 1;
     const key = entry.name.slice(0, -5);
+
     if (!/^[a-f0-9]{32}$/.test(key)) {
       result.blockers.push(`${filePath} has an unknown catalog file name.`);
       continue;
     }
+
     let record: JsonObject;
+
     try {
       const value = parseJsonText(await readFile(filePath, "utf8"));
+
       if (!isJsonObject(value)) {
         throw new Error("catalog entry must contain an object");
       }
+
       record = value;
     } catch (error) {
       result.blockers.push(
@@ -522,15 +583,18 @@ export async function removeLegacyDesktopCatalog(input: {
       );
       continue;
     }
+
     if (!isLegacyDesktopCatalogRecord(record, key)) {
       result.blockers.push(
         `${filePath} is not a recognized Review catalog entry.`,
       );
       continue;
     }
+
     await rm(filePath, { force: false });
     result.removed += 1;
   }
+
   return result;
 }
 
@@ -539,7 +603,9 @@ function isLegacyDesktopCatalogRecord(
   reviewKey: string,
 ): boolean {
   const repository = record.repository;
+
   if (!isJsonObject(repository)) return false;
+
   const requiredStrings = [
     record.rootPath,
     record.reviewPath,
@@ -549,6 +615,7 @@ function isLegacyDesktopCatalogRecord(
     repository.repositoryPath,
     repository.worktreeRoot,
   ];
+
   return (
     record.reviewKey === reviewKey &&
     requiredStrings
@@ -583,28 +650,37 @@ export async function removeLegacyReviewSkills(input: {
     path.join(input.homeDir, ".agents", "skills"),
     path.join(input.homeDir, ".cursor", "skills"),
   ];
+
   const result: CleanupResult = { checked: 0, removed: 0, blockers: [] };
+
   for (const root of roots) {
     for (const name of LEGACY_SKILL_NAMES) {
       const skillDir = path.join(root, name);
+
       if (!(await pathExists(skillDir))) continue;
       result.checked += 1;
+
       if (!(await isOwnedLegacySkill(skillDir, name))) {
         result.blockers.push(
           `${skillDir} is not a positively identified Review-owned skill.`,
         );
         continue;
       }
+
       await rm(skillDir, { recursive: true, force: false });
       result.removed += 1;
     }
+
     for (const name of CURRENT_SKILL_NAMES) {
       const skillDir = path.join(root, name);
+
       if (!(await pathExists(skillDir))) continue;
       const installed = await readSkillSource(skillDir);
+
       const bundled = await readSkillSource(
         path.join(input.packageRoot, "skills", name),
       );
+
       if (
         installed === undefined ||
         bundled === undefined ||
@@ -616,6 +692,7 @@ export async function removeLegacyReviewSkills(input: {
       }
     }
   }
+
   return result;
 }
 
@@ -625,10 +702,12 @@ async function isOwnedLegacySkill(
 ): Promise<boolean> {
   try {
     const metadata = await lstat(skillDir);
+
     if (!metadata.isDirectory() || metadata.isSymbolicLink()) return false;
     const source = await readFile(path.join(skillDir, "SKILL.md"), "utf8");
     const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(source)?.[1];
     const name = frontmatter?.match(/^name:\s*["']?([^"'\n]+)["']?\s*$/m)?.[1];
+
     return (
       name === expectedName &&
       /@dev\.fast\/review|dev\.fast Review|progressive Review/i.test(source)
@@ -641,7 +720,9 @@ async function isOwnedLegacySkill(
 async function readSkillSource(skillDir: string): Promise<string | undefined> {
   try {
     const metadata = await lstat(skillDir);
+
     if (!metadata.isDirectory() || metadata.isSymbolicLink()) return undefined;
+
     return await readFile(path.join(skillDir, "SKILL.md"), "utf8");
   } catch {
     return undefined;
@@ -673,6 +754,7 @@ export async function removeLegacyGlobalReviewInstalls(input: {
 }): Promise<CleanupResult> {
   const result: CleanupResult = { checked: 0, removed: 0, blockers: [] };
   const currentPackageRoot = await canonicalPath(input.packageRoot);
+
   const runCommand =
     input.runCommand ??
     (async (command, args) => {
@@ -680,8 +762,10 @@ export async function removeLegacyGlobalReviewInstalls(input: {
         encoding: "utf8",
         env: input.env,
       });
+
       return { stdout: executed.stdout, stderr: executed.stderr };
     });
+
   const runProcess = input.runProcess ?? spawnProcess;
   const seen = new Set<string>();
 
@@ -691,16 +775,21 @@ export async function removeLegacyGlobalReviewInstalls(input: {
       homeDir: input.homeDir,
       runCommand,
     });
+
     for (const root of roots) {
       const packageRoot = path.join(root, PACKAGE_NAME);
       const packagePath = path.join(packageRoot, "package.json");
+
       if (!(await pathExists(packagePath))) continue;
       const canonicalRoot = await canonicalPath(packageRoot);
+
       if (seen.has(canonicalRoot)) continue;
       seen.add(canonicalRoot);
       result.checked += 1;
+
       try {
         const metadata = parseJsonText(await readFile(packagePath, "utf8"));
+
         if (!isJsonObject(metadata) || metadata.name !== PACKAGE_NAME) {
           result.blockers.push(
             `${packageRoot} is not a positively identified ${PACKAGE_NAME} installation.`,
@@ -725,6 +814,7 @@ export async function removeLegacyGlobalReviewInstalls(input: {
       }
 
       const uninstall = packageManagerUninstall(manager);
+
       const exitCode = await runProcess({
         command: manager,
         args: uninstall,
@@ -732,6 +822,7 @@ export async function removeLegacyGlobalReviewInstalls(input: {
         stdout: input.stdout,
         stderr: input.stderr,
       });
+
       if (exitCode === 0) {
         result.removed += 1;
       } else {
@@ -741,6 +832,7 @@ export async function removeLegacyGlobalReviewInstalls(input: {
       }
     }
   }
+
   return result;
 }
 
@@ -754,17 +846,22 @@ async function globalPackageRoots(input: {
       const root = (
         await input.runCommand(input.manager, ["root", "--global"])
       ).stdout.trim();
+
       return root ? [root] : [];
     }
+
     if (input.manager === "yarn") {
       const root = (
         await input.runCommand("yarn", ["global", "dir"])
       ).stdout.trim();
+
       return root ? [root, path.join(root, "node_modules")] : [];
     }
+
     const bin = (
       await input.runCommand("bun", ["pm", "bin", "--global"])
     ).stdout.trim();
+
     return uniquePaths([
       path.join(input.homeDir, ".bun", "install", "global", "node_modules"),
       ...(bin
@@ -778,8 +875,11 @@ async function globalPackageRoots(input: {
 
 function packageManagerUninstall(manager: ReviewPackageManager): string[] {
   if (manager === "npm") return ["uninstall", "--global", PACKAGE_NAME];
+
   if (manager === "pnpm") return ["remove", "--global", PACKAGE_NAME];
+
   if (manager === "yarn") return ["global", "remove", PACKAGE_NAME];
+
   return ["remove", "--global", PACKAGE_NAME];
 }
 
@@ -795,12 +895,15 @@ function spawnProcess(input: {
       env: input.env,
       stdio: ["inherit", input.stdout, input.stderr],
     });
+
     child.once("error", reject);
     child.once("close", (code, signal) => {
       if (signal) {
         reject(new Error(`${input.command} terminated by signal ${signal}`));
+
         return;
       }
+
       resolve(code ?? 1);
     });
   });
@@ -809,11 +912,13 @@ function spawnProcess(input: {
 async function pathExists(targetPath: string): Promise<boolean> {
   try {
     await access(targetPath);
+
     return true;
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return false;
     }
+
     throw error;
   }
 }

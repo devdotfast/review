@@ -41,13 +41,17 @@ export async function resolveThreadsReviewClient(
     }),
   );
 }
+
 export async function readThreadsClient(reviewUuid: string) {
   const result = ReviewThreadsSnapshotResponseSchema.parse(
     await requestReviewLifecycle("/lifecycle/threads/snapshot", { reviewUuid }),
   );
+
   if (!result.ok) throw new Error(result.error);
+
   return result.snapshot;
 }
+
 export async function commandThreadsClient(
   reviewUuid: string,
   command: ReviewThreadsCommand,
@@ -58,9 +62,12 @@ export async function commandThreadsClient(
       command,
     }),
   );
+
   if (!result.ok) throw new Error(result.error);
+
   return result.commit;
 }
+
 export async function replyThreadClient(input: {
   reviewUuid: string;
   mutationId: string;
@@ -73,7 +80,9 @@ export async function replyThreadClient(input: {
   const result = ReviewThreadsCommandResponseSchema.parse(
     await requestReviewLifecycle("/lifecycle/threads/reply", input),
   );
+
   if (!result.ok) throw new Error(result.error);
+
   return result.commit;
 }
 
@@ -81,6 +90,7 @@ export const listReviewsClient: typeof listReviews = async (filter = {}) =>
   ReviewListResponseSchema.parse(
     await requestReviewLifecycle("/lifecycle/list", filter),
   );
+
 export const resolveReviewClient: typeof resolvePublishReview = async (
   cwd,
   reviewUuid,
@@ -93,6 +103,7 @@ export const resolveReviewClient: typeof resolvePublishReview = async (
       ...options,
     }),
   );
+
 export const findScopedReviewClient: typeof findScopedReview = async (
   reviewUuid,
   scope,
@@ -105,6 +116,7 @@ export const findScopedReviewClient: typeof findScopedReview = async (
       includeLegacySchema: scope.includeLegacySchema,
     }),
   );
+
 export const checkpointReviewClient: typeof sealReviewCandidate = async (
   reviewDir,
   message,
@@ -115,6 +127,7 @@ export const checkpointReviewClient: typeof sealReviewCandidate = async (
       message,
     }),
   );
+
 export const touchReviewAgentSessionClient: typeof touchReviewAgentSession =
   async (stored, session, role) =>
     ReviewStoredResponseSchema.parse(
@@ -124,6 +137,7 @@ export const touchReviewAgentSessionClient: typeof touchReviewAgentSession =
         role,
       }),
     );
+
 export async function openThreadCountClient(
   reviewDir: string,
 ): Promise<number> {
@@ -137,6 +151,7 @@ export async function openThreadCountClient(
       }),
     );
 }
+
 export async function scaffoldReviewClient(
   input: RunReviewScaffoldInput,
 ): Promise<ReviewScaffoldEvent> {
@@ -153,7 +168,9 @@ export async function scaffoldReviewClient(
       agent: resolveAuthoringSessionRef(input.env ?? process.env),
     }),
   );
+
   for (const review of result.reviews) await input.onReviewBound?.(review.uuid);
+
   return result;
 }
 
@@ -163,6 +180,7 @@ export async function requestReviewLifecycle<Input>(
   body?: Input,
 ): Promise<JsonValue> {
   const desktop = await requireHealthyReviewDesktop("Review lifecycle");
+
   const response = await fetch(`${desktop.url}${pathname}`, {
     method: body === undefined ? "GET" : "POST",
     headers: {
@@ -171,11 +189,14 @@ export async function requestReviewLifecycle<Input>(
     },
     body: JSON.stringify(body),
   });
+
   const result = parseJsonText(await response.text());
+
   if (!response.ok)
     throw new Error(
       jsonString(jsonObject(result)?.error) ??
         `Review Desktop returned ${response.status}.`,
     );
+
   return result;
 }

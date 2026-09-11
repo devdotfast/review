@@ -10,12 +10,14 @@ export async function startLifecycleTestServer() {
     path.dirname(fileURLToPath(import.meta.url)),
     "..",
   );
+
   const relay = new GlobalReviewDesktopVerbRelay();
   relay.attach({
     signal: new AbortController().signal,
     write: () => {},
     close: () => {},
   });
+
   const server = createGlobalReviewServer({
     appPid: process.pid,
     packageRoot,
@@ -23,6 +25,8 @@ export async function startLifecycleTestServer() {
     port: 0,
     relay,
   });
+
   await server.listen();
+
   return server;
 }

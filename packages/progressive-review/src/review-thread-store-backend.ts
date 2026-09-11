@@ -32,6 +32,7 @@ import {
   readThreadDbSchemaVersion,
   requireCurrentThreadDbSchema,
 } from "./review-thread-db-schema";
+
 export {
   REVIEW_THREAD_DB_SCHEMA_VERSION,
   ReviewThreadDbVersionError,
@@ -59,6 +60,7 @@ import type {
 // only as a legacy migration input.
 
 export const REVIEW_THREAD_DB_FILENAME = "review.db";
+
 const LEGACY_THREAD_DB_SCHEMA_VERSIONS = new Set([
   "1",
   "2",
@@ -85,11 +87,16 @@ export function reviewThreadDbPath(reviewMdxPath: string): string {
   const shared = reviewStateDbPath(
     reviewHomeForDir(reviewStateDir(reviewMdxPath)),
   );
+
   const legacy = legacyReviewThreadDbPath(reviewMdxPath);
+
   if (!existsSync(legacy)) return shared;
+
   if (!existsSync(shared)) return legacy;
+
   const imported = withDatabaseSnapshot(shared, (snapshotPath) => {
     const db = new DatabaseSync(snapshotPath, { readOnly: true });
+
     try {
       return Boolean(
         db
@@ -100,6 +107,7 @@ export function reviewThreadDbPath(reviewMdxPath: string): string {
       db.close();
     }
   });
+
   return imported ? shared : legacy;
 }
 
@@ -154,6 +162,7 @@ CREATE TABLE IF NOT EXISTS comment_drafts (
 const REVIEW_THREAD_DB_V2_TO_V3_DDL = "DROP TABLE IF EXISTS questions;";
 
 const openDatabases = new Map<string, DatabaseSync>();
+
 const StoredThreadRowSchema = z.object({
   thread_id: z.string(),
   record_json: z.string(),
@@ -164,17 +173,23 @@ function openThreadDb(
   options: { create: boolean },
 ): DatabaseSync | null {
   const cached = openDatabases.get(dbPath);
+
   if (cached) return cached;
   const existed = existsSync(dbPath);
+
   if (!options.create && !existed) return null;
+
   if (options.create) {
     mkdirSync(path.dirname(dbPath), { recursive: true });
   }
+
   const db = new DatabaseSync(dbPath);
+
   try {
     db.exec(
       "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;",
     );
+
     if (!existed) {
       db.exec(REVIEW_THREAD_DB_DDL);
       db.prepare(
@@ -182,6 +197,7 @@ function openThreadDb(
       ).run(String(REVIEW_THREAD_DB_SCHEMA_VERSION));
     } else {
       const version = readThreadDbSchemaVersion(db);
+
       if (version !== String(REVIEW_THREAD_DB_SCHEMA_VERSION)) {
         throw new ReviewThreadDbVersionError(dbPath, version);
       }
@@ -190,14 +206,18 @@ function openThreadDb(
     db.close();
     throw error;
   }
+
   openDatabases.set(dbPath, db);
+
   return db;
 }
 
 export function checkReviewThreadDbVersion(reviewMdxPath: string): void {
   const dbPath = legacyReviewThreadDbPath(reviewMdxPath);
+
   if (!existsSync(dbPath)) return;
   const db = new DatabaseSync(dbPath, { readOnly: true });
+
   try {
     requireCurrentThreadDbSchema(db, dbPath);
   } finally {
@@ -219,14 +239,17 @@ export interface ReviewThreadsReadOnlySnapshot {
  * changes the database file or its write-ahead log. */
 export function reviewThreadDbSnapshotToken(reviewMdxPath: string): string {
   const dbPath = reviewThreadDbPath(reviewMdxPath);
+
   const stamp = (filePath: string): string => {
     try {
       const stats = statSync(filePath);
+
       return `${stats.ino}:${stats.size}:${stats.mtimeMs}`;
     } catch {
       return "absent";
     }
   };
+
   return `${stamp(dbPath)}|${stamp(`${dbPath}-wal`)}`;
 }
 
@@ -249,6 +272,7 @@ function withThreadDatabaseSnapshot<T>(
   read: (snapshotPath: string, dbPath: string) => T,
 ): T {
   const dbPath = reviewThreadDbPath(reviewMdxPath);
+
   return withDatabaseSnapshot(dbPath, read);
 }
 
@@ -260,10 +284,13 @@ function withDatabaseSnapshot<T>(
     throw new Error("The review thread database is unavailable.");
   const snapshot = stableThreadDatabaseSnapshot(dbPath);
   const snapshotDir = mkdtempSync(path.join(tmpdir(), "review-threads-read-"));
+
   try {
     const snapshotPath = path.join(snapshotDir, REVIEW_THREAD_DB_FILENAME);
     writeFileSync(snapshotPath, snapshot.database);
+
     if (snapshot.wal) writeFileSync(`${snapshotPath}-wal`, snapshot.wal);
+
     return read(snapshotPath, dbPath);
   } finally {
     rmSync(snapshotDir, { recursive: true, force: true });
@@ -299,7 +326,9 @@ export function copyReviewThreadDatabaseSnapshot(
   const snapshot = stableThreadDatabaseSnapshot(
     reviewThreadDbPath(reviewMdxPath),
   );
+
   const destination = legacyReviewThreadDbPath(destinationReviewMdxPath);
+
   if (
     reviewThreadDbPath(reviewMdxPath) !==
     legacyReviewThreadDbPath(reviewMdxPath)
@@ -307,6 +336,7 @@ export function copyReviewThreadDatabaseSnapshot(
     const threads = readReviewThreadsReadOnly(reviewMdxPath);
     createLegacyReviewThreadDb(reviewStateDir(destinationReviewMdxPath));
     const db = new DatabaseSync(destination);
+
     try {
       for (const [table, records] of [
         ["comments", threads.comments],
@@ -315,17 +345,21 @@ export function copyReviewThreadDatabaseSnapshot(
         const insert = db.prepare(
           `INSERT INTO ${table} (thread_id, record_json) VALUES (?, ?)`,
         );
+
         for (const [id, record] of Object.entries(records))
           insert.run(id, JSON.stringify(record));
       }
+
       db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
     } finally {
       db.close();
     }
   } else {
     writeFileSync(destination, snapshot.database);
+
     if (snapshot.wal) writeFileSync(`${destination}-wal`, snapshot.wal);
   }
+
   return threadDatabaseFingerprint(snapshot);
 }
 
@@ -340,9 +374,12 @@ const PendingAgentThreadSchema = z.object({
 
 function isSharedThreadDatabase(db: DatabaseSync, dbPath: string): boolean {
   const version = readReviewStateDbSchemaVersion(db);
+
   if (version === null) return false;
+
   if (version !== String(REVIEW_STATE_DB_SCHEMA_VERSION))
     throw new ReviewStateDbVersionError(dbPath, version);
+
   return true;
 }
 
@@ -351,15 +388,19 @@ function isSharedThreadDatabase(db: DatabaseSync, dbPath: string): boolean {
 export function hasPendingReviewAgentWrites(reviewMdxPath: string): boolean {
   return withThreadDatabaseSnapshot(reviewMdxPath, (snapshotPath, dbPath) => {
     const db = new DatabaseSync(snapshotPath, { readOnly: true });
+
     try {
       const version = readThreadDbSchemaVersion(db);
       const shared = isSharedThreadDatabase(db, dbPath);
+
       if (!shared && !isSupportedThreadDbVersion(version))
         throw new ReviewThreadDbVersionError(dbPath, version);
+
       const tables =
         version === "1"
           ? (["comments"] as const)
           : (["comments", "comment_drafts"] as const);
+
       for (const table of tables) {
         for (const raw of db
           .prepare(
@@ -370,16 +411,19 @@ export function hasPendingReviewAgentWrites(reviewMdxPath: string): boolean {
           )) {
           const row = StoredThreadRowSchema.parse(raw);
           const value = parseJsonText(row.record_json);
+
           const thread = PendingAgentThreadSchema.parse(
             table === "comment_drafts" && isJsonObject(value)
               ? value.thread
               : value,
           );
+
           const lastInput = thread.messages.reduce(
             (last, message, index) =>
               message.agentInput && message.role !== "agent" ? index : last,
             -1,
           );
+
           if (
             lastInput >= 0 &&
             !thread.messages
@@ -389,6 +433,7 @@ export function hasPendingReviewAgentWrites(reviewMdxPath: string): boolean {
             return true;
         }
       }
+
       return false;
     } finally {
       db.close();
@@ -401,9 +446,11 @@ function stableThreadDatabaseSnapshot(dbPath: string) {
     database: readFileSync(dbPath),
     wal: readThreadWal(`${dbPath}-wal`),
   });
+
   for (let attempt = 0; attempt < 3; attempt++) {
     const first = read();
     const second = read();
+
     if (
       first.database.equals(second.database) &&
       (first.wal === null
@@ -412,6 +459,7 @@ function stableThreadDatabaseSnapshot(dbPath: string) {
     )
       return second;
   }
+
   throw new Error(
     "The review thread database changed while taking a read-only snapshot; retry.",
   );
@@ -433,19 +481,24 @@ function readThreadDatabaseSnapshot(
   reviewId: string,
 ): ReviewThreadsReadOnlySnapshot {
   const db = new DatabaseSync(snapshotPath, { readOnly: true });
+
   try {
     const version = readThreadDbSchemaVersion(db);
     const shared = isSharedThreadDatabase(db, dbPath);
+
     if (!shared && version !== String(REVIEW_THREAD_DB_SCHEMA_VERSION))
       throw new ReviewThreadDbVersionError(dbPath, version);
+
     if (
       shared &&
       !db.prepare("SELECT 1 FROM reviews WHERE review_id = ?").get(reviewId)
     ) {
       throw new Error("The review thread database is unavailable.");
     }
+
     const read = (table: "comments" | "comment_drafts"): JsonObject => {
       const result: JsonObject = {};
+
       for (const raw of db
         .prepare(
           `SELECT thread_id, record_json FROM ${table}${shared ? " WHERE review_id = ? AND route_path = '/'" : ""}`,
@@ -454,8 +507,10 @@ function readThreadDatabaseSnapshot(
         const row = StoredThreadRowSchema.parse(raw);
         result[row.thread_id] = parseJsonText(row.record_json);
       }
+
       return result;
     };
+
     return {
       readOnly: true,
       revision: 0,
@@ -490,33 +545,43 @@ export async function migrateReviewThreadDb(
   options: ReviewThreadDbMigrationOptions = {},
 ): Promise<ReviewThreadDbMigrationResult> {
   const dbPath = legacyReviewThreadDbPath(reviewMdxPath);
+
   if (!existsSync(dbPath)) return "missing";
   const cached = openDatabases.get(dbPath);
+
   if (cached) {
     cached.close();
     openDatabases.delete(dbPath);
   }
+
   const db = new DatabaseSync(dbPath);
   let inTransaction = false;
+
   try {
     db.exec("PRAGMA busy_timeout = 5000; BEGIN IMMEDIATE;");
     inTransaction = true;
     const version = readThreadDbSchemaVersion(db);
+
     if (version === String(REVIEW_THREAD_DB_SCHEMA_VERSION)) {
       db.exec("COMMIT");
       inTransaction = false;
+
       return "current";
     }
+
     if (!isSupportedThreadDbVersion(version)) {
       throw new ReviewThreadDbVersionError(dbPath, version);
     }
+
     if (version === "1") db.exec(REVIEW_THREAD_DB_V1_TO_V2_DDL);
+
     if (
       (version === "1" || version === "2") &&
       !options.preserveLegacyQuestions
     ) {
       db.exec(REVIEW_THREAD_DB_V2_TO_V3_DDL);
     }
+
     if (hasLegacyCodeTargets(db)) {
       if (!options.migrateLegacyCodeRecord) {
         throw new Error(
@@ -524,27 +589,34 @@ export async function migrateReviewThreadDb(
             "the diff-aware position migration.",
         );
       }
+
       await migrateLegacyCodeRecords(db, options.migrateLegacyCodeRecord, {
         force: options.force ?? false,
         onDrop: options.onDropLegacyCodeRecord,
       });
+
       if (hasLegacyCodeTargets(db)) {
         throw new Error(
           `Review thread database ${dbPath} still contains legacy code comments.`,
         );
       }
     }
+
     migrateNativeAgentSessionRecords(db, version);
+
     const updated = db
       .prepare(
         "UPDATE meta SET value = ? WHERE key = 'schema_version' AND value = ?",
       )
       .run(String(REVIEW_THREAD_DB_SCHEMA_VERSION), version);
+
     if (updated.changes !== 1) {
       throw new Error(`Could not update the schema version in ${dbPath}.`);
     }
+
     db.exec("COMMIT");
     inTransaction = false;
+
     return "upgraded";
   } catch (error) {
     if (inTransaction) db.exec("ROLLBACK");
@@ -565,18 +637,22 @@ function migrateNativeAgentSessionRecords(
     const rows = db
       .prepare(`SELECT thread_id, record_json FROM ${table}`)
       .all() as Array<{ thread_id: string; record_json: string }>;
+
     const update = db.prepare(
       `UPDATE ${table} SET record_json = ? WHERE thread_id = ?`,
     );
+
     for (const row of rows) {
       const value = parseJsonText(row.record_json);
       const migrated = migrateNativeAgentSessionRecord(value, table, version);
+
       // Validate before committing: invalid records block migration, never disappear.
       if (table === "comments") {
         parseStoredReviewCommentThreadMap({ [row.thread_id]: migrated });
       } else {
         ReviewCommentDraftThreadMapSchema.parse({ [row.thread_id]: migrated });
       }
+
       if (migrated !== value) {
         update.run(JSON.stringify(migrated), row.thread_id);
       }
@@ -590,11 +666,14 @@ function migrateNativeAgentSessionRecord(
   version: string,
 ): JsonValue {
   if (!isJsonObject(value)) return value;
+
   if (table === "comment_drafts") {
     if (!isJsonObject(value.thread)) return value;
     const thread = migrateNativeAgentSessionThread(value.thread, version);
+
     return thread === value.thread ? value : { ...value, thread };
   }
+
   return migrateNativeAgentSessionThread(value, version);
 }
 
@@ -616,6 +695,7 @@ const V7CommentAgentSessionSchema = z.discriminatedUnion("state", [
     state: z.literal("repair-required"),
   }),
 ]);
+
 const V8CommentAgentSessionSchema = ReviewCommentAgentSessionSchema.extend({
   firstMessageId: z.string().min(1),
 });
@@ -627,10 +707,12 @@ function migrateNativeAgentSessionThread(
   const originalMessages = Array.isArray(thread.messages)
     ? thread.messages
     : undefined;
+
   const migratedMessages = originalMessages
     ? originalMessages.map((message) => {
         if (!isJsonObject(message)) return message;
         const agentInput = message.agentInput === true;
+
         if (
           !("native" in message) &&
           !("agentMessage" in message) &&
@@ -638,25 +720,31 @@ function migrateNativeAgentSessionThread(
         ) {
           return message;
         }
+
         const {
           native: _native,
           agentMessage: _agentMessage,
           ...preserved
         } = message;
+
         return { ...preserved, agentInput };
       })
     : undefined;
+
   const messagesChanged =
     originalMessages !== undefined &&
     migratedMessages !== undefined &&
     migratedMessages.some(
       (message, index) => message !== originalMessages[index],
     );
+
   const migratedThread = messagesChanged
     ? { ...thread, messages: migratedMessages }
     : thread;
+
   if (!("agentSession" in migratedThread)) return migratedThread;
   const { agentSession, ...preserved } = migratedThread;
+
   const sourceSchema =
     version === "8"
       ? V8CommentAgentSessionSchema
@@ -665,7 +753,9 @@ function migrateNativeAgentSessionThread(
         : version === "6"
           ? ReviewCommentAgentSessionSchema
           : LegacyCommentAgentSessionSchema;
+
   const session = sourceSchema.parse(agentSession);
+
   return {
     ...preserved,
     agentSession: {
@@ -689,15 +779,18 @@ async function migrateLegacyCodeRecords(
     { name: "comments", kind: "comment" },
     { name: "comment_drafts", kind: "comment-draft" },
   ] as const;
+
   for (const table of tables) {
     // SAFETY: both tables declare thread_id TEXT PRIMARY KEY and record_json
     // TEXT NOT NULL, and every insert binds strings for them.
     const rows = db
       .prepare(`SELECT thread_id, record_json FROM ${table.name}`)
       .all() as Array<{ thread_id: string; record_json: string }>;
+
     for (const row of rows) {
       const current = parseJsonText(row.record_json);
       let migrated: JsonValue;
+
       try {
         migrated = await migrate(current, table.kind);
       } catch (error) {
@@ -712,6 +805,7 @@ async function migrateLegacyCodeRecords(
         });
         continue;
       }
+
       if (migrated === current) continue;
       db.prepare(
         `UPDATE ${table.name} SET record_json = ? WHERE thread_id = ?`,
@@ -728,7 +822,9 @@ function hasLegacyCodeTargets(db: DatabaseSync): boolean {
         "AND json_type(record_json, '$.target.position') IS NULL LIMIT 1",
     )
     .get();
+
   if (comment) return true;
+
   const draft = db
     .prepare(
       "SELECT 1 FROM comment_drafts " +
@@ -737,6 +833,7 @@ function hasLegacyCodeTargets(db: DatabaseSync): boolean {
         "LIMIT 1",
     )
     .get();
+
   return Boolean(draft);
 }
 
@@ -747,11 +844,13 @@ function readThreadTable(
 ): JsonObject {
   const dbPath = reviewStateDbPath(reviewHomeForDir(reviewDir));
   const legacyDbPath = path.join(reviewDir, REVIEW_THREAD_DB_FILENAME);
+
   if (!existsSync(dbPath) && !existsSync(legacyDbPath)) return {};
   checkReviewThreadDbVersion(path.join(reviewDir, "review.mdx"));
   importLegacyReview(reviewDir);
   const db = openReviewStateDb(reviewHomeForDir(reviewDir));
   const reviewId = reviewIdForDir(reviewDir);
+
   // SAFETY: the key column is the TEXT PRIMARY KEY and record_json is TEXT NOT
   // NULL in both tables, and every insert binds strings for them.
   const rows = db
@@ -760,10 +859,13 @@ function readThreadTable(
        WHERE review_id = ? AND route_path = '/'`,
     )
     .all(reviewId) as Array<{ key: string; record_json: string }>;
+
   const result: JsonObject = {};
+
   for (const row of rows) {
     result[row.key] = parseJsonText(row.record_json);
   }
+
   return result;
 }
 
@@ -778,18 +880,23 @@ function writeThreadTable(
   ensureReviewRegistration(reviewDir);
   const db = openReviewStateDb(reviewHomeForDir(reviewDir));
   const reviewId = reviewIdForDir(reviewDir);
+
   const insert = db.prepare(
     `INSERT INTO ${table}
      (review_id, route_path, ${keyColumn}, record_json) VALUES (?, '/', ?, ?)`,
   );
+
   db.exec("BEGIN IMMEDIATE");
+
   try {
     db.prepare(
       `DELETE FROM ${table} WHERE review_id = ? AND route_path = '/'`,
     ).run(reviewId);
+
     for (const [key, record] of Object.entries(value)) {
       insert.run(reviewId, key, JSON.stringify(record));
     }
+
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
@@ -807,13 +914,17 @@ function writeCommentState(
   ensureReviewRegistration(reviewDir);
   const db = openReviewStateDb(reviewHomeForDir(reviewDir));
   const reviewId = reviewIdForDir(reviewDir);
+
   const insertComment = db.prepare(
     "INSERT INTO comments (review_id, route_path, thread_id, record_json) VALUES (?, '/', ?, ?)",
   );
+
   const insertDraft = db.prepare(
     "INSERT INTO comment_drafts (review_id, route_path, thread_id, record_json) VALUES (?, '/', ?, ?)",
   );
+
   db.exec("BEGIN IMMEDIATE");
+
   try {
     db.prepare(
       "DELETE FROM comments WHERE review_id = ? AND route_path = '/'",
@@ -821,16 +932,19 @@ function writeCommentState(
     db.prepare(
       "DELETE FROM comment_drafts WHERE review_id = ? AND route_path = '/'",
     ).run(reviewId);
+
     for (const [threadId, record] of Object.entries(
       parseStoredReviewCommentThreadMap(comments),
     )) {
       insertComment.run(reviewId, threadId, JSON.stringify(record));
     }
+
     for (const [threadId, record] of Object.entries(
       ReviewCommentDraftThreadMapSchema.parse(drafts),
     )) {
       insertDraft.run(reviewId, threadId, JSON.stringify(record));
     }
+
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
@@ -842,6 +956,7 @@ function sqliteThreadStoreBackend(
   reviewMdxPath: string,
 ): ReviewThreadStoreBackend {
   const reviewDir = reviewStateDir(reviewMdxPath);
+
   return {
     readComments: () => readValidComments(reviewDir),
     writeComments: (comments) =>
@@ -871,11 +986,13 @@ function readValidComments(reviewDir: string): ReviewCommentThreadMap {
   const stored = readThreadTable(reviewDir, "comments", "thread_id");
   const comments = parseReviewCommentThreadMap(stored);
   const dropped = Object.keys(stored).filter((key) => !(key in comments));
+
   if (dropped.length === 0) return comments;
   console.error(
     `[Review] Dropped ${dropped.length} malformed comment record${dropped.length === 1 ? "" : "s"} from ${reviewStateDbPath()}: ${dropped.join(", ")}`,
   );
   writeThreadTable(reviewDir, "comments", "thread_id", comments);
+
   return comments;
 }
 
@@ -891,11 +1008,14 @@ export function createReviewThreadDb(
 export function createLegacyReviewThreadDb(reviewDir: string): void {
   const dbPath = path.join(reviewDir, REVIEW_THREAD_DB_FILENAME);
   const cached = openDatabases.get(dbPath);
+
   if (cached) {
     cached.close();
     openDatabases.delete(dbPath);
   }
+
   const db = openThreadDb(dbPath, { create: true });
+
   if (db) {
     db.close();
     openDatabases.delete(dbPath);
@@ -911,6 +1031,7 @@ export function closeAllReviewThreadStores(): void {
       // Already closed — nothing to release.
     }
   }
+
   openDatabases.clear();
   closeAllReviewStateDatabases();
 }

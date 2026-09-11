@@ -32,7 +32,9 @@ import { resolveReviewInfo } from "./server/review-info";
 import { runReviewThreadsList } from "./threads-cli";
 
 const execFilePromise = promisify(execFile);
+
 const roots: string[] = [];
+
 let server: Awaited<ReturnType<typeof startLifecycleTestServer>> | undefined;
 
 afterEach(async () => {
@@ -49,9 +51,11 @@ async function fixture() {
   const home = await realpath(
     await mkdtemp(path.join(os.tmpdir(), "review-scope-errors-")),
   );
+
   roots.push(home);
   vi.stubEnv("DEV_REVIEW_HOME", home);
   vi.stubEnv("DEV_FAST_REVIEW_TELEMETRY_DISABLED", "1");
+
   async function create(label: string) {
     const root = path.join(home, label);
     await mkdir(root);
@@ -67,9 +71,11 @@ async function fixture() {
     await writeFile(path.join(root, "README.md"), `${label}\n`);
     await execFilePromise("git", ["add", "."], { cwd: root });
     await execFilePromise("git", ["commit", "-m", "Initial"], { cwd: root });
+
     const commit = (
       await execFilePromise("git", ["rev-parse", "HEAD"], { cwd: root })
     ).stdout.trim();
+
     const stored = await createReviewDir({
       worktreePath: root,
       baseRef: "main",
@@ -78,8 +84,10 @@ async function fixture() {
       sourceIdentity: { kind: "git-branch", name: "main" },
       sourceSession: "disabled:review",
     });
+
     return { root, stored };
   }
+
   return {
     home,
     healthy: await create("healthy"),
@@ -107,6 +115,7 @@ describe("scoped review diagnostics", () => {
       const { home, healthy, other } = await fixture();
       const badPath = path.join(other.stored.dir, "review.json");
       let badRecord = { ...other.stored.review };
+
       if (kind === "failed-conversion") {
         const bundle = path.join(other.stored.dir, ".bundle", "document");
         await mkdir(bundle, { recursive: true });
@@ -130,12 +139,14 @@ describe("scoped review diagnostics", () => {
           ),
         };
       }
+
       const bytes = JSON.stringify({
         ...badRecord,
         schemaVersion:
           kind === "unsupported" ? 6 : kind === "failed-conversion" ? 4 : 5,
         baseCommit: kind === "malformed" ? 42 : badRecord.baseCommit,
       });
+
       await writeFile(badPath, bytes);
       deleteReviewState(other.stored.dir);
       await expect(
@@ -151,9 +162,11 @@ describe("scoped review diagnostics", () => {
       expect(scoped.reviews.map((entry) => entry.review.uuid)).toEqual([
         healthy.stored.review.uuid,
       ]);
+
       const repository = await listReviews({
         repoKey: healthy.stored.review.repoKey,
       });
+
       expect(repository.errors).toEqual([]);
       expect(repository.reviews.map((entry) => entry.review.uuid)).toEqual([
         healthy.stored.review.uuid,
@@ -179,9 +192,11 @@ describe("scoped review diagnostics", () => {
 
       const stdin = new PassThrough();
       stdin.end(JSON.stringify({ cwd: healthy.stored.dir }));
+
       const checkpoint = vi.fn<typeof sealReviewCandidate>(
         async () => "checkpoint",
       );
+
       await expect(
         runProgressiveReviewCli({
           argv: ["stop-hook"],
@@ -246,11 +261,13 @@ describe("scoped review diagnostics", () => {
 
   it("does not create an ambiguous binding when unknown metadata exists", async () => {
     const { home, healthy } = await fixture();
+
     const unknownDir = path.join(
       home,
       "reviews",
       "11111111-1111-4111-8111-111111111111",
     );
+
     await mkdir(unknownDir);
     await writeFile(path.join(unknownDir, "review.json"), "{broken");
     const before = await readdir(path.join(home, "reviews"));

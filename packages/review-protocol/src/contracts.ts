@@ -17,6 +17,7 @@ export const byCommitSchema = z.object({
   indexed_by: z.enum(["hook", "ci"]),
   ts: z.string(),
 });
+
 export type ByCommitEntry = z.infer<typeof byCommitSchema>;
 
 export const sessionMetaSchema = z.object({
@@ -28,30 +29,37 @@ export const sessionMetaSchema = z.object({
   author: z.string().nullable(),
   ts: z.string(),
 });
+
 export type SessionMeta = z.infer<typeof sessionMetaSchema>;
 
 // Version 3: `review publish` owns validation, bundling, and sealing; the
 // desktop serves prebuilt revisions and exposes /publish-ready instead of the
 // removed /publish route. (Version 2 added the bundled-CLI discovery fields.)
 export const REVIEW_DESKTOP_DISCOVERY_VERSION = 3;
+
 // Version 5: document and software-map bundles are JSON.
 export const REVIEW_SCHEMA_VERSION = 5;
 
 const requiredString = z
   .string({ error: "must be a string" })
   .refine((value) => value.trim().length > 0, "must be a string");
+
 const stringAllowEmpty = z.string({ error: "must be a string" });
+
 const positiveInteger = z
   .number({ error: "must be a positive integer" })
   .int("must be a positive integer")
   .positive("must be a positive integer");
+
 const nonNegativeInteger = z
   .number({ error: "must be a non-negative integer" })
   .int("must be a non-negative integer")
   .nonnegative("must be a non-negative integer");
+
 const reviewDiffSideSchema = z.enum(["base", "head"], {
   error: "must be base or head",
 });
+
 export const reviewViewSchema = z.enum([
   "review",
   "commits",
@@ -59,7 +67,9 @@ export const reviewViewSchema = z.enum([
   "map",
   "trace",
 ]);
+
 export type ReviewView = z.infer<typeof reviewViewSchema>;
+
 const reviewThemeSchema = z.enum(["light", "dark"], {
   error: "must be light or dark",
 });
@@ -70,6 +80,7 @@ function urlSchema(
 ) {
   return requiredString.transform((value, context) => {
     let url: URL;
+
     try {
       url = new URL(value);
     } catch {
@@ -77,23 +88,30 @@ function urlSchema(
         code: "custom",
         message: "must be an absolute URL",
       });
+
       return z.NEVER;
     }
+
     const error = constraint?.(url);
+
     if (error) {
       context.addIssue({ code: "custom", message: error });
+
       return z.NEVER;
     }
+
     return output === "origin" ? url.origin : url.href;
   });
 }
 
 const absoluteUrlSchema = urlSchema("href");
+
 const loopbackUrlSchema = urlSchema("href", (url) =>
   url.protocol === "http:" && url.hostname === "127.0.0.1" && url.port
     ? null
     : "must use http://127.0.0.1:<port>",
 ).transform((value) => value.replace(/\/$/, ""));
+
 const loopbackOriginSchema = urlSchema("origin", (url) =>
   url.protocol === "http:" && url.hostname === "127.0.0.1" && url.port
     ? null
@@ -103,8 +121,10 @@ const loopbackOriginSchema = urlSchema("origin", (url) =>
 export function normalizeReviewRoutePath(pathname: string): string {
   const pathnameOnly = String(pathname || "/").split(/[?#]/)[0] || "/";
   let end = pathnameOnly.length;
+
   while (end > 1 && pathnameOnly.charCodeAt(end - 1) === 47) end--;
   const trimmed = pathnameOnly.slice(0, end) || "/";
+
   return trimmed === "/"
     ? "/"
     : trimmed.startsWith("/")
@@ -125,12 +145,18 @@ export const ReviewRuntimeConfigSchema = z.strictObject({
   theme: reviewThemeSchema,
   host: z.literal("desktop"),
 });
+
 export type ReviewRuntimeConfig = z.infer<typeof ReviewRuntimeConfigSchema>;
+
 export type ReviewHost = ReviewRuntimeConfig["host"];
+
 export type ReviewTheme = ReviewRuntimeConfig["theme"];
+
 export type ReviewDiffSide = z.infer<typeof reviewDiffSideSchema>;
+
 /** How embedded diffs lay out: base and head side by side, or one column. */
 export const REVIEW_DIFF_LAYOUTS = ["split", "unified"] as const;
+
 export type ReviewDiffLayout = (typeof REVIEW_DIFF_LAYOUTS)[number];
 
 export interface ReviewDisposable {
@@ -140,10 +166,12 @@ export interface ReviewDisposable {
 const threadTargetNonEmptyStringSchema = z
   .string({ error: "must be a non-empty string" })
   .min(1, "must be a non-empty string");
+
 const threadTargetNonNegativeIntegerSchema = z.coerce
   .number({ error: "must be a non-negative integer" })
   .int("must be a non-negative integer")
   .nonnegative("must be a non-negative integer");
+
 const threadTargetPositiveIntegerSchema = z.coerce
   .number({ error: "must be a positive integer" })
   .int("must be a positive integer")
@@ -155,6 +183,7 @@ const ThreadSelectionSchema = z.strictObject({
   hash: threadTargetNonEmptyStringSchema,
   quote: threadTargetNonEmptyStringSchema,
 });
+
 export type ThreadSelection = z.infer<typeof ThreadSelectionSchema>;
 
 const TextSurfaceSchema = z.discriminatedUnion(
@@ -189,10 +218,12 @@ const TextSurfaceSchema = z.discriminatedUnion(
   ],
   "must be document, block, table-cell, or anchor",
 );
+
 export type TextSurface = z.infer<typeof TextSurfaceSchema>;
 
 const gitLabPositionNullableString = (maxLength: number) =>
   z.string().max(maxLength).nullable().optional();
+
 const gitLabPositionNullableInteger = z.number().int().nullable().optional();
 
 export const GitLabDiffLinePositionSchema = z.strictObject({
@@ -203,6 +234,7 @@ export const GitLabDiffLinePositionSchema = z.strictObject({
   old_line: gitLabPositionNullableInteger,
   new_line: gitLabPositionNullableInteger,
 });
+
 export type GitLabDiffLinePosition = z.infer<
   typeof GitLabDiffLinePositionSchema
 >;
@@ -244,6 +276,7 @@ export const GitLabDiffPositionSchema = z.strictObject({
     .optional(),
   ignore_whitespace_change: z.boolean().nullable().optional(),
 });
+
 export type GitLabDiffPosition = z.infer<typeof GitLabDiffPositionSchema>;
 
 export interface GitLabTextDiffRow {
@@ -268,10 +301,12 @@ export function createGitLabTextDiffPosition(
   input: CreateGitLabTextDiffPositionInput,
 ): GitLabDiffPosition {
   const path = input.new_path ?? input.old_path;
+
   if (!path) throw new Error("A GitLab diff position must have a file path.");
   const filePathHash = input.file_path_hash ?? gitLabLineCodePathHash(path);
   const start = gitLabDiffLinePosition(filePathHash, input.start);
   const end = gitLabDiffLinePosition(filePathHash, input.end);
+
   return {
     base_sha: input.base_sha,
     start_sha: input.start_sha,
@@ -304,10 +339,12 @@ export function gitLabLineCodePathHash(value: string): string {
   let h3 = 0x10325476;
   let h4 = 0xc3d2e1f0;
   const words = new Uint32Array(80);
+
   for (let offset = 0; offset < length; offset += 64) {
     for (let index = 0; index < 16; index += 1) {
       words[index] = view.getUint32(offset + index * 4, false);
     }
+
     for (let index = 16; index < 80; index += 1) {
       words[index] = rotateLeft(
         words[index - 3]! ^
@@ -317,19 +354,23 @@ export function gitLabLineCodePathHash(value: string): string {
         1,
       );
     }
+
     let a = h0;
     let b = h1;
     let c = h2;
     let d = h3;
     let e = h4;
+
     for (let index = 0; index < 80; index += 1) {
       const group = Math.floor(index / 20);
+
       const f =
         group === 0
           ? (b & c) | (~b & d)
           : group === 2
             ? (b & c) | (b & d) | (c & d)
             : b ^ c ^ d;
+
       const k = [0x5a827999, 0x6ed9eba1, 0x8f1bbcdc, 0xca62c1d6][group]!;
       const next = (rotateLeft(a, 5) + f + e + k + words[index]!) >>> 0;
       e = d;
@@ -338,12 +379,14 @@ export function gitLabLineCodePathHash(value: string): string {
       b = a;
       a = next;
     }
+
     h0 = (h0 + a) >>> 0;
     h1 = (h1 + b) >>> 0;
     h2 = (h2 + c) >>> 0;
     h3 = (h3 + d) >>> 0;
     h4 = (h4 + e) >>> 0;
   }
+
   return [h0, h1, h2, h3, h4]
     .map((word) => word.toString(16).padStart(8, "0"))
     .join("");
@@ -359,6 +402,7 @@ export function gitLabDiffPositionRows(
   position: GitLabDiffPosition,
 ): { start: GitLabTextDiffRow; end: GitLabTextDiffRow } | null {
   if (position.position_type !== "text") return null;
+
   if (position.line_range) {
     return {
       start: {
@@ -371,10 +415,12 @@ export function gitLabDiffPositionRows(
       },
     };
   }
+
   const row = {
     old_line: position.old_line ?? null,
     new_line: position.new_line ?? null,
   };
+
   return row.old_line === null && row.new_line === null
     ? null
     : { start: row, end: row };
@@ -387,6 +433,7 @@ function gitLabDiffLinePosition(
   if (row.old_line === null && row.new_line === null) {
     throw new Error("A GitLab text diff row must have an old or new line.");
   }
+
   return {
     line_code: `${filePathHash}_${row.old_line ?? 0}_${row.new_line ?? 0}`,
     type:
@@ -421,6 +468,7 @@ export const CodeThreadTargetSchema = z
         });
       }
     }
+
     if (
       target.change_position &&
       !isCompleteReviewCodePosition(target.change_position)
@@ -432,6 +480,7 @@ export const CodeThreadTargetSchema = z
       });
     }
   });
+
 export type CodeThreadTarget = z.infer<typeof CodeThreadTargetSchema>;
 
 export const ThreadTargetSchema = z.discriminatedUnion(
@@ -462,6 +511,7 @@ export const ThreadTargetSchema = z.discriminatedUnion(
   ],
   "must be document, code, text, or graph",
 );
+
 export type ThreadTarget = z.infer<typeof ThreadTargetSchema>;
 
 export const CreateReviewCommentInputSchema = z.strictObject({
@@ -471,6 +521,7 @@ export const CreateReviewCommentInputSchema = z.strictObject({
   body: threadTargetNonEmptyStringSchema,
   agentInput: z.boolean().optional(),
 });
+
 export type CreateReviewCommentInput = z.infer<
   typeof CreateReviewCommentInputSchema
 >;
@@ -479,6 +530,7 @@ export const ReviewCommentAgentSessionSchema = z.strictObject({
   harness: z.enum(["codex", "claude-code", "opencode", "pi"]),
   sessionId: threadTargetNonEmptyStringSchema,
 });
+
 export type ReviewCommentAgentSession = z.infer<
   typeof ReviewCommentAgentSessionSchema
 >;
@@ -500,9 +552,11 @@ export const ReviewCommentThreadRecordSchema = z.strictObject({
     }),
   ),
 });
+
 export type ReviewCommentThreadRecord = z.infer<
   typeof ReviewCommentThreadRecordSchema
 >;
+
 export type ReviewCommentMessage =
   ReviewCommentThreadRecord["messages"][number];
 
@@ -533,6 +587,7 @@ export const ReviewCommentThreadMapSchema = z
       }
     }
   });
+
 export type ReviewCommentThreadMap = z.infer<
   typeof ReviewCommentThreadMapSchema
 >;
@@ -541,6 +596,7 @@ export const ReviewCommentDraftThreadSchema = z.strictObject({
   thread: ReviewCommentThreadRecordSchema,
   inputs: z.array(CreateReviewCommentInputSchema).min(1),
 });
+
 export type ReviewCommentDraftThread = z.infer<
   typeof ReviewCommentDraftThreadSchema
 >;
@@ -556,6 +612,7 @@ export const ReviewCommentDraftThreadMapSchema = z
           message: "must match the storage key",
         });
       }
+
       for (const [index, input] of draft.inputs.entries()) {
         if (input.threadId !== threadId) {
           context.addIssue({
@@ -567,6 +624,7 @@ export const ReviewCommentDraftThreadMapSchema = z
       }
     }
   });
+
 export type ReviewCommentDraftThreadMap = z.infer<
   typeof ReviewCommentDraftThreadMapSchema
 >;
@@ -582,12 +640,15 @@ export function parseReviewCommentThreadMap(
 ): ReviewCommentThreadMap {
   if (!isJsonObject(value)) return {};
   const comments: ReviewCommentThreadMap = {};
+
   for (const [threadId, candidate] of Object.entries(value)) {
     const parsed = ReviewCommentThreadRecordSchema.safeParse(candidate);
+
     if (parsed.success && parsed.data.threadId === threadId) {
       comments[threadId] = parsed.data;
     }
   }
+
   return comments;
 }
 
@@ -598,6 +659,7 @@ export const ReviewThreadsSnapshotSchema = z.strictObject({
   comments: ReviewCommentThreadMapSchema,
   drafts: ReviewCommentDraftThreadMapSchema,
 });
+
 export type ReviewThreadsSnapshot = z.infer<typeof ReviewThreadsSnapshotSchema>;
 
 export const ReviewThreadsCommitSchema = z.strictObject({
@@ -613,6 +675,7 @@ export const ReviewThreadsCommitSchema = z.strictObject({
   ),
   deletedDraftThreadIds: z.array(threadTargetNonEmptyStringSchema),
 });
+
 export type ReviewThreadsCommit = z.infer<typeof ReviewThreadsCommitSchema>;
 
 const ReviewCommentUpdateSchema = z.strictObject({
@@ -667,6 +730,7 @@ export const ReviewThreadsCommandSchema = z.discriminatedUnion("command", [
     messageId: threadTargetNonEmptyStringSchema,
   }),
 ]);
+
 export type ReviewThreadsCommand = z.infer<typeof ReviewThreadsCommandSchema>;
 
 export interface ReviewLocalCommentThread {
@@ -913,9 +977,11 @@ export interface ReviewCanvasOnboarding {
 // Both lists mirror the workbench side (`reviewThemeChoice.ts` and
 // `REVIEW_KEYMAPS` in `reviewConfigurationDefaults.ts`).
 export const REVIEW_THEME_CHOICES = ["dark", "light", "system"] as const;
+
 export type ReviewThemeChoice = (typeof REVIEW_THEME_CHOICES)[number];
 
 export const REVIEW_KEYMAP_CHOICES = ["none", "vim", "emacs"] as const;
+
 export type ReviewKeymapChoice = (typeof REVIEW_KEYMAP_CHOICES)[number];
 
 export const REVIEW_TUTORIAL_STEP_IDS = [
@@ -932,7 +998,9 @@ export const REVIEW_TUTORIAL_STEP_IDS = [
   "chooseKeymap",
   "openTraceQuote",
 ] as const;
+
 export type TutorialStepId = (typeof REVIEW_TUTORIAL_STEP_IDS)[number];
+
 export const REVIEW_TUTORIAL_PROGRESS_STORAGE_KEY =
   "review.tutorial.progress.v1";
 
@@ -1127,6 +1195,7 @@ export const ReviewDesktopDiscoverySchema = z.object({
   // PATH.
   cliRuntimePath: requiredString.optional(),
 });
+
 export type ReviewDesktopDiscovery = z.infer<
   typeof ReviewDesktopDiscoverySchema
 >;
@@ -1139,9 +1208,11 @@ export const ReviewRepositoryIdentitySchema = z.strictObject({
   repositoryPath: requiredString,
   worktreeRoot: requiredString,
 });
+
 export type ReviewRepositoryIdentity = z.infer<
   typeof ReviewRepositoryIdentitySchema
 >;
+
 export type ReviewRepositoryKind = ReviewRepositoryIdentity["kind"];
 
 export const ReviewStatusSchema = z.enum([
@@ -1156,6 +1227,7 @@ export const ReviewSourceIdentitySchema = z.strictObject({
   kind: z.enum(["git-branch", "git-commit", "jj-bookmark", "jj-change"]),
   name: requiredString,
 });
+
 export type ReviewSourceIdentity = z.infer<typeof ReviewSourceIdentitySchema>;
 
 export const ReviewAgentSessionRoleSchema = z.enum([
@@ -1165,6 +1237,7 @@ export const ReviewAgentSessionRoleSchema = z.enum([
   "updater",
   "question",
 ]);
+
 export type ReviewAgentSessionRole = z.infer<
   typeof ReviewAgentSessionRoleSchema
 >;
@@ -1174,6 +1247,7 @@ export const ReviewAgentSessionAttributionSchema = z.strictObject({
   firstSeenAt: requiredString,
   lastSeenAt: requiredString,
 });
+
 export type ReviewAgentSessionAttribution = z.infer<
   typeof ReviewAgentSessionAttributionSchema
 >;
@@ -1210,6 +1284,7 @@ export const ReviewRecordSchema = z.strictObject({
   viewedAt: requiredString.nullable().optional(),
   dismissedAt: requiredString.nullable().optional(),
 });
+
 export type ReviewRecord = z.infer<typeof ReviewRecordSchema>;
 
 export const ReviewCommitSummarySchema = z.strictObject({
@@ -1226,6 +1301,7 @@ export const ReviewCommitSummarySchema = z.strictObject({
   additions: z.number().int().nonnegative(),
   deletions: z.number().int().nonnegative(),
 });
+
 export type ReviewCommitSummary = z.infer<typeof ReviewCommitSummarySchema>;
 
 export const ReviewDescriptorSchema = z.strictObject({
@@ -1267,6 +1343,7 @@ export const ReviewDescriptorSchema = z.strictObject({
      setting. Null when retention is off or the review is not dismissed. */
   reapsAt: requiredString.nullable().optional(),
 });
+
 export type ReviewDescriptor = z.infer<typeof ReviewDescriptorSchema>;
 
 export const ReviewSessionDescriptorSchema = z.strictObject({
@@ -1281,6 +1358,7 @@ export const ReviewSessionDescriptorSchema = z.strictObject({
     .regex(/^[0-9a-f]{40}$/)
     .optional(),
 });
+
 export type ReviewSessionDescriptor = z.infer<
   typeof ReviewSessionDescriptorSchema
 >;
@@ -1291,6 +1369,7 @@ export const ReviewDocumentVersionSchema = z.strictObject({
   sealedAt: positiveInteger,
   isCurrent: z.boolean(),
 });
+
 export type ReviewDocumentVersionWire = z.infer<
   typeof ReviewDocumentVersionSchema
 >;
@@ -1300,6 +1379,7 @@ export const AuthoringAgentSessionSchema = z.strictObject({
   harness: z.enum(["claude-code", "codex", "opencode", "pi"]),
   sessionId: requiredString,
 });
+
 export type AuthoringAgentSessionWire = z.infer<
   typeof AuthoringAgentSessionSchema
 >;
@@ -1317,6 +1397,7 @@ export const ReviewErrorDetailSchema = z.discriminatedUnion("code", [
     reviewUuid: z.uuid({ error: "must be a UUID" }),
   }),
 ]);
+
 export type ReviewErrorDetail = z.infer<typeof ReviewErrorDetailSchema>;
 
 export const ReviewErrorResponseSchema = z
@@ -1332,6 +1413,7 @@ export const ReviewErrorResponseSchema = z
     path: ["detail"],
     message: "An error reports either a bare code or a structured detail",
   });
+
 export type ReviewErrorResponse = z.infer<typeof ReviewErrorResponseSchema>;
 
 export const ReviewThreadsSnapshotResponseSchema = z.discriminatedUnion("ok", [
@@ -1341,6 +1423,7 @@ export const ReviewThreadsSnapshotResponseSchema = z.discriminatedUnion("ok", [
   }),
   ReviewErrorResponseSchema,
 ]);
+
 export type ReviewThreadsSnapshotResponse = z.infer<
   typeof ReviewThreadsSnapshotResponseSchema
 >;
@@ -1352,6 +1435,7 @@ export const ReviewThreadsCommandResponseSchema = z.discriminatedUnion("ok", [
   }),
   ReviewErrorResponseSchema,
 ]);
+
 export type ReviewThreadsCommandResponse = z.infer<
   typeof ReviewThreadsCommandResponseSchema
 >;
@@ -1362,6 +1446,7 @@ export const ReviewOpenResponseSchema = z.strictObject({
   session: ReviewSessionDescriptorSchema,
   review: ReviewDescriptorSchema,
 });
+
 export type ReviewOpenResponse = z.infer<typeof ReviewOpenResponseSchema>;
 
 /* The tutorial Review is not in the review store, so `GET /reviews` never
@@ -1374,6 +1459,7 @@ export const ReviewTutorialOpenResponseSchema = z.strictObject({
   review: ReviewDescriptorSchema,
   session: ReviewSessionDescriptorSchema,
 });
+
 export type ReviewTutorialOpenResponse = z.infer<
   typeof ReviewTutorialOpenResponseSchema
 >;
@@ -1392,7 +1478,9 @@ export const ReviewListResponseSchema = z.strictObject({
     }),
   ),
 });
+
 export type ReviewListResponse = z.infer<typeof ReviewListResponseSchema>;
+
 export type ReviewListError = ReviewListResponse["errors"][number];
 
 export const ReviewStackLayerSchema = z.strictObject({
@@ -1403,17 +1491,20 @@ export const ReviewStackLayerSchema = z.strictObject({
   reviewTitle: stringAllowEmpty.nullable(),
   relation: z.enum(["earlier", "current", "later"]),
 });
+
 export type ReviewStackLayer = z.infer<typeof ReviewStackLayerSchema>;
 
 export const ReviewStackResponseSchema = z.strictObject({
   layers: z.array(ReviewStackLayerSchema),
 });
+
 export type ReviewStackResponse = z.infer<typeof ReviewStackResponseSchema>;
 
 export const ReviewCliInstallTargetSchema = z.enum(
   ["claude", "codex", "cursor", "opencode", "pi"],
   { error: "must be claude, codex, cursor, opencode, or pi" },
 );
+
 export type ReviewCliInstallTarget = z.infer<
   typeof ReviewCliInstallTargetSchema
 >;
@@ -1421,6 +1512,7 @@ export type ReviewCliInstallTarget = z.infer<
 export const ReviewFffInstallTargetSchema = z.enum(["claude", "codex", "pi"], {
   error: "must be claude, codex, or pi",
 });
+
 export type ReviewFffInstallTarget = z.infer<
   typeof ReviewFffInstallTargetSchema
 >;
@@ -1430,6 +1522,7 @@ export const ReviewFffManagedRegistrationSchema = z.strictObject({
   command: requiredString,
   args: z.array(requiredString),
 });
+
 export type ReviewFffManagedRegistration = z.infer<
   typeof ReviewFffManagedRegistrationSchema
 >;
@@ -1445,6 +1538,7 @@ export const ReviewCliInstallStampSchema = z.strictObject({
   traceManaged: z.boolean().optional(),
   updatedAt: requiredString,
 });
+
 export type ReviewCliInstallStamp = z.infer<typeof ReviewCliInstallStampSchema>;
 
 export const ReviewCliInstallStatusSchema = z.strictObject({
@@ -1507,6 +1601,7 @@ export const ReviewCliInstallStatusSchema = z.strictObject({
     .strictObject({ path: requiredString, version: requiredString })
     .nullable(),
 });
+
 export type ReviewCliInstallStatus = z.infer<
   typeof ReviewCliInstallStatusSchema
 >;
@@ -1542,6 +1637,7 @@ export const ReviewCliInstallApplyRequestSchema = z
       request.trace !== undefined,
     { message: "must install skills, the command, FFF, or trace capture" },
   );
+
 export type ReviewCliInstallApplyRequest = z.infer<
   typeof ReviewCliInstallApplyRequestSchema
 >;
@@ -1551,6 +1647,7 @@ export const ReviewCliInstallApplyResponseSchema = z.strictObject({
   output: stringAllowEmpty,
   shimPath: requiredString.optional(),
 });
+
 export type ReviewCliInstallApplyResponse = z.infer<
   typeof ReviewCliInstallApplyResponseSchema
 >;
@@ -1565,6 +1662,7 @@ export const ReviewPublishReadyRequestSchema = z.strictObject({
   agent: AuthoringAgentSessionSchema.optional(),
   view: reviewViewSchema.optional(),
 });
+
 export type ReviewPublishReadyRequest = z.infer<
   typeof ReviewPublishReadyRequestSchema
 >;
@@ -1585,6 +1683,7 @@ export const ReviewSubmissionWireSchema = z.strictObject({
   comments: z.array(z.unknown()),
   prompt: stringAllowEmpty,
 });
+
 export type ReviewSubmissionWire = z.infer<typeof ReviewSubmissionWireSchema>;
 
 export const ReviewSessionLifecycleEventSchema = z.discriminatedUnion("event", [
@@ -1605,6 +1704,7 @@ export const ReviewSessionLifecycleEventSchema = z.discriminatedUnion("event", [
     error: requiredString,
   }),
 ]);
+
 export type ReviewSessionLifecycleEvent = z.infer<
   typeof ReviewSessionLifecycleEventSchema
 >;
@@ -1682,6 +1782,7 @@ export const ReviewDesktopGlobalEventSchema = z.discriminatedUnion("event", [
     }),
   }),
 ]);
+
 export type ReviewDesktopGlobalEvent = z.infer<
   typeof ReviewDesktopGlobalEventSchema
 >;
@@ -1714,6 +1815,7 @@ export const ReviewSessionSchema = z.strictObject({
     .optional(),
   startedAt: positiveInteger,
 });
+
 export type ReviewSessionWire = z.infer<typeof ReviewSessionSchema>;
 
 export const ReviewDiffFileSchema = z.strictObject({
@@ -1724,6 +1826,7 @@ export const ReviewDiffFileSchema = z.strictObject({
   deletions: nonNegativeInteger,
   patch: requiredString.optional(),
 });
+
 export type ReviewDiffFileWire = z.infer<typeof ReviewDiffFileSchema>;
 
 export interface ReviewDiffStats {
@@ -1756,6 +1859,7 @@ export const ReviewDiffFilesRequestSchema = z.strictObject({
     .regex(/^[0-9a-f]{40}$/i, "must be a 40-hex revision")
     .optional(),
 });
+
 export type ReviewDiffFilesRequest = z.infer<
   typeof ReviewDiffFilesRequestSchema
 >;
@@ -1769,6 +1873,7 @@ export const ReviewDiffFilesResponseSchema = z.discriminatedUnion("ok", [
   }),
   ReviewErrorResponseSchema,
 ]);
+
 export type ReviewDiffFilesResponse = z.infer<
   typeof ReviewDiffFilesResponseSchema
 >;
@@ -1781,6 +1886,7 @@ export const ReviewFileContentRequestSchema = z.strictObject({
     .regex(/^[0-9a-f]{40}$/i, "must be a 40-hex revision")
     .optional(),
 });
+
 export type ReviewFileContentRequest = z.infer<
   typeof ReviewFileContentRequestSchema
 >;
@@ -1795,6 +1901,7 @@ export const ReviewFileContentResponseSchema = z.union([
   z.strictObject({ ok: z.literal(true), binary: z.literal(true) }),
   ReviewErrorResponseSchema,
 ]);
+
 export type ReviewFileContentResponse = z.infer<
   typeof ReviewFileContentResponseSchema
 >;
@@ -1807,6 +1914,7 @@ export const ReviewSessionResponseSchema = z.discriminatedUnion("ok", [
   }),
   ReviewErrorResponseSchema,
 ]);
+
 export type ReviewSessionResponse = z.infer<typeof ReviewSessionResponseSchema>;
 
 export const ReviewDocumentResponseSchema = z.discriminatedUnion("ok", [
@@ -1817,6 +1925,7 @@ export const ReviewDocumentResponseSchema = z.discriminatedUnion("ok", [
   }),
   ReviewErrorResponseSchema,
 ]);
+
 export type ReviewDocumentResponse = z.infer<
   typeof ReviewDocumentResponseSchema
 >;
@@ -1830,6 +1939,7 @@ export const ReviewSoftwareMapResponseSchema = z.discriminatedUnion("ok", [
   }),
   ReviewErrorResponseSchema,
 ]);
+
 export type ReviewSoftwareMapResponse = z.infer<
   typeof ReviewSoftwareMapResponseSchema
 >;
@@ -1849,6 +1959,7 @@ export const ReviewServerEventSchema = z.discriminatedUnion("event", [
     commit: ReviewThreadsCommitSchema,
   }),
 ]);
+
 export type ReviewServerEvent = z.infer<typeof ReviewServerEventSchema>;
 
 export const ReviewRangeSchema = z
@@ -1865,12 +1976,14 @@ export const ReviewRangeSchema = z
       });
     }
   });
+
 export type ReviewRangeWire = z.infer<typeof ReviewRangeSchema>;
 
 export const ReviewOpenEditorSchema = z.strictObject({
   path: requiredString,
   scheme: requiredString,
 });
+
 export type ReviewOpenEditorWire = z.infer<typeof ReviewOpenEditorSchema>;
 
 export const ReviewEditorSelectionSchema = z.strictObject({
@@ -1880,6 +1993,7 @@ export const ReviewEditorSelectionSchema = z.strictObject({
   endLine: positiveInteger,
   endColumn: positiveInteger,
 });
+
 export type ReviewEditorSelectionWire = z.infer<
   typeof ReviewEditorSelectionSchema
 >;
@@ -1889,6 +2003,7 @@ export const ReviewDesktopStateSchema = z.strictObject({
   activeEditor: ReviewOpenEditorSchema.nullable(),
   selection: ReviewEditorSelectionSchema.nullable(),
 });
+
 export type ReviewDesktopState = z.infer<typeof ReviewDesktopStateSchema>;
 
 const reviewThreadDecorationKindSchema = z.enum([
@@ -1896,6 +2011,7 @@ const reviewThreadDecorationKindSchema = z.enum([
   "draft",
   "resolved",
 ]);
+
 export type ReviewThreadDecorationKind = z.infer<
   typeof reviewThreadDecorationKindSchema
 >;
@@ -1916,6 +2032,7 @@ export const ReviewThreadAnchorSchema = z
       });
     }
   });
+
 export type ReviewThreadAnchorWire = z.infer<typeof ReviewThreadAnchorSchema>;
 
 const openFileArgsSchema = z
@@ -1945,6 +2062,7 @@ const openFileArgsSchema = z
       });
     }
   });
+
 const revealArgsSchema = z
   .strictObject({
     path: requiredString,
@@ -2052,12 +2170,14 @@ export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
   }),
   z.strictObject({ name: z.literal("state"), args: z.strictObject({}) }),
 ]);
+
 export type ReviewVerbRequest = z.infer<typeof ReviewVerbRequestSchema>;
 
 export const ReviewVerbResponseSchema = z.discriminatedUnion("ok", [
   z.strictObject({ ok: z.literal(true), result: z.unknown().optional() }),
   ReviewErrorResponseSchema,
 ]);
+
 export type ReviewVerbResponse = z.infer<typeof ReviewVerbResponseSchema>;
 
 export const ReviewDesktopVerbFrameSchema = z.strictObject({
@@ -2066,6 +2186,7 @@ export const ReviewDesktopVerbFrameSchema = z.strictObject({
   sessionId: requiredString,
   request: ReviewVerbRequestSchema,
 });
+
 export type ReviewDesktopVerbFrame = z.infer<
   typeof ReviewDesktopVerbFrameSchema
 >;
@@ -2075,6 +2196,7 @@ export const ReviewDesktopVerbResultSchema = z.strictObject({
   sessionId: requiredString,
   response: ReviewVerbResponseSchema,
 });
+
 export type ReviewDesktopVerbResult = z.infer<
   typeof ReviewDesktopVerbResultSchema
 >;
@@ -2112,6 +2234,7 @@ export const ReviewSurfaceEventSchema = z.discriminatedUnion("event", [
     view: reviewViewSchema,
   }),
 ]);
+
 export type ReviewSurfaceEvent = z.infer<typeof ReviewSurfaceEventSchema>;
 
 // --- Agent trace view & trace quotes ----------------------------------------
@@ -2147,6 +2270,7 @@ export const ReviewAgentTraceEventSchema = z.discriminatedUnion("kind", [
     label: requiredString,
   }),
 ]);
+
 export type ReviewAgentTraceEvent = z.infer<typeof ReviewAgentTraceEventSchema>;
 
 export const ReviewAgentTraceSessionSchema = z.strictObject({
@@ -2160,6 +2284,7 @@ export const ReviewAgentTraceSessionSchema = z.strictObject({
     z.strictObject({ sha: requiredString, subject: stringAllowEmpty }),
   ),
 });
+
 export type ReviewAgentTraceSession = z.infer<
   typeof ReviewAgentTraceSessionSchema
 >;
@@ -2172,6 +2297,7 @@ export const ReviewAgentTraceListResponseSchema = z.discriminatedUnion("ok", [
   }),
   ReviewErrorResponseSchema,
 ]);
+
 export type ReviewAgentTraceListResponse = z.infer<
   typeof ReviewAgentTraceListResponseSchema
 >;
@@ -2193,6 +2319,7 @@ export const ReviewAgentTraceResponseSchema = z.discriminatedUnion("ok", [
   }),
   ReviewErrorResponseSchema,
 ]);
+
 export type ReviewAgentTraceResponse = z.infer<
   typeof ReviewAgentTraceResponseSchema
 >;

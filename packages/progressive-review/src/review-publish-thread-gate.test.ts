@@ -22,6 +22,7 @@ import {
 } from "./review-state-store";
 
 const cleanupPaths: string[] = [];
+
 let server: Awaited<ReturnType<typeof startLifecycleTestServer>> | undefined;
 
 afterEach(async () => {
@@ -47,6 +48,7 @@ describe("requireClosedThreadsForRepublish", () => {
     const review = await createTestReview();
     addComment(review.dir, "thread-z");
     addComment(review.dir, "thread-a");
+
     const published = {
       ...review,
       review: {
@@ -199,11 +201,14 @@ async function createTestReview() {
   const worktreePath = await mkdtemp(
     path.join(os.tmpdir(), "review-thread-gate-worktree-"),
   );
+
   const reviewHome = await mkdtemp(
     path.join(os.tmpdir(), "review-thread-gate-home-"),
   );
+
   cleanupPaths.push(worktreePath, reviewHome);
   vi.stubEnv("DEV_REVIEW_HOME", reviewHome);
+
   return createReviewDir({
     worktreePath,
     baseRef: "base",

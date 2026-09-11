@@ -36,6 +36,8 @@ export async function runReviewRebind(input: {
       agent: resolveAuthoringSessionRef(input.env ?? process.env),
     }),
   );
+
   input.stdout.write(`${JSON.stringify(output)}\n`);
+
   return 0;
 }

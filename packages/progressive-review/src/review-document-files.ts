@@ -12,6 +12,7 @@ export async function readReviewDocumentFile(
   name: ReviewDocumentFileName,
 ) {
   const filePath = path.join(review.dir, name);
+
   try {
     if (!(await lstat(filePath)).isFile()) {
       throw new ReviewServerError(
@@ -19,7 +20,9 @@ export async function readReviewDocumentFile(
         409,
       );
     }
+
     const source = await readFile(filePath, "utf8");
+
     return {
       name,
       source,
@@ -29,6 +32,7 @@ export async function readReviewDocumentFile(
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return { name, source: null, sourceHash: null };
     }
+
     throw error;
   }
 }
@@ -43,16 +47,20 @@ export async function writeReviewDocumentFile(
   },
 ) {
   const current = await readReviewDocumentFile(review, input.name);
+
   if (current.source === input.source) return current;
+
   if (current.sourceHash !== input.expectedSourceHash) {
     throw new ReviewServerError(
       "Document source changed. Read it again before retrying.",
       409,
     );
   }
+
   await writeFileAtomicAsync(path.join(review.dir, input.name), input.source, {
     encoding: "utf8",
     mode: 0o600,
   });
+
   return readReviewDocumentFile(review, input.name);
 }

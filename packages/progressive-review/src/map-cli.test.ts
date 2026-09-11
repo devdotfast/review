@@ -169,12 +169,14 @@ describe("removed commands point at their replacements", () => {
     "review map %s points at check's flush-on-green",
     async (command) => {
       const stderr: string[] = [];
+
       const exitCode = await runSoftwareMapCli({
         args: [command],
         cwd: "/repo",
         stdout: writable([]),
         stderr: writable(stderr),
       });
+
       expect(exitCode).toBe(1);
       expect(stderr.join("")).toContain(`review map ${command} was removed`);
       expect(stderr.join("")).toContain("flushes the scratch");
@@ -183,12 +185,14 @@ describe("removed commands point at their replacements", () => {
 
   it("review map scaffold points at open", async () => {
     const stderr: string[] = [];
+
     const exitCode = await runSoftwareMapCli({
       args: ["scaffold"],
       cwd: "/repo",
       stdout: writable([]),
       stderr: writable(stderr),
     });
+
     expect(exitCode).toBe(1);
     expect(stderr.join("")).toContain("review map scaffold was removed");
     expect(stderr.join("")).toContain("review map open <rev>");
@@ -198,12 +202,14 @@ describe("removed commands point at their replacements", () => {
     "rejects review map %s with guidance",
     async (command) => {
       const stderr: string[] = [];
+
       const exitCode = await runSoftwareMapCli({
         args: [command],
         cwd: "/repo",
         stdout: writable([]),
         stderr: writable(stderr),
       });
+
       expect(exitCode).toBe(1);
       expect(stderr.join("")).toContain(`review map ${command} was removed`);
       expect(stderr.join("")).toContain("review map open");
@@ -215,12 +221,14 @@ describe("removed commands point at their replacements", () => {
 describe("unknown flag handling", () => {
   it("exits 1 and names the flag (a --froce typo must not proceed)", async () => {
     const stderr: string[] = [];
+
     const exitCode = await runSoftwareMapCli({
       args: ["open", "HEAD", "--froce"],
       cwd: "/repo",
       stdout: writable([]),
       stderr: writable(stderr),
     });
+
     expect(exitCode).toBe(1);
     expect(stderr.join("")).toContain("Unknown flag: --froce");
   });
@@ -270,20 +278,25 @@ describe("review map open", () => {
   it("hydrates a stub scratch and reports provenance", async () => {
     if (!commandExists("git")) return;
     const rootPath = await gitFixture("review-map-open-");
+
     try {
       const commit = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
       const stdout: string[] = [];
+
       const exitCode = await runSoftwareMapCli({
         args: ["open", "HEAD"],
         cwd: rootPath,
         stdout: writable(stdout),
         stderr: writable([]),
       });
+
       expect(exitCode).toBe(0);
+
       const scratchPath = scratchSoftwareMapPath({
         repoRootPath: rootPath,
         commit,
       })!;
+
       expect(stdout.join("")).toContain(`scratch: ${scratchPath}`);
       expect(stdout.join("")).toContain(
         "no note found on HEAD or any ancestor; scratch is a schema stub — author a full map",
@@ -298,6 +311,7 @@ describe("review map open", () => {
   it("hydrates from an existing note and protects dirty scratches", async () => {
     if (!commandExists("git")) return;
     const rootPath = await gitFixture("review-map-open-note-");
+
     try {
       const commit = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
       await writeNote({
@@ -316,10 +330,12 @@ describe("review map open", () => {
       expect(openStdout.join("")).toContain(
         `hydrated from the note on ${commit.slice(0, 12)} (this commit); the map is current — verify and check to confirm`,
       );
+
       const scratchPath = scratchSoftwareMapPath({
         repoRootPath: rootPath,
         commit,
       })!;
+
       expect(await readFile(scratchPath, "utf8")).toBe(
         authoredMapSource("Note map"),
       );
@@ -327,12 +343,14 @@ describe("review map open", () => {
       // Dirty the scratch; open must leave it alone and say so.
       await writeFile(scratchPath, authoredMapSource("Edited"), "utf8");
       const stdout: string[] = [];
+
       const exitCode = await runSoftwareMapCli({
         args: ["open", "HEAD"],
         cwd: rootPath,
         stdout: writable(stdout),
         stderr: writable([]),
       });
+
       expect(exitCode).toBe(0);
       expect(stdout.join("")).toContain("unflushed edits");
       expect(await readFile(scratchPath, "utf8")).toBe(
@@ -367,6 +385,7 @@ describe("review map open", () => {
     expect(stderr.join("")).toContain("Usage: review map open <rev>");
 
     const dir = await mkdtemp(path.join(os.tmpdir(), "review-map-open-nogit-"));
+
     try {
       const nogitStderr: string[] = [];
       expect(
@@ -388,6 +407,7 @@ describe("review map check", () => {
   it("preflights the Git identity required to write the map note", async () => {
     if (!commandExists("git")) return;
     const rootPath = await gitFixture("review-map-check-identity-");
+
     try {
       const commit = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
       await runSoftwareMapCli({
@@ -396,10 +416,12 @@ describe("review map check", () => {
         stdout: writable([]),
         stderr: writable([]),
       });
+
       const scratchPath = scratchSoftwareMapPath({
         repoRootPath: rootPath,
         commit,
       })!;
+
       await writeFile(
         scratchPath,
         [
@@ -418,6 +440,7 @@ describe("review map check", () => {
       execGit(rootPath, ["config", "user.email", ""]);
 
       const stderr: string[] = [];
+
       const exitCode = await runSoftwareMapCli({
         args: ["check", "HEAD"],
         cwd: rootPath,
@@ -438,6 +461,7 @@ describe("review map check", () => {
   it("validates the scratch and flushes it to the note on success", async () => {
     if (!commandExists("git")) return;
     const rootPath = await gitFixture("review-map-check-");
+
     try {
       const commit = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
       await runSoftwareMapCli({
@@ -446,10 +470,12 @@ describe("review map check", () => {
         stdout: writable([]),
         stderr: writable([]),
       });
+
       const scratchPath = scratchSoftwareMapPath({
         repoRootPath: rootPath,
         commit,
       })!;
+
       const authored = [
         `import { defineSoftwareMap } from "${CANONICAL_SOFTWARE_MAP_MODEL_IMPORT}";`,
         "",
@@ -460,10 +486,12 @@ describe("review map check", () => {
         "});",
         "",
       ].join("\n");
+
       await writeFile(scratchPath, authored, "utf8");
 
       const stdout: string[] = [];
       const stderr: string[] = [];
+
       const exitCode = await runSoftwareMapCli({
         args: ["check", "HEAD"],
         cwd: rootPath,
@@ -489,6 +517,7 @@ describe("review map check", () => {
   it("blocks an element-free stub model at check (no note is flushed)", async () => {
     if (!commandExists("git")) return;
     const rootPath = await gitFixture("review-map-check-stub-");
+
     try {
       const commit = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
       // open with no notes anywhere writes the schema stub verbatim.
@@ -501,6 +530,7 @@ describe("review map check", () => {
 
       const stdout: string[] = [];
       const stderr: string[] = [];
+
       const exitCode = await runSoftwareMapCli({
         args: ["check", "HEAD"],
         cwd: rootPath,
@@ -523,6 +553,7 @@ describe("review map check", () => {
   it("keeps concurrent checks of different commits isolated (per-invocation check modules)", async () => {
     if (!commandExists("git")) return;
     const rootPath = await gitFixture("review-map-check-concurrent-");
+
     try {
       const commitA = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
       execGitOutput(rootPath, [
@@ -532,6 +563,7 @@ describe("review map check", () => {
         "second commit",
       ]);
       const commitB = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
+
       const authored = (label: string) =>
         [
           `import { defineSoftwareMap } from "${CANONICAL_SOFTWARE_MAP_MODEL_IMPORT}";`,
@@ -543,6 +575,7 @@ describe("review map check", () => {
           "});",
           "",
         ].join("\n");
+
       for (const [commit, rev] of [
         [commitA, commitA],
         [commitB, "HEAD"],
@@ -553,10 +586,12 @@ describe("review map check", () => {
           stdout: writable([]),
           stderr: writable([]),
         });
+
         const scratchPath = scratchSoftwareMapPath({
           repoRootPath: rootPath,
           commit,
         })!;
+
         await writeFile(scratchPath, authored(`Map for ${commit}`), "utf8");
       }
 
@@ -572,6 +607,7 @@ describe("review map check", () => {
           }),
         ),
       );
+
       expect(exitA).toBe(0);
       expect(exitB).toBe(0);
       expect(
@@ -588,19 +624,23 @@ describe("review map check", () => {
           commit: commitB,
         }),
       ).toBe(authored(`Map for ${commitB}`));
+
       // The per-invocation check dirs were cleaned up after import.
       const gitDir = execGitOutput(rootPath, [
         "rev-parse",
         "--path-format=absolute",
         "--git-common-dir",
       ]);
+
       const checkRoot = path.join(gitDir, "dev-fast", "check");
       let leftovers: string[] = [];
+
       try {
         leftovers = await readdir(checkRoot);
       } catch {
         // The whole check root being gone is fine too.
       }
+
       expect(leftovers).toEqual([]);
     } finally {
       await rm(rootPath, { recursive: true, force: true });
@@ -610,6 +650,7 @@ describe("review map check", () => {
   it("writes nothing when the scratch is invalid", async () => {
     if (!commandExists("git")) return;
     const rootPath = await gitFixture("review-map-check-bad-");
+
     try {
       const commit = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
       await runSoftwareMapCli({
@@ -618,10 +659,12 @@ describe("review map check", () => {
         stdout: writable([]),
         stderr: writable([]),
       });
+
       const scratchPath = scratchSoftwareMapPath({
         repoRootPath: rootPath,
         commit,
       })!;
+
       await writeFile(
         scratchPath,
         [
@@ -634,6 +677,7 @@ describe("review map check", () => {
       );
 
       const stderr: string[] = [];
+
       const exitCode = await runSoftwareMapCli({
         args: ["check", "HEAD"],
         cwd: rootPath,
@@ -656,14 +700,17 @@ describe("review map check", () => {
   it("asks for a revision when no scratch or review session locates one", async () => {
     if (!commandExists("git")) return;
     const rootPath = await gitFixture("review-map-check-norev-");
+
     try {
       const stderr: string[] = [];
+
       const exitCode = await runSoftwareMapCli({
         args: ["check", "HEAD"],
         cwd: rootPath,
         stdout: writable([]),
         stderr: writable(stderr),
       });
+
       expect(exitCode).toBe(1);
       expect(stderr.join("")).toContain("No scratch exists");
       expect(stderr.join("")).toContain("review map open");
@@ -674,13 +721,16 @@ describe("review map check", () => {
 
   it("resolves the current review's head when no rev is given", async () => {
     if (!commandExists("git")) return;
+
     const rawRootPath = await mkdtemp(
       path.join(os.tmpdir(), "review-map-check-session-"),
     );
+
     const rootPath = await realpath(rawRootPath);
     const previousReviewHome = process.env.DEV_REVIEW_HOME;
     process.env.DEV_REVIEW_HOME = path.join(rootPath, ".dev-home");
     const server = await startLifecycleTestServer();
+
     try {
       execGit(rootPath, ["init"]);
       execGit(rootPath, ["config", "user.email", "review@example.com"]);
@@ -704,10 +754,12 @@ describe("review map check", () => {
         stdout: writable([]),
         stderr: writable([]),
       });
+
       const scratchPath = scratchSoftwareMapPath({
         repoRootPath: rootPath,
         commit,
       })!;
+
       await writeFile(
         scratchPath,
         authoredMapSource("Active session map"),
@@ -716,6 +768,7 @@ describe("review map check", () => {
 
       const stdout: string[] = [];
       const stderr: string[] = [];
+
       const exitCode = await runSoftwareMapCli({
         args: ["check", "--review", review.review.uuid],
         cwd: rootPath,
@@ -732,19 +785,23 @@ describe("review map check", () => {
       expect(
         await readNote({ rootPath, ref: SOFTWARE_MAP_NOTES_REF, commit }),
       ).toContain("Active session map");
+
       const record = JSON.parse(
         await readFile(path.join(review.dir, "review.json"), "utf8"),
       );
+
       expect(record.agentSessions["codex:map-worker-1"].roles).toEqual([
         "map-worker",
       ]);
     } finally {
       await server.close();
+
       if (previousReviewHome === undefined) {
         delete process.env.DEV_REVIEW_HOME;
       } else {
         process.env.DEV_REVIEW_HOME = previousReviewHome;
       }
+
       await rm(rawRootPath, { recursive: true, force: true });
     }
   });
@@ -754,6 +811,7 @@ describe("coverage validates against the target commit's tree", () => {
   it("passes for a historical commit whose tree still has the file, fails for the commit that deleted it", async () => {
     if (!commandExists("git")) return;
     const rootPath = await gitFixture("review-map-check-tree-");
+
     try {
       // Commit A adds legacy.ts; the next commit deletes it; the working
       // copy sits at the later commit.
@@ -782,19 +840,23 @@ describe("coverage validates against the target commit's tree", () => {
         stdout: writable([]),
         stderr: writable([]),
       });
+
       const scratchA = scratchSoftwareMapPath({
         repoRootPath: rootPath,
         commit: commitA,
       })!;
+
       await writeFile(scratchA, claimingMap, "utf8");
       const passStdout: string[] = [];
       const passStderr: string[] = [];
+
       const passExit = await runSoftwareMapCli({
         args: ["check", commitA],
         cwd: rootPath,
         stdout: writable(passStdout),
         stderr: writable(passStderr),
       });
+
       expect(passStderr.join("")).toBe("");
       expect(passExit).toBe(0);
       expect(passStdout.join("")).toContain(
@@ -816,18 +878,22 @@ describe("coverage validates against the target commit's tree", () => {
         stdout: writable([]),
         stderr: writable([]),
       });
+
       const scratchB = scratchSoftwareMapPath({
         repoRootPath: rootPath,
         commit: commitB,
       })!;
+
       await writeFile(scratchB, claimingMap, "utf8");
       const failStderr: string[] = [];
+
       const failExit = await runSoftwareMapCli({
         args: ["check", commitB],
         cwd: rootPath,
         stdout: writable([]),
         stderr: writable(failStderr),
       });
+
       expect(failExit).toBe(1);
       expect(failStderr.join("")).toContain(
         `claims file "legacy.ts" missing from tree of ${commitB.slice(0, 12)}`,
@@ -847,6 +913,7 @@ describe("coverage validates against the target commit's tree", () => {
   it("matches glob coverage against a historical tree", async () => {
     if (!commandExists("git")) return;
     const rootPath = await gitFixture("review-map-check-tree-glob-");
+
     try {
       await mkdir(path.join(rootPath, "src", "old"), { recursive: true });
       await writeFile(
@@ -929,6 +996,7 @@ describe("coverage validates against the target commit's tree", () => {
   it("ignores on-disk files the target tree does not contain (uniform tree frame)", async () => {
     if (!commandExists("git")) return;
     const rootPath = await gitFixture("review-map-check-tree-uniform-");
+
     try {
       const commit = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
       // The file exists on disk (uncommitted) but not in HEAD's tree: the
@@ -980,6 +1048,7 @@ describe("ancestor seeding (the quiet-diff fast path)", () => {
   it("open seeds head from base's note and prints the diff work order", async () => {
     if (!commandExists("git")) return;
     const rootPath = await gitFixture("review-map-seed-");
+
     try {
       const baseCommit = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
       await writeFile(path.join(rootPath, "next.txt"), "next\n", "utf8");
@@ -995,22 +1064,26 @@ describe("ancestor seeding (the quiet-diff fast path)", () => {
       });
       const stdout: string[] = [];
       const stderr: string[] = [];
+
       const openExit = await runSoftwareMapCli({
         args: ["open", "HEAD"],
         cwd: rootPath,
         stdout: writable(stdout),
         stderr: writable(stderr),
       });
+
       expect(stderr.join("")).toBe("");
       expect(openExit).toBe(0);
       expect(stdout.join("")).toContain(
         `hydrated from the note on ${baseCommit.slice(0, 12)}, 1 commits behind HEAD; review the diff ${baseCommit.slice(0, 12)}..HEAD and update the map to match`,
       );
+
       // The scratch seeds byte-equal from the ancestor note.
       const scratchPath = scratchSoftwareMapPath({
         repoRootPath: rootPath,
         commit: headCommit,
       })!;
+
       expect(await readFile(scratchPath, "utf8")).toBe(
         authoredMapSource("Base map"),
       );
@@ -1018,12 +1091,14 @@ describe("ancestor seeding (the quiet-diff fast path)", () => {
       // Quiet diff: check with no edits flushes head's own note.
       const checkStdout: string[] = [];
       const checkStderr: string[] = [];
+
       const checkExit = await runSoftwareMapCli({
         args: ["check", "HEAD"],
         cwd: rootPath,
         stdout: writable(checkStdout),
         stderr: writable(checkStderr),
       });
+
       expect(checkStderr.join("")).toBe("");
       expect(checkExit).toBe(0);
       expect(checkStdout.join("")).toContain(
@@ -1046,6 +1121,7 @@ describe("review map prune", () => {
   it("drops notes on unreachable commits and keeps reachable ones", async () => {
     if (!commandExists("git")) return;
     const rootPath = await gitFixture("review-map-prune-");
+
     try {
       const keptCommit = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
       execGit(rootPath, ["checkout", "-q", "-b", "doomed"]);
@@ -1067,6 +1143,7 @@ describe("review map prune", () => {
       }
 
       const stdout: string[] = [];
+
       const exitCode = await runSoftwareMapCli({
         args: ["prune"],
         cwd: rootPath,
@@ -1087,6 +1164,7 @@ describe("review map prune", () => {
   it("deletes a scratch whose canonicalized content equals its commit's note", async () => {
     if (!commandExists("git")) return;
     const rootPath = await gitFixture("review-map-prune-scratch-");
+
     try {
       const commit = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
       const content = authoredMapSource("Flushed map");
@@ -1096,10 +1174,12 @@ describe("review map prune", () => {
         commit,
         content,
       });
+
       const scratchPath = scratchSoftwareMapPath({
         repoRootPath: rootPath,
         commit,
       });
+
       if (!scratchPath) throw new Error("expected a scratch path");
       await mkdir(path.dirname(scratchPath), { recursive: true });
       // The scratch spells the model import relatively; only the canonicalized
@@ -1115,6 +1195,7 @@ describe("review map prune", () => {
       );
 
       const stdout: string[] = [];
+
       const exitCode = await runSoftwareMapCli({
         args: ["prune"],
         cwd: rootPath,
@@ -1141,6 +1222,7 @@ describe("review map prune", () => {
   it("keeps a dirty scratch (content differs from the note)", async () => {
     if (!commandExists("git")) return;
     const rootPath = await gitFixture("review-map-prune-dirty-");
+
     try {
       const commit = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
       await writeNote({
@@ -1149,16 +1231,19 @@ describe("review map prune", () => {
         commit,
         content: authoredMapSource("Flushed version"),
       });
+
       const scratchPath = scratchSoftwareMapPath({
         repoRootPath: rootPath,
         commit,
       });
+
       if (!scratchPath) throw new Error("expected a scratch path");
       await mkdir(path.dirname(scratchPath), { recursive: true });
       const dirtyContent = authoredMapSource("Unflushed edits");
       await writeFile(scratchPath, dirtyContent, "utf8");
 
       const stdout: string[] = [];
+
       const exitCode = await runSoftwareMapCli({
         args: ["prune"],
         cwd: rootPath,
@@ -1177,18 +1262,22 @@ describe("review map prune", () => {
   it("keeps a scratch whose commit has no note", async () => {
     if (!commandExists("git")) return;
     const rootPath = await gitFixture("review-map-prune-no-note-");
+
     try {
       const commit = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
+
       const scratchPath = scratchSoftwareMapPath({
         repoRootPath: rootPath,
         commit,
       });
+
       if (!scratchPath) throw new Error("expected a scratch path");
       await mkdir(path.dirname(scratchPath), { recursive: true });
       const unflushedContent = authoredMapSource("Never flushed");
       await writeFile(scratchPath, unflushedContent, "utf8");
 
       const stdout: string[] = [];
+
       const exitCode = await runSoftwareMapCli({
         args: ["prune"],
         cwd: rootPath,
@@ -1210,6 +1299,7 @@ describe("review map push / fetch", () => {
     if (!commandExists("git")) return;
     const rootPath = await gitFixture("review-map-push-remote-");
     const bareDir = await mkdtemp(path.join(os.tmpdir(), "review-map-fork-"));
+
     try {
       execGit(bareDir, ["init", "--bare"]);
       execGit(rootPath, ["remote", "add", "fork", bareDir]);
@@ -1247,9 +1337,11 @@ describe("review map push / fetch", () => {
     if (!commandExists("git")) return;
     const rootPath = await gitFixture("review-map-push-");
     const bareDir = await mkdtemp(path.join(os.tmpdir(), "review-map-origin-"));
+
     const cloneParent = await mkdtemp(
       path.join(os.tmpdir(), "review-map-clone-"),
     );
+
     try {
       execGit(bareDir, ["init", "--bare"]);
       execGit(rootPath, ["remote", "add", "origin", bareDir]);
@@ -1263,30 +1355,36 @@ describe("review map push / fetch", () => {
       });
 
       const pushStdout: string[] = [];
+
       const pushExit = await runSoftwareMapCli({
         args: ["push"],
         cwd: rootPath,
         stdout: writable(pushStdout),
         stderr: writable([]),
       });
+
       expect(pushExit).toBe(0);
       expect(pushStdout.join("")).toContain(SOFTWARE_MAP_NOTES_REF);
 
       execGit(cloneParent, ["clone", "-q", bareDir, "clone"]);
       const clonePath = path.join(cloneParent, "clone");
       const fetchStdout: string[] = [];
+
       const fetchExit = await runSoftwareMapCli({
         args: ["fetch"],
         cwd: clonePath,
         stdout: writable(fetchStdout),
         stderr: writable([]),
       });
+
       expect(fetchExit).toBe(0);
+
       const remoteNote = await readNote({
         rootPath: clonePath,
         ref: remoteNotesRef(SOFTWARE_MAP_NOTES_REF),
         commit,
       });
+
       expect(remoteNote).toContain("Shared map");
     } finally {
       await rm(rootPath, { recursive: true, force: true });
@@ -1298,6 +1396,7 @@ describe("review map push / fetch", () => {
   it("push fails soft against an unreachable origin", async () => {
     if (!commandExists("git")) return;
     const rootPath = await gitFixture("review-map-push-bad-");
+
     try {
       const commit = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
       await writeNote({
@@ -1313,12 +1412,14 @@ describe("review map push / fetch", () => {
         path.join(os.tmpdir(), "missing-origin.git"),
       ]);
       const stderr: string[] = [];
+
       const exitCode = await runSoftwareMapCli({
         args: ["push"],
         cwd: rootPath,
         stdout: writable([]),
         stderr: writable(stderr),
       });
+
       expect(exitCode).toBe(1);
       expect(stderr.join("")).toContain("software map push failed");
     } finally {
@@ -1351,6 +1452,7 @@ async function gitFixture(prefix: string): Promise<string> {
   await writeFile(path.join(rootPath, "README.md"), "base\n", "utf8");
   execGit(rootPath, ["add", "README.md"]);
   execGit(rootPath, ["commit", "-m", "base"]);
+
   return rootPath;
 }
 
@@ -1359,6 +1461,7 @@ function commandExists(command: string): boolean {
     execFileSync(command, ["--version"], {
       stdio: ["ignore", "ignore", "ignore"],
     });
+
     return true;
   } catch {
     return false;
@@ -1379,4 +1482,5 @@ function execGitOutput(cwd: string, args: string[]): string {
     stdio: ["ignore", "pipe", "ignore"],
   }).trim();
 }
+
 import { startLifecycleTestServer } from "./review-lifecycle-test-utils";

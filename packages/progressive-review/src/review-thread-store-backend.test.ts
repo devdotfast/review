@@ -34,6 +34,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
   closeAllReviewThreadStores();
+
   for (const root of roots.splice(0)) {
     rmSync(root, { recursive: true, force: true });
   }
@@ -45,6 +46,7 @@ function makeReviewPath(): string {
   vi.stubEnv("DEV_REVIEW_HOME", root);
   const dir = path.join(root, "reviews", "review");
   mkdirSync(dir, { recursive: true });
+
   return path.join(dir, "review.mdx");
 }
 
@@ -96,11 +98,14 @@ describe("sqlite thread store", () => {
     const target = makeReviewPath();
     const targetDb = reviewThreadDbPath(target);
     const suffixes = ["", "-wal", "-shm"];
+
     for (const suffix of suffixes)
       copyFileSync(`${sourceDb}${suffix}`, `${targetDb}${suffix}`);
+
     const before = suffixes.map((suffix) =>
       readFileSync(`${targetDb}${suffix}`),
     );
+
     expect(
       readReviewThreadsReadOnly(target).comments["thread-1"]?.messages,
     ).toHaveLength(1);
@@ -327,6 +332,7 @@ describe("sqlite thread store", () => {
       createLegacyReviewThreadDb(path.dirname(reviewPath));
       closeAllReviewThreadStores();
       const db = new DatabaseSync(legacyReviewThreadDbPath(reviewPath));
+
       const records = ["codex", "claude-code", "pi", "opencode"].map(
         (harness) => ({
           threadId: harness,
@@ -364,6 +370,7 @@ describe("sqlite thread store", () => {
           ],
         }),
       );
+
       const drafts = records.map((thread) => ({
         thread,
         inputs: [
@@ -376,10 +383,12 @@ describe("sqlite thread store", () => {
           },
         ],
       }));
+
       for (const record of records)
         db.prepare(
           "INSERT INTO comments (thread_id, record_json) VALUES (?, ?)",
         ).run(record.threadId, JSON.stringify(record));
+
       for (const draft of drafts)
         db.prepare(
           "INSERT INTO comment_drafts (thread_id, record_json) VALUES (?, ?)",
@@ -392,6 +401,7 @@ describe("sqlite thread store", () => {
       await migrateReviewThreadDb(reviewPath);
       const comments = readReviewComments(reviewPath);
       const upgraded = new DatabaseSync(legacyReviewThreadDbPath(reviewPath));
+
       for (const original of records) {
         const comment = comments[original.threadId];
         expect(comment).toEqual({
@@ -404,9 +414,11 @@ describe("sqlite thread store", () => {
             ({ agentMessage: _obsolete, ...message }) => message,
           ),
         });
+
         const row = upgraded
           .prepare("SELECT record_json FROM comment_drafts WHERE thread_id = ?")
           .get(original.threadId) as { record_json: string };
+
         expect(JSON.parse(row.record_json)).toEqual({
           thread: comment,
           inputs: drafts.find(
@@ -414,6 +426,7 @@ describe("sqlite thread store", () => {
           )!.inputs,
         });
       }
+
       upgraded.close();
       await expect(migrateReviewThreadDb(reviewPath)).resolves.toBe("current");
     },
@@ -437,14 +450,17 @@ describe("sqlite thread store", () => {
     seed.close();
     closeAllReviewThreadStores();
     const db = new DatabaseSync(legacyReviewThreadDbPath(reviewPath));
+
     const original = db
       .prepare("SELECT record_json FROM comments WHERE thread_id = 'thread-1'")
       .get() as { record_json: string };
+
     const broken = {
       ...JSON.parse(original.record_json),
       threadId: "broken",
       agentSession: { harness: "pi", sessionId: "", firstMessageId: "ask" },
     };
+
     db.prepare(
       "INSERT INTO comments (thread_id, record_json) VALUES (?, ?)",
     ).run("broken", JSON.stringify(broken));
@@ -520,10 +536,11 @@ describe("sqlite thread store", () => {
 
 const pendingWriteCases = ["1", "2", "3", "4", "5", "6", "7", "8", "9"].flatMap(
   (version) =>
-    (["comments", "comment_drafts"] as const)
-      .filter((table) => version !== "1" || table === "comments")
-      .map((table) => ({ version, table })),
+    (["comments", "comment_drafts"] as const).flatMap((table) =>
+      version !== "1" || table === "comments" ? [{ version, table }] : [],
+    ),
 );
+
 it.each(pendingWriteCases)(
   "inspects pending $table in schema $version without changing files",
   ({ version, table }) => {
@@ -536,8 +553,10 @@ it.each(pendingWriteCases)(
       version,
     );
     db.exec("DELETE FROM comments; DELETE FROM comment_drafts;");
+
     if (version === "1") db.exec("DROP TABLE comment_drafts");
     db.close();
+
     for (const { messages, pending } of [
       { messages: [], pending: false },
       { messages: [{ role: "reviewer", agentInput: false }], pending: false },
@@ -587,6 +606,7 @@ it("detects pending WAL writes without changing source DB, WAL or SHM bytes", ()
   const target = makeReviewPath();
   const targetDb = reviewThreadDbPath(target);
   const suffixes = ["", "-wal", "-shm"];
+
   for (const suffix of suffixes)
     copyFileSync(`${sourceDb}${suffix}`, `${targetDb}${suffix}`);
   const before = suffixes.map((suffix) => readFileSync(`${targetDb}${suffix}`));
@@ -604,6 +624,7 @@ it.each([null, "", "09", "invalid", "10", "999"])(
     closeAllReviewThreadStores();
     const dbPath = legacyReviewThreadDbPath(reviewPath);
     const db = new DatabaseSync(dbPath);
+
     if (version === null)
       db.exec("DELETE FROM meta WHERE key = 'schema_version'");
     else

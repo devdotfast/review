@@ -23,6 +23,7 @@ import {
 import { closeAllReviewThreadStores } from "./review-thread-store-backend";
 
 let server: Awaited<ReturnType<typeof startLifecycleTestServer>> | undefined;
+
 afterEach(async () => {
   await server?.close();
   server = undefined;
@@ -33,21 +34,26 @@ afterEach(async () => {
 async function fixture() {
   await reviewHome();
   const worktreePath = await gitRepository();
+
   const review = await createReviewDir({
     worktreePath,
     baseRef: "main",
     baseCommit: "a".repeat(40),
   });
+
   server = await startLifecycleTestServer();
+
   return review;
 }
 
 it("serializes source edits, rejects stale writes and symlinks, and preserves accepted content", async () => {
   const review = await fixture();
   const target = { reviewUuid: review.review.uuid, name: "review.mdx" };
+
   const initial = ReviewDocumentFileResponseSchema.parse(
     await requestReviewLifecycle("/lifecycle/document/read", target),
   );
+
   const writes = await Promise.allSettled(
     ["# One\n", "# Two\n"].map((source) =>
       requestReviewLifecycle("/lifecycle/document/write", {
@@ -57,15 +63,18 @@ it("serializes source edits, rejects stale writes and symlinks, and preserves ac
       }),
     ),
   );
+
   expect(writes.filter((result) => result.status === "fulfilled")).toHaveLength(
     1,
   );
   expect(writes.filter((result) => result.status === "rejected")).toHaveLength(
     1,
   );
+
   const current = ReviewDocumentFileResponseSchema.parse(
     await requestReviewLifecycle("/lifecycle/document/read", target),
   );
+
   expect(await readFile(path.join(review.dir, "review.mdx"), "utf8")).toBe(
     current.source,
   );
@@ -97,11 +106,13 @@ it("serializes source edits, rejects stale writes and symlinks, and preserves ac
 
 it("persists metadata with a title precondition and isolates each Review's comments", async () => {
   const review = await fixture();
+
   const other = await createReviewDir({
     worktreePath: review.review.worktreePath,
     baseRef: "main",
     baseCommit: "b".repeat(40),
   });
+
   await requestReviewLifecycle("/lifecycle/metadata", {
     reviewUuid: review.review.uuid,
     expectedTitle: review.review.title,
@@ -118,6 +129,7 @@ it("persists metadata with a title precondition and isolates each Review's comme
     title: "API title",
     titleOverride: "API title",
   });
+
   const created = await commandThreadsClient(review.review.uuid, {
     command: "comment.create",
     mutationId: randomUUID(),
@@ -128,12 +140,14 @@ it("persists metadata with a title precondition and isolates each Review's comme
       target: { kind: "document" },
     },
   });
+
   const resolved = await commandThreadsClient(review.review.uuid, {
     command: "comment.update",
     mutationId: randomUUID(),
     threadId: "question",
     update: { status: "resolved" },
   });
+
   expect(resolved.revision).toBe(created.revision + 1);
   expect((await readThreadsClient(other.review.uuid)).comments).toEqual({});
   await server!.close();
@@ -150,6 +164,7 @@ it("MCP reads and writes source through the desktop and reports conflicts as too
   stdout.on("data", (chunk) => {
     output += String(chunk);
   });
+
   const messages = [
     { jsonrpc: "2.0", id: 1, method: "initialize", params: {} },
     { jsonrpc: "2.0", method: "notifications/initialized" },
@@ -178,14 +193,17 @@ it("MCP reads and writes source through the desktop and reports conflicts as too
       },
     },
   ];
+
   await runReviewMcp({
     stdin: Readable.from(messages.map((value) => `${JSON.stringify(value)}\n`)),
     stdout,
   });
+
   const responses = output
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line));
+
   expect(responses.map((response) => response.id)).toEqual([1, 2, 3, 4]);
   expect(responses[1].result.tools).toEqual(
     expect.arrayContaining([
@@ -203,9 +221,11 @@ it("MCP reads and writes source through the desktop and reports conflicts as too
 it("the document CLI accepts stdin and returns the API's updated source hash", async () => {
   const review = await fixture();
   const target = { reviewUuid: review.review.uuid, name: "review.mdx" };
+
   const initial = ReviewDocumentFileResponseSchema.parse(
     await requestReviewLifecycle("/lifecycle/document/read", target),
   );
+
   const stdout = new PassThrough();
   let output = "";
   stdout.on("data", (chunk) => {

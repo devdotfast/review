@@ -89,16 +89,19 @@ export interface CreateReviewDirBinding {
 export const DISABLED_REVIEW_SOURCE_SESSION = "disabled:review";
 
 export const StoredReviewRecordSchema = ReviewRecordSchema;
+
 export type StoredReviewRecord = ReviewRecord;
 
 const legacyStoredSourceSessionFields = {
   sourceSession: z.string().min(1).optional(),
   agentSession: z.string().min(1).optional(),
 };
+
 const legacyStoredReviewRecordFields = StoredReviewRecordSchema.omit({
   schemaVersion: true,
   sourceSession: true,
 });
+
 const LegacyStoredReviewRecordSchema = z
   .union([
     StoredReviewRecordSchema.extend({ schemaVersion: z.literal(4) }),
@@ -173,18 +176,22 @@ export async function createReviewDir(
   binding: CreateReviewDirBinding,
 ): Promise<StoredReview> {
   const uuid = binding.uuid ?? createReviewUuid();
+
   if (!UUID_PATTERN.test(uuid)) {
     throw new Error(`Review UUID is invalid: ${uuid}`);
   }
+
   const reviewHome = binding.reviewsHomePath ?? devReviewHome();
   const dir = path.join(reviewsHomeDir(reviewHome), uuid);
   const worktreePath = path.resolve(binding.worktreePath);
   const repository = await resolveReviewRepositoryIdentity(worktreePath);
   const createdAt = new Date().toISOString();
   const sourceSession = binding.sourceSession ?? DISABLED_REVIEW_SOURCE_SESSION;
+
   const attributedAgentSession = parseAuthoringSessionKey(sourceSession)
     ? sourceSession
     : null;
+
   const review: StoredReviewRecord = {
     schemaVersion: REVIEW_SCHEMA_VERSION,
     uuid,
@@ -204,7 +211,9 @@ export async function createReviewDir(
     createdAt,
     lastPublishedAt: null,
   };
+
   if (binding.visibility) review.visibility = binding.visibility;
+
   if (attributedAgentSession) {
     review.agentSessions = {
       [attributedAgentSession]: {
@@ -216,6 +225,7 @@ export async function createReviewDir(
   }
 
   await mkdirReviewDir(dir);
+
   try {
     await reviewVcs.init(dir);
     await Promise.all([
@@ -257,6 +267,7 @@ export async function touchReviewAgentSession(
   if (!parseAuthoringSessionKey(sessionKey)) {
     throw new Error(`Review agent session key is invalid: ${sessionKey}`);
   }
+
   const outcome = await withReviewMutationLock(review.dir, () =>
     withFileLock(
       path.join(review.dir, ".agent-sessions.lock"),
@@ -264,9 +275,11 @@ export async function touchReviewAgentSession(
       async () => {
         const current = parseStoredReviewRecord(readReviewRecord(review.dir));
         const prior = current.agentSessions?.[sessionKey];
+
         const roles = prior?.roles.includes(role)
           ? prior.roles
           : [...(prior?.roles ?? []), role];
+
         const updated: StoredReviewRecord = {
           ...current,
           agentSessions: {
@@ -278,16 +291,20 @@ export async function touchReviewAgentSession(
             },
           },
         };
+
         await persistStoredReviewRecord(review.dir, updated);
+
         return { dir: review.dir, review: updated };
       },
     ),
   );
+
   if (!outcome.acquired) {
     throw new Error(
       `Timed out while updating agent sessions for Review ${review.review.uuid}.`,
     );
   }
+
   return outcome.result;
 }
 
@@ -300,21 +317,26 @@ export async function bindReviewAuthorSession(
   now = new Date().toISOString(),
 ): Promise<StoredReview> {
   const sessionKey = authoringSessionKey(session);
+
   const outcome = await withReviewMutationLock(review.dir, () =>
     withFileLock(
       path.join(review.dir, ".agent-sessions.lock"),
       AGENT_SESSION_LOCK_OPTIONS,
       async () => {
         const current = parseStoredReviewRecord(readReviewRecord(review.dir));
+
         const freshHarness = parseFreshSourceSessionHarness(
           current.sourceSession,
         );
+
         const boundSession = parseAuthoringSessionKey(current.sourceSession);
+
         if (freshHarness && freshHarness !== session.harness) {
           throw new Error(
             `Review fresh-session harness ${freshHarness} does not match ${session.harness}.`,
           );
         }
+
         if (
           !freshHarness &&
           (!boundSession || authoringSessionKey(boundSession) !== sessionKey)
@@ -323,10 +345,13 @@ export async function bindReviewAuthorSession(
             "Review is already bound to another authoring session.",
           );
         }
+
         const prior = current.agentSessions?.[sessionKey];
+
         const roles = prior?.roles.includes("author")
           ? prior.roles
           : [...(prior?.roles ?? []), "author" as const];
+
         const updated: StoredReviewRecord = {
           ...current,
           sourceSession: sessionKey,
@@ -339,16 +364,20 @@ export async function bindReviewAuthorSession(
             },
           },
         };
+
         await persistStoredReviewRecord(review.dir, updated);
+
         return { dir: review.dir, review: updated };
       },
     ),
   );
+
   if (!outcome.acquired) {
     throw new Error(
       `Timed out while binding the author session for Review ${review.review.uuid}.`,
     );
   }
+
   return outcome.result;
 }
 
@@ -365,6 +394,7 @@ export async function updateReviewPins(
 ): Promise<StoredReview> {
   return withReviewMutationLock(review.dir, async () => {
     await assertReviewUnchanged(review.dir, review.review);
+
     return updateReviewPinsLocked(
       {
         ...review,
@@ -399,7 +429,9 @@ async function updateReviewPinsLocked(
   ) {
     return review;
   }
+
   const now = new Date().toISOString();
+
   const sourceAttribution = parseAuthoringSessionKey(pins.sourceSession)
     ? {
         agentSessions: {
@@ -414,14 +446,18 @@ async function updateReviewPinsLocked(
         },
       }
     : {};
+
   const refreshed: StoredReview = {
     ...review,
     review: { ...review.review, ...pins, ...sourceAttribution },
   };
+
   const threadStore = reviewThreadStoreBackend(
     path.join(refreshed.dir, "review.mdx"),
   );
+
   const drafts = threadStore.readCommentDrafts();
+
   const comments = await remapReviewCodeThreads({
     rootPath: refreshed.review.worktreePath,
     comments: threadStore.readComments(),
@@ -434,6 +470,7 @@ async function updateReviewPinsLocked(
       sourceCommit: refreshed.review.sourceCommit,
     },
   });
+
   const remappedDrafts = await remapReviewCodeDrafts({
     rootPath: refreshed.review.worktreePath,
     drafts,
@@ -442,8 +479,10 @@ async function updateReviewPinsLocked(
       sourceCommit: refreshed.review.sourceCommit,
     },
   });
+
   await persistStoredReviewRecord(refreshed.dir, refreshed.review);
   threadStore.writeCommentState(comments, remappedDrafts);
+
   return refreshed;
 }
 
@@ -456,10 +495,13 @@ export async function reviewTitleFromDocument(
   documentPath: string,
 ): Promise<string | undefined> {
   const document = await readFile(documentPath, "utf8");
+
   for (const line of document.split(/\r?\n/)) {
     const heading = /^#\s+(.+?)\s*#*\s*$/.exec(line);
+
     if (heading) return heading[1].trim() || undefined;
   }
+
   return undefined;
 }
 
@@ -478,23 +520,30 @@ export async function findReviewForRepair(
     throw new Error(`Review UUID is invalid: ${uuid}`);
   const dir = path.join(reviewsHomeDir(devHome), uuid);
   let value: JsonValue;
+
   try {
     const canonical = readReviewRecord(dir);
+
     if (canonical === null) return null;
     value = canonical;
   } catch (error) {
     if (isMissingFileError(error)) return null;
+
     const detail: ReviewHomeErrorDetail = {
       message: `Could not read review.json: ${errorMessage(error)}`,
     };
+
     const code =
       error instanceof Error && "code" in error
         ? z.string().safeParse(error.code)
         : null;
+
     if (code?.success) detail.code = code.data;
     throw new ReviewHomeScanError([reviewHomeError(dir, undefined, detail)]);
   }
+
   let review: StoredReviewRecord;
+
   try {
     review = parseAnyStoredReviewRecord(value);
   } catch (error) {
@@ -505,12 +554,14 @@ export async function findReviewForRepair(
       }),
     ]);
   }
+
   if (review.uuid !== uuid)
     throw new ReviewHomeScanError([
       reviewHomeError(dir, review, {
         message: "review.json UUID does not match its directory.",
       }),
     ]);
+
   return { dir, review };
 }
 
@@ -535,18 +586,23 @@ export async function findScopedReview(
   const found = await (
     scope.includeLegacySchema ? findReviewForRepair : findReview
   )(uuid, scope.devHome);
+
   if (!found) return null;
+
   const [storedRoot, requestedRoot] = await Promise.all(
     [found.review.worktreePath, scope.worktreePath].map((root) =>
       realpath(root).catch(() => path.resolve(root)),
     ),
   );
+
   if (storedRoot !== requestedRoot) return null;
+
   if (
     !scope.includeTerminal &&
     (found.review.status === "accepted" || found.review.status === "rejected")
   )
     return null;
+
   return found;
 }
 
@@ -557,13 +613,16 @@ async function findReviewRecord(
   if (!UUID_PATTERN.test(uuid)) {
     throw new Error(`Review UUID is invalid: ${uuid}`);
   }
+
   const loaded = await readStoredReview(
     path.join(reviewsHomeDir(devHome), uuid),
   );
+
   if ("error" in loaded) {
     if (loaded.error.code === "ENOENT") return null;
     throw new ReviewHomeScanError([loaded.error]);
   }
+
   if (loaded.review.uuid !== uuid) {
     throw new ReviewHomeScanError([
       reviewHomeError(loaded.dir, loaded.review, {
@@ -571,6 +630,7 @@ async function findReviewRecord(
       }),
     ]);
   }
+
   return loaded;
 }
 
@@ -587,18 +647,22 @@ export async function reviewDescriptor(
     options.retentionDays === undefined
       ? DEFAULT_DISMISSED_RETENTION_DAYS
       : options.retentionDays;
+
   const documentPath = path.join(stored.dir, "review.mdx");
+
   const [reviewDirExists, worktreeExists, documentStats] = await Promise.all([
     pathExists(stored.dir),
     pathExists(stored.review.worktreePath),
     statIfExists(documentPath),
   ]);
+
   const documentExists = documentStats !== null;
   const available = reviewDirExists && worktreeExists && documentExists;
   /* Same diff target as the review document (resolveRequestDiffTarget):
      the pinned baseCommit..sourceCommit from review.json. An empty diff
      reports null so the views omit the numbers, as the document does. */
   const headCommit = stored.review.sourceCommit ?? stored.review.baseCommit;
+
   const [diffStats, commits] = await Promise.all([
     worktreeExists && stored.review.sourceCommit
       ? resolveReviewDiffFiles({
@@ -620,6 +684,7 @@ export async function reviewDescriptor(
         }).catch(() => [])
       : [],
   ]);
+
   /* A read-only count that cannot be taken is a real failure, not zero comments:
      the caller decides whether to drop the descriptor. `countReviewComments` keeps
      its own documented zero for the live path. */
@@ -629,6 +694,7 @@ export async function reviewDescriptor(
       : documentExists
         ? countReviewComments(documentPath)
         : 0;
+
   return {
     uuid: stored.review.uuid,
     title: stored.review.title,
@@ -666,6 +732,7 @@ export async function listReviews(
   filter: ListReviewsFilter = {},
 ): Promise<ListReviewsResult> {
   let loaded: Array<StoredReview | { error: ReviewHomeError } | null>;
+
   try {
     const entries = await readdir(reviewsHomeDir(), { withFileTypes: true });
     loaded = await Promise.all(
@@ -679,20 +746,27 @@ export async function listReviews(
     if (isMissingFileError(error)) {
       return { reviews: [], errors: [] };
     }
+
     throw error;
   }
+
   const result: ListReviewsResult = { reviews: [], errors: [] };
+
   for (const entry of loaded) {
     if (!entry) continue;
+
     if ("error" in entry) {
       result.errors.push(entry.error);
       continue;
     }
+
     if (!reviewMatchesFilter(entry.review, filter)) continue;
     const migrationError = reviewThreadMigrationError(entry);
+
     if (migrationError) result.errors.push(migrationError);
     result.reviews.push(entry);
   }
+
   return result;
 }
 
@@ -702,15 +776,18 @@ async function readReviewForList(
 ): Promise<StoredReview | { error: ReviewHomeError } | null> {
   if (!filter.worktreePath && !filter.repoKey) return readStoredReview(dir);
   let record: JsonObject | undefined;
+
   try {
     record = jsonObject(readReviewRecord(dir));
   } catch {
     return unreadableReview(dir, filter);
   }
+
   const scope = {
     worktreePath: jsonString(record?.worktreePath),
     repoKey: jsonString(record?.repoKey),
   };
+
   // A record that cannot answer the scope question is not out of scope; the
   // strict read decides whether it becomes a list error.
   if (
@@ -718,6 +795,7 @@ async function readReviewForList(
     (filter.repoKey && !scope.repoKey)
   )
     return unreadableReview(dir, filter);
+
   return reviewMatchesFilter(scope, {
     worktreePath: filter.worktreePath,
     repoKey: filter.repoKey,
@@ -739,14 +817,18 @@ function reviewMatchesFilter(
   filter: ListReviewsFilter,
 ): boolean {
   if (!filter.includeSystem && record.visibility === "system") return false;
+
   if (
     filter.worktreePath &&
     (!record.worktreePath ||
       path.resolve(record.worktreePath) !== path.resolve(filter.worktreePath))
   )
     return false;
+
   if (filter.repoKey && record.repoKey !== filter.repoKey) return false;
+
   if (filter.status && record.status !== filter.status) return false;
+
   return true;
 }
 
@@ -762,9 +844,11 @@ function reviewThreadMigrationError(
 ): ReviewHomeError | null {
   try {
     checkReviewThreadDbVersion(path.join(stored.dir, "review.mdx"));
+
     return null;
   } catch (error) {
     if (!(error instanceof ReviewThreadDbVersionError)) return null;
+
     return reviewHomeError(stored.dir, stored.review, {
       code: "MIGRATION_REQUIRED",
       message: error.message,
@@ -778,22 +862,26 @@ export async function computeSync(
 ): Promise<boolean> {
   if (!review.sourceCommit) return false;
   const head = await currentHead(worktreePath);
+
   if (!head) {
     throw new Error(
       `Could not resolve the current source head at ${worktreePath}.`,
     );
   }
+
   return head.commit === review.sourceCommit;
 }
 
 async function mkdirReviewDir(dir: string): Promise<void> {
   await mkdir(path.dirname(dir), { recursive: true, mode: 0o700 });
+
   try {
     await mkdir(dir, { recursive: false, mode: 0o700 });
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "EEXIST") {
       throw new Error(`Review directory already exists: ${dir}`);
     }
+
     throw error;
   }
 }
@@ -814,6 +902,7 @@ export async function readStoredReview(
     await access(dir);
     let value = readReviewRecord(dir);
     let parsed = safeParseStoredReviewRecord(value);
+
     if (!parsed.success && isLegacyStoredReviewRecord(value, dir)) {
       try {
         await migrateLegacyStoredReview(dir);
@@ -825,6 +914,7 @@ export async function readStoredReview(
               message: error.message,
             }),
           };
+
         return {
           error: reviewHomeError(dir, jsonObject(value), {
             code: "REPAIR_REQUIRED",
@@ -832,9 +922,11 @@ export async function readStoredReview(
           }),
         };
       }
+
       value = readReviewRecord(dir);
       parsed = safeParseStoredReviewRecord(value);
     }
+
     if (!parsed.success) {
       return {
         error: reviewHomeError(dir, jsonObject(value), {
@@ -843,16 +935,20 @@ export async function readStoredReview(
         }),
       };
     }
+
     return { dir, review: parsed.data };
   } catch (error) {
     const detail: ReviewHomeErrorDetail = {
       message: `Could not read review.json: ${error instanceof Error ? error.message : String(error)}`,
     };
+
     // SAFETY: the try block only throws fs ErrnoExceptions and JSON
     // SyntaxErrors; `code` is the errno name on the former and absent on the
     // latter.
     const code = (error as NodeJS.ErrnoException).code;
+
     if (code) detail.code = code;
+
     return { error: reviewHomeError(dir, undefined, detail) };
   }
 }
@@ -874,6 +970,7 @@ function isLegacyStoredReviewRecord(value: JsonValue, dir: string): boolean {
       value.schemaVersion !== 4)
   )
     return false;
+
   try {
     return parseAnyStoredReviewRecord(value).uuid === path.basename(dir);
   } catch {
@@ -886,13 +983,16 @@ async function migrateLegacyStoredReview(dir: string): Promise<void> {
     const current = parseJsonText(
       await readFile(path.join(dir, "review.json"), "utf8"),
     );
+
     if (!isLegacyStoredReviewRecord(current, dir)) return;
     const { migrateStoredReview } = await import("./stored-review-migration");
     const uuid = path.basename(dir);
+
     const outcome = await migrateStoredReview({
       reviewDir: dir,
       log: (message) => console.warn(`Review ${uuid}: ${message}`),
     });
+
     if (outcome.threadDbError)
       console.warn(
         `Review ${uuid}: thread database upgrade failed: ${outcome.threadDbError}`,
@@ -913,11 +1013,13 @@ function reviewHomeError(
 ): ReviewHomeError {
   const directoryUuid = path.basename(reviewDir);
   const storedUuid = jsonString(record?.uuid) ?? null;
+
   const reviewUuid = UUID_PATTERN.test(storedUuid ?? "")
     ? storedUuid
     : UUID_PATTERN.test(directoryUuid)
       ? directoryUuid
       : null;
+
   const result: ReviewHomeError = {
     reviewDir,
     reviewUuid,
@@ -926,7 +1028,9 @@ function reviewHomeError(
     lastPublishedAt: jsonString(record?.lastPublishedAt) ?? null,
     message: error.message,
   };
+
   if (error.code) result.code = error.code;
+
   return result;
 }
 
@@ -959,33 +1063,39 @@ export function parseAnyStoredReviewRecord(
 ): StoredReviewRecord {
   if (!isJsonObject(value)) return parseStoredReviewRecord(value);
   const record = stripLegacySoftwareMap(value);
+
   if (record.schemaVersion === REVIEW_SCHEMA_VERSION)
     return parseStoredReviewRecord(record);
   const legacyRecord = LegacyStoredReviewRecordSchema.parse(record);
+
   if (legacyRecord.schemaVersion === 4) {
     return StoredReviewRecordSchema.parse({
       ...legacyRecord,
       schemaVersion: REVIEW_SCHEMA_VERSION,
     });
   }
+
   if (legacyRecord.schemaVersion === 3) {
     const {
       agentSession,
       schemaVersion: _schemaVersion,
       ...current
     } = legacyRecord;
+
     return StoredReviewRecordSchema.parse({
       ...current,
       schemaVersion: REVIEW_SCHEMA_VERSION,
       sourceSession: current.sourceSession ?? agentSession,
     });
   }
+
   const {
     agentSession,
     presentedRevision,
     schemaVersion: _schemaVersion,
     ...current
   } = legacyRecord;
+
   return StoredReviewRecordSchema.parse({
     ...current,
     schemaVersion: REVIEW_SCHEMA_VERSION,
@@ -1004,12 +1114,14 @@ function stripLegacySoftwareMap(value: JsonValue): JsonValue;
 function stripLegacySoftwareMap(value: JsonValue): JsonValue {
   if (!isJsonObject(value)) return value;
   const { softwareMap: _legacySoftwareMap, ...record } = value;
+
   return record;
 }
 
 async function pathExists(targetPath: string): Promise<boolean> {
   try {
     await access(targetPath);
+
     return true;
   } catch (error) {
     if (isMissingFileError(error)) return false;

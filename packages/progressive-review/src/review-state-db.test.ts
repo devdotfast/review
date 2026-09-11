@@ -36,6 +36,7 @@ afterEach(() => {
   closeAllReviewThreadStores();
   closeAllReviewStateDatabases();
   vi.unstubAllEnvs();
+
   for (const root of roots.splice(0)) {
     rmSync(root, { recursive: true, force: true });
   }
@@ -45,12 +46,14 @@ function setupHome(): string {
   const home = mkdtempSync(path.join(tmpdir(), "review-state-db-"));
   roots.push(home);
   vi.stubEnv("DEV_REVIEW_HOME", home);
+
   return home;
 }
 
 function reviewPath(home: string, reviewId: string): string {
   const dir = path.join(home, "reviews", reviewId);
   mkdirSync(dir, { recursive: true });
+
   return path.join(dir, "review.mdx");
 }
 
@@ -73,6 +76,7 @@ describe("global review state database", () => {
     const home = setupHome();
     const first = reviewPath(home, "review-a");
     const second = reviewPath(home, "review-b");
+
     for (const document of [first, second]) {
       appendReviewComment(document, {
         threadId: "shared-id",
@@ -82,6 +86,7 @@ describe("global review state database", () => {
         author: "Reviewer",
       });
     }
+
     const candidate = path.join(home, "candidate");
     mkdirSync(candidate);
     const candidateDocument = path.join(candidate, "review.mdx");
@@ -117,6 +122,7 @@ describe("global review state database", () => {
     );
     createLegacyReviewThreadDb(dir);
     const legacy = new DatabaseSync(legacyReviewThreadDbPath(document));
+
     const thread = {
       threadId: "thread-a",
       target: { kind: "document" },
@@ -135,6 +141,7 @@ describe("global review state database", () => {
         },
       ],
     };
+
     legacy
       .prepare("INSERT INTO comments(thread_id, record_json) VALUES (?, ?)")
       .run("thread-a", JSON.stringify(thread));

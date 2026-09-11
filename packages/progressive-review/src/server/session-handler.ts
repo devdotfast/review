@@ -50,12 +50,17 @@ import {
 } from "./review-session-mode";
 
 const API_PREFIX = "/__progressive-review";
+
 const DOCUMENT_PATH_PREFIX = `${API_PREFIX}/documents/`;
+
 const MAP_PATH_PREFIX = `${API_PREFIX}/software-maps/`;
+
 const NEEDS_REPUBLISH_ERROR =
   "This review was published by an earlier version of Review and its document must be regenerated.";
+
 const NEEDS_REPUBLISH_MAP_ERROR =
   "This review's software map must be regenerated.";
+
 const HISTORICAL_UNAVAILABLE_ERROR =
   "This older revision is unavailable in this version of Review";
 
@@ -128,11 +133,14 @@ export async function createReviewSessionHandler(
   const mode = input.mode ?? LIVE_REVIEW_SESSION_MODE;
   const artifacts = input.artifacts ?? {};
   const renderDir = path.dirname(input.reviewPath);
+
   const storageDir =
     session.storageDir ??
     path.dirname(input.stateReviewPath ?? input.reviewPath);
+
   const reviewRootPath = input.reviewRootPath ?? storageDir;
   await mkdir(storageDir, { recursive: true, mode: 0o700 });
+
   if (!artifacts.document)
     await mkdir(renderDir, { recursive: true, mode: 0o700 });
   const token = input.token ?? crypto.randomBytes(32).toString("base64url");
@@ -140,14 +148,19 @@ export async function createReviewSessionHandler(
   const documentsDir = path.join(renderDir, ".review-documents");
   let currentBundle: ReviewDocumentBundle | null = null;
   let bundlePromise: Promise<ReviewDocumentBundle | null> | null = null;
+
   let softwareMapBundlePromise: Promise<ReviewSoftwareMapBundle | null> | null =
     null;
+
   const eventClients = new Set<ReviewEventClient>();
+
   const telemetryContext: ProgressiveReviewTelemetryContext = {
     reviewUuid: input.reviewUuid,
     presentationSessionId: input.sessionId,
   };
+
   let reviewPresented = false;
+
   const sessionTelemetry = input.telemetry
     ? {
         captureTabViewed: (
@@ -173,8 +186,10 @@ export async function createReviewSessionHandler(
                 appSessionId: jsonString(properties.app_session_id),
               },
             );
+
             return;
           }
+
           await input.telemetry!.captureUiEvent(
             event,
             properties,
@@ -187,8 +202,10 @@ export async function createReviewSessionHandler(
   const getBundle = async (): Promise<ReviewDocumentBundle | null> => {
     if (currentBundle) return currentBundle;
     bundlePromise ??= readReviewDocumentBundle(renderDir, input.routePath);
+
     try {
       currentBundle = await bundlePromise;
+
       return currentBundle;
     } finally {
       bundlePromise = null;
@@ -200,11 +217,13 @@ export async function createReviewSessionHandler(
     softwareMapBundlePromise ??= readReviewSoftwareMapBundle(
       input.softwareMapRootPath,
     );
+
     return softwareMapBundlePromise;
   };
 
   const broadcast = (event: ReviewServerEvent) => {
     const frame = `data: ${JSON.stringify(event)}\n\n`;
+
     for (const client of eventClients) client.write(frame);
   };
 
@@ -212,6 +231,7 @@ export async function createReviewSessionHandler(
     if (!input.reviewUuid) {
       throw new Error("A review UUID is required to report needs_republish.");
     }
+
     return input.reviewUuid;
   };
 
@@ -229,6 +249,7 @@ export async function createReviewSessionHandler(
     message: string,
   ): Promise<Response> => {
     const reviewUuid = needsRepublishReviewUuid();
+
     const detail: ReviewErrorDetail =
       mode.kind === "historical"
         ? { code: "historical_revision_unavailable", reviewUuid }
@@ -237,6 +258,7 @@ export async function createReviewSessionHandler(
             reviewUuid,
             mapStale: kind === "document" ? await mapIsStale() : true,
           };
+
     return jsonResponse(
       {
         ok: false,
@@ -270,15 +292,19 @@ export async function createReviewSessionHandler(
       context.req.path === `${API_PREFIX}/session`
     ) {
       await next();
+
       return;
     }
+
     if (!isAuthorizedRequest(context.req.raw, token)) {
       return jsonResponse({ ok: false, error: "Unauthorized" }, 401);
     }
+
     await next();
   });
   app.get(`${API_PREFIX}/session`, async () => {
     const presentedRecord = reviewSessionModeRecord(mode);
+
     const resolvedBaseRef = presentedRecord
       ? artifacts.source
         ? null
@@ -289,13 +315,16 @@ export async function createReviewSessionHandler(
         )({
           reviewRootPath,
         });
+
     const sessionPayload: ReturnType<typeof reviewSessionPayload> & {
       resolvedBaseRef: typeof resolvedBaseRef;
       reviewStatus?: ReviewRecord["status"];
     } = { ...reviewSessionPayload(), resolvedBaseRef };
+
     if (input.getReviewStatus) {
       sessionPayload.reviewStatus = input.getReviewStatus();
     }
+
     return jsonResponse({ ok: true, session: sessionPayload, token }, 200);
   });
   app.get(`${API_PREFIX}/revisions`, async () => {
@@ -305,6 +334,7 @@ export async function createReviewSessionHandler(
         404,
       );
     }
+
     return jsonResponse(
       { ok: true, versions: await input.listDocumentVersions() },
       200,
@@ -314,8 +344,10 @@ export async function createReviewSessionHandler(
     if (artifacts.document)
       return artifactUnavailable("document", artifacts.document);
     const bundle = await getBundle();
+
     if (!bundle)
       return artifactUnavailable("document", staleArtifactMessage("document"));
+
     return jsonResponse(
       {
         ok: true,
@@ -327,6 +359,7 @@ export async function createReviewSessionHandler(
   });
   app.get(`${DOCUMENT_PATH_PREFIX}:documentName`, async (context) => {
     const bundle = await getBundle();
+
     if (
       !bundle ||
       context.req.param("documentName") !== `${bundle.contentHash}.json`
@@ -336,6 +369,7 @@ export async function createReviewSessionHandler(
         404,
       );
     }
+
     return new Response(bundle.json, {
       status: 200,
       headers: {
@@ -347,14 +381,17 @@ export async function createReviewSessionHandler(
   app.get(`${API_PREFIX}/software-map`, async () => {
     if (artifacts.map) return artifactUnavailable("map", artifacts.map);
     const bundle = await getSoftwareMapBundle();
+
     if (!bundle) {
       if (input.softwareMapRootPath)
         return artifactUnavailable("map", staleArtifactMessage("map"));
+
       return jsonResponse(
         { ok: false, error: "Software map is not published" },
         404,
       );
     }
+
     return jsonResponse(
       {
         ok: true,
@@ -368,15 +405,18 @@ export async function createReviewSessionHandler(
   app.get(`${MAP_PATH_PREFIX}:mapName`, async (context) => {
     const bundle = await getSoftwareMapBundle();
     const mapName = context.req.param("mapName");
+
     const json =
       mapName === `head-${bundle?.contentHash}.json`
         ? bundle?.headJson
         : mapName === `base-${bundle?.contentHash}.json`
           ? bundle?.baseJson
           : undefined;
+
     if (!json) {
       return jsonResponse({ ok: false, error: "Software map not found" }, 404);
     }
+
     return new Response(json, {
       status: 200,
       headers: {
@@ -387,14 +427,18 @@ export async function createReviewSessionHandler(
   });
   app.get(`${API_PREFIX}/events`, (context) => {
     context.header("cache-control", "no-cache, no-transform");
+
     const response = streamSSE(context, async (stream) => {
       let finish!: () => void;
+
       const disconnected = new Promise<void>((resolve) => {
         finish = resolve;
       });
+
       let pending: Promise<void> = stream
         .write(": connected\n\n")
         .then(() => undefined);
+
       const client: ReviewEventClient = {
         write(frame) {
           pending = pending.then(async () => {
@@ -406,13 +450,17 @@ export async function createReviewSessionHandler(
           void stream.close();
         },
       };
+
       stream.onAbort(finish);
       eventClients.add(client);
+
       const heartbeat = setInterval(
         () => client.write(": heartbeat\n\n"),
         15_000,
       );
+
       heartbeat.unref?.();
+
       try {
         await disconnected;
         await pending;
@@ -421,9 +469,12 @@ export async function createReviewSessionHandler(
         eventClients.delete(client);
       }
     });
+
     response.headers.set("content-type", "text/event-stream; charset=utf-8");
+
     return response;
   });
+
   const reviewApi = createReviewApi({
     mode,
     readOnlyThreadsPath: input.readOnlyThreadsPath,
@@ -460,6 +511,7 @@ export async function createReviewSessionHandler(
     submitHook: input.submitHook,
     session,
   });
+
   app.route(API_PREFIX, reviewApi.app);
   app.all(`${API_PREFIX}/*`, () =>
     jsonResponse({ ok: false, error: "not found" }, 404, {
@@ -471,6 +523,7 @@ export async function createReviewSessionHandler(
   app.onError((error) => {
     if (error instanceof ReviewBusyError)
       return jsonResponse(reviewBusyResponse(error), 409);
+
     return jsonResponse(
       {
         ok: false,
@@ -513,6 +566,7 @@ export async function createReviewSessionHandler(
     },
     close: async () => {
       await reviewApi.close();
+
       for (const client of eventClients) client.close();
       eventClients.clear();
     },

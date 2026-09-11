@@ -43,6 +43,7 @@ export async function runReviewPublish(input: {
         agent: resolveAuthoringSessionRef(input.env ?? process.env),
       }),
     );
+
     for (const event of result.events) {
       switch (event.event) {
         case "review-bound":
@@ -72,6 +73,7 @@ export async function runReviewPublish(input: {
           throw new Error("Unexpected map publication result.");
       }
     }
+
     return result.ok ? 0 : 1;
   } catch (error) {
     reporter.error("publish", [

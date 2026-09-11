@@ -18,6 +18,7 @@ import {
 } from "./stored-review-migration";
 
 const roots: string[] = [];
+
 afterEach(async () => {
   closeAllReviewThreadStores();
   await Promise.all(
@@ -31,26 +32,32 @@ it.each([4, 5])(
     const { reviewHome, reviewDir, dbPath } = await fixture(schemaVersion);
     const before = databaseRows(dbPath);
     const onDrop = vi.fn<() => void>();
+
     const blocked = await migrateStoredReview({
       reviewDir,
       onDropLegacyCodeRecord: onDrop,
     });
+
     expect(blocked.threadDbError).toBeTruthy();
     expect(blocked.upgradedThreadDb).toBe(false);
     expect(onDrop).not.toHaveBeenCalled();
     expect(databaseRows(dbPath)).toEqual(before);
+
     const recordBeforeForce = await readFile(
       path.join(reviewDir, "review.json"),
       "utf8",
     );
+
     const log: string[] = [];
     const blockers: string[] = [];
+
     const forced = await migrateStoredReviewData({
       reviewHome,
       force: true,
       log: (message) => log.push(message),
       onBlocker: (message) => blockers.push(message),
     });
+
     expect(forced).toMatchObject({
       documents: 1,
       upgradedThreadDatabases: 1,
@@ -103,12 +110,14 @@ it("does not report rolled-back drops as committed losses", async () => {
   const before = databaseRows(dbPath);
   const log: string[] = [];
   const blockers: string[] = [];
+
   const result = await migrateStoredReviewData({
     reviewHome,
     force: true,
     log: (message) => log.push(message),
     onBlocker: (message) => blockers.push(message),
   });
+
   expect(blockers.join("\n")).toContain("injected commit failure");
   expect(result).toMatchObject({
     upgradedThreadDatabases: 0,
@@ -122,6 +131,7 @@ it("does not report rolled-back drops as committed losses", async () => {
 
 function databaseRows(dbPath: string) {
   const db = new DatabaseSync(dbPath, { readOnly: true });
+
   try {
     return {
       version: db
@@ -144,11 +154,14 @@ async function fixture(schemaVersion: number) {
   const reviewHome = await mkdtemp(
     path.join(os.tmpdir(), "review-migration-force-"),
   );
+
   roots.push(reviewHome);
   const source = path.join(reviewHome, "source");
   await mkdir(source);
+
   const git = (args: string[]) =>
     execFileSync("git", ["-C", source, ...args], { encoding: "utf8" }).trim();
+
   git(["init", "-q", "-b", "main"]);
   git(["config", "user.email", "fixture@example.test"]);
   git(["config", "user.name", "Fixture"]);
@@ -156,6 +169,7 @@ async function fixture(schemaVersion: number) {
   git(["add", "."]);
   git(["commit", "-qm", "source"]);
   const commit = git(["rev-parse", "HEAD"]);
+
   const created = await createReviewDir({
     reviewsHomePath: reviewHome,
     worktreePath: source,
@@ -165,6 +179,7 @@ async function fixture(schemaVersion: number) {
     sourceIdentity: { kind: "git-branch", name: "main" },
     sourceSession: "disabled:review",
   });
+
   await writeFile(
     path.join(created.dir, "review.json"),
     JSON.stringify({ ...created.review, schemaVersion }),
@@ -176,6 +191,7 @@ async function fixture(schemaVersion: number) {
   db.exec(
     "UPDATE meta SET value = '2' WHERE key = 'schema_version'; CREATE TABLE questions (question_id TEXT PRIMARY KEY, record_json TEXT NOT NULL);",
   );
+
   const thread = {
     target: {
       kind: "code",
@@ -186,6 +202,7 @@ async function fixture(schemaVersion: number) {
     },
     messages: [{ body: "private prose" }],
   };
+
   db.prepare("INSERT INTO comments VALUES (?, ?)").run(
     "bad-comment",
     JSON.stringify(thread),
@@ -203,5 +220,6 @@ async function fixture(schemaVersion: number) {
     '{"body":"private prose"}',
   );
   db.close();
+
   return { reviewHome, reviewDir: created.dir, dbPath };
 }

@@ -29,21 +29,26 @@ describe("prepareReviewPublish", () => {
 
   it("reports unreadable records during implicit selection while allowing a healthy explicit UUID", async () => {
     const repo = await createDivergedGitRepository(cleanupPaths);
+
     const home = await mkdtemp(
       path.join(os.tmpdir(), "review-publish-unreadable-"),
     );
+
     cleanupPaths.push(home);
     vi.stubEnv("DEV_REVIEW_HOME", home);
+
     const healthy = await createReviewDir({
       worktreePath: repo.rootPath,
       baseRef: "main",
       baseCommit: repo.baseCommit,
     });
+
     const corrupt = await createReviewDir({
       worktreePath: repo.rootPath,
       baseRef: "main",
       baseCommit: repo.baseCommit,
     });
+
     deleteReviewState(corrupt.dir);
     await writeFile(path.join(corrupt.dir, "review.json"), "{");
     await expect(
@@ -62,6 +67,7 @@ describe("prepareReviewPublish", () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "review-publish-home-"));
     cleanupPaths.push(home);
     vi.stubEnv("DEV_REVIEW_HOME", home);
+
     const review = await createReviewDir({
       worktreePath: repo.rootPath,
       baseRef: "main",
@@ -69,6 +75,7 @@ describe("prepareReviewPublish", () => {
       sourceCommit: repo.baseCommit,
       sourceIdentity: { kind: "git-branch", name: "main" },
     });
+
     await writeFile(
       path.join(review.dir, "review.json"),
       JSON.stringify({ ...review.review, worktreePath: home }),
@@ -82,11 +89,14 @@ describe("prepareReviewPublish", () => {
 
   it("prepares a publish from a checkout unrelated to the pinned head", async () => {
     const repo = await createDivergedGitRepository(cleanupPaths);
+
     const reviewHome = await mkdtemp(
       path.join(os.tmpdir(), "review-publish-home-"),
     );
+
     cleanupPaths.push(reviewHome);
     vi.stubEnv("DEV_REVIEW_HOME", reviewHome);
+
     const review = await createReviewDir({
       worktreePath: repo.rootPath,
       baseRef: repo.baseCommit,
@@ -99,17 +109,21 @@ describe("prepareReviewPublish", () => {
       cwd: repo.rootPath,
       reviewUuid: review.review.uuid,
     });
+
     expect(prepared.sourceCommit).toBe(repo.featureCommit);
     expect(prepared).not.toHaveProperty("warnings");
   });
 
   it("prepares without warnings when the pinned head is checked out exactly", async () => {
     const repo = await createDivergedGitRepository(cleanupPaths);
+
     const reviewHome = await mkdtemp(
       path.join(os.tmpdir(), "review-publish-home-"),
     );
+
     cleanupPaths.push(reviewHome);
     vi.stubEnv("DEV_REVIEW_HOME", reviewHome);
+
     const review = await createReviewDir({
       worktreePath: repo.rootPath,
       baseRef: repo.baseCommit,
@@ -133,11 +147,14 @@ describe("prepareReviewPublish", () => {
     await git(repo.rootPath, ["add", "."]);
     await git(repo.rootPath, ["commit", "-m", "descendant"]);
     const checkoutCommit = await git(repo.rootPath, ["rev-parse", "HEAD"]);
+
     const reviewHome = await mkdtemp(
       path.join(os.tmpdir(), "review-publish-home-"),
     );
+
     cleanupPaths.push(reviewHome);
     vi.stubEnv("DEV_REVIEW_HOME", reviewHome);
+
     const review = await createReviewDir({
       worktreePath: repo.rootPath,
       baseRef: repo.baseCommit,
@@ -150,6 +167,7 @@ describe("prepareReviewPublish", () => {
       cwd: repo.rootPath,
       reviewUuid: review.review.uuid,
     });
+
     expect(prepared).toMatchObject({
       sourceBranch: repo.baseCommit,
       sourceCommit: repo.baseCommit,
@@ -160,11 +178,14 @@ describe("prepareReviewPublish", () => {
 
   it("keeps the stored pins when the branch and base move, and warns to update", async () => {
     const repo = await createDivergedGitRepository(cleanupPaths);
+
     const reviewHome = await mkdtemp(
       path.join(os.tmpdir(), "review-publish-home-"),
     );
+
     cleanupPaths.push(reviewHome);
     vi.stubEnv("DEV_REVIEW_HOME", reviewHome);
+
     const review = await createReviewDir({
       worktreePath: repo.rootPath,
       baseRef: "main",
@@ -172,6 +193,7 @@ describe("prepareReviewPublish", () => {
       sourceCommit: repo.featureCommit,
       sourceIdentity: { kind: "git-branch", name: "feature" },
     });
+
     await writeFile(path.join(repo.rootPath, "main.txt"), "base moved\n");
     await git(repo.rootPath, ["add", "."]);
     await git(repo.rootPath, ["commit", "-m", "base moved"]);
@@ -198,21 +220,26 @@ describe("prepareReviewPublish", () => {
     expect(prepared.warnings).toEqual([
       "Pinned commits are behind feature. Run `review scaffold --update` and publish again to present the latest commits.",
     ]);
+
     const stored = JSON.parse(
       await readFile(path.join(review.dir, "review.json"), "utf8"),
     ) as { baseCommit: string; sourceCommit: string };
+
     expect(stored.baseCommit).toBe(repo.baseCommit);
     expect(stored.sourceCommit).toBe(repo.featureCommit);
   });
 
   it("rejects a publish when the pinned base commit no longer exists", async () => {
     const repo = await createDivergedGitRepository(cleanupPaths);
+
     const reviewHome = await mkdtemp(
       path.join(os.tmpdir(), "review-publish-home-"),
     );
+
     cleanupPaths.push(reviewHome);
     vi.stubEnv("DEV_REVIEW_HOME", reviewHome);
     const missingBase = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+
     const review = await createReviewDir({
       worktreePath: repo.rootPath,
       baseRef: repo.baseCommit,
@@ -231,11 +258,14 @@ describe("prepareReviewPublish", () => {
 
   it("does not warn about stale pins for a positional binding", async () => {
     const repo = await createDivergedGitRepository(cleanupPaths);
+
     const reviewHome = await mkdtemp(
       path.join(os.tmpdir(), "review-publish-home-"),
     );
+
     cleanupPaths.push(reviewHome);
     vi.stubEnv("DEV_REVIEW_HOME", reviewHome);
+
     const review = await createReviewDir({
       worktreePath: repo.rootPath,
       baseRef: repo.baseCommit,
@@ -248,17 +278,21 @@ describe("prepareReviewPublish", () => {
       cwd: repo.rootPath,
       reviewUuid: review.review.uuid,
     });
+
     expect(prepared.sourceCommit).toBe(repo.baseCommit);
     expect(prepared).not.toHaveProperty("warnings");
   });
 
   it("presents the pins even when the bound head no longer resolves", async () => {
     const repo = await createDivergedGitRepository(cleanupPaths);
+
     const reviewHome = await mkdtemp(
       path.join(os.tmpdir(), "review-publish-home-"),
     );
+
     cleanupPaths.push(reviewHome);
     vi.stubEnv("DEV_REVIEW_HOME", reviewHome);
+
     const review = await createReviewDir({
       worktreePath: repo.rootPath,
       baseRef: repo.baseCommit,
@@ -271,6 +305,7 @@ describe("prepareReviewPublish", () => {
       cwd: repo.rootPath,
       reviewUuid: review.review.uuid,
     });
+
     expect(prepared.sourceCommit).toBe(repo.baseCommit);
     expect(prepared).not.toHaveProperty("warnings");
   });
@@ -284,6 +319,7 @@ async function createDivergedGitRepository(cleanupPaths: string[]): Promise<{
   const rootPath = await mkdtemp(
     path.join(os.tmpdir(), "review-publish-source-"),
   );
+
   cleanupPaths.push(rootPath);
   await git(rootPath, ["init", "-b", "main"]);
   await git(rootPath, ["config", "user.email", "review@example.test"]);
@@ -297,6 +333,7 @@ async function createDivergedGitRepository(cleanupPaths: string[]): Promise<{
   await git(rootPath, ["commit", "-am", "feature"]);
   const featureCommit = await git(rootPath, ["rev-parse", "HEAD"]);
   await git(rootPath, ["checkout", "main"]);
+
   return { rootPath, baseCommit, featureCommit };
 }
 
@@ -304,5 +341,6 @@ async function git(rootPath: string, args: string[]): Promise<string> {
   const { stdout } = await execFilePromise("git", ["-C", rootPath, ...args], {
     encoding: "utf8",
   });
+
   return stdout.trim();
 }

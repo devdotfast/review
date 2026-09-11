@@ -256,7 +256,11 @@ one of these entries:
 - `scripts/notarize-macos.sh` (fork-owned): accepts `APPLE_SIGN_IDENTITY` as an
   alias for the `CODESIGN_IDENTITY` that upstream's `sign.ts` reads, so the
   signing identity can live with the rest of the Apple credentials.
-- `build/.moduleignore`
+- `build/.moduleignore`: also drops `playwright-core` from packaged builds. It is
+  a production dependency (~12 MB) loaded only by
+  `src/vs/platform/browserView/node/playwrightService.ts` through a dynamic
+  import, on a path nothing constructs once the `playwright` channel is
+  unregistered.
 - `build/darwin/create-universal-app.ts`
 - `build/darwin/verify-macho.ts`
 - `build/lib/i18n.resources.json`
@@ -327,6 +331,20 @@ one of these entries:
   menu on window focus and count changes), and `ReviewUpdateDialog` replaces
   `NotAvailableUpdateDialog` (the stock dialog defers to a workbench
   `UpdateContribution` that Review does not load).
+  Finally, it does not register `IAgentNetworkFilterService`,
+  `IWebContentExtractorService`, or the `webContentExtractor` IPC channel. No
+  Review surface reaches them, and leaving the channel registered exposes a
+  service with no consumer.
+- `src/vs/code/electron-utility/sharedProcess/sharedProcessMain.ts`: does not
+  register `ISharedWebContentExtractorService`, the `sharedWebContentExtractor`
+  channel, or the `playwright` channel and the network filter it is constructed
+  with. The only consumers of the shared web content extractor are three chat
+  renderer classes (`chatDragAndDrop`, `chatInputPart`, `chatAttachmentModel`)
+  that Review never instantiates, and nothing binds the service in Review's
+  renderer either. The browser-view stack behind the `playwright` channel is
+  reachable from no Review surface: Review registers no chat, browser-view, or
+  agent contributions, and the extension-host `browser` API is gated on a
+  proposed API that `product.json` does not enable.
 - `src/vs/workbench/contrib/webview/browser/pre/index.html`: guard a transient
   missing iframe body while polling active webview focus.
 - `src/vs/workbench/electron-browser/parts/dialogs/dialog.contribution.ts`:

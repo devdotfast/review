@@ -8,6 +8,7 @@ import test from "node:test";
 import { projectSourceAlignment } from "../../editor/common/diff/sourceLineAlignment.js";
 import {
   nativeFoldRange,
+  structuralFoldRanges,
   structuralFoldingRegions,
   structuralHighlights,
   structuralRows,
@@ -130,10 +131,27 @@ test("folds and collapsed leaves share one folding model", () => {
   const body = fold(4, [leaf(5, 3, 4), leaf(6, 4, 6)]);
   const regions = structuralFoldingRegions([leaf(1, 0, 1), gap, body, leaf(7, 6, 7)]);
   assert.deepEqual(regions.map((region) => region.id), [2, 4]);
-  assert.deepEqual(regions.map((region) => nativeFoldRange(region)), [
-    { start: 2, end: 3 },
-    { start: 4, end: 6 },
+});
+
+test("a collapsed leaf folds under the line above it and hides exactly its lines", () => {
+  const collapsed = { collapsed: true, label: "unchanged" };
+  // Lines 2..40 (0-based) hide behind 1-based line 2, the line above the gap.
+  const gap = leaf(1, 2, 40, { visibility: collapsed });
+  assert.deepEqual(structuralFoldRanges([leaf(0, 0, 2), gap, leaf(2, 40, 41)]).map((entry) => [entry.region.id, entry.range]), [
+    [1, { start: 2, end: 40 }],
   ]);
+  // At the top of the file there is no line above: the first gap line stays visible.
+  assert.deepEqual(structuralFoldRanges([leaf(1, 0, 60, { visibility: collapsed }), leaf(2, 60, 61)]).map((entry) => entry.range), [
+    { start: 1, end: 60 },
+  ]);
+  // Right under a fold's header the two ranges would share a start line, so the gap keeps its first line too.
+  const body = fold(3, [leaf(4, 5, 6), leaf(5, 6, 30, { visibility: collapsed }), leaf(6, 30, 31)]);
+  assert.deepEqual(structuralFoldRanges([leaf(0, 0, 5), body]).map((entry) => [entry.region.id, entry.range]), [
+    [3, { start: 6, end: 31 }],
+    [5, { start: 7, end: 30 }],
+  ]);
+  // A fold keeps its own first line as the header.
+  assert.deepEqual(nativeFoldRange(fold(9, [leaf(10, 2, 5)])), { start: 3, end: 5 });
 });
 
 test("Tree-sitter byte offsets convert to Monaco UTF-16 columns", () => {

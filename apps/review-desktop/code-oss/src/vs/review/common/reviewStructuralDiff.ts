@@ -178,12 +178,37 @@ export function structuralRows(diff: StructuralTextDiff): [number | null, number
   return rows;
 }
 
-/** Native folding retains the first source line and hides following whole lines. */
-export function nativeFoldRange(region: StructuralRegion): { start: number; end: number } | undefined {
+/**
+ * Native folding keeps its start line visible and hides the lines after it.
+ * A fold's header is its own first line (the signature). A collapsed leaf has
+ * no header of its own, so the line above it serves, and the fold hides
+ * exactly the leaf's lines; at the top of the file, or right under a fold's
+ * header line (where Monaco would merge the two ranges), the leaf's first
+ * line stays visible instead.
+ */
+export function nativeFoldRange(
+  region: StructuralRegion,
+  foldHeaderLines: ReadonlySet<number> = new Set(),
+): { start: number; end: number } | undefined {
   const lines = regionLines(region);
-  const start = lines.start + 1;
   const end = lines.end;
+  let start = lines.start + 1;
+  if (region.kind === "leaf" && lines.start > 0 && !foldHeaderLines.has(lines.start - 1)) start = lines.start;
   return end > start ? { start, end } : undefined;
+}
+
+/** Every folding region of one side with its native range, keyed for the editor bindings. */
+export function structuralFoldRanges(
+  regions: readonly StructuralRegion[] | undefined,
+): { region: StructuralRegion; range: { start: number; end: number } }[] {
+  const foldable = structuralFoldingRegions(regions);
+  const headers = new Set(foldable.filter((region) => region.kind === "fold").map((region) => regionLines(region).start));
+  const result = [];
+  for (const region of foldable) {
+    const range = nativeFoldRange(region, headers);
+    if (range) result.push({ region, range });
+  }
+  return result;
 }
 
 export function utf16Column(text: string, byteColumn: number): number {

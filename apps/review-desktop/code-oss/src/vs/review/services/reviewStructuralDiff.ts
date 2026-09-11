@@ -25,9 +25,8 @@ import { FoldingRangeKind, type FoldingRangeProvider } from "../../editor/common
 import { IReviewSessionModelService } from "./reviewSessionModelService.js";
 import { reviewDiffFilesUrl } from "../common/reviewReveal.js";
 import {
-  nativeFoldRange,
   structuralFilePath,
-  structuralFoldingRegions,
+  structuralFoldRanges,
   structuralRows,
   structuralHighlights,
   STRUCTURAL_WIRE_VERSION,
@@ -251,19 +250,18 @@ export async function prepareStructuralReview(
 
 /** The folding regions of one side, indexed for the editor bindings. */
 interface SideFolds {
-  regions: StructuralRegion[];
-  byId: Map<number, StructuralRegion>;
+  entries: { region: StructuralRegion; range: { start: number; end: number } }[];
+  rangeById: Map<number, { start: number; end: number }>;
   byRange: Map<string, StructuralRegion>;
 }
 
 function sideFolds(source: StructuralSource | undefined): SideFolds {
-  const regions = structuralFoldingRegions(source?.regions).filter((region) => nativeFoldRange(region) !== undefined);
-  const byRange = new Map<string, StructuralRegion>();
-  for (const region of regions) {
-    const range = nativeFoldRange(region)!;
-    byRange.set(`${range.start}:${range.end}`, region);
-  }
-  return { regions, byId: new Map(regions.map((region) => [region.id, region])), byRange };
+  const entries = structuralFoldRanges(source?.regions);
+  return {
+    entries,
+    rangeById: new Map(entries.map(({ region, range }) => [region.id, range])),
+    byRange: new Map(entries.map(({ region, range }) => [`${range.start}:${range.end}`, region])),
+  };
 }
 
 function attachStructuralEditors(
@@ -293,8 +291,8 @@ function attachStructuralEditors(
       const source = sources.get(model.uri.toString());
       const folds = source && foldsFor(source.pair, source.side);
       if (!source || !folds) return null;
-      return folds.regions.map((region) => ({
-        ...nativeFoldRange(region)!,
+      return folds.entries.map(({ region, range }) => ({
+        ...range,
         kind: region.tags?.includes("import") ? FoldingRangeKind.Imports : FoldingRangeKind.Region,
       }));
     },
@@ -340,21 +338,22 @@ function attachStructuralEditors(
       members.add(folding);
       models.set(modelKey, members);
       binding.add(toDisposable(() => members.delete(folding)));
-      for (const region of folds.regions) {
+      for (const { region } of folds.entries) {
         const key = keyFor(source.pair, region);
         if (!collapsed.has(key)) collapsed.set(key, region.visibility?.collapsed === true);
       }
+      const shownLabels = () =>
+        folds.entries.filter(({ region }) => collapsed.get(keyFor(source.pair, region)) === true);
       const restore = () => {
         const toggle = [];
-        for (const region of folds.regions) {
-          const range = nativeFoldRange(region)!;
+        for (const { region, range } of folds.entries) {
           const native = folding.getRegionAtLine(range.start);
           if (native?.startLineNumber !== range.start || native.endLineNumber !== range.end)
             continue;
           if (native.isCollapsed !== (collapsed.get(keyFor(source.pair, region)) ?? false)) toggle.push(native);
         }
         if (toggle.length) folding.toggleCollapseState(toggle);
-        labels.sync(folds.regions.filter((region) => collapsed.get(keyFor(source.pair, region)) === true));
+        labels.sync(shownLabels());
       };
       binding.add(
         folding.onDidChange((event) => {
@@ -365,8 +364,7 @@ function attachStructuralEditors(
               const region = folds.byRange.get(`${native.startLineNumber}:${native.endLineNumber}`);
               if (!region) continue;
               collapsed.set(keyFor(source.pair, region), native.isCollapsed);
-              const opposite = foldsFor(source.pair, source.side === 0 ? 1 : 0)?.byId.get(region.id);
-              const oppositeRange = opposite && nativeFoldRange(opposite);
+              const oppositeRange = foldsFor(source.pair, source.side === 0 ? 1 : 0)?.rangeById.get(region.id);
               if (!oppositeRange) continue;
               for (const other of models.get(`${source.pair}:${1 - source.side}`) ?? []) {
                 const target = other.getRegionAtLine(oppositeRange.start);
@@ -379,7 +377,7 @@ function attachStructuralEditors(
               }
             }
             if (!event.collapseStateChanged) restore();
-            else labels.sync(folds.regions.filter((region) => collapsed.get(keyFor(source.pair, region)) === true));
+            else labels.sync(shownLabels());
           } finally {
             synchronizing = false;
           }
@@ -414,9 +412,9 @@ class StructuralLabels {
     this.decorations = editor.createDecorationsCollection();
   }
 
-  sync(regions: readonly StructuralRegion[]): void {
+  sync(entries: readonly { region: StructuralRegion; range: { start: number; end: number } }[]): void {
     const next = new Map<number, string>();
-    for (const region of regions) {
+    for (const { region } of entries) {
       const label = region.visibility?.label;
       if (label) next.set(region.id, label);
     }
@@ -428,10 +426,9 @@ class StructuralLabels {
       for (const id of this.zones.values()) accessor.removeZone(id);
       this.zones.clear();
       if (!model) return;
-      for (const region of regions) {
+      for (const { region, range } of entries) {
         const label = next.get(region.id);
-        const range = nativeFoldRange(region);
-        if (!label || !range) continue;
+        if (!label) continue;
         const lines = label.split("\n");
         if (lines.length === 1) {
           const column = model.getLineMaxColumn(range.start);

@@ -27,6 +27,7 @@ import { reviewDiffFilesUrl } from "../common/reviewReveal.js";
 import {
   structuralFilePath,
   structuralFoldRanges,
+  structuralInitialCounts,
   structuralVisibleCounts,
   structuralRows,
   structuralHighlights,
@@ -77,12 +78,15 @@ export async function prepareStructuralReview(
   const collapsed = new Map<string, boolean>();
   const collapseKey = (path: string, side: 0 | 1, id: number) => `${path}:${side}:${id}`;
   const countsChanged = lifetime.add(new Emitter<{ path: string; counts: StructuralFileCounts }>());
-  const emitCounts = (path: string) => {
+  // The wire's own visible counts are the headline on arrival; toggling a fold recomputes locally.
+  const emitCounts = (path: string, initial = false) => {
     const diff = files.get(path);
     if (!diff) return;
     countsChanged.fire({
       path,
-      counts: structuralVisibleCounts(diff, (side, id) => collapsed.get(collapseKey(path, side, id)) === true),
+      counts: initial
+        ? structuralInitialCounts(diff)
+        : structuralVisibleCounts(diff, (side, id) => collapsed.get(collapseKey(path, side, id)) === true),
     });
   };
   // Use pinned checkout resources so native language providers see real project files.
@@ -124,6 +128,7 @@ export async function prepareStructuralReview(
     }
     if (lifetime.isDisposed) throw new CancellationError();
     if (diff.type === "text") {
+      structuralInitialCounts(diff);
       files.set(path, diff);
       for (const [side, source] of [[0, diff.lhs], [1, diff.rhs]] as const) {
         for (const { region } of structuralFoldRanges(source?.regions)) {
@@ -133,7 +138,7 @@ export async function prepareStructuralReview(
       }
     } else binary.add(path);
     changed.fire();
-    emitCounts(path);
+    emitCounts(path, true);
     return { path, stats: diff.type === "text" ? diff.stats.textual : undefined };
   }
   async function load(

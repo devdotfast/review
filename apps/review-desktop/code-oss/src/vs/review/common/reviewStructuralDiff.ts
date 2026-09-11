@@ -58,6 +58,8 @@ export interface StructuralLineCounts {
 }
 export interface StructuralStats {
   textual: StructuralLineCounts;
+  /** Changed lines on screen under the wire's initial fold state. Always present. */
+  visible: StructuralLineCounts;
   structural?: StructuralLineCounts;
   fallback?: StructuralProblem;
 }
@@ -283,10 +285,16 @@ function visibleChangedLines(
   return changed.size;
 }
 
+/** The wire's counts as a file arrives: its own `visible` is the headline. */
+export function structuralInitialCounts(diff: StructuralTextDiff): StructuralFileCounts {
+  if (!diff.stats.visible) throw new Error("diffr sent stats without visible counts.");
+  return { visible: diff.stats.visible, textual: diff.stats.textual, structural: diff.stats.structural };
+}
+
 /**
- * Changed lines that are not hidden inside a collapsed region, per side, so
- * a header count says what the reader can see rather than what git counted.
- * `isCollapsed` answers for the region id on the given side.
+ * Changed lines that are not hidden inside a collapsed region, per side,
+ * recomputed locally once the reader toggles folds. `isCollapsed` answers for
+ * the region id on the given side.
  */
 export function structuralVisibleCounts(
   diff: StructuralTextDiff,

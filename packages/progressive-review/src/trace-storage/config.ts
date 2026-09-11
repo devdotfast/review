@@ -1,4 +1,5 @@
 import { readFileSync, statSync } from "node:fs";
+import { mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -12,6 +13,7 @@ import { z } from "zod";
 import { devReviewHome } from "../review-storage";
 import { writePrivateJsonAtomic } from "../server/desktop-paths";
 import { normalizeStoreOrigin } from "../store-origin";
+import { withFileLock } from "../with-file-lock";
 
 /**
  * The shared trace configuration at `$DEV_REVIEW_HOME/trace/config.json`.
@@ -270,21 +272,39 @@ export async function writeTraceConfigFile(
   config: TraceConfig,
 ): Promise<void> {
   if (file.error) throw new TraceConfigurationError(file.error);
-  if (currentFingerprint(file.path) !== file.fingerprint) {
+  await mkdir(path.dirname(file.path), { recursive: true, mode: 0o700 });
+  const outcome = await withFileLock(
+    `${path.resolve(file.path)}.lock`,
+    {
+      retryMs: 20,
+      timeoutMs: 10_000,
+      staleMs: 120_000,
+      heartbeatMs: 5_000,
+      unownedGraceMs: 1_000,
+    },
+    async () => {
+      if (currentFingerprint(file.path) !== file.fingerprint) {
+        throw new TraceConfigurationError(
+          `Trace configuration at ${file.path} changed while it was being updated. Re-run the command.`,
+        );
+      }
+      // JSON serialization drops undefined members, so absent sections and
+      // absent optional fields leave no trace in the file.
+      const document = {
+        ...file.extra,
+        version: TRACE_CONFIG_VERSION,
+        "current-store": config["current-store"],
+        stores: config.stores,
+        repositories: config.repositories,
+      };
+      await writePrivateJsonAtomic(file.path, document);
+    },
+  );
+  if (!outcome.acquired) {
     throw new TraceConfigurationError(
-      `Trace configuration at ${file.path} changed while it was being updated. Re-run the command.`,
+      `Trace configuration at ${file.path} is busy. Re-run the command after the current update finishes.`,
     );
   }
-  // JSON serialization drops undefined members, so absent sections and
-  // absent optional fields leave no trace in the file.
-  const document = {
-    ...file.extra,
-    version: TRACE_CONFIG_VERSION,
-    "current-store": config["current-store"],
-    stores: config.stores,
-    repositories: config.repositories,
-  };
-  await writePrivateJsonAtomic(file.path, document);
 }
 
 function currentFingerprint(filePath: string): string | null {

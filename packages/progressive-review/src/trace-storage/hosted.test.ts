@@ -478,58 +478,241 @@ describe("hosted trace storage", () => {
     );
     expect(readdirSync(mockBucket)).toEqual([]);
   });
-  it("reports a refusal at target resolution instead of serving another copy", async () => {
-    // A hosted copy saved earlier, under this origin and repository.
-    const sessionId = "hosted-session-0008";
-    const transport = createMemoryTraceStoreTransport();
-    const first = HostedTraceStorage.fromParts({
-      target: target(transport.storeId),
-      transport,
-      devHome,
+  it.each([
+    ["unauthorized", 401],
+    ["forbidden", 403],
+    ["store_deleted", 410],
+  ] as const)(
+    "reports %s at target resolution instead of serving another copy",
+    async (code, status) => {
+      // A hosted copy saved earlier, under this origin and repository.
+      const sessionId = "hosted-session-0008";
+      const transport = createMemoryTraceStoreTransport();
+      const first = HostedTraceStorage.fromParts({
+        target: target(transport.storeId),
+        transport,
+        devHome,
+      });
+      seedMemoryTraceSession(transport, {
+        repositoryId: REPOSITORY_ID,
+        sessionId,
+        traces: { "main.jsonl.gz": `${sessionRecord(sessionId, "cached")}\n` },
+      });
+      expect(
+        await loadReviewAgentTrace({ sessionId, cwd: repoDir, storage: first }),
+      ).not.toBeNull();
+
+      // Access is revoked: findStore answers forbidden.
+      writeConfig({ version: 2, "current-store": "hosted" });
+      clearTraceEnvCache();
+      await writeStoreAuth(
+        {
+          origin: ORIGIN,
+          token: "t",
+          login: "dev",
+          savedAt: "2026-09-02T00:00:00Z",
+        },
+        process.env,
+      );
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          Response.json(
+            {
+              error: {
+                code,
+                message: "You cannot use this repository.",
+              },
+            },
+            { status },
+          ),
+        ),
+      );
+      await expect(
+        resolveTraceStorage({ cwd: repoDir, onWarning: () => undefined }),
+      ).rejects.toBeInstanceOf(TraceStorageDeniedError);
+      // The saved copy is not served through a null storage either.
+      await expect(
+        loadReviewAgentTrace({ sessionId, cwd: repoDir }),
+      ).rejects.toBeInstanceOf(TraceStorageDeniedError);
+    },
+  );
+  it.each([undefined, "hosted"] as const)(
+    "requires a hosted target before reading saved copies (override %s)",
+    async (storageOverride) => {
+      const sessionId = "hosted-session-no-target";
+      const transport = createMemoryTraceStoreTransport();
+      seedMemoryTraceSession(transport, {
+        repositoryId: REPOSITORY_ID,
+        sessionId,
+        traces: {
+          "main.jsonl.gz": sessionRecord(sessionId, "private saved copy"),
+        },
+      });
+      expect(
+        await loadReviewAgentTrace({
+          sessionId,
+          storage: HostedTraceStorage.fromParts({
+            target: target(transport.storeId),
+            transport,
+            devHome,
+          }),
+        }),
+      ).not.toBeNull();
+      writeConfig({
+        version: 2,
+        "current-store": storageOverride ? "s3" : "hosted",
+        stores: {
+          hosted: { origin: ORIGIN },
+          s3: {
+            endpoint: "https://s3.example.invalid",
+            bucket: "old",
+            accessKeyId: "k",
+            secretAccessKey: "s",
+          },
+        },
+      });
+      await expect(
+        resolveTraceStorage({
+          cwd: repoDir,
+          override: storageOverride,
+          onWarning: () => undefined,
+        }),
+      ).rejects.toThrow(/review login/);
+      writeConfig({ version: 2, "current-store": "hosted" });
+      await expect(
+        loadReviewAgentTrace({ sessionId, cwd: repoDir }),
+      ).rejects.toThrow(/review login/);
+    },
+  );
+
+  it.each(["main", "agent-a1"])(
+    "forgets an authoritative removed %s object, including subsequent offline reads",
+    async (trace) => {
+      const sessionId = "hosted-session-removed";
+      const transport = createMemoryTraceStoreTransport();
+      const storage = (offline = false) =>
+        HostedTraceStorage.fromParts({
+          target: target(transport.storeId),
+          transport,
+          devHome,
+          offline,
+        });
+      seedMemoryTraceSession(transport, {
+        repositoryId: REPOSITORY_ID,
+        sessionId,
+        traces: {
+          "main.jsonl.gz": sessionRecord(sessionId, "main"),
+          "subagents/agent-a1.jsonl.gz": sessionRecord(sessionId, "subagent"),
+        },
+      });
+      expect(
+        await loadReviewAgentTrace({ sessionId, trace, storage: storage() }),
+      ).not.toBeNull();
+      if (trace === "main") transport.sessions.clear();
+      else
+        seedMemoryTraceSession(transport, {
+          repositoryId: REPOSITORY_ID,
+          sessionId,
+          traces: { "main.jsonl.gz": sessionRecord(sessionId, "main") },
+        });
+      expect(
+        await loadReviewAgentTrace({
+          sessionId,
+          trace,
+          storage: storage(),
+          refresh: true,
+        }),
+      ).toBeNull();
+      expect(
+        await loadReviewAgentTrace({ sessionId, trace, storage: storage() }),
+      ).toBeNull();
+      expect(
+        await loadReviewAgentTrace({
+          sessionId,
+          trace,
+          storage: storage(true),
+        }),
+      ).toBeNull();
+      const main = await loadReviewAgentTrace({
+        sessionId,
+        storage: storage(),
+      });
+      expect(main !== null).toBe(trace !== "main");
+    },
+  );
+
+  it("does not reuse a former store's copy after the store is recreated", async () => {
+    const sessionId = "hosted-session-recreated";
+    const old = createMemoryTraceStoreTransport({ storeId: "a".repeat(32) });
+    seedMemoryTraceSession(old, {
+      repositoryId: REPOSITORY_ID,
+      sessionId,
+      traces: {
+        "main.jsonl.gz": sessionRecord(sessionId, "old private content"),
+      },
     });
+    expect(
+      await loadReviewAgentTrace({
+        sessionId,
+        storage: HostedTraceStorage.fromParts({
+          target: target(old.storeId),
+          transport: old,
+          devHome,
+        }),
+      }),
+    ).not.toBeNull();
+    const transport = createMemoryTraceStoreTransport({
+      storeId: "b".repeat(32),
+    });
+    for (const offline of [true, false]) {
+      expect(
+        await loadReviewAgentTrace({
+          sessionId,
+          storage: HostedTraceStorage.fromParts({
+            target: target(transport.storeId),
+            transport,
+            devHome,
+            offline,
+          }),
+        }),
+      ).toBeNull();
+    }
+  });
+
+  it("does not return stale content when a download is denied", async () => {
+    const sessionId = "hosted-session-download-denied";
+    const transport = createMemoryTraceStoreTransport();
+    const storage = () =>
+      HostedTraceStorage.fromParts({
+        target: target(transport.storeId),
+        transport,
+        devHome,
+      });
     seedMemoryTraceSession(transport, {
       repositoryId: REPOSITORY_ID,
       sessionId,
-      traces: { "main.jsonl.gz": `${sessionRecord(sessionId, "cached")}\n` },
+      traces: { "main.jsonl.gz": sessionRecord(sessionId, "old") },
     });
     expect(
-      await loadReviewAgentTrace({ sessionId, cwd: repoDir, storage: first }),
+      await loadReviewAgentTrace({ sessionId, storage: storage() }),
     ).not.toBeNull();
-
-    // Access is revoked: findStore answers forbidden.
-    writeConfig({ version: 2, "current-store": "hosted" });
-    clearTraceEnvCache();
-    await writeStoreAuth(
-      {
-        origin: ORIGIN,
-        token: "t",
-        login: "dev",
-        savedAt: "2026-09-02T00:00:00Z",
-      },
-      process.env,
-    );
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        Response.json(
-          {
-            error: {
-              code: "forbidden",
-              message: "You cannot use this repository.",
-            },
-          },
-          { status: 403 },
-        ),
-      ),
-    );
+    seedMemoryTraceSession(transport, {
+      repositoryId: REPOSITORY_ID,
+      sessionId,
+      traces: { "main.jsonl.gz": sessionRecord(sessionId, "new") },
+    });
+    transport.getObject = async () => {
+      throw new TraceStorageDeniedError("Access revoked");
+    };
     await expect(
-      resolveTraceStorage({ cwd: repoDir, onWarning: () => undefined }),
+      loadReviewAgentTrace({ sessionId, storage: storage(), refresh: true }),
     ).rejects.toBeInstanceOf(TraceStorageDeniedError);
-    // The saved copy is not served through a null storage either.
     await expect(
-      loadReviewAgentTrace({ sessionId, cwd: repoDir }),
+      loadReviewAgentTrace({ sessionId, storage: storage() }),
     ).rejects.toBeInstanceOf(TraceStorageDeniedError);
   });
+
   it("does not let a same-name consent entry authorize another repository id", async () => {
     const sessionId = "hosted-session-0009";
     writeFileSync(

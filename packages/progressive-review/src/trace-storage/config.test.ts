@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import {
   mkdirSync,
   mkdtempSync,
@@ -8,6 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -107,6 +109,72 @@ describe("trace config file", () => {
       }),
     );
     expect(readTraceConfigFile({ env }).error).toContain("current-store");
+  });
+
+  it("serializes writers in separate processes and rejects the stale snapshot", async () => {
+    write(JSON.stringify({ version: 2, future: { keep: true } }));
+    const script = `
+      import { readTraceConfigFile, writeTraceConfigFile } from ${JSON.stringify(new URL("./config.ts", import.meta.url).href)};
+      const file = readTraceConfigFile();
+      process.stdout.write("ready\\n");
+      process.stdin.once("data", async () => {
+        try {
+          await writeTraceConfigFile(file, { version: 2, "current-store": process.argv[1] });
+          process.exit(0);
+        } catch (error) {
+          process.stderr.write(error.message);
+          process.exit(1);
+        }
+      });
+    `;
+    const children = ["hosted", "s3"].map((selection) => {
+      const child = spawn(
+        process.execPath,
+        ["--import", "tsx", "--input-type=module", "--eval", script, selection],
+        {
+          cwd: fileURLToPath(new URL("../..", import.meta.url)),
+          env: { ...process.env, ...env },
+          stdio: ["pipe", "pipe", "pipe"],
+        },
+      );
+      let stderr = "";
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk;
+      });
+      const ready = new Promise<void>((resolve, reject) => {
+        child.stdout.once("data", () => resolve());
+        child.once("error", reject);
+        child.once("exit", () =>
+          reject(new Error(stderr || "Writer exited before ready")),
+        );
+      });
+      const done = new Promise<{ code: number | null; stderr: string }>(
+        (resolve) => {
+          child.once("exit", (code) => resolve({ code, stderr }));
+        },
+      );
+      return { child, ready, done, selection };
+    });
+    try {
+      await Promise.all(children.map(({ ready }) => ready));
+      for (const { child } of children) child.stdin.end("write");
+      const results = await Promise.all(children.map(({ done }) => done));
+      expect(results.map(({ code }) => code).sort()).toEqual([0, 1]);
+      expect(results.find(({ code }) => code === 1)?.stderr).toMatch(
+        /changed while it was being updated/,
+      );
+      const winner = results.findIndex(({ code }) => code === 0);
+      expect(
+        JSON.parse(readFileSync(traceConfigPath({ env }), "utf8")),
+      ).toEqual({
+        version: 2,
+        future: { keep: true },
+        "current-store": children[winner].selection,
+      });
+    } finally {
+      for (const { child } of children)
+        if (child.exitCode === null) child.kill();
+    }
   });
 
   it("writes privately, preserves unknown fields, and refuses concurrent edits", async () => {

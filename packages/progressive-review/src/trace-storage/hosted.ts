@@ -246,7 +246,9 @@ export class HostedTraceStorage implements TraceStorage {
       const cause = error instanceof Error ? error : new Error(String(error));
       if (
         cause instanceof StoreApiError &&
-        (cause.code === "forbidden" || cause.code === "store_deleted")
+        (cause.code === "unauthorized" ||
+          cause.code === "forbidden" ||
+          cause.code === "store_deleted")
       ) {
         // The store answered and refused. Nothing saved may pass as current.
         throw new TraceStorageDeniedError(cause.message);
@@ -262,7 +264,7 @@ export class HostedTraceStorage implements TraceStorage {
   }
 
   cacheIdentity(): string {
-    return `hosted:${traceTargetKey(this.repositoryTarget)}`;
+    return `hosted:${traceTargetKey(this.repositoryTarget)}:${this.repositoryTarget.storeId}`;
   }
 
   cacheScope() {

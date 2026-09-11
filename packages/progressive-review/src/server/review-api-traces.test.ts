@@ -97,19 +97,20 @@ describe("agent trace routes", () => {
     expect(response.status).toBe(400);
   });
 
-  it("names a missing login when the hosted source is requested", async () => {
-    await writeTraceConfig({ version: 2, "current-store": "hosted" });
-    const response = await (
-      await api()
-    ).app.request("/agent-traces?storage=hosted");
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      ok: true,
-      storage: "hosted",
-      sessions: [],
-      storageError: expect.stringContaining("review login"),
-    });
-  });
+  it.each(["", "?storage=hosted"])(
+    "names a missing login when the hosted source is requested (%s)",
+    async (query) => {
+      await writeTraceConfig({ version: 2, "current-store": "hosted" });
+      const response = await (await api()).app.request(`/agent-traces${query}`);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        ok: true,
+        storage: "hosted",
+        sessions: [],
+        storageError: expect.stringContaining("review login"),
+      });
+    },
+  );
 
   it("names a malformed config instead of calling it unconfigured", async () => {
     await writeTraceConfig({
@@ -134,38 +135,45 @@ describe("agent trace routes", () => {
     });
   });
 
-  it("reports a refusal on the detail route as not found with the reason", async () => {
-    await writeTraceConfig({ version: 2, "current-store": "hosted" });
-    await writeStoreAuth(
-      {
-        origin: "https://app.dev.fast",
-        token: "t",
-        login: "dev",
-        savedAt: "2026-09-02T00:00:00Z",
-      },
-      process.env,
-    );
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        Response.json(
-          {
-            error: {
-              code: "forbidden",
-              message: "You cannot use this repository.",
+  it.each([
+    ["unauthorized", 401, ""],
+    ["unauthorized", 401, "?storage=hosted"],
+    ["forbidden", 403, ""],
+  ] as const)(
+    "reports %s on the detail route with the reason (%s %s)",
+    async (code, status, query) => {
+      await writeTraceConfig({ version: 2, "current-store": "hosted" });
+      await writeStoreAuth(
+        {
+          origin: "https://app.dev.fast",
+          token: "t",
+          login: "dev",
+          savedAt: "2026-09-02T00:00:00Z",
+        },
+        process.env,
+      );
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          Response.json(
+            {
+              error: {
+                code,
+                message: "You cannot use this repository.",
+              },
             },
-          },
-          { status: 403 },
+            { status },
+          ),
         ),
-      ),
-    );
-    const response = await (
-      await api()
-    ).app.request("/agent-traces/hosted-session-0001");
-    expect(response.status).toBe(404);
-    expect(await response.json()).toMatchObject({
-      ok: false,
-      error: expect.stringContaining("cannot use this repository"),
-    });
-  });
+      );
+      const response = await (
+        await api()
+      ).app.request(`/agent-traces/hosted-session-0001${query}`);
+      expect(response.status).toBe(404);
+      expect(await response.json()).toMatchObject({
+        ok: false,
+        error: expect.stringContaining("cannot use this repository"),
+      });
+    },
+  );
 });

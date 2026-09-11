@@ -48,6 +48,45 @@ describe("trace user config", () => {
     ).toBeNull();
   });
 
+  it("reports concurrent consent conflicts and preserves both changes after retry", async () => {
+    await allowTraceRepository(
+      { repositoryId: 1, name: "acme/app", origin: DEFAULT_HOSTED_ORIGIN },
+      devHome,
+    );
+    const operations = [
+      () => denyTraceRepository({ name: "acme/app" }, devHome),
+      () =>
+        allowTraceRepository(
+          {
+            repositoryId: 2,
+            name: "acme/other",
+            origin: DEFAULT_HOSTED_ORIGIN,
+          },
+          devHome,
+        ),
+    ];
+    const results = await Promise.allSettled(
+      operations.map((operation) => operation()),
+    );
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+    const rejected = results.find((result) => result.status === "rejected");
+    expect(rejected?.reason.message).toMatch(
+      /changed while it was being updated/,
+    );
+    for (const [index, result] of results.entries()) {
+      if (result.status === "rejected") {
+        await operations[index]();
+      }
+    }
+    const config = await readTraceUserConfig(devHome);
+    expect(findTraceRepository(config, "acme/app")).toBeNull();
+    expect(findTraceRepository(config, "acme/other")?.enabledOrigins).toEqual([
+      DEFAULT_HOSTED_ORIGIN,
+    ]);
+  });
+
   it("keeps one entry per repository and appends origins", async () => {
     await allowTraceRepository(
       { repositoryId: 1, name: "Acme/App", origin: "https://one.dev.fast" },

@@ -190,9 +190,9 @@ async function hostedStorage(
     homeDir: input.homeDir,
     onWarning: input.onWarning,
   });
-  if (!storage && write) {
+  if (!storage) {
     throw new TraceConfigurationError(
-      "Hosted trace storage needs a GitHub checkout with an onboarded store. Run `review trace onboard` and `review trace allow .`.",
+      "Hosted trace storage needs a login and a GitHub checkout with an onboarded store. Run `review login`, `review trace onboard`, and `review trace allow .`.",
     );
   }
   return storage;

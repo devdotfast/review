@@ -290,6 +290,8 @@ export async function loadReviewAgentTrace(input: {
     normalized && !input.refresh && now - lastChecked < REMOTE_HEAD_TTL_MS;
 
   if (storage && checkKey && !canUseWithoutCheck) {
+    // A hosted refresh is current only after the whole read succeeds.
+    if (storage.kind === "hosted") lastCheckedTimes.delete(checkKey);
     let remote: Awaited<ReturnType<TraceStorage["describeObject"]>>;
     try {
       remote = await storage.describeObject(sessionId, traceName);
@@ -303,7 +305,14 @@ export async function loadReviewAgentTrace(input: {
         ? loadedNormalizedTrace(normalized, input.commits, "offline")
         : null;
     }
-    lastCheckedTimes.set(checkKey, now);
+    if (storage.kind === "hosted" && remote === null) {
+      // A live manifest is authoritative. Remove only this store's copy so
+      // later offline reads cannot revive an object the store removed.
+      if (normalized && normalizedPath) rmSync(normalizedPath, { force: true });
+      lastCheckedTimes.delete(checkKey);
+      return null;
+    }
+    if (storage.kind !== "hosted") lastCheckedTimes.set(checkKey, now);
     const mustMaterialize =
       remote !== null &&
       (!normalized || !cacheIsCurrent(storage, normalized, remote));
@@ -349,6 +358,7 @@ export async function loadReviewAgentTrace(input: {
       }
       normalized = fresh;
     }
+    if (storage.kind === "hosted") lastCheckedTimes.set(checkKey, now);
   }
 
   if (!normalized) return null;
@@ -471,6 +481,8 @@ async function materializeNormalizedTrace(input: {
         rawTempPath,
       );
     } catch (error) {
+      // A refusal must not become a stale-cache response.
+      if (error instanceof TraceStorageDeniedError) throw error;
       // A failed or corrupt transfer leaves no file and no cache change.
       if (error instanceof TraceStorageUnavailableError) return null;
       process.stderr.write(

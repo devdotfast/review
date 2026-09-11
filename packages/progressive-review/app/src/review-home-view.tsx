@@ -29,6 +29,8 @@ import {
 
 import { fuzzyMatches, fuzzySegments } from "../../src/fuzzy-match";
 import { TARGET_LABELS } from "./agent-setup-card";
+import { CopyIcon, copyText } from "./copy-text";
+import { repairCommand } from "./repair-instruction";
 import { ArchiveIcon } from "./review-corner-action";
 import { WelcomePage } from "./welcome-page";
 
@@ -135,11 +137,24 @@ export function ReviewHome({
   const [view, setView] = useState<ReviewHomeView>(readStoredHomeView);
   const [showDismissed, setShowDismissed] = useState(false);
   const [query, setQuery] = useState("");
+  const [openedErrorDir, setOpenedErrorDir] = useState<string | null>(null);
+  const openedError = reviewErrors.find(
+    (error) => error.reviewDir === openedErrorDir,
+  );
   const actions = useMemo(
     () => ({ onDismiss, onRestore, onOpenSourceTree }),
     [onDismiss, onRestore, onOpenSourceTree],
   );
   const needle = query.trim();
+  const foundErrors = reviewErrors.filter((error) =>
+    fuzzyMatches(
+      needle,
+      error.title ?? "",
+      error.worktreePath ?? "",
+      error.reviewUuid ?? "",
+      error.reviewDir,
+    ),
+  );
   const found = useMemo(
     () => reviews.filter((review) => matchesQuery(review, needle)),
     [reviews, needle],
@@ -178,14 +193,21 @@ export function ReviewHome({
     );
   }
 
+  if (openedError) {
+    return (
+      <UnavailableReview
+        key={openedError.reviewDir}
+        error={openedError}
+        onBack={() => setOpenedErrorDir(null)}
+      />
+    );
+  }
+
   return (
     <main className="review-home" data-view={view}>
       <div className="review-home-scroll">
         <div className="review-home-content">
           {setup ? <SetupBanner setup={setup} /> : null}
-          {reviewErrors.length > 0 ? (
-            <ReviewScanWarning errors={reviewErrors} />
-          ) : null}
           <div className="review-home-page-header">
             <h1>Reviews</h1>
             <div className="review-home-page-header-tools">
@@ -193,10 +215,28 @@ export function ReviewHome({
               <ViewToggle view={view} onChange={selectView} />
             </div>
           </div>
+          <div
+            className="review-home-unavailable-entries"
+            aria-label="Unavailable reviews"
+          >
+            {foundErrors.map((error) => (
+              <button
+                key={error.reviewDir}
+                type="button"
+                className="review-home-card"
+                onClick={() => setOpenedErrorDir(error.reviewDir)}
+              >
+                <span className="review-home-review-title">
+                  {error.title || error.reviewUuid || error.reviewDir}
+                </span>
+                <span>Unavailable</span>
+              </button>
+            ))}
+          </div>
           {/* Keyed off the active list, not the whole result: a query that hits
               only dismissed reviews empties the main area, and the collapsed
               Dismissed count alone does not explain why. */}
-          {needle && active.length === 0 ? (
+          {needle && active.length === 0 && foundErrors.length === 0 ? (
             <p className="review-home-search-empty">
               {dismissed.length > 0
                 ? `No active reviews match “${needle}”. Look in Dismissed below.`
@@ -227,16 +267,96 @@ export function ReviewHome({
   );
 }
 
-function ReviewScanWarning({ errors }: { errors: readonly ReviewListError[] }) {
-  // Migration reminders are owned by the native workbench notification.
-  const issueCount = errors.filter(
-    (error) => error.code !== "MIGRATION_REQUIRED",
-  ).length;
-  if (issueCount === 0) return null;
+function unavailableReviewGuidance(error: ReviewListError) {
+  let explanation: string;
+  let command: string | undefined;
+  switch (error.code) {
+    case "MIGRATION_REQUIRED":
+      explanation =
+        "This review needs manual migration. Copy the prompt to your agent.";
+      command = "review migrate apply";
+      break;
+    case "REPAIR_REQUIRED":
+      explanation =
+        "This review needs manual repair. Copy the prompt to your agent.";
+      command = error.reviewUuid
+        ? repairCommand(error.reviewUuid)
+        : "review migrate apply";
+      break;
+    default:
+      explanation =
+        "This review could not be opened. Copy the prompt to your agent.";
+  }
+  const nextStep = command
+    ? `Inspect the affected review and create any necessary backup yourself before making changes; do not ask me to do manual backup steps. Use the supported local review CLI (${command}) if appropriate. If the data was created by a newer Review version, update Review instead of downgrading its data.`
+    : "Inspect the diagnostic and fix the underlying access or storage problem.";
+  const prompt = [
+    `Help me open this Review: ${JSON.stringify(error.title || error.reviewUuid || error.reviewDir)}.`,
+    `Review directory: ${JSON.stringify(error.reviewDir)}.`,
+    `Diagnostic: ${JSON.stringify(error.message)}.`,
+    nextStep,
+    "Preserve reviews, comments, and history. Do not use --force or delete data. Confirm that the affected review opens afterward.",
+  ].join("\n");
+  return {
+    explanation,
+    prompt,
+    promptLabel: command ? "Migration prompt" : "Recovery prompt",
+  };
+}
+
+function UnavailableReview({
+  error,
+  onBack,
+}: {
+  error: ReviewListError;
+  onBack(): void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
+  const { explanation, prompt, promptLabel } = unavailableReviewGuidance(error);
   return (
-    <section className="review-scan-warning" aria-label="Review warnings">
-      <span>{`${issueCount} ${issueCount === 1 ? "Review has" : "Reviews have"} issues.`}</span>
-    </section>
+    <main className="review-home">
+      <div className="review-home-scroll">
+        <section
+          className="review-home-content review-unavailable"
+          aria-label="Review unavailable"
+        >
+          <button type="button" onClick={onBack}>
+            Back to reviews
+          </button>
+          <h1>{error.title || "Review unavailable"}</h1>
+          <p>{explanation}</p>
+          <button
+            type="button"
+            className="review-home-prompt-copy"
+            aria-live="polite"
+            aria-label={copied ? "Prompt copied" : "Copy prompt"}
+            onClick={() => {
+              void copyText(prompt).then((ok) => {
+                setCopied(ok);
+                setCopyFailed(!ok);
+              });
+            }}
+          >
+            <CopyIcon />
+            {copied ? "Copied" : "Copy prompt"}
+          </button>
+          {copyFailed ? (
+            <p role="alert">
+              Could not copy the prompt. Select it below and copy it manually.
+            </p>
+          ) : null}
+          <details>
+            <summary>{promptLabel}</summary>
+            <pre>{prompt}</pre>
+          </details>
+          <details>
+            <summary>Technical details</summary>
+            <pre>{error.message}</pre>
+          </details>
+        </section>
+      </div>
+    </main>
   );
 }
 

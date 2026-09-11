@@ -304,7 +304,7 @@ export class ReviewWorkbench extends Disposable implements IAgentWorkbenchLayout
 	private _restoreAttachedEditorMaximizedOnShow = false;
 	protected _editorPartAutoVisibilitySuppressionCount = 0;
 	protected _hasAppliedInitialEditorSplit = false;
-	private reviewChromeInsetElement: HTMLElement | undefined;
+	private readonly reviewChromeTabStrips: HTMLElement[] = [];
 	private readonly reviewChromeDragListeners = this._register(new DisposableStore());
 	private readonly reviewChromeInsetScheduler = this._register(new RunOnceScheduler(() => this.updateReviewChromeInset(), 0));
 
@@ -1142,8 +1142,10 @@ export class ReviewWorkbench extends Disposable implements IAgentWorkbenchLayout
 	private updateReviewChromeInset(): void {
 		this.reviewChromeDragListeners.clear();
 		this.mainContainer.classList.remove('review-tab-dragging');
-		this.reviewChromeInsetElement?.classList.remove('review-chrome-inset');
-		this.reviewChromeInsetElement = undefined;
+		for (const tabStrip of this.reviewChromeTabStrips) {
+			tabStrip.classList.remove('review-chrome-tab-strip', 'review-chrome-inset');
+		}
+		this.reviewChromeTabStrips.length = 0;
 
 		const editorPartContainer = this._editorPartContainer;
 		if (!editorPartContainer) {
@@ -1152,6 +1154,7 @@ export class ReviewWorkbench extends Disposable implements IAgentWorkbenchLayout
 
 		let topLeftGroup: HTMLElement | undefined;
 		let topLeftRect: DOMRect | undefined;
+		const visibleGroups: { group: HTMLElement; rect: DOMRect }[] = [];
 		const groups = editorPartContainer.getElementsByClassName('editor-group-container');
 		for (let index = 0; index < groups.length; index++) {
 			const group = groups[index];
@@ -1164,28 +1167,40 @@ export class ReviewWorkbench extends Disposable implements IAgentWorkbenchLayout
 				continue;
 			}
 
+			visibleGroups.push({ group, rect });
+
 			if (!topLeftRect || rect.top < topLeftRect.top - 1 || (Math.abs(rect.top - topLeftRect.top) <= 1 && rect.left < topLeftRect.left)) {
 				topLeftGroup = group;
 				topLeftRect = rect;
 			}
 		}
 
-		if (!topLeftGroup) {
+		if (!topLeftGroup || !topLeftRect) {
 			return;
 		}
 
-		const tabStrips = topLeftGroup.getElementsByClassName('tabs-and-actions-container');
-		for (let index = 0; index < tabStrips.length; index++) {
-			const tabStrip = tabStrips[index];
-			if (isHTMLElement(tabStrip)) {
-				this.reviewChromeInsetElement = tabStrip;
-				tabStrip.classList.add('review-chrome-inset');
-				this.reviewChromeDragListeners.add(addDisposableListener(tabStrip, 'dragstart', () => this.mainContainer.classList.add('review-tab-dragging')));
-				const finishTabDrag = () => this.mainContainer.classList.remove('review-tab-dragging');
-				this.reviewChromeDragListeners.add(addDisposableListener(tabStrip, 'dragend', finishTabDrag));
-				this.reviewChromeDragListeners.add(addDisposableListener(tabStrip, 'drop', finishTabDrag));
-				break;
+		const finishTabDrag = () => this.mainContainer.classList.remove('review-tab-dragging');
+
+		// Every top-row group shares window dragging, including Ask Agent's
+		// terminal group. Only the leftmost group needs the navigation inset.
+		for (const { group, rect } of visibleGroups) {
+			if (Math.abs(rect.top - topLeftRect.top) > 1) {
+				continue;
 			}
+
+			const tabStrip = group.querySelector(':scope > .title > .tabs-and-actions-container');
+			if (!isHTMLElement(tabStrip)) {
+				continue;
+			}
+
+			this.reviewChromeTabStrips.push(tabStrip);
+			tabStrip.classList.add('review-chrome-tab-strip');
+			if (group === topLeftGroup) {
+				tabStrip.classList.add('review-chrome-inset');
+			}
+			this.reviewChromeDragListeners.add(addDisposableListener(tabStrip, 'dragstart', () => this.mainContainer.classList.add('review-tab-dragging')));
+			this.reviewChromeDragListeners.add(addDisposableListener(tabStrip, 'dragend', finishTabDrag));
+			this.reviewChromeDragListeners.add(addDisposableListener(tabStrip, 'drop', finishTabDrag));
 		}
 	}
 

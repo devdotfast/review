@@ -30,6 +30,8 @@ export interface ReviewMultiDiffHeaderEntry {
 export class ReviewMultiDiffUIElementFactory
   implements IWorkbenchUIElementFactory
 {
+  createUnifiedEditor?: IWorkbenchUIElementFactory["createUnifiedEditor"];
+
   get headerClickToCollapse(): boolean {
     return !this.hideResourceHeader;
   }

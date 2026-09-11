@@ -22,11 +22,13 @@ import { writeNote } from "@dev.fast/local-vcs";
 import { parseJsonText } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
-import { writeReviewDocumentBundle } from "../src/review-bundle";
+import { buildReviewDocument } from "../src/document/build";
+import {
+  bundleReviewDocument,
+  writeReviewDocumentBundle,
+} from "../src/review-bundle";
 import { createReviewDir } from "../src/review-home";
-import { evaluateReviewDocumentBundleForPublish } from "../src/review-publish-evaluate";
 import { SOFTWARE_MAP_NOTES_REF } from "../src/review-storage";
-import { compileReviewDocumentBundle } from "../src/server/doc-bundler";
 import { canonicalizeModelImport } from "../src/software-map-artifact";
 import {
   bundleReviewSoftwareMap,
@@ -35,7 +37,9 @@ import {
 import { loadPublishSoftwareMaps } from "../src/software-map-health";
 
 const execFilePromise = promisify(execFile);
+
 const packageRoot = path.resolve(import.meta.dirname, "..");
+
 const tutorialDir = path.join(packageRoot, "tutorial");
 
 /** A manifest entry that names a file inside the tutorial tree. */
@@ -66,9 +70,11 @@ export async function readTutorialRuntimeManifest(
       await readFile(path.join(tutorialRoot, "runtime-manifest.json"), "utf8"),
     ),
   );
+
   if (!parsed.success) {
     throw new Error("Tutorial runtime manifest is invalid.");
   }
+
   return parsed.data;
 }
 
@@ -113,9 +119,11 @@ export async function buildTutorialAssets(
 ): Promise<BuiltTutorialAssets> {
   const outDir = input.outDir ?? tutorialDir;
   const runtimeManifest = await readTutorialRuntimeManifest(tutorialDir);
+
   const temporaryRoot = await mkdtemp(
     path.join(os.tmpdir(), "review-tutorial-build-"),
   );
+
   try {
     // 1. Deterministic stub repository.
     const repo = path.join(temporaryRoot, "sample-service");
@@ -126,18 +134,22 @@ export async function buildTutorialAssets(
     await git(repo, ["config", "user.name", "Review Tutorial"]);
     await git(repo, ["config", "user.email", "tutorial@review.local"]);
     const headSources = new Map<string, string>();
+
     for (const rewrite of BASE_SOURCE_REWRITES) {
       const sourcePath = path.join(repo, rewrite.path);
       const headSource = await readFile(sourcePath, "utf8");
+
       if (!headSource.includes(rewrite.head)) {
         throw new Error(`Tutorial base rewrite is stale for ${rewrite.path}.`);
       }
+
       headSources.set(rewrite.path, headSource);
       await writeFile(
         sourcePath,
         headSource.replace(rewrite.head, rewrite.base),
       );
     }
+
     await git(repo, ["add", "."]);
     await git(repo, [
       "commit",
@@ -146,9 +158,11 @@ export async function buildTutorialAssets(
       "Create sample order service",
     ]);
     const baseCommit = (await git(repo, ["rev-parse", "HEAD"])).trim();
+
     for (const [relativePath, source] of headSources) {
       await writeFile(path.join(repo, relativePath), source);
     }
+
     await git(repo, ["add", "."]);
     await git(repo, [
       "commit",
@@ -159,6 +173,7 @@ export async function buildTutorialAssets(
     const commit = (await git(repo, ["rev-parse", "HEAD"])).trim();
     const count = (await git(repo, ["rev-list", "--count", "HEAD"])).trim();
     const parent = (await git(repo, ["rev-parse", "HEAD^"])).trim();
+
     if (count !== "2" || parent !== baseCommit) {
       throw new Error(
         `The tutorial repository must have a two-commit base/head history: ${count}`,
@@ -171,6 +186,7 @@ export async function buildTutorialAssets(
       path.join(tutorialDir, "software-map.ts"),
       "utf8",
     );
+
     await writeNote({
       rootPath: repo,
       ref: SOFTWARE_MAP_NOTES_REF,
@@ -184,8 +200,7 @@ export async function buildTutorialAssets(
       content: canonicalizeModelImport(mapSource),
     });
 
-    // 3. Compile from a throwaway review dir bound to the stub repo — the
-    // compiler's software-map scan reads the store record beside the MDX.
+    // 3. Validate the authored document in a throwaway review directory.
     const review = await createReviewDir({
       reviewsHomePath: temporaryRoot,
       worktreePath: repo,
@@ -194,48 +209,51 @@ export async function buildTutorialAssets(
       sourceCommit: commit,
       sourceIdentity: { kind: "git-branch", name: "main" },
     });
+
     await Promise.all(
       runtimeManifest.reviewFiles.map((entry) =>
         cp(path.join(tutorialDir, entry), path.join(review.dir, entry)),
       ),
     );
-    const compiled = await compileReviewDocumentBundle({
-      reviewPath: path.join(review.dir, "review.mdx"),
-      reviewDocumentsDir: path.join(review.dir, ".review-documents"),
-      reviewRootPath: review.dir,
-      routePath: "/",
-    });
-    if (!compiled.bundle) {
-      throw new Error(
-        `Tutorial document compilation failed:\n${compiled.diagnostics.map((item) => item.message).join("\n")}`,
-      );
-    }
 
-    // 4. The same validation publish runs, against the stub repository.
-    const evaluation = await evaluateReviewDocumentBundleForPublish({
-      bundleCode: compiled.bundle.code,
-      reviewDir: review.dir,
+    const evaluation = await buildReviewDocument({
+      reviewPath: path.join(review.dir, "review.mdx"),
       prepareEvidence: async () => ({
         head: { sourceRootPath: repo },
         base: { sourceRootPath: repo },
       }),
     });
+
+    if (evaluation.diagnostics.some((item) => item.severity === "error")) {
+      throw new Error(
+        `Tutorial document validation failed:\n${evaluation.diagnostics.map((item) => item.message).join("\n")}`,
+      );
+    }
+
     if (evaluation.errors.length > 0) {
       throw new Error(
         `Tutorial document evaluation failed:\n${evaluation.errors.join("\n")}`,
       );
     }
+
+    if (!evaluation.document) {
+      throw new Error("Tutorial document did not materialize.");
+    }
+
     if (evaluation.peekCount === 0) {
       throw new Error(
         "The tutorial document did not resolve any code evidence.",
       );
     }
+
     for (const peek of evaluation.rangePeeks) {
       const sourcePath = path.join(repo, peek.file);
       await stat(sourcePath);
+
       const lineCount = (await readFile(sourcePath, "utf8")).split(
         /\r?\n/,
       ).length;
+
       if (
         peek.fromLine < 1 ||
         peek.toLine < peek.fromLine ||
@@ -253,11 +271,13 @@ export async function buildTutorialAssets(
       baseCommit,
       headCommit: commit,
     });
+
     if (maps.errors.length > 0 || !maps.base || !maps.head) {
       throw new Error(
         `The tutorial map did not resolve for both Review roles:\n${maps.errors.join("\n")}`,
       );
     }
+
     const mapBundle = bundleReviewSoftwareMap({
       head: maps.head,
       base: maps.base,
@@ -266,10 +286,14 @@ export async function buildTutorialAssets(
     });
 
     // 6. Write outputs only after everything validated.
-    await writeReviewDocumentBundle(outDir, compiled.bundle);
+    await writeReviewDocumentBundle(
+      outDir,
+      bundleReviewDocument(evaluation.document),
+    );
     await writeReviewSoftwareMapBundle(outDir, mapBundle);
     const gitStub = path.join(outDir, "git-stub");
     await rm(gitStub, { recursive: true, force: true });
+
     for (const entry of [
       "logs",
       "hooks",
@@ -282,6 +306,7 @@ export async function buildTutorialAssets(
         force: true,
       });
     }
+
     // cp + rm instead of rename: the temp dir can sit on another filesystem.
     await cp(path.join(repo, ".git"), gitStub, { recursive: true });
     await makeTreeOwnerWritable(gitStub);
@@ -299,13 +324,16 @@ export async function buildTutorialAssets(
 async function makeTreeOwnerWritable(directory: string): Promise<void> {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const absolute = path.join(directory, entry.name);
+
     if (entry.isDirectory()) {
       await makeTreeOwnerWritable(absolute);
       continue;
     }
+
     if (!entry.isFile()) continue;
 
     const current = await stat(absolute);
+
     if ((current.mode & 0o200) === 0) {
       await chmod(absolute, current.mode | 0o200);
     }
@@ -318,6 +346,7 @@ async function git(cwd: string, args: string[]): Promise<string> {
     encoding: "utf8",
     env: { ...process.env, ...COMMIT_ENV },
   });
+
   return stdout;
 }
 

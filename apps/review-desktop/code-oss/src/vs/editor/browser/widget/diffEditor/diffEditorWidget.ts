@@ -84,6 +84,7 @@ export class DiffEditorWidget extends DelegatingEditor implements IDiffEditor {
 
 	private readonly _gutter: IObservable<DiffEditorGutter | undefined>;
 
+	public get renderSideBySideObservable() { return this._options.renderSideBySide; }
 	public get collapseUnchangedRegions() { return this._options.hideUnchangedRegions.get(); }
 
 	/**

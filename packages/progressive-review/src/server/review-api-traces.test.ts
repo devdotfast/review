@@ -67,6 +67,7 @@ describe("agent trace routes", () => {
     const reviewPath = path.join(created.dir, "review.mdx");
     await writeFile(reviewPath, "# Review\n", "utf8");
     return createReviewApi({
+      mode: { kind: "live" },
       reviewPath,
       stateReviewPath: reviewPath,
       reviewRootPath: created.dir,

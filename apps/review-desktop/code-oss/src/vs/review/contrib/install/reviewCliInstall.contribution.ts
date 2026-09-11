@@ -5,7 +5,7 @@
 
 import { localize, localize2 } from '../../../nls.js';
 import { isCancellationError } from '../../../base/common/errors.js';
-import { isMacintosh } from '../../../base/common/platform.js';
+import { isLinux, isMacintosh } from '../../../base/common/platform.js';
 import { Action2, registerAction2 } from '../../../platform/actions/common/actions.js';
 import { IDialogService } from '../../../platform/dialogs/common/dialogs.js';
 import type { ServicesAccessor } from '../../../platform/instantiation/common/instantiation.js';
@@ -211,6 +211,14 @@ class UninstallReviewDesktopAction extends Action2 {
 			await dialogService.error(
 				localize('review.uninstall.failed', "Review could not remove the installed skills and command."),
 				String(error),
+			);
+			return;
+		}
+
+		if (isLinux) {
+			await dialogService.info(
+				localize('review.uninstall.linuxDone', "Review’s user-installed integrations were removed."),
+				localize('review.uninstall.linuxFinish', "To remove the app, quit Review and run sudo apt remove dev-fast-review on Ubuntu, or sudo pacman -R dev-fast-review on Omarchy / Arch. Your reviews and settings stay on disk."),
 			);
 			return;
 		}

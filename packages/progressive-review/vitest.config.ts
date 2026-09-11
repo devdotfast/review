@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { configDefaults, defineConfig } from "vitest/config";
 
 const require = createRequire(import.meta.url);
+
 const decodeNamedCharacterReferenceIndex = path.join(
   path.dirname(require.resolve("decode-named-character-reference")),
   "index.js",
@@ -16,7 +17,7 @@ const isolatedTests = [
   "app/src/review-panel.test.tsx",
   "app/src/review-ui-state.test.ts",
   "app/src/side-panel-resizer.test.tsx",
-  "src/compiler/review-document-compiler.test.ts",
+  "src/document/check.test.ts",
   "src/review-source-ref-errors.test.ts",
 ];
 

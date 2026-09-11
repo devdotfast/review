@@ -1,4 +1,14 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
@@ -27,6 +37,23 @@ import type {
 
 export const REVIEW_THREAD_DB_FILENAME = "review.db";
 export const REVIEW_THREAD_DB_SCHEMA_VERSION = 9;
+const LEGACY_THREAD_DB_SCHEMA_VERSIONS = new Set([
+  "1",
+  "2",
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
+  "8",
+]);
+
+function isSupportedThreadDbVersion(version: string | null): version is string {
+  return (
+    version === String(REVIEW_THREAD_DB_SCHEMA_VERSION) ||
+    (version !== null && LEGACY_THREAD_DB_SCHEMA_VERSIONS.has(version))
+  );
+}
 
 export function reviewStateDir(reviewMdxPath: string): string {
   return path.dirname(path.resolve(reviewMdxPath));
@@ -95,6 +122,10 @@ CREATE TABLE IF NOT EXISTS comment_drafts (
 const REVIEW_THREAD_DB_V2_TO_V3_DDL = "DROP TABLE IF EXISTS questions;";
 
 const openDatabases = new Map<string, DatabaseSync>();
+const StoredThreadRowSchema = z.object({
+  thread_id: z.string(),
+  record_json: z.string(),
+});
 
 function openThreadDb(
   dbPath: string,
@@ -163,9 +194,213 @@ export function checkReviewThreadDbVersion(reviewMdxPath: string): void {
   }
 }
 
+/** A snapshot taken from a verified copy. `revision` is always 0 because a copy
+ * cannot participate in the writer's revision sequence. `readOnly` tells a
+ * reader this is not a writable store at revision 0. */
+export interface ReviewThreadsReadOnlySnapshot {
+  readonly readOnly: true;
+  readonly revision: 0;
+  readonly comments: ReviewCommentThreadMap;
+  readonly drafts: ReviewCommentDraftThreadMap;
+}
+
+/** Cheap change detector for a cached read-only snapshot: every thread write
+ * changes the database file or its write-ahead log. */
+export function reviewThreadDbSnapshotToken(reviewMdxPath: string): string {
+  const dbPath = reviewThreadDbPath(reviewMdxPath);
+  const stamp = (filePath: string): string => {
+    try {
+      const stats = statSync(filePath);
+      return `${stats.ino}:${stats.size}:${stats.mtimeMs}`;
+    } catch {
+      return "absent";
+    }
+  };
+  return `${stamp(dbPath)}|${stamp(`${dbPath}-wal`)}`;
+}
+
+/** SQLite readOnly still changes WAL reader marks in SHM. Recovery therefore
+ * reads a verified DB+WAL copy and never opens SQLite on the original files. */
+export function readReviewThreadsReadOnly(
+  reviewMdxPath: string,
+): ReviewThreadsReadOnlySnapshot {
+  return withThreadDatabaseSnapshot(reviewMdxPath, readThreadDatabaseSnapshot);
+}
+
+function withThreadDatabaseSnapshot<T>(
+  reviewMdxPath: string,
+  read: (snapshotPath: string, dbPath: string) => T,
+): T {
+  const dbPath = reviewThreadDbPath(reviewMdxPath);
+  if (!existsSync(dbPath))
+    throw new Error("The review thread database is unavailable.");
+  const snapshot = stableThreadDatabaseSnapshot(dbPath);
+  const snapshotDir = mkdtempSync(path.join(tmpdir(), "review-threads-read-"));
+  try {
+    const snapshotPath = path.join(snapshotDir, REVIEW_THREAD_DB_FILENAME);
+    writeFileSync(snapshotPath, snapshot.database);
+    if (snapshot.wal) writeFileSync(`${snapshotPath}-wal`, snapshot.wal);
+    return read(snapshotPath, dbPath);
+  } finally {
+    rmSync(snapshotDir, { recursive: true, force: true });
+  }
+}
+
+function threadDatabaseFingerprint(
+  snapshot: ReturnType<typeof stableThreadDatabaseSnapshot>,
+): string {
+  return createHash("sha256")
+    .update(createHash("sha256").update(snapshot.database).digest())
+    .update(
+      snapshot.wal === null
+        ? "absent"
+        : createHash("sha256").update(snapshot.wal).digest(),
+    )
+    .digest("hex");
+}
+
+export function readReviewThreadDatabaseFingerprint(
+  reviewMdxPath: string,
+): string {
+  return threadDatabaseFingerprint(
+    stableThreadDatabaseSnapshot(reviewThreadDbPath(reviewMdxPath)),
+  );
+}
+
+/** Copy committed database state without opening the live database in SQLite. */
+export function copyReviewThreadDatabaseSnapshot(
+  reviewMdxPath: string,
+  destinationReviewMdxPath: string,
+): string {
+  const snapshot = stableThreadDatabaseSnapshot(
+    reviewThreadDbPath(reviewMdxPath),
+  );
+  const destination = reviewThreadDbPath(destinationReviewMdxPath);
+  writeFileSync(destination, snapshot.database);
+  if (snapshot.wal) writeFileSync(`${destination}-wal`, snapshot.wal);
+  return threadDatabaseFingerprint(snapshot);
+}
+
+const PendingAgentThreadSchema = z.object({
+  messages: z.array(
+    z.object({
+      role: z.enum(["reviewer", "agent"]).optional(),
+      agentInput: z.boolean().default(false),
+    }),
+  ),
+});
+
+/** Inspect only message ordering, so legacy targets and provider metadata do
+ * not require a live database migration before artifacts can be repaired. */
+export function hasPendingReviewAgentWrites(reviewMdxPath: string): boolean {
+  return withThreadDatabaseSnapshot(reviewMdxPath, (snapshotPath, dbPath) => {
+    const db = new DatabaseSync(snapshotPath, { readOnly: true });
+    try {
+      const version = readThreadDbSchemaVersion(db);
+      if (!isSupportedThreadDbVersion(version))
+        throw new ReviewThreadDbVersionError(dbPath, version);
+      const tables =
+        version === "1"
+          ? (["comments"] as const)
+          : (["comments", "comment_drafts"] as const);
+      for (const table of tables) {
+        for (const raw of db
+          .prepare(`SELECT thread_id, record_json FROM ${table}`)
+          .all()) {
+          const row = StoredThreadRowSchema.parse(raw);
+          const value = parseJsonText(row.record_json);
+          const thread = PendingAgentThreadSchema.parse(
+            table === "comment_drafts" && isJsonObject(value)
+              ? value.thread
+              : value,
+          );
+          const lastInput = thread.messages.reduce(
+            (last, message, index) =>
+              message.agentInput && message.role !== "agent" ? index : last,
+            -1,
+          );
+          if (
+            lastInput >= 0 &&
+            !thread.messages
+              .slice(lastInput + 1)
+              .some((message) => message.role === "agent")
+          )
+            return true;
+        }
+      }
+      return false;
+    } finally {
+      db.close();
+    }
+  });
+}
+
+function stableThreadDatabaseSnapshot(dbPath: string) {
+  const read = () => ({
+    database: readFileSync(dbPath),
+    wal: readThreadWal(`${dbPath}-wal`),
+  });
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const first = read();
+    const second = read();
+    if (
+      first.database.equals(second.database) &&
+      (first.wal === null
+        ? second.wal === null
+        : second.wal !== null && first.wal.equals(second.wal))
+    )
+      return second;
+  }
+  throw new Error(
+    "The review thread database changed while taking a read-only snapshot; retry.",
+  );
+}
+
+function readThreadWal(walPath: string): Buffer | null {
+  try {
+    return readFileSync(walPath);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT")
+      return null;
+    throw error;
+  }
+}
+
+function readThreadDatabaseSnapshot(
+  snapshotPath: string,
+  dbPath: string,
+): ReviewThreadsReadOnlySnapshot {
+  const db = new DatabaseSync(snapshotPath, { readOnly: true });
+  try {
+    const version = readThreadDbSchemaVersion(db);
+    if (version !== String(REVIEW_THREAD_DB_SCHEMA_VERSION))
+      throw new ReviewThreadDbVersionError(dbPath, version);
+    const read = (table: "comments" | "comment_drafts"): JsonObject => {
+      const result: JsonObject = {};
+      for (const raw of db
+        .prepare(`SELECT thread_id, record_json FROM ${table}`)
+        .all()) {
+        const row = StoredThreadRowSchema.parse(raw);
+        result[row.thread_id] = parseJsonText(row.record_json);
+      }
+      return result;
+    };
+    return {
+      readOnly: true,
+      revision: 0,
+      comments: parseStoredReviewCommentThreadMap(read("comments")),
+      drafts: ReviewCommentDraftThreadMapSchema.parse(read("comment_drafts")),
+    };
+  } finally {
+    db.close();
+  }
+}
+
 export type ReviewThreadDbMigrationResult = "missing" | "current" | "upgraded";
 
 export interface ReviewThreadDbMigrationOptions {
+  /** Artifact migration retains historical questions even though current UI no longer reads them. */
+  preserveLegacyQuestions?: boolean;
   force?: boolean;
   migrateLegacyCodeRecord?: (
     record: JsonValue,
@@ -201,20 +436,14 @@ export async function migrateReviewThreadDb(
       inTransaction = false;
       return "current";
     }
-    if (
-      version !== "1" &&
-      version !== "2" &&
-      version !== "3" &&
-      version !== "4" &&
-      version !== "5" &&
-      version !== "6" &&
-      version !== "7" &&
-      version !== "8"
-    ) {
+    if (!isSupportedThreadDbVersion(version)) {
       throw new ReviewThreadDbVersionError(dbPath, version);
     }
     if (version === "1") db.exec(REVIEW_THREAD_DB_V1_TO_V2_DDL);
-    if (version === "1" || version === "2") {
+    if (
+      (version === "1" || version === "2") &&
+      !options.preserveLegacyQuestions
+    ) {
       db.exec(REVIEW_THREAD_DB_V2_TO_V3_DDL);
     }
     if (hasLegacyCodeTargets(db)) {

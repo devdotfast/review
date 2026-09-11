@@ -300,6 +300,56 @@ describe("Review Desktop launcher", () => {
       expect.objectContaining({ detached: true }),
     );
   });
+
+  it.each([
+    [false, "/usr/bin/review-desktop"],
+    [true, "/usr/share/review/review"],
+  ])(
+    "launches Linux with bundled Electron=%s and preserves the isolated profile",
+    (electron, executable) => {
+      const child = new FakeChild();
+      const spawn = vi.fn<NonNullable<LaunchDesktopApplicationInput["spawn"]>>(
+        () => child,
+      );
+      const environment = {
+        ELECTRON_RUN_AS_NODE: "1",
+        DEV_FAST_REVIEW_DESKTOP_STATE_ROOT: "/tmp/linux-profile",
+        VSCODE_DEV: "1",
+        VSCODE_CLI: "1",
+      };
+      const attempt = launchDesktopApplication({
+        platform: "linux",
+        electron,
+        execPath: "/usr/share/review/review",
+        env: environment,
+        spawn,
+      });
+      expect(spawn).toHaveBeenCalledWith(
+        executable,
+        [
+          "--user-data-dir=/tmp/linux-profile/user-data",
+          "--extensions-dir=/tmp/linux-profile/extensions",
+        ],
+        expect.objectContaining({
+          env: { DEV_FAST_REVIEW_DESKTOP_STATE_ROOT: "/tmp/linux-profile" },
+          detached: true,
+        }),
+      );
+      expect(attempt.successfulExitIsExpected).toBe(false);
+      expect(environment.ELECTRON_RUN_AS_NODE).toBe("1");
+    },
+  );
+
+  it("reports a missing Linux package launcher", async () => {
+    const child = new FakeChild();
+    const attempt = launchDesktopApplication({
+      platform: "linux",
+      electron: false,
+      spawn: () => child,
+    });
+    child.emit("error", new Error("spawn /usr/bin/review-desktop ENOENT"));
+    await expect(attempt.completion).rejects.toThrow("ENOENT");
+  });
 });
 
 function launcherRuntime(

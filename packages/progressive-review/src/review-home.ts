@@ -4,6 +4,7 @@ import {
   mkdir,
   readFile,
   readdir,
+  realpath,
   rm,
   stat,
   writeFile,
@@ -27,6 +28,7 @@ import {
   parseJsonText,
   summarizeReviewDiffFiles,
 } from "@dev.fast/review-protocol";
+import { z } from "zod";
 
 import {
   type SessionRef,
@@ -34,6 +36,7 @@ import {
   parseAuthoringSessionKey,
   parseFreshSourceSessionHarness,
 } from "./authoring-session";
+import { errorMessage } from "./error-message";
 import { isMissingFileError } from "./native-agent/transcript-json";
 import { type DismissedRetentionDays, reviewReapsAt } from "./review-attention";
 import {
@@ -41,12 +44,18 @@ import {
   remapReviewCodeThreads,
 } from "./review-code-target-remap";
 import { resolveReviewDiffFiles } from "./review-diff-files";
+import {
+  ReviewBusyError,
+  assertReviewUnchanged,
+  withReviewMutationLock,
+} from "./review-mutation-lock";
 import { readReviewComments } from "./review-state-store";
 import { devReviewHome } from "./review-storage";
 import {
   ReviewThreadDbVersionError,
   checkReviewThreadDbVersion,
   createReviewThreadDb,
+  readReviewThreadsReadOnly,
   reviewThreadStoreBackend,
 } from "./review-thread-store-backend";
 import { reviewVcs } from "./review-vcs";
@@ -54,7 +63,7 @@ import { writePrivateJsonAtomic } from "./server/desktop-paths";
 import { resolveReviewRepositoryIdentity } from "./server/repository-identity";
 import { withFileLock } from "./with-file-lock";
 
-const UUID_PATTERN =
+export const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface CreateReviewDirBinding {
@@ -77,6 +86,41 @@ export const DISABLED_REVIEW_SOURCE_SESSION = "disabled:review";
 export const StoredReviewRecordSchema = ReviewRecordSchema;
 export type StoredReviewRecord = ReviewRecord;
 
+const legacyStoredSourceSessionFields = {
+  sourceSession: z.string().min(1).optional(),
+  agentSession: z.string().min(1).optional(),
+};
+const legacyStoredReviewRecordFields = StoredReviewRecordSchema.omit({
+  schemaVersion: true,
+  sourceSession: true,
+});
+const LegacyStoredReviewRecordSchema = z
+  .union([
+    StoredReviewRecordSchema.extend({ schemaVersion: z.literal(4) }),
+    legacyStoredReviewRecordFields.extend({
+      schemaVersion: z.literal(3),
+      ...legacyStoredSourceSessionFields,
+    }),
+    legacyStoredReviewRecordFields
+      .omit({
+        presentedDocumentRevision: true,
+        presentedSoftwareMapRevision: true,
+      })
+      .extend({
+        schemaVersion: z.literal(2),
+        ...legacyStoredSourceSessionFields,
+        presentedRevision: z.string().min(1).nullable(),
+      }),
+  ])
+  .refine(
+    (record) =>
+      Boolean(
+        record.sourceSession ||
+        ("agentSession" in record && record.agentSession),
+      ),
+    "A source session is required.",
+  );
+
 export interface StoredReview {
   dir: string;
   review: StoredReviewRecord;
@@ -87,6 +131,8 @@ export interface ListReviewsFilter {
   repoKey?: string;
   status?: ReviewRecord["status"];
   includeSystem?: boolean;
+  /** Surface a review whose review.json cannot be read, instead of skipping it. */
+  reportUnreadableReviews?: boolean;
 }
 
 export interface ReviewHomeError {
@@ -205,31 +251,33 @@ export async function touchReviewAgentSession(
     throw new Error(`Review agent session key is invalid: ${sessionKey}`);
   }
   const recordPath = path.join(review.dir, "review.json");
-  const outcome = await withFileLock(
-    path.join(review.dir, ".agent-sessions.lock"),
-    AGENT_SESSION_LOCK_OPTIONS,
-    async () => {
-      const current = parseStoredReviewRecord(
-        JSON.parse(await readFile(recordPath, "utf8")),
-      );
-      const prior = current.agentSessions?.[sessionKey];
-      const roles = prior?.roles.includes(role)
-        ? prior.roles
-        : [...(prior?.roles ?? []), role];
-      const updated: StoredReviewRecord = {
-        ...current,
-        agentSessions: {
-          ...current.agentSessions,
-          [sessionKey]: {
-            roles,
-            firstSeenAt: prior?.firstSeenAt ?? now,
-            lastSeenAt: now,
+  const outcome = await withReviewMutationLock(review.dir, () =>
+    withFileLock(
+      path.join(review.dir, ".agent-sessions.lock"),
+      AGENT_SESSION_LOCK_OPTIONS,
+      async () => {
+        const current = parseStoredReviewRecord(
+          JSON.parse(await readFile(recordPath, "utf8")),
+        );
+        const prior = current.agentSessions?.[sessionKey];
+        const roles = prior?.roles.includes(role)
+          ? prior.roles
+          : [...(prior?.roles ?? []), role];
+        const updated: StoredReviewRecord = {
+          ...current,
+          agentSessions: {
+            ...current.agentSessions,
+            [sessionKey]: {
+              roles,
+              firstSeenAt: prior?.firstSeenAt ?? now,
+              lastSeenAt: now,
+            },
           },
-        },
-      };
-      await writePrivateJsonAtomic(recordPath, updated);
-      return { dir: review.dir, review: updated };
-    },
+        };
+        await writePrivateJsonAtomic(recordPath, updated);
+        return { dir: review.dir, review: updated };
+      },
+    ),
   );
   if (!outcome.acquired) {
     throw new Error(
@@ -249,49 +297,51 @@ export async function bindReviewAuthorSession(
 ): Promise<StoredReview> {
   const sessionKey = authoringSessionKey(session);
   const recordPath = path.join(review.dir, "review.json");
-  const outcome = await withFileLock(
-    path.join(review.dir, ".agent-sessions.lock"),
-    AGENT_SESSION_LOCK_OPTIONS,
-    async () => {
-      const current = parseStoredReviewRecord(
-        JSON.parse(await readFile(recordPath, "utf8")),
-      );
-      const freshHarness = parseFreshSourceSessionHarness(
-        current.sourceSession,
-      );
-      const boundSession = parseAuthoringSessionKey(current.sourceSession);
-      if (freshHarness && freshHarness !== session.harness) {
-        throw new Error(
-          `Review fresh-session harness ${freshHarness} does not match ${session.harness}.`,
+  const outcome = await withReviewMutationLock(review.dir, () =>
+    withFileLock(
+      path.join(review.dir, ".agent-sessions.lock"),
+      AGENT_SESSION_LOCK_OPTIONS,
+      async () => {
+        const current = parseStoredReviewRecord(
+          JSON.parse(await readFile(recordPath, "utf8")),
         );
-      }
-      if (
-        !freshHarness &&
-        (!boundSession || authoringSessionKey(boundSession) !== sessionKey)
-      ) {
-        throw new Error(
-          "Review is already bound to another authoring session.",
+        const freshHarness = parseFreshSourceSessionHarness(
+          current.sourceSession,
         );
-      }
-      const prior = current.agentSessions?.[sessionKey];
-      const roles = prior?.roles.includes("author")
-        ? prior.roles
-        : [...(prior?.roles ?? []), "author" as const];
-      const updated: StoredReviewRecord = {
-        ...current,
-        sourceSession: sessionKey,
-        agentSessions: {
-          ...current.agentSessions,
-          [sessionKey]: {
-            roles,
-            firstSeenAt: prior?.firstSeenAt ?? now,
-            lastSeenAt: now,
+        const boundSession = parseAuthoringSessionKey(current.sourceSession);
+        if (freshHarness && freshHarness !== session.harness) {
+          throw new Error(
+            `Review fresh-session harness ${freshHarness} does not match ${session.harness}.`,
+          );
+        }
+        if (
+          !freshHarness &&
+          (!boundSession || authoringSessionKey(boundSession) !== sessionKey)
+        ) {
+          throw new Error(
+            "Review is already bound to another authoring session.",
+          );
+        }
+        const prior = current.agentSessions?.[sessionKey];
+        const roles = prior?.roles.includes("author")
+          ? prior.roles
+          : [...(prior?.roles ?? []), "author" as const];
+        const updated: StoredReviewRecord = {
+          ...current,
+          sourceSession: sessionKey,
+          agentSessions: {
+            ...current.agentSessions,
+            [sessionKey]: {
+              roles,
+              firstSeenAt: prior?.firstSeenAt ?? now,
+              lastSeenAt: now,
+            },
           },
-        },
-      };
-      await writePrivateJsonAtomic(recordPath, updated);
-      return { dir: review.dir, review: updated };
-    },
+        };
+        await writePrivateJsonAtomic(recordPath, updated);
+        return { dir: review.dir, review: updated };
+      },
+    ),
   );
   if (!outcome.acquired) {
     throw new Error(
@@ -305,10 +355,30 @@ export async function sealReviewCandidate(
   dir: string,
   message: string,
 ): Promise<string> {
-  return reviewVcs.seal(dir, message);
+  return withReviewMutationLock(dir, () => reviewVcs.seal(dir, message));
 }
 
 export async function updateReviewPins(
+  review: StoredReview,
+  pins: Parameters<typeof updateReviewPinsLocked>[1],
+): Promise<StoredReview> {
+  return withReviewMutationLock(review.dir, async () => {
+    await assertReviewUnchanged(review.dir, review.review);
+    return updateReviewPinsLocked(
+      {
+        ...review,
+        review: parseStoredReviewRecord(
+          parseJsonText(
+            await readFile(path.join(review.dir, "review.json"), "utf8"),
+          ),
+        ),
+      },
+      pins,
+    );
+  });
+}
+
+async function updateReviewPinsLocked(
   review: StoredReview,
   pins: {
     baseRef: string;
@@ -395,11 +465,103 @@ export async function reviewTitleFromDocument(
   return undefined;
 }
 
-export async function findReview(uuid: string): Promise<StoredReview | null> {
+export async function findReview(
+  uuid: string,
+  devHome?: string,
+): Promise<StoredReview | null> {
+  return findReviewRecord(uuid, devHome);
+}
+
+export async function findReviewForRepair(
+  uuid: string,
+  devHome?: string,
+): Promise<StoredReview | null> {
+  if (!UUID_PATTERN.test(uuid))
+    throw new Error(`Review UUID is invalid: ${uuid}`);
+  const dir = path.join(reviewsHomeDir(devHome), uuid);
+  let value: JsonValue;
+  try {
+    value = parseJsonText(
+      await readFile(path.join(dir, "review.json"), "utf8"),
+    );
+  } catch (error) {
+    if (isMissingFileError(error)) return null;
+    const detail: ReviewHomeErrorDetail = {
+      message: `Could not read review.json: ${errorMessage(error)}`,
+    };
+    const code =
+      error instanceof Error && "code" in error
+        ? z.string().safeParse(error.code)
+        : null;
+    if (code?.success) detail.code = code.data;
+    throw new ReviewHomeScanError([reviewHomeError(dir, undefined, detail)]);
+  }
+  let review: StoredReviewRecord;
+  try {
+    review = parseAnyStoredReviewRecord(value);
+  } catch (error) {
+    throw new ReviewHomeScanError([
+      reviewHomeError(dir, jsonObject(value), {
+        code: "MIGRATION_REQUIRED",
+        message: `Invalid review.json; run \`review migrate apply\`: ${errorMessage(error)}`,
+      }),
+    ]);
+  }
+  if (review.uuid !== uuid)
+    throw new ReviewHomeScanError([
+      reviewHomeError(dir, review, {
+        message: "review.json UUID does not match its directory.",
+      }),
+    ]);
+  return { dir, review };
+}
+
+/**
+ * The one rule for "this UUID, in this checkout".
+ *
+ * Returns null for every out-of-scope answer — not found, bound elsewhere, already
+ * terminal — and lets each caller decide between throwing and an empty result.
+ */
+export async function findScopedReview(
+  uuid: string,
+  scope: {
+    worktreePath: string;
+    /** Accepted and rejected reviews are out of scope unless asked for. */
+    includeTerminal?: boolean;
+    /** Repair must reach reviews whose review.json predates the current schema. */
+    includeLegacySchema?: boolean;
+    /** Override the default Review storage home. */
+    devHome?: string;
+  },
+): Promise<StoredReview | null> {
+  const found = await (
+    scope.includeLegacySchema ? findReviewForRepair : findReview
+  )(uuid, scope.devHome);
+  if (!found) return null;
+  const [storedRoot, requestedRoot] = await Promise.all(
+    [found.review.worktreePath, scope.worktreePath].map((root) =>
+      realpath(root).catch(() => path.resolve(root)),
+    ),
+  );
+  if (storedRoot !== requestedRoot) return null;
+  if (
+    !scope.includeTerminal &&
+    (found.review.status === "accepted" || found.review.status === "rejected")
+  )
+    return null;
+  return found;
+}
+
+async function findReviewRecord(
+  uuid: string,
+  devHome?: string,
+): Promise<StoredReview | null> {
   if (!UUID_PATTERN.test(uuid)) {
     throw new Error(`Review UUID is invalid: ${uuid}`);
   }
-  const loaded = await readStoredReview(path.join(reviewsHomeDir(), uuid));
+  const loaded = await readStoredReview(
+    path.join(reviewsHomeDir(devHome), uuid),
+  );
   if ("error" in loaded) {
     if (loaded.error.code === "ENOENT") return null;
     throw new ReviewHomeScanError([loaded.error]);
@@ -416,8 +578,17 @@ export async function findReview(uuid: string): Promise<StoredReview | null> {
 
 export async function reviewDescriptor(
   stored: StoredReview,
-  retentionDays: DismissedRetentionDays = DEFAULT_DISMISSED_RETENTION_DAYS,
+  options: {
+    retentionDays?: DismissedRetentionDays;
+    /** "read-only" copies the thread database instead of opening it in place. */
+    threads?: "live" | "read-only";
+  } = {},
 ): Promise<ReviewDescriptor> {
+  // `null` is a real retention setting (never reap), so only an absent key defaults.
+  const retentionDays =
+    options.retentionDays === undefined
+      ? DEFAULT_DISMISSED_RETENTION_DAYS
+      : options.retentionDays;
   const documentPath = path.join(stored.dir, "review.mdx");
   const [reviewDirExists, worktreeExists, documentStats] = await Promise.all([
     pathExists(stored.dir),
@@ -451,7 +622,15 @@ export async function reviewDescriptor(
         }).catch(() => [])
       : [],
   ]);
-  const commentCount = documentExists ? countReviewComments(documentPath) : 0;
+  /* A read-only count that cannot be taken is a real failure, not zero comments:
+     the caller decides whether to drop the descriptor. `countReviewComments` keeps
+     its own documented zero for the live path. */
+  const commentCount =
+    options.threads === "read-only"
+      ? Object.keys(readReviewThreadsReadOnly(documentPath).comments).length
+      : documentExists
+        ? countReviewComments(documentPath)
+        : 0;
   return {
     uuid: stored.review.uuid,
     title: stored.review.title,
@@ -488,14 +667,14 @@ export function countReviewComments(reviewMdxPath: string): number {
 export async function listReviews(
   filter: ListReviewsFilter = {},
 ): Promise<ListReviewsResult> {
-  let loaded: Array<StoredReview | { error: ReviewHomeError }>;
+  let loaded: Array<StoredReview | { error: ReviewHomeError } | null>;
   try {
     const entries = await readdir(reviewsHomeDir(), { withFileTypes: true });
     loaded = await Promise.all(
       entries
-        .filter((entry) => entry.isDirectory())
+        .filter((entry) => entry.isDirectory() && UUID_PATTERN.test(entry.name))
         .map((entry) =>
-          readStoredReview(path.join(reviewsHomeDir(), entry.name)),
+          readReviewForList(path.join(reviewsHomeDir(), entry.name), filter),
         ),
     );
   } catch (error) {
@@ -506,24 +685,80 @@ export async function listReviews(
   }
   const result: ListReviewsResult = { reviews: [], errors: [] };
   for (const entry of loaded) {
+    if (!entry) continue;
     if ("error" in entry) {
       result.errors.push(entry.error);
       continue;
     }
-    if (
-      (!filter.includeSystem && entry.review.visibility === "system") ||
-      (filter.worktreePath &&
-        entry.review.worktreePath !== path.resolve(filter.worktreePath)) ||
-      (filter.repoKey && entry.review.repoKey !== filter.repoKey) ||
-      (filter.status && entry.review.status !== filter.status)
-    ) {
-      continue;
-    }
+    if (!reviewMatchesFilter(entry.review, filter)) continue;
     const migrationError = reviewThreadMigrationError(entry);
     if (migrationError) result.errors.push(migrationError);
     result.reviews.push(entry);
   }
   return result;
+}
+
+async function readReviewForList(
+  dir: string,
+  filter: ListReviewsFilter,
+): Promise<StoredReview | { error: ReviewHomeError } | null> {
+  if (!filter.worktreePath && !filter.repoKey) return readStoredReview(dir);
+  let record: JsonObject | undefined;
+  try {
+    record = jsonObject(
+      parseJsonText(await readFile(path.join(dir, "review.json"), "utf8")),
+    );
+  } catch {
+    return unreadableReview(dir, filter);
+  }
+  const scope = {
+    worktreePath: jsonString(record?.worktreePath),
+    repoKey: jsonString(record?.repoKey),
+  };
+  // A record that cannot answer the scope question is not out of scope; the
+  // strict read decides whether it becomes a list error.
+  if (
+    (filter.worktreePath && !scope.worktreePath) ||
+    (filter.repoKey && !scope.repoKey)
+  )
+    return unreadableReview(dir, filter);
+  return reviewMatchesFilter(scope, {
+    worktreePath: filter.worktreePath,
+    repoKey: filter.repoKey,
+    includeSystem: true,
+  })
+    ? readStoredReview(dir)
+    : null;
+}
+
+/** Every scope test in one place, so the cheap JSON pre-pass and the final
+ * pass answer the same question about the same fields. */
+function reviewMatchesFilter(
+  record: {
+    worktreePath?: string | undefined;
+    repoKey?: string | undefined;
+    status?: string | undefined;
+    visibility?: string | undefined;
+  },
+  filter: ListReviewsFilter,
+): boolean {
+  if (!filter.includeSystem && record.visibility === "system") return false;
+  if (
+    filter.worktreePath &&
+    (!record.worktreePath ||
+      path.resolve(record.worktreePath) !== path.resolve(filter.worktreePath))
+  )
+    return false;
+  if (filter.repoKey && record.repoKey !== filter.repoKey) return false;
+  if (filter.status && record.status !== filter.status) return false;
+  return true;
+}
+
+function unreadableReview(
+  dir: string,
+  filter: ListReviewsFilter,
+): Promise<StoredReview | { error: ReviewHomeError }> | null {
+  return filter.reportUnreadableReviews ? readStoredReview(dir) : null;
 }
 
 function reviewThreadMigrationError(
@@ -581,8 +816,29 @@ export async function readStoredReview(
 ): Promise<StoredReview | { error: ReviewHomeError }> {
   const reviewPath = path.join(dir, "review.json");
   try {
-    const value = parseJsonText(await readFile(reviewPath, "utf8"));
-    const parsed = safeParseStoredReviewRecord(value);
+    let value = parseJsonText(await readFile(reviewPath, "utf8"));
+    let parsed = safeParseStoredReviewRecord(value);
+    if (!parsed.success && isLegacyStoredReviewRecord(value, dir)) {
+      try {
+        await migrateLegacyStoredReview(dir);
+      } catch (error) {
+        if (error instanceof ReviewBusyError)
+          return {
+            error: reviewHomeError(dir, jsonObject(value), {
+              code: error.code,
+              message: error.message,
+            }),
+          };
+        return {
+          error: reviewHomeError(dir, jsonObject(value), {
+            code: "REPAIR_REQUIRED",
+            message: `${errorMessage(error)} Run \`review repair --review ${path.basename(dir)}\` to regenerate this Review's artifacts.`,
+          }),
+        };
+      }
+      value = parseJsonText(await readFile(reviewPath, "utf8"));
+      parsed = safeParseStoredReviewRecord(value);
+    }
     if (!parsed.success) {
       return {
         error: reviewHomeError(dir, jsonObject(value), {
@@ -603,6 +859,40 @@ export async function readStoredReview(
     if (code) detail.code = code;
     return { error: reviewHomeError(dir, undefined, detail) };
   }
+}
+
+function isLegacyStoredReviewRecord(value: JsonValue, dir: string): boolean {
+  if (
+    !isJsonObject(value) ||
+    (value.schemaVersion !== 2 &&
+      value.schemaVersion !== 3 &&
+      value.schemaVersion !== 4)
+  )
+    return false;
+  try {
+    return parseAnyStoredReviewRecord(value).uuid === path.basename(dir);
+  } catch {
+    return false;
+  }
+}
+
+async function migrateLegacyStoredReview(dir: string): Promise<void> {
+  await withReviewMutationLock(dir, async () => {
+    const current = parseJsonText(
+      await readFile(path.join(dir, "review.json"), "utf8"),
+    );
+    if (!isLegacyStoredReviewRecord(current, dir)) return;
+    const { migrateStoredReview } = await import("./stored-review-migration");
+    const uuid = path.basename(dir);
+    const outcome = await migrateStoredReview({
+      reviewDir: dir,
+      log: (message) => console.warn(`Review ${uuid}: ${message}`),
+    });
+    if (outcome.threadDbError)
+      console.warn(
+        `Review ${uuid}: thread database upgrade failed: ${outcome.threadDbError}`,
+      );
+  });
 }
 
 /** `record` is the parsed review, or the raw review.json object when it failed to parse. */
@@ -639,26 +929,58 @@ export function parseStoredReviewRecord(value: JsonValue): StoredReviewRecord {
   return StoredReviewRecordSchema.parse(stripLegacySoftwareMap(value));
 }
 
-export function parseStoredReviewRecordForMigration(
+/** Schema 2 predates the required software map, so a schema-2 presentation may
+ * legitimately have a document and no map. Every later schema must keep the
+ * map it presents. */
+const ABSENT_SOFTWARE_MAP_SCHEMA_VERSION = 2;
+
+export function allowsAbsentSoftwareMap(record: {
+  schemaVersion: number;
+}): boolean {
+  return record.schemaVersion === ABSENT_SOFTWARE_MAP_SCHEMA_VERSION;
+}
+
+/**
+ * Parses a stored review at any schema version this build understands, upgrading legacy
+ * records in memory. Nothing on disk changes. Every result is validated against the current
+ * strict schema, so an unknown version or an unexpected key still throws.
+ *
+ * Use this wherever a review.json may predate the current schema (recovery, repair,
+ * migration, historical revisions). Use `parseStoredReviewRecord` only where the record must
+ * already be current — the sealed records the server itself just wrote.
+ */
+export function parseAnyStoredReviewRecord(
   value: JsonValue,
 ): StoredReviewRecord {
   if (!isJsonObject(value)) return parseStoredReviewRecord(value);
   const record = stripLegacySoftwareMap(value);
-  if (record.schemaVersion === 3) {
-    const { agentSession, schemaVersion: _schemaVersion, ...current } = record;
+  if (record.schemaVersion === REVIEW_SCHEMA_VERSION)
+    return parseStoredReviewRecord(record);
+  const legacyRecord = LegacyStoredReviewRecordSchema.parse(record);
+  if (legacyRecord.schemaVersion === 4) {
+    return StoredReviewRecordSchema.parse({
+      ...legacyRecord,
+      schemaVersion: REVIEW_SCHEMA_VERSION,
+    });
+  }
+  if (legacyRecord.schemaVersion === 3) {
+    const {
+      agentSession,
+      schemaVersion: _schemaVersion,
+      ...current
+    } = legacyRecord;
     return StoredReviewRecordSchema.parse({
       ...current,
       schemaVersion: REVIEW_SCHEMA_VERSION,
       sourceSession: current.sourceSession ?? agentSession,
     });
   }
-  if (record.schemaVersion !== 2) return parseStoredReviewRecord(record);
   const {
     agentSession,
     presentedRevision,
     schemaVersion: _schemaVersion,
     ...current
-  } = record;
+  } = legacyRecord;
   return StoredReviewRecordSchema.parse({
     ...current,
     schemaVersion: REVIEW_SCHEMA_VERSION,

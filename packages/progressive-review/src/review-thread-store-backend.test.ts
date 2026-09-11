@@ -1,7 +1,9 @@
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -17,8 +19,11 @@ import {
   ReviewThreadDbVersionError,
   closeAllReviewThreadStores,
   createReviewThreadDb,
+  hasPendingReviewAgentWrites,
   migrateReviewThreadDb,
+  readReviewThreadsReadOnly,
   reviewThreadDbPath,
+  reviewThreadDbSnapshotToken,
 } from "./review-thread-store-backend";
 
 const roots: string[] = [];
@@ -50,6 +55,71 @@ function seedComment(reviewPath: string): void {
 }
 
 describe("sqlite thread store", () => {
+  it("marks a read-only snapshot and moves its token only when threads change", () => {
+    const reviewPath = makeReviewPath();
+    seedComment(reviewPath);
+    const snapshot = readReviewThreadsReadOnly(reviewPath);
+    expect(snapshot.readOnly).toBe(true);
+    expect(snapshot.revision).toBe(0);
+    const token = reviewThreadDbSnapshotToken(reviewPath);
+    expect(reviewThreadDbSnapshotToken(reviewPath)).toBe(token);
+    appendReviewComment(reviewPath, {
+      threadId: "thread-2",
+      messageId: "message-2",
+      target: { kind: "document" },
+      body: "second",
+      author: "Reviewer",
+    });
+    expect(reviewThreadDbSnapshotToken(reviewPath)).not.toBe(token);
+    expect(
+      Object.keys(readReviewThreadsReadOnly(reviewPath).comments).sort(),
+    ).toEqual(["thread-1", "thread-2"]);
+  });
+
+  it("reads committed WAL threads without changing original DB, WAL or SHM bytes", () => {
+    const source = makeReviewPath();
+    seedComment(source);
+    const target = makeReviewPath();
+    const sourceDb = reviewThreadDbPath(source);
+    const targetDb = reviewThreadDbPath(target);
+    const suffixes = ["", "-wal", "-shm"];
+    for (const suffix of suffixes)
+      copyFileSync(`${sourceDb}${suffix}`, `${targetDb}${suffix}`);
+    const before = suffixes.map((suffix) =>
+      readFileSync(`${targetDb}${suffix}`),
+    );
+    expect(
+      readReviewThreadsReadOnly(target).comments["thread-1"]?.messages,
+    ).toHaveLength(1);
+    expect(
+      suffixes.map((suffix) => readFileSync(`${targetDb}${suffix}`)),
+    ).toEqual(before);
+  });
+  it("reads recovery threads without changing bytes or pruning malformed rows", () => {
+    const reviewPath = makeReviewPath();
+    expect(() => readReviewThreadsReadOnly(reviewPath)).toThrow(
+      "thread database is unavailable",
+    );
+    expect(existsSync(reviewThreadDbPath(reviewPath))).toBe(false);
+    seedComment(reviewPath);
+    closeAllReviewThreadStores();
+    const dbPath = reviewThreadDbPath(reviewPath);
+    const before = readFileSync(dbPath);
+    expect(
+      readReviewThreadsReadOnly(reviewPath).comments["thread-1"]?.messages,
+    ).toHaveLength(1);
+    expect(readFileSync(dbPath)).toEqual(before);
+    const db = new DatabaseSync(dbPath);
+    db.prepare(
+      "INSERT INTO comments(thread_id, record_json) VALUES (?, ?)",
+    ).run("broken", "{}");
+    db.close();
+    const malformed = readFileSync(dbPath);
+    expect(() => readReviewThreadsReadOnly(reviewPath)).toThrow(
+      /thread|invalid|required|expected/i,
+    );
+    expect(readFileSync(dbPath)).toEqual(malformed);
+  });
   it("reads empty maps without creating the database", () => {
     const reviewPath = makeReviewPath();
     expect(readReviewComments(reviewPath)).toEqual({});
@@ -415,4 +485,130 @@ describe("sqlite thread store", () => {
     ).toEqual({ count: 0 });
     reopened.close();
   });
+});
+
+const pendingWriteCases = ["1", "2", "3", "4", "5", "6", "7", "8", "9"].flatMap(
+  (version) =>
+    (["comments", "comment_drafts"] as const)
+      .filter((table) => version !== "1" || table === "comments")
+      .map((table) => ({ version, table })),
+);
+it.each(pendingWriteCases)(
+  "inspects pending $table in schema $version without changing files",
+  ({ version, table }) => {
+    const reviewPath = makeReviewPath();
+    seedComment(reviewPath);
+    closeAllReviewThreadStores();
+    const dbPath = reviewThreadDbPath(reviewPath);
+    const db = new DatabaseSync(dbPath);
+    db.prepare("UPDATE meta SET value = ? WHERE key = 'schema_version'").run(
+      version,
+    );
+    db.exec("DELETE FROM comments; DELETE FROM comment_drafts;");
+    if (version === "1") db.exec("DROP TABLE comment_drafts");
+    db.close();
+    for (const { messages, pending } of [
+      { messages: [], pending: false },
+      { messages: [{ role: "reviewer", agentInput: false }], pending: false },
+      { messages: [{ role: "reviewer", agentInput: true }], pending: true },
+      {
+        messages: [{ role: "reviewer", agentInput: true }, { role: "agent" }],
+        pending: false,
+      },
+      {
+        messages: [
+          { role: "reviewer", agentInput: true },
+          { role: "agent" },
+          { role: "reviewer", agentInput: true },
+        ],
+        pending: true,
+      },
+    ]) {
+      const thread = { target: { kind: "code", file: "old.ts" }, messages };
+      const writer = new DatabaseSync(dbPath);
+      writer
+        .prepare(
+          `INSERT OR REPLACE INTO ${table}(thread_id, record_json) VALUES (?, ?)`,
+        )
+        .run(
+          "thread-1",
+          JSON.stringify(table === "comments" ? thread : { thread }),
+        );
+      writer.close();
+      const before = readFileSync(dbPath);
+      expect(hasPendingReviewAgentWrites(reviewPath)).toBe(pending);
+      expect(readFileSync(dbPath)).toEqual(before);
+    }
+  },
+);
+
+it("detects pending WAL writes without changing source DB, WAL or SHM bytes", () => {
+  const source = makeReviewPath();
+  appendReviewComment(source, {
+    threadId: "pending",
+    messageId: "input",
+    target: { kind: "document" },
+    body: "Update",
+    author: "Reviewer",
+    agentInput: true,
+  });
+  const target = makeReviewPath();
+  const suffixes = ["", "-wal", "-shm"];
+  for (const suffix of suffixes)
+    copyFileSync(
+      `${reviewThreadDbPath(source)}${suffix}`,
+      `${reviewThreadDbPath(target)}${suffix}`,
+    );
+  const before = suffixes.map((suffix) =>
+    readFileSync(`${reviewThreadDbPath(target)}${suffix}`),
+  );
+  expect(hasPendingReviewAgentWrites(target)).toBe(true);
+  expect(
+    suffixes.map((suffix) =>
+      readFileSync(`${reviewThreadDbPath(target)}${suffix}`),
+    ),
+  ).toEqual(before);
+});
+
+it.each([null, "", "09", "invalid", "10", "999"])(
+  "rejects unsupported schema %s without changing the database",
+  (version) => {
+    const reviewPath = makeReviewPath();
+    seedComment(reviewPath);
+    closeAllReviewThreadStores();
+    const dbPath = reviewThreadDbPath(reviewPath);
+    const db = new DatabaseSync(dbPath);
+    if (version === null)
+      db.exec("DELETE FROM meta WHERE key = 'schema_version'");
+    else
+      db.prepare("UPDATE meta SET value = ? WHERE key = 'schema_version'").run(
+        version,
+      );
+    db.close();
+    const before = readFileSync(dbPath);
+    expect(() => hasPendingReviewAgentWrites(reviewPath)).toThrow(
+      ReviewThreadDbVersionError,
+    );
+    expect(readFileSync(dbPath)).toEqual(before);
+  },
+);
+
+it("rejects unknown database versions and malformed message arrays during pending-write inspection", () => {
+  const reviewPath = makeReviewPath();
+  seedComment(reviewPath);
+  closeAllReviewThreadStores();
+  const db = new DatabaseSync(reviewThreadDbPath(reviewPath));
+  db.exec("UPDATE meta SET value = '999' WHERE key = 'schema_version'");
+  db.close();
+  expect(() => hasPendingReviewAgentWrites(reviewPath)).toThrow(
+    ReviewThreadDbVersionError,
+  );
+  const malformed = new DatabaseSync(reviewThreadDbPath(reviewPath));
+  malformed.exec(
+    "UPDATE meta SET value = '5' WHERE key = 'schema_version'; UPDATE comments SET record_json = '{}'",
+  );
+  malformed.close();
+  expect(() => hasPendingReviewAgentWrites(reviewPath)).toThrow(
+    /messages|array/i,
+  );
 });

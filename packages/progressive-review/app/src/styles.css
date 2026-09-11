@@ -878,23 +878,36 @@ button {
   margin: 0 auto;
 }
 
-.review-scan-warning {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  align-self: flex-start;
-  width: fit-content;
-  max-width: 100%;
-  margin-bottom: 24px;
-  padding: 10px 12px;
-  border: 1px solid var(--change-modified);
-  border-radius: 7px;
-  background: var(--accent-wash);
-  color: var(--ink-soft);
+.review-home-unavailable-entries {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 336px));
+  gap: 16px;
 }
 
-.review-scan-warning code {
-  color: var(--ink);
+.review-home[data-view="list"] .review-home-unavailable-entries {
+  grid-template-columns: 1fr;
+}
+
+.review-home[data-view="list"]
+  .review-home-unavailable-entries
+  .review-home-card {
+  flex-direction: row;
+  height: auto;
+  gap: 16px;
+}
+
+.review-home-unavailable-entries:empty {
+  display: none;
+}
+
+.review-unavailable {
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.review-unavailable pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .review-session-content {
@@ -2605,71 +2618,6 @@ button {
   font-size: 12px;
 }
 
-.review-canvas-loading {
-  box-sizing: border-box;
-  display: grid;
-  justify-items: center;
-  place-content: center;
-  gap: 12px;
-  min-height: 60vh;
-  padding: 32px;
-  font-family: var(--font-mono);
-  text-align: center;
-}
-
-.review-canvas-loading.review-canvas-loading--page {
-  min-height: 100%;
-}
-
-.review-canvas-loading p {
-  margin: 0;
-}
-
-.review-canvas-loading__spinner {
-  width: 22px;
-  height: 22px;
-  border: 2px solid var(--rule-soft);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: review-canvas-loading-spin 700ms linear infinite;
-}
-
-.review-canvas-loading__message {
-  color: var(--ink-soft);
-  font-size: 12px;
-}
-
-.review-canvas-loading__debug-note {
-  visibility: hidden;
-  min-height: 1.4em;
-  color: var(--ink-faint);
-  font-size: 10px;
-  animation: review-canvas-loading-reveal 1ms linear 10s forwards;
-}
-
-.review-canvas-loading__debug-note code {
-  color: var(--ink-soft);
-  font-weight: 500;
-}
-
-@keyframes review-canvas-loading-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes review-canvas-loading-reveal {
-  to {
-    visibility: visible;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .review-canvas-loading__spinner {
-    animation: none;
-  }
-}
-
 .review-view-region--review {
   overflow: auto;
 }
@@ -2901,6 +2849,89 @@ button {
 .review-history-banner button:focus-visible {
   border-color: var(--chrome-active-border);
   outline: none;
+}
+
+.review-diff-settings {
+  position: relative;
+}
+
+.review-diff-settings-button {
+  display: grid;
+  align-items: center;
+  justify-content: center;
+  width: var(--chrome-control-height);
+  height: var(--chrome-control-height);
+  padding: 0;
+  border: 0;
+  border-radius: var(--chrome-control-radius);
+  background: var(--transparent);
+  color: var(--chrome-icon-fg);
+  cursor: pointer;
+}
+
+.review-diff-settings-button .ui-icon {
+  width: var(--chrome-icon-size);
+  height: var(--chrome-icon-size);
+}
+
+.review-diff-settings-button:hover,
+.review-diff-settings-button:focus-visible,
+.review-diff-settings-button[aria-expanded="true"] {
+  background: var(--chrome-hover-bg);
+  color: var(--chrome-fg);
+  outline: none;
+}
+
+.review-diff-settings-popover {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 260px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  box-shadow: 0 8px 28px var(--shadow-color-strong);
+  color: var(--chrome-fg);
+  font-family: var(--chrome-font);
+  font-size: var(--chrome-font-size);
+}
+
+.review-diff-settings-title {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--rule-soft);
+  color: var(--chrome-fg-muted);
+  font-size: var(--chrome-font-size-small);
+  font-weight: var(--chrome-font-weight-strong);
+  letter-spacing: var(--chrome-tracking);
+  text-transform: uppercase;
+}
+
+.review-diff-settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+}
+
+.review-diff-settings-label {
+  color: var(--chrome-fg);
+}
+
+.review-diff-settings-segmented {
+  align-self: stretch;
+}
+
+.review-diff-settings-segmented .review-segment {
+  flex: 1 1 0;
+  justify-content: center;
+}
+
+.review-diff-settings-segmented .ui-icon {
+  width: var(--chrome-icon-size);
+  height: var(--chrome-icon-size);
 }
 
 .bug-report-backdrop {

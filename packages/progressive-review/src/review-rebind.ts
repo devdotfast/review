@@ -50,9 +50,8 @@ export async function runReviewRebind(input: {
   if (!sourceIdentity) {
     throw new Error(`Change does not resolve to one identity: ${input.change}`);
   }
-  const record = { ...review.review, sourceIdentity };
   const repinned = await repinReview(
-    { dir: review.dir, review: record },
+    review,
     {
       cwd: reviewRoot,
       toolingRoot: input.toolingRoot,
@@ -60,10 +59,11 @@ export async function runReviewRebind(input: {
       env: input.env,
       createSourceAgentSession: input.createSourceAgentSession,
     },
+    sourceIdentity,
   );
   const output: ReviewRebindJsonOutput = {
     event: "rebound",
-    uuid: record.uuid,
+    uuid: review.review.uuid,
     change: input.change,
   };
   if (repinned.warnings) output.warnings = repinned.warnings;

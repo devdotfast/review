@@ -29,6 +29,7 @@ import {
 } from "../../../../platform/editor/common/editor.js";
 import { ILogService } from "../../../../platform/log/common/log.js";
 import { IProductService } from "../../../../platform/product/common/productService.js";
+import { IEditorProgressService, LongRunningOperation } from "../../../../platform/progress/common/progress.js";
 import {
 	IStorageService,
 	StorageScope,
@@ -125,13 +126,12 @@ import { IReviewCanvasEditorTabsService } from "../../../services/reviewCanvasEd
 import { IReviewExplorerPartsService } from "../explorer/reviewExplorerPart.js";
 import { ReviewCanvasEditorInput } from "./reviewCanvasEditorInput.js";
 import {
-	loadReviewDocumentModule,
-	loadReviewSoftwareMapModules,
-} from "./reviewDocumentModule.js";
+	loadReviewDocumentData,
+	loadReviewSoftwareMaps,
+} from "./reviewDocumentData.js";
 
 interface ReviewCanvasAssetsModule extends ReviewCanvasModule {
 	readonly clearReviewViewState: (config: ReviewRuntimeConfig) => void;
-	readonly reviewDocRuntimeUrl: string;
 	readonly reviewWasmUrl: string;
 	readonly reviewStylesheetUrls: readonly string[];
 }
@@ -215,6 +215,8 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	private canvasMount: HTMLElement | null = null;
 	private targetDocument: Document | null = null;
 	private loadGeneration = 0;
+	private openingGeneration: number | undefined;
+	private readonly refreshProgress: LongRunningOperation;
 	private renderedInput: ReviewCanvasEditorInput | undefined;
 	private renderedModel: ReviewSessionModel | null = null;
 	private readyInput: ReviewCanvasEditorInput | undefined;
@@ -255,6 +257,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		@IReviewTelemetryService
 		private readonly reviewTelemetryService: IReviewTelemetryService,
 		@ILogService private readonly logService: ILogService,
+		@IEditorProgressService editorProgressService: IEditorProgressService,
 	) {
 		super(
 			ReviewCanvasEditorPane.ID,
@@ -266,6 +269,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		this.inlineEditors = this._register(
 			reviewInstantiationService.createInstance(ReviewInlineEditorService),
 		);
+		this.refreshProgress = this._register(new LongRunningOperation(editorProgressService));
 		this.diffViews = this._register(
 			reviewInstantiationService.createInstance(
 				ReviewDiffViewService,
@@ -384,6 +388,24 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		token: CancellationToken,
 	): Promise<void> {
 		const generation = ++this.loadGeneration;
+		this.refreshProgress.stop();
+		this.openingGeneration = generation;
+		try {
+			await this.setReviewInput(input, options, context, token, generation);
+		} finally {
+			if (this.openingGeneration === generation) {
+				this.openingGeneration = undefined;
+			}
+		}
+	}
+
+	private async setReviewInput(
+		input: ReviewCanvasEditorInput,
+		options: IEditorOptions | undefined,
+		context: IEditorOpenContext,
+		token: CancellationToken,
+		generation: number,
+	): Promise<void> {
 		await super.setInput(input, options, context, token);
 		this.restoreEmbeddedSelection(options);
 		try {
@@ -635,6 +657,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	}
 
 	override async clearInput(): Promise<void> {
+		this.refreshProgress.stop();
 		if (this.detachedScrollRestoreFrame !== null) {
 			cancelAnimationFrame(this.detachedScrollRestoreFrame);
 			this.detachedScrollRestoreFrame = null;
@@ -652,6 +675,11 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					)
 				: undefined;
 		await super.clearInput();
+	}
+
+	protected override setEditorVisible(visible: boolean): void {
+		super.setEditorVisible(visible);
+		if (!visible) this.refreshProgress.stop();
 	}
 
 	override focus(): void {
@@ -1202,23 +1230,10 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			if (generation !== this.loadGeneration) {
 				return new Error("Review canvas load was superseded.");
 			}
-			const document = model.resolveDocument((activeSession, moduleUrl) =>
-				loadReviewDocumentModule(
-					activeSession,
-					moduleUrl,
-					assets.reviewDocRuntimeUrl,
-				),
-			);
+			const document = model.resolveDocument(loadReviewDocumentData);
 			const softwareMapEnabled = this.currentSoftwareMapEnabled();
 			const softwareMap = softwareMapEnabled
-				? model.resolveSoftwareMap(
-						(activeSession, headModuleUrl, baseModuleUrl) =>
-							loadReviewSoftwareMapModules(
-								activeSession,
-								headModuleUrl,
-								baseModuleUrl,
-							),
-					)
+				? model.resolveSoftwareMap(loadReviewSoftwareMaps)
 				: disabledSoftwareMap;
 			const bridge = this.createBridge(model, assets, generation, {
 				ready: () => {
@@ -1248,6 +1263,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					reviewErrors: this.sessionService.reviewErrors,
 					commits: model.session.review.commits ?? [],
 					range: {
+						sourceUnavailable: model.session.descriptor.sourceUnavailable,
 						baseRef: model.session.review.baseRef ?? session.session.baseRef,
 						headRef: model.session.review.headRef ?? session.session.headRef ?? session.session.baseRef,
 						baseCommit: session.session.baseRef,
@@ -1313,16 +1329,26 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		model: ReviewSessionModel,
 	): Promise<void> {
 		const generation = ++this.loadGeneration;
-		if (
-			model.state !== "active" &&
-			!(await this.resetSessionForGeneration(generation))
-		) {
-			return;
+		// Opening already owns native editor progress through setInput().
+		// Only refreshes of the visible input need a separate operation.
+		const operation = this.isVisible() && this.input === input && this.openingGeneration === undefined
+			? this.refreshProgress.start(800)
+			: undefined;
+		try {
+			if (
+				model.state !== "active" &&
+				!(await this.resetSessionForGeneration(generation))
+			) {
+				return;
+			}
+			await this.renderModel(input, model, generation);
+		} finally {
+			operation?.stop();
 		}
-		await this.renderModel(input, model, generation);
 	}
 
 	private async renderFailure(error: Error): Promise<void> {
+		this.refreshProgress.stop();
 		const generation = ++this.loadGeneration;
 		if (await this.resetSessionForGeneration(generation)) {
 			await this.renderError(error, generation);
@@ -1416,6 +1442,10 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			subscribe: (listener) => this.surfaceEvents.event(listener),
 			currentTheme: () => this.colorScheme(),
 			onDidChangeTheme: (listener) => this.themeEvents.event(listener),
+			currentDiffLayout: () => this.diffViews.diffLayout.get(),
+			setDiffLayout: (layout) => this.diffViews.diffLayout.set(layout),
+			onDidChangeDiffLayout: (listener) =>
+				this.diffViews.diffLayout.onDidChange(listener),
 			ready: () => {
 				if (generation !== this.loadGeneration || !this.targetDocument) return;
 				this.targetDocument.body.dataset["reviewCanvasReady"] = "true";
@@ -1448,7 +1478,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			sessionId: session.session.sessionId,
 			token: session.token,
 			wasmUrl: assets.reviewWasmUrl,
-			docRuntimeUrl: assets.reviewDocRuntimeUrl,
 			appVersion:
 				this.productService.reviewVersion ?? this.productService.version,
 			theme: this.colorScheme(),
@@ -1476,7 +1505,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	 * off-screen container and report whether it reaches its first React
 	 * commit and stays free of error diagnostics through the settle window.
 	 * The visible canvas and the active model stay untouched. A clean
-	 * validation also warms the document-module cache for the visible mount
+	 * validation also warms the document-data cache for the visible mount
 	 * that follows promotion.
 	 */
 	private async validateSessionMount(
@@ -1493,9 +1522,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		// Each step of the off-screen mount reports its wall-clock interval back
 		// to the server, which folds it into the publish timings the CLI shows.
 		const timings: { name: string; startEpochMs: number; endEpochMs: number }[] = [];
-		const step = (name: string, startEpochMs: number, endEpochMs: number) => {
-			timings.push({ name, startEpochMs, endEpochMs });
-		};
 		const timed = async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
 			const startEpochMs = Date.now();
 			try {
@@ -1506,22 +1532,12 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		};
 		try {
 			const assets = await timed("load canvas assets", () => this.loadAssets());
-			const session = await timed("fetch session descriptor", () =>
-				this.resolveValidationSession(sessionId),
-			);
-			const documentPromise = timed("fetch + load document module", () =>
-				loadReviewSessionDocument(session, (draftSession, moduleUrl) =>
-					loadReviewDocumentModule(
-						draftSession,
-						moduleUrl,
-						assets.reviewDocRuntimeUrl,
-						undefined,
-						step,
-					),
-				),
+			const session = await timed("fetch session descriptor", () => this.resolveValidationSession(sessionId));
+			const documentPromise = timed("fetch + load document data", () =>
+				loadReviewSessionDocument(session, loadReviewDocumentData),
 			);
 			const softwareMapPromise = timed("fetch + load software map", () =>
-				loadReviewSessionSoftwareMap(session, loadReviewSoftwareMapModules),
+				loadReviewSessionSoftwareMap(session, loadReviewSoftwareMaps),
 			);
 			comments = new ReviewCommentStore({
 				request: (endpoint, init) =>
@@ -1558,6 +1574,10 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				subscribe: () => ({ dispose: () => undefined }),
 				currentTheme: () => this.colorScheme(),
 				onDidChangeTheme: () => ({ dispose: () => undefined }),
+				currentDiffLayout: () => this.diffViews.diffLayout.get(),
+				// The layout is a user setting; a validation mount must not write it.
+				setDiffLayout: async () => undefined,
+				onDidChangeDiffLayout: () => ({ dispose: () => undefined }),
 				// First commit is the success signal. Errors reported from effects
 				// that run before it still fail the mount via reportDiagnostic;
 				// later ones are the visible pane's problem, not publish's.
@@ -1586,6 +1606,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			mountedAt = Date.now();
 			handle = assets.mountReviewCanvas(container, {
 				kind: "session",
+				purpose: "validation",
 				bridge,
 				document: documentPromise,
 				softwareMap: softwareMapPromise,
@@ -1593,6 +1614,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				reviewErrors: this.sessionService.reviewErrors,
 				commits: session.review.commits ?? [],
 				range: {
+					sourceUnavailable: session.descriptor.sourceUnavailable,
 					baseRef: session.review.baseRef ?? session.session.baseRef,
 					headRef: session.review.headRef ?? session.session.headRef ?? session.session.baseRef,
 					baseCommit: session.session.baseRef,

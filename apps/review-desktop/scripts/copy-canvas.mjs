@@ -39,7 +39,6 @@ export async function copyCanvas(targets = canvasTargets([])) {
     await readFile(path.join(sourceRoot, ".vite/manifest.json"), "utf8"),
   );
   const canvas = requiredEntry(manifest, "canvas");
-  const docRuntime = requiredEntry(manifest, "doc-runtime");
   const stylesheets = canvas.css ?? [];
   const wasm = (canvas.assets ?? []).find((file) => file.endsWith(".wasm"));
   if (!wasm)
@@ -68,7 +67,6 @@ export async function copyCanvas(targets = canvasTargets([])) {
       path.join(targetRoot, "canvas-loader.js"),
       canvasLoaderSource({
         canvasFile: canvas.file,
-        docRuntimeFile: docRuntime.file,
         wasmFile: wasm,
         stylesheets,
       }),
@@ -76,15 +74,9 @@ export async function copyCanvas(targets = canvasTargets([])) {
   }
 }
 
-export function canvasLoaderSource({
-  canvasFile,
-  docRuntimeFile,
-  wasmFile,
-  stylesheets,
-}) {
+export function canvasLoaderSource({ canvasFile, wasmFile, stylesheets }) {
   return [
     `export { clearReviewViewState, mountReviewCanvas } from ${JSON.stringify(`./${canvasFile}`)};`,
-    `export const reviewDocRuntimeUrl = new URL(${JSON.stringify(`./${docRuntimeFile}`)}, import.meta.url).href;`,
     `export const reviewWasmUrl = new URL(${JSON.stringify(`./${wasmFile}`)}, import.meta.url).href;`,
     `export const reviewStylesheetUrls = ${JSON.stringify(stylesheets.map((file) => `./${file}`))}.map(file => new URL(file, import.meta.url).href);`,
     "",

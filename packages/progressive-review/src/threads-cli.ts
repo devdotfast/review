@@ -7,13 +7,19 @@ import {
   isJsonObject,
   jsonString,
 } from "@dev.fast/review-protocol";
+import { EnvHttpProxyAgent } from "undici";
 
 import {
   REVIEW_AGENT_THREAD_TOKEN_ENV,
   REVIEW_AGENT_THREAD_URL_ENV,
 } from "./native-agent/terminal-command";
 import { reviewUuidForManagedCheckout } from "./review-head-checkout";
-import { type StoredReview, findReview, listReviews } from "./review-home";
+import {
+  type StoredReview,
+  findReview,
+  findScopedReview,
+  listReviews,
+} from "./review-home";
 import {
   appendReviewAgentMessage,
   readReviewComments,
@@ -76,42 +82,56 @@ async function readAttachedReviewThread(input: {
       "review threads get requires an attached Review Desktop server.",
     );
   }
-  let response: Response;
+  // Node fetch does not automatically use the proxy supplied by Codex's
+  // network sandbox. Keep this dispatcher local to the attached-thread read.
+  const dispatcher = new EnvHttpProxyAgent({
+    httpProxy: env.http_proxy ?? env.HTTP_PROXY,
+    httpsProxy: env.https_proxy ?? env.HTTPS_PROXY,
+    noProxy: env.no_proxy ?? env.NO_PROXY,
+  });
+  const requestOptions = { dispatcher };
   try {
-    response = await fetch(
-      `${baseUrl.replace(/\/$/u, "")}/${encodeURIComponent(input.threadId)}`,
-      { headers: { "x-review-token": token } },
-    );
-  } catch (error) {
-    throw new Error("Review Desktop could not read the thread.", {
-      cause: error,
-    });
+    let response: Response;
+    try {
+      response = await fetch(
+        `${baseUrl.replace(/\/$/u, "")}/${encodeURIComponent(input.threadId)}`,
+        { headers: { "x-review-token": token }, ...requestOptions },
+      );
+    } catch (error) {
+      throw new Error("Review Desktop could not read the thread.", {
+        cause: error,
+      });
+    }
+    if (response.status === 404) {
+      await response.body?.cancel();
+      throw new Error(`Comment thread not found: ${input.threadId}`);
+    }
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error(
+        `Review Desktop could not read the thread (${response.status}).`,
+      );
+    }
+    const record: unknown = await response.json();
+    if (!isJsonObject(record)) {
+      throw new Error("Review Desktop returned an invalid thread response.");
+    }
+    const review = jsonString(record.review);
+    const state = record.state;
+    if (review === undefined || (state !== "draft" && state !== "submitted")) {
+      throw new Error("Review Desktop returned an invalid thread response.");
+    }
+    if (input.reviewUuid && input.reviewUuid !== review) {
+      throw new Error(`Review not found: ${input.reviewUuid}`);
+    }
+    return {
+      review,
+      state,
+      comment: ReviewCommentThreadRecordSchema.parse(record.comment),
+    };
+  } finally {
+    await dispatcher.close();
   }
-  if (response.status === 404) {
-    throw new Error(`Comment thread not found: ${input.threadId}`);
-  }
-  if (!response.ok) {
-    throw new Error(
-      `Review Desktop could not read the thread (${response.status}).`,
-    );
-  }
-  const record: unknown = await response.json();
-  if (!isJsonObject(record)) {
-    throw new Error("Review Desktop returned an invalid thread response.");
-  }
-  const review = jsonString(record.review);
-  const state = record.state;
-  if (review === undefined || (state !== "draft" && state !== "submitted")) {
-    throw new Error("Review Desktop returned an invalid thread response.");
-  }
-  if (input.reviewUuid && input.reviewUuid !== review) {
-    throw new Error(`Review not found: ${input.reviewUuid}`);
-  }
-  return {
-    review,
-    state,
-    comment: ReviewCommentThreadRecordSchema.parse(record.comment),
-  };
 }
 
 export async function runReviewThreadsResolve(
@@ -212,14 +232,18 @@ async function reviewsForThreads(
     const review = await findReview(managedReviewUuid);
     return review ? [review] : [];
   }
+  if (reviewUuid) {
+    const selected = await findScopedReview(reviewUuid, {
+      worktreePath: cwd,
+      includeTerminal: true,
+    });
+    return selected ? [selected] : [];
+  }
   const listed = await listReviews({ worktreePath: cwd });
   if (listed.errors.length > 0) {
     throw new Error(
       `Could not read reviews:\n${listed.errors.map((error) => error.message).join("\n")}`,
     );
-  }
-  if (reviewUuid) {
-    return listed.reviews.filter((entry) => entry.review.uuid === reviewUuid);
   }
   return listed.reviews;
 }

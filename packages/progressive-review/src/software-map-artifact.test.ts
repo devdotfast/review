@@ -10,7 +10,7 @@ import {
   remoteNotesRef,
   writeNote,
 } from "@dev.fast/local-vcs";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   SOFTWARE_MAP_NOTES_REF,
@@ -669,15 +669,20 @@ describe("materialization", () => {
     }
   });
 
-  it("warns (but still materializes) when a note fails strict validation", async () => {
-    const repo = await gitFixture("map-materialize-invalid-");
-    const warnings: string[] = [];
-    const originalWarn = console.warn;
-    console.warn = (...args: unknown[]) => {
-      warnings.push(args.map(String).join(" "));
-    };
-    try {
-      const commit = head(repo);
+  describe("invalid notes", () => {
+    let repo: string;
+    let commit: string;
+    let warnings: string[];
+    let originalWarn: typeof console.warn;
+
+    beforeEach(async () => {
+      repo = await gitFixture("map-materialize-invalid-");
+      commit = head(repo);
+      warnings = [];
+      originalWarn = console.warn;
+      console.warn = (...args: unknown[]) => {
+        warnings.push(args.map(String).join(" "));
+      };
       await writeNote({
         rootPath: repo,
         ref: SOFTWARE_MAP_NOTES_REF,
@@ -689,6 +694,14 @@ describe("materialization", () => {
           "export default defineSoftwareMap({ views: {} });",
         ].join("\n"),
       });
+    });
+
+    afterEach(async () => {
+      console.warn = originalWarn;
+      await rm(repo, { recursive: true, force: true });
+    });
+
+    it("warns (but still materializes) when a note fails strict validation", async () => {
       const artifactPath = await materializeSoftwareMapAtRef({
         repoRootPath: repo,
         ref: "HEAD",
@@ -697,10 +710,18 @@ describe("materialization", () => {
       expect(artifactPath).not.toBeNull();
       expect(warnings.join("\n")).toContain(commit);
       expect(warnings.join("\n")).toContain("failed strict validation");
-    } finally {
-      console.warn = originalWarn;
-      await rm(repo, { recursive: true, force: true });
-    }
+    });
+
+    it("skips strict validation when asked to", async () => {
+      const artifactPath = await materializeSoftwareMapAtRef({
+        repoRootPath: repo,
+        ref: "HEAD",
+        role: "head",
+        validate: "skip",
+      });
+      expect(artifactPath).not.toBeNull();
+      expect(warnings).toEqual([]);
+    });
   });
 });
 

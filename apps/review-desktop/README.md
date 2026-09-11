@@ -482,3 +482,10 @@ renderer process and the embedded Review server ready event to appear. Smoke
 failures include the captured main log. The release workflow runs it after
 `validate-release-artifacts.mjs` and before the R2 upload. Point it at a local
 bundle with `--app` when packaging by hand.
+
+## Linux distribution
+
+Linux x86-64 packaging, repository signing, setup, and release validation are
+documented in [the Linux release runbook](scripts/linux/README.md). The native
+packages expose `review` as the bundled agent CLI and `review-desktop` as the app
+launcher. Updates use DNF; Review links to package-manager instructions.

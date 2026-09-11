@@ -56,8 +56,8 @@ test("production build configurations include the Review entrypoint and CSS", as
     workbenchHtml,
     /href="\.\.\/\.\.\/\.\.\/review\/review\.desktop\.main\.css"/,
   );
-  assert.match(workbenchHtml, /\breviewDocumentModule\b/);
-  assert.match(workbenchDevHtml, /\breviewDocumentModule\b/);
+  assert.doesNotMatch(workbenchHtml, /\breviewDocumentModule\b/);
+  assert.doesNotMatch(workbenchDevHtml, /\breviewDocumentModule\b/);
   assert.match(workbenchHtml, /\breviewLibavoid\b/);
   assert.match(workbenchDevHtml, /\breviewLibavoid\b/);
   assert.match(workbenchHtml, /script-src[\s\S]*?'trusted-types-eval'/);
@@ -100,7 +100,6 @@ test("canvas targets are derived from fixed output locations", () => {
 test("the canvas loader exposes transient view-state reset", () => {
   const source = canvasLoaderSource({
     canvasFile: "assets/canvas.js",
-    docRuntimeFile: "assets/doc-runtime.js",
     wasmFile: "assets/libavoid.wasm",
     stylesheets: ["assets/canvas.css"],
   });
@@ -109,6 +108,7 @@ test("the canvas loader exposes transient view-state reset", () => {
     source,
     /export \{ clearReviewViewState, mountReviewCanvas \} from "\.\/assets\/canvas\.js";/,
   );
+  assert.doesNotMatch(source, /reviewDocRuntimeUrl|doc-runtime/);
 });
 
 test("M5 launches the packaged Review binary", async () => {
@@ -116,6 +116,7 @@ test("M5 launches the packaged Review binary", async () => {
     readFile(path.join(appRoot, "scripts/package-linux.sh"), "utf8"),
     readFile(path.join(appRoot, "scripts/run.sh"), "utf8"),
   ]);
+
   // The M5 acceptance harness stays in the private monorepo; a standalone
   // checkout skips its assertions.
   const [targetScript, acceptanceHarness] = await Promise.all([
@@ -149,6 +150,7 @@ test("M5 launches the packaged Review binary", async () => {
     runScript.indexOf('"${CODE_ARGS[@]}"') < runScript.lastIndexOf("\n  ."),
     "Electron switches must precede the positional workspace argument",
   );
+
   if (targetScript !== undefined && acceptanceHarness !== undefined) {
     assert.match(targetScript, /DEV_FAST_REVIEW_PACKAGED_ROOT=/);
     assert.match(targetScript, /VSCode-linux-x64/);
@@ -186,6 +188,7 @@ test("the packaged app carries its own Review runtime and is never written to at
     readFile(path.join(appRoot, "scripts/stage-review-runtime.mjs"), "utf8"),
     readFile(path.join(appRoot, "scripts/smoke-launch-packaged.mjs"), "utf8"),
   ]);
+
   const requiredPayloadPaths = darwinPayloadManifest.slice(
     darwinPayloadManifest.indexOf("DARWIN_PAYLOAD_REQUIRED_PATHS=("),
     darwinPayloadManifest.indexOf("DARWIN_PAYLOAD_ARCHIVE_ONLY_PATHS=("),
@@ -213,7 +216,8 @@ test("the packaged app carries its own Review runtime and is never written to at
     stagingScript,
     /RUNTIME_SERVER_ENTRY = "dist\/server\/desktop-host\.js"/,
   );
-  assert.match(stagingScript, /@esbuild\/\$\{platform\}\/bin\/esbuild/);
+  assert.match(stagingScript, /dist\/document\/worker\.js/);
+
   for (const packageScript of [packageLinuxScript, packageMacScript]) {
     assert.doesNotMatch(
       packageScript,
@@ -221,15 +225,18 @@ test("the packaged app carries its own Review runtime and is never written to at
       "release packages must not require optional Rust files",
     );
   }
+
   // The app distributes the Review CLI and agent skills; a bundle without
   // them silently reverts users to the npx flow.
   assert.match(stagingScript, /RUNTIME_CLI_ENTRY = "dist\/cli\.js"/);
   assert.match(stagingScript, /"skills\/dev-review\/SKILL\.md"/);
   assert.match(stagingScript, /"tutorial\/runtime-manifest\.json"/);
   assert.doesNotMatch(stagingScript, /tutorial\/authoring-conversation\.json/);
+
   const tutorialManifest = await readTutorialRuntimeManifest(
     path.resolve(appRoot, "../../packages/progressive-review/tutorial"),
   );
+
   assert.ok(tutorialManifest.reviewFiles.includes("review.mdx"));
   assert.ok(
     tutorialManifest.reviewFiles.includes("authoring-conversation.json"),
@@ -238,7 +245,17 @@ test("the packaged app carries its own Review runtime and is never written to at
   assert.ok(tutorialManifest.requiredPaths.includes("git-stub/HEAD"));
   assert.ok(
     tutorialManifest.requiredPaths.includes(
-      ".bundle/document/review-document.js",
+      ".bundle/document/review-document.json",
+    ),
+  );
+  assert.ok(
+    tutorialManifest.requiredPaths.includes(
+      ".bundle/software-map/head-map.json",
+    ),
+  );
+  assert.ok(
+    tutorialManifest.requiredPaths.includes(
+      ".bundle/software-map/base-map.json",
     ),
   );
   assert.ok(
@@ -278,6 +295,7 @@ test("the packaged app carries its own Review runtime and is never written to at
     /packages\/progressive-review\/tutorial/,
     "the Darwin payload must carry the tutorial assets",
   );
+
   for (const packageScript of [packageLinuxScript, packageMacScript]) {
     assert.match(packageScript, /stage-review-runtime\.mjs" --verify/);
     assert.match(
@@ -287,6 +305,7 @@ test("the packaged app carries its own Review runtime and is never written to at
     );
     assert.doesNotMatch(packageScript, /authoring-conversation\.json/);
   }
+
   assert.match(
     packageMacScript,
     /DARWIN_PAYLOAD_REQUIRED_PATHS\[@\]/,
@@ -300,6 +319,7 @@ test("the packaged app carries its own Review runtime and is never written to at
     stagingScript,
     /node_modules\/@dev\.fast\/local-vcs\/dist\/index\.js/,
   );
+
   for (const packageScript of [packageLinuxScript, packageMacScript]) {
     assert.match(packageScript, /stage-review-runtime\.mjs" --verify/);
   }
@@ -343,6 +363,7 @@ test("the packaged app carries its own Review runtime and is never written to at
       `${injected} must come from the main process, not the launcher`,
     );
   }
+
   assert.doesNotMatch(runScript, /copy-canvas\.mjs --packaged-root/);
 });
 
@@ -379,6 +400,7 @@ test("macOS release packaging signs, notarizes, and rebuilds stapled artifacts",
 
   assert.doesNotMatch(signScript, /azure-pipelines/);
   assert.match(signScript, /import\.meta\.dirname, 'entitlements'/);
+
   for (const entitlement of [
     "app.plist",
     "helper.plist",
@@ -388,6 +410,7 @@ test("macOS release packaging signs, notarizes, and rebuilds stapled artifacts",
   ]) {
     assert.match(signScript, new RegExp(entitlement.replace(".", "\\.")));
   }
+
   assert.match(signScript, /process\.env\['CODESIGN_KEYCHAIN'\]/);
   assert.match(signScript, /path\.join\(tempDir, 'buildagent\.keychain'\)/);
   assert.match(

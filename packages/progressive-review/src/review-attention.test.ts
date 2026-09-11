@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -83,7 +83,17 @@ describe("review attention stamps", () => {
   ): Promise<StoredReview> {
     const dir = await mkdtemp(path.join(os.tmpdir(), "review-attention-"));
     directories.push(dir);
-    return { dir, review: { ...storedReview("stamped", patch).review } };
+    const stored = {
+      dir,
+      review: {
+        ...storedReview("3b241101-e2bb-4255-8caf-4136c566a962", patch).review,
+      },
+    };
+    await writeFile(
+      path.join(dir, "review.json"),
+      JSON.stringify(stored.review),
+    );
+    return stored;
   }
 
   async function readStamps(

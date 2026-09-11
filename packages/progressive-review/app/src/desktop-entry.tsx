@@ -2,20 +2,26 @@ import type {
   ReviewCanvasContent,
   ReviewCanvasDiagnostic,
   ReviewCanvasHandle,
+  ReviewDocumentLoad,
+  ReviewSoftwareMapLoad,
 } from "@dev.fast/review-protocol";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
-import { App, type PublishedSoftwareMap } from "./App";
+import {
+  App,
+  type ReviewDocumentAppState,
+  type ReviewSoftwareMapAppState,
+} from "./App";
+import { codePeekDiagnostics } from "./code-peek-resolution";
 import {
   type ReviewSession,
   ReviewSessionProvider,
   createReviewSession,
   useReviewSession,
 } from "./host/review-session";
-import { ReviewCanvasLoading } from "./review-canvas-loading";
-import { reviewDefinitionDiagnostics } from "./review-definition-runtime";
-import type { ReadyReviewDocumentEntry } from "./review-documents-runtime";
+import { hydratePublishedSoftwareMap } from "./hydrate-published-software-map";
+import { prepareReviewDocument } from "./review-document-prepare";
 import { type ReviewFindHost, createReviewFindHost } from "./review-find";
 import { ReviewHome } from "./review-home-view";
 import {
@@ -31,122 +37,226 @@ import "./styles.css";
 
 export { clearPersistedReviewViewState as clearReviewViewState } from "./review-view-state";
 
-interface ReviewDocumentBundle {
-  activeReviewDocument: ReadyReviewDocumentEntry;
-}
-
 function DesktopReviewApp({
   documentBundle,
   softwareMapBundle,
   softwareMapEnabled,
+  purpose = "display",
   range,
   commits,
   tutorial,
   findHost,
 }: {
-  documentBundle: Promise<unknown>;
-  softwareMapBundle: Promise<unknown | null>;
+  documentBundle: Promise<ReviewDocumentLoad>;
+  softwareMapBundle: Promise<ReviewSoftwareMapLoad | null>;
   softwareMapEnabled: boolean;
+  purpose?: "display" | "validation";
   range: Extract<ReviewCanvasContent, { kind: "session" }>["range"];
   commits: Extract<ReviewCanvasContent, { kind: "session" }>["commits"];
   tutorial?: Extract<ReviewCanvasContent, { kind: "session" }>["tutorial"];
   findHost: ReviewFindHost;
 }) {
   const session = useReviewSession();
+  // Render boundaries report during commit, before our readiness effect.
+  // Keep their failure authoritative for this pair of validation artifacts.
+  const settlementSession = useMemo(() => {
+    if (purpose === "display") return session;
+    let failed = false;
+    return {
+      ...session,
+      signalReady: () => {
+        if (!failed) session.signalReady();
+      },
+      reportDiagnostic: (diagnostic: ReviewCanvasDiagnostic) => {
+        if (diagnostic.level === "error") failed = true;
+        session.reportDiagnostic(diagnostic);
+      },
+    };
+  }, [session, purpose, documentBundle, softwareMapBundle]);
   const sessionRef = useRef(session);
   sessionRef.current = session;
   const container = useReviewContainer();
-  const [document, setDocument] = useState<ReadyReviewDocumentEntry | null>(
+  const reportedDocumentBundle = useRef<Promise<ReviewDocumentLoad> | null>(
     null,
   );
-  const [softwareMap, setSoftwareMap] = useState<PublishedSoftwareMap | null>(
-    null,
-  );
-  const [softwareMapLoaded, setSoftwareMapLoaded] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setDocument(null);
-    setSoftwareMap(null);
-    setSoftwareMapLoaded(false);
-    setError(null);
-    void Promise.all([documentBundle, softwareMapBundle]).then(
-      ([documentValue, softwareMapValue]) => {
-        if (cancelled) return;
-        // SAFETY: the desktop host resolves the session content's `document`
-        // promise with the loaded review-document module, whose exports are
-        // the ReviewDocumentBundle (`activeReviewDocument`).
-        const bundle = documentValue as ReviewDocumentBundle;
-        setDocument(bundle.activeReviewDocument);
-        // SAFETY: the host resolves `softwareMap` with the published software
-        // map module, or null when no map was published for the review.
-        setSoftwareMap(softwareMapValue as PublishedSoftwareMap | null);
-        setSoftwareMapLoaded(true);
-      },
-      (loadError) => {
-        if (cancelled) return;
-        captureClientError(sessionRef.current, "document", loadError);
-        const message =
-          loadError instanceof Error ? loadError.message : String(loadError);
-        const diagnostic: ReviewCanvasDiagnostic = {
-          level: "error",
-          source: "loader",
-          message,
-        };
-        if (loadError instanceof Error && loadError.stack) {
-          diagnostic.stack = loadError.stack;
+  const reportedSoftwareMapBundle =
+    useRef<Promise<ReviewSoftwareMapLoad | null> | null>(null);
+  const documentState = useSettledLoad(
+    documentBundle,
+    async (load): Promise<ReviewDocumentAppState> => {
+      if (load.state !== "ready") return load;
+      const document = await prepareReviewDocument(load, sessionRef.current);
+      if (purpose === "validation") {
+        for (const anchor of document.anchors.values()) {
+          if (anchor.peek && !anchor.peek.resolution)
+            throw new Error(
+              `Review document code peek ${anchor.id} could not be resolved.`,
+            );
         }
-        sessionRef.current.reportDiagnostic(diagnostic);
-        setError(message);
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [documentBundle, softwareMapBundle]);
+      }
+      return { state: "ready", document };
+    },
+  );
+  const softwareMapState = useSettledLoad(
+    softwareMapBundle,
+    (load): ReviewSoftwareMapAppState => {
+      if (load === null) return { state: "absent" };
+      if (load.state !== "ready") return load;
+      return {
+        state: "ready",
+        softwareMap: hydratePublishedSoftwareMap(load),
+      };
+    },
+  );
 
   useEffect(() => {
-    if (document && softwareMapLoaded && !error) session.signalReady();
-  }, [document, softwareMapLoaded, error, session]);
+    if (
+      documentState.state === "loading" ||
+      softwareMapState.state === "loading"
+    ) {
+      return;
+    }
+    // The display host opens a usable recovery shell before diagnostics.
+    // Validation instead reports every unusable artifact before success.
+    if (purpose === "display") settlementSession.signalReady();
+    if (
+      reportedDocumentBundle.current !== documentBundle &&
+      reportLoadFailure(settlementSession, "document", documentState, purpose)
+    ) {
+      reportedDocumentBundle.current = documentBundle;
+    }
+    if (
+      reportedSoftwareMapBundle.current !== softwareMapBundle &&
+      reportLoadFailure(
+        settlementSession,
+        "software-map",
+        softwareMapState,
+        purpose,
+      )
+    ) {
+      reportedSoftwareMapBundle.current = softwareMapBundle;
+    }
+    if (
+      purpose === "validation" &&
+      documentState.state === "ready" &&
+      (softwareMapState.state === "ready" ||
+        softwareMapState.state === "absent")
+    ) {
+      settlementSession.signalReady();
+    }
+  }, [
+    documentBundle,
+    documentState,
+    softwareMapBundle,
+    softwareMapState,
+    purpose,
+    settlementSession,
+  ]);
 
   useEffect(() => {
     if (!container) return;
-    const { authoredCodePeekRequestCount, authoredCodePeekDiffRequestCount } =
-      reviewDefinitionDiagnostics;
+    const { authoredCodePeekRequestCount } = codePeekDiagnostics;
     if (authoredCodePeekRequestCount === 0) return;
     container.dataset.reviewAuthoredCodePeekRequestCount = String(
       authoredCodePeekRequestCount,
     );
-    container.dataset.reviewAuthoredCodePeekDiffRequestCount = String(
-      authoredCodePeekDiffRequestCount,
-    );
-  }, [container, document, error]);
+  }, [container, documentState]);
 
-  if (error) {
-    return (
-      <CanvasShell title="Review unavailable">
-        <p>{error}</p>
-      </CanvasShell>
-    );
-  }
-  if (!document || !softwareMapLoaded) {
-    return <ReviewCanvasLoading page note="Still loading this review…" />;
-  }
   return (
     <div className="review-session-content">
-      <TutorialProvider tutorial={tutorial}>
-        <App
-          document={document}
-          softwareMap={softwareMap}
-          softwareMapEnabled={softwareMapEnabled}
-          range={range}
-          commits={commits}
-          findHost={findHost}
-        />
-      </TutorialProvider>
+      <ReviewSessionProvider session={settlementSession}>
+        <TutorialProvider tutorial={tutorial}>
+          <App
+            documentState={documentState}
+            softwareMapState={softwareMapState}
+            softwareMapEnabled={softwareMapEnabled}
+            range={range}
+            commits={commits}
+            findHost={findHost}
+          />
+        </TutorialProvider>
+      </ReviewSessionProvider>
     </div>
   );
+}
+
+type ReviewLoadFallback =
+  | { state: "loading" }
+  | { state: "unavailable"; message: string; cause: Error };
+
+const reviewLoadLoading: ReviewLoadFallback = { state: "loading" };
+
+/**
+ * Settles one canvas bundle into its app state. A load that rejects becomes
+ * the unavailable state carrying its cause, so nothing has to re-derive the
+ * failure from a ref afterwards.
+ */
+function useSettledLoad<TLoad, TState>(
+  bundle: Promise<TLoad>,
+  settle: (load: TLoad) => TState | Promise<TState>,
+): TState | ReviewLoadFallback {
+  const settleRef = useRef(settle);
+  settleRef.current = settle;
+  const [settledLoad, setSettledLoad] = useState<{
+    bundle: Promise<TLoad>;
+    value: TState | ReviewLoadFallback;
+  }>(() => ({ bundle, value: reviewLoadLoading }));
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const load = await bundle;
+        if (cancelled) return;
+        const settled = await settleRef.current(load);
+        if (!cancelled) setSettledLoad({ bundle, value: settled });
+      } catch (error) {
+        if (cancelled) return;
+        const cause = error instanceof Error ? error : new Error(String(error));
+        setSettledLoad({
+          bundle,
+          value: { state: "unavailable", message: cause.message, cause },
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [bundle]);
+  return settledLoad.bundle === bundle ? settledLoad.value : reviewLoadLoading;
+}
+
+function reportLoadFailure(
+  session: ReviewSession,
+  source: "document" | "software-map",
+  state: ReviewDocumentAppState | ReviewSoftwareMapAppState,
+  purpose: "display" | "validation",
+): boolean {
+  if (
+    purpose === "validation" &&
+    (state.state === "needs-republish" ||
+      (state.state === "unavailable" && state.currentReviewUuid))
+  ) {
+    session.reportDiagnostic({
+      level: "error",
+      source: "loader",
+      message:
+        state.state === "unavailable"
+          ? state.message
+          : `The ${source} needs repair before publication.`,
+    });
+    return true;
+  }
+  if (state.state !== "unavailable" || state.currentReviewUuid) return false;
+  const cause = state.cause ?? new Error(state.message);
+  captureClientError(session, source, cause);
+  const diagnostic: ReviewCanvasDiagnostic = {
+    level: "error",
+    source: "loader",
+    message: cause.message,
+  };
+  if (cause.stack) diagnostic.stack = cause.stack;
+  session.reportDiagnostic(diagnostic);
+  return true;
 }
 
 function ReviewCanvas({
@@ -163,6 +273,7 @@ function ReviewCanvas({
         documentBundle={content.document}
         softwareMapBundle={content.softwareMap}
         softwareMapEnabled={content.softwareMapEnabled}
+        purpose={content.purpose}
         range={content.range}
         commits={content.commits}
         tutorial={content.tutorial}
@@ -223,7 +334,7 @@ function ReviewCanvas({
       </CanvasShell>
     );
   }
-  return <ReviewCanvasLoading page note="Preparing the selected review…" />;
+  return null;
 }
 
 function Home({
@@ -380,10 +491,8 @@ export function mountReviewCanvas(
 }
 
 function resetSessionDiagnostics(container: HTMLElement): void {
-  reviewDefinitionDiagnostics.authoredCodePeekRequestCount = 0;
-  reviewDefinitionDiagnostics.authoredCodePeekDiffRequestCount = 0;
+  codePeekDiagnostics.authoredCodePeekRequestCount = 0;
   delete container.dataset.reviewAuthoredCodePeekRequestCount;
-  delete container.dataset.reviewAuthoredCodePeekDiffRequestCount;
   delete container.dataset.reviewDiffSummaryRequestCount;
   delete container.dataset.reviewDiffSummaryReadyCount;
   delete container.dataset.reviewDiffSummaryStartedAfterMount;

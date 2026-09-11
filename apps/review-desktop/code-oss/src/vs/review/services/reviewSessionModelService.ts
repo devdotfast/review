@@ -17,12 +17,15 @@ import {
 } from "../../platform/instantiation/common/instantiation.js";
 import { ReviewModuleCache } from "../common/reviewModuleCache.js";
 import {
-	ReviewDocModuleResponseSchema,
-	ReviewSoftwareMapModuleResponseSchema,
+	ReviewDocumentResponseSchema,
+	ReviewSoftwareMapResponseSchema,
 	type ReviewCommentStoreBridge,
 	type ReviewDescriptor,
+	type ReviewDocumentLoad,
+	type ReviewErrorResponse,
 	type ReviewSessionDescriptor,
 	type ReviewSessionWire,
+	type ReviewSoftwareMapLoad,
 	parseReviewSessionResponse,
 } from "../common/reviewProtocol.js";
 import {
@@ -47,16 +50,18 @@ export interface ReviewDesktopSession {
 	};
 }
 
-export type ReviewDocumentModuleLoader = (
+export type ReviewDocumentDataLoader = (
 	session: ReviewDesktopSession,
-	moduleUrl: string,
-) => Promise<unknown>;
+	documentUrl: string,
+	contentHash: string,
+) => Promise<ReviewDocumentLoad>;
 
-export type ReviewSoftwareMapModuleLoader = (
+export type ReviewSoftwareMapLoader = (
 	session: ReviewDesktopSession,
-	headModuleUrl: string,
-	baseModuleUrl: string,
-) => Promise<unknown>;
+	headMapUrl: string,
+	baseMapUrl: string,
+	contentHash: string,
+) => Promise<ReviewSoftwareMapLoad>;
 
 type ReviewSessionResolver = (
 	preferredSessionId?: string,
@@ -221,13 +226,13 @@ export class ReviewSessionModel extends Disposable {
 		return this.refreshPromise;
 	}
 
-	resolveDocument(loader: ReviewDocumentModuleLoader): Promise<unknown> {
+	resolveDocument(loader: ReviewDocumentDataLoader): Promise<ReviewDocumentLoad> {
 		return this.modules.load("document", () => this.loadDocument(loader));
 	}
 
 	resolveSoftwareMap(
-		loader: ReviewSoftwareMapModuleLoader,
-	): Promise<unknown | null> {
+		loader: ReviewSoftwareMapLoader,
+	): Promise<ReviewSoftwareMapLoad | null> {
 		return this.modules.load("software-map", () =>
 			this.loadSoftwareMap(loader),
 		);
@@ -237,13 +242,15 @@ export class ReviewSessionModel extends Disposable {
 		return fetch(url, init);
 	}
 
-	private loadDocument(loader: ReviewDocumentModuleLoader): Promise<unknown> {
+	private loadDocument(
+		loader: ReviewDocumentDataLoader,
+	): Promise<ReviewDocumentLoad> {
 		return loadReviewSessionDocument(this._session, loader);
 	}
 
 	private loadSoftwareMap(
-		loader: ReviewSoftwareMapModuleLoader,
-	): Promise<unknown | null> {
+		loader: ReviewSoftwareMapLoader,
+	): Promise<ReviewSoftwareMapLoad | null> {
 		return loadReviewSessionSoftwareMap(this._session, loader);
 	}
 
@@ -283,53 +290,118 @@ export function reviewSessionApiRequest(
 	return fetchImpl(url.href, { ...init, headers });
 }
 
+/** A review load that settled without a usable payload. */
+type ReviewLoadSettlement =
+	| { state: "unavailable"; message: string; currentReviewUuid?: string }
+	| { state: "needs-republish"; reviewUuid: string; mapStale: boolean };
+
+/**
+ * Runs one session-scoped review load request. A 404 is a shape, not a
+ * failure: the caller decides whether a missing module is `null` (an
+ * unpublished software map) or unavailable.
+ */
+async function fetchReviewEnvelope<TResponse>(
+	session: ReviewDesktopSession,
+	url: URL,
+	parse: (value: unknown) => TResponse,
+): Promise<{ response: Response; payload: TResponse | null }> {
+	const response = await fetch(url, {
+		headers: { "x-review-token": session.token },
+		signal: AbortSignal.timeout(30_000),
+	});
+	if (response.status === 404) {
+		return { response, payload: null };
+	}
+	return { response, payload: parse(await response.json()) };
+}
+
+/**
+ * Turns a failed review load response into the state the canvas renders.
+ * Republish and historical-revision responses are expected outcomes rather
+ * than errors; unexpected failures reject so the module cache can retry.
+ */
+function decodeReviewLoadEnvelope(
+	response: Response,
+	payload: { ok: true } | ReviewErrorResponse,
+	label: string,
+): ReviewLoadSettlement {
+	if (payload.ok) {
+		throw new Error(`${label} returned ${response.status}.`);
+	}
+	if (!payload.retryable && response.status === 409 && payload.detail?.code === "historical_revision_unavailable") {
+		return {
+			state: "unavailable",
+			message: payload.error,
+			currentReviewUuid: payload.detail.reviewUuid,
+		};
+	}
+	if (!payload.retryable && response.status === 409 && payload.detail?.code === "needs_republish") {
+		return {
+			state: "needs-republish",
+			reviewUuid: payload.detail.reviewUuid,
+			mapStale: payload.detail.mapStale,
+		};
+	}
+	throw new Error(payload.error);
+}
+
 export async function loadReviewSessionDocument(
 	session: ReviewDesktopSession,
-	loader: ReviewDocumentModuleLoader,
-): Promise<unknown> {
-	const url = new URL(`${session.sessionUrl}/__progressive-review/doc-module`);
+	loader: ReviewDocumentDataLoader,
+): Promise<ReviewDocumentLoad> {
+	const url = new URL(`${session.sessionUrl}/__progressive-review/document`);
 	const routePath = session.session.routePath ?? session.descriptor.routePath;
 	if (routePath && routePath !== "/") {
 		url.searchParams.set("document", routePath);
 	}
-	const response = await fetch(url, {
-		headers: { "x-review-token": session.token },
-		signal: AbortSignal.timeout(30_000),
-	});
-	const payload = ReviewDocModuleResponseSchema.parse(await response.json());
-	if (!response.ok || !payload.ok) {
-		throw new Error(
-			payload.ok
-				? `Review document module returned ${response.status}.`
-				: payload.error,
-		);
+	const { response, payload } = await fetchReviewEnvelope(
+		session,
+		url,
+		(value) => ReviewDocumentResponseSchema.parse(value),
+	);
+	if (payload === null) {
+		return {
+			state: "unavailable",
+			message: `Review document returned ${response.status}.`,
+		};
 	}
-	return loader(session, payload.moduleUrl);
+	if (!response.ok || !payload.ok) {
+		return decodeReviewLoadEnvelope(response, payload, "Review document");
+	}
+	return await loader(session, payload.documentUrl, payload.contentHash);
 }
 
 export async function loadReviewSessionSoftwareMap(
 	session: ReviewDesktopSession,
-	loader: ReviewSoftwareMapModuleLoader,
-): Promise<unknown | null> {
+	loader: ReviewSoftwareMapLoader,
+): Promise<ReviewSoftwareMapLoad | null> {
 	const url = new URL(
-		`${session.sessionUrl}/__progressive-review/software-map-module`,
+		`${session.sessionUrl}/__progressive-review/software-map`,
 	);
-	const response = await fetch(url, {
-		headers: { "x-review-token": session.token },
-		signal: AbortSignal.timeout(30_000),
-	});
-	if (response.status === 404) return null;
-	const payload = ReviewSoftwareMapModuleResponseSchema.parse(
-		await response.json(),
+	const { response, payload } = await fetchReviewEnvelope(
+		session,
+		url,
+		(value) => ReviewSoftwareMapResponseSchema.parse(value),
 	);
+	// An unpublished software map is absent, not unavailable.
+	if (payload === null) return null;
 	if (!response.ok || !payload.ok) {
-		throw new Error(
-			payload.ok
-				? `Software map module returned ${response.status}.`
-				: payload.error,
+		const settlement = decodeReviewLoadEnvelope(
+			response,
+			payload,
+			"Software map",
 		);
+		// The map load carries no mapStale: the document's state owns it.
+		return settlement.state === "needs-republish"
+			? { state: "needs-republish", reviewUuid: settlement.reviewUuid }
+			: settlement;
 	}
-	return loader(session, payload.headModuleUrl, payload.baseModuleUrl);
+	return await loader(
+		session,
+		payload.headMapUrl,
+		payload.baseMapUrl,
+		payload.contentHash,
+	);
 }
 
 function reviewDocumentRevision(session: ReviewDesktopSession): string {

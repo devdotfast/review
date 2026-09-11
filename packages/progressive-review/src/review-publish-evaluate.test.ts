@@ -77,6 +77,7 @@ describe("publish range evaluation", () => {
     expect(result.errors).toEqual([
       expect.stringContaining("Source range src/example.ts:1-4 exceeds"),
     ]);
+    expect(result.document).toBeNull();
   });
 
   it("does not prepare a worktree when the document has no peeks", async () => {
@@ -90,6 +91,170 @@ describe("publish range evaluation", () => {
 
     expect(result).toMatchObject({ peekCount: 0, rangePeeks: [], errors: [] });
     expect(prepareEvidence).not.toHaveBeenCalled();
+  });
+
+  it("recovers imported anchors omitted by old sealed document exports, including unused anchors", async () => {
+    const result = await evaluateReviewDocumentBundleForPublish({
+      reviewDir: fixtureDir("review"),
+      ranges: "skip",
+      bundleCode: `import { createBrowserReviewDefinitionSession, createActiveReviewDocument, jsx } from "review-doc-runtime";
+        const session = createBrowserReviewDefinitionSession({});
+        const anchors = session.defineAnchors({ shown: { title: "Shown", peek: { file: "x.ts", fromLine: 1, toLine: 1 } }, unused: { title: "Unused", peek: { file: "x.ts", fromLine: 2, toLine: 2 } } });
+        export default createActiveReviewDocument({ title: "Legacy", routePath: "/", filePath: "review.mdx", modelNames: [], models: {}, Component: ({ components }) => jsx(components.AnchorLink, { anchor: anchors.shown, children: "Shown" }), isDefault: true });`,
+    });
+    expect(result.errors).toEqual([]);
+    expect(Object.keys(result.document!.anchors).sort()).toEqual([
+      "shown",
+      "unused",
+    ]);
+  });
+
+  it("captures the explicit legacy repository map pair separately from inline models", async () => {
+    const result = await evaluateReviewDocumentBundleForPublish({
+      reviewDir: fixtureDir("embedded-map"),
+      bundleCode: `import { createActiveReviewDocument, defineSoftwareModel, jsx } from "review-doc-runtime";
+const head = defineSoftwareModel({ systems: { service: { label: "Head" } } });
+const base = defineSoftwareModel({ systems: { service: { label: "Base" } } });
+defineSoftwareModel({ systems: { inline: { label: "Inline" } } });
+export default createActiveReviewDocument({ title: "Legacy", routePath: "/", filePath: "review.mdx", modelNames: [], models: {}, repoSoftwareMap: head, baseSoftwareMap: base, Component: () => jsx("p", { children: "Legacy" }) });`,
+    });
+    expect(result.errors).toEqual([]);
+    expect(result.legacySoftwareMap?.head.elements[0].label).toBe("Head");
+    expect(result.legacySoftwareMap?.base.elements[0].label).toBe("Base");
+    expect(result.document?.softwareModels).toHaveLength(3);
+  });
+
+  it.each([
+    { head: "head", base: "null" },
+    { head: "null", base: "head" },
+    { head: "{}", base: "head" },
+    {
+      head: "{ elements: [null], relationships: [], elementsByPath: new Map() }",
+      base: "head",
+    },
+  ])(
+    "rejects an invalid embedded software map pair: $head / $base",
+    async ({ head, base }) => {
+      const result = await evaluateReviewDocumentBundleForPublish({
+        reviewDir: fixtureDir("invalid-embedded-map"),
+        bundleCode: `import { createActiveReviewDocument, defineSoftwareModel, jsx } from "review-doc-runtime";
+const head = defineSoftwareModel({ systems: { service: { label: "Head" } } });
+export default createActiveReviewDocument({ title: "Legacy", routePath: "/", filePath: "review.mdx", modelNames: [], models: {}, repoSoftwareMap: ${head}, baseSoftwareMap: ${base}, Component: () => jsx("p", { children: "Legacy" }) });`,
+      });
+      expect(result.document).toBeNull();
+      expect(result.legacySoftwareMap).toBeUndefined();
+      expect(result.errors).toEqual([
+        expect.stringContaining("embedded software map"),
+      ]);
+    },
+  );
+
+  it("materializes document metadata, nodes, anchors, and ordered software models", async () => {
+    const reviewDir = fixtureDir("review");
+    const head = sourceFixture("one line");
+    const result = await evaluateReviewDocumentBundleForPublish({
+      reviewDir,
+      bundleCode: `
+        import React, {
+          createActiveReviewDocument,
+          createBrowserReviewDefinitionSession,
+          defineSoftwareModel,
+        } from "review-doc-runtime";
+        const session = createBrowserReviewDefinitionSession({
+          softwareMap: null,
+          baseSoftwareMap: null,
+        });
+        const anchors = session.defineAnchors({
+          request: {
+            title: "Request",
+            peek: { file: "src/example.ts", fromLine: 1, toLine: 1 },
+          },
+          unused: {
+            title: "Unused imported anchor",
+            peek: { file: "src/example.ts", fromLine: 1, toLine: 1 },
+          },
+        });
+        const first = defineSoftwareModel({
+          systems: { first: { label: "First" } },
+        });
+        const second = defineSoftwareModel({
+          systems: { second: { label: "Second" } },
+        });
+        await session.ready();
+        createActiveReviewDocument({
+          title: "Materialized",
+          routePath: "/guide",
+          filePath: "/repo/review.mdx",
+          modelNames: ["second"],
+          models: { anchors, importedModel: first, ignored: first, second },
+          Component: ({ components }) => React.createElement(
+            React.Fragment,
+            null,
+            React.createElement("h1", {
+              "data-review-block-index": 0,
+              "data-review-block-tag": "h1",
+            }, "Materialized"),
+            React.createElement(components.CodePeek, {
+              anchor: anchors.request,
+            }),
+          ),
+        });
+      `,
+      prepareEvidence: async () => ({ head: { sourceRootPath: head } }),
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.document).toMatchObject({
+      title: "Materialized",
+      routePath: "/guide",
+      sourcePath: "review.mdx",
+      body: [
+        {
+          type: "element",
+          tag: "h1",
+          children: [{ type: "text", value: "Materialized" }],
+        },
+        { type: "component", name: "CodePeek", children: [] },
+      ],
+    });
+    expect(result.document?.anchors.request?.peek?.resolution).toBeNull();
+    expect(result.document?.anchors.unused?.title).toBe(
+      "Unused imported anchor",
+    );
+    expect(
+      result.document?.softwareModels.map((model) => model.elements[0]?.label),
+    ).toEqual(["Second", "First"]);
+  });
+
+  it("returns no document after audit or document-schema failures", async () => {
+    const auditFailure = await evaluateReviewDocumentBundleForPublish({
+      reviewDir: fixtureDir("review"),
+      bundleCode: bundleWithDocumentBody(
+        `React.createElement(components.CodePeek, {})`,
+      ),
+    });
+    expect(auditFailure.errors.length).toBeGreaterThan(0);
+    expect(auditFailure.document).toBeNull();
+
+    const documentLocalComponent = await evaluateReviewDocumentBundleForPublish(
+      {
+        reviewDir: fixtureDir("review"),
+        bundleCode: bundleWithDocumentBody(
+          `React.createElement(() => React.createElement("p", null, "Local"))`,
+        ),
+      },
+    );
+    expect(documentLocalComponent.errors).toContain(
+      "Document-local components are not supported; use the Review components.",
+    );
+    expect(documentLocalComponent.document).toBeNull();
+
+    const schemaFailure = await evaluateReviewDocumentBundleForPublish({
+      reviewDir: fixtureDir("review"),
+      bundleCode: bundleWithDocumentBody(`React.createElement("video")`),
+    });
+    expect(schemaFailure.errors.length).toBeGreaterThan(0);
+    expect(schemaFailure.document).toBeNull();
   });
 
   describe("TraceQuote validation", () => {
@@ -165,6 +330,11 @@ describe("publish range evaluation", () => {
           });
           await session.ready();
           createActiveReviewDocument({
+            title: "Trace quote",
+            routePath: "/",
+            filePath: "/repo/review.mdx",
+            modelNames: [],
+            models: {},
             Component: ({ components }) => {
               const TraceQuote = components.TraceQuote;
               return React.createElement(
@@ -195,6 +365,11 @@ describe("publish range evaluation", () => {
           });
           await session.ready();
           createActiveReviewDocument({
+            title: "Trace quote",
+            routePath: "/",
+            filePath: "/repo/review.mdx",
+            modelNames: [],
+            models: {},
             Component: ({ components }) => {
               const TraceQuote = components.TraceQuote;
               return React.createElement(
@@ -226,6 +401,11 @@ describe("publish range evaluation", () => {
           });
           await session.ready();
           createActiveReviewDocument({
+            title: "Trace quote",
+            routePath: "/",
+            filePath: "/repo/review.mdx",
+            modelNames: [],
+            models: {},
             Component: ({ components }) => {
               const TraceQuote = components.TraceQuote;
               return React.createElement(
@@ -242,6 +422,111 @@ describe("publish range evaluation", () => {
       expect(result.warnings.length).toBeGreaterThan(0);
       expect(result.warnings[0]).toContain("hint event={99} is stale");
     });
+  });
+
+  it("serializes concurrent evaluations that share the process-global runtime", async () => {
+    const reviewDir = fixtureDir("review");
+    const events: string[] = [];
+    vi.stubGlobal("__reviewEvaluationEvents", events);
+    const slow = `
+      globalThis.__reviewEvaluationEvents.push("first:enter");
+      ${bundleWithAnchors("")
+        .replace('title: "Fixture"', 'title: "First"')
+        .replace(
+          "await session.ready();",
+          "await new Promise((resolve) => setTimeout(resolve, 150)); await session.ready();",
+        )}
+      globalThis.__reviewEvaluationEvents.push("first:exit");
+    `;
+    const fast = `
+      globalThis.__reviewEvaluationEvents.push("second:enter");
+      ${bundleWithAnchors("").replace('title: "Fixture"', 'title: "Second"')}
+      globalThis.__reviewEvaluationEvents.push("second:exit");
+    `;
+    try {
+      const [first, second] = await Promise.all([
+        evaluateReviewDocumentBundleForPublish({
+          reviewDir,
+          bundleCode: slow,
+          ranges: "skip",
+        }),
+        evaluateReviewDocumentBundleForPublish({
+          reviewDir,
+          bundleCode: fast,
+          ranges: "skip",
+        }),
+      ]);
+      const firstName = events[0]?.split(":")[0];
+      const secondName = firstName === "first" ? "second" : "first";
+      expect(events).toEqual([
+        `${firstName}:enter`,
+        `${firstName}:exit`,
+        `${secondName}:enter`,
+        `${secondName}:exit`,
+      ]);
+      expect(first.errors).toEqual([]);
+      expect(second.errors).toEqual([]);
+      expect(first.document?.title).toBe("First");
+      expect(second.document?.title).toBe("Second");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("continues queued evaluations after an evaluation rejects", async () => {
+    const reviewDir = fixtureDir("review");
+    const invalidReviewDir = path.join(reviewDir, "not-a-directory");
+    fs.writeFileSync(invalidReviewDir, "occupied");
+    const failed = evaluateReviewDocumentBundleForPublish({
+      reviewDir: invalidReviewDir,
+      bundleCode: bundleWithAnchors(""),
+      ranges: "skip",
+    });
+    const next = evaluateReviewDocumentBundleForPublish({
+      reviewDir,
+      bundleCode: bundleWithAnchors(""),
+      ranges: "skip",
+    });
+
+    await expect(failed).rejects.toMatchObject({ code: "ENOTDIR" });
+    await expect(next).resolves.toMatchObject({
+      errors: [],
+      document: { title: "Fixture" },
+    });
+  });
+
+  it("restores the runtime and cleans temporary files after a document throws", async () => {
+    const reviewDir = fixtureDir("review");
+    const previous = { marker: "existing runtime" };
+    vi.stubGlobal("__devFastReviewPublishRuntime", previous);
+    try {
+      const [failed, healthy] = await Promise.all([
+        evaluateReviewDocumentBundleForPublish({
+          reviewDir,
+          ranges: "skip",
+          bundleCode: `${bundleWithAnchors("")} throw new Error("evaluation failed");`,
+        }),
+        evaluateReviewDocumentBundleForPublish({
+          reviewDir,
+          ranges: "skip",
+          bundleCode: bundleWithAnchors("").replace(
+            'title: "Fixture"',
+            'title: "Healthy"',
+          ),
+        }),
+      ]);
+      expect(failed.errors.join(" ")).toContain("evaluation failed");
+      expect(healthy.errors).toEqual([]);
+      expect(healthy.document?.title).toBe("Healthy");
+      // SAFETY: this test installs and restores the private runtime slot.
+      const holder = globalThis as typeof globalThis & {
+        __devFastReviewPublishRuntime?: typeof previous;
+      };
+      expect(holder.__devFastReviewPublishRuntime).toBe(previous);
+      expect(fs.readdirSync(path.join(reviewDir, ".build"))).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   function sourceFixture(source: string): string {
@@ -268,8 +553,37 @@ function bundleWithAnchors(anchors: string): string {
       softwareMap: null,
       baseSoftwareMap: null,
     });
-    session.defineAnchors({ ${anchors} });
+    const anchors = session.defineAnchors({ ${anchors} });
     await session.ready();
-    createActiveReviewDocument({ Component: () => null });
+    createActiveReviewDocument({
+      title: "Fixture",
+      routePath: "/",
+      filePath: "/repo/review.mdx",
+      modelNames: [],
+      models: { anchors },
+      Component: () => null,
+    });
+  `;
+}
+
+function bundleWithDocumentBody(body: string): string {
+  return `
+    import React, {
+      createActiveReviewDocument,
+      createBrowserReviewDefinitionSession,
+    } from "review-doc-runtime";
+    const session = createBrowserReviewDefinitionSession({
+      softwareMap: null,
+      baseSoftwareMap: null,
+    });
+    await session.ready();
+    createActiveReviewDocument({
+      title: "Fixture",
+      routePath: "/",
+      filePath: "/repo/review.mdx",
+      modelNames: [],
+      models: {},
+      Component: ({ components }) => ${body},
+    });
   `;
 }

@@ -16,7 +16,7 @@ import {
   ReviewDiffFileSchema,
   ReviewDiffFilesRequestSchema,
   ReviewDiffFilesResponseSchema,
-  ReviewDocModuleResponseSchema,
+  ReviewDocumentResponseSchema,
   ReviewEditorSelectionSchema,
   ReviewErrorResponseSchema,
   ReviewFileContentRequestSchema,
@@ -37,6 +37,7 @@ import {
   ReviewSubmissionWireSchema,
   ReviewSurfaceEventSchema,
   ReviewThreadAnchorSchema,
+  ReviewThreadsSnapshotSchema,
   ReviewVerbRequestSchema,
   ReviewVerbResponseSchema,
   ThreadTargetSchema,
@@ -44,7 +45,23 @@ import {
   reviewViewSchema,
   summarizeReviewDiffFiles,
 } from "./contracts.js";
+import type { ReviewDocumentLoad, ReviewSoftwareMapLoad } from "./contracts.js";
+import { jsonValueSchema } from "./json.js";
 import type { JsonObject } from "./json.js";
+
+it("accepts retryable busy errors through strict response envelopes", () => {
+  const busy = {
+    ok: false,
+    code: "review_busy",
+    retryable: true,
+    error: "Review is busy",
+  };
+  expect(ReviewErrorResponseSchema.parse(busy)).toEqual(busy);
+  expect(ReviewDocumentResponseSchema.parse(busy)).toEqual(busy);
+  expect(
+    ReviewErrorResponseSchema.safeParse({ ...busy, retryable: "yes" }).success,
+  ).toBe(false);
+});
 
 const repository = {
   kind: "jj",
@@ -146,7 +163,6 @@ const contracts: Array<[string, ZodType, JsonObject]> = [
       sessionId: "session-1",
       token: "",
       wasmUrl: "http://127.0.0.1:5570/libavoid.wasm",
-      docRuntimeUrl: "vscode-file://review/doc-runtime.js",
       appVersion: "0.0.13",
       theme: "dark",
       host: "desktop",
@@ -275,15 +291,19 @@ const contracts: Array<[string, ZodType, JsonObject]> = [
     { ok: true, session, token: "token" },
   ],
   [
-    "document module response",
-    ReviewDocModuleResponseSchema,
+    "document response",
+    ReviewDocumentResponseSchema,
     {
       ok: true,
       contentHash: "hash",
-      moduleUrl: "http://127.0.0.1:5570/module.js",
+      documentUrl: "http://127.0.0.1:5570/documents/hash.json",
     },
   ],
-  ["error response", ReviewErrorResponseSchema, { ok: false, error: "bad" }],
+  [
+    "legacy error response",
+    ReviewErrorResponseSchema,
+    { ok: false, error: "bad" },
+  ],
   [
     "server event",
     ReviewServerEventSchema,
@@ -353,6 +373,55 @@ describe("Review protocol Zod contracts", () => {
     expect(schema.safeParse(value).success).toBe(true);
   });
 
+  it("types republish detail by its code", () => {
+    expect(
+      ReviewDocumentResponseSchema.safeParse({
+        ok: false,
+        error: "Republish required",
+        detail: {
+          code: "needs_republish",
+          reviewUuid: reviewRecord.uuid,
+          mapStale: true,
+        },
+      }).success,
+    ).toBe(true);
+
+    // mapStale is meaningless without needs_republish, so it cannot be sent.
+    expect(
+      ReviewDocumentResponseSchema.safeParse({
+        ok: false,
+        error: "Gone",
+        detail: {
+          code: "historical_revision_unavailable",
+          reviewUuid: reviewRecord.uuid,
+          mapStale: true,
+        },
+      }).success,
+    ).toBe(false);
+
+    // A bare code and a structured detail are alternatives, not a pair.
+    expect(
+      ReviewDocumentResponseSchema.safeParse({
+        ok: false,
+        error: "Busy",
+        code: "review_busy",
+        detail: {
+          code: "needs_republish",
+          reviewUuid: reviewRecord.uuid,
+          mapStale: false,
+        },
+      }).success,
+    ).toBe(false);
+
+    expect(
+      ReviewDocumentResponseSchema.safeParse({
+        ok: false,
+        error: "Busy",
+        code: "review_busy",
+      }).success,
+    ).toBe(true);
+  });
+
   // Desktop discovery deliberately ignores unknown keys so future additive
   // fields never force another protocol version bump.
   const tolerantContracts = new Set(["desktop discovery"]);
@@ -361,6 +430,66 @@ describe("Review protocol Zod contracts", () => {
     expect(schema.safeParse({ ...value, unexpected: true }).success).toBe(
       tolerantContracts.has(name),
     );
+  });
+});
+
+describe("review canvas load states", () => {
+  it("carries review payloads as JSON values", () => {
+    const load = {
+      state: "ready",
+      contentHash: "h",
+      data: { format: "review-document/1", body: [] },
+    } satisfies ReviewDocumentLoad;
+    expect(jsonValueSchema.safeParse(load.data).success).toBe(true);
+
+    const maps = {
+      state: "ready",
+      contentHash: "h",
+      head: { elements: [], relationships: [] },
+      base: { elements: [], relationships: [] },
+    } satisfies ReviewSoftwareMapLoad;
+    expect(jsonValueSchema.safeParse(maps.head).success).toBe(true);
+
+    const bad = {
+      state: "ready",
+      contentHash: "h",
+      // @ts-expect-error data must be JSON
+      data: new Date(),
+    } satisfies ReviewDocumentLoad;
+    expect(bad.data).toBeInstanceOf(Date);
+  });
+
+  it("keeps document and software-map loads independent", () => {
+    const documentLoads = [
+      { state: "ready", contentHash: "document-hash", data: {} },
+      {
+        state: "needs-republish",
+        reviewUuid: reviewRecord.uuid,
+        mapStale: true,
+      },
+      { state: "unavailable", message: "Document unavailable" },
+    ] satisfies ReviewDocumentLoad[];
+    const softwareMapLoads = [
+      {
+        state: "ready",
+        contentHash: "map-hash",
+        head: {},
+        base: {},
+      },
+      { state: "needs-republish", reviewUuid: reviewRecord.uuid },
+      { state: "unavailable", message: "Software map unavailable" },
+    ] satisfies ReviewSoftwareMapLoad[];
+
+    expect(documentLoads.map((load) => load.state)).toEqual([
+      "ready",
+      "needs-republish",
+      "unavailable",
+    ]);
+    expect(softwareMapLoads.map((load) => load.state)).toEqual([
+      "ready",
+      "needs-republish",
+      "unavailable",
+    ]);
   });
 });
 
@@ -475,6 +604,18 @@ describe("canonical comment contracts", () => {
           messages: [],
         },
       }).success,
+    ).toBe(false);
+  });
+});
+
+describe("review thread snapshots", () => {
+  it("accepts only the read-only marker on copied snapshots", () => {
+    const snapshot = { revision: 0, readOnly: true, comments: {}, drafts: {} };
+
+    expect(ReviewThreadsSnapshotSchema.parse(snapshot)).toEqual(snapshot);
+    expect(
+      ReviewThreadsSnapshotSchema.safeParse({ ...snapshot, readOnly: false })
+        .success,
     ).toBe(false);
   });
 });

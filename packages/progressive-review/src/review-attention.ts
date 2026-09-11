@@ -1,8 +1,14 @@
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { ReviewRecord } from "@dev.fast/review-protocol";
 
-import type { StoredReview, StoredReviewRecord } from "./review-home";
+import {
+  type StoredReview,
+  type StoredReviewRecord,
+  parseStoredReviewRecord,
+} from "./review-home";
+import { withReviewMutationLock } from "./review-mutation-lock";
 import { writePrivateJsonAtomic } from "./server/desktop-paths";
 
 /**
@@ -22,9 +28,14 @@ export async function writeReviewRecord(
   stored: StoredReview,
   patch: Partial<StoredReviewRecord>,
 ): Promise<StoredReview> {
-  const review: StoredReviewRecord = { ...stored.review, ...patch };
-  await writePrivateJsonAtomic(path.join(stored.dir, "review.json"), review);
-  return { ...stored, review };
+  return withReviewMutationLock(stored.dir, async () => {
+    const current = parseStoredReviewRecord(
+      JSON.parse(await readFile(path.join(stored.dir, "review.json"), "utf8")),
+    );
+    const review: StoredReviewRecord = { ...current, ...patch };
+    await writePrivateJsonAtomic(path.join(stored.dir, "review.json"), review);
+    return { ...stored, review };
+  });
 }
 
 /**

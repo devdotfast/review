@@ -9,3 +9,16 @@ export class HttpJsonError extends Error {
     this.name = "HttpJsonError";
   }
 }
+
+/** An error whose status and machine code the JSON routes hand straight back. */
+export class ReviewServerError extends Error {
+  override readonly name = "ReviewServerError";
+
+  constructor(
+    message: string,
+    readonly statusCode: number,
+    readonly code?: string,
+  ) {
+    super(message);
+  }
+}

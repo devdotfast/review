@@ -8,14 +8,13 @@ import { z } from "zod";
 
 import { resolveAuthoringSessionRef } from "./authoring-session";
 import { type CliJsonEvent, emitJsonEvent } from "./cli-output";
-import type { ReviewDocumentDiagnostic } from "./compiler/review-document-compiler";
 import { requireHealthyReviewDesktop } from "./desktop-discovery";
-import { REVIEW_PUBLISH_CANDIDATE_MESSAGE } from "./review-document-versions";
-import { sealReviewCandidate } from "./review-home";
+import type { ReviewDocumentDiagnostic } from "./document/diagnostics";
+import { ReviewPublicationValidationError } from "./review-publication-preparation";
 import {
-  ReviewPublicationValidationError,
-  prepareReviewDocumentBundle,
-} from "./review-publication-preparation";
+  sealReviewDocumentPublication,
+  stageReviewDocumentPublication,
+} from "./review-publication-staging";
 import { resolveReviewRoot } from "./runtime";
 import { prepareReviewPublish } from "./server/publish-preparation";
 import { recordSpan, span, startSpan } from "./startup-trace";
@@ -65,12 +64,14 @@ export async function runReviewPublish(input: {
     stdout: input.stdout,
     stderr: input.stderr ?? process.stderr,
   });
+
   try {
     return await publish(input, reporter);
   } catch (error) {
     reporter.error("publish", [
       error instanceof Error ? error.message : String(error),
     ]);
+
     return 1;
   }
 }
@@ -87,6 +88,7 @@ async function publish(
   reporter: PublishReporter,
 ): Promise<number> {
   const reviewRoot = await resolveReviewRoot(input.cwd);
+
   const prepared = await span("publish: prepare", () =>
     prepareReviewPublish({
       cwd: reviewRoot,
@@ -94,22 +96,34 @@ async function publish(
       onReviewBound: input.onReviewBound,
     }),
   );
+
   const review = prepared.review;
+
   if (prepared.warnings?.length) {
     reporter.warning("prepare", prepared.warnings);
   }
 
   reporter.stage("validate", "running");
-  let preparedDocument;
+  let revision: string;
+
   try {
-    preparedDocument = await span("publish: validate document", () =>
-      prepareReviewDocumentBundle({ review }),
+    const document = await span("publish: validate document", () =>
+      stageReviewDocumentPublication({ review }),
+    );
+
+    if (document.warnings.length > 0)
+      reporter.warning("validate", document.warnings);
+    reporter.stage("validate", "complete");
+    reporter.stage("revision", "running");
+    revision = await span("publish: seal revision", () =>
+      sealReviewDocumentPublication({ review, document }),
     );
   } catch (error) {
     if (error instanceof ReviewPublicationValidationError) {
       if (error.warnings.length > 0) {
         reporter.warning("validate", error.warnings);
       }
+
       if (error.diagnostics) {
         reporter.validationErrors(error.diagnostics);
       } else {
@@ -120,30 +134,27 @@ async function publish(
         error instanceof Error ? error.message : String(error),
       ]);
     }
+
     return 1;
   }
-  if (preparedDocument.warnings.length > 0) {
-    reporter.warning("validate", preparedDocument.warnings);
-  }
-  reporter.stage("validate", "complete");
 
-  reporter.stage("revision", "running");
-  const revision = await span("publish: seal revision", () =>
-    sealReviewCandidate(review.dir, REVIEW_PUBLISH_CANDIDATE_MESSAGE),
-  );
   reporter.stage("revision", "complete", { revision });
 
   const discovery = await span("publish: desktop health", () =>
     requireHealthyReviewDesktop("review publish"),
   );
+
   reporter.stage("mount", "running");
+
   const publishReady: ReviewPublishReadyRequest = {
     reviewUuid: prepared.uuid,
     revision,
     agent: resolveAuthoringSessionRef(input.env ?? process.env),
   };
+
   if (input.view) publishReady.view = input.view;
   const mountSpan = startSpan("publish: POST /publish-ready");
+
   const response = await fetch(`${discovery.url}/publish-ready`, {
     method: "POST",
     headers: {
@@ -152,32 +163,40 @@ async function publish(
     },
     body: JSON.stringify(publishReady),
   });
+
   const result =
     PublishReadyResponseSchema.safeParse(
       await response.json().catch(() => null),
     ).data ?? null;
+
   if (response.ok) mountSpan.end();
   else mountSpan.fail(`HTTP ${response.status}`);
+
   for (const timing of result?.timings ?? []) {
     recordSpan(`desktop: ${timing.name}`, timing, { parentId: mountSpan.id });
   }
+
   if (!response.ok || !result?.ok || !result.sessionId) {
     throw new Error(
       result?.error ??
         `Review Desktop returned ${response.status} for publish-ready.`,
     );
   }
+
   reporter.published(
     revision,
     result.sessionId,
     review.review.presentedSoftwareMapRevision,
   );
+
   // The revision is promoted and on screen by now: a focus failure cannot
   // make the publish a failure, so it reports as a warning with exit 0.
   if (result.focusWarning) {
     reporter.warning("mount", [result.focusWarning]);
   }
+
   reporter.stage("mount", "complete", { sessionId: result.sessionId });
+
   return 0;
 }
 
@@ -218,6 +237,7 @@ function createPublishReporter(input: {
 }): PublishReporter {
   const emit = <T extends CliJsonEvent>(event: T) =>
     emitJsonEvent(input, event);
+
   if (input.json) {
     return {
       stage(name, status, details = {}) {
@@ -236,7 +256,9 @@ function createPublishReporter(input: {
             file: diagnostic.filePath,
             message: diagnostic.message,
           };
+
           if (diagnostic.line) event.line = diagnostic.line;
+
           if (diagnostic.column) event.column = diagnostic.column;
           emit(event);
         }
@@ -252,16 +274,19 @@ function createPublishReporter(input: {
       },
     };
   }
+
   return {
     stage(name, status, details = {}) {
       if (status !== "complete") return;
       const label = STAGE_LABELS[name];
+
       const suffix =
         "revision" in details
           ? ` ${String(details.revision).slice(0, 12)}`
           : details.skipped
             ? " (no code references)"
             : "";
+
       input.stdout.write(`${label}: ok${suffix}\n`);
     },
     warning(_stage, diagnostics) {
@@ -281,11 +306,13 @@ function createPublishReporter(input: {
           ...(diagnostic.line ? [diagnostic.line] : []),
           ...(diagnostic.line && diagnostic.column ? [diagnostic.column] : []),
         ].join(":");
+
         input.stderr.write(`error: ${location} ${diagnostic.message}\n`);
       }
     },
     published(revision, _sessionId, softwareMapRevision) {
       input.stdout.write(`Review document published: ${revision}\n`);
+
       if (softwareMapRevision) {
         input.stdout.write(`Software map remains: ${softwareMapRevision}\n`);
       } else {

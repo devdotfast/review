@@ -4,48 +4,45 @@ import { pathToFileURL } from "node:url";
 
 import { init as initModuleLexer, parse as parseModule } from "es-module-lexer";
 
-import { extractTraceEventText } from "./agent-trace-parser";
-import {
-  type CallStackDiffProps,
-  type CodePeekProps,
-  type CodePeekResolution,
-  type CodePeekResolutionContext,
-  type ReviewDefinitionSession,
-  callStackEntryAnchor,
-  calls,
-  createReviewDefinitionSession,
-} from "./authoring";
-import {
-  type CallStackChangedLines,
-  type CallStackSide,
-  callStackEvidenceErrors,
-  diffCallStacks,
-} from "./call-stack-diff";
 import { errorMessage } from "./error-message";
-import { loadReviewAgentTrace } from "./review-agent-traces";
 import {
-  type PublishAuditTraceQuote,
-  auditReviewDocumentComponent,
-  createPublishValidationReact,
-  isPublishAuditComponent,
-} from "./review-publish-element-audit";
-import { defineSoftwareMap } from "./software-map-model";
-import { resolveReviewSourceRange } from "./source-range-resolver";
-import { span, startSpan } from "./startup-trace";
+  type PublishValidationRuntime,
+  type ReviewPublishEvaluationInput,
+  type ReviewPublishEvaluationResult,
+  evaluateReviewDocumentForPublish,
+} from "./review-publication-audit";
+import { span } from "./startup-trace";
 
-// Publish evaluates the exact bundle it ships: the document module runs under
-// Node with this validation runtime substituted for `review-doc-runtime`, so
-// every authored code peek resolves against the pinned worktree before a
-// reviewer can mount the revision. The React substitute never renders to a
-// DOM, but it is not inert: `jsx` builds element records and the element
-// audit parses every authored component's props against its schema (see
-// review-publish-element-audit.ts).
+export type {
+  ReviewPublishEvidenceTargets,
+  ReviewPublishEvaluationInput,
+  ReviewPublishEvaluationResult,
+  ReviewPublishRangePeek,
+  ReviewPublishSourceTarget,
+} from "./review-publication-audit";
+
+// Bundle-loading adapter. Keep exact sealed legacy evaluation and its global
+// runtime serialization here; evidence auditing and JSON materialization live
+// in review-publication-audit so native authoring does not import this loader.
 const RUNTIME_GLOBAL = "__devFastReviewPublishRuntime";
+
 const RUNTIME_SPECIFIER = "review-doc-runtime";
+
 const RUNTIME_MODULE_FILE = "review-doc-runtime.mjs";
+
 const DOCUMENT_MODULE_FILE = "review-document.mjs";
 
-type PublishValidationRuntime = ReturnType<typeof validationRuntimeExports>;
+let evaluationQueue: Promise<unknown> = Promise.resolve();
+
+/** The runtime lives on a process global while the bundle imports, so two
+ * evaluations in one process must not overlap. The CLI evaluates once; the
+ * desktop server evaluates on every legacy read. */
+function serializeEvaluation<T>(run: () => Promise<T>): Promise<T> {
+  const next = evaluationQueue.then(run, run);
+  evaluationQueue = next.catch(() => undefined);
+
+  return next;
+}
 
 // The generated runtime module reads its exports from this global slot: the
 // evaluation installs the runtime before importing the document and restores
@@ -66,311 +63,24 @@ const REQUIRED_EXPORT_NAMES = [
   "setReviewRequestContext",
 ] as const;
 
-export interface ReviewPublishSourceTarget {
-  sourceRootPath: string;
-}
-
-export interface ReviewPublishEvidenceTargets {
-  head: ReviewPublishSourceTarget;
-  base?: ReviewPublishSourceTarget;
-}
-
-export interface ReviewPublishRangePeek extends CodePeekProps {
-  anchorId?: string;
-}
-
-export interface ReviewPublishEvaluationResult {
-  // Number of code peeks the document resolved. Zero means source preparation
-  // never ran.
-  peekCount: number;
-  rangePeeks: ReviewPublishRangePeek[];
-  errors: string[];
-  warnings: string[];
-}
-
-export async function evaluateReviewDocumentBundleForPublish(input: {
-  bundleCode: string;
-  reviewDir: string;
-  prepareEvidence?: () => Promise<ReviewPublishEvidenceTargets>;
-  // Changed lines between the pinned commits, for CallStackDiff evidence:
-  // a "-" frame must anchor deleted lines and a "+" frame added lines.
-  resolveChangedLines?: (
-    file: string,
-    side: CallStackSide,
-  ) => Promise<CallStackChangedLines | null>;
-  validateRanges?: boolean;
-}): Promise<ReviewPublishEvaluationResult> {
-  const failures: string[] = [];
-  const rangePeeks: ReviewPublishRangePeek[] = [];
-  const callStackProps: CallStackDiffProps[] = [];
-  const traceQuotes: PublishAuditTraceQuote[] = [];
-  let peekCount = 0;
-  let evidencePromise: Promise<ReviewPublishEvidenceTargets> | null = null;
-  const sessions: ReviewDefinitionSession[] = [];
-
-  // Evidence prepares once, on the first peek. A document without code
-  // references publishes without touching a pinned worktree.
-  const evidence = () => {
-    if (!input.prepareEvidence) {
-      throw new Error("Review source preparation is unavailable.");
-    }
-    return (evidencePromise ??= input.prepareEvidence());
-  };
-
-  const resolveCodePeek = async (
-    props: CodePeekProps,
-    context?: CodePeekResolutionContext,
-  ): Promise<CodePeekResolution> => {
-    peekCount += 1;
-    rangePeeks.push({ ...props, anchorId: context?.anchorId });
-    if (input.validateRanges === false) {
-      const sourceId = `source-range:${props.file}:${props.fromLine}-${props.toLine}`;
-      return {
-        snapshot: {
-          roots: [{ kind: "source", sourceId }],
-          resolved: {
-            [sourceId]: {
-              source: {
-                id: sourceId,
-                name: props.file,
-                kind: "source-range",
-                file: props.file,
-                line: props.fromLine,
-                endLine: props.toLine,
-              },
-              lines: [[{ t: props.file, k: "t" }]],
-            },
-          },
-        },
-      };
-    }
-    const peekSpan = startSpan("evaluate: code peek", {
-      detail: `${props.graph ?? "head"} ${props.file}:${props.fromLine}-${props.toLine}`,
-    });
-    try {
-      const targets = await evidence();
-      const primary = props.graph === "base" ? targets.base : targets.head;
-      if (!primary) {
-        throw new Error("The pinned base worktree is unavailable.");
-      }
-      const snapshot = await resolveReviewSourceRange({
-        rootPath: primary.sourceRootPath,
-        root: {
-          kind: "range",
-          file: props.file,
-          fromLine: props.fromLine,
-          toLine: props.toLine,
-        },
-      });
-      peekSpan.end();
-      return { snapshot };
-    } catch (error) {
-      peekSpan.fail();
-      const message = `Code peek range ${props.file}:${props.fromLine}-${props.toLine}: ${errorMessage(error)}`;
-      if (!failures.includes(message)) failures.push(message);
-      throw error;
-    }
-  };
-
-  const runtimeExports = validationRuntimeExports({
-    createSession: (session) => {
-      sessions.push(session);
-    },
-    resolveCodePeek,
-    reportAuditError: (message) => {
-      if (!failures.includes(message)) failures.push(message);
-    },
-    collectCallStackDiff: (props) => {
-      callStackProps.push(props);
-    },
-    collectTraceQuote: (quote) => {
-      traceQuotes.push(quote);
-    },
-  });
-
-  const evaluationDir = path.join(
-    input.reviewDir,
-    ".build",
-    `publish-validate-${process.pid}-${Math.random().toString(36).slice(2)}`,
+export async function evaluateReviewDocumentBundleForPublish(
+  input: ReviewPublishEvaluationInput & {
+    bundleCode: string;
+    reviewDir: string;
+  },
+): Promise<ReviewPublishEvaluationResult> {
+  return evaluateReviewDocumentForPublish(input, (runtime) =>
+    loadSealedReviewDocument(input, runtime),
   );
-  // SAFETY: the slot is a private key on globalThis that only this evaluation
-  // writes; it holds a runtime from `validationRuntimeExports` or nothing.
-  const globalHolder = globalThis as PublishValidationRuntimeGlobal;
-  const previousRuntime = globalHolder[RUNTIME_GLOBAL];
-  let importErrorMessage: string | null = null;
-  try {
-    const runtimeImportNames = await collectRuntimeImportNames(
-      input.bundleCode,
-    );
-    await mkdir(evaluationDir, { recursive: true, mode: 0o700 });
-    await Promise.all([
-      writeFile(
-        path.join(evaluationDir, RUNTIME_MODULE_FILE),
-        validationRuntimeModuleSource(runtimeImportNames),
-        "utf8",
-      ),
-      writeFile(
-        path.join(evaluationDir, DOCUMENT_MODULE_FILE),
-        rewriteRuntimeSpecifier(input.bundleCode),
-        "utf8",
-      ),
-    ]);
-    globalHolder[RUNTIME_GLOBAL] = runtimeExports;
-    const moduleUrl = pathToFileURL(
-      path.join(evaluationDir, DOCUMENT_MODULE_FILE),
-    );
-    moduleUrl.searchParams.set("t", String(Date.now()));
-    try {
-      await span(
-        "evaluate: import document module",
-        () => import(moduleUrl.href),
-      );
-    } catch (error) {
-      importErrorMessage = errorMessage(error);
-    }
-  } finally {
-    globalHolder[RUNTIME_GLOBAL] = previousRuntime;
-    await rm(evaluationDir, { recursive: true, force: true });
-  }
-
-  // CallStackDiff evidence: the same gate as range resolution. Every "-"
-  // row must anchor deleted lines and every "+" row added lines, so a
-  // marker can never claim a change the diff does not contain.
-  const callStackSpan =
-    callStackProps.length > 0 && input.validateRanges !== false
-      ? startSpan("evaluate: call stack diffs", {
-          detail: `${callStackProps.length} diagrams`,
-        })
-      : null;
-  if (callStackProps.length > 0 && input.validateRanges !== false) {
-    if (!input.resolveChangedLines) {
-      failures.push(
-        "Document uses CallStackDiff but changed-line resolution is unavailable.",
-      );
-    } else {
-      const changedLines = new Map<string, CallStackChangedLines | null>();
-      for (const props of callStackProps) {
-        const rows = diffCallStacks(props.base, props.head);
-        for (const row of rows) {
-          if (row.change === "unchanged") continue;
-          const side: CallStackSide =
-            row.change === "removed" ? "base" : "head";
-          const file = callStackEntryAnchor(row.entry).peek.props.file;
-          const key = `${side}\0${file}`;
-          if (!changedLines.has(key)) {
-            changedLines.set(key, await input.resolveChangedLines(file, side));
-          }
-        }
-        const label = props.title
-          ? `<CallStackDiff "${props.title}">`
-          : "<CallStackDiff>";
-        const evidenceErrors = callStackEvidenceErrors(
-          rows,
-          (file, side) => changedLines.get(`${side}\0${file}`) ?? null,
-        );
-        for (const message of evidenceErrors) {
-          const entry = `${label} ${message}`;
-          if (!failures.includes(entry)) failures.push(entry);
-        }
-      }
-    }
-  }
-
-  // TraceQuote resolution: every quoted string is matched against the target
-  // normalized trace. Text found nowhere is a hard error; multiple matches
-  // without a deciding event hint emit a warning with the event index.
-  callStackSpan?.end();
-  const traceQuoteWarnings: string[] = [];
-  const traceQuoteSpan =
-    traceQuotes.length > 0 && input.validateRanges !== false
-      ? startSpan("evaluate: trace quotes", {
-          detail: `${traceQuotes.length} quotes`,
-        })
-      : null;
-  if (traceQuotes.length > 0 && input.validateRanges !== false) {
-    const traceCwd = input.prepareEvidence
-      ? (await evidence()).head.sourceRootPath
-      : undefined;
-    for (const quote of traceQuotes) {
-      const cleanQuote = quote.text.trim();
-      if (!cleanQuote) {
-        failures.push(
-          `<TraceQuote> in session ${quote.sessionId} has empty quote text.`,
-        );
-        continue;
-      }
-      const loaded = await loadReviewAgentTrace({
-        sessionId: quote.sessionId,
-        trace: quote.trace,
-        cwd: traceCwd,
-      });
-      if (!loaded) {
-        failures.push(
-          `<TraceQuote> session ${quote.sessionId}${quote.trace ? ` (trace ${quote.trace})` : ""} has no normalized transcript.`,
-        );
-        continue;
-      }
-      const normQuote = cleanQuote.replace(/\s+/g, " ");
-      const matchingIndices: number[] = [];
-      for (let i = 0; i < loaded.trace.events.length; i++) {
-        const ev = loaded.trace.events[i];
-        const text = extractTraceEventText(ev).replace(/\s+/g, " ");
-        if (text.includes(normQuote)) {
-          matchingIndices.push(i);
-        }
-      }
-      const quoteLabel =
-        cleanQuote.length > 40 ? `${cleanQuote.slice(0, 39)}…` : cleanQuote;
-      if (matchingIndices.length === 0) {
-        failures.push(
-          `<TraceQuote> text "${quoteLabel}" not found in session ${quote.sessionId}${quote.trace ? ` (trace ${quote.trace})` : ""}.`,
-        );
-      } else if (quote.event !== undefined) {
-        if (!matchingIndices.includes(quote.event)) {
-          if (matchingIndices.length === 1) {
-            traceQuoteWarnings.push(
-              `<TraceQuote> text "${quoteLabel}" hint event={${quote.event}} is stale; matched event ${matchingIndices[0]}.`,
-            );
-          } else {
-            traceQuoteWarnings.push(
-              `<TraceQuote> text "${quoteLabel}" matched multiple events (${matchingIndices.join(", ")}). Update hint to event={${matchingIndices[0]}} to disambiguate.`,
-            );
-          }
-        }
-      } else if (matchingIndices.length > 1) {
-        traceQuoteWarnings.push(
-          `<TraceQuote> text "${quoteLabel}" matched multiple events (${matchingIndices.join(", ")}). Add event={${matchingIndices[0]}} to disambiguate.`,
-        );
-      }
-    }
-  }
-
-  traceQuoteSpan?.end();
-  const errors =
-    failures.length > 0
-      ? failures
-      : importErrorMessage !== null
-        ? [importErrorMessage]
-        : [];
-  const warnings = [
-    ...sessions.flatMap((session) =>
-      session.diagnostics.map((diagnostic) => diagnostic.message),
-    ),
-    ...traceQuoteWarnings,
-  ];
-  return {
-    peekCount,
-    rangePeeks,
-    errors,
-    warnings: [...new Set(warnings)],
-  };
 }
 
 function rewriteRuntimeSpecifier(bundleCode: string): string {
   const specifier = JSON.stringify(RUNTIME_SPECIFIER);
+
   if (!bundleCode.includes(specifier)) {
     throw new Error("Review document bundle has no runtime import.");
   }
+
   return bundleCode
     .split(specifier)
     .join(JSON.stringify(`./${RUNTIME_MODULE_FILE}`));
@@ -382,14 +92,18 @@ async function collectRuntimeImportNames(
   await initModuleLexer;
   const [imports] = parseModule(bundleCode);
   const names = new Set<string>(REQUIRED_EXPORT_NAMES);
+
   for (const record of imports) {
     if (record.n !== RUNTIME_SPECIFIER || record.d !== -1) continue;
     const statement = bundleCode.slice(record.ss, record.se);
     const clause = /^import\b([\s\S]*?)\bfrom\b/.exec(statement)?.[1];
+
     if (!clause) continue;
     const named = /\{([\s\S]*?)\}/.exec(clause)?.[1] ?? "";
+
     for (const entry of named.split(",")) {
       const name = entry.split(/\s+as\s+/)[0]!.trim();
+
       // `default` binds through `export default`; anything else must be a
       // plain identifier to be re-exportable as `export const <name>`.
       if (/^[A-Za-z_$][\w$]*$/.test(name) && name !== "default") {
@@ -399,6 +113,7 @@ async function collectRuntimeImportNames(
     // A namespace import needs no declared names, and a default import binds
     // the stub's `export default`; only named entries add to the list.
   }
+
   return [...names];
 }
 
@@ -419,54 +134,63 @@ function validationRuntimeModuleSource(exportNames: readonly string[]): string {
   ].join("\n");
 }
 
-function validationRuntimeExports(input: {
-  createSession: (session: ReviewDefinitionSession) => void;
-  resolveCodePeek: (
-    props: CodePeekProps,
-    context?: CodePeekResolutionContext,
-  ) => Promise<CodePeekResolution>;
-  reportAuditError: (message: string) => void;
-  collectCallStackDiff: (props: CallStackDiffProps) => void;
-  collectTraceQuote: (quote: PublishAuditTraceQuote) => void;
-}) {
-  const noop = () => undefined;
-  // The React substitute is not inert: `jsx` builds element records so the
-  // audit below can parse every authored element's props at publish time.
-  const react = createPublishValidationReact();
-  return {
-    ...react,
-    calls,
-    defineSoftwareModel: defineSoftwareMap,
-    setReviewRequestContext: noop,
-    createBrowserReviewDefinitionSession: (sessionInput: {
-      softwareMap?: Parameters<
-        typeof createReviewDefinitionSession
-      >[0]["softwareMap"];
-      baseSoftwareMap?: Parameters<
-        typeof createReviewDefinitionSession
-      >[0]["baseSoftwareMap"];
-      mapDependentComponents?: readonly string[];
-    }) => {
-      const session = createReviewDefinitionSession({
-        softwareMap: sessionInput.softwareMap ?? null,
-        baseSoftwareMap: sessionInput.baseSoftwareMap ?? null,
-        mapDependentComponents: sessionInput.mapDependentComponents,
-        resolveCodePeek: input.resolveCodePeek,
-      });
-      input.createSession(session);
-      return session;
-    },
-    createActiveReviewDocument: (document: { Component?: unknown }) => {
-      if (!isPublishAuditComponent(document.Component)) {
-        throw new Error("Review document has no component export.");
+async function loadSealedReviewDocument(
+  input: { bundleCode: string; reviewDir: string },
+  runtime: PublishValidationRuntime,
+): Promise<string | null> {
+  const evaluationDir = path.join(
+    input.reviewDir,
+    ".build",
+    `publish-validate-${process.pid}-${Math.random().toString(36).slice(2)}`,
+  );
+
+  const runtimeImportNames = await collectRuntimeImportNames(input.bundleCode);
+  // Validate both sources before starting either write. A synchronous rewrite
+  // failure must not leave a write running outside Promise.all during cleanup.
+  const runtimeSource = validationRuntimeModuleSource(runtimeImportNames);
+  const documentSource = rewriteRuntimeSpecifier(input.bundleCode);
+  await mkdir(evaluationDir, { recursive: true, mode: 0o700 });
+
+  try {
+    await Promise.all([
+      writeFile(
+        path.join(evaluationDir, RUNTIME_MODULE_FILE),
+        runtimeSource,
+        "utf8",
+      ),
+      writeFile(
+        path.join(evaluationDir, DOCUMENT_MODULE_FILE),
+        documentSource,
+        "utf8",
+      ),
+    ]);
+
+    const moduleUrl = pathToFileURL(
+      path.join(evaluationDir, DOCUMENT_MODULE_FILE),
+    );
+
+    moduleUrl.searchParams.set("t", String(Date.now()));
+
+    return await serializeEvaluation(async () => {
+      // SAFETY: this private global is owned by the serialized import runtime.
+      const globalHolder = globalThis as PublishValidationRuntimeGlobal;
+      const previousRuntime = globalHolder[RUNTIME_GLOBAL];
+      globalHolder[RUNTIME_GLOBAL] = runtime;
+
+      try {
+        await span(
+          "evaluate: import document module",
+          () => import(moduleUrl.href),
+        );
+
+        return null;
+      } catch (error) {
+        return errorMessage(error);
+      } finally {
+        globalHolder[RUNTIME_GLOBAL] = previousRuntime;
       }
-      auditReviewDocumentComponent({
-        Component: document.Component,
-        reportError: input.reportAuditError,
-        collectCallStackDiff: input.collectCallStackDiff,
-        collectTraceQuote: input.collectTraceQuote,
-      });
-      return document;
-    },
-  };
+    });
+  } finally {
+    await rm(evaluationDir, { recursive: true, force: true });
+  }
 }

@@ -7,7 +7,10 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createReviewDir } from "../review-home";
-import { prepareReviewPublish } from "./publish-preparation";
+import {
+  prepareReviewPublish,
+  resolvePublishReview,
+} from "./publish-preparation";
 
 const execFilePromise = promisify(execFile);
 
@@ -21,6 +24,35 @@ describe("prepareReviewPublish", () => {
         .splice(0)
         .map((target) => rm(target, { recursive: true, force: true })),
     );
+  });
+
+  it("reports unreadable records during implicit selection while allowing a healthy explicit UUID", async () => {
+    const repo = await createDivergedGitRepository(cleanupPaths);
+    const home = await mkdtemp(
+      path.join(os.tmpdir(), "review-publish-unreadable-"),
+    );
+    cleanupPaths.push(home);
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+    const healthy = await createReviewDir({
+      worktreePath: repo.rootPath,
+      baseRef: "main",
+      baseCommit: repo.baseCommit,
+    });
+    const corrupt = await createReviewDir({
+      worktreePath: repo.rootPath,
+      baseRef: "main",
+      baseCommit: repo.baseCommit,
+    });
+    await writeFile(path.join(corrupt.dir, "review.json"), "{");
+    await expect(
+      resolvePublishReview(repo.rootPath, undefined),
+    ).rejects.toThrow(corrupt.dir);
+    await expect(
+      resolvePublishReview(repo.rootPath, healthy.review.uuid),
+    ).resolves.toMatchObject({ review: { uuid: healthy.review.uuid } });
+    await expect(
+      resolvePublishReview(home, healthy.review.uuid),
+    ).rejects.toThrow(/Active review not found/);
   });
 
   it("prepares a publish from a checkout unrelated to the pinned head", async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { auditStoredReviewDocument } from "./stored-review-migration";
+import { auditStoredReviewDocument } from "./stored-review-document-audit";
 
 const reviewPath = "/reviews/current/review.mdx";
 

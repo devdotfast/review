@@ -1,6 +1,8 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough, type Writable } from "node:stream";
@@ -11,11 +13,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { type StoredReview, createReviewDir } from "./review-home";
 import { requireCompletedAgentResponsesForRepublish } from "./review-publish-thread-gate";
 import { appendReviewComment } from "./review-state-store";
+import { cleanupTempDirs, gitRepository } from "./review-test-utils";
 import {
   closeAllReviewThreadStores,
   reviewThreadDbPath,
 } from "./review-thread-store-backend";
 import {
+  runReviewThreadsGet,
   runReviewThreadsList,
   runReviewThreadsReply,
   runReviewThreadsResolve,
@@ -31,9 +35,65 @@ afterEach(async () => {
   for (const dir of cleanups.splice(0)) {
     await rm(dir, { recursive: true, force: true });
   }
+  await cleanupTempDirs();
 });
 
 describe("review threads CLI", () => {
+  it("reads the attached thread through the sandbox proxy", async () => {
+    const payload = {
+      review: "review-proxy",
+      state: "draft",
+      comment: {
+        threadId: "thread-proxy",
+        target: { kind: "document" },
+        status: "open",
+        messages: [],
+      },
+    };
+    let destination: string | undefined;
+    let request = "";
+    const proxy = createServer();
+    proxy.on("connect", (incoming, socket) => {
+      destination = incoming.url;
+      socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+      socket.on("data", (chunk) => {
+        request += chunk.toString();
+        if (!request.includes("\r\n\r\n")) return;
+        const body = JSON.stringify(payload);
+        socket.end(
+          `HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`,
+        );
+      });
+    });
+    await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", resolve));
+    try {
+      // listen above binds a TCP port and has completed successfully.
+      const address = proxy.address() as AddressInfo;
+      const output = await captureOutput((stdout) =>
+        runReviewThreadsGet({
+          cwd: process.cwd(),
+          threadId: "thread-proxy",
+          stdout,
+          env: {
+            DEV_FAST_REVIEW_AGENT_THREAD_URL:
+              "http://review.invalid:12345/agent-threads",
+            DEV_FAST_REVIEW_AGENT_THREAD_TOKEN: "proxy-test-token",
+            HTTP_PROXY: `http://127.0.0.1:${address.port}`,
+            NO_PROXY: "",
+          },
+        }),
+      );
+      expect(JSON.parse(output)).toEqual(payload);
+      expect(destination).toBe("review.invalid:12345");
+      expect(request).toContain("GET /agent-threads/thread-proxy HTTP/1.1");
+      expect(request).toContain("x-review-token: proxy-test-token");
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        proxy.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
+  });
+
   it("lists, replies to, and resolves comment threads", async () => {
     const { root, review, document } = await makeReview();
 
@@ -131,9 +191,9 @@ async function makeReview(): Promise<{
   review: StoredReview;
   document: string;
 }> {
-  const root = await makeGitRepository();
+  const root = await gitRepository();
   const home = await mkdtemp(path.join(os.tmpdir(), "review-threads-home-"));
-  cleanups.push(root, home);
+  cleanups.push(home);
   vi.stubEnv("DEV_REVIEW_HOME", home);
   const review = await createReviewDir({
     worktreePath: root,
@@ -142,17 +202,6 @@ async function makeReview(): Promise<{
   });
   const document = path.join(review.dir, "review.mdx");
   return { root, review, document };
-}
-
-async function makeGitRepository(): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), "review-threads-source-"));
-  await git(root, ["init", "-b", "main"]);
-  await git(root, ["config", "user.email", "review@example.test"]);
-  await git(root, ["config", "user.name", "Review Test"]);
-  await writeFile(path.join(root, "README.md"), "# Review\n", "utf8");
-  await git(root, ["add", "."]);
-  await git(root, ["commit", "-m", "initial"]);
-  return root;
 }
 
 async function git(root: string, args: string[]): Promise<string> {

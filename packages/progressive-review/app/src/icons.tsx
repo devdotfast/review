@@ -69,6 +69,49 @@ export function TerminalIcon(): ReactElement {
   );
 }
 
+export function SlidersIcon(): ReactElement {
+  return (
+    <svg
+      aria-hidden="true"
+      className="ui-icon ui-icon--sliders"
+      focusable="false"
+      viewBox="0 0 24 24"
+    >
+      <path d="M4 8h4.5M13.5 8H20M4 16h6.5M15.5 16H20" />
+      <circle cx="11" cy="8" r="2.5" />
+      <circle cx="13" cy="16" r="2.5" />
+    </svg>
+  );
+}
+
+export function UnifiedLayoutIcon(): ReactElement {
+  return (
+    <svg
+      aria-hidden="true"
+      className="ui-icon ui-icon--layout"
+      focusable="false"
+      viewBox="0 0 24 24"
+    >
+      <rect x="4" y="5" width="16" height="14" rx="2" />
+      <path d="M8 10h8M8 14h8" />
+    </svg>
+  );
+}
+
+export function SplitLayoutIcon(): ReactElement {
+  return (
+    <svg
+      aria-hidden="true"
+      className="ui-icon ui-icon--layout"
+      focusable="false"
+      viewBox="0 0 24 24"
+    >
+      <rect x="4" y="5" width="16" height="14" rx="2" />
+      <path d="M12 5v14" />
+    </svg>
+  );
+}
+
 export function SparkIcon(): ReactElement {
   return (
     <svg

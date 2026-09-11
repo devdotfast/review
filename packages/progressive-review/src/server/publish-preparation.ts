@@ -4,7 +4,11 @@ import {
   actionableReviewsForCheckout,
   isPositionalChangeIdentity,
 } from "../review-change-scope";
-import { type StoredReview, listReviews } from "../review-home";
+import {
+  type StoredReview,
+  findScopedReview,
+  listReviews,
+} from "../review-home";
 import {
   requireClosedThreadsForRepublish,
   requireCompletedAgentResponsesForRepublish,
@@ -90,10 +94,21 @@ export async function resolvePublishReview(
   reviewUuid: string | undefined,
   options: { includeTerminal?: boolean } = {},
 ): Promise<StoredReview> {
-  const listed = await listReviews({ worktreePath: cwd });
+  if (reviewUuid) {
+    const selected = await findScopedReview(reviewUuid, {
+      worktreePath: cwd,
+      includeTerminal: options.includeTerminal,
+    });
+    if (!selected) throw new Error(`Active review not found: ${reviewUuid}`);
+    return selected;
+  }
+  const listed = await listReviews({
+    worktreePath: cwd,
+    reportUnreadableReviews: true,
+  });
   if (listed.errors.length > 0) {
     throw new Error(
-      `Could not read reviews:\n${listed.errors.map((error) => error.message).join("\n")}`,
+      `Could not read reviews:\n${listed.errors.map((error) => `${error.reviewDir}: ${error.message}`).join("\n")}`,
     );
   }
   const publishable = listed.reviews.filter(
@@ -101,13 +116,6 @@ export async function resolvePublishReview(
       review.review.status !== "accepted" &&
       review.review.status !== "rejected",
   );
-  if (reviewUuid) {
-    const review = (
-      options.includeTerminal ? listed.reviews : publishable
-    ).find((entry) => entry.review.uuid === reviewUuid);
-    if (!review) throw new Error(`Active review not found: ${reviewUuid}`);
-    return review;
-  }
   const scoped = await actionableReviewsForCheckout(publishable, cwd);
   if (scoped.length === 0) {
     throw new Error(

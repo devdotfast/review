@@ -17,6 +17,7 @@ import {
 } from "@dev.fast/review-protocol";
 import { WebSocket } from "undici";
 
+import { tomlInline } from "./terminal-command";
 import { isJsonRecord } from "./transcript-json";
 
 interface PendingRequest {
@@ -273,6 +274,8 @@ interface StartedHost {
 export class CodexAppServerHost {
   #started: Promise<StartedHost> | undefined;
 
+  constructor(private readonly config: JsonObject = {}) {}
+
   /** WebSocket URL of the shared server. */
   async url(): Promise<string> {
     return (await this.#start()).url;
@@ -293,7 +296,18 @@ export class CodexAppServerHost {
     this.#started = undefined;
     const { child, client } = await started;
     await client.close();
-    if (child.exitCode === null) child.kill("SIGTERM");
+    if (child.exitCode === null && child.signalCode === null) {
+      const exited = once(child, "exit");
+      // Codex may keep running while shutting down plugins. Bound graceful
+      // shutdown so closing Review cannot hang, then wait for actual exit.
+      const timer = setTimeout(() => child.kill("SIGKILL"), 2_000);
+      try {
+        child.kill("SIGTERM");
+        await exited;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
   }
 
   #start(): Promise<StartedHost> {
@@ -301,7 +315,18 @@ export class CodexAppServerHost {
     const started = (async (): Promise<StartedHost> => {
       const child: ListeningChild = spawn(
         "codex",
-        ["app-server", "--listen", "ws://127.0.0.1:0"],
+        [
+          "app-server",
+          "--listen",
+          "ws://127.0.0.1:0",
+          // TUI follow-ups select the thread's named permission profile again.
+          // Codex reloads server config for that selection, without the config
+          // overrides supplied to thread/start or thread/fork.
+          ...Object.entries(this.config).flatMap(([name, value]) => [
+            "-c",
+            `${name}=${tomlInline(value)}`,
+          ]),
+        ],
         {
           cwd: "/",
           env: process.env,
@@ -383,7 +408,12 @@ export async function startCodexThread(input: {
 
 export async function forkThread(
   client: CodexAppServerClient,
-  input: { sourceThreadId: string; cwd: string; config?: JsonObject },
+  input: {
+    sourceThreadId: string;
+    cwd: string;
+    config?: JsonObject;
+    permissions?: string;
+  },
 ): Promise<string> {
   const params: JsonObject = {
     threadId: input.sourceThreadId,
@@ -392,15 +422,17 @@ export async function forkThread(
     excludeTurns: true,
   };
   if (input.config !== undefined) params.config = input.config;
+  if (input.permissions !== undefined) params.permissions = input.permissions;
   return threadId(await client.request("thread/fork", params), "forked");
 }
 
 export async function startThread(
   client: CodexAppServerClient,
-  input: { cwd: string; config?: JsonObject },
+  input: { cwd: string; config?: JsonObject; permissions?: string },
 ): Promise<string> {
   const params: JsonObject = { cwd: input.cwd, ephemeral: false };
   if (input.config !== undefined) params.config = input.config;
+  if (input.permissions !== undefined) params.permissions = input.permissions;
   return threadId(await client.request("thread/start", params), "new");
 }
 

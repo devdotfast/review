@@ -19,6 +19,11 @@ Code - OSS source revision and fork differences.
 See the [README](README.md) for setup and build instructions. Run
 `pnpm run ci` before you submit a pull request.
 
+`pnpm --filter @dev.fast/review test:legacy-corpus` replays a private corpus of
+legacy Reviews through migration. Point `REVIEW_LEGACY_CORPUS` at a directory whose
+children are Review UUID folders; the script fails if the variable is unset. The
+corpus is copied before it is touched and the originals are re-verified afterwards.
+
 The files under `apps/review-desktop/code-oss/` include upstream contribution
 and security documents. Those files apply to Microsoft's VS Code project.
 This document and [SECURITY.md](SECURITY.md) apply to Review Desktop.

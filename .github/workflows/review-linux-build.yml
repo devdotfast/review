@@ -1,0 +1,140 @@
+name: Review Fedora packages
+
+on:
+  workflow_call:
+    inputs:
+      commit:
+        type: string
+        required: true
+      version:
+        type: string
+        default: ""
+      package_revision:
+        type: string
+        default: "1"
+      release_signing:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Build and validate Fedora packages
+    environment: ${{ inputs.release_signing && 'review-release' || 'review-linux-ci' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      BUILD_SOURCEVERSION: ${{ inputs.commit }}
+      REVIEW_LINUX_PACKAGE_REVISION: ${{ inputs.package_revision }}
+      GNUPGHOME: ${{ github.workspace }}/.linux-signing
+      REVIEW_SIGNING_PASSPHRASE_FILE: ${{ github.workspace }}/.linux-signing/passphrase
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.commit }}
+      - name: Stamp release identity
+        if: inputs.version != ''
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          QUALITY=stable
+          if [[ "$VERSION" == *-preview.* ]]; then QUALITY=preview; fi
+          node apps/review-desktop/scripts/stamp-release-channel.mjs --version "$VERSION" --quality "$QUALITY"
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: apps/review-desktop/code-oss/.nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Test publication failure boundaries
+        run: python3 apps/review-desktop/scripts/linux/test-publication.py
+      - name: Install native build and package tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libx11-dev libxkbfile-dev libkrb5-dev libsecret-1-dev \
+            libgtk-3-0 libnss3 libasound2 libgbm1 libnotify4 \
+            rpm createrepo-c zstd gnupg xvfb dbus-x11 unzip openbox
+          docker pull --platform linux/amd64 fedora:43@sha256:a651ddf48ea28a06ed4e1e6519f51c9f47e7a5a138722ade87369b8fbb7e5b42
+          docker pull --platform linux/amd64 fedora:44@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80
+      - name: Build and assemble Linux app
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REVIEW_DESKTOP_CI_FAST: "1"
+          REVIEW_POSTHOG_KEY: ${{ vars.REVIEW_POSTHOG_KEY }}
+        run: |
+          pnpm desktop:build
+          pnpm desktop:package:linux
+      - name: Smoke test the packaged app
+        run: xvfb-run -a node apps/review-desktop/scripts/smoke-launch-packaged.mjs --app apps/review-desktop/VSCode-linux-x64
+      - name: Check Linux titlebar behavior
+        run: xvfb-run -a sh -c 'openbox >/tmp/review-openbox.log 2>&1 & node apps/review-desktop/scripts/smoke-linux-ui.mjs'
+      - name: Save Linux UI screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-ui
+          path: apps/review-desktop/dist/linux-ui
+          if-no-files-found: ignore
+      - name: Archive preview build
+        if: contains(inputs.version, '-preview.')
+        run: |
+          mkdir -p apps/review-desktop/dist/linux
+          tar --zstd -cf apps/review-desktop/dist/linux/Review-linux-x64-preview.tar.zst -C apps/review-desktop VSCode-linux-x64
+      - name: Create Fedora RPM
+        if: ${{ !contains(inputs.version, '-preview.') }}
+        run: |
+          pnpm --filter @dev.fast/review-desktop app:package:linux:distributions
+      - name: Prepare repository signing key
+        if: ${{ !contains(inputs.version, '-preview.') }}
+        id: signing
+        env:
+          RELEASE_SIGNING: ${{ inputs.release_signing }}
+          SIGNING_KEY: ${{ secrets.LINUX_REPOSITORY_SIGNING_KEY }}
+          SIGNING_PASSPHRASE: ${{ secrets.LINUX_REPOSITORY_SIGNING_PASSPHRASE }}
+          SIGNING_FINGERPRINT: ${{ vars.LINUX_REPOSITORY_SIGNING_FINGERPRINT }}
+        run: |
+          install -d -m 0700 "$GNUPGHOME"
+          umask 077
+          printf '%s' "$SIGNING_PASSPHRASE" > "$REVIEW_SIGNING_PASSPHRASE_FILE"
+          if [ "$RELEASE_SIGNING" = true ]; then
+            test -n "$SIGNING_KEY"
+            [[ "$SIGNING_FINGERPRINT" =~ ^[A-F0-9]{40}$ ]]
+            printf '%s' "$SIGNING_KEY" | base64 --decode | gpg --batch --import
+          else
+            gpg --batch --pinentry-mode loopback --passphrase '' --quick-generate-key 'Review package CI <ci@dev.fast>' rsa3072 sign 1d
+            SIGNING_FINGERPRINT=$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" {print $10; exit}')
+          fi
+          echo "fingerprint=$SIGNING_FINGERPRINT" >> "$GITHUB_OUTPUT"
+      - name: Build signed repository snapshot
+        if: ${{ !contains(inputs.version, '-preview.') }}
+        env:
+          FINGERPRINT: ${{ steps.signing.outputs.fingerprint }}
+        run: |
+          VERSION=$(node -p "require('./apps/review-desktop/package.json').version")
+          python3 apps/review-desktop/scripts/build-linux-repository.py \
+            --packages apps/review-desktop/dist/linux \
+            --output apps/review-desktop/dist/linux-repository \
+            --version "$VERSION" --revision "$REVIEW_LINUX_PACKAGE_REVISION" \
+            --commit "$BUILD_SOURCEVERSION" --fingerprint "$FINGERPRINT"
+          cp apps/review-desktop/dist/linux-repository/repos/rpm/x86_64/Packages/*.rpm apps/review-desktop/dist/linux/
+          tar --zstd -cf apps/review-desktop/dist/linux/linux-publication.tar.zst -C apps/review-desktop/dist/linux-repository .
+      - name: Validate clean installs and rejected signatures
+        if: ${{ !contains(inputs.version, '-preview.') }}
+        run: bash apps/review-desktop/scripts/linux/verify-repository.sh apps/review-desktop/dist/linux-repository
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-packages
+          path: |
+            apps/review-desktop/dist/linux/*.rpm
+            apps/review-desktop/dist/linux/*.tar.zst
+          retention-days: 7
+          compression-level: 0
+      - name: Remove signing credentials
+        if: always()
+        run: |
+          gpgconf --kill gpg-agent || true
+          rm -rf "$GNUPGHOME"

@@ -19,6 +19,7 @@ import type {
   ReviewDiffViewSpec,
 } from "../common/reviewProtocol.js";
 import { IReviewCodeResourceService } from "./reviewCodeResourceService.js";
+import { ReviewDiffLayoutSetting } from "./reviewDiffLayout.js";
 import {
   buildReviewFilesEntries,
   ReviewFilesDiffView,
@@ -40,6 +41,7 @@ export class ReviewDiffViewService
 {
   private overflowWidgetsDomNode: HTMLElement | undefined;
   private readonly handles = new Set<DiffViewHandle>();
+  readonly diffLayout: ReviewDiffLayoutSetting;
   /**
    * Scroll and expansion state per session document. The Diff view is a
    * conditionally rendered React sibling: a toggle away disposes the widget,
@@ -57,6 +59,9 @@ export class ReviewDiffViewService
     private readonly codeResources: IReviewCodeResourceService,
   ) {
     super();
+    this.diffLayout = this._register(
+      instantiationService.createInstance(ReviewDiffLayoutSetting),
+    );
   }
 
   setOverflowWidgetsDomNode(node: HTMLElement): void {
@@ -71,6 +76,7 @@ export class ReviewDiffViewService
       this.codeResources,
       this.inlineEditors,
       this.overflowWidgetsDomNode,
+      this.diffLayout,
       this.viewStates,
       () => this.handles.delete(handle),
     );
@@ -91,7 +97,7 @@ export class ReviewDiffViewService
   }
 
   toggleRenderSideBySide(): void {
-    for (const handle of this.handles) handle.toggleRenderSideBySide();
+    void this.diffLayout.toggle();
   }
 }
 
@@ -111,6 +117,7 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
     private readonly codeResources: IReviewCodeResourceService,
     private readonly inlineEditors: ReviewInlineEditorService,
     private readonly overflowWidgetsDomNode: HTMLElement | undefined,
+    private readonly diffLayout: ReviewDiffLayoutSetting,
     private readonly viewStates: Map<string, IMultiDiffEditorViewState>,
     private readonly onDispose: () => void,
   ) {
@@ -120,10 +127,6 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
 
   focus(): void {
     this.view?.focus();
-  }
-
-  toggleRenderSideBySide(): void {
-    this.view?.toggleRenderSideBySide();
   }
 
   override dispose(): void {
@@ -166,6 +169,7 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
           ReviewFilesDiffView,
           this.spec.container,
           this.overflowWidgetsDomNode,
+          this.diffLayout,
         ),
       );
       this.view = view;
@@ -192,7 +196,8 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
     this.activeControlStore.clear();
     const diffEditor = view.getActiveControl();
     if (!diffEditor) return;
-    const editors: readonly ICodeEditor[] = [
+    const unified = view.getActiveUnifiedControl();
+    const editors: readonly ICodeEditor[] = unified ? [unified] : [
       diffEditor.getOriginalEditor(),
       diffEditor.getModifiedEditor(),
     ];

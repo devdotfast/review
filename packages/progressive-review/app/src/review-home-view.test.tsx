@@ -35,7 +35,68 @@ describe("ReviewHome", () => {
   afterEach(async () => {
     await act(async () => root.unmount());
     container.remove();
+    Reflect.deleteProperty(navigator, "clipboard");
     vi.restoreAllMocks();
+  });
+
+  it("keeps unsupported and unreadable reviews selectable without banners", async () => {
+    const errors: ReviewListError[] = [
+      {
+        reviewDir: "/reviews/unsupported",
+        reviewUuid: uuid(2),
+        title: "Unsupported review",
+        worktreePath: "/repo",
+        lastPublishedAt: null,
+        code: "MIGRATION_REQUIRED",
+        message: "Unsupported review schema.",
+      },
+      {
+        reviewDir: "/reviews/unreadable",
+        reviewUuid: null,
+        title: "",
+        worktreePath: "/repo",
+        lastPublishedAt: null,
+        code: "EACCES",
+        message: "Cannot read review.json.",
+      },
+    ];
+    await act(async () =>
+      root.render(
+        <ReviewHome reviews={[]} onOpen={() => {}} reviewErrors={errors} />,
+      ),
+    );
+    const entries = container.querySelectorAll<HTMLButtonElement>(
+      ".review-home-unavailable-entries button",
+    );
+    expect(entries).toHaveLength(2);
+    expect(container.querySelector(".review-home-attention")).toBeNull();
+    expect(container.textContent).not.toContain(errors[0]!.message);
+    expect(container.querySelector('[aria-label="Copy prompt"]')).toBeNull();
+    await act(async () => entries[0]?.click());
+    expect(container.textContent).toContain(
+      "This review needs manual migration.",
+    );
+    const writeText = vi.fn<(text: string) => Promise<void>>(async () => {});
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Copy prompt"]')
+        ?.click(),
+    );
+    expect(writeText.mock.calls[0]?.[0]).toContain("review migrate apply");
+    expect(writeText.mock.calls[0]?.[0]).toContain(errors[0]!.reviewDir);
+    expect(writeText.mock.calls[0]?.[0]).toContain("Do not use --force");
+    await act(async () =>
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Back to reviews")
+        ?.click(),
+    );
+    expect(
+      container.querySelectorAll(".review-home-unavailable-entries button"),
+    ).toHaveLength(2);
   });
 
   it("groups reviews by worktree without changing their order", () => {
@@ -285,36 +346,52 @@ describe("ReviewHome", () => {
     expect(container.querySelector(".review-home-delete")).toBeNull();
   });
 
-  it("leaves migration reminders to the workbench and retains other scan warnings", async () => {
+  it("shows recovery guidance only after opening a failed conversion", async () => {
     const error: ReviewListError = {
       reviewDir: `/tmp/reviews/${uuid(2)}`,
       reviewUuid: uuid(2),
-      title: "Legacy Review",
+      title: "Old review",
       worktreePath: "/repo/old",
       lastPublishedAt: null,
-      code: "MIGRATION_REQUIRED",
-      message: "Run review migrate apply.",
+      code: "REPAIR_REQUIRED",
+      message: `Sealed document conversion failed. Run \`review repair --review ${uuid(2)}\` to regenerate this Review's artifacts.`,
     };
     await act(async () =>
       root.render(
-        <ReviewHome reviews={[]} reviewErrors={[error]} onOpen={() => {}} />,
-      ),
-    );
-    expect(container.querySelector(".review-home")).not.toBeNull();
-    expect(container.querySelector(".review-scan-warning")).toBeNull();
-    expect(container.textContent).not.toContain("Copy prompt");
-    await act(async () =>
-      root.render(
         <ReviewHome
-          reviews={[]}
-          reviewErrors={[error, { ...error, code: "BROKEN_REVIEW" }]}
+          reviews={[descriptor()]}
+          reviewErrors={[error]}
           onOpen={() => {}}
         />,
       ),
     );
-    expect(container.querySelector(".review-scan-warning")?.textContent).toBe(
-      "1 Review has issues.",
+
+    expect(container.querySelector(".review-home-attention")).toBeNull();
+    expect(container.querySelector('[aria-label="Copy prompt"]')).toBeNull();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          ".review-home-unavailable-entries button",
+        )
+        ?.click(),
     );
+    expect(container.textContent).toContain("This review needs manual repair.");
+    const writeText = vi.fn<(text: string) => Promise<void>>(async () => {});
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Copy prompt"]')
+        ?.click(),
+    );
+    expect(writeText.mock.calls[0]?.[0]).toContain(
+      `review repair --review ${uuid(2)}`,
+    );
+    expect(
+      container.querySelector('[aria-label="Prompt copied"]'),
+    ).not.toBeNull();
   });
 
   it("restores list view from storage", async () => {

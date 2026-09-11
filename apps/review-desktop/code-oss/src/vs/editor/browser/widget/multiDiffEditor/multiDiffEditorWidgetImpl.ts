@@ -59,6 +59,7 @@ export class MultiDiffEditorWidgetImpl extends Disposable {
 
 	public readonly contentHeight;
 	public readonly activeControl;
+	public readonly activeUnifiedControl;
 
 	private readonly _contextKeyService;
 	private readonly _instantiationService;
@@ -162,6 +163,10 @@ export class MultiDiffEditorWidgetImpl extends Disposable {
 			if (!activeDiffItem) { return undefined; }
 			const viewItem = this._viewItemsInfo.read(reader).getItem(activeDiffItem);
 			return viewItem.template.read(reader)?.editor;
+		});
+		this.activeUnifiedControl = derived(this, reader => {
+			const item = this._viewModel.read(reader)?.activeDiffItem.read(reader);
+			return item ? this._viewItemsInfo.read(reader).getItem(item).template.read(reader)?.unifiedEditor.read(reader) : undefined;
 		});
 		this._contextKeyService = this._register(this._parentContextKeyService.createScoped(this._element));
 		this._instantiationService = this._register(this._parentInstantiationService.createChild(
@@ -517,7 +522,7 @@ export class MultiDiffEditorWidgetImpl extends Disposable {
 		viewModel.activeDiffItem.setCache(target, undefined);
 
 		if (!this._preserveFocusOnLoad) {
-			this._viewItemsInfo.get().getItem(target).template.get()?.editor.focus();
+			this._viewItemsInfo.get().getItem(target).template.get()?.focus();
 		}
 		return true;
 	}
@@ -576,7 +581,9 @@ export class MultiDiffEditorWidgetImpl extends Disposable {
 			currentItem.viewModel.collapsed.set(false, undefined);
 		}
 
-		const editor = currentItem.template.get()?.editor;
+		const template = currentItem.template.get();
+		if (template?.goToUnifiedDiff(direction)) { return; }
+		const editor = template?.unifiedEditor.get() ? undefined : template?.editor;
 		if (editor?.getDiffComputationResult()?.changes2?.length) {
 			const pos = editor.getModifiedEditor().getPosition()?.lineNumber || 1;
 			const changes = editor.getDiffComputationResult()!.changes2!;
@@ -601,6 +608,8 @@ export class MultiDiffEditorWidgetImpl extends Disposable {
 
 		this.reveal({ original: item.viewModel.originalUri, modified: item.viewModel.modifiedUri });
 
+		const unified = item.template.get()?.unifiedEditor.get();
+		if (unified) { item.template.get()?.goToUnifiedDiff(position); if (focusEditor) { unified.focus(); } return; }
 		const editor = item.template.get()?.editor;
 		if (editor?.getDiffComputationResult()?.changes2?.length) {
 			if (position === 'first') {
@@ -766,7 +775,7 @@ class VirtualizedViewItem extends Disposable {
 		const ref = this._templateRef.get();
 		if (ref) {
 			if (selections) {
-				ref.object.editor.setSelections(selections);
+				ref.object.selectionEditor.setSelections(selections);
 			}
 		}
 	}
@@ -776,7 +785,7 @@ class VirtualizedViewItem extends Disposable {
 		if (!ref) { return; }
 		this.viewModel.lastTemplateData.set({
 			contentHeight: ref.object.contentHeight.get(),
-			selections: ref.object.editor.getSelections() ?? undefined,
+			selections: ref.object.selectionEditor.getSelections() ?? undefined,
 		}, tx);
 	}
 
@@ -804,7 +813,7 @@ class VirtualizedViewItem extends Disposable {
 
 			const selections = this.viewModel.lastTemplateData.get().selections;
 			if (selections) {
-				ref.object.editor.setSelections(selections);
+				ref.object.selectionEditor.setSelections(selections);
 			}
 		}
 		ref.object.render(verticalSpace, width, offset, viewPort);

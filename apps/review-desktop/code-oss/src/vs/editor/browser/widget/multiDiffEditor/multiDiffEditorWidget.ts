@@ -105,6 +105,10 @@ export class MultiDiffEditorWidget extends Disposable {
 		this._renderSideBySide.set(!(this._renderSideBySide.get() ?? true), undefined);
 	}
 
+	private readonly _activeUnifiedControl = derived(this, reader => this._widgetImpl.read(reader).activeUnifiedControl.read(reader));
+	public getActiveUnifiedControl(): ICodeEditor | undefined { return this._activeUnifiedControl.get(); }
+	public readonly onDidChangeActiveUnifiedControl = Event.fromObservableLight(this._activeUnifiedControl);
+
 	private readonly _activeControl = derived(this, (reader) => this._widgetImpl.read(reader).activeControl.read(reader));
 	private readonly _scrollTop = derived(this, (reader) => this._widgetImpl.read(reader).scrollTop.read(reader));
 	private readonly _contentHeight = derived(this, (reader) => this._widgetImpl.read(reader).contentHeight.read(reader));

@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "tsdown";
 
 const packageRoot = dirname(fileURLToPath(import.meta.url));
+
 const cliPath = resolve(packageRoot, "dist", "cli.js");
+
 const desktopHostPath = resolve(
   packageRoot,
   "dist",
@@ -16,6 +18,7 @@ const desktopHostPath = resolve(
 export default defineConfig({
   entry: {
     authoring: "src/authoring.ts",
+    "document/worker": "src/document/worker.ts",
     cli: "src/cli.ts",
     "native-agent/native-hook-client": "src/native-agent/native-hook-client.ts",
     "native-agent/pi-bridge-extension":

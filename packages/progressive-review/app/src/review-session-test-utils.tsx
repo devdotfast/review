@@ -23,7 +23,6 @@ export const TEST_REVIEW_CONFIG = {
   sessionId: "test-session",
   token: "secret-token",
   wasmUrl: "vscode-file://review/libavoid.wasm",
-  docRuntimeUrl: "vscode-file://review/doc-runtime.js",
   appVersion: "0.0.13",
   theme: "dark",
   host: "desktop",
@@ -54,6 +53,9 @@ export function testReviewBridge(
     subscribe: () => ({ dispose() {} }),
     currentTheme: () => "dark",
     onDidChangeTheme: () => ({ dispose() {} }),
+    currentDiffLayout: () => "split",
+    async setDiffLayout() {},
+    onDidChangeDiffLayout: () => ({ dispose() {} }),
     ready() {},
     ...overrides,
   };

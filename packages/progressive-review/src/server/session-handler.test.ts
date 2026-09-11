@@ -1,50 +1,245 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type {
-  CreateReviewCommentInput,
-  JsonObject,
-  ReviewThreadsCommit,
+import {
+  type JsonObject,
+  REVIEW_SCHEMA_VERSION,
+  ReviewDocumentResponseSchema,
+  type ReviewRecord,
 } from "@dev.fast/review-protocol";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import type { PostHogCaptureInput } from "../posthog-capture-client";
 import {
   ProgressiveReviewTelemetry,
   type ProgressiveReviewTelemetryCaptureClient,
 } from "../progressive-review-telemetry";
-import { writeReviewDocumentBundle } from "../review-bundle";
-import { readReviewComments } from "../review-state-store";
+import { cleanupTempDirs, tempDir } from "../review-test-utils";
 import {
-  type ReviewSessionHandlerInput,
-  createReviewSessionHandler,
-} from "./session-handler";
+  bundleReviewSoftwareMap,
+  writeReviewSoftwareMapBundle,
+} from "../software-map-bundle";
+import { defineSoftwareMap } from "../software-map-model";
+import type { ReviewSessionMode } from "./review-session-mode";
+import { createReviewSessionHandler } from "./session-handler";
+import { unusedAgentServices } from "./session-handler-test-utils";
 
-const unusedAgentServices = {
-  agentServer: () => {
-    throw new Error("This test does not launch a native agent.");
-  },
-  openNativeAgentTerminal: async () => {
-    throw new Error("This test does not open a native agent terminal.");
-  },
-} satisfies Pick<
-  ReviewSessionHandlerInput,
-  "agentServer" | "openNativeAgentTerminal"
->;
+const readOnlyRecord: ReviewRecord = {
+  schemaVersion: REVIEW_SCHEMA_VERSION,
+  uuid: "11111111-1111-4111-8111-111111111111",
+  repoKey: "repo",
+  worktreePath: "/repo",
+  baseRef: "main",
+  baseCommit: "b".repeat(40),
+  sourceCommit: "a".repeat(40),
+  sourceIdentity: null,
+  title: "Review",
+  sourceSession: "disabled:review",
+  status: "awaiting-review",
+  presentedDocumentRevision: "c".repeat(40),
+  presentedSoftwareMapRevision: null,
+  createdAt: "2024-01-01T00:00:00.000Z",
+  lastPublishedAt: null,
+};
 
-let rootPath: string | undefined;
-
-afterEach(async () => {
-  if (rootPath) {
-    await rm(rootPath, { recursive: true, force: true });
-  }
-  rootPath = undefined;
-});
+afterEach(cleanupTempDirs);
 
 describe("createReviewSessionHandler", () => {
+  it("offers current repair metadata when a sealed artifact is missing", async () => {
+    const rootPath = await tempDir("review-missing-repair-");
+    const reviewPath = path.join(rootPath, "review.mdx");
+    const reviewUuid = "11111111-1111-4111-8111-111111111111";
+    const handler = await createReviewSessionHandler({
+      ...unusedAgentServices,
+      rootPath,
+      toolingRoot: rootPath,
+      reviewPath,
+      routePath: "/",
+      token: "secret",
+      reviewUuid,
+      artifacts: {
+        document: "Document revision is missing.",
+        map: "Map revision is missing.",
+      },
+      session: {
+        rootPath,
+        baseRef: "HEAD",
+        appUrl: "http://127.0.0.1:5570",
+        reviewPath,
+        startedAt: Date.now(),
+      },
+    });
+    try {
+      for (const artifact of ["document", "software-map"]) {
+        const response = await handler.handle(
+          new Request(
+            `http://127.0.0.1:5570/__progressive-review/${artifact}`,
+            { headers: { "x-review-token": "secret" } },
+          ),
+        );
+        expect(response.status).toBe(409);
+        const payload = await response.json();
+        expect(payload).toMatchObject({
+          detail: { code: "needs_republish", reviewUuid },
+        });
+        expect(payload).not.toHaveProperty("recovery");
+      }
+    } finally {
+      await handler.close();
+    }
+  });
+
+  it("keeps repair validation and historical artifact states independent and read-only", async () => {
+    const rootPath = await tempDir("review-recovery-handler-");
+    const reviewPath = path.join(rootPath, "review.mdx");
+    await writeFile(reviewPath, "# Review");
+    await writeReviewSoftwareMapBundle(
+      rootPath,
+      bundleReviewSoftwareMap({
+        head: defineSoftwareMap({ systems: {} }),
+        base: defineSoftwareMap({ systems: {} }),
+        headCommit: "a".repeat(40),
+        baseCommit: "b".repeat(40),
+      }),
+    );
+    let promoted = false;
+    for (const mode of [
+      {
+        kind: "repairValidation",
+        record: readOnlyRecord,
+        isPromoted: () => promoted,
+      },
+      { kind: "historical", revision: "c".repeat(40), record: readOnlyRecord },
+    ] satisfies ReviewSessionMode[]) {
+      const handler = await createReviewSessionHandler({
+        ...unusedAgentServices,
+        rootPath,
+        toolingRoot: rootPath,
+        reviewPath,
+        softwareMapRootPath: rootPath,
+        routePath: "/",
+        token: "secret",
+        mode,
+        reviewUuid: "11111111-1111-4111-8111-111111111111",
+        session: {
+          rootPath,
+          baseRef: "HEAD",
+          appUrl: "http://127.0.0.1:5570",
+          reviewPath,
+          startedAt: Date.now(),
+        },
+      });
+      const request = (route: string, method = "GET") =>
+        handler.handle(
+          new Request(`http://127.0.0.1:5570/__progressive-review/${route}`, {
+            method,
+            headers: { "x-review-token": "secret" },
+          }),
+        );
+      try {
+        const doc = await request("document");
+        expect(doc.status).toBe(409);
+        const docPayload = await doc.json();
+        expect(docPayload).toMatchObject(
+          mode.kind === "historical"
+            ? {
+                error:
+                  "This older revision is unavailable in this version of Review",
+                detail: {
+                  code: "historical_revision_unavailable",
+                  reviewUuid: "11111111-1111-4111-8111-111111111111",
+                },
+              }
+            : { detail: { code: "needs_republish", mapStale: false } },
+        );
+        expect(
+          mode.kind !== "historical" ||
+            ReviewDocumentResponseSchema.safeParse(docPayload).success,
+        ).toBe(true);
+        expect((await request("software-map")).status).toBe(200);
+        for (const route of [
+          "code-peek/resolve",
+          "software-map/resolved-data",
+          "diff-files",
+          "telemetry/tab",
+          "telemetry/event",
+          "telemetry/bug-report",
+        ]) {
+          expect((await request(route, "POST")).status).not.toBe(409);
+        }
+        expect((await request("telemetry/unknown", "POST")).status).toBe(404);
+        for (const [route, method] of [
+          ["thread-commands", "POST"],
+          ["agent-runs", "POST"],
+          ["submissions", "POST"],
+          ["comments/test", "DELETE"],
+          ["software-map/artifacts/refresh", "POST"],
+        ]) {
+          expect((await request(route!, method)).status).toBe(409);
+        }
+        const dismissed = await request("dismiss", "POST");
+        expect(dismissed.status).toBe(409);
+        expect(await dismissed.json()).toMatchObject({
+          code:
+            mode.kind === "historical"
+              ? "historical_revision"
+              : "review_read_only",
+        });
+        promoted = mode.kind === "repairValidation";
+        expect((await request("thread-commands", "POST")).status === 409).toBe(
+          mode.kind === "historical",
+        );
+      } finally {
+        await handler.close();
+      }
+    }
+  });
+
+  it("emits a protocol-valid historical document error for a recorded missing artifact", async () => {
+    const rootPath = await tempDir("review-historical-artifact-");
+    const reviewPath = path.join(rootPath, "review.mdx");
+    const reviewUuid = readOnlyRecord.uuid;
+    const handler = await createReviewSessionHandler({
+      ...unusedAgentServices,
+      rootPath,
+      toolingRoot: rootPath,
+      reviewPath,
+      routePath: "/",
+      token: "secret",
+      reviewUuid,
+      artifacts: { document: "Document revision is missing." },
+      mode: {
+        kind: "historical",
+        revision: "c".repeat(40),
+        record: readOnlyRecord,
+      },
+      session: {
+        rootPath,
+        baseRef: "HEAD",
+        appUrl: "http://127.0.0.1:5570",
+        reviewPath,
+        startedAt: Date.now(),
+      },
+    });
+    try {
+      const response = await handler.handle(
+        new Request("http://127.0.0.1:5570/__progressive-review/document", {
+          headers: { "x-review-token": "secret" },
+        }),
+      );
+      const payload = await response.json();
+      expect(response.status).toBe(409);
+      expect(ReviewDocumentResponseSchema.parse(payload)).toEqual({
+        ok: false,
+        error: "Document revision is missing.",
+        detail: { code: "historical_revision_unavailable", reviewUuid },
+      });
+    } finally {
+      await handler.close();
+    }
+  });
   it("scopes routed UI telemetry and presents a session only once", async () => {
-    rootPath = await mkdtemp(path.join(tmpdir(), "review-session-handler-"));
+    const rootPath = await tempDir("review-session-handler-");
     const reviewPath = path.join(rootPath, "review.mdx");
     const sessionId = "0f98956f-ec90-45b5-ae21-19acbcd8b6ef";
     const reviewUuid = "86df96ed-65ef-46de-9348-c94811e3bb46";
@@ -136,7 +331,7 @@ describe("createReviewSessionHandler", () => {
   });
 
   it("rejects writes against a historical session with 409", async () => {
-    rootPath = await mkdtemp(path.join(tmpdir(), "review-session-handler-"));
+    const rootPath = await tempDir("review-session-handler-");
     const reviewPath = path.join(rootPath, "review.mdx");
     const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
     const token = "session-secret";
@@ -147,7 +342,11 @@ describe("createReviewSessionHandler", () => {
       reviewPath,
       routePath: "/",
       token,
-      historicalRevision: "a".repeat(40),
+      mode: {
+        kind: "historical",
+        revision: "a".repeat(40),
+        record: readOnlyRecord,
+      },
       session: {
         rootPath,
         baseRef: "HEAD",
@@ -180,255 +379,17 @@ describe("createReviewSessionHandler", () => {
           headers: { "x-review-token": token },
         }),
       );
-      expect(read.status).toBe(200);
-    } finally {
-      await handler.close();
-    }
-  });
-
-  it("serves the version list from the host callback", async () => {
-    rootPath = await mkdtemp(path.join(tmpdir(), "review-session-handler-"));
-    const reviewPath = path.join(rootPath, "review.mdx");
-    const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
-    const token = "session-secret";
-    const versions = [
-      {
-        revision: "b".repeat(40),
-        sealedAt: 1_755_000_000_000,
-        isCurrent: true,
-      },
-    ];
-    const handler = await createReviewSessionHandler({
-      ...unusedAgentServices,
-      rootPath,
-      toolingRoot: rootPath,
-      reviewPath,
-      routePath: "/",
-      token,
-      listDocumentVersions: async () => versions,
-      session: {
-        rootPath,
-        baseRef: "HEAD",
-        appUrl: sessionUrl,
-        reviewPath,
-        startedAt: Date.now(),
-      },
-    });
-    try {
-      const response = await handler.handle(
-        new Request(new URL("/__progressive-review/revisions", sessionUrl), {
-          headers: { "x-review-token": token },
-        }),
-      );
-      expect(response.status).toBe(200);
-      await expect(response.json()).resolves.toEqual({ ok: true, versions });
-    } finally {
-      await handler.close();
-    }
-  });
-
-  it("serves the stored document bundle", async () => {
-    rootPath = await mkdtemp(path.join(tmpdir(), "review-session-handler-"));
-    const reviewPath = path.join(rootPath, "review.mdx");
-    const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
-    const token = "session-secret";
-    await writeFile(reviewPath, "# Review\n", "utf8");
-    await writeReviewDocumentBundle(rootPath, {
-      code: "export const activeReviewDocument = {};",
-      contentHash: "0123456789abcdef0123",
-      routePath: "/",
-      sourcePath: reviewPath,
-    });
-    const handler = await createReviewSessionHandler({
-      ...unusedAgentServices,
-      rootPath,
-      toolingRoot: rootPath,
-      reviewPath,
-      routePath: "/",
-      token,
-      session: {
-        rootPath,
-        baseRef: "HEAD",
-        appUrl: sessionUrl,
-        reviewPath,
-        startedAt: Date.now(),
-      },
-    });
-
-    try {
-      const response = await handler.handle(
-        new Request(new URL("/__progressive-review/doc-module", sessionUrl), {
-          headers: { "x-review-token": token },
-        }),
-      );
-
-      expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({ ok: true });
-    } finally {
-      await handler.close();
-    }
-  });
-
-  it("returns committed state and announces only applied changes", async () => {
-    rootPath = await mkdtemp(path.join(tmpdir(), "review-session-handler-"));
-    const reviewPath = path.join(rootPath, "review.mdx");
-    const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
-    const token = "session-secret";
-    const onReviewThreadsCommit =
-      vi.fn<(commit: ReviewThreadsCommit) => void>();
-    const handler = await createReviewSessionHandler({
-      ...unusedAgentServices,
-      rootPath,
-      toolingRoot: rootPath,
-      reviewPath,
-      routePath: "/",
-      token,
-      onReviewThreadsCommit,
-      session: {
-        rootPath,
-        baseRef: "HEAD",
-        appUrl: sessionUrl,
-        reviewPath,
-        startedAt: Date.now(),
-      },
-    });
-
-    const request = (
-      path: string,
-      method: "POST" | "DELETE",
-      body?: CreateReviewCommentInput,
-    ) => {
-      const headers = new Headers({ "x-review-token": token });
-      const init: RequestInit = { method, headers };
-      if (body) {
-        headers.set("content-type", "application/json");
-        init.body = JSON.stringify(body);
-      }
-      return handler.handle(
-        new Request(new URL(`/__progressive-review${path}`, sessionUrl), init),
-      );
-    };
-
-    try {
-      const comment = await request("/comments/thread-1", "POST", {
-        threadId: "thread-1",
-        messageId: "message-1",
-        target: {
-          kind: "text",
-          surface: {
-            type: "block",
-            tag: "p",
-            index: 0,
-            blockHash: "12345678",
-          },
-          selection: {
-            start: 2,
-            length: 5,
-            hash: "f55c314b",
-            quote: "Hello",
-          },
-        },
-        body: "A fresh external comment",
+      expect(read.status).toBe(400);
+      expect(await read.json()).toMatchObject({
+        error: "The review thread database is unavailable.",
       });
-      expect(comment.status).toBe(200);
-      await expect(comment.json()).resolves.toMatchObject({
-        ok: true,
-        commit: {
-          mutationId: "message-1",
-          upsertedThreads: [{ threadId: "thread-1" }],
-        },
-      });
-      expect(onReviewThreadsCommit).toHaveBeenCalledTimes(1);
     } finally {
-      await handler.close();
-    }
-  });
-
-  it("runs comment mutations through the publication lock seam", async () => {
-    rootPath = await mkdtemp(path.join(tmpdir(), "review-session-handler-"));
-    const reviewPath = path.join(rootPath, "review.mdx");
-    const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
-    const token = "session-secret";
-    let enterMutation!: () => void;
-    let releaseMutation!: () => void;
-    const mutationEntered = new Promise<void>((resolve) => {
-      enterMutation = resolve;
-    });
-    const mutationReleased = new Promise<void>((resolve) => {
-      releaseMutation = resolve;
-    });
-    const handler = await createReviewSessionHandler({
-      ...unusedAgentServices,
-      rootPath,
-      toolingRoot: rootPath,
-      reviewPath,
-      routePath: "/",
-      token,
-      runReviewThreadMutation: async (operation) => {
-        enterMutation();
-        await mutationReleased;
-        return operation();
-      },
-      session: {
-        rootPath,
-        baseRef: "HEAD",
-        appUrl: sessionUrl,
-        reviewPath,
-        startedAt: Date.now(),
-      },
-    });
-
-    try {
-      const pending = handler.handle(
-        new Request(
-          new URL("/__progressive-review/thread-commands", sessionUrl),
-          {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              "x-review-token": token,
-            },
-            body: JSON.stringify({
-              command: "comment.create",
-              mutationId: "message-1",
-              input: {
-                threadId: "thread-1",
-                messageId: "message-1",
-                target: {
-                  kind: "text",
-                  surface: {
-                    type: "block",
-                    tag: "p",
-                    index: 0,
-                    blockHash: "12345678",
-                  },
-                  selection: {
-                    start: 2,
-                    length: 5,
-                    hash: "f55c314b",
-                    quote: "Hello",
-                  },
-                },
-                body: "A serialized comment",
-              },
-            }),
-          },
-        ),
-      );
-      await mutationEntered;
-      expect(readReviewComments(reviewPath)).toEqual({});
-
-      releaseMutation();
-      await expect(pending).resolves.toHaveProperty("status", 200);
-      expect(readReviewComments(reviewPath)).toHaveProperty("thread-1");
-    } finally {
-      releaseMutation();
       await handler.close();
     }
   });
 
   it("returns the current review status", async () => {
-    rootPath = await mkdtemp(path.join(tmpdir(), "review-session-handler-"));
+    const rootPath = await tempDir("review-session-handler-");
     const reviewPath = path.join(rootPath, "review.mdx");
     const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
     const token = "session-secret";
@@ -475,7 +436,7 @@ describe("createReviewSessionHandler", () => {
   });
 
   it("acknowledges a submission before the submit hook exits", async () => {
-    rootPath = await mkdtemp(path.join(tmpdir(), "review-session-handler-"));
+    const rootPath = await tempDir("review-session-handler-");
     const reviewPath = path.join(rootPath, "review.mdx");
     const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
     const token = "session-secret";
@@ -529,6 +490,152 @@ describe("createReviewSessionHandler", () => {
         ok: true,
         hook: { configured: true },
       });
+    } finally {
+      await handler.close();
+    }
+  });
+
+  it("resolves the live source target once per session and again when a checkout root disappears", async () => {
+    const rootPath = await tempDir("review-live-source-target-");
+    const reviewPath = path.join(rootPath, "review.mdx");
+    await writeFile(reviewPath, "# Review");
+    // Two stand-in "pinned checkouts". The fake resolver hands out the next
+    // one on every call, so a re-resolution is observable both by count and
+    // by which root served the peek.
+    const roots = [
+      path.join(rootPath, "head-1"),
+      path.join(rootPath, "head-2"),
+    ];
+    for (const root of roots) {
+      await mkdir(root);
+      await writeFile(path.join(root, "src.ts"), "line 1\nline 2\nline 3\n");
+    }
+    let resolutions = 0;
+    const handler = await createReviewSessionHandler({
+      ...unusedAgentServices,
+      rootPath,
+      toolingRoot: rootPath,
+      reviewPath,
+      routePath: "/",
+      token: "secret",
+      reviewUuid: "11111111-1111-4111-8111-111111111111",
+      resolveSourceTarget: async () => {
+        const sourceRootPath = roots[resolutions]!;
+        resolutions += 1;
+        return { repoRoot: rootPath, sourceRootPath, diffRootPath: rootPath };
+      },
+      session: {
+        rootPath,
+        baseRef: "HEAD",
+        appUrl: "http://127.0.0.1:5570",
+        reviewPath,
+        startedAt: Date.now(),
+      },
+    });
+    const resolvePeek = () =>
+      handler.handle(
+        new Request(
+          "http://127.0.0.1:5570/__progressive-review/code-peek/resolve",
+          {
+            method: "POST",
+            headers: {
+              "x-review-token": "secret",
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              root: { kind: "range", file: "src.ts", fromLine: 1, toLine: 2 },
+              graph: "head",
+              includeDiff: false,
+              includeDiffSummary: false,
+            }),
+          },
+        ),
+      );
+    try {
+      const responses = await Promise.all(
+        Array.from({ length: 5 }, () => resolvePeek()),
+      );
+      for (const response of responses) {
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({ ok: true });
+      }
+      expect(resolutions).toBe(1);
+
+      await rm(roots[0]!, { recursive: true, force: true });
+      const afterRemoval = await resolvePeek();
+      expect(afterRemoval.status).toBe(200);
+      expect(await afterRemoval.json()).toMatchObject({ ok: true });
+      expect(resolutions).toBe(2);
+    } finally {
+      await handler.close();
+    }
+  });
+
+  it("retries live source target resolution after a failed attempt", async () => {
+    const rootPath = await tempDir("review-live-source-target-retry-");
+    const reviewPath = path.join(rootPath, "review.mdx");
+    await writeFile(reviewPath, "# Review");
+    const headRoot = path.join(rootPath, "head");
+    await mkdir(headRoot);
+    await writeFile(path.join(headRoot, "src.ts"), "line 1\nline 2\n");
+    let resolutions = 0;
+    const handler = await createReviewSessionHandler({
+      ...unusedAgentServices,
+      rootPath,
+      toolingRoot: rootPath,
+      reviewPath,
+      routePath: "/",
+      token: "secret",
+      reviewUuid: "11111111-1111-4111-8111-111111111111",
+      resolveSourceTarget: async () => {
+        resolutions += 1;
+        if (resolutions === 1) throw new Error("git is busy");
+        return {
+          repoRoot: rootPath,
+          sourceRootPath: headRoot,
+          diffRootPath: rootPath,
+        };
+      },
+      session: {
+        rootPath,
+        baseRef: "HEAD",
+        appUrl: "http://127.0.0.1:5570",
+        reviewPath,
+        startedAt: Date.now(),
+      },
+    });
+    const resolvePeek = () =>
+      handler.handle(
+        new Request(
+          "http://127.0.0.1:5570/__progressive-review/code-peek/resolve",
+          {
+            method: "POST",
+            headers: {
+              "x-review-token": "secret",
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              root: { kind: "range", file: "src.ts", fromLine: 1, toLine: 1 },
+              graph: "head",
+              includeDiff: false,
+              includeDiffSummary: false,
+            }),
+          },
+        ),
+      );
+    try {
+      const failed = await resolvePeek();
+      expect(failed.status).not.toBe(200);
+      expect(await failed.json()).toMatchObject({
+        ok: false,
+        error: "git is busy",
+      });
+      const retried = await resolvePeek();
+      expect(retried.status).toBe(200);
+      expect(resolutions).toBe(2);
+      const cached = await resolvePeek();
+      expect(cached.status).toBe(200);
+      expect(resolutions).toBe(2);
     } finally {
       await handler.close();
     }

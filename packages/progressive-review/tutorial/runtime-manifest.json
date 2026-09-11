@@ -8,10 +8,10 @@
     "authoring-conversation.json",
     "software-map.ts",
     "git-stub/HEAD",
-    ".bundle/document/review-document.js",
+    ".bundle/document/review-document.json",
     ".bundle/document/manifest.json",
-    ".bundle/software-map/head-map.js",
-    ".bundle/software-map/base-map.js",
+    ".bundle/software-map/head-map.json",
+    ".bundle/software-map/base-map.json",
     ".bundle/software-map/manifest.json"
   ]
 }

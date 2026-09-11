@@ -36,9 +36,8 @@ pairing needs no cross-references. Every region has a `visibility` with
 `collapsed` and a `label`; a collapsed leaf is a context gap, a collapsed fold
 is a folded body, and the label is what shows while collapsed (a placeholder,
 or the pseudocode a summarizer wrote). Leaves carry `changed` byte spans for
-within-line change paint. `stats` has textual line counts and either
-structural counts or a `fallback` error explaining why tree-sitter did not
-run. Lines are 0-based and split on `\n`; columns are byte offsets into the
+within-line change paint. `stats` has `textual` line counts, `visible` counts under the
+initial fold state, and a `fallback` error when the AST match did not run. Lines are 0-based and split on `\n`; columns are byte offsets into the
 wire text; ranges are half-open.
 
 The reader is `common/reviewStructuralDiff.ts`; the host side is
@@ -73,8 +72,10 @@ The reader is `common/reviewStructuralDiff.ts`; the host side is
   layouts. Text inequality alone never implies red/green backgrounds.
 - Files the manifest marks hidden (generated, tests) start collapsed in the
   multi-diff list with the reason beside the counts; the header click loads them.
-- Header and tree counts switch to the stream's textual counts as each file
-  lands. The git-based file list is still fetched first: it resolves the
+- Header and tree counts are visible changed lines: the wire's `visible` on
+  arrival, recomputed locally as folds toggle. The file tree pane sums them
+  into a review total with GitHub's five-block bar; hovering a count shows
+  `visible`, `textual`, and `line diff: <code>` when the file fell back. The git-based file list is still fetched first: it resolves the
   pinned checkout resources the editors open before any diff arrives.
 - Settings → Experimental Features shows diffr's own configuration when
   structural diffs are on. The host runs `diffr config schema` and `diffr config

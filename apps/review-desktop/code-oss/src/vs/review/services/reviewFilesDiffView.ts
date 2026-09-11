@@ -205,7 +205,7 @@ export class ReviewFilesDiffView extends Disposable {
   private readonly readyFiles = new Set<string>();
   private readonly fileStates = new Map<string, string>();
   /** Counts from the structural stream: visible lines replace the git counts once a file lands. */
-  private readonly streamStats = new Map<string, { additions: number; deletions: number; title: string }>();
+  private readonly streamStats = new Map<string, { counts: StructuralFileCounts; title: string }>();
   private readonly headerFactory: ReviewMultiDiffUIElementFactory;
   private readonly summary: HTMLElement;
   private readonly summaryBlocks: HTMLElement[] = [];
@@ -238,8 +238,8 @@ export class ReviewFilesDiffView extends Disposable {
               ? this.input.entries.map((entry) => ({
                   original: entry.original,
                   modified: entry.modified,
-                  additions: this.streamStats.get(entry.file.path)?.additions ?? entry.file.additions,
-                  deletions: this.streamStats.get(entry.file.path)?.deletions ?? entry.file.deletions,
+                  additions: this.streamStats.get(entry.file.path)?.counts.visible.added ?? entry.file.additions,
+                  deletions: this.streamStats.get(entry.file.path)?.counts.visible.removed ?? entry.file.deletions,
                   countsTitle: this.streamStats.get(entry.file.path)?.title,
                   note: this.hiddenFiles.get(entry.file.path),
                   onDidOpen: () => {
@@ -419,11 +419,7 @@ export class ReviewFilesDiffView extends Disposable {
 
   /** Visible counts from the stream, first on arrival and again after every fold toggle. */
   fileCounts(path: string, counts: StructuralFileCounts): void {
-    this.streamStats.set(path, {
-      additions: counts.visible.added,
-      deletions: counts.visible.removed,
-      title: structuralCountsTooltip(counts),
-    });
+    this.streamStats.set(path, { counts, title: structuralCountsTooltip(counts) });
     this.changedFilesTree.setFiles(this.filesWithStreamStats());
     this.headerFactory.refreshHeaders();
     this.renderSummary();
@@ -432,19 +428,16 @@ export class ReviewFilesDiffView extends Disposable {
   /** The review-level total: the same visible counts summed over files, with GitHub's five-block bar. */
   private renderSummary(): void {
     const entries = this.input?.entries ?? [];
-    const total = { visible: { added: 0, removed: 0 }, textual: { added: 0, removed: 0 }, structural: { added: 0, removed: 0 } };
+    const total = { visible: { added: 0, removed: 0 }, textual: { added: 0, removed: 0 } };
     let lineDiffs = 0;
     for (const entry of entries) {
       const stats = this.streamStats.get(entry.file.path);
       if (!stats) continue;
-      total.visible.added += stats.additions;
-      total.visible.removed += stats.deletions;
-      const rows = stats.title.split("\n");
-      for (const [label, target] of [["structural", total.structural], ["textual", total.textual]] as const) {
-        const match = rows.find(row => row.startsWith(label))?.match(/\+(\d+) −(\d+)/);
-        if (match) { target.added += Number(match[1]); target.removed += Number(match[2]); }
-        else if (label === "structural") lineDiffs++;
-      }
+      total.visible.added += stats.counts.visible.added;
+      total.visible.removed += stats.counts.visible.removed;
+      total.textual.added += stats.counts.textual.added;
+      total.textual.removed += stats.counts.textual.removed;
+      if (stats.counts.fallback) lineDiffs++;
     }
     if (this.summaryBlocks.length === 0) {
       const files = $("span.review-files-editor-summary-files");
@@ -466,10 +459,8 @@ export class ReviewFilesDiffView extends Disposable {
     });
     this.summary.title = [
       `visible +${total.visible.added} −${total.visible.removed}`,
-      lineDiffs === entries.length
-        ? "structural line diff"
-        : `structural +${total.structural.added} −${total.structural.removed}${lineDiffs ? ` (${lineDiffs} line diff)` : ""}`,
       `textual +${total.textual.added} −${total.textual.removed}`,
+      ...(lineDiffs ? [`line diff: ${lineDiffs === 1 ? "1 file" : `${lineDiffs} files`}`] : []),
     ].join("\n");
     const wasHidden = this.summary.hidden;
     this.summary.hidden = false;
@@ -497,7 +488,7 @@ export class ReviewFilesDiffView extends Disposable {
   private filesWithStreamStats(): ReviewDiffFileWire[] {
     return (this.input?.entries ?? []).map(entry => {
       const stats = this.streamStats.get(entry.file.path);
-      return stats ? { ...entry.file, additions: stats.additions, deletions: stats.deletions } : entry.file;
+      return stats ? { ...entry.file, additions: stats.counts.visible.added, deletions: stats.counts.visible.removed } : entry.file;
     });
   }
 

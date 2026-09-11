@@ -60,7 +60,7 @@ export interface StructuralStats {
   textual: StructuralLineCounts;
   /** Changed lines on screen under the wire's initial fold state. Always present. */
   visible: StructuralLineCounts;
-  structural?: StructuralLineCounts;
+  /** Present when the AST match did not run and this is a line diff. */
   fallback?: StructuralProblem;
 }
 export type StructuralTextDiff = { type: "text"; stats: StructuralStats } & StructuralPairing<StructuralSource>;
@@ -264,7 +264,7 @@ export function structuralHighlights(diff: StructuralTextDiff) {
 export interface StructuralFileCounts {
   visible: StructuralLineCounts;
   textual: StructuralLineCounts;
-  structural?: StructuralLineCounts;
+  fallback?: StructuralProblem;
 }
 
 function visibleChangedLines(
@@ -288,7 +288,7 @@ function visibleChangedLines(
 /** The wire's counts as a file arrives: its own `visible` is the headline. */
 export function structuralInitialCounts(diff: StructuralTextDiff): StructuralFileCounts {
   if (!diff.stats.visible) throw new Error("diffr sent stats without visible counts.");
-  return { visible: diff.stats.visible, textual: diff.stats.textual, structural: diff.stats.structural };
+  return { visible: diff.stats.visible, textual: diff.stats.textual, fallback: diff.stats.fallback };
 }
 
 /**
@@ -306,12 +306,13 @@ export function structuralVisibleCounts(
       removed: visibleChangedLines(diff.lhs, (id) => isCollapsed(0, id)),
     },
     textual: diff.stats.textual,
-    structural: diff.stats.structural,
+    fallback: diff.stats.fallback,
   };
 }
 
 export function structuralCountsTooltip(counts: StructuralFileCounts): string {
-  const row = (label: string, value: StructuralLineCounts | undefined) =>
-    value ? `${label} +${value.added} −${value.removed}` : `${label} line diff`;
-  return [row("visible", counts.visible), row("structural", counts.structural), row("textual", counts.textual)].join("\n");
+  const row = (label: string, value: StructuralLineCounts) => `${label} +${value.added} −${value.removed}`;
+  const rows = [row("visible", counts.visible), row("textual", counts.textual)];
+  if (counts.fallback) rows.push(`line diff: ${counts.fallback.code}`);
+  return rows.join("\n");
 }

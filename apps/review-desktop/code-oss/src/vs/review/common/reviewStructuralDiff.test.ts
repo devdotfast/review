@@ -30,7 +30,7 @@ function fold(id: number, children: StructuralRegion[], tags: string[] = ["body"
 function text(lines: string[], regions: StructuralRegion[]) {
   return { text: lines.join("\n") + "\n", regions };
 }
-const stats = { textual: { added: 0, removed: 0 }, visible: { added: 0, removed: 0 }, structural: { added: 0, removed: 0 } };
+const stats = { textual: { added: 0, removed: 0 }, visible: { added: 0, removed: 0 } };
 
 test("paired collapse removes hidden height without leaving padding for hidden anchors", () => {
   const rows: [number | null, number | null][] = [
@@ -167,7 +167,7 @@ test("header counts follow what is visible: collapsed regions hide their changed
   const body = fold(3, [leaf(4, 2, 3), leaf(5, 3, 5, { changed: [span(3), span(4)] }), leaf(6, 5, 6)]);
   const diff: StructuralTextDiff = {
     type: "text",
-    stats: { textual: { added: 3, removed: 1 }, visible: { added: 1, removed: 3 }, structural: { added: 3, removed: 0 } },
+    stats: { textual: { added: 3, removed: 1 }, visible: { added: 1, removed: 3 } },
     lhs: text(["a", "b", "c", "d", "e", "f"], [leaf(1, 0, 1, { changed: [span(0)] }), leaf(2, 1, 2), body]),
     rhs: text(["a", "x", "c", "d", "e", "f"], [leaf(1, 0, 1, { changed: [span(0)] }), leaf(2, 1, 2), body]),
   };
@@ -180,12 +180,9 @@ test("header counts follow what is visible: collapsed regions hide their changed
   assert.deepEqual(open.visible, { added: 3, removed: 3 });
   const folded = structuralVisibleCounts(diff, (side, id) => side === 1 && id === 3);
   assert.deepEqual(folded.visible, { added: 1, removed: 3 });
+  assert.equal(structuralCountsTooltip(folded), "visible +1 −3\ntextual +3 −1");
   assert.equal(
-    structuralCountsTooltip(folded),
-    "visible +1 −3\nstructural +3 −0\ntextual +3 −1",
-  );
-  assert.equal(
-    structuralCountsTooltip({ ...folded, structural: undefined }).split("\n")[1],
-    "structural line diff",
+    structuralCountsTooltip({ ...folded, fallback: { code: "unsupported_language", message: "no grammar" } }),
+    "visible +1 −3\ntextual +3 −1\nline diff: unsupported_language",
   );
 });

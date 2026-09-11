@@ -17,13 +17,16 @@ import { evaluateReviewDocumentBundleForPublish } from "../review-publish-evalua
 import { buildReviewDocument } from "./build";
 
 const roots: string[] = [];
+
 async function fixture(source: string) {
   const root = await mkdtemp(path.join(os.tmpdir(), "review-native-document-"));
   roots.push(root);
   const reviewPath = path.join(root, "review.mdx");
   await writeFile(reviewPath, source);
+
   return { reviewPath, ranges: "skip" as const };
 }
+
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
@@ -33,9 +36,11 @@ afterEach(async () => {
 describe("native document builder", () => {
   it("retains rich prose, unused anchors, evidence sides and component nesting", async () => {
     const dir = path.resolve(import.meta.dirname, "../fixtures/document-json");
+
     const input = await fixture(
       await readFile(path.join(dir, "order-review.mdx"), "utf8"),
     );
+
     await cp(
       path.join(dir, "data.ts.txt"),
       path.join(path.dirname(input.reviewPath), "data.ts"),
@@ -58,9 +63,11 @@ describe("native document builder", () => {
         }),
       }),
     );
+
     const lens = nodes.find(
       (node) => node.type === "component" && node.name === "DatabaseLens",
     );
+
     expect(lens?.type === "component" && lens.children).toContainEqual(
       expect.objectContaining({ type: "component", name: "DbUseCase" }),
     );
@@ -71,6 +78,7 @@ describe("native document builder", () => {
         '# Check\n\nexport const count: number = "wrong";\n\n<SequenceDiagram label="Test" messages={[]} typo="bad" />\n',
       ),
     );
+
     expect(result.document).toBeNull();
     expect(result.diagnostics).toEqual(
       expect.arrayContaining([
@@ -85,6 +93,7 @@ describe("native document builder", () => {
         '# Inline\n\n{true && <SequenceDiagram label="Inline" messages={[{from: {label: "A"}, to: {label: "B"}, label: "Move", code: "move()"}]} />}\n',
       ),
     );
+
     expect(result.diagnostics).toEqual([]);
     expect(result.errors).toEqual([]);
     expect(result.document).not.toBeNull();
@@ -107,6 +116,7 @@ describe("native document builder", () => {
         ],
       }),
     );
+
     expect(result.diagnostics).toEqual([]);
     expect(result.errors).toEqual([]);
     expect(result.document?.body).toEqual([
@@ -126,9 +136,11 @@ it("publishes footnotes, inert inline HTML, GFM and aligned tables successfully"
       "# GFM extras\n\nA footnote reference[^note], ~~struck text~~, and <b>bold</b> with <kbd>Enter</kbd> and x<sup>2</sup>.\n\n| Left | Right |\n| :--- | ---: |\n| A | B |\n\n[^note]: Footnote content.\n",
     ),
   );
+
   expect(built.diagnostics).toEqual([]);
   expect(built.errors).toEqual([]);
   const json = JSON.stringify(built.document);
+
   for (const text of [
     "data-footnote-ref",
     "data-footnote-backref",
@@ -144,6 +156,7 @@ it("refreshes transitive helpers, recovers failed imports, and preserves symlink
   const input = await fixture(
     'import { label, sectionProps } from "./data.ts";\n\n# Freshness\n\n<ReviewSection {...sectionProps}>{label}</ReviewSection>\n',
   );
+
   const dir = path.dirname(input.reviewPath);
   await writeFile(
     path.join(dir, "data.ts"),
@@ -188,13 +201,16 @@ it("isolates concurrent authored builds from each other and the sealed legacy ev
       ),
     ),
   );
+
   const expected = await Promise.all(
     inputs.map((input) => buildReviewDocument(input)),
   );
+
   for (const built of expected) {
     expect(built.diagnostics).toEqual([]);
     expect(built.errors).toEqual([]);
   }
+
   const [concurrent, legacy] = await Promise.all([
     Promise.all(
       Array.from({ length: 8 }, (_, index) =>
@@ -207,6 +223,7 @@ it("isolates concurrent authored builds from each other and the sealed legacy ev
         'import { createActiveReviewDocument, jsx } from "review-doc-runtime"; export default createActiveReviewDocument({title: "Sealed", routePath: "/", filePath: "review.mdx", models: {}, modelNames: [], Component: () => jsx("p", {children: "Legacy"})});',
     }),
   ]);
+
   concurrent.forEach((built, index) =>
     expect(built).toEqual(expected[index % 2]),
   );
@@ -231,6 +248,7 @@ it.each([
   const input = await fixture(
     `import ${extension === "json" ? "data" : "{ content }"} from "./helper.${extension}";\n\n# Helpers\n\n{${extension === "json" ? "data.content" : "content"}}\n`,
   );
+
   await writeFile(
     path.join(path.dirname(input.reviewPath), `helper.${extension}`),
     source,
@@ -245,17 +263,20 @@ it("discards CJS globals and outstanding timers on every worker lifetime", async
   const input = await fixture(
     'import { content } from "./state.cjs";\n\n# Isolation\n\n{content}\n',
   );
+
   const key = "__reviewDocumentTestCounter";
   await writeFile(
     path.join(path.dirname(input.reviewPath), "state.cjs"),
     `globalThis.${key} = (globalThis.${key} ?? 0) + 1; exports.content = "fresh " + globalThis.${key}; setInterval(() => {}, 60000);`,
   );
+
   for (let index = 0; index < 20; index++) {
     const built = await buildReviewDocument(input);
     expect(built.diagnostics).toEqual([]);
     expect(built.errors).toEqual([]);
     expect(JSON.stringify(built.document)).toContain('"value":"fresh 1"');
   }
+
   expect(Object.hasOwn(globalThis, key)).toBe(false);
 }, 40000);
 
@@ -269,6 +290,7 @@ it.each([
   const built = await buildReviewDocument(
     await fixture(`# Invalid\n\n${source}\n`),
   );
+
   expect(built.document).toBeNull();
   expect(built.errors.length + built.diagnostics.length).toBeGreaterThan(0);
 });
@@ -277,10 +299,12 @@ it("resolves authored package exports and package-local imports", async () => {
   const input = await fixture(
     'import { content } from "fixture-helper/label";\n\n# Package\n\n{content}\n',
   );
+
   const dir = path.join(
     path.dirname(input.reviewPath),
     "node_modules/fixture-helper",
   );
+
   await mkdir(dir, { recursive: true });
   await writeFile(
     path.join(dir, "package.json"),
@@ -309,23 +333,29 @@ it("prepares evidence lazily once and delivers changed-line callbacks across the
   const input = await fixture(
     'export const anchors = defineAnchors({before: {title: "Before", peek: {file: "source.ts", fromLine: 1, toLine: 1, graph: "base"}}, after: {title: "After", peek: {file: "source.ts", fromLine: 1, toLine: 1}}});\n\n# Evidence\n\n<CodePeek anchor={anchors.before} />\n<CallStackDiff title="Change" base={[anchors.before]} head={[anchors.after]} />\n',
   );
+
   const dir = path.dirname(input.reviewPath);
   await writeFile(path.join(dir, "source.ts"), "export const value = 1;\n");
   let prepared = 0;
   const requested: string[] = [];
+
   const prepareEvidence = async () => {
     prepared++;
+
     return { head: { sourceRootPath: dir }, base: { sourceRootPath: dir } };
   };
+
   const built = await buildReviewDocument({
     ...input,
     ranges: "validate",
     prepareEvidence,
     resolveChangedLines: async (file, side) => {
       requested.push(`${side}:${file}`);
+
       return { added: new Set([1]), deleted: new Set([1]) };
     },
   });
+
   expect(built.diagnostics).toEqual([]);
   expect(built.errors).toEqual([]);
   expect(prepared).toBe(1);
@@ -341,27 +371,34 @@ it("cancels an outstanding worker evidence request and ignores its late completi
   const input = await fixture(
     'export const anchors = defineAnchors({a: {title: "A", peek: {file: "source.ts", fromLine: 1, toLine: 1}}});\n\n# Cancel\n\n<CodePeek anchor={anchors.a} />\n',
   );
+
   const controller = new AbortController();
   let complete!: (value: { head: { sourceRootPath: string } }) => void;
+
   const pending = new Promise<{ head: { sourceRootPath: string } }>(
     (resolve) => {
       complete = resolve;
     },
   );
+
   const built = buildReviewDocument({
     ...input,
     ranges: "validate",
     signal: controller.signal,
     prepareEvidence: () => {
       controller.abort(new Error("cancelled by test"));
+
       return pending;
     },
   });
+
   await expect(built).rejects.toThrow("cancelled by test");
   complete({ head: { sourceRootPath: path.dirname(input.reviewPath) } });
+
   const recovered = await buildReviewDocument(
     await fixture("# After cancellation\n"),
   );
+
   expect(recovered.errors).toEqual([]);
   expect(recovered.document?.title).toBe("After cancellation");
 });
@@ -378,6 +415,7 @@ it.each([
     const input = await fixture(
       'export const anchors = defineAnchors({a: {title: "A", peek: {file: "source.ts", fromLine: 1, toLine: 1}}});\n\n# Evidence error\n\n<CodePeek anchor={anchors.a} />\n',
     );
+
     const result = await buildReviewDocument({
       ...input,
       ranges: "validate",
@@ -385,6 +423,7 @@ it.each([
         throw error;
       },
     });
+
     expect(result.document).toBeNull();
     expect(result.errors.join("\n")).toContain(message);
   },
@@ -394,6 +433,7 @@ it("rejects an uncloneable callback result without waiting for the worker deadli
   const input = await fixture(
     'export const anchors = defineAnchors({a: {title: "A", peek: {file: "source.ts", fromLine: 1, toLine: 1}}});\n\n# Invalid transport\n\n<CodePeek anchor={anchors.a} />\n',
   );
+
   await expect(
     buildReviewDocument({
       ...input,
@@ -438,10 +478,12 @@ it.each([
     const input = await fixture(
       `import {value} from "./helper.${extension}";\n\n# Invalid helper\n\n{value}\n`,
     );
+
     const helper = path.join(
       path.dirname(input.reviewPath),
       `helper.${extension}`,
     );
+
     await writeFile(helper, source);
     const built = await buildReviewDocument(input);
     expect(built.document).toBeNull();
@@ -457,6 +499,7 @@ it("retains the existing helper semantic-checking boundary", async () => {
   const input = await fixture(
     'import {value} from "./helper.ts";\n\n# Helper semantics\n\n{value}\n',
   );
+
   await writeFile(
     path.join(path.dirname(input.reviewPath), "helper.ts"),
     'export const unused: number = "not checked here"; export const value = "Valid content";',

@@ -91,6 +91,7 @@ describe("document component resolution", () => {
 
   it("retains the explicit component-map override for prose tags", async () => {
     const syntax = await parseReviewDocument("Paragraph.");
+
     const prose = ({ children }: PublishValidationProps) =>
       runtime.jsx("blockquote", { children });
 

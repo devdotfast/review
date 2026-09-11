@@ -58,6 +58,7 @@ export async function prepareReviewDocumentBundle(input: {
 }): Promise<{ bundle: ReviewDocumentBundle; warnings: string[] }> {
   const warnings: string[] = [];
   let sourceTargetPromise: Promise<ReviewSourceTarget> | null = null;
+
   const sourceTarget = () =>
     (sourceTargetPromise ??= span("publish: resolve source target", () =>
       resolveReviewSourceTarget({
@@ -65,9 +66,12 @@ export async function prepareReviewDocumentBundle(input: {
         warning: (message) => warnings.push(message),
       }),
     ));
+
   let diffFilesPromise: Promise<ReviewDiffFilesResult> | null = null;
+
   const diffFiles = async () => {
     const source = await sourceTarget();
+
     return (diffFilesPromise ??= span("publish: resolve diff files", () =>
       resolveReviewDiffFiles({
         rootPath: source.diffRootPath,
@@ -77,11 +81,13 @@ export async function prepareReviewDocumentBundle(input: {
       }),
     ));
   };
+
   const evaluation = await span("publish: build document", () =>
     buildReviewDocument({
       reviewPath: path.join(input.review.dir, "review.mdx"),
       prepareEvidence: async () => {
         const source = await sourceTarget();
+
         return {
           head: { sourceRootPath: source.sourceRootPath },
           base: source.preparedBase
@@ -94,15 +100,18 @@ export async function prepareReviewDocumentBundle(input: {
       // rest of the review presents.
       resolveChangedLines: async (file, side) => {
         const { files } = await diffFiles();
+
         const match = files.find((candidate) =>
           side === "base"
             ? (candidate.previousPath ?? candidate.path) === file
             : candidate.path === file,
         );
+
         return match?.patch ? patchChangedLines(match.patch) : null;
       },
     }),
   );
+
   if (!evaluation.document) {
     throw new ReviewPublicationValidationError(
       evaluation.errors.length > 0
@@ -112,6 +121,7 @@ export async function prepareReviewDocumentBundle(input: {
       [...new Set([...warnings, ...evaluation.warnings])],
     );
   }
+
   return {
     bundle: bundleReviewDocument(evaluation.document),
     warnings: [...new Set([...warnings, ...evaluation.warnings])],
@@ -127,9 +137,11 @@ export async function prepareReviewSoftwareMapBundle(input: {
   headCommit?: string;
 }): Promise<ReviewSoftwareMapBundle> {
   const sourceCommit = input.headCommit ?? input.review.review.sourceCommit;
+
   if (!sourceCommit) {
     throw new Error("The Review has no pinned head commit.");
   }
+
   const maps = await span("map publish: load software maps", () =>
     loadPublishSoftwareMaps({
       repoRootPath: input.review.review.worktreePath,
@@ -137,6 +149,7 @@ export async function prepareReviewSoftwareMapBundle(input: {
       headCommit: sourceCommit,
     }),
   );
+
   if (maps.errors.length > 0 || !maps.head || !maps.base) {
     throw new ReviewPublicationValidationError(
       maps.errors.length > 0
@@ -146,6 +159,7 @@ export async function prepareReviewSoftwareMapBundle(input: {
       [],
     );
   }
+
   return bundleReviewSoftwareMap({
     head: maps.head,
     base: maps.base,

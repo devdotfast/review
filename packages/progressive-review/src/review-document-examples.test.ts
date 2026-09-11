@@ -27,6 +27,7 @@ import {
 import { createReviewDir } from "./review-home";
 
 const roots: string[] = [];
+
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
@@ -39,8 +40,10 @@ async function fixture() {
   const headRoot = path.join(root, "head");
   const baseRoot = path.join(root, "base");
   await Promise.all([mkdir(headRoot), mkdir(baseRoot)]);
+
   const git = (args: string[]) =>
     execFileSync("git", args, { cwd: headRoot, encoding: "utf8" }).trim();
+
   git(["init", "-q", "-b", "main"]);
   git(["config", "user.name", "Test"]);
   git(["config", "user.email", "test@example.com"]);
@@ -57,6 +60,7 @@ async function fixture() {
     'export const status = "queued";\n',
   );
   git(["commit", "-qam", "Queue"]);
+
   const created = await createReviewDir({
     reviewsHomePath: path.join(root, "reviews"),
     worktreePath: headRoot,
@@ -65,20 +69,24 @@ async function fixture() {
     sourceCommit: git(["rev-parse", "HEAD"]),
     sourceIdentity: { kind: "git-branch", name: "main" },
   });
+
   const examples = path.join(import.meta.dirname, "fixtures/document-json");
   await cp(
     path.join(examples, "data.ts.txt"),
     path.join(created.dir, "data.ts"),
   );
+
   const source = await readFile(
     path.join(examples, "order-review.mdx"),
     "utf8",
   );
+
   return {
     dir: created.dir,
     source,
     async evaluate(mdx = source) {
       await writeFile(path.join(created.dir, "review.mdx"), mdx);
+
       return buildReviewDocument({
         reviewPath: path.join(created.dir, "review.mdx"),
         prepareEvidence: async () => ({
@@ -97,6 +105,7 @@ async function fixture() {
 describe("real authored document JSON conversion", () => {
   it("preserves every supported prose element through real Markdown compilation and storage", async () => {
     const example = await fixture();
+
     const source = await readFile(
       path.join(
         import.meta.dirname,
@@ -104,8 +113,10 @@ describe("real authored document JSON conversion", () => {
       ),
       "utf8",
     );
+
     const result = await example.evaluate(source);
     expect(result.errors).toEqual([]);
+
     if (!result.document)
       throw new Error("Missing Markdown reference document");
     const nodes: ReviewNode[] = [];
@@ -113,9 +124,7 @@ describe("real authored document JSON conversion", () => {
     expect(
       [
         ...new Set(
-          nodes
-            .filter((node) => node.type === "element")
-            .map((node) => node.tag),
+          nodes.flatMap((node) => (node.type === "element" ? [node.tag] : [])),
         ),
       ].sort(),
     ).toEqual([...PROSE_TAGS].sort());
@@ -134,31 +143,36 @@ describe("real authored document JSON conversion", () => {
       }),
     );
     expect(
-      nodes
-        .filter((node) => node.type === "element")
-        .filter((node) => node.tag === "td")
-        .map((node) => node.props.align),
+      nodes.flatMap((node) =>
+        node.type === "element" && node.tag === "td" ? [node.props.align] : [],
+      ),
     ).toEqual(["left", "center", "right"]);
   });
 
   it("preserves footnotes and accessible return links from Markdown through rendering", async () => {
     const example = await fixture();
+
     const result = await example.evaluate(
       "# Footnotes\n\nSome claim.[^source] Another claim.[^source]\n\n[^source]: Source evidence.\n",
     );
+
     expect(result.errors).toEqual([]);
+
     if (!result.document) throw new Error("Missing materialized document");
     await writeReviewDocumentBundle(
       example.dir,
       bundleReviewDocument(result.document),
     );
     const bundle = await readReviewDocumentBundle(example.dir, "/");
+
     if (!bundle) throw new Error("Missing stored document");
+
     const hydrated = hydrateReviewDocument({
       state: "ready",
       contentHash: bundle.contentHash,
       data: parseJsonText(JSON.stringify(reviewDocumentBundleData(bundle))),
     });
+
     const html = renderToStaticMarkup(
       renderReviewNodes(hydrated.body, {
         ...reviewDocumentComponents,
@@ -168,6 +182,7 @@ describe("real authored document JSON conversion", () => {
         },
       }),
     );
+
     expect(html).toContain("<sup>");
     expect(html).toContain('href="#user-content-fn-source"');
     expect(html).toContain('id="user-content-fnref-source"');
@@ -190,6 +205,7 @@ describe("real authored document JSON conversion", () => {
     const example = await fixture();
     const result = await example.evaluate();
     expect(result.errors).toEqual([]);
+
     if (!result.document) throw new Error("Missing materialized document");
     const document = result.document;
     const nodes: ReviewNode[] = [];
@@ -241,15 +257,15 @@ describe("real authored document JSON conversion", () => {
       ]),
     );
     expect(
-      nodes
-        .filter((node) => node.type === "element")
-        .filter((node) => node.tag === "th" || node.tag === "td")
-        .map((node) => node.props.align),
+      nodes.flatMap((node) =>
+        node.type === "element" && (node.tag === "th" || node.tag === "td")
+          ? [node.props.align]
+          : [],
+      ),
     ).toEqual(["left", "right", "left", "right"]);
     expect(
       nodes
-        .filter((node) => node.type === "text")
-        .map((node) => node.value)
+        .flatMap((node) => (node.type === "text" ? [node.value] : []))
         .join(""),
     ).toContain(
       'const status = "queued";\nif (status !== "shipped") enqueue();',
@@ -297,14 +313,17 @@ describe("real authored document JSON conversion", () => {
     );
     expect(
       nodes
-        .filter((node) => node.type === "text")
-        .map((node) => node.value)
+        .flatMap((node) => (node.type === "text" ? [node.value] : []))
         .join(""),
     ).toContain("Preserve & decode entities");
-    const indices = nodes
-      .filter((node) => node.type === "element")
-      .filter((node) => node.props["data-review-block-index"] !== undefined)
-      .map((node) => Number(node.props["data-review-block-index"]));
+
+    const indices = nodes.flatMap((node) =>
+      node.type === "element" &&
+      node.props["data-review-block-index"] !== undefined
+        ? [Number(node.props["data-review-block-index"])]
+        : [],
+    );
+
     expect(indices).toEqual(
       Array.from({ length: indices.length }, (_, index) => index),
     );
@@ -318,6 +337,7 @@ describe("real authored document JSON conversion", () => {
     const repeat = await example.evaluate();
     expect(repeat.errors).toEqual([]);
     expect(repeat.document).toEqual(document);
+
     if (!repeat.document) throw new Error("Missing repeat document");
     expect(bundleReviewDocument(repeat.document).contentHash).toBe(
       bundle.contentHash,

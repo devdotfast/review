@@ -9,6 +9,7 @@ export async function runReviewInternalTest(reviewDir: string): Promise<void> {
     ranges: "skip",
     typecheck: "review",
   });
+
   if (!result.document)
     throw new Error(
       formatReviewDocumentDiagnostics(result.diagnostics) ||

@@ -58,6 +58,7 @@ describe("compiler resource paths", () => {
     expect(progressiveReviewAuthoringTypesPath(moduleUrls[0])).toBe(
       path.join(packageRoot, "src", "authoring.ts"),
     );
+
     for (const moduleUrl of moduleUrls.slice(1)) {
       expect(progressiveReviewAuthoringTypesPath(moduleUrl)).toBe(
         path.join(packageRoot, "dist", "authoring.d.ts"),

@@ -25,8 +25,11 @@ export type {
 // runtime serialization here; evidence auditing and JSON materialization live
 // in review-publication-audit so native authoring does not import this loader.
 const RUNTIME_GLOBAL = "__devFastReviewPublishRuntime";
+
 const RUNTIME_SPECIFIER = "review-doc-runtime";
+
 const RUNTIME_MODULE_FILE = "review-doc-runtime.mjs";
+
 const DOCUMENT_MODULE_FILE = "review-document.mjs";
 
 let evaluationQueue: Promise<unknown> = Promise.resolve();
@@ -37,6 +40,7 @@ let evaluationQueue: Promise<unknown> = Promise.resolve();
 function serializeEvaluation<T>(run: () => Promise<T>): Promise<T> {
   const next = evaluationQueue.then(run, run);
   evaluationQueue = next.catch(() => undefined);
+
   return next;
 }
 
@@ -72,9 +76,11 @@ export async function evaluateReviewDocumentBundleForPublish(
 
 function rewriteRuntimeSpecifier(bundleCode: string): string {
   const specifier = JSON.stringify(RUNTIME_SPECIFIER);
+
   if (!bundleCode.includes(specifier)) {
     throw new Error("Review document bundle has no runtime import.");
   }
+
   return bundleCode
     .split(specifier)
     .join(JSON.stringify(`./${RUNTIME_MODULE_FILE}`));
@@ -86,14 +92,18 @@ async function collectRuntimeImportNames(
   await initModuleLexer;
   const [imports] = parseModule(bundleCode);
   const names = new Set<string>(REQUIRED_EXPORT_NAMES);
+
   for (const record of imports) {
     if (record.n !== RUNTIME_SPECIFIER || record.d !== -1) continue;
     const statement = bundleCode.slice(record.ss, record.se);
     const clause = /^import\b([\s\S]*?)\bfrom\b/.exec(statement)?.[1];
+
     if (!clause) continue;
     const named = /\{([\s\S]*?)\}/.exec(clause)?.[1] ?? "";
+
     for (const entry of named.split(",")) {
       const name = entry.split(/\s+as\s+/)[0]!.trim();
+
       // `default` binds through `export default`; anything else must be a
       // plain identifier to be re-exportable as `export const <name>`.
       if (/^[A-Za-z_$][\w$]*$/.test(name) && name !== "default") {
@@ -103,6 +113,7 @@ async function collectRuntimeImportNames(
     // A namespace import needs no declared names, and a default import binds
     // the stub's `export default`; only named entries add to the list.
   }
+
   return [...names];
 }
 
@@ -132,12 +143,14 @@ async function loadSealedReviewDocument(
     ".build",
     `publish-validate-${process.pid}-${Math.random().toString(36).slice(2)}`,
   );
+
   const runtimeImportNames = await collectRuntimeImportNames(input.bundleCode);
   // Validate both sources before starting either write. A synchronous rewrite
   // failure must not leave a write running outside Promise.all during cleanup.
   const runtimeSource = validationRuntimeModuleSource(runtimeImportNames);
   const documentSource = rewriteRuntimeSpecifier(input.bundleCode);
   await mkdir(evaluationDir, { recursive: true, mode: 0o700 });
+
   try {
     await Promise.all([
       writeFile(
@@ -151,20 +164,25 @@ async function loadSealedReviewDocument(
         "utf8",
       ),
     ]);
+
     const moduleUrl = pathToFileURL(
       path.join(evaluationDir, DOCUMENT_MODULE_FILE),
     );
+
     moduleUrl.searchParams.set("t", String(Date.now()));
+
     return await serializeEvaluation(async () => {
       // SAFETY: this private global is owned by the serialized import runtime.
       const globalHolder = globalThis as PublishValidationRuntimeGlobal;
       const previousRuntime = globalHolder[RUNTIME_GLOBAL];
       globalHolder[RUNTIME_GLOBAL] = runtime;
+
       try {
         await span(
           "evaluate: import document module",
           () => import(moduleUrl.href),
         );
+
         return null;
       } catch (error) {
         return errorMessage(error);

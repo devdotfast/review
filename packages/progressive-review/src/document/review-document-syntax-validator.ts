@@ -34,6 +34,7 @@ export function unsupportedTypescriptDiagnostics(
   regions: readonly AuthoredTypescriptRegion[],
 ): ReviewDocumentDiagnostic[] {
   const diagnostics: ReviewDocumentDiagnostic[] = [];
+
   for (const region of regions) {
     const sourceFile = createSourceFile(
       input.filePath,
@@ -42,12 +43,14 @@ export function unsupportedTypescriptDiagnostics(
       true,
       ScriptKind.TS,
     );
+
     const visit = (node: Node): void => {
       if (isImportDeclaration(node)) {
         for (const imported of importedMdxComponents(node, sourceFile)) {
           const position = sourceFile.getLineAndCharacterOfPosition(
             imported.start,
           );
+
           diagnostics.push({
             source: "typescript",
             severity: "error",
@@ -62,11 +65,14 @@ export function unsupportedTypescriptDiagnostics(
           });
         }
       }
+
       const unsupported = unsupportedTypescriptNode(node, sourceFile);
+
       if (unsupported) {
         const position = sourceFile.getLineAndCharacterOfPosition(
           unsupported.start,
         );
+
         diagnostics.push({
           source: "typescript",
           severity: "error",
@@ -79,12 +85,16 @@ export function unsupportedTypescriptDiagnostics(
             1 +
             (position.line === 0 ? region.sourceStartColumn - 1 : 0),
         });
+
         return;
       }
+
       forEachChild(node, visit);
     };
+
     visit(sourceFile);
   }
+
   return diagnostics;
 }
 
@@ -98,10 +108,14 @@ function importedMdxComponents(
   ) {
     return [];
   }
+
   const bindings = node.importClause?.namedBindings;
+
   if (!bindings || !isNamedImports(bindings)) return [];
+
   return bindings.elements.flatMap((element) => {
     const name = element.propertyName?.text ?? element.name.text;
+
     return Object.hasOwn(reviewAuthoringPropsSchemas, name)
       ? [{ name, start: element.getStart(sourceFile) }]
       : [];
@@ -118,6 +132,7 @@ function unsupportedTypescriptNode(
       start: typescriptKeywordStart(node, sourceFile, /\benum\b/),
     };
   }
+
   if (isModuleDeclaration(node)) {
     return {
       description: "namespace declarations",
@@ -128,9 +143,11 @@ function unsupportedTypescriptNode(
       ),
     };
   }
+
   if (isDecorator(node)) {
     return { description: "decorators", start: node.getStart(sourceFile) };
   }
+
   if (
     isParameter(node) &&
     node.parent &&
@@ -141,6 +158,7 @@ function unsupportedTypescriptNode(
       start: node.getStart(sourceFile),
     };
   }
+
   return null;
 }
 
@@ -151,5 +169,6 @@ function typescriptKeywordStart(
 ): number {
   const start = node.getStart(sourceFile);
   const match = keyword.exec(node.getText(sourceFile));
+
   return start + (match?.index ?? 0);
 }

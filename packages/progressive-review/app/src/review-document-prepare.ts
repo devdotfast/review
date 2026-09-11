@@ -24,9 +24,11 @@ export async function resolveReviewDocumentPeeks(
 ): Promise<boolean> {
   const resolveCodePeek = options.resolveCodePeek ?? resolveCodePeekRequest;
   const uniqueAnchors = new Set(document.anchors.values());
+
   const results = await Promise.allSettled(
     [...uniqueAnchors].flatMap((anchor) => {
       if (!anchor.peek || anchor.peek.resolution) return [];
+
       return [
         runWithCodePeekResolutionSlot(async () => {
           anchor.peek!.resolution = await resolveCodePeek(
@@ -38,6 +40,7 @@ export async function resolveReviewDocumentPeeks(
       ];
     }),
   );
+
   // A missing source must fail only its peek card, not the whole document.
   return results.every((result) => result.status === "fulfilled");
 }
@@ -54,6 +57,7 @@ export function prepareReviewDocument(
   options: ResolveReviewDocumentPeeksOptions = {},
 ): Promise<HydratedReviewDocument> {
   let cached = session.documents.get(load.contentHash);
+
   if (!cached) {
     try {
       cached = { document: hydrateReviewDocument(load), complete: false };
@@ -61,10 +65,14 @@ export function prepareReviewDocument(
       // Invalid hydration must never occupy the content hash's cache entry.
       return Promise.reject(error);
     }
+
     session.documents.set(load.contentHash, cached);
   }
+
   if (cached.preparation) return cached.preparation;
+
   if (cached.complete) return Promise.resolve(cached.document);
+
   return prepareCachedDocument(cached, session, options);
 }
 
@@ -79,10 +87,12 @@ function prepareCachedDocument(
     .then(() => resolveReviewDocumentPeeks(cached.document, session, options))
     .then((complete) => {
       cached.complete = complete;
+
       return cached.document;
     })
     .finally(() => {
       cached.preparation = undefined;
     });
+
   return cached.preparation;
 }

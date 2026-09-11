@@ -54,11 +54,15 @@ export interface ReviewSession {
 export function createReviewSession(bridge: ReviewCanvasBridge): ReviewSession {
   const config = bridge.config;
   const appSessionId = bridge.appSessionId ?? createReviewAppSessionId();
+
   const request = (url: string | URL, init: RequestInit = {}) => {
     const headers = new Headers(init.headers);
+
     if (config.token) headers.set("x-review-token", config.token);
+
     return bridge.request(String(url), { ...init, headers });
   };
+
   return {
     appSessionId,
     bridge,
@@ -101,10 +105,12 @@ export function useOptionalReviewSession(): ReviewSession | null {
 
 export function useReviewSession(): ReviewSession {
   const session = useOptionalReviewSession();
+
   if (!session) {
     throw new Error(
       "useReviewSession must be used within ReviewSessionProvider",
     );
   }
+
   return session;
 }

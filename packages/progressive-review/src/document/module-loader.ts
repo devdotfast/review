@@ -37,6 +37,7 @@ export async function loadDocumentModule(
 ): Promise<string | null> {
   const reviewPath = realpathSync(input.reviewPath);
   const tree = input.syntax;
+
   const moduleSource = [
     reviewHelperImports(new Set(tree.bindings)),
     ...tree.modules.map((module) => module.value),
@@ -54,6 +55,7 @@ export async function loadDocumentModule(
       .join(",\n")}];`,
     `export const __reviewModels = {${input.runtimeBindings.join(",")}};`,
   ].join("\n");
+
   const documentModuleFilename = `${reviewPath}.tsx`;
   const id = randomUUID();
   const documentUrl = pathToFileURL(reviewPath);
@@ -66,15 +68,18 @@ export async function loadDocumentModule(
   const session = runtime.createBrowserReviewDefinitionSession({});
   session.begin();
   const slot = `__reviewDocument_${id.replaceAll("-", "")}`;
+
   const runtimeValues = {
     ...runtime,
     ...session,
     __reviewDefinitionsReady: session.ready,
   };
+
   Object.defineProperty(globalThis, slot, {
     value: runtimeValues,
     configurable: true,
   });
+
   const runtimeSource =
     Object.keys(runtimeValues)
       .filter((name) => /^[A-Za-z_$][\w$]*$/.test(name))
@@ -84,18 +89,22 @@ export async function loadDocumentModule(
       )
       .join("\n") +
     `\nexport default globalThis[${JSON.stringify(slot)}].React;`;
+
   const hooks = registerHooks({
     resolve(specifier, context, nextResolve) {
       if (isAuthoringSpecifier(specifier))
         return { url: authoringUrl, shortCircuit: true };
+
       if (
         ["react", "react/jsx-runtime", "react/jsx-dev-runtime"].includes(
           specifier,
         )
       )
         return { url: runtimeUrl, shortCircuit: true };
+
       if (specifier === documentUrl.href)
         return { url: documentUrl.href, shortCircuit: true };
+
       if (
         (specifier.startsWith(".") ||
           specifier.startsWith("file:") ||
@@ -105,8 +114,10 @@ export async function loadDocumentModule(
         const resolved = resolveLocalFile(
           new URL(specifier, context.parentURL),
         );
+
         if (resolved) return { url: resolved, shortCircuit: true };
       }
+
       return nextResolve(specifier, context);
     },
     load(url, context, nextLoad) {
@@ -116,16 +127,20 @@ export async function loadDocumentModule(
           source: runtimeSource,
           shortCircuit: true,
         };
+
       if (url === documentUrl.href)
         return {
           format: "module",
           source: emit(moduleSource, documentModuleFilename),
           shortCircuit: true,
         };
+
       if (url.startsWith("file:")) {
         const filename = fileURLToPath(url);
+
         if (/\.(?:[cm]?[jt]s|[jt]sx)$/.test(filename))
           loadedHelpers.add(filename);
+
         if (/\.(?:ts|tsx|mts|cts|jsx)$/.test(filename)) {
           return {
             format: filename.endsWith(".cts") ? "commonjs" : "module",
@@ -133,6 +148,7 @@ export async function loadDocumentModule(
             shortCircuit: true,
           };
         }
+
         // Existing authoring accepts JSON imports without import attributes.
         if (filename.endsWith(".json"))
           return {
@@ -141,9 +157,11 @@ export async function loadDocumentModule(
             shortCircuit: true,
           };
       }
+
       return nextLoad(url, context);
     },
   });
+
   try {
     const data = await import(documentUrl.href);
     await session.ready();
@@ -162,6 +180,7 @@ export async function loadDocumentModule(
           data.__reviewModels,
         ),
     });
+
     return null;
   } catch (error) {
     // Linking may fail before a malformed CJS helper is evaluated. Recover its
@@ -173,6 +192,7 @@ export async function loadDocumentModule(
           filename,
           input.typeOnlyExports[filename],
         );
+
         helperDiagnostics.push(
           ...helperSyntaxDiagnostics(filename, transformed.diagnostics ?? []),
         );
@@ -180,6 +200,7 @@ export async function loadDocumentModule(
         /* Preserve the original import error if its source vanished. */
       }
     }
+
     return errorMessage(error);
   } finally {
     hooks.deregister();
@@ -194,12 +215,15 @@ export async function loadDocumentModule(
         filename === documentModuleFilename ? reviewPath : filename
       ],
     );
+
     const diagnostics = helperSyntaxDiagnostics(
       filename,
       transformed.diagnostics ?? [],
     );
+
     if (diagnostics.length)
       throw new Error(formatReviewDocumentDiagnostics(diagnostics));
+
     return transformed.outputText;
   }
 
@@ -207,24 +231,32 @@ export async function loadDocumentModule(
     filename: string,
     diagnostics: readonly Diagnostic[],
   ): ReviewDocumentDiagnostic[] {
-    return diagnostics
-      .filter((diagnostic) => diagnostic.category === DiagnosticCategory.Error)
-      .map((diagnostic) => {
-        const point =
-          diagnostic.file && diagnostic.start !== undefined
-            ? diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start)
-            : undefined;
-        return typescriptDiagnostic(diagnostic, {
+    const errors: ReviewDocumentDiagnostic[] = [];
+
+    for (const diagnostic of diagnostics) {
+      if (diagnostic.category !== DiagnosticCategory.Error) continue;
+
+      const point =
+        diagnostic.file && diagnostic.start !== undefined
+          ? diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start)
+          : undefined;
+
+      errors.push(
+        typescriptDiagnostic(diagnostic, {
           filePath: authoredSourcePath(diagnostic.file?.fileName ?? filename),
           line: point ? point.line + 1 : undefined,
           column: point ? point.character + 1 : undefined,
-        });
-      });
+        }),
+      );
+    }
+
+    return errors;
   }
 
   function authoredSourcePath(filename: string): string {
     const root = path.dirname(reviewPath);
     const resolved = path.resolve(filename);
+
     return resolved.startsWith(root + path.sep)
       ? path.join(path.dirname(input.reviewPath), path.relative(root, resolved))
       : filename;
@@ -233,6 +265,7 @@ export async function loadDocumentModule(
   function resolveLocalFile(url: URL): string | null {
     const filename = fileURLToPath(url);
     const extension = path.extname(filename);
+
     const replacements =
       extension === ".js" || extension === ".jsx"
         ? [".ts", ".tsx"]
@@ -241,6 +274,7 @@ export async function loadDocumentModule(
           : extension === ".cjs"
             ? [".cts"]
             : [];
+
     for (const candidate of [
       filename,
       ...[
@@ -267,6 +301,7 @@ export async function loadDocumentModule(
         /* Let Node report missing imports with its original context. */
       }
     }
+
     return null;
   }
 }

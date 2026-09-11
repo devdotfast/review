@@ -16,6 +16,7 @@ describe("hydratePublishedSoftwareMap", () => {
       label: "Orders",
       children: [],
     };
+
     const baseElement: SoftwareModelData["elements"][number] = {
       type: "container",
       id: "api",
@@ -24,6 +25,7 @@ describe("hydratePublishedSoftwareMap", () => {
       label: "API",
       children: [],
     };
+
     const bundle = bundleReviewSoftwareMap({
       head: hydrateSoftwareModel({
         elements: [headElement],
@@ -36,6 +38,7 @@ describe("hydratePublishedSoftwareMap", () => {
       headCommit: "a".repeat(40),
       baseCommit: "b".repeat(40),
     });
+
     const maps = hydratePublishedSoftwareMap({
       head: JSON.parse(bundle.headJson),
       base: JSON.parse(bundle.baseJson),

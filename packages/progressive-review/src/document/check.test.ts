@@ -12,7 +12,9 @@ describe("native authoring diagnostics and exports", () => {
     const rootPath = await mkdtemp(
       path.join(os.tmpdir(), "review-document-data-exports-"),
     );
+
     const filePath = path.join(rootPath, "review.mdx");
+
     const source = [
       "Some introductory prose.",
       "",
@@ -57,7 +59,9 @@ describe("native authoring diagnostics and exports", () => {
     const rootPath = await mkdtemp(
       path.join(os.tmpdir(), "review-document-existing-export-"),
     );
+
     const filePath = path.join(rootPath, "review.mdx");
+
     const source = [
       'import { anchors } from "./data.ts";',
       "export { anchors };",
@@ -71,6 +75,7 @@ describe("native authoring diagnostics and exports", () => {
         "export const anchors = {};\n",
       );
       await writeFile(filePath, source);
+
       const result = await buildReviewDocument({
         reviewPath: filePath,
         ranges: "skip",
@@ -88,7 +93,9 @@ describe("native authoring diagnostics and exports", () => {
     const rootPath = await mkdtemp(
       path.join(os.tmpdir(), "review-document-component-import-"),
     );
+
     const filePath = path.join(rootPath, "review.mdx");
+
     const source = [
       'import { CodePeek, DatabaseLens } from "virtual:progressive-review-authoring";',
       "",
@@ -99,6 +106,7 @@ describe("native authoring diagnostics and exports", () => {
 
     try {
       await writeFile(filePath, source);
+
       const result = await buildReviewDocument({
         reviewPath: filePath,
         ranges: "skip",
@@ -134,7 +142,9 @@ describe("native authoring diagnostics and exports", () => {
     const rootPath = await mkdtemp(
       path.join(os.tmpdir(), "review-document-diagnostic-"),
     );
+
     const filePath = path.join(rootPath, "typed.mdx");
+
     const source = [
       "export const actors = defineActors({",
       '  browser: { label: "Browser" },',
@@ -184,6 +194,7 @@ describe("native authoring diagnostics and exports", () => {
 
     try {
       await writeFile(filePath, source);
+
       const result = await buildReviewDocument({
         reviewPath: filePath,
         ranges: "skip",
@@ -261,6 +272,7 @@ describe("native authoring diagnostics and exports", () => {
       const heygenLine =
         source.split("\n").findIndex((line) => line.includes("actors.heygen")) +
         1;
+
       const formatted = formatReviewDocumentDiagnostics(result.diagnostics);
       expect(formatted).toContain(`${filePath}:${heygenLine}:16 TS2339:`);
       expect(formatted).toContain(`${heygenLine} |   from: actors.heygen,`);
@@ -276,6 +288,7 @@ describe("formatReviewDocumentDiagnostics", () => {
     const rootPath = await mkdtemp(
       path.join(os.tmpdir(), "review-document-diagnostic-missing-"),
     );
+
     const filePath = path.join(rootPath, "missing.mdx");
     await rm(rootPath, { force: true, recursive: true });
 

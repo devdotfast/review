@@ -19,6 +19,7 @@ function documentData(): ReviewDocumentData {
       resolution: null,
     },
   };
+
   return reviewDocumentDataSchema.parse(
     JSON.parse(
       JSON.stringify({
@@ -43,6 +44,7 @@ function documentData(): ReviewDocumentData {
 }
 
 let load: ReadyReviewDocumentLoad;
+
 let resolveCodePeek: ReturnType<typeof vi.fn<typeof resolveCodePeekRequest>>;
 
 beforeEach(() => {
@@ -84,6 +86,7 @@ it("keeps a second session's hydration separate", async () => {
   const first = await prepareReviewDocument(load, firstSession, {
     resolveCodePeek,
   });
+
   const second = await prepareReviewDocument(load, secondSession, {
     resolveCodePeek,
   });
@@ -98,17 +101,21 @@ it("keeps a second session's hydration separate", async () => {
 
 it("shares concurrent preparation and keeps content hashes separate", async () => {
   const session = testReviewSession();
+
   const resolution =
     Promise.withResolvers<Awaited<ReturnType<typeof resolveCodePeekRequest>>>();
+
   resolveCodePeek.mockReturnValue(resolution.promise);
 
   const first = prepareReviewDocument(load, session, { resolveCodePeek });
   const concurrent = prepareReviewDocument(load, session, { resolveCodePeek });
+
   const different = prepareReviewDocument(
     { ...load, contentHash: "different-content" },
     session,
     { resolveCodePeek },
   );
+
   expect(concurrent).toBe(first);
   await Promise.resolve();
   expect(resolveCodePeek).toHaveBeenCalledTimes(2);
@@ -137,6 +144,7 @@ it("keeps available peeks visible and retries incomplete preparation on a later 
   const partial = await prepareReviewDocument(load, session, {
     resolveCodePeek,
   });
+
   expect(partial.body).toHaveLength(1);
   expect(partial.anchors.get("create-order")?.peek?.resolution).toBeNull();
   expect(partial.anchors.get("other")?.peek?.resolution).toEqual({
@@ -149,6 +157,7 @@ it("keeps available peeks visible and retries incomplete preparation on a later 
   const retry = prepareReviewDocument(load, session, {
     resolveCodePeek,
   });
+
   expect(prepareReviewDocument(load, session, { resolveCodePeek })).toBe(retry);
   const recovered = await retry;
   expect(recovered).toBe(partial);

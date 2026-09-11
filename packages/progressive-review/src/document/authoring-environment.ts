@@ -31,6 +31,7 @@ export function reviewHelperImports(
   const helpers = authoringHelperNames.filter(
     (helper) => !existingBindings.has(helper),
   );
+
   return helpers.length
     ? `import { ${helpers.join(", ")} } from ${JSON.stringify(specifier)};`
     : "";

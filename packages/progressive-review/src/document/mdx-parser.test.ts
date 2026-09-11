@@ -14,7 +14,9 @@ describe("review MDX transform", () => {
     const parsed = await parseReviewDocument(
       "# Heading\n\n| Left | Right |\n| :--- | ---: |\n| A | B |\n\nParagraph.\n\n```ts\nconst value = 1;\n```\n",
     );
+
     const text = JSON.stringify(parsed.body);
+
     for (const value of [
       "table",
       "th",
@@ -51,9 +53,11 @@ describe("document headings", () => {
     const parsed = await parseReviewDocument(
       "# Review\n\n## [Section **label**](https://example.com) [collapsed]\n\nContent.\n",
     );
+
     const section = parsed.body.find(
       (node) => node.kind === "element" && node.name === "ReviewSection",
     );
+
     expect(section).toMatchObject({
       attributes: expect.arrayContaining([
         expect.objectContaining({
@@ -138,6 +142,7 @@ describe("declared software models", () => {
         "export const third = defineSoftwareModel({}) as Model, fourth = defineSoftwareModel({})!;",
       ].join("\n"),
     );
+
     expect(parsed.declaredModelNames).toEqual([
       "first",
       "second",

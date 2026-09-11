@@ -9,6 +9,7 @@ import { authoringSpecifiers } from "./authoring-environment";
 import { buildReviewDocument } from "./build";
 
 const roots: string[] = [];
+
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
@@ -19,7 +20,9 @@ async function fixture(source: string, helpers: Record<string, string> = {}) {
   const root = await mkdtemp(
     path.join(os.tmpdir(), "review-authoring-compatibility-"),
   );
+
   roots.push(root);
+
   for (const [name, contents] of Object.entries({
     "review.mdx": source,
     ...helpers,
@@ -28,6 +31,7 @@ async function fixture(source: string, helpers: Record<string, string> = {}) {
     await mkdir(path.dirname(filename), { recursive: true });
     await writeFile(filename, contents);
   }
+
   return {
     root,
     reviewPath: path.join(root, "review.mdx"),
@@ -55,6 +59,7 @@ it("erases ordinary type imports in MDX and transitive helpers while retaining v
       "values.ts": 'export class Box { value = "runtime class"; }',
     },
   );
+
   const built = await buildReviewDocument(input);
   expect(built.diagnostics).toEqual([]);
   expect(built.errors).toEqual([]);
@@ -70,6 +75,7 @@ it("elides a direct MDX type reexport without executing its source module", asyn
         'throw new Error("type module executed"); export interface Label { value: string; }',
     },
   );
+
   const built = await buildReviewDocument(input);
   expect(built.diagnostics).toEqual([]);
   expect(built.errors).toEqual([]);
@@ -86,6 +92,7 @@ it("elides a local renamed type export and its now-unused import", async () => {
         'import { Label as LocalLabel } from "./types.ts"; export { LocalLabel as PublicLabel }; export const content = "local export preserved";',
     },
   );
+
   const built = await buildReviewDocument(input);
   expect(built.diagnostics).toEqual([]);
   expect(built.errors).toEqual([]);
@@ -110,15 +117,19 @@ it("retains mixed transitive value exports, side effects and unused anchors thro
         'export { Renamed as PublicLabel, label as content, anchors } from "./barrel.ts";',
     },
   );
+
   const aliasRoot = await mkdtemp(
     path.join(os.tmpdir(), "review-reexport-symlink-"),
   );
+
   roots.push(aliasRoot);
   await symlink(input.root, path.join(aliasRoot, "linked"));
+
   const linked = {
     ...input,
     reviewPath: path.join(aliasRoot, "linked", "review.mdx"),
   };
+
   expect((await buildReviewDocument(linked)).errors.join("\n")).toContain(
     "mixed export side effect ran",
   );
@@ -143,6 +154,7 @@ it("keeps a class exported through a type-only alias out of runtime captures", a
         'export { HiddenBox as Box } from "./types.ts"; export const content = "type alias chain preserved";',
     },
   );
+
   const built = await buildReviewDocument(input);
   expect(built.diagnostics).toEqual([]);
   expect(built.errors).toEqual([]);
@@ -153,6 +165,7 @@ it("keeps a class exported through a type-only alias out of runtime captures", a
 
 it("keeps syntax diagnostics after a type reexport at their authored columns", async () => {
   const helper = 'export { Label } from "./types.ts"; export const value = ;';
+
   const input = await fixture(
     'import { value } from "./data.ts";\n\n# Invalid helper\n\n{value}\n',
     {
@@ -160,6 +173,7 @@ it("keeps syntax diagnostics after a type reexport at their authored columns", a
       "data.ts": helper,
     },
   );
+
   const built = await buildReviewDocument(input);
   expect(built.document).toBeNull();
   expect(built.diagnostics).toContainEqual(
@@ -181,6 +195,7 @@ it("executes explicit side-effect imports and keeps unused imported anchors", as
         'import { defineAnchors } from "@dev.fast/review/authoring"; export const anchors = defineAnchors({unused: { title: "Unused anchor" }});',
     },
   );
+
   expect((await buildReviewDocument(input)).errors.join("\n")).toContain(
     "explicit side effect ran",
   );
@@ -205,6 +220,7 @@ it.each([
         [`helper.${extension}`]: source,
       },
     );
+
     const built = await buildReviewDocument(input);
     expect(built.diagnostics).toEqual([]);
     expect(built.errors).toEqual([]);
@@ -220,6 +236,7 @@ it("prefers an existing JavaScript file over a TypeScript replacement", async ()
       "helper.ts": 'export const content = "typescript fallback";',
     },
   );
+
   const built = await buildReviewDocument(input);
   expect(built.errors).toEqual([]);
   expect(JSON.stringify(built.document)).toContain("existing javascript");
@@ -238,6 +255,7 @@ it.each([false, true])(
           'export const unused: number = "invalid"; export const value = "valid content";',
       },
     );
+
     const published = await buildReviewDocument(input);
     expect(published.errors).toEqual([]);
     expect(published.diagnostics).toEqual([]);
@@ -260,6 +278,7 @@ it.each([false, true])(
       "data.ts": 'export { value } from "./nested/helper.ts";',
       "nested/helper.ts": 'export const value: number = "wrong";',
     });
+
     await expect(
       runReviewInternalTest(
         relative ? path.relative(process.cwd(), input.root) : input.root,
@@ -274,6 +293,7 @@ it.each(authoringSpecifiers)(
     const input = await fixture(
       `import { CodePeek } from ${JSON.stringify(specifier)};\n\n# Component import\n`,
     );
+
     const built = await buildReviewDocument(input);
     expect(built.document).toBeNull();
     expect(built.diagnostics).toContainEqual(
@@ -287,5 +307,6 @@ it("preserves custom route paths in the published document", async () => {
     ...(await fixture("# Routed\n")),
     routePath: "/details",
   });
+
   expect(built.document?.routePath).toBe("/details");
 });

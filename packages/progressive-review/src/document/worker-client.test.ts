@@ -65,6 +65,7 @@ const input: DocumentWorkerInput = {
     body: [],
   },
 };
+
 const result: DocumentWorkerResult = {
   result: {
     document: null,
@@ -75,9 +76,11 @@ const result: DocumentWorkerResult = {
   },
   diagnostics: [],
 };
+
 const evidence: ReviewPublishEvidenceTargets = {
   head: { sourceRootPath: "/review/head" },
 };
+
 let worker: TestWorker;
 
 beforeEach(() => {
@@ -93,9 +96,11 @@ afterEach(() => {
 
 it("allows cold evidence preparation beyond 30 seconds without resetting the execution budget", async () => {
   const pending = Promise.withResolvers<ReviewPublishEvidenceTargets>();
+
   const prepareEvidence = vi.fn<() => Promise<ReviewPublishEvidenceTargets>>(
     () => pending.promise,
   );
+
   const built = runDocumentWorkerWithTransport(worker, { prepareEvidence });
   void built.catch(() => undefined);
   expect(prepareEvidence).not.toHaveBeenCalled();
@@ -119,10 +124,12 @@ it("allows cold evidence preparation beyond 30 seconds without resetting the exe
 it("waits for all overlapping parent callbacks before resuming the remaining deadline", async () => {
   const prepare = Promise.withResolvers<ReviewPublishEvidenceTargets>();
   const changed = Promise.withResolvers<null>();
+
   const built = runDocumentWorkerWithTransport(worker, {
     prepareEvidence: () => prepare.promise,
     resolveChangedLines: () => changed.promise,
   });
+
   void built.catch(() => undefined);
   await vi.advanceTimersByTimeAsync(12_000);
   const preparation = worker.remote.prepareEvidence();
@@ -145,9 +152,11 @@ it("waits for all overlapping parent callbacks before resuming the remaining dea
 
 it("resumes the execution budget after a callback rejection", async () => {
   const pending = Promise.withResolvers<ReviewPublishEvidenceTargets>();
+
   const built = runDocumentWorkerWithTransport(worker, {
     prepareEvidence: () => pending.promise,
   });
+
   void built.catch(() => undefined);
   await vi.advanceTimersByTimeAsync(10_000);
   const requested = worker.remote.prepareEvidence();
@@ -164,11 +173,13 @@ it("resumes the execution budget after a callback rejection", async () => {
 it("cancels during a parent wait and suppresses its late response and deadline", async () => {
   const controller = new AbortController();
   const pending = Promise.withResolvers<ReviewPublishEvidenceTargets>();
+
   const built = runDocumentWorkerWithTransport(
     worker,
     { prepareEvidence: () => pending.promise },
     controller.signal,
   );
+
   void built.catch(() => undefined);
   const requested = worker.remote.prepareEvidence();
   void requested.catch(() => undefined);

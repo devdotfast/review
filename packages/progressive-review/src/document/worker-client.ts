@@ -35,6 +35,7 @@ export async function runDocumentWorker(
 ): Promise<DocumentWorkerResult> {
   signal?.throwIfAborted();
   const sourceMode = fileURLToPath(import.meta.url).endsWith(".ts");
+
   const workerPath = sourceMode
     ? new URL("./worker.ts", import.meta.url)
     : pathToFileURL(
@@ -45,17 +46,20 @@ export async function runDocumentWorker(
           "worker.js",
         ),
       );
+
   const workerEntry = sourceMode
     ? new URL(
         `data:text/javascript,${encodeURIComponent(`import { register } from ${JSON.stringify(import.meta.resolve("tsx/esm/api"))}; register(); await import(${JSON.stringify(workerPath.href)});`)}`,
       )
     : workerPath;
+
   const worker = new Worker(workerEntry, {
     workerData: data,
     execArgv: [],
     stdout: true,
     stderr: true,
   });
+
   return runDocumentWorkerWithTransport(worker, callbacks, signal);
 }
 
@@ -75,11 +79,13 @@ export async function runDocumentWorkerWithTransport(
   let timeout: ReturnType<typeof setTimeout> | undefined;
   let abort: (() => void) | undefined;
   let rpc: BirpcReturn<DocumentWorkerApi, DocumentWorkerCallbacks> | undefined;
+
   try {
     return await new Promise<DocumentWorkerResult>((resolve, reject) => {
       let remainingMs = 30_000;
       let resumedAt = performance.now();
       let pendingCallbacks = 0;
+
       const resumeDeadline = () => {
         if (finished || pendingCallbacks > 0) return;
         resumedAt = performance.now();
@@ -88,6 +94,7 @@ export async function runDocumentWorkerWithTransport(
           Math.max(0, remainingMs),
         );
       };
+
       const parentCallback = async <T>(run: () => Promise<T>): Promise<T> => {
         // Checkout preparation can be much slower than authored execution.
         // Exclude the union of parent callback waits, preserving the remaining
@@ -96,6 +103,7 @@ export async function runDocumentWorkerWithTransport(
           clearTimeout(timeout);
           remainingMs -= performance.now() - resumedAt;
         }
+
         try {
           return await callbackResult(run);
         } finally {
@@ -103,13 +111,17 @@ export async function runDocumentWorkerWithTransport(
           resumeDeadline();
         }
       };
+
       abort = () =>
         reject(signal?.reason ?? new Error("Document build cancelled"));
       signal?.addEventListener("abort", abort, { once: true });
+
       if (signal?.aborted) {
         abort();
+
         return;
       }
+
       resumeDeadline();
       worker.once("error", reject);
       worker.once("exit", (code) =>
@@ -141,6 +153,7 @@ export async function runDocumentWorkerWithTransport(
           timeout: -1,
           onGeneralError(error) {
             reject(error);
+
             return true;
           },
         },
@@ -151,6 +164,7 @@ export async function runDocumentWorkerWithTransport(
     finished = true;
     rpc?.$close();
     clearTimeout(timeout);
+
     if (abort) signal?.removeEventListener("abort", abort);
     await worker.terminate();
   }

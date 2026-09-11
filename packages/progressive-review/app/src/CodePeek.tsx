@@ -27,7 +27,9 @@ type CodePeekRootSpec = {
 };
 
 export type CodePeekProps = AuthoringCodePeekProps;
+
 export type CodePeekGraph = NonNullable<CodePeekProps["graph"]>;
+
 const validatedCodePeekInput = Symbol("validatedCodePeekInput");
 
 export interface ValidatedCodePeekInput {
@@ -68,11 +70,13 @@ export function codePeekLoadState(input: {
   error: string | null;
 }): CodePeekLoadState {
   const hasDisplayedResult = input.displayedKey !== null;
+
   // Effects do not run until after the first paint. Treat a resolvable request
   // as pending immediately so a newly opened peek never flashes an empty body.
   const hasPendingRequest =
     input.pendingKey !== null ||
     (input.requestKey !== "" && !hasDisplayedResult && input.error === null);
+
   return {
     isInitialLoad: hasPendingRequest && !hasDisplayedResult,
     isRefreshing: input.pendingKey !== null && hasDisplayedResult,
@@ -138,10 +142,12 @@ export function CodePeekGroup({
   collapsed?: boolean;
 }) {
   const session = useReviewSession();
+
   const entries = useMemo<CodePeekGroupEntry[]>(
     () =>
       peeks.map((props) => {
         const validated = validateCodePeekProps(props);
+
         return {
           key: codePeekPropsKey(validated),
           input: {
@@ -152,13 +158,16 @@ export function CodePeekGroup({
       }),
     [peeks],
   );
+
   const [states, setStates] = useState(
     () => new Map<string, CodePeekResolutionState>(),
   );
+
   const updateState = useCallback(
     (key: string, state: CodePeekResolutionState) => {
       setStates((current) => {
         const previous = current.get(key);
+
         if (
           previous?.resolution === state.resolution &&
           previous?.status === state.status &&
@@ -166,24 +175,32 @@ export function CodePeekGroup({
         ) {
           return current;
         }
+
         const next = new Map(current);
         next.set(key, state);
+
         return next;
       });
     },
     [],
   );
+
   const settled = entries.every((entry) => {
     const state = states.get(entry.key);
+
     return state && !state.status;
   });
+
   const groups = useMemo(
     () => (settled ? resolvedCodePeekGroups(entries, states) : []),
     [entries, settled, states],
   );
+
   const pending = entries.length > 0 && !settled;
+
   const errors = entries.flatMap((entry) => {
     const error = states.get(entry.key)?.error;
+
     return error ? [error] : [];
   });
 
@@ -198,6 +215,7 @@ export function CodePeekGroup({
       ))}
       {groups.map((group) => {
         const primaryRange = group.ranges[0]!;
+
         return (
           <section
             key={group.key}
@@ -251,6 +269,7 @@ function CodePeekResolutionReporter({
   useEffect(() => {
     onChange(entry.key, state);
   }, [entry.key, onChange, state.error, state.resolution, state.status]);
+
   return null;
 }
 
@@ -259,6 +278,7 @@ export function ReviewCodePeek({ anchor }: ReviewCodePeekProps) {
     () => validatedCodePeekInputFromRef(anchor.peek),
     [anchor.peek],
   );
+
   return <CodePeekView input={input} commentAnchor={anchor} />;
 }
 
@@ -291,15 +311,19 @@ function useCodePeekResolution(
   const session = useReviewSession();
   const { file, fromLine, toLine } = input.props;
   const graph = input.props.graph ?? "head";
+
   const [resolution, setResolution] = useState<CodePeekResolveResult | null>(
     input.resolution ?? null,
   );
+
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
   const rootSpec = useMemo(
     () => codePeekRootFromProps(input.props),
     [file, fromLine, toLine],
   );
+
   const requestInput = useMemo<CodePeekResolveInput | null>(
     () =>
       rootSpec
@@ -312,12 +336,15 @@ function useCodePeekResolution(
         : null,
     [graph, rootSpec],
   );
+
   const requestInputRef = useRef(requestInput);
   requestInputRef.current = requestInput;
+
   const requestPath = useMemo(
     () => session.apiUrl("/code-peek/resolve"),
     [session],
   );
+
   const requestKey = useMemo(
     () => (requestInput ? JSON.stringify(requestInput) : ""),
     [requestInput],
@@ -325,20 +352,24 @@ function useCodePeekResolution(
 
   useEffect(() => {
     let cancelled = false;
+
     if (input.resolution) {
       setResolution(input.resolution);
       setPending(false);
       setError(null);
+
       return () => {
         cancelled = true;
       };
     }
 
     const nextRequestInput = requestInputRef.current;
+
     if (!nextRequestInput || !requestKey) {
       setResolution(null);
       setPending(false);
       setError(null);
+
       return () => {
         cancelled = true;
       };
@@ -355,6 +386,7 @@ function useCodePeekResolution(
     )
       .then((result) => {
         if (cancelled) return;
+
         if (isCodePeekNoMatch(result)) {
           captureUiEvent(session, "peek_resolve_failed", {
             root_kind: nextRequestInput.root.kind,
@@ -364,6 +396,7 @@ function useCodePeekResolution(
             root_kind: nextRequestInput.root.kind,
           });
         }
+
         setResolution(result);
         setPending(false);
       })
@@ -375,6 +408,7 @@ function useCodePeekResolution(
         setPending(false);
         setError(caught instanceof Error ? caught.message : String(caught));
       });
+
     return () => {
       cancelled = true;
     };
@@ -414,10 +448,12 @@ export function CodePeekCard({
   commentAnchor?: AnchorRef;
 }) {
   const session = useReviewSession();
+
   const subject = useMemo(
     () => codePeekSubject(input, resolution),
     [input, resolution],
   );
+
   const onNativeFocusRef = useRef(onNativeFocus);
   onNativeFocusRef.current = onNativeFocus;
 
@@ -428,6 +464,7 @@ export function CodePeekCard({
         : undefined,
     [resolution?.diff, subject],
   );
+
   return (
     <section className="code-peek" data-code-rendering="inline-editor">
       {status ? (
@@ -524,6 +561,7 @@ export function codePeekDiffCountsForSubject(
       candidate.path === subject.file ||
       candidate.previousPath === subject.file,
   );
+
   return file
     ? { additions: file.additions, deletions: file.deletions }
     : { additions: 0, deletions: 0 };
@@ -546,6 +584,7 @@ function codePeekRootFromProps(input: {
       toLine: input.toLine,
     };
   }
+
   return null;
 }
 
@@ -555,7 +594,9 @@ export function codePeekSubject(
 ): CodePeekSubject | undefined {
   if (!resolution) return undefined;
   const root = codePeekRootFromProps(input.props);
+
   if (!root) return undefined;
+
   return {
     title: codePeekRangeTitle(root.file, root.fromLine, root.toLine),
     file: root.file,
@@ -572,6 +613,7 @@ function codePeekRangeTitle(
   toLine: number,
 ): string {
   const range = fromLine === toLine ? `${fromLine}` : `${fromLine}-${toLine}`;
+
   return `${file}:${range}`;
 }
 
@@ -590,13 +632,16 @@ function resolvedCodePeekGroups(
       hasDiffStats: boolean;
     }
   >();
+
   for (const entry of entries) {
     const resolution = states.get(entry.key)?.resolution;
     const subject = codePeekSubject(entry.input, resolution);
+
     if (!subject) continue;
     const graph = entry.input.props.graph ?? "head";
     const key = subject.file;
     let group = groups.get(key);
+
     if (!group) {
       group = {
         key,
@@ -609,11 +654,13 @@ function resolvedCodePeekGroups(
     } else if (graph === "head") {
       group.graph = "head";
     }
+
     group.ranges.push({
       startLine: subject.line,
       endLine: subject.endLine,
       side: graph,
     });
+
     if (resolution?.diff) {
       const counts = codePeekDiffCountsForSubject(resolution.diff, subject);
       group.diffStats = {
@@ -623,6 +670,7 @@ function resolvedCodePeekGroups(
       group.hasDiffStats = true;
     }
   }
+
   return [...groups.values()].map(({ hasDiffStats, ...group }) => ({
     ...group,
     ranges: mergedCodePeekRanges(group.ranges, group.graph),
@@ -635,30 +683,38 @@ function mergedCodePeekRanges(
   defaultSide: ReviewDiffSide,
 ): ReviewInlineEditorRange[] {
   const merged: ReviewInlineEditorRange[] = [];
+
   const sides: readonly ReviewDiffSide[] =
     defaultSide === "head" ? ["head", "base"] : ["base", "head"];
+
   for (const side of sides) {
     const sideRanges = ranges
       .filter((range) => range.side === side)
       .sort((left, right) => left.startLine - right.startLine);
+
     const mergedForSide: ResolvedCodePeekRange[] = [];
+
     for (const range of sideRanges) {
       const previous = mergedForSide.at(-1);
+
       if (!previous || range.startLine > previous.endLine + 1) {
         mergedForSide.push({ ...range });
       } else {
         previous.endLine = Math.max(previous.endLine, range.endLine);
       }
     }
+
     for (const range of mergedForSide) {
       const compactRange: ReviewInlineEditorRange = {
         startLine: range.startLine,
         endLine: range.endLine,
       };
+
       if (side !== defaultSide) compactRange.side = side;
       merged.push(compactRange);
     }
   }
+
   return merged;
 }
 
@@ -678,12 +734,14 @@ async function fetchCodePeekResult(
     headers: { "content-type": "application/json" },
     body: JSON.stringify(input),
   });
+
   // SAFETY: the review server's /code-peek/resolve route
   // (src/server/review-api.ts) answers `{ ok: true, snapshot, diff? }` on
   // success and `{ ok: false, error }` on failure.
   const json = (await response.json()) as
     | { ok: true; snapshot: SourceSnapshot; diff?: CodePeekDiffPayload }
     | { ok: false; error?: string };
+
   if (!response.ok || !json.ok) {
     throw new Error(
       json.ok
@@ -691,6 +749,7 @@ async function fetchCodePeekResult(
         : (json.error ?? "CodePeek resolve failed"),
     );
   }
+
   return { snapshot: json.snapshot, diff: json.diff };
 }
 
@@ -703,23 +762,29 @@ async function fetchCodePeekResultWithRetry(
   if (isCancelled()) throw new Error("Cancelled");
   const delays = [0, 250, 1_000];
   let lastError: unknown;
+
   for (const delayMs of delays) {
     if (delayMs > 0) await delay(delayMs);
+
     if (isCancelled()) {
       throw lastError instanceof Error ? lastError : new Error("Cancelled");
     }
+
     try {
       return await fetchCodePeekResult(session, input, requestPath);
     } catch (caught) {
       lastError = caught;
+
       if (!isRetryableCodePeekError(caught)) break;
     }
   }
+
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 function isRetryableCodePeekError(cause: unknown) {
   if (!(cause instanceof Error)) return false;
+
   return cause.message.includes("fetch");
 }
 

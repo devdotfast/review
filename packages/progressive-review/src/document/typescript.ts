@@ -24,6 +24,7 @@ export function transformAuthoredModule(
     filename,
     typeOnlyExports,
   );
+
   const transformed = transpileModule(annotations?.source ?? source, {
     fileName: filename,
     reportDiagnostics: true,
@@ -37,13 +38,16 @@ export function transformAuthoredModule(
       verbatimModuleSyntax: false,
     },
   });
+
   if (!annotations) return transformed;
+
   // Inserting type modifiers must not shift an authored helper's diagnostics.
   return {
     ...transformed,
     diagnostics: transformed.diagnostics?.map((diagnostic) => {
       if (!diagnostic.file || diagnostic.start === undefined) return diagnostic;
       const start = annotations.originalOffset(diagnostic.start);
+
       return {
         ...diagnostic,
         file: annotations.original,
@@ -65,13 +69,16 @@ function annotateTypeOnlyExports(
 ) {
   if (!typeOnlyExports.length) return null;
   const names = new Set(typeOnlyExports);
+
   const original = createSourceFile(
     filename,
     source,
     ScriptTarget.Latest,
     true,
   );
+
   const insertions: number[] = [];
+
   for (const statement of original.statements) {
     if (
       !isExportDeclaration(statement) ||
@@ -80,27 +87,35 @@ function annotateTypeOnlyExports(
       !isNamedExports(statement.exportClause)
     )
       continue;
+
     for (const specifier of statement.exportClause.elements)
       if (!specifier.isTypeOnly && names.has(specifier.name.text))
         insertions.push(specifier.getStart(original));
   }
+
   if (!insertions.length) return null;
+
   // Annotate before parsing for emission: replacing export AST nodes in a
   // `before` transformer disables TypeScript's normal alias elision, including
   // the imports used only by a local `export { Interface }` declaration.
   for (const offset of insertions.toReversed())
     source = `${source.slice(0, offset)}type ${source.slice(offset)}`;
+
   return {
     source,
     original,
     originalOffset(offset: number): number {
       let added = 0;
+
       for (const insertion of insertions) {
         const position = insertion + added;
+
         if (offset < position) break;
+
         if (offset < position + 5) return insertion;
         added += 5;
       }
+
       return offset - added;
     },
   };

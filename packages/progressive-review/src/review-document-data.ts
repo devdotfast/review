@@ -64,13 +64,17 @@ export const PROSE_TAGS = [
   "cite",
   "q",
 ] as const;
+
 export const proseTagSchema = z.enum(PROSE_TAGS);
+
 export type ProseTag = z.infer<typeof proseTagSchema>;
 
 // MDX emits GFM table alignment as a style object; the document keeps it as
 // this scalar, and the renderer turns it back into `style.textAlign`.
 export const tableAlignSchema = z.enum(["left", "center", "right"]);
+
 export type TableAlign = z.infer<typeof tableAlignSchema>;
+
 export const TABLE_CELL_TAGS = [
   "th",
   "td",
@@ -96,6 +100,7 @@ const PROSE_PROPS = new Set([
   "data-footnote-backref",
   "data-footnotes",
 ]);
+
 const SAFE_URL = /^(?:https?:|mailto:|#|\/|\.{0,2}\/|[^:]*$)/i;
 
 export type ReviewElementProps = Record<string, string | number | boolean>;
@@ -137,6 +142,7 @@ const reviewElementNodeSchema = z
   })
   .superRefine((node, context) => {
     const isCell = TABLE_CELL_TAGS.some((tag) => tag === node.tag);
+
     for (const [key, value] of Object.entries(node.props)) {
       if (key === "align") {
         if (!isCell) {
@@ -152,8 +158,10 @@ const reviewElementNodeSchema = z
             message: `align "${String(value)}" must be left, center, or right`,
           });
         }
+
         continue;
       }
+
       if (!PROSE_PROPS.has(key) && !key.startsWith("data-review-")) {
         context.addIssue({
           code: "custom",
@@ -161,6 +169,7 @@ const reviewElementNodeSchema = z
           message: `prop "${key}" is not allowed in review prose`,
         });
       }
+
       if (
         (key === "href" || key === "src") &&
         !(isStringValue(value) && SAFE_URL.test(value))
@@ -279,6 +288,7 @@ export function walkReviewNodes(
 ): void {
   for (const node of nodes) {
     visit(node, parent);
+
     if (node.type !== "text") {
       walkReviewNodes(
         node.children,

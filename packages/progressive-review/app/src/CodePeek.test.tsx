@@ -30,9 +30,13 @@ import { ReviewDiffFilesProvider } from "./review-diff-files-context";
 import { testReviewSession } from "./review-session-test-utils";
 
 let root: ReturnType<typeof createRoot> | undefined;
+
 let posted: ReviewVerbRequest[] = [];
+
 let created: ReviewInlineEditorSpec[] = [];
+
 let disposed: ReviewInlineEditorSpec[] = [];
+
 let session: ReviewSession;
 
 beforeEach(() => {
@@ -67,11 +71,13 @@ describe("CodePeek native editor", () => {
           ),
       ),
     );
+
     const input = validatedCodePeekInputFromRef({
       __kind: "code-peek-ref",
       props: { file: "src/unavailable.ts", fromLine: 1, toLine: 1 },
       resolution: null,
     });
+
     const container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -95,8 +101,10 @@ describe("CodePeek native editor", () => {
             toLine: number;
           };
         };
+
         const { file, fromLine, toLine } = request.root;
         const sourceId = `source-range:${file}:${fromLine}-${toLine}`;
+
         const snapshot = {
           roots: [{ kind: "source", sourceId }],
           resolved: {
@@ -113,6 +121,7 @@ describe("CodePeek native editor", () => {
             },
           },
         };
+
         return new Response(
           JSON.stringify({
             ok: true,
@@ -244,6 +253,7 @@ describe("CodePeek native editor", () => {
       },
       resolution: { snapshot: { roots: [], resolved: {} } },
     });
+
     const secondInput = validatedCodePeekInputFromRef({
       __kind: "code-peek-ref",
       props: {
@@ -254,6 +264,7 @@ describe("CodePeek native editor", () => {
       },
       resolution: { snapshot: { roots: [], resolved: {} } },
     });
+
     const container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -325,6 +336,7 @@ describe("CodePeek native editor", () => {
         resolution: testCodePeekResolution(),
       },
     };
+
     const container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -354,6 +366,7 @@ describe("CodePeek native editor", () => {
       props: { file: "src/example.ts", fromLine: 1, toLine: 3, graph: "head" },
       resolution: testCodePeekResolution(),
     });
+
     const container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -386,6 +399,7 @@ describe("CodePeek native editor", () => {
         },
         resolution: { snapshot: { roots: [], resolved: {} } },
       });
+
       await act(async () => renderWithSession(<CodePeekCard input={input} />));
     }
 
@@ -426,6 +440,7 @@ describe("CodePeek native editor", () => {
           ),
       ),
     );
+
     const input = validatedCodePeekInputFromRef({
       __kind: "code-peek-ref",
       props: {
@@ -451,6 +466,7 @@ describe("CodePeek native editor", () => {
         },
       },
     });
+
     const container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -477,6 +493,7 @@ describe("CodePeek native editor", () => {
         throw new Error("diff metadata unavailable");
       }),
     );
+
     const input = validatedCodePeekInputFromRef({
       __kind: "code-peek-ref",
       props: {
@@ -487,6 +504,7 @@ describe("CodePeek native editor", () => {
       },
       resolution: { snapshot: { roots: [], resolved: {} } },
     });
+
     const container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -519,6 +537,7 @@ describe("CodePeek native editor", () => {
       },
       resolution: { snapshot: { roots: [], resolved: {} } },
     });
+
     const container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -563,6 +582,7 @@ function createTestSession(sessionId = "test"): ReviewSession {
           const editor = document.createElement("div");
           editor.className = "fixture-inline-editor";
           spec.container.appendChild(editor);
+
           return {
             height: 180,
             setActive() {},
@@ -584,6 +604,7 @@ function createTestSession(sessionId = "test"): ReviewSession {
       },
       post: async (request) => {
         posted.push(request);
+
         return { ok: true };
       },
       subscribe: () => ({ dispose() {} }),

@@ -61,13 +61,16 @@ export function checkReviewDocument(input: {
 }): DocumentCheckResult {
   const { syntax } = input;
   const filePath = path.resolve(input.filePath);
+
   const point = (offset: number) => {
     const before = input.source.slice(0, offset);
+
     return {
       line: before.split("\n").length,
       column: offset - before.lastIndexOf("\n"),
     };
   };
+
   const unsupported = unsupportedTypescriptDiagnostics(
     { filePath },
     [
@@ -83,6 +86,7 @@ export function checkReviewDocument(input: {
       sourceStartColumn: point(region.span.start).column,
     })),
   );
+
   if (unsupported.length)
     return {
       diagnostics: unsupported,
@@ -91,14 +95,18 @@ export function checkReviewDocument(input: {
     };
 
   const authoringPath = progressiveReviewAuthoringTypesPath(import.meta.url);
+
   if (!existsSync(authoringPath))
     throw new Error(`Review authoring types are missing: ${authoringPath}`);
   const authoringModulePath = authoringPath.replace(/\.d\.ts$/, ".js");
+
   const helpersPath = path.join(
     path.dirname(authoringPath),
     "review-document-helpers.ts",
   );
+
   const virtualPath = `${filePath}.tsx`;
+
   const helperSource = [
     `export * from ${JSON.stringify(authoringModulePath)};`,
     ...sessionHelperNames.map(
@@ -107,6 +115,7 @@ export function checkReviewDocument(input: {
     ),
     `export declare const __reviewDefinitionsReady: () => Promise<void>;`,
   ].join("\n");
+
   let virtual =
     [
       `import type { ReviewAuthoringComponentRegistry as __ReviewComponents } from ${JSON.stringify(authoringModulePath)};`,
@@ -119,12 +128,14 @@ export function checkReviewDocument(input: {
         ),
       reviewHelperImports(new Set(syntax.bindings), helpersPath),
     ].join("\n") + "\n";
+
   const mappings: {
     start: number;
     end: number;
     source: SourceSpan;
     exact: boolean;
   }[] = [];
+
   const append = (value: string, span?: SourceSpan, exact = false) => {
     if (span)
       mappings.push({
@@ -135,31 +146,42 @@ export function checkReviewDocument(input: {
       });
     virtual += value;
   };
+
   const authored = (region: AuthoredSource) =>
     append(region.value, region.span, true);
+
   for (const region of syntax.modules) {
     authored(region);
     append("\n");
   }
+
   const expression = (index: number) => authored(syntax.expressions[index]);
+
   const node = (item: DocumentSyntaxNode): void => {
     if (item.kind === "text") {
       append(`{${JSON.stringify(item.value)}}`);
+
       return;
     }
+
     if (item.kind === "expression") {
       append("{");
       expression(item.expression);
       append("}");
+
       return;
     }
+
     const name =
       item.name && Object.hasOwn(reviewAuthoringPropsSchemas, item.name)
         ? `__reviewComponents.${item.name}`
         : (item.name ?? "");
+
     append(`<${name}`, item.span);
+
     for (const attribute of item.attributes) {
       append(" ");
+
       if (attribute.kind === "spread") {
         append("{");
         expression(attribute.expression);
@@ -167,24 +189,30 @@ export function checkReviewDocument(input: {
       } else {
         append(attribute.name, attribute.span ?? item.span);
         append("={");
+
         if (attribute.kind === "literal")
           append(JSON.stringify(attribute.value), attribute.span ?? item.span);
         else expression(attribute.expression);
         append("}");
       }
     }
+
     if (!item.children.length && name) {
       append(" />", item.span);
+
       return;
     }
+
     append(">", item.span);
     item.children.forEach(node);
     append(`</${name}>`, item.span);
   };
+
   append("void (<>");
   syntax.body.forEach(node);
   append("</>);\n");
   const reactRoot = path.dirname(require.resolve("@types/react/package.json"));
+
   const options: CompilerOptions = {
     target: ScriptTarget.ES2022,
     module: ModuleKind.ESNext,
@@ -202,10 +230,12 @@ export function checkReviewDocument(input: {
       "react/jsx-dev-runtime": [path.join(reactRoot, "jsx-dev-runtime.d.ts")],
     },
   };
+
   const files = new Map([
     [virtualPath, virtual],
     [helpersPath, helperSource],
   ]);
+
   const host = createCompilerHost(options);
   const originalGetSourceFile = host.getSourceFile.bind(host);
   host.getSourceFile = (file, languageVersion, onError, shouldCreate) =>
@@ -222,11 +252,13 @@ export function checkReviewDocument(input: {
   host.fileExists = (file) => files.has(file) || originalFileExists(file);
   const originalReadFile = host.readFile.bind(host);
   host.readFile = (file) => files.get(file) ?? originalReadFile(file);
+
   const resolutionCache = createModuleResolutionCache(
     path.dirname(filePath),
     host.getCanonicalFileName,
     options,
   );
+
   // Internal-test checks even helpers the document does not import. Publishing
   // deliberately keeps its MDX-only semantic-checking boundary.
   const helperFiles = new Set(
@@ -236,6 +268,7 @@ export function checkReviewDocument(input: {
           .map((entry) => path.join(path.dirname(filePath), entry.name))
       : [],
   );
+
   const rootFiles = [virtualPath, ...helperFiles];
   host.resolveModuleNameLiterals = (
     literals,
@@ -252,6 +285,7 @@ export function checkReviewDocument(input: {
             extension: Extension.Ts,
           },
         };
+
       const resolution = resolveModuleName(
         literal.text.startsWith("/@fs/") ? literal.text.slice(5) : literal.text,
         containingFile,
@@ -261,7 +295,9 @@ export function checkReviewDocument(input: {
         redirectedReference,
         getModeForUsageLocation(sourceFile, literal, compilerOptions),
       );
+
       const resolved = resolution.resolvedModule;
+
       if (
         (containingFile === virtualPath || helperFiles.has(containingFile)) &&
         resolved &&
@@ -270,25 +306,31 @@ export function checkReviewDocument(input: {
         resolved.resolvedFileName !== authoringPath
       )
         helperFiles.add(resolved.resolvedFileName);
+
       return resolution;
     });
   const program = createProgram(rootFiles, options, host);
   const virtualFile = program.getSourceFile(virtualPath)!;
   const diagnostics: ReviewDocumentDiagnostic[] = [];
+
   for (const diagnostic of getPreEmitDiagnostics(program, virtualFile)) {
     if (diagnostic.file && diagnostic.file.fileName !== virtualPath) continue;
     const start = diagnostic.start ?? 0;
+
     const mapping = mappings.find(
       (item) => start >= item.start && start < item.end,
     );
+
     // Unmapped diagnostics belong to our projection, not authored code. Do not
     // silently accept them: surface an infrastructure error for its owner.
     if (!mapping)
       throw new Error(
         `Document diagnostic projection: ${flattenDiagnosticMessageText(diagnostic.messageText, "\n")}`,
       );
+
     const offset =
       mapping.source.start + (mapping.exact ? start - mapping.start : 0);
+
     const position = point(offset);
     diagnostics.push(
       typescriptDiagnostic(diagnostic, {
@@ -297,10 +339,13 @@ export function checkReviewDocument(input: {
       }),
     );
   }
+
   if (input.typecheck === "review") {
     for (const helper of helperFiles) {
       const file = program.getSourceFile(helper);
+
       if (!file || file.isDeclarationFile) continue;
+
       for (const diagnostic of [
         ...program.getSyntacticDiagnostics(file),
         ...program.getSemanticDiagnostics(file),
@@ -316,15 +361,19 @@ export function checkReviewDocument(input: {
       }
     }
   }
+
   const checker = program.getTypeChecker();
   const typeOnlyExports: Record<string, string[]> = {};
+
   // Single-file emission cannot infer that a re-exported name denotes only a
   // type. Reuse this graph for that fact, without expanding publish diagnostics
   // to helper semantics or sending compiler objects across the worker boundary.
   for (const filename of [virtualPath, ...helperFiles]) {
     const file = program.getSourceFile(filename);
+
     if (!file || file.isDeclarationFile) continue;
     const names: string[] = [];
+
     for (const statement of file.statements) {
       if (
         !isExportDeclaration(statement) ||
@@ -333,13 +382,16 @@ export function checkReviewDocument(input: {
         !isNamedExports(statement.exportClause)
       )
         continue;
+
       for (const specifier of statement.exportClause.elements) {
         if (specifier.isTypeOnly) continue;
         const symbol = checker.getSymbolAtLocation(specifier.name);
+
         if (symbol && !hasRuntimeValue(symbol, checker))
           names.push(specifier.name.text);
       }
     }
+
     if (names.length) {
       // Standalone checker callers may provide a virtual MDX source, while
       // files loaded by the worker need the same canonical symlink identity.
@@ -347,15 +399,18 @@ export function checkReviewDocument(input: {
         filename === virtualPath && !existsSync(filePath)
           ? filePath
           : realpathSync(filename === virtualPath ? filePath : filename);
+
       typeOnlyExports[authoredPath] = names;
     }
   }
+
   const values = new Set(
     checker
       .getSymbolsInScope(virtualFile, SymbolFlags.Value | SymbolFlags.Alias)
       .filter((symbol) => hasRuntimeValue(symbol, checker))
       .map((symbol) => symbol.name),
   );
+
   return {
     diagnostics,
     runtimeBindings: syntax.bindings.filter((name) => values.has(name)),
@@ -365,14 +420,17 @@ export function checkReviewDocument(input: {
 
 function hasRuntimeValue(symbol: Symbol, checker: TypeChecker): boolean {
   const seen = new Set<Symbol>();
+
   while (symbol.flags & SymbolFlags.Alias) {
     if (seen.has(symbol)) return false;
     seen.add(symbol);
+
     if (symbol.declarations?.some(isTypeOnlyImportOrExportDeclaration))
       return false;
     symbol =
       checker.getImmediateAliasedSymbol(symbol) ??
       checker.getAliasedSymbol(symbol);
   }
+
   return Boolean(symbol.flags & SymbolFlags.Value);
 }

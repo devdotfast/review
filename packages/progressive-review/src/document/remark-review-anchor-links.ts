@@ -31,17 +31,21 @@ export function remarkReviewAnchorLinks() {
 
 function rewriteChildren(parent: ParentNode, file: VFileLike): void {
   if (!parent.children) return;
+
   for (const [index, child] of parent.children.entries()) {
     if (child.type === "link") {
       const link = child;
+
       if (link.url.startsWith("anchors.")) {
         const match = ANCHOR_LINK.exec(link.url);
+
         if (!match) {
           file.fail(
             `Review anchor links must use [label](anchors.key); received ${link.url}.`,
             link,
           );
         }
+
         const expression = `anchors.${match[1]}`;
         parent.children[index] = {
           type: "mdxJsxTextElement",
@@ -69,6 +73,7 @@ function rewriteChildren(parent: ParentNode, file: VFileLike): void {
         continue;
       }
     }
+
     rewriteChildren(child, file);
   }
 }
@@ -76,13 +81,16 @@ function rewriteChildren(parent: ParentNode, file: VFileLike): void {
 function anchorDestinationSpan(link: Link, source: string): SourceSpan {
   const start = link.position?.start.offset;
   const end = link.position?.end.offset;
+
   if (start === undefined || end === undefined)
     throw new Error("Missing source position for Review anchor link");
   const labelEnd = link.children.at(-1)?.position?.end.offset ?? start + 1;
   const destination = /\]\(\s*<?/.exec(source.slice(labelEnd, end));
+
   if (!destination)
     throw new Error("Missing source destination for Review anchor link");
   const destinationStart = labelEnd + destination.index + destination[0].length;
+
   return { start: destinationStart, end: destinationStart + link.url.length };
 }
 

@@ -8,6 +8,7 @@ import path from "node:path";
 import { Writable } from "node:stream";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+
 const exec = promisify(execFile);
 
 if (process.argv[2] === "--child") {
@@ -15,14 +16,17 @@ if (process.argv[2] === "--child") {
   process.on("message", async ({ id, input, cli }) => {
     try {
       const started = performance.now();
+
       if (cli) {
         let output = "";
+
         const stream = new Writable({
           write(chunk, _encoding, done) {
             output += chunk;
             done();
           },
         });
+
         const code = await entry.runProgressiveReviewCli({
           argv: ["publish", "--review", cli.uuid, "--json"],
           cwd: cli.cwd,
@@ -30,6 +34,7 @@ if (process.argv[2] === "--child") {
           stdout: stream,
           stderr: stream,
         });
+
         assert.equal(code, 0, output);
       } else {
         const evidence = input.evidence
@@ -41,7 +46,9 @@ if (process.argv[2] === "--child") {
               }),
             }
           : {};
+
         let result;
+
         if (entry.buildReviewDocument)
           result = await entry.buildReviewDocument({
             reviewPath: input.reviewPath,
@@ -58,6 +65,7 @@ if (process.argv[2] === "--child") {
             ),
             routePath: "/",
           });
+
           assert.deepEqual(compiled.diagnostics, []);
           assert.ok(compiled.bundle);
           result = await entry.evaluateReviewDocumentBundleForPublish({
@@ -68,10 +76,12 @@ if (process.argv[2] === "--child") {
             ...evidence,
           });
         }
+
         assert.deepEqual(result.diagnostics ?? [], []);
         assert.deepEqual(result.errors, []);
         assert.ok(result.document);
       }
+
       process.send({ id, ms: performance.now() - started });
     } catch (error) {
       process.send({ id, error: error.stack });
@@ -83,6 +93,7 @@ if (process.argv[2] === "--child") {
 async function expose(runtime) {
   const dist = path.join(runtime, "dist");
   const names = await readdir(dist);
+
   for (const name of names.filter((name) => /^cli-runner-.*\.js$/.test(name))) {
     const source = await readFile(path.join(dist, name), "utf8");
     const entry = path.join(dist, `.benchmark-${process.pid}.mjs`);
@@ -102,16 +113,20 @@ async function expose(runtime) {
           ? "\nexport {buildReviewDocument};\n"
           : "\nexport {compileReviewDocumentBundle, evaluateReviewDocumentBundleForPublish};\n"),
     );
+
     return entry;
   }
+
   throw new Error(`No installed CLI chunk in ${runtime}`);
 }
+
 function child(entry, env) {
   const instance = fork(import.meta.filename, ["--child", entry], {
     env,
     stdio: ["ignore", "ignore", "pipe", "ipc"],
     execArgv: [],
   });
+
   let sequence = 0;
   let stderr = "";
   instance.stderr.on("data", (chunk) => {
@@ -119,16 +134,21 @@ function child(entry, env) {
   });
   const pending = new Map();
   let ready;
+
   const started = new Promise((resolve) => {
     ready = resolve;
   });
+
   instance.on("message", (message) => {
     if (message.ready) {
       ready();
+
       return;
     }
+
     const request = pending.get(message.id);
     pending.delete(message.id);
+
     if (message.error) request.reject(new Error(message.error));
     else request.resolve(message.ms);
   });
@@ -136,9 +156,11 @@ function child(entry, env) {
     for (const request of pending.values())
       request.reject(new Error(`Benchmark child exited ${code}: ${stderr}`));
   });
+
   return {
     async run(input) {
       await started;
+
       return new Promise((resolve, reject) => {
         const id = ++sequence;
         pending.set(id, { resolve, reject });
@@ -153,8 +175,10 @@ function child(entry, env) {
     },
   };
 }
+
 function summary(samples) {
   const sorted = [...samples].sort((a, b) => a - b);
+
   return {
     median:
       (sorted[Math.floor((sorted.length - 1) / 2)] +
@@ -164,6 +188,7 @@ function summary(samples) {
     samples,
   };
 }
+
 export async function benchmark({
   runtime,
   baselineRuntime,
@@ -180,8 +205,10 @@ export async function benchmark({
     coldSamples: 20,
     rows: [],
   };
+
   if (resumeFrom) {
     const previous = JSON.parse(await readFile(resumeFrom, "utf8"));
+
     for (const key of [
       "node",
       "runtime",
@@ -191,6 +218,7 @@ export async function benchmark({
     ])
       assert.equal(previous[key], report[key], `Resume mismatch: ${key}`);
     const keys = new Set();
+
     for (const row of previous.rows) {
       const fixture = cases.find((candidate) => candidate.name === row.fixture);
       assert.ok(fixture, `Unknown resume fixture: ${row.fixture}`);
@@ -201,6 +229,7 @@ export async function benchmark({
       const key = `${row.fixture}/${row.operation}/${row.mode}`;
       assert.ok(!keys.has(key), `Duplicate resume row: ${key}`);
       keys.add(key);
+
       for (const which of ["old", "native"]) {
         assert.equal(
           row[which].samples.length,
@@ -213,19 +242,23 @@ export async function benchmark({
         );
         assert.deepEqual(row[which], summary(row[which].samples));
       }
+
       assert.equal(row.medianRatio, row.native.median / row.old.median);
       assert.equal(row.p95Ratio, row.native.p95 / row.old.p95);
       assert.equal(row.pass, row.medianRatio <= 1.05 && row.p95Ratio <= 1.1);
     }
+
     // Keep every completed row, including failures; only incomplete rows rerun.
     report.rows = previous.rows;
     report.resumedFrom = path.resolve(resumeFrom);
     await writeFile(output, JSON.stringify(report, null, 2));
   }
+
   const entries = {
     old: await expose(baselineRuntime),
     native: await expose(runtime),
   };
+
   try {
     for (const fixture of cases)
       for (const operation of ["builder", ...(fixture.cli ? ["cli"] : [])])
@@ -240,6 +273,7 @@ export async function benchmark({
           )
             continue;
           const samples = { old: [], native: [] };
+
           const processes =
             mode === "warm"
               ? {
@@ -247,10 +281,12 @@ export async function benchmark({
                   native: child(entries.native, env),
                 }
               : null;
+
           const input =
             operation === "cli"
               ? { cli: fixture.cli }
               : { input: fixture.input };
+
           try {
             if (processes)
               for (let index = 0; index < 3; index++)
@@ -259,14 +295,17 @@ export async function benchmark({
                   : ["old", "native"])
                   await processes[which].run(input);
             const count = mode === "warm" ? 30 : 20;
+
             for (let index = 0; index < count; index++)
               for (const which of index % 2
                 ? ["native", "old"]
                 : ["old", "native"]) {
                 let ms;
+
                 if (processes) ms = await processes[which].run(input);
                 else {
                   const started = performance.now();
+
                   if (operation === "cli")
                     await exec(
                       process.execPath,
@@ -289,14 +328,17 @@ export async function benchmark({
                     );
                   else {
                     const isolated = child(entries[which], env);
+
                     try {
                       await isolated.run(input);
                     } finally {
                       await isolated.close();
                     }
                   }
+
                   ms = performance.now() - started;
                 }
+
                 samples[which].push(ms);
               }
           } finally {
@@ -305,8 +347,10 @@ export async function benchmark({
               await processes.native.close();
             }
           }
+
           const old = summary(samples.old),
             native = summary(samples.native);
+
           const row = {
             fixture: fixture.name,
             operation,
@@ -316,6 +360,7 @@ export async function benchmark({
             medianRatio: native.median / old.median,
             p95Ratio: native.p95 / old.p95,
           };
+
           row.pass = row.medianRatio <= 1.05 && row.p95Ratio <= 1.1;
           report.rows.push(row);
           await writeFile(output, JSON.stringify(report, null, 2));
@@ -332,7 +377,9 @@ export async function benchmark({
       Object.values(entries).map((entry) => rm(entry, { force: true })),
     );
   }
+
   report.pass = report.rows.every((row) => row.pass);
   await writeFile(output, JSON.stringify(report, null, 2));
+
   return report;
 }

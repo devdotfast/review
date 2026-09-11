@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "tsdown";
 
 const packageRoot = dirname(fileURLToPath(import.meta.url));
+
 const cliPath = resolve(packageRoot, "dist", "cli.js");
+
 const desktopHostPath = resolve(
   packageRoot,
   "dist",

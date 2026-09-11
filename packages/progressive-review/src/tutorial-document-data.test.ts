@@ -23,9 +23,11 @@ describe("tutorial review document data", () => {
     const packageRoot = path.resolve(import.meta.dirname, "..");
     const tutorialDir = path.join(packageRoot, "tutorial");
     await stat(path.join(tutorialDir, "git-stub", "HEAD"));
+
     const temporaryRoot = await mkdtemp(
       path.join(os.tmpdir(), "review-tutorial-document-data-"),
     );
+
     try {
       const sourceRootPath = path.join(temporaryRoot, "sample-service");
       await cp(path.join(tutorialDir, "sample-service"), sourceRootPath, {
@@ -40,6 +42,7 @@ describe("tutorial review document data", () => {
       const base = await resolveRevision(sourceRootPath, "main~1");
       expect(head).not.toBeNull();
       expect(base).not.toBeNull();
+
       const review = await createReviewDir({
         reviewsHomePath: temporaryRoot,
         worktreePath: sourceRootPath,
@@ -48,6 +51,7 @@ describe("tutorial review document data", () => {
         sourceCommit: head!.commit,
         sourceIdentity: { kind: "git-branch", name: "main" },
       });
+
       await Promise.all(
         ["review.mdx", "data.ts", "authoring-conversation.json"].map((name) =>
           cp(path.join(tutorialDir, name), path.join(review.dir, name)),
@@ -121,14 +125,19 @@ describe("tutorial review document data", () => {
 function collectInlineAnchorIds(value: JsonValue, ids: Set<string>): void {
   if (Array.isArray(value)) {
     for (const child of value) collectInlineAnchorIds(child, ids);
+
     return;
   }
+
   if (!isJsonObject(value)) return;
+
   const anchorId =
     jsonString(value.__kind) === "db-anchor-ref"
       ? jsonString(value.id)
       : undefined;
+
   if (anchorId !== undefined) ids.add(anchorId);
+
   for (const child of Object.values(value)) {
     collectInlineAnchorIds(child, ids);
   }

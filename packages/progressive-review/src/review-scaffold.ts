@@ -106,11 +106,14 @@ export async function runReviewScaffold(
     const existing = await span("scaffold: find update target", () =>
       findUpdateTarget(input.cwd, input.reviewUuid),
     );
+
     if (existing) {
       await input.onReviewBound?.(existing.review.uuid);
+
       return span("scaffold: repin", () => repinReview(existing, input));
     }
   }
+
   return span("scaffold: create", () => createReview(input));
 }
 
@@ -120,32 +123,40 @@ async function createReview(
   const source = await span("scaffold: resolve source", () =>
     resolveReviewSource(input),
   );
+
   if (!source.subject.headRef) {
     throw new Error("Review scaffold requires a resolved source head.");
   }
+
   const sourceHead = source.subject.headRef;
+
   if (isPositionalChangeIdentity(sourceHead)) {
     throw new Error(
       "The checkout has no branch, bookmark, or change id to bind the review to. Check one out or pass --head <ref>.",
     );
   }
+
   const sourceHeadCommit = await resolveRequiredRevision(
     source.reviewRoot,
     sourceHead,
     "source",
   );
+
   const sourceIdentity: ReviewSourceIdentity | null =
     source.subject.pullRequestNumber != null
       ? { kind: "git-branch", name: sourceHead }
       : await changeIdentityForRevision(source.reviewRoot, sourceHead);
+
   if (!sourceIdentity) {
     throw new Error(`Source identity ${sourceHead} does not resolve uniquely.`);
   }
+
   if (!input.newReview) {
     await span("scaffold: reject duplicate reviews", () =>
       rejectDuplicateActiveReviews(source.reviewRoot, sourceIdentity),
     );
   }
+
   const baseCommit = await span("scaffold: resolve fork point", () =>
     resolveForkPoint(
       source.reviewRoot,
@@ -153,6 +164,7 @@ async function createReview(
       sourceHeadCommit,
     ),
   );
+
   const uuid = createReviewUuid();
   const sourceHeadRef = reviewSourceHeadRef(uuid);
   // The review pins the bound head commit. The working tree never
@@ -163,6 +175,7 @@ async function createReview(
     sourceHeadCommit,
   );
   const sourceCommit = sourceHeadCommit;
+
   const setup = await span("scaffold: materialize pinned worktrees", () =>
     materializeReviewSetup({
       reviewRoot: source.reviewRoot,
@@ -173,16 +186,20 @@ async function createReview(
       background: input.background,
     }),
   );
+
   const invokingAgent = resolveAuthoringSessionRef(input.env ?? process.env);
   let sourceAgentSession: string | null = null;
+
   if (invokingAgent) {
     if (!setup.headRootPath) {
       throw new Error(
         "Review scaffold cannot create a source session without its managed head checkout.",
       );
     }
+
     // Narrowing does not survive into the span callback; pin the path first.
     const headRootPath = setup.headRootPath;
+
     const frozen = await span(
       "scaffold: fork agent session",
       () =>
@@ -193,9 +210,12 @@ async function createReview(
         }),
       invokingAgent.harness,
     );
+
     sourceAgentSession = authoringSessionKey(frozen);
   }
+
   let created: StoredReview;
+
   try {
     created = await span("scaffold: create review dir", () =>
       createReviewDir({
@@ -219,7 +239,9 @@ async function createReview(
     await deleteReviewSourceHeadRef(source.reviewRoot, sourceHeadRef);
     throw error;
   }
+
   await input.onReviewBound?.(created.review.uuid);
+
   const traceSetup = await span("scaffold: agent traces", () =>
     discoverAndPullScaffoldTraces({
       rootPath: source.reviewRoot,
@@ -228,7 +250,9 @@ async function createReview(
       progress: input.progress,
     }),
   );
+
   setup.warnings.push(...traceSetup.warnings);
+
   const event: ReviewScaffoldEvent = {
     ...(await span("scaffold: review info event", () =>
       reviewInfoEvent([created]),
@@ -240,6 +264,7 @@ async function createReview(
     },
     traces: traceSetup.traces,
   };
+
   return setup.warnings.length > 0
     ? { ...event, warnings: setup.warnings }
     : event;
@@ -261,6 +286,7 @@ export async function repinReview(
   const oldBaseCommit = review.review.baseCommit;
   let sourceIdentity = targetSourceIdentity ?? review.review.sourceIdentity;
   let sourceBranch = sourceIdentity?.name;
+
   if (
     !sourceIdentity ||
     !sourceBranch ||
@@ -270,7 +296,9 @@ export async function repinReview(
       `Review ${uuid} has no bound change to update from. Run \`review rebind\` first.`,
     );
   }
+
   let defaultBaseRef = review.review.baseRef;
+
   if (review.review.pullRequestNumber != null) {
     const source = await span("scaffold: resolve source", () =>
       resolveReviewSource({
@@ -281,23 +309,30 @@ export async function repinReview(
         baseRef: input.baseRef,
       }),
     );
+
     if (!source.subject.headRef) {
       throw new Error("Review update requires a resolved source head.");
     }
+
     sourceBranch = source.subject.headRef;
     sourceIdentity = { kind: "git-branch", name: sourceBranch };
     defaultBaseRef = source.subject.baseRef;
   }
+
   const headCommit = await resolveRequiredRevision(
     root,
     sourceBranch,
     "source",
   );
+
   const baseRef = input.baseRef?.trim() || defaultBaseRef;
+
   const baseCommit = await span("scaffold: resolve fork point", () =>
     resolveForkPoint(root, baseRef, headCommit),
   );
+
   const sourceCommit = headCommit;
+
   const setup = await span("scaffold: materialize pinned worktrees", () =>
     materializeReviewSetup({
       reviewRoot: root,
@@ -308,19 +343,23 @@ export async function repinReview(
       background: input.background,
     }),
   );
+
   const invokingAgent = resolveAuthoringSessionRef(input.env ?? process.env);
   let sourceSession = DISABLED_REVIEW_SOURCE_SESSION;
+
   if (invokingAgent) {
     if (!setup.headRootPath) {
       throw new Error(
         "Review update cannot create a source session without its managed head checkout.",
       );
     }
+
     // The fork belongs to the same unit of work as the pin. A Review whose
     // Ask Agent cannot answer is not a usable Review, so a failure here fails
     // the update and leaves the stored pins untouched.
     // Narrowing does not survive into the span callback; pin the path first.
     const headRootPath = setup.headRootPath;
+
     const frozen = await span(
       "scaffold: fork agent session",
       () =>
@@ -331,9 +370,12 @@ export async function repinReview(
         }),
       invokingAgent.harness,
     );
+
     sourceSession = authoringSessionKey(frozen);
   }
+
   await pinReviewSourceHeadRef(root, reviewSourceHeadRef(uuid), headCommit);
+
   const updated = await span("scaffold: update review pins", () =>
     updateReviewPins(review, {
       baseRef,
@@ -343,6 +385,7 @@ export async function repinReview(
       sourceSession,
     }),
   );
+
   await span("scaffold: report range staleness", () =>
     reportRangeStaleness({
       review: updated,
@@ -353,11 +396,13 @@ export async function repinReview(
       progress: input.progress,
     }),
   ).catch(() => undefined);
+
   if (updated !== review && updated.review.status === "awaiting-review") {
     setup.warnings.push(
       "Pins moved under a published revision. Publish again to present the new commits.",
     );
   }
+
   const traceSetup = await span("scaffold: agent traces", () =>
     discoverAndPullScaffoldTraces({
       rootPath: root,
@@ -366,7 +411,9 @@ export async function repinReview(
       progress: input.progress,
     }),
   );
+
   setup.warnings.push(...traceSetup.warnings);
+
   const event: ReviewScaffoldEvent = {
     ...(await span("scaffold: review info event", () =>
       reviewInfoEvent([updated]),
@@ -378,6 +425,7 @@ export async function repinReview(
     },
     traces: traceSetup.traces,
   };
+
   return setup.warnings.length > 0
     ? { ...event, warnings: setup.warnings }
     : event;
@@ -388,14 +436,19 @@ function reportTraceSessionsProgress(
   progress?: (message: string) => void,
 ): void {
   if (!progress) return;
+
   if (sessions.length === 0) {
     progress("Sessions: none recorded for this change range");
+
     return;
   }
+
   progress("Sessions:");
+
   for (const s of sessions) {
     const shortId =
       s.sessionId.length > 8 ? `${s.sessionId.slice(0, 8)}…` : s.sessionId;
+
     const harness =
       s.harness === "claude-code"
         ? "Claude Code"
@@ -404,6 +457,7 @@ function reportTraceSessionsProgress(
           : s.harness === "pi"
             ? "Pi"
             : "unknown";
+
     const syncLabel = s.available ? "[S3/R2 synced]" : "[not synced]";
     progress(`  ${shortId} (${harness})  ${syncLabel}`);
   }
@@ -422,6 +476,7 @@ async function discoverAndPullScaffoldTraces(input: {
   }
 
   let resolvedSessions: ReviewAgentTraceSession[];
+
   try {
     resolvedSessions = await span("scaffold: list trace sessions", () =>
       listReviewTraceSessions(input),
@@ -436,12 +491,15 @@ async function discoverAndPullScaffoldTraces(input: {
 
   reportTraceSessionsProgress(resolvedSessions, input.progress);
   const sessions = resolvedSessions.map(scaffoldTraceSession);
+
   const availableSessions = resolvedSessions.filter(
     (session) => session.available,
   );
+
   const unavailableSessions = resolvedSessions
     .filter((session) => !session.available)
     .map((session) => session.sessionId);
+
   if (availableSessions.length === 0) {
     return {
       traces: emptyScaffoldTraces(sessions, unavailableSessions),
@@ -451,6 +509,7 @@ async function discoverAndPullScaffoldTraces(input: {
 
   try {
     const repo = await inferRepoFromGit(input.rootPath);
+
     const pulled = await span(
       "scaffold: pull trace corpus",
       () =>
@@ -463,6 +522,7 @@ async function discoverAndPullScaffoldTraces(input: {
         }),
       `${availableSessions.length} sessions`,
     );
+
     const traces: ReviewScaffoldTraces = {
       sessions,
       corpusRoot: pulled.corpusRoot,
@@ -475,7 +535,9 @@ async function discoverAndPullScaffoldTraces(input: {
       files: pulled.files,
       paths: pulled.paths,
     };
+
     reportTracePathsProgress(traces, input.progress);
+
     return { traces, warnings: [] };
   } catch (error) {
     return traceSetupFailure(
@@ -520,6 +582,7 @@ function traceSetupFailure(
   progress?: (message: string) => void,
 ) {
   progress?.(`Warning: ${warning}`);
+
   return {
     traces: emptyScaffoldTraces(
       sessions,
@@ -534,11 +597,15 @@ function reportTracePathsProgress(
   progress?: (message: string) => void,
 ): void {
   if (!progress) return;
+
   if (traces.paths.length === 0) {
     progress("Trace paths: none materialized");
+
     return;
   }
+
   progress("Trace paths:");
+
   for (const tracePath of traces.paths) {
     progress(`  ${tracePath}`);
   }
@@ -552,11 +619,13 @@ async function rejectDuplicateActiveReviews(
     worktreePath: reviewRoot,
     reportUnreadableReviews: true,
   });
+
   if (listed.errors.length > 0) {
     throw new Error(
       `Could not read reviews:\n${listed.errors.map((error) => error.message).join("\n")}`,
     );
   }
+
   const matches = listed.reviews.filter(
     ({ review }) =>
       review.status !== "accepted" &&
@@ -564,6 +633,7 @@ async function rejectDuplicateActiveReviews(
       review.sourceIdentity?.kind === sourceIdentity.kind &&
       review.sourceIdentity.name === sourceIdentity.name,
   );
+
   if (matches.length === 0) return;
   const uuids = matches.map(({ review }) => review.uuid).join(", ");
   throw new Error(
@@ -583,44 +653,58 @@ async function findUpdateTarget(
   reviewUuid: string | undefined,
 ): Promise<StoredReview | null> {
   const reviewRoot = await resolveReviewRoot(cwd);
+
   if (reviewUuid) {
     const selected = await findScopedReview(reviewUuid, {
       worktreePath: reviewRoot,
     });
+
     if (!selected) throw new Error(`Active review not found: ${reviewUuid}`);
+
     return selected;
   }
+
   const listed = await listReviews({
     worktreePath: reviewRoot,
     reportUnreadableReviews: true,
   });
+
   if (listed.errors.length > 0) {
     throw new Error(
       `Could not read reviews:\n${listed.errors.map((error) => error.message).join("\n")}`,
     );
   }
+
   const active = listed.reviews.filter(
     (review) =>
       review.review.status !== "accepted" &&
       review.review.status !== "rejected",
   );
+
   const checkout = await currentHead(reviewRoot).catch(() => null);
+
   if (!checkout) return null;
   const scoped: StoredReview[] = [];
+
   for (const review of active) {
     const binding = review.review.sourceIdentity?.name;
+
     if (!binding || isPositionalChangeIdentity(binding)) continue;
     const tip = await resolveRevision(reviewRoot, binding).catch(() => null);
+
     if (!tip) continue;
+
     if (tip.commit === checkout.commit) {
       scoped.push(review);
       continue;
     }
+
     const ancestor = await mergeBase({
       rootPath: reviewRoot,
       baseRef: tip.commit,
       headRef: checkout.commit,
     }).catch(() => null);
+
     if (
       ancestor &&
       (ancestor.commit === tip.commit || ancestor.commit === checkout.commit)
@@ -628,9 +712,11 @@ async function findUpdateTarget(
       scoped.push(review);
     }
   }
+
   if (scoped.length > 1) {
     throw new Error("Multiple active reviews require --review <uuid>.");
   }
+
   return scoped[0] ?? null;
 }
 
@@ -649,25 +735,30 @@ async function materializeReviewSetup(input: {
   baseRootPath?: string;
 }> {
   const warnings: string[] = [];
+
   const prepareCommands = await devfastPrepareCommands(input.reviewRoot).catch(
     (): string[] => [],
   );
+
   if (prepareCommands.length === 0) {
     warnings.push(
       "devfast.prepare is not configured. Configure it (git config devfast.prepare '<command>') and run `review scaffold --update` to prepare pinned worktrees.",
     );
   }
+
   const pins = [
     { role: "head" as const, commit: input.headCommit },
     ...(input.baseCommit && input.baseCommit !== input.headCommit
       ? [{ role: "base" as const, commit: input.baseCommit }]
       : []),
   ];
+
   for (const pin of pins) {
     input.progress?.(
       `Review scaffold prepares the pinned-${pin.role} worktree.`,
     );
   }
+
   const results = await Promise.all(
     pins.map(async (pin) => {
       try {
@@ -684,20 +775,25 @@ async function materializeReviewSetup(input: {
             }),
           pin.commit,
         );
+
         return { role: pin.role, checkoutPath };
       } catch (error) {
         warnings.push(
           `Pinned-${pin.role} worktree creation failed. Review will retry it: ${errorMessage(error)}`,
         );
+
         return { role: pin.role, checkoutPath: undefined };
       }
     }),
   );
+
   const headRootPath = results.find((r) => r.role === "head")?.checkoutPath;
+
   const baseRootPath =
     !input.baseCommit || input.baseCommit === input.headCommit
       ? headRootPath
       : results.find((r) => r.role === "base")?.checkoutPath;
+
   return { warnings: [...new Set(warnings)], headRootPath, baseRootPath };
 }
 
@@ -710,15 +806,18 @@ async function reportRangeStaleness(input: {
   progress?: (message: string) => void;
 }): Promise<void> {
   if (!input.progress) return;
+
   const evaluated = await span("staleness: build document", () =>
     buildReviewDocument({
       reviewPath: path.join(input.review.dir, "review.mdx"),
       ranges: "skip",
     }),
   );
+
   if (!evaluated.document) return;
 
   const changedBySide = new Map<"head" | "base", Set<string>>();
+
   const changes = [
     {
       side: "head" as const,
@@ -731,13 +830,16 @@ async function reportRangeStaleness(input: {
       newCommit: input.newBaseCommit,
     },
   ];
+
   for (const change of changes) {
     if (!change.oldCommit || change.oldCommit === change.newCommit) continue;
+
     const diff = await diffNameStatusTrees({
       rootPath: input.review.review.worktreePath,
       baseRef: change.oldCommit,
       headRef: change.newCommit,
     });
+
     changedBySide.set(
       change.side,
       new Set([...diff.changedFiles, ...diff.deletedFiles]),
@@ -746,6 +848,7 @@ async function reportRangeStaleness(input: {
 
   for (const peek of evaluated.rangePeeks) {
     const side = peek.graph ?? "head";
+
     if (!changedBySide.get(side)?.has(peek.file)) continue;
     input.progress(
       `anchor \`${peek.anchorId ?? "unknown"}\`: \`${peek.file}\` changed between pins — re-read and adjust the range.`,
@@ -767,16 +870,19 @@ async function resolveForkPoint(
     baseRef,
     "base",
   );
+
   const forkPoint = await mergeBase({
     rootPath,
     baseRef: resolvedBaseCommit,
     headRef: headCommit,
   });
+
   if (!forkPoint) {
     throw new Error(
       `No merge base exists between review base ${baseRef} and head ${headCommit}. The histories share no common ancestor.`,
     );
   }
+
   return forkPoint.commit;
 }
 
@@ -786,8 +892,10 @@ async function resolveRequiredRevision(
   label: string,
 ): Promise<string> {
   const resolved = await resolveRevision(rootPath, ref);
+
   if (!resolved) {
     throw new Error(`Review ${label} revision does not exist: ${ref}`);
   }
+
   return resolved.commit;
 }

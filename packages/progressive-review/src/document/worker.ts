@@ -16,12 +16,16 @@ import type {
 // Authored module caches, globals and hooks never survive a publication.
 if (isMainThread || !parentPort)
   throw new Error("Document construction requires a disposable worker.");
+
 const input: DocumentWorkerInput = workerData;
+
 const port = parentPort;
+
 const rpc = createBirpc<DocumentWorkerCallbacks, DocumentWorkerApi>(
   {
     async build(): Promise<DocumentWorkerResult> {
       const diagnostics: ReviewDocumentDiagnostic[] = [];
+
       const result = await evaluateReviewDocumentForPublish(
         {
           ranges: input.ranges,
@@ -32,6 +36,7 @@ const rpc = createBirpc<DocumentWorkerCallbacks, DocumentWorkerApi>(
         },
         (runtime) => loadDocumentModule(input, runtime, diagnostics),
       );
+
       return { result, diagnostics };
     },
   },

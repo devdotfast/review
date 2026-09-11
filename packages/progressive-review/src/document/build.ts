@@ -20,6 +20,7 @@ export interface DocumentBuildInput extends ReviewPublishEvaluationInput {
   signal?: AbortSignal;
   typecheck?: "document" | "review";
 }
+
 export interface DocumentBuildResult extends ReviewPublishEvaluationResult {
   diagnostics: ReviewDocumentDiagnostic[];
 }
@@ -31,10 +32,12 @@ export async function buildReviewDocument(
   input.signal?.throwIfAborted();
   const source = await readFile(input.reviewPath, "utf8");
   let syntax: DocumentSyntax;
+
   try {
     syntax = await parser(source);
   } catch (error) {
     if (!(error instanceof DocumentParseError)) throw error;
+
     return {
       document: null,
       errors: [],
@@ -54,6 +57,7 @@ export async function buildReviewDocument(
       ],
     };
   }
+
   const { diagnostics, runtimeBindings, typeOnlyExports } = checkReviewDocument(
     {
       filePath: input.reviewPath,
@@ -62,6 +66,7 @@ export async function buildReviewDocument(
       typecheck: input.typecheck,
     },
   );
+
   if (diagnostics.some((diagnostic) => diagnostic.severity === "error"))
     return {
       document: null,
@@ -72,6 +77,7 @@ export async function buildReviewDocument(
       rangePeeks: [],
     };
   input.signal?.throwIfAborted();
+
   const result = await runDocumentWorker(
     {
       reviewPath: input.reviewPath,
@@ -86,6 +92,7 @@ export async function buildReviewDocument(
     input,
     input.signal,
   );
+
   return {
     ...result.result,
     diagnostics: [...diagnostics, ...result.diagnostics],

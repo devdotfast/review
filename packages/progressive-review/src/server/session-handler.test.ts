@@ -502,7 +502,10 @@ describe("createReviewSessionHandler", () => {
     // Two stand-in "pinned checkouts". The fake resolver hands out the next
     // one on every call, so a re-resolution is observable both by count and
     // by which root served the peek.
-    const roots = [path.join(rootPath, "head-1"), path.join(rootPath, "head-2")];
+    const roots = [
+      path.join(rootPath, "head-1"),
+      path.join(rootPath, "head-2"),
+    ];
     for (const root of roots) {
       await mkdir(root);
       await writeFile(path.join(root, "src.ts"), "line 1\nline 2\nline 3\n");
@@ -562,6 +565,76 @@ describe("createReviewSessionHandler", () => {
       const afterRemoval = await resolvePeek();
       expect(afterRemoval.status).toBe(200);
       expect(await afterRemoval.json()).toMatchObject({ ok: true });
+      expect(resolutions).toBe(2);
+    } finally {
+      await handler.close();
+    }
+  });
+
+  it("retries live source target resolution after a failed attempt", async () => {
+    const rootPath = await tempDir("review-live-source-target-retry-");
+    const reviewPath = path.join(rootPath, "review.mdx");
+    await writeFile(reviewPath, "# Review");
+    const headRoot = path.join(rootPath, "head");
+    await mkdir(headRoot);
+    await writeFile(path.join(headRoot, "src.ts"), "line 1\nline 2\n");
+    let resolutions = 0;
+    const handler = await createReviewSessionHandler({
+      ...unusedAgentServices,
+      rootPath,
+      toolingRoot: rootPath,
+      reviewPath,
+      routePath: "/",
+      token: "secret",
+      reviewUuid: "11111111-1111-4111-8111-111111111111",
+      resolveSourceTarget: async () => {
+        resolutions += 1;
+        if (resolutions === 1) throw new Error("git is busy");
+        return {
+          repoRoot: rootPath,
+          sourceRootPath: headRoot,
+          diffRootPath: rootPath,
+        };
+      },
+      session: {
+        rootPath,
+        baseRef: "HEAD",
+        appUrl: "http://127.0.0.1:5570",
+        reviewPath,
+        startedAt: Date.now(),
+      },
+    });
+    const resolvePeek = () =>
+      handler.handle(
+        new Request(
+          "http://127.0.0.1:5570/__progressive-review/code-peek/resolve",
+          {
+            method: "POST",
+            headers: {
+              "x-review-token": "secret",
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              root: { kind: "range", file: "src.ts", fromLine: 1, toLine: 1 },
+              graph: "head",
+              includeDiff: false,
+              includeDiffSummary: false,
+            }),
+          },
+        ),
+      );
+    try {
+      const failed = await resolvePeek();
+      expect(failed.status).not.toBe(200);
+      expect(await failed.json()).toMatchObject({
+        ok: false,
+        error: "git is busy",
+      });
+      const retried = await resolvePeek();
+      expect(retried.status).toBe(200);
+      expect(resolutions).toBe(2);
+      const cached = await resolvePeek();
+      expect(cached.status).toBe(200);
       expect(resolutions).toBe(2);
     } finally {
       await handler.close();

@@ -3,76 +3,186 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-/** Lossless subset of diffr's v1 domain wire used by the native experiment. */
-export interface StructuralRange {
-  start: { line: number; byte_column: number };
-  end: { line: number; byte_column: number };
+/**
+ * diffr's v2 wire as the native experiment reads it. Lines are 0-based and
+ * split on `\n` only; columns are byte offsets into the wire text; ranges
+ * are half-open. Sides are `lhs` (base) and `rhs` (head), and a pairing
+ * carries whichever sides exist.
+ */
+export const STRUCTURAL_WIRE_VERSION = 2;
+
+export interface StructuralPairing<T> {
+  lhs?: T;
+  rhs?: T;
 }
-export interface StructuralFold {
-  range: StructuralRange;
-  tags: string[];
-  placeholder: string;
-  match_kind: "Novel" | { Unchanged: { opposite: StructuralRange } };
+export interface StructuralProblem {
+  code: string;
+  message: string;
 }
-export interface StructuralPosition {
-  pos: { line: number; start_col: number; end_col: number };
-  kind: Record<string, { highlight: unknown }>;
+export interface StructuralPos {
+  line: number;
+  column: number;
 }
-export interface StructuralDiff {
-  lhs_src: { Text: string } | "Binary";
-  rhs_src: { Text: string } | "Binary";
-  hunks: { lines: [number | null, number | null][]; novel_lhs: number[]; novel_rhs: number[] }[];
-  aligned_rows?: [number | null, number | null][];
-  lhs_folds: StructuralFold[];
-  rhs_folds: StructuralFold[];
-  lhs_positions: StructuralPosition[];
-  rhs_positions: StructuralPosition[];
+export interface StructuralSpan {
+  line: number;
+  start_column: number;
+  end_column: number;
 }
-export interface StructuralFileEvent {
-  type: "file";
-  file: { old_path: string | null; new_path: string | null };
-  diff: StructuralDiff;
+export interface StructuralVisibility {
+  collapsed?: boolean;
+  label?: string;
+}
+/**
+ * One range on one side. The same `id` on the other side is its
+ * counterpart. Leaves tile the file in order; a fold's range is the hull of
+ * its children.
+ */
+export type StructuralRegion = {
+  id: number;
+  start: StructuralPos;
+  end: StructuralPos;
+  tags?: string[];
+  visibility?: StructuralVisibility;
+} & ({ kind: "leaf"; changed?: StructuralSpan[] } | { kind: "fold"; children: StructuralRegion[] });
+export interface StructuralSyntaxSpan extends StructuralSpan {
+  capture: string;
+}
+export interface StructuralSource {
+  text: string;
+  syntax?: StructuralSyntaxSpan[];
+  regions?: StructuralRegion[];
+}
+export interface StructuralLineCounts {
+  added: number;
+  removed: number;
+}
+export interface StructuralStats {
+  textual: StructuralLineCounts;
+  structural?: StructuralLineCounts;
+  fallback?: StructuralProblem;
+}
+export type StructuralTextDiff = { type: "text"; stats: StructuralStats } & StructuralPairing<StructuralSource>;
+export type StructuralBinaryDiff = { type: "binary" } & StructuralPairing<{ size: number }>;
+export type StructuralDiff = StructuralTextDiff | StructuralBinaryDiff;
+export interface StructuralFileRef {
+  path: string;
+  oid: string;
+  mode: string;
+}
+export interface StructuralFileChange {
+  file: StructuralPairing<StructuralFileRef>;
+  status: "added" | "deleted" | "modified" | "renamed" | "copied" | "type_changed";
+  category?: string;
+  language?: string;
+  visibility?: StructuralVisibility;
+}
+export type StructuralEvent =
+  | { type: "start"; version: number; files: StructuralFileChange[] }
+  | { type: "file"; file: StructuralPairing<StructuralFileRef>; diff?: StructuralDiff; error?: StructuralProblem }
+  | { type: "complete"; succeeded: number; failed: number; aborted?: StructuralProblem };
+
+/** Review keys a file by its head path, or its base path for a deletion. */
+export function structuralFilePath(file: StructuralPairing<StructuralFileRef>): string {
+  const path = file.rhs?.path ?? file.lhs?.path;
+  if (path === undefined) throw new Error("diffr sent a file with no side.");
+  return path;
 }
 
-/** Monaco keeps a final empty line after a newline; the wire need not mention it. */
-export function structuralRows(diff: StructuralDiff): [number | null, number | null][] {
-  if (diff.lhs_src === "Binary" || diff.rhs_src === "Binary") return [];
-  const leftCount = diff.lhs_src.Text.split("\n").length;
-  const rightCount = diff.rhs_src.Text.split("\n").length;
-  const result: [number | null, number | null][] = [];
-  let left = 0,
-    right = 0;
-  function gap(leftEnd: number, rightEnd: number) {
-    while (left < leftEnd || right < rightEnd) {
-      result.push([left < leftEnd ? left++ : null, right < rightEnd ? right++ : null]);
+/** The 0-based, half-open line span a region touches. An end at column 0 does not touch its end line. */
+export function regionLines(region: StructuralRegion): { start: number; end: number } {
+  return { start: region.start.line, end: region.end.column === 0 ? region.end.line : region.end.line + 1 };
+}
+
+export function structuralLeaves(regions: readonly StructuralRegion[] | undefined): StructuralRegion[] {
+  const leaves: StructuralRegion[] = [];
+  const walk = (region: StructuralRegion) => {
+    if (region.kind === "leaf") leaves.push(region);
+    else for (const child of region.children) walk(child);
+  };
+  for (const region of regions ?? []) walk(region);
+  return leaves;
+}
+
+/**
+ * Every region that can hide lines, in order: folds, and leaves that start
+ * collapsed (context gaps). One fold model serves both; the editor never
+ * distinguishes a syntax fold from a gap.
+ */
+export function structuralFoldingRegions(regions: readonly StructuralRegion[] | undefined): StructuralRegion[] {
+  const result: StructuralRegion[] = [];
+  const walk = (region: StructuralRegion) => {
+    if (region.kind === "fold") {
+      result.push(region);
+      for (const child of region.children) walk(child);
+    } else if (region.visibility?.collapsed) {
+      result.push(region);
     }
-  }
-  for (const lines of diff.aligned_rows ? [diff.aligned_rows] : diff.hunks.map(hunk => hunk.lines)) {
-    for (const [l, r] of lines) {
-      // Context in neighboring hunks can overlap. Consumed rows must agree.
-      if ((l === null || l < left) && (r === null || r < right)) continue;
-      if ((l !== null && l < left) || (r !== null && r < right)) {
-        throw new Error("diffr supplied conflicting hunk alignment.");
-      }
-      if ((l !== null && l >= leftCount) || (r !== null && r >= rightCount)) {
-        throw new Error("diffr alignment exceeds the source.");
-      }
-      gap(l ?? left, r ?? right);
-      result.push([l, r]);
-      if (l !== null) left = l + 1;
-      if (r !== null) right = r + 1;
-    }
-  }
-  gap(leftCount, rightCount);
+  };
+  for (const region of regions ?? []) walk(region);
   return result;
 }
 
+/** Monaco keeps a final empty line after a newline; the wire need not mention it. */
+function monacoLineCount(source: StructuralSource | undefined): number {
+  return source ? source.text.split("\n").length : 0;
+}
+
+/**
+ * Zips the two sides' leaves by id into the full row table. Paired leaves
+ * yield rows line for line; an unpaired leaf, or a paired leaf whose partner
+ * already went by (a move), yields one-sided rows. Rows past the last leaf
+ * pair the trailing empty lines Monaco keeps.
+ */
+export function structuralRows(diff: StructuralTextDiff): [number | null, number | null][] {
+  const lhsLeaves = structuralLeaves(diff.lhs?.regions);
+  const rhsLeaves = structuralLeaves(diff.rhs?.regions);
+  const leftCount = monacoLineCount(diff.lhs);
+  const rightCount = monacoLineCount(diff.rhs);
+  const rows: [number | null, number | null][] = [];
+  let left = 0,
+    right = 0;
+  const push = (l: number | null, r: number | null) => {
+    if ((l !== null && l !== left) || (r !== null && r !== right)) {
+      throw new Error("diffr regions do not tile the file in order.");
+    }
+    if ((l !== null && l >= leftCount) || (r !== null && r >= rightCount)) {
+      throw new Error("diffr alignment exceeds the source.");
+    }
+    rows.push([l, r]);
+    if (l !== null) left = l + 1;
+    if (r !== null) right = r + 1;
+  };
+  const oneSided = (leaf: StructuralRegion, side: 0 | 1) => {
+    const lines = regionLines(leaf);
+    for (let line = lines.start; line < lines.end; line++) push(side === 0 ? line : null, side === 1 ? line : null);
+  };
+  const rhsIndex = new Map(rhsLeaves.map((leaf, index) => [leaf.id, index] as const));
+  let cursor = 0;
+  for (const leaf of lhsLeaves) {
+    const partner = rhsIndex.get(leaf.id);
+    if (partner === undefined || partner < cursor) {
+      oneSided(leaf, 0);
+      continue;
+    }
+    while (cursor < partner) oneSided(rhsLeaves[cursor++], 1);
+    const a = regionLines(leaf);
+    const b = regionLines(rhsLeaves[partner]);
+    if (a.end - a.start !== b.end - b.start) throw new Error("diffr paired regions differ in length.");
+    for (let offset = 0; offset < a.end - a.start; offset++) push(a.start + offset, b.start + offset);
+    cursor = partner + 1;
+  }
+  while (cursor < rhsLeaves.length) oneSided(rhsLeaves[cursor++], 1);
+  while (left < leftCount || right < rightCount) {
+    rows.push([left < leftCount ? left++ : null, right < rightCount ? right++ : null]);
+  }
+  return rows;
+}
+
 /** Native folding retains the first source line and hides following whole lines. */
-export function nativeFoldRange(
-  range: StructuralRange,
-): { start: number; end: number } | undefined {
-  const start = range.start.line + 1;
-  const end = range.end.line + (range.end.byte_column === 0 ? 0 : 1);
+export function nativeFoldRange(region: StructuralRegion): { start: number; end: number } | undefined {
+  const lines = regionLines(region);
+  const start = lines.start + 1;
+  const end = lines.end;
   return end > start ? { start, end } : undefined;
 }
 
@@ -88,51 +198,37 @@ export function utf16Column(text: string, byteColumn: number): number {
   return units + 1;
 }
 
-/** Only engine-classified novel lines and spans receive change paint. Text inequality is layout-only. */
-export function structuralHighlights(diff: StructuralDiff) {
-  function side(source: StructuralDiff["lhs_src"], positions: StructuralPosition[]) {
-    if (source === "Binary") return [];
-    const lines = source.Text.replace(/\r\n/g, "\n").split("\n");
-    return positions.filter(p => "Novel" in p.kind || "NovelWord" in p.kind).map(({ pos }) => ({
-      startLineNumber: pos.line + 1,
-      startColumn: utf16Column(lines[pos.line], pos.start_col),
-      endLineNumber: pos.line + 1,
-      endColumn: utf16Column(lines[pos.line], pos.end_col),
-    }));
-  }
-  return {
-    original: side(diff.lhs_src, diff.lhs_positions),
-    modified: side(diff.rhs_src, diff.rhs_positions),
-    originalLines: [...new Set(diff.hunks.flatMap(hunk => hunk.novel_lhs))].map(line => line + 1),
-    modifiedLines: [...new Set(diff.hunks.flatMap(hunk => hunk.novel_rhs))].map(line => line + 1),
-  };
-}
-
-/** Omitted hunk rows remain available for explicit context expansion. */
-export function structuralContextGaps(diff: StructuralDiff) {
-  const selected = [new Set<number>(), new Set<number>()];
-  for (const hunk of diff.hunks) for (const row of hunk.lines)
-    row.forEach((line, side) => { if (line !== null) selected[side].add(line); });
-  const gaps: { originalStart: number; modifiedStart: number; originalCount: number; modifiedCount: number }[] = [];
-  let original = 1, modified = 1;
-  let gap: typeof gaps[number] | undefined;
-  let mask = "";
-  for (const [lhs, rhs] of structuralRows(diff)) {
-    const hideLeft = lhs !== null && !selected[0].has(lhs);
-    const hideRight = rhs !== null && !selected[1].has(rhs);
-    const nextMask = `${hideLeft}:${hideRight}`;
-    if (!hideLeft && !hideRight) { gap = undefined; mask = ""; }
-    else {
-      if (!gap || mask !== nextMask) {
-        gap = { originalStart: original, modifiedStart: modified, originalCount: 0, modifiedCount: 0 };
-        gaps.push(gap);
-        mask = nextMask;
+/**
+ * Change paint. A line with any `changed` span in its leaf gets the light
+ * whole-line tint; the spans themselves get the darker token tint. Text
+ * inequality alone never paints.
+ */
+export function structuralHighlights(diff: StructuralTextDiff) {
+  function side(source: StructuralSource | undefined) {
+    if (!source) return { spans: [], lines: [] };
+    const lines = source.text.replace(/\r\n/g, "\n").split("\n");
+    const changedLines = new Set<number>();
+    const spans = [];
+    for (const leaf of structuralLeaves(source.regions)) {
+      if (leaf.kind !== "leaf") continue;
+      for (const span of leaf.changed ?? []) {
+        changedLines.add(span.line + 1);
+        spans.push({
+          startLineNumber: span.line + 1,
+          startColumn: utf16Column(lines[span.line], span.start_column),
+          endLineNumber: span.line + 1,
+          endColumn: utf16Column(lines[span.line], span.end_column),
+        });
       }
-      if (hideLeft) gap.originalCount++;
-      if (hideRight) gap.modifiedCount++;
     }
-    if (lhs !== null) original = lhs + 2;
-    if (rhs !== null) modified = rhs + 2;
+    return { spans, lines: [...changedLines].sort((a, b) => a - b) };
   }
-  return gaps;
+  const original = side(diff.lhs);
+  const modified = side(diff.rhs);
+  return {
+    original: original.spans,
+    modified: modified.spans,
+    originalLines: original.lines,
+    modifiedLines: modified.lines,
+  };
 }

@@ -189,9 +189,19 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
       if (this.disposed) return;
       this.bindActiveControl(view);
       if (structural.load) {
-        void structural.load((path, error) => {
-          if (!this.disposed) view.fileLoaded(path, error);
-        }).catch(error => {
+        void structural.load(
+          (path, outcome) => {
+            if (!this.disposed) view.fileLoaded(path, outcome.error, outcome.stats);
+          },
+          (files) => {
+            if (this.disposed) return;
+            const hidden = new Map<string, string>();
+            for (const file of files) {
+              if (file.visibility?.collapsed) hidden.set(file.file.rhs?.path ?? file.file.lhs?.path ?? "", file.visibility.label ?? "Hidden by default");
+            }
+            view.setHiddenFiles(hidden);
+          },
+        ).catch(error => {
           if (!this.disposed) view.loadingFailed(error instanceof Error ? error.message : String(error));
         });
       }

@@ -1,12 +1,21 @@
 import type {
   ReviewCanvasSettingsContent,
   ReviewCliInstallStatus,
+  ReviewDiffrConfig,
+  ReviewDiffrConfigActions,
   ReviewKeymapChoice,
   ReviewThemeChoice,
 } from "@dev.fast/review-protocol";
+import { isStringValue } from "@dev.fast/review-protocol";
 import { type ReactNode, useEffect, useState } from "react";
 
 import { AgentSetupCard } from "./agent-setup-card";
+import {
+  type DiffrConfigField,
+  diffrConfigDefaultText,
+  diffrConfigFields,
+  diffrConfigInputValue,
+} from "./diffr-config-form";
 import { TraceCaptureSection } from "./trace-capture-section";
 
 const THEME_LABELS: Record<ReviewThemeChoice, string> = {
@@ -247,6 +256,9 @@ export function SettingsPage({
                 <span>{structuralDiffEnabled ? "On" : "Off"}</span>
               </label>
             </Row>
+            {structuralDiffEnabled ? (
+              <DiffrConfigSection actions={settings.diffrConfig} />
+            ) : null}
             <Row
               label="Software Map"
               description="Show the experimental Software Map view in reviews."
@@ -280,6 +292,153 @@ export function SettingsPage({
         </div>
       </div>
     </main>
+  );
+}
+
+/**
+ * diffr's own settings, one row per key the CLI's schema describes. The
+ * same file the diffr TUI edits, so a change here shows up there and back.
+ * Reads happen when the section mounts; a missing executable is shown in
+ * place, not thrown at the page.
+ */
+function DiffrConfigSection({
+  actions,
+}: {
+  actions: ReviewDiffrConfigActions;
+}) {
+  const [config, setConfig] = useState<ReviewDiffrConfig | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setConfig(null);
+    setError(null);
+    actions.read().then(
+      (loaded) => {
+        if (!cancelled) setConfig(loaded);
+      },
+      (cause: unknown) => {
+        if (!cancelled)
+          setError(cause instanceof Error ? cause.message : String(cause));
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [actions]);
+
+  const write = async (field: DiffrConfigField, text: string) => {
+    setBusy(field.key);
+    setError(null);
+    try {
+      setConfig(
+        await actions.set(field.key, diffrConfigInputValue(field, text)),
+      );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const fields = config ? diffrConfigFields(config.schema, config.values) : [];
+  return (
+    <div className="review-settings-diffr" aria-label="diffr settings">
+      <p className="review-settings-row-description review-settings-diffr-lede">
+        These settings belong to diffr and are shared with its terminal UI.
+      </p>
+      {config === null && error === null ? (
+        <p className="review-settings-unavailable">Reading diffr settings…</p>
+      ) : null}
+      {fields.map((field) => (
+        <Row
+          key={field.key}
+          label={field.key}
+          description={
+            diffrConfigDefaultText(field)
+              ? `${field.description} Default: ${diffrConfigDefaultText(field)}.`
+              : field.description
+          }
+        >
+          <DiffrConfigControl
+            field={field}
+            disabled={busy !== null}
+            onCommit={(text) => void write(field, text)}
+          />
+        </Row>
+      ))}
+      {error ? <p className="review-settings-error">{error}</p> : null}
+    </div>
+  );
+}
+
+function DiffrConfigControl({
+  field,
+  disabled,
+  onCommit,
+}: {
+  field: DiffrConfigField;
+  disabled: boolean;
+  onCommit: (text: string) => void;
+}) {
+  const current =
+    field.value === undefined || field.value === null
+      ? ""
+      : isStringValue(field.value)
+        ? field.value
+        : JSON.stringify(field.value);
+  const [draft, setDraft] = useState(current);
+  useEffect(() => setDraft(current), [current]);
+  if (field.kind === "boolean") {
+    return (
+      <label className="review-settings-toggle">
+        <input
+          type="checkbox"
+          aria-label={field.key}
+          checked={field.value === true}
+          disabled={disabled}
+          onChange={(event) => onCommit(String(event.target.checked))}
+        />
+        <span>{field.value === true ? "On" : "Off"}</span>
+      </label>
+    );
+  }
+  if (field.kind === "enum") {
+    return (
+      <select
+        className="review-settings-select"
+        aria-label={field.key}
+        value={current}
+        disabled={disabled}
+        onChange={(event) => onCommit(event.target.value)}
+      >
+        {field.choices.map((choice) => (
+          <option key={choice} value={choice}>
+            {choice}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  return (
+    <input
+      className="review-settings-input"
+      aria-label={field.key}
+      type={
+        field.secret ? "password" : field.kind === "number" ? "number" : "text"
+      }
+      autoComplete={field.secret ? "off" : undefined}
+      value={draft}
+      disabled={disabled}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => {
+        if (draft !== current) onCommit(draft);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" && draft !== current) onCommit(draft);
+      }}
+    />
   );
 }
 

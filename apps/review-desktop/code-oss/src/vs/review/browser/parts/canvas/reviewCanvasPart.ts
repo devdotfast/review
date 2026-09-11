@@ -937,6 +937,16 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				);
 				return this.currentStructuralDiffEnabled();
 			},
+			diffrConfig: {
+				read: () => this.sessionService.readDiffrConfig(),
+				set: (key, value) => {
+					this.reviewTelemetryService.capture("setting_changed", {
+						setting: "diffr_config",
+						enabled: true,
+					});
+					return this.sessionService.setDiffrConfigValue(key, value);
+				},
+			},
 			manageExtensions: () =>
 				void this.commandService.executeCommand("review.manageExtensions"),
 		};

@@ -23,6 +23,7 @@ import {
 	type ReviewCliInstallTarget,
 	type ReviewDescriptor,
 	type ReviewDesktopGlobalEvent,
+	type ReviewDiffrConfig,
 	type ReviewListError,
 	type ReviewSessionDescriptor,
 	type ReviewTutorialOpenResponse,
@@ -32,6 +33,7 @@ import {
 	parseReviewCliInstallStatus,
 	parseReviewDesktopGlobalEvent,
 	parseReviewDesktopVerbFrame,
+	parseReviewDiffrConfig,
 	parseReviewListResponse,
 	parseReviewOpenResponse,
 	parseReviewTutorialOpenResponse,
@@ -109,6 +111,8 @@ export interface IReviewSessionService {
 	restoreReview(uuid: string): Promise<void>;
 	readDismissedRetentionDays(): Promise<number | null>;
 	setDismissedRetentionDays(days: number | null): Promise<number | null>;
+	readDiffrConfig(): Promise<ReviewDiffrConfig>;
+	setDiffrConfigValue(key: string, value: JsonValue): Promise<ReviewDiffrConfig>;
 	getTutorialStatus(): Promise<{ version: 1; reviewUuid: string | null }>;
 	prepareTutorial(): Promise<void>;
 	openTutorial(): Promise<ReviewTutorialOpenResponse>;
@@ -416,6 +420,35 @@ export class ReviewSessionService
 		return typeof payload.dismissedRetentionDays === "number"
 			? payload.dismissedRetentionDays
 			: null;
+	}
+
+	/**
+	 * diffr's own configuration, read through its CLI on the host so the diffr
+	 * TUI and Review edit one file.
+	 */
+	async readDiffrConfig(): Promise<ReviewDiffrConfig> {
+		await this.initialize();
+		const response = await fetch(`${this.serverUrl}/diffr-config`, {
+			headers: this.authHeaders(),
+			signal: AbortSignal.timeout(30_000),
+		});
+		await this.requireOk(response, "diffr configuration");
+		return parseReviewDiffrConfig(await response.json());
+	}
+
+	async setDiffrConfigValue(key: string, value: JsonValue): Promise<ReviewDiffrConfig> {
+		await this.initialize();
+		const response = await fetch(`${this.serverUrl}/diffr-config`, {
+			method: "PUT",
+			headers: {
+				...this.authHeaders(),
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({ key, value }),
+			signal: AbortSignal.timeout(30_000),
+		});
+		await this.requireOk(response, "diffr configuration");
+		return parseReviewDiffrConfig(await response.json());
 	}
 
 	/**

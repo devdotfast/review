@@ -14,9 +14,10 @@ import { IInstantiationService } from "../../platform/instantiation/common/insta
 import { ServiceCollection } from "../../platform/instantiation/common/serviceCollection.js";
 import { IDiffProviderFactoryService } from "../../editor/browser/widget/diffEditor/diffProviderFactoryService.js";
 import { ICodeEditorService } from "../../editor/browser/services/codeEditorService.js";
-import type { ICodeEditor } from "../../editor/browser/editorBrowser.js";
+import type { ICodeEditor, IViewZone } from "../../editor/browser/editorBrowser.js";
 import { ILanguageFeaturesService } from "../../editor/common/services/languageFeatures.js";
 import { LineRange } from "../../editor/common/core/ranges/lineRange.js";
+import type { IModelDeltaDecoration } from "../../editor/common/model.js";
 import { DetailedLineRangeMapping } from "../../editor/common/diff/rangeMapping.js";
 import { FoldingController } from "../../editor/contrib/folding/browser/folding.js";
 import type { FoldingModel } from "../../editor/contrib/folding/browser/foldingModel.js";
@@ -25,14 +26,26 @@ import { IReviewSessionModelService } from "./reviewSessionModelService.js";
 import { reviewDiffFilesUrl } from "../common/reviewReveal.js";
 import {
   nativeFoldRange,
+  structuralFilePath,
+  structuralFoldingRegions,
   structuralRows,
   structuralHighlights,
-  structuralContextGaps,
-  type StructuralDiff,
-  type StructuralFileEvent,
+  STRUCTURAL_WIRE_VERSION,
+  type StructuralEvent,
+  type StructuralFileChange,
+  type StructuralLineCounts,
+  type StructuralRegion,
+  type StructuralSource,
+  type StructuralTextDiff,
 } from "../common/reviewStructuralDiff.js";
 import type { ReviewCommitScope } from "../common/reviewProtocol.js";
 import type { ReviewFilesEditorEntry } from "./reviewFilesDiffView.js";
+
+/** What the stream says about one file once its result arrives. */
+export interface StructuralFileOutcome {
+  error?: string;
+  stats?: StructuralLineCounts;
+}
 
 /** Owned by one Files view, including provider registrations and fold listeners. */
 export async function prepareStructuralReview(
@@ -44,14 +57,18 @@ export async function prepareStructuralReview(
   instantiation: IInstantiationService;
   enabled: boolean;
   entries: readonly ReviewFilesEditorEntry[];
-  load(onFile: (path: string, error?: string) => void): Promise<void>;
+  load(
+    onFile: (path: string, outcome: StructuralFileOutcome) => void,
+    onManifest: (files: readonly StructuralFileChange[]) => void,
+  ): Promise<void>;
 }> {
   const sessionModel = instantiation.invokeFunction((a) =>
     a.get(IReviewSessionModelService),
   ).activeModel;
   if (!sessionModel) throw new Error("Review session is unavailable.");
   const session = sessionModel.session;
-  const files = new Map<string, StructuralDiff>();
+  const files = new Map<string, StructuralTextDiff>();
+  const binary = new Set<string>();
   const changed = lifetime.add(new Emitter<void>());
   // Use pinned checkout resources so native language providers see real project files.
   // Revision-only resources retain their virtual snapshot identity.
@@ -69,13 +86,20 @@ export async function prepareStructuralReview(
     ),
   }));
   const pairs = new Map(entries.map(e => [e.original.toString() + "\n" + e.modified.toString(), e.file.path]));
-  async function accept(event: StructuralFileEvent): Promise<string> {
-    const path = event.file.new_path ?? event.file.old_path!;
+  async function accept(event: Extract<StructuralEvent, { type: "file" }>): Promise<{ path: string; stats?: StructuralLineCounts }> {
+    const path = structuralFilePath(event.file);
     const entry = entries.find(e => e.file.path === path);
     if (!entry) throw new Error(`diffr returned an unexpected file: ${path}`);
+    if (event.error) throw new Error(event.error.message);
+    if (!event.diff) throw new Error(`diffr sent neither a diff nor an error for ${path}.`);
     const diff = event.diff;
-    if (diff.lhs_src !== "Binary" && diff.rhs_src !== "Binary") {
-      for (const [uri, text] of [[entry.original, diff.lhs_src.Text], [entry.modified, diff.rhs_src.Text]] as const) {
+    if (diff.type === "text") {
+      const sides: [typeof entry.original, StructuralSource | undefined][] = [
+        [entry.original, diff.lhs],
+        [entry.modified, diff.rhs],
+      ];
+      for (const [uri, source] of sides) {
+        const text = source?.text ?? "";
         if (uri.scheme !== "file" && !modelService.getModel(uri))
           modelService.createModel(text, languages.createByFilepathOrFirstLine(uri), uri);
         const reference = lifetime.add(await resolver.createModelReference(uri));
@@ -84,11 +108,15 @@ export async function prepareStructuralReview(
       }
     }
     if (lifetime.isDisposed) throw new CancellationError();
-    files.set(path, diff);
+    if (diff.type === "text") files.set(path, diff);
+    else binary.add(path);
     changed.fire();
-    return path;
+    return { path, stats: diff.type === "text" ? diff.stats.textual : undefined };
   }
-  async function load(onFile: (path: string, error?: string) => void): Promise<void> {
+  async function load(
+    onFile: (path: string, outcome: StructuralFileOutcome) => void,
+    onManifest: (files: readonly StructuralFileChange[]) => void,
+  ): Promise<void> {
     const abort = new AbortController();
     lifetime.add(toDisposable(() => abort.abort()));
     const url = reviewDiffFilesUrl(session.sessionUrl, session.session.routePath ?? "/");
@@ -107,26 +135,28 @@ export async function prepareStructuralReview(
     const seen = new Set<string>();
     async function line(text: string) {
       if (!text.trim()) return;
-      const event = JSON.parse(text);
+      const event = JSON.parse(text) as StructuralEvent | { type: "error"; message: string };
       if (complete) throw new Error("diffr emitted data after completion.");
       if (!started) {
         if (event.type === "error") throw new Error(event.message);
-        if (event.type !== "start" || event.version !== 1) throw new Error("Unsupported diffr stream protocol.");
+        if (event.type !== "start" || event.version !== STRUCTURAL_WIRE_VERSION) throw new Error("Unsupported diffr stream protocol.");
         started = true;
-      } else if (event.type === "file" || event.type === "file_error") {
-        const path = event.file.new_path ?? event.file.old_path;
+        onManifest(event.files);
+      } else if (event.type === "file") {
+        const path = structuralFilePath(event.file);
         if (seen.has(path)) throw new Error(`diffr returned a duplicate file: ${path}`);
         seen.add(path);
-        if (event.type === "file_error") onFile(path, event.message);
-        else {
-          try { onFile(await accept(event)); }
-          catch (error) {
-            if (lifetime.isDisposed) throw error;
-            onFile(path, error instanceof Error ? error.message : String(error));
-          }
+        try {
+          const accepted = await accept(event);
+          onFile(accepted.path, { stats: accepted.stats });
+        } catch (error) {
+          if (lifetime.isDisposed) throw error;
+          onFile(path, { error: error instanceof Error ? error.message : String(error) });
         }
-      } else if (event.type === "complete") complete = true;
-      else throw new Error(event.message ?? `Unexpected diffr event: ${event.type}`);
+      } else if (event.type === "complete") {
+        complete = true;
+        if (event.aborted) throw new Error(`diffr stopped early: ${event.aborted.message}`);
+      } else throw new Error((event as { message?: string }).message ?? `Unexpected diffr event: ${event.type}`);
     }
     try {
       while (true) {
@@ -142,7 +172,7 @@ export async function prepareStructuralReview(
       await line(buffer);
       if (!complete) throw new Error("diffr stream ended before completion.");
       for (const entry of entries) if (!seen.has(entry.file.path))
-        onFile(entry.file.path, "diffr did not supply a result for this file.");
+        onFile(entry.file.path, { error: "diffr did not supply a result for this file." });
     } finally {
       await reader.cancel().catch(() => {});
       reader.releaseLock();
@@ -157,13 +187,13 @@ export async function prepareStructuralReview(
         async computeDiff(original, modified, _options, token) {
           if (token.isCancellationRequested) throw new CancellationError();
           const path = pairs.get(original.uri.toString() + "\n" + modified.uri.toString());
-          const diff = path === undefined ? undefined : files.get(path);
-          if (!diff) throw new Error("diffr did not supply a result for this file.");
-          if (diff.lhs_src === "Binary" || diff.rhs_src === "Binary") {
+          if (path !== undefined && binary.has(path)) {
             return { changes: [], moves: [], identical: false, quitEarly: false, changeHighlights: { original: [], modified: [] } };
           }
-          const left = diff.lhs_src.Text.replace(/\r\n/g, "\n");
-          const right = diff.rhs_src.Text.replace(/\r\n/g, "\n");
+          const diff = path === undefined ? undefined : files.get(path);
+          if (!diff) throw new Error("diffr did not supply a result for this file.");
+          const left = (diff.lhs?.text ?? "").replace(/\r\n/g, "\n");
+          const right = (diff.rhs?.text ?? "").replace(/\r\n/g, "\n");
           if (
             original.getLinesContent().join("\n") !== left ||
             modified.getLinesContent().join("\n") !== right
@@ -204,7 +234,8 @@ export async function prepareStructuralReview(
             identical: left === right,
             quitEarly: false,
             sourceLineAlignment: rows,
-            contextGaps: structuralContextGaps(diff),
+            // Context gaps are collapsed regions in the one fold model below.
+            contextGaps: [],
             changeHighlights: structuralHighlights(diff),
           };
         },
@@ -218,10 +249,27 @@ export async function prepareStructuralReview(
   return { instantiation: child, enabled: true, entries, load };
 }
 
+/** The folding regions of one side, indexed for the editor bindings. */
+interface SideFolds {
+  regions: StructuralRegion[];
+  byId: Map<number, StructuralRegion>;
+  byRange: Map<string, StructuralRegion>;
+}
+
+function sideFolds(source: StructuralSource | undefined): SideFolds {
+  const regions = structuralFoldingRegions(source?.regions).filter((region) => nativeFoldRange(region) !== undefined);
+  const byRange = new Map<string, StructuralRegion>();
+  for (const region of regions) {
+    const range = nativeFoldRange(region)!;
+    byRange.set(`${range.start}:${range.end}`, region);
+  }
+  return { regions, byId: new Map(regions.map((region) => [region.id, region])), byRange };
+}
+
 function attachStructuralEditors(
   instantiation: IInstantiationService,
   entries: readonly ReviewFilesEditorEntry[],
-  files: Map<string, StructuralDiff>,
+  files: Map<string, StructuralTextDiff>,
   lifetime: DisposableStore,
   onDidLoad: Event<void>,
 ): void {
@@ -232,28 +280,23 @@ function attachStructuralEditors(
     sources.set(entry.original.toString(), { side: 0, pair: entry.file.path });
     sources.set(entry.modified.toString(), { side: 1, pair: entry.file.path });
   }
+  const foldsFor = (pair: string, side: 0 | 1): SideFolds | undefined => {
+    const diff = files.get(pair);
+    return diff && sideFolds(side === 0 ? diff.lhs : diff.rhs);
+  };
+  // One fold model for every region: syntax folds and context gaps alike.
+  // Paired regions share collapse state through their id.
   const provider: FoldingRangeProvider = {
     id: "review-diffr",
     onDidChange: Event.map(onDidLoad, () => provider),
     provideFoldingRanges(model) {
       const source = sources.get(model.uri.toString());
-      const diff = source && files.get(source.pair);
-      if (!source || !diff) return null;
-      return (source.side === 0 ? diff.lhs_folds : diff.rhs_folds).flatMap(
-        (fold) => {
-          const range = nativeFoldRange(fold.range);
-          return range
-            ? [
-                {
-                  ...range,
-                  kind: fold.tags.includes("imports")
-                    ? FoldingRangeKind.Imports
-                    : FoldingRangeKind.Region,
-                },
-              ]
-            : [];
-        },
-      );
+      const folds = source && foldsFor(source.pair, source.side);
+      if (!source || !folds) return null;
+      return folds.regions.map((region) => ({
+        ...nativeFoldRange(region)!,
+        kind: region.tags?.includes("import") ? FoldingRangeKind.Imports : FoldingRangeKind.Region,
+      }));
     },
   };
   lifetime.add(
@@ -269,22 +312,26 @@ function attachStructuralEditors(
     ),
   );
   const models = new Map<string, Set<FoldingModel>>();
+  /** Collapse state by `${pair}:${region id}`; seeded from the wire's initial visibility. */
   const collapsed = new Map<string, boolean>();
+  const keyFor = (pair: string, region: StructuralRegion) => `${pair}:${region.id}`;
   let synchronizing = false;
   function watch(editor: ICodeEditor) {
     const store = lifetime.add(new DisposableStore());
     const binding = store.add(new DisposableStore());
+    const labels = new StructuralLabels(editor);
+    store.add(labels);
     let generation = 0;
     const bind = async () => {
       const current = ++generation;
       await Promise.resolve();
       if (store.isDisposed || current !== generation) return;
       binding.clear();
+      labels.clear();
       const model = editor.getModel();
       const source = model && sources.get(model.uri.toString());
-      const diff = source && files.get(source.pair);
-      if (!model || !source || !diff) return;
-      const folds = source.side === 0 ? diff.lhs_folds : diff.rhs_folds;
+      const folds = source && foldsFor(source.pair, source.side);
+      if (!model || !source || !folds) return;
       const folding = await FoldingController.get(editor)?.getFoldingModel();
       if (!folding || binding.isDisposed || current !== generation || editor.getModel() !== model)
         return;
@@ -293,52 +340,46 @@ function attachStructuralEditors(
       members.add(folding);
       models.set(modelKey, members);
       binding.add(toDisposable(() => members.delete(folding)));
-      const keyFor = (fold: (typeof folds)[number]) => {
-        const range =
-          source.side === 1 && fold.match_kind !== "Novel"
-            ? fold.match_kind.Unchanged.opposite
-            : fold.range;
-        const side = fold.match_kind === "Novel" ? source.side : 0;
-        return `${source.pair}:${side}:${JSON.stringify(range)}`;
-      };
+      for (const region of folds.regions) {
+        const key = keyFor(source.pair, region);
+        if (!collapsed.has(key)) collapsed.set(key, region.visibility?.collapsed === true);
+      }
       const restore = () => {
         const toggle = [];
-        for (const fold of folds) {
-          const range = nativeFoldRange(fold.range);
-          if (!range) continue;
-          const region = folding.getRegionAtLine(range.start);
-          if (region?.startLineNumber !== range.start || region.endLineNumber !== range.end)
+        for (const region of folds.regions) {
+          const range = nativeFoldRange(region)!;
+          const native = folding.getRegionAtLine(range.start);
+          if (native?.startLineNumber !== range.start || native.endLineNumber !== range.end)
             continue;
-          if (region.isCollapsed !== (collapsed.get(keyFor(fold)) ?? false)) toggle.push(region);
+          if (native.isCollapsed !== (collapsed.get(keyFor(source.pair, region)) ?? false)) toggle.push(native);
         }
         if (toggle.length) folding.toggleCollapseState(toggle);
+        labels.sync(folds.regions.filter((region) => collapsed.get(keyFor(source.pair, region)) === true));
       };
       binding.add(
         folding.onDidChange((event) => {
           if (synchronizing) return;
           synchronizing = true;
           try {
-            for (const region of event.collapseStateChanged ?? []) {
-              const fold = folds.find((f) => {
-                const r = nativeFoldRange(f.range);
-                return r?.start === region.startLineNumber && r.end === region.endLineNumber;
-              });
-              if (!fold) continue;
-              collapsed.set(keyFor(fold), region.isCollapsed);
-              if (fold.match_kind === "Novel") continue;
-              const opposite = nativeFoldRange(fold.match_kind.Unchanged.opposite);
-              if (!opposite) continue;
+            for (const native of event.collapseStateChanged ?? []) {
+              const region = folds.byRange.get(`${native.startLineNumber}:${native.endLineNumber}`);
+              if (!region) continue;
+              collapsed.set(keyFor(source.pair, region), native.isCollapsed);
+              const opposite = foldsFor(source.pair, source.side === 0 ? 1 : 0)?.byId.get(region.id);
+              const oppositeRange = opposite && nativeFoldRange(opposite);
+              if (!oppositeRange) continue;
               for (const other of models.get(`${source.pair}:${1 - source.side}`) ?? []) {
-                const target = other.getRegionAtLine(opposite.start);
+                const target = other.getRegionAtLine(oppositeRange.start);
                 if (
-                  target?.startLineNumber === opposite.start &&
-                  target.endLineNumber === opposite.end &&
-                  target.isCollapsed !== region.isCollapsed
+                  target?.startLineNumber === oppositeRange.start &&
+                  target.endLineNumber === oppositeRange.end &&
+                  target.isCollapsed !== native.isCollapsed
                 )
                   other.toggleCollapseState([target]);
               }
             }
             if (!event.collapseStateChanged) restore();
+            else labels.sync(folds.regions.filter((region) => collapsed.get(keyFor(source.pair, region)) === true));
           } finally {
             synchronizing = false;
           }
@@ -357,4 +398,76 @@ function attachStructuralEditors(
   }
   lifetime.add(editors.onCodeEditorAdd(watch));
   for (const editor of editors.listCodeEditors()) watch(editor);
+}
+
+/**
+ * The text a collapsed region shows. The header line keeps Monaco's inline
+ * `⋯`; a one-line label follows it as injected text, and a multi-line label
+ * (pseudocode) hangs under the header as a view zone in the fold tint.
+ */
+class StructuralLabels {
+  private readonly decorations;
+  private readonly zones = new Map<number, string>();
+  private shown = new Map<number, string>();
+
+  constructor(private readonly editor: ICodeEditor) {
+    this.decorations = editor.createDecorationsCollection();
+  }
+
+  sync(regions: readonly StructuralRegion[]): void {
+    const next = new Map<number, string>();
+    for (const region of regions) {
+      const label = region.visibility?.label;
+      if (label) next.set(region.id, label);
+    }
+    if (sameLabels(this.shown, next)) return;
+    this.shown = next;
+    const decorations: IModelDeltaDecoration[] = [];
+    const model = this.editor.getModel();
+    this.editor.changeViewZones((accessor) => {
+      for (const id of this.zones.values()) accessor.removeZone(id);
+      this.zones.clear();
+      if (!model) return;
+      for (const region of regions) {
+        const label = next.get(region.id);
+        const range = nativeFoldRange(region);
+        if (!label || !range) continue;
+        const lines = label.split("\n");
+        if (lines.length === 1) {
+          const column = model.getLineMaxColumn(range.start);
+          decorations.push({
+            range: { startLineNumber: range.start, startColumn: column, endLineNumber: range.start, endColumn: column },
+            options: {
+              description: "review-structural-label",
+              after: { content: ` ${label}`, inlineClassName: "review-structural-label-inline" },
+            },
+          });
+          continue;
+        }
+        const domNode = document.createElement("div");
+        domNode.className = "review-structural-label-zone";
+        const pre = document.createElement("pre");
+        pre.textContent = label;
+        domNode.append(pre);
+        const zone: IViewZone = { afterLineNumber: range.start, heightInLines: lines.length, domNode };
+        this.zones.set(region.id, accessor.addZone(zone));
+      }
+    });
+    this.decorations.set(decorations);
+  }
+
+  clear(): void {
+    this.sync([]);
+  }
+
+  dispose(): void {
+    this.clear();
+    this.decorations.clear();
+  }
+}
+
+function sameLabels(left: Map<number, string>, right: Map<number, string>): boolean {
+  if (left.size !== right.size) return false;
+  for (const [id, label] of left) if (right.get(id) !== label) return false;
+  return true;
 }

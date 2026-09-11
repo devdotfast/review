@@ -203,6 +203,11 @@ export class ReviewFilesDiffView extends Disposable {
   private inlineCommentOpen = false;
   private readonly readyFiles = new Set<string>();
   private readonly fileStates = new Map<string, string>();
+  /** Line counts from the structural stream, which replace the git counts once a file lands. */
+  private readonly streamStats = new Map<string, { additions: number; deletions: number }>();
+  /** Files the stream says start hidden, with the reason shown in their header. */
+  private readonly hiddenFiles = new Map<string, string>();
+  private readonly hiddenApplied = new Set<string>();
   private pendingPath: string | undefined;
   private readonly streamStatus: HTMLElement;
 
@@ -233,8 +238,9 @@ export class ReviewFilesDiffView extends Disposable {
               ? this.input.entries.map((entry) => ({
                   original: entry.original,
                   modified: entry.modified,
-                  additions: entry.file.additions,
-                  deletions: entry.file.deletions,
+                  additions: this.streamStats.get(entry.file.path)?.additions ?? entry.file.additions,
+                  deletions: this.streamStats.get(entry.file.path)?.deletions ?? entry.file.deletions,
+                  note: this.hiddenFiles.get(entry.file.path),
                   onDidOpen: () => {
                     void this.editorService.openEditor(
                       {
@@ -371,6 +377,7 @@ export class ReviewFilesDiffView extends Disposable {
     this.syncFileSelectionFromWidget();
     this._register(autorun(reader => {
       const items = viewModel.items.read(reader);
+      this.applyHiddenFiles(items);
       const entry = this.input?.entries.find(e => e.file.path === this.pendingPath);
       if (!entry || !this.readyFiles.has(entry.file.path)) return;
       if (!items.some(item => sameResource(item.originalUri, entry.original) && sameResource(item.modifiedUri, entry.modified))) return;
@@ -389,17 +396,46 @@ export class ReviewFilesDiffView extends Disposable {
     this.showStreamStatus();
   }
 
-  fileLoaded(path: string, error?: string): void {
+  fileLoaded(path: string, error?: string, stats?: { added: number; removed: number }): void {
     if (error) {
       this.fileStates.set(path, error);
       this.changedFilesTree.setFileState(path, "error", error);
     } else {
       this.fileStates.delete(path);
       this.readyFiles.add(path);
+      if (stats) {
+        this.streamStats.set(path, { additions: stats.added, deletions: stats.removed });
+        this.changedFilesTree.setFiles(this.filesWithStreamStats());
+      }
       this.changedFilesTree.setFileState(path, undefined);
       this.input?.setReadyFiles(this.readyFiles);
     }
     this.showStreamStatus();
+  }
+
+  /** The stream's manifest: which files start collapsed, and why. */
+  setHiddenFiles(hidden: ReadonlyMap<string, string>): void {
+    this.hiddenFiles.clear();
+    for (const [path, label] of hidden) this.hiddenFiles.set(path, label);
+    if (this.viewModel) this.applyHiddenFiles(this.viewModel.items.get());
+  }
+
+  /** GitHub's shape for a hidden file: the header stays, the body waits for a click. */
+  private applyHiddenFiles(items: readonly { originalUri: URI | undefined; modifiedUri: URI | undefined; collapsed: { set(value: boolean, tx: undefined): void } }[]): void {
+    for (const entry of this.input?.entries ?? []) {
+      if (!this.hiddenFiles.has(entry.file.path) || this.hiddenApplied.has(entry.file.path)) continue;
+      const item = items.find(item => sameResource(item.originalUri, entry.original) && sameResource(item.modifiedUri, entry.modified));
+      if (!item) continue;
+      item.collapsed.set(true, undefined);
+      this.hiddenApplied.add(entry.file.path);
+    }
+  }
+
+  private filesWithStreamStats(): ReviewDiffFileWire[] {
+    return (this.input?.entries ?? []).map(entry => {
+      const stats = this.streamStats.get(entry.file.path);
+      return stats ? { ...entry.file, additions: stats.additions, deletions: stats.deletions } : entry.file;
+    });
   }
 
   loadingFailed(message: string): void {

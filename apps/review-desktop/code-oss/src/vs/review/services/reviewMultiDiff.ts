@@ -24,6 +24,8 @@ export interface ReviewMultiDiffHeaderEntry {
   readonly modified: URI | undefined;
   readonly additions?: number;
   readonly deletions?: number;
+  /** Why the file starts collapsed, e.g. "Generated file · hidden by default". */
+  readonly note?: string;
   readonly onDidOpen?: () => void;
 }
 
@@ -99,6 +101,9 @@ export class ReviewMultiDiffUIElementFactory
     counts.className = "review-multidiff-counts";
     counts.append(additions, deletions);
     element.append(counts);
+    const note = ownerDocument.createElement("span");
+    note.className = "review-multidiff-note";
+    element.append(note);
 
     const openContainer = ownerDocument.createElement("span");
     openContainer.className = "review-multidiff-open-container";
@@ -135,6 +140,8 @@ export class ReviewMultiDiffUIElementFactory
             `${current.additions} lines added, ${current.deletions} lines removed`,
           );
         }
+        note.hidden = !current.note;
+        note.textContent = current.note ?? "";
         openContainer.hidden = !current.onDidOpen;
       },
       dispose() {

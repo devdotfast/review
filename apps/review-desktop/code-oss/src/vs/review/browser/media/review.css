@@ -1780,6 +1780,33 @@ body
 }
 
 .review-files-editor-diffs { position: relative; }
+.review-multidiff-note {
+  padding: 0 6px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+}
+
+.review-multidiff-note[hidden] {
+  display: none;
+}
+
+.review-structural-label-inline {
+  color: var(--vscode-editor-foldPlaceholderForeground);
+  font-style: italic;
+}
+
+.review-structural-label-zone {
+  background-color: var(--vscode-editor-foldBackground);
+  color: var(--vscode-editor-foldPlaceholderForeground);
+}
+
+.review-structural-label-zone pre {
+  margin: 0;
+  padding-left: 4ch;
+  font: inherit;
+  white-space: pre;
+}
+
 .review-structural-stream-status:not([hidden]) {
   position: absolute;
   inset: 0;

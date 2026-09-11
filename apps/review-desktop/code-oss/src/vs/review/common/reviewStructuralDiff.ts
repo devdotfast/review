@@ -230,12 +230,7 @@ export function structuralFoldRanges(
   // first line (a group wrapping the bodies it names) yields to the parent,
   // whose collapse hides it anyway; regions are visited outermost first.
   const starts = new Set<number>();
-  const walk = (
-    region: StructuralRegion,
-    ancestors: readonly StructuralRegion[],
-    enclosing: { start: number; end: number } | undefined,
-  ) => {
-    let emitted = enclosing;
+  const walk = (region: StructuralRegion, ancestors: readonly StructuralRegion[]) => {
     if (foldable.has(region)) {
       let range: { start: number; end: number } | undefined;
       if (region.kind === "fold") range = nativeFoldRange(region);
@@ -256,18 +251,14 @@ export function structuralFoldRanges(
           break;
         }
       }
-      // A child whose range runs past its parent's would make Monaco drop folding for
-      // the whole file, so it is clamped to the parent; an emptied child is dropped.
-      if (range && enclosing && range.end > enclosing.end) range = { start: range.start, end: enclosing.end };
-      if (range && range.end > range.start && !starts.has(range.start)) {
+      if (range && !starts.has(range.start)) {
         starts.add(range.start);
         result.push({ region, range });
-        emitted = range;
       }
     }
-    if (region.kind === "fold") for (const child of region.children) walk(child, [...ancestors, region], emitted);
+    if (region.kind === "fold") for (const child of region.children) walk(child, [...ancestors, region]);
   };
-  for (const region of regions ?? []) walk(region, [], undefined);
+  for (const region of regions ?? []) walk(region, []);
   return result;
 }
 

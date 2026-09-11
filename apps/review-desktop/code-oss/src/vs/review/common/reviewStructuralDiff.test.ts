@@ -193,13 +193,14 @@ test("a collapsed leaf folds under the line above it and hides exactly its lines
     { start: 79, end: 88 },
     { start: 80, end: 81 },
   ]);
-  // A child fold that runs past its parent (a wire bug) is clamped to the parent rather than breaking folding.
+  // A child fold that runs past its parent is a wire bug the validator reports, not something the reader repairs.
   const child = fold(31, [leaf(32, 167, 168), leaf(33, 168, 170)]);
   const parent = fold(30, [leaf(34, 165, 167), child]);
   parent.end = { line: 167, column: 8 };
-  assert.deepEqual(structuralFoldRanges([leaf(29, 0, 165), parent]).map((entry) => entry.range), [
-    { start: 166, end: 168 },
-  ]);
+  assert.throws(
+    () => assertFoldRangesNest(structuralFoldRanges([leaf(29, 0, 165), parent]).map((entry) => entry.range)),
+    /straddles/,
+  );
 });
 
 test("Tree-sitter byte offsets convert to Monaco UTF-16 columns", () => {
